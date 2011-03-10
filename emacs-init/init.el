@@ -333,7 +333,10 @@ thatuses 'font-lock-warning-face'."
               '(lambda () (font-lock-set-up-width-warning 80)))
     ))
 
-;;;; Shell
+(if (>= emacs-major-version 23)
+    (defadvice python-send-buffer (after advice-switch-to-python)
+      "Switch to *Python* after C-c C-c"
+      (python-switch-to-python t)))
 
 ;;;; Eshell Commands
 
