@@ -267,11 +267,10 @@ of an error, just add the package to a list of missing packages."
      (define-key org-agenda-mode-map "\C-p" 'previous-line)
      (define-key org-agenda-keymap "\C-p" 'previous-line)))
 
-(try-require 'remember)
-
-(add-hook 'remember-mode-hook 'org-remember-apply-template)
-
-(define-key global-map [(control meta ?r)] 'remember)
+;; Remember mode
+(when (try-require 'remember)
+  (add-hook 'remember-mode-hook 'org-remember-apply-template)
+  (define-key global-map [(control meta ?r)] 'remember))
 
 ;; Org agenda TODO list will show only unscheduled items. I usually
 ;; check scheduled item from agenda for current week mode, and adds
@@ -290,8 +289,12 @@ of an error, just add the package to a list of missing packages."
 ;; Load PHP mode
 (try-require 'php-mode)
 
-;; Loading PSVN
+;; Load PSVN
 (try-require 'psvn)
+
+;; Load Magit
+(when (try-require 'magit)
+  (global-set-key (kbd "C-x v b") 'magit-status))
 
 ;;;; Emacs Server
 (server-start)
