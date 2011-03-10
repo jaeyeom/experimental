@@ -20,7 +20,8 @@
 (add-to-list 'load-path emacs-init-dir)
 (add-to-list 'load-path emacs-site-lisp-dir)
 (add-to-list 'load-path emacs-plugins-dir)
-(if (fboundp 'normal-top-level-add-subdirs-to-load-path)
+(if (and (fboundp 'normal-top-level-add-subdirs-to-load-path)
+	 (file-directory-p emacs-plugins-dir))
     (let ((default-directory emacs-plugins-dir))
       (normal-top-level-add-subdirs-to-load-path)))
 
