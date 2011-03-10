@@ -109,6 +109,10 @@
  '(default ((t (:background "black" :foreground "white"))))
  '(cursor ((t (:background "yellow"))))
  '(font-lock-comment-face ((t (:foreground "chocolate1"))))
+ '(magit-diff-add ((nil (:foreground "green"))))
+ '(magit-item-highlight ((nil (:background "dark blue"))))
+ '(magit-log-head-label ((nil (:foreground "black"))))
+ '(magit-log-tag-label ((nil (:foreground "black"))))
  '(menu ((t (:background "white" :foreground "black"))))
  '(p4-depot-unmapped-face ((t (:foreground "red"))) t)
  '(p4-diff-file-face ((t (:background "dark slate gray"))) t)
@@ -174,7 +178,7 @@ of an error, just add the package to a list of missing packages."
 ;;; 8 colors
 ;; ("black" "red" "green" "yellow" "blue" "magenta" "cyan" "white")
 (when (= (display-color-cells) 8)
-  (set-face-attribute 'p4-depot-unmapped-face nil :foreground "red"))
+  t)
 
 ;;;; Coding systems
 
