@@ -80,6 +80,9 @@
  '(org-reverse-note-order t)
  '(org-special-ctrl-a/e t)
  '(pop3-leave-mail-on-server t)
+ '(python-continuation-offset 2)
+ '(python-indent 2)
+ '(python-use-skeletons t)
  '(remember-annotation-functions (quote (org-remember-annotation)))
  '(remember-handler-functions (quote (org-remember-handler)))
  '(require-final-newline (quote ask))
@@ -337,10 +340,32 @@ thatuses 'font-lock-warning-face'."
               '(lambda () (font-lock-set-up-width-warning 80)))
     ))
 
+;; Python
 (if (>= emacs-major-version 23)
     (defadvice python-send-buffer (after advice-switch-to-python)
       "Switch to *Python* after C-c C-c"
       (python-switch-to-python t)))
+
+(defadvice python-calculate-indentation (around outdent-closing-brackets)
+  "Handle lines beginning with a closing bracket and indent them so that
+they line up with the line containing the corresponding opening bracket."
+  (save-excursion
+    (beginning-of-line)
+    (let ((syntax (syntax-ppss)))
+      (if (and (not (eq 'string (syntax-ppss-context syntax)))
+               (python-continuation-line-p)
+               (cadr syntax)
+               (skip-syntax-forward "-")
+               (looking-at "\\s)"))
+          (progn
+            (end-of-line)
+            (ignore-errors (backward-sexp))
+            (setq ad-return-value (current-indentation)))
+        ad-do-it))))
+
+(ad-activate 'python-calculate-indentation)
+
+
 
 ;;;; Eshell Commands
 
