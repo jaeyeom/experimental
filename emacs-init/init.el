@@ -187,7 +187,8 @@ of an error, just add the package to a list of missing packages."
 
 ;;; Korean language and UTF-8 settings.
 ;; Forcing to use utf-8 coding system.
-(when (not (eq (window-system) 'w32))
+(when (or (not window-system)
+          (not (eq (window-system) 'w32)))
   (prefer-coding-system 'utf-8)
   (set-default-coding-systems 'utf-8)
   (set-terminal-coding-system 'utf-8)
