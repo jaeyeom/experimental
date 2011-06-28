@@ -21,7 +21,7 @@
 (add-to-list 'load-path emacs-site-lisp-dir)
 (add-to-list 'load-path emacs-plugins-dir)
 (if (and (fboundp 'normal-top-level-add-subdirs-to-load-path)
-	 (file-directory-p emacs-plugins-dir))
+         (file-directory-p emacs-plugins-dir))
     (let ((default-directory emacs-plugins-dir))
       (normal-top-level-add-subdirs-to-load-path)))
 
@@ -31,7 +31,6 @@
   ;; If you edit it by hand, you could mess it up, so be careful.
   ;; Your init file should contain only one such instance.
   ;; If there is more than one, they won't work right.
- '(ansi-color-for-comint-mode t)
  '(auto-image-file-mode t)
  '(blink-cursor-mode nil)
  '(browse-url-browser-function (quote w3m-browse-url))
@@ -45,10 +44,6 @@
  '(dynamic-completion-mode t)
  '(elisp-cache-byte-compile-files t)
  '(emacs-lisp-mode-hook (quote ((lambda nil (local-set-key "" (quote byte-compile-file))))))
- '(eshell-cp-interactive-query t)
- '(eshell-ln-interactive-query t)
- '(eshell-mv-interactive-query t)
- '(eshell-rm-interactive-query t)
  '(font-lock-maximum-decoration t)
  '(global-auto-revert-mode t)
  '(global-cwarn-mode t)
@@ -80,8 +75,6 @@
  '(org-reverse-note-order t)
  '(org-special-ctrl-a/e t)
  '(pop3-leave-mail-on-server t)
- '(python-continuation-offset 2)
- '(python-indent 2)
  '(python-use-skeletons t)
  '(remember-annotation-functions (quote (org-remember-annotation)))
  '(remember-handler-functions (quote (org-remember-handler)))
@@ -111,6 +104,16 @@
   ;; If there is more than one, they won't work right.
  '(default ((t (:background "black" :foreground "white"))))
  '(cursor ((t (:background "yellow"))))
+ '(diff-added ((t (:foreground "green"))))
+ '(diff-added-face ((t (:foreground "green"))) t)
+ '(diff-changed ((t (:foreground "yellow"))))
+ '(diff-changed-face ((t (:foreground "yellow"))) t)
+ '(diff-header ((t (:foreground "cyan"))))
+ '(diff-header-face ((t (:foreground "cyan"))) t)
+ '(diff-hunk-header ((t (:foreground "magenta"))))
+ '(diff-hunk-header-face ((t (:foreground "magenta"))) t)
+ '(diff-removed ((t (:foreground "red"))))
+ '(diff-removed-face ((t (:foreground "red"))) t)
  '(font-lock-comment-face ((t (:foreground "chocolate1"))))
  '(magit-diff-add ((nil (:foreground "green"))))
  '(magit-item-highlight ((nil (:background "dark blue"))))
@@ -169,12 +172,17 @@ of an error, just add the package to a list of missing packages."
 ;; I don't like to put space after magic prefix #!
 (setq-default executable-prefix "#!")
 
+;; Make searches case insensative by default
+(setq-default case-fold-search t)
+
 ;; Load my small functions
 (try-require 'only2sea-functions)
 
 ;;;; Display Settings
 
 (try-require 'init-convenience-settings)
+(setq split-width-threshold 180)
+(modify-frame-parameters (selected-frame) default-frame-alist)
 
 ;;;; Alternative color settings
 
@@ -235,7 +243,11 @@ of an error, just add the package to a list of missing packages."
 (set 'ebrowse-tree-reload-idle-timer
      (run-with-idle-timer 600 t 'revert-ebrowse-tree-if-exists))
 
+;; Load Google specific features
+(load "google-specific" 'noerror)
+
 ;; Load Emacs W3M
+
 (when (and (boundp 'w3m-command) w3m-command)
   (try-require 'w3m))
 
@@ -366,7 +378,11 @@ they line up with the line containing the corresponding opening bracket."
 
 (ad-activate 'python-calculate-indentation)
 
+;;;; Shell
 
+;; Colorful shell mode
+(if (try-require 'ansi-color)
+    (setq-default ansi-color-for-comint-mode t))
 
 ;;;; Eshell Commands
 
@@ -384,8 +400,13 @@ they line up with the line containing the corresponding opening bracket."
 (try-idle-require 'em-term)
 (try-idle-require 'em-unix)
 
+;; These settings may not work well for customization module.
 (setq-default eshell-after-prompt-hook (quote (eshell-show-maximum-output)))
 (setq-default eshell-before-prompt-hook (quote (eshell-begin-on-new-line)))
+(setq-default eshell-cp-interactive-query t)
+(setq-default eshell-ln-interactive-query t)
+(setq-default eshell-mv-interactive-query t)
+(setq-default eshell-rm-interactive-query t)
 
 (defun eshell/clear ()
   "Clears the eshell buffer."
@@ -448,10 +469,6 @@ otherwise."
                    (concat "%" (number-to-string w) "d ")) line) 'face 'linum)))
 
 (try-require 'init-directed-switch)
-
-;;;; Winner mode
-(try-require 'winner)
-(winner-mode 1)
 
 ;;;; Bash completion
 (when (try-require 'bash-completion)
