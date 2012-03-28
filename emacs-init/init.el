@@ -212,8 +212,8 @@ of an error, just add the package to a list of missing packages."
   "Major mode for editing php code."
   t)
 (add-to-list 'auto-mode-alist '("\\.v" . verilog-mode))
-(autoload 'verilog-mode "verilog-mode" 
-  "Major mode for editing verilog code." 
+(autoload 'verilog-mode "verilog-mode"
+  "Major mode for editing verilog code."
   t)
 
 ;;;; Dired
@@ -315,9 +315,6 @@ of an error, just add the package to a list of missing packages."
 ;; Load Magit
 (when (try-require 'magit)
   (global-set-key (kbd "C-x v b") 'magit-status))
-
-;;;; Emacs Server
-(server-start)
 
 ;; For older Emacs which doesn't support MultiTTY and if it's not
 ;; window system, it'll use screen feature for launching Emacs faster.
@@ -479,7 +476,7 @@ otherwise."
 (try-idle-require 'w3m)
 
 ;; Deletes trailing whitespace whenever the page is loaded.
-(add-hook 'w3m-display-hook 
+(add-hook 'w3m-display-hook
           (lambda (url)
             (let ((buffer-read-only nil))
               (delete-trailing-whitespace))))
@@ -570,7 +567,7 @@ Otherwise, delegate to `ff-find-other-file'."
   (interactive)
   (try-require 'thingatpt)
 
-  (cond 
+  (cond
    ;; If the mode is org-mode delegate to `org-open-at-point'.
    ((and (eq major-mode 'org-mode)
          (condition-case "No link found"
@@ -667,3 +664,6 @@ reverse conversion of command \\[escape-double-quoted-string]."
 
 ;;; Miscellaneous
 (try-require 'uptime)
+
+;;;; Emacs Server
+(server-start)
