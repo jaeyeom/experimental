@@ -520,47 +520,6 @@ it will join the line."
 ;; Mapping key M-\ to smart-delete-space
 (global-set-key "\M-\\" 'smart-delete-space)
 
-(defun find-anything-at-point ()
-  "Open things at point appropriately.
-
-If it's org-mode, delegate to `org-open-at-point'.
-
-If the pattern is URL, call `browse-url-at-point'.
-
-If the pattern is email address, compose email.
-
-If the pattern is UNIX local file pattern it'll
-`find-file-at-point' it.
-
-Otherwise, delegate to `ff-find-other-file'."
-  (interactive)
-  (try-require 'thingatpt)
-
-  (cond
-   ;; If the mode is org-mode delegate to `org-open-at-point'.
-   ((and (eq major-mode 'org-mode)
-         (condition-case "No link found"
-             (org-open-at-point)
-           (error t))))
-   ;; Open browser for URL pattern
-   ((thing-at-point-looking-at thing-at-point-url-regexp)
-    (try-require 'browse-url)
-    (browse-url-at-point))
-   ;; Compose mail for email address.
-   ((thing-at-point 'email)
-    (if (fboundp 'gm-compose-mail-1)
-        (progn
-          (gmail)
-          (gm-compose-mail-1 (thing-at-point 'email) "" () () t))
-      (compose-mail (thing-at-point 'email))))
-   ;; UNIX local file pattern
-   ((and (thing-at-point-looking-at "\\<[a-zA-Z0-9_~.-]*/[a-zA-Z0-9_~.-]*\\>")
-         (not (thing-at-point-looking-at "//")))
-    (find-file-at-point))
-   ;; Delegates to `ff-find-other-file'.
-   (t
-    (ff-find-other-file))))
-
 ;; Force alt key as meta key
 (setq x-alt-keysym 'meta)
 
