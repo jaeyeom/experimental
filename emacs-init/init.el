@@ -44,6 +44,7 @@
  '(dynamic-completion-mode t)
  '(elisp-cache-byte-compile-files t)
  '(emacs-lisp-mode-hook (quote ((lambda nil (local-set-key "" (quote byte-compile-file))))))
+ '(eshell-output-filter-functions (quote (eshell-handle-control-codes eshell-watch-for-password-prompt)))
  '(font-lock-maximum-decoration t)
  '(global-auto-revert-mode t)
  '(global-cwarn-mode t)
