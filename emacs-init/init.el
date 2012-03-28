@@ -401,8 +401,8 @@ otherwise."
                               eshell-last-output-end))
 
 (when (>= emacs-major-version 23)
-  (defvar eshell-output-filter-functions nil)
-  (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color))
+  (if (try-require 'eshell)
+      (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color)))
 
 ;;;; About Tramp mode
 (when (>= emacs-major-version 23)
