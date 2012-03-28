@@ -484,7 +484,7 @@ otherwise."
 ;; Setting w3m-use-title-buffer-name will disambiguate buffer
 ;; name. Lower version which doesn't have this variable needs hook
 ;; function to do this manually.
-(if (boundp 'w3m-display-hook)
+(if (boundp 'w3m-use-title-buffer-name)
     (setq w3m-use-title-buffer-name t)
   (add-hook 'w3m-display-hook
             (lambda (url)
