@@ -224,9 +224,6 @@ of an error, just add the package to a list of missing packages."
 (set 'ebrowse-tree-reload-idle-timer
      (run-with-idle-timer 600 t 'revert-ebrowse-tree-if-exists))
 
-;; Load Google specific features
-(load "google-specific" 'noerror)
-
 ;; Load Emacs W3M
 
 (when (and (boundp 'w3m-command) w3m-command)
@@ -407,14 +404,6 @@ otherwise."
   (defvar eshell-output-filter-functions nil)
   (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color))
 
-;;;; Desktop Mode
-;;; (add-to-list 'desktop-globals-to-save 'file-name-history)
-;;; (setq history-length 250)
-(when (>= emacs-major-version 23)
-  (setq-default desktop-base-file-name (concat ".emacs." (system-name) ".desktop"))
-  (setq-default desktop-base-lock-name (concat desktop-base-file-name ".lock"))
-  (desktop-save-mode 1))
-
 ;;;; About Tramp mode
 (when (>= emacs-major-version 23)
   (setq-default tramp-debug-buffer t)
@@ -563,13 +552,6 @@ Otherwise, delegate to `ff-find-other-file'."
 ;;; Comment Region
 (global-set-key "\C-c;" 'comment-region)
 
-;;; Rebind find-file
-;; I don't use this anymore because ido-mode supports this. Only load
-;; this when ido-mode is missing.
-(when (and (not (fboundp 'ido-mode))
-           (try-require 'ffap))
-  (define-key ctl-x-map "\C-f" 'find-file-at-point))
-
 ;; for disabling quail completion
 (eval-after-load "quail"
   '(progn
@@ -629,6 +611,23 @@ reverse conversion of command \\[escape-double-quoted-string]."
 
 ;;; Miscellaneous
 (try-require 'uptime)
+
+;; Load Local stuffs
+(load "init.local.el" 'noerror)
+
+;;; Rebind find-file
+;; I don't use this anymore because ido-mode supports this. Only load
+;; this when ido-mode is missing.
+(when (and (not (fboundp 'ido-mode))
+           (try-require 'ffap))
+  (define-key ctl-x-map "\C-f" 'find-file-at-point))
+
+;;;; Desktop Mode
+(when (>= emacs-major-version 23)
+  (setq-default desktop-base-file-name (concat ".emacs." (system-name) ".desktop"))
+  (setq-default desktop-base-lock-name (concat desktop-base-file-name ".lock"))
+  (setq history-length 250)
+  (desktop-save-mode 1))
 
 ;;;; Emacs Server
 (server-start)
