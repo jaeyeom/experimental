@@ -54,6 +54,7 @@
  '(ido-use-filename-at-point (quote guess))
  '(ido-use-url-at-point t)
  '(indent-tabs-mode nil)
+ '(jabber-alert-presence-hooks nil)
  '(kill-ring-max 70)
  '(list-diary-entries-hook (quote (sort-diary-entries)))
  '(makefile-mode-hook (quote ((lambda nil (local-set-key "" (quote compile))))) t)
@@ -410,6 +411,18 @@ otherwise."
   (setq-default tramp-debug-buffer t)
   (setq-default tramp-verbose 10)
   (setq-default tramp-default-method "sshx"))
+
+;;;; EasyPG
+(if (try-require 'epa-file)
+    (epa-file-enable))
+
+;;;; Jabber
+(when (try-require 'jabber)
+  ;; Message alert hooks
+  (define-jabber-alert echo "Show a message in the echo area"
+    (lambda (msg)
+      (unless (minibuffer-prompt)
+        (message "%s" msg)))))
 
 ;;;; linum-mode
 ;; Adds additional 1 space after line number because there is no space
