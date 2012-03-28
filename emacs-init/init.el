@@ -178,6 +178,7 @@ of an error, just add the package to a list of missing packages."
 
 ;;; Korean language and UTF-8 settings.
 ;; Forcing to use utf-8 coding system.
+;; TODO(jaeyeom): Find a better way to detect system coding
 (when (or (not window-system)
           (not (eq (window-system) 'w32)))
   (prefer-coding-system 'utf-8)
