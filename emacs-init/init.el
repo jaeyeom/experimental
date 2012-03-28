@@ -150,25 +150,6 @@ of an error, just add the package to a list of missing packages."
        (add-to-list 'missing-packages-list feature 'append))
      nil)))
 
-;; load elisp libraries while Emacs is idle
-(if (try-require 'idle-require)
-    (progn
-      ;; idle time (in seconds) after which autoload functions will be loaded
-      (setq-default idle-require-idle-delay 30)
-
-      ;; time in seconds between automatically loaded functions
-      (setq-default idle-require-load-break 2)
-
-      ;; load unloaded autoload functions when Emacs becomes idle
-      (idle-require-mode 1)
-
-      (defun try-idle-require (feature)
-        (when (locate-library (symbol-name feature))
-          (idle-require feature))))
-
-  (defun try-idle-require (feature)
-    nil))
-
 ;; I don't like to put space after magic prefix #!
 (setq-default executable-prefix "#!")
 
@@ -383,20 +364,6 @@ they line up with the line containing the corresponding opening bracket."
 
 ;;;; Eshell Commands
 
-(try-idle-require 'eshell)
-(try-idle-require 'em-alias)
-(try-idle-require 'em-banner)
-(try-idle-require 'em-basic)
-(try-idle-require 'em-cmpl)
-(try-idle-require 'em-dirs)
-(try-idle-require 'em-glob)
-(try-idle-require 'em-hist)
-(try-idle-require 'em-ls)
-(try-idle-require 'em-prompt)
-(try-idle-require 'em-script)
-(try-idle-require 'em-term)
-(try-idle-require 'em-unix)
-
 ;; These settings may not work well for customization module.
 (setq-default eshell-after-prompt-hook (quote (eshell-show-maximum-output)))
 (setq-default eshell-before-prompt-hook (quote (eshell-begin-on-new-line)))
@@ -452,8 +419,7 @@ otherwise."
 (when (>= emacs-major-version 23)
   (setq-default tramp-debug-buffer t)
   (setq-default tramp-verbose 10)
-  (setq-default tramp-default-method "sshx")
-  (try-idle-require 'tramp))
+  (setq-default tramp-default-method "sshx"))
 
 ;;;; linum-mode
 ;; Adds additional 1 space after line number because there is no space
@@ -473,24 +439,23 @@ otherwise."
 
 ;;;; W3m configuration
 
-(try-idle-require 'w3m)
-
-;; Deletes trailing whitespace whenever the page is loaded.
-(add-hook 'w3m-display-hook
-          (lambda (url)
-            (let ((buffer-read-only nil))
-              (delete-trailing-whitespace))))
-
-;; Setting w3m-use-title-buffer-name will disambiguate buffer
-;; name. Lower version which doesn't have this variable needs hook
-;; function to do this manually.
-(if (boundp 'w3m-use-title-buffer-name)
-    (setq w3m-use-title-buffer-name t)
+(when (try-require 'w3m)
+  ;; Deletes trailing whitespace whenever the page is loaded.
   (add-hook 'w3m-display-hook
             (lambda (url)
-              (rename-buffer
-               (format "*w3m: %s*" (or w3m-current-title
-                                       w3m-current-url)) t))))
+              (let ((buffer-read-only nil))
+                (delete-trailing-whitespace))))
+
+  ;; Setting w3m-use-title-buffer-name will disambiguate buffer
+  ;; name. Lower version which doesn't have this variable needs hook
+  ;; function to do this manually.
+  (if (boundp 'w3m-use-title-buffer-name)
+      (setq w3m-use-title-buffer-name t)
+    (add-hook 'w3m-display-hook
+              (lambda (url)
+                (rename-buffer
+                 (format "*w3m: %s*" (or w3m-current-title
+                                         w3m-current-url)) t)))))
 
 ;;;; Editing
 
