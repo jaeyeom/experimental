@@ -546,8 +546,8 @@ Otherwise, delegate to `ff-find-other-file'."
    (t
     (ff-find-other-file))))
 
-;;; Make c-h as backspace.
-(keyboard-translate ?\C-h ?\C-?)
+;; Force alt key as meta key
+(setq x-alt-keysym 'meta)
 
 ;;; Comment Region
 (global-set-key "\C-c;" 'comment-region)
