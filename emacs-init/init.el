@@ -424,9 +424,28 @@ they line up with the line containing the corresponding opening bracket."
 
 ;;;; Shell
 
-;; Colorful shell mode
-(if (try-require 'ansi-color)
-    (setq-default ansi-color-for-comint-mode t))
+(when (try-require 'shell)
+  (when (file-exists-p "/proc")
+    ;; Copied and modified from
+    ;; http://www.emacswiki.org/emacs/ShellDirtrackByProcfs
+    (defun track-shell-directory/procfs ()
+      (if (fboundp 'shell-dirtrack-mode)
+          (shell-dirtrack-mode 0))
+      (add-hook 'comint-preoutput-filter-functions
+                (lambda (str)
+                  (prog1 str
+                    (when (string-match comint-prompt-regexp str)
+                      (cd (file-symlink-p
+                           (format "/proc/%s/cwd" (process-id
+                                                   (get-buffer-process
+                                                    (current-buffer)))))))))
+                nil t))
+    (add-hook 'shell-mode-hook 'track-shell-directory/procfs))
+
+  ;; Colorful shell mode
+  (if (try-require 'ansi-color)
+      (setq-default ansi-color-for-comint-mode t)))
+
 
 ;;;; Eshell Commands
 
