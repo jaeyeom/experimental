@@ -306,33 +306,32 @@ of an error, just add the package to a list of missing packages."
 (define-key mode-specific-map [?l] 'org-store-link)
 (define-key mode-specific-map [?r] 'remember)
 
-(try-require 'org)
+(when (try-require 'org)
+  (eval-after-load "org"
+    '(progn
+       ;; C-c x and shortcut will change todo state like the following.
+       (define-prefix-command 'org-todo-state-map)
+       (define-key org-mode-map "\C-cx" 'org-todo-state-map)
+       (define-key org-todo-state-map "x"
+         #'(lambda nil (interactive) (org-todo "CANCELED")))
+       (define-key org-todo-state-map "d"
+         #'(lambda nil (interactive) (org-todo "DONE")))
+       (define-key org-todo-state-map "f"
+         #'(lambda nil (interactive) (org-todo "DEFERRED")))
+       (define-key org-todo-state-map "l"
+         #'(lambda nil (interactive) (org-todo "DELEGATED")))
+       (define-key org-todo-state-map "s"
+         #'(lambda nil (interactive) (org-todo "STARTED")))
+       (define-key org-todo-state-map "w"
+         #'(lambda nil (interactive) (org-todo "WAITING")))))
 
-(eval-after-load "org"
-  '(progn
-     ;; C-c x and shortcut will change todo state like the following.
-     (define-prefix-command 'org-todo-state-map)
-     (define-key org-mode-map "\C-cx" 'org-todo-state-map)
-     (define-key org-todo-state-map "x"
-       #'(lambda nil (interactive) (org-todo "CANCELED")))
-     (define-key org-todo-state-map "d"
-       #'(lambda nil (interactive) (org-todo "DONE")))
-     (define-key org-todo-state-map "f"
-       #'(lambda nil (interactive) (org-todo "DEFERRED")))
-     (define-key org-todo-state-map "l"
-       #'(lambda nil (interactive) (org-todo "DELEGATED")))
-     (define-key org-todo-state-map "s"
-       #'(lambda nil (interactive) (org-todo "STARTED")))
-     (define-key org-todo-state-map "w"
-       #'(lambda nil (interactive) (org-todo "WAITING")))))
-
-(eval-after-load "org-agenda"
-  '(progn
-     ;; C-n and C-p won't be overridden in org-agenda-mode.
-     (define-key org-agenda-mode-map "\C-n" 'next-line)
-     (define-key org-agenda-keymap "\C-n" 'next-line)
-     (define-key org-agenda-mode-map "\C-p" 'previous-line)
-     (define-key org-agenda-keymap "\C-p" 'previous-line)))
+  (eval-after-load "org-agenda"
+    '(progn
+       ;; C-n and C-p won't be overridden in org-agenda-mode.
+       (define-key org-agenda-mode-map "\C-n" 'next-line)
+       (define-key org-agenda-keymap "\C-n" 'next-line)
+       (define-key org-agenda-mode-map "\C-p" 'previous-line)
+       (define-key org-agenda-keymap "\C-p" 'previous-line))))
 
 ;; Remember mode
 (when (try-require 'remember)
