@@ -44,7 +44,6 @@
  '(dynamic-completion-mode t)
  '(elisp-cache-byte-compile-files t)
  '(emacs-lisp-mode-hook (quote ((lambda nil (local-set-key "" (quote byte-compile-file))))))
- '(eshell-output-filter-functions (quote (eshell-handle-control-codes eshell-watch-for-password-prompt)))
  '(font-lock-maximum-decoration t)
  '(global-auto-revert-mode t)
  '(global-cwarn-mode t)
@@ -230,73 +229,93 @@ of an error, just add the package to a list of missing packages."
 
 ;; Load Emacs W3M
 
-(when (and (try-require 'w3m)
-           (boundp 'w3m-command)
-           w3m-command)
+;;;; W3m configuration
 
-  ;; Fake useragents. Copied from
-  ;; http://sachachua.com/blog/2008/08/emacs-and-w3m-fake-your-user-agent/
-  (defvar wicked/w3m-fake-user-agents ;; (1)
-    `(("w3m" . ,(concat "Emacs-w3m/" emacs-w3m-version " " w3m-version))
-      ("ie6" . "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)")
-      ("ff3" . "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) Gecko/2008070206 Firefox/3.0.1")
-      ("ff2" . "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.8.1.13) Gecko/20080208 Firefox/2.0.0.13")
-      ("ie7" . "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; .NET CLR 2.0.50727)")
-      ("ie5.5" . "Mozilla/4.0 (compatible; MSIE 5.5; Windows 98)")
-      ("iphone" . "Mozilla/5.0 (iPhone; U; CPU iPhone OS 2_0 like Mac OS X; en-us) AppleWebKit/525.18.1 (KHTML, like Gecko) Version/3.1.1 Mobile/5A347 Safari/525.20")
-      ("safari" . "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_5_2; en-us) AppleWebKit/525.13 (KHTML, like Gecko) Version/3.1 Safari/525.13")
-      ("chrome19" . "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.21 (KHTML, like Gecko) Chrome/19.0.1042.0 Safari/535.21")
-      ("google" . "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"))
-    "*Associative list of user agent names and strings.")
+(autoload 'w3m "w3m"
+  "Web browser in Emacs."
+  t)
+(eval-after-load 'w3m
+  '(progn
+     ;; Deletes trailing whitespace whenever the page is loaded.
+     (add-hook 'w3m-display-hook
+               (lambda (url)
+                 (let ((buffer-read-only nil))
+                   (delete-trailing-whitespace))))
 
-  (defvar wicked/w3m-fake-user-agent-sites ;; (2)
-    '(("^https?://www\\.useragentstring\\.com" . "ff2"))
-    "*Associative list of regular expressions matching URLs and the agent keyword or value.
+     ;; Setting w3m-use-title-buffer-name will disambiguate buffer
+     ;; name. Lower version which doesn't have this variable needs hook
+     ;; function to do this manually.
+     (if (boundp 'w3m-use-title-buffer-name)
+         (setq w3m-use-title-buffer-name t)
+       (add-hook 'w3m-display-hook
+                 (lambda (url)
+                   (rename-buffer
+                    (format "*w3m: %s*" (or w3m-current-title
+                                            w3m-current-url)) t))))
+
+     ;; Fake useragents. Copied from
+     ;; http://sachachua.com/blog/2008/08/emacs-and-w3m-fake-your-user-agent/
+     (defvar wicked/w3m-fake-user-agents ;; (1)
+       `(("w3m" . ,(concat "Emacs-w3m/" emacs-w3m-version " " w3m-version))
+         ("ie6" . "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)")
+         ("ff3" . "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.0.1) Gecko/2008070206 Firefox/3.0.1")
+         ("ff2" . "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.8.1.13) Gecko/20080208 Firefox/2.0.0.13")
+         ("ie7" . "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; .NET CLR 2.0.50727)")
+         ("ie5.5" . "Mozilla/4.0 (compatible; MSIE 5.5; Windows 98)")
+         ("iphone" . "Mozilla/5.0 (iPhone; U; CPU iPhone OS 2_0 like Mac OS X; en-us) AppleWebKit/525.18.1 (KHTML, like Gecko) Version/3.1.1 Mobile/5A347 Safari/525.20")
+         ("safari" . "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_5_2; en-us) AppleWebKit/525.13 (KHTML, like Gecko) Version/3.1 Safari/525.13")
+         ("chrome19" . "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.21 (KHTML, like Gecko) Chrome/19.0.1042.0 Safari/535.21")
+         ("google" . "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"))
+       "*Associative list of user agent names and strings.")
+
+     (defvar wicked/w3m-fake-user-agent-sites ;; (2)
+       '(("^https?://www\\.useragentstring\\.com" . "ff2"))
+       "*Associative list of regular expressions matching URLs and the agent keyword or value.
  The first matching entry will be used.")
 
-  (defun wicked/w3m-set-user-agent (agent)
-    "Set the user agent to AGENT based on `wicked/w3m-fake-user-agents'.
+     (defun wicked/w3m-set-user-agent (agent)
+       "Set the user agent to AGENT based on `wicked/w3m-fake-user-agents'.
  If AGENT is not defined in `wicked/w3m-fake-user-agents', it is used as the user agent.
  If AGENT is empty, the default w3m user agent will be used."
-    (interactive
-     (list
-      (completing-read "User-agent [w3m]: "
-                       (mapcar 'car wicked/w3m-fake-user-agents)
-                       nil nil nil nil "w3m"))) ;; (3)
-    (if agent
-        (progn
-          (setq w3m-user-agent
-                (or
-                 (and (string= agent "") (assoc "w3m" wicked/w3m-fake-user-agents)) ;; (4)
-                 (cdr (assoc agent wicked/w3m-fake-user-agents)) ;; (5)
-                 agent)) ;; (6)
-          (setq w3m-add-user-agent t))
-      (setq w3m-add-user-agent nil)))
+       (interactive
+        (list
+         (completing-read "User-agent [w3m]: "
+                          (mapcar 'car wicked/w3m-fake-user-agents)
+                          nil nil nil nil "w3m"))) ;; (3)
+       (if agent
+           (progn
+             (setq w3m-user-agent
+                   (or
+                    (and (string= agent "") (assoc "w3m" wicked/w3m-fake-user-agents)) ;; (4)
+                    (cdr (assoc agent wicked/w3m-fake-user-agents)) ;; (5)
+                    agent)) ;; (6)
+             (setq w3m-add-user-agent t))
+         (setq w3m-add-user-agent nil)))
 
-  (defun wicked/w3m-reload-this-page-with-user-agent (agent)
-    "Browse this page using AGENT based on `wicked/w3m-fake-user-agents'.
+     (defun wicked/w3m-reload-this-page-with-user-agent (agent)
+       "Browse this page using AGENT based on `wicked/w3m-fake-user-agents'.
  If AGENT is not defined in `wicked/w3m-fake-user-agents', it is used as the user agent.
  If AGENT is empty, the default w3m user agent will be used."
-    (interactive (list (completing-read "User-agent [w3m]: "
-                                        (mapcar 'car wicked/w3m-fake-user-agents)
-                                        nil nil nil nil "w3m")))
-    (let ((w3m-user-agent w3m-user-agent)
-          (w3m-add-user-agent w3m-add-user-agent))
-      (wicked/w3m-set-user-agent agent) ;; (7)
-      (w3m-reload-this-page)))
+       (interactive (list (completing-read "User-agent [w3m]: "
+                                           (mapcar 'car wicked/w3m-fake-user-agents)
+                                           nil nil nil nil "w3m")))
+       (let ((w3m-user-agent w3m-user-agent)
+             (w3m-add-user-agent w3m-add-user-agent))
+         (wicked/w3m-set-user-agent agent) ;; (7)
+         (w3m-reload-this-page)))
 
-  (defadvice w3m-header-arguments (around wicked activate) ;; (8)
-    "Check `wicked/w3m-fake-user-agent-sites' for fake user agent definitions."
-    (let ((w3m-user-agent w3m-user-agent)
-          (w3m-add-user-agent w3m-add-user-agent)
-          (sites wicked/w3m-fake-user-agent-sites))
-      (while sites
-        (if (string-match (caar sites) (ad-get-arg 1))
-            (progn
-              (wicked/w3m-set-user-agent (cdar sites))
-              (setq sites nil))
-          (setq sites (cdr sites))))
-      ad-do-it)))
+     (defadvice w3m-header-arguments (around wicked activate) ;; (8)
+       "Check `wicked/w3m-fake-user-agent-sites' for fake user agent definitions."
+       (let ((w3m-user-agent w3m-user-agent)
+             (w3m-add-user-agent w3m-add-user-agent)
+             (sites wicked/w3m-fake-user-agent-sites))
+         (while sites
+           (if (string-match (caar sites) (ad-get-arg 1))
+               (progn
+                 (wicked/w3m-set-user-agent (cdar sites))
+                 (setq sites nil))
+             (setq sites (cdr sites))))
+         ad-do-it))))
 
 ;; I'm also going to use org-mode in archive mode and txt file.
 (add-to-list 'auto-mode-alist '("\\.\\(org\\|org_archive\\|txt\\)$" . org-mode))
@@ -306,37 +325,38 @@ of an error, just add the package to a list of missing packages."
 (define-key mode-specific-map [?l] 'org-store-link)
 (define-key mode-specific-map [?r] 'remember)
 
-(when (try-require 'org)
-  (eval-after-load "org"
-    '(progn
-       ;; C-c x and shortcut will change todo state like the following.
-       (define-prefix-command 'org-todo-state-map)
-       (define-key org-mode-map "\C-cx" 'org-todo-state-map)
-       (define-key org-todo-state-map "x"
-         #'(lambda nil (interactive) (org-todo "CANCELED")))
-       (define-key org-todo-state-map "d"
-         #'(lambda nil (interactive) (org-todo "DONE")))
-       (define-key org-todo-state-map "f"
-         #'(lambda nil (interactive) (org-todo "DEFERRED")))
-       (define-key org-todo-state-map "l"
-         #'(lambda nil (interactive) (org-todo "DELEGATED")))
-       (define-key org-todo-state-map "s"
-         #'(lambda nil (interactive) (org-todo "STARTED")))
-       (define-key org-todo-state-map "w"
-         #'(lambda nil (interactive) (org-todo "WAITING")))))
+(eval-after-load 'org
+  '(progn
+     ;; C-c x and shortcut will change todo state like the following.
+     (define-prefix-command 'org-todo-state-map)
+     (define-key org-mode-map "\C-cx" 'org-todo-state-map)
+     (define-key org-todo-state-map "x"
+       #'(lambda nil (interactive) (org-todo "CANCELED")))
+     (define-key org-todo-state-map "d"
+       #'(lambda nil (interactive) (org-todo "DONE")))
+     (define-key org-todo-state-map "f"
+       #'(lambda nil (interactive) (org-todo "DEFERRED")))
+     (define-key org-todo-state-map "l"
+       #'(lambda nil (interactive) (org-todo "DELEGATED")))
+     (define-key org-todo-state-map "s"
+       #'(lambda nil (interactive) (org-todo "STARTED")))
+     (define-key org-todo-state-map "w"
+       #'(lambda nil (interactive) (org-todo "WAITING")))))
 
-  (eval-after-load "org-agenda"
-    '(progn
-       ;; C-n and C-p won't be overridden in org-agenda-mode.
-       (define-key org-agenda-mode-map "\C-n" 'next-line)
-       (define-key org-agenda-keymap "\C-n" 'next-line)
-       (define-key org-agenda-mode-map "\C-p" 'previous-line)
-       (define-key org-agenda-keymap "\C-p" 'previous-line))))
+(eval-after-load 'org-agenda
+  '(progn
+     ;; C-n and C-p won't be overridden in org-agenda-mode.
+     (define-key org-agenda-mode-map "\C-n" 'next-line)
+     (define-key org-agenda-keymap "\C-n" 'next-line)
+     (define-key org-agenda-mode-map "\C-p" 'previous-line)
+     (define-key org-agenda-keymap "\C-p" 'previous-line)))
 
 ;; Remember mode
-(when (try-require 'remember)
-  (add-hook 'remember-mode-hook 'org-remember-apply-template)
-  (define-key global-map [(control meta ?r)] 'remember))
+(try-require 'remember)
+(eval-after-load 'remember
+  '(progn
+     (add-hook 'remember-mode-hook 'org-remember-apply-template)
+     (define-key global-map [(control meta ?r)] 'remember)))
 
 ;; Org agenda TODO list will show only unscheduled items. I usually
 ;; check scheduled item from agenda for current week mode, and adds
@@ -420,73 +440,78 @@ they line up with the line containing the corresponding opening bracket."
 
 ;;;; Shell
 
-(when (try-require 'shell)
-  (when (file-exists-p "/proc")
-    ;; Copied and modified from
-    ;; http://www.emacswiki.org/emacs/ShellDirtrackByProcfs
-    (defun track-shell-directory/procfs ()
-      (if (fboundp 'shell-dirtrack-mode)
-          (shell-dirtrack-mode 0))
-      (add-hook 'comint-preoutput-filter-functions
-                (lambda (str)
-                  (prog1 str
-                    (when (string-match comint-prompt-regexp str)
-                      (cd (file-symlink-p
-                           (format "/proc/%s/cwd" (process-id
-                                                   (get-buffer-process
-                                                    (current-buffer)))))))))
-                nil t))
-    (add-hook 'shell-mode-hook 'track-shell-directory/procfs))
+(eval-after-load 'shell
+  '(progn
+     (when (file-exists-p "/proc")
+       ;; Copied and modified from
+       ;; http://www.emacswiki.org/emacs/ShellDirtrackByProcfs
+       (defun track-shell-directory/procfs ()
+         (if (fboundp 'shell-dirtrack-mode)
+             (shell-dirtrack-mode 0))
+         (add-hook 'comint-preoutput-filter-functions
+                   (lambda (str)
+                     (prog1 str
+                       (when (string-match comint-prompt-regexp str)
+                         (cd (file-symlink-p
+                              (format "/proc/%s/cwd" (process-id
+                                                      (get-buffer-process
+                                                       (current-buffer)))))))))
+                   nil t))
+       (add-hook 'shell-mode-hook 'track-shell-directory/procfs))
 
-  ;; Colorful shell mode
-  (if (try-require 'ansi-color)
-      (setq-default ansi-color-for-comint-mode t)))
+     ;; Colorful shell mode
+     (if (try-require 'ansi-color)
+         (setq-default ansi-color-for-comint-mode t))))
 
 
-;;;; Eshell Commands
+;;;; Eshell Settings
 
-;; These settings may not work well for customization module.
-(setq-default eshell-after-prompt-hook (quote (eshell-show-maximum-output)))
-(setq-default eshell-before-prompt-hook (quote (eshell-begin-on-new-line)))
-(setq-default eshell-cp-interactive-query t)
-(setq-default eshell-ln-interactive-query t)
-(setq-default eshell-mv-interactive-query t)
-(setq-default eshell-rm-interactive-query t)
+(when (try-require 'eshell)
+  ;; These settings may not work well for customization module.
+  (setq-default eshell-after-prompt-hook (quote (eshell-show-maximum-output)))
+  (setq-default eshell-before-prompt-hook (quote (eshell-begin-on-new-line)))
+  (setq-default eshell-cp-interactive-query t)
+  (setq-default eshell-ln-interactive-query t)
+  (setq-default eshell-mv-interactive-query t)
+  (setq-default eshell-rm-interactive-query t)
 
-(defun eshell/clear ()
-  "Clears the eshell buffer."
-  (interactive)
-  (let ((inhibit-read-only t))
-    (erase-buffer)))
+  (defun eshell/clear ()
+    "Clears the eshell buffer."
+    (interactive)
+    (let ((inhibit-read-only t))
+      (erase-buffer)))
 
-(defun eshell/em (filename)
-  "Calls find-file."
-  (interactive)
-  (find-file filename))
+  (defun eshell/em (filename)
+    "Calls find-file."
+    (interactive)
+    (find-file filename))
 
-(defun eshell/emacs (filename)
-  "Calls find-file."
-  (interactive)
-  (find-file filename))
+  (defun eshell/emacs (filename)
+    "Calls find-file."
+    (interactive)
+    (find-file filename))
 
-(defun eshell/w3m (url)
-  "Calls w3m-browse-url for URL patterns and w3m-find-file
+  (defun eshell/w3m (url)
+    "Calls w3m-browse-url for URL patterns and w3m-find-file
 otherwise."
-  (interactive)
-  (if (string-match "[a-zA-Z]+://" url)
-      (w3m-browse-url url)
-    (w3m-find-file url)))
+    (interactive)
+    (if (string-match "[a-zA-Z]+://" url)
+        (w3m-browse-url url)
+      (w3m-find-file url)))
 
-;; Eshell Color
-(defun eshell-handle-ansi-color ()
-  (try-require 'eshell)
-  (try-require 'ansi-color)
-  (ansi-color-apply-on-region eshell-last-output-start
-                              eshell-last-output-end))
+  ;; Eshell Color
+  (when (and (>= emacs-major-version 23)
+             (try-require 'ansi-color))
+    (defun eshell-handle-ansi-color ()
+      (ansi-color-apply-on-region eshell-last-output-start
+                                  eshell-last-output-end))
+    (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color))
 
-(when (>= emacs-major-version 23)
-  (if (try-require 'eshell)
-      (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color)))
+  (if (fboundp 'eshell-watch-for-password-prompt)
+      (add-to-list 'eshell-output-filter-functions 'eshell-watch-for-password-prompt))
+
+  (if (fboundp 'eshell-handle-control-codes)
+      (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))
 
 ;;;; About Tramp mode
 (when (>= emacs-major-version 23)
@@ -508,39 +533,20 @@ otherwise."
 
 ;;;; linum-mode
 ;; Adds additional 1 space after line number because there is no space
-;; between the line number and file contents in terminal Emacs. I think if I can show
-(setq linum-format
-      (lambda (line)
-        (propertize (format
-                 (let ((w (length (number-to-string
-                                   (count-lines (point-min) (point-max))))))
-                   (concat "%" (number-to-string w) "d ")) line) 'face 'linum)))
+;; between the line number and file contents in terminal Emacs.
+(eval-after-load 'linum
+  (setq linum-format
+        (lambda (line)
+          (propertize (format
+                       (let ((w (length (number-to-string
+                                         (count-lines (point-min) (point-max))))))
+                         (concat "%" (number-to-string w) "d ")) line) 'face 'linum))))
 
 (try-require 'init-directed-switch)
 
 ;;;; Bash completion
 (when (try-require 'bash-completion)
   (bash-completion-setup))
-
-;;;; W3m configuration
-
-(when (try-require 'w3m)
-  ;; Deletes trailing whitespace whenever the page is loaded.
-  (add-hook 'w3m-display-hook
-            (lambda (url)
-              (let ((buffer-read-only nil))
-                (delete-trailing-whitespace))))
-
-  ;; Setting w3m-use-title-buffer-name will disambiguate buffer
-  ;; name. Lower version which doesn't have this variable needs hook
-  ;; function to do this manually.
-  (if (boundp 'w3m-use-title-buffer-name)
-      (setq w3m-use-title-buffer-name t)
-    (add-hook 'w3m-display-hook
-              (lambda (url)
-                (rename-buffer
-                 (format "*w3m: %s*" (or w3m-current-title
-                                         w3m-current-url)) t)))))
 
 ;;;; Editing
 
@@ -551,8 +557,7 @@ otherwise."
         ((looking-back "\\s\)") (backward-sexp 1))
         (t (self-insert-command (or arg 1)))))
 
-(if (fboundp 'goto-matching-paren-or-insert)
-    (global-set-key "%" 'goto-matching-paren-or-insert))
+(global-set-key "%" 'goto-matching-paren-or-insert)
 
 ;;; Uniquify features
 (defun uniquify-region (beg end)
