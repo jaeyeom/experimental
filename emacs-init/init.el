@@ -83,7 +83,6 @@
  '(scroll-bar-mode nil)
  '(sgml-xml-mode t)
  '(show-paren-mode t)
- '(split-width-threshold 180)
  '(svn-status-preserve-window-configuration t)
  '(tool-bar-mode nil)
  '(transient-mark-mode t)
@@ -549,6 +548,14 @@ otherwise."
   (bash-completion-setup))
 
 ;;;; Editing
+
+;; I like line moves point by logical lines not by visible lines.
+(setq line-move-visual nil)
+
+;; Emacs 23 likes to pop up real X windows for tooltips, which is
+;; highly annoying on slow connections, especially using VNC or
+;; NX. This makes it use the echo-area like it used to.
+(setq tooltip-use-echo-area t)
 
 (defun goto-matching-paren-or-insert (arg)
   "Go to the matching parenthesis if on parenthesis otherwise insert it."
