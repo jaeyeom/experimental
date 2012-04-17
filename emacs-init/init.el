@@ -440,6 +440,17 @@ they line up with the line containing the corresponding opening bracket."
 
 (ad-activate 'python-calculate-indentation)
 
+;;; CoffeeScript
+
+(add-to-list 'auto-mode-alist '("\\.coffee$" . coffee-mode))
+(add-to-list 'auto-mode-alist '("Cakefile" . coffee-mode))
+(autoload 'coffee-mode "coffee-mode"
+  "Major mode for editing CoffeeScript code."
+  t)
+;; Unfortunately, this should be loaded before coffee-mode.
+(setq-default coffee-tab-width 2)
+(setq-default coffee-cygwin-mode nil)
+
 ;;;; Shell
 
 (eval-after-load 'shell
