@@ -564,11 +564,13 @@ otherwise."
 ;;;; Editing
 
 ;; I like line moves point by logical lines not by visible lines.
+;; (setq-default ...) does not work here.
 (setq line-move-visual nil)
 
 ;; Emacs 23 likes to pop up real X windows for tooltips, which is
 ;; highly annoying on slow connections, especially using VNC or
 ;; NX. This makes it use the echo-area like it used to.
+;; (setq-default ...) does not work here.
 (setq tooltip-use-echo-area t)
 
 (defun goto-matching-paren-or-insert (arg)
