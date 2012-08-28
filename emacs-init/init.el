@@ -216,7 +216,7 @@ of an error, just add the package to a list of missing packages."
 ;;; Initialize yasnippet
 (when (try-require 'yasnippet)
     (yas/initialize)
-    (yas/load-directory (concat emacs-init-dir "yasnippet/snippets")))
+    (yas/load-directory (concat emacs-plugins-dir "yasnippet/snippets")))
 
 ;;; Ebrowse will load BROWSE file when idle time
 (when (try-require 'ebrowse)
