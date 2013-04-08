@@ -33,7 +33,6 @@
   ;; If there is more than one, they won't work right.
  '(auto-image-file-mode t)
  '(blink-cursor-mode nil)
- '(browse-url-browser-function (quote w3m-browse-url))
  '(c-basic-offset 2)
  '(c-default-style (quote ((c-mode . "k&r") (c++-mode . "stroustrup") (java-mode . "java") (awk-mode . "awk") (other . "gnu"))))
  '(case-fold-search t)
