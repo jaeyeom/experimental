@@ -42,7 +42,6 @@
  '(diary-list-include-blanks t)
  '(dynamic-completion-mode t)
  '(elisp-cache-byte-compile-files t)
- '(emacs-lisp-mode-hook (quote ((lambda nil (local-set-key "" (quote byte-compile-file))))))
  '(font-lock-maximum-decoration t)
  '(global-auto-revert-mode t)
  '(global-cwarn-mode t)
