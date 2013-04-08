@@ -1,7 +1,7 @@
 ;;; init.el --- Jaehyun Yeom's Emacs init file.
 ;;
 ;; Filename: init.el
-;; Date: 2007--2011
+;; Date: 2007--2013
 ;;
 
 ;;;; Basic Directory Settings
