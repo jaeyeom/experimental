@@ -156,14 +156,32 @@ of an error, just add the package to a list of missing packages."
 ;; Make searches case insensative by default
 (setq-default case-fold-search t)
 
-;; Load my small functions
-(try-require 'only2sea-functions)
-
 ;;;; Display Settings
 
 (try-require 'init-convenience-settings)
 (setq split-width-threshold 170)
 (modify-frame-parameters (selected-frame) default-frame-alist)
+
+(if (fboundp 'transparent-this-frame)
+    (message "Function `transparent-this-frame' is already bounded")
+  (defun transparent-this-frame ()
+    (interactive)
+    ;; TODO(jaeyeom): This function has hard-coded values.
+    (set-frame-parameter (selected-frame) 'alpha '(80 65))))
+
+(if (fboundp 'restore-this-frame)
+    (message "Function `restore-this-frame' is already bounded")
+  (defun restore-this-frame ()
+    (interactive)
+    ;; TODO(jaeyeom): This function has hard-coded values.
+    (set-frame-parameter (selected-frame) 'width 80)
+    (set-frame-parameter (selected-frame) 'height 40)))
+
+(if (fboundp 'transparent-default-frame)
+    (message "Function `transparent-default-frame' is already bounded")
+  (defun transparent-default-frame ()
+    (interactive)
+    (add-to-list 'default-frame-alist '(alpha 80 65))))
 
 ;;;; Alternative color settings
 
