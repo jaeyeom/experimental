@@ -611,6 +611,9 @@ otherwise."
 
 (global-set-key "%" 'goto-matching-paren-or-insert)
 
+;; Can open minibuffer in the minibuffer
+(setq enable-recursive-minibuffers t)
+
 ;;; Uniquify features
 (defun uniquify-region (beg end)
   "Remove duplicate adjacent lines in the given region from BEG
