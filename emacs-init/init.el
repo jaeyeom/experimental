@@ -254,8 +254,16 @@ of an error, just add the package to a list of missing packages."
 (autoload 'w3m "w3m"
   "Web browser in Emacs."
   t)
+
 (eval-after-load 'w3m
   '(progn
+     (setq-default browse-url-generic-program "google-chrome")
+     (setq-default
+      browse-url-browser-function
+      '(("^\\(file\\|mailto\\):.+$" . w3m-browse-url) ; w3m takes care of these very well
+        ("^.*$" . browse-url-generic)))
+
+
      ;; Deletes trailing whitespace whenever the page is loaded.
      (add-hook 'w3m-display-hook
                (lambda (url)
