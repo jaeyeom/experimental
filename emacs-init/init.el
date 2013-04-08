@@ -740,6 +740,10 @@ reverse conversion of command \\[escape-double-quoted-string]."
            (try-require 'ffap))
   (define-key ctl-x-map "\C-f" 'find-file-at-point))
 
+;;; Midnight mode
+(when (try-require 'midnight)
+  (midnight-delay-set 'midnight-delay "4:00am"))
+
 ;;;; Desktop Mode
 (when (>= emacs-major-version 23)
   (setq-default desktop-base-file-name (concat ".emacs." (system-name) ".desktop"))
