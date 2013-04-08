@@ -378,6 +378,30 @@ of an error, just add the package to a list of missing packages."
      (define-key org-agenda-mode-map "\C-p" 'previous-line)
      (define-key org-agenda-keymap "\C-p" 'previous-line)))
 
+;; gdocs - requires emacspeak 35 or higher.
+(when (try-require 'gdocs)
+  (defun gdocs-refresh-document-text ()
+    "Refresh document from Google docs. Current document contents
+will be in the buffer *g scratch*."
+    (interactive)
+    (gdocs-fetch-document-text)
+    (with-current-buffer g-scratch-buffer
+      (when (/= 10 (char-before (point-max)))
+        (goto-char (point-max))
+        (insert-char 10 1))
+      ;; Cleanup newline style
+      (goto-char (point-min))
+      (replace-string "" "")
+      (goto-char (point-min))
+      (replace-string "\n\n" "\n")
+      (goto-char (point-min))
+      ;; Remove unknown dirty characters at the beginning
+      (if (looking-at "\357\273\277")
+          (delete-char 3))
+      (set-buffer-multibyte t))
+    (buffer-swap-text (get-buffer g-scratch-buffer))
+    (set-buffer-multibyte t)))
+
 ;; Remember mode
 (try-require 'remember)
 (eval-after-load 'remember
