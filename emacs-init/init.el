@@ -397,9 +397,6 @@ of an error, just add the package to a list of missing packages."
 
 (load "init-org-publish-alist.el" 'noerror)
 
-;; Dictionary
-(try-require 'dictionary)
-
 ;; Load PHP mode
 (try-require 'php-mode)
 
