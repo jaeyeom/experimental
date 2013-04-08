@@ -614,6 +614,9 @@ otherwise."
 ;; Can open minibuffer in the minibuffer
 (setq enable-recursive-minibuffers t)
 
+;; Keep camel case
+(setq dabbrev-case-fold-search nil)
+
 ;;; Uniquify features
 (defun uniquify-region (beg end)
   "Remove duplicate adjacent lines in the given region from BEG
