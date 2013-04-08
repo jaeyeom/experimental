@@ -773,3 +773,9 @@ reverse conversion of command \\[escape-double-quoted-string]."
 
 ;;;; Emacs Server
 (server-start)
+
+;;;; Edit Server
+;; For chrome extension at
+;; https://chrome.google.com/webstore/detail/edit-with-emacs/ljobjlafonikaiipfkggjbhkghgicgoh?hl=en
+(when (try-require 'edit-server)
+  (edit-server-start))
