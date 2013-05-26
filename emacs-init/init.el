@@ -385,6 +385,7 @@ will be in the buffer *g scratch*."
     (interactive)
     (gdocs-fetch-document-text)
     (with-current-buffer g-scratch-buffer
+      ;; TODO(jaeyeom): Handle authentication error from the server.
       (when (/= 10 (char-before (point-max)))
         (goto-char (point-max))
         (insert-char 10 1))
@@ -745,6 +746,11 @@ reverse conversion of command \\[escape-double-quoted-string]."
     (goto-char start)
     (while (search-forward "\\\\" end t)
       (replace-match "\\" nil t))))
+
+(defun insert-current-date ()
+  (interactive)
+  ;; TODO(jaeyeom): Make this work on Windows.
+  (insert (shell-command-to-string "echo -n $(date +%Y-%m-%d)")))
 
 ;;; Miscellaneous
 (try-require 'uptime)
