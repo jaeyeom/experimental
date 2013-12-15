@@ -155,8 +155,6 @@ of an error, just add the package to a list of missing packages."
 (setq-default case-fold-search t)
 
 ;;;; Display Settings
-
-(try-require 'init-convenience-settings)
 (setq split-width-threshold 170)
 (modify-frame-parameters (selected-frame) default-frame-alist)
 
