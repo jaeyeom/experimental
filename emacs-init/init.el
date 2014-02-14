@@ -383,7 +383,6 @@ will be in the buffer *g scratch*."
     (interactive)
     (gdocs-fetch-document-text)
     (with-current-buffer g-scratch-buffer
-      ;; TODO(jaeyeom): Handle authentication error from the server.
       (when (/= 10 (char-before (point-max)))
         (goto-char (point-max))
         (insert-char 10 1))
@@ -763,9 +762,17 @@ reverse conversion of command \\[escape-double-quoted-string]."
            (try-require 'ffap))
   (define-key ctl-x-map "\C-f" 'find-file-at-point))
 
+;;; Uniquify
+(when (try-require 'uniquify)
+  (setq uniquify-buffer-name-style 'post-forward-angle-brackets))
+
 ;;; Midnight mode
 (when (try-require 'midnight)
   (midnight-delay-set 'midnight-delay "4:00am"))
+
+;;; GPG
+;; Prevent desktop popup for asking password.
+(setenv "GPG_AGENT_INFO" nil)
 
 ;;;; Desktop Mode
 (when (>= emacs-major-version 23)
