@@ -619,6 +619,10 @@ otherwise."
 ;; (setq-default ...) does not work here.
 (setq tooltip-use-echo-area t)
 
+;; change save interval from 300 to 1000
+;; keystrokes so it isn't so annoying
+(setq auto-save-interval 1000)
+
 (defun goto-matching-paren-or-insert (arg)
   "Go to the matching parenthesis if on parenthesis otherwise insert it."
   (interactive "p")
