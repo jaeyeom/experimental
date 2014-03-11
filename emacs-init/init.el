@@ -233,15 +233,15 @@ of an error, just add the package to a list of missing packages."
     (yas/load-directory (concat emacs-plugins-dir "yasnippet/snippets")))
 
 ;;; Ebrowse will load BROWSE file when idle time
-(when (try-require 'ebrowse)
-  (defun revert-ebrowse-tree-if-exists ()
-    (save-current-buffer
-      (dolist (buf (ebrowse-tree-buffer-list))
-        (set-buffer buf)
-        (revert-buffer 'ignore-auto 'noconfirm 'preserve-modes))))
+;; (when (try-require 'ebrowse)
+;;   (defun revert-ebrowse-tree-if-exists ()
+;;     (save-current-buffer
+;;       (dolist (buf (ebrowse-tree-buffer-list))
+;;         (set-buffer buf)
+;;         (revert-buffer 'ignore-auto 'noconfirm 'preserve-modes))))
 
-  (set 'ebrowse-tree-reload-idle-timer
-       (run-with-idle-timer 600 t 'revert-ebrowse-tree-if-exists)))
+;;   (set 'ebrowse-tree-reload-idle-timer
+;;        (run-with-idle-timer 600 t 'revert-ebrowse-tree-if-exists)))
 
 ;; Load Emacs W3M
 
