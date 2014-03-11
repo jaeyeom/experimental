@@ -504,6 +504,8 @@ they line up with the line containing the corresponding opening bracket."
      (when (file-exists-p "/proc")
        ;; Copied and modified from
        ;; http://www.emacswiki.org/emacs/ShellDirtrackByProcfs
+       ;; With this code shell knows the current directory even if the
+       ;; prompt format is uncommon.
        (defun track-shell-directory/procfs ()
          (if (fboundp 'shell-dirtrack-mode)
              (shell-dirtrack-mode 0))
@@ -520,7 +522,10 @@ they line up with the line containing the corresponding opening bracket."
 
      ;; Colorful shell mode
      (if (try-require 'ansi-color)
-         (setq-default ansi-color-for-comint-mode t))))
+         (setq-default ansi-color-for-comint-mode t))
+
+     ;; No pager.
+     (setenv "PAGER" "cat")))
 
 
 ;;;; Eshell Settings
