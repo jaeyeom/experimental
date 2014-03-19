@@ -148,6 +148,10 @@ of an error, just add the package to a list of missing packages."
        (add-to-list 'missing-packages-list feature 'append))
      nil)))
 
+;;; Package Initialize
+(when (try-require 'package)
+  (package-initialize))
+
 ;; I don't like to put space after magic prefix #!
 (setq-default executable-prefix "#!")
 
