@@ -417,12 +417,6 @@ will be in the buffer *g scratch*."
 
 (load "init-org-publish-alist.el" 'noerror)
 
-;; Load PHP mode
-(try-require 'php-mode)
-
-;; Load PSVN
-(try-require 'psvn)
-
 ;; Load Magit
 (when (try-require 'magit)
   (global-set-key (kbd "C-x v b") 'magit-status))
