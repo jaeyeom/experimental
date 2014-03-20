@@ -606,8 +606,10 @@ otherwise."
 (try-require 'init-directed-switch)
 
 ;;;; Bash completion
-(when (try-require 'bash-completion)
-  (bash-completion-setup))
+(when (< emacs-major-version 24)
+  (try-require 'bash-completion)
+  (eval-after-load 'bash-completion
+    '(bash-completion-setup)))
 
 ;;;; Editing
 
