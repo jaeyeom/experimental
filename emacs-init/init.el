@@ -447,8 +447,7 @@ thatuses 'font-lock-warning-face'."
 
       (font-lock-add-keywords 'c++-mode (font-lock-width-keyword 80))
       (font-lock-add-keywords 'python-mode (font-lock-width-keyword 80))
-      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 80))
-      )
+      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 80)))
   (progn
     ;; Turn on red highlighting for characters outside of the 80 char limit
     (add-hook 'c++-mode-hook
