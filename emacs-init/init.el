@@ -564,18 +564,18 @@ otherwise."
   (eval-after-load 'esh-mode
     '(progn
        (when (and (>= emacs-major-version 23)
-		  (not (fboundp 'eshell-handle-ansi-color))
-		  (try-require 'ansi-color))
-	 (defun eshell-handle-ansi-color ()
-	   (ansi-color-apply-on-region eshell-last-output-start
-				       eshell-last-output-end))
-	 (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color))
+                  (not (fboundp 'eshell-handle-ansi-color))
+                  (try-require 'ansi-color))
+         (defun eshell-handle-ansi-color ()
+           (ansi-color-apply-on-region eshell-last-output-start
+                                       eshell-last-output-end))
+         (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color))
 
        (if (fboundp 'eshell-watch-for-password-prompt)
-	   (add-to-list 'eshell-output-filter-functions 'eshell-watch-for-password-prompt))
+           (add-to-list 'eshell-output-filter-functions 'eshell-watch-for-password-prompt))
 
        (if (fboundp 'eshell-handle-control-codes)
-	   (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))))
+           (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))))
 
 ;;;; About Tramp mode
 (when (= emacs-major-version 23)
