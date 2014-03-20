@@ -169,7 +169,7 @@ of an error, just add the package to a list of missing packages."
   (defun transparent-this-frame ()
     (interactive)
     ;; TODO(jaeyeom): This function has hard-coded values.
-    (set-frame-parameter (selected-frame) 'alpha '(80 65))))
+    (set-frame-parameter (selected-frame) 'alpha '(85 70))))
 
 (if (fboundp 'restore-this-frame)
     (message "Function `restore-this-frame' is already bounded")
