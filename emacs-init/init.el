@@ -585,9 +585,9 @@ otherwise."
     (epa-file-enable))
 
 ;;;; Jabber
-(when (try-require 'jabber)
+(eval-after-load 'jabber-alert
   ;; Message alert hooks
-  (define-jabber-alert echo "Show a message in the echo area"
+  '(define-jabber-alert echo "Show a message in the echo area"
     (lambda (msg)
       (unless (minibuffer-prompt)
         (message "%s" msg)))))
