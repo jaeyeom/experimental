@@ -150,7 +150,8 @@ of an error, just add the package to a list of missing packages."
 
 ;;; Package Initialize
 (when (try-require 'package)
-  (package-initialize))
+  (package-initialize)
+  (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/")))
 
 ;; I don't like to put space after magic prefix #!
 (setq-default executable-prefix "#!")
