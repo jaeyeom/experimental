@@ -526,53 +526,59 @@ they line up with the line containing the corresponding opening bracket."
 
 
 ;;;; Eshell Settings
+(eval-after-load 'eshell
+  '(progn
+     ;; These settings may not work well for customization module.
+     (defun eshell/clear ()
+       "Clears the eshell buffer."
+       (interactive)
+       (let ((inhibit-read-only t))
+         (erase-buffer)))
 
-(when (try-require 'eshell)
-  ;; These settings may not work well for customization module.
-  (setq-default eshell-after-prompt-hook (quote (eshell-show-maximum-output)))
-  (setq-default eshell-before-prompt-hook (quote (eshell-begin-on-new-line)))
-  (setq-default eshell-cp-interactive-query t)
-  (setq-default eshell-ln-interactive-query t)
-  (setq-default eshell-mv-interactive-query t)
-  (setq-default eshell-rm-interactive-query t)
+     (defun eshell/em (filename)
+       "Calls find-file."
+       (interactive)
+       (find-file filename))
 
-  (defun eshell/clear ()
-    "Clears the eshell buffer."
-    (interactive)
-    (let ((inhibit-read-only t))
-      (erase-buffer)))
+     (defun eshell/emacs (filename)
+       "Calls find-file."
+       (interactive)
+       (find-file filename))
 
-  (defun eshell/em (filename)
-    "Calls find-file."
-    (interactive)
-    (find-file filename))
-
-  (defun eshell/emacs (filename)
-    "Calls find-file."
-    (interactive)
-    (find-file filename))
-
-  (defun eshell/w3m (url)
-    "Calls w3m-browse-url for URL patterns and w3m-find-file
+     (defun eshell/w3m (url)
+       "Calls w3m-browse-url for URL patterns and w3m-find-file
 otherwise."
-    (interactive)
-    (if (string-match "[a-zA-Z]+://" url)
-        (w3m-browse-url url)
-      (w3m-find-file url)))
+       (interactive)
+       (if (string-match "[a-zA-Z]+://" url)
+           (w3m-browse-url url)
+         (w3m-find-file url)))))
 
-  ;; Eshell Color
-  (when (and (>= emacs-major-version 23)
-             (try-require 'ansi-color))
-    (defun eshell-handle-ansi-color ()
-      (ansi-color-apply-on-region eshell-last-output-start
-                                  eshell-last-output-end))
-    (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color))
+(eval-after-load 'em-prompt
+  '(setq-default eshell-before-prompt-hook '(eshell-begin-on-new-line)))
 
-  (if (fboundp 'eshell-watch-for-password-prompt)
-      (add-to-list 'eshell-output-filter-functions 'eshell-watch-for-password-prompt))
+(eval-after-load 'em-unix
+  '(progn
+     (setq-default eshell-cp-interactive-query t)
+     (setq-default eshell-ln-interactive-query t)
+     (setq-default eshell-mv-interactive-query t)
+     (setq-default eshell-rm-interactive-query t)))
 
-  (if (fboundp 'eshell-handle-control-codes)
-      (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))
+(when (< emacs-major-version 24)
+  (eval-after-load 'esh-mode
+    '(progn
+       (when (and (>= emacs-major-version 23)
+		  (not (fboundp 'eshell-handle-ansi-color))
+		  (try-require 'ansi-color))
+	 (defun eshell-handle-ansi-color ()
+	   (ansi-color-apply-on-region eshell-last-output-start
+				       eshell-last-output-end))
+	 (add-to-list 'eshell-output-filter-functions 'eshell-handle-ansi-color))
+
+       (if (fboundp 'eshell-watch-for-password-prompt)
+	   (add-to-list 'eshell-output-filter-functions 'eshell-watch-for-password-prompt))
+
+       (if (fboundp 'eshell-handle-control-codes)
+	   (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))))
 
 ;;;; About Tramp mode
 (when (= emacs-major-version 23)
