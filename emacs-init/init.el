@@ -434,6 +434,7 @@ will be in the buffer *g scratch*."
                (concat "\e]83;select " (thing-at-point 'word) "\a"))
               (kill-buffer "*screen*"))))
 
+;; Warn long lines.
 (if (>= emacs-major-version 22)
     (progn
       (defun font-lock-width-keyword (width)
@@ -444,16 +445,15 @@ thatuses 'font-lock-warning-face'."
 
       (font-lock-add-keywords 'c++-mode (font-lock-width-keyword 80))
       (font-lock-add-keywords 'python-mode (font-lock-width-keyword 80))
-      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 80)))
+      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 100)))
   (progn
     ;; Turn on red highlighting for characters outside of the 80 char limit
     (add-hook 'c++-mode-hook
               '(lambda () (font-lock-set-up-width-warning 80)))
     (add-hook 'java-mode-hook
-              '(lambda () (font-lock-set-up-width-warning 80)))
+              '(lambda () (font-lock-set-up-width-warning 100)))
     (add-hook 'python-mode-hook
-              '(lambda () (font-lock-set-up-width-warning 80)))
-    ))
+              '(lambda () (font-lock-set-up-width-warning 80)))))
 
 ;; Python
 (if (>= emacs-major-version 23)
