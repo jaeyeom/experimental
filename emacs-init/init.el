@@ -421,10 +421,6 @@ will be in the buffer *g scratch*."
 
 (load "init-org-publish-alist.el" 'noerror)
 
-;; Load Magit
-(when (try-require 'magit)
-  (global-set-key (kbd "C-x v b") 'magit-status))
-
 ;; For older Emacs which doesn't support MultiTTY and if it's not
 ;; window system, it'll use screen feature for launching Emacs faster.
 (when (and (not window-system) (< emacs-major-version 23))
