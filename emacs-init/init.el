@@ -575,10 +575,13 @@ otherwise."
       (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))
 
 ;;;; About Tramp mode
-(when (>= emacs-major-version 23)
-  (setq-default tramp-debug-buffer t)
-  (setq-default tramp-verbose 10)
-  (setq-default tramp-default-method "sshx"))
+(when (= emacs-major-version 23)
+  (eval-after-load 'tramp
+    (setq-default tramp-debug-buffer t)
+    (setq-default tramp-verbose 10)
+    ;; sshx seemed to be good on Emacs 23.
+    ;; Default value "scpc" is good on Emacs 24.
+    (setq-default tramp-default-method "sshx")))
 
 ;;;; EasyPG
 (if (try-require 'epa-file)
