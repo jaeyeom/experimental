@@ -382,6 +382,9 @@ of an error, just add the package to a list of missing packages."
      (define-key org-agenda-mode-map "\C-p" 'previous-line)
      (define-key org-agenda-keymap "\C-p" 'previous-line)))
 
+(eval-after-load 'org-trello
+  '(add-hook 'org-mode-hook 'org-trello-mode))
+
 ;; gdocs - requires emacspeak 35 or higher.
 (when (try-require 'gdocs)
   (defun gdocs-refresh-document-text ()
