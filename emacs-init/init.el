@@ -40,7 +40,6 @@
  '(compilation-scroll-output (quote first-error))
  '(diary-display-hook (quote (fancy-diary-display)))
  '(diary-list-include-blanks t)
- '(dynamic-completion-mode t)
  '(elisp-cache-byte-compile-files t)
  '(font-lock-maximum-decoration t)
  '(global-auto-revert-mode t)
