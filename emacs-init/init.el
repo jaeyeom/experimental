@@ -31,6 +31,7 @@
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
+ '(ansi-color-for-comint-mode t)
  '(auto-image-file-mode t)
  '(blink-cursor-mode nil)
  '(c-basic-offset 2)
@@ -536,10 +537,6 @@ they line up with the line containing the corresponding opening bracket."
                                                        (current-buffer)))))))))
                    nil t))
        (add-hook 'shell-mode-hook 'track-shell-directory/procfs))
-
-     ;; Colorful shell mode
-     (if (try-require 'ansi-color)
-         (setq-default ansi-color-for-comint-mode t))
 
      ;; No pager.
      (setenv "PAGER" "cat")))
