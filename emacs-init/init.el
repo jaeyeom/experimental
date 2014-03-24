@@ -258,12 +258,14 @@ of an error, just add the package to a list of missing packages."
 
 (eval-after-load 'w3m
   '(progn
-     (setq-default browse-url-generic-program "google-chrome")
-     (setq-default
-      browse-url-browser-function
-      '(("^\\(file\\|mailto\\):.+$" . w3m-browse-url) ; w3m takes care of these very well
-        ("^.*$" . browse-url-generic)))
-
+     ;; Set default browser as google-chrome on windows mode.
+     (if (not window-system)
+         (setq-default browse-url-browser-function 'w3m-browse-url)
+       (setq-default browse-url-generic-program "google-chrome")
+       (setq-default
+        browse-url-browser-function
+        '(("^\\(file\\|mailto\\):.+$" . w3m-browse-url) ; w3m takes care of these very well
+          ("^.*$" . browse-url-generic))))
 
      ;; Deletes trailing whitespace whenever the page is loaded.
      (add-hook 'w3m-display-hook
