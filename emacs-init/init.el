@@ -668,21 +668,6 @@ otherwise."
 ;; Keep camel case
 (setq dabbrev-case-fold-search nil)
 
-;;; Uniquify features
-(defun uniquify-region (beg end)
-  "Remove duplicate adjacent lines in the given region from BEG
-to END. This works similar to unix uniq command in the region."
-  (interactive "*r")
-  (goto-char beg)
-  (while (re-search-forward "^\\(.*\n\\)\\1+" end t)
-    (replace-match "\\1")))
-
-(defun uniquify-buffer ()
-  "Remove duplicate adjacent lines in the current buffer. This
-works similar to unix uniq command to the current buffer."
-  (interactive)
-  (uniquify-region (point-min) (point-max)))
-
 ;;; Smart Editing
 (defun smart-delete-space (&optional n)
   "Delete all spaces and tabs around point or join the line.
