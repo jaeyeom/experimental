@@ -154,6 +154,19 @@ of an error, just add the package to a list of missing packages."
   (package-initialize)
   (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/")))
 
+;;; El-Get
+(add-to-list 'load-path "~/.emacs.d/el-get/el-get")
+
+(unless (require 'el-get nil 'noerror)
+  (with-current-buffer
+      (url-retrieve-synchronously
+       "https://raw.github.com/dimitri/el-get/master/el-get-install.el")
+    (goto-char (point-max))
+    (eval-print-last-sexp)))
+
+(add-to-list 'el-get-recipe-path "~/.emacs.d/el-get-user/recipes")
+(el-get 'sync)
+
 ;; I don't like to put space after magic prefix #!
 (setq-default executable-prefix "#!")
 
