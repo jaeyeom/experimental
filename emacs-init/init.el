@@ -17,7 +17,6 @@
 (setq custom-theme-directory (concat emacs-init-dir "themes/"))
 
 ;;; Add load-path in site-lisp and plugins
-(add-to-list 'load-path emacs-init-dir)
 (add-to-list 'load-path emacs-site-lisp-dir)
 (add-to-list 'load-path emacs-plugins-dir)
 (if (and (fboundp 'normal-top-level-add-subdirs-to-load-path)
@@ -764,7 +763,7 @@ reverse conversion of command \\[escape-double-quoted-string]."
 (try-require 'uptime)
 
 ;; Load Local stuffs
-(load "init.local.el" 'noerror)
+(load "~/.emacs.d/init.local.el" 'noerror)
 
 ;;; Rebind find-file
 ;; I don't use this anymore because ido-mode supports this. Only load
@@ -775,6 +774,7 @@ reverse conversion of command \\[escape-double-quoted-string]."
 
 ;;; Uniquify
 (when (try-require 'uniquify)
+  ;; Default from 24.4
   (setq uniquify-buffer-name-style 'post-forward-angle-brackets))
 
 ;;; Midnight mode
