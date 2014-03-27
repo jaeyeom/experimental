@@ -486,6 +486,7 @@ they line up with the line containing the corresponding opening bracket."
 (ad-activate 'python-calculate-indentation)
 
 ;;; Magit
+(try-require 'magit)
 (eval-after-load 'magit
   '(progn
      (defadvice vc-dir (around redirect-magit-status activate compile)
