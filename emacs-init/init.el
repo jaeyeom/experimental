@@ -78,8 +78,6 @@
  '(org-special-ctrl-a/e t)
  '(pop3-leave-mail-on-server t)
  '(python-use-skeletons t)
- '(remember-annotation-functions (quote (org-remember-annotation)))
- '(remember-handler-functions (quote (org-remember-handler)))
  '(require-final-newline (quote ask))
  '(scroll-bar-mode nil)
  '(sgml-xml-mode t)
@@ -351,6 +349,8 @@ of an error, just add the package to a list of missing packages."
              (setq sites (cdr sites))))
          ad-do-it))))
 
+;;;; Org Mode
+
 ;; I'm also going to use org-mode in archive mode and txt file.
 (add-to-list 'auto-mode-alist '("\\.\\(org\\|org_archive\\|txt\\)$" . org-mode))
 
@@ -410,11 +410,16 @@ will be in the buffer *g scratch*."
     (set-buffer-multibyte t)))
 
 ;; Remember mode
-(try-require 'remember)
-(eval-after-load 'remember
-  '(progn
-     (add-hook 'remember-mode-hook 'org-remember-apply-template)
-     (define-key global-map [(control meta ?r)] 'remember)))
+(try-require 'org-remember)
+(eval-after-load 'org-remember
+  '(if (fboundp 'org-remember-insinuate)
+       (org-remember-insinuate)
+     (try-require 'remember)
+     (eval-after-load 'remember
+       '(progn
+          (setq remember-annotation-functions '(org-remember-annotation))
+          (setq remember-handler-functions '(org-remember-handler))
+          (add-hook 'remember-mode-hook 'org-remember-apply-template)))))
 
 ;; Org agenda TODO list will show only unscheduled items. I usually
 ;; check scheduled item from agenda for current week mode, and adds
