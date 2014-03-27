@@ -208,20 +208,6 @@ of an error, just add the package to a list of missing packages."
   (setq-default coding-system-for-read 'utf-8)
   (setq-default file-name-coding-system 'utf-8))
 
-;;;; Auto mode lists
-;;; PHP
-(add-to-list 'auto-mode-alist '("\\.php$" . php-mode))
-(autoload 'php-mode "php-mode"
-  "Major mode for editing php code."
-  t)
-;;; Verilog
-(add-to-list 'auto-mode-alist '("\\.v" . verilog-mode))
-(autoload 'verilog-mode "verilog-mode"
-  "Major mode for editing verilog code."
-  t)
-;;; nML
-(add-to-list 'auto-mode-alist '("\\.n[iylp]?" . n-mode))
-
 ;;;; Dired
 
 (try-require 'dired-x)
