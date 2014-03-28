@@ -354,6 +354,7 @@ of an error, just add the package to a list of missing packages."
 ;; These key maps can be used outside of org-mode.
 (define-key mode-specific-map [?a] 'org-agenda)
 (define-key mode-specific-map [?l] 'org-store-link)
+(define-key mode-specific-map [?r] 'org-capture)
 
 (eval-after-load 'org
   '(progn
