@@ -72,7 +72,6 @@
  '(org-deadline-warning-days 14)
  '(org-export-with-LaTeX-fragments t)
  '(org-fast-tag-selection-single-key (quote expert))
- '(org-remember-store-without-prompt t)
  '(org-reverse-note-order t)
  '(org-special-ctrl-a/e t)
  '(pop3-leave-mail-on-server t)
@@ -355,7 +354,6 @@ of an error, just add the package to a list of missing packages."
 ;; These key maps can be used outside of org-mode.
 (define-key mode-specific-map [?a] 'org-agenda)
 (define-key mode-specific-map [?l] 'org-store-link)
-(define-key mode-specific-map [?r] 'remember)
 
 (eval-after-load 'org
   '(progn
@@ -406,18 +404,6 @@ will be in the buffer *g scratch*."
       (set-buffer-multibyte t))
     (buffer-swap-text (get-buffer g-scratch-buffer))
     (set-buffer-multibyte t)))
-
-;; Remember mode
-(try-require 'org-remember)
-(eval-after-load 'org-remember
-  '(if (fboundp 'org-remember-insinuate)
-       (org-remember-insinuate)
-     (try-require 'remember)
-     (eval-after-load 'remember
-       '(progn
-          (setq remember-annotation-functions '(org-remember-annotation))
-          (setq remember-handler-functions '(org-remember-handler))
-          (add-hook 'remember-mode-hook 'org-remember-apply-template)))))
 
 ;; Org agenda TODO list will show only unscheduled items. I usually
 ;; check scheduled item from agenda for current week mode, and adds
