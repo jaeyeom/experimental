@@ -482,17 +482,20 @@ they line up with the line containing the corresponding opening bracket."
   '(progn
      (defadvice vc-dir (around redirect-magit-status activate compile)
        "Redirect to `magit-status' when `vc-dir' was called in a git repository."
-       (if (string-equal "Git" (car (vc-deduce-fileset t)))
+       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
+               (string-equal "Git" (car (vc-deduce-fileset t))))
            (magit-status dir)
          ad-do-it))
      (defadvice vc-diff (around redirect-magit-diff-working-tree activate compile)
        "Redirect to `magit-diff-working-tree' when `vc-diff' was called in a git repository."
-       (if (string-equal "Git" (car (vc-deduce-fileset t)))
+       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
+               (string-equal "Git" (car (vc-deduce-fileset t))))
            (magit-diff-working-tree "HEAD")
          ad-do-it))
      (defadvice vc-print-log (around redirect-magit-log activate compile)
        "Redirect to `magit-log' when `vc-print-log' was called in a git repository."
-       (if (string-equal "Git" (car (vc-deduce-fileset t)))
+       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
+               (string-equal "Git" (car (vc-deduce-fileset t))))
            (magit-log)
          ad-do-it))))
 
