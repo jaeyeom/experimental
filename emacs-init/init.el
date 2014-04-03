@@ -74,6 +74,7 @@
  '(org-fast-tag-selection-single-key (quote expert))
  '(org-reverse-note-order t)
  '(org-special-ctrl-a/e t)
+ '(org-stuck-projects (quote ("+LEVEL=2/-DONE" ("NEXT" "STARTED") ("SOMEDAY") "")))
  '(org-todo-keywords (quote ((sequence "TODO" "NEXT" "STARTED(@)" "|" "DONE(@)") (type "WAITING(@)" "|" "DEFERRED(@)" "CANCELED(@)"))))
  '(pop3-leave-mail-on-server t)
  '(python-use-skeletons t)
