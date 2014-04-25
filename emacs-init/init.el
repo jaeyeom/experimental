@@ -408,17 +408,6 @@ will be in the buffer *g scratch*."
     (buffer-swap-text (get-buffer g-scratch-buffer))
     (set-buffer-multibyte t)))
 
-;; Org agenda TODO list will show only unscheduled items. I usually
-;; check scheduled item from agenda for current week mode, and adds
-;; unscheduled items from TODO lists if necessary.
-;; (setq org-agenda-todo-ignore-scheduled t)
-
-;; This doesn't show sub TODO items. So TODO list looks much shorter
-;; and brief.
-;; (setq org-agenda-todo-list-sublevels nil)
-
-(load "init-org-publish-alist.el" 'noerror)
-
 ;; For older Emacs which doesn't support MultiTTY and if it's not
 ;; window system, it'll use screen feature for launching Emacs faster.
 (when (and (not window-system) (< emacs-major-version 23))
@@ -654,6 +643,13 @@ otherwise."
 
 ;; Keep camel case
 (setq dabbrev-case-fold-search nil)
+
+;; Ace Jump mode
+(try-require 'ace-jump-mode)
+(eval-after-load 'ace-jump-mode
+  '(progn
+     (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
+     (ace-jump-mode-enable-mark-sync))
 
 ;;; Smart Editing
 (defun smart-delete-space (&optional n)
