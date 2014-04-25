@@ -649,15 +649,6 @@ otherwise."
 ;; keystrokes so it isn't so annoying
 (setq auto-save-interval 1000)
 
-(defun goto-matching-paren-or-insert (arg)
-  "Go to the matching parenthesis if on parenthesis otherwise insert it."
-  (interactive "p")
-  (cond ((looking-at "\\s\(") (forward-sexp 1))
-        ((looking-back "\\s\)") (backward-sexp 1))
-        (t (self-insert-command (or arg 1)))))
-
-(global-set-key "%" 'goto-matching-paren-or-insert)
-
 ;; Can open minibuffer in the minibuffer
 (setq enable-recursive-minibuffers t)
 
