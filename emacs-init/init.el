@@ -648,7 +648,7 @@ otherwise."
 (eval-after-load 'ace-jump-mode
   '(progn
      (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
-     (ace-jump-mode-enable-mark-sync))
+     (ace-jump-mode-enable-mark-sync)))
 
 ;;; Smart Editing
 (defun smart-delete-space (&optional n)
