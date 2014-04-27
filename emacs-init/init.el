@@ -489,16 +489,15 @@ they line up with the line containing the corresponding opening bracket."
            (magit-log)
          ad-do-it))))
 
-;;; CoffeeScript
+;;; Multiple Cursors
+(try-require 'multiple-cursors)
+(eval-after-load 'multiple-cursors
+  '(progn
+     (global-set-key (kbd "C-S-c C-S-c") 'mc/edit-lines)
+     (global-set-key (kbd "C->") 'mc/mark-next-like-this)
+     (global-set-key (kbd "C-<") 'mc/mark-previous-like-this)
+     (global-set-key (kbd "C-c C-<") 'mc/mark-all-like-this)))
 
-(add-to-list 'auto-mode-alist '("\\.coffee$" . coffee-mode))
-(add-to-list 'auto-mode-alist '("Cakefile" . coffee-mode))
-(autoload 'coffee-mode "coffee-mode"
-  "Major mode for editing CoffeeScript code."
-  t)
-;; Unfortunately, this should be loaded before coffee-mode.
-(setq-default coffee-tab-width 2)
-(setq-default coffee-cygwin-mode nil)
 
 ;;;; Shell
 
