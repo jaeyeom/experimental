@@ -156,7 +156,7 @@ of an error, just add the package to a list of missing packages."
   (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/")))
 
 ;;; El-Get
-(add-to-list 'load-path "~/.emacs.d/el-get/el-get")
+(add-to-list 'load-path (concat emacs-init-dir "el-get/el-get"))
 
 (unless (require 'el-get nil 'noerror)
   (with-current-buffer
@@ -165,7 +165,7 @@ of an error, just add the package to a list of missing packages."
     (goto-char (point-max))
     (eval-print-last-sexp)))
 
-(add-to-list 'el-get-recipe-path "~/.emacs.d/el-get-user/recipes")
+(add-to-list 'el-get-recipe-path (concat emacs-init-dir "el-get-user/recipes"))
 (el-get 'sync)
 
 ;; I don't like to put space after magic prefix #!
@@ -234,8 +234,9 @@ of an error, just add the package to a list of missing packages."
 (global-set-key [(?\C-c) (c)] 'compile)
 
 ;;; Initialize yasnippet
-(when (try-require 'yasnippet)
-  (yas-global-mode 1))
+(try-require 'yasnippet)
+(eval-after-load 'yasnippet
+  '(yas-global-mode 1))
 
 ;;; Ebrowse will load BROWSE file when idle time
 ;; (when (try-require 'ebrowse)
