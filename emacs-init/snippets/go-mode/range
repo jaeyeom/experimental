@@ -1,0 +1,7 @@
+# -*- mode: snippet -*-
+# name: range
+# key: range
+# --
+for ${2:_, _} := range ${1:target} {
+$0
+}
