@@ -4,6 +4,7 @@
 ;; Date: 2007--2013
 ;;
 
+
 ;;;; Basic Directory Settings
 
 (defvar emacs-init-dir "~/.emacs.d/"
@@ -24,7 +25,9 @@
     (let ((default-directory emacs-plugins-dir))
       (normal-top-level-add-subdirs-to-load-path)))
 
+
 ;;;; Customize
+
 (custom-set-variables
  ;; custom-set-variables was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
@@ -124,12 +127,12 @@
  '(p4-diff-head-face ((t (:background "dark slate blue"))) t)
  '(p4-diff-ins-face ((t (:foreground "green"))) t))
 
-;;; ------ TRY REQUIRE ------
+
+;;;; try-require
 
 (defvar missing-packages-list nil
   "List of packages that `try-require' can't find.")
 
-;; attempt to load a feature/library, failing silently
 (defun try-require (feature)
   "Attempt to load a library or module. Return true if the
 library given as argument is successfully loaded. If not, instead
@@ -150,6 +153,9 @@ of an error, just add the package to a list of missing packages."
            (add-to-list 'missing-packages-list feature 'append))
          nil))))
 
+
+;;;; Package Management
+
 ;;; Package Initialize
 (when (try-require 'package)
   (package-initialize)
@@ -168,13 +174,9 @@ of an error, just add the package to a list of missing packages."
 (add-to-list 'el-get-recipe-path (concat emacs-init-dir "el-get-user/recipes"))
 (el-get 'sync)
 
-;; I don't like to put space after magic prefix #!
-(setq-default executable-prefix "#!")
-
-;; Make searches case insensative by default
-(setq-default case-fold-search t)
 
 ;;;; Display Settings
+
 (setq split-width-threshold 170)
 (modify-frame-parameters (selected-frame) default-frame-alist)
 
@@ -199,14 +201,14 @@ of an error, just add the package to a list of missing packages."
     (interactive)
     (add-to-list 'default-frame-alist '(alpha 80 65))))
 
-;;;; Alternative color settings
-
-;;; 8 colors
+;;; Alternative color settings
+;; 8 colors
 ;; ("black" "red" "green" "yellow" "blue" "magenta" "cyan" "white")
 (when (= (display-color-cells) 8)
   t)
 
-;;;; Coding systems
+
+;;;; Editing
 
 ;;; Korean language and UTF-8 settings.
 ;; Forcing to use utf-8 coding system.
@@ -221,224 +223,40 @@ of an error, just add the package to a list of missing packages."
   (setq-default coding-system-for-read 'utf-8)
   (setq-default file-name-coding-system 'utf-8))
 
-;;;; Dired
+;; I don't like to put space after magic prefix #!
+(setq-default executable-prefix "#!")
 
-(try-require 'dired-x)
-;; Print sizes in human readable format.
-(setq-default dired-listing-switches "-alh")
-(setq-default image-dired-append-when-browsing t)
+;; Make searches case insensative by default
+(setq-default case-fold-search t)
 
-;;;; Emacs for Development
+;; I like line moves point by logical lines not by visible lines.
+;; (setq-default ...) does not work here.
+(setq line-move-visual nil)
 
-;; Mapping key C-c c to compile
-(global-set-key [(?\C-c) (c)] 'compile)
+;; Emacs 23 likes to pop up real X windows for tooltips, which is
+;; highly annoying on slow connections, especially using VNC or
+;; NX. This makes it use the echo-area like it used to.
+;; (setq-default ...) does not work here.
+(setq tooltip-use-echo-area t)
 
-(eval-after-load 'go-mode
+;; change save interval from 300 to 1000
+;; keystrokes so it isn't so annoying
+(setq auto-save-interval 1000)
+
+;; Can open minibuffer in the minibuffer
+(setq enable-recursive-minibuffers t)
+
+;;; Uniquify
+(when (try-require 'uniquify)
+  ;; Default from 24.4
+  (setq uniquify-buffer-name-style 'post-forward-angle-brackets))
+
+;;; Ace Jump mode
+(try-require 'ace-jump-mode)
+(eval-after-load 'ace-jump-mode
   '(progn
-     (try-require 'go-eldoc)
-     (add-hook 'before-save-hook 'gofmt-before-save)
-     (add-hook 'go-mode-hook
-               (lambda ()
-                 (local-set-key (kbd "C-c C-r") 'go-remove-unused-imports)))
-     (add-hook 'go-mode-hook
-               (lambda ()
-                 (local-set-key (kbd "C-c i") 'go-goto-imports)))))
-
-(eval-after-load 'go-eldoc
-  '(add-hook 'go-mode-hook 'go-eldoc-setup))
-
-;;; Initialize yasnippet
-(try-require 'yasnippet)
-(eval-after-load 'yasnippet
-  '(yas-global-mode 1))
-
-;;; Ebrowse will load BROWSE file when idle time
-;; (when (try-require 'ebrowse)
-;;   (defun revert-ebrowse-tree-if-exists ()
-;;     (save-current-buffer
-;;       (dolist (buf (ebrowse-tree-buffer-list))
-;;         (set-buffer buf)
-;;         (revert-buffer 'ignore-auto 'noconfirm 'preserve-modes))))
-
-;;   (set 'ebrowse-tree-reload-idle-timer
-;;        (run-with-idle-timer 600 t 'revert-ebrowse-tree-if-exists)))
-
-;; Load Emacs W3M
-
-;;;; W3m configuration
-
-(autoload 'w3m "w3m"
-  "Web browser in Emacs."
-  t)
-
-(eval-after-load 'w3m
-  '(progn
-     ;; Set default browser as google-chrome on windows mode.
-     (if (not window-system)
-         (setq-default browse-url-browser-function 'w3m-browse-url)
-       (setq-default browse-url-generic-program "google-chrome")
-       (setq-default
-        browse-url-browser-function
-        '(("^\\(file\\|mailto\\):.+$" . w3m-browse-url) ; w3m takes care of these very well
-          ("^.*$" . browse-url-generic))))
-
-     ;; Deletes trailing whitespace whenever the page is loaded.
-     (add-hook 'w3m-display-hook
-               (lambda (url)
-                 (let ((buffer-read-only nil))
-                   (delete-trailing-whitespace))))
-
-     ;; Setting w3m-use-title-buffer-name will disambiguate buffer
-     ;; name. Lower version which doesn't have this variable needs hook
-     ;; function to do this manually.
-     (if (boundp 'w3m-use-title-buffer-name)
-         (setq w3m-use-title-buffer-name t)
-       (add-hook 'w3m-display-hook
-                 (lambda (url)
-                   (rename-buffer
-                    (format "*w3m: %s*" (or w3m-current-title
-                                            w3m-current-url)) t))))))
-
-;;;; Org Mode
-
-;; I'm also going to use org-mode in archive mode and txt file.
-(add-to-list 'auto-mode-alist '("\\.\\(org\\|org_archive\\|txt\\)$" . org-mode))
-
-;; These key maps can be used outside of org-mode.
-(define-key mode-specific-map [?a] 'org-agenda)
-(define-key mode-specific-map [?l] 'org-store-link)
-(define-key mode-specific-map [?r] 'org-capture)
-
-(eval-after-load 'org
-  '(progn
-     ;; C-c x and shortcut will change todo state like the following.
-     (define-prefix-command 'org-todo-state-map)
-     (define-key org-mode-map "\C-cx" 'org-todo-state-map)
-     (define-key org-todo-state-map "x"
-       #'(lambda nil (interactive) (org-todo "CANCELED")))
-     (define-key org-todo-state-map "d"
-       #'(lambda nil (interactive) (org-todo "DONE")))
-     (define-key org-todo-state-map "f"
-       #'(lambda nil (interactive) (org-todo "DEFERRED")))
-     (define-key org-todo-state-map "l"
-       #'(lambda nil (interactive) (org-todo "DELEGATED")))
-     (define-key org-todo-state-map "s"
-       #'(lambda nil (interactive) (org-todo "STARTED")))
-     (define-key org-todo-state-map "w"
-       #'(lambda nil (interactive) (org-todo "WAITING")))))
-
-(eval-after-load 'org-agenda
-  '(progn
-     ;; C-n and C-p won't be overridden in org-agenda-mode.
-     (define-key org-agenda-mode-map "\C-n" 'next-line)
-     (define-key org-agenda-keymap "\C-n" 'next-line)
-     (define-key org-agenda-mode-map "\C-p" 'previous-line)
-     (define-key org-agenda-keymap "\C-p" 'previous-line)))
-
-;; gdocs - requires emacspeak 35 or higher.
-(when (try-require 'gdocs)
-  (defun gdocs-refresh-document-text ()
-    "Refresh document from Google docs. Current document contents
-will be in the buffer *g scratch*."
-    (interactive)
-    (gdocs-fetch-document-text)
-    (with-current-buffer g-scratch-buffer
-      (when (/= 10 (char-before (point-max)))
-        (goto-char (point-max))
-        (insert-char 10 1))
-      ;; Cleanup newline style
-      (goto-char (point-min))
-      (replace-string "" "")
-      (goto-char (point-min))
-      (replace-string "\n\n" "\n")
-      (goto-char (point-min))
-      ;; Remove unknown dirty characters at the beginning
-      (if (looking-at "\357\273\277")
-          (delete-char 3))
-      (set-buffer-multibyte t))
-    (buffer-swap-text (get-buffer g-scratch-buffer))
-    (set-buffer-multibyte t)))
-
-;; For older Emacs which doesn't support MultiTTY and if it's not
-;; window system, it'll use screen feature for launching Emacs faster.
-(when (and (not window-system) (< emacs-major-version 23))
-  (add-hook 'after-init-hook 'server-start)
-  (add-hook 'server-done-hook
-            (lambda ()
-              (set-buffer (get-buffer-create "*screen*"))
-              (insert-file-contents "/tmp/emacsclient-caller")
-              (send-string-to-terminal
-               (concat "\e]83;select " (thing-at-point 'word) "\a"))
-              (kill-buffer "*screen*"))))
-
-;; Warn long lines.
-(if (>= emacs-major-version 22)
-    (progn
-      (defun font-lock-width-keyword (width)
-        "Return a font-lock style keyword for a string beyond width WIDTH
-thatuses 'font-lock-warning-face'."
-        `((,(format "^%s\\(.+\\)" (make-string width ?.))
-           (1 font-lock-warning-face t))))
-
-      (font-lock-add-keywords 'c++-mode (font-lock-width-keyword 80))
-      (font-lock-add-keywords 'python-mode (font-lock-width-keyword 80))
-      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 100)))
-  (progn
-    ;; Turn on red highlighting for characters outside of the 80 char limit
-    (add-hook 'c++-mode-hook
-              '(lambda () (font-lock-set-up-width-warning 80)))
-    (add-hook 'java-mode-hook
-              '(lambda () (font-lock-set-up-width-warning 100)))
-    (add-hook 'python-mode-hook
-              '(lambda () (font-lock-set-up-width-warning 80)))))
-
-;; Python
-(if (>= emacs-major-version 23)
-    (defadvice python-send-buffer (after advice-switch-to-python)
-      "Switch to *Python* after C-c C-c"
-      (python-switch-to-python t)))
-
-(defadvice python-calculate-indentation (around outdent-closing-brackets)
-  "Handle lines beginning with a closing bracket and indent them so that
-they line up with the line containing the corresponding opening bracket."
-  (save-excursion
-    (beginning-of-line)
-    (let ((syntax (syntax-ppss)))
-      (if (and (not (eq 'string (syntax-ppss-context syntax)))
-               (python-continuation-line-p)
-               (cadr syntax)
-               (skip-syntax-forward "-")
-               (looking-at "\\s)"))
-          (progn
-            (end-of-line)
-            (ignore-errors (backward-sexp))
-            (setq ad-return-value (current-indentation)))
-        ad-do-it))))
-
-(ad-activate 'python-calculate-indentation)
-
-;;; Magit
-(try-require 'magit)
-(eval-after-load 'magit
-  '(progn
-     (defadvice vc-dir (around redirect-magit-status activate compile)
-       "Redirect to `magit-status' when `vc-dir' was called in a git repository."
-       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
-               (string-equal "Git" (car (vc-deduce-fileset t))))
-           (magit-status dir)
-         ad-do-it))
-     (defadvice vc-diff (around redirect-magit-diff-working-tree activate compile)
-       "Redirect to `magit-diff-working-tree' when `vc-diff' was called in a git repository."
-       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
-               (string-equal "Git" (car (vc-deduce-fileset t))))
-           (magit-diff-working-tree "HEAD")
-         ad-do-it))
-     (defadvice vc-print-log (around redirect-magit-log activate compile)
-       "Redirect to `magit-log' when `vc-print-log' was called in a git repository."
-       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
-               (string-equal "Git" (car (vc-deduce-fileset t))))
-           (magit-log)
-         ad-do-it))))
+     (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
+     (ace-jump-mode-enable-mark-sync)))
 
 ;;; Multiple Cursors
 (try-require 'multiple-cursors)
@@ -449,9 +267,76 @@ they line up with the line containing the corresponding opening bracket."
      (global-set-key (kbd "C-<") 'mc/mark-previous-like-this)
      (global-set-key (kbd "C-c C-<") 'mc/mark-all-like-this)))
 
+;;; Smart Editing
+(defun smart-delete-space (&optional n)
+  "Delete all spaces and tabs around point or join the line.
+If N is non-nil, non-integer value, only delete them before
+point. If N is an integer, it calls calls just-one-space with
+N. From the second time, it will leaving one space (or N
+spaces). If the position is at the beginning or end of the line,
+it will join the line."
+  (interactive "*P")
+  (cond
+   ((eq this-command last-command)
+    (cond
+     ((and (/= (point) (point-max))
+           (= (point) (line-end-position)))
+      (delete-char 1))
+     ((and (/= (point) (point-min))
+           (= (point) (line-beginning-position)))
+      (delete-char -1)))
+    ;; It won't put any spaces by default if the line is empty.
+    (or (and (not n)
+             (or (= (point) (line-end-position))
+                 (= (point) (line-beginning-position)))
+             (looking-at-p "^\\|$"))
+        (just-one-space n)))
+   ((integerp n)
+    (just-one-space n))
+   (t
+    (delete-horizontal-space n))))
 
-;;;; Shell
+;; Mapping key M-\ to smart-delete-space
+(global-set-key "\M-\\" 'smart-delete-space)
 
+;; Force alt key as meta key
+(setq x-alt-keysym 'meta)
+
+;; for disabling quail completion
+(eval-after-load "quail"
+  '(progn
+     (define-key quail-translation-keymap [tab] nil)
+     (define-key quail-translation-keymap "\C-i" nil)))
+
+;;; linum-mode
+;; Adds additional 1 space after line number because there is no space
+;; between the line number and file contents in terminal Emacs.
+(eval-after-load 'linum
+  (setq linum-format
+        (lambda (line)
+          (propertize (format
+                       (let ((w (length (number-to-string
+                                         (count-lines (point-min) (point-max))))))
+                         (concat "%" (number-to-string w) "d ")) line) 'face 'linum))))
+
+
+;;;; Files and Shell
+
+;;; Dired
+(try-require 'dired-x)
+(setq-default dired-listing-switches "-alh")  ; Print sizes in human readable format.
+(setq-default image-dired-append-when-browsing t)
+
+;;; Tramp
+(when (= emacs-major-version 23)
+  (eval-after-load 'tramp
+    (setq-default tramp-debug-buffer t)
+    (setq-default tramp-verbose 10)
+    ;; sshx seemed to be good on Emacs 23.
+    ;; Default value "scpc" is good on Emacs 24.
+    (setq-default tramp-default-method "sshx")))
+
+;;; Shell
 (eval-after-load 'shell
   '(progn
      (when (file-exists-p "/proc")
@@ -476,8 +361,7 @@ they line up with the line containing the corresponding opening bracket."
      ;; No pager.
      (setenv "PAGER" "cat")))
 
-
-;;;; Eshell Settings
+;;; Eshell
 (eval-after-load 'eshell
   '(progn
      ;; These settings may not work well for customization module.
@@ -532,118 +416,52 @@ otherwise."
        (if (fboundp 'eshell-handle-control-codes)
            (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))))
 
-;;;; About Tramp mode
-(when (= emacs-major-version 23)
-  (eval-after-load 'tramp
-    (setq-default tramp-debug-buffer t)
-    (setq-default tramp-verbose 10)
-    ;; sshx seemed to be good on Emacs 23.
-    ;; Default value "scpc" is good on Emacs 24.
-    (setq-default tramp-default-method "sshx")))
-
-;;;; EasyPG
-(if (try-require 'epa-file)
-    (epa-file-enable))
-
-;;;; Jabber
-(eval-after-load 'jabber-alert
-  ;; Message alert hooks
-  '(define-jabber-alert echo "Show a message in the echo area"
-    (lambda (msg)
-      (unless (minibuffer-prompt)
-        (message "%s" msg)))))
-
-;;;; linum-mode
-;; Adds additional 1 space after line number because there is no space
-;; between the line number and file contents in terminal Emacs.
-(eval-after-load 'linum
-  (setq linum-format
-        (lambda (line)
-          (propertize (format
-                       (let ((w (length (number-to-string
-                                         (count-lines (point-min) (point-max))))))
-                         (concat "%" (number-to-string w) "d ")) line) 'face 'linum))))
-
-(try-require 'init-directed-switch)
-
-;;;; Bash completion
+;;; Bash completion
 (when (< emacs-major-version 24)
   (try-require 'bash-completion)
   (eval-after-load 'bash-completion
     '(bash-completion-setup)))
 
-;;;; Editing
+;;; EasyPG
+(try-require 'epa-file)
+(eval-after-load 'epa-file
+  '(progn
+     (epa-file-enable)
+     ;; Prevent desktop popup for asking password.
+     (setenv "GPG_AGENT_INFO" nil)))
 
-;; I like line moves point by logical lines not by visible lines.
-;; (setq-default ...) does not work here.
-(setq line-move-visual nil)
 
-;; Emacs 23 likes to pop up real X windows for tooltips, which is
-;; highly annoying on slow connections, especially using VNC or
-;; NX. This makes it use the echo-area like it used to.
-;; (setq-default ...) does not work here.
-(setq tooltip-use-echo-area t)
+;;;; Development
 
-;; change save interval from 300 to 1000
-;; keystrokes so it isn't so annoying
-(setq auto-save-interval 1000)
+;; Mapping key C-c c to compile
+(global-set-key [(?\C-c) (c)] 'compile)
 
-;; Can open minibuffer in the minibuffer
-(setq enable-recursive-minibuffers t)
+;; Comment Region
+(global-set-key "\C-c;" 'comment-region)
 
 ;; Keep camel case
 (setq dabbrev-case-fold-search nil)
 
-;; Ace Jump mode
-(try-require 'ace-jump-mode)
-(eval-after-load 'ace-jump-mode
-  '(progn
-     (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
-     (ace-jump-mode-enable-mark-sync)))
+;; Warn long lines.
+(if (>= emacs-major-version 22)
+    (progn
+      (defun font-lock-width-keyword (width)
+        "Return a font-lock style keyword for a string beyond width WIDTH
+thatuses 'font-lock-warning-face'."
+        `((,(format "^%s\\(.+\\)" (make-string width ?.))
+           (1 font-lock-warning-face t))))
 
-;;; Smart Editing
-(defun smart-delete-space (&optional n)
-  "Delete all spaces and tabs around point or join the line.
-If N is non-nil, non-integer value, only delete them before
-point. If N is an integer, it calls calls just-one-space with
-N. From the second time, it will leaving one space (or N
-spaces). If the position is at the beginning or end of the line,
-it will join the line."
-  (interactive "*P")
-  (cond
-   ((eq this-command last-command)
-    (cond
-     ((and (/= (point) (point-max))
-           (= (point) (line-end-position)))
-      (delete-char 1))
-     ((and (/= (point) (point-min))
-           (= (point) (line-beginning-position)))
-      (delete-char -1)))
-    ;; It won't put any spaces by default if the line is empty.
-    (or (and (not n)
-             (or (= (point) (line-end-position))
-                 (= (point) (line-beginning-position)))
-             (looking-at-p "^\\|$"))
-        (just-one-space n)))
-   ((integerp n)
-    (just-one-space n))
-   (t
-    (delete-horizontal-space n))))
-
-;; Mapping key M-\ to smart-delete-space
-(global-set-key "\M-\\" 'smart-delete-space)
-
-;; Force alt key as meta key
-(setq x-alt-keysym 'meta)
-
-;;; Comment Region
-(global-set-key "\C-c;" 'comment-region)
-
-;; for disabling quail completion
-(eval-after-load "quail"
-  '(progn
-     (define-key quail-translation-keymap [tab] nil)
-     (define-key quail-translation-keymap "\C-i" nil)))
+      (font-lock-add-keywords 'c++-mode (font-lock-width-keyword 80))
+      (font-lock-add-keywords 'python-mode (font-lock-width-keyword 80))
+      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 100)))
+  (progn
+    ;; Turn on red highlighting for characters outside of the 80 char limit
+    (add-hook 'c++-mode-hook
+              '(lambda () (font-lock-set-up-width-warning 80)))
+    (add-hook 'java-mode-hook
+              '(lambda () (font-lock-set-up-width-warning 100)))
+    (add-hook 'python-mode-hook
+              '(lambda () (font-lock-set-up-width-warning 80)))))
 
 ;;; Helper function for escaping and unescaping double quoted string.
 (defun escape-double-quoted-string ()
@@ -696,36 +514,202 @@ reverse conversion of command \\[escape-double-quoted-string]."
     (while (search-forward "\\\\" end t)
       (replace-match "\\" nil t))))
 
-(defun insert-current-date ()
-  (interactive)
-  ;; TODO(jaeyeom): Make this work on Windows.
-  (insert (shell-command-to-string "echo -n $(date +%Y-%m-%d)")))
+;;; Yasnippet
+(try-require 'yasnippet)
+(eval-after-load 'yasnippet
+  '(yas-global-mode 1))
+
+;;; Go
+(eval-after-load 'go-mode
+  '(progn
+     (try-require 'go-eldoc)
+     (add-hook 'before-save-hook 'gofmt-before-save)
+     (add-hook 'go-mode-hook
+               (lambda ()
+                 (local-set-key (kbd "C-c C-r") 'go-remove-unused-imports)))
+     (add-hook 'go-mode-hook
+               (lambda ()
+                 (local-set-key (kbd "C-c i") 'go-goto-imports)))))
+
+(eval-after-load 'go-eldoc
+  '(add-hook 'go-mode-hook 'go-eldoc-setup))
+
+;;; Python
+(if (>= emacs-major-version 23)
+    (defadvice python-send-buffer (after advice-switch-to-python)
+      "Switch to *Python* after C-c C-c"
+      (python-switch-to-python t)))
+
+(defadvice python-calculate-indentation (around outdent-closing-brackets)
+  "Handle lines beginning with a closing bracket and indent them so that
+they line up with the line containing the corresponding opening bracket."
+  (save-excursion
+    (beginning-of-line)
+    (let ((syntax (syntax-ppss)))
+      (if (and (not (eq 'string (syntax-ppss-context syntax)))
+               (python-continuation-line-p)
+               (cadr syntax)
+               (skip-syntax-forward "-")
+               (looking-at "\\s)"))
+          (progn
+            (end-of-line)
+            (ignore-errors (backward-sexp))
+            (setq ad-return-value (current-indentation)))
+        ad-do-it))))
+
+(ad-activate 'python-calculate-indentation)
+
+;;; Magit
+(try-require 'magit)
+(eval-after-load 'magit
+  '(progn
+     (defadvice vc-dir (around redirect-magit-status activate compile)
+       "Redirect to `magit-status' when `vc-dir' was called in a git repository."
+       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
+               (string-equal "Git" (car (vc-deduce-fileset t))))
+           (magit-status dir)
+         ad-do-it))
+     (defadvice vc-diff (around redirect-magit-diff-working-tree activate compile)
+       "Redirect to `magit-diff-working-tree' when `vc-diff' was called in a git repository."
+       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
+               (string-equal "Git" (car (vc-deduce-fileset t))))
+           (magit-diff-working-tree "HEAD")
+         ad-do-it))
+     (defadvice vc-print-log (around redirect-magit-log activate compile)
+       "Redirect to `magit-log' when `vc-print-log' was called in a git repository."
+       (if (or (string-equal "GIT" (car (vc-deduce-fileset t)))
+               (string-equal "Git" (car (vc-deduce-fileset t))))
+           (magit-log)
+         ad-do-it))))
+
+
+;;;; Apps
+
+;;; W3m
+(autoload 'w3m "w3m"
+  "Web browser in Emacs."
+  t)
+
+(eval-after-load 'w3m
+  '(progn
+     ;; Set default browser as google-chrome on windows mode.
+     (if (not window-system)
+         (setq-default browse-url-browser-function 'w3m-browse-url)
+       (setq-default browse-url-generic-program "google-chrome")
+       (setq-default
+        browse-url-browser-function
+        '(("^\\(file\\|mailto\\):.+$" . w3m-browse-url) ; w3m takes care of these very well
+          ("^.*$" . browse-url-generic))))
+
+     ;; Deletes trailing whitespace whenever the page is loaded.
+     (add-hook 'w3m-display-hook
+               (lambda (url)
+                 (let ((buffer-read-only nil))
+                   (delete-trailing-whitespace))))
+
+     ;; Setting w3m-use-title-buffer-name will disambiguate buffer
+     ;; name. Lower version which doesn't have this variable needs hook
+     ;; function to do this manually.
+     (if (boundp 'w3m-use-title-buffer-name)
+         (setq w3m-use-title-buffer-name t)
+       (add-hook 'w3m-display-hook
+                 (lambda (url)
+                   (rename-buffer
+                    (format "*w3m: %s*" (or w3m-current-title
+                                            w3m-current-url)) t))))))
+
+;;; Org Mode
+;; I'm also going to use org-mode in archive mode and txt file.
+(add-to-list 'auto-mode-alist '("\\.\\(org\\|org_archive\\|txt\\)$" . org-mode))
+
+;; These key maps can be used outside of org-mode.
+(define-key mode-specific-map [?a] 'org-agenda)
+(define-key mode-specific-map [?l] 'org-store-link)
+(define-key mode-specific-map [?r] 'org-capture)
+
+(eval-after-load 'org
+  '(progn
+     ;; C-c x and shortcut will change todo state like the following.
+     (define-prefix-command 'org-todo-state-map)
+     (define-key org-mode-map "\C-cx" 'org-todo-state-map)
+     (define-key org-todo-state-map "x"
+       #'(lambda nil (interactive) (org-todo "CANCELED")))
+     (define-key org-todo-state-map "d"
+       #'(lambda nil (interactive) (org-todo "DONE")))
+     (define-key org-todo-state-map "f"
+       #'(lambda nil (interactive) (org-todo "DEFERRED")))
+     (define-key org-todo-state-map "l"
+       #'(lambda nil (interactive) (org-todo "DELEGATED")))
+     (define-key org-todo-state-map "s"
+       #'(lambda nil (interactive) (org-todo "STARTED")))
+     (define-key org-todo-state-map "w"
+       #'(lambda nil (interactive) (org-todo "WAITING")))))
+
+(eval-after-load 'org-agenda
+  '(progn
+     ;; C-n and C-p won't be overridden in org-agenda-mode.
+     (define-key org-agenda-mode-map "\C-n" 'next-line)
+     (define-key org-agenda-keymap "\C-n" 'next-line)
+     (define-key org-agenda-mode-map "\C-p" 'previous-line)
+     (define-key org-agenda-keymap "\C-p" 'previous-line)))
+
+;;; GDocs
+;; requires emacspeak 35 or higher.
+(when (try-require 'gdocs)
+  (defun gdocs-refresh-document-text ()
+    "Refresh document from Google docs. Current document contents
+will be in the buffer *g scratch*."
+    (interactive)
+    (gdocs-fetch-document-text)
+    (with-current-buffer g-scratch-buffer
+      (when (/= 10 (char-before (point-max)))
+        (goto-char (point-max))
+        (insert-char 10 1))
+      ;; Cleanup newline style
+      (goto-char (point-min))
+      (replace-string "" "")
+      (goto-char (point-min))
+      (replace-string "\n\n" "\n")
+      (goto-char (point-min))
+      ;; Remove unknown dirty characters at the beginning
+      (if (looking-at "\357\273\277")
+          (delete-char 3))
+      (set-buffer-multibyte t))
+    (buffer-swap-text (get-buffer g-scratch-buffer))
+    (set-buffer-multibyte t)))
+
+;;; Jabber
+(eval-after-load 'jabber-alert
+  ;; Message alert hooks
+  '(define-jabber-alert echo "Show a message in the echo area"
+    (lambda (msg)
+      (unless (minibuffer-prompt)
+        (message "%s" msg)))))
+
+
+;;;; Emacs Server
+
+;;; Load Local stuffs
+(load "~/.emacs.d/init.local.el" 'noerror)
 
 ;;; Miscellaneous
 (try-require 'uptime)
-
-;; Load Local stuffs
-(load "~/.emacs.d/init.local.el" 'noerror)
-
-;;; Rebind find-file
-;; I don't use this anymore because ido-mode supports this. Only load
-;; this when ido-mode is missing.
-(when (and (not (fboundp 'ido-mode))
-           (try-require 'ffap))
-  (define-key ctl-x-map "\C-f" 'find-file-at-point))
-
-;;; Uniquify
-(when (try-require 'uniquify)
-  ;; Default from 24.4
-  (setq uniquify-buffer-name-style 'post-forward-angle-brackets))
 
 ;;; Midnight mode
 (when (try-require 'midnight)
   (midnight-delay-set 'midnight-delay "4:00am"))
 
-;;; GPG
-;; Prevent desktop popup for asking password.
-(setenv "GPG_AGENT_INFO" nil)
+;; For older Emacs which doesn't support MultiTTY and if it's not
+;; window system, it'll use screen feature for launching Emacs faster.
+(when (and (not window-system) (< emacs-major-version 23))
+  (add-hook 'after-init-hook 'server-start)
+  (add-hook 'server-done-hook
+            (lambda ()
+              (set-buffer (get-buffer-create "*screen*"))
+              (insert-file-contents "/tmp/emacsclient-caller")
+              (send-string-to-terminal
+               (concat "\e]83;select " (thing-at-point 'word) "\a"))
+              (kill-buffer "*screen*"))))
 
 ;;;; Desktop Mode
 (when (>= emacs-major-version 23)
