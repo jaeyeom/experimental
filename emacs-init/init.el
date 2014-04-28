@@ -233,6 +233,20 @@ of an error, just add the package to a list of missing packages."
 ;; Mapping key C-c c to compile
 (global-set-key [(?\C-c) (c)] 'compile)
 
+(eval-after-load 'go-mode
+  '(progn
+     (try-require 'go-eldoc)
+     (add-hook 'before-save-hook 'gofmt-before-save)
+     (add-hook 'go-mode-hook
+               (lambda ()
+                 (local-set-key (kbd "C-c C-r") 'go-remove-unused-imports)))
+     (add-hook 'go-mode-hook
+               (lambda ()
+                 (local-set-key (kbd "C-c i") 'go-goto-imports)))))
+
+(eval-after-load 'go-eldoc
+  '(add-hook 'go-mode-hook 'go-eldoc-setup))
+
 ;;; Initialize yasnippet
 (try-require 'yasnippet)
 (eval-after-load 'yasnippet
