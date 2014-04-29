@@ -223,6 +223,10 @@ of an error, just add the package to a list of missing packages."
   (setq-default coding-system-for-read 'utf-8)
   (setq-default file-name-coding-system 'utf-8))
 
+;; Home and End key in terminal
+(global-set-key (kbd "M-[ F") 'move-end-of-line)
+(global-set-key (kbd "M-[ H") 'move-beginning-of-line)
+
 ;; I don't like to put space after magic prefix #!
 (setq-default executable-prefix "#!")
 
