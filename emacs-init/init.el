@@ -199,7 +199,7 @@ of an error, just add the package to a list of missing packages."
     (message "Function `transparent-default-frame' is already bounded")
   (defun transparent-default-frame ()
     (interactive)
-    (add-to-list 'default-frame-alist '(alpha 80 65))))
+    (add-to-list 'default-frame-alist '(alpha 85 70))))
 
 ;;; Alternative color settings
 ;; 8 colors
