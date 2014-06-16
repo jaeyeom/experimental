@@ -208,10 +208,9 @@ of an error, just add the package to a list of missing packages."
   t)
 
 ;; Clear background color on terminals, so it could be transparent.
-(defun clear-term-background-color (frame)
+(defun clear-term-background-color ()
   (interactive)
-  (unless (display-graphic-p frame)
-    (set-face-background 'default "unspecified-bg" frame)))
+  (set-face-background 'default "unspecified-bg" (selected-frame)))
 
 
 ;;;; Editing
