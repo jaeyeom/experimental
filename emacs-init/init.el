@@ -166,6 +166,8 @@ of an error, just add the package to a list of missing packages."
 ;;; El-Get
 (add-to-list 'load-path (concat emacs-init-dir "el-get/el-get"))
 
+;; Install el-get. This didn't work well on Windows somehow. Then just
+;; install it by downloading and running the elisp file manually.
 (unless (require 'el-get nil 'noerror)
   (with-current-buffer
       (url-retrieve-synchronously
