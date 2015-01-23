@@ -488,6 +488,13 @@ thatuses 'font-lock-warning-face'."
     (add-hook 'python-mode-hook
               '(lambda () (font-lock-set-up-width-warning 80)))))
 
+;;; El Doc
+(when (try-require 'eldoc)
+  (add-hook 'emacs-lisp-mode-hook 'turn-on-eldoc-mode)
+  (add-hook 'lisp-interaction-mode-hook 'turn-on-eldoc-mode)
+  (add-hook 'ielm-mode-hook 'turn-on-eldoc-mode)
+  (add-hook 'eshell-mode-hook 'turn-on-eldoc-mode))
+
 ;;; Helper function for escaping and unescaping double quoted string.
 (defun escape-double-quoted-string ()
   "Convert normal string in active region to double quoted
