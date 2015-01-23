@@ -93,6 +93,7 @@
  '(w3m-file-name-coding-system (quote utf-8))
  '(w3m-terminal-coding-system (quote utf-8))
  '(w3m-use-cookies t)
+ '(winner-boring-buffers (quote ("*Completions*" "*helm M-x*" "*Helm Find Files*" "*helm mini*" "*helm buffers*")))
  '(winner-mode t nil (winner))
  '(x-select-enable-clipboard t)
  '(xterm-mouse-mode t))
