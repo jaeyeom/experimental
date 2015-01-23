@@ -721,9 +721,6 @@ will be in the buffer *g scratch*."
 ;;; Load Local stuffs
 (load "~/.emacs.d/init.local.el" 'noerror)
 
-;;; Miscellaneous
-(try-require 'uptime)
-
 ;;; Midnight mode
 (when (try-require 'midnight)
   (midnight-delay-set 'midnight-delay "4:00am"))
