@@ -61,7 +61,6 @@
  '(mark-diary-entries-in-calendar t)
  '(mark-holidays-in-calendar t)
  '(menu-bar-mode t)
- '(message-send-mail-function (quote message-smtpmail-send-it) t)
  '(mouse-wheel-mode t)
  '(org-agenda-include-diary t)
  '(org-agenda-ndays 7)
