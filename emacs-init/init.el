@@ -5,6 +5,7 @@
 ;;
 
 
+
 ;;;; Basic Directory Settings
 
 (defvar emacs-init-dir "~/.emacs.d/"
@@ -14,8 +15,10 @@
 (defvar emacs-plugins-dir (concat emacs-init-dir "plugins/")
   "Directory where plugins are.")
 
+
 ;;; Set theme directory
 (setq custom-theme-directory (concat emacs-init-dir "themes/"))
+
 
 ;;; Add load-path in site-lisp and plugins
 (add-to-list 'load-path emacs-site-lisp-dir)
@@ -24,6 +27,7 @@
          (file-directory-p emacs-plugins-dir))
     (let ((default-directory emacs-plugins-dir))
       (normal-top-level-add-subdirs-to-load-path)))
+
 
 
 ;;;; Customize
@@ -126,6 +130,7 @@
  '(p4-diff-ins-face ((t (:foreground "green"))) t))
 
 
+
 ;;;; try-require
 
 (defvar missing-packages-list nil
@@ -152,12 +157,15 @@ of an error, just add the package to a list of missing packages."
          nil))))
 
 
+
 ;;;; Package Management
+
 
 ;;; Package Initialize
 (when (try-require 'package)
   (package-initialize)
   (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/")))
+
 
 ;;; El-Get
 (add-to-list 'load-path (concat emacs-init-dir "el-get/el-get"))
@@ -173,6 +181,7 @@ of an error, just add the package to a list of missing packages."
 
 (add-to-list 'el-get-recipe-path (concat emacs-init-dir "el-get-user/recipes"))
 (el-get 'sync)
+
 
 
 ;;;; Display Settings
@@ -201,6 +210,7 @@ of an error, just add the package to a list of missing packages."
     (interactive)
     (add-to-list 'default-frame-alist '(alpha 85 70))))
 
+
 ;;; Alternative color settings
 ;; 8 colors
 ;; ("black" "red" "green" "yellow" "blue" "magenta" "cyan" "white")
@@ -213,7 +223,9 @@ of an error, just add the package to a list of missing packages."
   (set-face-background 'default "unspecified-bg" (selected-frame)))
 
 
+
 ;;;; Editing
+
 
 ;;; Korean language and UTF-8 settings.
 ;; Forcing to use utf-8 coding system.
@@ -255,10 +267,12 @@ of an error, just add the package to a list of missing packages."
 ;; Can open minibuffer in the minibuffer
 (setq enable-recursive-minibuffers t)
 
+
 ;;; Uniquify
 (when (try-require 'uniquify)
   ;; Default from 24.4
   (setq uniquify-buffer-name-style 'post-forward-angle-brackets))
+
 
 ;;; Ace Jump mode
 (try-require 'ace-jump-mode)
@@ -267,21 +281,6 @@ of an error, just add the package to a list of missing packages."
      (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
      (ace-jump-mode-enable-mark-sync)))
 
-;;; Helm
-(when (try-require 'helm-mode)
-  (helm-mode 1))
-
-(when (try-require 'helm-command)
-  (global-set-key (kbd "M-x") 'helm-M-x))
-
-(when (try-require 'helm-files)
-  (global-set-key (kbd "C-x C-f") 'helm-find-files))
-
-(when (try-require 'helm-misc)
-  (global-set-key (kbd "C-x b") 'helm-mini))
-
-(when (try-require 'helm-buffers)
-  (global-set-key (kbd "C-x C-b") 'helm-buffers-list))
 
 ;;; Multiple Cursors
 (try-require 'multiple-cursors)
@@ -291,6 +290,7 @@ of an error, just add the package to a list of missing packages."
      (global-set-key (kbd "C->") 'mc/mark-next-like-this)
      (global-set-key (kbd "C-<") 'mc/mark-previous-like-this)
      (global-set-key (kbd "C-c C-<") 'mc/mark-all-like-this)))
+
 
 ;;; Smart Editing
 (defun smart-delete-space (&optional n)
@@ -345,12 +345,15 @@ it will join the line."
                          (concat "%" (number-to-string w) "d ")) line) 'face 'linum))))
 
 
+
 ;;;; Files and Shell
+
 
 ;;; Dired
 (try-require 'dired-x)
 (setq-default dired-listing-switches "-alh")  ; Print sizes in human readable format.
 (setq-default image-dired-append-when-browsing t)
+
 
 ;;; Tramp
 (when (= emacs-major-version 23)
@@ -360,6 +363,7 @@ it will join the line."
     ;; sshx seemed to be good on Emacs 23.
     ;; Default value "scpc" is good on Emacs 24.
     (setq-default tramp-default-method "sshx")))
+
 
 ;;; Shell
 (eval-after-load 'shell
@@ -385,6 +389,7 @@ it will join the line."
 
      ;; No pager.
      (setenv "PAGER" "cat")))
+
 
 ;;; Eshell
 (eval-after-load 'eshell
@@ -441,11 +446,30 @@ otherwise."
        (if (fboundp 'eshell-handle-control-codes)
            (add-to-list 'eshell-output-filter-functions 'eshell-handle-control-codes)))))
 
+
+;;; Helm
+(when (try-require 'helm-mode)
+  (helm-mode 1))
+
+(when (try-require 'helm-command)
+  (global-set-key (kbd "M-x") 'helm-M-x))
+
+(when (try-require 'helm-files)
+  (global-set-key (kbd "C-x C-f") 'helm-find-files))
+
+(when (try-require 'helm-misc)
+  (global-set-key (kbd "C-x b") 'helm-mini))
+
+(when (try-require 'helm-buffers)
+  (global-set-key (kbd "C-x C-b") 'helm-buffers-list))
+
+
 ;;; Bash completion
 (when (< emacs-major-version 24)
   (try-require 'bash-completion)
   (eval-after-load 'bash-completion
     '(bash-completion-setup)))
+
 
 ;;; EasyPG
 (try-require 'epa-file)
@@ -454,6 +478,7 @@ otherwise."
      (epa-file-enable)
      ;; Prevent desktop popup for asking password.
      (setenv "GPG_AGENT_INFO" nil)))
+
 
 
 ;;;; Development
@@ -488,12 +513,6 @@ thatuses 'font-lock-warning-face'."
     (add-hook 'python-mode-hook
               '(lambda () (font-lock-set-up-width-warning 80)))))
 
-;;; El Doc
-(when (try-require 'eldoc)
-  (add-hook 'emacs-lisp-mode-hook 'turn-on-eldoc-mode)
-  (add-hook 'lisp-interaction-mode-hook 'turn-on-eldoc-mode)
-  (add-hook 'ielm-mode-hook 'turn-on-eldoc-mode)
-  (add-hook 'eshell-mode-hook 'turn-on-eldoc-mode))
 
 ;;; Helper function for escaping and unescaping double quoted string.
 (defun escape-double-quoted-string ()
@@ -546,10 +565,20 @@ reverse conversion of command \\[escape-double-quoted-string]."
     (while (search-forward "\\\\" end t)
       (replace-match "\\" nil t))))
 
+
 ;;; Yasnippet
 (try-require 'yasnippet)
 (eval-after-load 'yasnippet
   '(yas-global-mode 1))
+
+
+;;; El Doc
+(when (try-require 'eldoc)
+  (add-hook 'emacs-lisp-mode-hook 'turn-on-eldoc-mode)
+  (add-hook 'lisp-interaction-mode-hook 'turn-on-eldoc-mode)
+  (add-hook 'ielm-mode-hook 'turn-on-eldoc-mode)
+  (add-hook 'eshell-mode-hook 'turn-on-eldoc-mode))
+
 
 ;;; Go
 (eval-after-load 'go-mode
@@ -565,6 +594,7 @@ reverse conversion of command \\[escape-double-quoted-string]."
 
 (eval-after-load 'go-eldoc
   '(add-hook 'go-mode-hook 'go-eldoc-setup))
+
 
 ;;; Python
 (if (>= emacs-major-version 23)
@@ -591,6 +621,7 @@ they line up with the line containing the corresponding opening bracket."
 
 (ad-activate 'python-calculate-indentation)
 
+
 ;;; Magit
 (try-require 'magit)
 (eval-after-load 'magit
@@ -615,7 +646,9 @@ they line up with the line containing the corresponding opening bracket."
          ad-do-it))))
 
 
+
 ;;;; Apps
+
 
 ;;; W3m
 (autoload 'w3m "w3m"
@@ -649,6 +682,7 @@ they line up with the line containing the corresponding opening bracket."
                    (rename-buffer
                     (format "*w3m: %s*" (or w3m-current-title
                                             w3m-current-url)) t))))))
+
 
 ;;; Org Mode
 ;; I'm also going to use org-mode in archive mode and txt file.
@@ -685,6 +719,7 @@ they line up with the line containing the corresponding opening bracket."
      (define-key org-agenda-mode-map "\C-p" 'previous-line)
      (define-key org-agenda-keymap "\C-p" 'previous-line)))
 
+
 ;;; GDocs
 ;; requires emacspeak 35 or higher.
 (when (try-require 'gdocs)
@@ -710,6 +745,7 @@ will be in the buffer *g scratch*."
     (buffer-swap-text (get-buffer g-scratch-buffer))
     (set-buffer-multibyte t)))
 
+
 ;;; Jabber
 (eval-after-load 'jabber-alert
   ;; Message alert hooks
@@ -719,10 +755,13 @@ will be in the buffer *g scratch*."
         (message "%s" msg)))))
 
 
+
 ;;;; Emacs Server
+
 
 ;;; Load Local stuffs
 (load "~/.emacs.d/init.local.el" 'noerror)
+
 
 ;;; Midnight mode
 (when (try-require 'midnight)
@@ -740,6 +779,8 @@ will be in the buffer *g scratch*."
                (concat "\e]83;select " (thing-at-point 'word) "\a"))
               (kill-buffer "*screen*"))))
 
+
+
 ;;;; Desktop Mode
 (when (>= emacs-major-version 23)
   (setq-default desktop-base-file-name (concat ".emacs." (system-name) ".desktop"))
@@ -747,8 +788,12 @@ will be in the buffer *g scratch*."
   (setq history-length 250)
   (desktop-save-mode 1))
 
+
+
 ;;;; Emacs Server
 (server-start)
+
+
 
 ;;;; Edit Server
 ;; For chrome extension at
