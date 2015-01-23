@@ -48,6 +48,8 @@
  '(diary-list-entries-hook (quote (sort-diary-entries)))
  '(diary-list-include-blanks t)
  '(elisp-cache-byte-compile-files t)
+ '(eshell-hist-ignoredups t)
+ '(eshell-history-size 2048)
  '(font-lock-maximum-decoration t)
  '(global-auto-revert-mode t)
  '(global-cwarn-mode t)
