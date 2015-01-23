@@ -269,6 +269,22 @@ of an error, just add the package to a list of missing packages."
      (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
      (ace-jump-mode-enable-mark-sync)))
 
+;;; Helm
+(when (try-require 'helm-mode)
+  (helm-mode 1))
+
+(when (try-require 'helm-command)
+  (global-set-key (kbd "M-x") 'helm-M-x))
+
+(when (try-require 'helm-files)
+  (global-set-key (kbd "C-x C-f") 'helm-find-files))
+
+(when (try-require 'helm-misc)
+  (global-set-key (kbd "C-x b") 'helm-mini))
+
+(when (try-require 'helm-buffers)
+  (global-set-key (kbd "C-x C-b") 'helm-buffers-list))
+
 ;;; Multiple Cursors
 (try-require 'multiple-cursors)
 (eval-after-load 'multiple-cursors
