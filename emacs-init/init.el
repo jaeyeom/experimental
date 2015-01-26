@@ -463,6 +463,9 @@ otherwise."
 (when (try-require 'helm-buffers)
   (global-set-key (kbd "C-x C-b") 'helm-buffers-list))
 
+(when (try-require 'helm-ring)
+  (define-key global-map (kbd "M-y") 'helm-show-kill-ring))
+
 
 ;;; Bash completion
 (when (< emacs-major-version 24)
