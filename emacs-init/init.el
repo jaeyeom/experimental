@@ -449,7 +449,14 @@ otherwise."
 
 ;;; Helm
 (when (try-require 'helm-mode)
-  (helm-mode 1))
+  (helm-mode 1)
+
+  ;; Emulate `kill-line' in helm minibuffer. From
+  ;; http://d.hatena.ne.jp/a_bicky/20140104/1388822688
+  (setq helm-delete-minibuffer-contents-from-point t)
+  (defadvice helm-delete-minibuffer-contents (before helm-emulate-kill-line activate)
+    "Emulate `kill-line' in helm minibuffer"
+    (kill-new (buffer-substring (point) (field-end)))))
 
 (when (try-require 'helm-command)
   (global-set-key (kbd "M-x") 'helm-M-x))
