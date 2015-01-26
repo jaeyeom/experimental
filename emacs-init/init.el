@@ -456,7 +456,10 @@ otherwise."
   (setq helm-delete-minibuffer-contents-from-point t)
   (defadvice helm-delete-minibuffer-contents (before helm-emulate-kill-line activate)
     "Emulate `kill-line' in helm minibuffer"
-    (kill-new (buffer-substring (point) (field-end)))))
+    (kill-new (buffer-substring (point) (field-end))))
+  (defadvice helm-select-action (before helm-really-delete-minibuffer-contents activate)
+    "Remove contents of minibuffer even if `helm-delete-minibuffer-contents-from-point' is t."
+    (beginning-of-line)))
 
 (when (try-require 'helm-command)
   (global-set-key (kbd "M-x") 'helm-M-x))
