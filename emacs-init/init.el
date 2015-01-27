@@ -274,12 +274,10 @@ of an error, just add the package to a list of missing packages."
   (setq uniquify-buffer-name-style 'post-forward-angle-brackets))
 
 
-;;; Ace Jump mode
-(try-require 'ace-jump-mode)
-(eval-after-load 'ace-jump-mode
-  '(progn
-     (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
-     (ace-jump-mode-enable-mark-sync)))
+;;; ace-isearch
+(try-require 'ace-isearch)
+(eval-after-load 'ace-isearch
+  (global-ace-isearch-mode +1))
 
 
 ;;; Multiple Cursors
