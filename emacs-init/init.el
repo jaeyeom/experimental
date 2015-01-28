@@ -459,21 +459,31 @@ otherwise."
     "Remove contents of minibuffer even if `helm-delete-minibuffer-contents-from-point' is t."
     (beginning-of-line)))
 
-(when (try-require 'helm-command)
-  (global-set-key (kbd "M-x") 'helm-M-x))
+(try-require 'helm-command)
+(eval-after-load 'helm-command
+  '(global-set-key (kbd "M-x") 'helm-M-x))
 
-(when (try-require 'helm-files)
-  (global-set-key (kbd "C-x C-f") 'helm-find-files))
+(try-require 'helm-files)
+(eval-after-load 'helm-files
+  '(global-set-key (kbd "C-x C-f") 'helm-find-files))
 
-(when (try-require 'helm-misc)
-  (global-set-key (kbd "C-x b") 'helm-mini))
+(try-require 'helm-misc)
+(eval-after-load 'helm-misc
+  '(global-set-key (kbd "C-x b") 'helm-mini))
 
-(when (try-require 'helm-buffers)
-  (global-set-key (kbd "C-x C-b") 'helm-buffers-list))
+(try-require 'helm-buffers)
+(eval-after-load 'helm-buffers
+  '(global-set-key (kbd "C-x C-b") 'helm-buffers-list))
 
-(when (try-require 'helm-ring)
-  (define-key global-map (kbd "M-y") 'helm-show-kill-ring))
+(try-require 'helm-ring)
+(eval-after-load 'helm-ring
+  '(define-key global-map (kbd "M-y") 'helm-show-kill-ring))
 
+(try-require 'helm-ack)
+(eval-after-load 'helm-ack
+  '(when (executable-find "ack-grep")
+     (setq helm-grep-default-command "ack-grep -Hn --no-group --no-color %e %p %f"
+           helm-grep-default-recurse-command "ack-grep -H --no-group --no-color %e %p %f")))
 
 ;;; Bash completion
 (when (< emacs-major-version 24)
