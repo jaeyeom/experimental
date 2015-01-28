@@ -485,6 +485,11 @@ otherwise."
      (setq helm-grep-default-command "ack-grep -Hn --no-group --no-color %e %p %f"
            helm-grep-default-recurse-command "ack-grep -H --no-group --no-color %e %p %f")))
 
+(eval-after-load 'helm-net
+  '(when (executable-find "curl")
+     (setq helm-google-suggest-use-curl-p t)))
+
+
 ;;; Bash completion
 (when (< emacs-major-version 24)
   (try-require 'bash-completion)
