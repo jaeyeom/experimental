@@ -162,9 +162,11 @@ of an error, just add the package to a list of missing packages."
 
 
 ;;; Package Initialize
-(when (try-require 'package)
-  (package-initialize)
-  (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/")))
+(try-require 'package)
+(eval-after-load 'package
+  '(progn
+     (package-initialize)
+     (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/"))))
 
 
 ;;; El-Get
@@ -269,9 +271,10 @@ of an error, just add the package to a list of missing packages."
 
 
 ;;; Uniquify
-(when (try-require 'uniquify)
+(try-require 'uniquify)
+(eval-after-load 'uniquify
   ;; Default from 24.4
-  (setq uniquify-buffer-name-style 'post-forward-angle-brackets))
+  '(setq uniquify-buffer-name-style 'post-forward-angle-brackets))
 
 
 ;;; ace-isearch
@@ -446,18 +449,23 @@ otherwise."
 
 
 ;;; Helm
-(when (try-require 'helm-mode)
-  (helm-mode 1)
+(try-require 'helm)
+(eval-after-load 'helm
+  '(progn
+     (setq helm-delete-minibuffer-contents-from-point t)
 
-  ;; Emulate `kill-line' in helm minibuffer. From
-  ;; http://d.hatena.ne.jp/a_bicky/20140104/1388822688
-  (setq helm-delete-minibuffer-contents-from-point t)
-  (defadvice helm-delete-minibuffer-contents (before helm-emulate-kill-line activate)
-    "Emulate `kill-line' in helm minibuffer"
-    (kill-new (buffer-substring (point) (field-end))))
-  (defadvice helm-select-action (before helm-really-delete-minibuffer-contents activate)
-    "Remove contents of minibuffer even if `helm-delete-minibuffer-contents-from-point' is t."
-    (beginning-of-line)))
+     ;; From http://d.hatena.ne.jp/a_bicky/20140104/1388822688
+     (defadvice helm-delete-minibuffer-contents (before helm-emulate-kill-line activate)
+       "Emulate `kill-line' in helm minibuffer"
+       (kill-new (buffer-substring (point) (field-end))))
+
+     (defadvice helm-select-action (before helm-really-delete-minibuffer-contents activate)
+       "Remove contents of minibuffer even if `helm-delete-minibuffer-contents-from-point' is t."
+       (beginning-of-line))))
+
+(try-require 'helm-mode)
+(eval-after-load 'helm-mode
+  '(helm-mode 1))
 
 (try-require 'helm-command)
 (eval-after-load 'helm-command
@@ -485,6 +493,7 @@ otherwise."
      (setq helm-grep-default-command "ack-grep -Hn --no-group --no-color %e %p %f"
            helm-grep-default-recurse-command "ack-grep -H --no-group --no-color %e %p %f")))
 
+(try-require 'helm-net)
 (eval-after-load 'helm-net
   '(when (executable-find "curl")
      (setq helm-google-suggest-use-curl-p t)))
@@ -599,11 +608,13 @@ reverse conversion of command \\[escape-double-quoted-string]."
 
 
 ;;; El Doc
-(when (try-require 'eldoc)
-  (add-hook 'emacs-lisp-mode-hook 'turn-on-eldoc-mode)
-  (add-hook 'lisp-interaction-mode-hook 'turn-on-eldoc-mode)
-  (add-hook 'ielm-mode-hook 'turn-on-eldoc-mode)
-  (add-hook 'eshell-mode-hook 'turn-on-eldoc-mode))
+(try-require 'eldoc)
+(eval-after-load 'eldoc
+  '(progn
+     (add-hook 'emacs-lisp-mode-hook 'turn-on-eldoc-mode)
+     (add-hook 'lisp-interaction-mode-hook 'turn-on-eldoc-mode)
+     (add-hook 'ielm-mode-hook 'turn-on-eldoc-mode)
+     (add-hook 'eshell-mode-hook 'turn-on-eldoc-mode)))
 
 
 ;;; Go
@@ -748,28 +759,29 @@ they line up with the line containing the corresponding opening bracket."
 
 ;;; GDocs
 ;; requires emacspeak 35 or higher.
-(when (try-require 'gdocs)
-  (defun gdocs-refresh-document-text ()
-    "Refresh document from Google docs. Current document contents
+(try-require 'gdocs)
+(eval-after-load 'gdocs
+  '(defun gdocs-refresh-document-text ()
+     "Refresh document from Google docs. Current document contents
 will be in the buffer *g scratch*."
-    (interactive)
-    (gdocs-fetch-document-text)
-    (with-current-buffer g-scratch-buffer
-      (when (/= 10 (char-before (point-max)))
-        (goto-char (point-max))
-        (insert-char 10 1))
-      ;; Cleanup newline style
-      (goto-char (point-min))
-      (replace-string "" "")
-      (goto-char (point-min))
-      (replace-string "\n\n" "\n")
-      (goto-char (point-min))
-      ;; Remove unknown dirty characters at the beginning
-      (if (looking-at "\357\273\277")
-          (delete-char 3))
-      (set-buffer-multibyte t))
-    (buffer-swap-text (get-buffer g-scratch-buffer))
-    (set-buffer-multibyte t)))
+     (interactive)
+     (gdocs-fetch-document-text)
+     (with-current-buffer g-scratch-buffer
+       (when (/= 10 (char-before (point-max)))
+         (goto-char (point-max))
+         (insert-char 10 1))
+       ;; Cleanup newline style
+       (goto-char (point-min))
+       (replace-string "" "")
+       (goto-char (point-min))
+       (replace-string "\n\n" "\n")
+       (goto-char (point-min))
+       ;; Remove unknown dirty characters at the beginning
+       (if (looking-at "\357\273\277")
+           (delete-char 3))
+       (set-buffer-multibyte t))
+     (buffer-swap-text (get-buffer g-scratch-buffer))
+     (set-buffer-multibyte t)))
 
 
 ;;; Jabber
@@ -790,8 +802,9 @@ will be in the buffer *g scratch*."
 
 
 ;;; Midnight mode
-(when (try-require 'midnight)
-  (midnight-delay-set 'midnight-delay "4:00am"))
+(try-require 'midnight)
+(eval-after-load 'midnight
+  '(midnight-delay-set 'midnight-delay "4:00am"))
 
 ;; For older Emacs which doesn't support MultiTTY and if it's not
 ;; window system, it'll use screen feature for launching Emacs faster.
@@ -824,5 +837,6 @@ will be in the buffer *g scratch*."
 ;;;; Edit Server
 ;; For chrome extension at
 ;; https://chrome.google.com/webstore/detail/edit-with-emacs/ljobjlafonikaiipfkggjbhkghgicgoh?hl=en
-(when (try-require 'edit-server)
-  (edit-server-start))
+(try-require 'edit-server)
+(eval-after-load 'edit-server
+  '(edit-server-start))
