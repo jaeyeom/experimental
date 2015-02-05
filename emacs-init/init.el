@@ -454,6 +454,11 @@ otherwise."
   '(progn
      (setq helm-delete-minibuffer-contents-from-point t)
 
+     ;; From http://tuhdo.github.io/helm-intro.html
+     (define-key helm-map (kbd "<tab>") 'helm-execute-persistent-action) ; rebind tab to run persistent action
+     (define-key helm-map (kbd "C-i") 'helm-execute-persistent-action) ; make TAB works in terminal
+     (define-key helm-map (kbd "C-z")  'helm-select-action) ; list actions using C-z
+
      ;; From http://d.hatena.ne.jp/a_bicky/20140104/1388822688
      (defadvice helm-delete-minibuffer-contents (before helm-emulate-kill-line activate)
        "Emulate `kill-line' in helm minibuffer"
