@@ -280,7 +280,7 @@ of an error, just add the package to a list of missing packages."
 ;;; ace-isearch
 (try-require 'ace-isearch)
 (eval-after-load 'ace-isearch
-  (global-ace-isearch-mode +1))
+  '(global-ace-isearch-mode +1))
 
 
 ;;; Multiple Cursors
@@ -338,12 +338,12 @@ it will join the line."
 ;; Adds additional 1 space after line number because there is no space
 ;; between the line number and file contents in terminal Emacs.
 (eval-after-load 'linum
-  (setq linum-format
-        (lambda (line)
-          (propertize (format
-                       (let ((w (length (number-to-string
-                                         (count-lines (point-min) (point-max))))))
-                         (concat "%" (number-to-string w) "d ")) line) 'face 'linum))))
+  '(setq linum-format
+         (lambda (line)
+           (propertize (format
+                        (let ((w (length (number-to-string
+                                          (count-lines (point-min) (point-max))))))
+                          (concat "%" (number-to-string w) "d ")) line) 'face 'linum))))
 
 
 
@@ -359,11 +359,12 @@ it will join the line."
 ;;; Tramp
 (when (= emacs-major-version 23)
   (eval-after-load 'tramp
-    (setq-default tramp-debug-buffer t)
-    (setq-default tramp-verbose 10)
-    ;; sshx seemed to be good on Emacs 23.
-    ;; Default value "scpc" is good on Emacs 24.
-    (setq-default tramp-default-method "sshx")))
+    '(progn
+       (setq-default tramp-debug-buffer t)
+       (setq-default tramp-verbose 10)
+       ;; sshx seemed to be good on Emacs 23.
+       ;; Default value "scpc" is good on Emacs 24.
+       (setq-default tramp-default-method "sshx"))))
 
 
 ;;; Shell
@@ -543,7 +544,10 @@ thatuses 'font-lock-warning-face'."
 
       (font-lock-add-keywords 'c++-mode (font-lock-width-keyword 80))
       (font-lock-add-keywords 'python-mode (font-lock-width-keyword 80))
-      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 100)))
+      (font-lock-add-keywords 'java-mode (font-lock-width-keyword 100))
+
+      (add-hook 'java-mode-hook
+                '(lambda () (set-fill-column 90))))
   (progn
     ;; Turn on red highlighting for characters outside of the 80 char limit
     (add-hook 'c++-mode-hook
