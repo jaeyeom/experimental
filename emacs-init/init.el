@@ -166,7 +166,7 @@ of an error, just add the package to a list of missing packages."
 (eval-after-load 'package
   '(progn
      (package-initialize)
-     (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/"))))
+     (add-to-list 'package-archives '("melpa-stable" . "http://stable.melpa.org/packages/"))))
 
 
 ;;; El-Get
