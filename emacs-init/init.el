@@ -280,7 +280,9 @@ of an error, just add the package to a list of missing packages."
 ;;; ace-isearch
 (try-require 'ace-isearch)
 (eval-after-load 'ace-isearch
-  '(global-ace-isearch-mode +1))
+  '(progn
+     (global-ace-isearch-mode +1)
+     (setq ace-isearch-jump-delay 0.7)))
 
 
 ;;; Multiple Cursors
