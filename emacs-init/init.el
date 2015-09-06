@@ -632,6 +632,7 @@ reverse conversion of command \\[escape-double-quoted-string]."
 (eval-after-load 'go-mode
   '(progn
      (try-require 'go-eldoc)
+     (try-require 'auto-complete-config)
      (add-hook 'before-save-hook 'gofmt-before-save)
      (when (executable-find "goimports")
        (add-hook 'go-mode-hook
@@ -640,6 +641,11 @@ reverse conversion of command \\[escape-double-quoted-string]."
      (add-hook 'go-mode-hook
                (lambda ()
                  (local-set-key (kbd "C-c i") 'go-goto-imports)))))
+
+(eval-after-load 'auto-complete-config
+  '(progn
+     (try-require 'go-autocomplete)
+     (ac-config-default)))
 
 (eval-after-load 'go-eldoc
   '(add-hook 'go-mode-hook 'go-eldoc-setup))
