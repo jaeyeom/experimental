@@ -10,6 +10,7 @@ import (
 
 func ExampleMap() {
 	var m Map
+
 	fmt.Println(m.LoadOrCall(1, func() interface{} { return "one" }))
 	fmt.Println(m.LoadOrCall("two", func() interface{} { return 2 }))
 	fmt.Println(m.LoadOrCall(1, func() interface{} { return "not one" }))
@@ -28,6 +29,7 @@ func ExampleMap() {
 
 func ExampleMap_callsOnce() {
 	var m Map
+
 	keys := []string{
 		"abc",
 		"ab",
@@ -41,15 +43,19 @@ func ExampleMap_callsOnce() {
 		"abc",
 	}
 	res := make([]string, len(keys))
-	var num_calls int32
+
+	var numCalls int32
+
 	par.For(len(keys), func(i int) {
 		key := keys[i]
 		res[i] = m.LoadOrCall(key, func() interface{} {
-			atomic.AddInt32(&num_calls, 1)
+			atomic.AddInt32(&numCalls, 1)
 			return strings.ToUpper(key)
 		}).(string)
 	})
-	fmt.Printf("Number of calls: %d\n", num_calls)
+
+	fmt.Printf("Number of calls: %d\n", numCalls)
+
 	for i := 0; i < len(keys); i++ {
 		fmt.Printf("%q => %q\n", keys[i], res[i])
 	}

@@ -35,9 +35,11 @@ type Value struct {
 	value interface{}
 }
 
-func (e *Value) LoadOrStore(f func() interface{}) interface{} {
+// LoadOrStore gets the value. If the value isn't ready it calls f to get the
+// value.
+func (e *Value) LoadOrStore(getValue func() interface{}) interface{} {
 	e.once.Do(func() {
-		e.value = f()
+		e.value = getValue()
 	})
 
 	return e.value
