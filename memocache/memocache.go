@@ -1,6 +1,26 @@
+// Package memocache provides in memory cache that is safe for concurrent use by
+// multiple goroutines. It's meant to be used for expensive to compute or slow
+// to fetch values.
 package memocache
 
 import "sync"
+
+// Value is a single value that is initialized once by calling the given
+// function only once. Value should not be copied after first use.
+type Value struct {
+	once  sync.Once
+	value interface{}
+}
+
+// LoadOrStore gets the value. If the value isn't ready it calls f to get the
+// value.
+func (e *Value) LoadOrStore(getValue func() interface{}) interface{} {
+	e.once.Do(func() {
+		e.value = getValue()
+	})
+
+	return e.value
+}
 
 // Map is a kind of key value cache map but it is safe for concurrent use by
 // multiple goroutines. It can avoid multiple duplicate function calls
@@ -29,30 +49,11 @@ func (m *Map) Delete(key interface{}) {
 	m.m.Delete(key)
 }
 
-// Value is a single value that is initialized once by calling the given
-// function only once. Value should not be copied after first use.
-type Value struct {
-	once  sync.Once
-	value interface{}
-}
-
-// LoadOrStore gets the value. If the value isn't ready it calls f to get the
-// value.
-func (e *Value) LoadOrStore(getValue func() interface{}) interface{} {
-	e.once.Do(func() {
-		e.value = getValue()
-	})
-
-	return e.value
-}
-
 // MultiLevelMap is an expansion of a Map that can manage tree like structure.
 // It's possible to prune a subtree. There shouldn't be any conflicts between a
 // subtree and the leaf node. For example, if a path ("a", "b", "c") has a
 // value, path ("a", "b") cannot have a value. Each elemnt of path should be
-// hashable.
-//
-// MultiLevelMap should not be copied after first use.
+// hashable. MultiLevelMap should not be copied after first use.
 type MultiLevelMap struct {
 	v Value
 }
