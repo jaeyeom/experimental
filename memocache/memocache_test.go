@@ -27,7 +27,7 @@ func ExampleMap() {
 	// 2
 }
 
-func ExampleMap_callsOnce() {
+func ExampleMap_callsOncePerKey() {
 	var m Map
 
 	keys := []string{
@@ -73,6 +73,57 @@ func ExampleMap_callsOnce() {
 	// "abc" => "ABC"
 }
 
+func ExampleMap_differentKeysNotBlocked() {
+	// This example shows that different keys are not blocked. Key "b" and
+	// "c" starts after the function for key "a" is called run processing.
+	// But key "a" waits until key "b" finishes. If key "b" is blocked while
+	// the value of "a" is being evaluated, there will be a deadlock, which
+	// doesn't happen in this example. The order in the output is always the
+	// same.
+	var m Map
+
+	started := map[string]chan struct{}{
+		"":  make(chan struct{}),
+		"a": make(chan struct{}),
+		"b": make(chan struct{}),
+		"c": make(chan struct{}),
+	}
+	done := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})}
+	ops := []struct {
+		key        string
+		startAfter chan struct{}
+		waitUntil  chan struct{}
+	}{
+		{key: "a", startAfter: started[""], waitUntil: done[2]},
+		{key: "a", startAfter: started[""], waitUntil: done[2]},
+		{key: "b", startAfter: started["a"], waitUntil: done[3]},
+		{key: "c", startAfter: started["b"], waitUntil: started[""]},
+	}
+
+	par.Do(
+		func() {
+			par.For(len(ops), func(i int) {
+				op := ops[i]
+				<-op.startAfter
+				m.LoadOrCall(op.key, func() interface{} {
+					close(started[op.key])
+					<-op.waitUntil
+					fmt.Printf("key %q was looked up\n", op.key)
+					return op.key
+				})
+				close(done[i])
+			})
+		},
+		func() {
+			close(started[""])
+		},
+	)
+	// Output:
+	// key "c" was looked up
+	// key "b" was looked up
+	// key "a" was looked up
+}
+
 func ExampleMultiLevelMap() {
 	var m MultiLevelMap
 
@@ -99,7 +150,7 @@ func ExampleMultiLevelMap() {
 		names[i] = strings.ToUpper(names[i])
 	}
 
-	lookupAll("== Call again (Nothing should change) ==")
+	lookupAll("== Call again (All cache hit/Nothing should change) ==")
 
 	fmt.Println("Prune males")
 	m.Prune("m")
@@ -117,7 +168,7 @@ func ExampleMultiLevelMap() {
 	// Linda
 	// Oscar
 	// Now we change all names upper case in the backend
-	// == Call again (Nothing should change) ==
+	// == Call again (All cache hit/Nothing should change) ==
 	// John
 	// Mary
 	// Linda
@@ -134,4 +185,55 @@ func ExampleMultiLevelMap() {
 	// Mary
 	// LINDA
 	// OSCAR
+}
+
+func ExampleMultiLevelMap_differentKeysNotBlocked() {
+	// This example shows that different keys are not blocked even if they
+	// share the same prefix path. Key "b" and "c" starts after the function
+	// for key "a" is called run processing. But key "a" waits until key "b"
+	// finishes. If key "b" is blocked while the value of "a" is being
+	// evaluated, there will be a deadlock, which doesn't happen in this
+	// example. The order in the output is always the same.
+	var m MultiLevelMap
+
+	started := map[string]chan struct{}{
+		"":  make(chan struct{}),
+		"a": make(chan struct{}),
+		"b": make(chan struct{}),
+		"c": make(chan struct{}),
+	}
+	done := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})}
+	ops := []struct {
+		key        string
+		startAfter chan struct{}
+		waitUntil  chan struct{}
+	}{
+		{key: "a", startAfter: started[""], waitUntil: done[2]},
+		{key: "a", startAfter: started[""], waitUntil: done[2]},
+		{key: "b", startAfter: started["a"], waitUntil: done[3]},
+		{key: "c", startAfter: started["b"], waitUntil: started[""]},
+	}
+
+	par.Do(
+		func() {
+			par.For(len(ops), func(i int) {
+				op := ops[i]
+				<-op.startAfter
+				m.LoadOrCall(func() interface{} {
+					close(started[op.key])
+					<-op.waitUntil
+					fmt.Printf("key %q was looked up\n", op.key)
+					return op.key
+				}, "common", "path", "and", op.key)
+				close(done[i])
+			})
+		},
+		func() {
+			close(started[""])
+		},
+	)
+	// Output:
+	// key "c" was looked up
+	// key "b" was looked up
+	// key "a" was looked up
 }
