@@ -44,3 +44,46 @@ func (e *Value) LoadOrStore(getValue func() interface{}) interface{} {
 
 	return e.value
 }
+
+// MultiLevelMap is an expansion of a Map that can manage tree like structure.
+// It's possible to prune a subtree. MultiLevelMap should not be copied after
+// first use.
+type MultiLevelMap struct {
+	v Value
+}
+
+func findLeafNode(root *Map, path ...interface{}) *Map {
+	if len(path) == 0 {
+		return root
+	}
+
+	newRoot := root.LoadOrCall(path[0], func() interface{} {
+		return &Map{}
+	}).(*Map)
+
+	return findLeafNode(newRoot, path[1:]...)
+}
+
+func (m *MultiLevelMap) getRoot() *Map {
+	return m.v.LoadOrStore(func() interface{} {
+		return &Map{}
+	}).(*Map)
+}
+
+func (m *MultiLevelMap) LoadOrCall(getValue func() interface{}, path ...interface{}) interface{} {
+	n := len(path)
+	if n == 0 {
+		panic("path was not given")
+	}
+
+	return findLeafNode(m.getRoot(), path[:n-1]...).LoadOrCall(path[n-1], getValue)
+}
+
+func (m *MultiLevelMap) Prune(path ...interface{}) {
+	n := len(path)
+	if n == 0 {
+		panic("pruning the whole tree is not supported yet")
+	}
+
+	findLeafNode(m.getRoot(), path[:n-1]...).Delete(path[n-1])
+}

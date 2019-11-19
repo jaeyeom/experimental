@@ -72,3 +72,60 @@ func ExampleMap_callsOnce() {
 	// "abc" => "ABC"
 	// "abc" => "ABC"
 }
+
+func ExampleMultiLevelMap() {
+	var m MultiLevelMap
+
+	names := []string{"John", "Mary", "Linda", "Oscar"}
+	gender := []string{"m", "f", "f", "m"}
+	lookup := func(id int, category string) string {
+		return m.LoadOrCall(func() interface{} {
+			return names[id]
+		}, category, id).(string)
+	}
+
+	fmt.Println("== First Calls ==")
+
+	for i := 0; i < len(names); i++ {
+		fmt.Println(lookup(i, gender[i]))
+	}
+
+	fmt.Println("Now we change all names upper case")
+
+	for i := 0; i < len(names); i++ {
+		names[i] = strings.ToUpper(names[i])
+	}
+
+	fmt.Println("== Call again (Nothing should change) ==")
+
+	for i := 0; i < len(names); i++ {
+		fmt.Println(lookup(i, gender[i]))
+	}
+
+	fmt.Println("Prune males")
+	m.Prune("m")
+
+	fmt.Println("== Call again (All males should change) ==")
+
+	for i := 0; i < len(names); i++ {
+		fmt.Println(lookup(i, gender[i]))
+	}
+	// Output:
+	// == First Calls ==
+	// John
+	// Mary
+	// Linda
+	// Oscar
+	// Now we change all names upper case
+	// == Call again (Nothing should change) ==
+	// John
+	// Mary
+	// Linda
+	// Oscar
+	// Prune males
+	// == Call again (All males should change) ==
+	// JOHN
+	// Mary
+	// Linda
+	// OSCAR
+}
