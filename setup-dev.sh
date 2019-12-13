@@ -88,9 +88,10 @@ cmd go get -u -v golang.org/x/tools/cmd/goimports
 command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.21.0
 
 grep 'PATH for go binaries' ~/.profile || cat <<EOF >> ~/.profile
+
 # set PATH for go binaries
-if [ -d "$(go env GOPATH)/bin" ] ; then
-    PATH="$(go env GOPATH)/bin:$PATH"
+if [ -d "\$(go env GOPATH)/bin" ] ; then
+    PATH="\$(go env GOPATH)/bin:\$PATH"
 fi
 EOF
 
