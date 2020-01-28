@@ -57,9 +57,12 @@ fi
 if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
     mkdir -p ~/go/src/github.com/jaeyeom
     pushd ~/go/src/github.com/jaeyeom
+
     cmd hub clone jaeyeom/experimental
     cmd hub clone jaeyeom/gogo
     cmd hub clone jaeyeom/sugo
+    cmd hub clone jaeyeom/gofiletable
+    cmd hub clone jaeyeom/gomemocache
     popd
 fi
 
