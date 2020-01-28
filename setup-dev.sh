@@ -99,8 +99,9 @@ if [ ! -d $HOME/bin ]; then
     mkdir -p $HOME/bin
 fi
 if [ ! -f $HOME/bin/z.sh ]; then
-    curl -o ~/bin/z.sh https://raw.githubusercontent.com/rupa/z/master/z.sh
+    cmd curl -o ~/bin/z.sh https://raw.githubusercontent.com/rupa/z/master/z.sh
 fi
+
 grep 'Enable z script' ~/.bashrc || cat <<EOF >> ~/.bashrc
 
 # Enable z script
