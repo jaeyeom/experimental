@@ -78,6 +78,8 @@ get curl
 get sed
 get grep
 get mosh
+get clang
+get clang-format
 
 cmd go get -u -v github.com/nsf/gocode
 cmd go get -u -v github.com/rogpeppe/godef
