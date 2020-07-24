@@ -1,8 +1,8 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # This script is used to set up development environment.
 
-declare -A apt_m=( [ag]=silversearcher-ag [go]=golang [emacs]=emacs-nox [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
+declare -A apt_m=( [ag]=silversearcher-ag [go]=golang-go [emacs]=emacs-nox [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
 
 # Install the binary using apt command.
 get_apt () {
@@ -10,7 +10,7 @@ get_apt () {
     if [ ${apt_m[$pkg_name]+_} ]; then
         pkg_name=apt_m[$pkg_name]
     fi
-    sudo apt install "$pkg_name"
+    sudo apt install -y "$pkg_name"
 }
 
 # Install the binary if it's not installed yet.
@@ -44,7 +44,7 @@ if [ ! -d ~/.emacs.d/private/w3m ]; then
     cmd git clone https://github.com/venmos/w3m-layer.git ~/.emacs.d/private/w3m
 fi
 
-if [ ! -f ~/.ssh/id_rsa.pub ]; then
+if [ ! -f ~/.ssh/id_rsa.pub && ! -f ~/.ssh/id_ed25519.pub ]; then
     get ssh
     cmd ssh-keygen -t rsa -b 4096 -C "$(git config --global user.email)"
     eval "$(ssh-agent -s)"
