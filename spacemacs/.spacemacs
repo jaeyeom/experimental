@@ -490,6 +490,9 @@ This function is called immediately after `dotspacemacs/init', before layer
 configuration.
 It is mostly for variables that should be set before packages are loaded.
 If you are unsure, try setting them in `dotspacemacs/user-config' first."
+  (customize-set-variable
+   'custom-file (file-truename (concat dotspacemacs-directory ".spacemacs-custom.el")) "Separate custom file")
+  (load custom-file)
   (setq-default js2-basic-offset 2)
   (setq-default js-indent-level 2)
   )
