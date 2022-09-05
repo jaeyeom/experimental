@@ -90,7 +90,7 @@ cmd go get -u -v golang.org/x/tools/cmd/guru
 cmd go get -u -v golang.org/x/tools/cmd/gorename
 cmd go get -u -v golang.org/x/tools/cmd/goimports
 
-command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.21.0
+command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.49.0
 
 grep 'PATH for go binaries' ~/.profile || cat <<EOF >> ~/.profile
 
