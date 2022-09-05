@@ -36,12 +36,15 @@ if [ -z "$(git config --global user.email)" ]; then
     read
     cmd git config --global user.email "$REPLY"
 fi
-
-if [ ! -d ~/.emacs.d ]; then
-    cmd git clone https://github.com/syl20bnr/spacemacs ~/.emacs.d
+if [ -d ~/.emacs.d ] && [ ! -d ~/.config/emacs ]; then
+    mkdir -p ~/.config
+    mv ~/.emacs.d ~/.config/emacs
 fi
-if [ ! -d ~/.emacs.d/private/w3m ]; then
-    cmd git clone https://github.com/venmos/w3m-layer.git ~/.emacs.d/private/w3m
+if [ ! -d ~/.config/emacs ]; then
+    cmd git clone https://github.com/syl20bnr/spacemacs ~/.config/emacs
+fi
+if [ ! -d ~/.config/emacs/private/w3m ]; then
+    cmd git clone https://github.com/venmos/w3m-layer.git ~/.config/emacs/private/w3m
 fi
 
 if [ ! -f ~/.ssh/id_rsa.pub && ! -f ~/.ssh/id_ed25519.pub ]; then
