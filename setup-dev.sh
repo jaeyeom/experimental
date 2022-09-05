@@ -10,7 +10,7 @@ get_apt () {
     if [ ${apt_m[$pkg_name]+_} ]; then
         pkg_name=apt_m[$pkg_name]
     fi
-    sudo apt install -y "$pkg_name"
+    sudo apt-get install -y "$pkg_name"
 }
 
 # Install the binary if it's not installed yet.
