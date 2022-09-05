@@ -2,7 +2,7 @@
 
 # This script is used to set up development environment.
 
-declare -A apt_m=( [ag]=silversearcher-ag [go]=golang-go [emacs]=emacs-nox [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
+declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [emacs]=emacs-nox [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
 
 # Install the binary using apt command.
 get_apt () {
@@ -70,7 +70,7 @@ if [ ! -f ~/.spacemacs ]; then
     cp ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ~/
 fi
 
-get ag
+get rg
 get emacs
 get htop
 get man
