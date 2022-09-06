@@ -88,13 +88,19 @@ get mosh
 get clang
 get clang-format
 
-cmd go get -u -v github.com/nsf/gocode
-cmd go get -u -v github.com/rogpeppe/godef
-cmd go get -u -v golang.org/x/tools/cmd/guru
-cmd go get -u -v golang.org/x/tools/cmd/gorename
-cmd go get -u -v golang.org/x/tools/cmd/goimports
-
 command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.49.0
+GO111MODULE=on cmd go get golang.org/x/tools/gopls@latest
+GO111MODULE=on cmd go get golang.org/x/tools/cmd/godoc@latest
+GO111MODULE=on cmd go get golang.org/x/tools/cmd/goimports@latest
+GO111MODULE=on cmd go get golang.org/x/tools/cmd/gorename@latest
+GO111MODULE=on cmd go get golang.org/x/tools/cmd/guru@latest
+GO111MODULE=on cmd go get github.com/cweill/gotests/...@latest
+GO111MODULE=on cmd go get github.com/davidrjenni/reftools/cmd/fillstruct@latest
+GO111MODULE=on cmd go get github.com/fatih/gomodifytags@latest
+GO111MODULE=on cmd go get github.com/godoctor/godoctor@latest
+GO111MODULE=on cmd go get github.com/haya14busa/gopkgs/cmd/gopkgs@latest
+GO111MODULE=on cmd go get github.com/josharian/impl@latest
+GO111MODULE=on cmd go get github.com/rogpeppe/godef@latest
 
 grep 'PATH for go binaries' ~/.profile || cat <<EOF >> ~/.profile
 
