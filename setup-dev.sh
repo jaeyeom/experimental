@@ -47,7 +47,7 @@ if [ ! -d ~/.config/emacs/private/w3m ]; then
     cmd git clone https://github.com/venmos/w3m-layer.git ~/.config/emacs/private/w3m
 fi
 
-if [ ! -f ~/.ssh/id_rsa.pub && ! -f ~/.ssh/id_ed25519.pub ]; then
+if [ ! -f ~/.ssh/id_rsa.pub ] && [ ! -f ~/.ssh/id_ed25519.pub ]; then
     get ssh
     cmd ssh-keygen -t rsa -b 4096 -C "$(git config --global user.email)"
     eval "$(ssh-agent -s)"
