@@ -58,6 +58,7 @@ if [ ! -f ~/.ssh/id_rsa.pub ] && [ ! -f ~/.ssh/id_ed25519.pub ]; then
 fi
 
 if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
+    echo "NOTE: Go to https://github.com/settings/tokens to generate a personal access token."
     mkdir -p ~/go/src/github.com/jaeyeom
     pushd ~/go/src/github.com/jaeyeom
 
