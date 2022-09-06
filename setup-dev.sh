@@ -49,10 +49,10 @@ fi
 
 if [ ! -f ~/.ssh/id_rsa.pub ] && [ ! -f ~/.ssh/id_ed25519.pub ]; then
     get ssh
-    cmd ssh-keygen -t rsa -b 4096 -C "$(git config --global user.email)"
+    cmd ssh-keygen -t ed25519 -C "$(git config --global user.email)"
     eval "$(ssh-agent -s)"
-    cmd ssh-add ~/.ssh/id_rsa
-    cat ~/.ssh/id_rsa.pub
+    cmd ssh-add ~/.ssh/id_ed25519
+    cat ~/.ssh/id_ed25519.pub
     echo -n "Paste the public key at https://github.com/settings/keys and press enter: "
     read
 fi
