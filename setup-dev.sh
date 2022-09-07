@@ -2,9 +2,11 @@
 
 # This script is used to set up development environment.
 
-declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [emacs]=emacs-nox [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
+declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [emacs]=emacs [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
 
-# Install the binary using apt command.
+declare -A pkg_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang [emacs]=emacs [ssh]=dropbear [dropbearkey]=dropbear )
+
+# Install the binary using apt-get command.
 get_apt () {
     local pkg_name="$1"
     if [ ${apt_m[$pkg_name]+_} ]; then
@@ -13,15 +15,46 @@ get_apt () {
     sudo apt-get install -y "$pkg_name"
 }
 
+# Install the binary using pkg command for TermUX.
+get_pkg () {
+    local pkg_name="$1"
+    if [ ${pkg_m[$pkg_name]+_} ]; then
+        pkg_name=${pkg_m[$pkg_name]}
+    fi
+    pkg install -y "$pkg_name"
+}
+
 # Install the binary if it's not installed yet.
 get () {
-    command -v "$1" || get_apt "$@"
+    command -v "$1" && return
+    if command -v "pkg"; then
+	      get_pkg "$@"
+    elif command -v "apt-get"; then
+        get_apt "$@"
+    fi
 }
 
 # Runs the command
 cmd () {
     get "$1"
     command "$@"
+}
+
+generate_ssh_key() {
+    get ssh
+    if command -v "dropbearkey"; then
+	mkdir -p ~/.ssh
+	dropbearkey -t ed25519 -f ~/.ssh/id_dropbear
+	dropbearkey -f ~/.ssh/id_dropbear -y
+    else
+	mkdir -p ~/.ssh
+	cmd ssh-keygen -t ed25519 -C "$(git config --global user.email)"
+	eval "$(ssh-agent -s)"
+	cmd ssh-add ~/.ssh/id_ed25519
+	cat ~/.ssh/id_ed25519.pub
+    fi
+    echo -n "Paste the public key at https://github.com/settings/keys and press enter: "
+    read
 }
 
 get git
@@ -47,14 +80,8 @@ if [ ! -d ~/.config/emacs/private/w3m ]; then
     cmd git clone https://github.com/venmos/w3m-layer.git ~/.config/emacs/private/w3m
 fi
 
-if [ ! -f ~/.ssh/id_rsa.pub ] && [ ! -f ~/.ssh/id_ed25519.pub ]; then
-    get ssh
-    cmd ssh-keygen -t ed25519 -C "$(git config --global user.email)"
-    eval "$(ssh-agent -s)"
-    cmd ssh-add ~/.ssh/id_ed25519
-    cat ~/.ssh/id_ed25519.pub
-    echo -n "Paste the public key at https://github.com/settings/keys and press enter: "
-    read
+if [ ! -f ~/.ssh/id_rsa ] && [ ! -f ~/.ssh/id_ed25519 ] && [ ! -f ~/.ssh/id_dropbear ]; then
+    generate_ssh_key
 fi
 
 if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
@@ -79,14 +106,10 @@ get emacs
 get htop
 get man
 get w3m
-get ruby
 get wget
 get curl
 get sed
 get grep
-get mosh
-get clang
-get clang-format
 
 command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.49.0
 GO111MODULE=on cmd go get golang.org/x/tools/gopls@latest
