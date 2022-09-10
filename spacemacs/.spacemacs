@@ -43,7 +43,7 @@ This function should only modify configuration layer settings."
      (c-c++ :variables
             c-c++-default-mode-for-headers 'c++-mode
             c-c++-enable-clang-support t)
-     docker
+     ;; docker
      emacs-lisp
      git
      (go :variables
@@ -51,28 +51,30 @@ This function should only modify configuration layer settings."
          go-use-golangci-lint t
          go-format-before-save t
          gofmt-command "goimports")
-     (groovy :variables
-             groovy-indent-offset 2)
+     ;; (groovy :variables
+     ;;         groovy-indent-offset 2)
      (helm :variables
            helm-show-completion-display-function #'helm-show-completion-default-display-function)
      (javascript :variables
                  js2-strict-missing-semi-warning nil)
+     lsp
      markdown
      multiple-cursors
-     org
+     (org :variables
+          org-enable-org-journal-support t)
      (python :variables
              python-formatter 'yapf
              python-format-on-save t)
      react
-     ruby
-     rust
+     ;; ruby
+     ;; rust
      (shell :variables
             shell-default-full-span nil
             shell-default-shell 'eshell)
-     slack
+     ;; slack
      spell-checking
      syntax-checking
-     terraform
+     ;; terraform
      treemacs
      (typescript :variables
                  typescript-fmt-on-save t
