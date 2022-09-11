@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# TODO: Add a way to install `gh` script.
+
 # This script is used to set up development environment.
 
 declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [emacs]=emacs [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
@@ -43,15 +45,15 @@ cmd () {
 generate_ssh_key() {
     get ssh
     if command -v "dropbearkey"; then
-	mkdir -p ~/.ssh
-	dropbearkey -t ed25519 -f ~/.ssh/id_dropbear
-	dropbearkey -f ~/.ssh/id_dropbear -y
+	      mkdir -p ~/.ssh
+	      dropbearkey -t ed25519 -f ~/.ssh/id_dropbear
+	      dropbearkey -f ~/.ssh/id_dropbear -y
     else
-	mkdir -p ~/.ssh
-	cmd ssh-keygen -t ed25519 -C "$(git config --global user.email)"
-	eval "$(ssh-agent -s)"
-	cmd ssh-add ~/.ssh/id_ed25519
-	cat ~/.ssh/id_ed25519.pub
+	      mkdir -p ~/.ssh
+	      cmd ssh-keygen -t ed25519 -C "$(git config --global user.email)"
+	      eval "$(ssh-agent -s)"
+	      cmd ssh-add ~/.ssh/id_ed25519
+	      cat ~/.ssh/id_ed25519.pub
     fi
     echo -n "Paste the public key at https://github.com/settings/keys and press enter: "
     read
@@ -89,11 +91,11 @@ if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
     mkdir -p ~/go/src/github.com/jaeyeom
     pushd ~/go/src/github.com/jaeyeom
 
-    cmd hub clone jaeyeom/experimental
-    cmd hub clone jaeyeom/gogo
-    cmd hub clone jaeyeom/sugo
-    cmd hub clone jaeyeom/gofiletable
-    cmd hub clone jaeyeom/gomemocache
+    cmd gh repo clone jaeyeom/experimental
+    cmd gh repo clone jaeyeom/gogo
+    cmd gh repo clone jaeyeom/sugo
+    cmd gh repo clone jaeyeom/gofiletable
+    cmd gh repo clone jaeyeom/gomemocache
     popd
 fi
 
