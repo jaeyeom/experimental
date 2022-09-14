@@ -599,6 +599,7 @@ before packages are loaded."
   (add-hook 'c++-mode-hook 'clang-format-bindings)
   (defun clang-format-bindings ()
     (define-key c++-mode-map [tab] 'clang-format-buffer))
+  (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t)))
   )
 
 ;; Do not write anything past this comment. This is where Emacs will
