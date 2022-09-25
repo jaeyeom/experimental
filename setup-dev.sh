@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 # TODO: Add a way to install `gh` script.
+# TODO: Use XDG_* environment variables for directory paths.
 
 # This script is used to set up development environment.
 
@@ -135,18 +136,19 @@ if [ -d "\$(go env GOPATH)/bin" ] ; then
 fi
 EOF
 
-if [ ! -d $HOME/bin ]; then
-    mkdir -p $HOME/bin
+if [ ! -d $HOME/.local/bin ]; then
+    mkdir -p $HOME/.local/bin
 fi
-if [ ! -f $HOME/bin/z.sh ]; then
-    cmd curl -o ~/bin/z.sh https://raw.githubusercontent.com/rupa/z/master/z.sh
+if [ ! -f $HOME/.local/bin/z.sh ]; then
+    cmd curl -o ~/.local/bin/z.sh https://raw.githubusercontent.com/rupa/z/master/z.sh
+    chmod +x ~/.local/bin/z.sh
 fi
 
 grep 'Enable z script' ~/.bashrc || cat <<EOF >> ~/.bashrc
 
 # Enable z script
-if [ -f ~/bin/z.sh ]; then
-    . ~/bin/z.sh
+if [ -f ~/.local/bin/z.sh ]; then
+    . ~/.local/bin/z.sh
 fi
 EOF
 
