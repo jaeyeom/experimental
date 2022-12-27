@@ -61,7 +61,8 @@ This function should only modify configuration layer settings."
      markdown
      multiple-cursors
      (org :variables
-          org-enable-org-journal-support t)
+          org-enable-org-journal-support t
+          org-journal-enable-agenda-integration t)
      (python :variables
              python-formatter 'yapf
              python-format-on-save t)
