@@ -97,6 +97,11 @@
   :bind ("C-c q" . chatgpt-query))
 
 ;; Hybrid
+;;
+;; FIXME: This does not work in Emacs terminal mode. And the evil escape key
+;; sequence does not work either in GUI or terminal. Proper implementation is
+;; Spacemacs hybrid mode.
 (after! evil
+  (setq evil-escape-key-sequence "fd")
   (defalias 'evil-insert-state 'evil-emacs-state)
   (define-key evil-emacs-state-map (kbd "<escape>") 'evil-normal-state))
