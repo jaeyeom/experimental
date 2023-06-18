@@ -71,10 +71,11 @@ This function should only modify configuration layer settings."
      react
      ;; ruby
      ;; rust
+     search-engine
      (shell :variables
             shell-default-full-span nil
             shell-default-shell 'eshell)
-     ;; slack
+     slack
      ;; spell-checking
      syntax-checking
      ;; terraform
