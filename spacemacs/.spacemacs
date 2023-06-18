@@ -45,7 +45,9 @@ This function should only modify configuration layer settings."
             c-c++-enable-clang-support t)
      ;; docker
      emacs-lisp
+     eww
      git
+     gnus
      (go :variables
          go-backend 'lsp
          go-use-golangci-lint t
@@ -73,7 +75,7 @@ This function should only modify configuration layer settings."
             shell-default-full-span nil
             shell-default-shell 'eshell)
      ;; slack
-     spell-checking
+     ;; spell-checking
      syntax-checking
      ;; terraform
      treemacs
@@ -96,7 +98,10 @@ This function should only modify configuration layer settings."
    ;; Also include the dependencies as they will not be resolved automatically.
    dotspacemacs-additional-packages
    '(
+     atomic-chrome
      bazel
+     org-tree-slide
+     ox-clip
      protobuf-mode
      )
 
@@ -601,6 +606,10 @@ before packages are loaded."
   (defun clang-format-bindings ()
     (define-key c++-mode-map [tab] 'clang-format-buffer))
   (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t)))
+
+  ;; To open external browser from eww, press `, v x'
+  (setq browse-url-browser-function 'eww
+        browse-url-secondary-browser-function 'browse-url-xdg-open)
   )
 
 ;; Do not write anything past this comment. This is where Emacs will
