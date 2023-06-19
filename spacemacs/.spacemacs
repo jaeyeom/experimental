@@ -70,6 +70,8 @@ This function should only modify configuration layer settings."
              python-formatter 'yapf
              python-format-on-save t)
      react
+     reddit
+     ;; renpy
      ;; ruby
      ;; rust
      search-engine
@@ -106,6 +108,7 @@ This function should only modify configuration layer settings."
                          :fetcher github
                          :repo "zerolfx/copilot.el"
                          :files ("*.el" "dist")))
+     ob-mermaid
      org-tree-slide
      ox-clip
      protobuf-mode
@@ -624,6 +627,9 @@ before packages are loaded."
 
   (add-hook 'prog-mode-hook 'copilot-mode)
 
+  (with-eval-after-load 'shr
+    ;; I do not like proportional fonts.
+    (setq-default shr-use-fonts nil))
   )
 
 ;; Do not write anything past this comment. This is where Emacs will
