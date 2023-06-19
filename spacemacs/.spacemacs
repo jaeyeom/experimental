@@ -609,10 +609,72 @@ before packages are loaded."
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
 
-  ;; To open external browser from eww, press `, v x'
+  (with-eval-after-load 'reddigg
+    (defadvice reddigg-view-comments (around no-query-string activate)
+      "Remove query string from the url for `reddigg-view-comments'."
+      (let ((cmt (car (split-string cmt "\\?"))))
+        ad-do-it))
+
+    (defun reddigg-find-browse-url-function (url)
+      "Return the right reddigg function to browse URL and args. It
+returns `nil' if no reddigg function is found. This function can
+be used for predicate for `browse-url-default-handlers'.'"
+      (let* ((parsed-url (url-generic-parse-url url))
+             (host (url-host parsed-url))
+             (path (car (split-string (url-filename parsed-url) "\\?"))))
+        (if (or (string= host "www.reddit.com")
+                (string= host "reddit.com"))
+            (cond ((string-match "^/r/[^/]+/comments/" path)
+                   (list 'reddigg-view-comments url))
+                  ((string-match "^/r/\\([^/]+\\)/?$" path)
+                   (list 'reddigg-view-sub (match-string 1 path)))))))
+
+    (defun reddigg-browse-url (url &rest args)
+      "Browse reddit URL using reddigg.
+If URL is comments page then use `reddigg-view-comments' to browse the URL.
+If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
+      (interactive (browse-url-interactive-arg "URL: "))
+      (let ((fn (reddigg-find-browse-url-function url)))
+        (if fn
+            (apply (car fn) (cdr fn))
+          (message "No reddigg function found for %s" url)))))
+
+  (add-to-list 'browse-url-handlers
+               '(reddigg-find-browse-url-function . reddigg-browse-url))
+
+  (autoload 'reddigg-find-browse-url-function "reddigg")
+
+  (with-eval-after-load 'browse-url
+    (defadvice browse-url-can-use-xdg-open (around termux-can-use-xdg-open activate)
+      "Use termux-open if available."
+      (if (executable-find "termux-open")
+          (setq ad-return-value t)
+        ad-do-it)))
+
   (with-eval-after-load 'eww
+    ;; To open external browser from eww, press `, v x'
     (setq browse-url-browser-function 'eww
-          browse-url-secondary-browser-function 'browse-url-xdg-open))
+          browse-url-secondary-browser-function 'browse-url-default-browser)
+
+    ;; Use browse-url-handlers for all URLs in eww. But the redirection URLs are
+    ;; not working.
+    (setq eww-use-browse-url "")
+
+    (defun eww-browse-with-browse-url (&optional url)
+      "Browse the current URL with `browse-url'."
+      (interactive nil eww-mode)
+      (let ((browse-url-secondary-browser-function 'browse-url))
+        (eww-browse-with-external-browser url)))
+
+    ;; To browse-url from eww, press `, v u'
+    (spacemacs/set-leader-keys-for-major-mode 'eww-mode
+      "vu" 'eww-browse-with-browse-url)
+
+    ;; TAB for `shr-next-link' is very convenient, but Spacemacs eww layer
+    ;; defines C-i as `eww-forward-url' and that overrides tab in terminal. This
+    ;; is to revert that.
+    (evil-define-key 'normal eww-mode-map
+      (kbd "C-i") 'shr-next-link))
 
   ;; Copilot
   (with-eval-after-load 'company
