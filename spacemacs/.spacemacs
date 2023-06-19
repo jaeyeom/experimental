@@ -58,6 +58,7 @@ This function should only modify configuration layer settings."
      ;;         groovy-indent-offset 2)
      (helm :variables
            helm-show-completion-display-function #'helm-show-completion-default-display-function)
+     ;; ivy
      (javascript :variables
                  js2-strict-missing-semi-warning nil)
      lsp
