@@ -110,6 +110,7 @@ This function should only modify configuration layer settings."
                          :fetcher github
                          :repo "zerolfx/copilot.el"
                          :files ("*.el" "dist")))
+     ob-chatgpt-shell
      ob-mermaid
      org-tree-slide
      ox-clip
@@ -678,6 +679,22 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (evil-define-key 'normal eww-mode-map
       (kbd "C-i") 'shr-next-link))
 
+  ;; `ob-mermaid'
+  (with-eval-after-load 'org
+    (org-babel-do-load-languages
+     'org-babel-load-languages
+     '((mermaid . t)))
+    (require 'ob-chatgpt-shell nil 'noerror))
+
+  (with-eval-after-load 'ob-chatgpt-shell
+    (ob-chatgpt-shell-setup))
+
+  (with-eval-after-load 'ob-mermaid
+    ;; Find the executable mmdc then fall back to local node_modules.
+    (setq ob-mermaid-cli-path
+          (or (executable-find "mmdc")
+              (expand-file-name "~/node_modules/.bin/mmdc"))))
+
   ;; Copilot
   (with-eval-after-load 'company
     ;; disable inline previews
@@ -697,6 +714,8 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   (with-eval-after-load 'shr
     ;; I do not like proportional fonts.
     (setq-default shr-use-fonts nil))
+
+  ;;; More configuration follows
   )
 
 ;; Do not write anything past this comment. This is where Emacs will
