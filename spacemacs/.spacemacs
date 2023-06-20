@@ -105,6 +105,7 @@ This function should only modify configuration layer settings."
    '(
      atomic-chrome
      bazel
+     chatgpt-shell
      (copilot :location (recipe
                          :fetcher github
                          :repo "zerolfx/copilot.el"
@@ -689,6 +690,9 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (define-key copilot-completion-map (kbd "C-<tab>") 'copilot-accept-completion-by-word))
 
   (add-hook 'prog-mode-hook 'copilot-mode)
+
+  (with-eval-after-load 'chatgpt-shell
+    (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key")))
 
   (with-eval-after-load 'shr
     ;; I do not like proportional fonts.
