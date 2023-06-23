@@ -682,6 +682,10 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (evil-define-key 'normal eww-mode-map
       (kbd "C-i") 'shr-next-link))
 
+  (with-eval-after-load 'shr
+    ;; I do not like proportional fonts.
+    (setq-default shr-use-fonts nil))
+
   ;; `ob-mermaid'
   (with-eval-after-load 'org
     (org-babel-do-load-languages
@@ -713,10 +717,6 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (with-eval-after-load 'chatgpt-shell
     (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key")))
-
-  (with-eval-after-load 'shr
-    ;; I do not like proportional fonts.
-    (setq-default shr-use-fonts nil))
 
   ;;; More configuration follows
   )
