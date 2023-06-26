@@ -612,6 +612,10 @@ configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
 
+  ;; Get user full name and mail from git config
+  (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name")))
+  (setq-default user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email")))
+
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
 
