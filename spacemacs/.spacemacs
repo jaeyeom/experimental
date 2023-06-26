@@ -72,6 +72,7 @@ This function should only modify configuration layer settings."
           org-enable-roam-support t
           org-enable-roam-ui t
           org-roam-directory (file-truename "~/Documents/roam/"))
+     pass
      (python :variables
              python-formatter 'yapf
              python-format-on-save t)
@@ -620,7 +621,8 @@ before packages are loaded."
 
   ;; Enable auth source pass
   (with-eval-after-load 'auth-source-pass
-    (auth-source-pass-enable))
+    (auth-source-pass-enable)
+    (setq auth-sources '(password-store)))
 
   ;; Set up buildifier for bazel
   (with-eval-after-load 'bazel
