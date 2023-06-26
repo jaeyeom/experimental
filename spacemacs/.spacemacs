@@ -616,6 +616,11 @@ before packages are loaded."
   (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name")))
   (setq-default user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email")))
 
+  ;; Enable auth source pass
+  (with-eval-after-load 'auth-source-pass
+    (auth-source-pass-enable))
+
+  ;; Set up buildifier for bazel
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
 
@@ -706,6 +711,16 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
           (or (executable-find "mmdc")
               (expand-file-name "~/node_modules/.bin/mmdc"))))
 
+  ;; Slack
+  (with-eval-after-load 'slack
+    (slack-register-team
+     :name "emacs-slack"
+     :default t
+     :client-id (auth-source-pass-get "username" "slack-token")
+     :token (auth-source-pass-get "token" "slack-token")
+     :cookie (auth-source-pass-get 'secret "slack-token")
+     :subscribed-channels '(general slackbot)))
+
   ;; Copilot
   (with-eval-after-load 'company
     ;; disable inline previews
@@ -719,6 +734,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (add-hook 'prog-mode-hook 'copilot-mode)
 
+  ;; ChatGPT
   (with-eval-after-load 'chatgpt-shell
     (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key")))
 
