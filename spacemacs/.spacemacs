@@ -57,7 +57,9 @@ This function should only modify configuration layer settings."
      ;; (groovy :variables
      ;;         groovy-indent-offset 2)
      (helm :variables
-           helm-show-completion-display-function #'helm-show-completion-default-display-function)
+           ;; Prevent helm from taking over the entire frame.
+           helm-show-completion-display-function
+           #'helm-show-completion-default-display-function)
      ;; ivy
      (javascript :variables
                  js2-strict-missing-semi-warning nil)
@@ -719,7 +721,13 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
      :client-id (auth-source-pass-get "username" "slack-token")
      :token (auth-source-pass-get "token" "slack-token")
      :cookie (auth-source-pass-get 'secret "slack-token")
-     :subscribed-channels '(general slackbot)))
+     :subscribed-channels '(general slackbot))
+
+    ;; Currently `slack-all-unread' does not work properly. This is a workaround.
+    (defun slack-all-unreads ()
+      "Select all unread rooms."
+      (interactive)
+      (slack-select-unread-rooms)))
 
   ;; Copilot
   (with-eval-after-load 'company
@@ -737,6 +745,23 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   ;; ChatGPT
   (with-eval-after-load 'chatgpt-shell
     (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key")))
+
+  ;; Convenient functions
+  (defun kill-ring-save-unfilled (start end)
+    (interactive "r")
+    ;; Save the original major mode.
+    (let ((original-mode major-mode)
+          (text (buffer-substring-no-properties start end)))
+      (with-temp-buffer
+        ;; Set the major mode to the original one.
+        (funcall original-mode)
+        (insert text)
+        (unfill-region (point-min) (point-max))
+        (kill-ring-save (point-min) (point-max)))))
+
+  (defun ediff-spacemacs-with-upstream ()
+    (interactive)
+    (ediff "~/.spacemacs" (file-truename "~/.spacemacs-upstream")))
 
   ;;; More configuration follows
   )
