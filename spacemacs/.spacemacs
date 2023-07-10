@@ -794,12 +794,61 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (define-key copilot-completion-map (kbd "<tab>") 'copilot-accept-completion)
     (define-key copilot-completion-map (kbd "TAB") 'copilot-accept-completion)
     (define-key copilot-completion-map (kbd "C-TAB") 'copilot-accept-completion-by-word)
-    (define-key copilot-completion-map (kbd "C-<tab>") 'copilot-accept-completion-by-word))
+    (define-key copilot-completion-map (kbd "C-<tab>") 'copilot-accept-completion-by-word)
+    (define-key copilot-completion-map (kbd "C-<next>") 'copilot-next-completion)
+    (define-key copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion))
 
   (add-hook 'prog-mode-hook 'copilot-mode)
 
   ;;; ChatGPT
   (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key"))
+
+  (defun my/chatgpt-shell-purpose-of-email (additional-prompt)
+    "Ask ChatGPT for the purpose of an email."
+    (interactive "sAdditional prompt: ")
+    (chatgpt-shell-send-to-buffer
+     (concat "Please help me understand the email sender's brief purpose. "
+             additional-prompt
+             "\n\n"
+             (buffer-substring-no-properties (point-min) (point-max)))))
+
+  (defun my/chatgpt-shell-reply-email (additional-prompt)
+    "Ask ChatGPT to write a reply to an email with the given
+`additional-prompt' in string. The content is written in the
+current buffer."
+    (interactive "sAdditional prompt: ")
+    (let ((chatgpt-shell-prompt-query-response-style 'inline))
+      (chatgpt-shell-send-to-buffer
+       (concat "Please write a reply to the following email. "
+               additional-prompt
+               "\n\n"
+               (buffer-substring-no-properties (point-min) (point-max))))))
+
+  (defun my/chatgpt-shell-insert-natural-english (additional-prompt)
+    "Ask ChatGPT to insert natural English."
+    (interactive "sAdditional prompt: ")
+    (let ((chatgpt-shell-prompt-query-response-style 'inline))
+      (chatgpt-shell-send-to-buffer
+       (concat "Could you make the following grammatically correct and natural? "
+               additional-prompt))))
+
+  (defun my/chatgpt-shell-dwim (additional-prompt)
+    "Do What I Mean with ChatGPT. If the current buffer is a Gnus
+Article mode, ask ChatGPT for the purpose of the email. If the
+current buffer is a message-mode, ask ChatGPT to write a reply to
+the email."
+    (interactive "sAdditional prompt: ")
+    (cond
+     ((eq major-mode 'gnus-article-mode)
+      (my/chatgpt-shell-purpose-of-email))
+     ((eq major-mode 'message-mode)
+      (my/chatgpt-shell-reply-email additional-prompt))
+     ((region-active-p)
+      (chatgpt-shell-send-and-review-region))
+     (t
+      (my/chatgpt-shell-insert-natural-english additional-prompt))))
+
+  (spacemacs/set-leader-keys "o a" 'my/chatgpt-shell-dwim)
 
   ;;; Convenient functions
   (defun kill-ring-save-unfilled (start end)
