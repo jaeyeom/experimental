@@ -615,19 +615,25 @@ configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
 
-  ;; Get user full name and mail from git config
+  ;;; Get user full name and mail from git config
   (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name")))
   (setq-default user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email")))
 
-  ;; Enable auth source pass
+  ;;; Enable auth source pass
   (with-eval-after-load 'auth-source-pass
     (auth-source-pass-enable)
-    (setq auth-sources '(password-store)))
+    (setq auth-sources '(password-store))
+    (defun my/auth-source-pass-entries (host)
+      (seq-filter (lambda (entry-data) (equal `("host" . ,host) (assoc "host" entry-data)))
+                  (mapcar 'auth-source-pass-parse-entry (auth-source-pass-entries)))))
 
-  ;; Set up buildifier for bazel
+  (require 'auth-source-pass 'noerror)
+
+  ;;; Set up buildifier for bazel
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
 
+  ;;; Reddit
   (with-eval-after-load 'reddigg
     (defadvice reddigg-view-comments (around no-query-string activate)
       "Remove query string from the url for `reddigg-view-comments'."
@@ -699,7 +705,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     ;; I do not like proportional fonts.
     (setq-default shr-use-fonts nil))
 
-  ;; `ob-mermaid'
+  ;;; `ob-mermaid'
   (with-eval-after-load 'org
     (org-babel-do-load-languages
      'org-babel-load-languages
@@ -715,7 +721,55 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
           (or (executable-find "mmdc")
               (expand-file-name "~/node_modules/.bin/mmdc"))))
 
-  ;; Slack
+  ;;; Gnus
+
+  ;; Get email, and store in nnml
+  (setq gnus-secondary-select-methods
+        (mapcar (lambda (entry-data)
+                  (let ((host (cdr (assoc "host" entry-data)))
+                        (user (cdr (assoc "user" entry-data))))
+                    `(nnimap
+                      ,(concat host "/" user)
+                      (nnimap-user ,user)
+                      (nnimap-address ,host)
+                      (nnimap-server-port 993)
+                      (nnimap-stream ssl))))
+                (my/auth-source-pass-entries "imap.gmail.com")))
+
+  ;; Send email via Gmail:
+  (setq message-send-mail-function 'smtpmail-send-it
+        smtpmail-default-smtp-server "smtp.gmail.com")
+
+  ;; Archive outgoing email in Sent folder on imap.gmail.com:
+  (setq gnus-message-archive-method '(nnimap "imap.gmail.com")
+        gnus-message-archive-group "[Gmail]/Sent Mail")
+
+  ;; Set return email address based on incoming email address
+  (setq gnus-posting-styles
+        (mapcar
+         (lambda (user)
+           `((header "to" ,user)
+             (address ,user)))
+         (mapcar
+          (lambda (entry)
+            (cdr (assoc "user" entry)))
+          (my/auth-source-pass-entries "imap.gmail.com"))))
+
+  ;; Store email in ~/gmail directory
+  (setq nnml-directory "~/gmail")
+  (setq message-directory "~/gmail")
+
+  ;; Set up Gmail smtp
+  (setq smtpmail-stream-type 'starttls
+        smtpmail-default-smtp-server "smtp.gmail.com"
+        smtpmail-smtp-server "smtp.gmail.com"
+        smtpmail-smtp-service 587)
+
+  (with-eval-after-load 'gnus
+    ;; Use y key to archive email
+    (define-key gnus-summary-mode-map (kbd "y") 'gnus-summary-delete-article))
+
+  ;;; Slack
   (with-eval-after-load 'slack
     (slack-register-team
      :name "emacs-slack"
@@ -731,7 +785,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
       (interactive)
       (slack-select-unread-rooms)))
 
-  ;; Copilot
+  ;;; Copilot
   (with-eval-after-load 'company
     ;; disable inline previews
     (delq 'company-preview-if-just-one-frontend company-frontends))
@@ -744,11 +798,10 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (add-hook 'prog-mode-hook 'copilot-mode)
 
-  ;; ChatGPT
-  (with-eval-after-load 'chatgpt-shell
-    (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key")))
+  ;;; ChatGPT
+  (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key"))
 
-  ;; Convenient functions
+  ;;; Convenient functions
   (defun kill-ring-save-unfilled (start end)
     (interactive "r")
     ;; Save the original major mode.
