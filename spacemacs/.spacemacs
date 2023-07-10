@@ -807,7 +807,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     "Ask ChatGPT for the purpose of an email."
     (interactive "sAdditional prompt: ")
     (chatgpt-shell-send-to-buffer
-     (concat "Please help me understand the email sender's brief purpose. "
+     (concat "Please help me understand the email sender's very rief purpose. "
              additional-prompt
              "\n\n"
              (buffer-substring-no-properties (point-min) (point-max)))))
@@ -840,7 +840,7 @@ the email."
     (interactive "sAdditional prompt: ")
     (cond
      ((eq major-mode 'gnus-article-mode)
-      (my/chatgpt-shell-purpose-of-email))
+      (my/chatgpt-shell-purpose-of-email addional-prompt))
      ((eq major-mode 'message-mode)
       (my/chatgpt-shell-reply-email additional-prompt))
      ((region-active-p)
