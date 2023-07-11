@@ -840,7 +840,7 @@ the email."
     (interactive "sAdditional prompt: ")
     (cond
      ((eq major-mode 'gnus-article-mode)
-      (my/chatgpt-shell-purpose-of-email addional-prompt))
+      (my/chatgpt-shell-purpose-of-email additional-prompt))
      ((eq major-mode 'message-mode)
       (my/chatgpt-shell-reply-email additional-prompt))
      ((region-active-p)
