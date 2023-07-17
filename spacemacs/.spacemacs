@@ -66,6 +66,9 @@ This function should only modify configuration layer settings."
      lsp
      markdown
      multiple-cursors
+     (notmuch :variables
+              notmuch-spacemacs-layout-name "@Notmuch"
+              notmuch-spacemacs-layout-binding "n")
      (org :variables
           org-agenda-files (directory-files-recursively
                             (file-truename "~/Documents/projects") "\\.org$")
@@ -810,7 +813,9 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     "Ask ChatGPT for the purpose of an email."
     (interactive "sAdditional prompt: ")
     (chatgpt-shell-send-to-buffer
-     (concat "Please help me understand the email sender's very brief purpose. "
+     (concat "Please tell me the purpose of this email very clearly and briefly to the point. "
+             "Do not mention sender and receiver name. Say straightly that it's a talent acquisition, "
+             "engineering team outsourcing, selling SaaS, or whatever."
              additional-prompt
              "\n\n"
              (buffer-substring-no-properties (point-min) (point-max)))))
@@ -842,9 +847,11 @@ current buffer is a message-mode, ask ChatGPT to write a reply to
 the email."
     (interactive "sAdditional prompt: ")
     (cond
-     ((eq major-mode 'gnus-article-mode)
+     ((or (eq major-mode 'gnus-article-mode)
+          (eq major-mode 'notmuch-show-mode))
       (my/chatgpt-shell-purpose-of-email additional-prompt))
-     ((eq major-mode 'message-mode)
+     ((or (eq major-mode 'message-mode)
+          (eq major-mode 'notmuch-message-mode))
       (my/chatgpt-shell-reply-email additional-prompt))
      ((region-active-p)
       (chatgpt-shell-send-and-review-region))
@@ -852,6 +859,8 @@ the email."
       (my/chatgpt-shell-insert-natural-english additional-prompt))))
 
   (spacemacs/set-leader-keys "o a" 'my/chatgpt-shell-dwim)
+
+  (autoload 'my/chatgpt-shell-dwim "chatgpt-shell")
 
   ;;; Convenient functions
   (defun kill-ring-save-unfilled (start end)
