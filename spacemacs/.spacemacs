@@ -48,7 +48,6 @@ This function should only modify configuration layer settings."
      emacs-lisp
      eww
      git
-     gnus
      (go :variables
          go-backend 'lsp
          go-use-golangci-lint t
@@ -726,54 +725,6 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (setq ob-mermaid-cli-path
           (or (executable-find "mmdc")
               (expand-file-name "~/node_modules/.bin/mmdc"))))
-
-  ;;; Gnus
-
-  ;; Get email, and store in nnml
-  (setq gnus-secondary-select-methods
-        (mapcar (lambda (entry-data)
-                  (let ((host (cdr (assoc "host" entry-data)))
-                        (user (cdr (assoc "user" entry-data))))
-                    `(nnimap
-                      ,(concat host "/" user)
-                      (nnimap-user ,user)
-                      (nnimap-address ,host)
-                      (nnimap-server-port 993)
-                      (nnimap-stream ssl))))
-                (my/auth-source-pass-entries "imap.gmail.com")))
-
-  ;; Send email via Gmail:
-  (setq message-send-mail-function 'smtpmail-send-it
-        smtpmail-default-smtp-server "smtp.gmail.com")
-
-  ;; Archive outgoing email in Sent folder on imap.gmail.com:
-  (setq gnus-message-archive-method '(nnimap "imap.gmail.com")
-        gnus-message-archive-group "[Gmail]/Sent Mail")
-
-  ;; Set return email address based on incoming email address
-  (setq gnus-posting-styles
-        (mapcar
-         (lambda (user)
-           `((header "to" ,user)
-             (address ,user)))
-         (mapcar
-          (lambda (entry)
-            (cdr (assoc "user" entry)))
-          (my/auth-source-pass-entries "imap.gmail.com"))))
-
-  ;; Store email in ~/gmail directory
-  (setq nnml-directory "~/gmail")
-  (setq message-directory "~/gmail")
-
-  ;; Set up Gmail smtp
-  (setq smtpmail-stream-type 'starttls
-        smtpmail-default-smtp-server "smtp.gmail.com"
-        smtpmail-smtp-server "smtp.gmail.com"
-        smtpmail-smtp-service 587)
-
-  (with-eval-after-load 'gnus
-    ;; Use y key to archive email
-    (define-key gnus-summary-mode-map (kbd "y") 'gnus-summary-delete-article))
 
   ;;; Slack
   (with-eval-after-load 'slack
