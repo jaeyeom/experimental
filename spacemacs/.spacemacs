@@ -118,6 +118,7 @@ This function should only modify configuration layer settings."
                          :fetcher github
                          :repo "zerolfx/copilot.el"
                          :files ("*.el" "dist")))
+     ob-async
      ob-chatgpt-shell
      ob-mermaid
      org-tree-slide
@@ -760,6 +761,17 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   ;;; ChatGPT
   (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key"))
 
+  (defun visible-buffer-text ()
+    "Return the visible text in the current buffer."
+    (let ((text ""))
+      (save-excursion
+        (goto-char (point-min))
+        (while (< (point) (point-max))
+          (if (not (invisible-p (point)))
+              (setq text (concat text (char-to-string (following-char)))))
+          (forward-char)))
+      text))
+
   (defun my/chatgpt-shell-purpose-of-email (additional-prompt)
     "Ask ChatGPT for the purpose of an email."
     (interactive "sAdditional prompt: ")
@@ -769,7 +781,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
              "engineering team outsourcing, selling SaaS, or whatever."
              additional-prompt
              "\n\n"
-             (buffer-substring-no-properties (point-min) (point-max)))))
+             (visible-buffer-text))))
 
   (defun my/chatgpt-shell-reply-email (additional-prompt)
     "Ask ChatGPT to write a reply to an email with the given
