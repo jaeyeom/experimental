@@ -44,7 +44,7 @@ This function should only modify configuration layer settings."
             c-c++-default-mode-for-headers 'c++-mode
             c-c++-enable-clang-support t
             c-c++-enable-clang-format-on-save t)
-     ;; docker
+     docker
      emacs-lisp
      eww
      git
@@ -88,6 +88,7 @@ This function should only modify configuration layer settings."
             shell-default-full-span nil
             shell-default-shell 'eshell)
      slack
+     spacemacs-org
      ;; spell-checking
      syntax-checking
      ;; terraform
