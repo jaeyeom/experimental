@@ -636,6 +636,9 @@ before packages are loaded."
 
   (require 'auth-source-pass 'noerror)
 
+  ;;; Text Mode
+  (add-hook 'text-mode-hook 'turn-on-auto-fill)
+
   ;;; Set up buildifier for bazel
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
@@ -760,7 +763,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   (add-hook 'prog-mode-hook 'copilot-mode)
 
   ;;; ChatGPT
-  (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "openai-key"))
+  (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "platform.openai.com"))
 
   (defun visible-buffer-text ()
     "Return the visible text in the current buffer."
