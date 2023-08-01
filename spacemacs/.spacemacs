@@ -745,6 +745,14 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
           (or (executable-find "mmdc")
               (expand-file-name "~/node_modules/.bin/mmdc"))))
 
+  ;;; Gmail with gmi
+  (setq-default message-kill-buffer-on-exit t
+                sendmail-program "gmi"
+                send-mail-function 'sendmail-send-it
+                message-sendmail-extra-arguments '("send" "--quiet" "-t" "-C" "~/Mail/account.gmail")
+                ;; Let gmail take care of sent mail.
+                notmuch-fcc-dirs nil)
+
   ;;; Slack
   (with-eval-after-load 'slack
     (slack-register-team
