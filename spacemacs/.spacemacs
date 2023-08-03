@@ -787,7 +787,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   ;;; ChatGPT
   (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "platform.openai.com"))
 
-  (defun visible-buffer-text ()
+  (defun my/visible-buffer-text ()
     "Return the visible text in the current buffer."
     (let ((text ""))
       (save-excursion
@@ -807,7 +807,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
              "engineering team outsourcing, selling SaaS, or whatever."
              additional-prompt
              "\n\n"
-             (visible-buffer-text))))
+             (my/visible-buffer-text))))
 
   (defun my/chatgpt-shell-reply-email (additional-prompt)
     "Ask ChatGPT to write a reply to an email with the given
@@ -852,7 +852,7 @@ the email."
   (autoload 'my/chatgpt-shell-dwim "chatgpt-shell")
 
   ;;; Convenient functions
-  (defun kill-ring-save-unfilled (start end)
+  (defun my/kill-ring-save-unfilled (start end)
     (interactive "r")
     ;; Save the original major mode.
     (let ((original-mode major-mode)
@@ -864,7 +864,7 @@ the email."
         (unfill-region (point-min) (point-max))
         (kill-ring-save (point-min) (point-max)))))
 
-  (defun ediff-spacemacs-with-upstream ()
+  (defun my/ediff-spacemacs-with-upstream ()
     (interactive)
     (ediff "~/.spacemacs" (file-truename "~/.spacemacs-upstream")))
 
