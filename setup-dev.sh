@@ -5,9 +5,9 @@
 
 # This script is used to set up development environment.
 
-declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [emacs]=emacs [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh )
+declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [emacs]=emacs [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh [locate]=mlocate )
 
-declare -A pkg_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang [emacs]=emacs [ssh]=dropbear [dropbearkey]=dropbear )
+declare -A pkg_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang [emacs]=emacs [ssh]=dropbear [dropbearkey]=dropbear [locate]=mlocate )
 
 # Install the binary using apt-get command.
 get_apt () {
@@ -104,7 +104,8 @@ if [ ! -f ~/.spacemacs ]; then
     cp ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ~/
 fi
 
-get rg
+# rg currently has an issue with Emacs helm integration
+get ag
 get emacs
 get htop
 get man
@@ -114,7 +115,14 @@ get curl
 get sed
 get grep
 
-command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.49.0
+get locate
+if [ command -v "sudo" ]; then
+    sudo updatedb
+else
+    updatedb
+fi
+
+command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.55.2
 GO111MODULE=on cmd go get golang.org/x/tools/gopls@latest
 GO111MODULE=on cmd go get golang.org/x/tools/cmd/godoc@latest
 GO111MODULE=on cmd go get golang.org/x/tools/cmd/goimports@latest
