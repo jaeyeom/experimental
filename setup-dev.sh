@@ -5,9 +5,9 @@
 
 # This script is used to set up development environment.
 
-declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [emacs]=emacs [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh [locate]=mlocate )
+declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [gpg]=gnupg [emacs]=emacs [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh [locate]=mlocate )
 
-declare -A pkg_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang [emacs]=emacs [ssh]=dropbear [dropbearkey]=dropbear [locate]=mlocate )
+declare -A pkg_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang [gpg]=gnupg [emacs]=emacs [ssh]=dropbear [dropbearkey]=dropbear [locate]=mlocate )
 
 # Install the binary using apt-get command.
 get_apt () {
@@ -43,6 +43,34 @@ cmd () {
     command "$@"
 }
 
+setup_git() {
+    get git
+    if [ -z "$(git config --global user.name)" ]; then
+        echo -n "Your name: "
+        read
+        cmd git config --global user.name "$REPLY"
+    fi
+
+    if [ -z "$(git config --global user.email)" ]; then
+        echo -n "Your email: "
+        read
+        cmd git config --global user.email "$REPLY"
+    fi
+}
+
+setup_spacemacs() {
+    if [ -d ~/.emacs.d ] && [ ! -d ~/.config/emacs ]; then
+        mkdir -p ~/.config
+        mv ~/.emacs.d ~/.config/emacs
+    fi
+    if [ ! -d ~/.config/emacs ]; then
+        cmd git clone https://github.com/syl20bnr/spacemacs ~/.config/emacs
+    fi
+    if [ ! -d ~/.config/emacs/private/w3m ]; then
+        cmd git clone https://github.com/venmos/w3m-layer.git ~/.config/emacs/private/w3m
+    fi
+}
+
 generate_ssh_key() {
     get ssh
     if command -v "dropbearkey"; then
@@ -58,30 +86,26 @@ generate_ssh_key() {
     fi
     echo -n "Paste the public key at https://github.com/settings/keys and press enter: "
     read
+
+    grep -q 'ssh-agent' ~/.bashrc || cat <<EOF >> ~/.bashrc
+
+eval $(ssh-agent -s)
+ssh-add ~/.ssh/id_ed25519
+EOF
 }
 
-get git
-if [ -z "$(git config --global user.name)" ]; then
-    echo -n "Your name: "
-    read
-    cmd git config --global user.name "$REPLY"
-fi
+setup_pass() {
+    cmd gpg --list-keys | grep -q 'uid' || gpg --full-generate-key
+    grep -q 'pinentry' ~/.gnupg/gpg-agent.conf || cat <<EOF >> ~/.gnupg/gpg-agent.conf
+allow-emacs-pinentry
+allow-loopback-pinentry
+EOF
+    local uid=$(gpg --list-keys | grep 'uid' | head -n 1 | sed 's/.*<\(.*\)>.*/\1/')
+    cmd pass init "$uid"
+}
 
-if [ -z "$(git config --global user.email)" ]; then
-    echo -n "Your email: "
-    read
-    cmd git config --global user.email "$REPLY"
-fi
-if [ -d ~/.emacs.d ] && [ ! -d ~/.config/emacs ]; then
-    mkdir -p ~/.config
-    mv ~/.emacs.d ~/.config/emacs
-fi
-if [ ! -d ~/.config/emacs ]; then
-    cmd git clone https://github.com/syl20bnr/spacemacs ~/.config/emacs
-fi
-if [ ! -d ~/.config/emacs/private/w3m ]; then
-    cmd git clone https://github.com/venmos/w3m-layer.git ~/.config/emacs/private/w3m
-fi
+setup_git
+setup_spacemacs
 
 if [ ! -f ~/.ssh/id_rsa ] && [ ! -f ~/.ssh/id_ed25519 ] && [ ! -f ~/.ssh/id_dropbear ]; then
     generate_ssh_key
