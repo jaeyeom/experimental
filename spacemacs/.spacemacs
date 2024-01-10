@@ -89,7 +89,9 @@ This function should only modify configuration layer settings."
             shell-default-shell 'eshell)
      slack
      spacemacs-org
-     ;; spell-checking
+     (spell-checking :variables
+                     spell-checking-enable-by-default nil
+                     spell-checking-enable-auto-dictionary t)
      syntax-checking
      ;; terraform
      treemacs
@@ -97,7 +99,7 @@ This function should only modify configuration layer settings."
                  typescript-fmt-on-save t
                  typescript-fmt-tool 'typescript-formatter)
      version-control
-     w3m
+     ;; w3m
      yaml
      )
 
@@ -734,6 +736,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (org-babel-do-load-languages
      'org-babel-load-languages
      '((mermaid . t)))
+    (org-roam-db-autosync-mode)
     (require 'ob-chatgpt-shell nil 'noerror))
 
   (with-eval-after-load 'ob-chatgpt-shell
