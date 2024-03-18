@@ -44,6 +44,7 @@ This function should only modify configuration layer settings."
             c-c++-default-mode-for-headers 'c++-mode
             c-c++-enable-clang-support t
             c-c++-enable-clang-format-on-save t)
+     dart
      docker
      emacs-lisp
      eww
@@ -59,6 +60,7 @@ This function should only modify configuration layer settings."
            ;; Prevent helm from taking over the entire frame.
            helm-show-completion-display-function
            #'helm-show-completion-default-display-function)
+     html
      ;; ivy
      (javascript :variables
                  js2-strict-missing-semi-warning nil)
@@ -870,6 +872,29 @@ the email."
   (defun my/ediff-spacemacs-with-upstream ()
     (interactive)
     (ediff "~/.spacemacs" (file-truename "~/.spacemacs-upstream")))
+
+  ;; Check if the system is a crostini by checking /dev/.cros_milestone file.
+  (defun my/crostini-p ()
+    (file-exists-p "/dev/.cros_milestone"))
+
+  ;; Crostini specific configuration.
+  (when (my/crostini-p)
+    ;; Fix yank bug by comparing the kill-ring and the clipboard.
+    (setq select-enable-primary t)
+    (defadvice evil-paste-after (around my-evil-paste-after activate)
+      (let* ((clipboard (gui-get-selection))
+             (select-enable-clipboard
+              (and (stringp clipboard)
+                   (not (string= (substring-no-properties clipboard)
+                                 (substring-no-properties (or (car kill-ring) "")))))))
+        ad-do-it))
+    (defadvice evil-paste-before (around my-evil-paste-before activate)
+      (let* ((clipboard (gui-get-selection))
+             (select-enable-clipboard
+              (and (stringp clipboard)
+                   (not (string= (substring-no-properties clipboard)
+                                 (substring-no-properties (or (car kill-ring) "")))))))
+        ad-do-it)))
 
   ;;; More configuration follows
   )
