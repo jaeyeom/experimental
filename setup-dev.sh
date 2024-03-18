@@ -121,7 +121,12 @@ if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
     cmd gh repo clone jaeyeom/sugo
     cmd gh repo clone jaeyeom/gofiletable
     cmd gh repo clone jaeyeom/gomemocache
+    cmd gh repo clone jaeyeom/private
     popd
+fi
+
+if [ ! -s ~/.spacemacs-upstream ]; then
+    ln -snfT $HOME/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ~/.spacemacs-upstream
 fi
 
 if [ ! -f ~/.spacemacs ]; then
@@ -183,5 +188,13 @@ if [ -f ~/.local/bin/z.sh ]; then
     . ~/.local/bin/z.sh
 fi
 EOF
+
+mkdir -p $HOME/Documents
+if [ ! -e $HOME/Documents/roam ]; then
+    ln -snfT $HOME/go/src/github.com/jaeyeom/private/roam
+fi
+if [ ! -e $HOME/Documents/projects ]; then
+    ln -snfT $HOME/go/src/github.com/jaeyeom/private/projects
+fi
 
 cmd emacs
