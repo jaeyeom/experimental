@@ -42,3 +42,6 @@ python3:
 
 pip3:
 	command -v pip3 || sudo apt install -y python3-pip
+
+nodejs:
+	command -v node || sudo apt install -y nodejs
