@@ -5,7 +5,7 @@
 
 # This script is used to set up development environment.
 
-declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [gpg]=gnupg [emacs]=emacs [ssh]=openssh [ssh-keygen]=openssh [ssh-add]=openssh [locate]=mlocate )
+declare -A apt_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang-go [gpg]=gnupg [emacs]=emacs [ssh]=openssh-client [ssh-keygen]=openssh-client [ssh-add]=openssh-client [locate]=mlocate )
 
 declare -A pkg_m=( [ag]=silversearcher-ag [rg]=ripgrep [go]=golang [gpg]=gnupg [emacs]=emacs [ssh]=dropbear [dropbearkey]=dropbear [locate]=mlocate )
 
