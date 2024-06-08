@@ -91,7 +91,7 @@ spacemacs-go: spacemacs go golangci-lint godoc goimports gorename guru gotests f
 
 golangci-lint: go curl $(GOPATH)/bin/golangci-lint
 $(GOPATH)/bin/golangci-lint:
-	command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.59.0
+	command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin v1.59.0
 
 
 godoc: go $(GOPATH)/bin/godoc
