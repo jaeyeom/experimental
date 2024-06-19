@@ -26,6 +26,14 @@ describe('Bowling', () => {
         pins.push(4);
         expect(calculateScore(pins)).to.equal(257);
     });
+
+    it('should handle all strikes but last spare', () => {
+        const pins = Array(9).fill(10);
+        pins.push(3);
+        pins.push(7);
+        pins.push(4);
+        expect(calculateScore(pins)).to.equal(267);
+    });
 });
 
 class RandomRoller {
