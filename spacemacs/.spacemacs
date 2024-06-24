@@ -2,6 +2,31 @@
 ;; This file is loaded by Spacemacs at startup.
 ;; It must be stored in your home directory.
 
+(defun my/hostname-penguin-p ()
+  "Check if the hostname is 'penguin' which is a typical Crostini hostname."
+  (string= (system-name) "penguin"))
+
+(defun my/lsb-release-crostini-p ()
+  "Check if the system is running in Crostini based on /etc/lsb-release."
+  (and (eq system-type 'gnu/linux)
+       (file-exists-p "/etc/lsb-release")
+       (with-temp-buffer
+         (insert-file-contents "/etc/lsb-release")
+         (goto-char (point-min))
+         (re-search-forward "CHROMEOS_RELEASE" nil t))))
+
+(defun my/gtk-im-module-cros-p ()
+  "Check if GTK_IM_MODULE is set to 'cros'."
+  (string= (getenv "GTK_IM_MODULE") "cros"))
+
+(defun my/in-crostini-p ()
+  "Check if Emacs is running in ChromeOS Crostini by combining multiple checks."
+  (or (my/hostname-penguin-p)
+      (my/lsb-release-crostini-p)
+      (my/gtk-im-module-cros-p)))
+
+(defvar my/in-crostini-p (my/in-crostini-p))
+
 (defun dotspacemacs/layers ()
   "Layer configuration:
 This function should only modify configuration layer settings."
@@ -32,78 +57,82 @@ This function should only modify configuration layer settings."
 
    ;; List of configuration layers to load.
    dotspacemacs-configuration-layers
-   '(
-     ;; ----------------------------------------------------------------
-     ;; Example of useful layers you may want to use right away.
-     ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
-     ;; `M-m f e R' (Emacs style) to install them.
-     ;; ----------------------------------------------------------------
-     auto-completion
-     better-defaults
-     (c-c++ :variables
-            c-c++-default-mode-for-headers 'c++-mode
-            c-c++-enable-clang-support t
-            c-c++-enable-clang-format-on-save t)
-     dart
-     docker
-     emacs-lisp
-     eww
-     git
-     (go :variables
-         go-backend 'lsp
-         go-use-golangci-lint t
-         go-format-before-save t
-         gofmt-command "goimports")
-     ;; (groovy :variables
-     ;;         groovy-indent-offset 2)
-     (helm :variables
-           ;; Prevent helm from taking over the entire frame.
-           helm-show-completion-display-function
-           #'helm-show-completion-default-display-function)
-     html
-     ;; ivy
-     (javascript :variables
-                 js2-strict-missing-semi-warning nil)
-     lsp
-     markdown
-     multiple-cursors
-     (notmuch :variables
-              notmuch-spacemacs-layout-name "@Notmuch"
-              notmuch-spacemacs-layout-binding "n")
-     (org :variables
-          org-agenda-files (directory-files-recursively
-                            (file-truename "~/Documents/projects") "\\.org$")
-          org-enable-roam-support t
-          org-enable-roam-ui t
-          org-roam-directory (file-truename "~/Documents/roam/"))
-     pass
-     (python :variables
-             python-formatter 'yapf
-             python-format-on-save t)
-     react
-     reddit
-     ;; renpy
-     ;; ruby
-     ;; rust
-     search-engine
-     (shell :variables
-            shell-default-full-span nil
-            shell-default-shell 'eshell)
-     slack
-     spacemacs-org
-     (spell-checking :variables
-                     spell-checking-enable-by-default nil
-                     spell-checking-enable-auto-dictionary t)
-     syntax-checking
-     ;; terraform
-     treemacs
-     (typescript :variables
-                 typescript-fmt-on-save t
-                 typescript-fmt-tool 'typescript-formatter)
-     version-control
-     ;; w3m
-     yaml
-     )
+   (append
+    '(
+      ;; ----------------------------------------------------------------
+      ;; Example of useful layers you may want to use right away.
+      ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
+      ;; `M-m f e R' (Emacs style) to install them.
+      ;; ----------------------------------------------------------------
+      auto-completion
+      better-defaults
+      (c-c++ :variables
+             c-c++-default-mode-for-headers 'c++-mode
+             c-c++-enable-clang-support t
+             c-c++-enable-clang-format-on-save t)
+      dart
+      docker
+      emacs-lisp
+      eww
+      git
+      (go :variables
+          go-backend 'lsp
+          go-use-golangci-lint t
+          go-format-before-save t
+          gofmt-command "goimports")
+      ;; (groovy :variables
+      ;;         groovy-indent-offset 2)
+      (helm :variables
+            ;; Prevent helm from taking over the entire frame.
+            helm-show-completion-display-function
+            #'helm-show-completion-default-display-function)
+      html
+      ;; ivy
+      (javascript :variables
+                  js2-strict-missing-semi-warning nil)
+      lsp
+      markdown
+      multiple-cursors
+      (notmuch :variables
+               notmuch-spacemacs-layout-name "@Notmuch"
+               notmuch-spacemacs-layout-binding "n")
+      (org :variables
+           org-agenda-files (directory-files-recursively
+                             (file-truename "~/Documents/projects") "\\.org$")
+           org-enable-roam-support t
+           org-enable-roam-ui t
+           org-roam-directory (file-truename "~/Documents/roam/"))
+      pass
+      (python :variables
+              python-formatter 'yapf
+              python-format-on-save t)
+      react
+      reddit
+      ;; renpy
+      ;; ruby
+      ;; rust
+      search-engine
+      (shell :variables
+             shell-default-full-span nil
+             shell-default-shell 'eshell)
+      slack
+      spacemacs-org
+      (spell-checking :variables
+                      spell-checking-enable-by-default nil
+                      spell-checking-enable-auto-dictionary t)
+      syntax-checking
+      ;; terraform
+      treemacs
+      (typescript :variables
+                  typescript-fmt-on-save t
+                  typescript-fmt-tool 'typescript-formatter)
+      version-control
+      ;; w3m
+      yaml
+      )
+    (if (display-graphic-p)
+        '(eaf))
+    )
 
 
    ;; List of additional packages that will be installed without being wrapped
@@ -425,7 +454,7 @@ It should only modify the values of Spacemacs settings."
    ;; If non-nil the frame is maximized when Emacs starts up.
    ;; Takes effect only if `dotspacemacs-fullscreen-at-startup' is nil.
    ;; (default t) (Emacs 24.4+ only)
-   dotspacemacs-maximized-at-startup t
+   dotspacemacs-maximized-at-startup nil
 
    ;; If non-nil the frame is undecorated when Emacs starts up. Combine this
    ;; variable with `dotspacemacs-maximized-at-startup' to obtain fullscreen
@@ -773,6 +802,23 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
       "Select all unread rooms."
       (interactive)
       (slack-select-unread-rooms)))
+
+  ;;; EAF
+  (with-eval-after-load 'eaf
+    ;; Check if Emacs is running in ChromeOS Crostini.
+
+    ;; EAF is not stable yet. This is a workaround to prevent crashes.
+    (defun my/safe-eaf-call-sync (orig-fun &rest args)
+      "Safely wrap around `eaf-call-sync' to prevent crashes."
+      (if (and (string= (nth 0 args) "execute_function")
+               (string= (nth 2 args) "is_focus"))
+          ;; Instead of calling the actual function, return a default value
+          nil ;; Assuming 'nil' is a safer return value for "is_focus"
+        (apply orig-fun args)))
+
+    (if my/in-crostini-p
+        (advice-add 'eaf-call-sync :around #'my/safe-eaf-call-sync))
+    )
 
   ;;; Copilot
   (with-eval-after-load 'company
