@@ -2,31 +2,6 @@
 ;; This file is loaded by Spacemacs at startup.
 ;; It must be stored in your home directory.
 
-(defun my/hostname-penguin-p ()
-  "Check if the hostname is 'penguin' which is a typical Crostini hostname."
-  (string= (system-name) "penguin"))
-
-(defun my/lsb-release-crostini-p ()
-  "Check if the system is running in Crostini based on /etc/lsb-release."
-  (and (eq system-type 'gnu/linux)
-       (file-exists-p "/etc/lsb-release")
-       (with-temp-buffer
-         (insert-file-contents "/etc/lsb-release")
-         (goto-char (point-min))
-         (re-search-forward "CHROMEOS_RELEASE" nil t))))
-
-(defun my/gtk-im-module-cros-p ()
-  "Check if GTK_IM_MODULE is set to 'cros'."
-  (string= (getenv "GTK_IM_MODULE") "cros"))
-
-(defun my/in-crostini-p ()
-  "Check if Emacs is running in ChromeOS Crostini by combining multiple checks."
-  (or (my/hostname-penguin-p)
-      (my/lsb-release-crostini-p)
-      (my/gtk-im-module-cros-p)))
-
-(defvar my/in-crostini-p (my/in-crostini-p))
-
 (defun dotspacemacs/layers ()
   "Layer configuration:
 This function should only modify configuration layer settings."
@@ -666,6 +641,31 @@ This function is called at the very end of Spacemacs startup, after layer
 configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
+
+  (defun my/hostname-penguin-p ()
+    "Check if the hostname is 'penguin' which is a typical Crostini hostname."
+    (string= (system-name) "penguin"))
+
+  (defun my/lsb-release-crostini-p ()
+    "Check if the system is running in Crostini based on /etc/lsb-release."
+    (and (eq system-type 'gnu/linux)
+         (file-exists-p "/etc/lsb-release")
+         (with-temp-buffer
+           (insert-file-contents "/etc/lsb-release")
+           (goto-char (point-min))
+           (re-search-forward "CHROMEOS_RELEASE" nil t))))
+
+  (defun my/gtk-im-module-cros-p ()
+    "Check if GTK_IM_MODULE is set to 'cros'."
+    (string= (getenv "GTK_IM_MODULE") "cros"))
+
+  (defun my/in-crostini-p ()
+    "Check if Emacs is running in ChromeOS Crostini by combining multiple checks."
+    (or (my/hostname-penguin-p)
+        (my/lsb-release-crostini-p)
+        (my/gtk-im-module-cros-p)))
+
+  (defvar my/in-crostini-p (my/in-crostini-p))
 
   ;;; Get user full name and mail from git config
   (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
