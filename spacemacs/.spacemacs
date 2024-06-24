@@ -763,6 +763,18 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     ;; I do not like proportional fonts.
     (setq-default shr-use-fonts nil))
 
+  ;; Define convenient function
+  (with-eval-after-load 'org
+    (defun my/org-surround-region-with-src-block (lang)
+      "Surround the current region with an Org-mode source block of LANG."
+      (interactive "sEnter language: ")
+      (let ((region-start (region-beginning))
+            (region-end (region-end)))
+        (goto-char region-end)
+        (insert (format "#+END_SRC\n"))
+        (goto-char region-start)
+        (insert (format "#+BEGIN_SRC %s\n" lang)))))
+
   ;;; `ob-mermaid'
   (with-eval-after-load 'org
     (org-babel-do-load-languages
