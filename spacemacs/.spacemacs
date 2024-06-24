@@ -152,6 +152,7 @@ This function should only modify configuration layer settings."
                          :fetcher github
                          :repo "zerolfx/copilot.el"
                          :files ("*.el" "dist")))
+     gptel
      ob-async
      ob-chatgpt-shell
      ob-mermaid
@@ -835,8 +836,24 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (add-hook 'prog-mode-hook 'copilot-mode)
 
+  (require 'gptel nil 'noerror)
+  (with-eval-after-load 'gptel
+    (setq-default gptel-model "gpt-4o"
+                  gptel-default-mode 'org-mode)
+
+    ;; Llama.cpp offers an OpenAI compatible API
+    (gptel-make-openai "llama-cpp"          ;Any name
+      :stream t                             ;Stream responses
+      :protocol "http"
+      :host "localhost:8080"                ;Llama.cpp server location
+      :models '("Llama"))                   ;Any names, doesn't matter for Llama
+    )
+
   ;;; ChatGPT
-  (setq-default chatgpt-shell-openai-key (auth-source-pass-get 'secret "platform.openai.com"))
+  (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com")))
+    (setq-default chatgpt-shell-openai-key openai-api-key
+                  gptel-api-key openai-api-key))
+
 
   (defun my/visible-buffer-text ()
     "Return the visible text in the current buffer."
