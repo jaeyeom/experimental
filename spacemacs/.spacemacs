@@ -642,30 +642,11 @@ configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
 
-  (defun my/hostname-penguin-p ()
-    "Check if the hostname is 'penguin' which is a typical Crostini hostname."
-    (string= (system-name) "penguin"))
+  ;; Check if the system is a crostini by checking /dev/.cros_milestone file.
+  (defun my/crostini-p ()
+    (file-exists-p "/dev/.cros_milestone"))
 
-  (defun my/lsb-release-crostini-p ()
-    "Check if the system is running in Crostini based on /etc/lsb-release."
-    (and (eq system-type 'gnu/linux)
-         (file-exists-p "/etc/lsb-release")
-         (with-temp-buffer
-           (insert-file-contents "/etc/lsb-release")
-           (goto-char (point-min))
-           (re-search-forward "CHROMEOS_RELEASE" nil t))))
-
-  (defun my/gtk-im-module-cros-p ()
-    "Check if GTK_IM_MODULE is set to 'cros'."
-    (string= (getenv "GTK_IM_MODULE") "cros"))
-
-  (defun my/in-crostini-p ()
-    "Check if Emacs is running in ChromeOS Crostini by combining multiple checks."
-    (or (my/hostname-penguin-p)
-        (my/lsb-release-crostini-p)
-        (my/gtk-im-module-cros-p)))
-
-  (defvar my/in-crostini-p (my/in-crostini-p))
+  (defvar my/crostini-p (my/crostini-p))
 
   ;;; Get user full name and mail from git config
   (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
@@ -829,7 +810,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
           nil ;; Assuming 'nil' is a safer return value for "is_focus"
         (apply orig-fun args)))
 
-    (if my/in-crostini-p
+    (if my/crostini-p
         (advice-add 'eaf-call-sync :around #'my/safe-eaf-call-sync))
     )
 
@@ -948,12 +929,8 @@ the email."
     (interactive)
     (ediff "~/.spacemacs" (file-truename "~/.spacemacs-upstream")))
 
-  ;; Check if the system is a crostini by checking /dev/.cros_milestone file.
-  (defun my/crostini-p ()
-    (file-exists-p "/dev/.cros_milestone"))
-
   ;; Crostini specific configuration.
-  (when (my/crostini-p)
+  (when my/crostini-p
     ;; Fix yank bug by comparing the kill-ring and the clipboard.
     (setq select-enable-primary t)
     (defadvice evil-paste-after (around my-evil-paste-after activate)
