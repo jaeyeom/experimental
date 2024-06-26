@@ -1,4 +1,4 @@
-.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc
+.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc
 
 ag:
 	command -v ag || sudo apt-get install -y silversearcher-ag
@@ -47,3 +47,6 @@ nodejs:
 
 protoc:
 	command -v protoc || sudo apt-get install -y protobuf-compiler
+
+pandoc:
+	command -v pandoc || sudo apt-get install -y pandoc

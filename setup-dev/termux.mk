@@ -1,4 +1,4 @@
-.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc
+.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc
 
 ag:
 	command -v ag || pkg install -y silversearcher-ag
@@ -46,3 +46,6 @@ nodejs:
 
 protoc:
 	command -v protoc || pkg install -y protobuf
+
+pandoc:
+	command -v pandoc || pkg install -y pandoc
