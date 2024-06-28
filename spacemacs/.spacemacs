@@ -141,7 +141,14 @@ This function should only modify configuration layer settings."
    dotspacemacs-frozen-packages '()
 
    ;; A list of packages that will not be installed and loaded.
-   dotspacemacs-excluded-packages '()
+   dotspacemacs-excluded-packages
+   (append
+    '()
+    ;; `emoji-chat-sheet-plus' causes a PNG error in terminal mode. But this is
+    ;; loaded by Spacemacs by default. So, let's exclude it.
+    (unless (display-graphic-p)
+      '(emoji-cheat-sheet-plus))
+    )
 
    ;; Defines the behaviour of Spacemacs when installing packages.
    ;; Possible values are `used-only', `used-but-keep-unused' and `all'.
