@@ -629,6 +629,27 @@ This function is called immediately after `dotspacemacs/init', before layer
 configuration.
 It is mostly for variables that should be set before packages are loaded.
 If you are unsure, try setting them in `dotspacemacs/user-config' first."
+  (defun my/crostini-p ()
+    (file-exists-p "/dev/.cros_milestone"))
+
+  (defvar my/crostini-p (my/crostini-p))
+
+  (defun my/termux-p ()
+    (not (null (getenv "TERMUX_VERSION"))))
+
+  (defvar my/termux-p (my/termux-p))
+
+  ;; Bug patch for Termux. `async-start' does not work properly in Termux. Let's
+  ;; make the function synchronous.
+  (if my/termux-p
+      (with-eval-after-load 'async
+        (defun async-start (start-func &optional finish-func)
+          "Different from the original function, this function is synchronous."
+          (let ((result (funcall start-func)))
+            (when finish-func
+              (funcall finish-func result))
+            result))))
+
   (customize-set-variable
    'custom-file (file-truename (concat dotspacemacs-directory ".spacemacs-custom.el")) "Separate custom file")
   (load custom-file)
@@ -649,12 +670,6 @@ This function is called at the very end of Spacemacs startup, after layer
 configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
-
-  ;; Check if the system is a crostini by checking /dev/.cros_milestone file.
-  (defun my/crostini-p ()
-    (file-exists-p "/dev/.cros_milestone"))
-
-  (defvar my/crostini-p (my/crostini-p))
 
   ;;; Get user full name and mail from git config
   (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
