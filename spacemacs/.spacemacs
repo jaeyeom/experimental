@@ -46,7 +46,6 @@ This function should only modify configuration layer settings."
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
       dart
-      docker
       emacs-lisp
       eww
       git
@@ -105,6 +104,8 @@ This function should only modify configuration layer settings."
       ;; w3m
       yaml
       )
+    (if (executable-find "docker")
+        '(docker))
     (if (display-graphic-p)
         '(eaf))
     )
