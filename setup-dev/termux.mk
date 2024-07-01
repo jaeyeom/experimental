@@ -49,3 +49,16 @@ protoc:
 
 pandoc:
 	command -v pandoc || pkg install -y pandoc
+
+MPV_CONFIG = $(HOME)/.config/mpv/mpv.conf
+mpv: $(MPV_CONFIG)
+	command -v mpv || pkg install -y mpv
+
+$(MPV_CONFIG):
+	mkdir -p $(shell dirname $(MPV_CONFIG))
+	@echo "vo=tct" > $(MPV_CONFIG)
+	@echo "ao=opensles" >> $(MPV_CONFIG)
+	@echo "hwdec=auto" >> $(MPV_CONFIG)
+	@echo "profile=sw-fast" >> $(MPV_CONFIG)
+	@echo "vid=auto" >> $(MPV_CONFIG)
+	@echo "really-quiet" >> $(MPV_CONFIG)
