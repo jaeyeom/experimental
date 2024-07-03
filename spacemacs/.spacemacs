@@ -132,6 +132,7 @@ This function should only modify configuration layer settings."
      gptel
      ob-async
      ob-chatgpt-shell
+     ob-go
      ob-mermaid
      org-tree-slide
      ox-clip
@@ -768,8 +769,22 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     ;; I do not like proportional fonts.
     (setq-default shr-use-fonts nil))
 
-  ;; Define convenient function
+  ;; Org Mode
   (with-eval-after-load 'org
+    ;; Org Roam
+    (org-roam-db-autosync-mode)
+
+    ;; Babel
+    (require 'ob-awk nil 'noerror)
+    (require 'ob-chatgpt-shell nil 'noerror)
+    (require 'ob-emacs-lisp nil 'noerror)
+    (require 'ob-go nil 'noerror)
+    (require 'ob-makefile nil 'noerror)
+    (require 'ob-mermaid nil 'noerror)
+    (require 'ob-python nil 'noerror)
+    (require 'ob-shell nil 'noerror)
+
+    ;; Convenience function
     (defun my/org-surround-region-with-src-block (lang)
       "Surround the current region with an Org-mode source block of LANG."
       (interactive "sEnter language: ")
@@ -779,14 +794,6 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
         (insert (format "#+END_SRC\n"))
         (goto-char region-start)
         (insert (format "#+BEGIN_SRC %s\n" lang)))))
-
-  ;;; `ob-mermaid'
-  (with-eval-after-load 'org
-    (org-babel-do-load-languages
-     'org-babel-load-languages
-     '((mermaid . t)))
-    (org-roam-db-autosync-mode)
-    (require 'ob-chatgpt-shell nil 'noerror))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
