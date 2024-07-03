@@ -91,6 +91,7 @@ This function should only modify configuration layer settings."
              shell-default-shell 'eshell)
       slack
       spacemacs-org
+      spacemacs-purpose
       (spell-checking :variables
                       spell-checking-enable-by-default nil
                       spell-checking-enable-auto-dictionary t)
