@@ -693,6 +693,12 @@ before packages are loaded."
   ;;; Text Mode
   (add-hook 'text-mode-hook 'turn-on-auto-fill)
 
+  ;;; Helm
+  (if my/termux-p
+      (with-eval-after-load 'helm
+        ;; Termux locate does not support -N option.
+        (setq-default helm-locate-command "locate %s -e -A --regex %s")))
+
   ;;; Set up buildifier for bazel
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
