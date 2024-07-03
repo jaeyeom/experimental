@@ -1,4 +1,4 @@
-.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc
+.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc mpv ox-clip xclip
 
 ag:
 	command -v ag || sudo apt-get install -y silversearcher-ag
@@ -50,3 +50,11 @@ protoc:
 
 pandoc:
 	command -v pandoc || sudo apt-get install -y pandoc
+
+mpv:
+	command -v mpv || sudo apt-get install -y mpv
+
+ox-clip: emacs xclip
+
+xclip:
+	command -v xclip || sudo apt-get install -y xclip
