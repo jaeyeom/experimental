@@ -818,6 +818,25 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
                 ;; Let gmail take care of sent mail.
                 notmuch-fcc-dirs nil)
 
+  ;;; Eshell
+  (with-eval-after-load 'eshell
+    (defvar my/command-not-found-command
+      ;; Find the first available command-not-found script.
+      (seq-find 'file-exists-p
+                '("/data/data/com.termux/files/usr/libexec/termux/command-not-found"
+                  "/usr/lib/command-not-found")))
+
+    (defun my/eshell-command-not-found (command)
+      "Hook to run command-not-found script in eshell."
+      (error (string-trim-right
+              (shell-command-to-string
+               (format "%s %s"
+                       my/command-not-found-command
+                       (shell-quote-argument command))))))
+
+    (if my/command-not-found-command
+        (add-hook 'eshell-alternate-command-hook 'my/eshell-command-not-found)))
+
   ;;; Slack
   (with-eval-after-load 'slack
     (slack-register-team
