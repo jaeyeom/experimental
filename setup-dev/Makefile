@@ -13,7 +13,7 @@ PASSWORD_STORE_DIR = $(HOME)/.password-store
 
 .PHONY: all
 
-all: spacemacs-go spacemacs-python password-store setup-ssh-agent setup-z setup-vterm
+all: spacemacs-go spacemacs-python password-store setup-bashrc
 	@echo Done
 
 # Function to check if a command exists
@@ -26,7 +26,7 @@ else ifeq ($(call command_exists, apt),yes)
     include debian.mk
 endif
 
-.PHONY: gitconfig spacemacs ssh-key-file emacs-w3m
+.PHONY: gitconfig spacemacs ssh-key-file emacs-w3m setup-local-bin setup-z setup-vterm setup-bashrc
 
 
 gitconfig: git
@@ -178,6 +178,16 @@ $(HOME)/.local/bin/z.sh: $(HOME)/.local/bin
 	chmod +x $@
 
 
+setup-local-bin: $(HOME)/.local/bin
+	grep -q '$$HOME/.local/bin' ~/.bashrc || { \
+		echo '' >> ~/.bashrc ; \
+		echo '# Add local bin to path' >> ~/.bashrc ; \
+		echo 'if [ -d "$$HOME/.local/bin" ]; then' >> ~/.bashrc ; \
+		echo '    PATH="$$HOME/.local/bin:$$PATH"' >> ~/.bashrc ; \
+		echo 'fi' >> ~/.bashrc ; \
+	}
+
+
 setup-z: | $(HOME)/.local/bin/z.sh
 	grep -q 'z.sh' ~/.bashrc || { \
 		echo '' >> ~/.bashrc ; \
@@ -197,3 +207,6 @@ setup-vterm:
 		echo '    source $${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh' >> ~/.bashrc ; \
 		echo 'fi' >> ~/.bashrc ; \
 	}
+
+
+setup-bashrc: setup-local-bin setup-z setup-ssh-agent setup-vterm
