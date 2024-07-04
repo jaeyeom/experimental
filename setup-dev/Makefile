@@ -154,10 +154,19 @@ image2ascii: go $(GOPATH)/bin/image2ascii
 $(GOPATH)/bin/image2ascii:
 	go install github.com/qeesung/image2ascii@latest
 
+
 protoc-gen-go: protoc go $(GOPATH)/bin/protoc-gen-go
 $(GOPATH)/bin/protoc-gen-go:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
+
 protoc-gen-go-grpc: protoc go $(GOPATH)/bin/protoc-gen-go-grpc
 $(GOPATH)/bin/protoc-gen-go-grpc:
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+
+spacemacs-python: spacemacs python importmagic
+
+
+importmagic: python
+	pip install importmagic epc
