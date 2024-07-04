@@ -194,6 +194,7 @@ setup-z: | $(HOME)/.local/bin/z.sh
 		echo '# Enable z script' >> ~/.bashrc ; \
 		echo 'if [ -f ~/.local/bin/z.sh ]; then' >> ~/.bashrc ; \
 		echo '    . ~/.local/bin/z.sh' >> ~/.bashrc ; \
+		echo '    PROMPT_COMMAND="$${PROMPT_COMMAND%;}"' >> ~/.bashrc ; \
 		echo 'fi' >> ~/.bashrc ; \
 	}
 
