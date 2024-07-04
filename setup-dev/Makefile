@@ -13,7 +13,7 @@ PASSWORD_STORE_DIR = $(HOME)/.password-store
 
 .PHONY: all
 
-all:
+all: spacemacs-go spacemacs-python password-store setup-ssh-agent setup-z setup-vterm
 	@echo Done
 
 # Function to check if a command exists
@@ -66,13 +66,10 @@ $(SSH_KEY):
 		mkdir -p ~/.ssh ; \
 		ssh-keygen -t ed25519 -C "$$(git config --global user.email)" -f $@ ; \
 		eval "$$(ssh-agent -s)" ; \
-		ssh-add ~/.ssh/id_ed25519 ; \
-		cat ~/.ssh/id_ed25519.pub ; \
+		ssh-add $(SSH_KEY) ; \
+		cat $(SSH_KEY).pub ; \
 		echo -n "Paste the public key at https://github.com/settings/keys and press enter: " ; \
 		read REPLY ; \
-		grep -q 'ssh-agent' ~/.bashrc || { \
-			echo -n "\neval \$$(ssh-agent -s)\nssh-add ~/.ssh/id_ed25519" >> ~/.bashrc ; \
-		} ; \
 	}
 
 
@@ -170,3 +167,33 @@ spacemacs-python: spacemacs python importmagic
 
 importmagic: python
 	pip install importmagic epc
+
+
+$(HOME)/.local/bin:
+	mkdir -p $@
+
+
+$(HOME)/.local/bin/z.sh: $(HOME)/.local/bin
+	curl -sfL https://raw.githubusercontent.com/rupa/z/master/z.sh -o $@
+	chmod +x $@
+
+
+setup-z: | $(HOME)/.local/bin/z.sh
+	grep -q 'z.sh' ~/.bashrc || { \
+		echo '' >> ~/.bashrc ; \
+		echo '# Enable z script' >> ~/.bashrc ; \
+		echo 'if [ -f ~/.local/bin/z.sh ]; then' >> ~/.bashrc ; \
+		echo '    . ~/.local/bin/z.sh' >> ~/.bashrc ; \
+		echo 'fi' >> ~/.bashrc ; \
+	}
+
+
+setup-vterm:
+	grep -q 'emacs-vterm-bash' ~/.bashrc || { \
+		echo '' >> ~/.bashrc ; \
+		echo 'if [[ "$$INSIDE_EMACS" = "vterm" ]] \\' >> ~/.bashrc ; \
+		echo '       && [[ -n $${EMACS_VTERM_PATH} ]] \\' >> ~/.bashrc ; \
+		echo '       && [[ -f $${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh ]]; then' >> ~/.bashrc ; \
+		echo '    source $${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh' >> ~/.bashrc ; \
+		echo 'fi' >> ~/.bashrc ; \
+	}
