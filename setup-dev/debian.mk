@@ -1,4 +1,4 @@
-.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc mpv ox-clip xclip
+.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc mpv ox-clip xclip keychain setup-ssh-agent
 
 ag:
 	command -v ag || sudo apt-get install -y silversearcher-ag
@@ -58,3 +58,11 @@ ox-clip: emacs xclip
 
 xclip:
 	command -v xclip || sudo apt-get install -y xclip
+
+keychain:
+	command -v keychain || sudo apt-get install -y keychain
+
+setup-ssh-agent: openssh keychain ssh-key-file
+	grep -q 'keychain' ~/.bashrc || { \
+		echo "\neval \$$(keychain --eval --agents ssh $(shell basename $(SSH_KEY)))" >> ~/.bashrc ; \
+	} ; \
