@@ -1,4 +1,4 @@
-.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc
+.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc mpv setup-ssh-agent
 
 ag:
 	command -v ag || pkg install -y silversearcher-ag
@@ -62,3 +62,9 @@ $(MPV_CONFIG):
 	@echo "profile=sw-fast" >> $(MPV_CONFIG)
 	@echo "vid=auto" >> $(MPV_CONFIG)
 	@echo "really-quiet" >> $(MPV_CONFIG)
+
+setup-ssh-agent: openssh ssh-key-file
+	grep -q "source-ssh-agent" ~/.bashrc || { \
+		echo '' >> ~/.bashrc ; \
+		echo ". ~/.ssh/source-ssh-agent" >> ~/.bashrc ; \
+	}
