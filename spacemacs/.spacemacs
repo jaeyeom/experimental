@@ -822,9 +822,10 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   (with-eval-after-load 'eshell
     (defvar my/command-not-found-command
       ;; Find the first available command-not-found script.
-      (seq-find 'file-exists-p
+      (seq-find 'file-executable-p
                 '("/data/data/com.termux/files/usr/libexec/termux/command-not-found"
-                  "/usr/lib/command-not-found")))
+                  "/usr/lib/command-not-found"
+                  "/usr/libexec/pk-command-not-found")))
 
     (defun my/eshell-command-not-found (command)
       "Hook to run command-not-found script in eshell."
