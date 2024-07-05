@@ -66,5 +66,5 @@ $(MPV_CONFIG):
 setup-ssh-agent: openssh ssh-key-file
 	grep -q "source-ssh-agent" ~/.bashrc || { \
 		echo '' >> ~/.bashrc ; \
-		echo ". ~/.ssh/source-ssh-agent" >> ~/.bashrc ; \
+		echo ". source-ssh-agent" >> ~/.bashrc ; \
 	}
