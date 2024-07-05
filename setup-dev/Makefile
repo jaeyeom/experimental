@@ -26,7 +26,7 @@ else ifeq ($(call command_exists, apt),yes)
     include debian.mk
 endif
 
-.PHONY: gitconfig spacemacs ssh-key-file emacs-w3m setup-local-bin setup-z setup-vterm setup-bashrc
+.PHONY: gitconfig spacemacs ssh-key-file emacs-w3m setup-local-bin setup-z setup-vterm setup-bashrc setup-go-bin
 
 
 gitconfig: git
@@ -83,7 +83,7 @@ $(PASSWORD_STORE_DIR):
 	pass init "$$(gpg --list-keys | grep 'uid' | head -n 1 | sed 's/.*<\(.*\)>.*/\1/')"
 
 
-spacemacs-go: spacemacs go golangci-lint godoc goimports gorename guru gotests fillstruct gomodifytags godoctor gopkgs impl godef
+spacemacs-go: spacemacs go setup-go-bin golangci-lint godoc goimports gorename guru gotests fillstruct gomodifytags godoctor gopkgs impl godef
 
 
 golangci-lint: go curl $(GOPATH)/bin/golangci-lint
@@ -211,3 +211,13 @@ setup-vterm:
 
 
 setup-bashrc: setup-local-bin setup-z setup-ssh-agent setup-vterm
+
+
+setup-go-bin: go
+	grep -q '$$(go env GOPATH)/bin' ~/.profile || { \
+		echo '' >> ~/.profile ; \
+		echo '# Add go bin to path' >> ~/.profile ; \
+		echo 'if [ -d "$$(go env GOPATH)/bin" ]; then' >> ~/.profile ; \
+		echo '    PATH="$$(go env GOPATH)/bin:$$PATH"' >> ~/.profile ; \
+		echo 'fi' >> ~/.profile ; \
+	}
