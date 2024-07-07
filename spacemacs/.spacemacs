@@ -130,6 +130,7 @@ This function should only modify configuration layer settings."
                          :fetcher github
                          :repo "zerolfx/copilot.el"
                          :files ("*.el" "dist")))
+     eshell-command-not-found
      gptel
      ob-async
      ob-chatgpt-shell
@@ -821,23 +822,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   ;;; Eshell
   (with-eval-after-load 'eshell
-    (defvar my/command-not-found-command
-      ;; Find the first available command-not-found script.
-      (seq-find 'file-executable-p
-                '("/data/data/com.termux/files/usr/libexec/termux/command-not-found"
-                  "/usr/lib/command-not-found"
-                  "/usr/libexec/pk-command-not-found")))
-
-    (defun my/eshell-command-not-found (command)
-      "Hook to run command-not-found script in eshell."
-      (error (string-trim-right
-              (shell-command-to-string
-               (format "%s %s"
-                       my/command-not-found-command
-                       (shell-quote-argument command))))))
-
-    (if my/command-not-found-command
-        (add-hook 'eshell-alternate-command-hook 'my/eshell-command-not-found)))
+    (eshell-command-not-found-mode 1))
 
   ;;; Slack
   (with-eval-after-load 'slack
