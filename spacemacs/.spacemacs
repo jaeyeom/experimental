@@ -335,7 +335,9 @@ It should only modify the values of Spacemacs settings."
    ;; (default t)
    dotspacemacs-colorize-cursor-according-to-state t
 
-   ;; Default font or prioritized list of fonts. The `:size' can be specified as
+   ;; Default font or prioritized list of fonts. This setting has no effect when
+   ;; running Emacs in terminal. The font set here will be used for default and
+   ;; fixed-pitch faces. The `:size' can be specified as
    ;; a non-negative integer (pixel size), or a floating-point (point size).
    ;; Point size is recommended, because it's device independent. (default 10.0)
    dotspacemacs-default-font '("Source Code Pro"
@@ -416,6 +418,10 @@ It should only modify the values of Spacemacs settings."
    ;; Which-key frame position. Possible values are `right', `bottom' and
    ;; `right-then-bottom'. right-then-bottom tries to display the frame to the
    ;; right; if there is insufficient space it displays it at the bottom.
+   ;; It is also possible to use a posframe with the following cons cell
+   ;; `(posframe . position)' where position can be one of `center',
+   ;; `top-center', `bottom-center', `top-left-corner', `top-right-corner',
+   ;; `top-right-corner', `bottom-left-corner' or `bottom-right-corner'
    ;; (default 'bottom)
    dotspacemacs-which-key-position 'bottom
 
@@ -661,12 +667,14 @@ If you are unsure, try setting them in `dotspacemacs/user-config' first."
   (setq-default js-indent-level 2)
   )
 
+
 (defun dotspacemacs/user-load ()
   "Library to load while dumping.
 This function is called only while dumping Spacemacs configuration. You can
 `require' or `load' the libraries of your choice that will be included in the
 dump."
   )
+
 
 (defun dotspacemacs/user-config ()
   "Configuration for user code:
@@ -870,7 +878,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (define-key copilot-completion-map (kbd "C-<next>") 'copilot-next-completion)
     (define-key copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion))
 
-  (add-hook 'prog-mode-hook 'copilot-mode)
+  (add-hook 'prog-mode-hook #'copilot-mode)
 
   (require 'gptel nil 'noerror)
   (with-eval-after-load 'gptel
