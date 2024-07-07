@@ -102,13 +102,14 @@ This function should only modify configuration layer settings."
                   typescript-fmt-on-save t
                   typescript-fmt-tool 'typescript-formatter)
       version-control
-      ;; w3m
       yaml
       )
     (if (executable-find "docker")
         '(docker))
     (if (display-graphic-p)
         '(eaf))
+    (if (executable-find "w3m")
+        '(w3m))
     )
 
 
