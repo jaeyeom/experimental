@@ -128,8 +128,8 @@ This function should only modify configuration layer settings."
      chatgpt-shell
      (copilot :location (recipe
                          :fetcher github
-                         :repo "zerolfx/copilot.el"
-                         :files ("*.el" "dist")))
+                         :repo "copilot-emacs/copilot.el"
+                         :files ("*.el")))
      eshell-command-not-found
      gptel
      ob-async
