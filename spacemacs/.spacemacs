@@ -88,13 +88,15 @@ This function should only modify configuration layer settings."
       search-engine
       (shell :variables
              shell-default-full-span nil
-             shell-default-shell 'eshell)
+             shell-default-shell 'eshell
+             shell-enable-smart-eshell t)
       slack
       spacemacs-org
       spacemacs-purpose
       (spell-checking :variables
                       spell-checking-enable-by-default nil
                       spell-checking-enable-auto-dictionary t)
+      sql
       syntax-checking
       ;; terraform
       treemacs
@@ -819,6 +821,10 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (setq ob-mermaid-cli-path
           (or (executable-find "mmdc")
               (expand-file-name "~/node_modules/.bin/mmdc"))))
+
+  (with-eval-after-load 'sqlite-mode
+    (evil-define-key 'normal sqlite-mode-map (kbd "RET") 'sqlite-mode-list-data)
+    (evil-define-key 'normal sqlite-mode-map (kbd "D") 'sqlite-mode-delete))
 
   ;;; Gmail with gmi
   (setq-default message-kill-buffer-on-exit t
