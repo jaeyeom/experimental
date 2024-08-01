@@ -64,6 +64,8 @@ This function should only modify configuration layer settings."
       ;; ivy
       (javascript :variables
                   js2-strict-missing-semi-warning nil)
+      (llm-client :variables
+                  llm-client-enable-gptel t)
       lsp
       markdown
       multiple-cursors
@@ -133,7 +135,6 @@ This function should only modify configuration layer settings."
                          :repo "copilot-emacs/copilot.el"
                          :files ("*.el")))
      eshell-command-not-found
-     gptel
      ob-async
      ob-chatgpt-shell
      ob-go
