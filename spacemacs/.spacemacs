@@ -49,6 +49,7 @@ This function should only modify configuration layer settings."
       emacs-lisp
       eww
       git
+      github-copilot
       (go :variables
           go-backend 'lsp
           go-use-golangci-lint t
@@ -130,10 +131,6 @@ This function should only modify configuration layer settings."
      atomic-chrome
      bazel
      chatgpt-shell
-     (copilot :location (recipe
-                         :fetcher github
-                         :repo "copilot-emacs/copilot.el"
-                         :files ("*.el")))
      eshell-command-not-found
      ob-async
      ob-chatgpt-shell
