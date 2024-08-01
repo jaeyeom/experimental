@@ -80,6 +80,7 @@ This function should only modify configuration layer settings."
            org-enable-roam-ui t
            org-roam-directory (file-truename "~/Documents/roam/"))
       pass
+      protobuf
       (python :variables
               python-formatter 'yapf
               python-format-on-save t)
@@ -138,7 +139,6 @@ This function should only modify configuration layer settings."
      ob-mermaid
      org-tree-slide
      ox-clip
-     protobuf-mode
      )
 
    ;; A list of packages that cannot be updated.
