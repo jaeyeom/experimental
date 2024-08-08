@@ -45,7 +45,9 @@ This function should only modify configuration layer settings."
              c-c++-default-mode-for-headers 'c++-mode
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
-      dart
+      (dart :variables
+            lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
+            lsp-enable-on-type-formatting t)
       emacs-lisp
       eww
       git
@@ -708,6 +710,12 @@ before packages are loaded."
       (with-eval-after-load 'helm
         ;; Termux locate does not support -N option.
         (setq-default helm-locate-command "locate %s -e -A --regex %s")))
+
+  ;;; Eat
+  (with-eval-after-load 'eat
+    (setq-default eat-term-name "xterm-256color")
+    (add-hook 'eshell-load-hook #'eat-eshell-mode)
+    (add-hook 'eshell-load-hook #'eat-eshell-visual-command-mode))
 
   ;;; Set up buildifier for bazel
   (with-eval-after-load 'bazel
