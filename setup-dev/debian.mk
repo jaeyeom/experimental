@@ -1,4 +1,4 @@
-.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 nodejs protoc pandoc mpv ox-clip xclip keychain setup-ssh-agent
+.PHONY: ag rg go gpg emacs locate openssh git w3m pass curl python python3 pip3 importmagic nodejs protoc pandoc mpv ox-clip xclip keychain setup-ssh-agent
 
 ag:
 	command -v ag || sudo apt-get install -y silversearcher-ag
@@ -41,6 +41,9 @@ python3:
 
 pip3:
 	command -v pip3 || sudo apt-get install -y python3-pip
+
+importmagic: python
+	sudo apt-get install -y python3-importmagic python3-epc
 
 nodejs:
 	command -v node || sudo apt-get install -y nodejs
