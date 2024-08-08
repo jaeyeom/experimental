@@ -165,10 +165,6 @@ $(GOPATH)/bin/protoc-gen-go-grpc:
 spacemacs-python: spacemacs python importmagic
 
 
-importmagic: python
-	pip install importmagic epc
-
-
 $(HOME)/.local/bin:
 	mkdir -p $@
 
