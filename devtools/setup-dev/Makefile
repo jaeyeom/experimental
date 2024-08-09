@@ -1,5 +1,14 @@
 default_gopath := $(HOME)/go
 
+ARCH := $(shell uname -m)
+# Normalize the architecture name
+ifeq ($(ARCH),x86_64)
+		ARCH := amd64
+endif
+ifeq ($(ARCH),aarch64)
+		ARCH := arm64
+endif
+
 # Check if 'go' command exists and set GOPATH accordingly
 ifeq (, $(shell command -v go 2>/dev/null))
     GOPATH := $(default_gopath)
@@ -10,6 +19,8 @@ endif
 SSH_KEY = $(HOME)/.ssh/id_ed25519
 EMACS_CONFIG_DIR = $(HOME)/.config/emacs
 PASSWORD_STORE_DIR = $(HOME)/.password-store
+
+GOLANGCI_LINT_VERSION = v1.59.1
 
 .PHONY: all
 
@@ -88,7 +99,9 @@ spacemacs-go: spacemacs go setup-go-bin golangci-lint godoc goimports gorename g
 
 golangci-lint: go curl $(GOPATH)/bin/golangci-lint
 $(GOPATH)/bin/golangci-lint:
-	command -v golangci-lint || curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin v1.59.0
+	command -v golangci-lint && \
+	golangci-lint --version | grep -q '$(GOLANGCI_LINT_VERSION)' || \
+	curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin $(GOLANGCI_LINT_VERSION)
 
 
 godoc: go $(GOPATH)/bin/godoc
