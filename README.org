@@ -1,0 +1,5 @@
+#+TITLE: Experimental Mono Repo
+This repository contains everything. It started as an experimental repository
+where I could put random pieces of code. Later, I wanted to have a monorepo for
+my code, and I realized that this repository could be the best option if I
+cleaned it up a bit.
