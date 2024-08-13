@@ -1,0 +1,14 @@
+---
+- name: Ensure git is present
+  hosts: all
+  tasks:
+    - name: Ensure git is present on non-Termux systems
+      package:
+        name: git
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure git is present on Termux
+      command: command -v git || pkg install -y git
+      when: ansible_env.TERMUX_VERSION is defined
