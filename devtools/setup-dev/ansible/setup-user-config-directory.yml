@@ -1,0 +1,17 @@
+---
+- name: Ensure the user config directory exists
+  hosts: all
+  tasks:
+    - name: Determine the user config directory
+      ansible.builtin.set_fact:
+        user_config_directory: "{{ ansible_env.XDG_CONFIG_HOME | default(ansible_env.HOME + '/.config') }}"
+
+    - name: Ensure the user config directory exists
+      ansible.builtin.file:
+        path: "{{ user_config_directory }}"
+        state: directory
+        mode: '0755'
+
+    - name: Debug output of the user config directory
+      ansible.builtin.debug:
+        msg: "The config directory is {{ user_config_directory }}"
