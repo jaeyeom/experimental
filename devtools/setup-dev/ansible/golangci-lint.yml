@@ -1,0 +1,29 @@
+---
+- name: Ensure golangci-lint is installed
+  hosts: all
+  tasks:
+    - name: Check if golangci-lint is installed
+      command: golangci-lint --version
+      register: golangci_lint_installed
+      ignore_errors: yes
+
+    - name: Get the latest version of golangci-lint
+      shell: curl -s https://api.github.com/repos/golangci/golangci-lint/releases/latest | jq -r .tag_name
+      register: latest_version
+
+    - name: Install or update golangci-lint
+      shell: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin {{ latest_version.stdout }}
+      when: (golangci_lint_installed.failed or
+             latest_version.stdout[1:] not in golangci_lint_installed.stdout) and
+            ansible_env.TERMUX_VERSION is not defined
+
+    # Termux somehow does not work with the install script. Though installing
+    # golangci-lint with go install is not recommended, there are no other good
+    # ways.
+    - name: Install or update golangci-lint on Termux
+      shell: |
+        go install github.com/golangci/golangci-lint/cmd/golangci-lint@{{ latest_version.stdout }}
+      when: (golangci_lint_installed.failed or
+             latest_version.stdout[1:] not in golangci_lint_installed.stdout) and
+            ansible_env.TERMUX_VERSION is defined
