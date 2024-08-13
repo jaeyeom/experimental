@@ -1,4 +1,8 @@
 ---
+- import_playbook: curl.yml
+- import_playbook: jq.yml
+- import_playbook: git.yml
+
 - name: Ensure golangci-lint is installed
   hosts: all
   tasks:

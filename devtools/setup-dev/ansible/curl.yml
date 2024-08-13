@@ -1,0 +1,14 @@
+---
+- name: Ensure curl is present
+  hosts: all
+  tasks:
+    - name: Ensure curl is present on non-Termux systems
+      package:
+        name: curl
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure curl is present on Termux
+      command: command -v curl || pkg install -y curl
+      when: ansible_env.TERMUX_VERSION is defined
