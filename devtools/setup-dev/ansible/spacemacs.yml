@@ -1,0 +1,12 @@
+---
+- import_playbook: setup-user-config-directory.yml
+- import_playbook: git.yml
+- import_playbook: emacs.yml
+
+- name: Spacemacs is properly setup and up-to-date
+  hosts: all
+  tasks:
+    - name: Spacemacs is up-to-date
+      ansible.builtin.git:
+        repo: https://github.com/syl20bnr/spacemacs
+        dest: "{{ user_config_directory }}/emacs"
