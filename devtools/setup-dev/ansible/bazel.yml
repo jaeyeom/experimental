@@ -1,0 +1,60 @@
+---
+- import_playbook: setup-user-bin-directory.yml
+
+- name: Ensure bazelisk is present
+  hosts: all
+  tasks:
+    - name: Assert that the system is not TERMUX
+      ansible.builtin.assert:
+        that: ansible_env.TERMUX_VERSION is not defined
+
+    - name: Check if bazelisk is installed
+      command: bazel version
+      register: bazelisk_installed
+      ignore_errors: yes
+
+    - name: Debug output for bazelisk
+      ansible.builtin.debug:
+        msg: "The bin directory for bazelisk is {{ user_bin_directory }}"
+
+    - name: Determine the latest Bazelisk version from GitHub
+      uri:
+        url: https://api.github.com/repos/bazelbuild/bazelisk/releases/latest
+        return_content: yes
+      register: bazelisk_release_info
+
+    - name: Set the latest version of Bazelisk
+      set_fact:
+        bazelisk_latest_version: "{{ bazelisk_release_info.json.tag_name }}"
+
+    - block:
+      - name: Determine the Bazelisk download URL
+        set_fact:
+          bazelisk_url: >
+            {% if ansible_os_family == 'Darwin' and ansible_architecture == 'x86_64' %}
+            https://github.com/bazelbuild/bazelisk/releases/download/{{ bazelisk_latest_version }}/bazelisk-darwin-amd64
+            {% elif ansible_os_family == 'Darwin' and ansible_architecture == 'arm64' %}
+            https://github.com/bazelbuild/bazelisk/releases/download/{{ bazelisk_latest_version }}/bazelisk-darwin-arm64
+            {% elif ansible_os_family == 'Debian' and ansible_architecture == 'x86_64' %}
+            https://github.com/bazelbuild/bazelisk/releases/download/{{ bazelisk_latest_version }}/bazelisk-linux-amd64
+            {% elif ansible_os_family == 'Debian' and ansible_architecture == 'aarch64' %}
+            https://github.com/bazelbuild/bazelisk/releases/download/{{ bazelisk_latest_version }}/bazelisk-linux-arm64
+            {% elif ansible_os_family == 'Windows' and ansible_architecture == 'x86_64' %}
+            https://github.com/bazelbuild/bazelisk/releases/download/{{ bazelisk_latest_version }}/bazelisk-windows-amd64.exe
+            {% else %}
+            ''
+            {% endif %}
+
+      - name: Fail if no Bazelisk binary is available for the current system
+        fail:
+          msg: "No Bazelisk binary available for this OS/architecture."
+        when: bazelisk_url == ''
+
+      - name: Download Bazelisk
+        get_url:
+          url: "{{ bazelisk_url }}"
+          dest: "{{ user_bin_directory }}/bazel"
+          mode: '0755'
+        when: bazelisk_url != ''
+      when: bazelisk_installed.failed or
+            bazelisk_latest_version not in bazelisk_installed.stdout

@@ -1,0 +1,17 @@
+---
+- name: Ensure the user bin directory exists
+  hosts: all
+  tasks:
+    - name: Determine the user bin directory
+      ansible.builtin.set_fact:
+        user_bin_directory: "{{ ansible_env.HOME + '/.local/bin' }}"
+
+    - name: Ensure the user bin directory exists
+      ansible.builtin.file:
+        path: "{{ user_bin_directory }}"
+        state: directory
+        mode: '0755'
+
+    - name: Debug output of the user bin directory
+      ansible.builtin.debug:
+        msg: "The bin directory is {{ user_bin_directory }}"
