@@ -1,0 +1,14 @@
+---
+- name: Ensure jq is present
+  hosts: all
+  tasks:
+    - name: Ensure jq is present on non-Termux systems
+      package:
+        name: jq
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure jq is present on Termux
+      command: command -v jq || pkg install -y jq
+      when: ansible_env.TERMUX_VERSION is defined
