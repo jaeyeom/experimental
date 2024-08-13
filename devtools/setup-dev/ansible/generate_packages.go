@@ -29,6 +29,7 @@ type PackageData struct {
 
 var packages = []PackageData{
 	{"curl"},
+	{"emacs"},
 	{"git"},
 	{"jq"},
 }

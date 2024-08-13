@@ -1,0 +1,14 @@
+---
+- name: Ensure emacs is present
+  hosts: all
+  tasks:
+    - name: Ensure emacs is present on non-Termux systems
+      package:
+        name: emacs
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure emacs is present on Termux
+      command: command -v emacs || pkg install -y emacs
+      when: ansible_env.TERMUX_VERSION is defined
