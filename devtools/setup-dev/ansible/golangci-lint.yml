@@ -1,6 +1,5 @@
 ---
 - import_playbook: curl.yml
-- import_playbook: jq.yml
 - import_playbook: git.yml
 
 - name: Ensure golangci-lint is installed
@@ -11,15 +10,21 @@
       register: golangci_lint_installed
       ignore_errors: yes
 
-    - name: Get the latest version of golangci-lint
-      shell: curl -s https://api.github.com/repos/golangci/golangci-lint/releases/latest | jq -r .tag_name
-      register: latest_version
+    - name: Determine the latest golangci-lint version from Github
+      uri:
+        url: https://api.github.com/repos/golangci/golangci-lint/releases/latest
+        return_content: yes
+      register: golangci_lint_release_info
+
+    - name: Set the latest version of golangci-lint
+      set_fact:
+        golangci_lint_latest_version: "{{ golangci_lint_release_info.json.tag_name }}"
 
     - name: Install or update golangci-lint
       shell: |
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin {{ latest_version.stdout }}
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin {{ golangci_lint_latest_version }}
       when: (golangci_lint_installed.failed or
-             latest_version.stdout[1:] not in golangci_lint_installed.stdout) and
+             golangci_lint_latest_version[1:] not in golangci_lint_installed.stdout) and
             ansible_env.TERMUX_VERSION is not defined
 
     # Termux somehow does not work with the install script. Though installing
@@ -27,7 +32,7 @@
     # ways.
     - name: Install or update golangci-lint on Termux
       shell: |
-        go install github.com/golangci/golangci-lint/cmd/golangci-lint@{{ latest_version.stdout }}
+        go install github.com/golangci/golangci-lint/cmd/golangci-lint@{{ golangci_lint_latest_version }}
       when: (golangci_lint_installed.failed or
-             latest_version.stdout[1:] not in golangci_lint_installed.stdout) and
+             golangci_lint_latest_version[1:] not in golangci_lint_installed.stdout) and
             ansible_env.TERMUX_VERSION is defined
