@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure goimports is present
+  hosts: all
+  tasks:
+    - name: Ensure goimports is present
+      command: go install golang.org/x/tools/cmd/goimports@latest

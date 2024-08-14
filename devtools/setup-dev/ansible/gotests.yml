@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure gotests is present
+  hosts: all
+  tasks:
+    - name: Ensure gotests is present
+      command: go install github.com/cweill/gotests/gotest@latest

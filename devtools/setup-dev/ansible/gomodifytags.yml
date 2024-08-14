@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure gomodifytags is present
+  hosts: all
+  tasks:
+    - name: Ensure gomodifytags is present
+      command: go install github.com/fatih/gomodifytags@latest

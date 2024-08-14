@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure guru is present
+  hosts: all
+  tasks:
+    - name: Ensure guru is present
+      command: go install golang.org/x/tools/cmd/guru@latest

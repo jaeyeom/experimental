@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure gopkgs is present
+  hosts: all
+  tasks:
+    - name: Ensure gopkgs is present
+      command: go install github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest

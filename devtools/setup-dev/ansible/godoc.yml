@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure godoc is present
+  hosts: all
+  tasks:
+    - name: Ensure godoc is present
+      command: go install golang.org/x/tools/cmd/godoc@latest

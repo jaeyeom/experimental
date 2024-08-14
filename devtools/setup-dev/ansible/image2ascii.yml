@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure image2ascii is present
+  hosts: all
+  tasks:
+    - name: Ensure image2ascii is present
+      command: go install github.com/qeesung/image2ascii@latest

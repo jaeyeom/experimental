@@ -1,0 +1,14 @@
+---
+- name: Ensure go is present
+  hosts: all
+  tasks:
+    - name: Ensure go is present on non-Termux systems
+      package:
+        name: golang-go
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure go is present on Termux
+      shell: command -v go || pkg install -y golang
+      when: ansible_env.TERMUX_VERSION is defined
