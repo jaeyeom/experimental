@@ -1,0 +1,16 @@
+---
+- import_playbook: spacemacs.yml
+- import_playbook: godoc.yml
+- import_playbook: goimports.yml
+- import_playbook: gorename.yml
+- import_playbook: guru.yml
+- import_playbook: gotests.yml
+- import_playbook: fillstruct.yml
+- import_playbook: gomodifytags.yml
+- import_playbook: godoctor.yml
+- import_playbook: gopkgs.yml
+- import_playbook: impl.yml
+- import_playbook: godef.yml
+
+- name: Ensure Spacemacs go layer is set up
+  hosts: all

@@ -1,0 +1,17 @@
+---
+- import_playbook: go.yml
+
+- name: Ensure the user go bin directory is set up
+  hosts: all
+  tasks:
+    - name: Ensure go bin path is set
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.profile"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        block: |
+          # set PATH for go binaries
+          if [ -d "$(go env GOPATH)/bin" ] ; then
+              PATH="$(go env GOPATH)/bin:$PATH"
+          fi

@@ -47,12 +47,45 @@ var packages = []PackageData{
 	{Command: "curl"},
 	{Command: "emacs"},
 	{Command: "git"},
+	{Command: "go", debianPkgName: "golang-go", termuxPkgName: "golang"},
 	{Command: "jq"},
 	{Command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
 }
 
+type GoInstall struct {
+	Command string
+	PkgPath string
+}
+
+var goInstallTemplate = `---
+- import_playbook: "go.yml"
+
+- name: Ensure {{.Command}} is present
+  hosts: all
+  tasks:
+    - name: Ensure {{.Command}} is present
+      command: go install {{.PkgPath}}
+`
+
+var gopkgs = []GoInstall{
+	{"godoc", "golang.org/x/tools/cmd/godoc@latest"},
+	{"goimports", "golang.org/x/tools/cmd/goimports@latest"},
+	{"gorename", "golang.org/x/tools/cmd/gorename@latest"},
+	{"guru", "golang.org/x/tools/cmd/guru@latest"},
+	{"gotests", "github.com/cweill/gotests/gotest@latest"},
+	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"},
+	{"gomodifytags", "github.com/fatih/gomodifytags@latest"},
+	{"godoctor", "github.com/godoctor/godoctor@latest"},
+	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"},
+	{"impl", "github.com/josharian/impl@latest"},
+	{"godef", "github.com/rogpeppe/godef@latest"},
+	{"image2ascii", "github.com/qeesung/image2ascii@latest"},
+	{"protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest"},
+	{"protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"},
+}
+
 func main() {
-	tmpl, err := template.New("packages").Parse(packagesTemplate)
+	pkgTmpl, err := template.New("packages").Parse(packagesTemplate)
 	if err != nil {
 		panic(err)
 	}
@@ -63,7 +96,23 @@ func main() {
 			panic(err)
 		}
 		defer f.Close()
-		err = tmpl.Execute(f, pkg)
+		err = pkgTmpl.Execute(f, pkg)
+		if err != nil {
+			panic(err)
+		}
+	}
+	goInstallTmpl, err := template.New("go_install").Parse(goInstallTemplate)
+	if err != nil {
+		panic(err)
+	}
+	for _, pkg := range gopkgs {
+
+		f, err := os.Create(pkg.Command + ".yml")
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+		err = goInstallTmpl.Execute(f, pkg)
 		if err != nil {
 			panic(err)
 		}

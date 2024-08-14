@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure godef is present
+  hosts: all
+  tasks:
+    - name: Ensure godef is present
+      command: go install github.com/rogpeppe/godef@latest

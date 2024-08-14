@@ -1,0 +1,8 @@
+---
+- import_playbook: "go.yml"
+
+- name: Ensure protoc-gen-go is present
+  hosts: all
+  tasks:
+    - name: Ensure protoc-gen-go is present
+      command: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
