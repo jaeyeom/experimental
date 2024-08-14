@@ -1,0 +1,14 @@
+---
+- name: Ensure ssh is present
+  hosts: all
+  tasks:
+    - name: Ensure ssh is present on non-Termux systems
+      package:
+        name: openssh-client
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure ssh is present on Termux
+      command: command -v ssh || pkg install -y openssh
+      when: ansible_env.TERMUX_VERSION is defined

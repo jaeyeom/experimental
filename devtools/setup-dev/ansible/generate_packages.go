@@ -13,25 +13,42 @@ var packagesTemplate = `---
   tasks:
     - name: Ensure {{.PkgName}} is present on non-Termux systems
       package:
-        name: {{.PkgName}}
+        name: {{.DebianPkgName}}
         state: present
       when: ansible_env.TERMUX_VERSION is not defined
       become: yes
 
     - name: Ensure {{.PkgName}} is present on Termux
-      command: command -v {{.PkgName}} || pkg install -y {{.PkgName}}
+      command: command -v {{.PkgName}} || pkg install -y {{.TermuxPkgName}}
       when: ansible_env.TERMUX_VERSION is defined
 `
 
 type PackageData struct {
-	PkgName string
+	PkgName       string
+	debianPkgName string
+	termuxPkgName string
+}
+
+func (p PackageData) DebianPkgName() string {
+	if p.debianPkgName != "" {
+		return p.debianPkgName
+	}
+	return p.PkgName
+}
+
+func (p PackageData) TermuxPkgName() string {
+	if p.termuxPkgName != "" {
+		return p.termuxPkgName
+	}
+	return p.PkgName
 }
 
 var packages = []PackageData{
-	{"curl"},
-	{"emacs"},
-	{"git"},
-	{"jq"},
+	{PkgName: "curl"},
+	{PkgName: "emacs"},
+	{PkgName: "git"},
+	{PkgName: "jq"},
+	{PkgName: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
 }
 
 func main() {

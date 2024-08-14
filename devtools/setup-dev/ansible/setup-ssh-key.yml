@@ -1,0 +1,25 @@
+---
+- import_playbook: setup-git.yml
+- import_playbook: ssh.yml
+
+- name: Ensure SSH keys are generated
+  hosts: all
+  tasks:
+    - name: Ensure the user SSH directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.ssh"
+        state: directory
+        mode: '0700'
+
+    - name: Stat the key file
+      stat:
+        path: "{{ ansible_env.HOME }}/.ssh/id_ed25519"
+      register: ssh_key_file
+
+    - name: Generate SSH Key
+      community.crypto.openssh_keypair:
+        path: "{{ ansible_env.HOME }}/.ssh/id_ed25519"
+        type: ed25519
+        passphrase: "{{ ansible_env.SSH_KEY_PASSPHRASE }}"
+        comment: "{{ git_user_email }}"
+      when: not ssh_key_file.stat.exists
