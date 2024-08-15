@@ -10,5 +10,11 @@
       become: yes
 
     - name: Ensure emacs is present on Termux
-      shell: command -v emacs || pkg install -y emacs
+      block:
+        - name: Check if emacs is installed
+          shell: command -v emacs
+          changed_when: False
+      rescue:
+        - name: Install emacs on Termux
+          command: pkg install -y emacs
       when: ansible_env.TERMUX_VERSION is defined

@@ -9,6 +9,7 @@
       command: golangci-lint --version
       register: golangci_lint_installed
       ignore_errors: yes
+      changed_when: False
 
     - name: Determine the latest golangci-lint version from Github
       uri:

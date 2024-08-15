@@ -8,11 +8,13 @@
       shell: git config --global user.name
       register: get_git_user_name
       ignore_errors: true
+      changed_when: False
 
     - name: Determine the user email
       shell: git config --global user.email
       register: get_git_user_email
       ignore_errors: true
+      changed_when: False
 
     - name: Asserts that user name and email are available
       ansible.builtin.assert:

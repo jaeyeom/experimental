@@ -10,5 +10,11 @@
       become: yes
 
     - name: Ensure go is present on Termux
-      shell: command -v go || pkg install -y golang
+      block:
+        - name: Check if go is installed
+          shell: command -v go
+          changed_when: False
+      rescue:
+        - name: Install go on Termux
+          command: pkg install -y golang
       when: ansible_env.TERMUX_VERSION is defined

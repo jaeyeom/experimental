@@ -19,7 +19,13 @@ var packagesTemplate = `---
       become: yes
 
     - name: Ensure {{.Command}} is present on Termux
-      shell: command -v {{.Command}} || pkg install -y {{.TermuxPkgName}}
+      block:
+        - name: Check if {{.Command}} is installed
+          shell: command -v {{.Command}}
+          changed_when: False
+      rescue:
+        - name: Install {{.Command}} on Termux
+          command: pkg install -y {{.TermuxPkgName}}
       when: ansible_env.TERMUX_VERSION is defined
 `
 
