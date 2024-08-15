@@ -2,8 +2,10 @@
 - import_playbook: setup-git.yml
 - import_playbook: ssh.yml
 - import_playbook: sshpass.yml
+- import_playbook: keychain.yml
+  when: ansible_env.TERMUX_VERSION is not defined
 
-- name: Ensure SSH keys are generated
+- name: Ensure SSH keys are generated and SSH agent is configured
   hosts: all
   tasks:
     - name: Ensure the user SSH directory exists
@@ -25,11 +27,51 @@
         comment: "{{ git_user_email }}"
       when: not ssh_key_file.stat.exists
 
-    - name: Ensure SSH key is present in the SSH authentication agent
+    - name: Ensure the SSH authentication agent is running
       block:
-        - name: Check SSH key is added to the SSH authentication agent
+        - name: Ensure the SSH authentication agent is running on non-Termux
+          shell: eval $(keychain --eval --agents ssh id_ed25519)
+          when: ansible_env.TERMUX_VERSION is not defined
+        - name: Ensure the SSH authentication agent is running on Termux
+          shell: . source-ssh-agent
+          when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_env.SSH_AUTH_SOCK is not defined
+
+    - name: Add SSH key to the SSH authentication agent if not already added
+      block:
+        - name: Check if SSH key is already added to the agent
           command: ssh-add -l
-          changed_when: False
-      rescue:
-        - name: Add SSH to the SSH authentication agent
-          command: sshpass -Ppassphrase -e ssh-add
+          register: ssh_agent_keys
+          failed_when: false
+          changed_when: false
+
+        - name: Add SSH key to the SSH authentication agent
+          command: sshpass -P passphrase -e ssh-add {{ ansible_env.HOME }}/.ssh/id_ed25519
+          when: ssh_agent_keys.rc != 0
+      when: ansible_env.SSH_AUTH_SOCK is defined
+
+    - name: Ensure sourcing keychain on non-Termux systems
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        block: |
+          eval $(keychain --eval --agents ssh id_ed25519)
+      when: ansible_env.TERMUX_VERSION is not defined
+
+    - name: Ensure sourcing SSH agent on Termux
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        block: |
+          . source-ssh-agent
+      when: ansible_env.TERMUX_VERSION is defined
+
+    - name: Debug output of the SSH agent and key status
+      debug:
+        msg:
+          - "SSH_AUTH_SOCK: {{ ansible_env.SSH_AUTH_SOCK }}"
+          - "SSH key: {{ ssh_key_file.stat.path }}"
