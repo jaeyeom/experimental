@@ -50,6 +50,7 @@ var packages = []PackageData{
 	{Command: "go", debianPkgName: "golang-go", termuxPkgName: "golang"},
 	{Command: "jq"},
 	{Command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
+	{Command: "sshpass"},
 }
 
 type GoInstall struct {

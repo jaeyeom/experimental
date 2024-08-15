@@ -1,6 +1,7 @@
 ---
 - import_playbook: setup-git.yml
 - import_playbook: ssh.yml
+- import_playbook: sshpass.yml
 
 - name: Ensure SSH keys are generated
   hosts: all
@@ -20,6 +21,16 @@
       community.crypto.openssh_keypair:
         path: "{{ ansible_env.HOME }}/.ssh/id_ed25519"
         type: ed25519
-        passphrase: "{{ ansible_env.SSH_KEY_PASSPHRASE }}"
+        passphrase: "{{ ansible_env.SSHPASS }}"
         comment: "{{ git_user_email }}"
       when: not ssh_key_file.stat.exists
+
+    - name: Ensure SSH key is present in the SSH authentication agent
+      block:
+        - name: Check SSH key is added to the SSH authentication agent
+          command: ssh-add -l
+          changed_when: False
+
+      rescue:
+        - name: Add SSH to the SSH authentication agent
+          command: sshpass -Ppassphrase -e ssh-add

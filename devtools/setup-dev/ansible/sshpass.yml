@@ -1,0 +1,14 @@
+---
+- name: Ensure sshpass is present
+  hosts: all
+  tasks:
+    - name: Ensure sshpass is present on non-Termux systems
+      package:
+        name: sshpass
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure sshpass is present on Termux
+      shell: command -v sshpass || pkg install -y sshpass
+      when: ansible_env.TERMUX_VERSION is defined
