@@ -30,7 +30,6 @@
         - name: Check SSH key is added to the SSH authentication agent
           command: ssh-add -l
           changed_when: False
-
       rescue:
         - name: Add SSH to the SSH authentication agent
           command: sshpass -Ppassphrase -e ssh-add

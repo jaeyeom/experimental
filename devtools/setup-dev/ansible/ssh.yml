@@ -10,5 +10,11 @@
       become: yes
 
     - name: Ensure ssh is present on Termux
-      shell: command -v ssh || pkg install -y openssh
+      block:
+        - name: Check if ssh is installed
+          shell: command -v ssh
+          changed_when: False
+      rescue:
+        - name: Install ssh on Termux
+          command: pkg install -y openssh
       when: ansible_env.TERMUX_VERSION is defined

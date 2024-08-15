@@ -10,5 +10,11 @@
       become: yes
 
     - name: Ensure git is present on Termux
-      shell: command -v git || pkg install -y git
+      block:
+        - name: Check if git is installed
+          shell: command -v git
+          changed_when: False
+      rescue:
+        - name: Install git on Termux
+          command: pkg install -y git
       when: ansible_env.TERMUX_VERSION is defined
