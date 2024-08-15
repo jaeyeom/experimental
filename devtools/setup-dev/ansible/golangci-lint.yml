@@ -17,7 +17,7 @@
       register: golangci_lint_release_info
 
     - name: Set the latest version of golangci-lint
-      set_fact:
+      ansible.builtin.set_fact:
         golangci_lint_latest_version: "{{ golangci_lint_release_info.json.tag_name }}"
 
     - name: Install or update golangci-lint

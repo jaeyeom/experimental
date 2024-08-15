@@ -29,11 +29,11 @@
       when: get_git_user_email.stdout == ""
 
     - name: Ensure git user name is set
-      set_fact:
+      ansible.builtin.set_fact:
         git_user_name: "{{ get_git_user_name.stdout | default(ansible_env.GIT_AUTHOR_NAME) }}"
 
     - name: Ensure git user email is set
-      set_fact:
+      ansible.builtin.set_fact:
         git_user_email: "{{ get_git_user_email.stdout | default(ansible_env.GIT_AUTHOR_EMAIL) }}"
 
     - name: Debug name
