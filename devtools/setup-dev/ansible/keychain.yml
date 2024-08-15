@@ -1,0 +1,20 @@
+---
+- name: Ensure keychain is present
+  hosts: all
+  tasks:
+    - name: Ensure keychain is present on non-Termux systems
+      package:
+        name: keychain
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure keychain is present on Termux
+      block:
+        - name: Check if keychain is installed
+          shell: command -v keychain
+          changed_when: False
+      rescue:
+        - name: Install keychain on Termux
+          command: pkg install -y keychain
+      when: ansible_env.TERMUX_VERSION is defined
