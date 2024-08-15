@@ -24,12 +24,12 @@
       register: bazelisk_release_info
 
     - name: Set the latest version of Bazelisk
-      set_fact:
+      ansible.builtin.set_fact:
         bazelisk_latest_version: "{{ bazelisk_release_info.json.tag_name }}"
 
     - block:
       - name: Determine the Bazelisk download URL
-        set_fact:
+        ansible.builtin.set_fact:
           bazelisk_url: >
             {% if ansible_os_family == 'Darwin' and ansible_architecture == 'x86_64' %}
             https://github.com/bazelbuild/bazelisk/releases/download/{{ bazelisk_latest_version }}/bazelisk-darwin-amd64
