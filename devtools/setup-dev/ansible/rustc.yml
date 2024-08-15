@@ -1,0 +1,12 @@
+---
+- name: Ensure rustc is present
+  hosts: all
+  tasks:
+    - block:
+      - name: Ensure rustc is present on non-Termux systems
+        shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+      when: ansible_env.TERMUX_VERSION is not defined
+
+    - name: Ensure rustc is present on Termux
+      shell: command -v rust || pkg install -y rust
+      when: ansible_env.TERMUX_VERSION is defined
