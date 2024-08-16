@@ -4,7 +4,7 @@
 - name: Ensure the user go bin directory is set up
   hosts: all
   tasks:
-    - name: Ensure go bin path is set
+    - name: Ensure go bin PATH is set
       ansible.builtin.blockinfile:
         path: "{{ ansible_env.HOME }}/.profile"
         append_newline: true

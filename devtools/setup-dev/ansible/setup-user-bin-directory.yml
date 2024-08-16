@@ -15,3 +15,15 @@
     - name: Debug output of the user bin directory
       ansible.builtin.debug:
         msg: "The bin directory is {{ user_bin_directory }}"
+
+    - name: Ensure the user bin PATH is set
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        block: |
+          # Add local bin to path
+          if [ -d "$HOME/.local/bin" ]; then
+              PATH="$HOME/.local/bin:$PATH"
+          fi
