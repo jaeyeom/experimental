@@ -72,7 +72,7 @@ func (g GoInstall) CommandID() string {
 }
 
 var goInstallTemplate = `---
-- import_playbook: "go.yml"
+- import_playbook: setup-user-go-bin-directory.yml
 
 - name: Ensure {{.Command}} is present
   hosts: all

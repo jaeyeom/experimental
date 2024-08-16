@@ -1,5 +1,5 @@
 ---
-- import_playbook: "go.yml"
+- import_playbook: setup-user-go-bin-directory.yml
 
 - name: Ensure fillstruct is present
   hosts: all
