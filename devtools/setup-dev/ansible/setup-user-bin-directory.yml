@@ -10,7 +10,7 @@
       ansible.builtin.file:
         path: "{{ user_bin_directory }}"
         state: directory
-        mode: '0755'
+        mode: '0700'
 
     - name: Debug output of the user bin directory
       ansible.builtin.debug:

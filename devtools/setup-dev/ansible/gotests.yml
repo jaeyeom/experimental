@@ -5,4 +5,4 @@
   hosts: all
   tasks:
     - name: Ensure gotests is present
-      command: go install github.com/cweill/gotests/gotest@latest
+      command: go install github.com/cweill/gotests/gotests@latest
