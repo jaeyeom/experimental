@@ -10,8 +10,8 @@
         append_newline: true
         prepend_newline: true
         create: true
+        marker: "# {mark} set PATH for go binaries"
         block: |
-          # set PATH for go binaries
           if [ -d "$(go env GOPATH)/bin" ] ; then
               PATH="$(go env GOPATH)/bin:$PATH"
           fi

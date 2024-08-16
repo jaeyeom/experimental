@@ -1,0 +1,24 @@
+---
+- import_playbook: setup-user-bin-directory.yml
+
+- name: Ensure z is set property
+  hosts: all
+  tasks:
+    - name: Ensure z.sh is downloaded.
+      ansible.builtin.uri:
+        url: https://raw.githubusercontent.com/rupa/z/master/z.sh
+        dest: "{{ ansible_env.HOME }}/.local/bin/z.sh"
+        mode: '0700'
+
+    - name: Ensure z.sh is properly set in bashrc
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} Enable z script"
+        block: |
+          if [ -f ~/.local/bin/z.sh ]; then
+              . ~/.local/bin/z.sh
+              PROMPT_COMMAND="${PROMPT_COMMAND%;}"
+          fi

@@ -12,7 +12,7 @@
       changed_when: False
 
     - name: Determine the latest golangci-lint version from Github
-      uri:
+      ansible.builtin.uri:
         url: https://api.github.com/repos/golangci/golangci-lint/releases/latest
         return_content: yes
       register: golangci_lint_release_info

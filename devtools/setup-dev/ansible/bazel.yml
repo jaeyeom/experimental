@@ -18,7 +18,7 @@
         msg: "The bin directory for bazelisk is {{ user_bin_directory }}"
 
     - name: Determine the latest Bazelisk version from GitHub
-      uri:
+      ansible.builtin.uri:
         url: https://api.github.com/repos/bazelbuild/bazelisk/releases/latest
         return_content: yes
       register: bazelisk_release_info

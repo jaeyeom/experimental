@@ -22,8 +22,8 @@
         append_newline: true
         prepend_newline: true
         create: true
+        marker: "# {mark} Add local bin to path"
         block: |
-          # Add local bin to path
           if [ -d "$HOME/.local/bin" ]; then
               PATH="$HOME/.local/bin:$PATH"
           fi
