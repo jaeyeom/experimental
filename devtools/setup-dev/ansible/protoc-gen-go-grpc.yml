@@ -4,5 +4,27 @@
 - name: Ensure protoc-gen-go-grpc is present
   hosts: all
   tasks:
+    - name: Check if protoc-gen-go-grpc is installed
+      shell: go version -m $(command -v protoc-gen-go-grpc) | grep '^\s*mod\s'
+      register: protoc-gen-go-grpc_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract module path
+      set_fact:
+        module_path: "{{ protoc-gen-go-grpc_installed.stdout.split()[1] }}"
+        module_version: "{{ protoc-gen-go-grpc_installed.stdout.split()[2] }}"
+
+    - name: Determine the latest protoc-gen-go-grpc version
+      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
+      register: protoc-gen-go-grpc_latest
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Debug module path and version
+      debug:
+        msg: "{{ module_path }} {{ module_version }} => {{ protoc-gen-go-grpc_latest.stdout }}"
+
     - name: Ensure protoc-gen-go-grpc is present
       command: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+      when: module_version is not defined or module_version != protoc-gen-go-grpc_latest.stdout

@@ -4,5 +4,27 @@
 - name: Ensure fillstruct is present
   hosts: all
   tasks:
+    - name: Check if fillstruct is installed
+      shell: go version -m $(command -v fillstruct) | grep '^\s*mod\s'
+      register: fillstruct_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract module path
+      set_fact:
+        module_path: "{{ fillstruct_installed.stdout.split()[1] }}"
+        module_version: "{{ fillstruct_installed.stdout.split()[2] }}"
+
+    - name: Determine the latest fillstruct version
+      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
+      register: fillstruct_latest
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Debug module path and version
+      debug:
+        msg: "{{ module_path }} {{ module_version }} => {{ fillstruct_latest.stdout }}"
+
     - name: Ensure fillstruct is present
       command: go install github.com/davidrjenni/reftools/cmd/fillstruct@latest
+      when: module_version is not defined or module_version != fillstruct_latest.stdout

@@ -4,5 +4,27 @@
 - name: Ensure impl is present
   hosts: all
   tasks:
+    - name: Check if impl is installed
+      shell: go version -m $(command -v impl) | grep '^\s*mod\s'
+      register: impl_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract module path
+      set_fact:
+        module_path: "{{ impl_installed.stdout.split()[1] }}"
+        module_version: "{{ impl_installed.stdout.split()[2] }}"
+
+    - name: Determine the latest impl version
+      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
+      register: impl_latest
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Debug module path and version
+      debug:
+        msg: "{{ module_path }} {{ module_version }} => {{ impl_latest.stdout }}"
+
     - name: Ensure impl is present
       command: go install github.com/josharian/impl@latest
+      when: module_version is not defined or module_version != impl_latest.stdout

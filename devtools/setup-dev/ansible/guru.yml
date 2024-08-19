@@ -4,5 +4,27 @@
 - name: Ensure guru is present
   hosts: all
   tasks:
+    - name: Check if guru is installed
+      shell: go version -m $(command -v guru) | grep '^\s*mod\s'
+      register: guru_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract module path
+      set_fact:
+        module_path: "{{ guru_installed.stdout.split()[1] }}"
+        module_version: "{{ guru_installed.stdout.split()[2] }}"
+
+    - name: Determine the latest guru version
+      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
+      register: guru_latest
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Debug module path and version
+      debug:
+        msg: "{{ module_path }} {{ module_version }} => {{ guru_latest.stdout }}"
+
     - name: Ensure guru is present
       command: go install golang.org/x/tools/cmd/guru@latest
+      when: module_version is not defined or module_version != guru_latest.stdout

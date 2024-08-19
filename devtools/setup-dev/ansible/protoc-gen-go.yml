@@ -4,5 +4,27 @@
 - name: Ensure protoc-gen-go is present
   hosts: all
   tasks:
+    - name: Check if protoc-gen-go is installed
+      shell: go version -m $(command -v protoc-gen-go) | grep '^\s*mod\s'
+      register: protoc-gen-go_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract module path
+      set_fact:
+        module_path: "{{ protoc-gen-go_installed.stdout.split()[1] }}"
+        module_version: "{{ protoc-gen-go_installed.stdout.split()[2] }}"
+
+    - name: Determine the latest protoc-gen-go version
+      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
+      register: protoc-gen-go_latest
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Debug module path and version
+      debug:
+        msg: "{{ module_path }} {{ module_version }} => {{ protoc-gen-go_latest.stdout }}"
+
     - name: Ensure protoc-gen-go is present
       command: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      when: module_version is not defined or module_version != protoc-gen-go_latest.stdout

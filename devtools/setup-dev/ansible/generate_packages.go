@@ -71,8 +71,30 @@ var goInstallTemplate = `---
 - name: Ensure {{.Command}} is present
   hosts: all
   tasks:
+    - name: Check if {{.Command}} is installed
+      shell: go version -m $(command -v {{.Command}}) | grep '^\s*mod\s'
+      register: {{.Command}}_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract module path
+      set_fact:
+        module_path: "{{"{{"}} {{.Command}}_installed.stdout.split()[1] {{"}}"}}"
+        module_version: "{{"{{"}} {{.Command}}_installed.stdout.split()[2] {{"}}"}}"
+
+    - name: Determine the latest {{.Command}} version
+      command: go list -m -f "{{"{{"}} '{{"{{"}}' {{"}}"}}.Version {{"{{"}} '{{"}}"}}' {{"}}"}}" "{{"{{"}} module_path {{"}}"}}@latest"
+      register: {{.Command}}_latest
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Debug module path and version
+      debug:
+        msg: "{{"{{"}} module_path {{"}}"}} {{"{{"}} module_version {{"}}"}} => {{"{{"}} {{.Command}}_latest.stdout {{"}}"}}"
+
     - name: Ensure {{.Command}} is present
       command: go install {{.PkgPath}}
+      when: module_version is not defined or module_version != {{.Command}}_latest.stdout
 `
 
 var gopkgs = []GoInstall{
