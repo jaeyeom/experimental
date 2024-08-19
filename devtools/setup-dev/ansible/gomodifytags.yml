@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ gomodifytags_installed.stdout.split()[1] }}"
-        module_version: "{{ gomodifytags_installed.stdout.split()[2] }}"
+    - name: Extract gomodifytags version
+      block:
+        - name: Set gomodifytags facts
+          set_fact:
+            gomodifytags_module_path: "{{ gomodifytags_installed.stdout.split()[1] }}"
+            gomodifytags_module_version: "{{ gomodifytags_installed.stdout.split()[2] }}"
+        - name: Determine the latest gomodifytags version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gomodifytags_module_path }}@latest"
+          register: gomodifytags_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest gomodifytags version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: gomodifytags_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gomodifytags_module_path }} {{ gomodifytags_module_version }} => {{ gomodifytags_latest.stdout }}"
+      rescue:
+        - name: Clear gomodifytags facts
+          set_fact:
+            gomodifytags_module_path: ""
+            gomodifytags_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ gomodifytags_latest.stdout }}"
-
-    - name: Ensure gomodifytags is present
+    - name: Upgrade gomodifytags
       command: go install github.com/fatih/gomodifytags@latest
-      when: module_version is not defined or module_version != gomodifytags_latest.stdout
+      when: gomodifytags_module_version is not defined or gomodifytags_module_version == "" or gomodifytags_module_version != gomodifytags_latest.stdout

@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"text/template"
 )
 
@@ -65,6 +66,11 @@ type GoInstall struct {
 	PkgPath string
 }
 
+func (g GoInstall) CommandID() string {
+	// Replace dash to underscore.
+	return strings.ReplaceAll(g.Command, "-", "_")
+}
+
 var goInstallTemplate = `---
 - import_playbook: "go.yml"
 
@@ -73,28 +79,34 @@ var goInstallTemplate = `---
   tasks:
     - name: Check if {{.Command}} is installed
       shell: go version -m $(command -v {{.Command}}) | grep '^\s*mod\s'
-      register: {{.Command}}_installed
+      register: {{.CommandID}}_installed
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{"{{"}} {{.Command}}_installed.stdout.split()[1] {{"}}"}}"
-        module_version: "{{"{{"}} {{.Command}}_installed.stdout.split()[2] {{"}}"}}"
+    - name: Extract {{.Command}} version
+      block:
+        - name: Set {{.Command}} facts
+          set_fact:
+            {{.CommandID}}_module_path: "{{"{{"}} {{.CommandID}}_installed.stdout.split()[1] {{"}}"}}"
+            {{.CommandID}}_module_version: "{{"{{"}} {{.CommandID}}_installed.stdout.split()[2] {{"}}"}}"
+        - name: Determine the latest {{.Command}} version
+          command: go list -m -f "{{"{{"}} '{{"{{"}}' {{"}}"}}.Version {{"{{"}} '{{"}}"}}' {{"}}"}}" "{{"{{"}} {{.CommandID}}_module_path {{"}}"}}@latest"
+          register: {{.CommandID}}_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest {{.Command}} version
-      command: go list -m -f "{{"{{"}} '{{"{{"}}' {{"}}"}}.Version {{"{{"}} '{{"}}"}}' {{"}}"}}" "{{"{{"}} module_path {{"}}"}}@latest"
-      register: {{.Command}}_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{"{{"}} {{.CommandID}}_module_path {{"}}"}} {{"{{"}} {{.CommandID}}_module_version {{"}}"}} => {{"{{"}} {{.CommandID}}_latest.stdout {{"}}"}}"
+      rescue:
+        - name: Clear {{.Command}} facts
+          set_fact:
+            {{.CommandID}}_module_path: ""
+            {{.CommandID}}_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{"{{"}} module_path {{"}}"}} {{"{{"}} module_version {{"}}"}} => {{"{{"}} {{.Command}}_latest.stdout {{"}}"}}"
-
-    - name: Ensure {{.Command}} is present
+    - name: Upgrade {{.Command}}
       command: go install {{.PkgPath}}
-      when: module_version is not defined or module_version != {{.Command}}_latest.stdout
+      when: {{.CommandID}}_module_version is not defined or {{.CommandID}}_module_version == "" or {{.CommandID}}_module_version != {{.CommandID}}_latest.stdout
 `
 
 var gopkgs = []GoInstall{

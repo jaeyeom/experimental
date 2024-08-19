@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ godoctor_installed.stdout.split()[1] }}"
-        module_version: "{{ godoctor_installed.stdout.split()[2] }}"
+    - name: Extract godoctor version
+      block:
+        - name: Set godoctor facts
+          set_fact:
+            godoctor_module_path: "{{ godoctor_installed.stdout.split()[1] }}"
+            godoctor_module_version: "{{ godoctor_installed.stdout.split()[2] }}"
+        - name: Determine the latest godoctor version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ godoctor_module_path }}@latest"
+          register: godoctor_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest godoctor version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: godoctor_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ godoctor_module_path }} {{ godoctor_module_version }} => {{ godoctor_latest.stdout }}"
+      rescue:
+        - name: Clear godoctor facts
+          set_fact:
+            godoctor_module_path: ""
+            godoctor_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ godoctor_latest.stdout }}"
-
-    - name: Ensure godoctor is present
+    - name: Upgrade godoctor
       command: go install github.com/godoctor/godoctor@latest
-      when: module_version is not defined or module_version != godoctor_latest.stdout
+      when: godoctor_module_version is not defined or godoctor_module_version == "" or godoctor_module_version != godoctor_latest.stdout
