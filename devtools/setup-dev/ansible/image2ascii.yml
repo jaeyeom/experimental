@@ -4,5 +4,27 @@
 - name: Ensure image2ascii is present
   hosts: all
   tasks:
+    - name: Check if image2ascii is installed
+      shell: go version -m $(command -v image2ascii) | grep '^\s*mod\s'
+      register: image2ascii_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract module path
+      set_fact:
+        module_path: "{{ image2ascii_installed.stdout.split()[1] }}"
+        module_version: "{{ image2ascii_installed.stdout.split()[2] }}"
+
+    - name: Determine the latest image2ascii version
+      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
+      register: image2ascii_latest
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Debug module path and version
+      debug:
+        msg: "{{ module_path }} {{ module_version }} => {{ image2ascii_latest.stdout }}"
+
     - name: Ensure image2ascii is present
       command: go install github.com/qeesung/image2ascii@latest
+      when: module_version is not defined or module_version != image2ascii_latest.stdout
