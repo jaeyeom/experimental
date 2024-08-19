@@ -80,7 +80,7 @@ var gopkgs = []GoInstall{
 	{"goimports", "golang.org/x/tools/cmd/goimports@latest"},
 	{"gorename", "golang.org/x/tools/cmd/gorename@latest"},
 	{"guru", "golang.org/x/tools/cmd/guru@latest"},
-	{"gotests", "github.com/cweill/gotests/gotest@latest"},
+	{"gotests", "github.com/cweill/gotests/...@latest"},
 	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"},
 	{"gomodifytags", "github.com/fatih/gomodifytags@latest"},
 	{"godoctor", "github.com/godoctor/godoctor@latest"},
