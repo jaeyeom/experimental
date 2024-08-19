@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ fillstruct_installed.stdout.split()[1] }}"
-        module_version: "{{ fillstruct_installed.stdout.split()[2] }}"
+    - name: Extract fillstruct version
+      block:
+        - name: Set fillstruct facts
+          set_fact:
+            fillstruct_module_path: "{{ fillstruct_installed.stdout.split()[1] }}"
+            fillstruct_module_version: "{{ fillstruct_installed.stdout.split()[2] }}"
+        - name: Determine the latest fillstruct version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ fillstruct_module_path }}@latest"
+          register: fillstruct_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest fillstruct version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: fillstruct_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ fillstruct_module_path }} {{ fillstruct_module_version }} => {{ fillstruct_latest.stdout }}"
+      rescue:
+        - name: Clear fillstruct facts
+          set_fact:
+            fillstruct_module_path: ""
+            fillstruct_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ fillstruct_latest.stdout }}"
-
-    - name: Ensure fillstruct is present
+    - name: Upgrade fillstruct
       command: go install github.com/davidrjenni/reftools/cmd/fillstruct@latest
-      when: module_version is not defined or module_version != fillstruct_latest.stdout
+      when: fillstruct_module_version is not defined or fillstruct_module_version == "" or fillstruct_module_version != fillstruct_latest.stdout

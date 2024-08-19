@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ goimports_installed.stdout.split()[1] }}"
-        module_version: "{{ goimports_installed.stdout.split()[2] }}"
+    - name: Extract goimports version
+      block:
+        - name: Set goimports facts
+          set_fact:
+            goimports_module_path: "{{ goimports_installed.stdout.split()[1] }}"
+            goimports_module_version: "{{ goimports_installed.stdout.split()[2] }}"
+        - name: Determine the latest goimports version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ goimports_module_path }}@latest"
+          register: goimports_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest goimports version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: goimports_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ goimports_module_path }} {{ goimports_module_version }} => {{ goimports_latest.stdout }}"
+      rescue:
+        - name: Clear goimports facts
+          set_fact:
+            goimports_module_path: ""
+            goimports_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ goimports_latest.stdout }}"
-
-    - name: Ensure goimports is present
+    - name: Upgrade goimports
       command: go install golang.org/x/tools/cmd/goimports@latest
-      when: module_version is not defined or module_version != goimports_latest.stdout
+      when: goimports_module_version is not defined or goimports_module_version == "" or goimports_module_version != goimports_latest.stdout

@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ gorename_installed.stdout.split()[1] }}"
-        module_version: "{{ gorename_installed.stdout.split()[2] }}"
+    - name: Extract gorename version
+      block:
+        - name: Set gorename facts
+          set_fact:
+            gorename_module_path: "{{ gorename_installed.stdout.split()[1] }}"
+            gorename_module_version: "{{ gorename_installed.stdout.split()[2] }}"
+        - name: Determine the latest gorename version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gorename_module_path }}@latest"
+          register: gorename_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest gorename version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: gorename_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gorename_module_path }} {{ gorename_module_version }} => {{ gorename_latest.stdout }}"
+      rescue:
+        - name: Clear gorename facts
+          set_fact:
+            gorename_module_path: ""
+            gorename_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ gorename_latest.stdout }}"
-
-    - name: Ensure gorename is present
+    - name: Upgrade gorename
       command: go install golang.org/x/tools/cmd/gorename@latest
-      when: module_version is not defined or module_version != gorename_latest.stdout
+      when: gorename_module_version is not defined or gorename_module_version == "" or gorename_module_version != gorename_latest.stdout

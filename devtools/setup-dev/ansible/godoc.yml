@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ godoc_installed.stdout.split()[1] }}"
-        module_version: "{{ godoc_installed.stdout.split()[2] }}"
+    - name: Extract godoc version
+      block:
+        - name: Set godoc facts
+          set_fact:
+            godoc_module_path: "{{ godoc_installed.stdout.split()[1] }}"
+            godoc_module_version: "{{ godoc_installed.stdout.split()[2] }}"
+        - name: Determine the latest godoc version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ godoc_module_path }}@latest"
+          register: godoc_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest godoc version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: godoc_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ godoc_module_path }} {{ godoc_module_version }} => {{ godoc_latest.stdout }}"
+      rescue:
+        - name: Clear godoc facts
+          set_fact:
+            godoc_module_path: ""
+            godoc_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ godoc_latest.stdout }}"
-
-    - name: Ensure godoc is present
+    - name: Upgrade godoc
       command: go install golang.org/x/tools/cmd/godoc@latest
-      when: module_version is not defined or module_version != godoc_latest.stdout
+      when: godoc_module_version is not defined or godoc_module_version == "" or godoc_module_version != godoc_latest.stdout

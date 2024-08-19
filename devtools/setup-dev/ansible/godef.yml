@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ godef_installed.stdout.split()[1] }}"
-        module_version: "{{ godef_installed.stdout.split()[2] }}"
+    - name: Extract godef version
+      block:
+        - name: Set godef facts
+          set_fact:
+            godef_module_path: "{{ godef_installed.stdout.split()[1] }}"
+            godef_module_version: "{{ godef_installed.stdout.split()[2] }}"
+        - name: Determine the latest godef version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ godef_module_path }}@latest"
+          register: godef_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest godef version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: godef_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ godef_module_path }} {{ godef_module_version }} => {{ godef_latest.stdout }}"
+      rescue:
+        - name: Clear godef facts
+          set_fact:
+            godef_module_path: ""
+            godef_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ godef_latest.stdout }}"
-
-    - name: Ensure godef is present
+    - name: Upgrade godef
       command: go install github.com/rogpeppe/godef@latest
-      when: module_version is not defined or module_version != godef_latest.stdout
+      when: godef_module_version is not defined or godef_module_version == "" or godef_module_version != godef_latest.stdout

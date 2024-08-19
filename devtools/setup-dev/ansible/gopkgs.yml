@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ gopkgs_installed.stdout.split()[1] }}"
-        module_version: "{{ gopkgs_installed.stdout.split()[2] }}"
+    - name: Extract gopkgs version
+      block:
+        - name: Set gopkgs facts
+          set_fact:
+            gopkgs_module_path: "{{ gopkgs_installed.stdout.split()[1] }}"
+            gopkgs_module_version: "{{ gopkgs_installed.stdout.split()[2] }}"
+        - name: Determine the latest gopkgs version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gopkgs_module_path }}@latest"
+          register: gopkgs_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest gopkgs version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: gopkgs_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gopkgs_module_path }} {{ gopkgs_module_version }} => {{ gopkgs_latest.stdout }}"
+      rescue:
+        - name: Clear gopkgs facts
+          set_fact:
+            gopkgs_module_path: ""
+            gopkgs_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ gopkgs_latest.stdout }}"
-
-    - name: Ensure gopkgs is present
+    - name: Upgrade gopkgs
       command: go install github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
-      when: module_version is not defined or module_version != gopkgs_latest.stdout
+      when: gopkgs_module_version is not defined or gopkgs_module_version == "" or gopkgs_module_version != gopkgs_latest.stdout

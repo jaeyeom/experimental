@@ -10,21 +10,27 @@
       ignore_errors: yes
       changed_when: False
 
-    - name: Extract module path
-      set_fact:
-        module_path: "{{ image2ascii_installed.stdout.split()[1] }}"
-        module_version: "{{ image2ascii_installed.stdout.split()[2] }}"
+    - name: Extract image2ascii version
+      block:
+        - name: Set image2ascii facts
+          set_fact:
+            image2ascii_module_path: "{{ image2ascii_installed.stdout.split()[1] }}"
+            image2ascii_module_version: "{{ image2ascii_installed.stdout.split()[2] }}"
+        - name: Determine the latest image2ascii version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ image2ascii_module_path }}@latest"
+          register: image2ascii_latest
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Determine the latest image2ascii version
-      command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ module_path }}@latest"
-      register: image2ascii_latest
-      ignore_errors: yes
-      changed_when: False
+        - name: Debug module path and version
+          debug:
+            msg: "{{ image2ascii_module_path }} {{ image2ascii_module_version }} => {{ image2ascii_latest.stdout }}"
+      rescue:
+        - name: Clear image2ascii facts
+          set_fact:
+            image2ascii_module_path: ""
+            image2ascii_module_version: ""
 
-    - name: Debug module path and version
-      debug:
-        msg: "{{ module_path }} {{ module_version }} => {{ image2ascii_latest.stdout }}"
-
-    - name: Ensure image2ascii is present
+    - name: Upgrade image2ascii
       command: go install github.com/qeesung/image2ascii@latest
-      when: module_version is not defined or module_version != image2ascii_latest.stdout
+      when: image2ascii_module_version is not defined or image2ascii_module_version == "" or image2ascii_module_version != image2ascii_latest.stdout
