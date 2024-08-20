@@ -1,0 +1,37 @@
+#+TITLE: Ansible Setup Dev
+
+This directory includes Ansible playbooks and a generator of it.
+
+* How to Use
+
+Run the =ensure.sh= script with the proper rule name. Rule names are playbook
+filename without =.yml= suffix.
+
+#+begin_src sh
+  ./ensure.sh [rule]...
+#+end_src
+
+* Remaining Works
+** Migrate from setup-dev.sh
+*** TODO Install searchers
+*** TODO Locate tool
+*** TODO gpg
+*** TODO pass
+*** TODO Remaining PATH settings
+*** TODO Additional spacemacs settings and symbolic links
+
+** Migrate from Makefile
+*** TODO Pip packages
+*** TODO Python Development environment
+*** TODO Emacs-vterm directory tracking
+
+** New Features
+*** TODO Spacemacs packages keeping up-to-date
+*** TODO gh
+*** TODO Add command-line flags to ensure.sh
+*** TODO Support MacOS Brew
+*** TODO C++ Development environment
+
+** Remove playbook generator
+*** TODO Ansible module to handle package mapping
+*** TODO Ansible module to handle go installs instead of generated files
