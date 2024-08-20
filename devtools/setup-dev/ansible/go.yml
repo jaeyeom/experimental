@@ -3,11 +3,76 @@
   hosts: all
   tasks:
     - name: Ensure go is present on non-Termux systems
-      package:
-        name: golang-go
-        state: present
+      block:
+        - name: Ensure the package go is not installed
+          package:
+            name: golang-go
+            state: absent
+          become: yes
+
+        - name: Get the current go version
+          command: go version
+          register: current_go_version
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Get the latest available go version.
+          uri:
+            url: https://go.dev/VERSION?m=text
+            return_content: yes
+          register: go_version_page
+
+        - name: Set the facts for go download
+          ansible.builtin.set_fact:
+            go_version: "{{ go_version_page.content.split('\n')[0] }}"
+            GOOS: "{{ ansible_system | lower }}"
+            GOARCH: "{{ ansible_architecture | lower | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+
+        - name: Stop early if the go version is already installed
+          meta: end_play
+          when: current_go_version.stdout is search(go_version)
+
+        - name: Set the download URL
+          ansible.builtin.set_fact:
+            go_binary_download_url: "https://go.dev/dl/{{ go_version }}.{{ GOOS }}-{{ GOARCH }}.tar.gz"
+
+        - name: Debug Output
+          debug:
+            msg: "{{ go_binary_download_url }}"
+
+        - name: Remove /usr/local/go if it exists
+          file:
+            path: /usr/local/go
+            state: absent
+          ignore_errors: yes
+          become: yes
+
+        - name: Download the go binary
+          get_url:
+            url: "{{ go_binary_download_url }}"
+            dest: /tmp/go.tar.gz
+
+        - name: Extract the go binary
+          ansible.builtin.unarchive:
+            src: /tmp/go.tar.gz
+            dest: /usr/local
+            remote_src: yes
+            creates: /usr/local/go
+          become: yes
+
+        - name: Ensure PATH for go binary
+          ansible.builtin.blockinfile:
+            path: "{{ ansible_env.HOME }}/.bashrc"
+            append_newline: true
+            prepend_newline: true
+            create: true
+            marker: "# {mark} Add local go path"
+            block: |
+              if [ -d /usr/local/go/bin ]; then
+                  PATH=$PATH:/usr/local/go/bin
+              fi
+
       when: ansible_env.TERMUX_VERSION is not defined
-      become: yes
 
     - name: Ensure go is present on Termux
       block:

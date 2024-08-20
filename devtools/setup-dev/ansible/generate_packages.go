@@ -54,7 +54,6 @@ var packages = []PackageData{
 	{Command: "curl"},
 	{Command: "emacs"},
 	{Command: "git"},
-	{Command: "go", debianPkgName: "golang-go", termuxPkgName: "golang"},
 	{Command: "jq"},
 	{Command: "keychain"},
 	{Command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
