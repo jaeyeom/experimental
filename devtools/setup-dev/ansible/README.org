@@ -31,7 +31,9 @@ filename without =.yml= suffix.
 *** TODO Add command-line flags to ensure.sh
 *** TODO Support MacOS Brew
 *** TODO C++ Development environment
+*** TODO Docker Testing
 
 ** Remove playbook generator
 *** TODO Ansible module to handle package mapping
 *** TODO Ansible module to handle go installs instead of generated files
+
