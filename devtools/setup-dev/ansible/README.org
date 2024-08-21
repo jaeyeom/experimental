@@ -26,6 +26,7 @@ filename without =.yml= suffix.
 *** TODO Emacs-vterm directory tracking
 
 ** New Features
+*** DONE Include guards for playbooks
 *** TODO Spacemacs packages keeping up-to-date
 *** TODO gh
 *** TODO Add command-line flags to ensure.sh
@@ -37,3 +38,6 @@ filename without =.yml= suffix.
 *** TODO Ansible module to handle package mapping
 *** TODO Ansible module to handle go installs instead of generated files
 
+** Bleeding Edge
+*** DONE Bleeding Edge Go
+*** TODO Bleeding Edge Emacs
