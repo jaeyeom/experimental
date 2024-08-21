@@ -4,6 +4,16 @@
 - name: Ensure gopkgs is present
   hosts: all
   tasks:
+    - name: Include guard for gopkgs playbook
+      block:
+        - name: Stop early if the gopkgs playbook is already included
+          meta: end_play
+          when: gopkgs_playbook_imported is defined
+        - name: Ensure the gopkgs playbook is not included
+          set_fact:
+            gopkgs_playbook_imported: true
+          when: gopkgs_playbook_imported is not defined
+
     - name: Check if gopkgs is installed
       shell: go version -m $(command -v gopkgs) | grep '^\s*mod\s'
       register: gopkgs_installed

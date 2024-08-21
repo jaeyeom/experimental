@@ -2,6 +2,16 @@
 - name: Ensure git is present
   hosts: all
   tasks:
+    - name: Include guard for git playbook
+      block:
+        - name: Stop early if the git playbook is already included
+          meta: end_play
+          when: git_playbook_imported is defined
+        - name: Ensure the git playbook is not included
+          set_fact:
+            git_playbook_imported: true
+          when: git_playbook_imported is not defined
+
     - name: Ensure git is present on non-Termux systems
       package:
         name: git

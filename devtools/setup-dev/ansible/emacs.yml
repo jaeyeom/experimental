@@ -2,6 +2,16 @@
 - name: Ensure emacs is present
   hosts: all
   tasks:
+    - name: Include guard for emacs playbook
+      block:
+        - name: Stop early if the emacs playbook is already included
+          meta: end_play
+          when: emacs_playbook_imported is defined
+        - name: Ensure the emacs playbook is not included
+          set_fact:
+            emacs_playbook_imported: true
+          when: emacs_playbook_imported is not defined
+
     - name: Ensure emacs is present on non-Termux systems
       package:
         name: emacs

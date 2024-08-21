@@ -2,6 +2,16 @@
 - name: Ensure sshpass is present
   hosts: all
   tasks:
+    - name: Include guard for sshpass playbook
+      block:
+        - name: Stop early if the sshpass playbook is already included
+          meta: end_play
+          when: sshpass_playbook_imported is defined
+        - name: Ensure the sshpass playbook is not included
+          set_fact:
+            sshpass_playbook_imported: true
+          when: sshpass_playbook_imported is not defined
+
     - name: Ensure sshpass is present on non-Termux systems
       package:
         name: sshpass

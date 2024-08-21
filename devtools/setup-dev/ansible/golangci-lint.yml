@@ -5,6 +5,16 @@
 - name: Ensure golangci-lint is installed
   hosts: all
   tasks:
+    - name: Include guard for golangci-lint playbook
+      block:
+        - name: Stop early if the golangci-lint playbook is already included
+          meta: end_play
+          when: golangci_lint_playbook_imported is defined
+        - name: Ensure the golangci-lint playbook is not included
+          set_fact:
+            golangci_lint_playbook_imported: true
+          when: golangci_lint_playbook_imported is not defined
+
     - name: Check if golangci-lint is installed
       command: golangci-lint --version
       register: golangci_lint_installed

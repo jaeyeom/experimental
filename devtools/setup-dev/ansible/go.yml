@@ -2,6 +2,15 @@
 - name: Ensure go is present
   hosts: all
   tasks:
+    - name: Include guard for go playbook
+      block:
+        - name: Stop early if the go playbook is already included
+          meta: end_play
+          when: go_playbook_imported is defined
+        - name: Ensure the go playbook is not included
+          set_fact:
+            go_playbook_imported: true
+          when: go_playbook_imported is not defined
     - name: Ensure go is present on non-Termux systems
       block:
         - name: Ensure the package go is not installed

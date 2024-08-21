@@ -2,6 +2,16 @@
 - name: Ensure keychain is present
   hosts: all
   tasks:
+    - name: Include guard for keychain playbook
+      block:
+        - name: Stop early if the keychain playbook is already included
+          meta: end_play
+          when: keychain_playbook_imported is defined
+        - name: Ensure the keychain playbook is not included
+          set_fact:
+            keychain_playbook_imported: true
+          when: keychain_playbook_imported is not defined
+
     - name: Ensure keychain is present on non-Termux systems
       package:
         name: keychain

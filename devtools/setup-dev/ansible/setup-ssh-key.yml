@@ -8,6 +8,16 @@
 - name: Ensure SSH keys are generated and SSH agent is configured
   hosts: all
   tasks:
+    - name: Include guard for setup-ssh-key playbook
+      block:
+        - name: Stop early if the setup-ssh-key playbook is already included
+          meta: end_play
+          when: setup_ssh_key_playbook_imported is defined
+        - name: Ensure the setup-ssh-key playbook is not included
+          set_fact:
+            setup_ssh_key_playbook_imported: true
+          when: setup_ssh_key_playbook_imported is not defined
+
     - name: Ensure the user SSH directory exists
       ansible.builtin.file:
         path: "{{ ansible_env.HOME }}/.ssh"
