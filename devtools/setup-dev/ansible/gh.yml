@@ -1,0 +1,30 @@
+---
+- name: Ensure gh is present
+  hosts: all
+  tasks:
+    - name: Include guard for gh playbook
+      block:
+        - name: Stop early if the gh playbook is already included
+          meta: end_play
+          when: gh_playbook_imported is defined
+        - name: Ensure the gh playbook is not included
+          set_fact:
+            gh_playbook_imported: true
+          when: gh_playbook_imported is not defined
+
+    - name: Ensure gh is present on non-Termux systems
+      package:
+        name: gh
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure gh is present on Termux
+      block:
+        - name: Check if gh is installed
+          shell: command -v gh
+          changed_when: False
+      rescue:
+        - name: Install gh on Termux
+          command: pkg install -y gh
+      when: ansible_env.TERMUX_VERSION is defined

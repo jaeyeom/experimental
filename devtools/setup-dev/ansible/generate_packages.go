@@ -61,11 +61,18 @@ func (p PackageData) TermuxPkgName() string {
 }
 
 var packages = []PackageData{
+	{Command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag"},
 	{Command: "curl"},
 	{Command: "emacs"},
+	{Command: "gh"},
 	{Command: "git"},
+	{Command: "grep"},
+	{Command: "htop"},
 	{Command: "jq"},
 	{Command: "keychain"},
+	{Command: "man"},
+	{Command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
+	{Command: "sed"},
 	{Command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
 	{Command: "sshpass"},
 }

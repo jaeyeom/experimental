@@ -1,0 +1,30 @@
+---
+- name: Ensure htop is present
+  hosts: all
+  tasks:
+    - name: Include guard for htop playbook
+      block:
+        - name: Stop early if the htop playbook is already included
+          meta: end_play
+          when: htop_playbook_imported is defined
+        - name: Ensure the htop playbook is not included
+          set_fact:
+            htop_playbook_imported: true
+          when: htop_playbook_imported is not defined
+
+    - name: Ensure htop is present on non-Termux systems
+      package:
+        name: htop
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure htop is present on Termux
+      block:
+        - name: Check if htop is installed
+          shell: command -v htop
+          changed_when: False
+      rescue:
+        - name: Install htop on Termux
+          command: pkg install -y htop
+      when: ansible_env.TERMUX_VERSION is defined
