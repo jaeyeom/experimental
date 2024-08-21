@@ -47,14 +47,19 @@
           ignore_errors: yes
           become: yes
 
+        - name: Create temporary go binary directory
+          ansible.builtin.tempfile:
+            state: directory
+          register: go_tmp_dir
+
         - name: Download the go binary
           get_url:
             url: "{{ go_binary_download_url }}"
-            dest: /tmp/go.tar.gz
+            dest: "{{ go_tmp_dir }}/go.tar.gz"
 
         - name: Extract the go binary
           ansible.builtin.unarchive:
-            src: /tmp/go.tar.gz
+            src: "{{ go_tmp_dir }}/go.tar.gz"
             dest: /usr/local
             remote_src: yes
             creates: /usr/local/go
