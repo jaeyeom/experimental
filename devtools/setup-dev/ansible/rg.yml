@@ -1,0 +1,30 @@
+---
+- name: Ensure rg is present
+  hosts: all
+  tasks:
+    - name: Include guard for rg playbook
+      block:
+        - name: Stop early if the rg playbook is already included
+          meta: end_play
+          when: rg_playbook_imported is defined
+        - name: Ensure the rg playbook is not included
+          set_fact:
+            rg_playbook_imported: true
+          when: rg_playbook_imported is not defined
+
+    - name: Ensure rg is present on non-Termux systems
+      package:
+        name: ripgrep
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure rg is present on Termux
+      block:
+        - name: Check if rg is installed
+          shell: command -v rg
+          changed_when: False
+      rescue:
+        - name: Install rg on Termux
+          command: pkg install -y ripgrep
+      when: ansible_env.TERMUX_VERSION is defined

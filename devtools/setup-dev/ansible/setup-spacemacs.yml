@@ -1,0 +1,16 @@
+---
+- import_playbook: spacemacs.yml
+- import_playbook: rg.yml
+
+- name: Ensure spacemacs is properly set up
+  hosts: all
+  tasks:
+    - name: Include guard for setup-spacemacs playbook
+      block:
+        - name: Stop early if the setup-spacemacs playbook is already included
+          meta: end_play
+          when: setup_spacemacs_playbook_imported is defined
+        - name: Ensure the setup-spacemacs playbook is not included
+          set_fact:
+            setup_spacemacs_playbook_imported: true
+          when: setup_spacemacs_playbook_imported is not defined

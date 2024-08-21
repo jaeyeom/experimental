@@ -1,0 +1,30 @@
+---
+- name: Ensure sed is present
+  hosts: all
+  tasks:
+    - name: Include guard for sed playbook
+      block:
+        - name: Stop early if the sed playbook is already included
+          meta: end_play
+          when: sed_playbook_imported is defined
+        - name: Ensure the sed playbook is not included
+          set_fact:
+            sed_playbook_imported: true
+          when: sed_playbook_imported is not defined
+
+    - name: Ensure sed is present on non-Termux systems
+      package:
+        name: sed
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure sed is present on Termux
+      block:
+        - name: Check if sed is installed
+          shell: command -v sed
+          changed_when: False
+      rescue:
+        - name: Install sed on Termux
+          command: pkg install -y sed
+      when: ansible_env.TERMUX_VERSION is defined

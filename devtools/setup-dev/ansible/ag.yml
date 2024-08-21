@@ -1,0 +1,30 @@
+---
+- name: Ensure ag is present
+  hosts: all
+  tasks:
+    - name: Include guard for ag playbook
+      block:
+        - name: Stop early if the ag playbook is already included
+          meta: end_play
+          when: ag_playbook_imported is defined
+        - name: Ensure the ag playbook is not included
+          set_fact:
+            ag_playbook_imported: true
+          when: ag_playbook_imported is not defined
+
+    - name: Ensure ag is present on non-Termux systems
+      package:
+        name: silversearcher-ag
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure ag is present on Termux
+      block:
+        - name: Check if ag is installed
+          shell: command -v ag
+          changed_when: False
+      rescue:
+        - name: Install ag on Termux
+          command: pkg install -y silversearcher-ag
+      when: ansible_env.TERMUX_VERSION is defined

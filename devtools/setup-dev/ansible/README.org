@@ -13,7 +13,8 @@ filename without =.yml= suffix.
 
 * Remaining Works
 ** Migrate from setup-dev.sh
-*** TODO Install searchers
+*** DONE Install searchers
+CLOSED: [2024-08-21 Wed 13:41]
 *** TODO Locate tool
 *** TODO gpg
 *** TODO pass
@@ -28,7 +29,8 @@ filename without =.yml= suffix.
 ** New Features
 *** DONE Include guards for playbooks
 *** TODO Spacemacs packages keeping up-to-date
-*** TODO gh
+*** DONE gh
+CLOSED: [2024-08-21 Wed 13:27]
 *** TODO Add command-line flags to ensure.sh
 *** TODO Support MacOS Brew
 *** TODO C++ Development environment

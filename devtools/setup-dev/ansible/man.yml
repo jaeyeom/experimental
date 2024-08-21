@@ -1,0 +1,30 @@
+---
+- name: Ensure man is present
+  hosts: all
+  tasks:
+    - name: Include guard for man playbook
+      block:
+        - name: Stop early if the man playbook is already included
+          meta: end_play
+          when: man_playbook_imported is defined
+        - name: Ensure the man playbook is not included
+          set_fact:
+            man_playbook_imported: true
+          when: man_playbook_imported is not defined
+
+    - name: Ensure man is present on non-Termux systems
+      package:
+        name: man
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure man is present on Termux
+      block:
+        - name: Check if man is installed
+          shell: command -v man
+          changed_when: False
+      rescue:
+        - name: Install man on Termux
+          command: pkg install -y man
+      when: ansible_env.TERMUX_VERSION is defined
