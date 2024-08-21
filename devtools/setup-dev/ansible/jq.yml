@@ -2,6 +2,16 @@
 - name: Ensure jq is present
   hosts: all
   tasks:
+    - name: Include guard for jq playbook
+      block:
+        - name: Stop early if the jq playbook is already included
+          meta: end_play
+          when: jq_playbook_imported is defined
+        - name: Ensure the jq playbook is not included
+          set_fact:
+            jq_playbook_imported: true
+          when: jq_playbook_imported is not defined
+
     - name: Ensure jq is present on non-Termux systems
       package:
         name: jq

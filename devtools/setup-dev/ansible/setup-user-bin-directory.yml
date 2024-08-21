@@ -2,6 +2,16 @@
 - name: Ensure the user bin directory exists
   hosts: all
   tasks:
+    - name: Include guard for setup-user-bin-directory playbook
+      block:
+        - name: Stop early if the setup-user-bin-directory playbook is already included
+          meta: end_play
+          when: setup_user_bin_directory_playbook_imported is defined
+        - name: Ensure the setup-user-bin-directory playbook is not included
+          set_fact:
+            setup_user_bin_directory_playbook_imported: true
+          when: setup_user_bin_directory_playbook_imported is not defined
+
     - name: Determine the user bin directory
       ansible.builtin.set_fact:
         user_bin_directory: "{{ ansible_env.HOME + '/.local/bin' }}"

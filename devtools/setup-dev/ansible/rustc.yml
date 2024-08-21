@@ -2,6 +2,16 @@
 - name: Ensure rustc is present
   hosts: all
   tasks:
+    - name: Include guard for rustc playbook
+      block:
+        - name: Stop early if the rustc playbook is already included
+          meta: end_play
+          when: rustc_playbook_imported is defined
+        - name: Ensure the rustc playbook is not included
+          set_fact:
+            rustc_playbook_imported: true
+          when: rustc_playbook_imported is not defined
+
     - block:
       - name: Ensure rustc is present on non-Termux systems
         shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

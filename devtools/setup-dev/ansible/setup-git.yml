@@ -4,6 +4,16 @@
 - name: Ensure git is properly set up
   hosts: all
   tasks:
+    - name: Include guard for setup-git playbook
+      block:
+        - name: Stop early if the setup-git playbook is already included
+          meta: end_play
+          when: setup_git_playbook_imported is defined
+        - name: Ensure the setup-git playbook is not included
+          set_fact:
+            setup_git_playbook_imported: true
+          when: setup_git_playbook_imported is not defined
+
     - name: Determine the user name
       shell: git config --global user.name
       register: get_git_user_name

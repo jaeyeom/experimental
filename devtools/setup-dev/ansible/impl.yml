@@ -4,6 +4,16 @@
 - name: Ensure impl is present
   hosts: all
   tasks:
+    - name: Include guard for impl playbook
+      block:
+        - name: Stop early if the impl playbook is already included
+          meta: end_play
+          when: impl_playbook_imported is defined
+        - name: Ensure the impl playbook is not included
+          set_fact:
+            impl_playbook_imported: true
+          when: impl_playbook_imported is not defined
+
     - name: Check if impl is installed
       shell: go version -m $(command -v impl) | grep '^\s*mod\s'
       register: impl_installed

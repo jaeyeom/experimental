@@ -2,6 +2,16 @@
 - name: Ensure curl is present
   hosts: all
   tasks:
+    - name: Include guard for curl playbook
+      block:
+        - name: Stop early if the curl playbook is already included
+          meta: end_play
+          when: curl_playbook_imported is defined
+        - name: Ensure the curl playbook is not included
+          set_fact:
+            curl_playbook_imported: true
+          when: curl_playbook_imported is not defined
+
     - name: Ensure curl is present on non-Termux systems
       package:
         name: curl

@@ -4,6 +4,16 @@
 - name: Ensure gomodifytags is present
   hosts: all
   tasks:
+    - name: Include guard for gomodifytags playbook
+      block:
+        - name: Stop early if the gomodifytags playbook is already included
+          meta: end_play
+          when: gomodifytags_playbook_imported is defined
+        - name: Ensure the gomodifytags playbook is not included
+          set_fact:
+            gomodifytags_playbook_imported: true
+          when: gomodifytags_playbook_imported is not defined
+
     - name: Check if gomodifytags is installed
       shell: go version -m $(command -v gomodifytags) | grep '^\s*mod\s'
       register: gomodifytags_installed

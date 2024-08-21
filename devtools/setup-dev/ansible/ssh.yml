@@ -2,6 +2,16 @@
 - name: Ensure ssh is present
   hosts: all
   tasks:
+    - name: Include guard for ssh playbook
+      block:
+        - name: Stop early if the ssh playbook is already included
+          meta: end_play
+          when: ssh_playbook_imported is defined
+        - name: Ensure the ssh playbook is not included
+          set_fact:
+            ssh_playbook_imported: true
+          when: ssh_playbook_imported is not defined
+
     - name: Ensure ssh is present on non-Termux systems
       package:
         name: openssh-client

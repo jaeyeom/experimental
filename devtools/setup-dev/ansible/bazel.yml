@@ -4,6 +4,16 @@
 - name: Ensure bazelisk is present
   hosts: all
   tasks:
+    - name: Include guard for bazel playbook
+      block:
+        - name: Stop early if the bazel playbook is already included
+          meta: end_play
+          when: bazel_playbook_imported is defined
+        - name: Ensure the bazel playbook is not included
+          set_fact:
+            bazel_playbook_imported: true
+          when: bazel_playbook_imported is not defined
+
     - name: Assert that the system is not TERMUX
       ansible.builtin.assert:
         that: ansible_env.TERMUX_VERSION is not defined
