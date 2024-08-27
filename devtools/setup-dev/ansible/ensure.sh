@@ -18,5 +18,8 @@ flags=$(echo "$@" | grep -o -- '-[^ ]*')
 # Run playbook with the provided args with the .yml suffix for each arg.
 
 for playbook in "$@"; do
+    if [ "$(echo $playbook | head -c 1)" = "-" ]; then
+        continue
+    fi
     ansible-playbook -i inventory.ini $flags $playbook.yml
 done
