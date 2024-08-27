@@ -15,7 +15,8 @@ filename without =.yml= suffix.
 ** Migrate from setup-dev.sh
 *** DONE Install searchers
 CLOSED: [2024-08-21 Wed 13:41]
-*** TODO Locate tool
+*** DONE Locate tool
+CLOSED: [2024-08-26 Mon 19:14]
 *** TODO gpg
 *** TODO pass
 *** TODO Remaining PATH settings

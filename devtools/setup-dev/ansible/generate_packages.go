@@ -37,13 +37,14 @@ var packagesTemplate = `---
       rescue:
         - name: Install {{.Command}} on Termux
           command: pkg install -y {{.TermuxPkgName}}
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_env.TERMUX_VERSION is defined{{.Suffix}}
 `
 
 type PackageData struct {
 	Command       string
 	debianPkgName string
 	termuxPkgName string
+	Suffix        string
 }
 
 func (p PackageData) DebianPkgName() string {
@@ -70,6 +71,16 @@ var packages = []PackageData{
 	{Command: "htop"},
 	{Command: "jq"},
 	{Command: "keychain"},
+	{
+		Command:       "locate",
+		debianPkgName: "mlocate",
+		termuxPkgName: "mlocate",
+		Suffix: `
+
+    - name: Ensure locate DB is up-to-date
+      command: updatedb
+      become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"`,
+	},
 	{Command: "man"},
 	{Command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
 	{Command: "sed"},
