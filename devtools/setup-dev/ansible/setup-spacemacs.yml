@@ -14,3 +14,17 @@
           set_fact:
             setup_spacemacs_playbook_imported: true
           when: setup_spacemacs_playbook_imported is not defined
+
+    - name: Ensure vterm directory tracking
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} vterm directory tracking"
+        block: |
+          if [[ "$INSIDE_EMACS" = "vterm" ]] \
+                 && [[ -n ${EMACS_VTERM_PATH} ]] \
+                 && [[ -f ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh ]]; then
+              source ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh
+          fi
