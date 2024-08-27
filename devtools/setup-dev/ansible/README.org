@@ -32,7 +32,8 @@ CLOSED: [2024-08-26 Mon 19:14]
 *** TODO Spacemacs packages keeping up-to-date
 *** DONE gh
 CLOSED: [2024-08-21 Wed 13:27]
-*** TODO Add command-line flags to ensure.sh
+*** DONE Add command-line flags to ensure.sh
+CLOSED: [2024-08-26 Mon 19:16]
 *** TODO Support MacOS Brew
 *** TODO C++ Development environment
 *** TODO Docker Testing

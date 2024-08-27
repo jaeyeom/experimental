@@ -12,8 +12,11 @@ if [ -n "$TERMUX_VERSION" ]; then
     pkg upgrade -y
 fi
 
+# Take all flags that starts with a hyphen.
+flags=$(echo "$@" | grep -o -- '-[^ ]*')
+
 # Run playbook with the provided args with the .yml suffix for each arg.
 
 for playbook in "$@"; do
-    ansible-playbook -i inventory.ini $playbook.yml
+    ansible-playbook -i inventory.ini $flags $playbook.yml
 done
