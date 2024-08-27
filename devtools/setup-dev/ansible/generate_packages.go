@@ -9,6 +9,9 @@ import (
 )
 
 var packagesTemplate = `---
+{{- range .Imports }}
+- import_playbook: {{.}}.yml
+{{- end }}
 - name: Ensure {{.Command}} is present
   hosts: all
   tasks:
@@ -44,6 +47,7 @@ type PackageData struct {
 	Command       string
 	debianPkgName string
 	termuxPkgName string
+	Imports       []string
 	Suffix        string
 }
 
@@ -82,6 +86,7 @@ var packages = []PackageData{
       become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"`,
 	},
 	{Command: "man"},
+	{Command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
 	{Command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
 	{Command: "sed"},
 	{Command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
@@ -91,6 +96,7 @@ var packages = []PackageData{
 type GoInstall struct {
 	Command string
 	PkgPath string
+	Imports []string
 }
 
 func (g GoInstall) CommandID() string {
@@ -100,6 +106,9 @@ func (g GoInstall) CommandID() string {
 
 var goInstallTemplate = `---
 - import_playbook: setup-user-go-bin-directory.yml
+{{- range .Imports }}
+- import_playbook: {{.}}.yml
+{{- end }}
 
 - name: Ensure {{.Command}} is present
   hosts: all
@@ -147,20 +156,28 @@ var goInstallTemplate = `---
 `
 
 var gopkgs = []GoInstall{
-	{"godoc", "golang.org/x/tools/cmd/godoc@latest"},
-	{"goimports", "golang.org/x/tools/cmd/goimports@latest"},
-	{"gorename", "golang.org/x/tools/cmd/gorename@latest"},
-	{"guru", "golang.org/x/tools/cmd/guru@latest"},
-	{"gotests", "github.com/cweill/gotests/...@latest"},
-	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"},
-	{"gomodifytags", "github.com/fatih/gomodifytags@latest"},
-	{"godoctor", "github.com/godoctor/godoctor@latest"},
-	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"},
-	{"impl", "github.com/josharian/impl@latest"},
-	{"godef", "github.com/rogpeppe/godef@latest"},
-	{"image2ascii", "github.com/qeesung/image2ascii@latest"},
-	{"protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest"},
-	{"protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"},
+	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},
+	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
+	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
+	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
+	{"gotests", "github.com/cweill/gotests/...@latest", nil},
+	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest", nil},
+	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
+	{"godoctor", "github.com/godoctor/godoctor@latest", nil},
+	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
+	{"impl", "github.com/josharian/impl@latest", nil},
+	{"godef", "github.com/rogpeppe/godef@latest", nil},
+	{"image2ascii", "github.com/qeesung/image2ascii@latest", nil},
+	{
+		"protoc-gen-go",
+		"google.golang.org/protobuf/cmd/protoc-gen-go@latest",
+		[]string{"protoc"},
+	},
+	{
+		"protoc-gen-go-grpc",
+		"google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest",
+		[]string{"protoc"},
+	},
 }
 
 func main() {
