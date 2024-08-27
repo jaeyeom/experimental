@@ -1,0 +1,34 @@
+---
+- name: Ensure locate is present
+  hosts: all
+  tasks:
+    - name: Include guard for locate playbook
+      block:
+        - name: Stop early if the locate playbook is already included
+          meta: end_play
+          when: locate_playbook_imported is defined
+        - name: Ensure the locate playbook is not included
+          set_fact:
+            locate_playbook_imported: true
+          when: locate_playbook_imported is not defined
+
+    - name: Ensure locate is present on non-Termux systems
+      package:
+        name: mlocate
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure locate is present on Termux
+      block:
+        - name: Check if locate is installed
+          shell: command -v locate
+          changed_when: False
+      rescue:
+        - name: Install locate on Termux
+          command: pkg install -y mlocate
+      when: ansible_env.TERMUX_VERSION is defined
+
+    - name: Ensure locate DB is up-to-date
+      command: updatedb
+      become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"
