@@ -25,7 +25,8 @@ CLOSED: [2024-08-26 Mon 19:14]
 ** Migrate from Makefile
 *** TODO Pip packages
 *** TODO Python Development environment
-*** TODO Emacs-vterm directory tracking
+*** DONE Emacs-vterm directory tracking
+CLOSED: [2024-08-26 Mon 19:37]
 
 ** New Features
 *** DONE Include guards for playbooks
