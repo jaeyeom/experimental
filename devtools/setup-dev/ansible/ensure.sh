@@ -13,7 +13,7 @@ if [ -n "$TERMUX_VERSION" ]; then
 fi
 
 # Take all flags that starts with a hyphen.
-flags=$(echo "$@" | grep -o -- '-[^ ]*')
+flags=$(echo " " "$@" | grep -o -- ' -[^ ]*')
 
 # Run playbook with the provided args with the .yml suffix for each arg.
 
