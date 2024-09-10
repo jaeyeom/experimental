@@ -1,0 +1,30 @@
+---
+- name: Ensure mono is present
+  hosts: all
+  tasks:
+    - name: Include guard for mono playbook
+      block:
+        - name: Stop early if the mono playbook is already included
+          meta: end_play
+          when: mono_playbook_imported is defined
+        - name: Ensure the mono playbook is not included
+          set_fact:
+            mono_playbook_imported: true
+          when: mono_playbook_imported is not defined
+
+    - name: Ensure mono is present on non-Termux systems
+      package:
+        name: mono-devel
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure mono is present on Termux
+      block:
+        - name: Check if mono is installed
+          shell: command -v mono
+          changed_when: False
+      rescue:
+        - name: Install mono on Termux
+          command: pkg install -y mono
+      when: ansible_env.TERMUX_VERSION is defined
