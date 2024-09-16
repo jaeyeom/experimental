@@ -9,11 +9,11 @@
       block:
         - name: Stop early if the protoc-gen-go playbook is already included
           meta: end_play
-          when: protoc-gen-go_playbook_imported is defined
+          when: protoc_gen_go_playbook_imported is defined
         - name: Ensure the protoc-gen-go playbook is not included
           set_fact:
-            protoc-gen-go_playbook_imported: true
-          when: protoc-gen-go_playbook_imported is not defined
+            protoc_gen_go_playbook_imported: true
+          when: protoc_gen_go_playbook_imported is not defined
 
     - name: Check if protoc-gen-go is installed
       shell: go version -m $(command -v protoc-gen-go) | grep '^\s*mod\s'
