@@ -118,11 +118,11 @@ var goInstallTemplate = `---
       block:
         - name: Stop early if the {{.Command}} playbook is already included
           meta: end_play
-          when: {{.Command}}_playbook_imported is defined
+          when: {{.CommandID}}_playbook_imported is defined
         - name: Ensure the {{.Command}} playbook is not included
           set_fact:
-            {{.Command}}_playbook_imported: true
-          when: {{.Command}}_playbook_imported is not defined
+            {{.CommandID}}_playbook_imported: true
+          when: {{.CommandID}}_playbook_imported is not defined
 
     - name: Check if {{.Command}} is installed
       shell: go version -m $(command -v {{.Command}}) | grep '^\s*mod\s'
