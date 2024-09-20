@@ -1,0 +1,13 @@
+---
+- name: Ensure the history has the timestamp set up
+  hosts: all
+  tasks:
+    - name: Ensure HISTTIMEFORMAT set up
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} set HISTTIMEFORMAT for timestamp in bash history"
+        block: |
+          export HISTTIMEFORMAT="%F %T "
