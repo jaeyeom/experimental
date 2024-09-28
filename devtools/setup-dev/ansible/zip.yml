@@ -1,0 +1,30 @@
+---
+- name: Ensure zip is present
+  hosts: all
+  tasks:
+    - name: Include guard for zip playbook
+      block:
+        - name: Stop early if the zip playbook is already included
+          meta: end_play
+          when: zip_playbook_imported is defined
+        - name: Ensure the zip playbook is not included
+          set_fact:
+            zip_playbook_imported: true
+          when: zip_playbook_imported is not defined
+
+    - name: Ensure zip is present on non-Termux systems
+      package:
+        name: zip
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure zip is present on Termux
+      block:
+        - name: Check if zip is installed
+          shell: command -v zip
+          changed_when: False
+      rescue:
+        - name: Install zip on Termux
+          command: pkg install -y zip
+      when: ansible_env.TERMUX_VERSION is defined
