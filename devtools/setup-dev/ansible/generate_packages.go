@@ -85,6 +85,7 @@ var packages = []PackageData{
       command: updatedb
       become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"`,
 	},
+	{Command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin"},
 	{Command: "man"},
 	{Command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
 	{Command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
