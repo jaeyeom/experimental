@@ -1,0 +1,30 @@
+---
+- name: Ensure kotlinc is present
+  hosts: all
+  tasks:
+    - name: Include guard for kotlinc playbook
+      block:
+        - name: Stop early if the kotlinc playbook is already included
+          meta: end_play
+          when: kotlinc_playbook_imported is defined
+        - name: Ensure the kotlinc playbook is not included
+          set_fact:
+            kotlinc_playbook_imported: true
+          when: kotlinc_playbook_imported is not defined
+
+    - name: Ensure kotlinc is present on non-Termux systems
+      package:
+        name: kotlin
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure kotlinc is present on Termux
+      block:
+        - name: Check if kotlinc is installed
+          shell: command -v kotlinc
+          changed_when: False
+      rescue:
+        - name: Install kotlinc on Termux
+          command: pkg install -y kotlin
+      when: ansible_env.TERMUX_VERSION is defined
