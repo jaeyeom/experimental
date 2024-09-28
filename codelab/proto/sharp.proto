@@ -1,0 +1,11 @@
+edition = "2023";
+
+option go_package = "example.com/project/protos/fizz";
+
+option features.field_presence = IMPLICIT;
+
+message Bar {
+  int32 x = 1;
+  int32 y = 2 [features.field_presence = EXPLICIT];
+  repeated int32 z = 3;
+}
