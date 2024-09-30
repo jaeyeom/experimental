@@ -1,0 +1,12 @@
+#+TITLE: Shyaml
+
+A spreadsheet based configuration for quick demos.
+
+A sample command-line application with an entrypoint in =bin/=, library code in
+=lib/=, and unit test in =test/=.
+
+* Plan
+** Rows Parser
+*** DONE Minimum implementation
+CLOSED: [2024-09-30 Mon 10:40]
+*** TODO Parse error handling
