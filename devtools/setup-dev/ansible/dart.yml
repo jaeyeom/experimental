@@ -1,0 +1,30 @@
+---
+- name: Ensure dart is present
+  hosts: all
+  tasks:
+    - name: Include guard for dart playbook
+      block:
+        - name: Stop early if the dart playbook is already included
+          meta: end_play
+          when: dart_playbook_imported is defined
+        - name: Ensure the dart playbook is not included
+          set_fact:
+            dart_playbook_imported: true
+          when: dart_playbook_imported is not defined
+
+    - name: Ensure dart is present on non-Termux systems
+      package:
+        name: dart
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure dart is present on Termux
+      block:
+        - name: Check if dart is installed
+          shell: command -v dart
+          changed_when: False
+      rescue:
+        - name: Install dart on Termux
+          command: pkg install -y dart
+      when: ansible_env.TERMUX_VERSION is defined

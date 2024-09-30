@@ -68,6 +68,7 @@ func (p PackageData) TermuxPkgName() string {
 var packages = []PackageData{
 	{Command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag"},
 	{Command: "curl"},
+	{Command: "dart"},
 	{Command: "emacs"},
 	{Command: "gh"},
 	{Command: "git"},
