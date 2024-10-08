@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"golang.org/x/xerrors"
 )
@@ -260,7 +259,6 @@ func EvaluatePickers(c Config, times int) {
 }
 
 func Interactive(c Config, picker Picker) {
-	var trainings []Training
 	pick := picker.Pick()
 	for {
 		fmt.Printf("Next pick: %s\n", c.IntsToString(pick))
@@ -283,12 +281,9 @@ func Interactive(c Config, picker Picker) {
 			Result: Result{s, b, o},
 		})
 	}
-	fmt.Println(picker.Pick(trainings...))
 }
 
 func main() {
-	now := time.Now()
-	rand.Seed(now.Unix() ^ now.UnixNano())
 	numDigits := flag.Int("num_digits", 3, "number of digits")
 	charset := flag.String("charset", "0123456789", "character set")
 	evaluateTimes := flag.Int("evaluate_times", 0, "do evaluation by this time")

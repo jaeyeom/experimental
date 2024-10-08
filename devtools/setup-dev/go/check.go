@@ -22,7 +22,7 @@ func EmacsCurrentVersion(cmd *exec.Cmd) string {
 		return ""
 	}
 	var version string
-	fmt.Sscanf(string(out), "GNU Emacs %s\n", &version)
+	_, _ = fmt.Sscanf(string(out), "GNU Emacs %s\n", &version)
 	return version
 }
 
