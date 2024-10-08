@@ -10,6 +10,10 @@ if [ -n "$TERMUX_VERSION" ]; then
     # Upgrading pkg is necessary to avoid issues on Termux. Instead of handling
     # that in Ansible, we do it here.
     pkg upgrade -y
+
+    # Install necessary packages for Ansible and also install ansible.
+    pkg install -y rust python-pip
+    pip install ansible
 fi
 
 # Take all flags that starts with a hyphen.
