@@ -1,0 +1,2 @@
+#+TITLE: Setup-dev in Go
+Sample Go implementation of setup-dev.
