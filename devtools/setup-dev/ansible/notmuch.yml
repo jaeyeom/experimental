@@ -1,0 +1,31 @@
+---
+- import_playbook: python3-notmuch2.yml
+- name: Ensure notmuch is present
+  hosts: all
+  tasks:
+    - name: Include guard for notmuch playbook
+      block:
+        - name: Stop early if the notmuch playbook is already included
+          meta: end_play
+          when: notmuch_playbook_imported is defined
+        - name: Ensure the notmuch playbook is not included
+          set_fact:
+            notmuch_playbook_imported: true
+          when: notmuch_playbook_imported is not defined
+
+    - name: Ensure notmuch is present on non-Termux systems
+      package:
+        name: notmuch
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure notmuch is present on Termux
+      block:
+        - name: Check if notmuch is installed
+          shell: command -v notmuch
+          changed_when: False
+      rescue:
+        - name: Install notmuch on Termux
+          command: pkg install -y notmuch
+      when: ansible_env.TERMUX_VERSION is defined
