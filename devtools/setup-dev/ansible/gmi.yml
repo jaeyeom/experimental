@@ -1,0 +1,25 @@
+---
+- import_playbook: notmuch.yml
+
+- name: Ensure gmi is installed and up-to-date
+  hosts: all
+  tasks:
+    - name: Include guard for gmi playbook
+      block:
+        - name: Stop early if the gmi playbook is already included
+          meta: end_play
+          when: gmi_playbook_imported is defined
+        - name: Ensure the gmi playbook is not included
+          set_fact:
+            gmi_playbook_imported: true
+          when: gmi_playbook_imported is not defined
+
+    - name: Lieer repo is cloned and up-to-date
+      ansible.builtin.git:
+        repo: https://github.com/gauteh/lieer
+        dest: "{{ ansible_env.HOME }}/go/src/github.com/gauteh/lieer"
+
+    - name: Install lieer
+      ansible.builtin.pip:
+        chdir: "{{ ansible_env.HOME }}/go/src/github.com/gauteh/lieer"
+        name: .

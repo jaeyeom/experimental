@@ -89,6 +89,8 @@ var packages = []PackageData{
 	{Command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin"},
 	{Command: "man"},
 	{Command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
+	{Command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []string{"python3-notmuch2"}},
+	{Command: "python3-notmuch2", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch"},
 	{Command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
 	{Command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
 	{Command: "sed"},
