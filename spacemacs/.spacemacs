@@ -967,7 +967,12 @@ the email."
           (eq major-mode 'notmuch-message-mode))
       (my/chatgpt-shell-reply-email additional-prompt))
      ((region-active-p)
-      (chatgpt-shell-send-and-review-region))
+      (if (string-empty-p additional-prompt)
+          (chatgpt-shell-proofread-region)
+        (chatgpt-shell-send-to-buffer
+         (concat additional-prompt
+                 "\n\n"
+                 (buffer-substring-no-properties (region-beginning) (region-end))))))
      (t
       (my/chatgpt-shell-insert-natural-english additional-prompt))))
 
