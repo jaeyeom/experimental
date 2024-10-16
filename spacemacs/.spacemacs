@@ -48,6 +48,7 @@ This function should only modify configuration layer settings."
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
+      dtrt-indent
       emacs-lisp
       eww
       git
