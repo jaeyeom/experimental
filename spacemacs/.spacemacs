@@ -90,6 +90,7 @@ This function should only modify configuration layer settings."
       react
       reddit
       ;; renpy
+      restclient
       ;; ruby
       ;; rust
       search-engine
