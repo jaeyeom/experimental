@@ -11,6 +11,7 @@
 - import_playbook: gopkgs.yml
 - import_playbook: impl.yml
 - import_playbook: godef.yml
+- import_playbook: golangci-lint.yml
 
 - name: Ensure Spacemacs go layer is set up
   hosts: all
