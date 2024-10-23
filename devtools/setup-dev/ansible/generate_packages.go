@@ -163,18 +163,18 @@ var goInstallTemplate = `---
 `
 
 var gopkgs = []GoInstall{
-	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},
-	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
-	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
-	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
-	{"gotests", "github.com/cweill/gotests/...@latest", nil},
 	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest", nil},
-	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
-	{"godoctor", "github.com/godoctor/godoctor@latest", nil},
-	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
-	{"impl", "github.com/josharian/impl@latest", nil},
 	{"godef", "github.com/rogpeppe/godef@latest", nil},
+	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},
+	{"godoctor", "github.com/godoctor/godoctor@latest", nil},
+	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
+	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
+	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
+	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
+	{"gotests", "github.com/cweill/gotests/...@latest", nil},
+	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
 	{"image2ascii", "github.com/qeesung/image2ascii@latest", nil},
+	{"impl", "github.com/josharian/impl@latest", nil},
 	{
 		"protoc-gen-go",
 		"google.golang.org/protobuf/cmd/protoc-gen-go@latest",
