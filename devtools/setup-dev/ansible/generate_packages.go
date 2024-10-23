@@ -170,6 +170,7 @@ var gopkgs = []GoInstall{
 	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
 	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
 	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
+	{"gopls", "golang.org/x/tools/gopls@latest", nil},
 	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
 	{"gotests", "github.com/cweill/gotests/...@latest", nil},
 	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},

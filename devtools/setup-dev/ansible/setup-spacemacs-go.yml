@@ -1,5 +1,6 @@
 ---
 - import_playbook: setup-spacemacs.yml
+- import_playbook: gopls.yml
 - import_playbook: godoc.yml
 - import_playbook: goimports.yml
 - import_playbook: gorename.yml
