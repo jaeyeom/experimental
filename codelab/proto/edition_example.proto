@@ -1,6 +1,6 @@
 edition = "2023";
 
-option go_package = "example.com/project/protos/fizz";
+option go_package = "github.com/jaeyeom/experimental/codelab/proto";
 
 option features.field_presence = IMPLICIT;
 
