@@ -1,0 +1,30 @@
+---
+- name: Ensure grpcio is present
+  hosts: all
+  tasks:
+    - name: Include guard for grpcio playbook
+      block:
+        - name: Stop early if the grpcio playbook is already included
+          meta: end_play
+          when: grpcio_playbook_imported is defined
+        - name: Ensure the grpcio playbook is not included
+          set_fact:
+            grpcio_playbook_imported: true
+          when: grpcio_playbook_imported is not defined
+
+    - name: Ensure grpcio is present on non-Termux systems
+      package:
+        name: python3-grpcio
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure grpcio is present on Termux
+      block:
+        - name: Check if grpcio is installed
+          shell: command -v grpcio
+          changed_when: False
+      rescue:
+        - name: Install grpcio on Termux
+          command: pkg install -y python-grpcio
+      when: ansible_env.TERMUX_VERSION is defined
