@@ -905,6 +905,12 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   (with-eval-after-load 'gptel
     (setq-default gptel-model "gpt-4o"
                   gptel-default-mode 'org-mode)
+    ;;; For Claude Sonnet
+    ;; (setq-default
+    ;;  gptel-model "claude-3-5-sonnet-20241022"
+    ;;  gptel-backend (gptel-make-anthropic "Claude"
+    ;;                  :stream t
+    ;;                  :key (auth-source-pass-get 'secret "api.anthropic.com"))
 
     ;; Llama.cpp offers an OpenAI compatible API
     (gptel-make-openai "llama-cpp"          ;Any name
