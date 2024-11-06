@@ -74,6 +74,7 @@ var packages = []PackageData{
 	{Command: "gh"},
 	{Command: "git"},
 	{Command: "grep"},
+	{Command: "grpcio", debianPkgName: "python3-grpcio", termuxPkgName: "python-grpcio"},
 	{Command: "htop"},
 	{Command: "jq"},
 	{Command: "keychain"},
@@ -189,6 +190,52 @@ var gopkgs = []GoInstall{
 	},
 }
 
+type PipInstall struct {
+	Command string
+	pkgName string
+	Imports []string
+}
+
+func (p PipInstall) CommandID() string {
+	// Replace dash to underscore.
+	return strings.ReplaceAll(p.Command, "-", "_")
+}
+
+func (p PipInstall) PkgName() string {
+	if p.pkgName != "" {
+		return p.pkgName
+	}
+	return p.Command
+}
+
+var pipInstallTemplate = `---
+{{- range .Imports }}
+- import_playbook: {{.}}.yml
+{{- end }}
+
+- name: Ensure {{.Command}} is present
+  hosts: all
+  tasks:
+    - name: Include guard for {{.Command}} playbook
+      block:
+        - name: Stop early if the {{.Command}} playbook is already included
+          meta: end_play
+          when: {{.CommandID}}_playbook_imported is defined
+        - name: Ensure the {{.Command}} playbook is not included
+          set_fact:
+            {{.CommandID}}_playbook_imported: true
+          when: {{.CommandID}}_playbook_imported is not defined
+
+    - name: Ensure if {{.Command}} is installed
+      ansible.builtin.pip:
+        name: {{.PkgName}}
+        state: latest
+`
+
+var pipPkgs = []PipInstall{
+	{Command: "protovalidate"},
+}
+
 func main() {
 	pkgTmpl, err := template.New("packages").Parse(packagesTemplate)
 	if err != nil {
@@ -211,13 +258,27 @@ func main() {
 		panic(err)
 	}
 	for _, pkg := range gopkgs {
-
 		f, err := os.Create(pkg.Command + ".yml")
 		if err != nil {
 			panic(err)
 		}
 		defer f.Close()
 		err = goInstallTmpl.Execute(f, pkg)
+		if err != nil {
+			panic(err)
+		}
+	}
+	pipInstallTmpl, err := template.New("pip_install").Parse(pipInstallTemplate)
+	if err != nil {
+		panic(err)
+	}
+	for _, pkg := range pipPkgs {
+		f, err := os.Create(pkg.Command + ".yml")
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+		err = pipInstallTmpl.Execute(f, pkg)
 		if err != nil {
 			panic(err)
 		}

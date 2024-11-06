@@ -1,0 +1,19 @@
+---
+
+- name: Ensure protovalidate is present
+  hosts: all
+  tasks:
+    - name: Include guard for protovalidate playbook
+      block:
+        - name: Stop early if the protovalidate playbook is already included
+          meta: end_play
+          when: protovalidate_playbook_imported is defined
+        - name: Ensure the protovalidate playbook is not included
+          set_fact:
+            protovalidate_playbook_imported: true
+          when: protovalidate_playbook_imported is not defined
+
+    - name: Ensure if protovalidate is installed
+      ansible.builtin.pip:
+        name: protovalidate
+        state: latest
