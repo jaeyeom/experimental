@@ -1,0 +1,30 @@
+---
+- name: Ensure buf is present
+  hosts: all
+  tasks:
+    - name: Include guard for buf playbook
+      block:
+        - name: Stop early if the buf playbook is already included
+          meta: end_play
+          when: buf_playbook_imported is defined
+        - name: Ensure the buf playbook is not included
+          set_fact:
+            buf_playbook_imported: true
+          when: buf_playbook_imported is not defined
+
+    - name: Ensure buf is present on non-Termux systems
+      package:
+        name: buf
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure buf is present on Termux
+      block:
+        - name: Check if buf is installed
+          shell: command -v buf
+          changed_when: False
+      rescue:
+        - name: Install buf on Termux
+          command: pkg install -y buf
+      when: ansible_env.TERMUX_VERSION is defined
