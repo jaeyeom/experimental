@@ -1,0 +1,54 @@
+// Contacts protocol buffer message.
+
+syntax = "proto3";
+
+import "buf/validate/validate.proto";
+
+package contacts;
+
+message Contact {
+  string uuid = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_UNPOPULATED,
+    string: {
+      uuid: true,
+    }
+    }];
+  string name = 2;
+  string email = 3 [(buf.validate.field) = {
+    ignore: IGNORE_IF_UNPOPULATED,
+    string: {
+      email: true,
+    }
+  }];
+  string phone = 4;
+}
+
+message ContactListRequest {
+  string query = 1;
+}
+
+message ContactListResponse {
+  repeated Contact contacts = 1;
+}
+
+message UpsertContactRequest {
+  Contact contact = 1;
+}
+
+message UpsertContactResponse {
+  Contact contact = 1;
+}
+
+message DeleteContactRequest {
+  string uuid = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message DeleteContactResponse {
+  Contact contact = 1;
+}
+
+service ContactsService {
+  rpc ListContacts(ContactListRequest) returns (ContactListResponse);
+  rpc UpsertContact(UpsertContactRequest) returns (UpsertContactResponse);
+  rpc DeleteContact(DeleteContactRequest) returns (DeleteContactResponse);
+}
