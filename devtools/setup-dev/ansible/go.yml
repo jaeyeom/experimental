@@ -26,7 +26,7 @@
           changed_when: False
 
         - name: Get the latest available go version.
-          uri:
+          ansible.builtin.uri:
             url: https://go.dev/VERSION?m=text
             return_content: yes
           register: go_version_page
