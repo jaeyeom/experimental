@@ -1,3 +1,11 @@
+/// Spreadsheet-style YAML parser.
+///
+/// This parser is designed to parse YAML files that are formatted like a
+/// spreadsheet. The first column is the key and the second column is the value.
+
+/// Returns the indentation level of the given row.
+///
+/// This function returns the index of the first non-empty cell in the row.
 int findRowIndent(List<String> row) {
   for (var i = 0; i < row.length; i++) {
     if (row[i] != '') {
@@ -7,6 +15,7 @@ int findRowIndent(List<String> row) {
   return -1;
 }
 
+/// Gets the cell content in the given row.
 String getCell(List<String> row, int index) {
   if (index < row.length) {
     return row[index];
@@ -14,6 +23,9 @@ String getCell(List<String> row, int index) {
   return '';
 }
 
+/// Parses the rows starting from the given index with the given indent level.
+///
+/// It returns key value pairs in a map.
 dynamic parseRows(List<List<String>> rows, {int index = 0, int indent = 0}) {
   // print('rows: $rows, index: $index, indent: $indent');
   var result = <String, dynamic>{};
