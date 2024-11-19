@@ -4,11 +4,6 @@
 (defvar image-ascii-file-extensions '("jpg" "jpeg" "png" "gif" "bmp" "tiff")
   "List of image file extensions to be displayed as ASCII art.")
 
-(defun image-ascii-file-p (filename)
-  "Return non-nil if FILENAME has an image file extension."
-  (let ((ext (downcase (file-name-extension filename))))
-    (member ext image-ascii-file-extensions)))
-
 (defun get-image-dimensions-imk (filepath)
   "Return the dimensions of the image at FILEPATH as a cons cell.
 
