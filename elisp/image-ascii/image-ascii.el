@@ -8,8 +8,9 @@
   "Return the dimensions of the image at FILEPATH as a cons cell.
 
 This function uses the 'magick identify' command to get the dimensions of the image."
-  (let* ((output (shell-command-to-string
-                  (concat "magick identify -format \"%w %h\" " filepath)))
+  (let* ((output (with-output-to-string
+                   (call-process "magick" nil standard-output nil
+                                 "identify" "-format" "%w %h" filepath)))
          (dimensions (split-string output)))
     (cons (string-to-number (nth 0 dimensions))
           (string-to-number (nth 1 dimensions)))))
