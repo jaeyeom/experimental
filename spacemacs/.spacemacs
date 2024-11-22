@@ -45,6 +45,7 @@ This function should only modify configuration layer settings."
              c-c++-default-mode-for-headers 'c++-mode
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
+      confluence
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
@@ -79,6 +80,7 @@ This function should only modify configuration layer settings."
       (org :variables
            org-agenda-files (directory-files-recursively
                              (file-truename "~/Documents/projects") "\\.org$")
+           org-enable-github-support t
            org-enable-roam-support t
            org-enable-roam-ui t
            org-roam-directory (file-truename "~/Documents/roam/"))
@@ -831,7 +833,30 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
         (goto-char region-end)
         (insert (format "#+END_SRC\n"))
         (goto-char region-start)
-        (insert (format "#+BEGIN_SRC %s\n" lang)))))
+        (insert (format "#+BEGIN_SRC %s\n" lang))))
+
+    ;; Export Org mode with Pandoc to buffer.
+    (defun my/org-export-to-gfm-markdown-buffer ()
+      "Export the current buffer to GFM Markdown format using Pandoc and switch to a new buffer with the result.
+
+This function was written because the default GFM export in Org
+mode does not work with Roam links."
+      (interactive)
+      (let ((original-buffer (current-buffer))
+            (output-buffer (generate-new-buffer "*Org to GFM*")))
+        (with-current-buffer output-buffer
+          (org-mode) ;; Optional: Set the mode of the new buffer if needed
+          (insert-buffer-substring original-buffer)
+          (call-process-region (point-min) (point-max) "pandoc" t t nil
+                               "--wrap=none" "--from=org" "--to=gfm")
+          (markdown-mode))
+        (switch-to-buffer output-buffer)))
+
+    (org-export-define-derived-backend 'pandoc-gfm 'gfm
+      :menu-entry
+      '(?m "Export to Github Flavored Markdown"
+           ((?p "To pandoc temporary buffer"
+                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
