@@ -952,10 +952,11 @@ mode does not work with Roam links."
     )
 
   ;;; ChatGPT
-  (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com")))
+  (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com"))
+        (anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com")))
     (setq-default chatgpt-shell-openai-key openai-api-key
-                  gptel-api-key openai-api-key))
-
+                  gptel-api-key openai-api-key)
+    (setq-default chatgpt-shell-anthropic-key anthropic-api-key))
 
   (defun my/visible-buffer-text ()
     "Return the visible text in the current buffer."
