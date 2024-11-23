@@ -27,10 +27,10 @@ This function uses the 'magick identify' command to get the dimensions of the im
             (progn
               ;; Process ANSI color codes
               (ansi-color-apply-on-region (point-min) (point-max))
-              (set-buffer-modified-p nil)
-              (read-only-mode 1)
               (goto-char (point-min)))
-          (message "Error processing image with image2ascii"))))))
+          (message "Error processing image with image2ascii"))
+        (set-buffer-modified-p nil)
+        (read-only-mode 1)))))
 
 (define-derived-mode image-ascii-mode fundamental-mode "Image-ASCII"
   "Major mode for viewing images as ASCII art."
