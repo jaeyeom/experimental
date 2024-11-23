@@ -852,11 +852,12 @@ mode does not work with Roam links."
           (markdown-mode))
         (switch-to-buffer output-buffer)))
 
-    (org-export-define-derived-backend 'pandoc-gfm 'gfm
-      :menu-entry
-      '(?m "Export to Github Flavored Markdown"
-           ((?p "To pandoc temporary buffer"
-                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
+    (org-export-define-derived-backend
+     'pandoc-gfm 'gfm
+     :menu-entry
+     '(?m "Export to Github Flavored Markdown"
+          ((?p "To pandoc temporary buffer"
+               (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
