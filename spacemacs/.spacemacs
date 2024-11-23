@@ -45,7 +45,6 @@ This function should only modify configuration layer settings."
              c-c++-default-mode-for-headers 'c++-mode
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
-      confluence
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
@@ -818,6 +817,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (require 'ob-awk nil 'noerror)
     (require 'ob-chatgpt-shell nil 'noerror)
     (require 'ob-emacs-lisp nil 'noerror)
+    (require 'ob-eshell nil 'noerror)
     (require 'ob-go nil 'noerror)
     (require 'ob-makefile nil 'noerror)
     (require 'ob-mermaid nil 'noerror)
@@ -852,12 +852,11 @@ mode does not work with Roam links."
           (markdown-mode))
         (switch-to-buffer output-buffer)))
 
-    (org-export-define-derived-backend
-     'pandoc-gfm 'gfm
-     :menu-entry
-     '(?m "Export to Github Flavored Markdown"
-          ((?p "To pandoc temporary buffer"
-               (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
+    (org-export-define-derived-backend 'pandoc-gfm 'gfm
+                                       :menu-entry
+                                       '(?m "Export to Github Flavored Markdown"
+                                            ((?p "To pandoc temporary buffer"
+                                                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
@@ -882,7 +881,24 @@ mode does not work with Roam links."
 
   ;;; Eshell
   (with-eval-after-load 'eshell
-    (eshell-command-not-found-mode 1))
+    (eshell-command-not-found-mode 1)
+
+    (defun eshell-fn-on-files (fun1 fun2 args)
+      "Call FUN1 on the first element in list, ARGS.
+Call FUN2 on all the rest of the elements in ARGS."
+      (unless (null args)
+        (let ((filenames (flatten-list args)))
+          (funcall fun1 (car filenames))
+          (when (cdr filenames)
+            (mapcar fun2 (cdr filenames))))
+        ;; Return an empty string, as the return value from `fun1'
+        ;; probably isn't helpful to display in the `eshell' window.
+        ""))
+
+    (defun eshell/less (&rest files)
+      "Essentially an alias to the `view-file' function."
+      (eshell-fn-on-files 'view-file 'view-file-other-window files))
+    )
 
   ;;; Slack
   (with-eval-after-load 'slack
@@ -932,28 +948,26 @@ mode does not work with Roam links."
 
   (add-hook 'prog-mode-hook #'copilot-mode)
 
-  ;; (require 'gptel nil 'noerror)
-  (with-eval-after-load 'gptel
-    (setq-default gptel-model "gpt-4o"
-                  gptel-default-mode 'org-mode)
-    ;;; For Claude Sonnet
-    ;; (setq-default
-    ;;  gptel-model "claude-3-5-sonnet-20241022"
-    ;;  gptel-backend (gptel-make-anthropic "Claude"
-    ;;                  :stream t
-    ;;                  :key (auth-source-pass-get 'secret "api.anthropic.com"))
-
-    ;; Llama.cpp offers an OpenAI compatible API
-    (gptel-make-openai "llama-cpp"          ;Any name
-      :stream t                             ;Stream responses
-      :protocol "http"
-      :host "localhost:8080"                ;Llama.cpp server location
-      :models '("Llama"))                   ;Any names, doesn't matter for Llama
-    )
-
   ;;; ChatGPT
   (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com"))
         (anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com")))
+
+    (with-eval-after-load 'gptel
+      (setq-default gptel-model "gpt-4o"
+                    gptel-default-mode 'org-mode)
+
+      (gptel-make-anthropic "Claude"
+        :stream t
+        :key anthropic-api-key)
+
+      ;; Llama.cpp offers an OpenAI compatible API
+      (gptel-make-openai "llama-cpp"          ;Any name
+        :stream t                             ;Stream responses
+        :protocol "http"
+        :host "localhost:8080"                ;Llama.cpp server location
+        :models '("Llama"))                   ;Any names, doesn't matter for Llama
+      )
+
     (setq-default chatgpt-shell-openai-key openai-api-key
                   gptel-api-key openai-api-key)
     (setq-default chatgpt-shell-anthropic-key anthropic-api-key))
@@ -1007,19 +1021,25 @@ current buffer is a message-mode, ask ChatGPT to write a reply to
 the email."
     (interactive "sAdditional prompt: ")
     (cond
+     ((region-active-p)
+      (cond
+       ((string-empty-p additional-prompt) (chatgpt-shell-proofread-region))
+       ((string= "!" additional-prompt) (chatgpt-shell-quick-insert))
+       (t (chatgpt-shell-send-to-buffer
+           (concat additional-prompt
+                   "\n\n"
+                   (buffer-substring-no-properties (region-beginning) (region-end)))))))
      ((or (eq major-mode 'gnus-article-mode)
           (eq major-mode 'notmuch-show-mode))
       (my/chatgpt-shell-purpose-of-email additional-prompt))
      ((or (eq major-mode 'message-mode)
           (eq major-mode 'notmuch-message-mode))
       (my/chatgpt-shell-reply-email additional-prompt))
-     ((region-active-p)
-      (if (string-empty-p additional-prompt)
-          (chatgpt-shell-proofread-region)
-        (chatgpt-shell-send-to-buffer
-         (concat additional-prompt
-                 "\n\n"
-                 (buffer-substring-no-properties (region-beginning) (region-end))))))
+     ((eq major-mode 'eshell-mode)
+      ;; If eshell last command failed, summarize the output.
+      (if (eq eshell-last-command-status 0)
+          (chatgpt-shell-eshell-summarize-last-command-output)
+        (chatgpt-shell-eshell-whats-wrong-with-last-command)))
      (t
       (my/chatgpt-shell-insert-natural-english additional-prompt))))
 
