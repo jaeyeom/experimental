@@ -23,4 +23,5 @@
         create: true
         marker: "# {mark} emacs editor environment variable"
         block: |
-          export EDITOR="emacsclient -a ''"
+          export ALTERNATE_EDITOR=""
+          export EDITOR="emacsclient"
