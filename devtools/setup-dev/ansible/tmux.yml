@@ -1,0 +1,30 @@
+---
+- name: Ensure tmux is present
+  hosts: all
+  tasks:
+    - name: Include guard for tmux playbook
+      block:
+        - name: Stop early if the tmux playbook is already included
+          meta: end_play
+          when: tmux_playbook_imported is defined
+        - name: Ensure the tmux playbook is not included
+          set_fact:
+            tmux_playbook_imported: true
+          when: tmux_playbook_imported is not defined
+
+    - name: Ensure tmux is present on non-Termux systems
+      package:
+        name: tmux
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure tmux is present on Termux
+      block:
+        - name: Check if tmux is installed
+          shell: command -v tmux
+          changed_when: False
+      rescue:
+        - name: Install tmux on Termux
+          command: pkg install -y tmux
+      when: ansible_env.TERMUX_VERSION is defined

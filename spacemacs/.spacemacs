@@ -142,6 +142,7 @@ This function should only modify configuration layer settings."
      ob-chatgpt-shell
      ob-go
      ob-mermaid
+     ob-tmux
      org-tree-slide
      ox-clip
      )
@@ -823,6 +824,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     (require 'ob-mermaid nil 'noerror)
     (require 'ob-python nil 'noerror)
     (require 'ob-shell nil 'noerror)
+    (require 'ob-tmux nil 'noerror)
 
     ;; Convenience function
     (defun my/org-surround-region-with-src-block (lang)
@@ -866,6 +868,10 @@ mode does not work with Roam links."
     (setq ob-mermaid-cli-path
           (or (executable-find "mmdc")
               (expand-file-name "~/node_modules/.bin/mmdc"))))
+
+  (with-eval-after-load 'ob-tmux
+    ;; By default ob-tmux tries to open gnome-terminal. Let's disable it.
+    (setq-default org-babel-tmux-terminal nil))
 
   (with-eval-after-load 'sqlite-mode
     (evil-define-key 'normal sqlite-mode-map (kbd "RET") 'sqlite-mode-list-data)

@@ -98,6 +98,7 @@ var packages = []PackageData{
 	{Command: "sed"},
 	{Command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
 	{Command: "sshpass"},
+	{Command: "tmux"},
 	{Command: "unzip"},
 	{Command: "zip"},
 }
