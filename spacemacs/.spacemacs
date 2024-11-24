@@ -871,7 +871,8 @@ mode does not work with Roam links."
 
   (with-eval-after-load 'ob-tmux
     ;; By default ob-tmux tries to open gnome-terminal. Let's disable it.
-    (setq-default org-babel-tmux-terminal nil))
+    (setq-default org-babel-tmux-terminal
+                  (if my/crostini-p "x-terminal-emulator")))
 
   (with-eval-after-load 'sqlite-mode
     (evil-define-key 'normal sqlite-mode-map (kbd "RET") 'sqlite-mode-list-data)
