@@ -1,0 +1,20 @@
+---
+- name: Ensure e is present
+  hosts: all
+  tasks:
+    - name: Include guard for e playbook
+      block:
+        - name: Stop early if the e playbook is already included
+          meta: end_play
+          when: e_playbook_imported is defined
+        - name: Ensure the e playbook is not included
+          set_fact:
+            e_playbook_imported: true
+          when: e_playbook_imported is not defined
+
+    - name: Ensure e is present on non-Termux systems
+      package:
+        name: e-wrapper
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes

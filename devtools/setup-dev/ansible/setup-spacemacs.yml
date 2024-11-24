@@ -1,4 +1,5 @@
 ---
+- import_playbook: setup-emacs.yml
 - import_playbook: spacemacs.yml
 - import_playbook: rg.yml
 
