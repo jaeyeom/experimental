@@ -542,7 +542,7 @@ It should only modify the values of Spacemacs settings."
 
    ;; If non-nil, start an Emacs server if one is not already running.
    ;; (default nil)
-   dotspacemacs-enable-server nil
+   dotspacemacs-enable-server t
 
    ;; Set the emacs server socket location.
    ;; If nil, uses whatever the Emacs default is, otherwise a directory path
@@ -853,10 +853,10 @@ mode does not work with Roam links."
         (switch-to-buffer output-buffer)))
 
     (org-export-define-derived-backend 'pandoc-gfm 'gfm
-                                       :menu-entry
-                                       '(?m "Export to Github Flavored Markdown"
-                                            ((?p "To pandoc temporary buffer"
-                                                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
+      :menu-entry
+      '(?m "Export to Github Flavored Markdown"
+           ((?p "To pandoc temporary buffer"
+                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
