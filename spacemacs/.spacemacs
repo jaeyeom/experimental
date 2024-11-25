@@ -890,6 +890,40 @@ mode does not work with Roam links."
   (with-eval-after-load 'eshell
     (eshell-command-not-found-mode 1)
 
+    ;; We don't need a pager.
+    (setenv "PAGER" "cat")
+
+    ;; Predicate filters and modifiers, copied from hamacs/ha-eshell.org
+    (defun eshell-org-file-tags ()
+      "Parse the eshell text at point.
+Looks for parameters surrounded in single quotes. Returns a
+function that takes a FILE and returns nil if the file given to
+it doesn't contain the org-mode #+TAGS: entry specified."
+
+      ;; Step 1. Parse the eshell buffer for our tag between quotes
+      ;;         Make sure to move point to the end of the match:
+      (if (looking-at (rx "'" (group (one-or-more (not (or ")" "'"))))"'"))
+          (let* ((tag (match-string 1))
+                 (reg (rx line-start
+                          "#+" (optional "file") "tags:"
+                          (one-or-more space)
+                          (zero-or-more any)
+                          (literal tag) word-end)))
+            (goto-char (match-end 0))
+
+            ;; Step 2. Return the predicate function:
+            ;;         Careful when accessing the `reg' variable.
+            `(lambda (file)
+               (with-temp-buffer
+                 (insert-file-contents file)
+                 (re-search-forward ,reg nil t 1))))
+        (error "The `T' predicate takes an org-mode tag value in single quotes.")))
+
+    (defun ha-eshell-add-predicates ()
+      "A hook to add a `eshell-org-file-tags' predicate filter to eshell."
+      (add-to-list 'eshell-predicate-alist '(?T . (eshell-org-file-tags))))
+
+    ;; Less for Eshell, copied from hamacs/ha-eshell.org
     (defun eshell-fn-on-files (fun1 fun2 args)
       "Call FUN1 on the first element in list, ARGS.
 Call FUN2 on all the rest of the elements in ARGS."
@@ -905,6 +939,341 @@ Call FUN2 on all the rest of the elements in ARGS."
     (defun eshell/less (&rest files)
       "Essentially an alias to the `view-file' function."
       (eshell-fn-on-files 'view-file 'view-file-other-window files))
+
+    ;; PCRE for Eshell, copied from hamacs/ha-eshell.org
+    (defmacro prx (&rest expressions)
+      "Convert the rx-compatible regular EXPRESSIONS to PCRE.
+  Most shell applications accept Perl Compatible Regular Expressions."
+      `(rx-let ((integer (1+ digit))
+                (float   (seq integer "." integer))
+                (b256    (seq (optional (or "1" "2"))
+                              (regexp "[0-9]\\{1,2\\}")))
+                (ipaddr  (seq b256 "." b256 "." b256 "." b256))
+                (time    (seq digit (optional digit) ":" (= 2 digit) (optional ":" (= 2 digit))))
+                (email   (seq (1+ (regexp "[^,< ]")) "@" (1+ (seq (1+ (any alnum "-"))) ".") (1+ alnum)))
+                (date    (seq (= 2 digit) (or "/" "-") (= 2 digit) (or "/" "-") (= 4 digit)))
+                (ymd     (seq (= 4 digit) (or "/" "-") (= 2 digit) (or "/" "-") (= 2 digit)))
+                (uuid    (seq (= 8 hex) "-" (= 3 (seq (= 4 hex) "-")) (= 12 hex)))
+                (guid    (seq uuid)))
+         (rxt-elisp-to-pcre (rx ,@expressions))))
+
+    ;; Flow or Buffer cat, copied from hamacs/ha-eshell.org
+    (defun eshell-getopts (defargs args)
+      "Return hash table of ARGS parsed against DEFARGS.
+Where DEFARGS is an argument definition, a list of plists.
+For instance:
+   '((:name number :short \"n\"                 :parameter integer :default 0)
+     (:name title  :short \"t\" :long \"title\" :parameter string)
+     (:name debug  :short \"d\" :long \"debug\"))
+
+If ARGS, a list of _command line parameters_ is something like:
+
+    '(\"-d\" \"-n\" \"4\" \"--title\" \"How are that\" \"this\" \"is\" \"extra\")
+
+The hashtable return would contain these entries:
+
+    debug t
+    number 4  ; as a number
+    title \"How are that\" ; as a string
+    parameters (\"this\" \"is\" \"extra\") ; as a list of strings "
+      (let ((retmap    (make-hash-table))
+            (short-arg (rx string-start "-" (group alnum)))
+            (long-arg  (rx string-start "--" (group (1+ any)))))
+
+        ;; Let's not pollute the Emacs name space with tiny functions, as
+        ;; well as we want these functions to have access to the "somewhat
+        ;; global variables", `retmap' and `defargs', we use the magical
+        ;; `cl-labels' macro to define small functions:
+
+        (cl-labels ((match-short (str defarg)
+                      ;; Return t if STR matches against DEFARG's short label:
+                      (and (string-match short-arg str)
+                           (string= (match-string 1 str)
+                                    (plist-get defarg :short))))
+
+                    (match-long (str defarg)
+                      ;; Return t if STR matches against DEFARG's long label:
+                      (and (string-match long-arg str)
+                           (string= (match-string 1 str)
+                                    (plist-get defarg :long))))
+
+                    (match-arg (str defarg)
+                      ;; Return DEFARG if STR matches its definition (and it's a string):
+                      (when (and (stringp str)
+                                 (or (match-short str defarg)
+                                     (match-long str defarg)))
+                        defarg))
+
+                    (find-argdef (str)
+                      ;; Return entry in DEFARGS that matches STR:
+                      (first (--filter (match-arg str it) defargs)))
+
+                    (process-args (arg parm rest)
+                      (when arg
+                        (let* ((defarg (find-argdef arg))
+                               (key    (plist-get defarg :name)))
+                          (cond
+                           ;; If ARG doesn't match any definition, add
+                           ;; everything else to PARAMETERS key:
+                           ((null defarg)
+                            (puthash 'parameters (cons arg rest) retmap))
+
+                           ((plist-get defarg :help)
+                            (error (documentation (plist-get defarg :help))))
+
+                           ;; If argument definition has a integer parameter,
+                           ;; convert next entry as a number and process rest:
+                           ((eq (plist-get defarg :parameter) 'integer)
+                            (puthash key (string-to-number parm) retmap)
+                            (process-args (cadr rest) (caddr rest) (cddr rest)))
+
+                           ;; If argument definition has a parameter, use
+                           ;; the next entry as the value and process rest:
+                           ((plist-get defarg :parameter)
+                            (puthash key parm retmap)
+                            (process-args (cadr rest) (caddr rest) (cddr rest)))
+
+                           ;; No parameter? Store true for its key:
+                           (t
+                            (puthash key t retmap)
+                            (process-args (first rest) (second rest) (cdr rest))))))))
+
+          (process-args (first args) (second args) (cdr args))
+          retmap)))
+
+    (defvar ha-eshell-ebbflow-buffername "*eshell-edit*"
+      "The name of the buffer that eshell can use to store temporary input/output.")
+
+    (defun ha-eshell-ebbflow-return ()
+      "Close the ebb-flow window and return to Eshell session."
+      (interactive)
+      (if (and (boundp 'ha-eshell-ebbflow-return-buffer)
+               (bufferp 'ha-eshell-ebbflow-return-buffer))
+          (pop-to-buffer ha-eshell-ebbflow-return-buffer)
+        (bury-buffer)))
+
+    (define-minor-mode ebbflow-mode
+      "Editing a flow from the Eshell ebb command, so flow can pull it back."
+      :lighter " ebb"
+      :keymap (let ((map (make-sparse-keymap)))
+                (define-key map (kbd "C-c C-q") 'ha-eshell-ebbflow-return)
+                map))
+
+    (when (fboundp 'evil-define-key)
+      (evil-define-key 'normal ebbflow-mode-map "Q" 'ha-eshell-ebbflow-return))
+
+    (defun eshell/flow (&rest args)
+      "Output the contents of one or more buffers as a string.
+Usage: flow [OPTION] [BUFFER ...]
+    -h, --help           show this usage screen
+    -l, --lines          output contents as a list of lines
+    -w, --words          output contents as a list of space-separated elements "
+      (let* ((options (eshell-getopts '((:name words  :short "w" :long "words")
+                                        (:name lines  :short "l" :long "lines")
+                                        (:name string :short "s" :long "string")
+                                        (:name help   :short "h" :long "help"
+                                               :help eshell/flow))
+                                      args))
+             (buffers (gethash 'parameters options))
+             (content (thread-last buffers
+                                   (-map 'eshell-flow-buffer-contents)
+                                   (s-join "\n"))))
+        (if (gethash 'help options)
+            (error (documentation 'eshell/flow))
+
+          ;; No buffer specified? Use the default buffer's contents:
+          (unless buffers
+            (setq content
+                  (eshell-flow-buffer-contents ha-eshell-ebbflow-buffername)))
+
+          ;; Do we need to convert the output to lines or split on words?
+          (cond
+           ((gethash 'words options) (split-string content))
+           ((gethash 'lines options) (split-string content "\n"))
+           (t                        content)))))
+
+    (defun eshell-flow-buffer-contents (buffer-name)
+      "Return the contents of BUFFER as a string."
+      (when buffer-name
+        (save-window-excursion
+          (switch-to-buffer (get-buffer buffer-name))
+          (buffer-substring-no-properties (point-min) (point-max)))))
+
+    (defun eshell-flow-buffers (buffers)
+      "Convert the list, BUFFERS, to actual buffers if given buffer names."
+      (if buffers
+          (--map (cond
+                  ((bufferp it) it)
+                  ((stringp it) (get-buffer it))
+                  (t            (error (format "Illegal argument of type %s: %s\n%s"
+                                               (type-of arg) it
+                                               (documentation 'eshell/flow)))))
+                 buffers)
+        ;; No buffers given? Use the default buffer:
+        (list (get-buffer ha-eshell-ebbflow-buffername))))
+
+    (defun eshell/ebb (&rest args)
+      "Insert text content into *eshell-edit* buffer, or if not text is given, the output of last command.
+Usage: ebb [OPTION] [text content]
+    -h, --help    show this usage screen
+    -m, --mode    specify the major-mode for the *eshell-edit* buffer, e.g. json
+    -n, --newline separate the text contents by newlines (this is default)
+    -s, --spaces  separate the text contents by spaces, instead of newlines
+    -b, --begin   add text content to the beginning of the *eshell-edit* buffer
+    -e, --end     add text content to the end of *eshell-edit* buffer
+    -i, --insert  add text content to *eshell-edit* at point"
+      (let* ((options  (eshell-getopts '((:name insert      :short "i" :long "insert")
+                                         (:name append      :short "e" :long "end")
+                                         (:name prepend     :short "b" :long "begin")
+                                         (:name newline     :short "n" :long "newline")
+                                         (:name spaces      :short "s" :long "spaces")
+                                         (:name mode-option :short "m" :long "mode" :parameter string)
+                                         (:name help        :short "h" :long "help"
+                                                :help eshell/ebb))
+                                       args))
+             (location (cond
+                        ((gethash 'insert  options) :insert)
+                        ((gethash 'append  options) :append)
+                        ((gethash 'prepend options) :prepend)
+                        (t                          :replace)))
+             (params   (gethash 'parameters options)))
+
+        (if (seq-empty-p params)
+            (ha-eshell-ebb-output location)
+          (ha-eshell-ebb-string location (gethash 'spaces options) params))
+
+        ;; At this point, we are in the `ha-eshell-ebbflow-buffername', and
+        ;; the buffer contains the inserted data. Did we specify a major-mode?
+        (when-let ((mode-option (gethash 'mode-option options)))
+          (if (s-starts-with? "js" mode-option)
+              (js-json-mode)  ; Or should we just go to json-ts-mode?
+            (funcall (intern (concat mode-option "-mode")))))
+
+        ;; Flip on the minor mode-option so we can close the window later on:
+        (ebbflow-mode +1)
+        (goto-char (point-min)))
+
+      nil) ; Return `nil' so that it doesn't print anything in `eshell'.
+
+    (defun ha-eshell-ebb-switch-to-buffer (insert-location)
+      "Switch to `ha-eshell-ebbflow-buffername' and get the buffer ready for new data."
+      (let ((return-buffer (current-buffer)))
+
+        (if-let ((ebbwindow (get-buffer-window ha-eshell-ebbflow-buffername)))
+            (select-window ebbwindow)
+          (switch-to-buffer ha-eshell-ebbflow-buffername)
+          (setq-local ha-eshell-ebbflow-close-window t))
+
+        (setq-local ha-eshell-ebbflow-return-buffer return-buffer)
+        (ebbflow-mode)
+
+        (cl-case insert-location
+          (:append  (goto-char (point-max)))
+          (:prepend (goto-char (point-min)))
+          (:insert   nil)
+          (:replace (delete-region (point-min) (point-max))))))
+
+    (defun ha-eshell-ebb-string (insert-location space-separator-p command-results)
+      "Insert the COMMAND-RESULTS into the `ha-eshell-ebbflow-buffername`.
+Contents are placed based on INSERT-LOCATION and, if given, separated
+by SEPARATOR (which defaults to a space)."
+      (let* ((sep (if space-separator-p " " "\n"))
+             (str (string-join (-flatten command-results) sep)))
+        (ha-eshell-ebb-switch-to-buffer insert-location)
+        (insert str)))
+
+    (defun ha-eshell-last-output ()
+      "Return contents of the last command execusion in an Eshell buffer."
+      (let ((start  (save-excursion
+                      (goto-char eshell-last-output-start)
+                      (re-search-backward eshell-prompt-regexp)
+                      (next-line)
+                      (line-beginning-position)))
+            (end    eshell-last-output-start))
+        (buffer-substring-no-properties start end)))
+
+    (defun ha-eshell-ebb-output (insert-location)
+      "Grab output from previous eshell command, inserting it into our buffer.
+Gives the INSERT-LOCATION to `ha-eshell-ebb-switch-to-buffer'."
+      (let ((contents (ha-eshell-last-output)))
+        (ha-eshell-ebb-switch-to-buffer insert-location)
+        (insert contents)))
+
+    ;; Last results, copied from hamacs/ha-eshell.org
+    (defvar ha-eshell-output (make-ring 10)
+      "A ring (looped list) storing history of eshell command output.")
+
+    (defun ha-eshell-store-last-output ()
+      "Store the output from the last eshell command.
+Called after every command by connecting to the `eshell-post-command-hook'."
+      (let ((output
+             (buffer-substring-no-properties eshell-last-input-end eshell-last-output-start)))
+        (ring-insert ha-eshell-output output)))
+
+    (add-hook 'eshell-post-command-hook 'ha-eshell-store-last-output)
+
+    (defun eshell/output (&rest args)
+      "Return an eshell command output from its history.
+
+The first argument is the index into the historical past, where
+`0' is the most recent, `1' is the next oldest, etc.
+
+The second argument represents the returned output:
+ * `text' :: as a string
+ * `list' :: as a list of elements separated by whitespace
+ * `file' :: as a filename that contains the output
+
+If the first argument is not a number, it assumes the format
+to be `:text'.
+"
+      (let (frmt element)
+        (cond
+         ((> (length args) 1)  (setq frmt (cadr args)
+                                     element (car args)))
+         ((= (length args) 0)  (setq frmt "text"
+                                     element 0))
+         ((numberp (car args)) (setq frmt "text"
+                                     element (car args)))
+         ((= (length args) 1)  (setq frmt (car args)
+                                     element 0)))
+
+        (if-let ((results (ring-ref ha-eshell-output (or element 0))))
+            (cl-case (string-to-char frmt)
+              (?l     (split-string results))
+              (?f     (ha-eshell-store-file-output results))
+              (otherwise (s-trim results)))
+          "")))
+
+    (defun ha-eshell-store-file-output (results)
+      "Writes the string, RESULTS, to a temporary file and returns that file name."
+      (let ((filename (make-temp-file "ha-eshell-")))
+        (with-temp-file filename
+          (insert results))
+        filename))
+
+    (defvar eshell-variable-aliases-list nil "Autoloading this eshell-defined variable")
+    (add-to-list 'eshell-variable-aliases-list '("$"  ha-eshell-output-text))
+    (add-to-list 'eshell-variable-aliases-list '("_"  ha-eshell-output-list))
+    (add-to-list 'eshell-variable-aliases-list '("OUTPUT" ha-eshell-output-file))
+
+    (defun ha-eshell-output (format-type indices)
+      "Wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      (if indices
+          (eshell/output (string-to-number (caar indices)) format-type)
+        (eshell/output 0 format-type)))
+
+    (defun ha-eshell-output-text (&optional indices &rest ignored)
+      "A _text_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      (ha-eshell-output "text" indices))
+
+    (defun ha-eshell-output-list (&optional indices &rest ignored)
+      "A _list_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      (ha-eshell-output "list" indices))
+
+    (defun ha-eshell-output-file (&optional indices &rest ignored)
+      "A _file_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      (ha-eshell-output "file" indices))
+
     )
 
   ;;; Slack
