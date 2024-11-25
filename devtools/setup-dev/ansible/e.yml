@@ -1,4 +1,6 @@
 ---
+- import_playbook: setup-user-bin-directory.yml
+
 - name: Ensure e is present
   hosts: all
   tasks:
@@ -18,3 +20,10 @@
         state: present
       when: ansible_env.TERMUX_VERSION is not defined
       become: yes
+
+    - name: Ensure e is present on Termux
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/kilobyte/e/master/e
+        dest: "{{ ansible_env.HOME }}/.local/bin/e"
+        mode: '0700'
+      when: ansible_env.TERMUX_VERSION is defined
