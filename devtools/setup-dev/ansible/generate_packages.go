@@ -44,11 +44,15 @@ var packagesTemplate = `---
 `
 
 type PackageData struct {
-	Command       string
+	command       string
 	debianPkgName string
 	termuxPkgName string
 	Imports       []string
 	Suffix        string
+}
+
+func (p PackageData) Command() string {
+	return p.command
 }
 
 func (p PackageData) DebianPkgName() string {
@@ -56,7 +60,7 @@ func (p PackageData) DebianPkgName() string {
 		return p.debianPkgName
 	}
 
-	return p.Command
+	return p.command
 }
 
 func (p PackageData) TermuxPkgName() string {
@@ -64,56 +68,22 @@ func (p PackageData) TermuxPkgName() string {
 		return p.termuxPkgName
 	}
 
-	return p.Command
-}
-
-var packages = []PackageData{
-	{Command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag"},
-	{Command: "buf"},
-	{Command: "curl"},
-	{Command: "dart"},
-	{Command: "emacs"},
-	{Command: "gh"},
-	{Command: "git"},
-	{Command: "grep"},
-	{Command: "grpcio", debianPkgName: "python3-grpcio", termuxPkgName: "python-grpcio"},
-	{Command: "htop"},
-	{Command: "jq"},
-	{Command: "keychain"},
-	{
-		Command:       "locate",
-		debianPkgName: "mlocate",
-		termuxPkgName: "mlocate",
-		Suffix: `
-
-    - name: Ensure locate DB is up-to-date
-      command: updatedb
-      become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"`,
-	},
-	{Command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin"},
-	{Command: "man"},
-	{Command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
-	{Command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []string{"python3-notmuch2"}},
-	{Command: "python3-notmuch2", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch"},
-	{Command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
-	{Command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
-	{Command: "sed"},
-	{Command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
-	{Command: "sshpass"},
-	{Command: "tmux"},
-	{Command: "unzip"},
-	{Command: "zip"},
+	return p.command
 }
 
 type GoInstall struct {
-	Command string
+	command string
 	PkgPath string
 	Imports []string
 }
 
+func (g GoInstall) Command() string {
+	return g.command
+}
+
 func (g GoInstall) CommandID() string {
 	// Replace dash to underscore.
-	return strings.ReplaceAll(g.Command, "-", "_")
+	return strings.ReplaceAll(g.command, "-", "_")
 }
 
 var goInstallTemplate = `---
@@ -167,41 +137,19 @@ var goInstallTemplate = `---
       when: {{.CommandID}}_module_version is not defined or {{.CommandID}}_module_version == "" or {{.CommandID}}_module_version != {{.CommandID}}_latest.stdout
 `
 
-var gopkgs = []GoInstall{
-	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest", nil},
-	{"godef", "github.com/rogpeppe/godef@latest", nil},
-	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},
-	{"godoctor", "github.com/godoctor/godoctor@latest", nil},
-	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
-	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
-	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
-	{"gopls", "golang.org/x/tools/gopls@latest", nil},
-	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
-	{"gotests", "github.com/cweill/gotests/...@latest", nil},
-	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
-	{"image2ascii", "github.com/qeesung/image2ascii@latest", nil},
-	{"impl", "github.com/josharian/impl@latest", nil},
-	{
-		"protoc-gen-go",
-		"google.golang.org/protobuf/cmd/protoc-gen-go@latest",
-		[]string{"protoc"},
-	},
-	{
-		"protoc-gen-go-grpc",
-		"google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest",
-		[]string{"protoc"},
-	},
-}
-
 type PipInstall struct {
-	Command string
+	command string
 	pkgName string
 	Imports []string
 }
 
+func (p PipInstall) Command() string {
+	return p.command
+}
+
 func (p PipInstall) CommandID() string {
 	// Replace dash to underscore.
-	return strings.ReplaceAll(p.Command, "-", "_")
+	return strings.ReplaceAll(p.command, "-", "_")
 }
 
 func (p PipInstall) PkgName() string {
@@ -209,7 +157,7 @@ func (p PipInstall) PkgName() string {
 		return p.pkgName
 	}
 
-	return p.Command
+	return p.command
 }
 
 var pipInstallTemplate = `---
@@ -236,64 +184,87 @@ var pipInstallTemplate = `---
         state: latest
 `
 
+type Commander interface {
+	Command() string
+}
+
+var packages = []PackageData{
+	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag"},
+	{command: "buf"},
+	{command: "curl"},
+	{command: "dart"},
+	{command: "emacs"},
+	{command: "gh"},
+	{command: "git"},
+	{command: "grep"},
+	{command: "grpcio", debianPkgName: "python3-grpcio", termuxPkgName: "python-grpcio"},
+	{command: "htop"},
+	{command: "jq"},
+	{command: "keychain"},
+	{
+		command:       "locate",
+		debianPkgName: "mlocate",
+		termuxPkgName: "mlocate",
+		Suffix: `
+
+    - name: Ensure locate DB is up-to-date
+      command: updatedb
+      become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"`,
+	},
+	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin"},
+	{command: "man"},
+	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
+	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []string{"python3-notmuch2"}},
+	{command: "python3-notmuch2", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch"},
+	{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
+	{command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
+	{command: "sed"},
+	{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
+	{command: "sshpass"},
+	{command: "tmux"},
+	{command: "unzip"},
+	{command: "zip"},
+}
+
+var gopkgs = []GoInstall{
+	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest", nil},
+	{"godef", "github.com/rogpeppe/godef@latest", nil},
+	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},
+	{"godoctor", "github.com/godoctor/godoctor@latest", nil},
+	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
+	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
+	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
+	{"gopls", "golang.org/x/tools/gopls@latest", nil},
+	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
+	{"gotests", "github.com/cweill/gotests/...@latest", nil},
+	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
+	{"image2ascii", "github.com/qeesung/image2ascii@latest", nil},
+	{"impl", "github.com/josharian/impl@latest", nil},
+	{
+		"protoc-gen-go",
+		"google.golang.org/protobuf/cmd/protoc-gen-go@latest",
+		[]string{"protoc"},
+	},
+	{
+		"protoc-gen-go-grpc",
+		"google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest",
+		[]string{"protoc"},
+	},
+}
+
 var pipPkgs = []PipInstall{
-	{Command: "protovalidate"},
+	{command: "protovalidate"},
 }
 
-func generatePackages() {
-	pkgTmpl, err := template.New("packages").Parse(packagesTemplate)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, pkg := range packages {
-		outf, err := os.Create(pkg.Command + ".yml")
+func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
+	for _, pkg := range pkgs {
+		outf, err := os.Create(pkg.Command() + ".yml")
 		if err != nil {
 			panic(err)
 		}
 		defer outf.Close()
 
-		err = pkgTmpl.Execute(outf, pkg)
-		if err != nil {
-			panic(err)
-		}
-	}
-}
-
-func generateGoInstall() {
-	goInstallTmpl, err := template.New("go_install").Parse(goInstallTemplate)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, pkg := range gopkgs {
-		outf, err := os.Create(pkg.Command + ".yml")
-		if err != nil {
-			panic(err)
-		}
-		defer outf.Close()
-
-		err = goInstallTmpl.Execute(outf, pkg)
-		if err != nil {
-			panic(err)
-		}
-	}
-}
-
-func generatePipInstall() {
-	pipInstallTmpl, err := template.New("pip_install").Parse(pipInstallTemplate)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, pkg := range pipPkgs {
-		outf, err := os.Create(pkg.Command + ".yml")
-		if err != nil {
-			panic(err)
-		}
-		defer outf.Close()
-
-		err = pipInstallTmpl.Execute(outf, pkg)
+		err = tmpl.Execute(outf, pkg)
 		if err != nil {
 			panic(err)
 		}
@@ -301,7 +272,7 @@ func generatePipInstall() {
 }
 
 func main() {
-	generatePackages()
-	generateGoInstall()
-	generatePipInstall()
+	generatePackages(template.Must(template.New("packages").Parse(packagesTemplate)), packages)
+	generatePackages(template.Must(template.New("go_install").Parse(goInstallTemplate)), gopkgs)
+	generatePackages(template.Must(template.New("pip_install").Parse(pipInstallTemplate)), pipPkgs)
 }
