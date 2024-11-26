@@ -8,41 +8,6 @@ import (
 	"text/template"
 )
 
-var packagesTemplate = `---
-{{- range .Imports }}
-- import_playbook: {{.}}.yml
-{{- end }}
-- name: Ensure {{.Command}} is present
-  hosts: all
-  tasks:
-    - name: Include guard for {{.Command}} playbook
-      block:
-        - name: Stop early if the {{.Command}} playbook is already included
-          meta: end_play
-          when: {{.Command}}_playbook_imported is defined
-        - name: Ensure the {{.Command}} playbook is not included
-          set_fact:
-            {{.Command}}_playbook_imported: true
-          when: {{.Command}}_playbook_imported is not defined
-
-    - name: Ensure {{.Command}} is present on non-Termux systems
-      package:
-        name: {{.DebianPkgName}}
-        state: present
-      when: ansible_env.TERMUX_VERSION is not defined
-      become: yes
-
-    - name: Ensure {{.Command}} is present on Termux
-      block:
-        - name: Check if {{.Command}} is installed
-          shell: command -v {{.Command}}
-          changed_when: False
-      rescue:
-        - name: Install {{.Command}} on Termux
-          command: pkg install -y {{.TermuxPkgName}}
-      when: ansible_env.TERMUX_VERSION is defined{{.Suffix}}
-`
-
 type PackageData struct {
 	command       string
 	debianPkgName string
@@ -85,6 +50,64 @@ func (g GoInstall) CommandID() string {
 	// Replace dash to underscore.
 	return strings.ReplaceAll(g.command, "-", "_")
 }
+
+type PipInstall struct {
+	command string
+	pkgName string
+	Imports []string
+}
+
+func (p PipInstall) Command() string {
+	return p.command
+}
+
+func (p PipInstall) CommandID() string {
+	// Replace dash to underscore.
+	return strings.ReplaceAll(p.command, "-", "_")
+}
+
+func (p PipInstall) PkgName() string {
+	if p.pkgName != "" {
+		return p.pkgName
+	}
+
+	return p.command
+}
+
+var packagesTemplate = `---
+{{- range .Imports }}
+- import_playbook: {{.}}.yml
+{{- end }}
+- name: Ensure {{.Command}} is present
+  hosts: all
+  tasks:
+    - name: Include guard for {{.Command}} playbook
+      block:
+        - name: Stop early if the {{.Command}} playbook is already included
+          meta: end_play
+          when: {{.Command}}_playbook_imported is defined
+        - name: Ensure the {{.Command}} playbook is not included
+          set_fact:
+            {{.Command}}_playbook_imported: true
+          when: {{.Command}}_playbook_imported is not defined
+
+    - name: Ensure {{.Command}} is present on non-Termux systems
+      package:
+        name: {{.DebianPkgName}}
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure {{.Command}} is present on Termux
+      block:
+        - name: Check if {{.Command}} is installed
+          shell: command -v {{.Command}}
+          changed_when: False
+      rescue:
+        - name: Install {{.Command}} on Termux
+          command: pkg install -y {{.TermuxPkgName}}
+      when: ansible_env.TERMUX_VERSION is defined{{.Suffix}}
+`
 
 var goInstallTemplate = `---
 - import_playbook: setup-user-go-bin-directory.yml
@@ -136,29 +159,6 @@ var goInstallTemplate = `---
       command: go install {{.PkgPath}}
       when: {{.CommandID}}_module_version is not defined or {{.CommandID}}_module_version == "" or {{.CommandID}}_module_version != {{.CommandID}}_latest.stdout
 `
-
-type PipInstall struct {
-	command string
-	pkgName string
-	Imports []string
-}
-
-func (p PipInstall) Command() string {
-	return p.command
-}
-
-func (p PipInstall) CommandID() string {
-	// Replace dash to underscore.
-	return strings.ReplaceAll(p.command, "-", "_")
-}
-
-func (p PipInstall) PkgName() string {
-	if p.pkgName != "" {
-		return p.pkgName
-	}
-
-	return p.command
-}
 
 var pipInstallTemplate = `---
 {{- range .Imports }}
