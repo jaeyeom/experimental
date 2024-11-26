@@ -55,6 +55,7 @@ func (p PackageData) DebianPkgName() string {
 	if p.debianPkgName != "" {
 		return p.debianPkgName
 	}
+
 	return p.Command
 }
 
@@ -62,6 +63,7 @@ func (p PackageData) TermuxPkgName() string {
 	if p.termuxPkgName != "" {
 		return p.termuxPkgName
 	}
+
 	return p.Command
 }
 
@@ -206,6 +208,7 @@ func (p PipInstall) PkgName() string {
 	if p.pkgName != "" {
 		return p.pkgName
 	}
+
 	return p.Command
 }
 
@@ -237,51 +240,68 @@ var pipPkgs = []PipInstall{
 	{Command: "protovalidate"},
 }
 
-func main() {
+func generatePackages() {
 	pkgTmpl, err := template.New("packages").Parse(packagesTemplate)
 	if err != nil {
 		panic(err)
 	}
 
 	for _, pkg := range packages {
-		f, err := os.Create(pkg.Command + ".yml")
+		outf, err := os.Create(pkg.Command + ".yml")
 		if err != nil {
 			panic(err)
 		}
-		defer f.Close()
-		err = pkgTmpl.Execute(f, pkg)
+		defer outf.Close()
+
+		err = pkgTmpl.Execute(outf, pkg)
 		if err != nil {
 			panic(err)
 		}
 	}
+}
+
+func generateGoInstall() {
 	goInstallTmpl, err := template.New("go_install").Parse(goInstallTemplate)
 	if err != nil {
 		panic(err)
 	}
+
 	for _, pkg := range gopkgs {
-		f, err := os.Create(pkg.Command + ".yml")
+		outf, err := os.Create(pkg.Command + ".yml")
 		if err != nil {
 			panic(err)
 		}
-		defer f.Close()
-		err = goInstallTmpl.Execute(f, pkg)
+		defer outf.Close()
+
+		err = goInstallTmpl.Execute(outf, pkg)
 		if err != nil {
 			panic(err)
 		}
 	}
+}
+
+func generatePipInstall() {
 	pipInstallTmpl, err := template.New("pip_install").Parse(pipInstallTemplate)
 	if err != nil {
 		panic(err)
 	}
+
 	for _, pkg := range pipPkgs {
-		f, err := os.Create(pkg.Command + ".yml")
+		outf, err := os.Create(pkg.Command + ".yml")
 		if err != nil {
 			panic(err)
 		}
-		defer f.Close()
-		err = pipInstallTmpl.Execute(f, pkg)
+		defer outf.Close()
+
+		err = pipInstallTmpl.Execute(outf, pkg)
 		if err != nil {
 			panic(err)
 		}
 	}
+}
+
+func main() {
+	generatePackages()
+	generateGoInstall()
+	generatePipInstall()
 }
