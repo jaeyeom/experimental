@@ -2,6 +2,7 @@
 - import_playbook: setup-emacs.yml
 - import_playbook: spacemacs.yml
 - import_playbook: rg.yml
+- import_playbook: pandoc.yml
 
 - name: Ensure spacemacs is properly set up
   hosts: all

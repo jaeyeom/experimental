@@ -1,0 +1,30 @@
+---
+- name: Ensure pandoc is present
+  hosts: all
+  tasks:
+    - name: Include guard for pandoc playbook
+      block:
+        - name: Stop early if the pandoc playbook is already included
+          meta: end_play
+          when: pandoc_playbook_imported is defined
+        - name: Ensure the pandoc playbook is not included
+          set_fact:
+            pandoc_playbook_imported: true
+          when: pandoc_playbook_imported is not defined
+
+    - name: Ensure pandoc is present on non-Termux systems
+      package:
+        name: pandoc
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure pandoc is present on Termux
+      block:
+        - name: Check if pandoc is installed
+          shell: command -v pandoc
+          changed_when: False
+      rescue:
+        - name: Install pandoc on Termux
+          command: pkg install -y pandoc
+      when: ansible_env.TERMUX_VERSION is defined
