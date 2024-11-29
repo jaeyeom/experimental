@@ -863,7 +863,34 @@ mode does not work with Roam links."
       :menu-entry
       '(?g "Export to Github Flavored Markdown"
            ((?p "To pandoc temporary buffer"
-                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
+                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
+
+    ;; Export Org mode to MHTML file with inline images.
+    (defun my/org-html-export-to-mhtml (async subtree visible body)
+      (cl-letf (((symbol-function 'org-html--format-image) 'my/format-image-inline))
+        (org-html-export-to-html async subtree visible body)))
+
+    (defun my/format-image-inline (source attributes info)
+      (let* ((source-file-p (f-file-p source))
+             (url-or-file (if source-file-p (expand-file-name source) source))
+             (ext (file-name-extension url-or-file))
+             (prefix (cond
+                      ((string= "svg" ext) "data:image/svg+xml;base64,")
+                      ((string= "png" ext) "data:image/png;base64,")
+                      ((string= "jpg" ext) "data:image/jpeg;base64,")
+                      ((string= "jpeg" ext) "data:image/jpeg;base64,")
+                      (t "data:;base64,")))
+             (data (with-temp-buffer
+                     (if source-file-p
+                         (insert-file-contents-literally url-or-file)
+                       (url-insert-file-contents url-or-file))
+                     (buffer-string)))
+             (data-url (concat prefix (base64-encode-string data)))
+             (attributes (org-combine-plists `(:src ,data-url) attributes)))
+        (org-html-close-tag "img" (org-html--make-attribute-string attributes) info)))
+
+    (org-export-define-derived-backend 'html-inline-images 'html
+      :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
