@@ -1435,6 +1435,7 @@ the email."
       (cond
        ((string-empty-p additional-prompt) (chatgpt-shell-proofread-region))
        ((string= "!" additional-prompt) (chatgpt-shell-quick-insert))
+       ((string= "p" additional-prompt) (chatgpt-shell-prompt-compose nil))
        (t (chatgpt-shell-send-to-buffer
            (concat additional-prompt
                    "\n\n"
