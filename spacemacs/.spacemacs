@@ -82,7 +82,8 @@ This function should only modify configuration layer settings."
            org-enable-github-support t
            org-enable-roam-support t
            org-enable-roam-ui t
-           org-roam-directory (file-truename "~/Documents/roam/"))
+           org-roam-directory (file-truename "~/Documents/roam/")
+           org-html-htmlize-output-type 'css)
       pass
       protobuf
       (python :variables
@@ -860,7 +861,7 @@ mode does not work with Roam links."
 
     (org-export-define-derived-backend 'pandoc-gfm 'gfm
       :menu-entry
-      '(?m "Export to Github Flavored Markdown"
+      '(?g "Export to Github Flavored Markdown"
            ((?p "To pandoc temporary buffer"
                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer)))))))
 
