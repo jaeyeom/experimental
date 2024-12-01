@@ -780,12 +780,24 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (autoload 'reddigg-find-browse-url-function "reddigg")
 
-  (with-eval-after-load 'browse-url
-    (defadvice browse-url-can-use-xdg-open (around termux-can-use-xdg-open activate)
-      "Use termux-open if available."
-      (if (executable-find "termux-open")
-          (setq ad-return-value t)
-        ad-do-it)))
+  ;; Make termux-open work with browse-url.
+  (if my/termux-p
+      (with-eval-after-load 'browse-url
+        (defadvice browse-url-can-use-xdg-open (around termux-can-use-xdg-open activate)
+          "Use termux-open if available."
+          (if (executable-find "termux-open")
+              (setq ad-return-value t)
+            ad-do-it))))
+
+  ;; Workaround for Termux for iamge display errors.
+  (when my/termux-p
+    (defun my/skip-image-display-advice (orig-fun &rest args)
+      (if (display-images-p)
+          (apply orig-fun args)
+        (message "Image display not available. Skipping inline images. Args: %S" args)))
+
+    (with-eval-after-load 'markdown-mode
+      (advice-add 'markdown-display-inline-images :around #'my/skip-image-display-advice)))
 
   (with-eval-after-load 'eww
     ;; To open external browser from eww, press `, v x'
