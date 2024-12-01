@@ -48,7 +48,7 @@
       when: get_git_user_email.stdout == ""
 
     - name: Set global user name
-      shell: git config --global user.name "{{ ansible_env.GITHUB_USERNAME }}"
+      shell: git config --global github.user "{{ ansible_env.GITHUB_USERNAME }}"
       when: get_github_username.stdout == ""
 
     - name: Ensure git user name is set
