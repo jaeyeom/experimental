@@ -1375,6 +1375,13 @@ to be `:text'.
 
   (add-hook 'prog-mode-hook #'copilot-mode)
 
+  ;;; Code Review
+  (with-eval-after-load 'code-review
+    ;; RET key does not work for adding comments in code-review-mode. This
+    ;; insert mode change can temporarily fix the issue for hybrid mode users.
+    (define-key code-review-mode-map (kbd "i") 'evil-insert)
+    (evil-define-key 'normal code-review-mode-map (kbd "RET") 'code-review-comment-add-or-edit))
+
   ;;; ChatGPT
   (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com"))
         (anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com")))
