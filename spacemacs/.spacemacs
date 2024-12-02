@@ -475,7 +475,7 @@ It should only modify the values of Spacemacs settings."
    ;; If non-nil the frame is undecorated when Emacs starts up. Combine this
    ;; variable with `dotspacemacs-maximized-at-startup' to obtain fullscreen
    ;; without external boxes. Also disables the internal border. (default nil)
-   dotspacemacs-undecorated-at-startup nil
+   dotspacemacs-undecorated-at-startup t
 
    ;; A value from the range (0..100), in increasing opacity, which describes
    ;; the transparency level of a frame when it's active or selected.
@@ -1510,6 +1510,11 @@ the email."
                    (not (string= (substring-no-properties clipboard)
                                  (substring-no-properties (or (car kill-ring) "")))))))
         ad-do-it)))
+
+  ;; Frame keybindings
+  (when my/crostini-p
+    (global-set-key (kbd "s-<up>") #'spacemacs/toggle-maximize-frame)
+    (global-set-key (kbd "s-<down>") #'iconify-or-deiconify-frame))
 
   ;;; More configuration follows
   )
