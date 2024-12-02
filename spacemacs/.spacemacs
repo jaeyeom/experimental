@@ -67,6 +67,9 @@ This function should only modify configuration layer settings."
       html
       ;; ivy
       (javascript :variables
+                  js2-basic-offset 2
+                  js2-indent-level 2
+                  js-indent-level 2
                   js2-strict-missing-semi-warning nil)
       (llm-client :variables
                   llm-client-enable-gptel t)
@@ -688,8 +691,6 @@ If you are unsure, try setting them in `dotspacemacs/user-config' first."
   (customize-set-variable
    'custom-file (file-truename (concat dotspacemacs-directory ".spacemacs-custom.el")) "Separate custom file")
   (load custom-file)
-  (setq-default js2-basic-offset 2)
-  (setq-default js-indent-level 2)
   )
 
 
