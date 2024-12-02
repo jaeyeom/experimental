@@ -45,6 +45,7 @@ This function should only modify configuration layer settings."
              c-c++-default-mode-for-headers 'c++-mode
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
+      compleseus
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
@@ -60,10 +61,10 @@ This function should only modify configuration layer settings."
           gofmt-command "goimports")
       ;; (groovy :variables
       ;;         groovy-indent-offset 2)
-      (helm :variables
-            ;; Prevent helm from taking over the entire frame.
-            helm-show-completion-display-function
-            #'helm-show-completion-default-display-function)
+      ;; (helm :variables
+      ;;       ;; Prevent helm from taking over the entire frame.
+      ;;       helm-show-completion-display-function
+      ;;       #'helm-show-completion-default-display-function)
       html
       ;; ivy
       (javascript :variables
@@ -141,6 +142,9 @@ This function should only modify configuration layer settings."
      atomic-chrome
      bazel
      chatgpt-shell
+     consult-gh
+     consult-gh-embark
+     consult-gh-forge
      eshell-command-not-found
      ob-async
      ob-chatgpt-shell
