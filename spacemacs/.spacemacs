@@ -1369,21 +1369,15 @@ to be `:text'.
     (delq 'company-preview-if-just-one-frontend company-frontends))
 
   (with-eval-after-load 'copilot
-    (define-key copilot-completion-map (kbd "<tab>") 'copilot-accept-completion)
-    (define-key copilot-completion-map (kbd "TAB") 'copilot-accept-completion)
-    (define-key copilot-completion-map (kbd "C-TAB") 'copilot-accept-completion-by-word)
-    (define-key copilot-completion-map (kbd "C-<tab>") 'copilot-accept-completion-by-word)
-    (define-key copilot-completion-map (kbd "C-<next>") 'copilot-next-completion)
-    (define-key copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion))
+    ;; The state nil works, but '(insert emacs hybrid) does not work. Why?
+    (evil-define-key nil copilot-completion-map (kbd "<tab>") 'copilot-accept-completion)
+    (evil-define-key nil copilot-completion-map (kbd "TAB") 'copilot-accept-completion)
+    (evil-define-key nil copilot-completion-map (kbd "C-TAB") 'copilot-accept-completion-by-word)
+    (evil-define-key nil copilot-completion-map (kbd "C-<tab>") 'copilot-accept-completion-by-word)
+    (evil-define-key nil copilot-completion-map (kbd "C-<next>") 'copilot-next-completion)
+    (evil-define-key nil copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion))
 
   (add-hook 'prog-mode-hook #'copilot-mode)
-
-  ;;; Code Review
-  (with-eval-after-load 'code-review
-    ;; RET key does not work for adding comments in code-review-mode. This
-    ;; insert mode change can temporarily fix the issue for hybrid mode users.
-    (define-key code-review-mode-map (kbd "i") 'evil-insert)
-    (evil-define-key 'normal code-review-mode-map (kbd "RET") 'code-review-comment-add-or-edit))
 
   ;;; ChatGPT
   (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com"))
@@ -1525,6 +1519,55 @@ the email."
   (when my/crostini-p
     (global-set-key (kbd "s-<up>") #'spacemacs/toggle-maximize-frame)
     (global-set-key (kbd "s-<down>") #'iconify-or-deiconify-frame))
+
+  ;; Git and Project
+  (with-eval-after-load 'projectile
+    (setq-default projectile-switch-project-action #'projectile-vc))
+
+  ;; Git Forge
+  (with-eval-after-load 'forge
+    ;; Set C-c C-o in forge-pullreq-mode to invoke code-review-forge-pr-at-point
+    (evil-define-key nil forge-pullreq-mode-map (kbd "C-c C-o") #'code-review-forge-pr-at-point))
+
+  ;;; Code Review
+  (with-eval-after-load 'code-review
+    ;; RET key does not work for adding comments in code-review-mode. This
+    ;; insert mode change can temporarily fix the issue for hybrid mode users.
+    (evil-define-key 'motion code-review-mode-map (kbd "i") 'evil-insert)
+    (evil-define-key '(insert emacs hybrid) code-review-mode-map (kbd "<escape>") 'evil-motion-state)
+
+    (defun my/code-review-url-from-pullreq (&optional pr host)
+      "Return the URL of the pull request PR on the HOST."
+      (let* ((pr (or pr (code-review-db-get-pullreq) (code-review-pr-at-point)))
+             (host (or host "www.github.com"))
+             (owner (oref pr owner))
+             (repo (oref pr repo))
+             (number (oref pr number)))
+        (format "https://%s/%s/%s/pull/%s" host owner repo number)))
+
+    (defun my/code-review-browse-with-external-browser (&optional url)
+      "Browse the current URL in the external browser."
+      (interactive)
+      (funcall browse-url-secondary-browser-function
+               (or url (my/code-review-url-from-pullreq))))
+
+    (spacemacs/set-leader-keys-for-major-mode 'code-review-mode
+      "r" #'code-review-reload
+      "vx" #'my/code-review-browse-with-external-browser
+      )
+    )
+
+  ;; GitHub Settings
+  (with-eval-after-load 'consult-gh
+    (setq-default
+     consult-repo-action #'consult-gh--repo-browse-files-action
+     consult-gh-issue-action #'consult-gh--issue-view-actioonsult-gh--code-view-action
+     consult-gh-file-action #'consult-gh--files-view-action
+     consult-gh-notifications-action #'consult-gh--notifications-action
+     consult-gh-dashboard-action #'message
+     consult-gh-large-file-warning-threshold 2500000
+     consult-gh-prioritize-local-folder 'suggest
+     ))
 
   ;;; More configuration follows
   )
