@@ -715,7 +715,8 @@ before packages are loaded."
 
   ;;; Get user full name and mail from git config
   (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
-                user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email")))
+                user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email"))
+                github-username (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get github.user")))
 
   ;;; Authentication
   (setq-default epg-pinentry-mode 'loopback)
@@ -1527,7 +1528,15 @@ the email."
   ;; Git Forge
   (with-eval-after-load 'forge
     ;; Set C-c C-o in forge-pullreq-mode to invoke code-review-forge-pr-at-point
-    (evil-define-key nil forge-pullreq-mode-map (kbd "C-c C-o") #'code-review-forge-pr-at-point))
+    (evil-define-key nil forge-pullreq-mode-map (kbd "C-c C-o") #'code-review-forge-pr-at-point)
+
+    (defun my/forge-insert-pullreqs-to-review ()
+      "Insert a list of pull-requests to review."
+      (let ((spec (forge--clone-buffer-topics-spec)))
+        (oset spec reviewer github-username)
+        (forge-insert-pullreqs spec "Pull requests to review")))
+
+    (add-to-list 'magit-status-sections-hook #'my/forge-insert-pullreqs-to-review t))
 
   ;;; Code Review
   (with-eval-after-load 'code-review
