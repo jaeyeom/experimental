@@ -11,6 +11,7 @@ import (
 type PackageData struct {
 	command       string
 	debianPkgName string
+	DebianPPA     string
 	termuxPkgName string
 	Imports       []string
 	Suffix        string
@@ -90,7 +91,15 @@ var packagesTemplate = `---
           set_fact:
             {{.Command}}_playbook_imported: true
           when: {{.Command}}_playbook_imported is not defined
-
+{{ if .DebianPPA }}
+    - name: Ensure {{.Command}} PPA is present
+      apt_repository:
+        repo: "{{.DebianPPA}}"
+        state: present
+        update_cache: yes
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+{{ end }}
     - name: Ensure {{.Command}} is present on non-Termux systems
       package:
         name: {{.DebianPkgName}}
@@ -193,7 +202,7 @@ var packages = []PackageData{
 	{command: "buf"},
 	{command: "curl"},
 	{command: "dart"},
-	{command: "emacs"},
+	{command: "emacs", DebianPPA: "ppa:ubuntuhandbook1/emacs"},
 	{command: "gh"},
 	{command: "git"},
 	{command: "grep"},
