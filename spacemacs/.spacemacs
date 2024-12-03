@@ -1358,6 +1358,9 @@ to be `:text'.
 
     (if my/crostini-p
         (advice-add 'eaf-call-sync :around #'my/safe-eaf-call-sync))
+
+    ;; Disable modeline in eaf-mode
+    (add-hook 'eaf-mode-hook (lambda () (setq mode-line-format nil)))
     )
 
   ;;; Copilot
