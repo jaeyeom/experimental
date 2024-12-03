@@ -1,0 +1,38 @@
+---
+- import_playbook: gpg-agent.yml
+
+- name: Ensure gpg-agent is properly set up
+  hosts: all
+  tasks:
+    - name: Include guard for setup-gpg-agent playbook
+      block:
+        - name: Stop early if the setup-gpg-agent playbook is already included
+          meta: end_play
+          when: setup_gpg_agent_playbook_imported is defined
+        - name: Ensure the setup-gpg-agent playbook is not included
+          set_fact:
+            setup_gpg_agent_playbook_imported: true
+          when: setup_gpg_agent_playbook_imported is not defined
+
+    - name: Ensure gpg-agent is running on non-Termux systems
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} gpg_agent setup"
+        block: |
+          # Set GPG TTY
+          export GPG_TTY=$(tty)
+          # Refresh gpg-agent tty in case user switches into an X session
+          gpg-connect-agent updatestartuptty /bye >/dev/null
+          # Set SSH to use gpg-agent
+          unset SSH_AGENT_PID
+          if [ "${gnupg_SSH_AUTH_SOCK_by:-0}" -ne $$ ]; then
+            export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)"
+          fi
+          # Start the gpg-agent if not already running
+          if ! pgrep -x -u "${USER}" gpg-agent >/dev/null 2>&1; then
+            gpg-connect-agent /bye >/dev/null 2>&1
+          fi
+      when: ansible_env.TERMUX_VERSION is not defined

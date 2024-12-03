@@ -6,11 +6,11 @@
       block:
         - name: Stop early if the python3-notmuch2 playbook is already included
           meta: end_play
-          when: python3-notmuch2_playbook_imported is defined
+          when: python3_notmuch2_playbook_imported is defined
         - name: Ensure the python3-notmuch2 playbook is not included
           set_fact:
-            python3-notmuch2_playbook_imported: true
-          when: python3-notmuch2_playbook_imported is not defined
+            python3_notmuch2_playbook_imported: true
+          when: python3_notmuch2_playbook_imported is not defined
 
     - name: Ensure python3-notmuch2 is present on non-Termux systems
       package:

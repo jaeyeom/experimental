@@ -21,6 +21,11 @@ func (p PackageData) Command() string {
 	return p.command
 }
 
+func (g PackageData) CommandID() string {
+	// Replace dash to underscore.
+	return strings.ReplaceAll(g.command, "-", "_")
+}
+
 func (p PackageData) DebianPkgName() string {
 	if p.debianPkgName != "" {
 		return p.debianPkgName
@@ -86,11 +91,11 @@ var packagesTemplate = `---
       block:
         - name: Stop early if the {{.Command}} playbook is already included
           meta: end_play
-          when: {{.Command}}_playbook_imported is defined
+          when: {{.CommandID}}_playbook_imported is defined
         - name: Ensure the {{.Command}} playbook is not included
           set_fact:
-            {{.Command}}_playbook_imported: true
-          when: {{.Command}}_playbook_imported is not defined
+            {{.CommandID}}_playbook_imported: true
+          when: {{.CommandID}}_playbook_imported is not defined
 {{ if .DebianPPA }}
     - name: Ensure {{.Command}} PPA is present
       apt_repository:
@@ -205,6 +210,8 @@ var packages = []PackageData{
 	{command: "emacs", DebianPPA: "ppa:ubuntuhandbook1/emacs"},
 	{command: "gh"},
 	{command: "git"},
+	{command: "gpg"},
+	{command: "gpg-agent", Imports: []string{"gpg"}},
 	{command: "grep"},
 	{command: "grpcio", debianPkgName: "python3-grpcio", termuxPkgName: "python-grpcio"},
 	{command: "htop"},
