@@ -12,6 +12,14 @@
             emacs_playbook_imported: true
           when: emacs_playbook_imported is not defined
 
+    - name: Ensure emacs PPA is present
+      apt_repository:
+        repo: "ppa:ubuntuhandbook1/emacs"
+        state: present
+        update_cache: yes
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
     - name: Ensure emacs is present on non-Termux systems
       package:
         name: emacs
