@@ -1329,6 +1329,17 @@ to be `:text'.
     )
 
   ;;; Slack
+  ;; Slack configuration should look like the following
+  ;;
+  ;; $ pass edit slack-token
+  ;;
+  ;; And the content should look like the following:
+  ;;
+  ;; xoxd-...
+  ;; username: username@domain
+  ;; token: xoxc-...
+  ;;
+  ;; The first line xoxd should be URL encoded with % characters.
   (with-eval-after-load 'slack
     (slack-register-team
      :name "emacs-slack"
