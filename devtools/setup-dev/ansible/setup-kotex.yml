@@ -38,3 +38,5 @@
           ansible.builtin.shell: tlmgr install kotex
           when: kotex_installed.rc != 0
       when: ansible_env.TERMUX_VERSION is defined
+
+# Maybe termux-patch-texlive should run on Termux
