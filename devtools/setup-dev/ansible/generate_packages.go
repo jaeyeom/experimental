@@ -238,6 +238,7 @@ var packages = []PackageData{
 	{command: "sed"},
 	{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
 	{command: "sshpass"},
+	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer"},
 	{command: "tmux"},
 	{command: "unzip"},
 	{command: "zip"},

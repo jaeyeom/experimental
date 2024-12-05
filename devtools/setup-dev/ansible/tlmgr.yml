@@ -1,0 +1,30 @@
+---
+- name: Ensure tlmgr is present
+  hosts: all
+  tasks:
+    - name: Include guard for tlmgr playbook
+      block:
+        - name: Stop early if the tlmgr playbook is already included
+          meta: end_play
+          when: tlmgr_playbook_imported is defined
+        - name: Ensure the tlmgr playbook is not included
+          set_fact:
+            tlmgr_playbook_imported: true
+          when: tlmgr_playbook_imported is not defined
+
+    - name: Ensure tlmgr is present on non-Termux systems
+      package:
+        name: texlive-lang-korean
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure tlmgr is present on Termux
+      block:
+        - name: Check if tlmgr is installed
+          shell: command -v tlmgr
+          changed_when: False
+      rescue:
+        - name: Install tlmgr on Termux
+          command: pkg install -y texlive-installer
+      when: ansible_env.TERMUX_VERSION is defined

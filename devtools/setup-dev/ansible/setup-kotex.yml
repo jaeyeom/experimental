@@ -1,0 +1,42 @@
+---
+- import_playbook: tlmgr
+
+- name: Ensure SSH keys are generated and SSH agent is configured
+  hosts: all
+  tasks:
+    - name: Include guard for setup-kotex playbook
+      block:
+        - name: Stop early if the setup-kotex playbook is already included
+          meta: end_play
+          when: setup_kotex_playbook_imported is defined
+        - name: Ensure the setup-kotex playbook is not included
+          set_fact:
+            setup_kotex_playbook_imported: true
+          when: setup_kotex_playbook_imported is not defined
+
+    - name: Ensure texlive is up-to-date on Termux
+      hosts: all
+      tasks:
+        - name: Update all TeX Live packages
+          ansible.builtin.shell: tlmgr update --all
+          register: tlmgr_update_output
+          # This hasn't been tested.
+          changed_when: "'up to date' not in tlmgr_update_output.stdout"
+
+        - name: Print the output of the tlmgr update
+          ansible.builtin.debug:
+            var: tlmgr_update_output.stdout
+      when: ansible_env.TERMUX_VERSION is defined
+
+    - name: Ensure kotex is installed on Termux
+      hosts: all
+      tasks:
+        - name: Check if kotex is installed
+          ansible.builtin.shell: tlmgr info kotex | grep -q 'installed: Yes'
+          register: kotex_installed
+          ignore_errors: true
+
+        - name: Install kotex if not installed
+          ansible.builtin.shell: tlmgr install kotex
+          when: kotex_installed.rc != 0
+      when: ansible_env.TERMUX_VERSION is defined
