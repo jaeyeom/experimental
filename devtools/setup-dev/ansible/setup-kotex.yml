@@ -20,7 +20,7 @@
           ansible.builtin.shell: tlmgr update --all
           register: tlmgr_update_output
           # This hasn't been tested.
-          changed_when: "'up to date' not in tlmgr_update_output.stdout"
+          changed_when: "'no updates available' not in tlmgr_update_output.stdout"
 
         - name: Print the output of the tlmgr update
           ansible.builtin.debug:
@@ -30,13 +30,21 @@
     - name: Ensure kotex is installed on Termux
       block:
         - name: Check if kotex is installed
-          ansible.builtin.shell: "tlmgr info kotex | grep -q 'installed: Yes'"
+          ansible.builtin.shell: "tlmgr info cjk-ko | grep -q 'installed: *Yes'"
           register: kotex_installed
           ignore_errors: true
+          changed_when: false
 
         - name: Install kotex if not installed
-          ansible.builtin.shell: tlmgr install kotex
+          ansible.builtin.shell: tlmgr install cjk-ko
           when: kotex_installed.rc != 0
+          register: tlmgr_kotex
+          changed_when: "'package already present:' not in tlmgr_kotex.stdout"
       when: ansible_env.TERMUX_VERSION is defined
 
-# Maybe termux-patch-texlive should run on Termux
+    - name: Run termux-patch-texlive
+      ansible.builtin.shell: "termux-patch-texlive"
+      register: termux_patch_texlive_applied
+      ignore_errors: true
+      changed_when: "'Yes' in termux_patch_texlive_applied.stdout"
+      when: ansible_env.TERMUX_VERSION is defined
