@@ -11,7 +11,7 @@ import (
 type PackageData struct {
 	command       string
 	debianPkgName string
-	DebianPPA     string
+	UbuntuPPA     string
 	termuxPkgName string
 	Imports       []string
 	Suffix        string
@@ -96,13 +96,21 @@ var packagesTemplate = `---
           set_fact:
             {{.CommandID}}_playbook_imported: true
           when: {{.CommandID}}_playbook_imported is not defined
-{{ if .DebianPPA }}
-    - name: Ensure {{.Command}} PPA is present
+{{ if .UbuntuPPA }}
+    - name: Ensure {{.Command}} PPA is present in Ubuntu
       apt_repository:
-        repo: "{{.DebianPPA}}"
+        repo: "{{.UbuntuPPA}}"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Ubuntu"
+      become: yes
+
+    - name: Ensure bookworm-backports is added to sources.list.d
+      ansible.builtin.apt_repository:
+        repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
+        state: present
+        update_cache: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
 {{ end }}
     - name: Ensure {{.Command}} is present on non-Termux systems
@@ -207,7 +215,7 @@ var packages = []PackageData{
 	{command: "buf"},
 	{command: "curl"},
 	{command: "dart"},
-	{command: "emacs", DebianPPA: "ppa:ubuntuhandbook1/emacs"},
+	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs"},
 	{command: "gh"},
 	{command: "git"},
 	{command: "gpg"},
