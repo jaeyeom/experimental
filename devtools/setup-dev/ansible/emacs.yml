@@ -12,12 +12,20 @@
             emacs_playbook_imported: true
           when: emacs_playbook_imported is not defined
 
-    - name: Ensure emacs PPA is present
+    - name: Ensure emacs PPA is present in Ubuntu
       apt_repository:
         repo: "ppa:ubuntuhandbook1/emacs"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Ubuntu"
+      become: yes
+
+    - name: Ensure bookworm-backports is added to sources.list.d
+      ansible.builtin.apt_repository:
+        repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
+        state: present
+        update_cache: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
 
     - name: Ensure emacs is present on non-Termux systems
