@@ -940,7 +940,8 @@ mode does not work with Roam links."
 
   ;;; Eshell
   (with-eval-after-load 'eshell
-    (eshell-command-not-found-mode 1)
+    (when eshell-command-not-found-command
+      (eshell-command-not-found-mode 1))
 
     ;; We don't need a pager.
     (setenv "PAGER" "cat")
