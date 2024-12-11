@@ -943,6 +943,9 @@ mode does not work with Roam links."
     (when eshell-command-not-found-command
       (eshell-command-not-found-mode 1))
 
+    ;; Make watch open a new buffer.
+    (add-to-list 'eshell-visual-commands "watch")
+
     ;; We don't need a pager.
     (setenv "PAGER" "cat")
 
