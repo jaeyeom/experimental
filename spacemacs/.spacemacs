@@ -1062,7 +1062,7 @@ The hashtable return would contain these entries:
 
                     (find-argdef (str)
                       ;; Return entry in DEFARGS that matches STR:
-                      (first (--filter (match-arg str it) defargs)))
+                      (car (--filter (match-arg str it) defargs)))
 
                     (process-args (arg parm rest)
                       (when arg
@@ -1092,9 +1092,9 @@ The hashtable return would contain these entries:
                            ;; No parameter? Store true for its key:
                            (t
                             (puthash key t retmap)
-                            (process-args (first rest) (second rest) (cdr rest))))))))
+                            (process-args (car rest) (cadr rest) (cdr rest))))))))
 
-          (process-args (first args) (second args) (cdr args))
+          (process-args (car args) (cadr args) (cdr args))
           retmap)))
 
     (defvar ha-eshell-ebbflow-buffername "*eshell-edit*"
