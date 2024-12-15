@@ -91,7 +91,6 @@ This function should only modify configuration layer settings."
       pass
       protobuf
       (python :variables
-              python-formatter 'yapf
               python-format-on-save t)
       react
       reddit
@@ -102,8 +101,7 @@ This function should only modify configuration layer settings."
       search-engine
       (shell :variables
              shell-default-full-span nil
-             shell-default-shell 'eshell
-             shell-enable-smart-eshell t)
+             shell-default-shell 'eshell)
       slack
       spacemacs-org
       spacemacs-purpose
@@ -113,6 +111,7 @@ This function should only modify configuration layer settings."
       sql
       syntax-checking
       ;; terraform
+      toml
       treemacs
       (typescript :variables
                   typescript-fmt-on-save t
