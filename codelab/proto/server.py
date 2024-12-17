@@ -3,11 +3,10 @@
 import uuid
 from concurrent import futures
 
-import grpc
 import protovalidate
+import grpc
 
-from gen import contacts_pb2
-from gen import contacts_pb2_grpc
+from gen import contacts_pb2, contacts_pb2_grpc
 
 
 class Database:
@@ -19,10 +18,15 @@ class Database:
 
     def list_contacts(self, query=''):
         """List contacts."""
-        contacts_bytes = (contacts_pb2.Contact.FromString(contact)
-                          for contact in self.contacts.values())
-        return [c for c in contacts_bytes
-                if query in c.name or query in c.email or query in c.phone]
+        contacts_bytes = (
+            contacts_pb2.Contact.FromString(contact)
+            for contact in self.contacts.values()
+        )
+        return [
+            c
+            for c in contacts_bytes
+            if query in c.name or query in c.email or query in c.phone
+        ]
 
     def upsert_contact(self, contact):
         """Upsert contact."""
@@ -72,7 +76,10 @@ class ValidationInterceptor(grpc.ServerInterceptor):
         try:
             protovalidate.validate(request)
         except protovalidate.ValidationError as e:
-            raise grpc.RpcError(grpc.StatusCode.INVALID_ARGUMENT, str(e.violations))
+            raise grpc.RpcError(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                str(e.violations),
+            )
         return request
 
 
@@ -80,7 +87,10 @@ def main():
     """Main function."""
     db = Database({})
     server = grpc.server(futures.ThreadPoolExecutor())
-    contacts_pb2_grpc.add_ContactsServiceServicer_to_server(ContactsService(db), server)
+    contacts_pb2_grpc.add_ContactsServiceServicer_to_server(
+        ContactsService(db),
+        server,
+    )
     server.add_insecure_port('[::]:50051')
     server.start()
     server.wait_for_termination()

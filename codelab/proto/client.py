@@ -53,14 +53,26 @@ def main():
     channel = grpc.insecure_channel('localhost:50051')
     client = ContactsClient(channel)
     print('Upsert contacts:')
-    alice_contact = contacts_pb2.Contact(name='Alice', email='alice@example.com', phone='123-456-7890')
+    alice_contact = contacts_pb2.Contact(
+        name='Alice',
+        email='alice@example.com',
+        phone='123-456-7890',
+    )
     alice_contact = client.upsert_contact(alice_contact)
     print(alice_contact)
-    bob_contact = contacts_pb2.Contact(name='Bob', email='', phone='222-333-4444')
+    bob_contact = contacts_pb2.Contact(
+        name='Bob',
+        email='',
+        phone='222-333-4444',
+    )
     bob_contact = client.upsert_contact(bob_contact)
     print(bob_contact)
     # Wrong email fails validation
-    wrong_contact = contacts_pb2.Contact(name='Wrong', email='wrong', phone='555-666-7777')
+    wrong_contact = contacts_pb2.Contact(
+        name='Wrong',
+        email='wrong',
+        phone='555-666-7777',
+    )
     wrong_contact = client.upsert_contact(wrong_contact)
     print(wrong_contact)
     print('List contacts:')

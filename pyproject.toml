@@ -1,0 +1,69 @@
+[project]
+requires-python = ">=3.9"
+
+[tool.poetry]
+name = "experimental"
+version = "0.1.0"
+description = "Monorepo"
+authors = ["Jaehyun Yeom <jae.yeom@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+beautifulsoup4 = "^4.12.3"
+protovalidate = "^0.6.0"
+# FIXME: Add grpcio resolving issues on Termux
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+extend-exclude = [
+    "*_pb2.py",       # Generated protobuf
+    "*_pb2_grpc.py",  # Generated gRPC
+    "bazel-*",        # Bazel
+]
+
+# PEP 8 recommends line-length 79
+line-length = 79
+indent-width = 4
+
+fix = true
+
+[tool.ruff.lint]
+extend-select = ["UP", "D"]
+ignore = []
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "preserve"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+# Enable auto-formatting of code examples in docstrings. Markdown,
+# reStructuredText code/literal blocks and doctests are all supported.
+docstring-code-format = true
+
+# Set the line length limit used when formatting code snippets in
+# docstrings.
+docstring-code-line-length = "dynamic"
+
+[tool.ruff.lint.pydocstyle]
+# My default choice is Google style because the docstring is concise yet
+# visually easy to understand.
+convention = "google"
