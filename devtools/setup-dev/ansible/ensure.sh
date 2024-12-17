@@ -13,7 +13,7 @@ if [ -n "$TERMUX_VERSION" ]; then
 
     # Install necessary packages for Ansible and also install ansible.
     pkg install -y rust python-pip
-    pip install ansible
+    pip install -U ansible
 fi
 
 # Take all flags that starts with a hyphen.
