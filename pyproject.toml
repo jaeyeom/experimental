@@ -11,8 +11,11 @@ readme = "README.org"
 [tool.poetry.dependencies]
 python = "^3.9"
 beautifulsoup4 = "^4.12.3"
+cssutils = "^2.11.1"
+buf = {version = "*", markers = "sys_platform == 'linux-android'"}
 protovalidate = "^0.6.0"
-# FIXME: Add grpcio resolving issues on Termux
+grpcio = {version = "*", markers = "sys_platform == 'linux-android'"}
+torch = {version = "*", markers = "sys_platform == 'linux-android'"}
 
 [build-system]
 requires = ["poetry-core"]
