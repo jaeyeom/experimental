@@ -777,6 +777,25 @@ Fallback file lists are returned for specific directories."
         ;; Termux locate does not support -N option.
         (setq-default helm-locate-command "locate %s -e -A --regex %s")))
 
+  ;;; Vertico
+  (defun my/minibuffer-up-directory ()
+    "Navigate to the parent directory in the minibuffer during file completion."
+    (interactive)
+    (let ((parent (file-name-directory (directory-file-name (minibuffer-contents)))))
+      (when parent
+        (delete-minibuffer-contents)
+        (insert parent))))
+
+  (with-eval-after-load 'minibuffer
+    (define-key minibuffer-local-filename-completion-map
+                (kbd "<backtab>") #'my/minibuffer-up-directory))
+
+  ;; Vertico does not take minibuffer-local-filename-completion-map into
+  ;; account. So this "<backtab>" may trigger weird behavior in non-file
+  ;; context.
+  (with-eval-after-load 'vertico
+    (define-key vertico-map (kbd "<backtab>") #'my/minibuffer-up-directory))
+
   ;;; Eat
   (with-eval-after-load 'eat
     (setq-default eat-term-name "xterm-256color")
@@ -871,7 +890,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     ;; I do not like proportional fonts.
     (setq-default shr-use-fonts nil))
 
-  ;; Org Mode
+  ;;; Org Mode
   (with-eval-after-load 'org
     ;; Org Roam
     (org-roam-db-autosync-mode)
