@@ -733,6 +733,44 @@ before packages are loaded."
   ;;; Text Mode
   (add-hook 'text-mode-hook 'turn-on-auto-fill)
 
+  ;;; Termux Permission denied solution
+  (when my/termux-p
+    (defvar my/directory-fallback-alist
+      '(("/" . ("data"))
+        ("/data/" . ("data"))
+        ("/data/data/" . ("com.termux")))
+      "An alist mapping specific directories to fallback file lists which should have / at the end.")
+
+    (defun my/directory-files-advice (orig-fun directory &optional full match nosort count)
+      "Safely list files in DIRECTORY, handling special cases defined in `my/directory-fallback-alist`.
+Replicates the behavior of `directory-files` with FULL, MATCH, NOSORT, and COUNT arguments.
+Fallback file lists are returned for specific directories."
+
+      ;; Lookup fallback for the given directory
+      (let* ((expanded-directory (file-name-as-directory (expand-file-name directory)))
+             (found (assoc-default expanded-directory my/directory-fallback-alist #'string-equal))
+             (fallback (and found (append '("." "..") found))))
+        (if fallback
+            ;; Handle fallback case
+            (let* ((files (if match
+                              ;; If MATCH is provided, filter fallback files
+                              (seq-filter (lambda (f) (string-match-p match f)) fallback)
+                            fallback)) ;; Otherwise, return full fallback list
+                   (paths (if full
+                              ;; If FULL is non-nil, prepend EXPANDED-DIRECTORY to each file
+                              (mapcar (lambda (f) (concat expanded-directory f)) files)
+                            files))
+                   (sorted-paths (if nosort
+                                     paths
+                                   (sort paths #'string-lessp))))
+              (if count
+                  (seq-take sorted-paths count)
+                sorted-paths))
+          ;; If no fallback, call original directory-files
+          (funcall orig-fun directory full match nosort count))))
+
+    (advice-add 'directory-files :around #'my/directory-files-advice))
+
   ;;; Helm
   (if my/termux-p
       (with-eval-after-load 'helm
@@ -879,10 +917,10 @@ mode does not work with Roam links."
         (switch-to-buffer output-buffer)))
 
     (org-export-define-derived-backend 'pandoc-gfm 'gfm
-      :menu-entry
-      '(?g "Export to Github Flavored Markdown"
-           ((?p "To pandoc temporary buffer"
-                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
+                                       :menu-entry
+                                       '(?g "Export to Github Flavored Markdown"
+                                            ((?p "To pandoc temporary buffer"
+                                                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
 
     ;; Export Org mode to MHTML file with inline images.
     (defun my/org-html-export-to-mhtml (async subtree visible body)
@@ -909,7 +947,7 @@ mode does not work with Roam links."
         (org-html-close-tag "img" (org-html--make-attribute-string attributes) info)))
 
     (org-export-define-derived-backend 'html-inline-images 'html
-      :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
+                                       :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
