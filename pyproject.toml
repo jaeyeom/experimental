@@ -15,7 +15,6 @@ cssutils = "^2.11.1"
 buf = {version = "*", markers = "sys_platform == 'linux-android'"}
 protovalidate = "^0.6.0"
 grpcio = {version = "*", markers = "sys_platform == 'linux-android'"}
-torch = {version = "*", markers = "sys_platform == 'linux-android'"}
 
 [build-system]
 requires = ["poetry-core"]
