@@ -145,6 +145,7 @@ This function should only modify configuration layer settings."
      consult-gh-embark
      consult-gh-forge
      eshell-command-not-found
+     green-is-the-new-black-theme
      ob-async
      ob-chatgpt-shell
      ob-go
@@ -152,6 +153,7 @@ This function should only modify configuration layer settings."
      ob-tmux
      org-tree-slide
      ox-clip
+     solarized-theme
      )
 
    ;; A list of packages that cannot be updated.
@@ -936,10 +938,10 @@ mode does not work with Roam links."
         (switch-to-buffer output-buffer)))
 
     (org-export-define-derived-backend 'pandoc-gfm 'gfm
-                                       :menu-entry
-                                       '(?g "Export to Github Flavored Markdown"
-                                            ((?p "To pandoc temporary buffer"
-                                                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
+      :menu-entry
+      '(?g "Export to Github Flavored Markdown"
+           ((?p "To pandoc temporary buffer"
+                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
 
     ;; Export Org mode to MHTML file with inline images.
     (defun my/org-html-export-to-mhtml (async subtree visible body)
@@ -966,7 +968,7 @@ mode does not work with Roam links."
         (org-html-close-tag "img" (org-html--make-attribute-string attributes) info)))
 
     (org-export-define-derived-backend 'html-inline-images 'html
-                                       :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
+      :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
