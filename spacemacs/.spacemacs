@@ -1651,6 +1651,241 @@ the email."
      consult-gh-prioritize-local-folder 'suggest
      ))
 
+  (defun my/gh-api (url)
+    "Run the gh api command."
+    (with-temp-buffer
+      (let ((default-directory "~/"))
+        (call-process "gh" nil '(t nil) nil "api" url))
+      (buffer-string)))
+
+  (defun my/gh-split-filename (filename)
+    "Split the filename into owner, repo, and path."
+    (let* ((vec (tramp-dissect-file-name filename))
+           (owner (tramp-file-name-user vec))
+           (repo (tramp-file-name-host vec))
+           (path (tramp-file-name-localname vec)))
+      (list owner repo path)))
+
+  (defvar my/gh-api-contents-cache (make-hash-table :test 'equal))
+  (defvar my/gh-api-contents-cache-ttl 3600)
+
+  (defun my/gh-api-contents (filename)
+    "Get the contents of the file on GitHub."
+    (let* ((parts (my/gh-split-filename filename))
+           (owner (car parts))
+           (repo (cadr parts))
+           (path (caddr parts))
+           (url (format "repos/%s/%s/contents%s" owner repo path))
+           (cached (gethash url my/gh-api-contents-cache)))
+      (cdr
+       (if (and cached (time-less-p (current-time) (car cached)))
+           cached
+         (message "my/gh-api-contents url: %s" url)
+         (puthash url
+                  (cons (time-add (current-time) (seconds-to-time my/gh-api-contents-cache-ttl))
+                        (json-parse-string (my/gh-api url)))
+                  my/gh-api-contents-cache)))))
+
+  (defun tramp-gh-handle-directory-files-and-attributes (directory &optional full match nosort id-format count)
+    "Get the list of files and attributes in the directory on GitHub."
+    (message "tramp-gh-handle-directory-files-and-attributes: %s %s %s %s %s %s" directory full match nosort id-format count)
+    (let ((contents (my/gh-api-contents directory))
+          (id (if (eq id-format 'string) "git" 1000))
+          (ts '(0 0 0 0)))
+      (unless (vectorp contents)
+        (error "filename is not a directory"))
+      (let* ((all-files (mapcar
+                         (lambda (x)
+                           (cons (gethash "name" x)
+                                 (if (string-equal (gethash "type" x) "dir")
+                                     (list t 0 id id ts ts ts 0 "dr-xr-xr-x" t 0 0)
+                                   (let ((size (gethash "size" x)))
+                                     (list nil 0 id id ts ts ts size "-r--r--r--" t 0 0)))))
+                         contents))
+             (files (if match
+                        (seq-filter (lambda (f) (string-match-p match (car f))) all-files)
+                      all-files))
+             (paths (if full
+                        (mapcar
+                         (lambda (f)
+                           (cons
+                            (concat (file-name-as-directory directory) (car f))
+                            (cdr f))
+                           files))
+                      files))
+             (sorted-paths (if nosort
+                               paths
+                             (sort paths (lambda (s1 s2) (string-lessp (car s1) (car s2)))))))
+        (if count
+            (seq-take sorted-paths count)
+          sorted-paths))))
+
+  (defun tramp-gh-handle-directory-files (directory &optional full match nosort count)
+    "Get the list of files in the directory on GitHub."
+    (message "tramp-gh-handle-directory-files: %s %s %s %s %s" directory full match nosort count)
+    (mapcar #'car
+            (tramp-gh-handle-directory-files-and-attributes directory full match nosort nil count)))
+
+  (defun tramp-gh-handle-file-attributes (filename &optional id-format)
+    "Get the attributes of the file on GitHub."
+    (message "tramp-gh-handle-file-attributes: %s %s" filename id-format)
+    (let ((id (if (eq id-format 'string) "git" 1000))
+          (ts '(0 0 0 0))
+          (parent (file-name-parent-directory filename)))
+      (if (not parent)
+          (list t 0 id id ts ts ts 0 "dr-xr-xr-x" t 0 0)
+        (cdr (assoc-string
+              (file-name-nondirectory (directory-file-name filename))
+              (tramp-gh-handle-directory-files-and-attributes parent nil nil nil id-format))))))
+
+  (defun tramp-gh-handle-insert-file-contents (filename &optional visit beg end replace)
+    "Inserts the file contents."
+    (message "tramp-gh-handle-insert-file-contents: %s %s %s %s %s" filename visit beg end replace)
+    (let ((contents (my/gh-api-contents filename)))
+      (when (vectorp contents)
+        (error "filename is a directory"))
+      (let ((data (substring (base64-decode-string (gethash "content" contents)) beg end))
+            (start (point))
+            (inserted 0))
+        ;; FIXME(jaehyun): Where the original handler works without moving the
+        ;; mark, this handles moves the mark to the beginning of the buffer. And
+        ;; I don't know what I'm doing now. Figure out and make it work
+        ;; properly.
+        (save-excursion
+          (when replace
+            (setq inserted (- inserted (- start (point-min))))
+            (delete-region (point-min) start)
+            (setq inserted (- inserted (- (point-max) (point))))
+            (delete-region (point) (point-max)))
+          (setq inserted (length data))
+          (insert data)
+          (decode-coding-inserted-region (point-min) (point) filename
+                                         visit beg end replace))
+
+        (when visit
+          (setq buffer-file-name filename
+                buffer-read-only t)
+          (set-visited-file-modtime)
+          (set-buffer-modified-p nil))
+        (list filename (max 0 inserted)))))
+
+  (defun tramp-gh-handle-file-local-copy (filename)
+    "Get the file path of the local copy of the file on GitHub."
+    (message "tramp-gh-handle-file-local-copy: %s" filename)
+    (let ((temp-file (make-temp-file "gh-")))
+      (with-temp-file temp-file
+        (tramp-gh-handle-insert-file-contents filename))
+      temp-file))
+
+  (defsubst tramp-gh-file-name-p (vec-or-filename)
+    "Check if it's a VEC-OR-FILENAME for gh."
+    (when-let* ((vec (tramp-ensure-dissected-file-name vec-or-filename)))
+      (string= (tramp-file-name-method vec) "gh")))
+
+  (defconst tramp-gh-file-name-handler-alist
+    '(;; `abbreviate-file-name' performed by default handler.
+      (access-file . tramp-handle-access-file)
+      (add-name-to-file . tramp-handle-add-name-to-file)
+      ;; `byte-compiler-base-file-name' performed by default handler.
+      (copy-directory . ignore)
+      ;; TODO(jaeyeom): This is worth implementing.
+      (copy-file . ignore)
+      (delete-directory . ignore)
+      (delete-file . ignore)
+      ;; `diff-latest-backup-file' performed by default handler.
+      (directory-file-name . tramp-handle-directory-file-name)
+      (directory-files . tramp-gh-handle-directory-files)
+      (directory-files-and-attributes . tramp-gh-handle-directory-files-and-attributes)
+      (dired-compress-file . ignore)
+      (dired-uncache . tramp-handle-dired-uncache)
+      (exec-path . ignore)
+      (expand-file-name . tramp-handle-expand-file-name)
+      (file-accessible-directory-p . tramp-handle-file-accessible-directory-p)
+      (file-acl . ignore)
+      (file-attributes . tramp-gh-handle-file-attributes)
+      (file-directory-p . tramp-handle-file-directory-p)
+      (file-equal-p . tramp-handle-file-equal-p)
+      (file-executable-p . always)
+      (file-exists-p . tramp-handle-file-exists-p)
+      (file-in-directory-p . tramp-handle-file-in-directory-p)
+      (file-local-copy . tramp-gh-handle-file-local-copy)
+      (file-locked-p . tramp-handle-file-locked-p)
+      (file-modes . tramp-handle-file-modes)
+      (file-name-all-completions . ignore)
+      (file-name-as-directory . tramp-handle-file-name-as-directory)
+      (file-name-case-insensitive-p . tramp-handle-file-name-case-insensitive-p)
+      (file-name-completion . tramp-handle-file-name-completion)
+      (file-name-directory . tramp-handle-file-name-directory)
+      (file-name-nondirectory . tramp-handle-file-name-nondirectory)
+      ;; `file-name-sans-versions' performed by default handler.
+      (file-newer-than-file-p . tramp-handle-file-newer-than-file-p)
+      (file-notify-add-watch . tramp-handle-file-notify-add-watch)
+      (file-notify-rm-watch . tramp-handle-file-notify-rm-watch)
+      (file-notify-valid-p . tramp-handle-file-notify-valid-p)
+      (file-ownership-preserved-p . ignore)
+      (file-readable-p . tramp-handle-file-readable-p)
+      (file-regular-p . tramp-handle-file-regular-p)
+      (file-remote-p . tramp-handle-file-remote-p)
+      (file-selinux-context . tramp-handle-file-selinux-context)
+      (file-symlink-p . tramp-handle-file-symlink-p)
+      (file-system-info . ignore)
+      (file-truename . tramp-handle-file-truename)
+      (file-writable-p . ignore)
+      (find-backup-file-name . tramp-handle-find-backup-file-name)
+      ;; `get-file-buffer' performed by default handler.
+      (insert-directory . tramp-handle-insert-directory)
+      (insert-file-contents . tramp-gh-handle-insert-file-contents)
+      (list-system-processes . tramp-handle-list-system-processes)
+      (load . tramp-handle-load)
+      (lock-file . ignore)
+      (make-auto-save-file-name . ignore)
+      (make-directory . ignore)
+      (make-directory-internal . ignore)
+      (make-lock-file-name . tramp-handle-make-lock-file-name)
+      (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
+      (make-process . ignore)
+      (make-symbolic-link . tramp-handle-make-symbolic-link)
+      (memory-info . tramp-handle-memory-info)
+      (process-attributes . tramp-handle-process-attributes)
+      (process-file . ignore)
+      (rename-file . ignore)
+      (set-file-acl . ignore)
+      (set-file-modes . ignore)
+      (set-file-selinux-context . ignore)
+      (set-file-times . ignore)
+      (set-visited-file-modtime . ignore)
+      (shell-command . tramp-handle-shell-command)
+      (start-file-process . tramp-handle-start-file-process)
+      (substitute-in-file-name . tramp-handle-substitute-in-file-name)
+      (temporary-file-directory . tramp-handle-temporary-file-directory)
+      (tramp-get-home-directory . ignore)
+      (tramp-get-remote-gid . ignore)
+      (tramp-get-remote-groups . ignore)
+      (tramp-get-remote-uid . ignore)
+      (tramp-set-file-uid-gid . ignore)
+      (unhandled-file-name-directory . ignore)
+      (unlock-file . tramp-handle-unlock-file)
+      (vc-registered . ignore)
+      (verify-visited-file-modtime . tramp-handle-verify-visited-file-modtime)
+      (write-region . ignore))
+    "Alist of handler functions for Tramp ADB method.")
+
+  (defun tramp-gh-file-name-handler (operation &rest args)
+    "Handler for gh TRAMP method."
+    (if-let ((fn (assoc operation tramp-gh-file-name-handler-alist)))
+        (apply (cdr fn) args)
+      (tramp-run-real-handler operation args)))
+
+  (with-eval-after-load 'tramp
+    (add-to-list 'tramp-methods
+                 '("gh"))
+
+    (add-to-list 'tramp-foreign-file-name-handler-alist
+                 (cons 'tramp-gh-file-name-p 'tramp-gh-file-name-handler)))
+
+  (defadvice projectile-project-root (around ignore-remote first activate)
+    (unless (file-remote-p default-directory) ad-do-it))
+
   ;;; More configuration follows
   )
 
