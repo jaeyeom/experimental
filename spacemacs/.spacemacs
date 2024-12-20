@@ -1031,7 +1031,7 @@ it doesn't contain the org-mode #+TAGS: entry specified."
                (with-temp-buffer
                  (insert-file-contents file)
                  (re-search-forward ,reg nil t 1))))
-        (error "The `T' predicate takes an org-mode tag value in single quotes.")))
+        (error "The `T' predicate takes an org-mode tag value in single quotes")))
 
     (defun ha-eshell-add-predicates ()
       "A hook to add a `eshell-org-file-tags' predicate filter to eshell."
@@ -1693,7 +1693,7 @@ the email."
           (id (if (eq id-format 'string) "git" 1000))
           (ts '(0 0 0 0)))
       (unless (vectorp contents)
-        (error "filename is not a directory"))
+        (error "directory is not a directory: %s" directory))
       (let* ((all-files (mapcar
                          (lambda (x)
                            (cons (gethash "name" x)
@@ -1743,7 +1743,7 @@ the email."
     (message "tramp-gh-handle-insert-file-contents: %s %s %s %s %s" filename visit beg end replace)
     (let ((contents (my/gh-api-contents filename)))
       (when (vectorp contents)
-        (error "filename is a directory"))
+        (error "Filename is a directory: %s" filename))
       (let ((data (substring (base64-decode-string (gethash "content" contents)) beg end))
             (start (point))
             (inserted 0))
