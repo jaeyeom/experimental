@@ -39,6 +39,7 @@ This function should only modify configuration layer settings."
       ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
       ;; `M-m f e R' (Emacs style) to install them.
       ;; ----------------------------------------------------------------
+      ansible
       auto-completion
       better-defaults
       (c-c++ :variables
@@ -46,6 +47,7 @@ This function should only modify configuration layer settings."
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
       compleseus
+      copy-as-format
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
@@ -102,9 +104,8 @@ This function should only modify configuration layer settings."
       (shell :variables
              shell-default-full-span nil
              shell-default-shell 'eshell)
+      shell-scripts
       slack
-      spacemacs-org
-      spacemacs-purpose
       (spell-checking :variables
                       spell-checking-enable-by-default nil
                       spell-checking-enable-auto-dictionary t)
@@ -713,6 +714,11 @@ This function is called at the very end of Spacemacs startup, after layer
 configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
+
+  ;;; Basic
+
+  ;; Somehow Spacemacs sets the default tab width to 2. Let's revert it back.
+  (setq-default tab-width 8)
 
   ;;; Get user full name and mail from git config
   (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
