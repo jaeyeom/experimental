@@ -1729,8 +1729,8 @@ the email."
                          (lambda (f)
                            (cons
                             (concat (file-name-as-directory directory) (car f))
-                            (cdr f))
-                           files))
+                            (cdr f)))
+                         files)
                       files))
              (sorted-paths (if nosort
                                paths
@@ -1796,6 +1796,20 @@ the email."
         (tramp-gh-handle-insert-file-contents filename))
       temp-file))
 
+  ;; TODO(jaehyun): Implement this without using the local file.
+  (defun tramp-gh-handle-copy-file (from newname &optional ok-if-already-exists keep-time preserve-uid-gid preserve-permissions)
+    "Copy the file from GitHub."
+    (message "tramp-gh-handle-copy-file: %s %s %s %s %s %s"
+             from newname ok-if-already-exists keep-time preserve-uid-gid preserve-permissions)
+    (let ((local-file (tramp-gh-handle-file-local-copy from)))
+      (copy-file local-file newname ok-if-already-exists keep-time preserve-uid-gid preserve-permissions)))
+
+  (defun tramp-gh-handle-file-name-all-completions (file directory)
+    "Get the list of all completions of the file name on GitHub."
+    (message "tramp-gh-handle-file-name-all-completions: %s %s" file directory)
+    (let ((files (tramp-gh-handle-directory-files directory)))
+      (seq-filter (lambda (f) (string-prefix-p file f)) files)))
+
   (defsubst tramp-gh-file-name-p (vec-or-filename)
     "Check if it's a VEC-OR-FILENAME for gh."
     (when-let* ((vec (tramp-ensure-dissected-file-name vec-or-filename)))
@@ -1806,9 +1820,8 @@ the email."
       (access-file . tramp-handle-access-file)
       (add-name-to-file . tramp-handle-add-name-to-file)
       ;; `byte-compiler-base-file-name' performed by default handler.
-      (copy-directory . ignore)
-      ;; TODO(jaeyeom): This is worth implementing.
-      (copy-file . ignore)
+      (copy-directory . tramp-handle-copy-directory)
+      (copy-file . tramp-gh-handle-copy-file)
       (delete-directory . ignore)
       (delete-file . ignore)
       ;; `diff-latest-backup-file' performed by default handler.
@@ -1830,7 +1843,7 @@ the email."
       (file-local-copy . tramp-gh-handle-file-local-copy)
       (file-locked-p . tramp-handle-file-locked-p)
       (file-modes . tramp-handle-file-modes)
-      (file-name-all-completions . ignore)
+      (file-name-all-completions . tramp-gh-handle-file-name-all-completions)
       (file-name-as-directory . tramp-handle-file-name-as-directory)
       (file-name-case-insensitive-p . tramp-handle-file-name-case-insensitive-p)
       (file-name-completion . tramp-handle-file-name-completion)
