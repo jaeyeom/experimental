@@ -91,6 +91,7 @@ This function should only modify configuration layer settings."
            org-roam-directory (file-truename "~/Documents/roam/")
            org-html-htmlize-output-type 'css)
       pass
+      prodigy
       protobuf
       (python :variables
               python-format-on-save t)
@@ -1599,6 +1600,18 @@ the email."
   (when my/crostini-p
     (global-set-key (kbd "s-<up>") #'spacemacs/toggle-maximize-frame)
     (global-set-key (kbd "s-<down>") #'iconify-or-deiconify-frame))
+
+  ;;; Services
+  (with-eval-after-load 'prodigy
+    (prodigy-define-service
+      :name "Python Server (:8000)"
+      :command "python"
+      :args '("-m" "http.server" "8000")
+      :cwd "~/services/python-server"
+      :tags '(game)
+      :stop-signal 'sigkill
+      :kill-process-buffer-on-stop t)
+    )
 
   ;; Git and Project
   (with-eval-after-load 'projectile
