@@ -46,7 +46,8 @@ This function should only modify configuration layer settings."
              c-c++-default-mode-for-headers 'c++-mode
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
-      compleseus
+      (compleseus :variables
+                  compleseus-consult-preview-keys '(:debounce 0.1 any))
       copy-as-format
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
@@ -786,7 +787,7 @@ Fallback file lists are returned for specific directories."
         ;; Termux locate does not support -N option.
         (setq-default helm-locate-command "locate %s -e -A --regex %s")))
 
-  ;;; Vertico
+  ;;; Compleseus
   (defun my/minibuffer-up-directory ()
     "Navigate to the parent directory in the minibuffer during file completion."
     (interactive)
@@ -804,6 +805,11 @@ Fallback file lists are returned for specific directories."
   ;; context.
   (with-eval-after-load 'vertico
     (define-key vertico-map (kbd "<backtab>") #'my/minibuffer-up-directory))
+
+  (with-eval-after-load 'orderless
+    ;; Revert to the default. Spacemacs sets this with "[ &]", which hinders "&"
+    ;; for annotation search.
+    (setq orderless-component-separator #'orderless-escapable-split-on-space))
 
   ;;; Eat
   (with-eval-after-load 'eat
