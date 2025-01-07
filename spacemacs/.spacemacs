@@ -961,6 +961,11 @@ mode does not work with Roam links."
                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
 
     ;; Export Org mode to MHTML file with inline images.
+    ;;
+    ;; This code was copied from https://niklasfasching.de/posts/org-html-export-inline-images/
+    ;;
+    ;; NOTE(jaeyeom): The naming mhtml isn't technically correct, because it's
+    ;; using data URI scheme instead of MIME HTML.
     (defun my/org-html-export-to-mhtml (async subtree visible body)
       (cl-letf (((symbol-function 'org-html--format-image) 'my/format-image-inline))
         (org-html-export-to-html async subtree visible body)))
