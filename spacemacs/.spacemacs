@@ -957,7 +957,7 @@ mode does not work with Roam links."
     (org-export-define-derived-backend 'pandoc-gfm 'gfm
       :menu-entry
       '(?g "Export to Github Flavored Markdown"
-           ((?p "To pandoc temporary buffer"
+           ((?P "To pandoc temporary buffer"
                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
 
     ;; Export Org mode to MHTML file with inline images.
