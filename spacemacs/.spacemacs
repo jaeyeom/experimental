@@ -144,9 +144,11 @@ This function should only modify configuration layer settings."
      atomic-chrome
      bazel
      chatgpt-shell
-     consult-gh
-     consult-gh-embark
-     consult-gh-forge
+     ;;; Temporarily disable consult-gh-* package because it depends on Emacs 30
+     ;;; which isn't released yet.
+     ;; consult-gh
+     ;; consult-gh-embark
+     ;; consult-gh-forge
      eshell-command-not-found
      green-is-the-new-black-theme
      ob-async
