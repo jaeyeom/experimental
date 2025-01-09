@@ -3,10 +3,10 @@ name: Emacs Init Test
 on:
   push:
     branches: [ main ]
-    paths: '.spacemacs'
+    paths: '**/.spacemacs'
   pull_request:
     branches: [ main ]
-    paths: '.spacemacs'
+    paths: '**/.spacemacs'
 
 jobs:
   check:
