@@ -1630,6 +1630,10 @@ the email."
 
   ;; Git and Project
   (with-eval-after-load 'projectile
+    ;; By Spacemacs default, switch project asked me the project file to open.
+    ;; But I prefer to open magit=status or the version-control (VC) buffer. It
+    ;; gives me a chance to sync and handle VC related operations. I can still
+    ;; do `projectile-find-file' after that if I really want to find a file.
     (setq-default projectile-switch-project-action #'projectile-vc))
 
   ;; Git Forge
