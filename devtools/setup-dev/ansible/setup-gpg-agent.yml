@@ -36,3 +36,14 @@
             gpg-connect-agent /bye >/dev/null 2>&1
           fi
       when: ansible_env.TERMUX_VERSION is not defined
+
+    - name: Ensure gpg-agent has pinentry setup
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.gnupg/gpg-agent.conf"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} gpg_agent setup"
+        block: |
+          allow-emacs-pinentry
+          allow-loopback-pinentry
