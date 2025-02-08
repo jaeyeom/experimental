@@ -4,7 +4,8 @@ This is a simple to-do application developed using test-driven development and
 Copilot. The following milestones were determined ad hoc, so the second
 milestone was unknown when the first milestone was being developed.
 
-** Milestone 1
+** DONE Milestone 1
+CLOSED: [2025-02-08 Sat 16:52]
 
 It will provide a command-line interface and save it to a file system for
 persistence. The ID will be an auto-incrementing integer.
@@ -21,7 +22,8 @@ CLOSED: [2025-02-08 Sat 16:32]
 + [X] Store
 + [X] Load
 
-*** TODO Command line tool
+*** DONE Command line tool
+CLOSED: [2025-02-08 Sat 16:52]
 
 ** Milestone 2
 

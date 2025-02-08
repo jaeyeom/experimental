@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"testing"
 
-	"github.com/jaeyeom/experimental/codelab/go/todo/todo"
+	todo "github.com/jaeyeom/experimental/codelab/go/todo/core"
 )
 
 func ExampleSave() {
@@ -46,4 +47,20 @@ func ExampleLoad() {
 	// Output:
 	// 1. [ ] buy groceries
 	// 2. [ ] write code
+}
+
+func TestSave_createDirectory(t *testing.T) {
+	// Get a temporary directory
+	dir, err := ioutil.TempDir("", "todo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	path := dir + "/todosub/todo.json"
+	list := todo.NewList()
+	list.Add("buy groceries")
+	list.Add("write code")
+	if err := Save(path, list); err != nil {
+		t.Fatal(err)
+	}
 }
