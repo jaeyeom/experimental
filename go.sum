@@ -1,3 +1,5 @@
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/jaeyeom/sugo v0.0.0-20191112020940-956d7a785c73 h1:CAvz1EglhK2pVZxMehiuYBu6fPu+rkr2ROgRnGcE6U0=
 github.com/jaeyeom/sugo v0.0.0-20191112020940-956d7a785c73/go.mod h1:RGFBdNxL62RrPxplcTE9NjJ1hnVF9QwIIsaIUvO47/0=
 github.com/leanovate/gopter v0.2.4 h1:U4YLBggDFhJdqQsG4Na2zX7joVTky9vHaj/AGEwSuXU=

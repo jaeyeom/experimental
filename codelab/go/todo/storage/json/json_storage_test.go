@@ -6,7 +6,8 @@ import (
 	"os"
 	"testing"
 
-	todo "github.com/jaeyeom/experimental/codelab/go/todo/core"
+	"github.com/jaeyeom/experimental/codelab/go/todo/core"
+	"github.com/jaeyeom/experimental/codelab/go/todo/core/coretest"
 )
 
 func ExampleSave() {
@@ -17,7 +18,7 @@ func ExampleSave() {
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
-	list := todo.NewList()
+	list := core.NewList()
 	list.Add("buy groceries")
 	list.Add("write code")
 	fmt.Println(Save(path, list))
@@ -26,6 +27,10 @@ func ExampleSave() {
 }
 
 func ExampleLoad() {
+	ig := coretest.NewIDGen(
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+	)
 	// Get a temporary directory
 	dir, err := ioutil.TempDir("", "todo")
 	if err != nil {
@@ -33,7 +38,7 @@ func ExampleLoad() {
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
-	list := todo.NewList()
+	list := core.NewList(core.WithNewID(ig))
 	list.Add("buy groceries")
 	list.Add("write code")
 	if err := Save(path, list); err != nil {
@@ -45,8 +50,8 @@ func ExampleLoad() {
 	}
 	fmt.Println(loaded)
 	// Output:
-	// 1. [ ] buy groceries
-	// 2. [ ] write code
+	// 11111111-1111-1111-1111-111111111111. [ ] buy groceries
+	// 22222222-2222-2222-2222-222222222222. [ ] write code
 }
 
 func TestSave_createDirectory(t *testing.T) {
@@ -57,7 +62,7 @@ func TestSave_createDirectory(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todosub/todo.json"
-	list := todo.NewList()
+	list := core.NewList()
 	list.Add("buy groceries")
 	list.Add("write code")
 	if err := Save(path, list); err != nil {

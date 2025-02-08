@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 
+	todo "github.com/jaeyeom/experimental/codelab/go/todo/core"
 	json_storage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
-	"github.com/jaeyeom/sugo/errors/must"
 )
 
 func printUsage() {
@@ -32,10 +31,13 @@ func listItems(path string) {
 	fmt.Println(todos)
 }
 
-func addItem(path, item string) {
+func addItem(path, item string, opts ...todo.ListOption) {
 	todos, err := json_storage.Load(path)
 	if err != nil {
 		log.Fatal("Error:", err)
+	}
+	for _, opt := range opts {
+		opt(todos)
 	}
 	todos.Add(item)
 	if err := json_storage.Save(path, todos); err != nil {
@@ -48,8 +50,9 @@ func completeItem(path, id string) {
 	if err != nil {
 		log.Fatal("Error:", err)
 	}
-	intID := must.Int(strconv.Atoi(id))
-	todos.Complete(intID)
+	if err := todos.Complete(id); err != nil {
+		log.Fatal("Error:", err)
+	}
 	if err := json_storage.Save(path, todos); err != nil {
 		log.Fatal("Error:", err)
 	}
@@ -60,8 +63,9 @@ func removeItem(path, id string) {
 	if err != nil {
 		log.Fatal("Error:", err)
 	}
-	intID := must.Int(strconv.Atoi(id))
-	todos.Remove(intID)
+	if err := todos.Remove(id); err != nil {
+		log.Fatal("Error:", err)
+	}
 	if err := json_storage.Save(path, todos); err != nil {
 		log.Fatal("Error:", err)
 	}
