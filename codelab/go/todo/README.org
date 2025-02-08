@@ -9,6 +9,17 @@ milestone was unknown when the first milestone was being developed.
 It will provide a command-line interface and save it to a file system for
 persistence. The ID will be an auto-incrementing integer.
 
+*** DONE Implement todo package
+CLOSED: [2025-02-08 Sat 16:13]
++ [X] Last ID
++ [X] Add
++ [X] Complete
++ [X] Delete
+
+*** TODO Implement storage package
++ [ ] Store
++ [ ] Load
+
 ** Milestone 2
 
 It will use UUID instead of integer as an ID.
