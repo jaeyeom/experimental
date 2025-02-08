@@ -25,15 +25,16 @@ CLOSED: [2025-02-08 Sat 16:32]
 *** DONE Command line tool
 CLOSED: [2025-02-08 Sat 16:52]
 
-** Milestone 2
+** DONE Milestone 2
+CLOSED: [2025-02-08 Sat 19:37]
 
 It will use UUID instead of integer as an ID.
 
-** Milestone 3
+** TODO Milestone 3
 
 It will support both the file system and SQLite as storage backends.
 
-** Milestone 4
+** TODO Milestone 4
 
 It will support subtasks. Sub tasks can have other substasks recursively.
 
