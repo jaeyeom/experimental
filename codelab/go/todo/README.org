@@ -16,9 +16,12 @@ CLOSED: [2025-02-08 Sat 16:13]
 + [X] Complete
 + [X] Delete
 
-*** TODO Implement storage package
-+ [ ] Store
-+ [ ] Load
+*** DONE Implement storage package
+CLOSED: [2025-02-08 Sat 16:32]
++ [X] Store
++ [X] Load
+
+*** TODO Command line tool
 
 ** Milestone 2
 
