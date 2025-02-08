@@ -1,0 +1,81 @@
+* Todo application
+
+This is a simple to-do application developed using test-driven development and
+Copilot. The following milestones were determined ad hoc, so the second
+milestone was unknown when the first milestone was being developed.
+
+** Milestone 1
+
+It will provide a command-line interface and save it to a file system for
+persistence. The ID will be an auto-incrementing integer.
+
+** Milestone 2
+
+It will use UUID instead of integer as an ID.
+
+** Milestone 3
+
+It will support both the file system and SQLite as storage backends.
+
+** Milestone 4
+
+It will support subtasks. Sub tasks can have other substasks recursively.
+
+** Milestone 5
+
+Implement additional operations like reordering, indenting and unindenting.
+
+*** How can an SQL table handle ordered items, allowing users to reorder them as they wish?
+
+To handle ordered items in an SQL table and allow users to reorder them, you can
+use a column, often called =position= or =order=, to store the sequence value
+for each item. Users can change these values to reorder the items. Here's a
+basic approach:
+
+1. *Add an =order= column*: Add an integer column to your table to maintain the
+   order of the items.
+
+    #+begin_src sql
+      ALTER TABLE todos ADD COLUMN position INTEGER;
+    #+end_src
+
+2. *Initial assignment*: Assign an initial sequential order to the existing
+   items if needed.
+
+    #+begin_src sql
+      UPDATE todos SET position = (SELECT COUNT(*) FROM todos t2 WHERE t2.id <= todos.id);
+    #+end_src
+
+3. *Reordering*: To reorder items, adjust the =position= values. You might have
+   a reorder operation where you set a specific item's position and shift the
+   others accordingly.
+
+4. *Handling updates*: When an item's position changes, update the positions of
+   other items to maintain a continuous sequence. For example, when moving an
+   item to a new position:
+
+    - Shift positions down/up for items between the old and new positions.
+    - Set the new position for the moved item.
+
+5. *SQL Example*:
+
+   Suppose you want to move an item from position 5 to position 2:
+
+   #+begin_src sql
+     BEGIN;
+
+     -- Increment position for items in the target range
+     UPDATE todos
+     SET position = position + 1
+     WHERE position >= 2 AND position < 5;
+
+     -- Set new position for the moved item
+     UPDATE todos
+     SET position = 2
+     WHERE id = <moved_item_id>;
+
+     COMMIT;
+   #+end_src
+
+In an application, you'd likely have a function to handle reordering logic to
+ensure consistency and avoid conflicts.
