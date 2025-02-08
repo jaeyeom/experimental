@@ -14,9 +14,9 @@ const (
 )
 
 type Item struct {
-	ID          int
-	Description string
-	State       ItemState
+	ID          int       `json:"id"`
+	Description string    `json:"description"`
+	State       ItemState `json:"state"`
 }
 
 func (i *Item) String() string {
@@ -27,8 +27,8 @@ func (i *Item) String() string {
 }
 
 type List struct {
-	Items  []Item
-	LastID int
+	Items  []Item `json:"items"`
+	LastID int    `json:"last_id"`
 }
 
 func NewList() *List {
