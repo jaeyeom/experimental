@@ -7,6 +7,7 @@
 //	todo ls           List todo items
 //	todo add "item"   Add a new todo item
 //	todo complete id  Complete a todo item
+//	todo uncomplete id  Mark a completed item as incomplete
 //	todo remove id    Remove a todo item
 //
 // Items are stored in JSON format in the user's home directory.
@@ -28,6 +29,7 @@ func printUsage() {
 	todo ls			List todo items
 	todo add "todo item"	Add a new todo item
 	todo complete <id>	Complete a todo item
+	todo uncomplete <id>	Mark a completed item as incomplete
 	todo remove <id>	Remove a todo item`)
 }
 
@@ -76,6 +78,21 @@ func completeItem(path, id string) {
 	}
 }
 
+// uncompleteItem marks a completed todo item as incomplete by its ID. The ID can be
+// a prefix of the full ID as long as it uniquely identifies an item.
+func uncompleteItem(path, id string) {
+	todos, err := json_storage.Load(path)
+	if err != nil {
+		log.Fatal("Error:", err)
+	}
+	if err := todos.Uncomplete(id); err != nil {
+		log.Fatal("Error:", err)
+	}
+	if err := json_storage.Save(path, todos); err != nil {
+		log.Fatal("Error:", err)
+	}
+}
+
 // removeItem removes a todo item from the list by its ID. The ID can be a
 // prefix of the full ID as long as it uniquely identifies an item.
 func removeItem(path, id string) {
@@ -93,34 +110,35 @@ func removeItem(path, id string) {
 
 func main() {
 	flag.Parse()
-	args := flag.Args()
-	if len(args) < 1 {
-		printUsage()
-		os.Exit(1)
-	}
 	path := os.Getenv("HOME") + "/.todo/todos.json"
 
-	switch args[0] {
+	switch flag.Arg(0) {
 	case "ls":
 		listItems(path)
 	case "add":
-		if len(args) == 1 {
+		if flag.NArg() != 2 {
 			fmt.Println("Error: Missing todo item")
 			os.Exit(1)
 		}
-		addItem(path, args[1])
+		addItem(path, flag.Arg(1))
 	case "complete":
-		if len(args) != 2 {
-			fmt.Println("Error: Missing id")
+		if flag.NArg() != 2 {
+			printUsage()
 			os.Exit(1)
 		}
-		completeItem(path, args[1])
+		completeItem(path, flag.Arg(1))
+	case "uncomplete":
+		if flag.NArg() != 2 {
+			printUsage()
+			os.Exit(1)
+		}
+		uncompleteItem(path, flag.Arg(1))
 	case "remove":
-		if len(args) != 2 {
+		if flag.NArg() != 2 {
 			fmt.Println("Error: Missing id")
 			os.Exit(1)
 		}
-		removeItem(path, args[1])
+		removeItem(path, flag.Arg(1))
 	default:
 		printUsage()
 	}

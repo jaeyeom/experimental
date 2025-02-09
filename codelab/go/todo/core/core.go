@@ -123,6 +123,16 @@ func (l *List) Complete(id string) error {
 	return nil
 }
 
+// Uncomplete marks a todo item as incomplete by its ID prefix.
+func (l *List) Uncomplete(id string) error {
+	item, err := l.FindItem(id)
+	if err != nil {
+		return err
+	}
+	item.State = ItemStateIncomplete
+	return nil
+}
+
 // Remove removes a todo item by its ID prefix.
 func (l *List) Remove(id string) error {
 	removed := -1

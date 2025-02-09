@@ -82,3 +82,42 @@ func ExampleList_Remove_ambiguous() {
 	// 11111111-1111-1111-1111-111111111111. [ ] buy groceries
 	// 12222222-2222-2222-2222-222222222222. [ ] write code
 }
+
+func ExampleList_Uncomplete() {
+	l := NewList(WithNewID(coretest.NewIDGen(
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+	)))
+	l.Add("buy groceries")
+	l.Add("write code")
+	if err := l.Complete("1"); err != nil {
+		panic(err)
+	}
+	if err := l.Uncomplete("1"); err != nil {
+		panic(err)
+	}
+	fmt.Println(l)
+	// Output:
+	// 11111111-1111-1111-1111-111111111111. [ ] buy groceries
+	// 22222222-2222-2222-2222-222222222222. [ ] write code
+}
+
+func ExampleList_Uncomplete_ambiguous() {
+	l := NewList(WithNewID(coretest.NewIDGen(
+		"11111111-1111-1111-1111-111111111111",
+		"12222222-2222-2222-2222-222222222222",
+	)))
+	l.Add("buy groceries")
+	l.Add("write code")
+	if err := l.Complete("11"); err != nil {
+		panic(err)
+	}
+	if err := l.Uncomplete("1"); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(l)
+	// Output:
+	// item ambiguous
+	// 11111111-1111-1111-1111-111111111111. [x] buy groceries
+	// 12222222-2222-2222-2222-222222222222. [ ] write code
+}
