@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"testing"
 
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core/coretest"
@@ -156,4 +158,154 @@ func Example_removeItem() {
 	}
 	// Output:
 	// 22222222-2222-2222-2222-222222222222. [ ] write code
+}
+
+func Example_noCommand() {
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+
+	os.Args = []string{"todo"}
+	if err := run(); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+	// Output:
+	// Usage:
+	//	todo ls			List todo items
+	//	todo add "todo item"	Add a new todo item
+	//	todo complete <id>	Complete a todo item
+	//	todo uncomplete <id>	Mark a completed item as incomplete
+	//	todo remove <id>	Remove a todo item
+	//
+	// Storage configuration:
+	//	--storage-type		Storage backend type (json or sqlite)
+	//	--storage-path		Path to storage file
+	//
+	// Environment variables:
+	//	TODO_STORAGE_TYPE	Storage backend type
+	//	TODO_STORAGE_PATH	Path to storage file
+	// Error: no command provided
+}
+
+func Example_invalidCommand() {
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+
+	os.Args = []string{"todo", "invalid"}
+	if err := run(); err != nil {
+		fmt.Printf("Error: %v\n", err)
+	}
+	// Output:
+	// Usage:
+	//	todo ls			List todo items
+	//	todo add "todo item"	Add a new todo item
+	//	todo complete <id>	Complete a todo item
+	//	todo uncomplete <id>	Mark a completed item as incomplete
+	//	todo remove <id>	Remove a todo item
+	//
+	// Storage configuration:
+	//	--storage-type		Storage backend type (json or sqlite)
+	//	--storage-path		Path to storage file
+	//
+	// Environment variables:
+	//	TODO_STORAGE_TYPE	Storage backend type
+	//	TODO_STORAGE_PATH	Path to storage file
+	// Error: unknown command: invalid
+}
+
+func TestStorageConfiguration(t *testing.T) {
+	// Create temp directory for test files
+	dir, err := os.MkdirTemp("", "todo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	// Save original args and env
+	origArgs := os.Args
+	origEnv := os.Getenv("TODO_STORAGE_TYPE")
+	origPath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origEnv)
+		os.Setenv("TODO_STORAGE_PATH", origPath)
+	}()
+
+	tests := []struct {
+		name    string
+		args    []string
+		env     map[string]string
+		wantErr bool
+	}{
+		{
+			name:    "default configuration",
+			args:    []string{"todo"},
+			env:     map[string]string{},
+			wantErr: true, // Expect error for no command
+		},
+		{
+			name: "json storage with custom path via flags",
+			args: []string{"todo", "--storage-type", "json", "--storage-path", filepath.Join(dir, "todo.json"), "ls"},
+			env:  map[string]string{},
+		},
+		{
+			name: "sqlite storage with custom path via flags",
+			args: []string{"todo", "--storage-type", "sqlite", "--storage-path", filepath.Join(dir, "todo.db"), "ls"},
+			env:  map[string]string{},
+		},
+		{
+			name: "json storage with custom path via env",
+			args: []string{"todo", "ls"},
+			env: map[string]string{
+				"TODO_STORAGE_TYPE": "json",
+				"TODO_STORAGE_PATH": filepath.Join(dir, "todo.json"),
+			},
+		},
+		{
+			name: "sqlite storage with custom path via env",
+			args: []string{"todo", "ls"},
+			env: map[string]string{
+				"TODO_STORAGE_TYPE": "sqlite",
+				"TODO_STORAGE_PATH": filepath.Join(dir, "todo.db"),
+			},
+		},
+		{
+			name: "flags override env variables",
+			args: []string{"todo", "--storage-type", "sqlite", "--storage-path", filepath.Join(dir, "flag.db"), "ls"},
+			env: map[string]string{
+				"TODO_STORAGE_TYPE": "json",
+				"TODO_STORAGE_PATH": filepath.Join(dir, "env.json"),
+			},
+		},
+		{
+			name:    "invalid storage type",
+			args:    []string{"todo", "--storage-type", "invalid", "ls"},
+			env:     map[string]string{},
+			wantErr: true,
+		},
+		{
+			name: "invalid storage type in env",
+			args: []string{"todo", "ls"},
+			env: map[string]string{
+				"TODO_STORAGE_TYPE": "invalid",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set test args
+			os.Args = tt.args
+
+			// Set test env
+			for k, v := range tt.env {
+				os.Setenv(k, v)
+			}
+
+			err := run()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }

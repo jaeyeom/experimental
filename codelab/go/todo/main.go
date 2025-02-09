@@ -10,17 +10,29 @@
 //	todo uncomplete id  Mark a completed item as incomplete
 //	todo remove id    Remove a todo item
 //
-// Items are stored in JSON format in the user's home directory.
+// Items can be stored in either JSON or SQLite format. By default, items are
+// stored in JSON format in ~/.todo/todos.json. The storage backend can be
+// configured using flags or environment variables:
+//
+// Flags:
+//
+//	--storage-type: Type of storage backend (json or sqlite)
+//	--storage-path: Path to the storage file
+//
+// Environment variables:
+//
+//	TODO_STORAGE_TYPE: Type of storage backend
+//	TODO_STORAGE_PATH: Path to the storage file
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
+	"github.com/jaeyeom/experimental/codelab/go/todo/config"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
-	json_storage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
 )
 
 // storage is an interface for persisting todo lists.
@@ -47,7 +59,15 @@ func printUsage() {
 	todo add "todo item"	Add a new todo item
 	todo complete <id>	Complete a todo item
 	todo uncomplete <id>	Mark a completed item as incomplete
-	todo remove <id>	Remove a todo item`)
+	todo remove <id>	Remove a todo item
+
+Storage configuration:
+	--storage-type		Storage backend type (json or sqlite)
+	--storage-path		Path to storage file
+
+Environment variables:
+	TODO_STORAGE_TYPE	Storage backend type
+	TODO_STORAGE_PATH	Path to storage file`)
 }
 
 // listItems loads and displays all todo items. If there are no items, it prints
@@ -131,53 +151,63 @@ func removeItem(s storage, id string) error {
 }
 
 func main() {
-	flag.Parse()
-	path := os.Getenv("HOME") + "/.todo/todos.json"
-
-	s, err := json_storage.New(path)
-	if err != nil {
-		slog.Error("failed to create storage", "error", err)
+	if err := run(); err != nil {
+		slog.Error("command failed", "error", err)
 		os.Exit(1)
 	}
-	defer s.Close()
+}
 
-	switch flag.Arg(0) {
+func run() error {
+	// Parse configuration first
+	cfg, fs, err := config.ParseStorageConfig(os.Args[1:])
+	if err != nil {
+		printUsage()
+		return fmt.Errorf("parse config: %v", err)
+	}
+
+	// Create parent directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0755); err != nil {
+		return fmt.Errorf("create storage directory: %v", err)
+	}
+
+	storage, err := cfg.NewStorage()
+	if err != nil {
+		return fmt.Errorf("create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Get remaining args after flag parsing
+	args := fs.Args()
+	if len(args) == 0 {
+		printUsage()
+		return fmt.Errorf("no command provided")
+	}
+
+	switch args[0] {
 	case "ls":
-		err = listItems(s)
+		return listItems(storage)
 	case "add":
-		if flag.NArg() != 2 {
-			fmt.Println("Error: Missing todo item")
-			os.Exit(1)
+		if len(args) != 2 {
+			return fmt.Errorf("usage: %s add <description>", os.Args[0])
 		}
-		err = addItem(s, flag.Arg(1))
+		return addItem(storage, args[1])
 	case "complete":
-		if flag.NArg() != 2 {
-			printUsage()
-			os.Exit(1)
+		if len(args) != 2 {
+			return fmt.Errorf("usage: %s complete <id>", os.Args[0])
 		}
-		err = completeItem(s, flag.Arg(1))
+		return completeItem(storage, args[1])
 	case "uncomplete":
-		if flag.NArg() != 2 {
-			printUsage()
-			os.Exit(1)
+		if len(args) != 2 {
+			return fmt.Errorf("usage: %s uncomplete <id>", os.Args[0])
 		}
-		err = uncompleteItem(s, flag.Arg(1))
+		return uncompleteItem(storage, args[1])
 	case "remove":
-		if flag.NArg() != 2 {
-			fmt.Println("Error: Missing id")
-			os.Exit(1)
+		if len(args) != 2 {
+			return fmt.Errorf("usage: %s remove <id>", os.Args[0])
 		}
-		err = removeItem(s, flag.Arg(1))
+		return removeItem(storage, args[1])
 	default:
 		printUsage()
-		os.Exit(1)
-	}
-
-	if err != nil {
-		slog.Error("command failed",
-			"command", flag.Arg(0),
-			"error", err,
-		)
-		os.Exit(1)
+		return fmt.Errorf("unknown command: %s", args[0])
 	}
 }
