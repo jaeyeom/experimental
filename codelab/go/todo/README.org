@@ -16,6 +16,10 @@ Provides functionality for adding, completing, and removing items.
 Implements JSON file-based storage for todo lists. Uses file system operations
 with proper locking mechanisms to ensure thread safety.
 
+*** storage/sqlite
+Implements SQLite-based storage for todo lists. Uses SQLite database with proper
+locking mechanisms to ensure thread safety and transaction support.
+
 *** main
 Contains the command-line interface and defines the storage interface. The
 interface is defined here as this is where different storage implementations
@@ -37,10 +41,9 @@ Items are stored in JSON format in ~/.todo/todos.json by default.
 
 * Development Status
 
-The application currently supports JSON file-based storage. The storage interface
-has been designed to allow for easy addition of new storage backends. SQLite
-support is planned as the next major feature.
-
+The application supports both JSON file-based storage and SQLite storage. The
+storage interface is defined in the main package where it is used, following Go's
+principle of defining interfaces where they are needed.
 
 ** DONE Milestone 1
 CLOSED: [2025-02-08 Sat 16:52]
@@ -69,7 +72,7 @@ CLOSED: [2025-02-08 Sat 19:37]
 It will use UUID instead of integer as an ID.
 
 ** DONE Milestone 3
-CLOSED: [2025-02-09 Sun 12:59]
+CLOSED: [2025-02-09 Sun 13:16]
 
 It will support both the file system and SQLite as storage backends.
 
@@ -88,14 +91,30 @@ CLOSED: [2025-02-09 Sun 13:12]
 + [X] Update tests to use the interface
 + [X] Ensure all tests pass with the new interface
 
-*** TODO Implement SQLite storage
-+ [ ] Add SQLite dependency
-+ [ ] Design database schema for todo items
-+ [ ] Implement SQLite storage that satisfies the storage interface
-+ [ ] Add error handling and transaction support
-+ [ ] Write comprehensive tests for SQLite storage
-+ [ ] Update documentation to reflect SQLite support
+*** DONE Implement SQLite storage
+CLOSED: [2025-02-09 Sun 13:16]
++ [X] Add SQLite dependency (modernc.org/sqlite)
++ [X] Design database schema for todo items
++ [X] Implement SQLite storage that satisfies the storage interface
++ [X] Add error handling and transaction support
++ [X] Write comprehensive tests for SQLite storage
++ [X] Update documentation to reflect SQLite support
 
+*** TODO Configure storage backend
++ [ ] Define storage backend types (json, sqlite)
++ [ ] Add tests for configuration handling
++ [ ] Add configuration package to handle storage settings
++ [ ] Add command-line flags for storage configuration:
+  - --storage-type: Type of storage backend (json, sqlite)
+  - --storage-path: Path to the storage file
++ [ ] Add environment variable support for storage configuration:
+  - TODO_STORAGE_TYPE: Type of storage backend
+  - TODO_STORAGE_PATH: Path to the storage file
++ [ ] Update main package to use configuration:
+  - Create appropriate storage backend based on configuration
+  - Handle configuration errors gracefully
+  - Provide helpful error messages for invalid configurations
++ [ ] Update documentation with configuration options
 
 ** TODO Milestone 4
 
