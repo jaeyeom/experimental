@@ -15,27 +15,87 @@ import (
 type ItemState int
 
 const (
-	// ItemStateIncomplete indicates that the todo item is not yet
-	// completed.
-	ItemStateIncomplete ItemState = iota
-	// ItemStateComplete indicates that the todo item has been completed.
-	ItemStateComplete
+	// ItemStateNotStarted indicates that the todo item has not been started.
+	ItemStateNotStarted ItemState = iota
+	// ItemStateDone indicates that the todo item and all its subtasks are completed.
+	ItemStateDone
+	// ItemStatePartiallyDone indicates that some subtasks are completed.
+	ItemStatePartiallyDone
 )
 
 // Item represents a single todo item with its unique identifier, description,
-// and completion state.
+// completion state, and optional subtasks.
 type Item struct {
 	ID          string    `json:"id"`
 	Description string    `json:"description"`
 	State       ItemState `json:"state"`
+	ParentID    string    `json:"parent_id,omitempty"`
+	Subtasks    []Item    `json:"subtasks,omitempty"`
 }
 
 // String returns a string representation of the todo item.
 func (i *Item) String() string {
-	if i.State == ItemStateComplete {
-		return fmt.Sprintf("%s. [x] %s", i.ID, i.Description)
+	return i.string("")
+}
+
+// string returns a string representation of the todo item with the given indentation.
+func (i *Item) string(indent string) string {
+	var state string
+	switch i.State {
+	case ItemStateDone:
+		state = "[x]"
+	case ItemStatePartiallyDone:
+		state = "[-]"
+	default:
+		state = "[ ]"
 	}
-	return fmt.Sprintf("%s. [ ] %s", i.ID, i.Description)
+	result := fmt.Sprintf("%s%s. %s %s", indent, i.ID, state, i.Description)
+	if len(i.Subtasks) > 0 {
+		for _, subtask := range i.Subtasks {
+			result += "\n" + subtask.string(indent+"  ")
+		}
+	}
+	return result
+}
+
+// SetState sets the item's state and also updates the states of its subtasks.
+// It does not update the state of the parent.
+func (i *Item) SetState(s ItemState) {
+	if s == i.State {
+		return
+	}
+	i.State = s
+	if s != ItemStatePartiallyDone {
+		for idx := range i.Subtasks {
+			i.Subtasks[idx].SetState(s)
+		}
+	}
+}
+
+// ValidateState updates its state based on the subtasks' states.
+func (i *Item) ValidateState() {
+	size := len(i.Subtasks)
+	if size == 0 {
+		return
+	}
+	done, notStarted := 0, 0
+
+	for idx := range i.Subtasks {
+		if i.Subtasks[idx].State == ItemStateDone {
+			done += 1
+		} else if i.Subtasks[idx].State == ItemStateNotStarted {
+			notStarted += 1
+		}
+	}
+	if done == size {
+		i.State = ItemStateDone
+		return
+	}
+	if notStarted == size {
+		i.State = ItemStateNotStarted
+		return
+	}
+	i.State = ItemStatePartiallyDone
 }
 
 // List represents a collection of todo items with a function to generate new
@@ -84,7 +144,62 @@ func (l *List) Add(item string) {
 	l.Items = append(l.Items, Item{
 		ID:          l.NewID(),
 		Description: item,
+		State:       ItemStateNotStarted,
 	})
+}
+
+// AddSubtask adds a new subtask to the specified parent task.
+func (l *List) AddSubtask(parentID, description string) error {
+	parent, err := l.FindItem(parentID)
+	if err != nil {
+		return err
+	}
+
+	if l.NewID == nil {
+		l.NewID = func() string {
+			return uuid.New().String()
+		}
+	}
+
+	newItem := Item{
+		ID:          l.NewID(),
+		Description: description,
+		State:       ItemStateNotStarted,
+		ParentID:    parent.ID,
+	}
+	parent.Subtasks = append(parent.Subtasks, newItem)
+
+	// If parent was done and we add a new subtask, it becomes partially done
+	if parent.State == ItemStateDone {
+		parent.State = ItemStatePartiallyDone
+	}
+	return nil
+}
+
+// updateParentState updates the state of a parent task based on its subtasks' states
+func (l *List) updateParentState(item *Item) {
+	if len(item.Subtasks) == 0 {
+		return
+	}
+
+	allDone := true
+	anyDone := false
+
+	for _, subtask := range item.Subtasks {
+		if subtask.State == ItemStateDone {
+			anyDone = true
+		} else {
+			allDone = false
+		}
+	}
+
+	if allDone {
+		item.State = ItemStateDone
+	} else if anyDone {
+		item.State = ItemStatePartiallyDone
+	} else {
+		item.State = ItemStateNotStarted
+	}
 }
 
 var (
@@ -94,16 +209,38 @@ var (
 	ErrAmbiguousItem = errors.New("item ambiguous")
 )
 
-// FindItem finds a todo item by its ID prefix.
-func (l *List) FindItem(id string) (*Item, error) {
+// findItemInSubtasks recursively searches for an item in the subtasks tree
+func (l *List) findItemInSubtasks(id string, items []Item) (*Item, error) {
 	var found *Item
-	for i := range l.Items {
-		if strings.HasPrefix(l.Items[i].ID, id) {
+	for i := range items {
+		if strings.HasPrefix(items[i].ID, id) {
 			if found != nil {
 				return nil, ErrAmbiguousItem
 			}
-			found = &l.Items[i]
+			found = &items[i]
 		}
+		// Search in subtasks
+		if len(items[i].Subtasks) > 0 {
+			if subFound, err := l.findItemInSubtasks(id, items[i].Subtasks); err != nil {
+				if err == ErrAmbiguousItem {
+					return nil, err
+				}
+			} else if subFound != nil {
+				if found != nil {
+					return nil, ErrAmbiguousItem
+				}
+				found = subFound
+			}
+		}
+	}
+	return found, nil
+}
+
+// FindItem finds a todo item by its ID prefix.
+func (l *List) FindItem(id string) (*Item, error) {
+	found, err := l.findItemInSubtasks(id, l.Items)
+	if err != nil {
+		return nil, err
 	}
 	if found == nil {
 		return nil, ErrItemNotFound
@@ -111,15 +248,47 @@ func (l *List) FindItem(id string) (*Item, error) {
 	return found, nil
 }
 
-// Complete marks a todo item as completed by its ID prefix.
+// Complete marks a task as done. If the task has subtasks, they will also be
+// marked as done. If a task's subtasks are all completed, the parent task will
+// be marked as done. If some but not all subtasks are completed, the parent
+// task will be marked as partially done.
 func (l *List) Complete(id string) error {
 	item, err := l.FindItem(id)
 	if err != nil {
 		return err
 	}
-	if item != nil {
-		item.State = ItemStateComplete
+
+	item.SetState(ItemStateDone)
+	if item.ParentID != "" {
+		parent := l.FindByID(item.ParentID)
+		if parent != nil {
+			parent.ValidateState()
+		}
 	}
+
+	return nil
+}
+
+// Undo marks a task as not started. If the task has subtasks, they will also be marked
+// as not started. If a task's parent has other completed subtasks, the parent's state
+// will be updated accordingly.
+func (l *List) Undo(id string) error {
+	item, err := l.FindItem(id)
+	if err != nil {
+		return err
+	}
+
+	// Set the state of this item and its subtasks to not started
+	item.SetState(ItemStateNotStarted)
+
+	// Update parent task state if this is a subtask
+	if item.ParentID != "" {
+		parent := l.FindByID(item.ParentID)
+		if parent != nil {
+			parent.ValidateState()
+		}
+	}
+
 	return nil
 }
 
@@ -129,7 +298,16 @@ func (l *List) Uncomplete(id string) error {
 	if err != nil {
 		return err
 	}
-	item.State = ItemStateIncomplete
+	item.State = ItemStateNotStarted
+
+	// If this item has a parent, update the parent's state
+	if item.ParentID != "" {
+		parent, err := l.FindItem(item.ParentID)
+		if err != nil {
+			return err
+		}
+		l.updateParentState(parent)
+	}
 	return nil
 }
 
@@ -144,8 +322,27 @@ func (l *List) Remove(id string) error {
 			removed = i
 		}
 	}
-	if removed != -1 {
-		l.Items = append(l.Items[:removed], l.Items[removed+1:]...)
+	if removed == -1 {
+		return ErrItemNotFound
 	}
+	l.Items = append(l.Items[:removed], l.Items[removed+1:]...)
 	return nil
+}
+
+// FindByID finds a todo item by its ID, including searching through subtasks.
+func (l *List) FindByID(id string) *Item {
+	// Helper function to search recursively through items and their subtasks
+	var findRecursive func(items []Item) *Item
+	findRecursive = func(items []Item) *Item {
+		for i := range items {
+			if items[i].ID == id {
+				return &items[i]
+			}
+			if found := findRecursive(items[i].Subtasks); found != nil {
+				return found
+			}
+		}
+		return nil
+	}
+	return findRecursive(l.Items)
 }

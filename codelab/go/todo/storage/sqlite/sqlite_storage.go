@@ -41,7 +41,9 @@ func createTables(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS items (
 			id TEXT PRIMARY KEY,
 			description TEXT NOT NULL,
-			state INTEGER NOT NULL
+			state INTEGER NOT NULL,
+			parent_id TEXT,
+			FOREIGN KEY(parent_id) REFERENCES items(id)
 		)
 	`)
 	if err != nil {
@@ -74,15 +76,35 @@ func (s *Storage) Save(list *core.List) error {
 	}
 
 	// Insert all items
-	stmt, err := tx.Prepare("INSERT INTO items (id, description, state) VALUES (?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO items (id, description, state, parent_id) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		return fmt.Errorf("prepare insert statement: %v", err)
 	}
 	defer stmt.Close()
 
-	for _, item := range list.Items {
-		if _, err := stmt.Exec(item.ID, item.Description, item.State); err != nil {
+	// Helper function to save an item and its subtasks recursively
+	var saveItem func(item core.Item, parentID string) error
+	saveItem = func(item core.Item, parentID string) error {
+		var parent interface{}
+		if parentID != "" {
+			parent = parentID
+		}
+		if _, err := stmt.Exec(item.ID, item.Description, item.State, parent); err != nil {
 			return fmt.Errorf("insert item: %v", err)
+		}
+		for _, subtask := range item.Subtasks {
+			subtask.ParentID = item.ID
+			if err := saveItem(subtask, item.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Save all top-level items and their subtasks
+	for _, item := range list.Items {
+		if err := saveItem(item, ""); err != nil {
+			return err
 		}
 	}
 
@@ -98,22 +120,75 @@ func (s *Storage) Load() (*core.List, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query("SELECT id, description, state FROM items")
+	// Load all items into a map
+	rows, err := s.db.Query("SELECT id, description, state, parent_id FROM items")
 	if err != nil {
 		return nil, fmt.Errorf("query items: %v", err)
 	}
 	defer rows.Close()
 
-	list := core.NewList()
+	// Map to store all items by their ID
+	itemMap := make(map[string]*core.Item)
+	var rootItems []core.Item
+
+	// First pass: create all items
 	for rows.Next() {
 		var item core.Item
-		if err := rows.Scan(&item.ID, &item.Description, &item.State); err != nil {
+		var parentID sql.NullString
+		if err := rows.Scan(&item.ID, &item.Description, &item.State, &parentID); err != nil {
 			return nil, fmt.Errorf("scan item: %v", err)
 		}
-		list.Items = append(list.Items, item)
+
+		if parentID.Valid {
+			item.ParentID = parentID.String
+		}
+
+		// Store a pointer to the item in the map
+		itemCopy := item
+		itemMap[item.ID] = &itemCopy
+
+		// If it's a root item (no parent), add it to rootItems
+		if !parentID.Valid {
+			rootItems = append(rootItems, item)
+		}
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate rows: %v", err)
+	}
+
+	// Second pass: build the subtask hierarchy in topological order
+	// First, build a map of children for each parent
+	childrenMap := make(map[string][]*core.Item)
+	for _, item := range itemMap {
+		if item.ParentID != "" {
+			childrenMap[item.ParentID] = append(childrenMap[item.ParentID], item)
+		}
+	}
+
+	// Helper function to recursively build subtask hierarchy
+	var buildSubtasks func(item *core.Item)
+	buildSubtasks = func(item *core.Item) {
+		if children, ok := childrenMap[item.ID]; ok {
+			for _, child := range children {
+				// Create a deep copy of the child
+				childCopy := *child
+				item.Subtasks = append(item.Subtasks, childCopy)
+				// Recursively build subtasks for this child
+				buildSubtasks(&item.Subtasks[len(item.Subtasks)-1])
+			}
+		}
+	}
+
+	// Create a new list with root items
+	list := core.NewList()
+	for _, rootItem := range rootItems {
+		// Get the updated root item with subtasks from the map
+		if updatedRoot, ok := itemMap[rootItem.ID]; ok {
+			rootCopy := *updatedRoot
+			buildSubtasks(&rootCopy)
+			list.Items = append(list.Items, rootCopy)
+		}
 	}
 
 	return list, nil

@@ -172,8 +172,10 @@ func Example_noCommand() {
 	// Usage:
 	//	todo ls			List todo items
 	//	todo add "todo item"	Add a new todo item
+	//	todo addsubtask <id> "item"	Add a subtask to an existing item
 	//	todo complete <id>	Complete a todo item
 	//	todo uncomplete <id>	Mark a completed item as incomplete
+	//	todo undo <id>		Undo a completed item
 	//	todo remove <id>	Remove a todo item
 	//
 	// Storage configuration:
@@ -198,8 +200,10 @@ func Example_invalidCommand() {
 	// Usage:
 	//	todo ls			List todo items
 	//	todo add "todo item"	Add a new todo item
+	//	todo addsubtask <id> "item"	Add a subtask to an existing item
 	//	todo complete <id>	Complete a todo item
 	//	todo uncomplete <id>	Mark a completed item as incomplete
+	//	todo undo <id>		Undo a completed item
 	//	todo remove <id>	Remove a todo item
 	//
 	// Storage configuration:
@@ -210,6 +214,183 @@ func Example_invalidCommand() {
 	//	TODO_STORAGE_TYPE	Storage backend type
 	//	TODO_STORAGE_PATH	Path to storage file
 	// Error: unknown command: invalid
+}
+
+func Example_addSubtask() {
+	ig := coretest.NewIDGen(
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		"33333333-3333-3333-3333-333333333333",
+	)
+	// Get a temporary directory
+	dir, err := os.MkdirTemp("", "todo")
+	if err != nil {
+		fmt.Println("Error creating temp dir:", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "todo.json")
+
+	s, err := json_storage.New(path)
+	if err != nil {
+		fmt.Println("Error creating storage:", err)
+		return
+	}
+	defer s.Close()
+
+	opt := core.WithNewID(ig)
+	if err := addItem(s, "buy groceries", opt); err != nil {
+		fmt.Println("Error adding parent item:", err)
+		return
+	}
+	if err := addSubtask(s, "1", "buy milk", opt); err != nil {
+		fmt.Println("Error adding first subtask:", err)
+		return
+	}
+	if err := addSubtask(s, "1", "buy eggs", opt); err != nil {
+		fmt.Println("Error adding second subtask:", err)
+		return
+	}
+	if err := listItems(s); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
+	// Output:
+	// 11111111-1111-1111-1111-111111111111. [ ] buy groceries
+	//   22222222-2222-2222-2222-222222222222. [ ] buy milk
+	//   33333333-3333-3333-3333-333333333333. [ ] buy eggs
+}
+
+func Example_completeWithSubtasks() {
+	ig := coretest.NewIDGen(
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		"33333333-3333-3333-3333-333333333333",
+	)
+	// Get a temporary directory
+	dir, err := os.MkdirTemp("", "todo")
+	if err != nil {
+		fmt.Println("Error creating temp dir:", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "todo.json")
+
+	s, err := json_storage.New(path)
+	if err != nil {
+		fmt.Println("Error creating storage:", err)
+		return
+	}
+	defer s.Close()
+
+	opt := core.WithNewID(ig)
+	if err := addItem(s, "buy groceries", opt); err != nil {
+		fmt.Println("Error adding parent item:", err)
+		return
+	}
+	if err := addSubtask(s, "1", "buy milk", opt); err != nil {
+		fmt.Println("Error adding first subtask:", err)
+		return
+	}
+	if err := addSubtask(s, "1", "buy eggs", opt); err != nil {
+		fmt.Println("Error adding second subtask:", err)
+		return
+	}
+
+	// Complete one subtask
+	if err := completeItem(s, "2"); err != nil {
+		fmt.Println("Error completing subtask:", err)
+		return
+	}
+	if err := listItems(s); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
+	fmt.Println("---")
+
+	// Complete parent task
+	if err := completeItem(s, "1"); err != nil {
+		fmt.Println("Error completing parent task:", err)
+		return
+	}
+	if err := listItems(s); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
+	// Output:
+	// 11111111-1111-1111-1111-111111111111. [-] buy groceries
+	//   22222222-2222-2222-2222-222222222222. [x] buy milk
+	//   33333333-3333-3333-3333-333333333333. [ ] buy eggs
+	// ---
+	// 11111111-1111-1111-1111-111111111111. [x] buy groceries
+	//   22222222-2222-2222-2222-222222222222. [x] buy milk
+	//   33333333-3333-3333-3333-333333333333. [x] buy eggs
+}
+
+func Example_undoWithSubtasks() {
+	ig := coretest.NewIDGen(
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		"33333333-3333-3333-3333-333333333333",
+	)
+	// Get a temporary directory
+	dir, err := os.MkdirTemp("", "todo")
+	if err != nil {
+		fmt.Println("Error creating temp dir:", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "todo.json")
+
+	s, err := json_storage.New(path)
+	if err != nil {
+		fmt.Println("Error creating storage:", err)
+		return
+	}
+	defer s.Close()
+
+	opt := core.WithNewID(ig)
+	if err := addItem(s, "buy groceries", opt); err != nil {
+		fmt.Println("Error adding parent item:", err)
+		return
+	}
+	if err := addSubtask(s, "1", "buy milk", opt); err != nil {
+		fmt.Println("Error adding first subtask:", err)
+		return
+	}
+	if err := addSubtask(s, "1", "buy eggs", opt); err != nil {
+		fmt.Println("Error adding second subtask:", err)
+		return
+	}
+
+	// Complete all tasks
+	if err := completeItem(s, "1"); err != nil {
+		fmt.Println("Error completing parent task:", err)
+		return
+	}
+	if err := listItems(s); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
+	fmt.Println("---")
+
+	// Undo one subtask
+	if err := undoItem(s, "2"); err != nil {
+		fmt.Println("Error undoing subtask:", err)
+		return
+	}
+	if err := listItems(s); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
+	// Output:
+	// 11111111-1111-1111-1111-111111111111. [x] buy groceries
+	//   22222222-2222-2222-2222-222222222222. [x] buy milk
+	//   33333333-3333-3333-3333-333333333333. [x] buy eggs
+	// ---
+	// 11111111-1111-1111-1111-111111111111. [-] buy groceries
+	//   22222222-2222-2222-2222-222222222222. [ ] buy milk
+	//   33333333-3333-3333-3333-333333333333. [x] buy eggs
 }
 
 func TestStorageConfiguration(t *testing.T) {
