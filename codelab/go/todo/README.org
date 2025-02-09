@@ -34,16 +34,28 @@ are used together.
 The application provides the following commands:
 
 #+begin_src
-todo ls           List todo items
-todo add "item"   Add a new todo item
-todo complete id  Complete a todo item
-todo uncomplete id  Mark a completed item as incomplete
-todo remove id    Remove a todo item
+todo ls                     List todo items
+todo add "item"             Add a new todo item
+todo addsubtask <id> "item" Add a subtask to an existing item
+todo complete <id>          Complete a todo item
+todo uncomplete <id>        Mark a completed item as incomplete
+todo undo <id>              Undo a completed item
+todo remove <id>            Remove a todo item
 #+end_src
+
+Tasks can have subtasks, which are displayed with indentation. The state of a
+task is shown as:
+- [ ] Not started
+- [x] Completed
+- [-] Partially done (when some but not all subtasks are completed)
+
+When completing a parent task, all its subtasks will also be completed. When
+undoing a task, it and all its subtasks will be marked as not started.
 
 *** Storage Configuration
 
-The storage backend can be configured using either command-line flags or environment variables:
+The storage backend can be configured using either command-line flags or
+environment variables:
 
 **** Command-line Flags
 - ~--storage-type~: Type of storage backend (json or sqlite)
@@ -53,8 +65,8 @@ The storage backend can be configured using either command-line flags or environ
 - ~TODO_STORAGE_TYPE~: Type of storage backend
 - ~TODO_STORAGE_PATH~: Path to the storage file
 
-Command-line flags take precedence over environment variables. If neither is specified,
-the application defaults to JSON storage at ~/.todo/todos.json.
+Command-line flags take precedence over environment variables. If neither is
+specified, the application defaults to JSON storage at ~/.todo/todos.json.
 
 Examples:
 #+begin_src bash
@@ -73,8 +85,8 @@ todo ls
 * Development Status
 
 The application supports both JSON file-based storage and SQLite storage. The
-storage interface is defined in the main package where it is used, following Go's
-principle of defining interfaces where they are needed.
+storage interface is defined in the main package where it is used, following
+Go's principle of defining interfaces where they are needed.
 
 ** DONE Milestone 1
 CLOSED: [2025-02-08 Sat 16:52]
@@ -221,37 +233,56 @@ task can have multiple subtasks.
 
 **** Implementation Steps
 
-**** TODO Define Task Structure Updates
-- [ ] Write tests to verify that tasks can be created with a `parent_id` and that the state transitions are correctly handled.
-- [ ] Update the core data structures to include a `parent_id` and ensure the `state` is an integer.
+**** DONE Define Task Structure Updates
+CLOSED: [2025-02-09 Sun 16:18]
++ [X] Write tests to verify that tasks can be created with a `parent_id` and
+  that the state transitions are correctly handled.
++ [X] Update the core data structures to include a `parent_id` and ensure the
+  `state` is an integer.
 
-**** TODO Modify JSON Storage
-- [ ] Write tests to ensure tasks and subtasks are correctly stored and retrieved.
-- [ ] Update the JSON storage implementation to handle nested tasks.
-- [ ] Implement serialization and deserialization logic for tasks with subtasks.
+**** DONE Modify JSON Storage
+CLOSED: [2025-02-09 Sun 16:20]
++ [X] Write tests to ensure tasks and subtasks are correctly stored and
+  retrieved.
++ [X] Update the JSON storage implementation to handle nested tasks.
++ [X] Implement serialization and deserialization logic for tasks with subtasks.
 
-**** TODO Modify SQLite Storage
-- [ ] Write tests to verify that tasks and subtasks are correctly stored, retrieved, and updated.
-- [ ] Alter the SQLite schema to include the `parent_id` and use integers for the `state`.
-- [ ] Implement logic to handle recursive relationships using SQL queries.
+**** DONE Modify SQLite Storage
+CLOSED: [2025-02-09 Sun 16:32]
++ [X] Alter the SQLite schema to include the `parent_id` and use integers for
+  the `state`.
++ [X] Run the test to see if the schema change does not break the existing
+  tests. Fix the tests if they break.
++ [X] Write tests to verify that tasks and subtasks are correctly stored,
+  retrieved, and updated.
++ [X] Implement logic to handle recursive relationships using SQL queries.
 
-**** TODO Implement Task Completion Logic
-- [ ] Write tests to validate that the task status transitions are correct.
-- [ ] Develop logic to update the task status based on the completion of subtasks.
-- [ ] Ensure that marking a parent task as done updates all subtasks.
+**** DONE Implement Task Completion Logic
+CLOSED: [2025-02-09 Sun 16:33]
++ [X] Write tests to validate that the task status transitions are correct.
++ [X] Develop logic to update task status based on subtask completion.
++ [X] Ensure marking a parent task as done updates all subtasks.
 
-**** TODO Implement Task Undo Logic
-- [ ] Write tests to ensure that undoing a task correctly updates all related subtasks.
-- [ ] Develop logic to undo a task and recursively undo all subtasks.
+**** DONE Implement Task Undo Logic
+CLOSED: [2025-02-09 Sun 17:00]
++ [X] Write tests to ensure that undoing a task correctly updates all related tasks.
++ [X] Implement the undo functionality for tasks with subtasks.
++ [X] Verify that undoing a parent task undoes all subtasks.
++ [X] Ensure that undoing a subtask correctly updates the parent's state.
 
-**** TODO Update Command-Line Interface
-- [ ] Write tests to validate the CLI operations.
-- [ ] Extend the CLI to support operations on subtasks.
-- [ ] Implement commands for adding, completing, and undoing tasks and subtasks.
+**** DONE Update Command-Line Interface
+CLOSED: [2025-02-09 Sun 17:15]
++ [X] Write tests to validate the CLI operations.
++ [X] Extend the CLI to support operations on subtasks.
++ [X] Implement commands for adding, completing, and undoing tasks and subtasks.
++ [X] Update task display to show subtasks with proper indentation.
++ [X] Support partial task completion state with [-] indicator.
 
 **** TODO Documentation and Review
-- [ ] Update the README and any other relevant documentation to reflect the new features.
-- [ ] Conduct code reviews and refactor as necessary to improve code quality and maintainability.
+- [ ] Update the README and any other relevant documentation to reflect the new
+  features.
+- [ ] Conduct code reviews and refactor as necessary to improve code quality and
+  maintainability.
 
 ** Milestone 5
 

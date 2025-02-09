@@ -172,3 +172,90 @@ func TestSaveLoadWithState(t *testing.T) {
 		}
 	}
 }
+
+func TestSaveLoadWithSubtasks(t *testing.T) {
+	// Get a temporary directory
+	dir, err := os.MkdirTemp("", "todo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	path := filepath.Join(dir, "todo.db")
+	s, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Create a todo list with nested tasks
+	list := core.NewList()
+	list.Add("Parent task")
+	if err := list.AddSubtask(list.Items[0].ID, "Subtask 1"); err != nil {
+		t.Errorf("AddSubtask() error = %v", err)
+	}
+	if err := list.AddSubtask(list.Items[0].ID, "Subtask 2"); err != nil {
+		t.Errorf("AddSubtask() error = %v", err)
+	}
+
+	// Add a sub-subtask
+	parent := &list.Items[0]
+	if err := list.AddSubtask(parent.Subtasks[0].ID, "Sub-subtask 1"); err != nil {
+		t.Errorf("AddSubtask() error = %v", err)
+	}
+
+	// Set various states
+	if err := list.Complete(parent.Subtasks[0].ID); err != nil {
+		t.Errorf("Complete() error = %v", err)
+	}
+
+	// Save the list
+	if err := s.Save(list); err != nil {
+		t.Errorf("Save() error = %v", err)
+	}
+
+	// Load the list and verify
+	loaded, err := s.Load()
+	if err != nil {
+		t.Errorf("Load() error = %v", err)
+	}
+
+	// Verify the structure
+	if len(loaded.Items) != 1 {
+		t.Errorf("got %d root items, want 1", len(loaded.Items))
+	}
+
+	parent = &loaded.Items[0]
+	if parent.Description != "Parent task" {
+		t.Errorf("got parent description %q, want %q", parent.Description, "Parent task")
+	}
+
+	// Verify subtasks
+	if len(parent.Subtasks) != 2 {
+		t.Errorf("got %d subtasks, want 2", len(parent.Subtasks))
+	}
+
+	// Find the completed subtask
+	var completedSubtask *core.Item
+	for i := range parent.Subtasks {
+		if parent.Subtasks[i].State == core.ItemStateDone {
+			completedSubtask = &parent.Subtasks[i]
+			break
+		}
+	}
+
+	if completedSubtask == nil {
+		t.Fatal("completed subtask not found")
+		return
+	}
+
+	// Verify sub-subtasks
+	if len(completedSubtask.Subtasks) != 1 {
+		t.Errorf("got %d sub-subtasks, want 1", len(completedSubtask.Subtasks))
+	}
+
+	// Verify states
+	if parent.State != core.ItemStatePartiallyDone {
+		t.Errorf("got parent state %v, want %v", parent.State, core.ItemStatePartiallyDone)
+	}
+}

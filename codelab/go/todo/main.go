@@ -4,11 +4,13 @@
 //
 // Usage:
 //
-//	todo ls           List todo items
-//	todo add "item"   Add a new todo item
-//	todo complete id  Complete a todo item
-//	todo uncomplete id  Mark a completed item as incomplete
-//	todo remove id    Remove a todo item
+//	todo ls                   List todo items
+//	todo add "item"           Add a new todo item
+//	todo addsubtask id "item" Add a subtask to an existing item
+//	todo complete id          Complete a todo item
+//	todo uncomplete id        Mark a completed item as incomplete
+//	todo undo id              Undo a completed item
+//	todo remove id            Remove a todo item
 //
 // Items can be stored in either JSON or SQLite format. By default, items are
 // stored in JSON format in ~/.todo/todos.json. The storage backend can be
@@ -57,8 +59,10 @@ func printUsage() {
 	fmt.Println(`Usage:
 	todo ls			List todo items
 	todo add "todo item"	Add a new todo item
+	todo addsubtask <id> "item"	Add a subtask to an existing item
 	todo complete <id>	Complete a todo item
 	todo uncomplete <id>	Mark a completed item as incomplete
+	todo undo <id>		Undo a completed item
 	todo remove <id>	Remove a todo item
 
 Storage configuration:
@@ -102,6 +106,25 @@ func addItem(s storage, item string, opts ...core.ListOption) error {
 	return nil
 }
 
+// addSubtask adds a new subtask to an existing todo item and saves it. It accepts
+// options to customize the list behavior (e.g., ID generation).
+func addSubtask(s storage, parentID, item string, opts ...core.ListOption) error {
+	todos, err := s.Load()
+	if err != nil {
+		return fmt.Errorf("load todo items: %v", err)
+	}
+	for _, opt := range opts {
+		opt(todos)
+	}
+	if err := todos.AddSubtask(parentID, item); err != nil {
+		return fmt.Errorf("add subtask: %v", err)
+	}
+	if err := s.Save(todos); err != nil {
+		return fmt.Errorf("save todo items: %v", err)
+	}
+	return nil
+}
+
 // completeItem marks a todo item as completed by its ID. The ID can be a prefix
 // of the full ID as long as it uniquely identifies an item.
 func completeItem(s storage, id string) error {
@@ -127,6 +150,22 @@ func uncompleteItem(s storage, id string) error {
 	}
 	if err := todos.Uncomplete(id); err != nil {
 		return fmt.Errorf("uncomplete todo item: %v", err)
+	}
+	if err := s.Save(todos); err != nil {
+		return fmt.Errorf("save todo items: %v", err)
+	}
+	return nil
+}
+
+// undoItem marks a todo item and its subtasks as not started by its ID. The ID can be
+// a prefix of the full ID as long as it uniquely identifies an item.
+func undoItem(s storage, id string) error {
+	todos, err := s.Load()
+	if err != nil {
+		return fmt.Errorf("load todo items: %v", err)
+	}
+	if err := todos.Undo(id); err != nil {
+		return fmt.Errorf("undo todo item: %v", err)
 	}
 	if err := s.Save(todos); err != nil {
 		return fmt.Errorf("save todo items: %v", err)
@@ -170,11 +209,11 @@ func run() error {
 		return fmt.Errorf("create storage directory: %v", err)
 	}
 
-	storage, err := cfg.NewStorage()
+	s, err := cfg.NewStorage()
 	if err != nil {
 		return fmt.Errorf("create storage: %v", err)
 	}
-	defer storage.Close()
+	defer s.Close()
 
 	// Get remaining args after flag parsing
 	args := fs.Args()
@@ -185,29 +224,54 @@ func run() error {
 
 	switch args[0] {
 	case "ls":
-		return listItems(storage)
+		if err := listItems(s); err != nil {
+			return fmt.Errorf("list items: %v", err)
+		}
 	case "add":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: %s add <description>", os.Args[0])
+			return fmt.Errorf("add command requires exactly one argument")
 		}
-		return addItem(storage, args[1])
+		if err := addItem(s, args[1]); err != nil {
+			return fmt.Errorf("add item: %v", err)
+		}
+	case "addsubtask":
+		if len(args) != 3 {
+			return fmt.Errorf("addsubtask command requires exactly two arguments")
+		}
+		if err := addSubtask(s, args[1], args[2]); err != nil {
+			return fmt.Errorf("add subtask: %v", err)
+		}
 	case "complete":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: %s complete <id>", os.Args[0])
+			return fmt.Errorf("complete command requires exactly one argument")
 		}
-		return completeItem(storage, args[1])
+		if err := completeItem(s, args[1]); err != nil {
+			return fmt.Errorf("complete item: %v", err)
+		}
 	case "uncomplete":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: %s uncomplete <id>", os.Args[0])
+			return fmt.Errorf("uncomplete command requires exactly one argument")
 		}
-		return uncompleteItem(storage, args[1])
+		if err := uncompleteItem(s, args[1]); err != nil {
+			return fmt.Errorf("uncomplete item: %v", err)
+		}
+	case "undo":
+		if len(args) != 2 {
+			return fmt.Errorf("undo command requires exactly one argument")
+		}
+		if err := undoItem(s, args[1]); err != nil {
+			return fmt.Errorf("undo item: %v", err)
+		}
 	case "remove":
 		if len(args) != 2 {
-			return fmt.Errorf("usage: %s remove <id>", os.Args[0])
+			return fmt.Errorf("remove command requires exactly one argument")
 		}
-		return removeItem(storage, args[1])
+		if err := removeItem(s, args[1]); err != nil {
+			return fmt.Errorf("remove item: %v", err)
+		}
 	default:
 		printUsage()
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
+	return nil
 }
