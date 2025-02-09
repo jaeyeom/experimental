@@ -2,7 +2,6 @@ package json_storage
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -12,7 +11,7 @@ import (
 
 func ExampleSave() {
 	// Get a temporary directory
-	dir, err := ioutil.TempDir("", "todo")
+	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
 		panic(err)
 	}
@@ -32,7 +31,7 @@ func ExampleLoad() {
 		"22222222-2222-2222-2222-222222222222",
 	)
 	// Get a temporary directory
-	dir, err := ioutil.TempDir("", "todo")
+	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
 		panic(err)
 	}
@@ -55,13 +54,12 @@ func ExampleLoad() {
 }
 
 func TestSave_createDirectory(t *testing.T) {
-	// Get a temporary directory
-	dir, err := ioutil.TempDir("", "todo")
+	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	path := dir + "/todosub/todo.json"
+	path := dir + "/subdir/todo.json"
 	list := core.NewList()
 	list.Add("buy groceries")
 	list.Add("write code")

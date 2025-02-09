@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
 
@@ -11,7 +10,7 @@ import (
 
 func Example_listItems() {
 	// Get a temporary directory
-	dir, err := ioutil.TempDir("", "todo")
+	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -28,7 +27,7 @@ func Example_addItem() {
 		"22222222-2222-2222-2222-222222222222",
 	)
 	// Get a temporary directory
-	dir, err := ioutil.TempDir("", "todo")
+	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,7 +48,7 @@ func Example_completeItem() {
 		"22222222-2222-2222-2222-222222222222",
 	)
 	// Get a temporary directory
-	dir, err := ioutil.TempDir("", "todo")
+	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func Example_removeItem() {
 		"22222222-2222-2222-2222-222222222222",
 	)
 	// Get a temporary directory
-	dir, err := ioutil.TempDir("", "todo")
+	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
 		log.Fatal(err)
 	}

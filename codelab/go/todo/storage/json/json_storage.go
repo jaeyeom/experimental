@@ -5,7 +5,6 @@ package json_storage
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -33,8 +32,8 @@ func Save(path string, list *todo.List) error {
 	if err != nil {
 		return fmt.Errorf("json.Marshal: %v", err)
 	}
-	if err := ioutil.WriteFile(path, b, 0644); err != nil {
-		return fmt.Errorf("ioutil.Write: %v", err)
+	if err := os.WriteFile(path, b, 0644); err != nil {
+		return fmt.Errorf("os.WriteFile: %v", err)
 	}
 	return nil
 }
@@ -43,12 +42,12 @@ func Save(path string, list *todo.List) error {
 // doesn't exist, it returns a new empty list. If any other error occurs during
 // reading or parsing, it returns a wrapped error describing what went wrong.
 func Load(path string) (*todo.List, error) {
-	b, err := ioutil.ReadFile(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return todo.NewList(), nil
 		}
-		return nil, fmt.Errorf("ioutil.ReadFile: %v", err)
+		return nil, fmt.Errorf("os.ReadFile: %v", err)
 	}
 	var list todo.List
 	if err := json.Unmarshal(b, &list); err != nil {
