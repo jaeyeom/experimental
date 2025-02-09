@@ -1,3 +1,5 @@
+// Package json_storage provides JSON-based persistence for todo lists.
+// It implements saving and loading todo lists to and from JSON files.
 package json_storage
 
 import (
@@ -10,6 +12,8 @@ import (
 	todo "github.com/jaeyeom/experimental/codelab/go/todo/core"
 )
 
+// createParentDir ensures that the parent directory of the given path exists.
+// It creates the directory and any necessary parents with 0755 permissions.
 func createParentDir(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("os.MkdirAll: %v", err)
@@ -17,7 +21,10 @@ func createParentDir(path string) error {
 	return nil
 }
 
-// Save saves list in JSON format to the file specified by path.
+// Save persists a todo list to a JSON file at the specified path. It creates
+// any necessary parent directories and saves the list with 0644 permissions. If
+// an error occurs during any step of the process, it returns a wrapped error
+// describing what went wrong.
 func Save(path string, list *todo.List) error {
 	if err := createParentDir(path); err != nil {
 		return fmt.Errorf("createParentDir: %v", err)
@@ -32,6 +39,9 @@ func Save(path string, list *todo.List) error {
 	return nil
 }
 
+// Load reads a todo list from a JSON file at the specified path. If the file
+// doesn't exist, it returns a new empty list. If any other error occurs during
+// reading or parsing, it returns a wrapped error describing what went wrong.
 func Load(path string) (*todo.List, error) {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
