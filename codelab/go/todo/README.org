@@ -12,6 +12,10 @@ The project is organized into several packages:
 Contains the core data structures and business logic for todo items and lists.
 Provides functionality for adding, completing, and removing items.
 
+*** config
+Handles storage configuration through command-line flags and environment variables.
+Supports both JSON and SQLite storage backends.
+
 *** storage/json
 Implements JSON file-based storage for todo lists. Uses file system operations
 with proper locking mechanisms to ensure thread safety.
@@ -37,7 +41,34 @@ todo uncomplete id  Mark a completed item as incomplete
 todo remove id    Remove a todo item
 #+end_src
 
-Items are stored in JSON format in ~/.todo/todos.json by default.
+*** Storage Configuration
+
+The storage backend can be configured using either command-line flags or environment variables:
+
+**** Command-line Flags
+- ~--storage-type~: Type of storage backend (json or sqlite)
+- ~--storage-path~: Path to the storage file
+
+**** Environment Variables
+- ~TODO_STORAGE_TYPE~: Type of storage backend
+- ~TODO_STORAGE_PATH~: Path to the storage file
+
+Command-line flags take precedence over environment variables. If neither is specified,
+the application defaults to JSON storage at ~/.todo/todos.json.
+
+Examples:
+#+begin_src bash
+# Use JSON storage with custom path
+todo --storage-type json --storage-path /path/to/todos.json ls
+
+# Use SQLite storage with custom path
+todo --storage-type sqlite --storage-path /path/to/todos.db ls
+
+# Use environment variables
+export TODO_STORAGE_TYPE=sqlite
+export TODO_STORAGE_PATH=/path/to/todos.db
+todo ls
+#+end_src
 
 * Development Status
 
@@ -100,21 +131,22 @@ CLOSED: [2025-02-09 Sun 13:16]
 + [X] Write comprehensive tests for SQLite storage
 + [X] Update documentation to reflect SQLite support
 
-*** TODO Configure storage backend
-+ [ ] Define storage backend types (json, sqlite)
-+ [ ] Add tests for configuration handling
-+ [ ] Add configuration package to handle storage settings
-+ [ ] Add command-line flags for storage configuration:
+*** DONE Configure storage backend
+CLOSED: [2025-02-09 Sun 15:36]
++ [X] Define storage backend types (json, sqlite)
++ [X] Add tests for configuration handling
++ [X] Add configuration package to handle storage settings
++ [X] Add command-line flags for storage configuration:
   - --storage-type: Type of storage backend (json, sqlite)
   - --storage-path: Path to the storage file
-+ [ ] Add environment variable support for storage configuration:
++ [X] Add environment variable support for storage configuration:
   - TODO_STORAGE_TYPE: Type of storage backend
   - TODO_STORAGE_PATH: Path to the storage file
-+ [ ] Update main package to use configuration:
++ [X] Update main package to use configuration:
   - Create appropriate storage backend based on configuration
   - Handle configuration errors gracefully
   - Provide helpful error messages for invalid configurations
-+ [ ] Update documentation with configuration options
++ [X] Update documentation with configuration options
 
 ** TODO Milestone 4
 
