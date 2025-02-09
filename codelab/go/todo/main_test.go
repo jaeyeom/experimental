@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	core "github.com/jaeyeom/experimental/codelab/go/todo/core"
+	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core/coretest"
 )
 
