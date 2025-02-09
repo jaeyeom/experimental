@@ -150,7 +150,108 @@ CLOSED: [2025-02-09 Sun 15:36]
 
 ** TODO Milestone 4
 
-It will support subtasks. Sub tasks can have other substasks recursively.
+It will support subtasks. Sub tasks can have other subtasks recursively.
+
+*** Design for Recursive Subtasks
+
+To support recursive subtasks, we will implement a tree structure where each
+task can have multiple subtasks.
+
+**** Data Model
+
+- **Task Structure**:
+  - Each task will have an ID, description, state, and a parent ID.
+  - State can be one of: `Not Started`, `Partially Done`, `Done`.
+  - The parent ID allows for recursive relationships, enabling tasks to have
+    subtasks.
+
+- **JSON Storage**:
+  - Use a nested JSON structure where tasks can contain an array of subtasks.
+  - Example:
+    #+begin_src json
+    {
+      "id": 1,
+      "description": "Parent Task",
+      "state": 2,  // Partially Done
+      "subtasks": [
+        {
+          "id": 2,
+          "description": "Subtask 1",
+          "state": 1  // Done
+        },
+        {
+          "id": 3,
+          "description": "Subtask 2",
+          "state": 0  // Not Started
+        }
+      ]
+    }
+    #+end_src
+
+- **SQLite Storage**:
+  - Use a table with a self-referential foreign key to represent the parent-child relationship.
+  - Example schema:
+    #+begin_src sql
+    CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY,
+      description TEXT,
+      state INTEGER NOT NULL CHECK(state IN (0, 1, 2)),
+      parent_id INTEGER,
+      FOREIGN KEY(parent_id) REFERENCES tasks(id)
+    );
+    #+end_src
+
+  - **State Values**:
+    - `0`: Not Started
+    - `1`: Done
+    - `2`: Partially Done
+
+**** Behavior
+
+- **Task Completion**:
+  - When a subtask is marked as done, check if all sibling subtasks are done to
+    update the parent task's status to `Done`.
+  - If any subtask is not done, the parent task should be `Partially Done`.
+
+- **Parent Task Completion**:
+  - When a parent task is marked as done, recursively mark all subtasks as done.
+
+- **Parent Task Undo**:
+  - When a parent task is undone, recursively mark all subtasks as not started.
+
+**** Implementation Steps
+
+**** TODO Define Task Structure Updates
+- [ ] Write tests to verify that tasks can be created with a `parent_id` and that the state transitions are correctly handled.
+- [ ] Update the core data structures to include a `parent_id` and ensure the `state` is an integer.
+
+**** TODO Modify JSON Storage
+- [ ] Write tests to ensure tasks and subtasks are correctly stored and retrieved.
+- [ ] Update the JSON storage implementation to handle nested tasks.
+- [ ] Implement serialization and deserialization logic for tasks with subtasks.
+
+**** TODO Modify SQLite Storage
+- [ ] Write tests to verify that tasks and subtasks are correctly stored, retrieved, and updated.
+- [ ] Alter the SQLite schema to include the `parent_id` and use integers for the `state`.
+- [ ] Implement logic to handle recursive relationships using SQL queries.
+
+**** TODO Implement Task Completion Logic
+- [ ] Write tests to validate that the task status transitions are correct.
+- [ ] Develop logic to update the task status based on the completion of subtasks.
+- [ ] Ensure that marking a parent task as done updates all subtasks.
+
+**** TODO Implement Task Undo Logic
+- [ ] Write tests to ensure that undoing a task correctly updates all related subtasks.
+- [ ] Develop logic to undo a task and recursively undo all subtasks.
+
+**** TODO Update Command-Line Interface
+- [ ] Write tests to validate the CLI operations.
+- [ ] Extend the CLI to support operations on subtasks.
+- [ ] Implement commands for adding, completing, and undoing tasks and subtasks.
+
+**** TODO Documentation and Review
+- [ ] Update the README and any other relevant documentation to reflect the new features.
+- [ ] Conduct code reviews and refactor as necessary to improve code quality and maintainability.
 
 ** Milestone 5
 
