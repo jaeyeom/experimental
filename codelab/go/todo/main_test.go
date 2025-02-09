@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
 
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
@@ -12,11 +12,15 @@ func Example_listItems() {
 	// Get a temporary directory
 	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error creating temp dir:", err)
+		return
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
-	listItems(path)
+	if err := listItems(path); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
 	// Output:
 	// You have no todo items.
 }
@@ -29,14 +33,24 @@ func Example_addItem() {
 	// Get a temporary directory
 	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error creating temp dir:", err)
+		return
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
 	opt := core.WithNewID(ig)
-	addItem(path, "buy groceries", opt)
-	addItem(path, "write code", opt)
-	listItems(path)
+	if err := addItem(path, "buy groceries", opt); err != nil {
+		fmt.Println("Error adding first item:", err)
+		return
+	}
+	if err := addItem(path, "write code", opt); err != nil {
+		fmt.Println("Error adding second item:", err)
+		return
+	}
+	if err := listItems(path); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
 	// Output:
 	// 11111111-1111-1111-1111-111111111111. [ ] buy groceries
 	// 22222222-2222-2222-2222-222222222222. [ ] write code
@@ -50,15 +64,28 @@ func Example_completeItem() {
 	// Get a temporary directory
 	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error creating temp dir:", err)
+		return
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
 	opt := core.WithNewID(ig)
-	addItem(path, "buy groceries", opt)
-	addItem(path, "write code", opt)
-	completeItem(path, "1")
-	listItems(path)
+	if err := addItem(path, "buy groceries", opt); err != nil {
+		fmt.Println("Error adding first item:", err)
+		return
+	}
+	if err := addItem(path, "write code", opt); err != nil {
+		fmt.Println("Error adding second item:", err)
+		return
+	}
+	if err := completeItem(path, "1"); err != nil {
+		fmt.Println("Error completing item:", err)
+		return
+	}
+	if err := listItems(path); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
 	// Output:
 	// 11111111-1111-1111-1111-111111111111. [x] buy groceries
 	// 22222222-2222-2222-2222-222222222222. [ ] write code
@@ -72,15 +99,28 @@ func Example_removeItem() {
 	// Get a temporary directory
 	dir, err := os.MkdirTemp("", "todo")
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error creating temp dir:", err)
+		return
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
 	opt := core.WithNewID(ig)
-	addItem(path, "buy groceries", opt)
-	addItem(path, "write code", opt)
-	removeItem(path, "1")
-	listItems(path)
+	if err := addItem(path, "buy groceries", opt); err != nil {
+		fmt.Println("Error adding first item:", err)
+		return
+	}
+	if err := addItem(path, "write code", opt); err != nil {
+		fmt.Println("Error adding second item:", err)
+		return
+	}
+	if err := removeItem(path, "1"); err != nil {
+		fmt.Println("Error removing item:", err)
+		return
+	}
+	if err := listItems(path); err != nil {
+		fmt.Println("Error listing items:", err)
+		return
+	}
 	// Output:
 	// 22222222-2222-2222-2222-222222222222. [ ] write code
 }

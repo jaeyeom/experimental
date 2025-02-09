@@ -5,6 +5,7 @@ package json_storage
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -14,7 +15,8 @@ import (
 // createParentDir ensures that the parent directory of the given path exists.
 // It creates the directory and any necessary parents with 0755 permissions.
 func createParentDir(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("os.MkdirAll: %v", err)
 	}
 	return nil
@@ -25,6 +27,7 @@ func createParentDir(path string) error {
 // an error occurs during any step of the process, it returns a wrapped error
 // describing what went wrong.
 func Save(path string, list *core.List) error {
+	slog.Info("saving todo list", "path", path, "items", len(list.Items))
 	if err := createParentDir(path); err != nil {
 		return fmt.Errorf("createParentDir: %v", err)
 	}
@@ -42,9 +45,11 @@ func Save(path string, list *core.List) error {
 // doesn't exist, it returns a new empty list. If any other error occurs during
 // reading or parsing, it returns a wrapped error describing what went wrong.
 func Load(path string) (*core.List, error) {
+	slog.Info("loading todo list", "path", path)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			slog.Info("todo list file not found, creating new list", "path", path)
 			return core.NewList(), nil
 		}
 		return nil, fmt.Errorf("os.ReadFile: %v", err)
@@ -53,5 +58,6 @@ func Load(path string) (*core.List, error) {
 	if err := json.Unmarshal(b, &list); err != nil {
 		return nil, fmt.Errorf("json.Unmarshal: %v", err)
 	}
+	slog.Info("loaded todo list", "path", path, "items", len(list.Items))
 	return &list, nil
 }

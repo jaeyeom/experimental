@@ -16,12 +16,22 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
-	todo "github.com/jaeyeom/experimental/codelab/go/todo/core"
+	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 	json_storage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
 )
+
+func init() {
+	// Initialize structured logging
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stderr, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+}
 
 // printUsage prints the command usage information to stdout.
 func printUsage() {
@@ -35,111 +45,127 @@ func printUsage() {
 
 // listItems loads and displays all todo items. If there are no items, it prints
 // a message indicating an empty list.
-func listItems(path string) {
+func listItems(path string) error {
 	todos, err := json_storage.Load(path)
 	if err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("load todo items: %v", err)
 	}
 	if len(todos.Items) == 0 {
 		fmt.Println("You have no todo items.")
-		return
+		return nil
 	}
 	fmt.Println(todos)
+	return nil
 }
 
 // addItem adds a new todo item to the list and saves it. It accepts options to
 // customize the list behavior (e.g., ID generation).
-func addItem(path, item string, opts ...todo.ListOption) {
+func addItem(path, item string, opts ...core.ListOption) error {
 	todos, err := json_storage.Load(path)
 	if err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("load todo items: %v", err)
 	}
 	for _, opt := range opts {
 		opt(todos)
 	}
 	todos.Add(item)
 	if err := json_storage.Save(path, todos); err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("save todo items: %v", err)
 	}
+	return nil
 }
 
 // completeItem marks a todo item as completed by its ID. The ID can be a prefix
 // of the full ID as long as it uniquely identifies an item.
-func completeItem(path, id string) {
+func completeItem(path, id string) error {
 	todos, err := json_storage.Load(path)
 	if err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("load todo items: %v", err)
 	}
 	if err := todos.Complete(id); err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("complete todo item: %v", err)
 	}
 	if err := json_storage.Save(path, todos); err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("save todo items: %v", err)
 	}
+	return nil
 }
 
 // uncompleteItem marks a completed todo item as incomplete by its ID. The ID can be
 // a prefix of the full ID as long as it uniquely identifies an item.
-func uncompleteItem(path, id string) {
+func uncompleteItem(path, id string) error {
 	todos, err := json_storage.Load(path)
 	if err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("load todo items: %v", err)
 	}
 	if err := todos.Uncomplete(id); err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("uncomplete todo item: %v", err)
 	}
 	if err := json_storage.Save(path, todos); err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("save todo items: %v", err)
 	}
+	return nil
 }
 
 // removeItem removes a todo item from the list by its ID. The ID can be a
 // prefix of the full ID as long as it uniquely identifies an item.
-func removeItem(path, id string) {
+func removeItem(path, id string) error {
 	todos, err := json_storage.Load(path)
 	if err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("load todo items: %v", err)
 	}
 	if err := todos.Remove(id); err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("remove todo item: %v", err)
 	}
 	if err := json_storage.Save(path, todos); err != nil {
-		log.Fatal("Error:", err)
+		return fmt.Errorf("save todo items: %v", err)
 	}
+	return nil
 }
 
 func main() {
 	flag.Parse()
 	path := os.Getenv("HOME") + "/.todo/todos.json"
 
+	var err error
 	switch flag.Arg(0) {
 	case "ls":
-		listItems(path)
+		err = listItems(path)
 	case "add":
 		if flag.NArg() != 2 {
 			fmt.Println("Error: Missing todo item")
 			os.Exit(1)
 		}
-		addItem(path, flag.Arg(1))
+		err = addItem(path, flag.Arg(1))
 	case "complete":
 		if flag.NArg() != 2 {
 			printUsage()
 			os.Exit(1)
 		}
-		completeItem(path, flag.Arg(1))
+		err = completeItem(path, flag.Arg(1))
 	case "uncomplete":
 		if flag.NArg() != 2 {
 			printUsage()
 			os.Exit(1)
 		}
-		uncompleteItem(path, flag.Arg(1))
+		err = uncompleteItem(path, flag.Arg(1))
 	case "remove":
 		if flag.NArg() != 2 {
 			fmt.Println("Error: Missing id")
 			os.Exit(1)
 		}
-		removeItem(path, flag.Arg(1))
+		err = removeItem(path, flag.Arg(1))
 	default:
 		printUsage()
+		os.Exit(1)
+	}
+
+	if err != nil {
+		slog.Error(
+			"command failed",
+			"command", flag.Arg(0),
+			"error", err,
+		)
+		os.Exit(1)
 	}
 }
