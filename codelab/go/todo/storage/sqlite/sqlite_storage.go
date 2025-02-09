@@ -43,6 +43,7 @@ func createTables(db *sql.DB) error {
 			description TEXT NOT NULL,
 			state INTEGER NOT NULL,
 			parent_id TEXT,
+			sibling_order INTEGER NOT NULL,
 			FOREIGN KEY(parent_id) REFERENCES items(id)
 		)
 	`)
@@ -76,25 +77,25 @@ func (s *Storage) Save(list *core.List) error {
 	}
 
 	// Insert all items
-	stmt, err := tx.Prepare("INSERT INTO items (id, description, state, parent_id) VALUES (?, ?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO items (id, description, state, parent_id, sibling_order) VALUES (?, ?, ?, ?, ?)")
 	if err != nil {
 		return fmt.Errorf("prepare insert statement: %v", err)
 	}
 	defer stmt.Close()
 
 	// Helper function to save an item and its subtasks recursively
-	var saveItem func(item core.Item, parentID string) error
-	saveItem = func(item core.Item, parentID string) error {
+	var saveItem func(item core.Item, parentID string, order int) error
+	saveItem = func(item core.Item, parentID string, order int) error {
 		var parent interface{}
 		if parentID != "" {
 			parent = parentID
 		}
-		if _, err := stmt.Exec(item.ID, item.Description, item.State, parent); err != nil {
+		if _, err := stmt.Exec(item.ID, item.Description, item.State, parent, order); err != nil {
 			return fmt.Errorf("insert item: %v", err)
 		}
-		for _, subtask := range item.Subtasks {
+		for i, subtask := range item.Subtasks {
 			subtask.ParentID = item.ID
-			if err := saveItem(subtask, item.ID); err != nil {
+			if err := saveItem(subtask, item.ID, i); err != nil {
 				return err
 			}
 		}
@@ -102,8 +103,8 @@ func (s *Storage) Save(list *core.List) error {
 	}
 
 	// Save all top-level items and their subtasks
-	for _, item := range list.Items {
-		if err := saveItem(item, ""); err != nil {
+	for i, item := range list.Items {
+		if err := saveItem(item, "", i); err != nil {
 			return err
 		}
 	}
@@ -120,16 +121,23 @@ func (s *Storage) Load() (*core.List, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Load all items into a map
-	rows, err := s.db.Query("SELECT id, description, state, parent_id FROM items")
+	// Load all items ordered by sibling_order
+	rows, err := s.db.Query(`
+		SELECT id, description, state, parent_id
+		FROM items
+		ORDER BY CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END, parent_id, sibling_order
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("query items: %v", err)
 	}
 	defer rows.Close()
 
-	// Map to store all items by their ID
+	// Map to store all items by their ID for quick lookup
 	itemMap := make(map[string]*core.Item)
+	// Slice to maintain order of root items
 	var rootItems []core.Item
+	// Map from parent ID to ordered slice of child items
+	childrenMap := make(map[string][]*core.Item)
 
 	// First pass: create all items
 	for rows.Next() {
@@ -150,6 +158,9 @@ func (s *Storage) Load() (*core.List, error) {
 		// If it's a root item (no parent), add it to rootItems
 		if !parentID.Valid {
 			rootItems = append(rootItems, item)
+		} else {
+			// Add to childrenMap in order
+			childrenMap[parentID.String] = append(childrenMap[parentID.String], &itemCopy)
 		}
 	}
 
@@ -157,19 +168,11 @@ func (s *Storage) Load() (*core.List, error) {
 		return nil, fmt.Errorf("iterate rows: %v", err)
 	}
 
-	// Second pass: build the subtask hierarchy in topological order
-	// First, build a map of children for each parent
-	childrenMap := make(map[string][]*core.Item)
-	for _, item := range itemMap {
-		if item.ParentID != "" {
-			childrenMap[item.ParentID] = append(childrenMap[item.ParentID], item)
-		}
-	}
-
 	// Helper function to recursively build subtask hierarchy
 	var buildSubtasks func(item *core.Item)
 	buildSubtasks = func(item *core.Item) {
 		if children, ok := childrenMap[item.ID]; ok {
+			// Children are already in the correct order from the SQL query
 			for _, child := range children {
 				// Create a deep copy of the child
 				childCopy := *child
@@ -182,6 +185,7 @@ func (s *Storage) Load() (*core.List, error) {
 
 	// Create a new list with root items
 	list := core.NewList()
+	// Root items are already in order from the SQL query
 	for _, rootItem := range rootItems {
 		// Get the updated root item with subtasks from the map
 		if updatedRoot, ok := itemMap[rootItem.ID]; ok {
