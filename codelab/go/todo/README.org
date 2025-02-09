@@ -201,15 +201,16 @@ task can have multiple subtasks.
     #+end_src
 
 - **SQLite Storage**:
-  - Use a table with a self-referential foreign key to represent the parent-child relationship.
+  - Use a single table with a parent_id column for hierarchical relationships
+  - Add a sibling_order column to maintain the order of tasks and subtasks
   - Example schema:
     #+begin_src sql
-    CREATE TABLE tasks (
-      id INTEGER PRIMARY KEY,
-      description TEXT,
-      state INTEGER NOT NULL CHECK(state IN (0, 1, 2)),
-      parent_id INTEGER,
-      FOREIGN KEY(parent_id) REFERENCES tasks(id)
+    CREATE TABLE items (
+      id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      state INTEGER NOT NULL,
+      parent_id TEXT REFERENCES items(id),
+      sibling_order INTEGER NOT NULL
     );
     #+end_src
 
@@ -231,8 +232,7 @@ task can have multiple subtasks.
 - **Parent Task Undo**:
   - When a parent task is undone, recursively mark all subtasks as not started.
 
-**** Implementation Steps
-
+*** Implementation Steps
 **** DONE Define Task Structure Updates
 CLOSED: [2025-02-09 Sun 16:18]
 + [X] Write tests to verify that tasks can be created with a `parent_id` and
@@ -277,6 +277,15 @@ CLOSED: [2025-02-09 Sun 17:15]
 + [X] Implement commands for adding, completing, and undoing tasks and subtasks.
 + [X] Update task display to show subtasks with proper indentation.
 + [X] Support partial task completion state with [-] indicator.
+
+**** DONE Implement SQLite Ordered Subtasks
+CLOSED: [2025-02-09 Sun 19:02]
++ [X] Add sibling_order column to maintain task order
++ [X] Modify Save function to store sibling order
++ [X] Update Load function to preserve task order
++ [X] Add test cases for ordered tasks and subtasks
++ [X] Implement descending UUID generation (ff -> ee -> dd -> cc) for testing
++ [X] Verify order preservation with both ascending and descending IDs
 
 **** TODO Documentation and Review
 - [ ] Update the README and any other relevant documentation to reflect the new
