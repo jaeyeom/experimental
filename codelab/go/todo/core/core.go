@@ -206,7 +206,10 @@ var (
 	// ErrItemNotFound is returned when a requested item does not exist in the list.
 	ErrItemNotFound = errors.New("item not found")
 	// ErrAmbiguousItem is returned when an item ID prefix matches multiple items.
-	ErrAmbiguousItem = errors.New("item ambiguous")
+	ErrAmbiguousItem = errors.New("ambiguous item ID")
+	// ErrNoSibling is returned when trying to move an item but there is no sibling
+	// in the requested direction (e.g., moving first item up or last item down).
+	ErrNoSibling = errors.New("no sibling in that direction")
 )
 
 // findItemInSubtasks recursively searches for an item in the subtasks tree
@@ -345,4 +348,88 @@ func (l *List) FindByID(id string) *Item {
 		return nil
 	}
 	return findRecursive(l.Items)
+}
+
+// findItemContainer finds an item and its container (either root list or parent's subtasks).
+// It returns the container slice, index of the item, and whether the item was found.
+func (l *List) findItemContainer(id string) (*[]Item, int, error) {
+	// Check root items first
+	var matches []struct {
+		container *[]Item
+		index    int
+	}
+
+	// Helper function to check if an ID matches the prefix
+	isMatch := func(itemID string) bool {
+		return strings.HasPrefix(itemID, id)
+	}
+
+	// Check root items
+	for i, item := range l.Items {
+		if isMatch(item.ID) {
+			matches = append(matches, struct {
+				container *[]Item
+				index    int
+			}{&l.Items, i})
+		}
+	}
+
+	// If not found in root items, search in subtasks
+	for i := range l.Items {
+		var findInSubtasks func(items []Item) bool
+		findInSubtasks = func(items []Item) bool {
+			for j, item := range items {
+				if isMatch(item.ID) {
+					matches = append(matches, struct {
+						container *[]Item
+						index    int
+					}{&items, j})
+				}
+				if len(item.Subtasks) > 0 && findInSubtasks(item.Subtasks) {
+					return true
+				}
+			}
+			return false
+		}
+		findInSubtasks(l.Items[i].Subtasks)
+	}
+
+	if len(matches) == 0 {
+		return nil, 0, ErrItemNotFound
+	}
+	if len(matches) > 1 {
+		return nil, 0, ErrAmbiguousItem
+	}
+	return matches[0].container, matches[0].index, nil
+}
+
+// move moves a todo item in the specified direction among its siblings.
+// direction should be -1 for up or +1 for down.
+func (l *List) move(id string, direction int) error {
+	container, idx, err := l.findItemContainer(id)
+	if err != nil {
+		return err
+	}
+
+	// Check bounds based on direction
+	newIdx := idx + direction
+	if newIdx < 0 || newIdx >= len(*container) {
+		return ErrNoSibling
+	}
+
+	// Swap with adjacent item
+	(*container)[idx], (*container)[newIdx] = (*container)[newIdx], (*container)[idx]
+	return nil
+}
+
+// MoveUp moves a todo item up among its siblings. If the item is the first sibling,
+// it returns ErrNoSibling. If the item doesn't exist, it returns ErrItemNotFound.
+func (l *List) MoveUp(id string) error {
+	return l.move(id, -1)
+}
+
+// MoveDown moves a todo item down among its siblings. If the item is the last sibling,
+// it returns ErrNoSibling. If the item doesn't exist, it returns ErrItemNotFound.
+func (l *List) MoveDown(id string) error {
+	return l.move(id, 1)
 }

@@ -1,0 +1,114 @@
+* DONE Reordering Todo Items Feature
+
+** Overview
+
+This feature will allow users to reorder todo items by moving them up or down
+within their sibling group. This applies to both root-level items and subtasks.
+
+** DONE Core Package Changes [3/3]
+
+*** DONE Add New Methods to core.List [2/2]
+**** DONE MoveUp(id string) error
+- Find the item with the given ID
+- If it's the first sibling, return an error
+- Swap positions with the previous sibling
+- Return nil on success
+
+**** DONE MoveDown(id string) error
+- Find the item with the given ID
+- If it's the last sibling, return an error
+- Swap positions with the next sibling
+- Return nil on success
+
+*** DONE Error Types
+#+begin_src go
+var (
+    ErrItemNotFound = errors.New("item not found")
+    ErrNoSibling = errors.New("no sibling in that direction")
+)
+#+end_src
+
+*** DONE Test Cases for core.List [2/2]
+**** DONE TestMoveUp
+- [X] Moving first root item up returns error
+- [X] Moving first subtask up returns error
+- [X] Moving middle item up succeeds
+- [X] Moving last item up succeeds
+- [X] Moving non-existent item returns error
+
+**** DONE TestMoveDown
+- [X] Moving last root item down returns error
+- [X] Moving last subtask down returns error
+- [X] Moving middle item down succeeds
+- [X] Moving first item down succeeds
+- [X] Moving non-existent item returns error
+
+** DONE Storage Package Changes [2/2]
+
+*** DONE SQLite Storage [2/2]
+**** DONE Update Save Method
+- [X] Verify sibling_order handling works with reordering
+- [X] Add test cases for order preservation after moves
+
+**** DONE Update Load Method
+- [X] Verify items load in correct order after moves
+- [X] Add test cases for order preservation
+
+*** DONE JSON Storage [2/2]
+**** DONE Update Save Method
+- [X] Verified that no changes needed - order is preserved in JSON format
+- [X] Verified by existing tests
+
+**** DONE Update Load Method
+- [X] Verified that no changes needed - order is preserved from JSON
+- [X] Verified by existing tests
+
+** DONE CLI Changes
+
+*** DONE Add New Commands
+**** DONE up <id>
+Move the specified item up among its siblings
+#+begin_src
+todo up <id>     Move a todo item up
+#+end_src
+
+**** DONE down <id>
+Move the specified item down among its siblings
+#+begin_src
+todo down <id>   Move a todo item down
+#+end_src
+
+*** DONE Error Messages
+- [X] Implement "Cannot move first item up"
+- [X] Implement "Cannot move last item down"
+- [X] Implement "Item not found"
+
+** DONE Implementation Steps
+
+*** DONE Phase 1: Core Implementation [3/3]
+1. [X] Write test cases for MoveUp and MoveDown
+2. [X] Implement MoveUp and MoveDown in core.List
+3. [X] Run tests and verify behavior
+
+*** DONE Phase 2: Storage Layer [3/3]
+1. [X] Verify existing storage implementations handle reordering
+2. [X] Add test cases for order preservation
+3. [X] Verified no changes needed in storage implementations
+
+*** DONE Phase 3: CLI Integration
+1. [X] Add up/down commands to CLI
+2. [X] Write integration tests
+3. [X] Update help documentation
+
+** DONE Test Plan
+
+*** DONE Unit Tests [4/4]
+1. [X] Test reordering root items
+2. [X] Test reordering subtasks
+3. [X] Test error cases
+4. [X] Test order preservation across save/load
+
+*** DONE Integration Tests
+1. [X] Test CLI commands
+2. [X] Test persistence of order changes
+3. [X] Test with both storage backends

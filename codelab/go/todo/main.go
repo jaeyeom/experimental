@@ -11,6 +11,8 @@
 //	todo uncomplete id        Mark a completed item as incomplete
 //	todo undo id              Undo a completed item
 //	todo remove id            Remove a todo item
+//	todo moveup id            Move a todo item up among its siblings
+//	todo movedown id          Move a todo item down among its siblings
 //
 // Items can be stored in either JSON or SQLite format. By default, items are
 // stored in JSON format in ~/.todo/todos.json. The storage backend can be
@@ -64,6 +66,8 @@ func printUsage() {
 	todo uncomplete <id>	Mark a completed item as incomplete
 	todo undo <id>		Undo a completed item
 	todo remove <id>	Remove a todo item
+	todo moveup <id>	Move a todo item up among its siblings
+	todo movedown <id>	Move a todo item down among its siblings
 
 Storage configuration:
 	--storage-type		Storage backend type (json or sqlite)
@@ -189,6 +193,60 @@ func removeItem(s storage, id string) error {
 	return nil
 }
 
+// moveItemUp moves a todo item up among its siblings by its ID. The ID can be a
+// prefix of the full ID as long as it uniquely identifies an item.
+func moveItemUp(s storage, id string) error {
+	list, err := s.Load()
+	if err != nil {
+		return fmt.Errorf("load list: %v", err)
+	}
+
+	if err := list.MoveUp(id); err != nil {
+		if err == core.ErrNoSibling {
+			return fmt.Errorf("cannot move first item up")
+		}
+		if err == core.ErrItemNotFound {
+			return fmt.Errorf("item not found: %s", id)
+		}
+		if err == core.ErrAmbiguousItem {
+			return fmt.Errorf("ambiguous item ID: %s", id)
+		}
+		return fmt.Errorf("move item up: %v", err)
+	}
+
+	if err := s.Save(list); err != nil {
+		return fmt.Errorf("save list: %v", err)
+	}
+	return nil
+}
+
+// moveItemDown moves a todo item down among its siblings by its ID. The ID can be a
+// prefix of the full ID as long as it uniquely identifies an item.
+func moveItemDown(s storage, id string) error {
+	list, err := s.Load()
+	if err != nil {
+		return fmt.Errorf("load list: %v", err)
+	}
+
+	if err := list.MoveDown(id); err != nil {
+		if err == core.ErrNoSibling {
+			return fmt.Errorf("cannot move last item down")
+		}
+		if err == core.ErrItemNotFound {
+			return fmt.Errorf("item not found: %s", id)
+		}
+		if err == core.ErrAmbiguousItem {
+			return fmt.Errorf("ambiguous item ID: %s", id)
+		}
+		return fmt.Errorf("move item down: %v", err)
+	}
+
+	if err := s.Save(list); err != nil {
+		return fmt.Errorf("save list: %v", err)
+	}
+	return nil
+}
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("command failed", "error", err)
@@ -268,6 +326,20 @@ func run() error {
 		}
 		if err := removeItem(s, args[1]); err != nil {
 			return fmt.Errorf("remove item: %v", err)
+		}
+	case "moveup":
+		if len(args) != 2 {
+			return fmt.Errorf("moveup command requires exactly one argument")
+		}
+		if err := moveItemUp(s, args[1]); err != nil {
+			return fmt.Errorf("move item up: %v", err)
+		}
+	case "movedown":
+		if len(args) != 2 {
+			return fmt.Errorf("movedown command requires exactly one argument")
+		}
+		if err := moveItemDown(s, args[1]); err != nil {
+			return fmt.Errorf("move item down: %v", err)
 		}
 	default:
 		printUsage()

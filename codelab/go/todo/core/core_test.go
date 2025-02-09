@@ -49,7 +49,7 @@ func ExampleList_Complete_ambiguos() {
 	}
 	fmt.Println(l)
 	// Output:
-	// item ambiguous
+	// ambiguous item ID
 	// 11111111-1111-1111-1111-111111111111. [ ] buy groceries
 	// 12222222-2222-2222-2222-222222222222. [ ] write code
 }
@@ -81,7 +81,7 @@ func ExampleList_Remove_ambiguous() {
 	}
 	fmt.Println(l)
 	// Output:
-	// item ambiguous
+	// ambiguous item ID
 	// 11111111-1111-1111-1111-111111111111. [ ] buy groceries
 	// 12222222-2222-2222-2222-222222222222. [ ] write code
 }
@@ -120,7 +120,7 @@ func ExampleList_Uncomplete_ambiguous() {
 	}
 	fmt.Println(l)
 	// Output:
-	// item ambiguous
+	// ambiguous item ID
 	// 11111111-1111-1111-1111-111111111111. [x] buy groceries
 	// 12222222-2222-2222-2222-222222222222. [ ] write code
 }
@@ -250,7 +250,7 @@ func TestCompleteWithSubtasks(t *testing.T) {
 func TestUndoWithSubtasks(t *testing.T) {
 	tests := []struct {
 		name              string
-		setup            func(list *List) string // returns ID of item to undo
+		setup             func(list *List) string // returns ID of item to undo
 		wantParentState   ItemState
 		wantSubtaskStates []ItemState
 	}{
