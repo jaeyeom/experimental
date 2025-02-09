@@ -4,6 +4,7 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
@@ -19,6 +20,7 @@ type Storage struct {
 // New creates a new SQLite storage instance. It creates the database file if it
 // doesn't exist and sets up the necessary tables.
 func New(path string) (*Storage, error) {
+	slog.Debug("Opening SQLite database", "path", path)
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %v", err)
@@ -29,6 +31,7 @@ func New(path string) (*Storage, error) {
 		db.Close()
 		return nil, fmt.Errorf("create tables: %v", err)
 	}
+	slog.Info("SQLite storage initialized", "path", path)
 
 	return &Storage{
 		db: db,
@@ -37,6 +40,7 @@ func New(path string) (*Storage, error) {
 
 // createTables creates the necessary tables in the database if they don't exist.
 func createTables(db *sql.DB) error {
+	slog.Debug("Creating tables if they don't exist")
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS items (
 			id TEXT PRIMARY KEY,
@@ -59,6 +63,7 @@ func (s *Storage) Save(list *core.List) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	slog.Debug("Starting transaction for saving todo list")
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin transaction: %v", err)
@@ -72,6 +77,7 @@ func (s *Storage) Save(list *core.List) error {
 	}()
 
 	// Clear existing items
+	slog.Debug("Clearing existing items")
 	if _, err := tx.Exec("DELETE FROM items"); err != nil {
 		return fmt.Errorf("clear items: %v", err)
 	}
@@ -90,6 +96,11 @@ func (s *Storage) Save(list *core.List) error {
 		if parentID != "" {
 			parent = parentID
 		}
+		slog.Debug("Saving item",
+			"id", item.ID,
+			"description", item.Description,
+			"parent_id", parent,
+			"order", order)
 		if _, err := stmt.Exec(item.ID, item.Description, item.State, parent, order); err != nil {
 			return fmt.Errorf("insert item: %v", err)
 		}
@@ -103,6 +114,7 @@ func (s *Storage) Save(list *core.List) error {
 	}
 
 	// Save all top-level items and their subtasks
+	slog.Debug("Saving root items and subtasks", "root_item_count", len(list.Items))
 	for i, item := range list.Items {
 		if err := saveItem(item, "", i); err != nil {
 			return err
@@ -112,6 +124,7 @@ func (s *Storage) Save(list *core.List) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %v", err)
 	}
+	slog.Info("Successfully saved todo list to SQLite")
 	return nil
 }
 
@@ -121,6 +134,7 @@ func (s *Storage) Load() (*core.List, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	slog.Debug("Loading todo list from SQLite")
 	// Load all items ordered by sibling_order
 	rows, err := s.db.Query(`
 		SELECT id, description, state, parent_id
@@ -140,6 +154,7 @@ func (s *Storage) Load() (*core.List, error) {
 	childrenMap := make(map[string][]*core.Item)
 
 	// First pass: create all items
+	itemCount := 0
 	for rows.Next() {
 		var item core.Item
 		var parentID sql.NullString
@@ -162,16 +177,24 @@ func (s *Storage) Load() (*core.List, error) {
 			// Add to childrenMap in order
 			childrenMap[parentID.String] = append(childrenMap[parentID.String], &itemCopy)
 		}
+		itemCount++
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate rows: %v", err)
 	}
 
+	slog.Debug("Loaded items from database",
+		"total_items", itemCount,
+		"root_items", len(rootItems))
+
 	// Helper function to recursively build subtask hierarchy
 	var buildSubtasks func(item *core.Item)
 	buildSubtasks = func(item *core.Item) {
 		if children, ok := childrenMap[item.ID]; ok {
+			slog.Debug("Building subtasks",
+				"parent_id", item.ID,
+				"subtask_count", len(children))
 			// Children are already in the correct order from the SQL query
 			for _, child := range children {
 				// Create a deep copy of the child
@@ -195,6 +218,9 @@ func (s *Storage) Load() (*core.List, error) {
 		}
 	}
 
+	slog.Info("Successfully loaded todo list from SQLite",
+		"total_items", itemCount,
+		"root_items", len(rootItems))
 	return list, nil
 }
 
