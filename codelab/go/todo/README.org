@@ -34,6 +34,31 @@ It will use UUID instead of integer as an ID.
 
 It will support both the file system and SQLite as storage backends.
 
+*** TODO Design storage interface
++ [ ] Extract a common interface from the existing JSON storage implementation
++ [ ] Move the interface to a separate package
++ [ ] Update the existing JSON storage to implement the new interface
++ [ ] Write interface documentation with clear requirements
+
+*** TODO Implement SQLite storage
++ [ ] Add SQLite dependency
++ [ ] Design database schema for todo items
++ [ ] Implement storage interface for SQLite
++ [ ] Add proper error handling and transaction support
++ [ ] Write comprehensive tests for SQLite storage
+
+*** TODO Update main package
++ [ ] Add storage backend configuration
++ [ ] Add command-line flag to select storage backend
++ [ ] Ensure graceful handling of storage backend switching
++ [ ] Update documentation for new storage options
+
+*** TODO Testing and validation
++ [ ] Add integration tests for both storage backends
++ [ ] Add benchmarks to compare performance
++ [ ] Ensure data consistency when switching backends
++ [ ] Test error scenarios and recovery
+
 ** TODO Milestone 4
 
 It will support subtasks. Sub tasks can have other substasks recursively.
