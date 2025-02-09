@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/jaeyeom/experimental/codelab/go/todo/config"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core/coretest"
 	json_storage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
@@ -177,6 +179,8 @@ func Example_noCommand() {
 	//	todo uncomplete <id>	Mark a completed item as incomplete
 	//	todo undo <id>		Undo a completed item
 	//	todo remove <id>	Remove a todo item
+	//	todo moveup <id>	Move a todo item up among its siblings
+	//	todo movedown <id>	Move a todo item down among its siblings
 	//
 	// Storage configuration:
 	//	--storage-type		Storage backend type (json or sqlite)
@@ -205,6 +209,8 @@ func Example_invalidCommand() {
 	//	todo uncomplete <id>	Mark a completed item as incomplete
 	//	todo undo <id>		Undo a completed item
 	//	todo remove <id>	Remove a todo item
+	//	todo moveup <id>	Move a todo item up among its siblings
+	//	todo movedown <id>	Move a todo item down among its siblings
 	//
 	// Storage configuration:
 	//	--storage-type		Storage backend type (json or sqlite)
@@ -486,6 +492,274 @@ func TestStorageConfiguration(t *testing.T) {
 			err := run()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestMoveUpCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name: "move middle item up",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2", "3")))
+				list.Add("First")
+				list.Add("Second")
+				list.Add("Third")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"moveup", "2"},
+			wantError: false,
+		},
+		{
+			name: "move first item up",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2")))
+				list.Add("First")
+				list.Add("Second")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"moveup", "1"},
+			wantError: true,
+			wantMsg:   "cannot move first item up",
+		},
+		{
+			name: "move non-existent item up",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1")))
+				list.Add("First")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"moveup", "nonexistent"},
+			wantError: true,
+			wantMsg:   "item not found",
+		},
+		{
+			name: "move item up using prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "def456")))
+				list.Add("First")
+				list.Add("Second")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"moveup", "def"},
+			wantError: false,
+		},
+		{
+			name: "move item up with ambiguous prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "abc456")))
+				list.Add("First")
+				list.Add("Second")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"moveup", "abc"},
+			wantError: true,
+			wantMsg:   "ambiguous item ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestMoveDownCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name: "move middle item down",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2", "3")))
+				list.Add("First")
+				list.Add("Second")
+				list.Add("Third")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"movedown", "2"},
+			wantError: false,
+		},
+		{
+			name: "move last item down",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2")))
+				list.Add("First")
+				list.Add("Second")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"movedown", "2"},
+			wantError: true,
+			wantMsg:   "cannot move last item down",
+		},
+		{
+			name: "move non-existent item down",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1")))
+				list.Add("First")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"movedown", "nonexistent"},
+			wantError: true,
+			wantMsg:   "item not found",
+		},
+		{
+			name: "move item down using prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "def456")))
+				list.Add("First")
+				list.Add("Second")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"movedown", "abc"},
+			wantError: false,
+		},
+		{
+			name: "move item down with ambiguous prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "abc456")))
+				list.Add("First")
+				list.Add("Second")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"movedown", "abc"},
+			wantError: true,
+			wantMsg:   "ambiguous item ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
 	}
