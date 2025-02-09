@@ -60,7 +60,9 @@ func ExampleList_Remove() {
 	)))
 	l.Add("buy groceries")
 	l.Add("write code")
-	l.Remove("1")
+	if err := l.Remove("1"); err != nil {
+		fmt.Println(err)
+	}
 	fmt.Println(l)
 	// Output:
 	// 22222222-2222-2222-2222-222222222222. [ ] write code
