@@ -4,6 +4,44 @@ This is a simple to-do application developed using test-driven development and
 Copilot. The following milestones were determined ad hoc, so the second
 milestone was unknown when the first milestone was being developed.
 
+** Project Structure
+
+The project is organized into several packages:
+
+*** core
+Contains the core data structures and business logic for todo items and lists.
+Provides functionality for adding, completing, and removing items.
+
+*** storage/json
+Implements JSON file-based storage for todo lists. Uses file system operations
+with proper locking mechanisms to ensure thread safety.
+
+*** main
+Contains the command-line interface and defines the storage interface. The
+interface is defined here as this is where different storage implementations
+are used together.
+
+** Usage
+
+The application provides the following commands:
+
+#+begin_src
+todo ls           List todo items
+todo add "item"   Add a new todo item
+todo complete id  Complete a todo item
+todo uncomplete id  Mark a completed item as incomplete
+todo remove id    Remove a todo item
+#+end_src
+
+Items are stored in JSON format in ~/.todo/todos.json by default.
+
+* Development Status
+
+The application currently supports JSON file-based storage. The storage interface
+has been designed to allow for easy addition of new storage backends. SQLite
+support is planned as the next major feature.
+
+
 ** DONE Milestone 1
 CLOSED: [2025-02-08 Sat 16:52]
 
@@ -30,34 +68,34 @@ CLOSED: [2025-02-08 Sat 19:37]
 
 It will use UUID instead of integer as an ID.
 
-** TODO Milestone 3
+** DONE Milestone 3
+CLOSED: [2025-02-09 Sun 12:59]
 
 It will support both the file system and SQLite as storage backends.
 
-*** TODO Design storage interface
-+ [ ] Extract a common interface from the existing JSON storage implementation
-+ [ ] Move the interface to a separate package
-+ [ ] Update the existing JSON storage to implement the new interface
-+ [ ] Write interface documentation with clear requirements
+*** DONE Planning and task breakdown
+CLOSED: [2025-02-09 Sun 12:59]
++ [X] Define main components and their responsibilities
++ [X] Break down implementation into manageable tasks
++ [X] Set clear objectives for each task
++ [X] Document the plan in README.org
+
+*** DONE Design storage interface
+CLOSED: [2025-02-09 Sun 13:12]
++ [X] Define storage interface in main.go where it is used
++ [X] Update the existing JSON storage to implement the interface
++ [X] Write interface documentation with clear requirements
++ [X] Update tests to use the interface
++ [X] Ensure all tests pass with the new interface
 
 *** TODO Implement SQLite storage
 + [ ] Add SQLite dependency
 + [ ] Design database schema for todo items
-+ [ ] Implement storage interface for SQLite
-+ [ ] Add proper error handling and transaction support
++ [ ] Implement SQLite storage that satisfies the storage interface
++ [ ] Add error handling and transaction support
 + [ ] Write comprehensive tests for SQLite storage
++ [ ] Update documentation to reflect SQLite support
 
-*** TODO Update main package
-+ [ ] Add storage backend configuration
-+ [ ] Add command-line flag to select storage backend
-+ [ ] Ensure graceful handling of storage backend switching
-+ [ ] Update documentation for new storage options
-
-*** TODO Testing and validation
-+ [ ] Add integration tests for both storage backends
-+ [ ] Add benchmarks to compare performance
-+ [ ] Ensure data consistency when switching backends
-+ [ ] Test error scenarios and recovery
 
 ** TODO Milestone 4
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core/coretest"
+	json_storage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
 )
 
 func Example_listItems() {
@@ -17,7 +18,15 @@ func Example_listItems() {
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
-	if err := listItems(path); err != nil {
+
+	s, err := json_storage.New(path)
+	if err != nil {
+		fmt.Println("Error creating storage:", err)
+		return
+	}
+	defer s.Close()
+
+	if err := listItems(s); err != nil {
 		fmt.Println("Error listing items:", err)
 		return
 	}
@@ -38,16 +47,24 @@ func Example_addItem() {
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
+
+	s, err := json_storage.New(path)
+	if err != nil {
+		fmt.Println("Error creating storage:", err)
+		return
+	}
+	defer s.Close()
+
 	opt := core.WithNewID(ig)
-	if err := addItem(path, "buy groceries", opt); err != nil {
+	if err := addItem(s, "buy groceries", opt); err != nil {
 		fmt.Println("Error adding first item:", err)
 		return
 	}
-	if err := addItem(path, "write code", opt); err != nil {
+	if err := addItem(s, "write code", opt); err != nil {
 		fmt.Println("Error adding second item:", err)
 		return
 	}
-	if err := listItems(path); err != nil {
+	if err := listItems(s); err != nil {
 		fmt.Println("Error listing items:", err)
 		return
 	}
@@ -69,20 +86,28 @@ func Example_completeItem() {
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
+
+	s, err := json_storage.New(path)
+	if err != nil {
+		fmt.Println("Error creating storage:", err)
+		return
+	}
+	defer s.Close()
+
 	opt := core.WithNewID(ig)
-	if err := addItem(path, "buy groceries", opt); err != nil {
+	if err := addItem(s, "buy groceries", opt); err != nil {
 		fmt.Println("Error adding first item:", err)
 		return
 	}
-	if err := addItem(path, "write code", opt); err != nil {
+	if err := addItem(s, "write code", opt); err != nil {
 		fmt.Println("Error adding second item:", err)
 		return
 	}
-	if err := completeItem(path, "1"); err != nil {
+	if err := completeItem(s, "1"); err != nil {
 		fmt.Println("Error completing item:", err)
 		return
 	}
-	if err := listItems(path); err != nil {
+	if err := listItems(s); err != nil {
 		fmt.Println("Error listing items:", err)
 		return
 	}
@@ -104,20 +129,28 @@ func Example_removeItem() {
 	}
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
+
+	s, err := json_storage.New(path)
+	if err != nil {
+		fmt.Println("Error creating storage:", err)
+		return
+	}
+	defer s.Close()
+
 	opt := core.WithNewID(ig)
-	if err := addItem(path, "buy groceries", opt); err != nil {
+	if err := addItem(s, "buy groceries", opt); err != nil {
 		fmt.Println("Error adding first item:", err)
 		return
 	}
-	if err := addItem(path, "write code", opt); err != nil {
+	if err := addItem(s, "write code", opt); err != nil {
 		fmt.Println("Error adding second item:", err)
 		return
 	}
-	if err := removeItem(path, "1"); err != nil {
+	if err := removeItem(s, "1"); err != nil {
 		fmt.Println("Error removing item:", err)
 		return
 	}
-	if err := listItems(path); err != nil {
+	if err := listItems(s); err != nil {
 		fmt.Println("Error listing items:", err)
 		return
 	}
