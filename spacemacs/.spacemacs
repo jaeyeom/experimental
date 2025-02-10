@@ -142,6 +142,7 @@ This function should only modify configuration layer settings."
    dotspacemacs-additional-packages
    '(
      atomic-chrome
+     (aider :location (recipe :fetcher github :repo "tninja/aider.el"))
      bazel
      chatgpt-shell
      ;;; Temporarily disable consult-gh-* package because it depends on Emacs 30
@@ -1475,7 +1476,8 @@ to be `:text'.
     (evil-define-key nil copilot-completion-map (kbd "C-<next>") 'copilot-next-completion)
     (evil-define-key nil copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion))
 
-  (add-hook 'prog-mode-hook #'copilot-mode)
+  (when (featurep 'copilot)
+    (add-hook 'prog-mode-hook #'copilot-mode))
 
   ;;; ChatGPT
   (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com"))
@@ -1499,7 +1501,12 @@ to be `:text'.
 
     (setq-default chatgpt-shell-openai-key openai-api-key
                   gptel-api-key openai-api-key)
-    (setq-default chatgpt-shell-anthropic-key anthropic-api-key))
+    (setq-default chatgpt-shell-anthropic-key anthropic-api-key)
+
+    (setq aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
+    (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
+    (spacemacs/set-leader-keys "$ a m" 'aider-transient-menu)
+    )
 
   (defun my/visible-buffer-text ()
     "Return the visible text in the current buffer."
