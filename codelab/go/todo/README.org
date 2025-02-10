@@ -41,6 +41,8 @@ todo complete <id>          Complete a todo item
 todo uncomplete <id>        Mark a completed item as incomplete
 todo undo <id>              Undo a completed item
 todo remove <id>            Remove a todo item
+todo moveup <id>            Move a todo item up among its siblings
+todo movedown <id>          Move a todo item down among its siblings
 #+end_src
 
 Tasks can have subtasks, which are displayed with indentation. The state of a
@@ -51,6 +53,21 @@ task is shown as:
 
 When completing a parent task, all its subtasks will also be completed. When
 undoing a task, it and all its subtasks will be marked as not started.
+
+Tasks and subtasks can be reordered within their sibling group using the moveup
+and movedown commands. This allows you to organize tasks in your preferred order.
+For example:
+
+#+begin_src
+# Move a task up among its siblings
+todo moveup 123
+
+# Move a task down among its siblings
+todo movedown abc
+#+end_src
+
+The ID can be a prefix as long as it uniquely identifies a task. If multiple
+tasks match the prefix, you'll get an "ambiguous item ID" error.
 
 *** Storage Configuration
 
