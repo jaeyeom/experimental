@@ -66,16 +66,16 @@ var (
 ** DONE CLI Changes
 
 *** DONE Add New Commands
-**** DONE up <id>
+**** DONE moveup <id>
 Move the specified item up among its siblings
 #+begin_src
-todo up <id>     Move a todo item up
+todo moveup <id>     Move a todo item up
 #+end_src
 
-**** DONE down <id>
+**** DONE movedown <id>
 Move the specified item down among its siblings
 #+begin_src
-todo down <id>   Move a todo item down
+todo movedown <id>   Move a todo item down
 #+end_src
 
 *** DONE Error Messages

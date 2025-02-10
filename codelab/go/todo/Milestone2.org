@@ -1,0 +1,5 @@
+* Todo Application
+** DONE Milestone 2
+CLOSED: [2025-02-08 Sat 19:37]
+
+It will use UUID instead of integer as an ID.

@@ -1,0 +1,46 @@
+* Todo Application
+** DONE Milestone 3
+CLOSED: [2025-02-09 Sun 13:16]
+
+It will support both the file system and SQLite as storage backends.
+
+*** DONE Planning and task breakdown
+CLOSED: [2025-02-09 Sun 12:59]
++ [X] Define main components and their responsibilities
++ [X] Break down implementation into manageable tasks
++ [X] Set clear objectives for each task
++ [X] Document the plan in README.org
+
+*** DONE Design storage interface
+CLOSED: [2025-02-09 Sun 13:12]
++ [X] Define storage interface in main.go where it is used
++ [X] Update the existing JSON storage to implement the interface
++ [X] Write interface documentation with clear requirements
++ [X] Update tests to use the interface
++ [X] Ensure all tests pass with the new interface
+
+*** DONE Implement SQLite storage
+CLOSED: [2025-02-09 Sun 13:16]
++ [X] Add SQLite dependency (modernc.org/sqlite)
++ [X] Design database schema for todo items
++ [X] Implement SQLite storage that satisfies the storage interface
++ [X] Add error handling and transaction support
++ [X] Write comprehensive tests for SQLite storage
++ [X] Update documentation to reflect SQLite support
+
+*** DONE Configure storage backend
+CLOSED: [2025-02-09 Sun 15:36]
++ [X] Define storage backend types (json, sqlite)
++ [X] Add tests for configuration handling
++ [X] Add configuration package to handle storage settings
++ [X] Add command-line flags for storage configuration:
+  - --storage-type: Type of storage backend (json, sqlite)
+  - --storage-path: Path to the storage file
++ [X] Add environment variable support for storage configuration:
+  - TODO_STORAGE_TYPE: Type of storage backend
+  - TODO_STORAGE_PATH: Path to the storage file
++ [X] Update main package to use configuration:
+  - Create appropriate storage backend based on configuration
+  - Handle configuration errors gracefully
+  - Provide helpful error messages for invalid configurations
++ [X] Update documentation with configuration options
