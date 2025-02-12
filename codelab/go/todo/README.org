@@ -1,8 +1,15 @@
 * Todo application
 
-This is a simple to-do application developed using test-driven development and
-Copilot. The following milestones were determined ad hoc, so the second
-milestone was unknown when the first milestone was being developed.
+This is a simple to-do application developed using test-driven development,
+Copilot, and AI IDE tools.
+
+** Purpose of this project
+
+This project was performed to assess the effectiveness of AI IDE tools. To
+simulate a real-world scenario, it intentionally makes poor design choices and
+later attempts to correct them. ID types change, and an SQL database is used
+very inefficiently. These issues will be addressed later and fixed with
+guidance.
 
 ** Project Structure
 
@@ -101,9 +108,8 @@ todo ls
 
 * Development Status
 
-The application supports both JSON file-based storage and SQLite storage. The
-storage interface is defined in the main package where it is used, following
-Go's principle of defining interfaces where they are needed.
+ The following milestones were determined ad hoc, so the second milestone was
+unknown when the first milestone was being developed.
 
 - [X] [[file:Milestone1.org][Milestone 1]]
 - [X] [[file:Milestone2.org][Milestone 2]]
