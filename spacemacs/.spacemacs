@@ -84,6 +84,8 @@ This function should only modify configuration layer settings."
                notmuch-spacemacs-layout-name "@Notmuch"
                notmuch-spacemacs-layout-binding "n")
       (org :variables
+           org-directory (file-truename "~/Documents/projects")
+           org-default-notes-file (concat org-directory "/todo.org")
            org-agenda-files (directory-files-recursively
                              (file-truename "~/Documents/projects") "\\.org$")
            org-enable-github-support t
