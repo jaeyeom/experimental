@@ -143,8 +143,8 @@ This function should only modify configuration layer settings."
    ;; Also include the dependencies as they will not be resolved automatically.
    dotspacemacs-additional-packages
    '(
-     atomic-chrome
      (aider :location (recipe :fetcher github :repo "tninja/aider.el"))
+     atomic-chrome
      bazel
      chatgpt-shell
      ;;; Temporarily disable consult-gh-* package because it depends on Emacs 30
@@ -1482,8 +1482,10 @@ to be `:text'.
     (add-hook 'prog-mode-hook #'copilot-mode))
 
   ;;; ChatGPT
-  (let ((openai-api-key (auth-source-pass-get 'secret "platform.openai.com"))
-        (anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com")))
+  (setq-default openai-key (auth-source-pass-get 'secret "platform.openai.com")
+                openai-user (auth-source-pass-get "user" "platform.openai.com"))
+
+  (let ((anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com")))
 
     (with-eval-after-load 'gptel
       (setq-default gptel-model "gpt-4o"
