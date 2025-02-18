@@ -960,10 +960,10 @@ mode does not work with Roam links."
         (switch-to-buffer output-buffer)))
 
     (org-export-define-derived-backend 'pandoc-gfm 'gfm
-      :menu-entry
-      '(?g "Export to Github Flavored Markdown"
-           ((?P "To pandoc temporary buffer"
-                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
+                                       :menu-entry
+                                       '(?g "Export to Github Flavored Markdown"
+                                            ((?P "To pandoc temporary buffer"
+                                                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
 
     ;; Export Org mode to MHTML file with inline images.
     ;;
@@ -995,7 +995,7 @@ mode does not work with Roam links."
         (org-html-close-tag "img" (org-html--make-attribute-string attributes) info)))
 
     (org-export-define-derived-backend 'html-inline-images 'html
-      :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
+                                       :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
@@ -1503,8 +1503,8 @@ to be `:text'.
         :models '("Llama"))                   ;Any names, doesn't matter for Llama
       )
 
-    (setq-default chatgpt-shell-openai-key openai-api-key
-                  gptel-api-key openai-api-key)
+    (setq-default chatgpt-shell-openai-key openai-key
+                  gptel-api-key openai-key)
     (setq-default chatgpt-shell-anthropic-key anthropic-api-key)
 
     (setq aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
