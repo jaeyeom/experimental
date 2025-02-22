@@ -32,7 +32,7 @@ func New(path string) (*Storage, error) {
 // It creates the directory and any necessary parents with 0755 permissions.
 func createParentDir(path string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("os.MkdirAll: %v", err)
 	}
 	return nil
@@ -50,7 +50,7 @@ func (s *Storage) Save(list *core.List) error {
 	if err != nil {
 		return fmt.Errorf("json.Marshal: %v", err)
 	}
-	if err := os.WriteFile(s.path, b, 0644); err != nil {
+	if err := os.WriteFile(s.path, b, 0o644); err != nil {
 		return fmt.Errorf("os.WriteFile: %v", err)
 	}
 	return nil

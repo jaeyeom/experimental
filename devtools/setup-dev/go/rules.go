@@ -36,7 +36,7 @@ func DirRule(name string, dir string) *Rule {
 		Name:  name,
 		Check: CheckDir(dir),
 		Build: func() error {
-			return os.MkdirAll(dir, 0755)
+			return os.MkdirAll(dir, 0o755)
 		},
 	}
 }

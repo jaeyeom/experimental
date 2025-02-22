@@ -263,7 +263,7 @@ func run() error {
 	}
 
 	// Create parent directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0o755); err != nil {
 		return fmt.Errorf("create storage directory: %v", err)
 	}
 
