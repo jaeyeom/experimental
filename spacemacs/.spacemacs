@@ -61,8 +61,7 @@ This function should only modify configuration layer settings."
       (go :variables
           go-backend 'lsp
           go-use-golangci-lint t
-          go-format-before-save t
-          gofmt-command "goimports")
+          lsp-go-use-gofumpt t)
       ;; (groovy :variables
       ;;         groovy-indent-offset 2)
       ;; (helm :variables
@@ -1464,6 +1463,14 @@ to be `:text'.
     ;; Disable modeline in eaf-mode
     (add-hook 'eaf-mode-hook (lambda () (setq mode-line-format nil)))
     )
+
+  ;;; LSP
+  (with-eval-after-load 'go-mode
+    (defun go-mode-setup ()
+      (add-hook 'before-save-hook #'lsp-format-buffer t t)
+      (add-hook 'before-save-hook #'lsp-organize-imports t t))
+
+    (add-hook 'go-mode-hook #'go-mode-setup))
 
   ;;; Copilot
   (with-eval-after-load 'company
