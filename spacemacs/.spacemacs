@@ -54,6 +54,7 @@ This function should only modify configuration layer settings."
             lsp-enable-on-type-formatting t)
       dtrt-indent
       emacs-lisp
+      epub
       eww
       git
       github-copilot
