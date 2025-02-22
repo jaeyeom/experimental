@@ -231,7 +231,6 @@ func countTrials(p Picker, answer []int) int32 {
 		}
 		pick = p.Pick(next)
 	}
-
 }
 
 func AverageTrials(answers [][]int, pickerFactory func() Picker) float64 {

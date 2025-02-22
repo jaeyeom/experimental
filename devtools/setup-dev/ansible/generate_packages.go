@@ -30,7 +30,6 @@ func (p PackageData) DebianPkgName() string {
 	if p.debianPkgName != "" {
 		return p.debianPkgName
 	}
-
 	return p.command
 }
 
@@ -38,7 +37,6 @@ func (p PackageData) TermuxPkgName() string {
 	if p.termuxPkgName != "" {
 		return p.termuxPkgName
 	}
-
 	return p.command
 }
 

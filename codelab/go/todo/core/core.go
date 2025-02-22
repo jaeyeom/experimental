@@ -356,7 +356,7 @@ func (l *List) findItemContainer(id string) (*[]Item, int, error) {
 	// Check root items first
 	var matches []struct {
 		container *[]Item
-		index    int
+		index     int
 	}
 
 	// Helper function to check if an ID matches the prefix
@@ -369,7 +369,7 @@ func (l *List) findItemContainer(id string) (*[]Item, int, error) {
 		if isMatch(item.ID) {
 			matches = append(matches, struct {
 				container *[]Item
-				index    int
+				index     int
 			}{&l.Items, i})
 		}
 	}
@@ -382,7 +382,7 @@ func (l *List) findItemContainer(id string) (*[]Item, int, error) {
 				if isMatch(item.ID) {
 					matches = append(matches, struct {
 						container *[]Item
-						index    int
+						index     int
 					}{&items, j})
 				}
 				if len(item.Subtasks) > 0 && findInSubtasks(item.Subtasks) {

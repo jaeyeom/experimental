@@ -287,7 +287,6 @@ func permutation(n, r int) int {
 }
 
 func TestConfig_ForEach(t *testing.T) {
-
 	properties := gopter.NewProperties(nil)
 
 	properties.Property("should produce unique", prop.ForAll(

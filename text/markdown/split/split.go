@@ -88,7 +88,7 @@ func generateFilename(title string, sectionCounters []int, level int) string {
 // SplitMarkdown splits a markdown file into multiple files based on headers.
 func SplitMarkdown(inputFile, outputDir string) error {
 	// Create output directory
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -118,7 +118,7 @@ func SplitMarkdown(inputFile, outputDir string) error {
 				if err := os.WriteFile(
 					filepath.Join(outputDir, currentFilename),
 					[]byte(strings.Join(currentSection, "\n")),
-					0644,
+					0o644,
 				); err != nil {
 					return fmt.Errorf("failed to write section file: %w", err)
 				}
@@ -148,7 +148,7 @@ func SplitMarkdown(inputFile, outputDir string) error {
 		if err := os.WriteFile(
 			filepath.Join(outputDir, currentFilename),
 			[]byte(strings.Join(currentSection, "\n")),
-			0644,
+			0o644,
 		); err != nil {
 			return fmt.Errorf("failed to write last section file: %w", err)
 		}
@@ -158,7 +158,7 @@ func SplitMarkdown(inputFile, outputDir string) error {
 	if err := os.WriteFile(
 		filepath.Join(outputDir, "000_table_of_contents.md"),
 		[]byte(strings.Join(toc, "")),
-		0644,
+		0o644,
 	); err != nil {
 		return fmt.Errorf("failed to write table of contents: %w", err)
 	}

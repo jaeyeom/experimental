@@ -17,7 +17,7 @@ var pkgMans = NewPackageManagers()
 
 var ruleGraph = RuleGraph{
 	Rules: map[string]*Rule{
-		"all": &Rule{
+		"all": {
 			Name: "all",
 			Deps: []*Rule{Ref("spacemacs")},
 		},
@@ -26,7 +26,7 @@ var ruleGraph = RuleGraph{
 		"python":     PackageInstallRule("python"),
 		"python3":    Ref("python"),
 		"go":         PackageInstallRule("go"),
-		"emacs": &Rule{
+		"emacs": {
 			Name:  "emacs",
 			Check: CheckEmacsVersion("29.4"),
 			Build: pkgMans.Install("emacs"),
@@ -36,7 +36,7 @@ var ruleGraph = RuleGraph{
 			"https://github.com/syl20bnr/spacemacs",
 			emacsDir,
 		),
-		"spacemacs": &Rule{
+		"spacemacs": {
 			Name: "spacemacs",
 			Deps: []*Rule{
 				Ref("emacs"),
@@ -101,7 +101,7 @@ var ruleGraph = RuleGraph{
 			"google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest",
 			Dep(Ref("protoc")),
 		),
-		"spacemacs-go": &Rule{
+		"spacemacs-go": {
 			Name: "spacemacs-go",
 			Deps: []*Rule{
 				Ref("spacemacs"),
@@ -119,7 +119,7 @@ var ruleGraph = RuleGraph{
 				Ref("godef"),
 			},
 		},
-		"hello": &Rule{
+		"hello": {
 			Name: "hello",
 			Build: func() error {
 				cmd := exec.Command("echo", "Hello, world!")
