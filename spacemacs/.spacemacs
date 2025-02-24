@@ -121,6 +121,8 @@ This function should only modify configuration layer settings."
       (typescript :variables
                   typescript-fmt-on-save t
                   typescript-fmt-tool 'typescript-formatter)
+      (unicode-fonts :variables
+                     unicode-fonts-enable-ligatures t)
       version-control
       yaml
       )
@@ -131,7 +133,6 @@ This function should only modify configuration layer settings."
     (if (executable-find "w3m")
         '(w3m))
     )
-
 
    ;; List of additional packages that will be installed without being wrapped
    ;; in a layer (generally the packages are installed only and should still be
@@ -837,7 +838,7 @@ Fallback file lists are returned for specific directories."
   ;; use a single perfect setting. Some switching is necessary until a better
   ;; solution is found.
   (when (display-graphic-p)
-    ;; ========== Font Helpers ==========
+    ;; Font Helpers
     (defun my/first-font-available (fonts)
       "Return the first available font from the list of FONTS or nil."
       (seq-find (lambda (font) (find-font (font-spec :family font))) fonts))
