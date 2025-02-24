@@ -830,6 +830,78 @@ Fallback file lists are returned for specific directories."
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
 
+  ;;; Font Settings
+
+  ;; Fontconfig almost never works. The following tries to find the best font on
+  ;; the system. Due to Korean character range settings, it's not possible to
+  ;; use a single perfect setting. Some switching is necessary until a better
+  ;; solution is found.
+  (when (display-graphic-p)
+    ;; ========== Font Helpers ==========
+    (defun my/first-font-available (fonts)
+      "Return the first available font from the list of FONTS or nil."
+      (seq-find (lambda (font) (find-font (font-spec :family font))) fonts))
+
+    (defvar my/default-font
+      (my/first-font-available
+       '("SF Mono"
+         "Cousine"
+         "DejaVu Sans Mono"
+         "Monospace")))
+
+    (defvar my/default-font-hangul
+      (my/first-font-available
+       '("Noto Sans CJK KR"
+         "Sarasa Mono TC Nerd Font"
+         "UnDotum")))
+
+    (defvar my/reading-font
+      (my/first-font-available
+       '("TeX Gyre Bonum"
+         "Noto Serif"
+         "Serif")))
+
+    (defvar my/reading-font-hangul
+      (my/first-font-available
+       '("Noto Serif CJK KR"
+         "UnBatang"
+         "Serif")))
+
+    (defvar my/true-monospace-font
+      (my/first-font-available
+       '("Sarasa Mono TC Nerd Font"
+         "NanumGothicCoding")))
+
+    (defun my/set-default-font ()
+      "Set the default font to `my/default-font' and `my/default-font-hangul'."
+      (interactive)
+      (set-face-attribute 'default nil :family my/default-font :height 110)
+      (set-fontset-font t 'hangul (font-spec :family my/default-font-hangul)))
+
+    (defun my/set-reading-font ()
+      "Set the reading font to `my/reading-font' and `my/reading-font-hangul'."
+      (interactive)
+      (set-face-attribute 'variable-pitch nil :family my/reading-font :height 1.0)
+      (set-face-attribute 'variable-pitch-text nil :family my/reading-font :height 1.0)
+      (set-fontset-font t 'hangul (font-spec :family my/reading-font-hangul)))
+
+    (defun my/set-true-monospace-font ()
+      "Set the true monospace font to `my/true-monospace-font'."
+      (interactive)
+      (set-face-attribute 'default nil :family my/true-monospace-font :height 110)
+      (set-fontset-font t 'hangul (font-spec :family my/true-monospace-font)))
+
+    ;; ========== nov.el (EPUB) Override ==========
+    (with-eval-after-load 'nov
+      (setq nov-text-width 80)
+
+      (defun my/nov-font-setup ()
+        (my/set-reading-font))
+
+      (add-hook 'nov-mode-hook #'my/nov-font-setup))
+
+    (my/set-default-font))
+
   ;;; Reddit
   (with-eval-after-load 'reddigg
     (defadvice reddigg-view-comments (around no-query-string activate)
@@ -960,10 +1032,10 @@ mode does not work with Roam links."
         (switch-to-buffer output-buffer)))
 
     (org-export-define-derived-backend 'pandoc-gfm 'gfm
-                                       :menu-entry
-                                       '(?g "Export to Github Flavored Markdown"
-                                            ((?P "To pandoc temporary buffer"
-                                                 (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
+      :menu-entry
+      '(?g "Export to Github Flavored Markdown"
+           ((?P "To pandoc temporary buffer"
+                (lambda (a s v b) (my/org-export-to-gfm-markdown-buffer))))))
 
     ;; Export Org mode to MHTML file with inline images.
     ;;
@@ -995,7 +1067,7 @@ mode does not work with Roam links."
         (org-html-close-tag "img" (org-html--make-attribute-string attributes) info)))
 
     (org-export-define-derived-backend 'html-inline-images 'html
-                                       :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
+      :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
 
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
@@ -1486,7 +1558,7 @@ to be `:text'.
     (evil-define-key nil copilot-completion-map (kbd "C-<next>") 'copilot-next-completion)
     (evil-define-key nil copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion))
 
-  (when (featurep 'copilot)
+  (when (fboundp #'copilot-mode)
     (add-hook 'prog-mode-hook #'copilot-mode))
 
   ;;; ChatGPT
@@ -1617,14 +1689,14 @@ the email."
   (when my/crostini-p
     ;; Fix yank bug by comparing the kill-ring and the clipboard.
     (setq select-enable-primary t)
-    (defadvice evil-paste-after (around my-evil-paste-after activate)
+    (defadvice evil-paste-after (around my/evil-paste-after activate)
       (let* ((clipboard (gui-get-selection))
              (select-enable-clipboard
               (and (stringp clipboard)
                    (not (string= (substring-no-properties clipboard)
                                  (substring-no-properties (or (car kill-ring) "")))))))
         ad-do-it))
-    (defadvice evil-paste-before (around my-evil-paste-before activate)
+    (defadvice evil-paste-before (around my/evil-paste-before activate)
       (let* ((clipboard (gui-get-selection))
              (select-enable-clipboard
               (and (stringp clipboard)
@@ -1645,6 +1717,36 @@ the email."
       :args '("-m" "http.server" "8000")
       :cwd "~/services/python-server"
       :tags '(game)
+      :stop-signal 'sigkill
+      :kill-process-buffer-on-stop t)
+    (prodigy-define-service
+      :name "Cursor"
+      :command "~/services/cursor-latest.AppImage"
+      :cwd "~/services"
+      :tags '(dev)
+      :stop-signal 'sigkill
+      :kill-process-buffer-on-stop t)
+    (prodigy-define-service
+      :name "LM Studio (:1234)"
+      :command "~/services/LM-Studio-latest.AppImage"
+      :cwd "~/services"
+      :tags '(dev llm)
+      :stop-signal 'sigkill
+      :kill-process-buffer-on-stop t)
+    (prodigy-define-service
+      :name "llava (:1234)"
+      :command "sh"
+      :args '("./llava-latest.llamafile" "--port" "1234")
+      :cwd "~/services"
+      :tags '(dev llm)
+      :stop-signal 'sigkill
+      :kill-process-buffer-on-stop t)
+    (prodigy-define-service
+      :name "Llama (:1234)"
+      :command "sh"
+      :args '("./Llama-latest.llamafile" "--port" "1234")
+      :cwd "~/services"
+      :tags '(dev llm)
       :stop-signal 'sigkill
       :kill-process-buffer-on-stop t)
     )
