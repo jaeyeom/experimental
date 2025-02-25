@@ -251,6 +251,8 @@ var packages = []PackageData{
 }
 
 var gopkgs = []GoInstall{
+	{"buildifier", "github.com/bazelbuild/buildtools/buildifier@latest", nil},
+	{"buildozer", "github.com/bazelbuild/buildtools/buildozer@latest", nil},
 	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest", nil},
 	{"godef", "github.com/rogpeppe/godef@latest", nil},
 	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},

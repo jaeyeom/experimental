@@ -1,0 +1,17 @@
+---
+- import_playbook: bazel.yml
+- import_playbook: buildifier.yml
+- import_playbook: buildozer.yml
+
+- name: Ensure bazel is properly set up
+  hosts: all
+  tasks:
+    - name: Include guard for setup-bazel playbook
+      block:
+        - name: Stop early if the setup-bazel playbook is already included
+          meta: end_play
+          when: setup_bazel_playbook_imported is defined
+        - name: Ensure the setup-bazel playbook is not included
+          set_fact:
+            setup_bazel_playbook_imported: true
+          when: setup_bazel_playbook_imported is not defined
