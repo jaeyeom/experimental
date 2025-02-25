@@ -845,7 +845,8 @@ Fallback file lists are returned for specific directories."
 
     (defvar my/default-font
       (my/first-font-available
-       '("SF Mono"
+       '("Fira Code"
+         "SF Mono"
          "Cousine"
          "DejaVu Sans Mono"
          "Monospace")))
@@ -870,7 +871,8 @@ Fallback file lists are returned for specific directories."
 
     (defvar my/true-monospace-font
       (my/first-font-available
-       '("Sarasa Mono TC Nerd Font"
+       '("D2Coding ligature"
+         "Sarasa Mono TC Nerd Font"
          "NanumGothicCoding")))
 
     (defun my/set-default-font ()
