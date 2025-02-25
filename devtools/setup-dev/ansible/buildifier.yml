@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure buildifier is present
+  hosts: all
+  tasks:
+    - name: Include guard for buildifier playbook
+      block:
+        - name: Stop early if the buildifier playbook is already included
+          meta: end_play
+          when: buildifier_playbook_imported is defined
+        - name: Ensure the buildifier playbook is not included
+          set_fact:
+            buildifier_playbook_imported: true
+          when: buildifier_playbook_imported is not defined
+
+    - name: Check if buildifier is installed
+      shell: go version -m $(command -v buildifier) | grep '^\s*mod\s'
+      register: buildifier_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract buildifier version
+      block:
+        - name: Set buildifier facts
+          set_fact:
+            buildifier_module_path: "{{ buildifier_installed.stdout.split()[1] }}"
+            buildifier_module_version: "{{ buildifier_installed.stdout.split()[2] }}"
+        - name: Determine the latest buildifier version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ buildifier_module_path }}@latest"
+          register: buildifier_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ buildifier_module_path }} {{ buildifier_module_version }} => {{ buildifier_latest.stdout }}"
+      rescue:
+        - name: Clear buildifier facts
+          set_fact:
+            buildifier_module_path: ""
+            buildifier_module_version: ""
+
+    - name: Upgrade buildifier
+      command: go install github.com/bazelbuild/buildtools/buildifier@latest
+      when: buildifier_module_version is not defined or buildifier_module_version == "" or buildifier_module_version != buildifier_latest.stdout
