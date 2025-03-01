@@ -78,11 +78,11 @@ These are some fonts that I want to ensure that they are installed.
 *** TODO Aider
 *** TODO NPM
 *** TODO Nala
+*** TODO cargo-update
 
 ** Remove or simplify playbook generator
 *** TODO Ansible module to handle package mapping
 *** TODO Ansible module to handle go installs instead of generated files
-*** TODO
 
 ** Bleeding Edge
 *** DONE Bleeding Edge Go
