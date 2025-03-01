@@ -49,6 +49,7 @@ This function should only modify configuration layer settings."
       (compleseus :variables
                   compleseus-consult-preview-keys '(:debounce 0.1 any))
       copy-as-format
+      csv
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
