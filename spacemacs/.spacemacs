@@ -361,10 +361,10 @@ It should only modify the values of Spacemacs settings."
    ;; fixed-pitch faces. The `:size' can be specified as
    ;; a non-negative integer (pixel size), or a floating-point (point size).
    ;; Point size is recommended, because it's device independent. (default 10.0)
-   dotspacemacs-default-font '("Source Code Pro"
-                               :size 10.0
-                               :weight normal
-                               :width normal)
+   dotspacemacs-default-font '(("Fira Code" :size 10.0 :weight normal :width normal)
+                               ("SF Mono" :size 10.0 :weight normal :width normal)
+                               ("Cousine" :size 10.0 :weight normal :width normal)
+                               ("DejaVu Sans Mono" :size 10.0 :weight normal :width normal))
 
    ;; The leader key (default "SPC")
    dotspacemacs-leader-key "SPC"
@@ -844,14 +844,6 @@ Fallback file lists are returned for specific directories."
       "Return the first available font from the list of FONTS or nil."
       (seq-find (lambda (font) (find-font (font-spec :family font))) fonts))
 
-    (defvar my/default-font
-      (my/first-font-available
-       '("Fira Code"
-         "SF Mono"
-         "Cousine"
-         "DejaVu Sans Mono"
-         "Monospace")))
-
     (defvar my/default-font-hangul
       (my/first-font-available
        '("Noto Sans CJK KR"
@@ -879,7 +871,8 @@ Fallback file lists are returned for specific directories."
     (defun my/set-default-font ()
       "Set the default font to `my/default-font' and `my/default-font-hangul'."
       (interactive)
-      (set-face-attribute 'default nil :family my/default-font :height 110)
+      (spacemacs/set-default-font dotspacemacs-default-font)
+      ;; (set-face-attribute 'default nil :family my/default-font :height 110)
       (set-fontset-font t 'hangul (font-spec :family my/default-font-hangul)))
 
     (defun my/set-reading-font ()
@@ -904,7 +897,7 @@ Fallback file lists are returned for specific directories."
 
       (add-hook 'nov-mode-hook #'my/nov-font-setup))
 
-    (my/set-default-font))
+    )
 
   ;;; Reddit
   (with-eval-after-load 'reddigg
