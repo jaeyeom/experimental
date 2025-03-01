@@ -11,19 +11,40 @@ filename without =.yml= suffix.
   ./ensure.sh [rule]...
 #+end_src
 
+* Design
+The purpose of this Ansible Setup Dev is to set up my development environment
+mostly indentical in any environment. I made Ansible Playbooks import other
+Playbooks to handle dependencies. To prevent multiple inclusion, I added an
+include guards for each playbook file. Generating it is very cumbersome, I made
+a Go program to generate repetitive text in playbook.
+
+To run the generator, simply run:
+#+begin_src sh
+  go run .
+#+end_src
+
+The playbook =all.ynl= just imports variuos other playbooks that I think are
+essential.
+
 * Remaining Works
+** Learn Ansible Module and Galaxy
+I depend on the generator, but if I know more sophisticated features, it would
+be much easier.
+
 ** Migrate from setup-dev.sh
 *** DONE Install searchers
 CLOSED: [2024-08-21 Wed 13:41]
 *** DONE Locate tool
 CLOSED: [2024-08-26 Mon 19:14]
-*** TODO gpg
+*** DONE gpg
+CLOSED: [2025-03-01 Sat 03:29]
 *** TODO pass
 *** TODO Remaining PATH settings
 *** TODO Additional spacemacs settings and symbolic links
 
 ** Migrate from Makefile
-*** TODO Pip packages
+*** DONE Pip packages
+CLOSED: [2025-03-01 Sat 03:55]
 *** TODO Python Development environment
 *** DONE Emacs-vterm directory tracking
 CLOSED: [2024-08-26 Mon 19:37]
@@ -31,6 +52,12 @@ CLOSED: [2024-08-26 Mon 19:37]
 ** New Features
 *** DONE Include guards for playbooks
 *** TODO Spacemacs packages keeping up-to-date
+I can run the following command to keep Spacemacs up-to-date.
+#+begin_src sh
+  emacs --batch -l ~/.config/emacs/init.el --eval='(configuration-layer/update-packages t)'
+#+end_src
+
+Then, I may need to run Emacs one more time.
 *** DONE gh
 CLOSED: [2024-08-21 Wed 13:27]
 *** DONE Add command-line flags to ensure.sh
@@ -38,11 +65,26 @@ CLOSED: [2024-08-26 Mon 19:16]
 *** TODO Support MacOS Brew
 *** TODO C++ Development environment
 *** TODO Docker Testing
+*** TODO Cargo installer
+*** TODO emacs-lsp-booster
+*** Fonts
+These are some fonts that I want to ensure that they are installed.
+**** TODO Fira Code
+**** TODO Sarasa Mono
+**** TODO Jetbrains Mono
+**** TODO SF Mono
+**** TODO D2Coding
+**** TODO Noto
+*** TODO Aider
+*** TODO NPM
+*** TODO Nala
 
-** Remove playbook generator
+** Remove or simplify playbook generator
 *** TODO Ansible module to handle package mapping
 *** TODO Ansible module to handle go installs instead of generated files
+*** TODO
 
 ** Bleeding Edge
 *** DONE Bleeding Edge Go
-*** TODO Bleeding Edge Emacs
+*** DONE Bleeding Edge Emacs
+CLOSED: [2025-03-01 Sat 03:54]
