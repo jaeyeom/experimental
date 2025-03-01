@@ -14,7 +14,9 @@
 
     - block:
       - name: Ensure rustc is present on non-Termux systems
-        shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+        shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Set the environment for the current shell
+        shell: source $HOME/.cargo/env
       when: ansible_env.TERMUX_VERSION is not defined
 
     - name: Ensure rustc is present on Termux
