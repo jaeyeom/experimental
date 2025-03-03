@@ -6,3 +6,6 @@ Whenever I get a new machine, I spend some time setting up my development
 environment. To avoid repetition, I started writing a shell script. From there,
 I'm exploring other solutions like GNU Make to make this script more idempotent
 and effective for provisioning.
+
+** Current Progress
+This script is being migrated to =./ansible/= directory.

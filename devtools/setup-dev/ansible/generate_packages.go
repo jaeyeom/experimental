@@ -78,6 +78,28 @@ func (p PipInstall) PkgName() string {
 	return p.command
 }
 
+type CargoInstall struct {
+	command string
+	pkgName string
+	Imports []string
+}
+
+func (c CargoInstall) Command() string {
+	return c.command
+}
+
+func (c CargoInstall) CommandID() string {
+	// Replace dash to underscore.
+	return strings.ReplaceAll(c.command, "-", "_")
+}
+
+func (c CargoInstall) PkgName() string {
+	if c.pkgName != "" {
+		return c.pkgName
+	}
+	return c.command
+}
+
 var packagesTemplate = `---
 {{- range .Imports }}
 - import_playbook: {{.}}.yml
@@ -204,6 +226,35 @@ var pipInstallTemplate = `---
         state: latest
 `
 
+var cargoInstallTemplate = `---
+{{- range .Imports }}
+- import_playbook: {{.}}.yml
+{{- end }}
+
+- name: Ensure {{.Command}} is present
+  hosts: all
+  tasks:
+    - name: Include guard for {{.Command}} playbook
+      block:
+        - name: Stop early if the {{.Command}} playbook is already included
+          meta: end_play
+          when: {{.CommandID}}_playbook_imported is defined
+        - name: Ensure the {{.Command}} playbook is not included
+          set_fact:
+            {{.CommandID}}_playbook_imported: true
+          when: {{.CommandID}}_playbook_imported is not defined
+
+    - name: Check if {{.Command}} is installed
+      shell: command -v {{.Command}}
+      register: {{.CommandID}}_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install {{.Command}} using Cargo
+      command: cargo install {{.PkgName}}
+      when: {{.CommandID}}_installed.rc != 0
+`
+
 type Commander interface {
 	Command() string
 }
@@ -282,6 +333,13 @@ var pipPkgs = []PipInstall{
 	{command: "protovalidate"},
 }
 
+var cargoPkgs = []CargoInstall{
+	{command: "cargo-edit"},
+	{command: "cargo-outdated"},
+	{command: "cargo-update"},
+	{command: "emacs-lsp-booster"},
+}
+
 func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
 	for _, pkg := range pkgs {
 		outf, err := os.Create(pkg.Command() + ".yml")
@@ -298,7 +356,13 @@ func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
 }
 
 func main() {
-	generatePackages(template.Must(template.New("packages").Parse(packagesTemplate)), packages)
-	generatePackages(template.Must(template.New("go_install").Parse(goInstallTemplate)), gopkgs)
-	generatePackages(template.Must(template.New("pip_install").Parse(pipInstallTemplate)), pipPkgs)
+	tmpl := template.Must(template.New("packages").Parse(packagesTemplate))
+	template.Must(tmpl.New("goinstall").Parse(goInstallTemplate))
+	template.Must(tmpl.New("pipinstall").Parse(pipInstallTemplate))
+	template.Must(tmpl.New("cargoinstall").Parse(cargoInstallTemplate))
+
+	generatePackages(tmpl.Lookup("packages"), packages)
+	generatePackages(tmpl.Lookup("goinstall"), gopkgs)
+	generatePackages(tmpl.Lookup("pipinstall"), pipPkgs)
+	generatePackages(tmpl.Lookup("cargoinstall"), cargoPkgs)
 }
