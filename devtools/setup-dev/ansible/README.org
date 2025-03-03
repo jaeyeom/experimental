@@ -65,7 +65,10 @@ CLOSED: [2024-08-26 Mon 19:16]
 *** TODO Support MacOS Brew
 *** TODO C++ Development environment
 *** TODO Docker Testing
-*** TODO Cargo installer
+*** DONE Cargo installer
+CLOSED: [2025-03-02 Sun 00:03]
+Cargo generator should be similar to what =PipInstall= does in
+=generate_packages.go= file.
 *** TODO emacs-lsp-booster
 *** Fonts
 These are some fonts that I want to ensure that they are installed.
@@ -78,7 +81,8 @@ These are some fonts that I want to ensure that they are installed.
 *** TODO Aider
 *** TODO NPM
 *** TODO Nala
-*** TODO cargo-update
+*** DONE cargo-update
+CLOSED: [2025-03-02 Sun 00:03]
 
 ** Remove or simplify playbook generator
 *** TODO Ansible module to handle package mapping

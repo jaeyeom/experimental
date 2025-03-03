@@ -1,0 +1,24 @@
+---
+
+- name: Ensure emacs-lsp-booster is present
+  hosts: all
+  tasks:
+    - name: Include guard for emacs-lsp-booster playbook
+      block:
+        - name: Stop early if the emacs-lsp-booster playbook is already included
+          meta: end_play
+          when: emacs_lsp_booster_playbook_imported is defined
+        - name: Ensure the emacs-lsp-booster playbook is not included
+          set_fact:
+            emacs_lsp_booster_playbook_imported: true
+          when: emacs_lsp_booster_playbook_imported is not defined
+
+    - name: Check if emacs-lsp-booster is installed
+      shell: command -v emacs-lsp-booster
+      register: emacs_lsp_booster_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install emacs-lsp-booster using Cargo
+      command: cargo install emacs-lsp-booster
+      when: emacs_lsp_booster_installed.rc != 0
