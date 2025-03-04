@@ -1,4 +1,5 @@
 ---
+- import_playbook: rustc.yml
 
 - name: Ensure cargo-update is present
   hosts: all
