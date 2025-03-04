@@ -1,0 +1,25 @@
+---
+- import_playbook: rustc.yml
+
+- name: Ensure rustc is properly set up
+  hosts: all
+  tasks:
+    - name: Include guard for setup-cargo playbook
+      block:
+        - name: Stop early if the setup-cargo playbook is already included
+          meta: end_play
+          when: setup_cargo_playbook_imported is defined
+        - name: Ensure the setup-cargo playbook is not included
+          set_fact:
+            setup_cargo_playbook_imported: true
+          when: setup_cargo_playbook_imported is not defined
+
+    - name: Ensure cargo path is properly set in bashrc
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.bashrc"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} Setup cargo PATH"
+        block: |
+          PATH="$HOME/.cargo/bin:$PATH"

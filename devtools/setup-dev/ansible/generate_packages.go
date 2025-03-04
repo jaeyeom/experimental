@@ -227,7 +227,7 @@ var pipInstallTemplate = `---
 `
 
 var cargoInstallTemplate = `---
-- import_playbook: rustc.yml
+- import_playbook: setup-cargo.yml
 {{- range .Imports }}
 - import_playbook: {{.}}.yml
 {{- end }}
