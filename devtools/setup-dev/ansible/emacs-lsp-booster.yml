@@ -1,5 +1,5 @@
 ---
-- import_playbook: rustc.yml
+- import_playbook: setup-cargo.yml
 
 - name: Ensure emacs-lsp-booster is present
   hosts: all
