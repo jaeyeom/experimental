@@ -146,6 +146,7 @@ This function should only modify configuration layer settings."
    dotspacemacs-additional-packages
    '(
      (aider :location (recipe :fetcher github :repo "tninja/aider.el"))
+     (aidermacs :location (recipe :fetcher github :repo "MatthewZMD/aidermacs" :files ("*.el")))
      atomic-chrome
      bazel
      chatgpt-shell
