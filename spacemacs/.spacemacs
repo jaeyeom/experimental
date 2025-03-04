@@ -155,6 +155,7 @@ This function should only modify configuration layer settings."
      ;; consult-gh
      ;; consult-gh-embark
      ;; consult-gh-forge
+     copilot-chat
      eshell-command-not-found
      green-is-the-new-black-theme
      ob-async
