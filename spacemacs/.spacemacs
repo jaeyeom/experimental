@@ -872,7 +872,6 @@ Fallback file lists are returned for specific directories."
       "Set the default font to `my/default-font' and `my/default-font-hangul'."
       (interactive)
       (spacemacs/set-default-font dotspacemacs-default-font)
-      ;; (set-face-attribute 'default nil :family my/default-font :height 110)
       (set-fontset-font t 'hangul (font-spec :family my/default-font-hangul)))
 
     (defun my/set-reading-font ()
