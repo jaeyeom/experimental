@@ -834,6 +834,21 @@ Fallback file lists are returned for specific directories."
   (with-eval-after-load 'bazel
     (add-hook 'bazel-mode-hook (lambda () (add-hook 'before-save-hook #'bazel-buildifier nil t))))
 
+  ;; Bazel jump improvement
+  (defun my/switch-to-truename ()
+    "Switch current buffer to the true filepath."
+    (interactive)
+    (let ((true-path (file-truename (buffer-file-name))))
+      (find-alternate-file true-path)))
+
+  (defun my/compilation-find-file (orig-fun marker filename directory &rest args)
+    "Advice function to resolve true file paths in compilation mode."
+    (let* ((true-filename (file-truename filename))
+           (true-directory (file-name-directory true-filename)))
+      (apply orig-fun marker true-filename true-directory args)))
+
+  (advice-add 'compilation-find-file :around #'my/compilation-find-file)
+
   ;;; Font Settings
 
   ;; Fontconfig almost never works. The following tries to find the best font on
