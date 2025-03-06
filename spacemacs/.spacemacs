@@ -84,6 +84,7 @@ This function should only modify configuration layer settings."
       (notmuch :variables
                notmuch-spacemacs-layout-name "@Notmuch"
                notmuch-spacemacs-layout-binding "n")
+      openai
       (org :variables
            org-directory (file-truename "~/Documents/projects")
            org-default-notes-file (concat org-directory "/todo.org")
