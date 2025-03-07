@@ -15,8 +15,10 @@
     - block:
       - name: Ensure rustc is present on non-Termux systems
         shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      - name: Set the environment for the current shell
-        shell: source $HOME/.cargo/env
+
+      - name: Set cargo environment variables for the current playbook
+        ansible.builtin.set_fact:
+          ansible_env: "{{ ansible_env | combine({'PATH': ansible_env.HOME + '/.cargo/bin:' + ansible_env.PATH}) }}"
       when: ansible_env.TERMUX_VERSION is not defined
 
     - name: Ensure rustc is present on Termux
