@@ -228,6 +228,9 @@ var pipInstallTemplate = `---
 
 var cargoInstallTemplate = `---
 - import_playbook: setup-cargo.yml
+{{- if ne .Command "cargo-install-update" }}
+- import_playbook: cargo-install-update.yml
+{{- end }}
 {{- range .Imports }}
 - import_playbook: {{.}}.yml
 {{- end }}
@@ -254,6 +257,10 @@ var cargoInstallTemplate = `---
     - name: Install {{.Command}} using Cargo
       command: cargo install {{.PkgName}}
       when: {{.CommandID}}_installed.rc != 0
+
+    - name: Update {{.Command}} to latest version
+      command: cargo install-update {{.PkgName}}
+      when: {{.CommandID}}_installed.rc == 0
 `
 
 type Commander interface {
@@ -335,9 +342,9 @@ var pipPkgs = []PipInstall{
 }
 
 var cargoPkgs = []CargoInstall{
-	{command: "cargo-edit"},
+	{command: "cargo-add", pkgName: "cargo-edit"},
 	{command: "cargo-outdated"},
-	{command: "cargo-update"},
+	{command: "cargo-install-update", pkgName: "cargo-update"},
 	{command: "emacs-lsp-booster"},
 }
 

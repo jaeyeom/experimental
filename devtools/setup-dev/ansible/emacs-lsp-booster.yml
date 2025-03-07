@@ -1,5 +1,6 @@
 ---
 - import_playbook: setup-cargo.yml
+- import_playbook: cargo-install-update.yml
 
 - name: Ensure emacs-lsp-booster is present
   hosts: all
@@ -23,3 +24,7 @@
     - name: Install emacs-lsp-booster using Cargo
       command: cargo install emacs-lsp-booster
       when: emacs_lsp_booster_installed.rc != 0
+
+    - name: Update emacs-lsp-booster to latest version
+      command: cargo install-update emacs-lsp-booster
+      when: emacs_lsp_booster_installed.rc == 0
