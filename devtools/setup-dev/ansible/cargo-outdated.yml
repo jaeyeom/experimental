@@ -1,5 +1,6 @@
 ---
 - import_playbook: setup-cargo.yml
+- import_playbook: cargo-install-update.yml
 
 - name: Ensure cargo-outdated is present
   hosts: all
@@ -23,3 +24,7 @@
     - name: Install cargo-outdated using Cargo
       command: cargo install cargo-outdated
       when: cargo_outdated_installed.rc != 0
+
+    - name: Update cargo-outdated to latest version
+      command: cargo install-update cargo-outdated
+      when: cargo_outdated_installed.rc == 0

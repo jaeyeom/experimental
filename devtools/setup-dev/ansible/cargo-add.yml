@@ -1,0 +1,30 @@
+---
+- import_playbook: setup-cargo.yml
+- import_playbook: cargo-install-update.yml
+
+- name: Ensure cargo-add is present
+  hosts: all
+  tasks:
+    - name: Include guard for cargo-add playbook
+      block:
+        - name: Stop early if the cargo-add playbook is already included
+          meta: end_play
+          when: cargo_add_playbook_imported is defined
+        - name: Ensure the cargo-add playbook is not included
+          set_fact:
+            cargo_add_playbook_imported: true
+          when: cargo_add_playbook_imported is not defined
+
+    - name: Check if cargo-add is installed
+      shell: command -v cargo-add
+      register: cargo_add_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install cargo-add using Cargo
+      command: cargo install cargo-edit
+      when: cargo_add_installed.rc != 0
+
+    - name: Update cargo-add to latest version
+      command: cargo install-update cargo-edit
+      when: cargo_add_installed.rc == 0
