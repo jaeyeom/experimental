@@ -22,6 +22,7 @@
       command: bazel version
       register: bazelisk_installed
       ignore_errors: yes
+      changed_when: False
 
     - name: Debug output for bazelisk
       ansible.builtin.debug:
