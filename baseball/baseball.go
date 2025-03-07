@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -8,8 +9,6 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
-
-	"golang.org/x/xerrors"
 )
 
 // containsInt returns true if i is in ints.
@@ -264,7 +263,7 @@ func Interactive(c Config, picker Picker) {
 		fmt.Print("Type result s b o: ")
 		var s, b, o int
 		_, err := fmt.Scanf("%d %d %d\n", &s, &b, &o)
-		if xerrors.Is(err, io.EOF) {
+		if errors.Is(err, io.EOF) {
 			return
 		}
 		if err != nil || s+b+o != c.NumDigits {
