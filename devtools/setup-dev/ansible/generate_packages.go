@@ -260,6 +260,8 @@ var cargoInstallTemplate = `---
 
     - name: Update {{.Command}} to latest version
       command: cargo install-update {{.PkgName}}
+      register: {{.CommandID}}_update_result
+      changed_when: "{{.CommandID}}_update_result.stdout is search('Overall updated [1-9]')"
       when: {{.CommandID}}_installed.rc == 0
 `
 

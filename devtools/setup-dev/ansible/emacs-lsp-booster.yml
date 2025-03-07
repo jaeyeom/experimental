@@ -27,4 +27,6 @@
 
     - name: Update emacs-lsp-booster to latest version
       command: cargo install-update emacs-lsp-booster
+      register: emacs_lsp_booster_update_result
+      changed_when: "emacs_lsp_booster_update_result.stdout is search('Overall updated [1-9]')"
       when: emacs_lsp_booster_installed.rc == 0

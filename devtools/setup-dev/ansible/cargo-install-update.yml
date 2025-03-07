@@ -26,4 +26,6 @@
 
     - name: Update cargo-install-update to latest version
       command: cargo install-update cargo-update
+      register: cargo_install_update_update_result
+      changed_when: "cargo_install_update_update_result.stdout is search('Overall updated [1-9]')"
       when: cargo_install_update_installed.rc == 0

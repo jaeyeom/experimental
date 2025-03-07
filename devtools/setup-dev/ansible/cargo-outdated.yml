@@ -27,4 +27,6 @@
 
     - name: Update cargo-outdated to latest version
       command: cargo install-update cargo-outdated
+      register: cargo_outdated_update_result
+      changed_when: "cargo_outdated_update_result.stdout is search('Overall updated [1-9]')"
       when: cargo_outdated_installed.rc == 0
