@@ -25,7 +25,7 @@
           ignore_errors: yes
           changed_when: False
 
-        - name: Get the latest available go version.
+        - name: Get the latest available go version
           ansible.builtin.uri:
             url: https://go.dev/VERSION?m=text
             return_content: yes
@@ -49,13 +49,6 @@
           debug:
             msg: "{{ go_binary_download_url }}"
 
-        - name: Remove /usr/local/go if it exists
-          file:
-            path: /usr/local/go
-            state: absent
-          ignore_errors: yes
-          become: yes
-
         - name: Create temporary go binary directory
           ansible.builtin.tempfile:
             state: directory
@@ -65,6 +58,13 @@
           get_url:
             url: "{{ go_binary_download_url }}"
             dest: "{{ go_tmp_dir.path }}/go.tar.gz"
+
+        - name: Remove /usr/local/go if it exists
+          file:
+            path: /usr/local/go
+            state: absent
+          ignore_errors: yes
+          become: yes
 
         - name: Extract the go binary
           ansible.builtin.unarchive:
