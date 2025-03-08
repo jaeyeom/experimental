@@ -30,3 +30,10 @@
                  && [[ -f ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh ]]; then
               source ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh
           fi
+
+    - name: Ensure .spacemacs-upstream symlink
+      ansible.builtin.file:
+        src: "{{ ansible_env.HOME }}/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs"
+        dest: "{{ ansible_env.HOME }}/.spacemacs-upstream"
+        state: link
+        force: yes
