@@ -20,6 +20,8 @@
         append_newline: true
         prepend_newline: true
         create: true
-        marker: "# {mark} Setup cargo PATH"
+        marker: "# {mark} Setup cargo PATH and ENV"
         block: |
-          PATH="$HOME/.cargo/bin:$PATH"
+          if [ -f $HOME/.cargo/env ]; then
+            . "$HOME/.cargo/env"
+          fi
