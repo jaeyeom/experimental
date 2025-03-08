@@ -69,12 +69,8 @@ CLOSED: [2024-08-26 Mon 19:16]
 CLOSED: [2025-03-02 Sun 00:03]
 Cargo generator should be similar to what =PipInstall= does in
 =generate_packages.go= file.
-*** TODO emacs-lsp-booster
-Now I need to setup-emacs-lsp-booster to add the following line to =~/.bashrc=.
-
-#+begin_src sh
-  export LSP_USE_PLISTS=true
-#+end_src
+*** DONE emacs-lsp-booster
+CLOSED: [2025-03-07 Fri 17:20]
 
 *** Fonts
 These are some fonts that I want to ensure that they are installed.
