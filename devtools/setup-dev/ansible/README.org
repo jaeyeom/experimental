@@ -38,9 +38,11 @@ CLOSED: [2024-08-21 Wed 13:41]
 CLOSED: [2024-08-26 Mon 19:14]
 *** DONE gpg
 CLOSED: [2025-03-01 Sat 03:29]
-*** TODO pass
+*** DONE pass
+CLOSED: [2025-03-08 Sat 14:42]
 *** TODO Remaining PATH settings
-*** TODO Additional spacemacs settings and symbolic links
+*** DONE Additional spacemacs settings and symbolic links
+CLOSED: [2025-03-08 Sat 14:40]
 
 ** Migrate from Makefile
 *** DONE Pip packages

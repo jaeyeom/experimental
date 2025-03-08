@@ -299,6 +299,7 @@ var packages = []PackageData{
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
 	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []string{"python3-notmuch2"}},
 	{command: "pandoc"},
+	{command: "pass"},
 	{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
 	{command: "python3-notmuch2", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch"},
 	{command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
