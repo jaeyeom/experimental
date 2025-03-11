@@ -1,0 +1,30 @@
+---
+- name: Ensure pass is present
+  hosts: all
+  tasks:
+    - name: Include guard for pass playbook
+      block:
+        - name: Stop early if the pass playbook is already included
+          meta: end_play
+          when: pass_playbook_imported is defined
+        - name: Ensure the pass playbook is not included
+          set_fact:
+            pass_playbook_imported: true
+          when: pass_playbook_imported is not defined
+
+    - name: Ensure pass is present on non-Termux systems
+      package:
+        name: pass
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure pass is present on Termux
+      block:
+        - name: Check if pass is installed
+          shell: command -v pass
+          changed_when: False
+      rescue:
+        - name: Install pass on Termux
+          command: pkg install -y pass
+      when: ansible_env.TERMUX_VERSION is defined
