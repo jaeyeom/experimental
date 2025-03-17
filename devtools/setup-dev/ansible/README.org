@@ -5,7 +5,7 @@ This directory includes Ansible playbooks and a generator of it.
 * How to Use
 
 Run the =ensure.sh= script with the proper rule name. Rule names are playbook
-filename without =.yml= suffix.
+filenames.
 
 #+begin_src sh
   ./ensure.sh [rule]...
@@ -13,12 +13,12 @@ filename without =.yml= suffix.
 
 * Design
 The purpose of this Ansible Setup Dev is to set up my development environment
-mostly indentical in any environment. I made Ansible Playbooks import other
-Playbooks to handle dependencies. To prevent multiple inclusion, I added an
-include guards for each playbook file. Generating it is very cumbersome, I made
-a Go program to generate repetitive text in playbook.
+mostly identical in any environment. I made Ansible Playbooks import other
+Playbooks to handle dependencies. To prevent multiple inclusion, I added include
+guards for each playbook file. Generating it is very cumbersome, so I made a Go
+program to generate repetitive text in playbook.
 
-To run the generator, simply run:
+To regenerate the playbooks, simply run:
 #+begin_src sh
   go run .
 #+end_src
@@ -59,7 +59,13 @@ I can run the following command to keep Spacemacs up-to-date.
   emacs --batch -l ~/.config/emacs/init.el --eval='(configuration-layer/update-packages t)'
 #+end_src
 
-Then, I may need to run Emacs one more time.
+Here are the caveats:
+- I'm not sure if it is okay to run the above command when there is an active
+  Emacs session.
+- I don't want Emacs to be in a state where it can't run offline. I may need to
+  run Emacs one more time to make sure it downloads all the missing or
+  to-be-upgraded packages.
+
 *** DONE gh
 CLOSED: [2024-08-21 Wed 13:27]
 *** DONE Add command-line flags to ensure.sh
