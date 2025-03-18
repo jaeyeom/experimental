@@ -151,6 +151,9 @@ This function should only modify configuration layer settings."
      atomic-chrome
      bazel
      chatgpt-shell
+     (claude-code :location (recipe :fetcher github
+                                    :repo "stevemolitor/claude-code.el"
+                                    :files ("*.el" (:exclude "demo.gif"))))
      ;;; Temporarily disable consult-gh-* package because it depends on Emacs 30
      ;;; which isn't released yet.
      ;; consult-gh
@@ -1640,6 +1643,10 @@ to be `:text'.
     (spacemacs/set-leader-keys "$ a m" 'aider-transient-menu)
     )
 
+  ;;; Claude Code
+  (spacemacs/set-leader-keys "$ c" 'claude-code-transient)
+  (autoload 'claude-code-transient "claude-code" nil t)
+
   (defun my/visible-buffer-text ()
     "Return the visible text in the current buffer."
     (let ((text ""))
@@ -1800,6 +1807,10 @@ the email."
     )
 
   ;; Git and Project
+  (with-eval-after-load 'magit-status
+    (setq-default magit-display-buffer-function
+                  #'magit-display-buffer-same-window-except-diff-v1))
+
   (with-eval-after-load 'projectile
     ;; By Spacemacs default, switch project asked me the project file to open.
     ;; But I prefer to open magit=status or the version-control (VC) buffer. It
