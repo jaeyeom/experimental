@@ -1,0 +1,113 @@
+#+TITLE: GitHub Nudge
+#+AUTHOR: Jaehyun Yeom
+#+DATE: 2025-03-19
+
+* GitHub Nudge
+
+A tool that finds pending code reviews on GitHub and nudges reviewers via Slack.
+
+** Overview
+
+GitHub Nudge is a utility designed to improve code review workflow by
+automatically identifying stalled pull requests and sending gentle reminders to
+assigned reviewers through Slack. This helps maintain momentum in the
+development process and reduces delays in merging important changes.
+
+** Features
+- Uses GitHub CLI (`gh`) to identify pending pull requests
+- Filters PRs based on configurable criteria (age, labels, etc.)
+- Sends customized notifications to reviewers via Slack DMs
+- Maps GitHub usernames to Slack usernames for proper @mentions
+- Routes notifications to appropriate Slack channels based on file patterns in PRs
+- Configurable reminder schedules and message templates
+- Tracks notification history to prevent excessive reminders
+
+** TODO Implementation [0/7]
+- [ ] Set up GitHub CLI integration
+- [ ] Implement PR filtering logic
+- [ ] Create GitHub-to-Slack username mapping
+- [ ] Implement Slack DM integration
+- [ ] Add file pattern matching for channel routing
+- [ ] Build notification scheduling system
+- [ ] Add configuration options
+
+** Prerequisites
+
+1. [[https://cli.github.com/][Github CLI]] installed and authenticated
+2. Slack API token for sending notifications
+
+** Installation
+
+#+begin_src shell
+  go install github.com/jaeyeom/experimental/devtools/gh-nudge@latest
+#+end_src
+
+** Configuration
+
+Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~ with the following structure:
+
+#+begin_src yaml
+  github:
+    owner: "organization-name"  # Optional, defaults to authenticated user
+    repos:
+      - "repo-name-1"
+      - "repo-name-2"
+
+  slack:
+    token: "your-slack-token"
+    default_channel: "#code-reviews"  # Fallback channel if no patterns match
+
+    # GitHub username to Slack user ID mapping
+    user_mapping:
+      "github-username-1": "slack-user-id-1"
+      "github-username-2": "slack-user-id-2"
+
+    # Channel routing based on file patterns
+    channel_routing:
+      - pattern: "frontend/.*\\.js$"
+        channel: "#frontend"
+      - pattern: "backend/.*\\.go$"
+        channel: "#backend"
+      - pattern: "docs/.*"
+        channel: "#documentation"
+
+  settings:
+    reminder_threshold_hours: 24
+    working_hours_only: true
+    message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours."
+    dm_by_default: true  # Send DMs to reviewers by default
+#+end_src
+
+** Usage
+
+#+begin_src shell
+  # Run with default configuration
+  gh-nudge
+
+  # Specify a custom configuration file
+  gh-nudge --config /path/to/config.yaml
+
+  # Run in dry-run mode (no notifications sent)
+  gh-nudge --dry-run
+
+  # Show verbose output
+  gh-nudge --verbose
+#+end_src
+
+** Development
+
+This project follows Test Driven Development practices. To contribute:
+
+1. Write tests for new functionality
+2. Implement the feature
+3. Ensure all tests pass
+4. Submit a pull request
+
+#+begin_src shell
+  # Run tests
+  go test ./...
+#+end_src
+
+** License
+
+MIT
