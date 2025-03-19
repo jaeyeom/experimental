@@ -18,15 +18,18 @@ development process and reduces delays in merging important changes.
 - Filters PRs based on configurable criteria (age, labels, etc.)
 - Sends customized notifications to reviewers via Slack DMs
 - Maps GitHub usernames to Slack usernames for proper @mentions
-- Routes notifications to appropriate Slack channels based on file patterns in PRs
+- Routes notifications to appropriate Slack channels based on file patterns in
+  PRs
 - Configurable reminder schedules and message templates
 - Tracks notification history to prevent excessive reminders
+- Persists notification history between runs to respect reminder thresholds
 
-** TODO Implementation [3/7]
+** TODO Implementation [4/7]
 - [X] Set up GitHub CLI integration
 - [ ] Implement PR filtering logic
 - [X] Create GitHub-to-Slack username mapping
 - [X] Implement Slack DM integration
+- [X] Implement notification threshold with persistence
 - [ ] Add file pattern matching for channel routing
 - [ ] Build notification scheduling system
 - [ ] Add configuration options
@@ -61,11 +64,15 @@ To get a Slack API token for GitHub Nudge:
    - Review the permissions and click "Allow"
 
 4. *Get Your Bot Token*:
-   - After installation, you'll be redirected back to the "OAuth & Permissions" page
+   - After installation, you'll be redirected back to the "OAuth & Permissions"
+     page
    - Copy the "Bot User OAuth Token" that starts with ~xoxb-~
-   - This is the token you'll need to add to your configuration file under ~slack.token~
+   - This is the token you'll need to add to your configuration file under
+     ~slack.token~
 
-*Note*: Slack tokens are sensitive credentials. Consider using environment variables or a secrets manager in production environments rather than hardcoding the token in your configuration file.
+*Note*: Slack tokens are sensitive credentials. Consider using environment
+variables or a secrets manager in production environments rather than hardcoding
+the token in your configuration file.
 
 ** Installation
 
@@ -75,7 +82,8 @@ To get a Slack API token for GitHub Nudge:
 
 ** Configuration
 
-Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~ with the following structure:
+Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~ with the
+following structure:
 
 #+begin_src yaml
   github:
@@ -110,7 +118,7 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~ with the fol
         channel: "#documentation"
 
   settings:
-    reminder_threshold_hours: 24
+    reminder_threshold_hours: 24  # Only send reminders once per 24 hours for the same PR/reviewer
     working_hours_only: true
     message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
     dm_by_default: true  # Send DMs to reviewers by default
@@ -131,6 +139,21 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~ with the fol
   # Show verbose output
   gh-nudge --verbose
 #+end_src
+
+** Notification Persistence
+
+GitHub Nudge tracks when notifications are sent to avoid spamming reviewers with
+repeated reminders for the same PR. The notification history is persisted to a
+JSON file between runs:
+
+- When using a custom config file: stored in the same directory as the config
+  file as `notifications.json`
+- When using the default config location: stored at
+  `$HOME/.config/gh-nudge/notifications.json`
+
+This ensures that even if you run GitHub Nudge multiple times (e.g., via a
+scheduled cron job), reviewers will only be notified about the same PR once per
+`reminder_threshold_hours` period.
 
 ** Development
 
