@@ -135,8 +135,8 @@ This project follows Test Driven Development practices. To contribute:
 4. Submit a pull request
 
 #+begin_src shell
-  # Run tests
-  go test ./...
+  # Run formatter, tests and linter
+  make format test lint
 #+end_src
 
 ** License
