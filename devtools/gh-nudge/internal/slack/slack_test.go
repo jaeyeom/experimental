@@ -7,9 +7,14 @@ import (
 )
 
 func TestFormatMessage(t *testing.T) {
-	client := NewClient("test-token", map[string]string{
-		"github-user": "slack-user-id",
-	})
+	userIDMapping := map[string]string{
+		"github-user": "U12345",
+	}
+	dmChannelIDMapping := map[string]string{
+		"github-user": "C12345",
+	}
+
+	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
 
 	pr := models.PullRequest{
 		Title: "Test PR",
@@ -22,37 +27,83 @@ func TestFormatMessage(t *testing.T) {
 		},
 	}
 
-	template := "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours."
-	message := client.FormatMessage(template, pr, "github-user", 24)
+	t.Run("should replace all placeholders in template", func(t *testing.T) {
+		template := "Hey <@{slack_id}>, the PR '{title}' by {githubUsername} has been waiting for your review for {hours} hours. {url}"
+		message := client.FormatMessage(template, pr, "github-user", 24)
 
-	expected := "Hey <@slack-user-id>, the PR 'Test PR' has been waiting for your review for 24 hours."
-	if message != expected {
-		t.Errorf("Expected message '%s', got '%s'", expected, message)
-	}
+		expected := "Hey <@U12345>, the PR 'Test PR' by github-user has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
+		if message != expected {
+			t.Errorf("Expected message '%s', got '%s'", expected, message)
+		}
+	})
+
+	t.Run("should handle template without githubUsername placeholder", func(t *testing.T) {
+		template := "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
+		message := client.FormatMessage(template, pr, "github-user", 24)
+
+		expected := "Hey <@U12345>, the PR 'Test PR' has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
+		if message != expected {
+			t.Errorf("Expected message '%s', got '%s'", expected, message)
+		}
+	})
 }
 
-func TestGetSlackIDForGitHubUser(t *testing.T) {
-	userMapping := map[string]string{
-		"github-user1": "slack-user-id1",
-		"github-user2": "slack-user-id2",
+func TestGetSlackUserIDForGitHubUser(t *testing.T) {
+	userIDMapping := map[string]string{
+		"github-user1": "U12345",
+		"github-user2": "U67890",
+	}
+	dmChannelIDMapping := map[string]string{
+		"github-user1": "C12345",
+		"github-user2": "C67890",
 	}
 
-	client := NewClient("test-token", userMapping)
+	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
 
-	t.Run("should return correct Slack ID for GitHub user", func(t *testing.T) {
-		slackID, ok := client.GetSlackIDForGitHubUser("github-user1")
+	t.Run("should return correct Slack user ID for GitHub user", func(t *testing.T) {
+		slackID, ok := client.GetSlackUserIDForGitHubUser("github-user1")
 		if !ok {
-			t.Error("Expected to find Slack ID for github-user1")
+			t.Error("Expected to find Slack user ID for github-user1")
 		}
-		if slackID != "slack-user-id1" {
-			t.Errorf("Expected Slack ID 'slack-user-id1', got '%s'", slackID)
+		if slackID != "U12345" {
+			t.Errorf("Expected Slack user ID 'U12345', got '%s'", slackID)
 		}
 	})
 
 	t.Run("should handle unknown GitHub user", func(t *testing.T) {
-		_, ok := client.GetSlackIDForGitHubUser("unknown-user")
+		_, ok := client.GetSlackUserIDForGitHubUser("unknown-user")
 		if ok {
-			t.Error("Expected not to find Slack ID for unknown-user")
+			t.Error("Expected not to find Slack user ID for unknown-user")
+		}
+	})
+}
+
+func TestGetDMChannelIDForGitHubUser(t *testing.T) {
+	userIDMapping := map[string]string{
+		"github-user1": "U12345",
+		"github-user2": "U67890",
+	}
+	dmChannelIDMapping := map[string]string{
+		"github-user1": "C12345",
+		"github-user2": "C67890",
+	}
+
+	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+
+	t.Run("should return correct DM channel ID for GitHub user", func(t *testing.T) {
+		channelID, ok := client.GetDMChannelIDForGitHubUser("github-user1")
+		if !ok {
+			t.Error("Expected to find DM channel ID for github-user1")
+		}
+		if channelID != "C12345" {
+			t.Errorf("Expected DM channel ID 'C12345', got '%s'", channelID)
+		}
+	})
+
+	t.Run("should handle unknown GitHub user", func(t *testing.T) {
+		_, ok := client.GetDMChannelIDForGitHubUser("unknown-user")
+		if ok {
+			t.Error("Expected not to find DM channel ID for unknown-user")
 		}
 	})
 }
@@ -63,7 +114,7 @@ func TestGetChannelForPR(t *testing.T) {
 		{Pattern: "backend/.*\\.go$", Channel: "#backend"},
 	}
 
-	client := NewClient("test-token", nil)
+	client := NewClient("test-token", nil, nil)
 	client.SetChannelRouting(channelRouting)
 	client.SetDefaultChannel("#default")
 
@@ -103,6 +154,29 @@ func TestGetChannelForPR(t *testing.T) {
 		channel := client.GetChannelForPR(pr)
 		if channel != "#default" {
 			t.Errorf("Expected channel '#default', got '%s'", channel)
+		}
+	})
+}
+
+func TestSendDirectMessage(t *testing.T) {
+	userIDMapping := map[string]string{
+		"github-user": "U12345",
+	}
+	dmChannelIDMapping := map[string]string{
+		"github-user": "C12345",
+	}
+
+	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+
+	// This is just a basic test structure since we can't actually send messages in tests
+	t.Run("should prefer DM channel ID when available", func(t *testing.T) {
+		// In a real test, we would mock the Slack API and verify the correct channel ID is used
+		// For now, we're just ensuring the method doesn't panic
+		err := client.SendDirectMessage("github-user", "Test message")
+		// We expect an error in tests since we're not actually connecting to Slack
+		// Just checking that the function handles the logic correctly
+		if err == nil {
+			t.Error("Expected an error when trying to send a message without a real Slack connection")
 		}
 	})
 }

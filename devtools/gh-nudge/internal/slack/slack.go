@@ -18,17 +18,19 @@ type ChannelRouting struct {
 
 // Client provides methods to interact with Slack.
 type Client struct {
-	api            *slack.Client
-	userMapping    map[string]string
-	channelRouting []ChannelRouting
-	defaultChannel string
+	api                *slack.Client
+	userIDMapping      map[string]string
+	dmChannelIDMapping map[string]string
+	channelRouting     []ChannelRouting
+	defaultChannel     string
 }
 
-// NewClient creates a new Slack client with the given token and user mapping.
-func NewClient(token string, userMapping map[string]string) *Client {
+// NewClient creates a new Slack client with the given token and mappings.
+func NewClient(token string, userIDMapping, dmChannelIDMapping map[string]string) *Client {
 	return &Client{
-		api:         slack.New(token),
-		userMapping: userMapping,
+		api:                slack.New(token),
+		userIDMapping:      userIDMapping,
+		dmChannelIDMapping: dmChannelIDMapping,
 	}
 }
 
@@ -42,10 +44,16 @@ func (c *Client) SetDefaultChannel(channel string) {
 	c.defaultChannel = channel
 }
 
-// GetSlackIDForGitHubUser returns the Slack user ID for a GitHub username.
-func (c *Client) GetSlackIDForGitHubUser(githubUsername string) (string, bool) {
-	slackID, ok := c.userMapping[githubUsername]
+// GetSlackUserIDForGitHubUser returns the Slack user ID for a GitHub username.
+func (c *Client) GetSlackUserIDForGitHubUser(githubUsername string) (string, bool) {
+	slackID, ok := c.userIDMapping[githubUsername]
 	return slackID, ok
+}
+
+// GetDMChannelIDForGitHubUser returns the Slack DM channel ID for a GitHub username.
+func (c *Client) GetDMChannelIDForGitHubUser(githubUsername string) (string, bool) {
+	channelID, ok := c.dmChannelIDMapping[githubUsername]
+	return channelID, ok
 }
 
 // GetChannelForPR determines the appropriate Slack channel for a pull request
@@ -69,6 +77,9 @@ func (c *Client) GetChannelForPR(pr models.PullRequest) string {
 func (c *Client) FormatMessage(template string, pr models.PullRequest, githubUsername string, hours int) string {
 	message := template
 
+	// Replace {githubUsername} with the Github Username
+	message = strings.ReplaceAll(message, "{githubUsername}", githubUsername)
+
 	// Replace {title} with the PR title
 	message = strings.ReplaceAll(message, "{title}", pr.Title)
 
@@ -79,7 +90,7 @@ func (c *Client) FormatMessage(template string, pr models.PullRequest, githubUse
 	message = strings.ReplaceAll(message, "{hours}", fmt.Sprintf("%d", hours))
 
 	// Replace {slack_id} with the Slack user ID
-	if slackID, ok := c.GetSlackIDForGitHubUser(githubUsername); ok {
+	if slackID, ok := c.GetSlackUserIDForGitHubUser(githubUsername); ok {
 		message = strings.ReplaceAll(message, "{slack_id}", slackID)
 	} else {
 		// If no mapping exists, just use the GitHub username
@@ -90,12 +101,26 @@ func (c *Client) FormatMessage(template string, pr models.PullRequest, githubUse
 }
 
 // SendDirectMessage sends a direct message to a Slack user.
-func (c *Client) SendDirectMessage(slackUserID, message string) error {
-	_, _, err := c.api.PostMessage(slackUserID, slack.MsgOptionText(message, false))
-	if err != nil {
-		return fmt.Errorf("failed to send direct message: %w", err)
+func (c *Client) SendDirectMessage(githubUsername, message string) error {
+	// First try to get the DM channel ID
+	if channelID, ok := c.GetDMChannelIDForGitHubUser(githubUsername); ok {
+		_, _, err := c.api.PostMessage(channelID, slack.MsgOptionText(message, false))
+		if err != nil {
+			return fmt.Errorf("failed to send message to DM channel: %w", err)
+		}
+		return nil
 	}
-	return nil
+
+	// Fall back to user ID if DM channel ID is not available
+	if slackUserID, ok := c.GetSlackUserIDForGitHubUser(githubUsername); ok {
+		_, _, err := c.api.PostMessage(slackUserID, slack.MsgOptionText(message, false))
+		if err != nil {
+			return fmt.Errorf("failed to send direct message: %w", err)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("no Slack ID or DM channel mapping for GitHub user: %s", githubUsername)
 }
 
 // SendChannelMessage sends a message to a Slack channel.
@@ -111,15 +136,9 @@ func (c *Client) SendChannelMessage(channel, message string) error {
 func (c *Client) NudgeReviewer(pr models.PullRequest, githubUsername string, hours int, template string, dmByDefault bool) error {
 	message := c.FormatMessage(template, pr, githubUsername, hours)
 
-	// Get the Slack user ID for the GitHub username
-	slackID, ok := c.GetSlackIDForGitHubUser(githubUsername)
-	if !ok {
-		return fmt.Errorf("no Slack ID mapping for GitHub user: %s", githubUsername)
-	}
-
 	// Send as DM if configured to do so
 	if dmByDefault {
-		return c.SendDirectMessage(slackID, message)
+		return c.SendDirectMessage(githubUsername, message)
 	}
 
 	// Otherwise, send to the appropriate channel

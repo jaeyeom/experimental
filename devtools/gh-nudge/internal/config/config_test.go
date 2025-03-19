@@ -22,9 +22,12 @@ github:
 slack:
   token: "xoxb-test-token"
   default_channel: "#code-reviews"
-  user_mapping:
-    "github-user1": "slack-user1"
-    "github-user2": "slack-user2"
+  user_id_mapping:
+    "github-user1": "U12345"
+    "github-user2": "U67890"
+  dm_channel_id_mapping:
+    "github-user1": "C12345"
+    "github-user2": "C67890"
   channel_routing:
     - pattern: "frontend/.*\\.js$"
       channel: "#frontend"
@@ -65,8 +68,12 @@ settings:
 			t.Errorf("Expected default channel '#code-reviews', got '%s'", cfg.Slack.DefaultChannel)
 		}
 
-		if len(cfg.Slack.UserMapping) != 2 {
-			t.Errorf("Expected 2 user mappings, got %d", len(cfg.Slack.UserMapping))
+		if len(cfg.Slack.UserIDMapping) != 2 {
+			t.Errorf("Expected 2 user ID mappings, got %d", len(cfg.Slack.UserIDMapping))
+		}
+
+		if len(cfg.Slack.DMChannelIDMapping) != 2 {
+			t.Errorf("Expected 2 DM channel ID mappings, got %d", len(cfg.Slack.DMChannelIDMapping))
 		}
 
 		if len(cfg.Slack.ChannelRouting) != 2 {

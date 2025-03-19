@@ -49,7 +49,7 @@ func main() {
 	githubClient := github.NewClient(nil)
 
 	// Initialize Slack client
-	slackClient := slack.NewClient(cfg.Slack.Token, cfg.Slack.UserMapping)
+	slackClient := slack.NewClient(cfg.Slack.Token, cfg.Slack.UserIDMapping, cfg.Slack.DMChannelIDMapping)
 	slackClient.SetChannelRouting(convertChannelRouting(cfg.Slack.ChannelRouting))
 	slackClient.SetDefaultChannel(cfg.Slack.DefaultChannel)
 
@@ -76,10 +76,10 @@ func main() {
 
 			slog.Debug("Processing reviewer", "login", reviewer.Login)
 
-			// Check if we have a Slack ID for this GitHub user
-			slackID, ok := slackClient.GetSlackIDForGitHubUser(reviewer.Login)
+			// Check if we have a Slack user ID for this GitHub user
+			slackUserID, ok := slackClient.GetSlackUserIDForGitHubUser(reviewer.Login)
 			if !ok {
-				slog.Error("No Slack ID mapping for GitHub user", "github_user", reviewer.Login)
+				slog.Error("No Slack user ID mapping for GitHub user", "github_user", reviewer.Login)
 				continue
 			}
 
@@ -93,15 +93,25 @@ func main() {
 
 			// In dry-run mode, just print the message
 			if dryRun {
-				fmt.Printf("Would send to %s: %s\n", slackID, message)
+				if cfg.Settings.DMByDefault {
+					// Try to get DM channel ID first
+					if dmChannelID, ok := slackClient.GetDMChannelIDForGitHubUser(reviewer.Login); ok {
+						fmt.Printf("Would send to DM channel %s: %s\n", dmChannelID, message)
+					} else {
+						fmt.Printf("Would send to user %s: %s\n", slackUserID, message)
+					}
+				} else {
+					channel := slackClient.GetChannelForPR(pr)
+					fmt.Printf("Would send to channel %s: %s\n", channel, message)
+				}
 				continue
 			}
 
 			// Send the notification
 			var notifyErr error
 			if cfg.Settings.DMByDefault {
-				slog.Info("Sending DM", "github_user", reviewer.Login, "slack_id", slackID)
-				notifyErr = slackClient.SendDirectMessage(slackID, message)
+				slog.Info("Sending DM", "github_user", reviewer.Login, "slack_user_id", slackUserID)
+				notifyErr = slackClient.SendDirectMessage(reviewer.Login, message)
 			} else {
 				channel := slackClient.GetChannelForPR(pr)
 				slog.Info("Sending channel message", "channel", channel)
