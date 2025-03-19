@@ -180,3 +180,79 @@ func TestSendDirectMessage(t *testing.T) {
 		}
 	})
 }
+
+func TestNudgeReviewer(t *testing.T) {
+	userIDMapping := map[string]string{
+		"github-user": "U12345",
+	}
+	dmChannelIDMapping := map[string]string{
+		"github-user": "C12345",
+	}
+
+	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+	client.SetDefaultChannel("#default")
+
+	pr := models.PullRequest{
+		Title: "Test PR",
+		URL:   "https://github.com/org/repo/pull/1",
+		ReviewRequests: []models.ReviewRequest{
+			{
+				Type:  "User",
+				Login: "github-user",
+			},
+		},
+	}
+
+	template := "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
+
+	t.Run("should return destination and message in dry run mode with DM", func(t *testing.T) {
+		destination, message, err := client.NudgeReviewer(pr, "github-user", 24, template, true, true)
+		if err != nil {
+			t.Errorf("Expected no error in dry run mode, got: %v", err)
+		}
+
+		// Should use DM channel ID when available
+		if destination != "C12345" {
+			t.Errorf("Expected destination 'C12345', got '%s'", destination)
+		}
+
+		expectedMessage := "Hey <@U12345>, the PR 'Test PR' has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
+		if message != expectedMessage {
+			t.Errorf("Expected message '%s', got '%s'", expectedMessage, message)
+		}
+	})
+
+	t.Run("should return destination and message in dry run mode with channel", func(t *testing.T) {
+		destination, message, err := client.NudgeReviewer(pr, "github-user", 24, template, false, true)
+		if err != nil {
+			t.Errorf("Expected no error in dry run mode, got: %v", err)
+		}
+
+		// Should use default channel when DMByDefault is false
+		if destination != "#default" {
+			t.Errorf("Expected destination '#default', got '%s'", destination)
+		}
+
+		expectedMessage := "Hey <@U12345>, the PR 'Test PR' has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
+		if message != expectedMessage {
+			t.Errorf("Expected message '%s', got '%s'", expectedMessage, message)
+		}
+	})
+
+	t.Run("should handle unknown GitHub user", func(t *testing.T) {
+		_, _, err := client.NudgeReviewer(pr, "unknown-user", 24, template, true, true)
+
+		if err == nil {
+			t.Error("Expected an error for unknown GitHub user")
+		}
+	})
+
+	t.Run("should attempt to send message in non-dry run mode", func(t *testing.T) {
+		_, _, err := client.NudgeReviewer(pr, "github-user", 24, template, true, false)
+
+		// We expect an error in tests since we're not actually connecting to Slack
+		if err == nil {
+			t.Error("Expected an error when trying to send a message without a real Slack connection")
+		}
+	})
+}

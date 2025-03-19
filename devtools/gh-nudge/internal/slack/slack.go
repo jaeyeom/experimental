@@ -133,15 +133,51 @@ func (c *Client) SendChannelMessage(channel, message string) error {
 }
 
 // NudgeReviewer sends a notification to a reviewer about a pending PR.
-func (c *Client) NudgeReviewer(pr models.PullRequest, githubUsername string, hours int, template string, dmByDefault bool) error {
+// It formats a message using the provided template and sends it to the appropriate
+// destination (DM or channel) based on the dmByDefault parameter.
+//
+// Parameters:
+//   - pr: The pull request to notify about
+//   - githubUsername: The GitHub username of the reviewer to notify
+//   - hours: The number of hours the PR has been waiting for review (used in the message template)
+//   - template: The message template to use for formatting the notification
+//   - dmByDefault: Whether to send as a direct message (true) or to a channel (false)
+//   - dryRun: If true, will return what would be sent without actually sending
+//
+// Returns:
+//   - destination: Where the message would be/was sent (channel name or user ID)
+//   - message: The formatted message content
+//   - error: Any error that occurred during the process
+func (c *Client) NudgeReviewer(pr models.PullRequest, githubUsername string, hours int, template string, dmByDefault bool, dryRun bool) (string, string, error) {
 	message := c.FormatMessage(template, pr, githubUsername, hours)
+	var destination string
+	var err error
 
-	// Send as DM if configured to do so
+	// Determine the destination (channel or user)
 	if dmByDefault {
-		return c.SendDirectMessage(githubUsername, message)
+		// Try to get DM channel ID first
+		if dmChannelID, ok := c.GetDMChannelIDForGitHubUser(githubUsername); ok {
+			destination = dmChannelID
+		} else if slackUserID, ok := c.GetSlackUserIDForGitHubUser(githubUsername); ok {
+			destination = slackUserID
+		} else {
+			return "", "", fmt.Errorf("no Slack mapping for GitHub user: %s", githubUsername)
+		}
+	} else {
+		destination = c.GetChannelForPR(pr)
 	}
 
-	// Otherwise, send to the appropriate channel
-	channel := c.GetChannelForPR(pr)
-	return c.SendChannelMessage(channel, message)
+	// If dry run, just return what would be sent
+	if dryRun {
+		return destination, message, nil
+	}
+
+	// Send the actual message
+	if dmByDefault {
+		err = c.SendDirectMessage(githubUsername, message)
+	} else {
+		err = c.SendChannelMessage(destination, message)
+	}
+
+	return destination, message, err
 }
