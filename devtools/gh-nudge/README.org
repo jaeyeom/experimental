@@ -88,10 +88,17 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~ with the fol
     token: "your-slack-token"
     default_channel: "#code-reviews"  # Fallback channel if no patterns match
 
-    # GitHub username to Slack user ID mapping
-    user_mapping:
-      "github-username-1": "slack-user-id-1"
-      "github-username-2": "slack-user-id-2"
+    # GitHub username to Slack user ID mapping (for @mentions in messages)
+    # User IDs typically start with "U" (e.g., "U12345")
+    user_id_mapping:
+      "github-username-1": "U12345"
+      "github-username-2": "U67890"
+
+    # GitHub username to Slack DM channel ID mapping (for sending direct messages)
+    # DM channel IDs typically start with "C" (e.g., "C12345")
+    dm_channel_id_mapping:
+      "github-username-1": "C12345"
+      "github-username-2": "C67890"
 
     # Channel routing based on file patterns
     channel_routing:
