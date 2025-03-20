@@ -106,27 +106,23 @@ func formatMessage(msgTemplate string, variables map[string]string) string {
 	return result
 }
 
-// sendMessage sends a message to a GitHub user
-func sendMessage(githubUsername, msgContent string, slackClient *slack.Client, dryRun bool) error {
-	// Check if we have a Slack user ID for this GitHub user
-	_, ok := slackClient.GetSlackUserIDForGitHubUser(githubUsername)
-	if !ok {
-		return fmt.Errorf("no Slack user ID mapping for GitHub user: %s", githubUsername)
-	}
+// processMessage handles sending a message to a GitHub user
+func processMessage(githubUsername, msgContent string, slackClient *slack.Client, dryRun bool) error {
+	destination, err := slackClient.SendDirectMessageWithDryRun(githubUsername, msgContent, dryRun)
 
-	// If dry run, just print what would be sent
 	if dryRun {
-		fmt.Printf("Would send to %s: %s\n", githubUsername, msgContent)
+		if err != nil {
+			return fmt.Errorf("would fail to send message: %w", err)
+		}
+		fmt.Printf("Would send to %s: %s\n", destination, msgContent)
 		return nil
 	}
 
-	// Send the actual message
-	err := slackClient.SendDirectMessage(githubUsername, msgContent)
 	if err != nil {
-		return fmt.Errorf("failed to send message to %s: %w", githubUsername, err)
+		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	slog.Info("Message sent", "recipient", githubUsername)
+	slog.Info("Message sent", "recipient", githubUsername, "destination", destination)
 	return nil
 }
 
@@ -177,7 +173,7 @@ func main() {
 		}
 
 		slog.Debug("Processing recipient", "github_username", recipient)
-		err := sendMessage(recipient, msgContent, slackClient, dryRun)
+		err := processMessage(recipient, msgContent, slackClient, dryRun)
 		if err != nil {
 			slog.Error("Failed to send message", "recipient", recipient, "error", err)
 		}
