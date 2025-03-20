@@ -40,10 +40,11 @@ func NewClient(executor CommandExecutor) *Client {
 }
 
 // GetPendingPullRequests fetches pending pull requests using the gh CLI.
+// It fetches PRs created by the current user.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	// Construct the gh command to get PR information
 	// This command fetches PRs with their title, URL, review requests, and files
-	output, err := c.executor.Execute("gh", "pr", "status", "--json", "url,title,reviewRequests,files", "-q", ".createdBy")
+	output, err := c.executor.Execute("gh", "pr", "status", "--json", "url,title,reviewRequests,files,mergeable,headRefName", "-q", ".createdBy")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gh command: %w", err)
 	}
@@ -55,6 +56,23 @@ func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	}
 
 	return prs, nil
+}
+
+// GetMergeablePullRequests fetches pull requests with no review requests.
+func (c *Client) GetMergeablePullRequests() ([]models.PullRequest, error) {
+	prs, err := c.GetPendingPullRequests()
+	if err != nil {
+		return nil, err
+	}
+
+	var mergeablePRs []models.PullRequest
+	for _, pr := range prs {
+		if len(pr.ReviewRequests) == 0 && pr.Mergeable == "MERGEABLE" {
+			mergeablePRs = append(mergeablePRs, pr)
+		}
+	}
+
+	return mergeablePRs, nil
 }
 
 // FilterPullRequestsByAge filters pull requests by their age.
@@ -70,4 +88,22 @@ func (c *Client) FilterPullRequestsByAge(prs []models.PullRequest, hours int) []
 func (c *Client) GetPullRequestDetails(pr models.PullRequest) (models.PullRequest, error) {
 	// In a real implementation, we would fetch additional details if needed
 	return pr, nil
+}
+
+// MergePullRequest merges a specific pull request.
+// If deleteBranch is true, it will delete the source branch after merging.
+func (c *Client) MergePullRequest(prURL string, deleteBranch bool) error {
+	args := []string{"pr", "merge", prURL}
+
+	if deleteBranch {
+		args = append(args, "--delete-branch")
+	}
+
+	output, err := c.executor.Execute("gh", args...)
+	if err != nil {
+		return fmt.Errorf("failed to merge PR %s: %w\nOutput: %s",
+			prURL, err, output)
+	}
+
+	return nil
 }
