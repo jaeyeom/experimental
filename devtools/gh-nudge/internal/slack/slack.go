@@ -132,6 +132,41 @@ func (c *Client) SendChannelMessage(channel, message string) error {
 	return nil
 }
 
+// SendDirectMessageWithDryRun sends a direct message to a GitHub user with
+// dry-run support. If dryRun is true, it will return what would be sent without
+// actually sending.
+//
+// Parameters:
+//   - githubUsername: The GitHub username of the user to message
+//   - message: The message content to send
+//   - dryRun: If true, will not actually send the message
+//
+// Returns:
+//   - destination: Where the message would be/was sent (DM channel ID or user ID)
+//   - error: Any error that occurred during the process
+func (c *Client) SendDirectMessageWithDryRun(githubUsername, message string, dryRun bool) (string, error) {
+	var destination string
+
+	// Check if we have a mapping for this GitHub user
+	// Try to get DM channel ID first
+	if dmChannelID, ok := c.GetDMChannelIDForGitHubUser(githubUsername); ok {
+		destination = dmChannelID
+	} else if slackUserID, ok := c.GetSlackUserIDForGitHubUser(githubUsername); ok {
+		destination = slackUserID
+	} else {
+		return "", fmt.Errorf("no Slack mapping for GitHub user: %s", githubUsername)
+	}
+
+	// If dry run, just return what would be sent
+	if dryRun {
+		return destination, nil
+	}
+
+	// Send the actual message
+	err := c.SendDirectMessage(githubUsername, message)
+	return destination, err
+}
+
 // NudgeReviewer sends a notification to a reviewer about a pending PR.
 // It formats a message using the provided template and sends it to the appropriate
 // destination (DM or channel) based on the dmByDefault parameter.
@@ -153,29 +188,17 @@ func (c *Client) NudgeReviewer(pr models.PullRequest, githubUsername string, hou
 	var destination string
 	var err error
 
-	// Determine the destination (channel or user)
+	// Determine the destination and send the message
 	if dmByDefault {
-		// Try to get DM channel ID first
-		if dmChannelID, ok := c.GetDMChannelIDForGitHubUser(githubUsername); ok {
-			destination = dmChannelID
-		} else if slackUserID, ok := c.GetSlackUserIDForGitHubUser(githubUsername); ok {
-			destination = slackUserID
-		} else {
-			return "", "", fmt.Errorf("no Slack mapping for GitHub user: %s", githubUsername)
-		}
+		destination, err = c.SendDirectMessageWithDryRun(githubUsername, message, dryRun)
 	} else {
 		destination = c.GetChannelForPR(pr)
-	}
 
-	// If dry run, just return what would be sent
-	if dryRun {
-		return destination, message, nil
-	}
+		// If dry run, just return what would be sent
+		if dryRun {
+			return destination, message, nil
+		}
 
-	// Send the actual message
-	if dmByDefault {
-		err = c.SendDirectMessage(githubUsername, message)
-	} else {
 		err = c.SendChannelMessage(destination, message)
 	}
 
