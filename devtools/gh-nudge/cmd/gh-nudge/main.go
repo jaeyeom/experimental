@@ -11,6 +11,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/notification"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/slack"
 )
@@ -27,10 +28,8 @@ func init() {
 	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
 }
 
-func main() {
-	flag.Parse()
-
-	// Set up logging
+// setupLogger configures the application logger based on verbosity level
+func setupLogger() *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
 		logLevel = slog.LevelDebug
@@ -39,14 +38,26 @@ func main() {
 		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
+	return logger
+}
 
-	// Load configuration
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		slog.Error("Failed to load configuration", "error", err)
-		os.Exit(1)
+// getNotificationPath determines the path for storing notification data
+func getNotificationPath() (string, error) {
+	if configPath != "" {
+		// If config path is specified, use the same directory
+		return filepath.Join(filepath.Dir(configPath), "notifications.json"), nil
 	}
 
+	// Otherwise use the default location in user's home directory
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	return filepath.Join(home, ".config", "gh-nudge", "notifications.json"), nil
+}
+
+// initializeClients sets up the GitHub and Slack clients
+func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
 	// Initialize GitHub client
 	githubClient := github.NewClient(nil)
 
@@ -55,33 +66,133 @@ func main() {
 	slackClient.SetChannelRouting(convertChannelRouting(cfg.Slack.ChannelRouting))
 	slackClient.SetDefaultChannel(cfg.Slack.DefaultChannel)
 
-	// Initialize notification tracker with persistence
-	// Store notifications in the same directory as the config file
-	var notificationTracker *notification.Tracker
-	var notificationPath string
+	return githubClient, slackClient
+}
 
-	// Determine the path for notification storage
-	if configPath != "" {
-		// If config path is specified, use the same directory
-		notificationPath = filepath.Join(filepath.Dir(configPath), "notifications.json")
-	} else {
-		// Otherwise use the default location in user's home directory
-		home, err := os.UserHomeDir()
-		if err != nil {
-			slog.Error("Failed to get user home directory", "error", err)
-			os.Exit(1)
-		}
-		notificationPath = filepath.Join(home, ".config", "gh-nudge", "notifications.json")
+// initializeNotificationTracker sets up the notification tracker
+func initializeNotificationTracker(notificationPath string) (*notification.Tracker, error) {
+	notificationTracker, err := notification.NewPersistentTracker(notificationPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize notification tracker: %w", err)
+	}
+	slog.Info("Using notification history file", "path", notificationPath)
+	return notificationTracker, nil
+}
+
+// processReviewer handles the notification logic for a single reviewer
+func processReviewer(
+	pr models.PullRequest,
+	reviewer models.ReviewRequest,
+	slackClient *slack.Client,
+	notificationTracker *notification.Tracker,
+	cfg *config.Config,
+) error {
+	// Skip team reviews for now
+	if reviewer.Type != "User" {
+		return nil
 	}
 
-	// Create the persistent tracker
-	notificationTracker, err = notification.NewPersistentTracker(notificationPath)
+	slog.Debug("Processing reviewer", "login", reviewer.Login)
+
+	// Check if we have a Slack user ID for this GitHub user
+	_, ok := slackClient.GetSlackUserIDForGitHubUser(reviewer.Login)
+	if !ok {
+		return fmt.Errorf("no Slack user ID mapping for GitHub user: %s", reviewer.Login)
+	}
+
+	// Check if we should notify based on threshold hours
+	shouldNotify := notificationTracker.ShouldNotify(pr.URL, reviewer.Login, cfg.Settings.ReminderThresholdHours)
+	if !shouldNotify {
+		slog.Info("Skipping notification within threshold period",
+			"pr", pr.Title,
+			"reviewer", reviewer.Login,
+			"threshold_hours", cfg.Settings.ReminderThresholdHours)
+		return nil
+	}
+
+	// Use the NudgeReviewer method to send or simulate sending a notification
+	destination, message, err := slackClient.NudgeReviewer(
+		pr,
+		reviewer.Login,
+		cfg.Settings.ReminderThresholdHours,
+		cfg.Settings.MessageTemplate,
+		cfg.Settings.DMByDefault,
+		dryRun,
+	)
+
+	// Handle the results
+	if dryRun {
+		if err != nil {
+			slog.Error("Would fail to send notification", "error", err)
+		} else {
+			fmt.Printf("Would send to %s: %s\n", destination, message)
+		}
+		return nil
+	}
+
+	// Handle the actual notification result
+	if err != nil {
+		return fmt.Errorf("failed to send notification: %w", err)
+	}
+
+	// Record that we sent a notification
+	if err := notificationTracker.RecordNotification(pr.URL, reviewer.Login); err != nil {
+		return fmt.Errorf("failed to record notification: %w", err)
+	}
+
+	slog.Info("Recorded notification", "pr", pr.Title, "reviewer", reviewer.Login)
+	return nil
+}
+
+// processPullRequest handles the notification logic for a single pull request
+func processPullRequest(
+	pr models.PullRequest,
+	slackClient *slack.Client,
+	notificationTracker *notification.Tracker,
+	cfg *config.Config,
+) {
+	slog.Debug("Processing pull request", "title", pr.Title, "url", pr.URL)
+
+	// Process each reviewer
+	for _, reviewer := range pr.ReviewRequests {
+		err := processReviewer(pr, reviewer, slackClient, notificationTracker, cfg)
+		if err != nil {
+			slog.Error("Error processing reviewer", "reviewer", reviewer.Login, "error", err)
+		}
+
+		// Sleep briefly to avoid rate limiting
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func main() {
+	flag.Parse()
+
+	// Set up logging
+	setupLogger()
+
+	// Load configuration
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		slog.Error("Failed to load configuration", "error", err)
+		os.Exit(1)
+	}
+
+	// Initialize clients
+	githubClient, slackClient := initializeClients(cfg)
+
+	// Initialize notification tracker with persistence
+	notificationPath, err := getNotificationPath()
+	if err != nil {
+		slog.Error("Failed to determine notification path", "error", err)
+		os.Exit(1)
+	}
+
+	notificationTracker, err := initializeNotificationTracker(notificationPath)
 	if err != nil {
 		slog.Error("Failed to initialize notification tracker", "error", err)
 		os.Exit(1)
 	}
-
-	slog.Info("Using notification history file", "path", notificationPath)
 
 	// Get pending pull requests
 	slog.Info("Fetching pending pull requests...")
@@ -95,71 +206,7 @@ func main() {
 
 	// Process each pull request
 	for _, pr := range prs {
-		slog.Debug("Processing pull request", "title", pr.Title, "url", pr.URL)
-
-		// For each reviewer, send a notification
-		for _, reviewer := range pr.ReviewRequests {
-			// Skip team reviews for now
-			if reviewer.Type != "User" {
-				continue
-			}
-
-			slog.Debug("Processing reviewer", "login", reviewer.Login)
-
-			// Check if we have a Slack user ID for this GitHub user
-			_, ok := slackClient.GetSlackUserIDForGitHubUser(reviewer.Login)
-			if !ok {
-				slog.Error("No Slack user ID mapping for GitHub user", "github_user", reviewer.Login)
-				continue
-			}
-
-			// Check if we should notify based on threshold hours
-			shouldNotify := notificationTracker.ShouldNotify(pr.URL, reviewer.Login, cfg.Settings.ReminderThresholdHours)
-			if !shouldNotify {
-				slog.Info("Skipping notification within threshold period",
-					"pr", pr.Title,
-					"reviewer", reviewer.Login,
-					"threshold_hours", cfg.Settings.ReminderThresholdHours)
-				continue
-			}
-
-			// Use the NudgeReviewer method to send or simulate sending a notification
-			destination, message, err := slackClient.NudgeReviewer(
-				pr,
-				reviewer.Login,
-				cfg.Settings.ReminderThresholdHours,
-				cfg.Settings.MessageTemplate,
-				cfg.Settings.DMByDefault,
-				dryRun,
-			)
-
-			// Handle the results
-			if dryRun {
-				if err != nil {
-					slog.Error("Would fail to send notification", "error", err)
-				} else {
-					fmt.Printf("Would send to %s: %s\n", destination, message)
-				}
-
-				// In dry-run mode, don't actually record the notification
-				continue
-			}
-
-			// Handle the actual notification result
-			if err != nil {
-				slog.Error("Failed to send notification", "error", err)
-			} else {
-				// Record that we sent a notification
-				if err := notificationTracker.RecordNotification(pr.URL, reviewer.Login); err != nil {
-					slog.Error("Failed to record notification", "error", err)
-				} else {
-					slog.Info("Recorded notification", "pr", pr.Title, "reviewer", reviewer.Login)
-				}
-			}
-
-			// Sleep briefly to avoid rate limiting
-			time.Sleep(100 * time.Millisecond)
-		}
+		processPullRequest(pr, slackClient, notificationTracker, cfg)
 	}
 
 	slog.Info("Finished processing pull requests")
