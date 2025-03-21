@@ -210,6 +210,7 @@ func NewRandomPicker(c Config) *RandomPicker {
 func (p *RandomPicker) Pick(additional ...Training) []int {
 	candidates := p.candidates.AppendTrainings(additional...)
 	numCandidates := len(candidates)
+	// #nosec G404
 	n := rand.Intn(numCandidates)
 	return candidates[n]
 }

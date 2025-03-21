@@ -12,7 +12,7 @@
 
 set -e
 
-MAIN_BRANCH="devel"
+MAIN_BRANCH=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
 
 # Ensure we're on main so we don't accidentally delete the checked-out branch
 git checkout "$MAIN_BRANCH" >/dev/null 2>&1 || {

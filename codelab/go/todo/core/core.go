@@ -176,7 +176,8 @@ func (l *List) AddSubtask(parentID, description string) error {
 	return nil
 }
 
-// updateParentState updates the state of a parent task based on its subtasks' states
+// updateParentState updates the state of a parent task based on its subtasks'
+// states.
 func (l *List) updateParentState(item *Item) {
 	if len(item.Subtasks) == 0 {
 		return
@@ -212,7 +213,7 @@ var (
 	ErrNoSibling = errors.New("no sibling in that direction")
 )
 
-// findItemInSubtasks recursively searches for an item in the subtasks tree
+// findItemInSubtasks recursively searches for an item in the subtasks tree.
 func (l *List) findItemInSubtasks(id string, items []Item) (*Item, error) {
 	var found *Item
 	for i := range items {

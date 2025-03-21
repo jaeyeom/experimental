@@ -55,7 +55,7 @@ func init() {
 	}
 }
 
-// setupLogging configures the logger with the appropriate level
+// setupLogging configures the logger with the appropriate level.
 func setupLogging() *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
@@ -68,7 +68,7 @@ func setupLogging() *slog.Logger {
 	return logger
 }
 
-// loadConfig loads the configuration from the specified path or default location
+// loadConfig loads the configuration from the specified path or default location.
 func loadConfig() (*config.Config, error) {
 	if configPath == "" {
 		// Try to use default config path
@@ -88,7 +88,7 @@ func loadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
-// listMergeablePRs lists all PRs that are ready to merge
+// listMergeablePRs lists all PRs that are ready to merge.
 func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
 	slog.Info("Finding PRs with no review requests in the current repository")
 
@@ -114,7 +114,7 @@ func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
 	return nil
 }
 
-// mergePRs merges all eligible PRs
+// mergePRs merges all eligible PRs.
 func mergePRs(githubClient *github.Client, cfg *config.Config) error {
 	slog.Info("Finding and merging PRs with no review requests",
 		"dry_run", dryRun,

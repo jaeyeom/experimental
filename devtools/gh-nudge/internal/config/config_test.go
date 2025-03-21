@@ -40,7 +40,7 @@ settings:
   message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours."
   dm_by_default: true
 `
-		err := os.WriteFile(configPath, []byte(configContent), 0o644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		if err != nil {
 			t.Fatalf("Failed to write test config file: %v", err)
 		}
@@ -113,7 +113,7 @@ github:
     - "repo2"
 slack: invalid-yaml-here
 `
-		err := os.WriteFile(configPath, []byte(configContent), 0o644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		if err != nil {
 			t.Fatalf("Failed to write test config file: %v", err)
 		}

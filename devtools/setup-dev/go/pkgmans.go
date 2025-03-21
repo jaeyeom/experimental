@@ -10,9 +10,7 @@ import (
 // Termux is a struct that represents the Termux environment.
 type Termux struct{}
 
-// Check TERMUX_VERSION environment variable
-// If it exists, return true
-// Otherwise,
+// Check TERMUX_VERSION environment variable. If it exists, return true.
 func (t *Termux) Check() bool {
 	return os.Getenv("TERMUX_VERSION") != ""
 }

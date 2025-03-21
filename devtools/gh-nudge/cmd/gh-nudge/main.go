@@ -28,7 +28,7 @@ func init() {
 	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
 }
 
-// setupLogger configures the application logger based on verbosity level
+// setupLogger configures the application logger based on verbosity level.
 func setupLogger() *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
@@ -41,7 +41,7 @@ func setupLogger() *slog.Logger {
 	return logger
 }
 
-// getNotificationPath determines the path for storing notification data
+// getNotificationPath determines the path for storing notification data.
 func getNotificationPath() (string, error) {
 	if configPath != "" {
 		// If config path is specified, use the same directory

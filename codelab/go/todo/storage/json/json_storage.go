@@ -50,7 +50,7 @@ func (s *Storage) Save(list *core.List) error {
 	if err != nil {
 		return fmt.Errorf("json.Marshal: %v", err)
 	}
-	if err := os.WriteFile(s.path, b, 0o644); err != nil {
+	if err := os.WriteFile(s.path, b, 0o600); err != nil {
 		return fmt.Errorf("os.WriteFile: %v", err)
 	}
 	return nil
