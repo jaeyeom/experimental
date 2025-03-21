@@ -133,7 +133,7 @@ func (t *Tracker) Save() error {
 		return err
 	}
 
-	return os.WriteFile(t.persistPath, data, 0o644)
+	return os.WriteFile(t.persistPath, data, 0o600)
 }
 
 // ShouldNotify determines if a notification should be sent based on the threshold hours.

@@ -34,6 +34,7 @@ func Test_containsInt(t *testing.T) {
 
 	properties.Property("any list with the element", prop.ForAll(
 		func(vs []int) bool {
+			// #nosec: G404
 			return containsInt(vs, vs[rand.Intn(len(vs))])
 		},
 		gen.SliceOf(gen.Int()).SuchThat(nonEmpty),

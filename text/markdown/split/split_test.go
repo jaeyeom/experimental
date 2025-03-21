@@ -120,7 +120,7 @@ Content 2
 ### Header 3
 Content 3
 `
-	if err := os.WriteFile(inputFile, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(inputFile, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

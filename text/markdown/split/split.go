@@ -49,7 +49,7 @@ func toBase36(n int) string {
 // generateFilename creates a filename based on section level and counters.
 // Format: [0-9A-Z][0-9A-Z][0-9A-Z]_ where each position can be:
 //
-// - A digit (0-9) or letter (A-Z), allowing 36 items per level
+// - A digit (0-9) or letter (A-Z), allowing 36 items per level.
 func generateFilename(title string, sectionCounters []int, level int) string {
 	// Update counters first
 	if level <= len(sectionCounters) {
@@ -118,7 +118,7 @@ func SplitMarkdown(inputFile, outputDir string) error {
 				if err := os.WriteFile(
 					filepath.Join(outputDir, currentFilename),
 					[]byte(strings.Join(currentSection, "\n")),
-					0o644,
+					0o600,
 				); err != nil {
 					return fmt.Errorf("failed to write section file: %w", err)
 				}
@@ -148,7 +148,7 @@ func SplitMarkdown(inputFile, outputDir string) error {
 		if err := os.WriteFile(
 			filepath.Join(outputDir, currentFilename),
 			[]byte(strings.Join(currentSection, "\n")),
-			0o644,
+			0o600,
 		); err != nil {
 			return fmt.Errorf("failed to write last section file: %w", err)
 		}
@@ -158,7 +158,7 @@ func SplitMarkdown(inputFile, outputDir string) error {
 	if err := os.WriteFile(
 		filepath.Join(outputDir, "000_table_of_contents.md"),
 		[]byte(strings.Join(toc, "")),
-		0o644,
+		0o600,
 	); err != nil {
 		return fmt.Errorf("failed to write table of contents: %w", err)
 	}

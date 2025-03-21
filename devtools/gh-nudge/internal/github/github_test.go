@@ -63,7 +63,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 	})
 }
 
-// mockExecutor is a test helper that mocks command execution
+// mockExecutor is a test helper that mocks command execution.
 type mockExecutor struct {
 	output     string
 	shouldFail bool
