@@ -9,8 +9,17 @@
 # If both are true, we delete the branch.
 #
 # NOTE: Change MAIN_BRANCH to your trunk branch if needed.
+#
+# Usage: ./cleanup-repo.sh [--dry-run]
 
 set -e
+
+# Check for dry-run flag
+DRY_RUN=0
+if [ "$1" == "--dry-run" ]; then
+    DRY_RUN=1
+    echo "Dry run mode activated: No branches will be deleted."
+fi
 
 MAIN_BRANCH=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
 
@@ -39,11 +48,11 @@ for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
         continue
     fi
 
-    # 2) Check for commits that aren't in main.
-    #    `git cherry main branch` lists commits in branch not in main:
-    #      + <commit hash> => commit not in main
-    #      - <commit hash> => commit is in main
-    #    If there's no lines starting with '+', then no unique commits.
+    # Check for commits that aren't in main.
+    # `git cherry main branch` outputs:
+    #   + <commit hash>  => commit not in main
+    #   - <commit hash>  => commit is in main
+    # If there's no lines starting with '+', then no unique commits.
     if git cherry "$MAIN_BRANCH" "$branch" | grep -q -v '^+'; then
         branches_to_delete+=("$branch")
     fi
@@ -51,6 +60,15 @@ done
 
 if [ "${#branches_to_delete[@]}" -eq 0 ]; then
     echo "No branches found that are fully contained in '$MAIN_BRANCH'."
+    exit 0
+fi
+
+if [ $DRY_RUN -eq 1 ]; then
+    echo "Dry run: Branches that would be deleted:"
+    for br in "${branches_to_delete[@]}"; do
+        echo "  $br"
+    done
+    echo "Dry run complete. ${#branches_to_delete[@]} branches would be deleted."
     exit 0
 fi
 
