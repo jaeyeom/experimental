@@ -1,13 +1,15 @@
 #+TITLE: gh-merge - Automated GitHub PR Merge Tool
 #+AUTHOR: Jaehyun Yeom
 
-* Overview
+* Github Merge
+
+** Overview
 
 ~gh-merge~ is a command-line utility that finds pull requests with no pending
 review requests and are ready to merge (status: MERGEABLE). It can automatically
 merge these PRs and optionally delete the source branch after merging.
 
-* Features
+** Features
 
 - Find PRs that have no pending review requests
 - Verify PRs are in a mergeable state
@@ -15,7 +17,7 @@ merge these PRs and optionally delete the source branch after merging.
 - Support for dry-run mode to preview actions without executing them
 - Reuse existing configuration from ~gh-nudge~
 
-* Usage
+** Usage
 
 #+begin_src shell
   # List mergeable PRs without taking action
@@ -34,7 +36,9 @@ merge these PRs and optionally delete the source branch after merging.
   gh-merge --config /path/to/config.yaml
 #+end_src
 
-* Configuration
+** Configuration and Setup
+
+Please see [[file:README.org][README.org]] file for the full configuration.
 
 ~gh-merge~ uses the same configuration file as ~gh-nudge~, typically located at
 ~$HOME/.config/gh-nudge/config.yaml~. The relevant sections for GitHub
@@ -48,43 +52,22 @@ github:
     - "repo2"
 #+end_src
 
-* Implementation Plan
+** Implementation Plan
 
-** Command Structure
+*** Command Structure
 
 The tool will have the following command structure:
 
 - ~gh-merge list~ - List PRs that are ready to merge
-- ~gh-merge~ with ~--auto~ flag - Automatically merge eligible PRs
+- ~gh-merge merge~ - Automatically merge eligible PRs
 
-** Core Components
+*** Core Components
 
 1. PR finder - Find PRs with no review requests and mergeable status
 2. Merge executor - Handle the merging of PRs and branch deletion
 3. Configuration loader - Reuse configuration from ~gh-nudge~
 
-** File Structure
-
-#+begin_src
-devtools/gh-nudge/
-├── cmd/
-│   ├── gh-nudge/
-│   │   └── main.go
-│   ├── gh-slack/
-│   │   └── main.go
-│   └── gh-merge/
-│       └── main.go
-├── internal/
-│   ├── config/
-│   │   └── config.go (already exists)
-│   ├── github/
-│   │   └── github.go (enhance with merge functionality)
-│   └── models/
-│       └── pr.go (enhance with mergeable status)
-└── merge.org (this documentation)
-#+end_src
-
-* Next Steps
+** Next Steps
 
 1. Update the models package to include mergeable status in PR struct
 2. Enhance the GitHub client to fetch mergeable PRs and perform merges
@@ -92,9 +75,10 @@ devtools/gh-nudge/
 4. Write tests for the new functionality
 5. Update documentation with examples and use cases
 
-* TODO Tasks [0/5]
-- [ ] Update models.PullRequest to include mergeable status
-- [ ] Add methods to github.Client for finding mergeable PRs
-- [ ] Add methods to github.Client for merging PRs
-- [ ] Implement gh-merge command-line tool
-- [ ] Write tests for new functionality
+** DONE Tasks [5/5]
+CLOSED: [2025-04-02 Wed 13:07]
+- [X] Update models.PullRequest to include mergeable status
+- [X] Add methods to github.Client for finding mergeable PRs
+- [X] Add methods to github.Client for merging PRs
+- [X] Implement gh-merge command-line tool
+- [X] Write tests for new functionality

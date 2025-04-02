@@ -1,20 +1,22 @@
 #+TITLE: gh-slack - GitHub Username to Slack Message Sender
 #+AUTHOR: Jaehyun Yeom
 
-* Overview
+* Github Slack
+
+** Overview
 
 ~gh-slack~ is a command-line utility that allows you to send Slack messages to
 users based on their GitHub username. It leverages the same configuration as
 ~gh-nudge~ to map GitHub usernames to Slack user IDs or DM channel IDs.
 
-* Features
+** Features
 
 - Send direct messages to users via their GitHub username
 - Support for custom message templates
 - Reuse existing configuration from ~gh-nudge~
 - Support for dry-run mode to preview messages without sending
 
-* Usage
+** Usage
 
 #+begin_src shell
   # Send a simple message
@@ -34,7 +36,9 @@ users based on their GitHub username. It leverages the same configuration as
   gh-slack --to githubuser --message "Test" --config /path/to/config.yaml
 #+end_src
 
-* Configuration
+** Configuration and Setup
+
+Please see [[file:README.org][README.org]] file for the full configuration.
 
 ~gh-slack~ uses the same configuration file as ~gh-nudge~, typically located at
 ~$HOME/.config/gh-nudge/config.yaml~. The relevant sections for Slack messaging
@@ -51,43 +55,25 @@ slack:
     githubuser2: "D87654321"
 #+end_src
 
-* Implementation Plan
+** Implementation Plan
 
-** Command Structure
+*** Command Structure
 
 The tool will have the following command structure:
 
 - ~gh-slack~ - Send a message to one or more users
 
-** Core Components
+*** Core Components
 
 1. Message formatter - Format messages with variable substitution
 2. Slack client wrapper - Handle sending messages to users
 3. Configuration loader - Reuse configuration from ~gh-nudge~
 
-** File Structure
+** DONE Next Steps [5/5]
+CLOSED: [2025-04-02 Wed 13:10]
 
-#+begin_src
-devtools/gh-nudge/
-├── cmd/
-│   ├── gh-nudge/
-│   │   └── main.go
-│   └── gh-slack/
-│       └── main.go
-├── internal/
-│   ├── config/
-│   │   └── config.go (already exists)
-│   ├── slack/
-│   │   └── slack.go (already exists)
-│   └── message/
-│       └── formatter.go (new file for message formatting)
-└── slack.org (this documentation)
-#+end_src
-
-* Next Steps
-
-1. Create the command-line interface for ~gh-slack~
-2. Implement message formatting with variable substitution
-3. Add support for sending to multiple recipients
-4. Write tests for the new functionality
-5. Update documentation with examples and use cases
+1. [X] Create the command-line interface for ~gh-slack~
+2. [X] Implement message formatting with variable substitution
+3. [X] Add support for sending to multiple recipients
+4. [X] Write tests for the new functionality
+5. [X] Update documentation with examples and use cases
