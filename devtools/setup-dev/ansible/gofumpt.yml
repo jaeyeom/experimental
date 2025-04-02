@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure gofumpt is present
+  hosts: all
+  tasks:
+    - name: Include guard for gofumpt playbook
+      block:
+        - name: Stop early if the gofumpt playbook is already included
+          meta: end_play
+          when: gofumpt_playbook_imported is defined
+        - name: Ensure the gofumpt playbook is not included
+          set_fact:
+            gofumpt_playbook_imported: true
+          when: gofumpt_playbook_imported is not defined
+
+    - name: Check if gofumpt is installed
+      shell: go version -m $(command -v gofumpt) | grep '^\s*mod\s'
+      register: gofumpt_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract gofumpt version
+      block:
+        - name: Set gofumpt facts
+          set_fact:
+            gofumpt_module_path: "{{ gofumpt_installed.stdout.split()[1] }}"
+            gofumpt_module_version: "{{ gofumpt_installed.stdout.split()[2] }}"
+        - name: Determine the latest gofumpt version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gofumpt_module_path }}@latest"
+          register: gofumpt_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gofumpt_module_path }} {{ gofumpt_module_version }} => {{ gofumpt_latest.stdout }}"
+      rescue:
+        - name: Clear gofumpt facts
+          set_fact:
+            gofumpt_module_path: ""
+            gofumpt_module_version: ""
+
+    - name: Upgrade gofumpt
+      command: go install mvdan.cc/gofumpt@latest
+      when: gofumpt_module_version is not defined or gofumpt_module_version == "" or gofumpt_module_version != gofumpt_latest.stdout

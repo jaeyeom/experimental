@@ -319,6 +319,7 @@ var gopkgs = []GoInstall{
 	{"godef", "github.com/rogpeppe/godef@latest", nil},
 	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},
 	{"godoctor", "github.com/godoctor/godoctor@latest", nil},
+	{"gofumpt", "mvdan.cc/gofumpt@latest", nil},
 	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
 	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
 	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
