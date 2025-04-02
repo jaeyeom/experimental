@@ -63,12 +63,15 @@ devtools/gh-nudge/
 │       └── main.go
 ├── internal/
 │   ├── config/
-│   │   └── config.go (already exists)
+│   │   └── config.go
 │   ├── github/
-│   │   └── github.go (enhance with merge functionality)
+│   │   └── github.go
 │   └── models/
-│       └── pr.go (enhance with mergeable status)
-└── merge.org (this documentation)
+│       └── pr.go
+├── README.org (this documentation)
+├── nudge.org
+├── slack.org
+└── merge.org
 #+end_src
 
 ** Configuration
