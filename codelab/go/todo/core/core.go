@@ -81,9 +81,10 @@ func (i *Item) ValidateState() {
 	done, notStarted := 0, 0
 
 	for idx := range i.Subtasks {
-		if i.Subtasks[idx].State == ItemStateDone {
+		switch i.Subtasks[idx].State {
+		case ItemStateDone:
 			done += 1
-		} else if i.Subtasks[idx].State == ItemStateNotStarted {
+		case ItemStateNotStarted:
 			notStarted += 1
 		}
 	}
