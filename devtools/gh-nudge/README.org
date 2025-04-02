@@ -1,38 +1,14 @@
-#+TITLE: GitHub Nudge
+#+TITLE: GitHub Nudge Utilities
 #+AUTHOR: Jaehyun Yeom
 #+DATE: 2025-03-19
 
-* GitHub Nudge
+* Github Nudge and Other Utilities
 
-A tool that finds pending code reviews on GitHub and nudges reviewers via Slack.
+This subdirectory contains a few utilities integrated with Github.
 
-** Overview
-
-GitHub Nudge is a utility designed to improve code review workflow by
-automatically identifying stalled pull requests and sending gentle reminders to
-assigned reviewers through Slack. This helps maintain momentum in the
-development process and reduces delays in merging important changes.
-
-** Features
-- Uses GitHub CLI (`gh`) to identify pending pull requests
-- Filters PRs based on configurable criteria (age, labels, etc.)
-- Sends customized notifications to reviewers via Slack DMs
-- Maps GitHub usernames to Slack usernames for proper @mentions
-- Routes notifications to appropriate Slack channels based on file patterns in
-  PRs
-- Configurable reminder schedules and message templates
-- Tracks notification history to prevent excessive reminders
-- Persists notification history between runs to respect reminder thresholds
-
-** TODO Implementation [4/7]
-- [X] Set up GitHub CLI integration
-- [ ] Implement PR filtering logic
-- [X] Create GitHub-to-Slack username mapping
-- [X] Implement Slack DM integration
-- [X] Implement notification threshold with persistence
-- [ ] Add file pattern matching for channel routing
-- [ ] Build notification scheduling system
-- [ ] Add configuration options
+- [[file:nudge.org][gh-nudge]]
+- [[file:slack.org][gh-slack]]
+- [[file:merge.org][gh-merge]]
 
 ** Prerequisites
 
@@ -74,10 +50,25 @@ To get a Slack API token for GitHub Nudge:
 variables or a secrets manager in production environments rather than hardcoding
 the token in your configuration file.
 
-** Installation
+** File Structure
 
-#+begin_src shell
-  go install github.com/jaeyeom/experimental/devtools/gh-nudge@latest
+#+begin_src
+devtools/gh-nudge/
+├── cmd/
+│   ├── gh-nudge/
+│   │   └── main.go
+│   ├── gh-slack/
+│   │   └── main.go
+│   └── gh-merge/
+│       └── main.go
+├── internal/
+│   ├── config/
+│   │   └── config.go (already exists)
+│   ├── github/
+│   │   └── github.go (enhance with merge functionality)
+│   └── models/
+│       └── pr.go (enhance with mergeable status)
+└── merge.org (this documentation)
 #+end_src
 
 ** Configuration
@@ -123,37 +114,6 @@ following structure:
     message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
     dm_by_default: true  # Send DMs to reviewers by default
 #+end_src
-
-** Usage
-
-#+begin_src shell
-  # Run with default configuration
-  gh-nudge
-
-  # Specify a custom configuration file
-  gh-nudge --config /path/to/config.yaml
-
-  # Run in dry-run mode (no notifications sent)
-  gh-nudge --dry-run
-
-  # Show verbose output
-  gh-nudge --verbose
-#+end_src
-
-** Notification Persistence
-
-GitHub Nudge tracks when notifications are sent to avoid spamming reviewers with
-repeated reminders for the same PR. The notification history is persisted to a
-JSON file between runs:
-
-- When using a custom config file: stored in the same directory as the config
-  file as `notifications.json`
-- When using the default config location: stored at
-  `$HOME/.config/gh-nudge/notifications.json`
-
-This ensures that even if you run GitHub Nudge multiple times (e.g., via a
-scheduled cron job), reviewers will only be notified about the same PR once per
-`reminder_threshold_hours` period.
 
 ** Development
 
