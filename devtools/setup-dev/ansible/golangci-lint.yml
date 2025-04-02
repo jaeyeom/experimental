@@ -33,6 +33,17 @@
 
     - name: Install or update golangci-lint
       shell: |
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin {{ golangci_lint_latest_version }}
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin {{ golangci_lint_latest_version }}
       when: (golangci_lint_installed.failed or
-             golangci_lint_latest_version[1:] not in golangci_lint_installed.stdout)
+             golangci_lint_latest_version[1:] not in golangci_lint_installed.stdout) and
+            ansible_env.TERMUX_VERSION is not defined
+
+    # The installation script works on Termux, but somehow the installed binary
+    # does not work. Though installing golangci-lint with go install is not
+    # recommended, there are no other good ways.
+    - name: Install or update golangci-lint on Termux
+      shell: |
+        go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{ golangci_lint_latest_version }}
+      when: (golangci_lint_installed.failed or
+             golangci_lint_latest_version[1:] not in golangci_lint_installed.stdout) and
+            ansible_env.TERMUX_VERSION is defined
