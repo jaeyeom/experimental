@@ -11,5 +11,6 @@
 - import_playbook: grep.yml
 - import_playbook: man.yml
 - import_playbook: gh.yml
+- import_playbook: jira.yml
 - import_playbook: tmux.yml
 - import_playbook: gmi.yml
