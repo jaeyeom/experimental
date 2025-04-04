@@ -47,7 +47,7 @@ This function should only modify configuration layer settings."
              c-c++-enable-clang-support t
              c-c++-enable-clang-format-on-save t)
       (compleseus :variables
-                  compleseus-consult-preview-keys '(:debounce 0.1 any))
+                  compleseus-consult-preview-keys '(:debounce 1.0 any))
       copy-as-format
       csv
       (dart :variables
