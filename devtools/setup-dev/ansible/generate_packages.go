@@ -329,6 +329,7 @@ var gopkgs = []GoInstall{
 	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
 	{"image2ascii", "github.com/qeesung/image2ascii@latest", nil},
 	{"impl", "github.com/josharian/impl@latest", nil},
+	{"jira", "github.com/ankitpokhrel/jira-cli/cmd/jira@latest", nil},
 	{
 		"protoc-gen-go",
 		"google.golang.org/protobuf/cmd/protoc-gen-go@latest",

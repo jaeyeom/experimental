@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure jira is present
+  hosts: all
+  tasks:
+    - name: Include guard for jira playbook
+      block:
+        - name: Stop early if the jira playbook is already included
+          meta: end_play
+          when: jira_playbook_imported is defined
+        - name: Ensure the jira playbook is not included
+          set_fact:
+            jira_playbook_imported: true
+          when: jira_playbook_imported is not defined
+
+    - name: Check if jira is installed
+      shell: go version -m $(command -v jira) | grep '^\s*mod\s'
+      register: jira_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract jira version
+      block:
+        - name: Set jira facts
+          set_fact:
+            jira_module_path: "{{ jira_installed.stdout.split()[1] }}"
+            jira_module_version: "{{ jira_installed.stdout.split()[2] }}"
+        - name: Determine the latest jira version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ jira_module_path }}@latest"
+          register: jira_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ jira_module_path }} {{ jira_module_version }} => {{ jira_latest.stdout }}"
+      rescue:
+        - name: Clear jira facts
+          set_fact:
+            jira_module_path: ""
+            jira_module_version: ""
+
+    - name: Upgrade jira
+      command: go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest
+      when: jira_module_version is not defined or jira_module_version == "" or jira_module_version != jira_latest.stdout
