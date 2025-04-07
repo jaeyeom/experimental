@@ -1819,7 +1819,11 @@ the email."
     ;; do `projectile-find-file' after that if I really want to find a file.
     (setopt projectile-switch-project-action #'projectile-vc))
 
-  ;; Git Forge
+  (add-hook 'git-commit-mode-hook
+            (lambda ()
+              (yas-minor-mode 1)))
+
+  ;;; Git Forge
   (with-eval-after-load 'forge
     ;; Set C-c C-o in forge-pullreq-mode to invoke code-review-forge-pr-at-point
     (evil-define-key nil forge-pullreq-mode-map (kbd "C-c C-o") #'code-review-forge-pr-at-point)
