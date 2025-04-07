@@ -738,20 +738,20 @@ before packages are loaded."
   ;;; Basic
 
   ;; Somehow Spacemacs sets the default tab width to 2. Let's revert it back.
-  (setq-default tab-width 8)
+  (setopt tab-width 8)
 
   ;;; Get user full name and mail from git config
-  (setq-default user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
-                user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email"))
-                github-username (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get github.user")))
+  (setopt user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
+          user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email")))
+  (setq-default github-username (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get github.user")))
 
   ;;; Authentication
-  (setq-default epg-pinentry-mode 'loopback)
+  (setopt epg-pinentry-mode 'loopback)
 
   ;;; Enable auth source pass
   (with-eval-after-load 'auth-source-pass
     (auth-source-pass-enable)
-    (setq auth-sources '(password-store))
+    (setopt auth-sources '(password-store))
     (defun my/auth-source-pass-entries (host)
       (seq-filter (lambda (entry-data) (equal `("host" . ,host) (assoc "host" entry-data)))
                   (mapcar 'auth-source-pass-parse-entry (auth-source-pass-entries)))))
@@ -803,7 +803,7 @@ Fallback file lists are returned for specific directories."
   (if my/termux-p
       (with-eval-after-load 'helm
         ;; Termux locate does not support -N option.
-        (setq-default helm-locate-command "locate %s -e -A --regex %s")))
+        (setopt helm-locate-command "locate %s -e -A --regex %s")))
 
   ;;; Compleseus
   (defun my/minibuffer-up-directory ()
@@ -827,11 +827,11 @@ Fallback file lists are returned for specific directories."
   (with-eval-after-load 'orderless
     ;; Revert to the default. Spacemacs sets this with "[ &]", which hinders "&"
     ;; for annotation search.
-    (setq orderless-component-separator #'orderless-escapable-split-on-space))
+    (setopt orderless-component-separator #'orderless-escapable-split-on-space))
 
   ;;; Eat
   (with-eval-after-load 'eat
-    (setq-default eat-term-name "xterm-256color")
+    (setopt eat-term-name "xterm-256color")
     (add-hook 'eshell-load-hook #'eat-eshell-mode)
     (add-hook 'eshell-load-hook #'eat-eshell-visual-command-mode))
 
@@ -911,7 +911,7 @@ Fallback file lists are returned for specific directories."
 
     ;; ========== nov.el (EPUB) Override ==========
     (with-eval-after-load 'nov
-      (setq nov-text-width 80)
+      (setopt nov-text-width 80)
 
       (defun my/nov-font-setup ()
         (my/set-reading-font))
@@ -977,12 +977,12 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (with-eval-after-load 'eww
     ;; To open external browser from eww, press `, v x'
-    (setq browse-url-browser-function 'eww
-          browse-url-secondary-browser-function 'browse-url-default-browser)
+    (setopt browse-url-browser-function 'eww
+            browse-url-secondary-browser-function 'browse-url-default-browser)
 
     ;; Use browse-url-handlers for all URLs in eww. But the redirection URLs are
     ;; not working.
-    (setq eww-use-browse-url "")
+    (setopt eww-use-browse-url "")
 
     (defun eww-browse-with-browse-url (&optional url)
       "Browse the current URL with `browse-url'."
@@ -1002,7 +1002,7 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (with-eval-after-load 'shr
     ;; I do not like proportional fonts.
-    (setq-default shr-use-fonts nil))
+    (setopt shr-use-fonts nil))
 
   ;;; Org Mode
   (with-eval-after-load 'org
@@ -1092,26 +1092,26 @@ mode does not work with Roam links."
 
   (with-eval-after-load 'ob-mermaid
     ;; Find the executable mmdc then fall back to local node_modules.
-    (setq ob-mermaid-cli-path
-          (or (executable-find "mmdc")
-              (expand-file-name "~/node_modules/.bin/mmdc"))))
+    (setopt ob-mermaid-cli-path
+            (or (executable-find "mmdc")
+                (expand-file-name "~/node_modules/.bin/mmdc"))))
 
   (with-eval-after-load 'ob-tmux
     ;; By default ob-tmux tries to open gnome-terminal. Let's disable it.
-    (setq-default org-babel-tmux-terminal
-                  (if my/crostini-p "x-terminal-emulator")))
+    (setopt org-babel-tmux-terminal
+            (if my/crostini-p "x-terminal-emulator")))
 
   (with-eval-after-load 'sqlite-mode
     (evil-define-key 'normal sqlite-mode-map (kbd "RET") 'sqlite-mode-list-data)
     (evil-define-key 'normal sqlite-mode-map (kbd "D") 'sqlite-mode-delete))
 
   ;;; Gmail with gmi
-  (setq-default message-kill-buffer-on-exit t
-                sendmail-program "gmi"
-                send-mail-function 'sendmail-send-it
-                message-sendmail-extra-arguments '("send" "--quiet" "-t" "-C" "~/Mail/account.gmail")
-                ;; Let gmail take care of sent mail.
-                notmuch-fcc-dirs nil)
+  (setopt message-kill-buffer-on-exit t
+          sendmail-program "gmi"
+          send-mail-function 'sendmail-send-it
+          message-sendmail-extra-arguments '("send" "--quiet" "-t" "-C" "~/Mail/account.gmail")
+          ;; Let gmail take care of sent mail.
+          notmuch-fcc-dirs nil)
 
   ;;; Eshell
   (with-eval-after-load 'eshell
@@ -1620,8 +1620,8 @@ to be `:text'.
   (let ((anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com")))
 
     (with-eval-after-load 'gptel
-      (setq-default gptel-model "gpt-4o"
-                    gptel-default-mode 'org-mode)
+      (setopt gptel-model 'gpt-4o-mini
+              gptel-default-mode 'org-mode)
 
       (gptel-make-anthropic "Claude"
         :stream t
@@ -1635,11 +1635,11 @@ to be `:text'.
         :models '("Llama"))                   ;Any names, doesn't matter for Llama
       )
 
-    (setq-default chatgpt-shell-openai-key openai-key
-                  gptel-api-key openai-key)
-    (setq-default chatgpt-shell-anthropic-key anthropic-api-key)
+    (setopt chatgpt-shell-openai-key openai-key
+            gptel-api-key openai-key)
+    (setopt chatgpt-shell-anthropic-key anthropic-api-key)
 
-    (setq aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
+    (setopt aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
     (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
     (spacemacs/set-leader-keys "$ a m" 'aider-transient-menu)
     )
@@ -1744,7 +1744,7 @@ the email."
   ;; Crostini specific configuration.
   (when my/crostini-p
     ;; Fix yank bug by comparing the kill-ring and the clipboard.
-    (setq select-enable-primary t)
+    (setopt select-enable-primary t)
     (defadvice evil-paste-after (around my/evil-paste-after activate)
       (let* ((clipboard (gui-get-selection))
              (select-enable-clipboard
@@ -1809,15 +1809,15 @@ the email."
 
   ;; Git and Project
   (with-eval-after-load 'magit-status
-    (setq-default magit-display-buffer-function
-                  #'magit-display-buffer-same-window-except-diff-v1))
+    (setopt magit-display-buffer-function
+            #'magit-display-buffer-same-window-except-diff-v1))
 
   (with-eval-after-load 'projectile
     ;; By Spacemacs default, switch project asked me the project file to open.
     ;; But I prefer to open magit=status or the version-control (VC) buffer. It
     ;; gives me a chance to sync and handle VC related operations. I can still
     ;; do `projectile-find-file' after that if I really want to find a file.
-    (setq-default projectile-switch-project-action #'projectile-vc))
+    (setopt projectile-switch-project-action #'projectile-vc))
 
   ;; Git Forge
   (with-eval-after-load 'forge
@@ -1862,7 +1862,7 @@ the email."
 
   ;; GitHub Settings
   (with-eval-after-load 'consult-gh
-    (setq-default
+    (setopt
      consult-repo-action #'consult-gh--repo-browse-files-action
      consult-gh-issue-action #'consult-gh--issue-view-actioonsult-gh--code-view-action
      consult-gh-file-action #'consult-gh--files-view-action
