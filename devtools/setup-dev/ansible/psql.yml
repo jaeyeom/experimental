@@ -1,0 +1,30 @@
+---
+- name: Ensure psql is present
+  hosts: all
+  tasks:
+    - name: Include guard for psql playbook
+      block:
+        - name: Stop early if the psql playbook is already included
+          meta: end_play
+          when: psql_playbook_imported is defined
+        - name: Ensure the psql playbook is not included
+          set_fact:
+            psql_playbook_imported: true
+          when: psql_playbook_imported is not defined
+
+    - name: Ensure psql is present on non-Termux systems
+      package:
+        name: postgresql-client
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined
+      become: yes
+
+    - name: Ensure psql is present on Termux
+      block:
+        - name: Check if psql is installed
+          shell: command -v psql
+          changed_when: False
+      rescue:
+        - name: Install psql on Termux
+          command: pkg install -y postgresql
+      when: ansible_env.TERMUX_VERSION is defined
