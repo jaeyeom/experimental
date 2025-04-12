@@ -1,0 +1,21 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@pip//:requirements.bzl", "requirement")
+
+py_library(
+    name = "html_convert_lib",
+    srcs = ["html_convert.py"],
+    deps = [
+        # External dependencies
+        requirement("beautifulsoup4"),
+        requirement("cssutils"),
+    ],
+)
+
+py_binary(
+    name = "html_convert",
+    srcs = ["html_convert.py"],
+    main = "html_convert.py",
+    deps = [
+        ":html_convert_lib",
+    ],
+)
