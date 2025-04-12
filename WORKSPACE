@@ -21,8 +21,12 @@ http_archive(
     ],
 )
 
-load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
 load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
+load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
+load("//:deps.bzl", "go_dependencies")
+
+# gazelle:repository_macro deps.bzl%go_dependencies
+go_dependencies()
 
 go_rules_dependencies()
 
@@ -39,6 +43,7 @@ http_archive(
 )
 
 load("@rules_python//python:repositories.bzl", "py_repositories")
+
 py_repositories()
 
 # Python dependencies
@@ -50,6 +55,7 @@ pip_parse(
 )
 
 load("@pip//:requirements.bzl", "install_deps")
+
 install_deps()
 
 # Repository dependencies go here
