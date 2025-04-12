@@ -1,5 +1,5 @@
 # Common Bazel settings for the experimental repo
-startup --output_base=.bazel_output
+# startup --output_base=.bazel_output
 
 # Use Bazel modules
 common --enable_bzlmod
@@ -13,12 +13,13 @@ build --incompatible_disallow_empty_glob
 
 # Test settings
 test --test_output=errors
+test --nobuild_tests_only
 
 # Performance settings
 build --jobs=auto
 test --jobs=auto
 
 # Developer settings
-build --verbose_failures
-build --sandbox_debug
+# build --verbose_failures
+# build --sandbox_debug
 test --test_verbose_timeout_warnings

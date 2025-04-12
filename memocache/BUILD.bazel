@@ -4,10 +4,13 @@ go_library(
     name = "memocache",
     srcs = ["memocache.go"],
     importpath = "github.com/jaeyeom/experimental/memocache",
+    visibility = ["//visibility:public"],
 )
 
 go_test(
     name = "memocache_test",
+    size = "small",
     srcs = ["memocache_test.go"],
     embed = [":memocache"],
+    deps = ["@com_github_jaeyeom_sugo//par"],
 )
