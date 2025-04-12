@@ -1,0 +1,3 @@
+# Base dependencies for html_convert
+beautifulsoup4
+cssutils
