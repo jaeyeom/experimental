@@ -1,0 +1,13 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "memocache",
+    srcs = ["memocache.go"],
+    importpath = "github.com/jaeyeom/experimental/memocache",
+)
+
+go_test(
+    name = "memocache_test",
+    srcs = ["memocache_test.go"],
+    embed = [":memocache"],
+)

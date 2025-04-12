@@ -1,0 +1,24 @@
+# Common Bazel settings for the experimental repo
+startup --output_base=.bazel_output
+
+# Use Bazel modules
+common --enable_bzlmod
+
+# Build settings
+build --incompatible_enable_cc_toolchain_resolution
+build --remote_local_fallback
+
+# Go settings
+build --incompatible_disallow_empty_glob
+
+# Test settings
+test --test_output=errors
+
+# Performance settings
+build --jobs=auto
+test --jobs=auto
+
+# Developer settings
+build --verbose_failures
+build --sandbox_debug
+test --test_verbose_timeout_warnings
