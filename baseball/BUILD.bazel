@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "baseball_lib",
@@ -15,6 +15,7 @@ go_binary(
 
 go_test(
     name = "baseball_test",
+    size = "small",
     srcs = ["baseball_test.go"],
     embed = [":baseball_lib"],
     deps = [

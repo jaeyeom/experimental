@@ -4,6 +4,8 @@ option go_package = "github.com/jaeyeom/experimental/codelab/proto";
 
 option features.field_presence = IMPLICIT;
 
+package contacts;
+
 message Bar {
   int32 x = 1;
   int32 y = 2 [features.field_presence = EXPLICIT];
