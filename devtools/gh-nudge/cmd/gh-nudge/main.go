@@ -56,7 +56,7 @@ func getNotificationPath() (string, error) {
 	return filepath.Join(home, ".config", "gh-nudge", "notifications.json"), nil
 }
 
-// initializeClients sets up the GitHub and Slack clients
+// initializeClients sets up the GitHub and Slack clients.
 func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
 	// Initialize GitHub client
 	githubClient := github.NewClient(nil)
@@ -69,7 +69,7 @@ func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
 	return githubClient, slackClient
 }
 
-// initializeNotificationTracker sets up the notification tracker
+// initializeNotificationTracker sets up the notification tracker.
 func initializeNotificationTracker(notificationPath string) (*notification.Tracker, error) {
 	notificationTracker, err := notification.NewPersistentTracker(notificationPath)
 	if err != nil {
@@ -79,7 +79,7 @@ func initializeNotificationTracker(notificationPath string) (*notification.Track
 	return notificationTracker, nil
 }
 
-// processReviewer handles the notification logic for a single reviewer
+// processReviewer handles the notification logic for a single reviewer.
 func processReviewer(
 	pr models.PullRequest,
 	reviewer models.ReviewRequest,
@@ -144,7 +144,7 @@ func processReviewer(
 	return nil
 }
 
-// processPullRequest handles the notification logic for a single pull request
+// processPullRequest handles the notification logic for a single pull request.
 func processPullRequest(
 	pr models.PullRequest,
 	slackClient *slack.Client,

@@ -67,7 +67,7 @@ func init() {
 	flag.StringVar(&vars, "var", "", "Variables for template in format key=value,key2=value2")
 }
 
-// setupLogger configures the application logger based on verbosity level
+// setupLogger configures the application logger based on verbosity level.
 func setupLogger() *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
@@ -80,7 +80,7 @@ func setupLogger() *slog.Logger {
 	return logger
 }
 
-// parseVariables parses the variables string into a map
+// parseVariables parses the variables string into a map.
 func parseVariables(varsStr string) map[string]string {
 	result := make(map[string]string)
 	if varsStr == "" {
@@ -97,7 +97,7 @@ func parseVariables(varsStr string) map[string]string {
 	return result
 }
 
-// formatMessage formats a message using the provided template and variables
+// formatMessage formats a message using the provided template and variables.
 func formatMessage(msgTemplate string, variables map[string]string) string {
 	result := msgTemplate
 	for key, value := range variables {
@@ -106,7 +106,7 @@ func formatMessage(msgTemplate string, variables map[string]string) string {
 	return result
 }
 
-// processMessage handles sending a message to a GitHub user
+// processMessage handles sending a message to a GitHub user.
 func processMessage(githubUsername, msgContent string, slackClient *slack.Client, dryRun bool) error {
 	destination, err := slackClient.SendDirectMessageWithDryRun(githubUsername, msgContent, dryRun)
 

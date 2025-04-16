@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// For testing purposes, we can override this function
+// For testing purposes, we can override this function.
 var timeNow = time.Now
 
 // PRNotificationKey uniquely identifies a PR notification to a specific reviewer.
