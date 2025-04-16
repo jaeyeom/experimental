@@ -301,7 +301,7 @@ var packages = []PackageData{
 	{command: "pandoc"},
 	{command: "pass"},
 	{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
-	{command: "psql",debianPkgName: "postgresql-client", termuxPkgName: "postgresql"},
+	{command: "psql", debianPkgName: "postgresql-client", termuxPkgName: "postgresql"},
 	{command: "python3-notmuch2", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch"},
 	{command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
 	{command: "sed"},
