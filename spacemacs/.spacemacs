@@ -1554,41 +1554,6 @@ to be `:text'.
     (add-hook 'eaf-mode-hook (lambda () (setq mode-line-format nil)))
     )
 
-  ;;; LSP
-  (with-eval-after-load 'lsp-mode
-    (when (and lsp-use-plists
-               (executable-find "emacs-lsp-booster"))
-      (defun lsp-booster--advice-json-parse (old-fn &rest args)
-        "Try to parse bytecode instead of json."
-        (or
-         (when (equal (following-char) ?#)
-           (let ((bytecode (read (current-buffer))))
-             (when (byte-code-function-p bytecode)
-               (funcall bytecode))))
-         (apply old-fn args)))
-      (advice-add (if (progn (require 'json)
-                             (fboundp 'json-parse-buffer))
-                      'json-parse-buffer
-                    'json-read)
-                  :around
-                  #'lsp-booster--advice-json-parse)
-
-      (defun lsp-booster--advice-final-command (old-fn cmd &optional test?)
-        "Prepend emacs-lsp-booster command to lsp CMD."
-        (let ((orig-result (funcall old-fn cmd test?)))
-          (if (and (not test?)                             ;; for check lsp-server-present?
-                   (not (file-remote-p default-directory)) ;; see lsp-resolve-final-command, it would add extra shell wrapper
-                   lsp-use-plists
-                   (not (functionp 'json-rpc-connection))  ;; native json-rpc
-                   (executable-find "emacs-lsp-booster"))
-              (progn
-                (when-let ((command-from-exec-path (executable-find (car orig-result))))  ;; resolve command from exec-path (in case not found in $PATH)
-                  (setcar orig-result command-from-exec-path))
-                (message "Using emacs-lsp-booster for %s!" orig-result)
-                (cons "emacs-lsp-booster" orig-result))
-            orig-result)))
-      (advice-add 'lsp-resolve-final-command :around #'lsp-booster--advice-final-command)))
-
   (with-eval-after-load 'go-mode
     (defun go-mode-setup ()
       (add-hook 'before-save-hook #'lsp-format-buffer t t)
@@ -1807,7 +1772,7 @@ the email."
       :kill-process-buffer-on-stop t)
     )
 
-  ;; Git and Project
+  ;;; Git and Project
   (with-eval-after-load 'magit-status
     (setopt magit-display-buffer-function
             #'magit-display-buffer-same-window-except-diff-v1))
