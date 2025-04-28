@@ -6,6 +6,75 @@
 
 This document describes the requirements for a utility that parses GitHub's CODEOWNERS file and, given a list of files, determines the owner teams for those files.
 
+* Command Line Tool Usage
+
+The ~gh-codeowners~ command line tool helps you identify code owners for files in your repository based on GitHub's CODEOWNERS file rules.
+
+** Installation
+
+#+begin_src shell
+  # Install using go install
+  go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest
+#+end_src
+
+** Basic Usage
+
+#+begin_src shell
+  # Find owners for specific files using the default CODEOWNERS location
+  gh-codeowners file1.go path/to/file2.js
+
+  # Specify a custom CODEOWNERS file location
+  gh-codeowners --codeowners-file=/path/to/CODEOWNERS file1.go
+
+  # Process files from stdin (one file per line)
+  git diff --name-only | gh-codeowners
+#+end_src
+
+** Output Format
+
+The output is a simple tab-separated format where each line shows a file and one owner. If a file has multiple owners, it will appear on multiple lines (once for each owner):
+
+#+begin_example
+file1.go        @myorg/api-reviewers
+file1.go        @myorg/go-readability-reviewers
+file2.js        @myorg/frontend-reviewers
+#+end_example
+
+This format makes it easy to process with standard Unix tools like ~grep~, ~awk~, and ~sort~.
+
+** Options
+
+| Flag                | Description                                                | Default                     |
+|---------------------+------------------------------------------------------------+-----------------------------|
+| ~--codeowners-file~ | Path to CODEOWNERS file                                    | CODEOWNERS                  |
+| ~--help~            | Display help information                                   |                             |
+| ~--version~         | Display version information                                |                             |
+
+** Examples
+
+#+begin_src shell
+  # Find owners for all Go files in the repository
+  find . -name "*.go" | gh-codeowners
+
+  # Use with git diff to find owners for changed files
+  git diff --name-only HEAD~1 HEAD | gh-codeowners
+
+  # Find owners for files modified in the current branch compared to main
+  git diff --name-only main... | gh-codeowners
+
+  # Count how many files each team owns in the current changes
+  git diff --name-only main... | gh-codeowners | cut -f2 | sort | uniq -c | sort -nr
+#+end_src
+
+** Exit Codes
+
+| Code | Description                      |
+|------+----------------------------------|
+| 0    | Success                          |
+| 1    | Error reading CODEOWNERS file    |
+| 2    | Error processing input files     |
+| 3    | Invalid command line arguments   |
+
 * Background
 
 GitHub's CODEOWNERS file defines code ownership rules for a repository. Each rule consists of a pattern and one or more owners (users or teams). The rules are matched in order, and the last matching rule for a file determines its owners.
