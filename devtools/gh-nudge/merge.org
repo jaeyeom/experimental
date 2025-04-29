@@ -52,33 +52,8 @@ github:
     - "repo2"
 #+end_src
 
-** Implementation Plan
-
-*** Command Structure
-
-The tool will have the following command structure:
-
-- ~gh-merge list~ - List PRs that are ready to merge
-- ~gh-merge merge~ - Automatically merge eligible PRs
-
-*** Core Components
-
-1. PR finder - Find PRs with no review requests and mergeable status
-2. Merge executor - Handle the merging of PRs and branch deletion
-3. Configuration loader - Reuse configuration from ~gh-nudge~
-
-** Next Steps
-
-1. Update the models package to include mergeable status in PR struct
-2. Enhance the GitHub client to fetch mergeable PRs and perform merges
-3. Create the command-line interface for ~gh-merge~
-4. Write tests for the new functionality
-5. Update documentation with examples and use cases
-
-** DONE Tasks [5/5]
-CLOSED: [2025-04-02 Wed 13:07]
-- [X] Update models.PullRequest to include mergeable status
-- [X] Add methods to github.Client for finding mergeable PRs
-- [X] Add methods to github.Client for merging PRs
-- [X] Implement gh-merge command-line tool
-- [X] Write tests for new functionality
+** Known Issues
+*** Sometimes it needs to run 2 times
+- Sometimes gh-merge merge should run 2 times to find the PRs to merge. I didn't
+  dig into it, but that's probably because some reviewer team list is not
+  processed (removed) until it is queried on the GitHub side.
