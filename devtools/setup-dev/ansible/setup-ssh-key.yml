@@ -25,7 +25,7 @@
         mode: '0700'
 
     - name: Stat the key file
-      stat:
+      ansible.builtin.stat:
         path: "{{ ansible_env.HOME }}/.ssh/id_ed25519"
       register: ssh_key_file
 
@@ -36,16 +36,6 @@
         passphrase: "{{ ansible_env.SSHPASS }}"
         comment: "{{ git_user_email }}"
       when: not ssh_key_file.stat.exists
-
-    - name: Ensure the SSH authentication agent is running
-      block:
-        - name: Ensure the SSH authentication agent is running on non-Termux
-          shell: eval $(keychain --eval --agents ssh id_ed25519)
-          when: ansible_env.TERMUX_VERSION is not defined
-        - name: Ensure the SSH authentication agent is running on Termux
-          shell: . source-ssh-agent
-          when: ansible_env.TERMUX_VERSION is defined
-      when: ansible_env.SSH_AUTH_SOCK is not defined
 
     - name: Add SSH key to the SSH authentication agent if not already added
       block:
@@ -71,18 +61,35 @@
           eval $(keychain --eval --agents ssh id_ed25519)
       when: ansible_env.TERMUX_VERSION is not defined
 
-    - name: Ensure sourcing SSH agent on Termux
-      ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
-        append_newline: true
-        prepend_newline: true
-        create: true
-        marker: "# {mark} sourcing Termux ssh agent"
-        block: |
-          . source-ssh-agent
+    - name: Ensure SSH agent is enabled on Termux
+      block:
+        - name: Ensure sv-enable is present on Termux
+          block:
+            - name: Check if sv-enable is installed
+              shell: command -v sv-enable
+              changed_when: False
+          rescue:
+            - name: Install sv-enable on Termux
+              command: pkg install -y termux-services
+        - name: Ensure sourcing SSH agent on Termux
+          ansible.builtin.blockinfile:
+            path: "{{ ansible_env.HOME }}/.bashrc"
+            append_newline: true
+            prepend_newline: true
+            create: true
+            marker: "# {mark} sourcing Termux ssh agent"
+            block: |
+              . "${TERMUX__PREFIX:-"${PREFIX}"}"/libexec/source-ssh-agent.sh
+        - name: Stat the ssh-agent down file
+          ansible.builtin.stat:
+            path: "{{ ansible_env.PREFIX }}/var/service/ssh-agent/down"
+          register: ssh_agent_down_file
+        - name: Ensure ssh-agent service is enabled
+          command: sv-enable ssh-agent
+          when: ssh_agent_down_file.stat.exists
       when: ansible_env.TERMUX_VERSION is defined
 
-    - name: Debug output of the SSH agent and key status
+    - name: Debug output of the SSH agent and key status (restart shell if fails)
       debug:
         msg:
           - "SSH_AUTH_SOCK: {{ ansible_env.SSH_AUTH_SOCK }}"

@@ -102,3 +102,6 @@ CLOSED: [2025-03-02 Sun 00:03]
 *** DONE Bleeding Edge Go
 *** DONE Bleeding Edge Emacs
 CLOSED: [2025-03-01 Sat 03:54]
+
+** Other Issues
+*** TODO Fix python3-notmuch2 on Termux
