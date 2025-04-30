@@ -79,7 +79,6 @@ Cargo generator should be similar to what =PipInstall= does in
 =generate_packages.go= file.
 *** DONE emacs-lsp-booster
 CLOSED: [2025-03-07 Fri 17:20]
-
 *** Fonts
 These are some fonts that I want to ensure that they are installed.
 **** TODO Fira Code
@@ -93,6 +92,7 @@ These are some fonts that I want to ensure that they are installed.
 *** TODO Nala
 *** DONE cargo-update
 CLOSED: [2025-03-02 Sun 00:03]
+*** TODO yadm
 
 ** Remove or simplify playbook generator
 *** TODO Ansible module to handle package mapping
