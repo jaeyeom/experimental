@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure hugo is present
+  hosts: all
+  tasks:
+    - name: Include guard for hugo playbook
+      block:
+        - name: Stop early if the hugo playbook is already included
+          meta: end_play
+          when: hugo_playbook_imported is defined
+        - name: Ensure the hugo playbook is not included
+          set_fact:
+            hugo_playbook_imported: true
+          when: hugo_playbook_imported is not defined
+
+    - name: Check if hugo is installed
+      shell: go version -m $(command -v hugo) | grep '^\s*mod\s'
+      register: hugo_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract hugo version
+      block:
+        - name: Set hugo facts
+          set_fact:
+            hugo_module_path: "{{ hugo_installed.stdout.split()[1] }}"
+            hugo_module_version: "{{ hugo_installed.stdout.split()[2] }}"
+        - name: Determine the latest hugo version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ hugo_module_path }}@latest"
+          register: hugo_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ hugo_module_path }} {{ hugo_module_version }} => {{ hugo_latest.stdout }}"
+      rescue:
+        - name: Clear hugo facts
+          set_fact:
+            hugo_module_path: ""
+            hugo_module_version: ""
+
+    - name: Upgrade hugo
+      command: go install github.com/gohugoio/hugo@latest
+      when: hugo_module_version is not defined or hugo_module_version == "" or hugo_module_version != hugo_latest.stdout
