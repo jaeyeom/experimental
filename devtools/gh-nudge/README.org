@@ -9,6 +9,7 @@ This subdirectory contains a few utilities integrated with Github.
 - [[file:nudge.org][gh-nudge]]
 - [[file:slack.org][gh-slack]]
 - [[file:merge.org][gh-merge]]
+- [[file:codeowners.org][gh-codeowners]]
 
 ** Prerequisites
 
