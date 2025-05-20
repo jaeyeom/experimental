@@ -153,7 +153,7 @@ func mergePRs(githubClient *github.Client, cfg *config.Config) error {
 			continue
 		}
 
-		successMsg := "Successfully merged"
+		successMsg := "Successfully added to the merge queue"
 		if deleteBranch {
 			successMsg += " and deleted branch"
 		}
@@ -165,7 +165,7 @@ func mergePRs(githubClient *github.Client, cfg *config.Config) error {
 	if dryRun {
 		fmt.Printf("Found %d PRs with no review requests (dry run, no changes made).\n", len(prs))
 	} else {
-		fmt.Printf("Successfully merged %d of %d PRs.\n", mergedPRs, len(prs))
+		fmt.Printf("Successfully added to the merge queue %d of %d PRs.\n", mergedPRs, len(prs))
 	}
 
 	return nil
