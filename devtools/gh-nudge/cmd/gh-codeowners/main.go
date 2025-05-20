@@ -47,7 +47,7 @@ var (
 )
 
 const (
-	// Version of the gh-codeowners tool
+	// Version of the gh-codeowners tool.
 	Version = "0.1.0"
 )
 
@@ -134,10 +134,7 @@ func main() {
 	if len(args) > 0 {
 		// Use command-line arguments as input
 		slog.Debug("Using command-line arguments as input", "count", len(args))
-		var fileList []string
-		for _, arg := range args {
-			fileList = append(fileList, arg)
-		}
+		fileList := append([]string(nil), args...)
 		input = strings.NewReader(strings.Join(fileList, "\n"))
 	} else {
 		// Use stdin as input
