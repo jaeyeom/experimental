@@ -60,19 +60,28 @@ devtools/gh-nudge/
 │   │   └── main.go
 │   ├── gh-slack/
 │   │   └── main.go
-│   └── gh-merge/
+│   ├── gh-merge/
+│   │   └── main.go
+│   └── gh-codeowners/
 │       └── main.go
 ├── internal/
 │   ├── config/
 │   │   └── config.go
 │   ├── github/
 │   │   └── github.go
+│   ├── codeowners/
+│   │   └── codeowners.go
+│   ├── notification/
+│   │   └── notification.go
+│   ├── slack/
+│   │   └── slack.go
 │   └── models/
 │       └── pr.go
 ├── README.org (this documentation)
 ├── nudge.org
 ├── slack.org
-└── merge.org
+├── merge.org
+└── codeowners.org
 #+end_src
 
 ** Configuration
