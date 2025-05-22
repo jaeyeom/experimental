@@ -12,11 +12,17 @@
             psql_playbook_imported: true
           when: psql_playbook_imported is not defined
 
-    - name: Ensure psql is present on non-Termux systems
+    - name: Ensure psql is present on MacOS
+      community.general.homebrew:
+        name: psql
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure psql is present on non-Termux, non-MacOS systems
       package:
         name: postgresql-client
         state: present
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
       become: yes
 
     - name: Ensure psql is present on Termux

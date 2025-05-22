@@ -17,7 +17,7 @@
         repo: "ppa:ubuntuhandbook1/emacs"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Ubuntu"
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
       become: yes
 
     - name: Ensure bookworm-backports is added to sources.list.d
@@ -25,14 +25,20 @@
         repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
 
-    - name: Ensure emacs is present on non-Termux systems
+    - name: Ensure emacs is present on MacOS
+      community.general.homebrew:
+        name: emacs-plus
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure emacs is present on non-Termux, non-MacOS systems
       package:
         name: emacs
         state: present
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
       become: yes
 
     - name: Ensure emacs is present on Termux
