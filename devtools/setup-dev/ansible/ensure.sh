@@ -2,6 +2,9 @@
 
 # Script ensure.sh runs the provided playbooks with the provided arguments.
 
+# Detect OS
+OS="$(uname -s)"
+
 if [ -n "$TERMUX_VERSION" ]; then
     # Ansible remote temp directory is messed up on Termux like
     # /data/.ansible/tmp, so we need to set it to a writable directory.
@@ -14,6 +17,32 @@ if [ -n "$TERMUX_VERSION" ]; then
     # Install necessary packages for Ansible and also install ansible.
     pkg install -y rust python-pip
     pip install -U ansible
+elif [ "$OS" = "Darwin" ]; then
+    # Check if Homebrew is installed
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "Installing Homebrew..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+        # Add Homebrew to PATH based on chip architecture
+        if [ "$(uname -m)" = "arm64" ]; then
+            # For Apple Silicon Macs
+            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> $HOME/.zprofile
+            eval "$(/opt/homebrew/bin/brew shellenv)"
+        else
+            # For Intel Macs
+            echo 'eval "$(/usr/local/bin/brew shellenv)"' >> $HOME/.zprofile
+            eval "$(/usr/local/bin/brew shellenv)"
+        fi
+    fi
+
+    # Install Ansible if not already installed
+    if ! command -v ansible >/dev/null 2>&1; then
+        echo "Installing Ansible..."
+        brew install ansible
+    fi
+
+    # Install community.general collection if not already installed
+    ansible-galaxy collection install community.general
 fi
 
 # Take all flags that starts with a hyphen.

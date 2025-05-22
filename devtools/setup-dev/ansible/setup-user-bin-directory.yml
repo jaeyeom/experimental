@@ -1,4 +1,6 @@
 ---
+- import_playbook: setup-shell-profile.yml
+
 - name: Ensure the user bin directory exists
   hosts: all
   tasks:
@@ -28,7 +30,7 @@
 
     - name: Ensure the user bin PATH is set
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path | default(ansible_env.HOME + '/.bashrc') }}"
         append_newline: true
         prepend_newline: true
         create: true

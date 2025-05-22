@@ -1,0 +1,32 @@
+---
+- name: Setup shell profile detection
+  hosts: all
+  tasks:
+    - name: Include guard for shell profile detection playbook
+      block:
+        - name: Stop early if the shell profile detection playbook is already included
+          meta: end_play
+          when: shell_profile_detection_playbook_imported is defined
+        - name: Ensure the shell profile detection playbook is not included
+          set_fact:
+            shell_profile_detection_playbook_imported: true
+          when: shell_profile_detection_playbook_imported is not defined
+
+    - name: Get user shell
+      shell: echo $SHELL
+      register: user_shell
+      changed_when: false
+
+    - name: Set profile path for bash
+      set_fact:
+        user_profile_path: "~/.bashrc"
+      when: user_shell.stdout is search('/bash$')
+
+    - name: Set profile path for zsh
+      set_fact:
+        user_profile_path: "~/.zshrc"
+      when: user_shell.stdout is search('/zsh$')
+
+    - name: Debug shell profile path
+      debug:
+        msg: "Using shell profile path: {{ user_profile_path }}"
