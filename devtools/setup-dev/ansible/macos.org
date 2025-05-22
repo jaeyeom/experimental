@@ -1,0 +1,140 @@
+#+TITLE: MacOS Support Plan for Ansible Setup Dev
+
+* Overview
+
+This document outlines the plan for adding MacOS support to the Ansible setup-dev project.
+
+* Ansible Homebrew Support
+
+Ansible does support MacOS Homebrew through the =community.general.homebrew= module. This module allows us to:
+
+- Install packages via Homebrew
+- Update Homebrew itself
+- Upgrade all packages
+- Install packages with specific options
+
+The module is part of the community.general collection and can be installed with:
+
+#+begin_src sh
+ansible-galaxy collection install community.general
+#+end_src
+
+* Implementation Plan
+
+** Step 1: Modify generate_packages.go
+
+The =generate_packages.go= file needs to be modified to:
+
+1. Add a =brewPkgName= field to the =PackageData= struct
+2. Add a =BrewPkgName()= method similar to =DebianPkgName()= and =TermuxPkgName()=
+3. Modify the =packagesTemplate= to include MacOS Homebrew support
+4. Ensure Debian packages are not installed on MacOS
+
+** Step 2: Update Template Conditions
+
+The template in =generate_packages.go= needs to be updated to:
+
+1. Check for MacOS using =ansible_facts['os_family'] == "Darwin"=
+2. Use the =community.general.homebrew= module for MacOS
+3. Exclude MacOS from the Debian/Ubuntu package installation section
+
+** Step 3: Shell Profile Support
+
+For MacOS, we need to:
+
+1. Detect if the shell is zsh (default on MacOS)
+2. Use =~/.zshrc= instead of =~/.bashrc= for profile settings
+3. Create a helper function to determine the appropriate profile file
+
+** Step 4: Update ensure.sh Script
+
+The =ensure.sh= script needs to be updated to:
+
+1. Detect MacOS
+2. Install Homebrew if not already installed
+3. Install Ansible via pip or Homebrew on MacOS
+4. Set appropriate environment variables for MacOS
+
+** Step 5: Test and Validate
+
+1. Test the changes on a MacOS system
+2. Verify that the correct package manager is used
+3. Ensure that shell profile settings are correctly applied
+
+* Implementation Details
+
+** Modified PackageData Struct
+
+#+begin_src go
+type PackageData struct {
+    command       string
+    debianPkgName string
+    UbuntuPPA     string
+    termuxPkgName string
+    brewPkgName   string  // New field for Homebrew package name
+    Imports       []string
+    Suffix        string
+}
+
+func (p PackageData) BrewPkgName() string {
+    if p.brewPkgName != "" {
+        return p.brewPkgName
+    }
+    return p.command
+}
+#+end_src
+
+** Modified Template
+
+The template needs to include a new section for MacOS:
+
+#+begin_src yaml
+    - name: Ensure {{.Command}} is present on MacOS
+      community.general.homebrew:
+        name: {{.BrewPkgName}}
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+#+end_src
+
+And the Debian section needs to be updated:
+
+#+begin_src yaml
+    - name: Ensure {{.Command}} is present on non-Termux, non-MacOS systems
+      package:
+        name: {{.DebianPkgName}}
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      become: yes
+#+end_src
+
+** Shell Profile Helper
+
+Create a new playbook for shell profile detection:
+
+#+begin_src yaml
+- name: Detect user shell and set profile path
+  hosts: all
+  tasks:
+    - name: Get user shell
+      shell: echo $SHELL
+      register: user_shell
+      changed_when: false
+
+    - name: Set profile path for bash
+      set_fact:
+        user_profile_path: "~/.bashrc"
+      when: user_shell.stdout is search('/bash$')
+
+    - name: Set profile path for zsh
+      set_fact:
+        user_profile_path: "~/.zshrc"
+      when: user_shell.stdout is search('/zsh$')
+#+end_src
+
+* Next Steps
+
+1. Implement the changes to =generate_packages.go=
+2. Create a shell profile detection playbook
+3. Update the =ensure.sh= script
+4. Test the changes on a MacOS system
+5. Document the MacOS support in the README.org file

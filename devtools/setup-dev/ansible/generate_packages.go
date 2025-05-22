@@ -13,6 +13,7 @@ type PackageData struct {
 	debianPkgName string
 	UbuntuPPA     string
 	termuxPkgName string
+	brewPkgName   string // For MacOS Homebrew packages
 	Imports       []string
 	Suffix        string
 }
@@ -36,6 +37,13 @@ func (p PackageData) DebianPkgName() string {
 func (p PackageData) TermuxPkgName() string {
 	if p.termuxPkgName != "" {
 		return p.termuxPkgName
+	}
+	return p.command
+}
+
+func (p PackageData) BrewPkgName() string {
+	if p.brewPkgName != "" {
+		return p.brewPkgName
 	}
 	return p.command
 }
@@ -122,7 +130,7 @@ var packagesTemplate = `---
         repo: "{{.UbuntuPPA}}"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Ubuntu"
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
       become: yes
 
     - name: Ensure bookworm-backports is added to sources.list.d
@@ -130,14 +138,20 @@ var packagesTemplate = `---
         repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
 {{ end }}
-    - name: Ensure {{.Command}} is present on non-Termux systems
+    - name: Ensure {{.Command}} is present on MacOS
+      community.general.homebrew:
+        name: {{.BrewPkgName}}
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure {{.Command}} is present on non-Termux, non-MacOS systems
       package:
         name: {{.DebianPkgName}}
         state: present
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
       become: yes
 
     - name: Ensure {{.Command}} is present on Termux
@@ -270,17 +284,17 @@ type Commander interface {
 }
 
 var packages = []PackageData{
-	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag"},
+	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag", brewPkgName: "the_silver_searcher"},
 	{command: "buf"},
 	{command: "curl"},
 	{command: "dart"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs"},
 	{command: "gh"},
 	{command: "git"},
-	{command: "gpg"},
-	{command: "gpg-agent", Imports: []string{"gpg"}},
+	{command: "gpg", brewPkgName: "gnupg"},
+	{command: "gpg-agent", Imports: []string{"gpg"}, brewPkgName: "gnupg"},
 	{command: "grep"},
-	{command: "grpcio", debianPkgName: "python3-grpcio", termuxPkgName: "python-grpcio"},
+	{command: "grpcio", debianPkgName: "python3-grpcio", termuxPkgName: "python-grpcio", brewPkgName: "python-grpcio"},
 	{command: "htop"},
 	{command: "jq"},
 	{command: "keychain"},
