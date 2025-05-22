@@ -288,7 +288,7 @@ var packages = []PackageData{
 	{command: "buf"},
 	{command: "curl"},
 	{command: "dart"},
-	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs"},
+	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus"},
 	{command: "gh"},
 	{command: "git"},
 	{command: "gpg", brewPkgName: "gnupg"},
