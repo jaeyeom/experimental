@@ -12,11 +12,17 @@
             locate_playbook_imported: true
           when: locate_playbook_imported is not defined
 
-    - name: Ensure locate is present on non-Termux systems
+    - name: Ensure locate is present on MacOS
+      community.general.homebrew:
+        name: locate
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure locate is present on non-Termux, non-MacOS systems
       package:
         name: mlocate
         state: present
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
       become: yes
 
     - name: Ensure locate is present on Termux
