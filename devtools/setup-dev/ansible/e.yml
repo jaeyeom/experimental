@@ -14,16 +14,16 @@
             e_playbook_imported: true
           when: e_playbook_imported is not defined
 
-    - name: Ensure e is present on non-Termux systems
+    - name: Ensure e is present on Debian/Ubuntu systems
       package:
         name: e-wrapper
         state: present
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_facts['os_family'] == 'Debian'
       become: yes
 
-    - name: Ensure e is present on Termux
+    - name: Ensure e is present on Termux or MacOS
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/kilobyte/e/master/e
         dest: "{{ ansible_env.HOME }}/.local/bin/e"
         mode: '0700'
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['os_family'] != 'Debian'
