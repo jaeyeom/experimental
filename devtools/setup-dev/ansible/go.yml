@@ -11,6 +11,11 @@
           set_fact:
             go_playbook_imported: true
           when: go_playbook_imported is not defined
+    - name: Ensure go is present on MacOS
+      community.general.homebrew:
+        name: go
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
     - name: Ensure go is present on non-Termux systems
       block:
         - name: Ensure the package go is not installed
@@ -86,7 +91,7 @@
                   PATH=$PATH:/usr/local/go/bin
               fi
 
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure go is present on Termux
       block:
