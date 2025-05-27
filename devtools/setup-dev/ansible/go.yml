@@ -1,4 +1,6 @@
 ---
+- import_playbook: setup-shell-profile.yml
+
 - name: Ensure go is present
   hosts: all
   tasks:
@@ -81,7 +83,7 @@
 
         - name: Ensure PATH for go binary
           ansible.builtin.blockinfile:
-            path: "{{ ansible_env.HOME }}/.bashrc"
+            path: "{{ user_profile_path }}"
             append_newline: true
             prepend_newline: true
             create: true

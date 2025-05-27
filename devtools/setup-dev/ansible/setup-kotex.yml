@@ -1,7 +1,7 @@
 ---
 - import_playbook: tlmgr.yml
 
-- name: Ensure SSH keys are generated and SSH agent is configured
+- name: Ensure kotex is installed and up-to-date
   hosts: all
   tasks:
     - name: Include guard for setup-kotex playbook

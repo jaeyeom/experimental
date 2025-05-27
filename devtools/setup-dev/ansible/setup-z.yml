@@ -1,5 +1,6 @@
 ---
 - import_playbook: setup-user-bin-directory.yml
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure z is set property
   hosts: all
@@ -14,21 +15,25 @@
             setup_z_playbook_imported: true
           when: setup_z_playbook_imported is not defined
 
-    - name: Ensure z.sh is downloaded.
-      ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/rupa/z/master/z.sh
-        dest: "{{ ansible_env.HOME }}/.local/bin/z.sh"
-        mode: '0700'
+    - block:
+      - name: Ensure z.sh is downloaded.
+        ansible.builtin.get_url:
+          url: https://raw.githubusercontent.com/rupa/z/master/z.sh
+          dest: "{{ ansible_env.HOME }}/.local/bin/z.sh"
+          mode: '0700'
 
-    - name: Ensure z.sh is properly set in bashrc
-      ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
-        append_newline: true
-        prepend_newline: true
-        create: true
-        marker: "# {mark} Enable z script"
-        block: |
-          if [ -f ~/.local/bin/z.sh ]; then
-              . ~/.local/bin/z.sh
-              PROMPT_COMMAND="${PROMPT_COMMAND%;}"
-          fi
+      - name: Ensure z.sh is properly set in shell profile
+        ansible.builtin.blockinfile:
+          path: "{{ user_profile_path }}"
+          append_newline: true
+          prepend_newline: true
+          create: true
+          marker: "# {mark} Enable z script"
+          block: |
+            if [ -f ~/.local/bin/z.sh ]; then
+                . ~/.local/bin/z.sh
+                {% if user_shell.stdout is search('/bash$') %}
+                PROMPT_COMMAND="${PROMPT_COMMAND%;}"
+                {% endif %}
+            fi
+      when: ansible_facts['os_family'] != "Darwin"

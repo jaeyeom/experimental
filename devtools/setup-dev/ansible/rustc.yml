@@ -1,4 +1,6 @@
 ---
+- import_playbook: curl.yml
+
 - name: Ensure rustc is present
   hosts: all
   tasks:

@@ -1,5 +1,6 @@
 ---
 - import_playbook: rustc.yml
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure rustc is properly set up
   hosts: all
@@ -14,9 +15,9 @@
             setup_cargo_playbook_imported: true
           when: setup_cargo_playbook_imported is not defined
 
-    - name: Ensure cargo path is properly set in bashrc
+    - name: Ensure cargo path is properly set in shell profile
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true

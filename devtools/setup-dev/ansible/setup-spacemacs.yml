@@ -4,6 +4,7 @@
 - import_playbook: rg.yml
 - import_playbook: pandoc.yml
 - import_playbook: pass.yml
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure spacemacs is properly set up
   hosts: all
@@ -18,9 +19,9 @@
             setup_spacemacs_playbook_imported: true
           when: setup_spacemacs_playbook_imported is not defined
 
-    - name: Ensure vterm directory tracking
+    - name: Ensure vterm directory tracking for bash
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true
@@ -31,6 +32,22 @@
                  && [[ -f ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh ]]; then
               source ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh
           fi
+      when: user_shell.stdout is search('/bash$')
+
+    - name: Ensure vterm directory tracking for zsh
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} vterm directory tracking"
+        block: |
+          if [[ "$INSIDE_EMACS" = "vterm" ]] \
+                 && [[ -n ${EMACS_VTERM_PATH} ]] \
+                 && [[ -f ${EMACS_VTERM_PATH}/etc/emacs-vterm-zsh.sh ]]; then
+              source ${EMACS_VTERM_PATH}/etc/emacs-vterm-zsh.sh
+          fi
+      when: user_shell.stdout is search('/zsh$')
 
     - name: Ensure .spacemacs-upstream symlink
       ansible.builtin.file:
