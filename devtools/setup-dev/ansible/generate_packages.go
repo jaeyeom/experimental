@@ -13,7 +13,9 @@ type PackageData struct {
 	debianPkgName string
 	UbuntuPPA     string
 	termuxPkgName string
-	brewPkgName   string // For MacOS Homebrew packages
+	brewPkgName   string
+	brewTap       string
+	brewOptions   []string
 	Imports       []string
 	Suffix        string
 }
@@ -46,6 +48,14 @@ func (p PackageData) BrewPkgName() string {
 		return p.brewPkgName
 	}
 	return p.command
+}
+
+func (p PackageData) BrewTap() string {
+	return p.brewTap
+}
+
+func (p PackageData) BrewOptions() []string {
+	return p.brewOptions
 }
 
 type GoInstall struct {
@@ -140,11 +150,19 @@ var packagesTemplate = `---
         update_cache: yes
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
+{{ end }}{{ if .BrewTap }}
+    - name: Tap {{.BrewTap}} for {{.Command}}
+      community.general.homebrew_tap:
+        name: {{.BrewTap}}
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
 {{ end }}
     - name: Ensure {{.Command}} is present on MacOS
       community.general.homebrew:
         name: {{.BrewPkgName}}
-        state: present
+        state: present{{ if .BrewOptions }}
+        install_options:{{ range .BrewOptions }}
+          - {{ . }}{{ end }}{{ end }}
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure {{.Command}} is present on non-Termux, non-MacOS systems
@@ -288,7 +306,7 @@ var packages = []PackageData{
 	{command: "buf"},
 	{command: "curl"},
 	{command: "dart"},
-	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus"},
+	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-native-comp", "with-dbus", "with-imagemagick"}},
 	{command: "gh"},
 	{command: "git"},
 	{command: "gpg", brewPkgName: "gnupg"},

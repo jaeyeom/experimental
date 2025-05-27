@@ -70,7 +70,21 @@ Here are the caveats:
 CLOSED: [2024-08-21 Wed 13:27]
 *** DONE Add command-line flags to ensure.sh
 CLOSED: [2024-08-26 Mon 19:16]
-*** TODO Support MacOS Brew
+*** DONE Support MacOS Brew
+Added support for Homebrew taps and options in the package generator. The `PackageData` struct now includes:
+- `brewPkgName`: Specify a different package name for Homebrew
+- `brewTap`: Specify a tap to install the package from
+- `brewOptions`: Specify installation options as string array
+
+Example:
+#+begin_src go
+  {
+  	command: "emacs",
+  	brewPkgName: "emacs-plus",
+  	brewTap: "d12frosted/emacs-plus",
+  	brewOptions: []string{"with-native-comp", "with-modern-icon"},
+  }
+#+end_src
 *** TODO C++ Development environment
 *** TODO Docker Testing
 *** DONE Cargo installer
