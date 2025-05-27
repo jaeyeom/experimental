@@ -14,7 +14,7 @@
 
     - name: Ensure locate is present on MacOS
       community.general.homebrew:
-        name: locate
+        name: findutils
         state: present
       when: ansible_facts['os_family'] == "Darwin"
 
