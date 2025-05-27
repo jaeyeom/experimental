@@ -1,12 +1,13 @@
 ---
 - import_playbook: go.yml
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure the user go bin directory is set up
   hosts: all
   tasks:
     - name: Ensure go bin PATH is set
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.profile"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true

@@ -1,5 +1,6 @@
 ---
 - import_playbook: gpg-agent.yml
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure gpg-agent is properly set up
   hosts: all
@@ -16,7 +17,7 @@
 
     - name: Ensure gpg-agent is running on non-Termux systems
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true
@@ -35,7 +36,7 @@
           if ! pgrep -x -u "${USER}" gpg-agent >/dev/null 2>&1; then
             gpg-connect-agent /bye >/dev/null 2>&1
           fi
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure gpg-agent has pinentry setup
       ansible.builtin.blockinfile:

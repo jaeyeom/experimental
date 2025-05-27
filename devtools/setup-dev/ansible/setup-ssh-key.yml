@@ -4,6 +4,7 @@
 - import_playbook: sshpass.yml
 - import_playbook: keychain.yml
   when: ansible_env.TERMUX_VERSION is not defined
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure SSH keys are generated and SSH agent is configured
   hosts: all
@@ -52,7 +53,7 @@
 
     - name: Ensure sourcing keychain on non-Termux systems
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true
@@ -73,7 +74,7 @@
               command: pkg install -y termux-services
         - name: Ensure sourcing SSH agent on Termux
           ansible.builtin.blockinfile:
-            path: "{{ ansible_env.HOME }}/.bashrc"
+            path: "{{ user_profile_path }}"
             append_newline: true
             prepend_newline: true
             create: true

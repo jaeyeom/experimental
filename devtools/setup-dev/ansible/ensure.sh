@@ -41,6 +41,12 @@ elif [ "$OS" = "Darwin" ]; then
         brew install ansible
     fi
 
+    # Install python-packaging if not already installed
+    if ! python -c "import packaging" >/dev/null 2>&1; then
+        echo "Installing python-packaging..."
+        brew install python-packaging
+    fi
+
     # Install community.general collection if not already installed
     ansible-galaxy collection install community.general
 fi

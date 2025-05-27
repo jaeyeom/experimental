@@ -30,7 +30,7 @@
 
     - name: Ensure the user bin PATH is set
       ansible.builtin.blockinfile:
-        path: "{{ user_profile_path | default(ansible_env.HOME + '/.bashrc') }}"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true

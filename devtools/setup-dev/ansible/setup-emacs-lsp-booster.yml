@@ -1,5 +1,6 @@
 ---
 - import_playbook: emacs-lsp-booster.yml
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure emacs-lsp-booster is properly set up
   hosts: all
@@ -16,7 +17,7 @@
 
     - name: Ensure LSP_USE_PLISTS environment variable is set
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true

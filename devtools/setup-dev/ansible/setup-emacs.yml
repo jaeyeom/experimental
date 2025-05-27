@@ -1,6 +1,7 @@
 ---
 - import_playbook: emacs.yml
 - import_playbook: e.yml
+- import_playbook: setup-shell-profile.yml
 
 - name: Ensure emacs is properly set up
   hosts: all
@@ -17,7 +18,7 @@
 
     - name: Ensure editor environment variable
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true
