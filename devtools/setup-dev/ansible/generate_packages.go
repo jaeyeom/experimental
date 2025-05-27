@@ -320,26 +320,27 @@ var packages = []PackageData{
 		command:       "locate",
 		debianPkgName: "mlocate",
 		termuxPkgName: "mlocate",
+		brewPkgName:   "findutils",
 		Suffix: `
 
     - name: Ensure locate DB is up-to-date
       command: updatedb
       become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"`,
 	},
-	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin"},
-	{command: "man"},
+	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
+	{command: "man", brewPkgName: "man-db"},
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
 	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []string{"python3-notmuch2"}},
 	{command: "pandoc"},
 	{command: "pass"},
 	{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf"},
-	{command: "psql", debianPkgName: "postgresql-client", termuxPkgName: "postgresql"},
-	{command: "python3-notmuch2", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch"},
-	{command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep"},
-	{command: "sed"},
-	{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh"},
+	{command: "psql", debianPkgName: "postgresql-client", termuxPkgName: "postgresql", brewPkgName: "postgresql"},
+	{command: "python3-notmuch2", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch", brewPkgName: "notmuch"},
+	{command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep", brewPkgName: "ripgrep"},
+	{command: "sed", brewPkgName: "gsed"},
+	{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh", brewPkgName: "openssh"},
 	{command: "sshpass"},
-	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer"},
+	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer", brewPkgName: "mactex"},
 	{command: "tmux"},
 	{command: "unzip"},
 	{command: "zip"},
@@ -382,8 +383,8 @@ var pipPkgs = []PipInstall{
 
 var cargoPkgs = []CargoInstall{
 	{command: "cargo-add", pkgName: "cargo-edit"},
-	{command: "cargo-outdated"},
 	{command: "cargo-install-update", pkgName: "cargo-update"},
+	{command: "cargo-outdated"},
 	{command: "emacs-lsp-booster"},
 }
 

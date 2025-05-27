@@ -14,7 +14,7 @@
 
     - name: Ensure sed is present on MacOS
       community.general.homebrew:
-        name: sed
+        name: gsed
         state: present
       when: ansible_facts['os_family'] == "Darwin"
 
