@@ -1,13 +1,31 @@
 ---
+- import_playbook: setup-shell-profile.yml
+
 - name: Ensure the history has the timestamp set up
   hosts: all
   tasks:
-    - name: Ensure HISTTIMEFORMAT set up
+    # Configure shell history timestamp based on detected shell
+    - name: Ensure history timestamp is set up for bash
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.bashrc"
+        path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true
-        marker: "# {mark} set HISTTIMEFORMAT for timestamp in bash history"
+        marker: "# {mark} set history timestamp"
         block: |
           export HISTTIMEFORMAT="%F %T "
+      when: user_shell.stdout is search('/bash$')
+
+    - name: Ensure history timestamp is set up for zsh
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} set history timestamp"
+        block: |
+          # Format zsh history timestamp
+          export HIST_STAMPS="yyyy-mm-dd"
+          # Enable extended history format with timestamps
+          setopt EXTENDED_HISTORY
+      when: user_shell.stdout is search('/zsh$')
