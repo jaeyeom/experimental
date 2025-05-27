@@ -119,3 +119,31 @@ CLOSED: [2025-03-01 Sat 03:54]
 
 ** Other Issues
 *** TODO Fix python3-notmuch2 on Termux
+
+* Manual Playbooks
+These files are playbooks not generated from =generate_packages.go=:
+
+- all.yml
+- bazel.yml
+- e.yml
+- gmi.yml
+- go.yml
+- golangci-lint.yml
+- rustc.yml
+- setup-bazel.yml
+- setup-cargo.yml
+- setup-emacs-lsp-booster.yml
+- setup-emacs.yml
+- setup-git.yml
+- setup-gpg-agent.yml
+- setup-history.yml
+- setup-kotex.yml
+- setup-shell-profile.yml
+- setup-spacemacs-go.yml
+- setup-spacemacs.yml
+- setup-ssh-key.yml
+- setup-user-bin-directory.yml
+- setup-user-config-directory.yml
+- setup-user-go-bin-directory.yml
+- setup-z.yml
+- spacemacs.yml
