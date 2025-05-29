@@ -1,0 +1,36 @@
+---
+- name: Ensure clang-format is present
+  hosts: all
+  tasks:
+    - name: Include guard for clang-format playbook
+      block:
+        - name: Stop early if the clang-format playbook is already included
+          meta: end_play
+          when: clang_format_playbook_imported is defined
+        - name: Ensure the clang-format playbook is not included
+          set_fact:
+            clang_format_playbook_imported: true
+          when: clang_format_playbook_imported is not defined
+
+    - name: Ensure clang-format is present on MacOS
+      community.general.homebrew:
+        name: clang-format
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure clang-format is present on non-Termux, non-MacOS systems
+      package:
+        name: clang-format
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      become: yes
+
+    - name: Ensure clang-format is present on Termux
+      block:
+        - name: Check if clang-format is installed
+          shell: command -v clang-format
+          changed_when: False
+      rescue:
+        - name: Install clang-format on Termux
+          command: pkg install -y clang-format
+      when: ansible_env.TERMUX_VERSION is defined

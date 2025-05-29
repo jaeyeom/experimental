@@ -304,6 +304,7 @@ type Commander interface {
 var packages = []PackageData{
 	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag", brewPkgName: "the_silver_searcher"},
 	{command: "buf"},
+	{command: "clang-format"},
 	{command: "curl"},
 	{command: "dart"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-native-comp", "with-dbus", "with-imagemagick"}},
