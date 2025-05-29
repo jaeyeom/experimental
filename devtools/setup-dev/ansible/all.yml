@@ -13,5 +13,6 @@
 - import_playbook: gh.yml
 - import_playbook: jira.yml
 - import_playbook: tmux.yml
+- import_playbook: clang-format.yml
 - import_playbook: grpcui.yml
 - import_playbook: gmi.yml
