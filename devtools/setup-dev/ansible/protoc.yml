@@ -14,7 +14,7 @@
 
     - name: Ensure protoc is present on MacOS
       community.general.homebrew:
-        name: protoc
+        name: protobuf
         state: present
       when: ansible_facts['os_family'] == "Darwin"
 
