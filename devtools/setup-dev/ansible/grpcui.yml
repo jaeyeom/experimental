@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure grpcui is present
+  hosts: all
+  tasks:
+    - name: Include guard for grpcui playbook
+      block:
+        - name: Stop early if the grpcui playbook is already included
+          meta: end_play
+          when: grpcui_playbook_imported is defined
+        - name: Ensure the grpcui playbook is not included
+          set_fact:
+            grpcui_playbook_imported: true
+          when: grpcui_playbook_imported is not defined
+
+    - name: Check if grpcui is installed
+      shell: go version -m $(command -v grpcui) | grep '^\s*mod\s'
+      register: grpcui_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract grpcui version
+      block:
+        - name: Set grpcui facts
+          set_fact:
+            grpcui_module_path: "{{ grpcui_installed.stdout.split()[1] }}"
+            grpcui_module_version: "{{ grpcui_installed.stdout.split()[2] }}"
+        - name: Determine the latest grpcui version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ grpcui_module_path }}@latest"
+          register: grpcui_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ grpcui_module_path }} {{ grpcui_module_version }} => {{ grpcui_latest.stdout }}"
+      rescue:
+        - name: Clear grpcui facts
+          set_fact:
+            grpcui_module_path: ""
+            grpcui_module_version: ""
+
+    - name: Upgrade grpcui
+      command: go install github.com/fullstorydev/grpcui/cmd/grpcui@latest
+      when: grpcui_module_version is not defined or grpcui_module_version == "" or grpcui_module_version != grpcui_latest.stdout
