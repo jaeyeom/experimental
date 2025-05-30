@@ -360,6 +360,7 @@ var gopkgs = []GoInstall{
 	{"gopls", "golang.org/x/tools/gopls@latest", nil},
 	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
 	{"gotests", "github.com/cweill/gotests/...@latest", nil},
+	{"grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest", nil},
 	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
 	{"hugo", "github.com/gohugoio/hugo@latest", nil},
 	{"image2ascii", "github.com/qeesung/image2ascii@latest", nil},
