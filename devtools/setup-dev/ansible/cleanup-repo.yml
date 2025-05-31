@@ -1,0 +1,23 @@
+---
+- import_playbook: setup-user-bin-directory.yml
+
+- name: Setup cleanup-repo script
+  hosts: all
+  tasks:
+    - name: Include guard for cleanup-repo playbook
+      block:
+        - name: Stop early if the cleanup-repo playbook is already included
+          meta: end_play
+          when: cleanup_repo_playbook_imported is defined
+        - name: Ensure the cleanup-repo playbook is not included
+          set_fact:
+            cleanup_repo_playbook_imported: true
+          when: cleanup_repo_playbook_imported is not defined
+
+    - name: Create symbolic link for cleanup-repo.sh
+      ansible.builtin.file:
+        src: "{{ ansible_env.HOME }}/go/src/github.com/jaeyeom/experimental/devtools/gh-nudge/cleanup-repo.sh"
+        dest: "{{ ansible_env.HOME }}/.local/bin/cleanup-repo"
+        state: link
+        force: yes
+        mode: '0755'
