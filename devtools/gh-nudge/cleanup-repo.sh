@@ -53,7 +53,7 @@ for branch in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
     #   + <commit hash>  => commit not in main
     #   - <commit hash>  => commit is in main
     # If there's no lines starting with '+', then no unique commits.
-    if git cherry "$MAIN_BRANCH" "$branch" | grep -q -v '^+'; then
+    if ! git cherry "$MAIN_BRANCH" "$branch" | grep -q '^+'; then
         branches_to_delete+=("$branch")
     fi
 done
