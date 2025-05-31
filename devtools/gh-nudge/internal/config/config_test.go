@@ -28,6 +28,9 @@ slack:
   dm_channel_id_mapping:
     "github-user1": "C12345"
     "github-user2": "C67890"
+  team_channel_mapping:
+    "team-frontend": "#frontend-team-channel"
+    "team-backend": "#backend-team-channel"
   channel_routing:
     - pattern: "frontend/.*\\.js$"
       channel: "#frontend"
@@ -74,6 +77,16 @@ settings:
 
 		if len(cfg.Slack.DMChannelIDMapping) != 2 {
 			t.Errorf("Expected 2 DM channel ID mappings, got %d", len(cfg.Slack.DMChannelIDMapping))
+		}
+
+		if len(cfg.Slack.TeamChannelMapping) != 2 {
+			t.Errorf("Expected 2 team channel mappings, got %d", len(cfg.Slack.TeamChannelMapping))
+		}
+		if cfg.Slack.TeamChannelMapping["team-frontend"] != "#frontend-team-channel" {
+			t.Errorf("Expected team-frontend to map to '#frontend-team-channel', got '%s'", cfg.Slack.TeamChannelMapping["team-frontend"])
+		}
+		if cfg.Slack.TeamChannelMapping["team-backend"] != "#backend-team-channel" {
+			t.Errorf("Expected team-backend to map to '#backend-team-channel', got '%s'", cfg.Slack.TeamChannelMapping["team-backend"])
 		}
 
 		if len(cfg.Slack.ChannelRouting) != 2 {

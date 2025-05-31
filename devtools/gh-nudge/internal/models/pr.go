@@ -9,6 +9,7 @@ type PullRequest struct {
 	ReviewRequests []ReviewRequest `json:"reviewRequests"`
 	Mergeable      string          `json:"mergeable,omitempty"`
 	HeadRefName    string          `json:"headRefName,omitempty"`
+	BaseRefName    string          `json:"baseRefName,omitempty"`
 }
 
 // File represents a file changed in a pull request.

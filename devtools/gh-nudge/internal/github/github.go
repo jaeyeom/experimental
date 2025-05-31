@@ -2,9 +2,11 @@
 package github
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
@@ -43,8 +45,8 @@ func NewClient(executor CommandExecutor) *Client {
 // It fetches PRs created by the current user.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	// Construct the gh command to get PR information
-	// This command fetches PRs with their title, URL, review requests, and files
-	output, err := c.executor.Execute("gh", "pr", "status", "--json", "url,title,reviewRequests,files,mergeable,headRefName", "-q", ".createdBy")
+	// This command fetches PRs with their title, URL, review requests, files, and baseRefName
+	output, err := c.executor.Execute("gh", "pr", "status", "--json", "url,title,reviewRequests,files,mergeable,headRefName,baseRefName", "-q", ".createdBy")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gh command: %w", err)
 	}
@@ -106,4 +108,58 @@ func (c *Client) MergePullRequest(prURL string, deleteBranch bool) error {
 	}
 
 	return nil
+}
+
+// GetFileContent fetches the content of a file from a GitHub repository.
+// It uses the `gh api` command to retrieve the file content.
+func (c *Client) GetFileContent(owner, repo, path, ref string) (string, error) {
+	// Construct the API endpoint path
+	apiPath := fmt.Sprintf("repos/%s/%s/contents/%s", owner, repo, path)
+	args := []string{"api", apiPath}
+	if ref != "" {
+		args = append(args, "-q", fmt.Sprintf("ref=%s", ref))
+	}
+
+	// Execute the gh api command
+	// Example: gh api repos/owner/repo/contents/path/to/file.txt?ref=main
+	output, err := c.executor.Execute("gh", args...)
+	if err != nil {
+		// Check if the error is due to file not found (404)
+		// gh api returns non-zero exit code for HTTP errors, and output might contain error message
+		if strings.Contains(output, "\"Not Found\"") {
+			return "", fmt.Errorf("file not found: %s/%s/%s at ref %s (gh api output: %s): %w", owner, repo, path, ref, output, err)
+		}
+		return "", fmt.Errorf("failed to execute gh api command for file content: %s (output: %s): %w", apiPath, output, err)
+	}
+
+	// Define a struct to parse the JSON response from GitHub API
+	var fileData struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+		Message  string `json:"message"` // For error messages like "Not Found"
+	}
+
+	// Parse the JSON output
+	if err := json.Unmarshal([]byte(output), &fileData); err != nil {
+		return "", fmt.Errorf("failed to parse gh api JSON output for file content: %s (output: %s): %w", apiPath, output, err)
+	}
+
+	// Check if the API returned an error message (e.g. file not found, though usually caught by exit code)
+	if fileData.Message != "" && fileData.Content == "" {
+		return "", fmt.Errorf("failed to get file content: %s from %s/%s/%s at ref %s: %s", fileData.Message, owner, repo, path, ref)
+	}
+
+
+	// Ensure the content is base64 encoded as expected
+	if fileData.Encoding != "base64" {
+		return "", fmt.Errorf("unexpected content encoding for %s: expected 'base64', got '%s'", path, fileData.Encoding)
+	}
+
+	// Decode the base64 content
+	decodedContent, err := base64.StdEncoding.DecodeString(fileData.Content)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode base64 content for %s: %w", path, err)
+	}
+
+	return string(decodedContent), nil
 }

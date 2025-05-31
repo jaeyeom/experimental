@@ -112,7 +112,18 @@ following structure:
       "github-username-1": "C12345"
       "github-username-2": "C67890"
 
+    # Team slug to Slack channel ID mapping (for sending notifications to team channels)
+    # If a PR review is requested from a team, or if CODEOWNERS identifies a team
+    # responsible for the changed files, gh-nudge will use this mapping to find the
+    # appropriate Slack channel to send the notification.
+    # Team slugs are typically the short name used in GitHub (e.g., "my-org/team-slug" -> "team-slug")
+    team_channel_mapping:
+      "team-slug-alpha": "#team-alpha-channel"
+      "team-slug-beta": "#team-beta-alerts"
+
     # Channel routing based on file patterns
+    # This is used if dm_by_default is false and the reviewer is a user,
+    # or as a fallback if team notification via team_channel_mapping is not applicable.
     channel_routing:
       - pattern: "frontend/.*\\.js$"
         channel: "#frontend"
@@ -122,7 +133,7 @@ following structure:
         channel: "#documentation"
 
   settings:
-    reminder_threshold_hours: 24  # Only send reminders once per 24 hours for the same PR/reviewer
+    reminder_threshold_hours: 24  # Only send reminders once per 24 hours for the same PR/reviewer/team
     working_hours_only: true
     message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
     dm_by_default: true  # Send DMs to reviewers by default

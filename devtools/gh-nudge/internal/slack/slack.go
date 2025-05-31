@@ -21,16 +21,18 @@ type Client struct {
 	api                *slack.Client
 	userIDMapping      map[string]string
 	dmChannelIDMapping map[string]string
+	teamChannelMapping map[string]string
 	channelRouting     []ChannelRouting
 	defaultChannel     string
 }
 
 // NewClient creates a new Slack client with the given token and mappings.
-func NewClient(token string, userIDMapping, dmChannelIDMapping map[string]string) *Client {
+func NewClient(token string, userIDMapping, dmChannelIDMapping, teamChannelMapping map[string]string) *Client {
 	return &Client{
 		api:                slack.New(token),
 		userIDMapping:      userIDMapping,
 		dmChannelIDMapping: dmChannelIDMapping,
+		teamChannelMapping: teamChannelMapping,
 	}
 }
 
@@ -203,4 +205,11 @@ func (c *Client) NudgeReviewer(pr models.PullRequest, githubUsername string, hou
 	}
 
 	return destination, message, err
+}
+
+// GetChannelForTeam retrieves the Slack channel ID for a given team name.
+// It returns the channel ID and a boolean indicating whether a mapping was found.
+func (c *Client) GetChannelForTeam(teamName string) (string, bool) {
+	channelID, ok := c.teamChannelMapping[teamName]
+	return channelID, ok
 }

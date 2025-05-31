@@ -28,6 +28,7 @@ type SlackConfig struct {
 	DefaultChannel     string                 `yaml:"default_channel"`
 	UserIDMapping      map[string]string      `yaml:"user_id_mapping"`
 	DMChannelIDMapping map[string]string      `yaml:"dm_channel_id_mapping"`
+	TeamChannelMapping map[string]string      `yaml:"team_channel_mapping"`
 	ChannelRouting     []ChannelRoutingConfig `yaml:"channel_routing"`
 }
 
