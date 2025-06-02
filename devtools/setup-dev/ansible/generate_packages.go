@@ -377,6 +377,11 @@ var gopkgs = []GoInstall{
 		"google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest",
 		[]string{"protoc"},
 	},
+	{
+		"protolint",
+		"github.com/yoheimuta/protolint/cmd/protolint@latest",
+		nil,
+	},
 }
 
 var pipPkgs = []PipInstall{
