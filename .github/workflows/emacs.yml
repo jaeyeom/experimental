@@ -1,5 +1,8 @@
 name: Emacs Init Test
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main ]
