@@ -1,6 +1,5 @@
 ---
 - import_playbook: zoxide.yml
-- import_playbook: setup-starship.yml
 - import_playbook: setup-shell-profile.yml
 
 - name: Ensure z directory jumping with zoxide and starship
