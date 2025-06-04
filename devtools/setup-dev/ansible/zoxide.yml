@@ -1,0 +1,36 @@
+---
+- name: Ensure zoxide is present
+  hosts: all
+  tasks:
+    - name: Include guard for zoxide playbook
+      block:
+        - name: Stop early if the zoxide playbook is already included
+          meta: end_play
+          when: zoxide_playbook_imported is defined
+        - name: Ensure the zoxide playbook is not included
+          set_fact:
+            zoxide_playbook_imported: true
+          when: zoxide_playbook_imported is not defined
+
+    - name: Ensure zoxide is present on MacOS
+      community.general.homebrew:
+        name: zoxide
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure zoxide is present on non-Termux, non-MacOS systems
+      package:
+        name: zoxide
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      become: yes
+
+    - name: Ensure zoxide is present on Termux
+      block:
+        - name: Check if zoxide is installed
+          shell: command -v zoxide
+          changed_when: False
+      rescue:
+        - name: Install zoxide on Termux
+          command: pkg install -y zoxide
+      when: ansible_env.TERMUX_VERSION is defined

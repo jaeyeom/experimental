@@ -1,8 +1,9 @@
 ---
-- import_playbook: setup-user-bin-directory.yml
+- import_playbook: zoxide.yml
+- import_playbook: setup-starship.yml
 - import_playbook: setup-shell-profile.yml
 
-- name: Ensure z is set property
+- name: Ensure z directory jumping with zoxide and starship
   hosts: all
   tasks:
     - name: Include guard for setup-z playbook
@@ -15,25 +16,14 @@
             setup_z_playbook_imported: true
           when: setup_z_playbook_imported is not defined
 
-    - block:
-      - name: Ensure z.sh is downloaded.
-        ansible.builtin.get_url:
-          url: https://raw.githubusercontent.com/rupa/z/master/z.sh
-          dest: "{{ ansible_env.HOME }}/.local/bin/z.sh"
-          mode: '0700'
-
-      - name: Ensure z.sh is properly set in shell profile
-        ansible.builtin.blockinfile:
-          path: "{{ user_profile_path }}"
-          append_newline: true
-          prepend_newline: true
-          create: true
-          marker: "# {mark} Enable z script"
-          block: |
-            if [ -f ~/.local/bin/z.sh ]; then
-                . ~/.local/bin/z.sh
-                {% if user_shell.stdout is search('/bash$') %}
-                PROMPT_COMMAND="${PROMPT_COMMAND%;}"
-                {% endif %}
-            fi
-      when: ansible_facts['os_family'] != "Darwin"
+    - name: Configure zoxide in shell profile
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} Enable zoxide"
+        block: |
+          if command -v zoxide >/dev/null 2>&1; then
+              eval "$(zoxide init {{ user_shell.stdout | basename }})"
+          fi
