@@ -131,6 +131,7 @@ These files are playbooks not generated from =generate_packages.go=:
 
 - all.yml
 - bazel.yml
+- docker.yml
 - e.yml
 - gmi.yml
 - go.yml
@@ -138,6 +139,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
+- setup-docker-lima.yml
 - setup-emacs-lsp-booster.yml
 - setup-emacs.yml
 - setup-git.yml
@@ -148,6 +150,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-spacemacs-go.yml
 - setup-spacemacs.yml
 - setup-ssh-key.yml
+- setup-starship.yml
 - setup-user-bin-directory.yml
 - setup-user-config-directory.yml
 - setup-user-go-bin-directory.yml
