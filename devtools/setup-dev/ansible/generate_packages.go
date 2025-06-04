@@ -345,6 +345,7 @@ var packages = []PackageData{
 	{command: "tmux"},
 	{command: "unzip"},
 	{command: "zip"},
+	{command: "zoxide"},
 }
 
 var gopkgs = []GoInstall{
