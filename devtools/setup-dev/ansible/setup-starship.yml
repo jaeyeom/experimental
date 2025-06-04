@@ -1,6 +1,7 @@
 ---
 - import_playbook: starship.yml
 - import_playbook: setup-shell-profile.yml
+- import_playbook: setup-user-config-directory.yml
 
 - name: Setup starship prompt
   hosts: all
@@ -47,76 +48,7 @@
         create: yes
       when: user_shell.stdout is search('/zsh$') and zsh_starship_check is changed
 
-    - name: Create starship config directory
-      file:
-        path: ~/.config
-        state: directory
-        mode: '0755'
-
-    - name: Ensure starship config is provisioned
-      copy:
-        dest: ~/.config/starship.toml
-        content: |
-          # Starship Agnoster-like configuration
-          # See https://starship.rs/config/
-
-          format = """$directory$git_branch$git_status$golang$nodejs$python$rust$package$cmd_duration$character"""
-
-          # Disable line break for single line prompt
-          add_newline = false
-
-          [directory]
-          style = 'bold white bg:blue'
-          format = '[ $path ](bg:blue fg:white)[](bg:green fg:blue)'
-          truncation_length = 3
-          truncation_symbol = '…/'
-
-          [directory.substitutions]
-          'Documents' = '󰈙 '
-          'Downloads' = ' '
-          'Music' = '󰝚 '
-          'Pictures' = ' '
-
-          [git_branch]
-          symbol = ' '
-          style = 'bold black bg:green'
-          format = '[ $symbol$branch ](bg:green fg:black)'
-
-          [git_status]
-          style = 'bold black bg:yellow'
-          format = '[](bg:yellow fg:green)[ $all_status$ahead_behind ](bg:yellow fg:black)'
-
-          [golang]
-          symbol = ' '
-          style = 'bold white bg:cyan'
-          format = '[](bg:cyan fg:yellow)[ $symbol$version ](bg:cyan fg:white)'
-
-          [nodejs]
-          symbol = ' '
-          style = 'bold white bg:cyan'
-          format = '[](bg:cyan fg:yellow)[ $symbol$version ](bg:cyan fg:white)'
-
-          [python]
-          symbol = ' '
-          style = 'bold white bg:cyan'
-          format = '[](bg:cyan fg:yellow)[ $symbol$version ](bg:cyan fg:white)'
-
-          [rust]
-          symbol = ' '
-          style = 'bold white bg:cyan'
-          format = '[](bg:cyan fg:yellow)[ $symbol$version ](bg:cyan fg:white)'
-
-          [package]
-          symbol = '󰏗 '
-          style = 'bold white bg:cyan'
-          format = '[](bg:cyan fg:yellow)[ $symbol$version ](bg:cyan fg:white)'
-
-          [cmd_duration]
-          style = 'bold black bg:yellow'
-          format = '[](bg:yellow fg:cyan)[ 󰔛 $duration ](bg:yellow fg:black)[](fg:yellow)'
-          min_time = 2000
-
-          [character]
-          success_symbol = '[❯](bold green)'
-          error_symbol = '[❯](bold red)'
-          vimcmd_symbol = '[❮](bold green)'
+    - name: Apply starship catppuccin-powerline preset
+      shell: starship preset catppuccin-powerline -o {{ user_config_directory }}/starship.toml
+      args:
+        creates: "{{ user_config_directory }}/starship.toml"
