@@ -368,7 +368,9 @@ It should only modify the values of Spacemacs settings."
    ;; fixed-pitch faces. The `:size' can be specified as
    ;; a non-negative integer (pixel size), or a floating-point (point size).
    ;; Point size is recommended, because it's device independent. (default 10.0)
-   dotspacemacs-default-font '(("Fira Code" :size 10.0 :weight normal :width normal)
+   dotspacemacs-default-font '(("FiraMono Nerd Font" :size 10.0 :weight normal :width normal)
+                               ("FiraCode Nerd Font" :size 10.0 :weight normal :width normal)
+                               ("Fira Code" :size 10.0 :weight normal :width normal)
                                ("SF Mono" :size 10.0 :weight normal :width normal)
                                ("Cousine" :size 10.0 :weight normal :width normal)
                                ("DejaVu Sans Mono" :size 10.0 :weight normal :width normal))
