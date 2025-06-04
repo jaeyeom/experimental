@@ -393,6 +393,7 @@ var cargoPkgs = []CargoInstall{
 	{command: "cargo-install-update", pkgName: "cargo-update"},
 	{command: "cargo-outdated"},
 	{command: "emacs-lsp-booster"},
+	{command: "starship"},
 }
 
 func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
