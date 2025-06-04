@@ -1,0 +1,86 @@
+---
+- name: Setup Docker with Lima on macOS
+  hosts: all
+  tasks:
+    - name: Include guard for setup-docker-lima playbook
+      block:
+        - name: Stop early if the setup-docker-lima playbook is already included
+          meta: end_play
+          when: setup_docker_lima_playbook_imported is defined
+        - name: Ensure the setup-docker-lima playbook is not included
+          set_fact:
+            setup_docker_lima_playbook_imported: true
+          when: setup_docker_lima_playbook_imported is not defined
+
+    - name: Setup Docker with Lima on macOS
+      block:
+        - name: Install Lima
+          community.general.homebrew:
+            name: lima
+            state: present
+
+        - name: Install Docker CLI and Docker Compose
+          community.general.homebrew:
+            name:
+              - docker
+              - docker-compose
+            state: present
+
+        - name: Check if Lima Docker VM is already running
+          command: limactl list --format json
+          register: lima_list_result
+          changed_when: false
+
+        - name: Parse Lima list output
+          set_fact:
+            lima_vms: "{{ lima_list_result.stdout | from_json }}"
+
+        - name: Check if docker VM exists and is running
+          set_fact:
+            docker_vm_running: "{{ lima_vms | selectattr('name', 'equalto', 'docker') | selectattr('status', 'equalto', 'Running') | list | length > 0 }}"
+
+        - name: Start Lima Docker template
+          command: limactl start template://docker
+          when: not docker_vm_running
+          register: lima_start_result
+
+        - name: Wait for Lima Docker VM to be ready
+          command: limactl list --format json
+          register: lima_wait_result
+          until: >
+            (lima_wait_result.stdout | from_json | selectattr('name', 'equalto', 'docker') | selectattr('status', 'equalto', 'Running') | list | length > 0)
+          retries: 30
+          delay: 10
+          when: lima_start_result is changed
+
+        - name: Check if Docker context lima-docker exists
+          command: docker context ls --format json
+          register: docker_context_result
+          changed_when: false
+
+        - name: Parse Docker context output
+          set_fact:
+            docker_contexts: "{{ docker_context_result.stdout_lines | map('from_json') | list }}"
+
+        - name: Check if lima-docker context exists
+          set_fact:
+            lima_context_exists: "{{ docker_contexts | selectattr('Name', 'equalto', 'lima-docker') | list | length > 0 }}"
+
+        - name: Create Docker context for Lima
+          command: docker context create lima-docker --docker "host=unix://{{ ansible_env.HOME }}/.lima/docker/sock/docker.sock"
+          when: not lima_context_exists
+
+        - name: Set Docker context to lima-docker
+          command: docker context use lima-docker
+
+        - name: Test Docker installation
+          command: docker run --rm hello-world
+          register: docker_test_result
+          changed_when: false
+
+        - name: Display Docker test result
+          debug:
+            msg: "Docker is working correctly with Lima"
+          when: docker_test_result.rc == 0
+
+      when: ansible_facts['os_family'] == "Darwin"
