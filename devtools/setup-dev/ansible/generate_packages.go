@@ -3,7 +3,12 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 )
@@ -412,6 +417,125 @@ func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
 	}
 }
 
+func getAllYmlFiles() ([]string, error) {
+	var ymlFiles []string
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".yml") && !strings.Contains(path, "/") {
+			ymlFiles = append(ymlFiles, strings.TrimSuffix(path, ".yml"))
+		}
+		return nil
+	})
+	sort.Strings(ymlFiles)
+	return ymlFiles, err
+}
+
+func getGeneratedRuleNames() []string {
+	var generated []string
+
+	for _, pkg := range packages {
+		generated = append(generated, pkg.Command())
+	}
+
+	for _, pkg := range gopkgs {
+		generated = append(generated, pkg.Command())
+	}
+
+	for _, pkg := range pipPkgs {
+		generated = append(generated, pkg.Command())
+	}
+
+	for _, pkg := range cargoPkgs {
+		generated = append(generated, pkg.Command())
+	}
+
+	sort.Strings(generated)
+	return generated
+}
+
+func getManualPlaybooks() ([]string, error) {
+	allYml, err := getAllYmlFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	generated := getGeneratedRuleNames()
+	generatedMap := make(map[string]bool)
+	for _, name := range generated {
+		generatedMap[name] = true
+	}
+
+	var manual []string
+	for _, yml := range allYml {
+		if !generatedMap[yml] {
+			manual = append(manual, yml+".yml")
+		}
+	}
+
+	return manual, nil
+}
+
+func updateReadmeManualPlaybooks() error {
+	readmePath := "README.org"
+
+	file, err := os.Open(readmePath)
+	if err != nil {
+		return fmt.Errorf("failed to open README.org: %w", err)
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	inManualSection := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "* Manual Playbooks") {
+			inManualSection = true
+			lines = append(lines, line)
+			lines = append(lines, "These files are playbooks not generated from =generate_packages.go=:")
+			lines = append(lines, "")
+
+			manualPlaybooks, err := getManualPlaybooks()
+			if err != nil {
+				return fmt.Errorf("failed to get manual playbooks: %w", err)
+			}
+
+			for _, playbook := range manualPlaybooks {
+				lines = append(lines, "- "+playbook)
+			}
+
+			for scanner.Scan() {
+				nextLine := scanner.Text()
+				if strings.HasPrefix(nextLine, "* ") && nextLine != "* Manual Playbooks" {
+					lines = append(lines, nextLine)
+					break
+				}
+			}
+		} else if !inManualSection {
+			lines = append(lines, line)
+		}
+	}
+
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading README.org: %w", err)
+	}
+
+	output := strings.Join(lines, "\n") + "\n"
+	err = os.WriteFile(readmePath, []byte(output), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write README.org: %w", err)
+	}
+
+	return nil
+}
+
 func main() {
 	tmpl := template.Must(template.New("packages").Parse(packagesTemplate))
 	template.Must(tmpl.New("goinstall").Parse(goInstallTemplate))
@@ -422,4 +546,9 @@ func main() {
 	generatePackages(tmpl.Lookup("goinstall"), gopkgs)
 	generatePackages(tmpl.Lookup("pipinstall"), pipPkgs)
 	generatePackages(tmpl.Lookup("cargoinstall"), cargoPkgs)
+
+	err := updateReadmeManualPlaybooks()
+	if err != nil {
+		panic(err)
+	}
 }
