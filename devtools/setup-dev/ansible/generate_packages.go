@@ -341,6 +341,7 @@ var packages = []PackageData{
 	{command: "sed", brewPkgName: "gsed"},
 	{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh", brewPkgName: "openssh"},
 	{command: "sshpass"},
+	{command: "starship"},
 	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer", brewPkgName: "mactex"},
 	{command: "tmux"},
 	{command: "unzip"},
@@ -394,7 +395,6 @@ var cargoPkgs = []CargoInstall{
 	{command: "cargo-install-update", pkgName: "cargo-update"},
 	{command: "cargo-outdated"},
 	{command: "emacs-lsp-booster"},
-	{command: "starship"},
 }
 
 func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
