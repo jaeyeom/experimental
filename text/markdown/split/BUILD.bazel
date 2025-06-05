@@ -1,15 +1,15 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "split",
+    name = "go_default_library",
     srcs = ["split.go"],
     importpath = "github.com/jaeyeom/experimental/text/markdown/split",
     visibility = ["//visibility:public"],
 )
 
 go_test(
-    name = "split_test",
+    name = "go_default_test",
     size = "small",
     srcs = ["split_test.go"],
-    embed = [":split"],
+    embed = [":go_default_library"],
 )

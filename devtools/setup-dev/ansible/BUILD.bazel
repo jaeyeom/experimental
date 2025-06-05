@@ -1,7 +1,7 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_library(
-    name = "ansible_lib",
+    name = "go_default_library",
     srcs = ["generate_packages.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/setup-dev/ansible",
     visibility = ["//visibility:private"],
@@ -9,6 +9,6 @@ go_library(
 
 go_binary(
     name = "ansible",
-    embed = [":ansible_lib"],
+    embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )

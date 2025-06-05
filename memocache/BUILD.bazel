@@ -1,16 +1,16 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "memocache",
+    name = "go_default_library",
     srcs = ["memocache.go"],
     importpath = "github.com/jaeyeom/experimental/memocache",
     visibility = ["//visibility:public"],
 )
 
 go_test(
-    name = "memocache_test",
+    name = "go_default_test",
     size = "small",
     srcs = ["memocache_test.go"],
-    embed = [":memocache"],
-    deps = ["@com_github_jaeyeom_sugo//par"],
+    embed = [":go_default_library"],
+    deps = ["@com_github_jaeyeom_sugo//par:go_default_library"],
 )
