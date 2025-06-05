@@ -1,7 +1,4 @@
 ---
-- import_playbook: setup-cargo.yml
-- import_playbook: cargo-install-update.yml
-
 - name: Ensure starship is present
   hosts: all
   tasks:
@@ -15,18 +12,25 @@
             starship_playbook_imported: true
           when: starship_playbook_imported is not defined
 
-    - name: Check if starship is installed
-      shell: command -v starship
-      register: starship_installed
-      ignore_errors: yes
-      changed_when: False
+    - name: Ensure starship is present on MacOS
+      community.general.homebrew:
+        name: starship
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
 
-    - name: Install starship using Cargo
-      command: cargo install starship
-      when: starship_installed.rc != 0
+    - name: Ensure starship is present on non-Termux, non-MacOS systems
+      package:
+        name: starship
+        state: present
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      become: yes
 
-    - name: Update starship to latest version
-      command: cargo install-update starship
-      register: starship_update_result
-      changed_when: "starship_update_result.stdout is search('Overall updated [1-9]')"
-      when: starship_installed.rc == 0
+    - name: Ensure starship is present on Termux
+      block:
+        - name: Check if starship is installed
+          shell: command -v starship
+          changed_when: False
+      rescue:
+        - name: Install starship on Termux
+          command: pkg install -y starship
+      when: ansible_env.TERMUX_VERSION is defined
