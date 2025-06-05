@@ -1,0 +1,131 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@gazelle//:def.bzl", "gazelle")
+
+gazelle(name = "gazelle")
+
+go_library(
+    name = "config_lib",
+    srcs = ["config/config.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/config",
+    visibility = ["//visibility:private"],
+)
+
+go_library(
+    name = "core_lib",
+    srcs = ["core/core.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/core",
+    visibility = ["//visibility:private"],
+    deps = [":config_lib"],
+)
+
+go_library(
+    name = "coretest_lib",
+    srcs = ["core/coretest/coretest.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/core/coretest",
+    visibility = ["//visibility:private"],
+    deps = [":core_lib"],
+)
+
+go_library(
+    name = "json_storage_lib",
+    srcs = ["storage/json/json_storage.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/storage/json",
+    visibility = ["//visibility:private"],
+    deps = [
+        ":config_lib",
+        ":core_lib",
+    ],
+)
+
+go_library(
+    name = "sqlite_storage_lib",
+    srcs = ["storage/sqlite/sqlite_storage.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/storage/sqlite",
+    visibility = ["//visibility:private"],
+    deps = [
+        ":config_lib",
+        ":core_lib",
+    ],
+)
+
+go_library(
+    name = "todo_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo",
+    visibility = ["//visibility:private"],
+    deps = [
+        ":config_lib",
+        ":core_lib",
+        ":json_storage_lib",
+        ":sqlite_storage_lib",
+        # External dependencies might be needed here,
+        # for example: "@org_golang_x_xerrors//:xerrors",
+    ],
+)
+
+go_binary(
+    name = "todo",
+    embed = [":todo_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "config_test",
+    srcs = ["config/config_test.go"],
+    embed = [":config_lib"],
+    deps = [],
+)
+
+go_test(
+    name = "core_test",
+    srcs = [
+        "core/core_test.go",
+        "core/reorder_test.go",
+        "core/subtask_test.go",
+    ],
+    embed = [":core_lib"],
+    deps = [
+        ":config_lib",
+        ":coretest_lib",
+        "@com_github_google_go_cmp//cmp",
+    ],
+)
+
+go_test(
+    name = "json_storage_test",
+    srcs = ["storage/json/json_storage_test.go"],
+    embed = [":json_storage_lib"],
+    deps = [
+        ":config_lib",
+        ":core_lib",
+        ":coretest_lib",
+        "@com_github_google_go_cmp//cmp",
+    ],
+)
+
+go_test(
+    name = "sqlite_storage_test",
+    srcs = [
+        "storage/sqlite/sqlite_storage_test.go",
+        "storage/sqlite/reorder_test.go",
+    ],
+    embed = [":sqlite_storage_lib"],
+    deps = [
+        ":config_lib",
+        ":core_lib",
+        ":coretest_lib",
+        "@com_github_google_go_cmp//cmp",
+    ],
+)
+
+go_test(
+    name = "main_test",
+    srcs = ["main_test.go"],
+    embed = [":todo_lib"], # Note: This was ":todo_lib" as per instruction, it should refer to the library defined above.
+    deps = [
+        ":config_lib",
+        ":core_lib",
+        ":coretest_lib",
+        "@com_github_google_go_cmp//cmp",
+    ],
+)
