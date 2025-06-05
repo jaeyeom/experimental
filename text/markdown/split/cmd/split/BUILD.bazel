@@ -1,15 +1,15 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_library(
-    name = "split_lib",
+    name = "go_default_library",
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/text/markdown/split/cmd/split",
     visibility = ["//visibility:private"],
-    deps = ["//text/markdown/split"],
+    deps = ["//text/markdown/split:go_default_library"],
 )
 
 go_binary(
     name = "split",
-    embed = [":split_lib"],
+    embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )

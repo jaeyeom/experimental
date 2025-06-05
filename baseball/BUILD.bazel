@@ -1,7 +1,7 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
-    name = "baseball_lib",
+    name = "go_default_library",
     srcs = ["baseball.go"],
     importpath = "github.com/jaeyeom/experimental/baseball",
     visibility = ["//visibility:private"],
@@ -9,18 +9,18 @@ go_library(
 
 go_binary(
     name = "baseball",
-    embed = [":baseball_lib"],
+    embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )
 
 go_test(
-    name = "baseball_test",
+    name = "go_default_test",
     size = "small",
     srcs = ["baseball_test.go"],
-    embed = [":baseball_lib"],
+    embed = [":go_default_library"],
     deps = [
-        "@com_github_leanovate_gopter//:gopter",
-        "@com_github_leanovate_gopter//gen",
-        "@com_github_leanovate_gopter//prop",
+        "@com_github_leanovate_gopter//:go_default_library",
+        "@com_github_leanovate_gopter//gen:go_default_library",
+        "@com_github_leanovate_gopter//prop:go_default_library",
     ],
 )
