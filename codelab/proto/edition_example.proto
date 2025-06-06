@@ -1,10 +1,9 @@
 edition = "2023";
 
-option go_package = "github.com/jaeyeom/experimental/codelab/proto";
+package contacts;
 
 option features.field_presence = IMPLICIT;
-
-package contacts;
+option go_package = "github.com/jaeyeom/experimental/codelab/proto";
 
 message Bar {
   int32 x = 1;

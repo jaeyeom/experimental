@@ -2,23 +2,19 @@
 
 syntax = "proto3";
 
-import "buf/validate/validate.proto";
-
 package contacts;
+
+import "buf/validate/validate.proto";
 
 message Contact {
   string uuid = 1 [(buf.validate.field) = {
-    ignore: IGNORE_IF_UNPOPULATED,
-    string: {
-      uuid: true,
-    }
-    }];
+    ignore: IGNORE_IF_UNPOPULATED
+    string: {uuid: true}
+  }];
   string name = 2;
   string email = 3 [(buf.validate.field) = {
-    ignore: IGNORE_IF_UNPOPULATED,
-    string: {
-      email: true,
-    }
+    ignore: IGNORE_IF_UNPOPULATED
+    string: {email: true}
   }];
   string phone = 4;
 }
