@@ -528,7 +528,7 @@ func updateReadmeManualPlaybooks() error {
 	}
 
 	output := strings.Join(lines, "\n") + "\n"
-	err = os.WriteFile(readmePath, []byte(output), 0644)
+	err = os.WriteFile(readmePath, []byte(output), 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to write README.org: %w", err)
 	}

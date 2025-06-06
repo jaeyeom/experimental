@@ -23,3 +23,15 @@ gazelle(
     ],
     command = "update-repos",
 )
+
+# Format alias
+alias(
+    name = "format",
+    actual = "//tools/format:format",
+)
+
+exports_files(
+    [
+        "MODULE.bazel",
+    ],
+)
