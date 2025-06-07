@@ -19,3 +19,6 @@ trigger: always_on
 
 ## Git Specific Rules
 1. Check commit log template before writing a commit log.
+
+## Terminal Tasks
+1. When you need to create a temporary file for command-line work, use the `mktemp` command for secure, unique file creation.
