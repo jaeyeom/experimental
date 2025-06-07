@@ -5,6 +5,7 @@
 - import_playbook: pandoc.yml
 - import_playbook: pass.yml
 - import_playbook: setup-shell-profile.yml
+- import_playbook: setup-starship.yml
 
 - name: Ensure spacemacs is properly set up
   hosts: all
@@ -30,7 +31,21 @@
           if [[ "$INSIDE_EMACS" = "vterm" ]] \
                  && [[ -n ${EMACS_VTERM_PATH} ]] \
                  && [[ -f ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh ]]; then
+              # First load the original vterm shell script
               source ${EMACS_VTERM_PATH}/etc/emacs-vterm-bash.sh
+
+              # Save the original vterm_prompt_end function
+              vterm_old_prompt_end=$(declare -f vterm_prompt_end)
+
+              # Define a function to send directory tracking info to Emacs
+              function vterm_emacs_directory_tracking() {
+                  # Send the directory tracking escape sequence
+                  vterm_printf "51;A$(whoami)@$(hostname):$(pwd)"
+              }
+
+              # Add our function to the end of PROMPT_COMMAND
+              # This ensures it runs after starship has set up the prompt
+              PROMPT_COMMAND="${PROMPT_COMMAND};vterm_emacs_directory_tracking"
           fi
       when: user_shell.stdout is search('/bash$')
 
@@ -45,7 +60,23 @@
           if [[ "$INSIDE_EMACS" = "vterm" ]] \
                  && [[ -n ${EMACS_VTERM_PATH} ]] \
                  && [[ -f ${EMACS_VTERM_PATH}/etc/emacs-vterm-zsh.sh ]]; then
+              # First load the original vterm shell script
               source ${EMACS_VTERM_PATH}/etc/emacs-vterm-zsh.sh
+
+              # Override the vterm_prompt_end function to ensure it's called after starship
+              # has initialized the prompt
+              vterm_old_prompt_end=$functions[vterm_prompt_end]
+
+              # Define a new function that will be added to the precmd hooks
+              # This will run after starship has set up the prompt
+              function vterm_emacs_directory_tracking() {
+                  # Send the directory tracking escape sequence
+                  vterm_printf "51;A$(whoami)@$(hostname):$(pwd)"
+              }
+
+              # Add our function to the precmd hooks - it will run on each prompt
+              autoload -U add-zsh-hook
+              add-zsh-hook precmd vterm_emacs_directory_tracking
           fi
       when: user_shell.stdout is search('/zsh$')
 
