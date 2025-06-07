@@ -12,3 +12,8 @@ description: when working on Jira
 
    The description does not understand escaped newlines like `\n`. An actual
    newline character should be used in the description.
+3. Use the following command to add ticket dependencies when T-1 blocks T-2:
+
+   ```sh
+   jira issue link T-1 T-2 Blocks
+   ```
