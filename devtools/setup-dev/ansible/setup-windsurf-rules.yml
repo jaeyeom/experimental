@@ -1,0 +1,62 @@
+---
+- name: Ensure Windsurf global rules are set up
+  hosts: all
+  tasks:
+    - name: Include guard for setup-windsurf-rules playbook
+      block:
+        - name: Stop early if the setup-windsurf-rules playbook is already included
+          meta: end_play
+          when: setup_windsurf_rules_playbook_imported is defined
+        - name: Ensure the setup-windsurf-rules playbook is not included
+          set_fact:
+            setup_windsurf_rules_playbook_imported: true
+          when: setup_windsurf_rules_playbook_imported is not defined
+
+    - name: Ensure docs/windsurf/rules directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/go/src/github.com/jaeyeom/experimental/docs/windsurf/rules"
+        state: directory
+        mode: '0755'
+
+    - name: Check if .windsurf/rules exists
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.windsurf/rules"
+      register: windsurf_rules_stat
+
+    - name: Get the real path of .windsurf/rules if it's a symlink
+      ansible.builtin.command: readlink -f "{{ ansible_env.HOME }}/.windsurf/rules"
+      register: rules_readlink
+      when: windsurf_rules_stat.stat.exists and windsurf_rules_stat.stat.islnk
+      changed_when: false
+
+    - name: Set target path variable
+      ansible.builtin.set_fact:
+        target_rules_path: "{{ ansible_env.HOME }}/go/src/github.com/jaeyeom/experimental/docs/windsurf/rules"
+
+    - name: Copy rule files from .windsurf/rules to docs/windsurf/rules if they exist and aren't already pointing to target
+      ansible.builtin.copy:
+        src: "{{ ansible_env.HOME }}/.windsurf/rules/"
+        dest: "{{ target_rules_path }}/"
+        remote_src: yes
+      when: >
+        windsurf_rules_stat.stat.exists and
+        windsurf_rules_stat.stat.isdir and
+        (not windsurf_rules_stat.stat.islnk or
+         (rules_readlink.stdout is defined and rules_readlink.stdout != target_rules_path))
+
+    - name: Ensure .windsurf directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.windsurf"
+        state: directory
+        mode: '0755'
+
+    - name: Create symbolic link from ~/.windsurf/rules to docs/windsurf/rules
+      ansible.builtin.file:
+        src: "{{ target_rules_path }}"
+        dest: "{{ ansible_env.HOME }}/.windsurf/rules"
+        state: link
+        force: yes
+
+    - name: Debug output of the Windsurf rules setup
+      ansible.builtin.debug:
+        msg: "Windsurf global rules are now set up at {{ ansible_env.HOME }}/.windsurf/rules -> {{ target_rules_path }}"
