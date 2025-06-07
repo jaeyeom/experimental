@@ -1,3 +1,8 @@
+---
+trigger: always_on
+---
+
+## General Rules
 1. Practice Test Driven Development. Try to understand the desired behavior first. Then, unit tests should be updated according to the new behavior. After that, run the tests to see them fail and then implement the new behavior until the tests pass. Do not fear to delete obsolete test code. You do not need to ask my confirmation to run tests, since frequent test running is a part of the development process. Do not test implementation details.
 2. All exported identifiers should be documented and package-level comments should be provided.
 3. Do not log errors and bubble them up. That will cause duplicate logs. If an error bubbles up or is returned, it will be handled by the callers.
@@ -14,21 +19,3 @@
 
 ## Git Specific Rules
 1. Check commit log template before writing a commit log.
-
-## Bazel Specific Rules
-If you see bazel related files such as `MODULE.bazel` file in the repo root, your project is using Bazel.
-
-1. Run `bazel run //:format && bazel test //path/to/your/project/...:all` whenever you make a change.
-
-## Makefile Specific Rules
-If you see Makefile in the same directory, please run `make` whenever you make a change.
-
-## Jira Specific Rules
-1. Working with Jira tickets, you may use `jira` command line tool, where `jira issue` is the most useful command.
-
-## Go Specific Rules
-These are specific to the Go programming language.
-
-1. Use the log/slog package in the standard library to add appropriate log messages with the proper log level.
-2. Define an interface where it is used rather than where it is implemented.
-3. When conducting table-driven tests, clarify which case is failing in the test log.
