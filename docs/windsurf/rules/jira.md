@@ -4,7 +4,8 @@ description: when working on Jira
 ---
 
 1. Use `jira` CLI tool, where `jira issue` is the most useful command.
-2. Use the following commands to update Jira ticket descriptions:
+2. Use `--plain` option for non-interactive lists.
+3. Use the following commands to update Jira ticket descriptions:
 
    ```sh
    # For simple descriptions (no escape characters):
