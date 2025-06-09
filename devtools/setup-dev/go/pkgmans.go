@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 )
@@ -94,7 +94,7 @@ var ErrNoPackageManager = errors.New("no package manager available")
 
 func (pms PackageManagers) Install(pkg string) func() error {
 	return func() error {
-		log.Println("Install", pkg)
+		slog.Info("Install", "package", pkg)
 		for _, pm := range pms.PkgManagers {
 			cmd := pm.InstallCmd(pkg)
 			err := Run(cmd)

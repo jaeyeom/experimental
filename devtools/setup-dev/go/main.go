@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -133,12 +133,14 @@ func main() {
 	// First upgrade the packages.
 	err := pkgMans.UpdateAll()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Failed to update packages", "error", err)
+		os.Exit(1)
 	}
 	args := os.Args[1:]
 	for _, arg := range args {
 		if err := ruleGraph.Ensure(Ref(arg)); err != nil {
-			log.Fatal(err)
+			slog.Error("Failed to ensure rule", "rule", arg, "error", err)
+			os.Exit(1)
 		}
 	}
 }

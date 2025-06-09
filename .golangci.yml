@@ -1,12 +1,46 @@
 version: "2"
 linters:
   enable:
+    - depguard
     - godot
     - gosec
     - iface
     - wrapcheck
   disable:
     - testpackage
+  settings:
+    depguard:
+      rules:
+        Base:
+          list-mode: lax
+          files:
+            - "$all"
+          deny:
+            - pkg: "log$"
+              desc: use log/slog instead
+            - pkg: "io/ioutil"
+              desc: "replaced by io and os packages since Go 1.16: https://tip.golang.org/doc/go1.16#ioutil"
+        Main:
+          list-mode: strict
+          files:
+            - "$all"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/google/uuid
+            - "github.com/jaeyeom/experimental"
+            - "github.com/jaeyeom/sugo"
+            - modernc.org/sqlite
+          deny:
+            - pkg: "github.com/leanovate/gopter"
+              desc: gopter is for test only
+        Test:
+          list-mode: lax
+          files:
+            - "$test"
+          deny:
+            pkg: "github.com/stretchr/testify"
+            desc: "Please use standard library for tests"
   exclusions:
     generated: lax
     presets:

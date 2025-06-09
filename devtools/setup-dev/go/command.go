@@ -2,14 +2,14 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 )
 
 func Run(cmd *exec.Cmd) error {
-	log.Println("Running command:", cmd)
+	slog.Info("Running command", "cmd", cmd)
 	out, err := cmd.CombinedOutput()
-	log.Println("Output:", string(out))
+	slog.Info("Output", "output", string(out))
 	if err != nil {
 		return fmt.Errorf("command execution failed: %w", err)
 	}
