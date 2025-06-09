@@ -1,0 +1,173 @@
+{
+  "meta": {
+    "generatedAt": "2025-06-09T12:46:32.384Z",
+    "tasksAnalyzed": 20,
+    "totalTasks": 20,
+    "analysisCount": 20,
+    "thresholdScore": 5,
+    "projectName": "Taskmaster",
+    "usedResearch": false
+  },
+  "complexityAnalysis": [
+    {
+      "taskId": 1,
+      "taskTitle": "Setup Project Structure and Go Module",
+      "complexityScore": 3,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Setup Project Structure and Go Module' task into 3 subtasks, including initializing the Go module, creating the directory structure, and implementing a basic main.go file with version information.",
+      "reasoning": "This is a relatively straightforward task involving standard Go project setup. The complexity is low as it involves basic file/directory creation and module initialization, but requires careful organization to ensure the project structure supports future development."
+    },
+    {
+      "taskId": 2,
+      "taskTitle": "Implement Project Detector Core",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement Project Detector Core' task into 4 subtasks, including defining the detector interface, implementing file system traversal, creating language detection logic for different programming languages, and writing comprehensive tests.",
+      "reasoning": "This task involves designing a core component with multiple responsibilities: filesystem traversal, pattern matching for different languages/build systems, and proper interface design. It requires careful consideration of extensibility and error handling."
+    },
+    {
+      "taskId": 3,
+      "taskTitle": "Implement Tool Executor Framework",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the 'Implement Tool Executor Framework' task into 5 subtasks, including defining the executor interface, implementing command execution with proper output capture, handling timeouts and cancellation, managing environment variables, and creating comprehensive tests.",
+      "reasoning": "This is a complex task involving process management, concurrency, timeout handling, and error management. It's a critical component that other parts of the system will depend on, requiring robust implementation and thorough testing."
+    },
+    {
+      "taskId": 4,
+      "taskTitle": "Implement Output Formatter for Text",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Implement Output Formatter for Text' task into 3 subtasks, including defining the formatter interface and data structures, implementing text formatting with proper coloring and layout, and creating tests with various report scenarios.",
+      "reasoning": "This task involves designing data structures for representing issues and formatting complex reports. It requires attention to detail for readability and consistent styling, with moderate complexity in handling different issue types and severities."
+    },
+    {
+      "taskId": 5,
+      "taskTitle": "Implement Configuration Manager",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement Configuration Manager' task into 4 subtasks, including defining the configuration data structures, implementing configuration loading from files, creating tool discovery functionality, and writing tests for different platforms and scenarios.",
+      "reasoning": "This component handles configuration management and tool discovery across different platforms, which introduces complexity. It needs to handle missing configurations gracefully and provide sensible defaults, requiring careful design and error handling."
+    },
+    {
+      "taskId": 6,
+      "taskTitle": "Implement Go Language Support",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the 'Implement Go Language Support' task into 5 subtasks, including implementing Go project detection, creating gofumpt integration, implementing golangci-lint integration, parsing tool outputs into standardized formats, and writing comprehensive tests with Go code fixtures.",
+      "reasoning": "This task requires deep integration with external Go tools, parsing their outputs, and handling various edge cases. It depends on multiple other components and requires knowledge of Go tooling specifics, making it relatively complex."
+    },
+    {
+      "taskId": 7,
+      "taskTitle": "Implement Python Language Support",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement Python Language Support' task into 4 subtasks, including implementing Python project detection, creating ruff integration, parsing tool outputs into standardized formats, and writing comprehensive tests with Python code fixtures.",
+      "reasoning": "Similar to the Go support task, this requires integration with Python tools and parsing their outputs. It's slightly less complex than the Go implementation as it involves fewer tools, but still requires careful handling of tool-specific output formats."
+    },
+    {
+      "taskId": 8,
+      "taskTitle": "Implement TypeScript Language Support",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement TypeScript Language Support' task into 4 subtasks, including implementing TypeScript project detection, creating ESLint integration, implementing Prettier integration, and writing comprehensive tests with TypeScript code fixtures.",
+      "reasoning": "This task involves integration with multiple TypeScript tools (ESLint and Prettier) and parsing their outputs. The complexity is similar to Python support, requiring knowledge of TypeScript tooling specifics and handling of different output formats."
+    },
+    {
+      "taskId": 9,
+      "taskTitle": "Implement Makefile Integration",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement Makefile Integration' task into 4 subtasks, including implementing Makefile detection, creating target parsing functionality, implementing target execution, and writing comprehensive tests with various Makefile fixtures.",
+      "reasoning": "This task involves parsing Makefiles to extract targets, which can be complex due to Makefile syntax variations. It also requires proper execution and output handling, with potential platform-specific considerations."
+    },
+    {
+      "taskId": 10,
+      "taskTitle": "Implement Error Handling for Missing Tools",
+      "complexityScore": 4,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Implement Error Handling for Missing Tools' task into 3 subtasks, including designing error types for tool-related errors, implementing detection and reporting of missing tools, and creating tests for various error scenarios.",
+      "reasoning": "This task focuses on error handling, which is important but relatively straightforward. It requires designing clear error types and ensuring consistent error handling throughout the application, with moderate complexity."
+    },
+    {
+      "taskId": 11,
+      "taskTitle": "Implement JSON Output Format",
+      "complexityScore": 4,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Implement JSON Output Format' task into 3 subtasks, including implementing the JSON formatter, adding proper struct tags for JSON serialization, and creating tests to verify JSON output correctness.",
+      "reasoning": "This task extends the existing output system with JSON formatting. It's relatively straightforward as it builds on existing structures, but requires attention to detail for proper JSON serialization and testing of the output format."
+    },
+    {
+      "taskId": 12,
+      "taskTitle": "Implement Bazel Integration",
+      "complexityScore": 7,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement Bazel Integration' task into 4 subtasks, including implementing Bazel project detection, creating target listing functionality, implementing target execution, and writing comprehensive tests with Bazel project fixtures.",
+      "reasoning": "Bazel integration is complex due to the sophisticated nature of the Bazel build system. It requires understanding Bazel commands, parsing their outputs, and handling various project configurations, making it one of the more complex integration tasks."
+    },
+    {
+      "taskId": 13,
+      "taskTitle": "Implement Configuration File Support",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Implement Configuration File Support' task into 3 subtasks, including implementing YAML configuration loading, creating configuration conversion logic, and writing tests for various configuration scenarios.",
+      "reasoning": "This task involves parsing YAML files and converting them to internal configuration structures. It has moderate complexity due to the need to handle various configuration options, defaults, and error cases."
+    },
+    {
+      "taskId": 14,
+      "taskTitle": "Implement Git Integration for Changed Files",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Implement Git Integration for Changed Files' task into 3 subtasks, including implementing Git repository detection, creating changed files detection, and writing tests with Git repository fixtures.",
+      "reasoning": "This task requires integration with Git commands to detect repository status and changed files. It has moderate complexity due to the need to parse Git output and handle various repository states."
+    },
+    {
+      "taskId": 15,
+      "taskTitle": "Implement Parallel Execution",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the 'Implement Parallel Execution' task into 5 subtasks, including designing the parallel executor interface, implementing worker pool management, handling result collection from multiple goroutines, implementing proper error handling and cancellation, and creating comprehensive tests for concurrency behavior.",
+      "reasoning": "This is one of the most complex tasks as it involves concurrent programming with goroutines, channels, and proper synchronization. It requires careful design to avoid race conditions and ensure proper resource management and error handling."
+    },
+    {
+      "taskId": 16,
+      "taskTitle": "Implement CLI Command Structure",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement CLI Command Structure' task into 4 subtasks, including setting up the root command and flags, implementing subcommands, creating command handlers that integrate with core components, and writing tests for CLI behavior.",
+      "reasoning": "This task involves designing a user-friendly CLI with multiple commands and options. It requires integration with the Cobra library and connecting the CLI layer to the application core, with moderate complexity in handling various command combinations."
+    },
+    {
+      "taskId": 17,
+      "taskTitle": "Implement Cross-Platform Compatibility",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the 'Implement Cross-Platform Compatibility' task into 4 subtasks, including implementing platform detection, creating path handling utilities, ensuring command execution works across platforms, and testing on multiple operating systems.",
+      "reasoning": "Ensuring cross-platform compatibility requires handling differences in file paths, executable extensions, and command execution across operating systems. This introduces significant complexity, especially for testing across multiple platforms."
+    },
+    {
+      "taskId": 18,
+      "taskTitle": "Implement Main Application Logic",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the 'Implement Main Application Logic' task into 5 subtasks, including designing the application structure, implementing project detection and tool selection, creating the main execution flow, handling results collection and formatting, and writing integration tests.",
+      "reasoning": "This is a highly complex task that integrates all other components into a cohesive application. It requires orchestrating multiple subsystems, handling various project types, and ensuring proper error handling and output generation throughout the entire process."
+    },
+    {
+      "taskId": 19,
+      "taskTitle": "Implement Comprehensive Error Handling and Logging",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Implement Comprehensive Error Handling and Logging' task into 3 subtasks, including designing the logging system, implementing log levels and formatting, and updating components to use consistent error handling and logging.",
+      "reasoning": "This task involves creating a logging system and ensuring consistent error handling throughout the application. It has moderate complexity due to the need to integrate with all components while maintaining clean code."
+    },
+    {
+      "taskId": 20,
+      "taskTitle": "Create Documentation and Examples",
+      "complexityScore": 4,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the 'Create Documentation and Examples' task into 3 subtasks, including writing user documentation (README, usage guides), creating example configurations and outputs, and adding code documentation with godoc comments.",
+      "reasoning": "Documentation is important but relatively straightforward compared to implementation tasks. It requires thoroughness and clarity but doesn't involve complex technical challenges, focusing instead on communication and completeness."
+    }
+  ]
+}

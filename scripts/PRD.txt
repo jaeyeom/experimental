@@ -1,0 +1,125 @@
+# Technical Architecture
+DevCheck will be implemented as a Go command-line tool with the following system components:
+
+## Core Components
+- **Project Detector**: Analyzes repository structure to identify build systems and languages
+- **Tool Executor**: Manages execution of formatters, linters, and test runners
+- **Output Formatter**: Generates human-readable and JSON output formats
+- **Configuration Manager**: Handles settings and tool discovery
+
+## Data Models
+- **ProjectConfig**: Repository metadata and detected tools
+- **ExecutionResult**: Command output, exit codes, and error details
+- **Issue**: Structured representation of linting/formatting problems
+
+## APIs and Integrations
+- Git integration for changed-file detection
+- External tool execution (gofumpt, golangci-lint, ruff, npm)
+- Configuration file parsing (go.mod, package.json, pyproject.toml)
+- Build system integration (Bazel, Make)
+
+## Infrastructure Requirements
+- Cross-platform compatibility (Linux, macOS, Windows)
+- Minimal dependencies (Go standard library + external tools)
+- Graceful handling of missing tools
+- Process management for parallel execution
+
+# Development Roadmap
+
+## MVP Requirements (Phase 1)
+- Basic project detection (Go, Python, TypeScript)
+- Simple tool execution framework
+- Text-based output format
+- Support for Makefile integration
+- Error handling for missing tools
+
+## Enhanced Features (Phase 2)
+- JSON output format for programmatic consumption
+- Bazel integration support
+- Configuration file support (.ai-dev-assistant.yaml)
+- Performance optimizations (parallel execution)
+- Changed-files-only mode using git
+
+## Advanced Capabilities (Phase 3)
+- AI-optimized output recommendations
+- Custom rule definition support
+- Integration with CI/CD systems
+- Additional language support (Rust, Java, C++)
+- IDE extension compatibility
+
+## Polish and Production (Phase 4)
+- Comprehensive error handling and user experience
+- Performance benchmarking and optimization
+- Documentation and examples
+- Package distribution and installation methods
+- Community feedback integration
+
+# Logical Dependency Chain
+
+## Foundation Layer (Build First)
+1. **Project Detection System**: Core capability to identify repository types
+2. **Basic Tool Execution**: Framework for running external commands
+3. **Simple Output Format**: Initial text-based reporting
+
+## Usable Frontend (Quick Win)
+4. **Makefile Integration**: Leverage existing build systems immediately
+5. **Go Tool Support**: Start with most common language in codebase
+6. **Error Handling**: Graceful degradation for missing dependencies
+
+## Expandable Features (Build Upon)
+7. **Multi-language Support**: Add Python and TypeScript detection
+8. **JSON Output**: Enable programmatic consumption
+9. **Bazel Integration**: Support advanced build systems
+
+## Advanced Capabilities (Iterate and Improve)
+10. **Changed-file Detection**: Performance optimization for large repos
+11. **Parallel Execution**: Speed improvements for multiple tools
+12. **AI-optimized Output**: Enhanced recommendations for LLM consumption
+
+# Risks and Mitigations
+
+## Technical Challenges
+- **Tool Compatibility**: Different versions of external tools may behave inconsistently
+  - Mitigation: Test with multiple tool versions and provide clear compatibility documentation
+- **Performance**: Large repositories may take too long to process
+  - Mitigation: Implement timeout mechanisms and parallel execution with progress indicators
+- **Cross-platform Support**: Tool paths and execution differ across operating systems
+  - Mitigation: Use Go's standard library for cross-platform compatibility and tool discovery
+
+## MVP Scope Definition
+- **Feature Creep**: Risk of over-engineering initial version
+  - Mitigation: Focus on Makefile integration first, then expand incrementally
+- **Configuration Complexity**: Too many options may confuse users
+  - Mitigation: Zero-configuration approach with sensible defaults
+- **Output Format**: Balancing human-readable and machine-parseable output
+  - Mitigation: Start with simple text format, add JSON as secondary option
+
+## Resource Constraints
+- **External Tool Dependencies**: Users may not have required tools installed
+  - Mitigation: Graceful degradation with clear installation instructions
+- **Maintenance Overhead**: Keeping up with changes in external tools
+  - Mitigation: Modular architecture allowing easy updates to tool integrations
+- **Testing Complexity**: Multiple combinations of tools and environments
+  - Mitigation: Automated testing with common tool configurations
+
+# Appendix
+
+## Research Findings
+Current pain points identified in the existing codebase:
+- Extensive rule documentation in `docs/windsurf/rules` requires manual maintenance
+- Inconsistent application of formatting and linting across different project areas
+- Manual intervention required to run appropriate tools for different contexts
+- AI agents need structured, actionable output to effectively assist developers
+
+## Technical Specifications
+- **Go Version**: 1.21+ for implementation
+- **External Dependencies**: gofumpt, golangci-lint, ruff, npm (optional)
+- **Configuration Format**: YAML for .ai-dev-assistant.yaml
+- **Output Formats**: Human-readable text (default), JSON (optional)
+- **Exit Codes**: Standard Unix conventions (0 = success, 1 = errors found, 2 = execution failure)
+
+## Integration Examples
+- **Make Integration**: `make devcheck` as standard target
+- **CI/CD**: GitHub Actions workflow using devcheck for quality gates
+- **Git Hooks**: Pre-commit integration for automated quality checks
+- **IDE Extensions**: VS Code extension for real-time feedback
