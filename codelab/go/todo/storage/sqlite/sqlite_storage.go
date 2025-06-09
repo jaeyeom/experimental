@@ -226,5 +226,8 @@ func (s *Storage) Load() (*core.List, error) {
 
 // Close closes the database connection.
 func (s *Storage) Close() error {
-	return s.db.Close()
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("close database connection: %w", err)
+	}
+	return nil
 }

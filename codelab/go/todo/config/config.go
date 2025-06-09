@@ -88,9 +88,17 @@ func ParseStorageConfig(args []string) (*StorageConfig, *flag.FlagSet, error) {
 func (c *StorageConfig) NewStorage() (storage, error) {
 	switch c.Type {
 	case StorageTypeJSON:
-		return json_storage.New(c.Path)
+		s, err := json_storage.New(c.Path)
+		if err != nil {
+			return nil, fmt.Errorf("create JSON storage: %w", err)
+		}
+		return s, nil
 	case StorageTypeSQLite:
-		return sqlite.New(c.Path)
+		s, err := sqlite.New(c.Path)
+		if err != nil {
+			return nil, fmt.Errorf("create SQLite storage: %w", err)
+		}
+		return s, nil
 	default:
 		return nil, fmt.Errorf("invalid storage type %q", c.Type)
 	}
