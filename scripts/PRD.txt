@@ -1,3 +1,48 @@
+<context>
+# Overview
+DevCheck is an AI-friendly development automation tool designed to streamline code quality checks across multi-language codebases. It solves the problem of inconsistent application of formatting, linting, and testing standards by providing a unified interface that automatically detects project types and runs appropriate tools. The tool is targeted at developers working with AI assistants (like Claude, GitHub Copilot) who need structured, actionable output to maintain code quality. It's valuable because it reduces manual overhead, ensures consistency, and provides AI-optimized output that enables better automation workflows.
+
+# Core Features
+## Automatic Project Detection
+- **What it does**: Analyzes repository structure to identify programming languages, build systems, and configuration files
+- **Why it's important**: Eliminates manual configuration and ensures the right tools are run for each project type
+- **How it works**: Scans for language-specific files (go.mod, package.json, pyproject.toml) and build system markers (Makefile, BUILD.bazel)
+
+## Multi-Tool Execution Framework
+- **What it does**: Runs appropriate formatters, linters, and test suites based on detected project types
+- **Why it's important**: Provides comprehensive quality checks without requiring developers to remember different commands
+- **How it works**: Executes external tools (gofumpt, golangci-lint, ruff, npm) with proper configuration and error handling
+
+## AI-Optimized Output
+- **What it does**: Generates structured, actionable output in both human-readable and machine-parseable formats
+- **Why it's important**: Enables AI assistants to understand and act on quality issues automatically
+- **How it works**: Formats tool output into consistent structures with clear problem descriptions and fix suggestions
+
+## Incremental Processing
+- **What it does**: Optionally processes only changed files using git integration
+- **Why it's important**: Dramatically improves performance on large codebases
+- **How it works**: Uses git diff to identify modified files and runs tools only on relevant subsets
+
+# User Experience
+## User Personas
+- **AI-Assisted Developer**: Uses Claude/Copilot for development, needs structured tool output
+- **Team Lead**: Wants consistent code quality across team members and projects
+- **CI/CD Engineer**: Needs reliable quality gates for automated pipelines
+
+## Key User Flows
+1. **Basic Quality Check**: Developer runs `devcheck` in project root, gets comprehensive report
+2. **Make Integration**: Developer uses existing `make devcheck` target for familiar workflow
+3. **CI Integration**: Pipeline runs devcheck and fails on quality issues
+4. **AI Workflow**: Developer asks AI to "fix all devcheck issues", AI parses JSON output and makes corrections
+
+## UI/UX Considerations
+- Zero-configuration design with sensible defaults
+- Clear, actionable error messages with fix suggestions
+- Progress indicators for long-running operations
+- Graceful degradation when tools are missing
+- Consistent output format across different project types
+</context>
+<PRD>
 # Technical Architecture
 DevCheck will be implemented as a Go command-line tool with the following system components:
 
@@ -123,3 +168,4 @@ Current pain points identified in the existing codebase:
 - **CI/CD**: GitHub Actions workflow using devcheck for quality gates
 - **Git Hooks**: Pre-commit integration for automated quality checks
 - **IDE Extensions**: VS Code extension for real-time feedback
+</PRD>

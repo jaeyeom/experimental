@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2025-06-09T12:46:32.384Z",
+    "generatedAt": "2025-06-09T21:42:12.922Z",
     "tasksAnalyzed": 20,
     "totalTasks": 20,
     "analysisCount": 20,
@@ -11,163 +11,163 @@
   "complexityAnalysis": [
     {
       "taskId": 1,
-      "taskTitle": "Setup Project Structure and Go Module",
-      "complexityScore": 3,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Setup Project Structure and Go Module' task into 3 subtasks, including initializing the Go module, creating the directory structure, and implementing a basic main.go file with version information.",
-      "reasoning": "This is a relatively straightforward task involving standard Go project setup. The complexity is low as it involves basic file/directory creation and module initialization, but requires careful organization to ensure the project structure supports future development."
+      "taskTitle": "Implement Project Detection System",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of the Project Detection System into subtasks, including defining data structures, implementing file pattern matching, developing directory traversal logic, creating language-specific detectors, and integrating all components into a unified system.",
+      "reasoning": "This task involves complex file system operations, pattern matching, and language-specific detection logic. It requires careful design of data structures and interfaces, along with robust error handling for various repository structures. The 5 subtasks already defined cover the core components needed."
     },
     {
       "taskId": 2,
-      "taskTitle": "Implement Project Detector Core",
+      "taskTitle": "Design Core Data Models",
       "complexityScore": 6,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement Project Detector Core' task into 4 subtasks, including defining the detector interface, implementing file system traversal, creating language detection logic for different programming languages, and writing comprehensive tests.",
-      "reasoning": "This task involves designing a core component with multiple responsibilities: filesystem traversal, pattern matching for different languages/build systems, and proper interface design. It requires careful consideration of extensibility and error handling."
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of core data models into subtasks, including defining the ProjectConfig, ExecutionResult, and Issue structs, implementing validation methods, and adding custom JSON marshaling/unmarshaling.",
+      "reasoning": "This task requires careful design of data structures that will be used throughout the application. It involves creating proper validation logic and serialization methods. The existing 5 subtasks appropriately cover the definition of each struct, validation, and serialization concerns."
     },
     {
       "taskId": 3,
-      "taskTitle": "Implement Tool Executor Framework",
-      "complexityScore": 7,
+      "taskTitle": "Implement Basic Tool Execution Framework",
+      "complexityScore": 8,
       "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the 'Implement Tool Executor Framework' task into 5 subtasks, including defining the executor interface, implementing command execution with proper output capture, handling timeouts and cancellation, managing environment variables, and creating comprehensive tests.",
-      "reasoning": "This is a complex task involving process management, concurrency, timeout handling, and error management. It's a critical component that other parts of the system will depend on, requiring robust implementation and thorough testing."
+      "expansionPrompt": "Break down the implementation of the Tool Execution Framework into subtasks, including defining interfaces and data structures, implementing basic command execution, adding timeout handling, implementing retry mechanisms, and creating environment control functionality.",
+      "reasoning": "This task involves complex process management, error handling, and concurrency concerns. It requires careful design to handle timeouts, process termination, and retry logic. The existing 5 subtasks cover the essential components needed for a robust execution framework."
     },
     {
       "taskId": 4,
-      "taskTitle": "Implement Output Formatter for Text",
+      "taskTitle": "Develop Simple Text Output Formatter",
       "complexityScore": 5,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Implement Output Formatter for Text' task into 3 subtasks, including defining the formatter interface and data structures, implementing text formatting with proper coloring and layout, and creating tests with various report scenarios.",
-      "reasoning": "This task involves designing data structures for representing issues and formatting complex reports. It requires attention to detail for readability and consistent styling, with moderate complexity in handling different issue types and severities."
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of the Text Output Formatter into subtasks, including defining the formatter interface, implementing text templates, adding color coding functionality, implementing the core formatter logic, and creating a factory for formatter instances.",
+      "reasoning": "This task is moderately complex, involving text templating, color coding, and formatting logic. The existing 5 subtasks provide a good breakdown of the components needed for a flexible and extensible formatter system."
     },
     {
       "taskId": 5,
-      "taskTitle": "Implement Configuration Manager",
-      "complexityScore": 6,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement Configuration Manager' task into 4 subtasks, including defining the configuration data structures, implementing configuration loading from files, creating tool discovery functionality, and writing tests for different platforms and scenarios.",
-      "reasoning": "This component handles configuration management and tool discovery across different platforms, which introduces complexity. It needs to handle missing configurations gracefully and provide sensible defaults, requiring careful design and error handling."
+      "taskTitle": "Implement Go Tool Support",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of Go tool support into subtasks, including creating handlers for gofumpt and golangci-lint, implementing Go-specific configuration detection, integrating with the main system, and adding specialized error handling and user feedback.",
+      "reasoning": "This task requires deep knowledge of Go-specific tools and their output formats. It involves parsing complex tool outputs, handling configuration files, and integrating with the main system. The 5 subtasks cover the essential components needed for comprehensive Go tool support."
     },
     {
       "taskId": 6,
-      "taskTitle": "Implement Go Language Support",
-      "complexityScore": 7,
+      "taskTitle": "Implement Configuration Manager",
+      "complexityScore": 6,
       "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the 'Implement Go Language Support' task into 5 subtasks, including implementing Go project detection, creating gofumpt integration, implementing golangci-lint integration, parsing tool outputs into standardized formats, and writing comprehensive tests with Go code fixtures.",
-      "reasoning": "This task requires deep integration with external Go tools, parsing their outputs, and handling various edge cases. It depends on multiple other components and requires knowledge of Go tooling specifics, making it relatively complex."
+      "expansionPrompt": "Break down the implementation of the Configuration Manager into subtasks, including defining the configuration structure with defaults, implementing environment variable overrides, adding tool discovery, ensuring thread-safe access, and preparing for YAML configuration file support.",
+      "reasoning": "This task involves designing a flexible configuration system with multiple sources and proper precedence rules. It requires thread-safety considerations and filesystem operations for tool discovery. The 5 subtasks cover the core functionality needed for a robust configuration system."
     },
     {
       "taskId": 7,
-      "taskTitle": "Implement Python Language Support",
-      "complexityScore": 6,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement Python Language Support' task into 4 subtasks, including implementing Python project detection, creating ruff integration, parsing tool outputs into standardized formats, and writing comprehensive tests with Python code fixtures.",
-      "reasoning": "Similar to the Go support task, this requires integration with Python tools and parsing their outputs. It's slightly less complex than the Go implementation as it involves fewer tools, but still requires careful handling of tool-specific output formats."
+      "taskTitle": "Implement Makefile Integration",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of Makefile integration into subtasks, including creating a detection module, implementing a target parser, building an execution engine, developing an output parser, and creating a public API for Makefile interaction.",
+      "reasoning": "This task requires parsing and understanding Makefile syntax, executing make commands, and interpreting their output. It involves complex parsing logic and integration with the tool execution framework. The 5 subtasks provide a comprehensive breakdown of the components needed."
     },
     {
       "taskId": 8,
-      "taskTitle": "Implement TypeScript Language Support",
-      "complexityScore": 6,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement TypeScript Language Support' task into 4 subtasks, including implementing TypeScript project detection, creating ESLint integration, implementing Prettier integration, and writing comprehensive tests with TypeScript code fixtures.",
-      "reasoning": "This task involves integration with multiple TypeScript tools (ESLint and Prettier) and parsing their outputs. The complexity is similar to Python support, requiring knowledge of TypeScript tooling specifics and handling of different output formats."
+      "taskTitle": "Implement Error Handling System",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of the Error Handling System into subtasks, including defining an error type hierarchy, implementing error context collection, creating a structured logging system, developing a dependency checker with recovery options, and integrating graceful degradation handlers throughout the application.",
+      "reasoning": "This task involves designing a comprehensive error handling system with different error types, context collection, and recovery mechanisms. It requires careful integration throughout the application to ensure graceful degradation. The 5 subtasks cover the essential components of a robust error handling system."
     },
     {
       "taskId": 9,
-      "taskTitle": "Implement Makefile Integration",
+      "taskTitle": "Add Python Tool Support",
       "complexityScore": 7,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement Makefile Integration' task into 4 subtasks, including implementing Makefile detection, creating target parsing functionality, implementing target execution, and writing comprehensive tests with various Makefile fixtures.",
-      "reasoning": "This task involves parsing Makefiles to extract targets, which can be complex due to Makefile syntax variations. It also requires proper execution and output handling, with potential platform-specific considerations."
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of Python tool support into subtasks, including creating detection and configuration parsing, implementing ruff integration for linting and formatting, parsing tool output into structured objects, and adding virtual environment support.",
+      "reasoning": "This task requires knowledge of Python-specific tools, configuration formats, and virtual environments. It involves parsing complex tool outputs and handling Python-specific execution environments. The 5 subtasks cover the essential components needed for comprehensive Python tool support."
     },
     {
       "taskId": 10,
-      "taskTitle": "Implement Error Handling for Missing Tools",
-      "complexityScore": 4,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Implement Error Handling for Missing Tools' task into 3 subtasks, including designing error types for tool-related errors, implementing detection and reporting of missing tools, and creating tests for various error scenarios.",
-      "reasoning": "This task focuses on error handling, which is important but relatively straightforward. It requires designing clear error types and ensuring consistent error handling throughout the application, with moderate complexity."
+      "taskTitle": "Add TypeScript/JavaScript Tool Support",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of TypeScript/JavaScript tool support into subtasks, including creating handlers for ESLint and Prettier, implementing configuration detection, developing output parsers, and adding npm script execution support.",
+      "reasoning": "This task requires knowledge of JavaScript/TypeScript tools, npm ecosystem, and various configuration formats. It involves parsing complex tool outputs and handling npm-based execution. The 5 subtasks provide a comprehensive breakdown of the components needed."
     },
     {
       "taskId": 11,
       "taskTitle": "Implement JSON Output Format",
-      "complexityScore": 4,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Implement JSON Output Format' task into 3 subtasks, including implementing the JSON formatter, adding proper struct tags for JSON serialization, and creating tests to verify JSON output correctness.",
-      "reasoning": "This task extends the existing output system with JSON formatting. It's relatively straightforward as it builds on existing structures, but requires attention to detail for proper JSON serialization and testing of the output format."
+      "complexityScore": 5,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of JSON output format into subtasks, including defining the JSON schema, implementing serialization logic, creating a JSONFormatter implementation, adding command-line flags for format selection, and ensuring proper error representation in JSON output.",
+      "reasoning": "This task involves designing a JSON schema and implementing serialization logic. It's moderately complex, requiring careful handling of various data types and error conditions. The 5 subtasks cover the essential components needed for a complete JSON output implementation."
     },
     {
       "taskId": 12,
-      "taskTitle": "Implement Bazel Integration",
-      "complexityScore": 7,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement Bazel Integration' task into 4 subtasks, including implementing Bazel project detection, creating target listing functionality, implementing target execution, and writing comprehensive tests with Bazel project fixtures.",
-      "reasoning": "Bazel integration is complex due to the sophisticated nature of the Bazel build system. It requires understanding Bazel commands, parsing their outputs, and handling various project configurations, making it one of the more complex integration tasks."
+      "taskTitle": "Implement Git Integration for Changed Files Detection",
+      "complexityScore": 6,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of Git integration into subtasks, including creating repository detection, implementing changed files detection, adding configuration options for change scope, creating a file filter for tool execution, and handling git-specific edge cases.",
+      "reasoning": "This task involves interacting with git commands, parsing their output, and integrating with the tool execution framework. It requires handling various git states and edge cases. The 5 subtasks provide a comprehensive breakdown of the components needed."
     },
     {
       "taskId": 13,
-      "taskTitle": "Implement Configuration File Support",
-      "complexityScore": 5,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Implement Configuration File Support' task into 3 subtasks, including implementing YAML configuration loading, creating configuration conversion logic, and writing tests for various configuration scenarios.",
-      "reasoning": "This task involves parsing YAML files and converting them to internal configuration structures. It has moderate complexity due to the need to handle various configuration options, defaults, and error cases."
+      "taskTitle": "Implement Parallel Execution for Performance",
+      "complexityScore": 9,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of parallel execution into subtasks, including creating a worker pool structure, adding synchronization for shared resources, implementing progress tracking for concurrent operations, adding configurable parallelism limits, and handling timeouts and errors in execution groups.",
+      "reasoning": "This task involves complex concurrency patterns, resource management, and error handling across multiple goroutines. It requires careful design to prevent race conditions and deadlocks. The 5 subtasks cover the essential components needed for a robust parallel execution system."
     },
     {
       "taskId": 14,
-      "taskTitle": "Implement Git Integration for Changed Files",
-      "complexityScore": 5,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Implement Git Integration for Changed Files' task into 3 subtasks, including implementing Git repository detection, creating changed files detection, and writing tests with Git repository fixtures.",
-      "reasoning": "This task requires integration with Git commands to detect repository status and changed files. It has moderate complexity due to the need to parse Git output and handle various repository states."
+      "taskTitle": "Implement Bazel Integration",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of Bazel integration into subtasks, including creating file detection, implementing target identification, building a command executor, developing an output parser, and adding specialized target handling with command suggestions.",
+      "reasoning": "This task requires knowledge of Bazel build system, its command structure, and output formats. It involves parsing complex build files and integrating with the tool execution framework. The 5 subtasks provide a comprehensive breakdown of the components needed."
     },
     {
       "taskId": 15,
-      "taskTitle": "Implement Parallel Execution",
-      "complexityScore": 8,
+      "taskTitle": "Implement Progress Indicators for Long-Running Operations",
+      "complexityScore": 6,
       "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the 'Implement Parallel Execution' task into 5 subtasks, including designing the parallel executor interface, implementing worker pool management, handling result collection from multiple goroutines, implementing proper error handling and cancellation, and creating comprehensive tests for concurrency behavior.",
-      "reasoning": "This is one of the most complex tasks as it involves concurrent programming with goroutines, channels, and proper synchronization. It requires careful design to avoid race conditions and ensure proper resource management and error handling."
+      "expansionPrompt": "Break down the implementation of progress indicators into subtasks, including creating base interfaces and classes, implementing terminal-based progress bars, adding spinner animations for indeterminate progress, integrating with the tool executor, and implementing JSON progress reporting for API mode.",
+      "reasoning": "This task involves terminal control sequences, animation logic, and integration with the execution framework. It requires handling different terminal capabilities and output formats. The 5 subtasks cover the essential components needed for a flexible progress indication system."
     },
     {
       "taskId": 16,
-      "taskTitle": "Implement CLI Command Structure",
+      "taskTitle": "Implement Configuration File Support",
       "complexityScore": 6,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement CLI Command Structure' task into 4 subtasks, including setting up the root command and flags, implementing subcommands, creating command handlers that integrate with core components, and writing tests for CLI behavior.",
-      "reasoning": "This task involves designing a user-friendly CLI with multiple commands and options. It requires integration with the Cobra library and connecting the CLI layer to the application core, with moderate complexity in handling various command combinations."
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of configuration file support into subtasks, including integrating a YAML parsing library, implementing file discovery, defining schema and validation, adding configuration merging with precedence rules, and enhancing the Configuration Manager API.",
+      "reasoning": "This task involves parsing YAML files, implementing a configuration hierarchy, and ensuring proper validation and merging. It requires careful design to handle different configuration sources with proper precedence. The 5 subtasks cover the essential components needed."
     },
     {
       "taskId": 17,
-      "taskTitle": "Implement Cross-Platform Compatibility",
-      "complexityScore": 6,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the 'Implement Cross-Platform Compatibility' task into 4 subtasks, including implementing platform detection, creating path handling utilities, ensuring command execution works across platforms, and testing on multiple operating systems.",
-      "reasoning": "Ensuring cross-platform compatibility requires handling differences in file paths, executable extensions, and command execution across operating systems. This introduces significant complexity, especially for testing across multiple platforms."
+      "taskTitle": "Implement AI-Optimized Output Recommendations",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of AI-optimized output recommendations into subtasks, including designing a structured schema for fix suggestions, implementing code snippet formatting with before/after states, developing issue grouping and relationship mapping, adding contextual metadata, and integrating all components into a unified formatter.",
+      "reasoning": "This task requires deep understanding of AI consumption patterns and complex data structuring. It involves creating sophisticated relationships between issues and generating helpful fix suggestions. The 5 subtasks cover the essential components needed for comprehensive AI-friendly output."
     },
     {
       "taskId": 18,
-      "taskTitle": "Implement Main Application Logic",
+      "taskTitle": "Implement Cross-Platform Compatibility",
       "complexityScore": 8,
       "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the 'Implement Main Application Logic' task into 5 subtasks, including designing the application structure, implementing project detection and tool selection, creating the main execution flow, handling results collection and formatting, and writing integration tests.",
-      "reasoning": "This is a highly complex task that integrates all other components into a cohesive application. It requires orchestrating multiple subsystems, handling various project types, and ensuring proper error handling and output generation throughout the entire process."
+      "expansionPrompt": "Break down the implementation of cross-platform compatibility into subtasks, including adding platform-agnostic path handling, developing OS-specific tool discovery, handling terminal differences, implementing shell environment compatibility, and creating cross-platform testing and validation.",
+      "reasoning": "This task involves handling differences between operating systems, file systems, terminals, and shell environments. It requires careful abstraction and testing across multiple platforms. The 5 subtasks cover the essential components needed for robust cross-platform support."
     },
     {
       "taskId": 19,
-      "taskTitle": "Implement Comprehensive Error Handling and Logging",
-      "complexityScore": 5,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Implement Comprehensive Error Handling and Logging' task into 3 subtasks, including designing the logging system, implementing log levels and formatting, and updating components to use consistent error handling and logging.",
-      "reasoning": "This task involves creating a logging system and ensuring consistent error handling throughout the application. It has moderate complexity due to the need to integrate with all components while maintaining clean code."
+      "taskTitle": "Create Command-Line Interface",
+      "complexityScore": 6,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the implementation of the command-line interface into subtasks, including setting up the CLI framework, implementing flag parsing, adding subcommands for different operations, creating comprehensive help text and examples, and implementing signal handling for graceful shutdown.",
+      "reasoning": "This task involves designing a user-friendly CLI with proper flag parsing, subcommands, and help text. It requires handling user input and providing clear feedback. The 5 subtasks cover the essential components needed for a complete CLI implementation."
     },
     {
       "taskId": 20,
-      "taskTitle": "Create Documentation and Examples",
-      "complexityScore": 4,
-      "recommendedSubtasks": 3,
-      "expansionPrompt": "Break down the 'Create Documentation and Examples' task into 3 subtasks, including writing user documentation (README, usage guides), creating example configurations and outputs, and adding code documentation with godoc comments.",
-      "reasoning": "Documentation is important but relatively straightforward compared to implementation tasks. It requires thoroughness and clarity but doesn't involve complex technical challenges, focusing instead on communication and completeness."
+      "taskTitle": "Create Comprehensive Documentation",
+      "complexityScore": 5,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the creation of comprehensive documentation into subtasks, including writing a README with installation and usage instructions, developing examples for common use cases, documenting supported tools and languages, creating a troubleshooting guide, and adding integration examples for various systems.",
+      "reasoning": "This task involves creating clear, comprehensive documentation covering various aspects of the tool. While not technically complex, it requires careful organization and attention to detail. The 5 subtasks provide a good breakdown of the different documentation components needed."
     }
   ]
 }
