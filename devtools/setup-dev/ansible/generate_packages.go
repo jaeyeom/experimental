@@ -428,8 +428,11 @@ func getAllYmlFiles() ([]string, error) {
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("walk directory: %w", err)
+	}
 	sort.Strings(ymlFiles)
-	return ymlFiles, err
+	return ymlFiles, nil
 }
 
 func getGeneratedRuleNames() []string {
