@@ -1,0 +1,245 @@
+#+TITLE: DevCheck
+#+DATE: 2025-06-09
+
+* Product Requirements Document (PRD)
+
+** Overview
+
+DevCheck is a command-line tool designed to automatically
+detect the current repository context and run all appropriate formatters,
+linters, and quality checks. The primary goal is to minimize the need for
+extensive rule documentation in =docs/windsurf/rules= by providing actionable
+output that AI coding agents can directly consume and act upon.
+
+** Problem Statement
+
+Currently, AI coding agents require extensive rule documentation to understand
+how to properly format, lint, and test code in different project contexts. This
+leads to:
+- Maintenance overhead of keeping rules up-to-date
+- Inconsistent application of formatting and linting across different parts of the codebase
+- Manual intervention required to run appropriate tools for different file types
+- Cognitive load on developers to remember which tools to run in which contexts
+
+** Solution
+
+A unified command-line tool that:
+1. Prioritizes universal build systems (Bazel, Make) over language-specific tools
+2. Automatically detects and runs appropriate formatters, linters, and quality checks
+3. Provides human-readable output that doubles as clear prompts for LLM consumption
+4. Eliminates the need for extensive rule documentation
+
+** Target Users
+
+- AI coding agents (primary)
+- Developers working on the codebase (secondary)
+- CI/CD pipelines (future consideration)
+
+** Core Requirements
+
+*** Functional Requirements
+
+**** FR-1: Repository Detection
+- Detect presence of Go modules (=go.mod=)
+- Detect Python projects (=pyproject.toml=, =requirements.txt=)
+- Detect TypeScript/JavaScript projects (=package.json=, =tsconfig.json=)
+- Detect Bazel projects (=BUILD.bazel=, =MODULE.bazel=)
+- Detect Makefile-based projects
+
+**** FR-2: Automatic Tool Execution (Priority Order)
+1. *Bazel projects*: Run =bazel run //tools:format=, =bazel run //tools:lint=, =bazel test //...=
+2. *Make projects*: Run =make format=, =make lint=, =make test=
+3. *Fallback to language-specific tools*:
+   - Run =gofumpt= and =golangci-lint= for Go projects
+   - Run =ruff format= and =ruff check= for Python projects
+   - Run =npm run lint= and =npm run format= for TypeScript projects
+
+**** FR-3: LLM-Friendly Output
+- Provide human-readable output that serves as clear prompts for AI agents
+- Include specific error messages and file locations in natural language
+- Include actionable suggestions for fixes
+- Summarize results in a format that guides next steps
+- Optional structured output for programmatic consumption (low priority)
+
+**** FR-4: Smart Execution
+- Only run tools relevant to changed files (when possible)
+- Skip tools that are not applicable to current context
+- Handle missing tools gracefully with informative messages
+- Respect existing configuration files (=.golangci.yml=, =pyproject.toml=, etc.)
+
+*** Non-Functional Requirements
+
+**** NFR-1: Performance
+- Complete execution within 30 seconds for typical repository sizes
+- Provide progress indicators for long-running operations
+- Support parallel execution of independent tools
+
+**** NFR-2: Reliability
+- Handle missing dependencies gracefully
+- Provide clear error messages for configuration issues
+- Exit with appropriate status codes for CI/CD integration
+
+**** NFR-3: Usability
+- Zero-configuration operation for standard project layouts
+- Support dry-run mode for preview without making changes
+- Provide verbose mode for debugging
+
+** Detailed Design
+
+*** Command Line Interface
+
+#+BEGIN_SRC shell
+devcheck [OPTIONS] [PATH]
+
+OPTIONS:
+  --dry-run, -n        Show what would be done without executing
+  --verbose, -v        Verbose output for debugging
+  --format=TYPE        Output format (prompt, summary, json)
+  --filter=TYPE        Run only specific tool types (format, lint, test)
+  --changed-only       Run only on changed files (requires git)
+  --force-fallback     Skip Bazel/Make and use language-specific tools
+
+EXAMPLES:
+  devcheck                    # Run all applicable tools in current directory
+  devcheck --dry-run          # Preview what would be executed
+  devcheck --filter=format    # Run only formatters
+  devcheck --changed-only     # Process only git-changed files
+#+END_SRC
+
+*** Output Format
+
+**** LLM Prompt Format (Default)
+#+BEGIN_SRC text
+🔧 DevCheck Report
+
+Repository Analysis:
+- Build System: Makefile detected (universal formatting/linting available)
+- Languages: Go, Python, TypeScript detected
+- Strategy: Using make-based tools for consistency
+
+Tools Executed:
+✅ make format - Successfully formatted 15 files
+❌ make lint - Found 1 issue requiring attention
+⏳ make test - Skipped (use --filter=test to include)
+
+Issues Found:
+📍 main.go:42:10 - gosec error: Potential file inclusion via variable
+   Suggestion: Use filepath.Join or validate input before file operations
+   Fix: Replace direct file path concatenation with proper validation
+
+Next Steps for AI Agent:
+1. Fix the gosec issue in main.go:42 by adding input validation
+2. Run 'make test' after fixing to ensure no regressions
+3. Commit changes with message: "fix: add input validation for file operations"
+
+Status: 🚨 Requires attention (1 linting issue)
+#+END_SRC
+
+**** JSON Output (Optional, --format=json)
+Available for programmatic consumption but deprioritized.
+
+*** Tool Detection Logic
+
+**** Detection Priority Order
+#+BEGIN_SRC text
+1. BUILD.bazel or MODULE.bazel found → Use Bazel (bazel run //tools:format, //tools:lint)
+2. Makefile found → Use Make (make format, make lint, make test)
+3. Language-specific fallback:
+   - go.mod found → Go tools (gofumpt, golangci-lint)
+   - pyproject.toml found → Python tools (ruff)
+   - package.json found → Node.js tools (npm run lint/format)
+#+END_SRC
+
+**** Smart Filtering
+- Check if tools are actually installed before attempting to run
+- Parse configuration files to understand available npm scripts
+- Respect .gitignore and similar ignore files
+- Support project-specific configuration via =.ai-dev-assistant.yaml=
+
+** Implementation Plan
+
+*** Phase 1: Core Detection and Execution (Week 1)
+- [ ] Project structure detection
+- [ ] Basic tool execution framework
+- [ ] Simple text output format
+- [ ] Go and Python tool support
+
+*** Phase 2: Enhanced Output and Configuration (Week 2)
+- [ ] JSON output format implementation
+- [ ] TypeScript/JavaScript support
+- [ ] Makefile integration
+- [ ] Configuration file support
+
+*** Phase 3: Advanced Features (Week 3)
+- [ ] Changed-files-only mode
+- [ ] Parallel execution
+- [ ] AI-optimized recommendations
+- [ ] Integration testing
+
+*** Phase 4: Polish and Documentation (Week 4)
+- [ ] Error handling improvements
+- [ ] Performance optimization
+- [ ] User documentation
+- [ ] CI/CD integration examples
+
+** Success Metrics
+
+*** Primary Metrics
+- Reduction in =docs/windsurf/rules= documentation size by 70%
+- AI agents can successfully fix 90% of formatting/linting issues using tool output
+- Zero manual intervention required for standard development workflows
+
+*** Secondary Metrics
+- Tool execution time under 30 seconds for typical repositories
+- 95% accuracy in project type detection
+- Positive developer feedback on tool usability
+
+** Technical Considerations
+
+*** Dependencies
+- Go 1.21+ for implementation
+- External tools: =gofumpt=, =golangci-lint=, =ruff=, =npm=
+- Optional: =git= for changed-file detection
+
+*** Configuration
+- Support for =.ai-dev-assistant.yaml= configuration file
+- Environment variable overrides
+- Respect existing tool configurations
+
+*** Error Handling
+- Graceful degradation when tools are missing
+- Clear error messages with installation instructions
+- Proper exit codes for automation
+
+** Risk Mitigation
+
+*** Technical Risks
+- *Tool compatibility*: Test with multiple versions of external tools
+- *Performance*: Implement timeout mechanisms and parallel execution
+- *Configuration conflicts*: Respect existing tool configurations
+
+*** Adoption Risks
+- *Learning curve*: Provide clear examples and documentation
+- *Integration complexity*: Start with simple use cases and expand
+
+** Future Enhancements
+
+*** Planned Features
+- Support for additional languages (Rust, Java, C++)
+- Integration with IDE extensions
+- Automatic dependency installation
+- Custom rule definition support
+
+*** Integration Opportunities
+- GitHub Actions workflow templates
+- VS Code extension
+- Integration with existing CI/CD pipelines
+- Slack/Discord notifications for team workflows
+
+** Conclusion
+
+DevCheck will significantly reduce the complexity of maintaining development
+workflow rules while providing AI agents with the structured information they
+need to effectively assist in code quality maintenance. By automating the
+detection and execution of appropriate tools, we can focus on writing great code
+rather than managing tooling complexity.
