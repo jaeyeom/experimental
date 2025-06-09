@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 )
 
 type Rule struct {
@@ -24,7 +24,7 @@ type RuleGraph struct {
 func (g *RuleGraph) Ensure(rule *Rule) error {
 	r := rule
 	for r.ReferTo != "" {
-		log.Println("Referring to", r.ReferTo)
+		slog.Info("Referring to", "rule", r.ReferTo)
 		rr, ok := g.Rules[r.ReferTo]
 		if !ok {
 			return ErrRuleNotFound
@@ -32,15 +32,15 @@ func (g *RuleGraph) Ensure(rule *Rule) error {
 		r = rr
 	}
 	if r.Checked {
-		log.Println("Already checked", r.Name)
+		slog.Info("Already checked", "rule", r.Name)
 		return nil
 	}
 	defer func() {
 		r.Checked = true
 	}()
-	log.Println("Ensuring", r.Name)
+	slog.Info("Ensuring", "rule", r.Name)
 	if r.Check != nil && r.Check() {
-		log.Println("Already exists", r.Name)
+		slog.Info("Already exists", "rule", r.Name)
 		return nil
 	}
 	for _, dep := range r.Deps {
@@ -49,12 +49,12 @@ func (g *RuleGraph) Ensure(rule *Rule) error {
 		}
 	}
 	if r.Build != nil {
-		log.Println("Building", r.Name)
+		slog.Info("Building", "rule", r.Name)
 		err := r.Build()
-		log.Println("Built", r.Name, err)
+		slog.Info("Built", "rule", r.Name, "error", err)
 		return err
 	}
-	log.Println("No build function", r.Name)
+	slog.Info("No build function", "rule", r.Name)
 	return nil
 }
 
