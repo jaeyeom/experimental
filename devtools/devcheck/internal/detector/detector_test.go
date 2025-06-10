@@ -195,3 +195,99 @@ func TestProjectDetector_SupportedBuildSystems(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectDetector_DetectWithLocationPriority(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "location_priority_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	tests := []struct {
+		name        string
+		files       []string
+		expected    config.BuildSystem
+		description string
+	}{
+		{
+			name: "bazel_in_root_make_in_subdirectory",
+			files: []string{
+				"MODULE.bazel",
+				"main.go",
+				"src/Makefile",
+			},
+			expected:    config.BuildSystemBazel,
+			description: "Should detect Bazel when MODULE.bazel is in root despite Makefile in subdirectory",
+		},
+		{
+			name: "make_in_root_bazel_in_subdirectory",
+			files: []string{
+				"Makefile",
+				"main.go",
+				"third_party/MODULE.bazel",
+			},
+			expected:    config.BuildSystemMake,
+			description: "Should detect Make when Makefile is in root despite MODULE.bazel in subdirectory",
+		},
+		{
+			name: "both_in_subdirectories_bazel_priority",
+			files: []string{
+				"main.go",
+				"src/MODULE.bazel",
+				"test/Makefile",
+			},
+			expected:    config.BuildSystemBazel,
+			description: "Should use priority order (Bazel > Make) when both are at same depth",
+		},
+		{
+			name: "make_shallow_bazel_deep",
+			files: []string{
+				"src/Makefile",
+				"src/third_party/vendor/MODULE.bazel",
+				"main.go",
+			},
+			expected:    config.BuildSystemMake,
+			description: "Should detect Make when it's in shallower directory than Bazel",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test directory
+			testDir := filepath.Join(tempDir, tt.name)
+			err := os.MkdirAll(testDir, 0o755)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Create test files and directories
+			for _, file := range tt.files {
+				filePath := filepath.Join(testDir, file)
+				dir := filepath.Dir(filePath)
+				if dir != testDir {
+					err := os.MkdirAll(dir, 0o755)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				err := os.WriteFile(filePath, []byte("test content"), 0o600)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			detector := NewProjectDetector()
+			result, err := detector.Detect(testDir)
+			if err != nil {
+				t.Errorf("Detect() error = %v", err)
+				return
+			}
+
+			if result.BuildSystem != tt.expected {
+				t.Errorf("%s: expected build system %v, got %v",
+					tt.description, tt.expected, result.BuildSystem)
+			}
+		})
+	}
+}

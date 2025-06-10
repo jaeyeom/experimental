@@ -117,6 +117,21 @@ func TestPatternMatcher_MatchBuildSystem(t *testing.T) {
 			expected: config.BuildSystemBazel,
 		},
 		{
+			name:     "bazel with WORKSPACE (legacy)",
+			files:    []string{"WORKSPACE", "BUILD.bazel", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+		{
+			name:     "bazel with WORKSPACE.bazel (legacy)",
+			files:    []string{"WORKSPACE.bazel", "BUILD", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+		{
+			name:     "bazel workspace priority over make",
+			files:    []string{"WORKSPACE", "Makefile", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+		{
 			name:     "no build system",
 			files:    []string{"main.go", "README.md"},
 			expected: config.BuildSystemNone,
@@ -126,6 +141,66 @@ func TestPatternMatcher_MatchBuildSystem(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := pm.MatchBuildSystem(tt.files)
+			if result != tt.expected {
+				t.Errorf("Expected build system %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestPatternMatcher_MatchBuildSystemWithLocation(t *testing.T) {
+	pm := NewPatternMatcher()
+
+	tests := []struct {
+		name     string
+		files    []string
+		expected config.BuildSystem
+	}{
+		{
+			name:     "bazel in root, make in subdirectory",
+			files:    []string{"MODULE.bazel", "src/Makefile", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+		{
+			name:     "make in root, bazel in subdirectory",
+			files:    []string{"Makefile", "third_party/MODULE.bazel", "main.go"},
+			expected: config.BuildSystemMake,
+		},
+		{
+			name:     "make in root, bazel workspace in subdirectory",
+			files:    []string{"Makefile", "third_party/WORKSPACE", "main.go"},
+			expected: config.BuildSystemMake,
+		},
+		{
+			name:     "bazel workspace in root, make in subdirectory",
+			files:    []string{"WORKSPACE", "src/Makefile", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+		{
+			name:     "both in subdirectories - bazel priority",
+			files:    []string{"src/MODULE.bazel", "third_party/Makefile", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+		{
+			name:     "bazel deeper than make",
+			files:    []string{"src/Makefile", "src/third_party/vendor/MODULE.bazel", "main.go"},
+			expected: config.BuildSystemMake,
+		},
+		{
+			name:     "multiple build files in root - bazel priority",
+			files:    []string{"MODULE.bazel", "Makefile", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+		{
+			name:     "only subdirectory build files",
+			files:    []string{"examples/MODULE.bazel", "tests/Makefile", "main.go"},
+			expected: config.BuildSystemBazel,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pm.MatchBuildSystemWithLocation(tt.files)
 			if result != tt.expected {
 				t.Errorf("Expected build system %v, got %v", tt.expected, result)
 			}

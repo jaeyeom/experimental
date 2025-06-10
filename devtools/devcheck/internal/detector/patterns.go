@@ -73,10 +73,11 @@ func (pm *PatternMatcher) initializeDefaultPatterns() {
 	}
 
 	// Build system patterns
+	// For Bazel: Either MODULE.bazel (newer) OR WORKSPACE (older) is required
 	pm.buildSystemPatterns[config.BuildSystemBazel] = []FilePattern{
 		{Pattern: "BUILD.bazel", BuildSystem: config.BuildSystemBazel, Required: false},
 		{Pattern: "BUILD", BuildSystem: config.BuildSystemBazel, Required: false},
-		{Pattern: "MODULE.bazel", BuildSystem: config.BuildSystemBazel, Required: true},
+		{Pattern: "MODULE.bazel", BuildSystem: config.BuildSystemBazel, Required: false},
 		{Pattern: "WORKSPACE", BuildSystem: config.BuildSystemBazel, Required: false},
 		{Pattern: "WORKSPACE.bazel", BuildSystem: config.BuildSystemBazel, Required: false},
 	}
@@ -142,6 +143,52 @@ func (pm *PatternMatcher) MatchBuildSystem(files []string) config.BuildSystem {
 	return config.BuildSystemNone
 }
 
+// MatchBuildSystemWithLocation detects the primary build system considering file locations.
+// It prioritizes build files in the root directory over those in subdirectories.
+func (pm *PatternMatcher) MatchBuildSystemWithLocation(files []string) config.BuildSystem {
+	// Priority order for build systems
+	buildSystemPriority := []config.BuildSystem{
+		config.BuildSystemBazel,
+		config.BuildSystemMake,
+	}
+
+	// Group files by directory depth
+	filesByDepth := make(map[int][]string)
+	minDepth := -1
+
+	for _, file := range files {
+		depth := strings.Count(file, string(filepath.Separator))
+		if minDepth == -1 || depth < minDepth {
+			minDepth = depth
+		}
+		filesByDepth[depth] = append(filesByDepth[depth], file)
+	}
+
+	// If no files found, return none
+	if minDepth == -1 {
+		return config.BuildSystemNone
+	}
+
+	// Check each depth level, starting from the shallowest (root)
+	for depth := minDepth; depth <= len(filesByDepth)+minDepth; depth++ {
+		filesAtDepth, exists := filesByDepth[depth]
+		if !exists {
+			continue
+		}
+
+		// Check build systems in priority order at this depth
+		for _, buildSystem := range buildSystemPriority {
+			if patterns, exists := pm.buildSystemPatterns[buildSystem]; exists {
+				if pm.matchPatterns(filesAtDepth, patterns) {
+					return buildSystem
+				}
+			}
+		}
+	}
+
+	return config.BuildSystemNone
+}
+
 // MatchConfigFiles finds configuration files for the given tool.
 func (pm *PatternMatcher) MatchConfigFiles(files []string, tool string) []string {
 	var matches []string
@@ -161,6 +208,11 @@ func (pm *PatternMatcher) MatchConfigFiles(files []string, tool string) []string
 
 // matchPatterns checks if the required patterns are satisfied by the file list.
 func (pm *PatternMatcher) matchPatterns(files []string, patterns []FilePattern) bool {
+	// Special handling for Bazel: require either MODULE.bazel OR WORKSPACE
+	if len(patterns) > 0 && patterns[0].BuildSystem == config.BuildSystemBazel {
+		return pm.matchBazelPatterns(files, patterns)
+	}
+
 	requiredMatches := 0
 	totalRequired := 0
 	optionalMatches := 0
@@ -199,6 +251,26 @@ func (pm *PatternMatcher) matchPatterns(files []string, patterns []FilePattern) 
 	}
 
 	return optionalMatches > 0
+}
+
+// matchBazelPatterns handles special Bazel detection logic.
+// Bazel requires either MODULE.bazel (new) OR WORKSPACE (legacy).
+func (pm *PatternMatcher) matchBazelPatterns(files []string, patterns []FilePattern) bool {
+	hasModuleBazel := false
+	hasWorkspace := false
+
+	for _, file := range files {
+		fileName := filepath.Base(file)
+		switch fileName {
+		case "MODULE.bazel":
+			hasModuleBazel = true
+		case "WORKSPACE", "WORKSPACE.bazel":
+			hasWorkspace = true
+		}
+	}
+
+	// Bazel is detected if we have either MODULE.bazel OR WORKSPACE
+	return hasModuleBazel || hasWorkspace
 }
 
 // matchPattern checks if a file matches a pattern (supports glob patterns).

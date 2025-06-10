@@ -90,8 +90,8 @@ func (d *ProjectDetector) Detect(rootPath string) (*config.ProjectConfig, error)
 	// Detect languages
 	languages := d.patternMatcher.MatchLanguages(scanResult.Files)
 
-	// Detect build system
-	buildSystem := d.patternMatcher.MatchBuildSystem(scanResult.Files)
+	// Detect build system with location awareness
+	buildSystem := d.patternMatcher.MatchBuildSystemWithLocation(scanResult.Files)
 
 	// Check for git repository (scan with different options to include .git)
 	gitScanOptions := DefaultScanOptions()
