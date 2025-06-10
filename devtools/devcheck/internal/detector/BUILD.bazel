@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "detector.go",
+        "language.go",
+        "patterns.go",
+        "scanner.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/devcheck/internal/detector",
+    visibility = ["//devtools/devcheck:__subpackages__"],
+    deps = ["//devtools/devcheck/internal/config:go_default_library"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "detector_test.go",
+        "language_test.go",
+        "patterns_test.go",
+        "scanner_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = ["//devtools/devcheck/internal/config:go_default_library"],
+)
