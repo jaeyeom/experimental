@@ -9,6 +9,11 @@ linters:
   disable:
     - testpackage
   settings:
+    iface:
+      enable:
+        - identical
+        - unused
+        - opaque
     depguard:
       rules:
         Base:
