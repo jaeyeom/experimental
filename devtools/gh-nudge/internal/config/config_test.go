@@ -53,7 +53,7 @@ settings:
 
 		// Verify the config values
 		if cfg.GitHub.Owner != "test-org" {
-			t.Errorf("Expected GitHub owner 'test-org', got '%s'", cfg.GitHub.Owner)
+			t.Errorf("Expected GitHub owner 'test-org', got %q", cfg.GitHub.Owner)
 		}
 
 		if len(cfg.GitHub.Repos) != 2 {
@@ -61,11 +61,11 @@ settings:
 		}
 
 		if cfg.Slack.Token != "xoxb-test-token" {
-			t.Errorf("Expected Slack token 'xoxb-test-token', got '%s'", cfg.Slack.Token)
+			t.Errorf("Expected Slack token 'xoxb-test-token', got %q", cfg.Slack.Token)
 		}
 
 		if cfg.Slack.DefaultChannel != "#code-reviews" {
-			t.Errorf("Expected default channel '#code-reviews', got '%s'", cfg.Slack.DefaultChannel)
+			t.Errorf("Expected default channel '#code-reviews', got %q", cfg.Slack.DefaultChannel)
 		}
 
 		if len(cfg.Slack.UserIDMapping) != 2 {

@@ -50,7 +50,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 		}
 
 		if prs[0].Title != "Test PR" {
-			t.Errorf("expected PR title 'Test PR', got '%s'", prs[0].Title)
+			t.Errorf("expected PR title 'Test PR', got %q", prs[0].Title)
 		}
 
 		if len(prs[0].ReviewRequests) != 1 {
@@ -58,7 +58,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 		}
 
 		if prs[0].ReviewRequests[0].Login != "testuser" {
-			t.Errorf("expected reviewer 'testuser', got '%s'", prs[0].ReviewRequests[0].Login)
+			t.Errorf("expected reviewer 'testuser', got %q", prs[0].ReviewRequests[0].Login)
 		}
 	})
 }
