@@ -19,11 +19,17 @@
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure buf is present on non-Termux, non-MacOS systems
-      package:
-        name: buf
-        state: present
+      block:
+        - name: Check if buf is installed
+          shell: command -v buf
+          changed_when: False
+      rescue:
+        - name: Install buf on non-Termux, non-MacOS systems
+          package:
+            name: buf
+            state: present
+          become: yes
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
-      become: yes
 
     - name: Ensure buf is present on Termux
       block:

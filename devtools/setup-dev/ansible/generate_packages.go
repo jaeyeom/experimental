@@ -171,11 +171,17 @@ var packagesTemplate = `---
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure {{.Command}} is present on non-Termux, non-MacOS systems
-      package:
-        name: {{.DebianPkgName}}
-        state: present
+      block:
+        - name: Check if {{.Command}} is installed
+          shell: command -v {{.Command}}
+          changed_when: False
+      rescue:
+        - name: Install {{.Command}} on non-Termux, non-MacOS systems
+          package:
+            name: {{.DebianPkgName}}
+            state: present
+          become: yes
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
-      become: yes
 
     - name: Ensure {{.Command}} is present on Termux
       block:

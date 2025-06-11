@@ -155,5 +155,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-user-bin-directory.yml
 - setup-user-config-directory.yml
 - setup-user-go-bin-directory.yml
+- setup-windsurf-rules.yml
 - setup-z.yml
 - spacemacs.yml

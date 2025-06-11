@@ -20,11 +20,17 @@
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure notmuch is present on non-Termux, non-MacOS systems
-      package:
-        name: notmuch
-        state: present
+      block:
+        - name: Check if notmuch is installed
+          shell: command -v notmuch
+          changed_when: False
+      rescue:
+        - name: Install notmuch on non-Termux, non-MacOS systems
+          package:
+            name: notmuch
+            state: present
+          become: yes
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
-      become: yes
 
     - name: Ensure notmuch is present on Termux
       block:

@@ -19,11 +19,17 @@
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure zoxide is present on non-Termux, non-MacOS systems
-      package:
-        name: zoxide
-        state: present
+      block:
+        - name: Check if zoxide is installed
+          shell: command -v zoxide
+          changed_when: False
+      rescue:
+        - name: Install zoxide on non-Termux, non-MacOS systems
+          package:
+            name: zoxide
+            state: present
+          become: yes
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
-      become: yes
 
     - name: Ensure zoxide is present on Termux
       block:

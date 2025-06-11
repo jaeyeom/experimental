@@ -19,11 +19,17 @@
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure ssh is present on non-Termux, non-MacOS systems
-      package:
-        name: openssh-client
-        state: present
+      block:
+        - name: Check if ssh is installed
+          shell: command -v ssh
+          changed_when: False
+      rescue:
+        - name: Install ssh on non-Termux, non-MacOS systems
+          package:
+            name: openssh-client
+            state: present
+          become: yes
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
-      become: yes
 
     - name: Ensure ssh is present on Termux
       block:
