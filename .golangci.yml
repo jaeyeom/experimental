@@ -2,6 +2,7 @@ version: "2"
 linters:
   enable:
     - depguard
+    - gocritic
     - godot
     - gosec
     - iface
