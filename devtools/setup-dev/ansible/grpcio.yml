@@ -19,11 +19,17 @@
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure grpcio is present on non-Termux, non-MacOS systems
-      package:
-        name: python3-grpcio
-        state: present
+      block:
+        - name: Check if grpcio is installed
+          shell: command -v grpcio
+          changed_when: False
+      rescue:
+        - name: Install grpcio on non-Termux, non-MacOS systems
+          package:
+            name: python3-grpcio
+            state: present
+          become: yes
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
-      become: yes
 
     - name: Ensure grpcio is present on Termux
       block:
