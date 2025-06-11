@@ -33,7 +33,7 @@ func TestFormatMessage(t *testing.T) {
 
 		expected := "Hey <@U12345>, the PR 'Test PR' by github-user has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
 		if message != expected {
-			t.Errorf("Expected message '%s', got '%s'", expected, message)
+			t.Errorf("Expected message %q, got %q", expected, message)
 		}
 	})
 
@@ -43,7 +43,7 @@ func TestFormatMessage(t *testing.T) {
 
 		expected := "Hey <@U12345>, the PR 'Test PR' has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
 		if message != expected {
-			t.Errorf("Expected message '%s', got '%s'", expected, message)
+			t.Errorf("Expected message %q, got %q", expected, message)
 		}
 	})
 }
@@ -66,7 +66,7 @@ func TestGetSlackUserIDForGitHubUser(t *testing.T) {
 			t.Error("Expected to find Slack user ID for github-user1")
 		}
 		if slackID != "U12345" {
-			t.Errorf("Expected Slack user ID 'U12345', got '%s'", slackID)
+			t.Errorf("Expected Slack user ID 'U12345', got %q", slackID)
 		}
 	})
 
@@ -96,7 +96,7 @@ func TestGetDMChannelIDForGitHubUser(t *testing.T) {
 			t.Error("Expected to find DM channel ID for github-user1")
 		}
 		if channelID != "C12345" {
-			t.Errorf("Expected DM channel ID 'C12345', got '%s'", channelID)
+			t.Errorf("Expected DM channel ID 'C12345', got %q", channelID)
 		}
 	})
 
@@ -127,7 +127,7 @@ func TestGetChannelForPR(t *testing.T) {
 
 		channel := client.GetChannelForPR(pr)
 		if channel != "#frontend" {
-			t.Errorf("Expected channel '#frontend', got '%s'", channel)
+			t.Errorf("Expected channel '#frontend', got %q", channel)
 		}
 	})
 
@@ -140,7 +140,7 @@ func TestGetChannelForPR(t *testing.T) {
 
 		channel := client.GetChannelForPR(pr)
 		if channel != "#backend" {
-			t.Errorf("Expected channel '#backend', got '%s'", channel)
+			t.Errorf("Expected channel '#backend', got %q", channel)
 		}
 	})
 
@@ -153,7 +153,7 @@ func TestGetChannelForPR(t *testing.T) {
 
 		channel := client.GetChannelForPR(pr)
 		if channel != "#default" {
-			t.Errorf("Expected channel '#default', got '%s'", channel)
+			t.Errorf("Expected channel '#default', got %q", channel)
 		}
 	})
 }
@@ -213,12 +213,12 @@ func TestNudgeReviewer(t *testing.T) {
 
 		// Should use DM channel ID when available
 		if destination != "C12345" {
-			t.Errorf("Expected destination 'C12345', got '%s'", destination)
+			t.Errorf("Expected destination 'C12345', got %q", destination)
 		}
 
 		expectedMessage := "Hey <@U12345>, the PR 'Test PR' has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
 		if message != expectedMessage {
-			t.Errorf("Expected message '%s', got '%s'", expectedMessage, message)
+			t.Errorf("Expected message %q, got %q", expectedMessage, message)
 		}
 	})
 
@@ -230,12 +230,12 @@ func TestNudgeReviewer(t *testing.T) {
 
 		// Should use default channel when DMByDefault is false
 		if destination != "#default" {
-			t.Errorf("Expected destination '#default', got '%s'", destination)
+			t.Errorf("Expected destination '#default', got %q", destination)
 		}
 
 		expectedMessage := "Hey <@U12345>, the PR 'Test PR' has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
 		if message != expectedMessage {
-			t.Errorf("Expected message '%s', got '%s'", expectedMessage, message)
+			t.Errorf("Expected message %q, got %q", expectedMessage, message)
 		}
 	})
 

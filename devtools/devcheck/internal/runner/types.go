@@ -92,7 +92,7 @@ type RetryExhaustedError struct {
 }
 
 func (e *RetryExhaustedError) Error() string {
-	return fmt.Sprintf("retry exhausted for command '%s' after %d attempts. Last error: %v",
+	return fmt.Sprintf("retry exhausted for command %q after %d attempts. Last error: %v",
 		e.Command, e.Attempts, e.LastError)
 }
 
