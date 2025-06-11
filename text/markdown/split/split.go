@@ -132,10 +132,8 @@ func SplitMarkdown(inputFile, outputDir string) error {
 			// Add to table of contents
 			indent := strings.Repeat("  ", headerLevel-1)
 			toc = append(toc, fmt.Sprintf("%s- [%s](%s)\n", indent, currentHeader, currentFilename))
-		} else {
-			if len(currentSection) > 0 {
-				currentSection = append(currentSection, line)
-			}
+		} else if len(currentSection) > 0 {
+			currentSection = append(currentSection, line)
 		}
 	}
 

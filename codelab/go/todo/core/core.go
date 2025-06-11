@@ -195,11 +195,12 @@ func (l *List) updateParentState(item *Item) {
 		}
 	}
 
-	if allDone {
+	switch {
+	case allDone:
 		item.State = ItemStateDone
-	} else if anyDone {
+	case anyDone:
 		item.State = ItemStatePartiallyDone
-	} else {
+	default:
 		item.State = ItemStateNotStarted
 	}
 }
