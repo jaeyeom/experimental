@@ -123,6 +123,28 @@ func (c CargoInstall) PkgName() string {
 	return c.command
 }
 
+type NpmInstall struct {
+	command string
+	pkgName string
+	Imports []string
+}
+
+func (n NpmInstall) Command() string {
+	return n.command
+}
+
+func (n NpmInstall) CommandID() string {
+	// Replace dash to underscore.
+	return strings.ReplaceAll(n.command, "-", "_")
+}
+
+func (n NpmInstall) PkgName() string {
+	if n.pkgName != "" {
+		return n.pkgName
+	}
+	return n.command
+}
+
 var packagesTemplate = `---
 {{- range .Imports }}
 - import_playbook: {{.}}.yml
@@ -308,6 +330,36 @@ var cargoInstallTemplate = `---
       when: {{.CommandID}}_installed.rc == 0
 `
 
+var npmInstallTemplate = `---
+- import_playbook: npm.yml
+{{- range .Imports }}
+- import_playbook: {{.}}.yml
+{{- end }}
+
+- name: Ensure {{.Command}} is present
+  hosts: all
+  tasks:
+    - name: Include guard for {{.Command}} playbook
+      block:
+        - name: Stop early if the {{.Command}} playbook is already included
+          meta: end_play
+          when: {{.CommandID}}_playbook_imported is defined
+        - name: Ensure the {{.Command}} playbook is not included
+          set_fact:
+            {{.CommandID}}_playbook_imported: true
+          when: {{.CommandID}}_playbook_imported is not defined
+
+    - name: Check if {{.Command}} is installed
+      shell: command -v {{.Command}}
+      register: {{.CommandID}}_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install {{.Command}} using npm
+      command: npm install -g {{.PkgName}}
+      when: {{.CommandID}}_installed.rc != 0
+`
+
 type Commander interface {
 	Command() string
 }
@@ -409,6 +461,10 @@ var cargoPkgs = []CargoInstall{
 	{command: "emacs-lsp-booster"},
 }
 
+var npmPkgs = []NpmInstall{
+	{command: "claude", pkgName: "@anthropic-ai/claude-cli"},
+}
+
 func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
 	for _, pkg := range pkgs {
 		outf, err := os.Create(pkg.Command() + ".yml")
@@ -458,6 +514,10 @@ func getGeneratedRuleNames() []string {
 	}
 
 	for _, pkg := range cargoPkgs {
+		generated = append(generated, pkg.Command())
+	}
+
+	for _, pkg := range npmPkgs {
 		generated = append(generated, pkg.Command())
 	}
 
@@ -551,11 +611,13 @@ func main() {
 	template.Must(tmpl.New("goinstall").Parse(goInstallTemplate))
 	template.Must(tmpl.New("pipinstall").Parse(pipInstallTemplate))
 	template.Must(tmpl.New("cargoinstall").Parse(cargoInstallTemplate))
+	template.Must(tmpl.New("npminstall").Parse(npmInstallTemplate))
 
 	generatePackages(tmpl.Lookup("packages"), packages)
 	generatePackages(tmpl.Lookup("goinstall"), gopkgs)
 	generatePackages(tmpl.Lookup("pipinstall"), pipPkgs)
 	generatePackages(tmpl.Lookup("cargoinstall"), cargoPkgs)
+	generatePackages(tmpl.Lookup("npminstall"), npmPkgs)
 
 	err := updateReadmeManualPlaybooks()
 	if err != nil {

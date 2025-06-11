@@ -1,0 +1,25 @@
+---
+- import_playbook: npm.yml
+
+- name: Ensure claude is present
+  hosts: all
+  tasks:
+    - name: Include guard for claude playbook
+      block:
+        - name: Stop early if the claude playbook is already included
+          meta: end_play
+          when: claude_playbook_imported is defined
+        - name: Ensure the claude playbook is not included
+          set_fact:
+            claude_playbook_imported: true
+          when: claude_playbook_imported is not defined
+
+    - name: Check if claude is installed
+      shell: command -v claude
+      register: claude_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install claude using npm
+      command: npm install -g @anthropic-ai/claude-cli
+      when: claude_installed.rc != 0
