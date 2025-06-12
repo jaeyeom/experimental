@@ -1,0 +1,42 @@
+---
+- name: Ensure poetry is present
+  hosts: all
+  tasks:
+    - name: Include guard for poetry playbook
+      block:
+        - name: Stop early if the poetry playbook is already included
+          meta: end_play
+          when: poetry_playbook_imported is defined
+        - name: Ensure the poetry playbook is not included
+          set_fact:
+            poetry_playbook_imported: true
+          when: poetry_playbook_imported is not defined
+
+    - name: Ensure poetry is present on MacOS
+      community.general.homebrew:
+        name: poetry
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure poetry is present on non-Termux, non-MacOS systems
+      block:
+        - name: Check if poetry is installed
+          shell: command -v poetry
+          changed_when: False
+      rescue:
+        - name: Install poetry on non-Termux, non-MacOS systems
+          package:
+            name: python3-poetry
+            state: present
+          become: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Ensure poetry is present on Termux
+      block:
+        - name: Check if poetry is installed
+          shell: command -v poetry
+          changed_when: False
+      rescue:
+        - name: Install poetry on Termux
+          command: pkg install -y python-poetry
+      when: ansible_env.TERMUX_VERSION is defined
