@@ -27,9 +27,17 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.Ex
 		return nil, err
 	}
 
+	// Create timeout context if timeout is specified
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if cfg.Timeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+	}
+
 	// Create the command
 	// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
-	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+	cmd := exec.CommandContext(execCtx, cfg.Command, cfg.Args...)
 
 	// Set working directory if specified
 	if cfg.WorkingDir != "" {
@@ -58,9 +66,22 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.Ex
 	// Record end time
 	endTime := time.Now()
 
+	// Check if the command timed out
+	timedOut := false
+	if err != nil && execCtx.Err() == context.DeadlineExceeded {
+		timedOut = true
+		// Return a timeout error if this was due to our configured timeout
+		if cfg.Timeout > 0 {
+			return nil, &TimeoutError{
+				Command: buildCommandString(cfg.Command, cfg.Args),
+				Timeout: cfg.Timeout,
+			}
+		}
+	}
+
 	// Get exit code
 	exitCode := 0
-	if err != nil {
+	if err != nil && !timedOut {
 		// Check if it's an exec.ExitError to get the exit code
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
@@ -71,6 +92,9 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.Ex
 			// For other errors, use -1 as exit code
 			exitCode = -1
 		}
+	} else if timedOut {
+		// Use special exit code for timeout
+		exitCode = -2
 	}
 
 	// Create the execution result
@@ -83,11 +107,11 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.Ex
 		ExitCode:   exitCode,
 		StartTime:  startTime,
 		EndTime:    endTime,
-		TimedOut:   false,
+		TimedOut:   timedOut,
 	}
 
-	// Set error message if execution failed
-	if err != nil && err != exec.ErrNotFound {
+	// Set error message if execution failed (but not for timeout, as we return TimeoutError)
+	if err != nil && err != exec.ErrNotFound && !timedOut {
 		result.Error = err.Error()
 	}
 

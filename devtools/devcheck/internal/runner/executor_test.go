@@ -2,8 +2,10 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -236,6 +238,123 @@ func TestBasicExecutor_Execute_Context(t *testing.T) {
 	}
 }
 
+func TestBasicExecutor_Execute_Timeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping timeout test on Windows")
+	}
+
+	executor := NewBasicExecutor()
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		config         ToolConfig
+		wantErr        bool
+		wantTimeoutErr bool
+		checkResult    func(t *testing.T, result *config.ExecutionResult, err error)
+	}{
+		{
+			name: "command with timeout that completes in time",
+			config: ToolConfig{
+				Command: "sleep",
+				Args:    []string{"0.1"},
+				Timeout: 1 * time.Second,
+			},
+			wantErr:        false,
+			wantTimeoutErr: false,
+			checkResult: func(t *testing.T, result *config.ExecutionResult, err error) {
+				if result == nil {
+					t.Fatal("Expected result, got nil")
+				}
+				if result.TimedOut {
+					t.Error("Expected TimedOut to be false")
+				}
+				if result.ExitCode != 0 {
+					t.Errorf("Expected exit code 0, got %d", result.ExitCode)
+				}
+			},
+		},
+		{
+			name: "command with timeout that times out",
+			config: ToolConfig{
+				Command: "sleep",
+				Args:    []string{"2"},
+				Timeout: 200 * time.Millisecond,
+			},
+			wantErr:        true,
+			wantTimeoutErr: true,
+			checkResult: func(t *testing.T, result *config.ExecutionResult, err error) {
+				if result != nil {
+					t.Error("Expected nil result for timeout error")
+				}
+
+				// Check that we got a TimeoutError
+				var timeoutErr *TimeoutError
+				if !errors.As(err, &timeoutErr) {
+					t.Errorf("Expected TimeoutError, got %T: %v", err, err)
+				} else {
+					if timeoutErr.Timeout != 200*time.Millisecond {
+						t.Errorf("Expected timeout 200ms, got %v", timeoutErr.Timeout)
+					}
+					if !strings.Contains(timeoutErr.Command, "sleep") {
+						t.Errorf("Expected command to contain 'sleep', got %q", timeoutErr.Command)
+					}
+				}
+			},
+		},
+		{
+			name: "command without timeout runs normally",
+			config: ToolConfig{
+				Command: "echo",
+				Args:    []string{"test"},
+				Timeout: 0, // No timeout
+			},
+			wantErr:        false,
+			wantTimeoutErr: false,
+			checkResult: func(t *testing.T, result *config.ExecutionResult, err error) {
+				if result == nil {
+					t.Fatal("Expected result, got nil")
+				}
+				if result.TimedOut {
+					t.Error("Expected TimedOut to be false")
+				}
+				if result.ExitCode != 0 {
+					t.Errorf("Expected exit code 0, got %d", result.ExitCode)
+				}
+				if !strings.Contains(result.Output, "test") {
+					t.Errorf("Expected output to contain 'test', got %q", result.Output)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start := time.Now()
+			result, err := executor.Execute(ctx, tt.config)
+			duration := time.Since(start)
+
+			if tt.wantErr != (err != nil) {
+				t.Errorf("Execute() error = %v, wantErr = %v", err, tt.wantErr)
+				return
+			}
+
+			// For timeout tests, verify the timing
+			if tt.wantTimeoutErr && tt.config.Timeout > 0 {
+				// Should complete close to the timeout duration
+				expectedMax := tt.config.Timeout + 500*time.Millisecond // Allow some overhead
+				if duration > expectedMax {
+					t.Errorf("Timeout took too long: %v, expected max: %v", duration, expectedMax)
+				}
+			}
+
+			if tt.checkResult != nil {
+				tt.checkResult(t, result, err)
+			}
+		})
+	}
+}
+
 func TestBasicExecutor_IsAvailable(t *testing.T) {
 	executor := NewBasicExecutor()
 
@@ -345,5 +464,52 @@ func TestBasicExecutor_Execute_Permissions(t *testing.T) {
 	result, err := executor.Execute(context.Background(), toolConfig)
 	if err == nil && result != nil && result.ExitCode == 0 {
 		t.Error("Expected error for non-executable file")
+	}
+}
+
+func TestBasicExecutor_Execute_TimeoutTiming(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping timeout timing test on Windows")
+	}
+
+	executor := NewBasicExecutor()
+	ctx := context.Background()
+
+	// Test that timeout is enforced accurately
+	config := ToolConfig{
+		Command: "sleep",
+		Args:    []string{"5"},          // Sleep for 5 seconds
+		Timeout: 500 * time.Millisecond, // But timeout after 500ms
+	}
+
+	start := time.Now()
+	result, err := executor.Execute(ctx, config)
+	duration := time.Since(start)
+
+	// Should have timed out
+	if err == nil {
+		t.Fatal("Expected timeout error, got nil")
+	}
+
+	// Should return TimeoutError
+	var timeoutErr *TimeoutError
+	if !errors.As(err, &timeoutErr) {
+		t.Fatalf("Expected TimeoutError, got %T: %v", err, err)
+	}
+
+	// Should not return a result
+	if result != nil {
+		t.Error("Expected nil result for timeout")
+	}
+
+	// Should complete within reasonable time of the timeout
+	expectedMin := 500 * time.Millisecond
+	expectedMax := 1000 * time.Millisecond // Allow some overhead
+
+	if duration < expectedMin {
+		t.Errorf("Command completed too quickly: %v, expected at least: %v", duration, expectedMin)
+	}
+	if duration > expectedMax {
+		t.Errorf("Command took too long: %v, expected at most: %v", duration, expectedMax)
 	}
 }
