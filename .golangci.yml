@@ -45,8 +45,8 @@ linters:
           files:
             - "$test"
           deny:
-            pkg: "github.com/stretchr/testify"
-            desc: "Please use standard library for tests"
+            - pkg: "github.com/stretchr/testify"
+              desc: "Please use standard library for tests"
   exclusions:
     generated: lax
     presets:
