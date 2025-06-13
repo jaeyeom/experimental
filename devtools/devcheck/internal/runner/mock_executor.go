@@ -28,9 +28,6 @@ type MockExecutor struct {
 	DefaultError  error
 }
 
-// Ensure MockExecutor implements Executor interface.
-var _ Executor = (*MockExecutor)(nil)
-
 // MockExpectation represents an expected call to Execute with a predefined response.
 type MockExpectation struct {
 	// Matcher function to determine if this expectation matches the call
