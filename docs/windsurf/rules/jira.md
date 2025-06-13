@@ -3,7 +3,8 @@ trigger: model_decision
 description: when working on Jira
 ---
 
-1. Use `jira` CLI tool, where `jira issue` is the most useful command.
+1. Use `jira` CLI tool, where `jira issue COMMAND` provides the most useful
+   command and it provides help.
 2. Use `--plain` option for non-interactive lists.
 3. Use the following commands to update Jira ticket descriptions:
 
