@@ -20,8 +20,11 @@ description: when working on Jira
    - Use actual newlines, not `\n` escape sequences
    - Jira supports code blocks with `{code:language}...{code}` syntax
    - Common language options: java, go, python, javascript, bash, etc.
-3. Use the following command to add ticket dependencies when T-1 blocks T-2:
+4. Use the following command to add ticket dependencies when T-1 blocks T-2:
 
    ```sh
    jira issue link T-1 T-2 Blocks
    ```
+5. If you have resolved a Jira ticket, run `rg TICKET` from the repo root to
+   search the ticket in the whole repo. If that's a TODO or FIXME comments, you
+   may want to delete them or modify them.
