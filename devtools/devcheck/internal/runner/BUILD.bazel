@@ -4,6 +4,8 @@ go_library(
     name = "go_default_library",
     srcs = [
         "executor.go",
+        "signal_executor.go",
+        "signal_handler.go",
         "types.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/devcheck/internal/runner",
@@ -15,6 +17,8 @@ go_test(
     name = "go_default_test",
     srcs = [
         "executor_test.go",
+        "signal_executor_test.go",
+        "signal_handler_test.go",
         "types_test.go",
     ],
     embed = [":go_default_library"],
