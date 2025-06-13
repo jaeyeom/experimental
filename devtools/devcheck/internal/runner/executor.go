@@ -15,6 +15,9 @@ import (
 // BasicExecutor handles the execution of external tools and commands.
 type BasicExecutor struct{}
 
+// Ensure BasicExecutor implements Executor interface.
+var _ Executor = (*BasicExecutor)(nil)
+
 // NewBasicExecutor creates a new BasicExecutor instance.
 func NewBasicExecutor() *BasicExecutor {
 	return &BasicExecutor{}
