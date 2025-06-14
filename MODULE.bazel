@@ -22,16 +22,13 @@ bazel_dep(name = "rules_buf", version = "0.4.0")
 buf = use_extension("@rules_buf//buf:extensions.bzl", "buf")
 
 # Use the latest buf CLI version
-buf.toolchains(version = "v1.50.0")
+buf.toolchains(
+    sha256 = "736e74d1697dcf253bc60b2f0fb4389c39dbc7be68472a7d564a953df8b19d12",
+    version = "v1.50.0",
+)
 
 # Make buf CLI available for direct usage
 use_repo(buf, "rules_buf_toolchains")
-
-# Update SHA256 for rules_buf_toolchains
-buf.toolchain(
-    name = "rules_buf_toolchains",
-    sha256 = "736e74d1697dcf253bc60b2f0fb4389c39dbc7be68472a7d564a953df8b19d12",
-)
 
 # Pip dependencies
 pip_ext = use_extension(
