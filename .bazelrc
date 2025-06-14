@@ -4,15 +4,20 @@
 # Use Bazel modules
 common --enable_bzlmod
 
-# Build settings
+# Build settings - LLM optimized for minimal noise
 build --incompatible_enable_cc_toolchain_resolution
 build --remote_local_fallback
+build --show_progress_rate_limit=60
+build --curses=no
+build --color=no
+build --verbose_failures
 
 # Go settings
 build --incompatible_disallow_empty_glob
 
-# Test settings
+# Test settings - minimal output with meaningful summaries
 test --test_output=errors
+test --test_summary=short
 test --nobuild_tests_only
 
 # Performance settings
@@ -20,6 +25,5 @@ build --jobs=auto
 test --jobs=auto
 
 # Developer settings
-# build --verbose_failures
 # build --sandbox_debug
 test --test_verbose_timeout_warnings
