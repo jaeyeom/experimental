@@ -1,6 +1,6 @@
 module github.com/jaeyeom/experimental
 
-go 1.22.0
+go 1.24.2
 
 require (
 	github.com/jaeyeom/sugo v1.1.1
