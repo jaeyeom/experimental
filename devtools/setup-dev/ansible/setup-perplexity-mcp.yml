@@ -68,6 +68,16 @@
           when: perplexity_mcp_installed.rc != 0
       when: ansible_facts['os_family'] != "Darwin"
 
+    - name: Verify perplexity-mcp installation
+      shell: command -v perplexity-mcp
+      register: final_check
+      changed_when: False
+
+    - name: Fail if perplexity-mcp is not installed
+      fail:
+        msg: "perplexity-mcp installation failed. Please check the logs above for errors."
+      when: final_check.rc != 0
+
     # Claude Desktop configuration (macOS only)
     - name: Configure Claude Desktop for perplexity-mcp on macOS
       block:
@@ -127,17 +137,25 @@
           when: perplexity_api_key.rc != 0
       when: ansible_facts['os_family'] == "Darwin"
 
-    - name: Verify perplexity-mcp installation
-      shell: command -v perplexity-mcp
-      register: final_check
-      changed_when: False
+    # Claude Code configuration
+    - name: Configure Claude Code for perplexity-mcp
+      block:
+        - name: Get Perplexity API key from pass
+          shell: pass show api.perplexity.ai
+          register: perplexity_api_key_claude_code
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Configure perplexity-mcp in Claude Code
+          shell: |
+            claude mcp add-json --scope user perplexity-mcp '{"type":"stdio","command":"perplexity-mcp","env":{"PERPLEXITY_API_KEY":"{{ perplexity_api_key_claude_code.stdout }}"}}'
+          when: perplexity_api_key_claude_code.rc == 0
+
+        - name: Warn if Perplexity API key not found for Claude Code
+          debug:
+            msg: "Warning: Perplexity API key not found in pass. Please set it manually or add it to pass with 'pass insert api.perplexity.ai'"
+          when: perplexity_api_key_claude_code.rc != 0
 
     - name: Display installation success message
       debug:
-        msg: "perplexity-mcp has been successfully installed and is available at: {{ final_check.stdout }}"
-      when: final_check.rc == 0
-
-    - name: Display installation failure message
-      debug:
-        msg: "perplexity-mcp installation failed. Please check the logs above for errors."
-      when: final_check.rc != 0
+        msg: "perplexity-mcp has been successfully installed and configured at: {{ final_check.stdout }}"
