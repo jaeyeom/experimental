@@ -36,8 +36,17 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.Ex
 	}
 
 	// Create the command
-	// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
-	cmd := exec.CommandContext(execCtx, cfg.Command, cfg.Args...)
+	var cmd *exec.Cmd
+	if requiresShellExecution(cfg.Command) {
+		// Some tools (like Bazel) work better when run through a shell
+		// This provides proper session management and I/O handling
+		fullCommand := buildShellCommand(cfg.Command, cfg.Args)
+		// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
+		cmd = exec.CommandContext(execCtx, "sh", "-c", fullCommand)
+	} else {
+		// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
+		cmd = exec.CommandContext(execCtx, cfg.Command, cfg.Args...)
+	}
 
 	// Set working directory if specified
 	if cfg.WorkingDir != "" {
@@ -131,6 +140,35 @@ func buildCommandString(command string, args []string) string {
 		// Simple quoting for args with spaces
 		if strings.Contains(arg, " ") {
 			parts = append(parts, fmt.Sprintf("%q", arg))
+		} else {
+			parts = append(parts, arg)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// requiresShellExecution determines if a command should be run through a shell.
+// Some tools (like Bazel) have client-server architectures that work better
+// when executed in a proper shell environment.
+func requiresShellExecution(command string) bool {
+	shellRequiredTools := map[string]bool{
+		"bazel":   true,
+		"gradle":  true, // Gradle daemon has similar issues
+		"maven":   true, // Maven can have similar server-based issues
+		"sbt":     true, // Scala Build Tool has a server mode
+	}
+	return shellRequiredTools[command]
+}
+
+// buildShellCommand constructs a properly quoted shell command string.
+func buildShellCommand(command string, args []string) string {
+	parts := []string{command}
+	for _, arg := range args {
+		// Properly quote arguments for shell execution
+		if strings.Contains(arg, " ") || strings.Contains(arg, "'") || strings.Contains(arg, "\"") {
+			// Use single quotes and escape any single quotes in the argument
+			escaped := strings.ReplaceAll(arg, "'", "'\"'\"'")
+			parts = append(parts, fmt.Sprintf("'%s'", escaped))
 		} else {
 			parts = append(parts, arg)
 		}

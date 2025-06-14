@@ -178,13 +178,19 @@ func runExecutorDemo(dir string, w io.Writer, concurrent bool, maxWorkers int) e
 		}
 	}
 
-	// TODO: Add Bazel support - see https://github.com/jaeyeom/experimental/issues/9
-	// Currently skipped because Bazel's client-server architecture requires real TTY handles
-	// instead of bytes.Buffer redirection. Planned implementation approaches:
-	// 1. PTY support for terminal simulation (recommended)
-	// 2. Server-based tool detection framework  
-	// 3. Direct terminal output for specific tools
-	// See: https://bazel.build/run/client-server
+	// Add Bazel support using shell execution (addresses issue #9)
+	// Bazel's client-server architecture works better when run through a shell
+	// which provides proper session management and I/O handling
+	if projectConfig.BuildSystem == "bazel" && basicExec.IsAvailable("bazel") {
+		demoConfigs = append(demoConfigs,
+			runner.ToolConfig{
+				Command:    "bazel",
+				Args:       []string{"info", "workspace"},
+				WorkingDir: dir,
+				Timeout:    15 * time.Second,
+			},
+		)
+	}
 
 	// Add language-specific tools based on detected languages
 	for _, lang := range projectConfig.Languages {
@@ -266,7 +272,7 @@ func runSequentialDemo(ctx context.Context, w io.Writer, executor runner.Executo
 
 	for i, cfg := range configs {
 		fmt.Fprintf(w, "[%d/%d] Running: %s %s\n", i+1, len(configs), cfg.Command, strings.Join(cfg.Args, " "))
-		
+
 		cmdStart := time.Now()
 		result, err := executor.Execute(ctx, cfg)
 		duration := time.Since(cmdStart)
@@ -290,7 +296,7 @@ func runSequentialDemo(ctx context.Context, w io.Writer, executor runner.Executo
 	}
 
 	totalDuration := time.Since(startTime)
-	fmt.Fprintf(w, "Summary: %d/%d tools passed (total time: %v)\n", 
+	fmt.Fprintf(w, "Summary: %d/%d tools passed (total time: %v)\n",
 		successCount, len(configs), totalDuration.Round(time.Millisecond))
 
 	return nil
@@ -299,7 +305,7 @@ func runSequentialDemo(ctx context.Context, w io.Writer, executor runner.Executo
 // runConcurrentDemo runs tools concurrently.
 func runConcurrentDemo(ctx context.Context, w io.Writer, executor runner.Executor, configs []runner.ToolConfig, maxWorkers int) error {
 	startTime := time.Now()
-	
+
 	// Create concurrent executor
 	concurrentExec := runner.NewConcurrentExecutor(executor)
 	concurrentExec.SetMaxConcurrency(maxWorkers)
@@ -359,7 +365,7 @@ func runConcurrentDemo(ctx context.Context, w io.Writer, executor runner.Executo
 	}
 
 	totalDuration := time.Since(startTime)
-	fmt.Fprintf(w, "\nSummary: %d/%d tools passed (total time: %v with concurrency)\n", 
+	fmt.Fprintf(w, "\nSummary: %d/%d tools passed (total time: %v with concurrency)\n",
 		successCount, len(configs), totalDuration.Round(time.Millisecond))
 
 	return nil
