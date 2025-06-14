@@ -1,0 +1,143 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+- import_playbook: jq.yml
+- import_playbook: pass.yml
+- import_playbook: claude.yml
+
+- name: Setup Perplexity MCP
+  hosts: all
+  tasks:
+    - name: Include guard for setup-perplexity-mcp playbook
+      block:
+        - name: Stop early if the setup-perplexity-mcp playbook is already included
+          meta: end_play
+          when: setup_perplexity_mcp_playbook_imported is defined
+        - name: Ensure the setup-perplexity-mcp playbook is not included
+          set_fact:
+            setup_perplexity_mcp_playbook_imported: true
+          when: setup_perplexity_mcp_playbook_imported is not defined
+
+    # macOS installation via Homebrew
+    - name: Install perplexity-mcp via Homebrew on macOS
+      block:
+        - name: Add Alcova AI tap
+          community.general.homebrew_tap:
+            name: alcova-ai/tap
+            state: present
+
+        - name: Install perplexity-mcp via Homebrew
+          community.general.homebrew:
+            name: perplexity-mcp
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    # Linux/Termux installation from source
+    - name: Install perplexity-mcp from source on Linux/Termux
+      block:
+        - name: Check if perplexity-mcp is already installed
+          shell: command -v perplexity-mcp
+          register: perplexity_mcp_installed
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Clone perplexity-mcp repository
+          git:
+            repo: https://github.com/Alcova-AI/perplexity-mcp.git
+            dest: /tmp/perplexity-mcp
+            force: yes
+          when: perplexity_mcp_installed.rc != 0
+
+        - name: Build perplexity-mcp from source
+          shell: |
+            cd /tmp/perplexity-mcp
+            go build -o perplexity-mcp-server .
+          when: perplexity_mcp_installed.rc != 0
+
+        - name: Install perplexity-mcp binary to Go bin directory
+          copy:
+            src: /tmp/perplexity-mcp/perplexity-mcp-server
+            dest: "{{ ansible_env.HOME }}/go/bin/perplexity-mcp"
+            mode: '0755'
+            remote_src: yes
+          when: perplexity_mcp_installed.rc != 0
+
+        - name: Clean up temporary build directory
+          file:
+            path: /tmp/perplexity-mcp
+            state: absent
+          when: perplexity_mcp_installed.rc != 0
+      when: ansible_facts['os_family'] != "Darwin"
+
+    # Claude Desktop configuration (macOS only)
+    - name: Configure Claude Desktop for perplexity-mcp on macOS
+      block:
+        - name: Check if Claude Desktop config directory exists
+          stat:
+            path: "{{ ansible_env.HOME }}/Library/Application Support/Claude"
+          register: claude_config_dir
+
+        - name: Create Claude Desktop config directory if it doesn't exist
+          file:
+            path: "{{ ansible_env.HOME }}/Library/Application Support/Claude"
+            state: directory
+            mode: '0755'
+          when: not claude_config_dir.stat.exists
+
+        - name: Check if claude_desktop_config.json exists
+          stat:
+            path: "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json"
+          register: claude_config_file
+
+        - name: Create initial claude_desktop_config.json if it doesn't exist
+          copy:
+            content: |
+              {
+                "mcpServers": {}
+              }
+            dest: "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json"
+            mode: '0644'
+          when: not claude_config_file.stat.exists
+
+        - name: Get Perplexity API key from pass
+          shell: pass show api.perplexity.ai
+          register: perplexity_api_key
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Configure perplexity-mcp in Claude Desktop
+          shell: |
+            jq '.mcpServers.perplexity-mcp = {
+              "command": "perplexity-mcp",
+              "args": [
+                "--model",
+                "sonar-pro",
+                "--reasoning-model",
+                "sonar-reasoning-pro"
+              ],
+              "env": {
+                "PERPLEXITY_API_KEY": "{{ perplexity_api_key.stdout }}"
+              }
+            }' "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json" > /tmp/claude_config_temp.json && \
+            mv /tmp/claude_config_temp.json "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json"
+          when: perplexity_api_key.rc == 0
+
+        - name: Warn if Perplexity API key not found
+          debug:
+            msg: "Warning: Perplexity API key not found in pass. Please set it manually in Claude Desktop config or add it to pass with 'pass insert api.perplexity.ai'"
+          when: perplexity_api_key.rc != 0
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Verify perplexity-mcp installation
+      shell: command -v perplexity-mcp
+      register: final_check
+      changed_when: False
+
+    - name: Display installation success message
+      debug:
+        msg: "perplexity-mcp has been successfully installed and is available at: {{ final_check.stdout }}"
+      when: final_check.rc == 0
+
+    - name: Display installation failure message
+      debug:
+        msg: "perplexity-mcp installation failed. Please check the logs above for errors."
+      when: final_check.rc != 0
