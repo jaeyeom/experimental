@@ -147,6 +147,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-gpg-agent.yml
 - setup-history.yml
 - setup-kotex.yml
+- setup-perplexity-mcp.yml
 - setup-shell-profile.yml
 - setup-spacemacs.yml
 - setup-spacemacs-go.yml
