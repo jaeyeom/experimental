@@ -43,19 +43,19 @@
         - name: Clone perplexity-mcp repository
           git:
             repo: https://github.com/Alcova-AI/perplexity-mcp.git
-            dest: /tmp/perplexity-mcp
+            dest: "{{ ansible_env.TMPDIR | default('/tmp') }}/perplexity-mcp"
             force: yes
           when: perplexity_mcp_installed.rc != 0
 
         - name: Build perplexity-mcp from source
           shell: |
-            cd /tmp/perplexity-mcp
+            cd "{{ ansible_env.TMPDIR | default('/tmp') }}/perplexity-mcp"
             go build -o perplexity-mcp-server .
           when: perplexity_mcp_installed.rc != 0
 
         - name: Install perplexity-mcp binary to Go bin directory
           copy:
-            src: /tmp/perplexity-mcp/perplexity-mcp-server
+            src: "{{ ansible_env.TMPDIR | default('/tmp') }}/perplexity-mcp/perplexity-mcp-server"
             dest: "{{ ansible_env.HOME }}/go/bin/perplexity-mcp"
             mode: '0755'
             remote_src: yes
@@ -63,7 +63,7 @@
 
         - name: Clean up temporary build directory
           file:
-            path: /tmp/perplexity-mcp
+            path: "{{ ansible_env.TMPDIR | default('/tmp') }}/perplexity-mcp"
             state: absent
           when: perplexity_mcp_installed.rc != 0
       when: ansible_facts['os_family'] != "Darwin"
@@ -117,8 +117,8 @@
               "env": {
                 "PERPLEXITY_API_KEY": "{{ perplexity_api_key.stdout }}"
               }
-            }' "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json" > /tmp/claude_config_temp.json && \
-            mv /tmp/claude_config_temp.json "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json"
+            }' "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json" > "{{ ansible_env.TMPDIR | default('/tmp') }}/claude_config_temp.json" && \
+            mv "{{ ansible_env.TMPDIR | default('/tmp') }}/claude_config_temp.json" "{{ ansible_env.HOME }}/Library/Application Support/Claude/claude_desktop_config.json"
           when: perplexity_api_key.rc == 0
 
         - name: Warn if Perplexity API key not found
