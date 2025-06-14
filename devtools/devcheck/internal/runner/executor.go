@@ -152,10 +152,10 @@ func buildCommandString(command string, args []string) string {
 // when executed in a proper shell environment.
 func requiresShellExecution(command string) bool {
 	shellRequiredTools := map[string]bool{
-		"bazel":   true,
-		"gradle":  true, // Gradle daemon has similar issues
-		"maven":   true, // Maven can have similar server-based issues
-		"sbt":     true, // Scala Build Tool has a server mode
+		"bazel":  true,
+		"gradle": true, // Gradle daemon has similar issues
+		"maven":  true, // Maven can have similar server-based issues
+		"sbt":    true, // Scala Build Tool has a server mode
 	}
 	return shellRequiredTools[command]
 }
