@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//devtools/devcheck/internal/config:go_default_library",
         "//devtools/devcheck/internal/detector:go_default_library",
+        "//devtools/devcheck/internal/runner:go_default_library",
     ],
 )
 

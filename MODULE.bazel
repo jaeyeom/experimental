@@ -1,10 +1,4 @@
-###############################################################################
-# Bazel now uses Bzlmod by default to manage external dependencies.
-# Please consider migrating your external dependencies from WORKSPACE to MODULE.bazel.
-#
-# For more details, please check https://github.com/bazelbuild/bazel/issues/18958
-###############################################################################
-
+# Go
 bazel_dep(name = "rules_go", version = "0.53.0")
 
 # Configure Go version for Termux compatibility
@@ -13,7 +7,18 @@ go_sdk.download(version = "1.24.2")
 use_repo(go_sdk, "go_default_sdk")
 
 bazel_dep(name = "gazelle", version = "0.42.0")
-bazel_dep(name = "rules_python", version = "1.0.0")
+
+go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
+go_deps.from_file(go_mod = "//:go.mod")
+
+# All *direct* Go dependencies of the module have to be listed explicitly.
+use_repo(
+    go_deps,
+    "com_github_google_uuid",
+    "com_github_jaeyeom_sugo",
+    "com_github_leanovate_gopter",
+    "org_modernc_sqlite",
+)
 
 # Aspect rules for linting and formatting
 bazel_dep(name = "aspect_rules_lint", version = "1.4.4")
@@ -36,6 +41,9 @@ buf.toolchains(
 # Make buf CLI available for direct usage
 use_repo(buf, "rules_buf_toolchains")
 
+# Python
+bazel_dep(name = "rules_python", version = "1.0.0")
+
 # Pip dependencies
 pip_ext = use_extension(
     "@rules_python//python/extensions:pip.bzl",
@@ -47,15 +55,3 @@ pip_ext.parse(
     requirements_lock = "//:requirements.txt",
 )
 use_repo(pip_ext, "main_pip_deps")  # Make @main_pip_deps available
-
-go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
-go_deps.from_file(go_mod = "//:go.mod")
-
-# All *direct* Go dependencies of the module have to be listed explicitly.
-use_repo(
-    go_deps,
-    "com_github_google_uuid",
-    "com_github_jaeyeom_sugo",
-    "com_github_leanovate_gopter",
-    "org_modernc_sqlite",
-)
