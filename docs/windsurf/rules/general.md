@@ -24,7 +24,7 @@ trigger: always_on
 4. Prefer APIs and configurations that are explicitly supported by up-to-date, publicly available documentation.
 
 ## Git Specific Rules
-1. Check commit log template before writing a commit log.
+1. Check commit log template with `git config commit.template` before writing a commit log.
 
 ## Terminal Tasks
 1. When you need to create a temporary file for command-line work, use the `mktemp` command for secure, unique file creation.
