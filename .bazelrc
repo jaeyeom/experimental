@@ -12,8 +12,14 @@ build --curses=no
 build --color=no
 build --verbose_failures
 
-# Go settings
-build --incompatible_disallow_empty_glob
+# General build safety
+build --incompatible_disallow_empty_glob  # Fail if glob patterns match no files
+
+# Go-specific settings
+build --@rules_go//go/config:race=false   # Race detector (enable for debugging concurrency)
+build --@rules_go//go/config:msan=false   # Memory sanitizer (enable for memory debugging)
+build --@rules_go//go/config:static=true  # Static linking (enable for portable binaries)
+build --@rules_go//go/config:pure=true    # Pure Go without cgo (disable for cross-compilation)
 
 # Test settings - minimal output with meaningful summaries
 test --test_output=errors

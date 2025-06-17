@@ -3,7 +3,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "concurrent_executor.go",
         "executor.go",
+        "executor_interface.go",
+        "mock_executor.go",
         "signal_executor.go",
         "signal_handler.go",
         "types.go",
@@ -16,10 +19,14 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "concurrent_executor_test.go",
         "executor_test.go",
+        "mock_executor_test.go",
+        "shell_execution_test.go",
         "signal_executor_test.go",
         "signal_handler_test.go",
         "types_test.go",
     ],
     embed = [":go_default_library"],
+    deps = ["//devtools/devcheck/internal/config:go_default_library"],
 )
