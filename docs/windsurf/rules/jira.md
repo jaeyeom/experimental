@@ -17,8 +17,8 @@ description: when working on Jira
    ```
 
    Notes:
-   - Use actual newlines, not `\n` escape sequences
-   - Jira supports code blocks with `{code:language}...{code}` syntax
+   - Use actual newlines, not `\n` escape sequences and backslash escapes.
+   - Jira supports code blocks with `{code:language}...{code}` syntax.
    - Common language options: java, go, python, javascript, bash, etc.
 4. Use the following command to add ticket dependencies when T-1 blocks T-2:
 
