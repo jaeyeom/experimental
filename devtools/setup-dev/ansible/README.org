@@ -137,6 +137,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - gmi.yml
 - go.yml
 - golangci-lint.yml
+- ruff.yml
 - rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
