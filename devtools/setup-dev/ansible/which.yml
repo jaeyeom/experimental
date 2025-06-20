@@ -1,0 +1,42 @@
+---
+- name: Ensure which is present
+  hosts: all
+  tasks:
+    - name: Include guard for which playbook
+      block:
+        - name: Stop early if the which playbook is already included
+          meta: end_play
+          when: which_playbook_imported is defined
+        - name: Ensure the which playbook is not included
+          set_fact:
+            which_playbook_imported: true
+          when: which_playbook_imported is not defined
+
+    - name: Ensure which is present on MacOS
+      community.general.homebrew:
+        name: which
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure which is present on non-Termux, non-MacOS systems
+      block:
+        - name: Check if which is installed
+          shell: command -v which
+          changed_when: False
+      rescue:
+        - name: Install which on non-Termux, non-MacOS systems
+          package:
+            name: which
+            state: present
+          become: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Ensure which is present on Termux
+      block:
+        - name: Check if which is installed
+          shell: command -v which
+          changed_when: False
+      rescue:
+        - name: Install which on Termux
+          command: pkg install -y which
+      when: ansible_env.TERMUX_VERSION is defined

@@ -410,6 +410,7 @@ var packages = []PackageData{
 	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer", brewPkgName: "mactex"},
 	{command: "tmux"},
 	{command: "unzip"},
+	{command: "which"},
 	{command: "zip"},
 	{command: "zoxide"},
 }
