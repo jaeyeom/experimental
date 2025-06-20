@@ -60,5 +60,9 @@ for playbook in "$@"; do
     if [ "$(echo $playbook | head -c 1)" = "-" ]; then
         continue
     fi
-    ansible-playbook -i inventory.ini $flags $playbook.yml
+    # Add .yml suffix only if it doesn't already exist
+    case "$playbook" in
+        *.yml) ansible-playbook -i inventory.ini $flags "$playbook" ;;
+        *) ansible-playbook -i inventory.ini $flags "$playbook.yml" ;;
+    esac
 done
