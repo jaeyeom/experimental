@@ -141,4 +141,4 @@ unique_tests=$(echo "$affected_tests" | tr ' ' '\n' | sort -u | grep -v '^$')
 filtered_tests=$(filter_format_tests "$unique_tests")
 
 # Print final result
-echo "$filtered_tests" | tr ' ' '\n' | grep -v '^$'
+echo "$filtered_tests" | tr ' ' '\n' | grep -v '^$' || true
