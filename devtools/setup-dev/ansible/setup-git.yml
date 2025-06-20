@@ -1,5 +1,7 @@
 ---
 - import_playbook: git.yml
+- import_playbook: which.yml
+- import_playbook: setup-user-bin-directory.yml
 
 - name: Ensure git is properly set up
   hosts: all
@@ -70,3 +72,26 @@
     - name: Debug email
       ansible.builtin.debug:
         msg: "The git user email is {{ git_user_email }}"
+
+    - name: Deploy git wrapper script to ~/.local/bin/git
+      ansible.builtin.copy:
+        dest: "{{ user_bin_directory }}/git"
+        mode: '0755'
+        content: |
+          #!/bin/bash
+
+          if [[ "$1" == "commit" ]]; then
+              # Check if --no-verify is passed as a separate argument
+              for arg in "$@"; do
+                  if [[ "$arg" == "--no-verify" ]]; then
+                      echo "Error: The --no-verify flag is not allowed."
+                      echo "Please run git commit without --no-verify to ensure hooks are executed."
+                      echo "There is an absolte reason for this."
+                      exit 1
+                  fi
+              done
+          fi
+
+          # Run the real git command
+          REAL_GIT=$(which -a git | grep -v "$(realpath "$0")" | head -n 1)
+          exec "$REAL_GIT" "$@"
