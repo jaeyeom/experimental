@@ -1,0 +1,175 @@
+#+TITLE: Rename Jira Keys
+#+DATE: 2025-06-20
+
+* Overview
+
+This tool is a Go implementation that renames Jira ticket keys in documentation files. It provides a reliable way to update references across multiple files when Jira tickets are renumbered, moved between projects, or when you need to update documentation after project restructuring.
+
+* Features
+
+The tool performs two main operations:
+
+1. *Content Replacement*: Replaces all occurrences of OLD-KEY with NEW-KEY in file contents:
+   - Plan file (default: plan.md, or custom file specified with ~-p~)
+   - All *.md files in the specified docs directory (default: docs/project/, or custom with ~-d~)
+
+2. *File Renaming*: Renames the specific documentation file:
+   - From: ~docs/project/OLD-KEY.md~
+   - To: ~docs/project/NEW-KEY.md~
+
+* Installation
+
+** Direct Installation from GitHub (Recommended)
+
+Install directly from GitHub using Go:
+
+#+BEGIN_SRC bash
+# Install the latest version from GitHub
+go install github.com/jaeyeom/experimental/devtools/rename-jira-keys/cmd/rename-jira-keys@latest
+
+# Verify installation
+rename-jira-keys --help
+#+END_SRC
+
+** From Source
+
+Clone the repository and install using Go:
+
+#+BEGIN_SRC bash
+# Clone the repository
+git clone https://github.com/jaeyeom/experimental.git
+cd experimental/devtools/rename-jira-keys
+
+# Install the tool (requires Go 1.16+)
+go install ./cmd/rename-jira-keys
+
+# Verify installation
+rename-jira-keys --help
+#+END_SRC
+
+** From Repository Root
+
+If you're working from the monorepo root:
+
+#+BEGIN_SRC bash
+# Install directly with full path
+go install ./devtools/rename-jira-keys/cmd/rename-jira-keys
+
+# Or navigate and install
+cd devtools/rename-jira-keys && go install ./cmd/rename-jira-keys
+#+END_SRC
+
+** Prerequisites
+
+- Go 1.16 or later
+- ~$GOPATH/bin~ or ~$GOBIN~ in your PATH
+
+* Usage
+
+#+BEGIN_SRC bash
+# Basic usage - all flags are explicit
+rename-jira-keys --old PROJ-123 --new PROJ-456
+
+# With custom plan file and docs directory
+rename-jira-keys --old PROJ-123 --new PROJ-456 -p my-plan.md -d my-docs/tasks
+
+# Flexible flag ordering (all of these work)
+rename-jira-keys -p my-plan.md --old PROJ-123 -d my-docs --new PROJ-456
+rename-jira-keys --old PROJ-123 -p my-plan.md --new PROJ-456 -d my-docs
+
+# Show help
+rename-jira-keys --help
+#+END_SRC
+
+* Command Line Options
+
+| Option         | Short | Description                    | Default        | Required |
+|----------------+-------+--------------------------------+----------------+----------|
+| ~--old-key~    | ~-old~ | Old Jira key to replace       | -              | Yes      |
+| ~--new-key~    | ~-new~ | New Jira key to use           | -              | Yes      |
+| ~--plan-file~  | ~-p~   | Specify the plan file         | ~plan.md~      | No       |
+| ~--docs-dir~   | ~-d~   | Specify the docs directory    | ~docs/project~ | No       |
+| ~--help~       | ~-h~   | Show help message             | -              | No       |
+
+* Examples
+
+** Basic Renaming
+#+BEGIN_SRC bash
+rename-jira-keys --old PROJ-123 --new PROJ-456
+#+END_SRC
+
+** Custom Paths
+#+BEGIN_SRC bash
+rename-jira-keys --old DEV-400 --new DEV-900 -p project-plan.md -d documentation/tickets
+#+END_SRC
+
+** Using Short Form Options
+#+BEGIN_SRC bash
+rename-jira-keys -old TASK-100 -new TASK-200 -p roadmap.md -d ./docs/issues
+#+END_SRC
+
+* Project Structure
+
+The project follows Go best practices with a cmd/ directory structure:
+
+#+BEGIN_SRC text
+devtools/rename-jira-keys/
+├── cmd/
+│   └── rename-jira-keys/
+│       └── main.go          # Main entry point
+├── BUILD.bazel              # Bazel build configuration
+├── README.org               # This file
+└── test_jira_rename/        # Test files
+    ├── docs/
+    │   └── project/
+    └── plan.md
+#+END_SRC
+
+* Building from Source
+
+** Using Go
+#+BEGIN_SRC bash
+# Build binary in current directory
+go build ./cmd/rename-jira-keys
+
+# Or build and install to GOPATH/bin
+go install ./cmd/rename-jira-keys
+#+END_SRC
+
+** Using Bazel
+#+BEGIN_SRC bash
+bazel build //devtools/rename-jira-keys:rename-jira-keys
+#+END_SRC
+
+* Testing
+
+#+BEGIN_SRC bash
+# Run tests
+go test ./...
+
+# Or with Bazel
+bazel test //devtools/rename-jira-keys:all
+#+END_SRC
+
+* Safety Features
+
+- *Word boundary matching*: Prevents partial matches (PROJ-123 won't match MYPROJ-123)
+- *File existence checks*: Verifies files before renaming to prevent overwrites
+- *Detailed feedback*: Shows exactly which files were updated
+- *Graceful error handling*: Continues processing other files if one fails
+- *Clear error messages*: Tells you exactly which required flags are missing
+
+* Common Use Cases
+
+- *Jira project migration*: OLDPROJ-123 → NEWPROJ-123
+- *Ticket renumbering*: PROJ-123 → PROJ-456
+- *Bulk documentation updates* after project restructuring
+- *Cross-referencing cleanup* when consolidating documentation
+
+* Implementation Notes
+
+- Uses regex with word boundaries for precise matching
+- Written in Go for better cross-platform compatibility
+- Follows Go conventions and error handling best practices
+- Type safety and compile-time checks
+- Flexible flag ordering using standard Go flag package
