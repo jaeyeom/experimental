@@ -65,11 +65,13 @@ for file in $staged_files; do
     if [[ -n "$package" ]]; then
         debug "  Found package: $package"
 
-        # Query for test targets that depend on any target in this package
-        # rdeps(//..., $package:*) finds all targets that depend on targets in $package
-        # intersect kind('.*_test rule', //...) filters to only test rules
+        # Query for test targets that are affected by changes to this package
+        # 1. Test targets within the same package: kind('.*_test rule', $package:*)
+        # 2. External test targets that depend on this package: rdeps(//..., $package:*) intersect kind('.*_test rule', //...)
         # We use $package:* (not $package/...) to avoid recursing into subpackages
-        test_deps=$(bazel query "rdeps(//..., $package:*) intersect kind('.*_test rule', //...)" 2>/dev/null || true)
+        same_package_tests=$(bazel query "kind('.*_test rule', $package:*)" 2>/dev/null || true)
+        external_test_deps=$(bazel query "rdeps(//..., $package:*) intersect kind('.*_test rule', //...)" 2>/dev/null || true)
+        test_deps="$same_package_tests $external_test_deps"
 
         if [[ -n "$test_deps" ]]; then
             debug "  Found test dependencies: $(echo $test_deps | wc -w) targets"
