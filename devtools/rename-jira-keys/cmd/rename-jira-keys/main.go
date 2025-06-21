@@ -67,9 +67,9 @@ func parseFlags() Config {
 		fmt.Fprintf(os.Stderr, "   • Plan file (default: plan.md, or custom file specified with -p)\n")
 		fmt.Fprintf(os.Stderr, "   • All *.md files in docs directory (default: docs/project/, or custom with -d)\n")
 		fmt.Fprintf(os.Stderr, "   • Uses word boundary matching to prevent partial replacements\n")
-		fmt.Fprintf(os.Stderr, "2. File Renaming - Renames the specific documentation file:\n")
-		fmt.Fprintf(os.Stderr, "   • From: docs/project/OLD-KEY.md\n")
-		fmt.Fprintf(os.Stderr, "   • To: docs/project/NEW-KEY.md\n")
+		fmt.Fprintf(os.Stderr, "2. File Renaming - Renames documentation files starting with OLD-KEY:\n")
+		fmt.Fprintf(os.Stderr, "   • From: docs/project/OLD-KEY*.md (e.g., OLD-KEY.md, OLD-KEY-description.md)\n")
+		fmt.Fprintf(os.Stderr, "   • To: docs/project/NEW-KEY*.md (preserving any suffix after OLD-KEY)\n")
 		fmt.Fprintf(os.Stderr, "   • Safely checks for existing files to prevent overwrites\n\n")
 		fmt.Fprintf(os.Stderr, "SAFETY FEATURES:\n")
 		fmt.Fprintf(os.Stderr, "• Word boundary matching prevents partial matches (PROJ-123 won't match MYPROJ-123)\n")
@@ -144,22 +144,50 @@ func runRename(config Config) error {
 }
 
 func renameDocFile(docsDir, oldKey, newKey string) error {
-	oldDocFile := filepath.Join(docsDir, oldKey+".md")
-	newDocFile := filepath.Join(docsDir, newKey+".md")
-
-	if _, err := os.Stat(oldDocFile); err != nil {
-		return fmt.Errorf("file %s not found for renaming", oldDocFile)
+	// Find all .md files in the docs directory
+	pattern := filepath.Join(docsDir, "*.md")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("error searching for markdown files in %s: %v", docsDir, err)
 	}
 
-	if _, err := os.Stat(newDocFile); err == nil {
-		return fmt.Errorf("%s already exists. Skipping rename", newDocFile)
+	if len(matches) == 0 {
+		return fmt.Errorf("no markdown files found in %s", docsDir)
 	}
 
-	if err := os.Rename(oldDocFile, newDocFile); err != nil {
-		return fmt.Errorf("error renaming %s: %v", oldDocFile, err)
+	foundMatches := false
+
+	// Process each file and check if it matches our precise pattern
+	for _, oldDocFile := range matches {
+		filename := filepath.Base(oldDocFile)
+
+		// Check if filename starts with oldKey followed by either:
+		// 1. .md (exact match: PROJ-1.md)
+		// 2. - (dash-separated: PROJ-1-description.md)
+		if filename == oldKey+".md" || (len(filename) > len(oldKey)+1 && filename[:len(oldKey)+1] == oldKey+"-") {
+			foundMatches = true
+
+			// Extract the suffix after the oldKey (e.g., ".md" or "-description.md")
+			suffix := filename[len(oldKey):]
+			newDocFile := filepath.Join(docsDir, newKey+suffix)
+
+			if _, err := os.Stat(newDocFile); err == nil {
+				return fmt.Errorf("%s already exists. Cannot rename %s", newDocFile, oldDocFile)
+			}
+
+			if err := os.Rename(oldDocFile, newDocFile); err != nil {
+				fmt.Printf("Error renaming %s: %v\n", oldDocFile, err)
+				continue
+			}
+
+			fmt.Printf("Renamed %s to %s\n", oldDocFile, newDocFile)
+		}
 	}
 
-	fmt.Printf("Renamed %s to %s\n", oldDocFile, newDocFile)
+	if !foundMatches {
+		return fmt.Errorf("no files found matching pattern %s.md or %s-*.md", oldKey, oldKey)
+	}
+
 	return nil
 }
 

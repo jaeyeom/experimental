@@ -134,7 +134,7 @@ func TestRenameDocFile(t *testing.T) {
 			oldKey:      "PROJ-123",
 			newKey:      "PROJ-456",
 			expectError: true,
-			errorMsg:    "not found for renaming",
+			errorMsg:    "no markdown files found",
 		},
 		{
 			name: "destination file exists",
