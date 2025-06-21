@@ -68,13 +68,19 @@ for file in $staged_files; do
         # Query for test targets that are affected by changes to this package
         # 1. Test targets within the same package: kind('.*_test rule', $package:*)
         # 2. External test targets that depend on this package: rdeps(//..., $package:*) intersect kind('.*_test rule', //...)
+        # 3. Format test targets (always include, will be filtered later based on file types)
         # We use $package:* (not $package/...) to avoid recursing into subpackages
         same_package_tests=$(bazel query "kind('.*_test rule', $package:*)" 2>/dev/null || true)
+        debug "    Same package tests: $same_package_tests"
         external_test_deps=$(bazel query "rdeps(//..., $package:*) intersect kind('.*_test rule', //...)" 2>/dev/null || true)
-        test_deps="$same_package_tests $external_test_deps"
+        debug "    External test deps: $external_test_deps"
+        format_test_targets=$(bazel query "//tools/format:* intersect kind('.*_test rule', //...)" 2>/dev/null || true)
+        debug "    Format test targets: $format_test_targets"
+        test_deps="$same_package_tests $external_test_deps $format_test_targets"
 
         if [[ -n "$test_deps" ]]; then
             debug "  Found test dependencies: $(echo $test_deps | wc -w) targets"
+            debug "  Test deps: $test_deps"
             affected_tests="$affected_tests $test_deps"
         else
             debug "  No test dependencies found"
@@ -99,34 +105,86 @@ filter_format_tests() {
     local has_rust=$(echo "$staged_files" | grep -E '\.rs$' || true)
     local has_starlark=$(echo "$staged_files" | grep -E '\.(bzl|BUILD|BUILD\.bazel|WORKSPACE|WORKSPACE\.bazel|MODULE|MODULE\.bazel)$' || true)
 
+    debug "  File type detection:"
+    debug "    has_cpp: $has_cpp"
+    debug "    has_c: $has_c"
+    debug "    has_go: $has_go"
+    debug "    has_jsonnet: $has_jsonnet"
+    debug "    has_proto: $has_proto"
+    debug "    has_python: $has_python"
+    debug "    has_rust: $has_rust"
+    debug "    has_starlark: $has_starlark"
+
     while IFS= read -r test; do
+        debug "    Processing test: $test"
         case "$test" in
             "//tools/format:format_test_C++_with_clang-format")
-                [[ -n "$has_cpp" ]] && filtered="$filtered $test"
+                if [[ -n "$has_cpp" ]]; then
+                    debug "      Including C++ format test (has C++ files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding C++ format test (no C++ files)"
+                fi
                 ;;
             "//tools/format:format_test_C_with_clang-format")
-                [[ -n "$has_c" ]] && filtered="$filtered $test"
+                if [[ -n "$has_c" ]]; then
+                    debug "      Including C format test (has C files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding C format test (no C files)"
+                fi
                 ;;
             "//tools/format:format_test_Go_with_gofmt")
-                [[ -n "$has_go" ]] && filtered="$filtered $test"
+                if [[ -n "$has_go" ]]; then
+                    debug "      Including Go format test (has Go files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding Go format test (no Go files)"
+                fi
                 ;;
             "//tools/format:format_test_Jsonnet_with_jsonnetfmt")
-                [[ -n "$has_jsonnet" ]] && filtered="$filtered $test"
+                if [[ -n "$has_jsonnet" ]]; then
+                    debug "      Including Jsonnet format test (has Jsonnet files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding Jsonnet format test (no Jsonnet files)"
+                fi
                 ;;
             "//tools/format:format_test_Protocol_Buffer_with_buf")
-                [[ -n "$has_proto" ]] && filtered="$filtered $test"
+                if [[ -n "$has_proto" ]]; then
+                    debug "      Including Protocol Buffer format test (has proto files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding Protocol Buffer format test (no proto files)"
+                fi
                 ;;
             "//tools/format:format_test_Python_with_ruff")
-                [[ -n "$has_python" ]] && filtered="$filtered $test"
+                if [[ -n "$has_python" ]]; then
+                    debug "      Including Python format test (has Python files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding Python format test (no Python files)"
+                fi
                 ;;
             "//tools/format:format_test_Rust_with_rustfmt")
-                [[ -n "$has_rust" ]] && filtered="$filtered $test"
+                if [[ -n "$has_rust" ]]; then
+                    debug "      Including Rust format test (has Rust files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding Rust format test (no Rust files)"
+                fi
                 ;;
             "//tools/format:format_test_Starlark_with_buildifier")
-                [[ -n "$has_starlark" ]] && filtered="$filtered $test"
+                if [[ -n "$has_starlark" ]]; then
+                    debug "      Including Starlark format test (has Starlark files)"
+                    filtered="$filtered $test"
+                else
+                    debug "      Excluding Starlark format test (no Starlark files)"
+                fi
                 ;;
             *)
                 # Keep all other tests
+                debug "      Including non-format test: $test"
                 filtered="$filtered $test"
                 ;;
         esac
@@ -136,10 +194,13 @@ filter_format_tests() {
 }
 
 # Remove duplicates and empty lines
+debug "Raw affected tests: $affected_tests"
 unique_tests=$(echo "$affected_tests" | tr ' ' '\n' | sort -u | grep -v '^$')
+debug "Unique tests before filtering: $unique_tests"
 
 # Filter out format tests without corresponding file types
 filtered_tests=$(filter_format_tests "$unique_tests")
+debug "Filtered tests: $filtered_tests"
 
 # Print final result
 echo "$filtered_tests" | tr ' ' '\n' | grep -v '^$' || true
