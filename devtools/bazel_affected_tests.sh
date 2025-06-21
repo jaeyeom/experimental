@@ -21,7 +21,6 @@
 staged_files=$(git diff --cached --name-only --diff-filter=ACM)
 
 if [[ -z "$staged_files" ]]; then
-    echo "No staged files found"
     exit 0
 fi
 
