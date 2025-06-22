@@ -13,9 +13,15 @@
           when: curl_playbook_imported is not defined
 
     - name: Ensure curl is present on MacOS
-      community.general.homebrew:
-        name: curl
-        state: present
+      block:
+        - name: Check if curl is installed
+          shell: command -v curl
+          changed_when: False
+      rescue:
+        - name: Install curl on MacOS
+          community.general.homebrew:
+            name: curl
+            state: present
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure curl is present on non-Termux, non-MacOS systems

@@ -13,9 +13,15 @@
           when: which_playbook_imported is not defined
 
     - name: Ensure which is present on MacOS
-      community.general.homebrew:
-        name: which
-        state: present
+      block:
+        - name: Check if which is installed
+          shell: command -v which
+          changed_when: False
+      rescue:
+        - name: Install which on MacOS
+          community.general.homebrew:
+            name: which
+            state: present
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure which is present on non-Termux, non-MacOS systems
