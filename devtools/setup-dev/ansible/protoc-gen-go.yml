@@ -1,6 +1,6 @@
 ---
-- import_playbook: setup-user-go-bin-directory.yml
 - import_playbook: protoc.yml
+- import_playbook: setup-user-go-bin-directory.yml
 
 - name: Ensure protoc-gen-go is present
   hosts: all
