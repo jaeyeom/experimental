@@ -1,4 +1,5 @@
 ---
+
 - name: Ensure ruff is present
   hosts: all
   tasks:
@@ -13,9 +14,15 @@
           when: ruff_playbook_imported is not defined
 
     - name: Ensure ruff is present on MacOS
-      community.general.homebrew:
-        name: ruff
-        state: present
+      block:
+        - name: Check if ruff is installed
+          shell: command -v ruff
+          changed_when: False
+      rescue:
+        - name: Install ruff on MacOS
+          community.general.homebrew:
+            name: ruff
+            state: present
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure ruff is present on Termux
@@ -28,7 +35,7 @@
           command: pkg install -y ruff
       when: ansible_env.TERMUX_VERSION is defined
 
-    - name: Install ruff via pip on Debian/Ubuntu (system packages are outdated)
+    - name: Ensure if ruff is installed
       ansible.builtin.pip:
         name: ruff
         state: latest

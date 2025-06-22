@@ -1,5 +1,35 @@
 // Binary generate_packages generates Ansible yaml files for the package
 // installations.
+//
+// This package provides a unified system for generating Ansible playbooks that
+// install development tools across different platforms (macOS, Linux, Termux).
+// The core design uses platform-specific installation methods that implement
+// the InstallMethod interface.
+//
+// Key exported types:
+//
+// PackageData represents a traditional system package with platform-specific
+// package names and setup requirements.
+//
+// InstallMethod is the core interface that all installation methods implement.
+// It defines how to render installation tasks and manage dependencies.
+//
+// PlatformSpecificTool represents a tool that can be installed using different
+// methods on different platforms (e.g., brew on macOS, pkg on Termux).
+//
+// Installation method implementations:
+//   - PackageInstallMethod: System package managers (apt, yum, etc.)
+//   - BrewInstallMethod: Homebrew packages with taps and options
+//   - TermuxPkgInstallMethod: Termux pkg command
+//   - PipInstallMethod: Python pip packages
+//   - GoInstallMethod: Go packages with version checking
+//   - CargoInstallMethod: Rust cargo packages with updates
+//   - NpmInstallMethod: Node.js npm packages
+//   - UbuntuPkgInstallMethod: Ubuntu-specific packages with PPA support
+//   - DebianPkgInstallMethod: Debian-specific packages with backports
+//
+// Commander interface is implemented by all tool types to provide a unified
+// way to get command names for file generation.
 package main
 
 import (
@@ -13,6 +43,10 @@ import (
 	"text/template"
 )
 
+// PackageData represents a traditional system package that can be installed
+// via platform-specific package managers (apt, yum, pkg, brew, etc.).
+// It supports different package names per platform and additional setup
+// requirements like PPAs, taps, and installation options.
 type PackageData struct {
 	command       string
 	debianPkgName string
@@ -63,86 +97,390 @@ func (p PackageData) BrewOptions() []string {
 	return p.brewOptions
 }
 
-type GoInstall struct {
-	command string
+// InstallMethod defines the interface that all installation methods must implement.
+// It provides a unified way to handle different installation approaches across platforms.
+type InstallMethod interface {
+	GetMethodType() string
+	GetImports() []string
+	RenderInstallTask(command string) string
+	RenderSetupTasks(command string) string // For PPA, taps, backports, etc.
+}
+
+// PackageInstallMethod handles installation via system package managers
+// like apt, yum, dnf, etc. on Linux distributions.
+type PackageInstallMethod struct {
+	Name string
+}
+
+func (p PackageInstallMethod) GetMethodType() string {
+	return "package"
+}
+
+func (p PackageInstallMethod) GetImports() []string {
+	return nil
+}
+
+func (p PackageInstallMethod) RenderSetupTasks(command string) string {
+	return ""
+}
+
+func (p PackageInstallMethod) RenderInstallTask(command string) string {
+	return `        - name: Install ` + command + ` on non-Termux, non-MacOS systems
+          package:
+            name: ` + p.Name + `
+            state: present
+          become: yes`
+}
+
+// BrewInstallMethod handles installation via Homebrew on macOS.
+// Supports taps for third-party repositories and installation options.
+type BrewInstallMethod struct {
+	Name    string
+	Tap     string
+	Options []string
+}
+
+func (b BrewInstallMethod) GetMethodType() string {
+	return "brew"
+}
+
+func (b BrewInstallMethod) GetImports() []string {
+	return nil
+}
+
+func (b BrewInstallMethod) RenderSetupTasks(command string) string {
+	if b.Tap == "" {
+		return ""
+	}
+	return `    - name: Tap ` + b.Tap + ` for ` + command + `
+      community.general.homebrew_tap:
+        name: ` + b.Tap + `
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+`
+}
+
+func (b BrewInstallMethod) RenderInstallTask(command string) string {
+	task := `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on MacOS
+          community.general.homebrew:
+            name: ` + b.Name + `
+            state: present`
+	if len(b.Options) > 0 {
+		task += `
+            install_options:`
+		for _, opt := range b.Options {
+			task += `
+              - ` + opt
+		}
+	}
+	return task
+}
+
+// TermuxPkgInstallMethod handles installation via the pkg command on Termux.
+type TermuxPkgInstallMethod struct {
+	Name string
+}
+
+func (t TermuxPkgInstallMethod) GetMethodType() string {
+	return "termux-pkg"
+}
+
+func (t TermuxPkgInstallMethod) GetImports() []string {
+	return nil
+}
+
+func (t TermuxPkgInstallMethod) RenderSetupTasks(command string) string {
+	return ""
+}
+
+func (t TermuxPkgInstallMethod) RenderInstallTask(command string) string {
+	return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on Termux
+          command: pkg install -y ` + t.Name
+}
+
+// PipInstallMethod handles installation via Python pip.
+type PipInstallMethod struct {
+	Name string
+}
+
+func (p PipInstallMethod) GetMethodType() string {
+	return "pip"
+}
+
+func (p PipInstallMethod) GetImports() []string {
+	return nil
+}
+
+func (p PipInstallMethod) RenderSetupTasks(command string) string {
+	return ""
+}
+
+func (p PipInstallMethod) RenderInstallTask(command string) string {
+	return `    - name: Ensure if ` + command + ` is installed
+      ansible.builtin.pip:
+        name: ` + p.Name + `
+        state: latest`
+}
+
+// GoInstallMethod handles installation via 'go install' command.
+// Includes version checking and upgrade logic for Go modules.
+type GoInstallMethod struct {
 	PkgPath string
-	Imports []string
 }
 
-func (g GoInstall) Command() string {
-	return g.command
+func (g GoInstallMethod) GetMethodType() string {
+	return "go"
 }
 
-func (g GoInstall) CommandID() string {
-	// Replace dash to underscore.
-	return strings.ReplaceAll(g.command, "-", "_")
+func (g GoInstallMethod) GetImports() []string {
+	return []string{"setup-user-go-bin-directory"}
 }
 
-type PipInstall struct {
-	command string
-	pkgName string
-	Imports []string
+func (g GoInstallMethod) RenderSetupTasks(command string) string {
+	return ""
 }
 
-func (p PipInstall) Command() string {
+func (g GoInstallMethod) RenderInstallTask(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
+	return `    - name: Check if ` + command + ` is installed
+      shell: go version -m $(command -v ` + command + `) | grep '^\s*mod\s'
+      register: ` + commandID + `_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract ` + command + ` version
+      block:
+        - name: Set ` + command + ` facts
+          set_fact:
+            ` + commandID + `_module_path: "{{ ` + commandID + `_installed.stdout.split()[1] }}"
+            ` + commandID + `_module_version: "{{ ` + commandID + `_installed.stdout.split()[2] }}"
+        - name: Determine the latest ` + command + ` version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@latest"
+          register: ` + commandID + `_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ ` + commandID + `_module_path }} {{ ` + commandID + `_module_version }} => {{ ` + commandID + `_latest.stdout }}"
+      rescue:
+        - name: Clear ` + command + ` facts
+          set_fact:
+            ` + commandID + `_module_path: ""
+            ` + commandID + `_module_version: ""
+
+    - name: Upgrade ` + command + `
+      command: go install ` + g.PkgPath + `
+      when: ` + commandID + `_module_version is not defined or ` + commandID + `_module_version == "" or ` + commandID + `_module_version != ` + commandID + `_latest.stdout`
+}
+
+// CargoInstallMethod handles installation via Rust cargo command.
+// Includes update logic using cargo-install-update.
+type CargoInstallMethod struct {
+	Name string
+}
+
+func (c CargoInstallMethod) GetMethodType() string {
+	return "cargo"
+}
+
+func (c CargoInstallMethod) GetImports() []string {
+	return []string{"setup-cargo", "cargo-install-update"}
+}
+
+func (c CargoInstallMethod) RenderSetupTasks(command string) string {
+	return ""
+}
+
+func (c CargoInstallMethod) RenderInstallTask(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
+	task := `    - name: Check if ` + command + ` is installed
+      shell: command -v ` + command + `
+      register: ` + commandID + `_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install ` + command + ` using Cargo
+      command: cargo install ` + c.Name + `
+      when: ` + commandID + `_installed.rc != 0
+
+    - name: Update ` + command + ` to latest version
+      command: cargo install-update ` + c.Name + `
+      register: ` + commandID + `_update_result
+      changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
+      when: ` + commandID + `_installed.rc == 0`
+
+	return task
+}
+
+// NpmInstallMethod handles installation via Node.js npm command.
+type NpmInstallMethod struct {
+	Name string
+}
+
+func (n NpmInstallMethod) GetMethodType() string {
+	return "npm"
+}
+
+func (n NpmInstallMethod) GetImports() []string {
+	return []string{"npm"}
+}
+
+func (n NpmInstallMethod) RenderSetupTasks(command string) string {
+	return ""
+}
+
+func (n NpmInstallMethod) RenderInstallTask(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
+	return `    - name: Check if ` + command + ` is installed
+      shell: command -v ` + command + `
+      register: ` + commandID + `_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install ` + command + ` using npm
+      command: npm install -g ` + n.Name + `
+      when: ` + commandID + `_installed.rc != 0`
+}
+
+// UbuntuPkgInstallMethod handles Ubuntu-specific package installation
+// with PPA (Personal Package Archive) support.
+type UbuntuPkgInstallMethod struct {
+	Name string
+	PPA  string
+}
+
+func (u UbuntuPkgInstallMethod) GetMethodType() string {
+	return "ubuntu"
+}
+
+func (u UbuntuPkgInstallMethod) GetImports() []string {
+	return nil
+}
+
+func (u UbuntuPkgInstallMethod) RenderSetupTasks(command string) string {
+	if u.PPA == "" {
+		return ""
+	}
+	return `    - name: Ensure ` + command + ` PPA is present in Ubuntu
+      apt_repository:
+        repo: "` + u.PPA + `"
+        state: present
+        update_cache: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
+      become: yes
+
+`
+}
+
+func (u UbuntuPkgInstallMethod) RenderInstallTask(command string) string {
+	return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on non-Termux, non-MacOS systems
+          package:
+            name: ` + u.Name + `
+            state: present
+          become: yes`
+}
+
+// DebianPkgInstallMethod handles Debian-specific package installation
+// with bookworm-backports repository support.
+type DebianPkgInstallMethod struct {
+	Name string
+}
+
+func (d DebianPkgInstallMethod) GetMethodType() string {
+	return "debian"
+}
+
+func (d DebianPkgInstallMethod) GetImports() []string {
+	return nil
+}
+
+func (d DebianPkgInstallMethod) RenderSetupTasks(command string) string {
+	return `    - name: Ensure bookworm-backports is added to sources.list.d
+      ansible.builtin.apt_repository:
+        repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
+        state: present
+        update_cache: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      become: yes
+
+`
+}
+
+func (d DebianPkgInstallMethod) RenderInstallTask(command string) string {
+	return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on non-Termux, non-MacOS systems
+          package:
+            name: ` + d.Name + `
+            state: present
+          become: yes`
+}
+
+// PlatformSpecificTool represents a development tool that can be installed
+// using different methods on different platforms. This is the unified approach
+// that replaced separate install type arrays (GoInstall, PipInstall, etc.).
+type PlatformSpecificTool struct {
+	command   string
+	platforms map[string]InstallMethod
+	Imports   []string
+}
+
+func (p PlatformSpecificTool) Command() string {
 	return p.command
 }
 
-func (p PipInstall) CommandID() string {
+func (p PlatformSpecificTool) CommandID() string {
 	// Replace dash to underscore.
 	return strings.ReplaceAll(p.command, "-", "_")
 }
 
-func (p PipInstall) PkgName() string {
-	if p.pkgName != "" {
-		return p.pkgName
+func (p PlatformSpecificTool) GetPlatforms() map[string]InstallMethod {
+	return p.platforms
+}
+
+func (p PlatformSpecificTool) GetAllImports() []string {
+	importsMap := make(map[string]bool)
+	var importsOrder []string
+
+	// Add explicit imports first, maintaining order
+	for _, imp := range p.Imports {
+		if !importsMap[imp] && imp != p.command {
+			importsMap[imp] = true
+			importsOrder = append(importsOrder, imp)
+		}
 	}
 
-	return p.command
-}
-
-type CargoInstall struct {
-	command string
-	pkgName string
-	Imports []string
-}
-
-func (c CargoInstall) Command() string {
-	return c.command
-}
-
-func (c CargoInstall) CommandID() string {
-	// Replace dash to underscore.
-	return strings.ReplaceAll(c.command, "-", "_")
-}
-
-func (c CargoInstall) PkgName() string {
-	if c.pkgName != "" {
-		return c.pkgName
+	// Add imports from platform methods, maintaining their order
+	for _, method := range p.platforms {
+		for _, imp := range method.GetImports() {
+			if !importsMap[imp] && imp != p.command {
+				importsMap[imp] = true
+				importsOrder = append(importsOrder, imp)
+			}
+		}
 	}
-	return c.command
-}
 
-type NpmInstall struct {
-	command string
-	pkgName string
-	Imports []string
-}
-
-func (n NpmInstall) Command() string {
-	return n.command
-}
-
-func (n NpmInstall) CommandID() string {
-	// Replace dash to underscore.
-	return strings.ReplaceAll(n.command, "-", "_")
-}
-
-func (n NpmInstall) PkgName() string {
-	if n.pkgName != "" {
-		return n.pkgName
-	}
-	return n.command
+	return importsOrder
 }
 
 var packagesTemplate = `---
@@ -222,9 +560,8 @@ var packagesTemplate = `---
       when: ansible_env.TERMUX_VERSION is defined{{.Suffix}}
 `
 
-var goInstallTemplate = `---
-- import_playbook: setup-user-go-bin-directory.yml
-{{- range .Imports }}
+var platformSpecificTemplate = `---
+{{- range .GetAllImports }}
 - import_playbook: {{.}}.yml
 {{- end }}
 
@@ -240,132 +577,59 @@ var goInstallTemplate = `---
           set_fact:
             {{.CommandID}}_playbook_imported: true
           when: {{.CommandID}}_playbook_imported is not defined
+{{- $platforms := .GetPlatforms }}
+{{- if index $platforms "darwin" }}
+{{- $method := index $platforms "darwin" }}
 
-    - name: Check if {{.Command}} is installed
-      shell: go version -m $(command -v {{.Command}}) | grep '^\s*mod\s'
-      register: {{.CommandID}}_installed
-      ignore_errors: yes
-      changed_when: False
+    - name: Ensure {{.Command}} is present on MacOS
+{{$method.RenderInstallTask .Command}}
+      when: ansible_facts['os_family'] == "Darwin"
+{{- end }}
+{{- if index $platforms "termux" }}
+{{- $method := index $platforms "termux" }}
 
-    - name: Extract {{.Command}} version
-      block:
-        - name: Set {{.Command}} facts
-          set_fact:
-            {{.CommandID}}_module_path: "{{"{{"}} {{.CommandID}}_installed.stdout.split()[1] {{"}}"}}"
-            {{.CommandID}}_module_version: "{{"{{"}} {{.CommandID}}_installed.stdout.split()[2] {{"}}"}}"
-        - name: Determine the latest {{.Command}} version
-          command: go list -m -f "{{"{{"}} '{{"{{"}}' {{"}}"}}.Version {{"{{"}} '{{"}}"}}' {{"}}"}}" "{{"{{"}} {{.CommandID}}_module_path {{"}}"}}@latest"
-          register: {{.CommandID}}_latest
-          ignore_errors: yes
-          changed_when: False
+    - name: Ensure {{.Command}} is present on Termux
+{{$method.RenderInstallTask .Command}}
+      when: ansible_env.TERMUX_VERSION is defined
+{{- end }}
+{{- if index $platforms "all" }}
+{{- $method := index $platforms "all" }}
 
-        - name: Debug module path and version
-          debug:
-            msg: "{{"{{"}} {{.CommandID}}_module_path {{"}}"}} {{"{{"}} {{.CommandID}}_module_version {{"}}"}} => {{"{{"}} {{.CommandID}}_latest.stdout {{"}}"}}"
-      rescue:
-        - name: Clear {{.Command}} facts
-          set_fact:
-            {{.CommandID}}_module_path: ""
-            {{.CommandID}}_module_version: ""
+{{$method.RenderInstallTask .Command}}
+{{- else }}
+{{- if index $platforms "debian-like" }}
+{{- $method := index $platforms "debian-like" }}
+{{- if eq $method.GetMethodType "pip" }}
 
-    - name: Upgrade {{.Command}}
-      command: go install {{.PkgPath}}
-      when: {{.CommandID}}_module_version is not defined or {{.CommandID}}_module_version == "" or {{.CommandID}}_module_version != {{.CommandID}}_latest.stdout
+{{$method.RenderInstallTask .Command}}
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+{{- else }}
+
+    - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian/Ubuntu
+{{$method.RenderInstallTask .Command}}
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+{{- end }}
+{{- else }}
+{{- if index $platforms "debian" }}
+{{- $method := index $platforms "debian" }}
+
+    - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian
+{{$method.RenderInstallTask .Command}}
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian"
+{{- end }}
+{{- if index $platforms "ubuntu" }}
+{{- $method := index $platforms "ubuntu" }}
+
+    - name: Install {{.Command}} via {{$method.GetMethodType}} on Ubuntu
+{{$method.RenderInstallTask .Command}}
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
+{{- end }}
+{{- end }}
+{{- end }}
 `
 
-var pipInstallTemplate = `---
-{{- range .Imports }}
-- import_playbook: {{.}}.yml
-{{- end }}
-
-- name: Ensure {{.Command}} is present
-  hosts: all
-  tasks:
-    - name: Include guard for {{.Command}} playbook
-      block:
-        - name: Stop early if the {{.Command}} playbook is already included
-          meta: end_play
-          when: {{.CommandID}}_playbook_imported is defined
-        - name: Ensure the {{.Command}} playbook is not included
-          set_fact:
-            {{.CommandID}}_playbook_imported: true
-          when: {{.CommandID}}_playbook_imported is not defined
-
-    - name: Ensure if {{.Command}} is installed
-      ansible.builtin.pip:
-        name: {{.PkgName}}
-        state: latest
-`
-
-var cargoInstallTemplate = `---
-- import_playbook: setup-cargo.yml
-{{- if ne .Command "cargo-install-update" }}
-- import_playbook: cargo-install-update.yml
-{{- end }}
-{{- range .Imports }}
-- import_playbook: {{.}}.yml
-{{- end }}
-
-- name: Ensure {{.Command}} is present
-  hosts: all
-  tasks:
-    - name: Include guard for {{.Command}} playbook
-      block:
-        - name: Stop early if the {{.Command}} playbook is already included
-          meta: end_play
-          when: {{.CommandID}}_playbook_imported is defined
-        - name: Ensure the {{.Command}} playbook is not included
-          set_fact:
-            {{.CommandID}}_playbook_imported: true
-          when: {{.CommandID}}_playbook_imported is not defined
-
-    - name: Check if {{.Command}} is installed
-      shell: command -v {{.Command}}
-      register: {{.CommandID}}_installed
-      ignore_errors: yes
-      changed_when: False
-
-    - name: Install {{.Command}} using Cargo
-      command: cargo install {{.PkgName}}
-      when: {{.CommandID}}_installed.rc != 0
-
-    - name: Update {{.Command}} to latest version
-      command: cargo install-update {{.PkgName}}
-      register: {{.CommandID}}_update_result
-      changed_when: "{{.CommandID}}_update_result.stdout is search('Overall updated [1-9]')"
-      when: {{.CommandID}}_installed.rc == 0
-`
-
-var npmInstallTemplate = `---
-- import_playbook: npm.yml
-{{- range .Imports }}
-- import_playbook: {{.}}.yml
-{{- end }}
-
-- name: Ensure {{.Command}} is present
-  hosts: all
-  tasks:
-    - name: Include guard for {{.Command}} playbook
-      block:
-        - name: Stop early if the {{.Command}} playbook is already included
-          meta: end_play
-          when: {{.CommandID}}_playbook_imported is defined
-        - name: Ensure the {{.Command}} playbook is not included
-          set_fact:
-            {{.CommandID}}_playbook_imported: true
-          when: {{.CommandID}}_playbook_imported is not defined
-
-    - name: Check if {{.Command}} is installed
-      shell: command -v {{.Command}}
-      register: {{.CommandID}}_installed
-      ignore_errors: yes
-      changed_when: False
-
-    - name: Install {{.Command}} using npm
-      command: npm install -g {{.PkgName}}
-      when: {{.CommandID}}_installed.rc != 0
-`
-
+// Commander interface is implemented by all tool types to provide
+// a unified way to get command names for file generation.
 type Commander interface {
 	Command() string
 }
@@ -421,56 +685,212 @@ var packages = []PackageData{
 	{command: "zoxide"},
 }
 
-var gopkgs = []GoInstall{
-	{"buildifier", "github.com/bazelbuild/buildtools/buildifier@latest", nil},
-	{"buildozer", "github.com/bazelbuild/buildtools/buildozer@latest", nil},
-	{"fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest", nil},
-	{"godef", "github.com/rogpeppe/godef@latest", nil},
-	{"godoc", "golang.org/x/tools/cmd/godoc@latest", nil},
-	{"godoctor", "github.com/godoctor/godoctor@latest", nil},
-	{"gofumpt", "mvdan.cc/gofumpt@latest", nil},
-	{"goimports", "golang.org/x/tools/cmd/goimports@latest", nil},
-	{"gomodifytags", "github.com/fatih/gomodifytags@latest", nil},
-	{"gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest", nil},
-	{"gopls", "golang.org/x/tools/gopls@latest", nil},
-	{"gorename", "golang.org/x/tools/cmd/gorename@latest", nil},
-	{"gotests", "github.com/cweill/gotests/...@latest", nil},
-	{"grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest", nil},
-	{"guru", "golang.org/x/tools/cmd/guru@latest", nil},
-	{"hugo", "github.com/gohugoio/hugo@latest", nil},
-	{"image2ascii", "github.com/qeesung/image2ascii@latest", nil},
-	{"impl", "github.com/josharian/impl@latest", nil},
-	{"jira", "github.com/ankitpokhrel/jira-cli/cmd/jira@latest", nil},
+var platformSpecificTools = []PlatformSpecificTool{
 	{
-		"protoc-gen-go",
-		"google.golang.org/protobuf/cmd/protoc-gen-go@latest",
-		[]string{"protoc"},
+		command: "ruff",
+		platforms: map[string]InstallMethod{
+			"termux":      TermuxPkgInstallMethod{Name: "ruff"},
+			"darwin":      BrewInstallMethod{Name: "ruff"},
+			"debian-like": PipInstallMethod{Name: "ruff"},
+		},
+		Imports: nil,
 	},
 	{
-		"protoc-gen-go-grpc",
-		"google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest",
-		[]string{"protoc"},
+		command: "buildifier",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/bazelbuild/buildtools/buildifier@latest"},
+		},
+		Imports: nil,
 	},
 	{
-		"protolint",
-		"github.com/yoheimuta/protolint/cmd/protolint@latest",
-		nil,
+		command: "buildozer",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/bazelbuild/buildtools/buildozer@latest"},
+		},
+		Imports: nil,
 	},
-}
-
-var pipPkgs = []PipInstall{
-	{command: "protovalidate"},
-}
-
-var cargoPkgs = []CargoInstall{
-	{command: "cargo-add", pkgName: "cargo-edit"},
-	{command: "cargo-install-update", pkgName: "cargo-update"},
-	{command: "cargo-outdated"},
-	{command: "emacs-lsp-booster"},
-}
-
-var npmPkgs = []NpmInstall{
-	{command: "claude", pkgName: "@anthropic-ai/claude-cli"},
+	{
+		command: "fillstruct",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/davidrjenni/reftools/cmd/fillstruct@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "godef",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/rogpeppe/godef@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "godoc",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/godoc@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "godoctor",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/godoctor/godoctor@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gofumpt",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "mvdan.cc/gofumpt@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "goimports",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/goimports@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gomodifytags",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/fatih/gomodifytags@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gopkgs",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gopls",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/gopls@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gorename",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/gorename@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gotests",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/cweill/gotests/...@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "grpcui",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/fullstorydev/grpcui/cmd/grpcui@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "guru",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/guru@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "hugo",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/gohugoio/hugo@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "image2ascii",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/qeesung/image2ascii@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "impl",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/josharian/impl@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "jira",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/ankitpokhrel/jira-cli/cmd/jira@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "protoc-gen-go",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"},
+		},
+		Imports: []string{"protoc"},
+	},
+	{
+		command: "protoc-gen-go-grpc",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"},
+		},
+		Imports: []string{"protoc"},
+	},
+	{
+		command: "protolint",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/yoheimuta/protolint/cmd/protolint@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "cargo-add",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "cargo-edit"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "cargo-install-update",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "cargo-update"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "cargo-outdated",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "cargo-outdated"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "emacs-lsp-booster",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "emacs-lsp-booster"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "protovalidate",
+		platforms: map[string]InstallMethod{
+			"all": PipInstallMethod{Name: "protovalidate"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "claude",
+		platforms: map[string]InstallMethod{
+			"all": NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+		},
+		Imports: nil,
+	},
 }
 
 func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {
@@ -513,19 +933,7 @@ func getGeneratedRuleNames() []string {
 		generated = append(generated, pkg.Command())
 	}
 
-	for _, pkg := range gopkgs {
-		generated = append(generated, pkg.Command())
-	}
-
-	for _, pkg := range pipPkgs {
-		generated = append(generated, pkg.Command())
-	}
-
-	for _, pkg := range cargoPkgs {
-		generated = append(generated, pkg.Command())
-	}
-
-	for _, pkg := range npmPkgs {
+	for _, pkg := range platformSpecificTools {
 		generated = append(generated, pkg.Command())
 	}
 
@@ -616,16 +1024,10 @@ func updateReadmeManualPlaybooks() error {
 
 func main() {
 	tmpl := template.Must(template.New("packages").Parse(packagesTemplate))
-	template.Must(tmpl.New("goinstall").Parse(goInstallTemplate))
-	template.Must(tmpl.New("pipinstall").Parse(pipInstallTemplate))
-	template.Must(tmpl.New("cargoinstall").Parse(cargoInstallTemplate))
-	template.Must(tmpl.New("npminstall").Parse(npmInstallTemplate))
+	template.Must(tmpl.New("platformspecific").Parse(platformSpecificTemplate))
 
 	generatePackages(tmpl.Lookup("packages"), packages)
-	generatePackages(tmpl.Lookup("goinstall"), gopkgs)
-	generatePackages(tmpl.Lookup("pipinstall"), pipPkgs)
-	generatePackages(tmpl.Lookup("cargoinstall"), cargoPkgs)
-	generatePackages(tmpl.Lookup("npminstall"), npmPkgs)
+	generatePackages(tmpl.Lookup("platformspecific"), platformSpecificTools)
 
 	err := updateReadmeManualPlaybooks()
 	if err != nil {

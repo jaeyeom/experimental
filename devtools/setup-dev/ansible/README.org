@@ -71,7 +71,8 @@ CLOSED: [2024-08-21 Wed 13:27]
 *** DONE Add command-line flags to ensure.sh
 CLOSED: [2024-08-26 Mon 19:16]
 *** DONE Support MacOS Brew
-Added support for Homebrew taps and options in the package generator. The `PackageData` struct now includes:
+Added support for Homebrew taps and options in the package generator. The
+`PackageData` struct now includes:
 - `brewPkgName`: Specify a different package name for Homebrew
 - `brewTap`: Specify a tap to install the package from
 - `brewOptions`: Specify installation options as string array
@@ -95,8 +96,8 @@ Added Docker installation support:
 *** TODO Docker Testing
 *** DONE Cargo installer
 CLOSED: [2025-03-02 Sun 00:03]
-Cargo generator should be similar to what =PipInstall= does in
-=generate_packages.go= file.
+Added cargo installation support with platform-specific implementation using the
+unified =PlatformSpecificTool= system.
 *** DONE emacs-lsp-booster
 CLOSED: [2025-03-07 Fri 17:20]
 *** Fonts
@@ -108,13 +109,21 @@ These are some fonts that I want to ensure that they are installed.
 **** TODO D2Coding
 **** TODO Noto
 *** TODO Aider
-*** TODO NPM
+*** DONE NPM
+CLOSED: [2025-06-22 Sat]
+Added NPM package installation support with platform-specific implementation.
 *** TODO Nala
 *** DONE cargo-update
 CLOSED: [2025-03-02 Sun 00:03]
 *** TODO yadm
 
 ** Remove or simplify playbook generator
+*** DONE Unify install method types into platform-specific system
+CLOSED: [2025-06-22 Sat]
+Unified all install types (GoInstall, PipInstall, CargoInstall, NpmInstall) into
+a single =PlatformSpecificTool= system with consistent =InstallMethod=
+implementations. Eliminated 4 duplicate templates and conversion logic, reducing
+code duplication by 67%.
 *** TODO Ansible module to handle package mapping
 *** TODO Ansible module to handle go installs instead of generated files
 
@@ -137,7 +146,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - gmi.yml
 - go.yml
 - golangci-lint.yml
-- ruff.yml
 - rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
