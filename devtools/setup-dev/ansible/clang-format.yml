@@ -13,9 +13,15 @@
           when: clang_format_playbook_imported is not defined
 
     - name: Ensure clang-format is present on MacOS
-      community.general.homebrew:
-        name: clang-format
-        state: present
+      block:
+        - name: Check if clang-format is installed
+          shell: command -v clang-format
+          changed_when: False
+      rescue:
+        - name: Install clang-format on MacOS
+          community.general.homebrew:
+            name: clang-format
+            state: present
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure clang-format is present on non-Termux, non-MacOS systems

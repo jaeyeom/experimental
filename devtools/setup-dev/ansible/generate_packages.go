@@ -185,11 +185,17 @@ var packagesTemplate = `---
       when: ansible_facts['os_family'] == "Darwin"
 {{ end }}
     - name: Ensure {{.Command}} is present on MacOS
-      community.general.homebrew:
-        name: {{.BrewPkgName}}
-        state: present{{ if .BrewOptions }}
-        install_options:{{ range .BrewOptions }}
-          - {{ . }}{{ end }}{{ end }}
+      block:
+        - name: Check if {{.Command}} is installed
+          shell: command -v {{.Command}}
+          changed_when: False
+      rescue:
+        - name: Install {{.Command}} on MacOS
+          community.general.homebrew:
+            name: {{.BrewPkgName}}
+            state: present{{ if .BrewOptions }}
+            install_options:{{ range .BrewOptions }}
+              - {{ . }}{{ end }}{{ end }}
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure {{.Command}} is present on non-Termux, non-MacOS systems

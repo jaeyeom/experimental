@@ -35,6 +35,10 @@ elif [ "$OS" = "Darwin" ]; then
         fi
     fi
 
+    # Update Homebrew
+    echo "Updating Homebrew..."
+    brew update
+
     # Install Ansible if not already installed
     if ! command -v ansible >/dev/null 2>&1; then
         echo "Installing Ansible..."

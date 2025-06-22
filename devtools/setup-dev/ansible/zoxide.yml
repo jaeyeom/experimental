@@ -13,9 +13,15 @@
           when: zoxide_playbook_imported is not defined
 
     - name: Ensure zoxide is present on MacOS
-      community.general.homebrew:
-        name: zoxide
-        state: present
+      block:
+        - name: Check if zoxide is installed
+          shell: command -v zoxide
+          changed_when: False
+      rescue:
+        - name: Install zoxide on MacOS
+          community.general.homebrew:
+            name: zoxide
+            state: present
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure zoxide is present on non-Termux, non-MacOS systems

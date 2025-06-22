@@ -13,9 +13,15 @@
           when: sed_playbook_imported is not defined
 
     - name: Ensure sed is present on MacOS
-      community.general.homebrew:
-        name: gsed
-        state: present
+      block:
+        - name: Check if sed is installed
+          shell: command -v sed
+          changed_when: False
+      rescue:
+        - name: Install sed on MacOS
+          community.general.homebrew:
+            name: gsed
+            state: present
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure sed is present on non-Termux, non-MacOS systems

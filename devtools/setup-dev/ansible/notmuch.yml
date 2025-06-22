@@ -14,9 +14,15 @@
           when: notmuch_playbook_imported is not defined
 
     - name: Ensure notmuch is present on MacOS
-      community.general.homebrew:
-        name: notmuch
-        state: present
+      block:
+        - name: Check if notmuch is installed
+          shell: command -v notmuch
+          changed_when: False
+      rescue:
+        - name: Install notmuch on MacOS
+          community.general.homebrew:
+            name: notmuch
+            state: present
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure notmuch is present on non-Termux, non-MacOS systems
