@@ -462,15 +462,28 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
 
 	if s.VersionCommand != "" && s.LatestVersionURL != "" {
 		return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          register: ` + commandID + `_command_check
+          failed_when: false
+          changed_when: False
+
         - name: Get installed ` + command + ` version
           command: ` + s.VersionCommand + `
           register: ` + commandID + `_version_output
           failed_when: false
           changed_when: False
+          when: ` + commandID + `_command_check.rc == 0
 
         - name: Parse installed ` + command + ` version
           set_fact:
             ` + commandID + `_installed_version: "{{ (` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1')) | default(['0.0.0']) | first }}"
+          when: ` + commandID + `_command_check.rc == 0
+
+        - name: Set default version when ` + command + ` is not installed
+          set_fact:
+            ` + commandID + `_installed_version: "0.0.0"
+          when: ` + commandID + `_command_check.rc != 0
 
         - name: Get latest available ` + command + ` version from GitHub
           uri:
