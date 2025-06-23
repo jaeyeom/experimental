@@ -92,6 +92,17 @@
               done
           fi
 
+          if [[ "$1" == "add" && "$2" == "." ]]; then
+              echo "Error: 'git add .' is dangerous as it may stage unrelated files."
+              echo "Please manually specify the files you want to add:"
+              echo "  git add file1.txt file2.txt"
+              echo "  git add src/"
+              echo "  git add *.py"
+              echo ""
+              echo "To see what files would be added, use: git status"
+              exit 1
+          fi
+
           # Run the real git command
           REAL_GIT=$(which -a git | grep -v "$(realpath "$0")" | head -n 1)
           exec "$REAL_GIT" "$@"
