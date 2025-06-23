@@ -470,7 +470,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
 
         - name: Parse installed ` + command + ` version
           set_fact:
-            ` + commandID + `_installed_version: "{{ ` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1') | default('0.0.0') | first }}"
+            ` + commandID + `_installed_version: "{{ (` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1')) | default(['0.0.0']) | first }}"
 
         - name: Get latest available ` + command + ` version from GitHub
           uri:
