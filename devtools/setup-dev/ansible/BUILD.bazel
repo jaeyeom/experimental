@@ -7,8 +7,9 @@ go_library(
     visibility = ["//visibility:private"],
 )
 
+# gazelle:go_binary_name generate_packages
 go_binary(
-    name = "ansible",
+    name = "generate_packages",
     embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )
