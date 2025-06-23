@@ -1,7 +1,14 @@
-load("@rules_go//go:def.bzl", "go_binary")
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_binary(
     name = "org-lint",
-    srcs = ["main.go"],
+    embed = [":go_default_library"],
     visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint",
+    visibility = ["//visibility:private"],
 )

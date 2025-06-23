@@ -1,8 +1,8 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_test")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_binary(
     name = "rename-jira-keys",
-    srcs = ["main.go"],
+    embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )
 
@@ -14,4 +14,17 @@ go_test(
         "main_test.go",
     ],
     deps = [],
+)
+
+go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/rename-jira-keys/cmd/rename-jira-keys",
+    visibility = ["//visibility:private"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["main_test.go"],
+    embed = [":go_default_library"],
 )
