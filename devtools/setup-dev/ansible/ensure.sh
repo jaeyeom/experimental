@@ -53,6 +53,40 @@ elif [ "$OS" = "Darwin" ]; then
 
     # Install community.general collection if not already installed
     ansible-galaxy collection install community.general
+else
+    # Check if we're on a Debian/Ubuntu system and handle nala
+    if command -v apt >/dev/null 2>&1; then
+        # Check if nala is installed, install if not
+        if ! command -v nala >/dev/null 2>&1; then
+            echo "Installing nala..."
+            sudo apt update
+            sudo apt install -y nala
+        fi
+
+        # Upgrade packages with nala
+        echo "Upgrading packages with nala..."
+        sudo nala upgrade -y
+    fi
+
+    # Install Ansible if not already installed on Linux systems
+    if ! command -v ansible >/dev/null 2>&1; then
+        echo "Installing Ansible..."
+        if command -v apt >/dev/null 2>&1; then
+            sudo apt update
+            sudo apt install -y ansible
+        elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y epel-release
+            sudo yum install -y ansible
+        elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y ansible
+        else
+            echo "Unable to install Ansible - unsupported package manager"
+            exit 1
+        fi
+    fi
+
+    # Install community.general collection if not already installed
+    ansible-galaxy collection install community.general
 fi
 
 # Take all flags that starts with a hyphen.
