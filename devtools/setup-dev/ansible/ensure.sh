@@ -12,7 +12,11 @@ if [ -n "$TERMUX_VERSION" ]; then
 
     # Upgrading pkg is necessary to avoid issues on Termux. Instead of handling
     # that in Ansible, we do it here.
-    pkg upgrade -y
+    # Only upgrade if not done in the last 24 hours
+    if [ ! -f ~/.last_pkg_upgrade ] || [ $(find ~/.last_pkg_upgrade -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+        pkg upgrade -y
+        touch ~/.last_pkg_upgrade
+    fi
 
     # Install necessary packages for Ansible and also install ansible.
     pkg install -y rust python-pip
@@ -36,8 +40,12 @@ elif [ "$OS" = "Darwin" ]; then
     fi
 
     # Update Homebrew
-    echo "Updating Homebrew..."
-    brew update
+    # Only update if not done in the last 24 hours
+    if [ ! -f ~/.last_brew_update ] || [ $(find ~/.last_brew_update -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+        echo "Updating Homebrew..."
+        brew update
+        touch ~/.last_brew_update
+    fi
 
     # Install Ansible if not already installed
     if ! command -v ansible >/dev/null 2>&1; then
@@ -64,8 +72,12 @@ else
         fi
 
         # Upgrade packages with nala
-        echo "Upgrading packages with nala..."
-        sudo nala upgrade -y
+        # Only upgrade if not done in the last 24 hours
+        if [ ! -f ~/.last_nala_upgrade ] || [ $(find ~/.last_nala_upgrade -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+            echo "Upgrading packages with nala..."
+            sudo nala upgrade -y
+            touch ~/.last_nala_upgrade
+        fi
     fi
 
     # Install Ansible if not already installed on Linux systems
