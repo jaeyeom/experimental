@@ -45,7 +45,7 @@
 
         - name: Parse installed starship version
           set_fact:
-            starship_installed_version: "{{ starship_version_output.stdout | regex_search('starship ([0-9.]+)', '\\1') | default('0.0.0') | first }}"
+            starship_installed_version: "{{ (starship_version_output.stdout | regex_search('starship ([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
 
         - name: Get latest available starship version from GitHub
           uri:
