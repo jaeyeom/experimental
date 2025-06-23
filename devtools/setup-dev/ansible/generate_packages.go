@@ -436,9 +436,13 @@ func (d DebianPkgInstallMethod) RenderInstallTask(command string) string {
           become: yes`
 }
 
-// ShellInstallMethod handles installation via shell commands.
+// ShellInstallMethod handles installation via shell commands with version checking.
 type ShellInstallMethod struct {
-	InstallCommand string
+	InstallCommand    string
+	VersionCommand    string
+	VersionRegex      string
+	LatestVersionURL  string
+	LatestVersionPath string
 }
 
 func (s ShellInstallMethod) GetMethodType() string {
@@ -454,8 +458,45 @@ func (s ShellInstallMethod) RenderSetupTasks(command string) string {
 }
 
 func (s ShellInstallMethod) RenderInstallTask(command string) string {
-	return `        - name: Install ` + command + `
-          shell: ` + s.InstallCommand
+	commandID := strings.ReplaceAll(command, "-", "_")
+
+	if s.VersionCommand != "" && s.LatestVersionURL != "" {
+		return `      block:
+        - name: Get installed ` + command + ` version
+          command: ` + s.VersionCommand + `
+          register: ` + commandID + `_version_output
+          failed_when: false
+          changed_when: False
+
+        - name: Parse installed ` + command + ` version
+          set_fact:
+            ` + commandID + `_installed_version: "{{ ` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1') | default('0.0.0') | first }}"
+
+        - name: Get latest available ` + command + ` version from GitHub
+          uri:
+            url: ` + s.LatestVersionURL + `
+            return_content: yes
+          register: ` + commandID + `_latest_release
+
+        - name: Parse latest ` + command + ` version from GitHub response
+          set_fact:
+            ` + commandID + `_latest_version: "{{ ` + commandID + `_latest_release.json.` + s.LatestVersionPath + ` | regex_replace('^v', '') }}"
+
+        - name: Install/update ` + command + ` if outdated
+          shell: ` + s.InstallCommand + `
+          when: ` + commandID + `_installed_version != ` + commandID + `_latest_version`
+	} else {
+		return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          register: ` + commandID + `_installed
+          failed_when: false
+          changed_when: False
+
+        - name: Install ` + command + `
+          shell: ` + s.InstallCommand + `
+          when: ` + commandID + `_installed.rc != 0`
+	}
 }
 
 // PlatformSpecificTool represents a development tool that can be installed
@@ -915,9 +956,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 	{
 		command: "starship",
 		platforms: map[string]InstallMethod{
-			"darwin":      BrewInstallMethod{Name: "starship"},
-			"termux":      TermuxPkgInstallMethod{Name: "starship"},
-			"debian-like": ShellInstallMethod{InstallCommand: "curl -sS https://starship.rs/install.sh | sh"},
+			"darwin": BrewInstallMethod{Name: "starship"},
+			"termux": TermuxPkgInstallMethod{Name: "starship"},
+			"debian-like": ShellInstallMethod{
+				InstallCommand:    "curl -sS https://starship.rs/install.sh | sh -s -- -y",
+				VersionCommand:    "starship --version",
+				VersionRegex:      "starship ([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/starship/starship/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
 		},
 		Imports: nil,
 	},

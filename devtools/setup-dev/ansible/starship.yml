@@ -36,6 +36,28 @@
       when: ansible_env.TERMUX_VERSION is defined
 
     - name: Install starship via shell on Debian/Ubuntu
-        - name: Install starship
-          shell: curl -sS https://starship.rs/install.sh | sh
+      block:
+        - name: Get installed starship version
+          command: starship --version
+          register: starship_version_output
+          failed_when: false
+          changed_when: False
+
+        - name: Parse installed starship version
+          set_fact:
+            starship_installed_version: "{{ starship_version_output.stdout | regex_search('starship ([0-9.]+)', '\\1') | default('0.0.0') | first }}"
+
+        - name: Get latest available starship version from GitHub
+          uri:
+            url: https://api.github.com/repos/starship/starship/releases/latest
+            return_content: yes
+          register: starship_latest_release
+
+        - name: Parse latest starship version from GitHub response
+          set_fact:
+            starship_latest_version: "{{ starship_latest_release.json.tag_name | regex_replace('^v', '') }}"
+
+        - name: Install/update starship if outdated
+          shell: curl -sS https://starship.rs/install.sh | sh -s -- -y
+          when: starship_installed_version != starship_latest_version
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
