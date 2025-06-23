@@ -73,12 +73,17 @@
       ansible.builtin.debug:
         msg: "The git user email is {{ git_user_email }}"
 
+    - name: Check if running in Termux
+      ansible.builtin.stat:
+        path: /data/data/com.termux
+      register: termux_check
+
     - name: Deploy git wrapper script to ~/.local/bin/git
       ansible.builtin.copy:
         dest: "{{ user_bin_directory }}/git"
         mode: '0755'
         content: |
-          #!/bin/bash
+          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
 
           if [[ "$1" == "commit" ]]; then
               # Check if --no-verify is passed as a separate argument
