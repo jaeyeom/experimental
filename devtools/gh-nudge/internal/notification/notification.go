@@ -3,6 +3,8 @@ package notification
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -52,11 +54,11 @@ func NewPersistentTracker(persistPath string) (*Tracker, error) {
 	// Create directory if it doesn't exist
 	dir := filepath.Dir(persistPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
 	// Load existing data if available
-	if err := tracker.Load(); err != nil && !os.IsNotExist(err) {
+	if err := tracker.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 
@@ -92,12 +94,12 @@ func (t *Tracker) Load() error {
 
 	data, err := os.ReadFile(t.persistPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read persistence file: %w", err)
 	}
 
 	var persisted persistedData
 	if err := json.Unmarshal(data, &persisted); err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal persistence data: %w", err)
 	}
 
 	t.mutex.Lock()
@@ -130,10 +132,13 @@ func (t *Tracker) Save() error {
 
 	data, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal persistence data: %w", err)
 	}
 
-	return os.WriteFile(t.persistPath, data, 0o600)
+	if err := os.WriteFile(t.persistPath, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write persistence file: %w", err)
+	}
+	return nil
 }
 
 // ShouldNotify determines if a notification should be sent based on the threshold hours.

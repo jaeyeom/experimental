@@ -103,24 +103,18 @@ func processFiles(input io.Reader, owners *codeowners.Codeowners, output io.Writ
 	return nil
 }
 
-func main() {
-	flag.Parse()
-
-	// Set up logging
-	setupLogger()
-
+func run() error {
 	// Handle version flag
 	if version {
 		fmt.Printf("gh-codeowners version %s\n", Version)
-		os.Exit(0)
+		return nil
 	}
 
 	// Open CODEOWNERS file
 	codeownersPath := codeownersFile
 	file, err := os.Open(codeownersPath)
 	if err != nil {
-		slog.Error("Failed to open CODEOWNERS file", "path", codeownersPath, "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open CODEOWNERS file %s: %w", codeownersPath, err)
 	}
 	defer file.Close()
 
@@ -145,9 +139,21 @@ func main() {
 	// Process files and output results
 	err = processFiles(input, owners, os.Stdout)
 	if err != nil {
-		slog.Error("Error processing files", "error", err)
-		os.Exit(2)
+		return fmt.Errorf("error processing files: %w", err)
 	}
 
 	slog.Debug("Processing completed")
+	return nil
+}
+
+func main() {
+	flag.Parse()
+
+	// Set up logging
+	setupLogger()
+
+	if err := run(); err != nil {
+		slog.Error("Command failed", "error", err)
+		os.Exit(1)
+	}
 }

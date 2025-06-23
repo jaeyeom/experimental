@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//devtools/gh-nudge/internal/config:go_default_library",
+        "//devtools/gh-nudge/internal/github:go_default_library",
+        "//devtools/gh-nudge/internal/models:go_default_library",
+        "//devtools/gh-nudge/internal/notification:go_default_library",
+        "//devtools/gh-nudge/internal/slack:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "gh-nudge",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
