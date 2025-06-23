@@ -436,6 +436,28 @@ func (d DebianPkgInstallMethod) RenderInstallTask(command string) string {
           become: yes`
 }
 
+// ShellInstallMethod handles installation via shell commands.
+type ShellInstallMethod struct {
+	InstallCommand string
+}
+
+func (s ShellInstallMethod) GetMethodType() string {
+	return "shell"
+}
+
+func (s ShellInstallMethod) GetImports() []string {
+	return nil
+}
+
+func (s ShellInstallMethod) RenderSetupTasks(command string) string {
+	return ""
+}
+
+func (s ShellInstallMethod) RenderInstallTask(command string) string {
+	return `        - name: Install ` + command + `
+          shell: ` + s.InstallCommand
+}
+
 // PlatformSpecificTool represents a development tool that can be installed
 // using different methods on different platforms. This is the unified approach
 // that replaced separate install type arrays (GoInstall, PipInstall, etc.).
@@ -676,7 +698,6 @@ var packages = []PackageData{
 	{command: "sed", brewPkgName: "gsed"},
 	{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh", brewPkgName: "openssh"},
 	{command: "sshpass"},
-	{command: "starship"},
 	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer", brewPkgName: "mactex"},
 	{command: "tmux"},
 	{command: "unzip"},
@@ -888,6 +909,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		command: "claude",
 		platforms: map[string]InstallMethod{
 			"all": NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "starship",
+		platforms: map[string]InstallMethod{
+			"darwin":      BrewInstallMethod{Name: "starship"},
+			"termux":      TermuxPkgInstallMethod{Name: "starship"},
+			"debian-like": ShellInstallMethod{InstallCommand: "curl -sS https://starship.rs/install.sh | sh"},
 		},
 		Imports: nil,
 	},
