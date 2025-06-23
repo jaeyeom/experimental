@@ -37,15 +37,28 @@
 
     - name: Install starship via shell on Debian/Ubuntu
       block:
+        - name: Check if starship is installed
+          shell: command -v starship
+          register: starship_command_check
+          failed_when: false
+          changed_when: False
+
         - name: Get installed starship version
           command: starship --version
           register: starship_version_output
           failed_when: false
           changed_when: False
+          when: starship_command_check.rc == 0
 
         - name: Parse installed starship version
           set_fact:
             starship_installed_version: "{{ (starship_version_output.stdout | regex_search('starship ([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
+          when: starship_command_check.rc == 0
+
+        - name: Set default version when starship is not installed
+          set_fact:
+            starship_installed_version: "0.0.0"
+          when: starship_command_check.rc != 0
 
         - name: Get latest available starship version from GitHub
           uri:
