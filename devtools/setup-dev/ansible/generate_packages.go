@@ -717,6 +717,7 @@ var packages = []PackageData{
 	{command: "curl"},
 	{command: "dart"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-native-comp", "with-dbus", "with-imagemagick"}},
+	{command: "fzf"},
 	{command: "gh"},
 	{command: "git"},
 	{command: "gpg", brewPkgName: "gnupg"},

@@ -1,0 +1,48 @@
+---
+- name: Ensure fzf is present
+  hosts: all
+  tasks:
+    - name: Include guard for fzf playbook
+      block:
+        - name: Stop early if the fzf playbook is already included
+          meta: end_play
+          when: fzf_playbook_imported is defined
+        - name: Ensure the fzf playbook is not included
+          set_fact:
+            fzf_playbook_imported: true
+          when: fzf_playbook_imported is not defined
+
+    - name: Ensure fzf is present on MacOS
+      block:
+        - name: Check if fzf is installed
+          shell: command -v fzf
+          changed_when: False
+      rescue:
+        - name: Install fzf on MacOS
+          community.general.homebrew:
+            name: fzf
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure fzf is present on non-Termux, non-MacOS systems
+      block:
+        - name: Check if fzf is installed
+          shell: command -v fzf
+          changed_when: False
+      rescue:
+        - name: Install fzf on non-Termux, non-MacOS systems
+          package:
+            name: fzf
+            state: present
+          become: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Ensure fzf is present on Termux
+      block:
+        - name: Check if fzf is installed
+          shell: command -v fzf
+          changed_when: False
+      rescue:
+        - name: Install fzf on Termux
+          command: pkg install -y fzf
+      when: ansible_env.TERMUX_VERSION is defined
