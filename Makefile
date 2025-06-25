@@ -1,16 +1,28 @@
-.PHONY: format test lint
+.PHONY: check-format format format-gofumpt format-ruff test lint lint-golangci lint-ruff
 
-all: format test lint
+all: requirements.txt format test lint
 
-format:
+check-format:
+	gofumpt -l .
+	ruff check --fix --exit-zero
+
+format: format-gofumpt
+
+format-gofumpt:
 	gofumpt -w .
+
+format-ruff:
 	ruff format
 
 test:
 	go test ./...
 
-lint:
+lint: lint-golangci lint-ruff
+
+lint-golangci:
 	GOPACKAGESDRIVER= golangci-lint run ./...
+
+lint-ruff:
 	ruff check
 
 requirements.txt: requirements.in
