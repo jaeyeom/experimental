@@ -14,9 +14,6 @@
             bazel_playbook_imported: true
           when: bazel_playbook_imported is not defined
 
-    - name: Assert that the system is not TERMUX
-      ansible.builtin.assert:
-        that: ansible_env.TERMUX_VERSION is not defined
 
     - name: Install bazelisk using Homebrew on macOS
       community.general.homebrew:
@@ -76,4 +73,4 @@
           when: bazelisk_url != ''
         when: bazelisk_installed.failed or
               bazelisk_latest_version not in bazelisk_installed.stdout
-      when: ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['os_family'] != "Darwin" and ansible_env.TERMUX_VERSION is not defined

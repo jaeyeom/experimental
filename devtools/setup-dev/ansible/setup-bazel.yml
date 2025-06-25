@@ -1,4 +1,6 @@
 ---
+- import_playbook: setup-user-bin-directory.yml
+  when: ansible_env.TERMUX_VERSION is defined
 - import_playbook: bazel.yml
 - import_playbook: buildifier.yml
 - import_playbook: buildozer.yml
@@ -15,3 +17,69 @@
           set_fact:
             setup_bazel_playbook_imported: true
           when: setup_bazel_playbook_imported is not defined
+
+    - name: Create bazel wrapper script for Termux
+      ansible.builtin.copy:
+        dest: "{{ user_bin_directory }}/bazel"
+        mode: '0755'
+        content: |
+          #!/bin/bash
+
+          # Get the current directory in Termux
+          TERMUX_CWD=$(pwd)
+
+          # Detect the debian user dynamically (if not already set)
+          if [[ -z "$DEBIAN_USER" ]]; then
+              DEBIAN_USER=$(pd sh debian -- getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 && $7 !~ /nologin$/ {print $1; exit}')
+              DEBIAN_USER=${DEBIAN_USER:-$(pd sh debian -- whoami 2>/dev/null)}
+              DEBIAN_USER=${DEBIAN_USER:-user}
+          fi
+
+          # Convert Termux path to proot-distro debian path
+          # The --termux-home option mounts Termux home to /root, but we're using dynamic user
+          # So we need to map the Termux home directory to the debian user's home
+          if [[ "$TERMUX_CWD" == /data/data/com.termux/files/home/* ]]; then
+              # Remove the Termux home prefix and prepend the debian user's home
+              DEBIAN_CWD="${TERMUX_CWD#/data/data/com.termux/files/home}"
+              DEBIAN_CWD="/home/$DEBIAN_USER${DEBIAN_CWD}"
+          else
+              # For other paths, we may need custom bindings
+              echo "Warning: Current directory is outside Termux home. Using default directory." >&2
+              DEBIAN_CWD="/home/$DEBIAN_USER"
+          fi
+
+          # Check for .bazeliskrc in current and parent directories and read USE_BAZEL_VERSION
+          ENV_ARGS=""
+          BAZELISKRC_FILE=""
+          SEARCH_DIR="$TERMUX_CWD"
+
+          # Search for .bazeliskrc in current and parent directories
+          while [[ "$SEARCH_DIR" != "/" ]]; do
+              # Check if we have read permission for the directory
+              if [[ ! -r "$SEARCH_DIR" ]]; then
+                  break
+              fi
+
+              if [[ -f "$SEARCH_DIR/.bazeliskrc" ]]; then
+                  BAZELISKRC_FILE="$SEARCH_DIR/.bazeliskrc"
+                  break
+              fi
+
+              PARENT_DIR=$(dirname "$SEARCH_DIR")
+              # Avoid infinite loop if dirname returns the same directory
+              if [[ "$PARENT_DIR" == "$SEARCH_DIR" ]]; then
+                  break
+              fi
+              SEARCH_DIR="$PARENT_DIR"
+          done
+
+          if [[ -n "$BAZELISKRC_FILE" ]]; then
+              USE_BAZEL_VERSION=$(grep "^USE_BAZEL_VERSION=" "$BAZELISKRC_FILE" | cut -d= -f2)
+              if [[ -n "$USE_BAZEL_VERSION" ]]; then
+                  ENV_ARGS="--env USE_BAZEL_VERSION=$USE_BAZEL_VERSION"
+              fi
+          fi
+
+          # Run bazel in proot-distro debian with the working directory set
+          exec pd sh debian --user "$DEBIAN_USER" --termux-home --work-dir "$DEBIAN_CWD" $ENV_ARGS -- bazel "$@"
+      when: ansible_env.TERMUX_VERSION is defined
