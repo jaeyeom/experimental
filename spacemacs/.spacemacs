@@ -95,7 +95,9 @@ This function should only modify configuration layer settings."
            org-enable-roam-ui t
            org-roam-directory (file-truename "~/Documents/roam/")
            org-html-htmlize-output-type 'css
-           org-startup-folded 'nofold)
+           org-startup-folded 'nofold
+           org-enable-notifications t
+           org-start-notification-daemon-on-startup t)
       pass
       prodigy
       protobuf
