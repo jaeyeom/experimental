@@ -163,6 +163,9 @@ This function should only modify configuration layer settings."
      copilot-chat
      eshell-command-not-found
      green-is-the-new-black-theme
+     (highlight-chars :location (recipe :fetcher github
+                                        :repo "emacsmirror/highlight-chars"
+                                        :files ("*.el")))
      ob-async
      ob-chatgpt-shell
      ob-go
@@ -921,6 +924,13 @@ Fallback file lists are returned for specific directories."
       (add-hook 'nov-mode-hook #'my/nov-font-setup))
 
     )
+
+  (with-eval-after-load 'highlight-chars
+    ;; Visually confusing non-standard characters.
+    (setf hc-other-chars '("\u2018\u2019\u201C\u201D\u2013\u2014\u2026\u2192\u2190\u2194\u202F\xA0\xAD\u200C\u200D"))
+    (add-hook 'prog-mode-hook #'hc-highlight-other-chars))
+
+  (require 'highlight-chars 'noerror)
 
   ;;; Reddit
   (with-eval-after-load 'reddigg
