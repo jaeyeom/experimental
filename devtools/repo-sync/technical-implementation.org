@@ -1,0 +1,567 @@
+#+TITLE: Technical Implementation Details
+
+* Overview
+
+This document provides detailed technical specifications for implementing repo-sync, including rsync patterns, Git workflow algorithms, performance optimizations, and security considerations.
+
+**Implementation Language**: The utility is implemented in Go for cross-platform
+compatibility, performance, and robust concurrent operations. The code examples
+in this document are provided as shell scripts to illustrate the algorithms and
+workflows, but the actual implementation uses Go's standard library and
+third-party packages for file operations, database access, and external process
+management.
+
+Related documentation:
+- [[file:README.org][README.org]] - Main overview and usage
+- [[file:database-schema.org][database-schema.org]] - SQLite schema and metadata tracking
+- [[file:conflict-resolution.org][conflict-resolution.org]] - Conflict resolution algorithms
+- [[file:error-handling.org][error-handling.org]] - Error handling and recovery procedures
+
+* Rsync Implementation
+
+** File Pattern Matching
+
+The utility uses sophisticated rsync patterns to achieve selective
+synchronization:
+
+#+BEGIN_SRC bash
+# Generate include patterns from project configuration
+generate_rsync_patterns() {
+    local config_file="$1"
+    local temp_patterns="/tmp/repo-sync-patterns-$$"
+
+    # Parse YAML configuration to extract patterns
+    yq eval '.sync_patterns.include[]' "$config_file" > "$temp_patterns"
+
+    # Add default patterns for common development files
+    cat >> "$temp_patterns" << 'EOF'
+*.md
+*.txt
+*.json
+*.yaml
+*.yml
+*.toml
+*.ini
+*.conf
+*.config
+EOF
+
+    # Generate rsync include-from file
+    while IFS= read -r pattern; do
+        echo "+ $pattern"
+    done < "$temp_patterns"
+
+    # Process exclude patterns
+    yq eval '.sync_patterns.exclude[]' "$config_file" | while IFS= read -r pattern; do
+        echo "- $pattern"
+    done
+
+    # Exclude everything else
+    echo "- *"
+}
+#+END_SRC
+
+** Selective Sync Algorithm
+
+The core synchronization algorithm ensures only relevant files are transferred:
+
+#+BEGIN_SRC bash
+# Selective sync implementation
+selective_sync() {
+    local local_dir="$1"
+    local remote_dir="$2"
+    local project_config="$3"
+    local direction="$4"  # "to_remote" or "to_local"
+
+    # Generate rsync patterns
+    local patterns_file="/tmp/repo-sync-patterns-$$"
+    generate_rsync_patterns "$project_config" > "$patterns_file"
+
+    # Check existing files in remote to establish baseline
+    local existing_files="/tmp/repo-sync-existing-$$"
+    if [ "$direction" = "to_remote" ]; then
+        # Only sync files that already exist in remote or match new file patterns
+        find "$remote_dir" -type f -printf '%P\n' > "$existing_files"
+
+        # Create combined include pattern
+        {
+            # Include existing files
+            while IFS= read -r file; do
+                echo "+ $file"
+            done < "$existing_files"
+
+            # Include pattern matches
+            cat "$patterns_file"
+        } > "${patterns_file}.combined"
+
+        # Execute rsync with selective patterns
+        rsync -avz --delete \
+              --include-from="${patterns_file}.combined" \
+              --exclude='*' \
+              --backup --backup-dir="$HOME/.repo-sync/backups/$(date +%Y%m%d-%H%M%S)" \
+              "$local_dir/" "$remote_dir/"
+    else
+        # Sync from remote to local
+        rsync -avz --delete \
+              --include-from="$patterns_file" \
+              --exclude='*' \
+              --backup --backup-dir="$HOME/.repo-sync/backups/$(date +%Y%m%d-%H%M%S)" \
+              "$remote_dir/" "$local_dir/"
+    fi
+
+    # Cleanup temporary files
+    rm -f "$patterns_file" "$existing_files" "${patterns_file}.combined"
+}
+#+END_SRC
+
+** Performance Optimizations
+
+#+BEGIN_SRC bash
+# Optimized rsync with compression and delta sync
+optimized_rsync() {
+    local src="$1"
+    local dst="$2"
+    local patterns_file="$3"
+
+    # Use rsync's built-in optimizations
+    rsync -avz \
+          --compress-level=6 \
+          --inplace \
+          --whole-file \
+          --delete \
+          --delete-excluded \
+          --prune-empty-dirs \
+          --include-from="$patterns_file" \
+          --exclude='*' \
+          --stats \
+          --human-readable \
+          --progress \
+          "$src/" "$dst/"
+}
+#+END_SRC
+
+* Git Workflow Implementation
+
+** Automated Git Operations
+
+The Git workflow automation handles the full commit-pull-push cycle:
+
+#+BEGIN_SRC bash
+# Main Git workflow function
+git_workflow() {
+    local repo_dir="$1"
+    local commit_message="$2"
+    local project_name="$3"
+
+    cd "$repo_dir" || return 1
+
+    # Stage changes
+    git add -A
+
+    # Check if there are changes to commit
+    if git diff --cached --quiet; then
+        log_info "No changes to commit"
+        return 0
+    fi
+
+    # Commit changes
+    local auto_message="repo-sync: $project_name - $(date '+%Y-%m-%d %H:%M:%S')"
+    git commit -m "${commit_message:-$auto_message}"
+
+    # Pull with rebase
+    if ! git pull --rebase origin "$(git branch --show-current)"; then
+        log_error "Rebase failed, attempting conflict resolution"
+        resolve_git_conflicts "$repo_dir" "$project_name"
+
+        # Continue rebase after conflict resolution
+        if git rebase --continue; then
+            log_info "Rebase completed successfully"
+        else
+            log_error "Rebase failed after conflict resolution"
+            return 1
+        fi
+    fi
+
+    # Push changes
+    if ! git push origin "$(git branch --show-current)"; then
+        log_error "Push failed"
+        return 1
+    fi
+
+    log_info "Git workflow completed successfully"
+    return 0
+}
+#+END_SRC
+
+** Conflict Resolution Integration
+
+#+BEGIN_SRC bash
+# Git conflict resolution with automated strategies
+resolve_git_conflicts() {
+    local repo_dir="$1"
+    local project_name="$2"
+
+    cd "$repo_dir" || return 1
+
+    # Get list of conflicted files
+    local conflicted_files
+    conflicted_files=$(git diff --name-only --diff-filter=U)
+
+    if [ -z "$conflicted_files" ]; then
+        log_info "No conflicts to resolve"
+        return 0
+    fi
+
+    log_info "Resolving conflicts in: $conflicted_files"
+
+    # Process each conflicted file
+    while IFS= read -r file; do
+        resolve_single_file_conflict "$file" "$project_name"
+    done <<< "$conflicted_files"
+
+    # Stage resolved files
+    git add -A
+}
+
+# Single file conflict resolution
+resolve_single_file_conflict() {
+    local file="$1"
+    local project_name="$2"
+
+    # Determine conflict resolution strategy based on file type
+    case "$file" in
+        *.json|*.yaml|*.yml|*.toml)
+            # For configuration files, prefer newer version
+            resolve_by_timestamp "$file"
+            ;;
+        *.md|*.txt|*.org)
+            # For documentation, attempt automatic merge
+            resolve_by_merge "$file"
+            ;;
+        *)
+            # For other files, prompt user or use default strategy
+            resolve_by_user_preference "$file" "$project_name"
+            ;;
+    esac
+}
+#+END_SRC
+
+** Branch Management
+
+#+BEGIN_SRC bash
+# Branch-aware synchronization
+branch_aware_sync() {
+    local repo_dir="$1"
+    local project_config="$2"
+
+    cd "$repo_dir" || return 1
+
+    # Get current branch
+    local current_branch
+    current_branch=$(git branch --show-current)
+
+    # Check if branch-specific sync rules exist
+    local branch_rules
+    branch_rules=$(yq eval ".branch_rules.\"$current_branch\"" "$project_config")
+
+    if [ "$branch_rules" != "null" ]; then
+        log_info "Applying branch-specific rules for $current_branch"
+
+        # Apply branch-specific patterns
+        local branch_patterns="/tmp/repo-sync-branch-patterns-$$"
+        echo "$branch_rules" | yq eval '.sync_patterns.include[]' > "$branch_patterns"
+
+        # Use branch-specific patterns for sync
+        export BRANCH_PATTERNS="$branch_patterns"
+    fi
+
+    # Ensure we're on the correct branch
+    if ! git checkout "$current_branch"; then
+        log_error "Failed to checkout branch $current_branch"
+        return 1
+    fi
+
+    # Update remote tracking
+    git fetch origin
+
+    # Set upstream if not set
+    if ! git rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
+        git push --set-upstream origin "$current_branch"
+    fi
+}
+#+END_SRC
+
+* Security Implementation
+
+** Path Validation
+
+#+BEGIN_SRC bash
+# Secure path validation to prevent directory traversal
+validate_path() {
+    local path="$1"
+    local base_dir="$2"
+
+    # Resolve absolute path
+    local abs_path
+    abs_path=$(realpath "$path" 2>/dev/null || echo "$path")
+
+    # Check if path is within base directory
+    case "$abs_path" in
+        "$base_dir"*)
+            return 0 ;;
+        *)
+            log_error "Path $path is outside allowed directory $base_dir"
+            return 1 ;;
+    esac
+}
+
+# Sanitize file paths in configuration
+sanitize_config_paths() {
+    local config_file="$1"
+
+    # Validate local_work_dir
+    local local_dir
+    local_dir=$(yq eval '.local_work_dir' "$config_file")
+    if ! validate_path "$local_dir" "$HOME"; then
+        log_error "Invalid local_work_dir in configuration"
+        return 1
+    fi
+
+    # Validate remote_work_dir
+    local remote_dir
+    remote_dir=$(yq eval '.remote_work_dir' "$config_file")
+    if ! validate_path "$remote_dir" "$HOME/.repo-sync"; then
+        log_error "Invalid remote_work_dir in configuration"
+        return 1
+    fi
+}
+#+END_SRC
+
+** SSH Key Management
+
+#+BEGIN_SRC bash
+# SSH key validation and management
+validate_ssh_access() {
+    local remote_repo="$1"
+
+    # Extract hostname from git URL
+    local hostname
+    hostname=$(echo "$remote_repo" | sed -n 's/.*@\([^:]*\):.*/\1/p')
+
+    if [ -z "$hostname" ]; then
+        log_error "Could not extract hostname from $remote_repo"
+        return 1
+    fi
+
+    # Test SSH connectivity
+    if ! ssh -T -o BatchMode=yes -o ConnectTimeout=10 "$hostname" 2>/dev/null; then
+        log_error "SSH connection failed to $hostname"
+        log_info "Please ensure SSH keys are properly configured"
+        return 1
+    fi
+
+    log_info "SSH access validated for $hostname"
+    return 0
+}
+#+END_SRC
+
+** Atomic Operations
+
+#+BEGIN_SRC bash
+# Atomic file operations with rollback capability
+atomic_operation() {
+    local operation="$1"
+    local project_name="$2"
+    shift 2
+
+    # Create rollback point
+    local rollback_id
+    rollback_id=$(date +%s)
+    create_rollback_point "$project_name" "$rollback_id"
+
+    # Execute operation
+    if "$operation" "$@"; then
+        log_info "Operation completed successfully"
+        cleanup_rollback_point "$project_name" "$rollback_id"
+        return 0
+    else
+        log_error "Operation failed, initiating rollback"
+        restore_rollback_point "$project_name" "$rollback_id"
+        return 1
+    fi
+}
+
+# Create rollback point
+create_rollback_point() {
+    local project_name="$1"
+    local rollback_id="$2"
+
+    local rollback_dir="$HOME/.repo-sync/rollbacks/$project_name/$rollback_id"
+    mkdir -p "$rollback_dir"
+
+    # Store current state
+    local project_config="$HOME/.repo-sync/mappings/$project_name.yaml"
+    local local_dir
+    local_dir=$(yq eval '.local_work_dir' "$project_config")
+
+    # Create snapshot
+    tar -czf "$rollback_dir/local_snapshot.tar.gz" -C "$local_dir" .
+
+    # Store metadata
+    cat > "$rollback_dir/metadata.json" << EOF
+{
+    "timestamp": "$(date -Iseconds)",
+    "project": "$project_name",
+    "rollback_id": "$rollback_id",
+    "local_dir": "$local_dir"
+}
+EOF
+}
+#+END_SRC
+
+* Performance Monitoring
+
+** Sync Performance Metrics
+
+#+BEGIN_SRC bash
+# Performance monitoring and metrics collection
+monitor_sync_performance() {
+    local operation="$1"
+    local project_name="$2"
+
+    local start_time
+    start_time=$(date +%s.%N)
+
+    # Execute operation with monitoring
+    local result
+    "$operation" "$project_name"
+    result=$?
+
+    local end_time
+    end_time=$(date +%s.%N)
+
+    # Calculate duration
+    local duration
+    duration=$(echo "$end_time - $start_time" | bc)
+
+    # Log performance metrics
+    log_performance_metric "$project_name" "$operation" "$duration" "$result"
+
+    return $result
+}
+
+# Log performance metrics to SQLite
+log_performance_metric() {
+    local project_name="$1"
+    local operation="$2"
+    local duration="$3"
+    local result="$4"
+
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+INSERT INTO performance_metrics (
+    project_name, operation, duration, result, timestamp
+) VALUES (
+    '$project_name', '$operation', $duration, $result, datetime('now')
+);
+EOF
+}
+#+END_SRC
+
+** Bandwidth Optimization
+
+#+BEGIN_SRC bash
+# Bandwidth usage monitoring and optimization
+optimize_bandwidth() {
+    local src="$1"
+    local dst="$2"
+    local patterns_file="$3"
+
+    # Pre-calculate transfer size
+    local estimated_size
+    estimated_size=$(rsync -avz --dry-run \
+                           --include-from="$patterns_file" \
+                           --exclude='*' \
+                           "$src/" "$dst/" | \
+                     grep -E "^total size" | \
+                     awk '{print $4}')
+
+    # Choose compression level based on estimated size
+    local compression_level=6
+    if [ "$estimated_size" -gt 104857600 ]; then  # > 100MB
+        compression_level=3  # Lower compression for large files
+    elif [ "$estimated_size" -lt 1048576 ]; then  # < 1MB
+        compression_level=9  # Higher compression for small files
+    fi
+
+    # Execute optimized rsync
+    rsync -avz \
+          --compress-level=$compression_level \
+          --include-from="$patterns_file" \
+          --exclude='*' \
+          --progress \
+          "$src/" "$dst/"
+}
+#+END_SRC
+
+* Debugging and Logging
+
+** Comprehensive Logging
+
+#+BEGIN_SRC bash
+# Structured logging with different levels
+log_with_level() {
+    local level="$1"
+    local message="$2"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    # Log to file
+    echo "[$timestamp] [$level] $message" >> "$HOME/.repo-sync/logs/repo-sync.log"
+
+    # Log to console based on verbosity
+    case "$level" in
+        ERROR)
+            echo "ERROR: $message" >&2 ;;
+        WARN)
+            echo "WARNING: $message" >&2 ;;
+        INFO)
+            [ "$VERBOSE" = "true" ] && echo "INFO: $message" ;;
+        DEBUG)
+            [ "$DEBUG" = "true" ] && echo "DEBUG: $message" ;;
+    esac
+}
+
+# Convenience functions
+log_error() { log_with_level "ERROR" "$1"; }
+log_warn() { log_with_level "WARN" "$1"; }
+log_info() { log_with_level "INFO" "$1"; }
+log_debug() { log_with_level "DEBUG" "$1"; }
+#+END_SRC
+
+** Debug Mode Implementation
+
+#+BEGIN_SRC bash
+# Debug mode with detailed tracing
+enable_debug_mode() {
+    export DEBUG=true
+    export VERBOSE=true
+
+    # Enable bash debug tracing
+    set -x
+
+    # Create debug log file
+    local debug_log="$HOME/.repo-sync/logs/debug-$(date +%Y%m%d-%H%M%S).log"
+    exec 19> "$debug_log"
+    export BASH_XTRACEFD=19
+
+    log_info "Debug mode enabled, trace log: $debug_log"
+}
+#+END_SRC
+
+This technical implementation provides the detailed algorithms and patterns
+needed to build a robust, secure, and performant repo-sync utility. The
+implementation emphasizes security, atomicity, and comprehensive error handling
+while maintaining high performance through optimized rsync patterns and Git
+workflows.

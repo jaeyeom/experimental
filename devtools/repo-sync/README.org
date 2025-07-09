@@ -1,0 +1,300 @@
+#+TITLE: Repo-Sync: Multi-Machine Development File Synchronization
+
+* Overview
+
+Repo-Sync is a specialized utility for synchronizing project-specific files
+across multiple development machines using Git-based workflow automation. It
+addresses the unique challenge of keeping development configurations and project
+files in sync without uploading entire repositories to remote storage.
+
+The utility is implemented in Go for cross-platform compatibility, performance,
+and robust concurrent operations while leveraging external tools like rsync and
+Git for specialized functionality.
+
+** Key Features
+
+- Project-specific file mapping and selective synchronization
+- Git-integrated workflow with automated commit, push, and pull operations
+- Intelligent conflict resolution with multi-machine coordination
+- Deletion tracking with timestamp-based synchronization
+- Selective file inclusion based on remote repository state
+
+** Documentation Structure
+
+This documentation is organized into several focused documents:
+
+- [[file:README.org][README.org]] - This overview and basic usage (current file)
+- [[file:technical-implementation.org][technical-implementation.org]] - Detailed rsync patterns, algorithms, and
+  performance optimizations
+- [[file:database-schema.org][database-schema.org]] - SQLite schema and metadata tracking implementation
+- [[file:conflict-resolution.org][conflict-resolution.org]] - Detailed conflict resolution algorithms and
+  strategies
+- [[file:error-handling.org][error-handling.org]] - Error handling, recovery procedures, and troubleshooting
+
+* Architecture
+
+** Configuration Structure
+
+The utility maintains configuration in the user's home directory:
+
+#+BEGIN_SRC
+~/.config/repo-sync/
+├── config.yaml           # Main configuration file
+├── mappings/             # Project-specific mapping files
+│   ├── project1.yaml
+│   └── project2.yaml
+├── metadata.db          # SQLite database for tracking operations
+└── logs/                # Operation logs
+    ├── sync.log
+    └── errors.log
+#+END_SRC
+
+** Mapping Configuration
+
+Each project maintains a mapping configuration that defines:
+
+- *Local repo work directory*: Where your local project files reside
+- *Remote repository*: Git repository URL for centralized storage
+- *Remote work directory*: Local checkout path of the remote repository
+- *Remote path prefix*: Subdirectory within remote repo for this project's files
+
+#+BEGIN_SRC yaml
+# Example: ~/.config/repo-sync/mappings/myproject.yaml
+project_name: "myproject"
+local_work_dir: "/home/user/projects/myproject"
+remote_repo: "git@github.com:user/dotfiles-sync.git"
+remote_work_dir: "/home/user/.repo-sync/remotes/dotfiles-sync"
+remote_path_prefix: "projects/myproject"
+sync_patterns:
+  include:
+    - "*.yaml"
+    - "*.json"
+    - "config/**/*"
+  exclude:
+    - "*.tmp"
+    - "*.log"
+    - ".git/**/*"
+#+END_SRC
+
+* Core Operations
+
+** 1. Sync Operation
+
+The sync operation is the primary workflow that performs bidirectional synchronization:
+
+1. *Pre-sync validation*: Ensures remote repository is accessible
+2. *Initial rsync*: Syncs files from local to remote work directory using selective patterns
+3. *Git operations*: Commits, pulls with rebase, resolves conflicts, and pushes
+4. *Post-sync rsync*: Syncs any changes back to local work directory
+
+#+BEGIN_SRC bash
+# Example usage
+repo-sync sync myproject
+#+END_SRC
+
+For detailed rsync patterns and Git workflow algorithms, see [[file:technical-implementation.org][technical-implementation.org]].
+
+** 2. Add Operation
+
+Adds new files to the synchronization scope:
+
+1. *Precondition check*: Verifies file doesn't exist in remote repository
+2. *Sync execution*: Runs full sync operation first
+3. *File mirroring*: Copies local file to appropriate remote work directory path
+4. *Git commit and push*: Commits the new file and pushes to remote
+
+#+BEGIN_SRC bash
+# Example usage
+repo-sync add myproject ./config/new-config.yaml
+#+END_SRC
+
+** 3. Remove Operation
+
+Removes files from both local and remote repositories with deletion tracking:
+
+1. *Deletion execution*: Removes file from both local and remote work
+   directories
+2. *Metadata tracking*: Records deletion timestamp and commit hash in SQLite
+   database
+3. *Git operations*: Commits deletion and pushes to remote repository
+
+#+BEGIN_SRC bash
+# Example usage
+repo-sync remove myproject ./config/old-config.yaml
+#+END_SRC
+
+For detailed deletion tracking schema, see [[file:database-schema.org][database-schema.org]].
+
+** 4. Download/Upload Operations
+
+Unidirectional sync operations for specific use cases:
+
+#+BEGIN_SRC bash
+# Force sync from remote to local (remote takes precedence)
+repo-sync download myproject
+
+# Force sync from local to remote (local takes precedence)
+repo-sync upload myproject
+#+END_SRC
+
+* Advanced Features
+
+** Deletion Synchronization
+
+The utility maintains a deletion tracking system to coordinate file removals
+across multiple machines. The system analyzes Git log for deleted files and
+compares local file content with deletion records.
+
+For detailed deletion tracking implementation, see [[file:database-schema.org][database-schema.org]].
+
+** Conflict Resolution
+
+Automated conflict resolution uses multiple strategies including
+timestamp-based, content-based, and manual intervention approaches. The system
+creates backup copies before overwriting conflicted files.
+
+For detailed conflict resolution algorithms, see [[file:conflict-resolution.org][conflict-resolution.org]].
+
+** Git Integration
+
+Deep integration with Git workflows including commit message automation, branch
+management, hook integration, and sparse checkout support.
+
+For detailed Git integration patterns, see [[file:technical-implementation.org][technical-implementation.org]].
+
+* Usage Examples
+
+** Initial Setup
+
+#+BEGIN_SRC bash
+# Initialize repo-sync configuration
+repo-sync init
+
+# Add a new project mapping
+repo-sync config add-project myproject \
+  --local-dir /home/user/projects/myproject \
+  --remote-repo git@github.com:user/sync-repo.git \
+  --remote-prefix projects/myproject
+#+END_SRC
+
+** Daily Workflow
+
+#+BEGIN_SRC bash
+# Morning sync - download changes from other machines
+repo-sync sync myproject
+
+# Work on files...
+
+# Evening sync - upload changes to remote
+repo-sync sync myproject
+
+# Add new configuration file
+repo-sync add myproject ./config/new-feature.yaml
+
+# Remove obsolete file
+repo-sync remove myproject ./config/deprecated.yaml
+#+END_SRC
+
+** Multi-Machine Coordination
+
+#+BEGIN_SRC bash
+# On Machine A
+repo-sync sync myproject
+# Edit files...
+repo-sync sync myproject
+
+# On Machine B
+repo-sync sync myproject  # Automatically pulls changes from Machine A
+# Edit different files...
+repo-sync sync myproject  # Pushes changes back
+#+END_SRC
+
+* Comparison with Existing Solutions
+
+** Advantages over Syncthing
+
+- *Selective sync*: Only syncs files that should be shared
+- *Git integration*: Version control and conflict resolution
+- *Project-specific*: Handles multiple projects with different sync requirements
+- *Deletion tracking*: Proper handling of file deletions across machines
+
+** Advantages over Git Sparse-Checkout
+
+- *Multi-repository support*: Works across different project repositories
+- *Automated workflow*: Reduces manual Git operations
+- *Conflict resolution*: Automated handling of merge conflicts
+- *Flexible mapping*: Maps local directories to arbitrary remote paths
+
+** Advantages over Dotfile Managers
+
+- *Project-specific*: Not limited to dotfiles and configurations
+- *Multi-machine state*: Tracks synchronization state across machines
+- *Selective inclusion*: Doesn't require entire repository checkout
+- *Development workflow*: Designed for active development scenarios
+
+* Future Enhancements
+
+** Planned Features
+
+- *Watch mode*: Automatic sync on file changes
+- *Conflict visualization*: GUI for resolving complex conflicts
+- *Bandwidth optimization*: Compression and delta sync improvements
+- *Plugin system*: Extensible architecture for custom workflows
+- *Integration hooks*: Pre/post sync script execution
+
+** Advanced Workflows
+
+- *Branch-aware sync*: Different sync behavior per Git branch
+- *Staged sync*: Selective synchronization of staged changes
+- *Rollback support*: Easy rollback to previous sync states
+- *Sync analytics*: Statistics and monitoring of sync operations
+
+* Quick Troubleshooting
+
+** Common Commands
+
+#+BEGIN_SRC bash
+# Check sync status
+repo-sync status myproject
+
+# Verify repository state
+repo-sync verify myproject
+
+# Show recent sync operations
+repo-sync log myproject --limit 10
+
+# Test connectivity
+repo-sync test myproject
+#+END_SRC
+
+For comprehensive troubleshooting and error handling, see [[file:error-handling.org][error-handling.org]].
+
+* Contributing
+
+This utility fills a specific gap in the development workflow ecosystem by
+combining selective file synchronization, Git automation, and multi-machine
+coordination in a way that existing tools don't adequately address.
+
+** Development Priorities
+
+1. Core sync functionality with rsync and Git integration
+2. Deletion tracking using Git log analysis
+3. Conflict resolution automation
+4. Multi-machine coordination features
+5. Advanced workflow support (Git worktree, sparse checkout)
+
+** Implementation Language
+
+The utility is implemented in **Go** for the following advantages:
+- Cross-platform compatibility (Windows, macOS, Linux)
+- Strong concurrency support for parallel operations
+- Excellent performance for file operations and system calls
+- Robust error handling and type safety
+- Easy deployment as a single binary
+- Rich ecosystem for database access, YAML parsing, and external process management
+
+The implementation leverages Go's standard library along with carefully selected third-party packages while maintaining external dependencies on rsync and Git for their specialized functionality.
+
+The implementation should prioritize reliability and data safety, with
+comprehensive testing and rollback capabilities to ensure developer productivity
+without risk of data loss.

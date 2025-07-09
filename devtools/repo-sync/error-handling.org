@@ -1,0 +1,922 @@
+#+TITLE: Error Handling and Recovery Procedures
+
+* Overview
+
+This document provides comprehensive error handling and recovery procedures for
+repo-sync. The system implements robust error detection, logging, recovery
+mechanisms, and troubleshooting guides to ensure reliable operation across
+different scenarios.
+
+Related documentation:
+- [[file:README.org][README.org]] - Main overview and usage
+- [[file:technical-implementation.org][technical-implementation.org]] - Technical implementation details
+- [[file:database-schema.org][database-schema.org]] - SQLite schema and metadata tracking
+- [[file:conflict-resolution.org][conflict-resolution.org]] - Conflict resolution algorithms
+
+* Error Categories and Handling
+
+** Network and Connectivity Errors
+
+#+BEGIN_SRC bash
+# Network error handling
+handle_network_error() {
+    local error_type="$1"
+    local remote_repo="$2"
+    local retry_count="${3:-3}"
+    local retry_delay="${4:-5}"
+
+    log_error "Network error: $error_type with $remote_repo"
+
+    case "$error_type" in
+        "ssh_timeout")
+            handle_ssh_timeout "$remote_repo" "$retry_count" "$retry_delay"
+            ;;
+        "connection_refused")
+            handle_connection_refused "$remote_repo" "$retry_count" "$retry_delay"
+            ;;
+        "dns_resolution")
+            handle_dns_error "$remote_repo" "$retry_count" "$retry_delay"
+            ;;
+        "auth_failure")
+            handle_auth_failure "$remote_repo"
+            ;;
+        *)
+            handle_generic_network_error "$remote_repo" "$retry_count" "$retry_delay"
+            ;;
+    esac
+}
+
+# SSH timeout handling
+handle_ssh_timeout() {
+    local remote_repo="$1"
+    local retry_count="$2"
+    local retry_delay="$3"
+
+    log_warn "SSH timeout detected, implementing retry strategy"
+
+    for ((i=1; i<=retry_count; i++)); do
+        log_info "Retry attempt $i/$retry_count"
+
+        if test_ssh_connection "$remote_repo"; then
+            log_info "SSH connection restored"
+            return 0
+        fi
+
+        if [ "$i" -lt "$retry_count" ]; then
+            log_info "Waiting $retry_delay seconds before retry"
+            sleep "$retry_delay"
+            retry_delay=$((retry_delay * 2))  # Exponential backoff
+        fi
+    done
+
+    log_error "SSH connection failed after $retry_count attempts"
+    return 1
+}
+
+# Authentication failure handling
+handle_auth_failure() {
+    local remote_repo="$1"
+
+    log_error "Authentication failure detected"
+
+    # Check SSH key configuration
+    local hostname
+    hostname=$(echo "$remote_repo" | sed -n 's/.*@\([^:]*\):.*/\1/p')
+
+    if [ -z "$hostname" ]; then
+        log_error "Could not extract hostname from repository URL"
+        return 1
+    fi
+
+    # Verify SSH key exists
+    if [ ! -f "$HOME/.ssh/id_rsa" ] && [ ! -f "$HOME/.ssh/id_ed25519" ]; then
+        log_error "No SSH keys found in $HOME/.ssh/"
+        echo "Please generate SSH keys with: ssh-keygen -t ed25519 -C 'your_email@example.com'"
+        return 1
+    fi
+
+    # Test SSH configuration
+    if ! ssh -T -o BatchMode=yes -o ConnectTimeout=10 "$hostname" 2>/dev/null; then
+        log_error "SSH authentication failed for $hostname"
+        echo "Please verify:"
+        echo "  1. SSH key is added to SSH agent: ssh-add ~/.ssh/id_ed25519"
+        echo "  2. Public key is added to remote Git service"
+        echo "  3. SSH config is correct in ~/.ssh/config"
+        return 1
+    fi
+
+    log_info "SSH authentication test passed"
+    return 0
+}
+
+# Test SSH connection
+test_ssh_connection() {
+    local remote_repo="$1"
+    local hostname
+    hostname=$(echo "$remote_repo" | sed -n 's/.*@\([^:]*\):.*/\1/p')
+
+    if [ -z "$hostname" ]; then
+        return 1
+    fi
+
+    ssh -T -o BatchMode=yes -o ConnectTimeout=10 "$hostname" 2>/dev/null
+}
+#+END_SRC
+
+** File System Errors
+
+#+BEGIN_SRC bash
+# File system error handling
+handle_filesystem_error() {
+    local error_type="$1"
+    local file_path="$2"
+    local project_name="$3"
+
+    log_error "Filesystem error: $error_type with $file_path"
+
+    case "$error_type" in
+        "permission_denied")
+            handle_permission_error "$file_path" "$project_name"
+            ;;
+        "disk_full")
+            handle_disk_full_error "$file_path" "$project_name"
+            ;;
+        "file_not_found")
+            handle_file_not_found "$file_path" "$project_name"
+            ;;
+        "directory_not_empty")
+            handle_directory_not_empty "$file_path" "$project_name"
+            ;;
+        "symlink_loop")
+            handle_symlink_loop "$file_path" "$project_name"
+            ;;
+        *)
+            handle_generic_filesystem_error "$file_path" "$project_name"
+            ;;
+    esac
+}
+
+# Permission error handling
+handle_permission_error() {
+    local file_path="$1"
+    local project_name="$2"
+
+    log_error "Permission denied: $file_path"
+
+    # Check if file exists and get current permissions
+    if [ -e "$file_path" ]; then
+        local current_perms
+        current_perms=$(stat -c %A "$file_path")
+        log_info "Current permissions: $current_perms"
+
+        # Check if it's a directory or file
+        if [ -d "$file_path" ]; then
+            log_info "Directory requires read/write/execute permissions"
+            echo "Try: chmod u+rwx '$file_path'"
+        else
+            log_info "File requires read/write permissions"
+            echo "Try: chmod u+rw '$file_path'"
+        fi
+    else
+        # Check parent directory permissions
+        local parent_dir
+        parent_dir=$(dirname "$file_path")
+        if [ -d "$parent_dir" ]; then
+            local parent_perms
+            parent_perms=$(stat -c %A "$parent_dir")
+            log_info "Parent directory permissions: $parent_perms"
+            echo "Try: chmod u+rwx '$parent_dir'"
+        else
+            log_error "Parent directory does not exist: $parent_dir"
+            echo "Try: mkdir -p '$parent_dir'"
+        fi
+    fi
+
+    # Suggest ownership check
+    echo "Also check ownership with: ls -la '$file_path'"
+
+    return 1
+}
+
+# Disk full error handling
+handle_disk_full_error() {
+    local file_path="$1"
+    local project_name="$2"
+
+    log_error "Disk full error while processing: $file_path"
+
+    # Check available disk space
+    local disk_usage
+    disk_usage=$(df -h "$(dirname "$file_path")" | tail -1)
+    log_info "Disk usage: $disk_usage"
+
+    # Clean up backup files to free space
+    local backup_dir="$HOME/.repo-sync/backups"
+    if [ -d "$backup_dir" ]; then
+        local backup_size
+        backup_size=$(du -sh "$backup_dir" | cut -f1)
+        log_info "Backup directory size: $backup_size"
+
+        echo "Options to free space:"
+        echo "  1. Clean old backups: repo-sync cleanup --backups --days 7"
+        echo "  2. Clean old logs: repo-sync cleanup --logs --days 30"
+        echo "  3. Remove project: repo-sync remove-project $project_name"
+        echo "  4. Manual cleanup: rm -rf '$backup_dir/old_backups'"
+    fi
+
+    # Suggest temporary directory cleanup
+    echo "Also check temporary files in: /tmp, ~/.cache, ~/.repo-sync/tmp"
+
+    return 1
+}
+
+# File not found error handling
+handle_file_not_found() {
+    local file_path="$1"
+    local project_name="$2"
+
+    log_error "File not found: $file_path"
+
+    # Check if it's a broken symlink
+    if [ -L "$file_path" ]; then
+        log_warn "Broken symlink detected: $file_path"
+        local link_target
+        link_target=$(readlink "$file_path")
+        log_info "Symlink target: $link_target"
+
+        echo "Options:"
+        echo "  1. Remove broken symlink: rm '$file_path'"
+        echo "  2. Fix symlink target: ln -sf 'correct_target' '$file_path'"
+
+        return 1
+    fi
+
+    # Check if file was recently deleted
+    local db_file="$HOME/.repo-sync/metadata.db"
+    local deletion_info
+    deletion_info=$(sqlite3 "$db_file" "
+        SELECT deleted_at, deleted_by, git_commit_hash
+        FROM deletion_tracking dt
+        JOIN projects p ON dt.project_id = p.id
+        WHERE p.name = '$project_name' AND dt.file_path = '$file_path'
+        ORDER BY dt.deleted_at DESC
+        LIMIT 1;
+    ")
+
+    if [ -n "$deletion_info" ]; then
+        log_info "File was deleted: $deletion_info"
+        echo "File was previously deleted from remote repository"
+        return 0
+    fi
+
+    # Suggest file recovery options
+    echo "File recovery options:"
+    echo "  1. Check if file exists in remote: repo-sync verify $project_name"
+    echo "  2. Restore from backup: repo-sync restore $project_name '$file_path'"
+    echo "  3. Re-add file: repo-sync add $project_name '$file_path'"
+
+    return 1
+}
+#+END_SRC
+
+** Git Operation Errors
+
+#+BEGIN_SRC bash
+# Git operation error handling
+handle_git_error() {
+    local error_type="$1"
+    local repo_dir="$2"
+    local project_name="$3"
+    local error_output="$4"
+
+    log_error "Git error: $error_type in $repo_dir"
+    log_debug "Git error output: $error_output"
+
+    case "$error_type" in
+        "merge_conflict")
+            handle_git_merge_conflict "$repo_dir" "$project_name"
+            ;;
+        "rebase_failed")
+            handle_git_rebase_failed "$repo_dir" "$project_name"
+            ;;
+        "push_rejected")
+            handle_git_push_rejected "$repo_dir" "$project_name"
+            ;;
+        "detached_head")
+            handle_git_detached_head "$repo_dir" "$project_name"
+            ;;
+        "repository_corrupted")
+            handle_git_repository_corrupted "$repo_dir" "$project_name"
+            ;;
+        "remote_branch_gone")
+            handle_git_remote_branch_gone "$repo_dir" "$project_name"
+            ;;
+        *)
+            handle_generic_git_error "$repo_dir" "$project_name" "$error_output"
+            ;;
+    esac
+}
+
+# Git merge conflict handling
+handle_git_merge_conflict() {
+    local repo_dir="$1"
+    local project_name="$2"
+
+    cd "$repo_dir" || return 1
+
+    log_warn "Git merge conflict detected"
+
+    # Get list of conflicted files
+    local conflicted_files
+    conflicted_files=$(git diff --name-only --diff-filter=U)
+
+    if [ -z "$conflicted_files" ]; then
+        log_info "No conflicted files found, checking merge status"
+        if git merge --abort 2>/dev/null; then
+            log_info "Merge aborted successfully"
+            return 0
+        fi
+    fi
+
+    log_info "Conflicted files: $conflicted_files"
+
+    # Attempt automatic resolution
+    local resolved_count=0
+    while IFS= read -r file; do
+        if resolve_git_merge_conflict "$file" "$project_name"; then
+            git add "$file"
+            resolved_count=$((resolved_count + 1))
+            log_info "Resolved conflict in: $file"
+        else
+            log_warn "Manual resolution required for: $file"
+        fi
+    done <<< "$conflicted_files"
+
+    # Check if all conflicts are resolved
+    if [ "$resolved_count" -eq "$(echo "$conflicted_files" | wc -l)" ]; then
+        if git commit --no-edit; then
+            log_info "All conflicts resolved and committed"
+            return 0
+        fi
+    fi
+
+    # Provide manual resolution guidance
+    echo "Manual conflict resolution required:"
+    echo "  1. Edit conflicted files to resolve conflicts"
+    echo "  2. Stage resolved files: git add <file>"
+    echo "  3. Complete merge: git commit"
+    echo "  4. Or abort merge: git merge --abort"
+
+    return 1
+}
+
+# Git rebase failure handling
+handle_git_rebase_failed() {
+    local repo_dir="$1"
+    local project_name="$2"
+
+    cd "$repo_dir" || return 1
+
+    log_error "Git rebase failed"
+
+    # Check rebase status
+    if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+        log_info "Rebase in progress, checking status"
+
+        # Try to continue rebase
+        if git rebase --continue 2>/dev/null; then
+            log_info "Rebase continued successfully"
+            return 0
+        fi
+
+        # Try to skip current commit
+        if git rebase --skip 2>/dev/null; then
+            log_info "Rebase skipped problematic commit"
+            return 0
+        fi
+
+        # Abort rebase as last resort
+        if git rebase --abort; then
+            log_warn "Rebase aborted, falling back to merge strategy"
+
+            # Try regular merge instead
+            if git pull --no-rebase origin "$(git branch --show-current)"; then
+                log_info "Merge strategy successful"
+                return 0
+            fi
+        fi
+    fi
+
+    echo "Rebase recovery options:"
+    echo "  1. Manual rebase: git rebase --continue (after resolving conflicts)"
+    echo "  2. Skip commit: git rebase --skip"
+    echo "  3. Abort rebase: git rebase --abort"
+    echo "  4. Force push: git push --force-with-lease origin $(git branch --show-current)"
+
+    return 1
+}
+
+# Git push rejected handling
+handle_git_push_rejected() {
+    local repo_dir="$1"
+    local project_name="$2"
+
+    cd "$repo_dir" || return 1
+
+    log_error "Git push rejected"
+
+    # Check if it's a non-fast-forward push
+    local current_branch
+    current_branch=$(git branch --show-current)
+
+    # Try to pull first
+    if git pull --rebase origin "$current_branch"; then
+        log_info "Successfully pulled changes, retrying push"
+
+        if git push origin "$current_branch"; then
+            log_info "Push successful after pull"
+            return 0
+        fi
+    fi
+
+    # Check if remote branch exists
+    if ! git ls-remote --exit-code origin "$current_branch" >/dev/null 2>&1; then
+        log_info "Remote branch doesn't exist, creating it"
+
+        if git push -u origin "$current_branch"; then
+            log_info "Remote branch created successfully"
+            return 0
+        fi
+    fi
+
+    echo "Push recovery options:"
+    echo "  1. Pull and retry: git pull --rebase origin $current_branch && git push"
+    echo "  2. Force push: git push --force-with-lease origin $current_branch"
+    echo "  3. Create new branch: git push -u origin $current_branch"
+
+    return 1
+}
+
+# Git repository corruption handling
+handle_git_repository_corrupted() {
+    local repo_dir="$1"
+    local project_name="$2"
+
+    log_error "Git repository corruption detected: $repo_dir"
+
+    # Create backup of current state
+    local backup_dir="$HOME/.repo-sync/backups/corrupted-repos/$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$backup_dir"
+
+    if cp -r "$repo_dir" "$backup_dir/"; then
+        log_info "Backup created: $backup_dir"
+    else
+        log_error "Failed to create backup"
+        return 1
+    fi
+
+    # Try to repair repository
+    cd "$repo_dir" || return 1
+
+    log_info "Attempting repository repair"
+
+    # Try git fsck
+    if git fsck --full 2>/dev/null; then
+        log_info "Repository fsck passed"
+    else
+        log_warn "Repository fsck failed, attempting recovery"
+
+        # Try to recover from reflog
+        if git reflog expire --expire=now --all && git gc --prune=now; then
+            log_info "Repository cleanup completed"
+        fi
+    fi
+
+    # If repair fails, offer to re-clone
+    if ! git status >/dev/null 2>&1; then
+        log_error "Repository is still corrupted"
+
+        echo "Repository corruption recovery options:"
+        echo "  1. Re-clone repository: repo-sync repair $project_name --re-clone"
+        echo "  2. Reset to remote: repo-sync repair $project_name --reset-hard"
+        echo "  3. Restore from backup: cp -r '$backup_dir' '$repo_dir'"
+
+        return 1
+    fi
+
+    log_info "Repository repair completed"
+    return 0
+}
+#+END_SRC
+
+** Database Errors
+
+#+BEGIN_SRC bash
+# Database error handling
+handle_database_error() {
+    local error_type="$1"
+    local db_file="$2"
+    local query="$3"
+
+    log_error "Database error: $error_type with $db_file"
+
+    case "$error_type" in
+        "locked")
+            handle_database_locked "$db_file"
+            ;;
+        "corrupted")
+            handle_database_corrupted "$db_file"
+            ;;
+        "permission_denied")
+            handle_database_permission "$db_file"
+            ;;
+        "disk_full")
+            handle_database_disk_full "$db_file"
+            ;;
+        "schema_version")
+            handle_database_schema_version "$db_file"
+            ;;
+        *)
+            handle_generic_database_error "$db_file" "$query"
+            ;;
+    esac
+}
+
+# Database locked error handling
+handle_database_locked() {
+    local db_file="$1"
+    local max_retries=10
+    local retry_delay=1
+
+    log_warn "Database locked, implementing retry strategy"
+
+    for ((i=1; i<=max_retries; i++)); do
+        log_info "Retry attempt $i/$max_retries"
+
+        if sqlite3 "$db_file" "SELECT 1;" >/dev/null 2>&1; then
+            log_info "Database lock cleared"
+            return 0
+        fi
+
+        # Check for stale lock processes
+        local lock_pids
+        lock_pids=$(lsof "$db_file" 2>/dev/null | awk 'NR>1 {print $2}' | sort -u)
+
+        if [ -n "$lock_pids" ]; then
+            log_info "Database locked by processes: $lock_pids"
+
+            # Check if processes are still running
+            for pid in $lock_pids; do
+                if ! kill -0 "$pid" 2>/dev/null; then
+                    log_info "Stale lock process $pid no longer running"
+                fi
+            done
+        fi
+
+        sleep "$retry_delay"
+        retry_delay=$((retry_delay * 2))
+    done
+
+    log_error "Database remains locked after $max_retries attempts"
+
+    echo "Database lock recovery options:"
+    echo "  1. Kill locking processes: sudo kill $lock_pids"
+    echo "  2. Restart repo-sync service: systemctl restart repo-sync"
+    echo "  3. Reboot system if locks persist"
+
+    return 1
+}
+
+# Database corruption handling
+handle_database_corrupted() {
+    local db_file="$1"
+
+    log_error "Database corruption detected: $db_file"
+
+    # Create backup
+    local backup_file="$db_file.backup.$(date +%Y%m%d-%H%M%S)"
+    if cp "$db_file" "$backup_file"; then
+        log_info "Database backup created: $backup_file"
+    else
+        log_error "Failed to create database backup"
+        return 1
+    fi
+
+    # Try to repair database
+    log_info "Attempting database repair"
+
+    # Try SQLite integrity check
+    if sqlite3 "$db_file" "PRAGMA integrity_check;" | grep -q "ok"; then
+        log_info "Database integrity check passed"
+        return 0
+    fi
+
+    # Try to dump and restore
+    local dump_file="/tmp/db_dump_$$.sql"
+    if sqlite3 "$db_file" .dump > "$dump_file" 2>/dev/null; then
+        log_info "Database dumped successfully"
+
+        # Create new database from dump
+        local new_db_file="$db_file.new"
+        if sqlite3 "$new_db_file" < "$dump_file"; then
+            log_info "New database created from dump"
+
+            # Replace corrupted database
+            if mv "$new_db_file" "$db_file"; then
+                log_info "Database restored successfully"
+                rm -f "$dump_file"
+                return 0
+            fi
+        fi
+    fi
+
+    # If repair fails, offer to reinitialize
+    log_error "Database repair failed"
+
+    echo "Database corruption recovery options:"
+    echo "  1. Initialize new database: repo-sync init --reset-db"
+    echo "  2. Restore from backup: cp '$backup_file' '$db_file'"
+    echo "  3. Export data manually: sqlite3 '$backup_file' .dump"
+
+    return 1
+}
+#+END_SRC
+
+** Recovery Procedures
+
+#+BEGIN_SRC bash
+# Complete system recovery
+perform_system_recovery() {
+    local recovery_type="$1"
+    local project_name="$2"
+
+    log_info "Performing system recovery: $recovery_type for $project_name"
+
+    case "$recovery_type" in
+        "full_reset")
+            perform_full_reset "$project_name"
+            ;;
+        "partial_reset")
+            perform_partial_reset "$project_name"
+            ;;
+        "rollback")
+            perform_rollback "$project_name"
+            ;;
+        "re_sync")
+            perform_re_sync "$project_name"
+            ;;
+        *)
+            log_error "Unknown recovery type: $recovery_type"
+            return 1
+            ;;
+    esac
+}
+
+# Full system reset
+perform_full_reset() {
+    local project_name="$1"
+
+    log_warn "Performing full reset for $project_name"
+
+    # Create backup before reset
+    local backup_dir="$HOME/.repo-sync/backups/full-reset-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$backup_dir"
+
+    # Get project configuration
+    local project_config="$HOME/.repo-sync/mappings/$project_name.yaml"
+    if [ ! -f "$project_config" ]; then
+        log_error "Project configuration not found: $project_config"
+        return 1
+    fi
+
+    local local_dir
+    local remote_dir
+    local_dir=$(yq eval '.local_work_dir' "$project_config")
+    remote_dir=$(yq eval '.remote_work_dir' "$project_config")
+
+    # Backup current state
+    if [ -d "$local_dir" ]; then
+        cp -r "$local_dir" "$backup_dir/local"
+        log_info "Local directory backed up"
+    fi
+
+    if [ -d "$remote_dir" ]; then
+        cp -r "$remote_dir" "$backup_dir/remote"
+        log_info "Remote directory backed up"
+    fi
+
+    # Clear database entries
+    local db_file="$HOME/.repo-sync/metadata.db"
+    sqlite3 "$db_file" "DELETE FROM file_tracking WHERE project_id = (SELECT id FROM projects WHERE name = '$project_name');"
+    sqlite3 "$db_file" "DELETE FROM sync_operations WHERE project_id = (SELECT id FROM projects WHERE name = '$project_name');"
+
+    # Re-initialize project
+    if repo_sync_init_project "$project_name"; then
+        log_info "Full reset completed successfully"
+        echo "Backup created at: $backup_dir"
+        return 0
+    else
+        log_error "Failed to re-initialize project"
+        return 1
+    fi
+}
+
+# Rollback to previous state
+perform_rollback() {
+    local project_name="$1"
+    local rollback_id="$2"
+
+    log_info "Performing rollback for $project_name to $rollback_id"
+
+    local rollback_dir="$HOME/.repo-sync/rollbacks/$project_name"
+
+    if [ -z "$rollback_id" ]; then
+        # Find most recent rollback point
+        rollback_id=$(ls -1t "$rollback_dir" | head -1)
+    fi
+
+    local rollback_point="$rollback_dir/$rollback_id"
+
+    if [ ! -d "$rollback_point" ]; then
+        log_error "Rollback point not found: $rollback_point"
+        return 1
+    fi
+
+    # Get project configuration
+    local project_config="$HOME/.repo-sync/mappings/$project_name.yaml"
+    local local_dir
+    local_dir=$(yq eval '.local_work_dir' "$project_config")
+
+    # Restore from rollback point
+    if [ -f "$rollback_point/local_snapshot.tar.gz" ]; then
+        log_info "Restoring from rollback point: $rollback_id"
+
+        # Create current backup
+        local current_backup="$HOME/.repo-sync/backups/pre-rollback-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$current_backup"
+        cp -r "$local_dir" "$current_backup/"
+
+        # Restore from rollback
+        tar -xzf "$rollback_point/local_snapshot.tar.gz" -C "$local_dir"
+
+        log_info "Rollback completed successfully"
+        echo "Current state backed up to: $current_backup"
+        return 0
+    else
+        log_error "Rollback snapshot not found"
+        return 1
+    fi
+}
+#+END_SRC
+
+** Monitoring and Alerting
+
+#+BEGIN_SRC bash
+# Health monitoring
+monitor_system_health() {
+    local project_name="$1"
+
+    log_info "Monitoring system health for $project_name"
+
+    local health_issues=0
+
+    # Check database health
+    if ! check_database_health "$project_name"; then
+        health_issues=$((health_issues + 1))
+    fi
+
+    # Check file system health
+    if ! check_filesystem_health "$project_name"; then
+        health_issues=$((health_issues + 1))
+    fi
+
+    # Check network connectivity
+    if ! check_network_health "$project_name"; then
+        health_issues=$((health_issues + 1))
+    fi
+
+    # Check repository health
+    if ! check_repository_health "$project_name"; then
+        health_issues=$((health_issues + 1))
+    fi
+
+    if [ "$health_issues" -eq 0 ]; then
+        log_info "System health check passed"
+        return 0
+    else
+        log_error "System health check failed with $health_issues issues"
+        return 1
+    fi
+}
+
+# Database health check
+check_database_health() {
+    local project_name="$1"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    # Check if database is accessible
+    if ! sqlite3 "$db_file" "SELECT 1;" >/dev/null 2>&1; then
+        log_error "Database is not accessible"
+        return 1
+    fi
+
+    # Check integrity
+    if ! sqlite3 "$db_file" "PRAGMA integrity_check;" | grep -q "ok"; then
+        log_error "Database integrity check failed"
+        return 1
+    fi
+
+    # Check project exists
+    local project_count
+    project_count=$(sqlite3 "$db_file" "SELECT COUNT(*) FROM projects WHERE name = '$project_name';")
+
+    if [ "$project_count" -eq 0 ]; then
+        log_error "Project not found in database: $project_name"
+        return 1
+    fi
+
+    log_info "Database health check passed"
+    return 0
+}
+
+# File system health check
+check_filesystem_health() {
+    local project_name="$1"
+    local project_config="$HOME/.repo-sync/mappings/$project_name.yaml"
+
+    if [ ! -f "$project_config" ]; then
+        log_error "Project configuration not found: $project_config"
+        return 1
+    fi
+
+    local local_dir
+    local remote_dir
+    local_dir=$(yq eval '.local_work_dir' "$project_config")
+    remote_dir=$(yq eval '.remote_work_dir' "$project_config")
+
+    # Check directory accessibility
+    if [ ! -d "$local_dir" ]; then
+        log_error "Local directory not accessible: $local_dir"
+        return 1
+    fi
+
+    if [ ! -d "$remote_dir" ]; then
+        log_error "Remote directory not accessible: $remote_dir"
+        return 1
+    fi
+
+    # Check permissions
+    if [ ! -r "$local_dir" ] || [ ! -w "$local_dir" ]; then
+        log_error "Local directory permissions insufficient: $local_dir"
+        return 1
+    fi
+
+    if [ ! -r "$remote_dir" ] || [ ! -w "$remote_dir" ]; then
+        log_error "Remote directory permissions insufficient: $remote_dir"
+        return 1
+    fi
+
+    # Check disk space
+    local available_space
+    available_space=$(df "$local_dir" | tail -1 | awk '{print $4}')
+
+    if [ "$available_space" -lt 1048576 ]; then  # Less than 1GB
+        log_warn "Low disk space: $available_space KB available"
+    fi
+
+    log_info "File system health check passed"
+    return 0
+}
+
+# Alert system
+send_alert() {
+    local alert_type="$1"
+    local message="$2"
+    local project_name="$3"
+
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    # Log alert
+    log_error "ALERT [$alert_type] $message"
+
+    # Write to alert file
+    local alert_file="$HOME/.repo-sync/alerts.log"
+    echo "[$timestamp] [$alert_type] [$project_name] $message" >> "$alert_file"
+
+    # Send desktop notification if available
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Repo-Sync Alert" "$alert_type: $message" -u critical
+    fi
+
+    # Send email notification if configured
+    if [ -n "$REPO_SYNC_ALERT_EMAIL" ]; then
+        echo "$message" | mail -s "Repo-Sync Alert: $alert_type" "$REPO_SYNC_ALERT_EMAIL"
+    fi
+}
+#+END_SRC
+
+This comprehensive error handling system provides robust error detection,
+recovery mechanisms, and monitoring capabilities to ensure repo-sync operates
+reliably across various failure scenarios while providing clear guidance for
+manual intervention when needed.

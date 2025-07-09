@@ -1,0 +1,765 @@
+#+TITLE: Conflict Resolution Algorithms and Strategies
+
+* Overview
+
+This document provides detailed conflict resolution algorithms and strategies
+for repo-sync. The system handles various types of conflicts including file
+content conflicts, deletion conflicts, and timestamp conflicts across multiple
+machines.
+
+Related documentation:
+- [[file:README.org][README.org]] - Main overview and usage
+- [[file:technical-implementation.org][technical-implementation.org]] - Technical implementation details
+- [[file:database-schema.org][database-schema.org]] - SQLite schema and metadata tracking
+- [[file:error-handling.org][error-handling.org]] - Error handling and recovery procedures
+
+* Conflict Types and Detection
+
+** File Content Conflicts
+
+#+BEGIN_SRC bash
+# Detect file content conflicts
+detect_content_conflicts() {
+    local project_name="$1"
+    local local_dir="$2"
+    local remote_dir="$3"
+
+    local conflicts_found=0
+    local temp_diff="/tmp/repo-sync-conflicts-$$"
+
+    # Compare file contents using rsync dry-run
+    rsync -avz --dry-run --itemize-changes \
+          --exclude='.git/' \
+          "$local_dir/" "$remote_dir/" > "$temp_diff" 2>/dev/null
+
+    # Parse rsync output to identify conflicts
+    while IFS= read -r line; do
+        # Check for files that differ (rsync item-changes format)
+        if [[ "$line" =~ ^[>f].* ]]; then
+            local file_path
+            file_path=$(echo "$line" | awk '{print $2}')
+
+            # Verify both files exist and differ
+            if [ -f "$local_dir/$file_path" ] && [ -f "$remote_dir/$file_path" ]; then
+                if ! cmp -s "$local_dir/$file_path" "$remote_dir/$file_path"; then
+                    echo "CONTENT_CONFLICT:$file_path"
+                    conflicts_found=$((conflicts_found + 1))
+                fi
+            fi
+        fi
+    done < "$temp_diff"
+
+    rm -f "$temp_diff"
+    return $conflicts_found
+}
+#+END_SRC
+
+** Deletion Conflicts
+
+#+BEGIN_SRC bash
+# Detect deletion conflicts
+detect_deletion_conflicts() {
+    local project_name="$1"
+    local local_dir="$2"
+    local machine_id="$3"
+
+    local db_file="$HOME/.repo-sync/metadata.db"
+    local conflicts_found=0
+
+    # Check for files deleted remotely but modified locally
+    while IFS='|' read -r file_path deleted_at original_hash; do
+        local local_file="$local_dir/$file_path"
+
+        if [ -f "$local_file" ]; then
+            # File exists locally but was deleted remotely
+            local current_hash
+            current_hash=$(sha256sum "$local_file" | cut -d' ' -f1)
+
+            if [ "$current_hash" != "$original_hash" ]; then
+                # File was modified locally after remote deletion
+                echo "DELETION_CONFLICT:$file_path:$deleted_at"
+                conflicts_found=$((conflicts_found + 1))
+            fi
+        fi
+    done < <(sqlite3 "$db_file" "
+        SELECT dt.file_path, dt.deleted_at, dt.file_hash_before_deletion
+        FROM deletion_tracking dt
+        JOIN projects p ON dt.project_id = p.id
+        WHERE p.name = '$project_name'
+          AND dt.deleted_by != '$machine_id'
+          AND (dt.verified_on_machines IS NULL OR dt.verified_on_machines NOT LIKE '%$machine_id%')
+        ORDER BY dt.deleted_at;
+    ")
+
+    return $conflicts_found
+}
+#+END_SRC
+
+** Timestamp Conflicts
+
+#+BEGIN_SRC bash
+# Detect timestamp-based conflicts
+detect_timestamp_conflicts() {
+    local project_name="$1"
+    local local_dir="$2"
+    local remote_dir="$3"
+
+    local conflicts_found=0
+
+    # Find files with different timestamps but same content
+    find "$local_dir" -type f -not -path "*/\.*" | while read -r local_file; do
+        local rel_path="${local_file#$local_dir/}"
+        local remote_file="$remote_dir/$rel_path"
+
+        if [ -f "$remote_file" ]; then
+            local local_mtime
+            local remote_mtime
+            local_mtime=$(stat -c %Y "$local_file")
+            remote_mtime=$(stat -c %Y "$remote_file")
+
+            # Check if files have different timestamps but same content
+            if [ "$local_mtime" != "$remote_mtime" ] && cmp -s "$local_file" "$remote_file"; then
+                echo "TIMESTAMP_CONFLICT:$rel_path:$local_mtime:$remote_mtime"
+                conflicts_found=$((conflicts_found + 1))
+            fi
+        fi
+    done
+
+    return $conflicts_found
+}
+#+END_SRC
+
+* Resolution Strategies
+
+** Strategy Selection Algorithm
+
+#+BEGIN_SRC bash
+# Select appropriate resolution strategy
+select_resolution_strategy() {
+    local project_name="$1"
+    local file_path="$2"
+    local conflict_type="$3"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    # Check for user-defined preferences
+    local preferred_strategy
+    preferred_strategy=$(sqlite3 "$db_file" "
+        SELECT rp.preferred_strategy
+        FROM resolution_preferences rp
+        JOIN projects p ON rp.project_id = p.id
+        WHERE p.name = '$project_name'
+          AND ('$file_path' GLOB rp.file_pattern)
+          AND rp.conflict_type = '$conflict_type'
+        ORDER BY rp.priority DESC
+        LIMIT 1;
+    ")
+
+    if [ -n "$preferred_strategy" ]; then
+        echo "$preferred_strategy"
+        return 0
+    fi
+
+    # Default strategy based on file type and conflict type
+    case "$conflict_type" in
+        "CONTENT_CONFLICT")
+            select_content_strategy "$file_path"
+            ;;
+        "DELETION_CONFLICT")
+            select_deletion_strategy "$file_path"
+            ;;
+        "TIMESTAMP_CONFLICT")
+            echo "timestamp_newest"
+            ;;
+        *)
+            echo "manual"
+            ;;
+    esac
+}
+
+# Select content conflict resolution strategy
+select_content_strategy() {
+    local file_path="$1"
+
+    case "$file_path" in
+        *.json|*.yaml|*.yml|*.toml|*.ini|*.conf)
+            echo "structured_merge"
+            ;;
+        *.md|*.org|*.txt|*.rst)
+            echo "three_way_merge"
+            ;;
+        *.log|*.tmp|*.cache)
+            echo "timestamp_newest"
+            ;;
+        *)
+            echo "manual"
+            ;;
+    esac
+}
+
+# Select deletion conflict resolution strategy
+select_deletion_strategy() {
+    local file_path="$1"
+
+    case "$file_path" in
+        *.log|*.tmp|*.cache|*.backup)
+            echo "confirm_deletion"
+            ;;
+        *.config|*.conf|*.yaml|*.yml|*.json)
+            echo "manual"
+            ;;
+        *)
+            echo "manual"
+            ;;
+    esac
+}
+#+END_SRC
+
+** Content Conflict Resolution
+
+#+BEGIN_SRC bash
+# Resolve content conflicts using various strategies
+resolve_content_conflict() {
+    local project_name="$1"
+    local file_path="$2"
+    local local_file="$3"
+    local remote_file="$4"
+    local strategy="$5"
+
+    local backup_dir="$HOME/.repo-sync/backups/conflicts/$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$backup_dir"
+
+    # Create backups
+    cp "$local_file" "$backup_dir/local_$(basename "$file_path")"
+    cp "$remote_file" "$backup_dir/remote_$(basename "$file_path")"
+
+    case "$strategy" in
+        "timestamp_newest")
+            resolve_by_timestamp "$local_file" "$remote_file"
+            ;;
+        "timestamp_local")
+            resolve_by_local_preference "$local_file" "$remote_file"
+            ;;
+        "timestamp_remote")
+            resolve_by_remote_preference "$local_file" "$remote_file"
+            ;;
+        "structured_merge")
+            resolve_structured_merge "$local_file" "$remote_file" "$file_path"
+            ;;
+        "three_way_merge")
+            resolve_three_way_merge "$local_file" "$remote_file" "$file_path"
+            ;;
+        "manual")
+            resolve_manual_intervention "$local_file" "$remote_file" "$file_path"
+            ;;
+        *)
+            log_error "Unknown resolution strategy: $strategy"
+            return 1
+            ;;
+    esac
+
+    # Record resolution in database
+    record_conflict_resolution "$project_name" "$file_path" "CONTENT_CONFLICT" "$strategy" "$backup_dir"
+}
+
+# Timestamp-based resolution
+resolve_by_timestamp() {
+    local local_file="$1"
+    local remote_file="$2"
+
+    local local_mtime
+    local remote_mtime
+    local_mtime=$(stat -c %Y "$local_file")
+    remote_mtime=$(stat -c %Y "$remote_file")
+
+    if [ "$local_mtime" -gt "$remote_mtime" ]; then
+        log_info "Resolving conflict: local file is newer"
+        cp "$local_file" "$remote_file"
+    else
+        log_info "Resolving conflict: remote file is newer"
+        cp "$remote_file" "$local_file"
+    fi
+}
+
+# Structured merge for configuration files
+resolve_structured_merge() {
+    local local_file="$1"
+    local remote_file="$2"
+    local file_path="$3"
+
+    case "$file_path" in
+        *.json)
+            resolve_json_merge "$local_file" "$remote_file"
+            ;;
+        *.yaml|*.yml)
+            resolve_yaml_merge "$local_file" "$remote_file"
+            ;;
+        *.toml)
+            resolve_toml_merge "$local_file" "$remote_file"
+            ;;
+        *)
+            log_warn "Structured merge not supported for $file_path, falling back to manual"
+            resolve_manual_intervention "$local_file" "$remote_file" "$file_path"
+            ;;
+    esac
+}
+
+# JSON merge resolution
+resolve_json_merge() {
+    local local_file="$1"
+    local remote_file="$2"
+    local merged_file="/tmp/merged_json_$$"
+
+    # Attempt to merge JSON files
+    if command -v jq >/dev/null 2>&1; then
+        if jq -s '.[0] * .[1]' "$local_file" "$remote_file" > "$merged_file" 2>/dev/null; then
+            log_info "JSON files merged successfully"
+            cp "$merged_file" "$local_file"
+            cp "$merged_file" "$remote_file"
+        else
+            log_warn "JSON merge failed, using timestamp resolution"
+            resolve_by_timestamp "$local_file" "$remote_file"
+        fi
+        rm -f "$merged_file"
+    else
+        log_warn "jq not available, using timestamp resolution"
+        resolve_by_timestamp "$local_file" "$remote_file"
+    fi
+}
+
+# YAML merge resolution
+resolve_yaml_merge() {
+    local local_file="$1"
+    local remote_file="$2"
+    local merged_file="/tmp/merged_yaml_$$"
+
+    # Attempt to merge YAML files
+    if command -v yq >/dev/null 2>&1; then
+        if yq eval-all '. as $item ireduce ({}; . * $item)' "$local_file" "$remote_file" > "$merged_file" 2>/dev/null; then
+            log_info "YAML files merged successfully"
+            cp "$merged_file" "$local_file"
+            cp "$merged_file" "$remote_file"
+        else
+            log_warn "YAML merge failed, using timestamp resolution"
+            resolve_by_timestamp "$local_file" "$remote_file"
+        fi
+        rm -f "$merged_file"
+    else
+        log_warn "yq not available, using timestamp resolution"
+        resolve_by_timestamp "$local_file" "$remote_file"
+    fi
+}
+
+# Three-way merge for text files
+resolve_three_way_merge() {
+    local local_file="$1"
+    local remote_file="$2"
+    local file_path="$3"
+
+    # Try to find a common ancestor from git history
+    local base_file="/tmp/base_$$"
+    local merged_file="/tmp/merged_$$"
+
+    # Get common ancestor if available
+    if get_file_base_version "$file_path" "$base_file"; then
+        # Perform three-way merge
+        if command -v git >/dev/null 2>&1; then
+            if git merge-file "$local_file" "$base_file" "$remote_file" 2>/dev/null; then
+                log_info "Three-way merge successful"
+                cp "$local_file" "$remote_file"
+            else
+                log_warn "Three-way merge failed, using manual resolution"
+                resolve_manual_intervention "$local_file" "$remote_file" "$file_path"
+            fi
+        else
+            log_warn "Git not available, using timestamp resolution"
+            resolve_by_timestamp "$local_file" "$remote_file"
+        fi
+    else
+        log_warn "No base version found, using timestamp resolution"
+        resolve_by_timestamp "$local_file" "$remote_file"
+    fi
+
+    rm -f "$base_file" "$merged_file"
+}
+
+# Get base version of file from git history
+get_file_base_version() {
+    local file_path="$1"
+    local output_file="$2"
+
+    # Implementation depends on Git repository structure
+    # This is a placeholder for finding common ancestor
+    return 1
+}
+#+END_SRC
+
+** Deletion Conflict Resolution
+
+#+BEGIN_SRC bash
+# Resolve deletion conflicts
+resolve_deletion_conflict() {
+    local project_name="$1"
+    local file_path="$2"
+    local local_file="$3"
+    local deletion_timestamp="$4"
+    local strategy="$5"
+
+    local backup_dir="$HOME/.repo-sync/backups/deletion-conflicts/$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$backup_dir"
+
+    # Create backup of current local file
+    cp "$local_file" "$backup_dir/$(basename "$file_path")"
+
+    case "$strategy" in
+        "confirm_deletion")
+            resolve_confirm_deletion "$local_file" "$deletion_timestamp"
+            ;;
+        "keep_local")
+            resolve_keep_local "$project_name" "$file_path" "$local_file"
+            ;;
+        "manual")
+            resolve_deletion_manual "$local_file" "$file_path" "$deletion_timestamp"
+            ;;
+        *)
+            log_error "Unknown deletion resolution strategy: $strategy"
+            return 1
+            ;;
+    esac
+
+    # Record resolution in database
+    record_conflict_resolution "$project_name" "$file_path" "DELETION_CONFLICT" "$strategy" "$backup_dir"
+}
+
+# Confirm deletion resolution
+resolve_confirm_deletion() {
+    local local_file="$1"
+    local deletion_timestamp="$2"
+
+    local file_mtime
+    file_mtime=$(stat -c %Y "$local_file")
+    local deletion_time
+    deletion_time=$(date -d "$deletion_timestamp" +%s)
+
+    if [ "$file_mtime" -lt "$deletion_time" ]; then
+        log_info "File not modified since deletion, removing local copy"
+        rm -f "$local_file"
+    else
+        log_info "File modified since deletion, keeping local copy"
+    fi
+}
+
+# Keep local file resolution
+resolve_keep_local() {
+    local project_name="$1"
+    local file_path="$2"
+    local local_file="$3"
+
+    log_info "Keeping local file, will re-add to remote"
+
+    # This will trigger an "add" operation in the next sync
+    # Mark file as needing re-addition
+    local db_file="$HOME/.repo-sync/metadata.db"
+    sqlite3 "$db_file" "
+        UPDATE file_tracking SET
+            sync_status = 'pending',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE project_id = (SELECT id FROM projects WHERE name = '$project_name')
+          AND file_path = '$file_path';
+    "
+}
+
+# Manual deletion resolution
+resolve_deletion_manual() {
+    local local_file="$1"
+    local file_path="$2"
+    local deletion_timestamp="$3"
+
+    echo "DELETION CONFLICT: $file_path"
+    echo "File was deleted remotely at: $deletion_timestamp"
+    echo "Local file exists and may have been modified"
+    echo ""
+    echo "Options:"
+    echo "  1) Delete local file (confirm remote deletion)"
+    echo "  2) Keep local file (re-add to remote)"
+    echo "  3) View file content"
+    echo "  4) Skip for now"
+    echo ""
+
+    while true; do
+        read -p "Choose option (1-4): " choice
+        case "$choice" in
+            1)
+                rm -f "$local_file"
+                log_info "Local file deleted"
+                break
+                ;;
+            2)
+                log_info "Local file kept, will be re-added to remote"
+                break
+                ;;
+            3)
+                less "$local_file"
+                ;;
+            4)
+                log_info "Skipping conflict resolution"
+                return 1
+                ;;
+            *)
+                echo "Invalid option, please choose 1-4"
+                ;;
+        esac
+    done
+}
+#+END_SRC
+
+** Manual Intervention Interface
+
+#+BEGIN_SRC bash
+# Manual conflict resolution interface
+resolve_manual_intervention() {
+    local local_file="$1"
+    local remote_file="$2"
+    local file_path="$3"
+
+    echo "MANUAL CONFLICT RESOLUTION REQUIRED"
+    echo "File: $file_path"
+    echo ""
+    echo "Options:"
+    echo "  1) Use local version"
+    echo "  2) Use remote version"
+    echo "  3) Edit merged version"
+    echo "  4) View differences"
+    echo "  5) Skip for now"
+    echo ""
+
+    while true; do
+        read -p "Choose option (1-5): " choice
+        case "$choice" in
+            1)
+                cp "$local_file" "$remote_file"
+                log_info "Using local version"
+                break
+                ;;
+            2)
+                cp "$remote_file" "$local_file"
+                log_info "Using remote version"
+                break
+                ;;
+            3)
+                manual_edit_merge "$local_file" "$remote_file"
+                break
+                ;;
+            4)
+                show_file_differences "$local_file" "$remote_file"
+                ;;
+            5)
+                log_info "Skipping manual resolution"
+                return 1
+                ;;
+            *)
+                echo "Invalid option, please choose 1-5"
+                ;;
+        esac
+    done
+}
+
+# Manual edit merge
+manual_edit_merge() {
+    local local_file="$1"
+    local remote_file="$2"
+    local temp_merged="/tmp/manual_merge_$$"
+
+    # Create initial merged file with conflict markers
+    cat > "$temp_merged" << EOF
+<<<<<< LOCAL
+$(cat "$local_file")
+======
+$(cat "$remote_file")
+>>>>>> REMOTE
+EOF
+
+    # Open editor for manual resolution
+    ${EDITOR:-nano} "$temp_merged"
+
+    # Verify conflict markers are removed
+    if grep -q "^<<<<<< LOCAL" "$temp_merged" || grep -q "^>>>>>> REMOTE" "$temp_merged"; then
+        echo "Warning: Conflict markers still present in file"
+        read -p "Continue anyway? (y/n): " continue_choice
+        if [ "$continue_choice" != "y" ]; then
+            rm -f "$temp_merged"
+            return 1
+        fi
+    fi
+
+    # Apply merged version to both files
+    cp "$temp_merged" "$local_file"
+    cp "$temp_merged" "$remote_file"
+    rm -f "$temp_merged"
+
+    log_info "Manual merge completed"
+}
+
+# Show file differences
+show_file_differences() {
+    local local_file="$1"
+    local remote_file="$2"
+
+    if command -v diff >/dev/null 2>&1; then
+        echo "=== DIFFERENCES ==="
+        diff -u "$local_file" "$remote_file" | head -50
+        echo "=== END DIFFERENCES ==="
+    else
+        echo "diff command not available"
+    fi
+}
+#+END_SRC
+
+** Conflict Resolution Recording
+
+#+BEGIN_SRC bash
+# Record conflict resolution in database
+record_conflict_resolution() {
+    local project_name="$1"
+    local file_path="$2"
+    local conflict_type="$3"
+    local strategy="$4"
+    local backup_path="$5"
+
+    local db_file="$HOME/.repo-sync/metadata.db"
+    local machine_id
+    machine_id=$(hostname)
+
+    local local_hash=""
+    local remote_hash=""
+    local resolved_hash=""
+
+    # Calculate hashes if files exist
+    if [ -f "$backup_path/local_$(basename "$file_path")" ]; then
+        local_hash=$(sha256sum "$backup_path/local_$(basename "$file_path")" | cut -d' ' -f1)
+    fi
+    if [ -f "$backup_path/remote_$(basename "$file_path")" ]; then
+        remote_hash=$(sha256sum "$backup_path/remote_$(basename "$file_path")" | cut -d' ' -f1)
+    fi
+
+    # Get project configuration to find actual file location
+    local project_config="$HOME/.repo-sync/mappings/$project_name.yaml"
+    local local_dir
+    local_dir=$(yq eval '.local_work_dir' "$project_config")
+
+    if [ -f "$local_dir/$file_path" ]; then
+        resolved_hash=$(sha256sum "$local_dir/$file_path" | cut -d' ' -f1)
+    fi
+
+    # Record in database
+    sqlite3 "$db_file" << EOF
+INSERT INTO conflict_resolution (
+    project_id, file_path, conflict_type, resolution_strategy,
+    local_hash, remote_hash, resolved_hash, resolved_at, resolved_by, backup_path
+) VALUES (
+    (SELECT id FROM projects WHERE name = '$project_name'),
+    '$file_path', '$conflict_type', '$strategy',
+    '$local_hash', '$remote_hash', '$resolved_hash',
+    CURRENT_TIMESTAMP, '$machine_id', '$backup_path'
+);
+EOF
+
+    log_info "Conflict resolution recorded for $file_path"
+}
+
+# Get conflict resolution history
+get_conflict_history() {
+    local project_name="$1"
+    local file_path="$2"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+SELECT
+    conflict_type, resolution_strategy, resolved_at, resolved_by, backup_path
+FROM conflict_resolution cr
+JOIN projects p ON cr.project_id = p.id
+WHERE p.name = '$project_name' AND cr.file_path = '$file_path'
+ORDER BY cr.resolved_at DESC;
+EOF
+}
+#+END_SRC
+
+* Automated Conflict Prevention
+
+** Preemptive Conflict Detection
+
+#+BEGIN_SRC bash
+# Detect potential conflicts before they occur
+detect_potential_conflicts() {
+    local project_name="$1"
+    local local_dir="$2"
+    local remote_dir="$3"
+
+    # Check for files that might conflict in next sync
+    local potential_conflicts=0
+
+    # Check for concurrent modifications
+    while IFS= read -r file_path; do
+        local local_file="$local_dir/$file_path"
+        local remote_file="$remote_dir/$file_path"
+
+        if [ -f "$local_file" ] && [ -f "$remote_file" ]; then
+            local local_mtime
+            local remote_mtime
+            local_mtime=$(stat -c %Y "$local_file")
+            remote_mtime=$(stat -c %Y "$remote_file")
+
+            # Check if both files were modified recently (within 1 hour)
+            local current_time
+            current_time=$(date +%s)
+            local time_threshold=$((current_time - 3600))
+
+            if [ "$local_mtime" -gt "$time_threshold" ] && [ "$remote_mtime" -gt "$time_threshold" ]; then
+                if ! cmp -s "$local_file" "$remote_file"; then
+                    echo "POTENTIAL_CONFLICT:$file_path"
+                    potential_conflicts=$((potential_conflicts + 1))
+                fi
+            fi
+        fi
+    done < <(find "$local_dir" -type f -printf '%P\n')
+
+    return $potential_conflicts
+}
+
+# Lock-based conflict prevention
+acquire_sync_lock() {
+    local project_name="$1"
+    local lock_file="$HOME/.repo-sync/locks/$project_name.lock"
+    local lock_timeout=300  # 5 minutes
+
+    mkdir -p "$(dirname "$lock_file")"
+
+    # Try to acquire lock
+    if (
+        flock -n 200 || {
+            log_warn "Another sync operation is in progress, waiting..."
+            flock -w $lock_timeout 200
+        }
+    ) 200>"$lock_file"; then
+        log_info "Sync lock acquired for $project_name"
+        return 0
+    else
+        log_error "Failed to acquire sync lock for $project_name"
+        return 1
+    fi
+}
+
+# Release sync lock
+release_sync_lock() {
+    local project_name="$1"
+    local lock_file="$HOME/.repo-sync/locks/$project_name.lock"
+
+    if [ -f "$lock_file" ]; then
+        rm -f "$lock_file"
+        log_info "Sync lock released for $project_name"
+    fi
+}
+#+END_SRC
+
+This comprehensive conflict resolution system provides automated strategies for
+handling various types of conflicts while maintaining data integrity and
+providing fallback options for manual intervention when needed.
