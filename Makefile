@@ -6,9 +6,10 @@ check-format:
 	gofumpt -l .
 	ruff check --fix --exit-zero
 
-format: format-gofumpt
+format: format-gofumpt format-ruff
 
 format-gofumpt:
+	goimports -w .
 	gofumpt -w .
 
 format-ruff:
@@ -21,6 +22,7 @@ lint: lint-golangci lint-ruff
 
 lint-golangci:
 	GOPACKAGESDRIVER= golangci-lint run ./...
+	oserrorsgodernize ./...
 
 lint-ruff:
 	ruff check
