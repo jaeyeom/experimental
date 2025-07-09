@@ -1,6 +1,8 @@
 package notification
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,7 +124,7 @@ func TestPersistence(t *testing.T) {
 		}
 
 		// Verify the file exists
-		if _, err := os.Stat(persistPath); os.IsNotExist(err) {
+		if _, err := os.Stat(persistPath); errors.Is(err, fs.ErrNotExist) {
 			t.Error("Expected notification file to exist")
 		}
 	})

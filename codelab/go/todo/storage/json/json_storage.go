@@ -4,7 +4,9 @@ package json_storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -67,7 +69,7 @@ func (s *Storage) Load() (*core.List, error) {
 	slog.Info("loading todo list", "path", s.path)
 	b, err := os.ReadFile(s.path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			slog.Info("todo list file not found, creating new list", "path", s.path)
 			return core.NewList(), nil
 		}
