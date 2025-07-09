@@ -5,6 +5,8 @@
 package split
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,7 +144,7 @@ Content 3
 
 	for _, file := range expectedFiles {
 		path := filepath.Join(outputDir, file)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("Expected file %s does not exist", file)
 		}
 	}

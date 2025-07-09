@@ -34,7 +34,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 )
@@ -68,7 +70,7 @@ func main() {
 		}
 
 		// Check if file exists
-		if _, err := os.Stat(filename); os.IsNotExist(err) {
+		if _, err := os.Stat(filename); errors.Is(err, fs.ErrNotExist) {
 			fmt.Fprintf(os.Stderr, "Error: File %q does not exist\n", filename)
 			hasIssues = true
 			continue
