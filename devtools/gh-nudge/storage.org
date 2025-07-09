@@ -1,0 +1,377 @@
+#+TITLE: gh-storage - Unified Storage Management CLI
+#+AUTHOR: Jaehyun Yeom
+
+* gh-storage
+
+** Overview
+
+A unified storage management CLI for all gh-nudge tools. Provides centralized
+storage operations, backup management, and administrative functions for the
+shared storage system.
+
+** Features
+
+- **Unified Storage**: Centralized storage system for all gh-nudge tools
+- **File Locking**: Atomic operations with proper OS-level file locking
+- **Hierarchical Organization**: Structured data storage with path-based access
+- **Backup & Restore**: Automatic backups and point-in-time recovery
+- **Migration Tools**: Seamless migration from legacy storage formats
+- **Shell Integration**: Script-friendly commands for automation
+
+** Storage Architecture
+
+*** Storage Structure
+
+The unified storage system organizes data under `~/.config/gh-nudge/storage/`:
+
+#+BEGIN_EXAMPLE
+~/.config/gh-nudge/
+├── config.yaml                    # Main configuration
+├── notifications.json             # Legacy notification tracking
+├── storage/                       # New unified storage
+│   ├── metadata.json              # Storage metadata and versioning
+│   ├── notifications/             # Notification history
+│   │   ├── index.json            # Notification index
+│   │   └── repos/                # Notification data files
+│   │       ├── 2025-07-09.json   # Daily notification logs
+│   │       └── 2025-07-08.json
+│   ├── pr-reviews/               # PR review data
+│   │   ├── index.json            # PR review index
+│   │   └── repos/                # PR review data
+│   │       └── owner/
+│   │           └── repo/
+│   │               └── 123/      # PR number
+│   │                   ├── diff-hunks.json
+│   │                   ├── comments.json
+│   │                   └── metadata.json
+│   └── cache/                    # Cached data (GitHub API responses, etc.)
+│       ├── github/
+│       │   ├── repos/
+│       │   └── users/
+│       └── temp/                 # Temporary files
+├── logs/                         # Application logs
+└── backups/                      # Automatic backups
+    ├── 2025-07-09_config.yaml.bak
+    └── 2025-07-09_notifications.json.bak
+#+END_EXAMPLE
+
+** Installation
+
+*** Build from Source
+
+#+BEGIN_SRC bash
+cd devtools/gh-nudge
+go build -o gh-storage ./cmd/gh-storage
+sudo mv gh-storage /usr/local/bin/
+#+END_SRC
+
+** Usage
+
+*** Command Reference
+
+**** Initialize Storage System
+
+#+BEGIN_SRC bash
+gh-storage init
+#+END_SRC
+
+***** Options:
+- `--force`: Reinitialize existing storage
+- `--migrate`: Automatically migrate legacy data
+
+**** Storage Information
+
+#+BEGIN_SRC bash
+gh-storage info [path]
+#+END_SRC
+
+***** Options:
+- `--detailed`: Show detailed statistics
+- `--format`: Output format (table, json, yaml)
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage info
+gh-storage info pr-reviews/owner/repo/123
+gh-storage info --detailed --format json
+#+END_SRC
+
+**** List Storage Contents
+
+#+BEGIN_SRC bash
+gh-storage ls [path]
+#+END_SRC
+
+***** Options:
+- `--recursive`: List recursively
+- `--format`: Output format (table, json, tree)
+- `--filter`: Filter by pattern
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage ls
+gh-storage ls pr-reviews/owner/repo/
+gh-storage ls --recursive notifications/
+gh-storage ls --filter "*.json"
+#+END_SRC
+
+**** Get/Set Operations
+
+#+BEGIN_SRC bash
+gh-storage get <key>
+gh-storage set <key> <value>
+#+END_SRC
+
+***** Options for get:
+- `--format`: Output format (json, yaml, raw)
+- `--pretty`: Pretty-print output
+
+***** Options for set:
+- `--file`: Read value from file
+- `--json`: Parse value as JSON
+- `--yaml`: Parse value as YAML
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage get notifications/github.com/owner/repo/123/user1
+gh-storage set cache/github/users/user1 --file user1.json
+gh-storage set pr-reviews/owner/repo/123/metadata --json '{"status":"draft"}'
+#+END_SRC
+
+**** Migration Operations
+
+#+BEGIN_SRC bash
+gh-storage migrate [options]
+#+END_SRC
+
+***** Options:
+- `--from`: Source format/path
+- `--to`: Target format/path
+- `--dry-run`: Preview migration without changes
+- `--backup`: Create backup before migration
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage migrate --from notifications.json --to notifications/
+gh-storage migrate --dry-run --from notifications.json
+#+END_SRC
+
+**** Backup Operations
+
+#+BEGIN_SRC bash
+gh-storage backup [path]
+gh-storage restore <backup-id> [path]
+#+END_SRC
+
+***** Options for backup:
+- `--all`: Backup entire storage
+- `--compress`: Compress backup files
+- `--description`: Backup description
+
+***** Options for restore:
+- `--list`: List available backups
+- `--preview`: Preview restore operation
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage backup --all --description "Before migration"
+gh-storage backup pr-reviews/owner/repo/123
+gh-storage restore --list
+gh-storage restore 2025-07-09_12-00-00 pr-reviews/owner/repo/123
+#+END_SRC
+
+**** Cleanup Operations
+
+#+BEGIN_SRC bash
+gh-storage clean [options]
+gh-storage vacuum [options]
+#+END_SRC
+
+***** Options for clean:
+- `--older-than`: Remove data older than duration (30d, 1w, etc.)
+- `--type`: Data type to clean (cache, logs, temp)
+- `--dry-run`: Preview cleanup without changes
+
+***** Options for vacuum:
+- `--compress`: Compress storage files
+- `--defragment`: Defragment storage indexes
+- `--verify`: Verify integrity after vacuum
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage clean --older-than 30d --type cache
+gh-storage clean --dry-run
+gh-storage vacuum --compress --verify
+#+END_SRC
+
+**** Lock Management
+
+#+BEGIN_SRC bash
+gh-storage lock [options]
+#+END_SRC
+
+***** Options:
+- `--list`: List active locks
+- `--release`: Release lock on path
+- `--status`: Show lock status for path
+- `--force`: Force release stuck locks
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage lock --list
+gh-storage lock --release pr-reviews/owner/repo/123
+gh-storage lock --status pr-reviews/owner/repo/123
+gh-storage lock --force --release pr-reviews/owner/repo/123
+#+END_SRC
+
+**** Export/Import Operations
+
+#+BEGIN_SRC bash
+gh-storage export <path> [options]
+gh-storage import <path> [options]
+#+END_SRC
+
+***** Options for export:
+- `--format`: Export format (json, yaml, tar)
+- `--compress`: Compress exported data
+- `--include-metadata`: Include metadata in export
+
+***** Options for import:
+- `--format`: Import format (json, yaml, tar)
+- `--merge`: Merge with existing data
+- `--overwrite`: Overwrite existing data
+
+***** Examples:
+#+BEGIN_SRC bash
+gh-storage export pr-reviews/owner/repo/123 --format json > pr-123.json
+gh-storage import pr-reviews/owner/repo/124 --format json < pr-123.json
+gh-storage export --format tar --compress storage/ > backup.tar.gz
+#+END_SRC
+
+*** Workflow Examples
+
+**** Initial Setup
+
+#+BEGIN_SRC bash
+# Initialize storage system
+gh-storage init
+
+# Migrate existing data
+gh-storage migrate --from notifications.json --to notifications/ --backup
+
+# Verify migration
+gh-storage info --detailed
+#+END_SRC
+
+**** Daily Maintenance
+
+#+BEGIN_SRC bash
+# Clean old cache data
+gh-storage clean --older-than 7d --type cache
+
+# Create daily backup
+gh-storage backup --all --description "Daily backup $(date)"
+
+# Optimize storage
+gh-storage vacuum --compress
+#+END_SRC
+
+**** Troubleshooting
+
+#+BEGIN_SRC bash
+# Check storage integrity
+gh-storage verify
+
+# List active locks
+gh-storage lock --list
+
+# Force release stuck locks
+gh-storage lock --force --release pr-reviews/owner/repo/123
+
+# View storage statistics
+gh-storage info --detailed
+#+END_SRC
+
+**** Scripting Examples
+
+#+BEGIN_SRC bash
+# Get all PRs for a repository
+gh-storage ls pr-reviews/owner/repo/ | while read pr; do
+    echo "Processing PR: $pr"
+    gh-storage get "pr-reviews/owner/repo/$pr/metadata"
+done
+
+# Batch cleanup old PR reviews
+gh-storage ls pr-reviews/ --recursive --filter "metadata.json" | while read metadata; do
+    created=$(gh-storage get "$metadata" --format json | jq -r '.created_at')
+    if [[ $(date -d "$created" +%s) -lt $(date -d "30 days ago" +%s) ]]; then
+        gh-storage delete "$(dirname "$metadata")"
+    fi
+done
+#+END_SRC
+
+** Configuration
+
+*** Environment Variables
+
+- `GH_STORAGE_HOME`: Storage directory [default: ~/.config/gh-nudge/storage]
+- `GH_STORAGE_BACKUP_DIR`: Backup directory [default: ~/.config/gh-nudge/backups]
+- `GH_STORAGE_LOCK_TIMEOUT`: Lock timeout in seconds [default: 30]
+- `GH_STORAGE_DEBUG`: Enable debug logging [default: false]
+
+*** Configuration File
+
+Storage-specific configuration in `~/.config/gh-nudge/storage/config.json`:
+
+#+BEGIN_SRC json
+{
+  "storage_dir": "~/.config/gh-nudge/storage",
+  "backup_dir": "~/.config/gh-nudge/backups",
+  "lock_timeout": 30,
+  "auto_backup": true,
+  "backup_retention": "30d",
+  "compression": true,
+  "indexing": true,
+  "cache_ttl": "1h"
+}
+#+END_SRC
+
+** Integration with Other Tools
+
+*** gh-nudge Integration
+
+- Migrates existing `notifications.json` to structured storage
+- Maintains backward compatibility during transition
+- Provides performance improvements through indexing
+
+*** gh-pr-review Integration
+
+- Shares storage backend with file locking
+- Provides atomic operations for comment management
+- Supports hierarchical PR organization
+
+**** PR Review Storage Examples
+
+#+BEGIN_SRC bash
+# Initialize storage system
+gh-storage init
+
+# View storage info
+gh-storage info
+
+# List PR review data
+gh-storage ls repos/owner/repo/pull/123
+
+# Backup specific PR data
+gh-storage backup --path repos/owner/repo/pull/123
+
+# Clean up old data
+gh-storage clean --older-than 30d
+#+END_SRC
+
+*** Shell Script Integration
+
+- All commands support standard input/output
+- JSON/YAML output for parsing
+- Exit codes for error handling
+- Batch operations support

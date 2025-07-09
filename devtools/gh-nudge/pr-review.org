@@ -1,0 +1,406 @@
+#+TITLE: gh-pr-review - GitHub PR Review CLI Utility
+
+* GitHub PR Review CLI Utility
+
+** Overview
+
+A command-line utility for managing GitHub Pull Request review comments with
+intelligent diff tracking and atomic comment operations. This tool captures PR
+diff hunks, manages line-specific comments, and submits reviews using the GitHub
+API.
+
+** Features
+
+- **Diff Capture**: Automatically captures and stores GitHub PR diff hunks in
+  structured format
+- **Comment Management**: Add line-specific comments with duplicate detection
+  and validation
+- **Atomic Operations**: Uses OS file locking to ensure thread-safe operations
+- **GitHub Integration**: Seamlessly integrates with GitHub API via `gh` CLI
+- **Draft Reviews**: Creates pending review comments for review before
+  submission
+
+** Architecture
+
+*** Storage Structure
+
+The utility uses the unified gh-nudge storage system under `~/.config/gh-nudge/`:
+
+#+BEGIN_EXAMPLE
+~/.config/gh-nudge/
+├── config.yaml                    # Main configuration
+├── storage/                       # Unified storage
+│   ├── metadata.json              # Storage metadata and versioning
+│   ├── repos/                     # GitHub-structured data
+│   │   └── owner/
+│   │       └── repo/
+│   │           ├── metadata.json  # Repo-level metadata
+│   │           └── pull/
+│   │               └── 123/       # PR number
+│   │                   ├── diff-hunks.json
+│   │                   ├── comments.json
+│   │                   ├── notifications.json
+│   │                   └── metadata.json
+│   └── cache/                    # Cached data (GitHub API responses)
+│       ├── github/
+│       │   ├── repos/
+│       │   └── users/
+│       └── temp/                 # Temporary files
+├── logs/                         # Application logs
+└── backups/                      # Automatic backups
+#+END_EXAMPLE
+
+*** Data Format
+
+**** Diff Hunks Structure
+#+BEGIN_SRC json
+{
+  "pr_number": 123,
+  "owner": "username",
+  "repo": "repository",
+  "captured_at": "2025-07-09T12:00:00Z",
+  "diff_hunks": [
+    {
+      "file": "path/to/file.js",
+      "side": "RIGHT",
+      "start_line": 10,
+      "end_line": 15,
+      "content": "...",
+      "sha": "abc123..."
+    }
+  ]
+}
+#+END_SRC
+
+**** Comments Structure
+#+BEGIN_SRC json
+{
+  "pr_number": 123,
+  "owner": "username",
+  "repo": "repository",
+  "comments": [
+    {
+      "path": "path/to/file.js",
+      "line": 12,
+      "body": "Consider using const instead of let",
+      "side": "RIGHT",
+      "sha": "abc123...",
+      "created_at": "2025-07-09T12:00:00Z"
+    },
+    {
+      "path": "path/to/file.js",
+      "line": 18,
+      "start_line": 15,
+      "body": "This function needs refactoring",
+      "side": "RIGHT",
+      "sha": "abc123...",
+      "created_at": "2025-07-09T12:00:00Z"
+    }
+  ]
+}
+#+END_SRC
+
+** Installation
+
+*** Prerequisites
+
+- GitHub CLI (`gh`) installed and authenticated
+- Go 1.21 or later
+- Unix-like system with file locking support
+
+*** Install via Go
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest
+#+END_SRC
+
+** Usage
+
+*** Command Reference
+
+**** Capture PR Diff
+
+#+BEGIN_SRC bash
+gh-pr-review capture <owner>/<repo> <pr_number>
+#+END_SRC
+
+***** Options:
+- `--force`: Overwrite existing diff hunks
+
+***** Example:
+#+BEGIN_SRC bash
+gh-pr-review capture octocat/Hello-World 42
+#+END_SRC
+
+**** Add Line Comment
+
+#+BEGIN_SRC bash
+gh-pr-review comment <owner>/<repo> <pr_number> <file> <line> "<comment>"
+gh-pr-review comment <owner>/<repo> <pr_number> <file> <start_line>-<end_line> "<comment>"
+#+END_SRC
+
+***** Options:
+- `--side`: Side of diff (LEFT, RIGHT) [default: RIGHT]
+- `--force`: Add comment even if duplicate detected
+
+***** Examples:
+#+BEGIN_SRC bash
+# Comment on single line
+gh-pr-review comment octocat/Hello-World 42 src/main.js 15 "Consider using const instead of let"
+
+# Comment on line range
+gh-pr-review comment octocat/Hello-World 42 src/main.js 15-20 "This function needs refactoring"
+#+END_SRC
+
+**** Submit Review
+
+#+BEGIN_SRC bash
+gh-pr-review submit <owner>/<repo> <pr_number>
+#+END_SRC
+
+***** Options:
+- `--body`: Review body text
+- `--event`: Review event (COMMENT, APPROVE, REQUEST_CHANGES) [default: event
+  field won't be provided and the review will be pending]
+
+***** Example:
+#+BEGIN_SRC bash
+gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
+#+END_SRC
+
+**** List Comments
+
+#+BEGIN_SRC bash
+gh-pr-review list <owner>/<repo> <pr_number>
+#+END_SRC
+
+***** Options:
+- `--format`: Output format (table, json) [default: table]
+- `--file`: Filter by file path
+- `--line`: Filter by specific line number or range (e.g., 15 or 15-20)
+- `--side`: Filter by side (LEFT, RIGHT)
+
+**** Delete Line Comment
+
+#+BEGIN_SRC bash
+gh-pr-review delete <owner>/<repo> <pr_number> <file> <line>
+gh-pr-review delete <owner>/<repo> <pr_number> <file> <start_line>-<end_line>
+#+END_SRC
+
+***** Options:
+- `--side`: Side of diff (LEFT, RIGHT) [default: RIGHT]
+- `--confirm`: Skip confirmation prompt
+- `--all`: Delete all comments on the specified line (if multiple exist)
+- `--index`: Delete comment at specific index (0-based) when multiple exist
+- `--json`: Output results in JSON format for programmatic use
+
+***** Behavior:
+- **Single line**: If only one comment exists, deletes it; if multiple exist, fails with error listing all comments
+- **Line range**: Deletes all comments within the specified line range
+- **With `--all`**: Deletes all comments on the specified line/range
+- **With `--index N`**: Deletes comment at position N (0-based) when multiple exist on single line
+
+***** Examples:
+#+BEGIN_SRC bash
+# Delete single comment (fails if multiple exist)
+gh-pr-review delete octocat/Hello-World 42 src/main.js 15
+
+# Delete all comments on line
+gh-pr-review delete octocat/Hello-World 42 src/main.js 15 --all
+
+# Delete all comments in line range
+gh-pr-review delete octocat/Hello-World 42 src/main.js 15-20
+
+# Delete comment at specific index
+gh-pr-review delete octocat/Hello-World 42 src/main.js 15 --index 1
+
+# Non-interactive deletion with JSON output
+gh-pr-review delete octocat/Hello-World 42 src/main.js 15 --confirm --json
+#+END_SRC
+
+**** Clear Comments
+
+#+BEGIN_SRC bash
+gh-pr-review clear <owner>/<repo> <pr_number>
+#+END_SRC
+
+***** Options:
+- `--file`: Clear comments for specific file only
+- `--confirm`: Skip confirmation prompt
+
+*** Workflow Examples
+
+**** Basic Review Workflow
+
+1. **Capture PR diff hunks**:
+   #+BEGIN_SRC bash
+   gh-pr-review capture myorg/myrepo 123
+   #+END_SRC
+
+2. **Add line-specific comments**:
+   #+BEGIN_SRC bash
+   gh-pr-review comment myorg/myrepo 123 src/auth.js 45 "Add input validation here"
+   gh-pr-review comment myorg/myrepo 123 src/auth.js 67 "Consider using async/await"
+   #+END_SRC
+
+3. **Review comments before submission**:
+   #+BEGIN_SRC bash
+   gh-pr-review list myorg/myrepo 123
+   #+END_SRC
+
+4. **Delete specific comment if needed**:
+   #+BEGIN_SRC bash
+   gh-pr-review delete myorg/myrepo 123 src/auth.js 45
+   #+END_SRC
+
+5. **Submit as draft review**:
+   #+BEGIN_SRC bash
+   gh-pr-review submit myorg/myrepo 123 --body "Initial code review"
+   #+END_SRC
+
+**** Batch Comment Processing
+
+#+BEGIN_SRC bash
+# Process multiple files
+for file in src/*.js; do
+  gh-pr-review comment myorg/myrepo 123 "$file" 1 "Add copyright header"
+done
+
+# Submit all comments at once
+gh-pr-review submit myorg/myrepo 123 --body "Batch review: copyright headers"
+#+END_SRC
+
+**** AI Agent / Automation Usage
+
+#+BEGIN_SRC bash
+# List comments in JSON format for parsing
+gh-pr-review list myorg/myrepo 123 --format json > comments.json
+
+# Add comment with automatic confirmation
+gh-pr-review comment myorg/myrepo 123 src/main.js 15 "Use const instead of let" --force
+
+# Add comment on line range
+gh-pr-review comment myorg/myrepo 123 src/main.js 15-20 "This function needs refactoring" --force
+
+# Delete specific comment non-interactively
+gh-pr-review delete myorg/myrepo 123 src/main.js 15 --index 0 --confirm
+
+# Delete all comments in line range
+gh-pr-review delete myorg/myrepo 123 src/main.js 15-20 --confirm
+
+# Clear all comments for a file without confirmation
+gh-pr-review clear myorg/myrepo 123 --file src/main.js --confirm
+
+# Submit review with JSON output for status tracking
+gh-pr-review submit myorg/myrepo 123 --body "Automated review" --event COMMENT --json
+#+END_SRC
+
+** Implementation Details
+
+*** File Locking Strategy
+
+The utility uses the unified storage system's atomic operations with file locking:
+
+- **Shared locks** for read operations (capture, list)
+- **Exclusive locks** for write operations (comment, submit, clear)
+- **Lock timeout** configurable via `GH_NUDGE_TIMEOUT` [default: 30 seconds]
+- **Automatic cleanup** on process termination
+- **Lock management** via `gh-storage lock` commands
+
+*** Diff Validation
+
+Comments are validated against captured diff hunks:
+
+1. **File existence**: Verify file exists in diff
+2. **Line coverage**: Ensure line falls within diff hunks
+3. **Side validation**: Check LEFT/RIGHT side consistency
+4. **SHA verification**: Validate against commit SHA
+
+*** Duplicate Detection
+
+The system detects duplicate comments by comparing:
+
+- File path
+- Line number
+- Comment body (normalized)
+- Side (LEFT/RIGHT)
+
+*** Comment Deletion
+
+The delete command removes comments from the local storage:
+
+- **Exact matching**: Deletes comments by file path, line number/range, and side
+- **Single line**: If only one comment exists on the line, deletes it directly
+- **Line ranges**: Supports GitHub-style line ranges (e.g., 15-20) for multi-line comments
+- **Multiple comments**: Without flags, fails with error listing all comments and their indices
+- **Index selection**: `--index` flag deletes comment at specific position (0-based)
+- **Bulk deletion**: `--all` flag deletes all comments on a line/range at once
+- **Non-interactive**: All operations designed to work without user prompts when flags are used
+- **Confirmation**: Prompts for confirmation unless `--confirm` is used
+- **JSON output**: `--json` flag provides structured output for automation
+- **Atomic operation**: Uses exclusive file locking during deletion
+
+*** Error Handling
+
+- **Network failures**: Retry with exponential backoff
+- **API rate limits**: Automatic throttling and retry
+- **Lock contention**: Graceful waiting with timeout
+- **Invalid diff hunks**: Clear validation with helpful error messages
+
+*** GitHub API Integration
+
+Uses `gh api` commands for GitHub operations:
+
+#+BEGIN_SRC bash
+# Create review
+gh api -X POST /repos/:owner/:repo/pulls/:pr_number/reviews \
+  --input review.json
+
+# Get PR diff
+gh api /repos/:owner/:repo/pulls/:pr_number/files \
+  --jq '.[] | {filename, patch, sha}'
+#+END_SRC
+
+** Security Considerations
+
+- **File permissions**: Storage directory restricted to user (700)
+- **Sensitive data**: No authentication tokens stored locally
+- **Input validation**: All user inputs sanitized
+- **GitHub API**: Uses official `gh` CLI for authentication
+
+** Troubleshooting
+
+*** Common Issues
+
+**** "Lock timeout exceeded"
+Multiple processes accessing the same PR simultaneously. Wait and retry.
+
+**** "Line not in diff hunks"
+The specified line is not part of the captured diff. Re-capture the diff or choose a different line.
+
+**** "GitHub API rate limit"
+Wait for rate limit reset or use authenticated requests with higher limits.
+
+**** "Invalid diff format"
+GitHub API returned unexpected diff format. Clear and re-capture diff hunks.
+
+*** Debug Mode
+
+Enable debug logging (see main gh-nudge [[file:README.org][README.org]] for configuration details):
+
+#+BEGIN_SRC bash
+export GH_NUDGE_DEBUG=true
+gh-pr-review capture myorg/myrepo 123
+#+END_SRC
+
+*** Logging
+
+Logs are written to `~/.config/gh-nudge/logs/`:
+
+- `gh-pr-review.log`: General application logs
+- `github-api.log`: GitHub API interactions
+- `lock-operations.log`: File locking operations
+
+*** Storage Management
+
+For detailed storage management operations, see [[file:storage.org][storage.org]].

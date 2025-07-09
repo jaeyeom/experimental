@@ -10,6 +10,8 @@ This subdirectory contains a few utilities integrated with Github.
 - [[file:slack.org][gh-slack]]
 - [[file:merge.org][gh-merge]]
 - [[file:codeowners.org][gh-codeowners]]
+- [[file:pr-review.org][gh-pr-review]]
+- [[file:storage.org][gh-storage]]
 
 ** Prerequisites
 
@@ -62,7 +64,11 @@ devtools/gh-nudge/
 │   │   └── main.go
 │   ├── gh-merge/
 │   │   └── main.go
-│   └── gh-codeowners/
+│   ├── gh-codeowners/
+│   │   └── main.go
+│   ├── gh-pr-review/
+│   │   └── main.go
+│   └── gh-storage/
 │       └── main.go
 ├── internal/
 │   ├── config/
