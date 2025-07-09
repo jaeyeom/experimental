@@ -95,9 +95,7 @@ This function should only modify configuration layer settings."
            org-enable-roam-ui t
            org-roam-directory (file-truename "~/Documents/roam/")
            org-html-htmlize-output-type 'css
-           org-startup-folded 'nofold
-           org-enable-notifications t
-           org-start-notification-daemon-on-startup t)
+           org-startup-folded 'nofold)
       pass
       prodigy
       protobuf
@@ -763,7 +761,7 @@ before packages are loaded."
       (seq-filter (lambda (entry-data) (equal `("host" . ,host) (assoc "host" entry-data)))
                   (mapcar 'auth-source-pass-parse-entry (auth-source-pass-entries)))))
 
-  (require 'auth-source-pass 'noerror)
+  (require 'auth-source-pass nil 'noerror)
 
   ;;; Text Mode
   (add-hook 'text-mode-hook 'turn-on-auto-fill)
@@ -932,7 +930,7 @@ Fallback file lists are returned for specific directories."
     (setf hc-other-chars '("\u2018\u2019\u201C\u201D\u2013\u2014\u2026\u2192\u2190\u2194\u202F\xA0\xAD\u200C\u200D"))
     (add-hook 'prog-mode-hook #'hc-highlight-other-chars))
 
-  (require 'highlight-chars 'noerror)
+  (require 'highlight-chars nil 'noerror)
 
   ;;; Reddit
   (with-eval-after-load 'reddigg
