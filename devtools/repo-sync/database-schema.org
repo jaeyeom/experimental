@@ -1,0 +1,536 @@
+#+TITLE: Database Schema and Metadata Tracking
+
+* Overview
+
+This document defines the SQLite database schema and metadata tracking system
+for repo-sync. The database manages synchronization state, deletion tracking,
+performance metrics, and conflict resolution history.
+
+Related documentation:
+- [[file:README.org][README.org]] - Main overview and usage
+- [[file:technical-implementation.org][technical-implementation.org]] - Technical implementation details
+- [[file:conflict-resolution.org][conflict-resolution.org]] - Conflict resolution algorithms
+- [[file:error-handling.org][error-handling.org]] - Error handling and recovery procedures
+
+* Database Schema
+
+** Core Tables
+
+#+BEGIN_SRC sql
+-- Main configuration and project tracking
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    local_work_dir TEXT NOT NULL,
+    remote_repo TEXT NOT NULL,
+    remote_work_dir TEXT NOT NULL,
+    remote_path_prefix TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_sync_at DATETIME,
+    sync_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'archived'))
+);
+
+-- Sync operation history
+CREATE TABLE IF NOT EXISTS sync_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    operation_type TEXT NOT NULL CHECK (operation_type IN ('sync', 'add', 'remove', 'download', 'upload')),
+    started_at DATETIME NOT NULL,
+    completed_at DATETIME,
+    status TEXT NOT NULL CHECK (status IN ('in_progress', 'completed', 'failed', 'cancelled')),
+    files_synced INTEGER DEFAULT 0,
+    bytes_transferred INTEGER DEFAULT 0,
+    conflicts_resolved INTEGER DEFAULT 0,
+    error_message TEXT,
+    git_commit_hash TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- Individual file tracking
+CREATE TABLE IF NOT EXISTS file_tracking (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    file_hash TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    last_modified DATETIME NOT NULL,
+    sync_status TEXT NOT NULL CHECK (sync_status IN ('synced', 'pending', 'conflicted', 'deleted')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE(project_id, file_path)
+);
+#+END_SRC
+
+** Deletion Tracking
+
+#+BEGIN_SRC sql
+-- Deletion tracking for multi-machine coordination
+CREATE TABLE IF NOT EXISTS deletion_tracking (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    deleted_at DATETIME NOT NULL,
+    deleted_by TEXT NOT NULL,  -- Machine identifier
+    git_commit_hash TEXT NOT NULL,
+    file_hash_before_deletion TEXT,
+    file_size_before_deletion INTEGER,
+    deletion_reason TEXT,
+    verified_on_machines TEXT,  -- JSON array of machine IDs that verified deletion
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- Machine registration for deletion coordination
+CREATE TABLE IF NOT EXISTS machines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id TEXT UNIQUE NOT NULL,
+    hostname TEXT NOT NULL,
+    os_type TEXT NOT NULL,
+    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_conflicts INTEGER DEFAULT 0,
+    sync_successes INTEGER DEFAULT 0
+);
+#+END_SRC
+
+** Conflict Resolution
+
+#+BEGIN_SRC sql
+-- Conflict resolution history
+CREATE TABLE IF NOT EXISTS conflict_resolution (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    conflict_type TEXT NOT NULL CHECK (conflict_type IN ('merge', 'timestamp', 'manual', 'deletion')),
+    resolution_strategy TEXT NOT NULL,
+    local_hash TEXT,
+    remote_hash TEXT,
+    resolved_hash TEXT,
+    resolved_at DATETIME NOT NULL,
+    resolved_by TEXT NOT NULL,  -- 'automatic' or machine identifier
+    backup_path TEXT,
+    conflict_details TEXT,  -- JSON with detailed conflict information
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- Conflict resolution preferences
+CREATE TABLE IF NOT EXISTS resolution_preferences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    file_pattern TEXT NOT NULL,
+    conflict_type TEXT NOT NULL,
+    preferred_strategy TEXT NOT NULL,
+    priority INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+#+END_SRC
+
+** Performance Metrics
+
+#+BEGIN_SRC sql
+-- Performance tracking
+CREATE TABLE IF NOT EXISTS performance_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER,
+    operation TEXT NOT NULL,
+    duration REAL NOT NULL,  -- Duration in seconds
+    result INTEGER NOT NULL,  -- 0 for success, non-zero for failure
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    bytes_transferred INTEGER DEFAULT 0,
+    files_processed INTEGER DEFAULT 0,
+    bandwidth_mbps REAL,
+    cpu_usage REAL,
+    memory_usage INTEGER,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+-- Sync statistics aggregation
+CREATE TABLE IF NOT EXISTS sync_statistics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    date DATE NOT NULL,
+    total_syncs INTEGER DEFAULT 0,
+    successful_syncs INTEGER DEFAULT 0,
+    failed_syncs INTEGER DEFAULT 0,
+    conflicts_resolved INTEGER DEFAULT 0,
+    bytes_transferred INTEGER DEFAULT 0,
+    average_sync_duration REAL DEFAULT 0,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE(project_id, date)
+);
+#+END_SRC
+
+* Database Indexes
+
+#+BEGIN_SRC sql
+-- Performance indexes
+CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_last_sync ON projects(last_sync_at);
+
+CREATE INDEX IF NOT EXISTS idx_sync_operations_project ON sync_operations(project_id);
+CREATE INDEX IF NOT EXISTS idx_sync_operations_status ON sync_operations(status);
+CREATE INDEX IF NOT EXISTS idx_sync_operations_started ON sync_operations(started_at);
+CREATE INDEX IF NOT EXISTS idx_sync_operations_type ON sync_operations(operation_type);
+
+CREATE INDEX IF NOT EXISTS idx_file_tracking_project ON file_tracking(project_id);
+CREATE INDEX IF NOT EXISTS idx_file_tracking_path ON file_tracking(file_path);
+CREATE INDEX IF NOT EXISTS idx_file_tracking_status ON file_tracking(sync_status);
+CREATE INDEX IF NOT EXISTS idx_file_tracking_modified ON file_tracking(last_modified);
+
+CREATE INDEX IF NOT EXISTS idx_deletion_tracking_project ON deletion_tracking(project_id);
+CREATE INDEX IF NOT EXISTS idx_deletion_tracking_path ON deletion_tracking(file_path);
+CREATE INDEX IF NOT EXISTS idx_deletion_tracking_deleted_at ON deletion_tracking(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_deletion_tracking_commit ON deletion_tracking(git_commit_hash);
+
+CREATE INDEX IF NOT EXISTS idx_conflict_resolution_project ON conflict_resolution(project_id);
+CREATE INDEX IF NOT EXISTS idx_conflict_resolution_file ON conflict_resolution(file_path);
+CREATE INDEX IF NOT EXISTS idx_conflict_resolution_type ON conflict_resolution(conflict_type);
+CREATE INDEX IF NOT EXISTS idx_conflict_resolution_resolved_at ON conflict_resolution(resolved_at);
+
+CREATE INDEX IF NOT EXISTS idx_performance_metrics_project ON performance_metrics(project_id);
+CREATE INDEX IF NOT EXISTS idx_performance_metrics_operation ON performance_metrics(operation);
+CREATE INDEX IF NOT EXISTS idx_performance_metrics_timestamp ON performance_metrics(timestamp);
+#+END_SRC
+
+* Database Triggers
+
+#+BEGIN_SRC sql
+-- Automatic timestamp updates
+CREATE TRIGGER IF NOT EXISTS update_projects_timestamp
+    AFTER UPDATE ON projects
+    FOR EACH ROW
+    BEGIN
+        UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    END;
+
+CREATE TRIGGER IF NOT EXISTS update_file_tracking_timestamp
+    AFTER UPDATE ON file_tracking
+    FOR EACH ROW
+    BEGIN
+        UPDATE file_tracking SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    END;
+
+-- Automatic sync statistics aggregation
+CREATE TRIGGER IF NOT EXISTS sync_statistics_aggregation
+    AFTER INSERT ON sync_operations
+    FOR EACH ROW
+    WHEN NEW.status = 'completed'
+    BEGIN
+        INSERT OR REPLACE INTO sync_statistics (
+            project_id, date, total_syncs, successful_syncs, failed_syncs
+        ) VALUES (
+            NEW.project_id,
+            date(NEW.completed_at),
+            COALESCE((SELECT total_syncs FROM sync_statistics
+                     WHERE project_id = NEW.project_id AND date = date(NEW.completed_at)), 0) + 1,
+            COALESCE((SELECT successful_syncs FROM sync_statistics
+                     WHERE project_id = NEW.project_id AND date = date(NEW.completed_at)), 0) + 1,
+            COALESCE((SELECT failed_syncs FROM sync_statistics
+                     WHERE project_id = NEW.project_id AND date = date(NEW.completed_at)), 0)
+        );
+    END;
+
+CREATE TRIGGER IF NOT EXISTS sync_statistics_failure
+    AFTER UPDATE ON sync_operations
+    FOR EACH ROW
+    WHEN NEW.status = 'failed' AND OLD.status != 'failed'
+    BEGIN
+        UPDATE sync_statistics SET
+            failed_syncs = failed_syncs + 1
+        WHERE project_id = NEW.project_id AND date = date(NEW.started_at);
+    END;
+#+END_SRC
+
+* Database Operations
+
+** Initialization and Migration
+
+#+BEGIN_SRC bash
+# Database initialization
+init_database() {
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    # Create directory if it doesn't exist
+    mkdir -p "$(dirname "$db_file")"
+
+    # Initialize database with schema
+    sqlite3 "$db_file" < "$REPO_SYNC_ROOT/schema/init.sql"
+
+    # Set database permissions
+    chmod 600 "$db_file"
+
+    log_info "Database initialized at $db_file"
+}
+
+# Database migration system
+migrate_database() {
+    local db_file="$HOME/.repo-sync/metadata.db"
+    local current_version
+
+    # Check current schema version
+    current_version=$(sqlite3 "$db_file" "PRAGMA user_version;" 2>/dev/null || echo "0")
+
+    log_info "Current database version: $current_version"
+
+    # Apply migrations
+    case "$current_version" in
+        0)
+            log_info "Applying migration to version 1"
+            sqlite3 "$db_file" < "$REPO_SYNC_ROOT/migrations/001_initial.sql"
+            ;&
+        1)
+            log_info "Applying migration to version 2"
+            sqlite3 "$db_file" < "$REPO_SYNC_ROOT/migrations/002_performance.sql"
+            ;&
+        2)
+            log_info "Applying migration to version 3"
+            sqlite3 "$db_file" < "$REPO_SYNC_ROOT/migrations/003_deletion_tracking.sql"
+            ;&
+    esac
+
+    log_info "Database migration completed"
+}
+#+END_SRC
+
+** Project Management
+
+#+BEGIN_SRC bash
+# Project operations
+create_project() {
+    local name="$1"
+    local local_dir="$2"
+    local remote_repo="$3"
+    local remote_dir="$4"
+    local remote_prefix="$5"
+
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+INSERT INTO projects (
+    name, local_work_dir, remote_repo, remote_work_dir, remote_path_prefix
+) VALUES (
+    '$name', '$local_dir', '$remote_repo', '$remote_dir', '$remote_prefix'
+);
+EOF
+
+    log_info "Project '$name' created successfully"
+}
+
+# Get project configuration
+get_project_config() {
+    local project_name="$1"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+SELECT
+    name, local_work_dir, remote_repo, remote_work_dir, remote_path_prefix,
+    last_sync_at, sync_count, status
+FROM projects
+WHERE name = '$project_name';
+EOF
+}
+
+# Update project sync statistics
+update_project_sync_stats() {
+    local project_name="$1"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+UPDATE projects SET
+    last_sync_at = CURRENT_TIMESTAMP,
+    sync_count = sync_count + 1
+WHERE name = '$project_name';
+EOF
+}
+#+END_SRC
+
+** File Tracking Operations
+
+#+BEGIN_SRC bash
+# File tracking operations
+track_file() {
+    local project_name="$1"
+    local file_path="$2"
+    local file_hash="$3"
+    local file_size="$4"
+    local last_modified="$5"
+
+    local db_file="$HOME/.repo-sync/metadata.db"
+    local project_id
+
+    project_id=$(sqlite3 "$db_file" "SELECT id FROM projects WHERE name = '$project_name';")
+
+    sqlite3 "$db_file" << EOF
+INSERT OR REPLACE INTO file_tracking (
+    project_id, file_path, file_hash, file_size, last_modified, sync_status
+) VALUES (
+    $project_id, '$file_path', '$file_hash', $file_size, '$last_modified', 'synced'
+);
+EOF
+}
+
+# Get file sync status
+get_file_status() {
+    local project_name="$1"
+    local file_path="$2"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+SELECT ft.sync_status, ft.file_hash, ft.last_modified
+FROM file_tracking ft
+JOIN projects p ON ft.project_id = p.id
+WHERE p.name = '$project_name' AND ft.file_path = '$file_path';
+EOF
+}
+
+# Mark file as deleted
+mark_file_deleted() {
+    local project_name="$1"
+    local file_path="$2"
+    local git_commit_hash="$3"
+    local machine_id="$4"
+    local file_hash="$5"
+    local file_size="$6"
+
+    local db_file="$HOME/.repo-sync/metadata.db"
+    local project_id
+
+    project_id=$(sqlite3 "$db_file" "SELECT id FROM projects WHERE name = '$project_name';")
+
+    # Record deletion
+    sqlite3 "$db_file" << EOF
+INSERT INTO deletion_tracking (
+    project_id, file_path, deleted_at, deleted_by, git_commit_hash,
+    file_hash_before_deletion, file_size_before_deletion
+) VALUES (
+    $project_id, '$file_path', CURRENT_TIMESTAMP, '$machine_id', '$git_commit_hash',
+    '$file_hash', $file_size
+);
+EOF
+
+    # Update file tracking status
+    sqlite3 "$db_file" << EOF
+UPDATE file_tracking SET
+    sync_status = 'deleted',
+    updated_at = CURRENT_TIMESTAMP
+WHERE project_id = $project_id AND file_path = '$file_path';
+EOF
+}
+#+END_SRC
+
+** Deletion Coordination
+
+#+BEGIN_SRC bash
+# Deletion coordination functions
+check_pending_deletions() {
+    local project_name="$1"
+    local machine_id="$2"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+SELECT dt.file_path, dt.deleted_at, dt.git_commit_hash, dt.file_hash_before_deletion
+FROM deletion_tracking dt
+JOIN projects p ON dt.project_id = p.id
+WHERE p.name = '$project_name'
+  AND dt.deleted_by != '$machine_id'
+  AND (dt.verified_on_machines IS NULL OR dt.verified_on_machines NOT LIKE '%$machine_id%')
+ORDER BY dt.deleted_at;
+EOF
+}
+
+# Mark deletion as verified on this machine
+verify_deletion_on_machine() {
+    local project_name="$1"
+    local file_path="$2"
+    local machine_id="$3"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+UPDATE deletion_tracking SET
+    verified_on_machines = COALESCE(verified_on_machines, '') || ',$machine_id'
+WHERE project_id = (SELECT id FROM projects WHERE name = '$project_name')
+  AND file_path = '$file_path';
+EOF
+}
+
+# Get deletion conflicts (files deleted remotely but modified locally)
+get_deletion_conflicts() {
+    local project_name="$1"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+SELECT
+    dt.file_path,
+    dt.deleted_at,
+    dt.file_hash_before_deletion,
+    ft.file_hash as current_hash,
+    ft.last_modified
+FROM deletion_tracking dt
+JOIN projects p ON dt.project_id = p.id
+JOIN file_tracking ft ON dt.project_id = ft.project_id AND dt.file_path = ft.file_path
+WHERE p.name = '$project_name'
+  AND ft.sync_status != 'deleted'
+  AND dt.file_hash_before_deletion != ft.file_hash;
+EOF
+}
+#+END_SRC
+
+** Analytics and Reporting
+
+#+BEGIN_SRC bash
+# Generate sync analytics
+generate_sync_report() {
+    local project_name="$1"
+    local days="${2:-30}"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+SELECT
+    date,
+    total_syncs,
+    successful_syncs,
+    failed_syncs,
+    ROUND(average_sync_duration, 2) as avg_duration,
+    ROUND(bytes_transferred / 1024.0 / 1024.0, 2) as mb_transferred
+FROM sync_statistics ss
+JOIN projects p ON ss.project_id = p.id
+WHERE p.name = '$project_name'
+  AND date >= date('now', '-$days days')
+ORDER BY date DESC;
+EOF
+}
+
+# Get project health metrics
+get_project_health() {
+    local project_name="$1"
+    local db_file="$HOME/.repo-sync/metadata.db"
+
+    sqlite3 "$db_file" << EOF
+SELECT
+    p.name,
+    p.sync_count,
+    p.last_sync_at,
+    COUNT(DISTINCT ft.file_path) as tracked_files,
+    COUNT(DISTINCT CASE WHEN ft.sync_status = 'conflicted' THEN ft.file_path END) as conflicted_files,
+    COUNT(DISTINCT dt.file_path) as deleted_files,
+    AVG(pm.duration) as avg_sync_duration
+FROM projects p
+LEFT JOIN file_tracking ft ON p.id = ft.project_id
+LEFT JOIN deletion_tracking dt ON p.id = dt.project_id
+LEFT JOIN performance_metrics pm ON p.id = pm.project_id AND pm.operation = 'sync'
+WHERE p.name = '$project_name'
+GROUP BY p.id;
+EOF
+}
+#+END_SRC
+
+This comprehensive database schema provides robust metadata tracking, deletion
+coordination, performance monitoring, and analytics capabilities for the
+repo-sync utility. The schema supports multi-machine coordination, conflict
+resolution tracking, and detailed performance analytics while maintaining data
+integrity through proper indexing and triggers.
