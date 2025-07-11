@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "go_default_library",
-    srcs = ["pr.go"],
+    srcs = [
+        "pr.go",
+        "prreview.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
 )

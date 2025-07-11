@@ -3,16 +3,17 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["main.go"],
-    importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage",
+    importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review",
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/gh-nudge/internal/argparser:go_default_library",
+        "//devtools/gh-nudge/internal/prreview:go_default_library",
         "//devtools/gh-nudge/internal/storage:go_default_library",
     ],
 )
 
 go_binary(
-    name = "gh-storage",
+    name = "gh-pr-review",
     embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )

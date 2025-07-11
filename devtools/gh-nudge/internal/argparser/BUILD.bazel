@@ -1,14 +1,14 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "argparser",
+    name = "go_default_library",
     srcs = ["args.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/argparser",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
 )
 
 go_test(
-    name = "argparser_test",
+    name = "go_default_test",
     srcs = ["args_test.go"],
-    embed = [":argparser"],
+    embed = [":go_default_library"],
 )
