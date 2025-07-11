@@ -1,20 +1,24 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "storage",
+    name = "go_default_library",
     srcs = [
+        "github.go",
         "lock.go",
         "storage.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
+    deps = [
+        "//devtools/gh-nudge/internal/models:go_default_library",
+    ],
 )
 
 go_test(
-    name = "storage_test",
+    name = "go_default_test",
     srcs = [
         "lock_test.go",
         "storage_test.go",
     ],
-    embed = [":storage"],
+    embed = [":go_default_library"],
 )
