@@ -1,19 +1,14 @@
-.PHONY: check-format format format-gofumpt format-ruff test lint fix lint-golangci fix-golangci lint-ruff fix-ruff
+.PHONY: check-format format test lint fix lint-golangci fix-golangci lint-ruff fix-ruff
 
 all: requirements.txt format test fix
 
 check-format:
-	gofumpt -l .
-	ruff check --fix --exit-zero
+	goimports -l .
+	bazel test //tools/format:format_test
 
-format: format-gofumpt format-ruff
-
-format-gofumpt:
+format:
 	goimports -w .
-	gofumpt -w .
-
-format-ruff:
-	ruff format
+	bazel run //:format
 
 test:
 	go test ./...
