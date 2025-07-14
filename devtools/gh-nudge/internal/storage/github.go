@@ -65,7 +65,6 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 	commentsPath := filepath.Join(prPath, "comments.json")
 
 	if err := gs.storage.WithLock(commentsPath, func() error {
-		// Get existing comments
 		var prComments models.PRComments
 		if gs.storage.Exists(commentsPath) {
 			if err := gs.storage.Get(commentsPath, &prComments); err != nil {
@@ -80,14 +79,12 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 			}
 		}
 
-		// Check for duplicates
 		for _, existingComment := range prComments.Comments {
 			if comment.IsDuplicate(existingComment) {
 				return fmt.Errorf("duplicate comment detected")
 			}
 		}
 
-		// Add the new comment
 		comment.CreatedAt = time.Now()
 		prComments.Comments = append(prComments.Comments, comment)
 		prComments.UpdatedAt = time.Now()
@@ -157,7 +154,6 @@ func (gs *GitHubStorage) DeleteCommentByIndex(owner, repo string, prNumber int, 
 			return err
 		}
 
-		// Find matching comments
 		var matchingIndices []int
 		for i, comment := range prComments.Comments {
 			if comment.Path == file && comment.Line == line && comment.Side == side {
@@ -173,7 +169,6 @@ func (gs *GitHubStorage) DeleteCommentByIndex(owner, repo string, prNumber int, 
 			return fmt.Errorf("invalid index %d, valid range: 0-%d", index, len(matchingIndices)-1)
 		}
 
-		// Remove the comment at the specified index
 		actualIndex := matchingIndices[index]
 		prComments.Comments = append(prComments.Comments[:actualIndex], prComments.Comments[actualIndex+1:]...)
 		prComments.UpdatedAt = time.Now()
@@ -274,11 +269,9 @@ func (gs *GitHubStorage) ValidateCommentAgainstDiff(owner, repo string, prNumber
 		return fmt.Errorf("failed to get diff hunks for validation: %w", err)
 	}
 
-	// Find the relevant diff hunk
 	for _, hunk := range diffHunks.DiffHunks {
 		if hunk.File == comment.Path && hunk.Side == comment.Side {
 			if hunk.IsInRange(comment.Line) {
-				// Validate SHA if provided
 				if comment.SHA != "" && comment.SHA != hunk.SHA {
 					return fmt.Errorf("SHA mismatch: comment SHA %s does not match hunk SHA %s", comment.SHA, hunk.SHA)
 				}

@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// Metadata represents file metadata with creation time, modification time, size, and other attributes.
 type Metadata struct {
 	CreatedAt   time.Time `json:"created_at"`
 	ModifiedAt  time.Time `json:"modified_at"`
@@ -20,38 +21,59 @@ type Metadata struct {
 	Checksum    string    `json:"checksum,omitempty"`
 }
 
+// Storage defines the interface for unified storage operations including data persistence,
+// metadata management, locking, backup/restore, and extended CLI functionality.
 type Storage interface {
+	// Get retrieves data by key and unmarshals it into dest.
 	Get(key string, dest interface{}) error
+	// Set stores data with the given key, marshaling it to JSON.
 	Set(key string, data interface{}) error
+	// Delete removes the data associated with the given key.
 	Delete(key string) error
+	// Exists checks if data exists for the given key.
 	Exists(key string) bool
 
+	// WithLock executes the given function while holding an exclusive lock for the key.
 	WithLock(key string, fn func() error) error
 
+	// List returns all keys with the given prefix.
 	List(prefix string) ([]string, error)
+	// GetChildren returns direct child entries in the given path.
 	GetChildren(path string) ([]string, error)
 
+	// GetMetadata retrieves metadata for the given key.
 	GetMetadata(key string) (*Metadata, error)
+	// SetMetadata updates metadata for the given key.
 	SetMetadata(key string, metadata *Metadata) error
 
+	// Backup creates a backup of data for the given key.
 	Backup(key string) error
+	// Restore restores data for the given key from a backup at the specified timestamp.
 	Restore(key string, timestamp time.Time) error
 
+	// Cleanup removes temporary files and performs maintenance.
 	Cleanup() error
+	// Vacuum optimizes storage by compacting and reorganizing data.
 	Vacuum() error
 
 	// Extended methods for CLI interface
+	// ShowInfo displays information about the given path with optional detailed output and format.
 	ShowInfo(path string, detailed bool, format string) error
+	// ListFiles lists files in the given path with optional recursion, format, and filtering.
 	ListFiles(path string, recursive bool, format string, filter string) error
+	// GetFormatted retrieves and displays data in the specified format with optional pretty printing.
 	GetFormatted(key string, format string, pretty bool) error
+	// SetFormatted stores data from value or file with format validation.
 	SetFormatted(key string, value string, fromFile bool, isJSON bool, isYAML bool) error
 }
 
+// FileSystemStorage implements the Storage interface using the local filesystem.
 type FileSystemStorage struct {
 	rootPath    string
 	lockManager *LockManager
 }
 
+// NewFileSystemStorage creates a new FileSystemStorage instance with the specified root path.
 func NewFileSystemStorage(rootPath string) (*FileSystemStorage, error) {
 	absPath, err := filepath.Abs(rootPath)
 	if err != nil {
@@ -130,7 +152,6 @@ func (fs *FileSystemStorage) Exists(key string) bool {
 func (fs *FileSystemStorage) WithLock(key string, fn func() error) error {
 	lockPath := fs.getFilePath(key + ".lock")
 
-	// Ensure directory exists for lock file
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create directory for lock file: %w", err)
 	}
@@ -283,7 +304,7 @@ func (fs *FileSystemStorage) ShowInfo(path string, detailed bool, format string)
 		fmt.Printf("Path: %s\n", path)
 		fmt.Printf("Size: %d bytes\n", info.Size())
 		fmt.Printf("Modified: %s\n", info.ModTime().Format(time.RFC3339))
-		fmt.Printf("Type: %s\n", map[bool]string{true: "directory", false: "file"}[info.IsDir()])
+		fmt.Printf("Type: %s\n", fileTypeString(info.IsDir()))
 
 		if detailed && info.IsDir() {
 			var totalFiles, totalSize int64
@@ -450,6 +471,9 @@ func (fs *FileSystemStorage) SetFormatted(key string, value string, fromFile boo
 	return nil
 }
 
+// Initialize creates a new storage directory structure with metadata and subdirectories.
+// If force is true, it will overwrite existing directories. If migrate is true, it will
+// attempt to migrate data from existing sources.
 func Initialize(storageHome string, force bool, migrate bool) error {
 	if !force && directoryExists(storageHome) {
 		return fmt.Errorf("storage directory already exists: %s", storageHome)
@@ -495,6 +519,13 @@ func Initialize(storageHome string, force bool, migrate bool) error {
 func directoryExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func fileTypeString(isDir bool) string {
+	if isDir {
+		return "directory"
+	}
+	return "file"
 }
 
 func migrateFrom(storageHome string) error {
