@@ -1,4 +1,4 @@
-.PHONY: check-format format test lint fix lint-golangci fix-golangci lint-ruff fix-ruff
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff
 
 all: requirements.txt format test fix
 
@@ -6,9 +6,12 @@ check-format:
 	goimports -l .
 	bazel test //tools/format:format_test
 
-format:
+format: format-whitespace
 	goimports -w .
 	bazel run //:format
+
+format-whitespace:
+	find . -name "*.md" -o -name "*.org" | xargs sed -i 's/[[:space:]]*$$//'
 
 test:
 	go test ./...
