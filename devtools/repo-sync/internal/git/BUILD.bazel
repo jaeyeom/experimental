@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["manager.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/repo-sync/internal/git",
+    visibility = ["//devtools/repo-sync:__subpackages__"],
+    deps = ["//devtools/repo-sync/internal/config:go_default_library"],
+)

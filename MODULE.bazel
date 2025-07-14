@@ -17,7 +17,10 @@ use_repo(
     "com_github_google_uuid",
     "com_github_jaeyeom_sugo",
     "com_github_leanovate_gopter",
+    "com_github_mattn_go_sqlite3",
     "com_github_slack_go_slack",
+    "com_github_spf13_cobra",
+    "com_github_spf13_viper",
     "in_gopkg_yaml_v3",
     "org_modernc_sqlite",
 )

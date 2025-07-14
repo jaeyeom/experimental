@@ -1,0 +1,75 @@
+# Example project configuration for repo-sync
+# Save this as ~/.config/repo-sync/mappings/<project-name>.yaml
+
+project_name: "example-project"
+local_work_dir: "/home/user/projects/example-project"
+remote_repo: "git@github.com:user/config-sync.git"
+remote_work_dir: "/home/user/.repo-sync/remotes/config-sync"
+remote_path_prefix: "projects/example-project"
+
+sync_patterns:
+  include:
+    # Configuration files
+    - "*.yaml"
+    - "*.yml"
+    - "*.json"
+    - "*.toml"
+    - "*.ini"
+    - "*.conf"
+    - "*.config"
+
+    # Documentation
+    - "*.md"
+    - "*.txt"
+    - "*.org"
+    - "*.rst"
+
+    # Configuration directories
+    - "config/**/*"
+    - ".config/**/*"
+    - "settings/**/*"
+
+    # Project-specific files
+    - "Makefile"
+    - "Dockerfile"
+    - "docker-compose.yml"
+    - ".env.example"
+    - ".gitignore"
+
+  exclude:
+    # Temporary files
+    - "*.tmp"
+    - "*.temp"
+    - "*.bak"
+    - "*.backup"
+
+    # Log files
+    - "*.log"
+    - "logs/**/*"
+
+    # Cache and build artifacts
+    - "*.cache"
+    - "cache/**/*"
+    - "build/**/*"
+    - "dist/**/*"
+    - "target/**/*"
+    - "node_modules/**/*"
+    - "__pycache__/**/*"
+    - "*.pyc"
+
+    # Version control
+    - ".git/**/*"
+    - ".svn/**/*"
+    - ".hg/**/*"
+
+    # IDE files
+    - ".vscode/**/*"
+    - ".idea/**/*"
+    - "*.swp"
+    - "*.swo"
+    - "*~"
+
+    # OS files
+    - ".DS_Store"
+    - "Thumbs.db"
+    - "desktop.ini"

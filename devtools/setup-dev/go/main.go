@@ -9,7 +9,13 @@ import (
 	"github.com/jaeyeom/sugo/errors/must"
 )
 
-var configDir = must.String(os.UserConfigDir())
+var configDir = func() string {
+	if home := os.Getenv("HOME"); home == "" && os.Getenv("XDG_CONFIG_HOME") == "" {
+		// Set a default for testing environments
+		os.Setenv("HOME", "/tmp")
+	}
+	return must.String(os.UserConfigDir())
+}()
 
 var emacsDir = filepath.Join(configDir, "emacs")
 
