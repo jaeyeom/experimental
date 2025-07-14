@@ -39,9 +39,14 @@ linters:
             - github.com/slack-go/slack
             - gopkg.in/yaml.v3
             - modernc.org/sqlite
+            - github.com/spf13/cobra
+            - github.com/spf13/viper
+            - github.com/mattn/go-sqlite3
           deny:
             - pkg: "github.com/leanovate/gopter"
               desc: gopter is for test only
+            - pkg: "github.com/sirupsen/logrus"
+              desc: use log/slog instead
         Test:
           list-mode: lax
           files:

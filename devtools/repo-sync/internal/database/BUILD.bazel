@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["database.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/repo-sync/internal/database",
+    visibility = ["//devtools/repo-sync:__subpackages__"],
+    deps = [
+        "//devtools/repo-sync/internal/config:go_default_library",
+        "@com_github_mattn_go_sqlite3//:go_default_library",
+    ],
+)

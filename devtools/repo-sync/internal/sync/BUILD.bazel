@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "engine.go",
+        "rsync.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/repo-sync/internal/sync",
+    visibility = ["//devtools/repo-sync:__subpackages__"],
+    deps = [
+        "//devtools/repo-sync/internal/config:go_default_library",
+        "//devtools/repo-sync/internal/database:go_default_library",
+        "//devtools/repo-sync/internal/git:go_default_library",
+    ],
+)
