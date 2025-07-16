@@ -268,7 +268,7 @@ func (ch *CommandHandler) diffHunksExist(owner, repo string, prNumber int) bool 
 	diffPath := filepath.Join(prPath, "diff-hunks.json")
 
 	// Create a basic storage instance to check existence
-	fs, err := storage.NewFileSystemStorage(ch.storageHome)
+	fs, err := storage.NewFileSystemStore(ch.storageHome)
 	if err != nil {
 		return false
 	}
