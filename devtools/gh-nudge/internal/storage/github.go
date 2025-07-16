@@ -12,18 +12,29 @@ import (
 
 // GitHubStorage provides GitHub-specific storage operations.
 type GitHubStorage struct {
-	storage Storage
+	store  *FileSystemStore
+	locker *FileLockManager
+	lister *FileSystemLister
 }
 
 // NewGitHubStorage creates a new GitHub storage instance.
 func NewGitHubStorage(rootPath string) (*GitHubStorage, error) {
-	storage, err := NewStorage(rootPath)
+	store, err := NewFileSystemStore(rootPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage: %w", err)
+		return nil, fmt.Errorf("failed to create store: %w", err)
+	}
+
+	locker := NewFileLockManager(store)
+
+	lister, err := NewFileSystemLister(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create lister: %w", err)
 	}
 
 	return &GitHubStorage{
-		storage: storage,
+		store:  store,
+		locker: locker,
+		lister: lister,
 	}, nil
 }
 
@@ -37,8 +48,8 @@ func (gs *GitHubStorage) CaptureDiffHunks(owner, repo string, prNumber int, diff
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	diffPath := filepath.Join(prPath, "diff-hunks.json")
 
-	if err := gs.storage.WithLock(diffPath, func() error {
-		return gs.storage.Set(diffPath, diffHunks)
+	if err := gs.locker.WithLock(diffPath, func() error {
+		return gs.store.Set(diffPath, diffHunks)
 	}); err != nil {
 		return fmt.Errorf("failed to store diff hunks with lock: %w", err)
 	}
@@ -51,7 +62,7 @@ func (gs *GitHubStorage) GetDiffHunks(owner, repo string, prNumber int) (*models
 	diffPath := filepath.Join(prPath, "diff-hunks.json")
 
 	var diffHunks models.PRDiffHunks
-	err := gs.storage.Get(diffPath, &diffHunks)
+	err := gs.store.Get(diffPath, &diffHunks)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get diff hunks: %w", err)
 	}
@@ -64,10 +75,10 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
-	if err := gs.storage.WithLock(commentsPath, func() error {
+	if err := gs.locker.WithLock(commentsPath, func() error {
 		var prComments models.PRComments
-		if gs.storage.Exists(commentsPath) {
-			if err := gs.storage.Get(commentsPath, &prComments); err != nil {
+		if gs.store.Exists(commentsPath) {
+			if err := gs.store.Get(commentsPath, &prComments); err != nil {
 				return fmt.Errorf("failed to get existing comments: %w", err)
 			}
 		} else {
@@ -89,7 +100,7 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 		prComments.Comments = append(prComments.Comments, comment)
 		prComments.UpdatedAt = time.Now()
 
-		return gs.storage.Set(commentsPath, prComments)
+		return gs.store.Set(commentsPath, prComments)
 	}); err != nil {
 		return fmt.Errorf("failed to add comment with lock: %w", err)
 	}
@@ -101,7 +112,7 @@ func (gs *GitHubStorage) GetComments(owner, repo string, prNumber int) (*models.
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
-	if !gs.storage.Exists(commentsPath) {
+	if !gs.store.Exists(commentsPath) {
 		return &models.PRComments{
 			PRNumber: prNumber,
 			Owner:    owner,
@@ -111,7 +122,7 @@ func (gs *GitHubStorage) GetComments(owner, repo string, prNumber int) (*models.
 	}
 
 	var prComments models.PRComments
-	err := gs.storage.Get(commentsPath, &prComments)
+	err := gs.store.Get(commentsPath, &prComments)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get comments: %w", err)
 	}
@@ -148,7 +159,7 @@ func (gs *GitHubStorage) DeleteCommentByIndex(owner, repo string, prNumber int, 
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
-	if err := gs.storage.WithLock(commentsPath, func() error {
+	if err := gs.locker.WithLock(commentsPath, func() error {
 		prComments, err := gs.GetComments(owner, repo, prNumber)
 		if err != nil {
 			return err
@@ -173,7 +184,7 @@ func (gs *GitHubStorage) DeleteCommentByIndex(owner, repo string, prNumber int, 
 		prComments.Comments = append(prComments.Comments[:actualIndex], prComments.Comments[actualIndex+1:]...)
 		prComments.UpdatedAt = time.Now()
 
-		return gs.storage.Set(commentsPath, prComments)
+		return gs.store.Set(commentsPath, prComments)
 	}); err != nil {
 		return fmt.Errorf("failed to delete comment by index with lock: %w", err)
 	}
@@ -207,7 +218,7 @@ func (gs *GitHubStorage) deleteComments(owner, repo string, prNumber int, should
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
-	if err := gs.storage.WithLock(commentsPath, func() error {
+	if err := gs.locker.WithLock(commentsPath, func() error {
 		prComments, err := gs.GetComments(owner, repo, prNumber)
 		if err != nil {
 			return err
@@ -235,7 +246,7 @@ func (gs *GitHubStorage) deleteComments(owner, repo string, prNumber int, should
 		}
 
 		prComments.UpdatedAt = time.Now()
-		return gs.storage.Set(commentsPath, prComments)
+		return gs.store.Set(commentsPath, prComments)
 	}); err != nil {
 		return fmt.Errorf("failed to delete comments with lock: %w", err)
 	}
@@ -247,8 +258,8 @@ func (gs *GitHubStorage) ClearComments(owner, repo string, prNumber int) error {
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
-	if err := gs.storage.WithLock(commentsPath, func() error {
-		return gs.storage.Delete(commentsPath)
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		return gs.store.Delete(commentsPath)
 	}); err != nil {
 		return fmt.Errorf("failed to clear comments with lock: %w", err)
 	}
@@ -288,8 +299,8 @@ func (gs *GitHubStorage) SetPRMetadata(owner, repo string, prNumber int, metadat
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	metadataPath := filepath.Join(prPath, "metadata.json")
 
-	if err := gs.storage.WithLock(metadataPath, func() error {
-		return gs.storage.Set(metadataPath, metadata)
+	if err := gs.locker.WithLock(metadataPath, func() error {
+		return gs.store.Set(metadataPath, metadata)
 	}); err != nil {
 		return fmt.Errorf("failed to set PR metadata with lock: %w", err)
 	}
@@ -301,12 +312,12 @@ func (gs *GitHubStorage) GetPRMetadata(owner, repo string, prNumber int) (map[st
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	metadataPath := filepath.Join(prPath, "metadata.json")
 
-	if !gs.storage.Exists(metadataPath) {
+	if !gs.store.Exists(metadataPath) {
 		return make(map[string]interface{}), nil
 	}
 
 	var metadata map[string]interface{}
-	err := gs.storage.Get(metadataPath, &metadata)
+	err := gs.store.Get(metadataPath, &metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata: %w", err)
 	}
@@ -319,10 +330,10 @@ func (gs *GitHubStorage) RecordNotification(owner, repo string, prNumber int, re
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	notificationsPath := filepath.Join(prPath, "notifications.json")
 
-	if err := gs.storage.WithLock(notificationsPath, func() error {
+	if err := gs.locker.WithLock(notificationsPath, func() error {
 		var notifications map[string]time.Time
-		if gs.storage.Exists(notificationsPath) {
-			if err := gs.storage.Get(notificationsPath, &notifications); err != nil {
+		if gs.store.Exists(notificationsPath) {
+			if err := gs.store.Get(notificationsPath, &notifications); err != nil {
 				return fmt.Errorf("failed to get existing notifications: %w", err)
 			}
 		} else {
@@ -330,7 +341,7 @@ func (gs *GitHubStorage) RecordNotification(owner, repo string, prNumber int, re
 		}
 
 		notifications[reviewerLogin] = timestamp
-		return gs.storage.Set(notificationsPath, notifications)
+		return gs.store.Set(notificationsPath, notifications)
 	}); err != nil {
 		return fmt.Errorf("failed to record notification with lock: %w", err)
 	}
@@ -342,12 +353,12 @@ func (gs *GitHubStorage) GetLastNotification(owner, repo string, prNumber int, r
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	notificationsPath := filepath.Join(prPath, "notifications.json")
 
-	if !gs.storage.Exists(notificationsPath) {
+	if !gs.store.Exists(notificationsPath) {
 		return nil, nil
 	}
 
 	var notifications map[string]time.Time
-	err := gs.storage.Get(notificationsPath, &notifications)
+	err := gs.store.Get(notificationsPath, &notifications)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get notifications: %w", err)
 	}
@@ -372,11 +383,11 @@ func (gs *GitHubStorage) CleanupOldNotifications(olderThan time.Duration) error 
 func (gs *GitHubStorage) ListPRs(owner, repo string) ([]int, error) {
 	repoPath := filepath.Join("repos", owner, repo, "pull")
 
-	if !gs.storage.Exists(repoPath) {
+	if !gs.store.Exists(repoPath) {
 		return []int{}, nil
 	}
 
-	children, err := gs.storage.GetChildren(repoPath)
+	children, err := gs.lister.GetChildren(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list PRs: %w", err)
 	}

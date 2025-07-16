@@ -199,13 +199,13 @@ func handleInfo(args []string) {
 	}
 
 	storageHome := getStorageHome()
-	store, err := storage.NewFileSystemStorage(storageHome)
+	infoDisplayer, err := storage.NewCLIInfoDisplayer(storageHome)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening storage: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error creating info displayer: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := store.ShowInfo(path, detailed, format); err != nil {
+	if err := infoDisplayer.ShowInfo(path, detailed, format); err != nil {
 		fmt.Fprintf(os.Stderr, "Error showing info: %v\n", err)
 		os.Exit(1)
 	}
@@ -252,13 +252,13 @@ func handleList(args []string) {
 	}
 
 	storageHome := getStorageHome()
-	store, err := storage.NewFileSystemStorage(storageHome)
+	infoDisplayer, err := storage.NewCLIInfoDisplayer(storageHome)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening storage: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error creating info displayer: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := store.ListFiles(path, recursive, format, filter); err != nil {
+	if err := infoDisplayer.ListFiles(path, recursive, format, filter); err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing storage: %v\n", err)
 		os.Exit(1)
 	}
@@ -292,13 +292,14 @@ func handleGet(args []string) {
 	pretty := parser.HasOption("pretty")
 
 	storageHome := getStorageHome()
-	store, err := storage.NewFileSystemStorage(storageHome)
+	store, err := storage.NewFileSystemStore(storageHome)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening storage: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error creating store: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := store.GetFormatted(key, format, pretty); err != nil {
+	formatter := storage.NewCLIFormatter(store)
+	if err := formatter.GetFormatted(key, format, pretty); err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting value: %v\n", err)
 		os.Exit(1)
 	}
@@ -337,13 +338,14 @@ func handleSet(args []string) {
 	}
 
 	storageHome := getStorageHome()
-	store, err := storage.NewFileSystemStorage(storageHome)
+	store, err := storage.NewFileSystemStore(storageHome)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening storage: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error creating store: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := store.SetFormatted(key, value, fromFile, isJSON, isYAML); err != nil {
+	formatter := storage.NewCLIFormatter(store)
+	if err := formatter.SetFormatted(key, value, fromFile, isJSON, isYAML); err != nil {
 		fmt.Fprintf(os.Stderr, "Error setting value: %v\n", err)
 		os.Exit(1)
 	}
@@ -372,9 +374,9 @@ func handleDelete(args []string) {
 	key := parser.GetPositional(0)
 
 	storageHome := getStorageHome()
-	store, err := storage.NewFileSystemStorage(storageHome)
+	store, err := storage.NewFileSystemStore(storageHome)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening storage: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error creating store: %v\n", err)
 		os.Exit(1)
 	}
 
