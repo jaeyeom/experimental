@@ -97,8 +97,8 @@
               done
           fi
 
-          if [[ "$1" == "add" && "$2" == "." ]]; then
-              echo "Error: 'git add .' is dangerous as it may stage unrelated files."
+          if [[ "$1" == "add" && ("$2" == "." || "$2" == "-A" || "$2" == "--all") ]]; then
+              echo "Error: 'git add .', 'git add -A', and 'git add --all' are dangerous as they may stage unrelated files."
               echo "Please manually specify the files you want to add:"
               echo "  git add file1.txt file2.txt"
               echo "  git add src/"
