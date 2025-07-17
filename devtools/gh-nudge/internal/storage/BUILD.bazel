@@ -3,9 +3,15 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "cli.go",
         "github.go",
+        "interfaces.go",
+        "lister.go",
         "lock.go",
-        "storage.go",
+        "locker.go",
+        "metadata.go",
+        "store.go",
+        "utilities.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
@@ -18,7 +24,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "lock_test.go",
-        "storage_test.go",
+        "store_test.go",
     ],
     embed = [":go_default_library"],
 )
