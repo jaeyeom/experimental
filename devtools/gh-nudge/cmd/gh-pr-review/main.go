@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/argparser"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
 )
@@ -76,8 +77,11 @@ Examples:
   # List comments
   gh-pr-review list octocat/Hello-World 42 --format json
 
-  # Submit review
+  # Submit review (clears local comments by default)
   gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
+
+  # Submit review and keep local comments
+  gh-pr-review submit octocat/Hello-World 42 --body "First pass" --after keep
 
   # Delete specific comment
   gh-pr-review delete octocat/Hello-World 42 src/main.js 15
@@ -206,10 +210,12 @@ func handleSubmit(args []string) {
 		fmt.Println("  --body TEXT       Review body text")
 		fmt.Println("  --event EVENT     Review event (COMMENT, APPROVE, REQUEST_CHANGES)")
 		fmt.Println("  --json            Output result in JSON format")
+		fmt.Println("  --after ACTION    What to do with local comments after submission")
+		fmt.Println("                    (clear, keep, archive) [default: clear]")
 		return
 	}
 
-	if err := parser.ValidateOptions([]string{"body", "event", "json"}); err != nil {
+	if err := parser.ValidateOptions([]string{"body", "event", "json", "after"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -237,6 +243,7 @@ func handleSubmit(args []string) {
 	body := parser.GetOption("body")
 	event := parser.GetOption("event")
 	jsonOutput := parser.HasOption("json")
+	afterAction := parser.GetOption("after")
 
 	// Validate event if provided
 	if event != "" {
@@ -255,13 +262,20 @@ func handleSubmit(args []string) {
 		}
 	}
 
+	// Parse post-submit action
+	postSubmitAction, err := models.CreatePostSubmitExecutor(afterAction)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := handler.SubmitCommand(owner, repo, prNumber, body, event, jsonOutput); err != nil {
+	if err := handler.SubmitCommand(owner, repo, prNumber, body, event, jsonOutput, postSubmitAction); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
