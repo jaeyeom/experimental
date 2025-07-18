@@ -12,6 +12,15 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
 )
 
+// createOutputFormatter creates the appropriate output formatter based on jsonOutput flag.
+func createOutputFormatter(jsonOutput bool) prreview.OutputFormatter {
+	if jsonOutput {
+		return models.NewJSONFormatter()
+	} else {
+		return models.NewTextFormatter()
+	}
+}
+
 const (
 	version = "1.0.0"
 )
@@ -269,13 +278,15 @@ func handleSubmit(args []string) {
 		os.Exit(1)
 	}
 
+	formatter := createOutputFormatter(jsonOutput)
+
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := handler.SubmitCommand(owner, repo, prNumber, body, event, jsonOutput, postSubmitAction); err != nil {
+	if err := handler.SubmitCommand(owner, repo, prNumber, body, event, formatter, postSubmitAction); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -336,13 +347,15 @@ func handleList(args []string) {
 		os.Exit(1)
 	}
 
+	formatter := createOutputFormatter(format == "json")
+
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := handler.ListCommand(owner, repo, prNumber, format, file, line, side); err != nil {
+	if err := handler.ListCommand(owner, repo, prNumber, formatter, file, line, side); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -412,13 +425,15 @@ func handleDelete(args []string) {
 		index = &indexVal
 	}
 
+	formatter := createOutputFormatter(jsonOutput)
+
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := handler.DeleteCommand(owner, repo, prNumber, file, lineSpec, side, all, index, confirm, jsonOutput); err != nil {
+	if err := handler.DeleteCommand(owner, repo, prNumber, file, lineSpec, side, all, index, confirm, formatter); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
