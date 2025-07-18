@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -160,7 +161,7 @@ func (c Comment) IsDuplicate(other Comment) bool {
 // Executor defines a generic action that can be executed with context.
 type Executor interface {
 	// Execute performs the action
-	Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error
+	Execute(storage CommentClearer, owner, repo string, prNumber int) error
 	// Name returns the name of the action
 	Name() string
 }
@@ -173,17 +174,20 @@ type CommentClearer interface {
 // ClearAction removes all local comments after successful submission.
 type ClearAction struct{}
 
-func (a ClearAction) Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error {
+func (a ClearAction) Execute(storage CommentClearer, owner, repo string, prNumber int) error {
 	if err := storage.ClearComments(owner, repo, prNumber); err != nil {
 		// Don't fail the entire operation if clearing fails - just warn
-		if !jsonOutput {
-			fmt.Printf("Warning: failed to clear local comments after submission: %v\n", err)
-		}
+		slog.Warn("failed to clear local comments after submission",
+			"owner", owner,
+			"repo", repo,
+			"pr", prNumber,
+			"error", err)
 		return nil // Return nil to not fail the submission
 	}
-	if !jsonOutput {
-		fmt.Printf("Local comments cleared after successful submission\n")
-	}
+	slog.Info("cleared local comments after successful submission",
+		"owner", owner,
+		"repo", repo,
+		"pr", prNumber)
 	return nil
 }
 
@@ -194,10 +198,11 @@ func (a ClearAction) Name() string {
 // KeepAction preserves all local comments after successful submission.
 type KeepAction struct{}
 
-func (a KeepAction) Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error {
-	if !jsonOutput {
-		fmt.Printf("Local comments preserved after submission\n")
-	}
+func (a KeepAction) Execute(storage CommentClearer, owner, repo string, prNumber int) error {
+	slog.Info("local comments preserved after submission",
+		"owner", owner,
+		"repo", repo,
+		"pr", prNumber)
 	return nil
 }
 
@@ -208,11 +213,12 @@ func (a KeepAction) Name() string {
 // ArchiveAction moves comments to an archive/history (future enhancement).
 type ArchiveAction struct{}
 
-func (a ArchiveAction) Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error {
+func (a ArchiveAction) Execute(storage CommentClearer, owner, repo string, prNumber int) error {
 	// Future enhancement: implement archiving
-	if !jsonOutput {
-		fmt.Printf("Archive feature not yet implemented, comments preserved\n")
-	}
+	slog.Info("archive feature not yet implemented, comments preserved",
+		"owner", owner,
+		"repo", repo,
+		"pr", prNumber)
 	return nil
 }
 

@@ -1,7 +1,6 @@
 package prreview
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,13 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
 )
+
+// OutputFormatter defines the interface for formatting output.
+type OutputFormatter interface {
+	FormatSubmitResult(result models.SubmitResult) (string, error)
+	FormatComments(comments []models.Comment) (string, error)
+	FormatCommentMatches(matches []models.CommentMatch, line int) (string, error)
+}
 
 // CommandHandler handles gh-pr-review commands.
 type CommandHandler struct {
@@ -115,7 +121,7 @@ func (ch *CommandHandler) CommentCommand(owner, repo string, prNumber int, file 
 }
 
 // SubmitCommand submits a review to GitHub.
-func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, event string, jsonOutput bool, postSubmitAction models.Executor) error {
+func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, event string, formatter OutputFormatter, postSubmitAction models.Executor) error {
 	// Get comments
 	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
 	if err != nil {
@@ -126,51 +132,45 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 		return fmt.Errorf("no comments found for PR %s/%s#%d", owner, repo, prNumber)
 	}
 
-	// Create review
 	review := models.PRReview{
 		Body:     body,
 		Event:    event,
 		Comments: prComments.Comments,
 	}
 
-	// Submit review
 	if err := ch.ghClient.SubmitReview(owner, repo, prNumber, review); err != nil {
 		return fmt.Errorf("failed to submit review: %w", err)
 	}
 
-	result := map[string]interface{}{
-		"status":       "success",
-		"pr_number":    prNumber,
-		"owner":        owner,
-		"repo":         repo,
-		"comments":     len(review.Comments),
-		"submitted_at": time.Now(),
+	result := models.SubmitResult{
+		Status:      "success",
+		PRNumber:    prNumber,
+		Owner:       owner,
+		Repo:        repo,
+		Comments:    len(review.Comments),
+		SubmittedAt: time.Now(),
 	}
 
 	// Handle post-submit action
-	if err := postSubmitAction.Execute(ch.storage, owner, repo, prNumber, jsonOutput); err != nil {
+	if err := postSubmitAction.Execute(ch.storage, owner, repo, prNumber); err != nil {
 		return fmt.Errorf("post-submit action failed: %w", err)
 	}
 
 	// Add action info to result
-	result["post_submit_action"] = postSubmitAction.Name()
+	result.PostSubmitAction = postSubmitAction.Name()
 
-	if jsonOutput {
-		jsonData, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal result: %w", err)
-		}
-		fmt.Println(string(jsonData))
-	} else {
-		fmt.Printf("Submitted review for PR %s/%s#%d with %d comments\n",
-			owner, repo, prNumber, len(review.Comments))
+	// Format and output result
+	output, err := formatter.FormatSubmitResult(result)
+	if err != nil {
+		return fmt.Errorf("failed to format submit result: %w", err)
 	}
+	fmt.Println(output)
 
 	return nil
 }
 
 // ListCommand lists stored comments.
-func (ch *CommandHandler) ListCommand(owner, repo string, prNumber int, format, file, line, side string) error {
+func (ch *CommandHandler) ListCommand(owner, repo string, prNumber int, formatter OutputFormatter, file, line, side string) error {
 	// Get comments
 	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
 	if err != nil {
@@ -199,21 +199,17 @@ func (ch *CommandHandler) ListCommand(owner, repo string, prNumber int, format, 
 	}
 
 	// Output results
-	if format == "json" {
-		jsonData, err := json.MarshalIndent(filteredComments, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal comments: %w", err)
-		}
-		fmt.Println(string(jsonData))
-	} else {
-		ch.printCommentsTable(filteredComments)
+	output, err := formatter.FormatComments(filteredComments)
+	if err != nil {
+		return fmt.Errorf("failed to format comments: %w", err)
 	}
+	fmt.Println(output)
 
 	return nil
 }
 
 // DeleteCommand deletes specific comments.
-func (ch *CommandHandler) DeleteCommand(owner, repo string, prNumber int, file, lineSpec, side string, all bool, index *int, confirm, jsonOutput bool) error {
+func (ch *CommandHandler) DeleteCommand(owner, repo string, prNumber int, file, lineSpec, side string, all bool, index *int, confirm bool, formatter OutputFormatter) error {
 	lineRange, err := models.ParseLineSpec(lineSpec)
 	if err != nil {
 		return fmt.Errorf("invalid line specification '%s': %w", lineSpec, err)
@@ -221,11 +217,11 @@ func (ch *CommandHandler) DeleteCommand(owner, repo string, prNumber int, file, 
 
 	// Handle single line deletion
 	if lineRange.StartLine == lineRange.EndLine {
-		return ch.deleteSingleLineComments(owner, repo, prNumber, file, lineRange.StartLine, side, all, index, confirm, jsonOutput)
+		return ch.deleteSingleLineComments(owner, repo, prNumber, file, lineRange.StartLine, side, all, index, confirm, formatter)
 	}
 
 	// Handle range deletion
-	return ch.deleteRangeComments(owner, repo, prNumber, file, lineRange.StartLine, lineRange.EndLine, side, confirm, jsonOutput)
+	return ch.deleteRangeComments(owner, repo, prNumber, file, lineRange.StartLine, lineRange.EndLine, side, confirm, formatter)
 }
 
 // ClearCommand clears comments for a PR or file.
@@ -284,7 +280,7 @@ func (ch *CommandHandler) diffHunksExist(owner, repo string, prNumber int) bool 
 	return fs.Exists(diffPath)
 }
 
-func (ch *CommandHandler) deleteSingleLineComments(owner, repo string, prNumber int, file string, line int, side string, all bool, index *int, confirm, jsonOutput bool) error {
+func (ch *CommandHandler) deleteSingleLineComments(owner, repo string, prNumber int, file string, line int, side string, all bool, index *int, confirm bool, formatter OutputFormatter) error {
 	// Find comments on the line
 	matches, err := ch.storage.FindCommentsOnLine(owner, repo, prNumber, file, line, side)
 	if err != nil {
@@ -317,26 +313,18 @@ func (ch *CommandHandler) deleteSingleLineComments(owner, repo string, prNumber 
 		fmt.Printf("Deleted comment on line %d\n", line)
 	default:
 		// Multiple comments found, show options
-		if jsonOutput {
-			jsonData, err := json.MarshalIndent(matches, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to marshal matches: %w", err)
-			}
-			fmt.Println(string(jsonData))
-		} else {
-			fmt.Printf("Multiple comments found on line %d:\n", line)
-			for _, match := range matches {
-				fmt.Printf("  [%d] %s\n", match.Index, truncateString(match.Comment.Body, 80))
-			}
-			fmt.Println("Use --index N to delete a specific comment or --all to delete all")
+		output, err := formatter.FormatCommentMatches(matches, line)
+		if err != nil {
+			return fmt.Errorf("failed to format matches: %w", err)
 		}
+		fmt.Println(output)
 		return fmt.Errorf("multiple comments found, specify --index or --all")
 	}
 
 	return nil
 }
 
-func (ch *CommandHandler) deleteRangeComments(owner, repo string, prNumber int, file string, startLine, endLine int, side string, confirm, jsonOutput bool) error {
+func (ch *CommandHandler) deleteRangeComments(owner, repo string, prNumber int, file string, startLine, endLine int, side string, confirm bool, formatter OutputFormatter) error {
 	if !confirm {
 		fmt.Printf("This will delete all comments in range %d-%d. Continue? (y/N): ", startLine, endLine)
 		var response string
@@ -355,41 +343,9 @@ func (ch *CommandHandler) deleteRangeComments(owner, repo string, prNumber int, 
 	return nil
 }
 
-func (ch *CommandHandler) printCommentsTable(comments []models.Comment) {
-	if len(comments) == 0 {
-		fmt.Println("No comments found")
-		return
-	}
-
-	fmt.Printf("%-5s %-30s %-8s %-8s %-50s %-20s\n", "Index", "File", "Line", "Side", "Comment", "Created")
-	fmt.Println(strings.Repeat("-", 122))
-
-	for i, comment := range comments {
-		lineStr := strconv.Itoa(comment.Line)
-		if comment.IsMultiLine() {
-			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
-		}
-
-		fmt.Printf("%-5d %-30s %-8s %-8s %-50s %-20s\n",
-			i,
-			truncateString(comment.Path, 30),
-			lineStr,
-			comment.Side,
-			truncateString(comment.Body, 50),
-			comment.CreatedAt.Format("2006-01-02 15:04"))
-	}
-}
-
 func commentInRange(comment models.Comment, lineRange *models.LineRange) bool {
 	commentRange := comment.GetLineRange()
 	return commentRange.StartLine <= lineRange.EndLine && commentRange.EndLine >= lineRange.StartLine
-}
-
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // getStorageHome returns the storage home directory.
