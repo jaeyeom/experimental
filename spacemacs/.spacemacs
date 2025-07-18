@@ -1661,10 +1661,6 @@ This function uses the 'magick identify' command to get the dimensions of the im
     (spacemacs/set-leader-keys "$ a m" 'aider-transient-menu)
     )
 
-  ;;; Claude Code
-  (spacemacs/set-leader-keys "$ c" 'claude-code-transient)
-  (autoload 'claude-code-transient "claude-code" nil t)
-
   (defun my/visible-buffer-text ()
     "Return the visible text in the current buffer."
     (let ((text ""))
@@ -1740,6 +1736,13 @@ the email."
   (spacemacs/set-leader-keys "o a" 'my/chatgpt-shell-dwim)
 
   (autoload 'my/chatgpt-shell-dwim "chatgpt-shell")
+
+  ;;; Claude Code
+  (with-eval-after-load 'claude-code
+    (spacemacs/set-leader-keys "$ c" 'claude-code-transient)
+    (autoload 'claude-code-transient "claude-code" nil t)
+    (setopt claude-code-terminal-backend 'vterm))
+  (require 'claude-code nil 'noerror)
 
   ;;; Convenient functions
   (defun my/kill-ring-save-unfilled (start end)
