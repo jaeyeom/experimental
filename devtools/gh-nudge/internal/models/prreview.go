@@ -156,3 +156,80 @@ func (c Comment) IsDuplicate(other Comment) bool {
 		c.Side == other.Side &&
 		c.Body == other.Body
 }
+
+// Executor defines a generic action that can be executed with context.
+type Executor interface {
+	// Execute performs the action
+	Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error
+	// Name returns the name of the action
+	Name() string
+}
+
+// CommentClearer defines the ability to clear comments.
+type CommentClearer interface {
+	ClearComments(owner, repo string, prNumber int) error
+}
+
+// ClearAction removes all local comments after successful submission.
+type ClearAction struct{}
+
+func (a ClearAction) Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error {
+	if err := storage.ClearComments(owner, repo, prNumber); err != nil {
+		// Don't fail the entire operation if clearing fails - just warn
+		if !jsonOutput {
+			fmt.Printf("Warning: failed to clear local comments after submission: %v\n", err)
+		}
+		return nil // Return nil to not fail the submission
+	}
+	if !jsonOutput {
+		fmt.Printf("Local comments cleared after successful submission\n")
+	}
+	return nil
+}
+
+func (a ClearAction) Name() string {
+	return "clear"
+}
+
+// KeepAction preserves all local comments after successful submission.
+type KeepAction struct{}
+
+func (a KeepAction) Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error {
+	if !jsonOutput {
+		fmt.Printf("Local comments preserved after submission\n")
+	}
+	return nil
+}
+
+func (a KeepAction) Name() string {
+	return "keep"
+}
+
+// ArchiveAction moves comments to an archive/history (future enhancement).
+type ArchiveAction struct{}
+
+func (a ArchiveAction) Execute(storage CommentClearer, owner, repo string, prNumber int, jsonOutput bool) error {
+	// Future enhancement: implement archiving
+	if !jsonOutput {
+		fmt.Printf("Archive feature not yet implemented, comments preserved\n")
+	}
+	return nil
+}
+
+func (a ArchiveAction) Name() string {
+	return "archive"
+}
+
+// CreatePostSubmitExecutor creates a post-submit action Executor from a string.
+func CreatePostSubmitExecutor(s string) (Executor, error) {
+	switch strings.ToLower(s) {
+	case "clear", "":
+		return ClearAction{}, nil
+	case "keep":
+		return KeepAction{}, nil
+	case "archive":
+		return ArchiveAction{}, nil
+	default:
+		return nil, fmt.Errorf("invalid post-submit action: %s (valid: clear, keep, archive)", s)
+	}
+}

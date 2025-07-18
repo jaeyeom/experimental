@@ -115,7 +115,7 @@ func (ch *CommandHandler) CommentCommand(owner, repo string, prNumber int, file 
 }
 
 // SubmitCommand submits a review to GitHub.
-func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, event string, jsonOutput bool) error {
+func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, event string, jsonOutput bool, postSubmitAction models.Executor) error {
 	// Get comments
 	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
 	if err != nil {
@@ -146,6 +146,14 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 		"comments":     len(review.Comments),
 		"submitted_at": time.Now(),
 	}
+
+	// Handle post-submit action
+	if err := postSubmitAction.Execute(ch.storage, owner, repo, prNumber, jsonOutput); err != nil {
+		return fmt.Errorf("post-submit action failed: %w", err)
+	}
+
+	// Add action info to result
+	result["post_submit_action"] = postSubmitAction.Name()
 
 	if jsonOutput {
 		jsonData, err := json.MarshalIndent(result, "", "  ")
