@@ -353,16 +353,17 @@ func (ch *CommandHandler) printCommentsTable(comments []models.Comment) {
 		return
 	}
 
-	fmt.Printf("%-30s %-8s %-8s %-50s %-20s\n", "File", "Line", "Side", "Comment", "Created")
-	fmt.Println(strings.Repeat("-", 116))
+	fmt.Printf("%-5s %-30s %-8s %-8s %-50s %-20s\n", "Index", "File", "Line", "Side", "Comment", "Created")
+	fmt.Println(strings.Repeat("-", 122))
 
-	for _, comment := range comments {
+	for i, comment := range comments {
 		lineStr := strconv.Itoa(comment.Line)
 		if comment.IsMultiLine() {
 			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
 		}
 
-		fmt.Printf("%-30s %-8s %-8s %-50s %-20s\n",
+		fmt.Printf("%-5d %-30s %-8s %-8s %-50s %-20s\n",
+			i,
 			truncateString(comment.Path, 30),
 			lineStr,
 			comment.Side,
