@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure gh-pr-review is present
+  hosts: all
+  tasks:
+    - name: Include guard for gh-pr-review playbook
+      block:
+        - name: Stop early if the gh-pr-review playbook is already included
+          meta: end_play
+          when: gh_pr_review_playbook_imported is defined
+        - name: Ensure the gh-pr-review playbook is not included
+          set_fact:
+            gh_pr_review_playbook_imported: true
+          when: gh_pr_review_playbook_imported is not defined
+
+    - name: Check if gh-pr-review is installed
+      shell: go version -m $(command -v gh-pr-review) | grep '^\s*mod\s'
+      register: gh_pr_review_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract gh-pr-review version
+      block:
+        - name: Set gh-pr-review facts
+          set_fact:
+            gh_pr_review_module_path: "{{ gh_pr_review_installed.stdout.split()[1] }}"
+            gh_pr_review_module_version: "{{ gh_pr_review_installed.stdout.split()[2] }}"
+        - name: Determine the latest gh-pr-review version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_pr_review_module_path }}@latest"
+          register: gh_pr_review_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gh_pr_review_module_path }} {{ gh_pr_review_module_version }} => {{ gh_pr_review_latest.stdout }}"
+      rescue:
+        - name: Clear gh-pr-review facts
+          set_fact:
+            gh_pr_review_module_path: ""
+            gh_pr_review_module_version: ""
+
+    - name: Upgrade gh-pr-review
+      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest
+      when: gh_pr_review_module_version is not defined or gh_pr_review_module_version == "" or gh_pr_review_module_version != gh_pr_review_latest.stdout

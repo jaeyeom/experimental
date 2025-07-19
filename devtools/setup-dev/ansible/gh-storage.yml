@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure gh-storage is present
+  hosts: all
+  tasks:
+    - name: Include guard for gh-storage playbook
+      block:
+        - name: Stop early if the gh-storage playbook is already included
+          meta: end_play
+          when: gh_storage_playbook_imported is defined
+        - name: Ensure the gh-storage playbook is not included
+          set_fact:
+            gh_storage_playbook_imported: true
+          when: gh_storage_playbook_imported is not defined
+
+    - name: Check if gh-storage is installed
+      shell: go version -m $(command -v gh-storage) | grep '^\s*mod\s'
+      register: gh_storage_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract gh-storage version
+      block:
+        - name: Set gh-storage facts
+          set_fact:
+            gh_storage_module_path: "{{ gh_storage_installed.stdout.split()[1] }}"
+            gh_storage_module_version: "{{ gh_storage_installed.stdout.split()[2] }}"
+        - name: Determine the latest gh-storage version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_storage_module_path }}@latest"
+          register: gh_storage_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gh_storage_module_path }} {{ gh_storage_module_version }} => {{ gh_storage_latest.stdout }}"
+      rescue:
+        - name: Clear gh-storage facts
+          set_fact:
+            gh_storage_module_path: ""
+            gh_storage_module_version: ""
+
+    - name: Upgrade gh-storage
+      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest
+      when: gh_storage_module_version is not defined or gh_storage_module_version == "" or gh_storage_module_version != gh_storage_latest.stdout

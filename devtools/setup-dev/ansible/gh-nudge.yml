@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure gh-nudge is present
+  hosts: all
+  tasks:
+    - name: Include guard for gh-nudge playbook
+      block:
+        - name: Stop early if the gh-nudge playbook is already included
+          meta: end_play
+          when: gh_nudge_playbook_imported is defined
+        - name: Ensure the gh-nudge playbook is not included
+          set_fact:
+            gh_nudge_playbook_imported: true
+          when: gh_nudge_playbook_imported is not defined
+
+    - name: Check if gh-nudge is installed
+      shell: go version -m $(command -v gh-nudge) | grep '^\s*mod\s'
+      register: gh_nudge_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract gh-nudge version
+      block:
+        - name: Set gh-nudge facts
+          set_fact:
+            gh_nudge_module_path: "{{ gh_nudge_installed.stdout.split()[1] }}"
+            gh_nudge_module_version: "{{ gh_nudge_installed.stdout.split()[2] }}"
+        - name: Determine the latest gh-nudge version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_nudge_module_path }}@latest"
+          register: gh_nudge_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gh_nudge_module_path }} {{ gh_nudge_module_version }} => {{ gh_nudge_latest.stdout }}"
+      rescue:
+        - name: Clear gh-nudge facts
+          set_fact:
+            gh_nudge_module_path: ""
+            gh_nudge_module_version: ""
+
+    - name: Upgrade gh-nudge
+      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest
+      when: gh_nudge_module_version is not defined or gh_nudge_module_version == "" or gh_nudge_module_version != gh_nudge_latest.stdout
