@@ -982,6 +982,48 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	{
+		command: "gh-codeowners",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-merge",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-nudge",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-pr-review",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-slack",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-storage",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"},
+		},
+		Imports: nil,
+	},
 }
 
 func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {

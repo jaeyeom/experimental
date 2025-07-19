@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure gh-merge is present
+  hosts: all
+  tasks:
+    - name: Include guard for gh-merge playbook
+      block:
+        - name: Stop early if the gh-merge playbook is already included
+          meta: end_play
+          when: gh_merge_playbook_imported is defined
+        - name: Ensure the gh-merge playbook is not included
+          set_fact:
+            gh_merge_playbook_imported: true
+          when: gh_merge_playbook_imported is not defined
+
+    - name: Check if gh-merge is installed
+      shell: go version -m $(command -v gh-merge) | grep '^\s*mod\s'
+      register: gh_merge_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract gh-merge version
+      block:
+        - name: Set gh-merge facts
+          set_fact:
+            gh_merge_module_path: "{{ gh_merge_installed.stdout.split()[1] }}"
+            gh_merge_module_version: "{{ gh_merge_installed.stdout.split()[2] }}"
+        - name: Determine the latest gh-merge version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_merge_module_path }}@latest"
+          register: gh_merge_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gh_merge_module_path }} {{ gh_merge_module_version }} => {{ gh_merge_latest.stdout }}"
+      rescue:
+        - name: Clear gh-merge facts
+          set_fact:
+            gh_merge_module_path: ""
+            gh_merge_module_version: ""
+
+    - name: Upgrade gh-merge
+      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest
+      when: gh_merge_module_version is not defined or gh_merge_module_version == "" or gh_merge_module_version != gh_merge_latest.stdout

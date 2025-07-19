@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure gh-slack is present
+  hosts: all
+  tasks:
+    - name: Include guard for gh-slack playbook
+      block:
+        - name: Stop early if the gh-slack playbook is already included
+          meta: end_play
+          when: gh_slack_playbook_imported is defined
+        - name: Ensure the gh-slack playbook is not included
+          set_fact:
+            gh_slack_playbook_imported: true
+          when: gh_slack_playbook_imported is not defined
+
+    - name: Check if gh-slack is installed
+      shell: go version -m $(command -v gh-slack) | grep '^\s*mod\s'
+      register: gh_slack_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract gh-slack version
+      block:
+        - name: Set gh-slack facts
+          set_fact:
+            gh_slack_module_path: "{{ gh_slack_installed.stdout.split()[1] }}"
+            gh_slack_module_version: "{{ gh_slack_installed.stdout.split()[2] }}"
+        - name: Determine the latest gh-slack version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_slack_module_path }}@latest"
+          register: gh_slack_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gh_slack_module_path }} {{ gh_slack_module_version }} => {{ gh_slack_latest.stdout }}"
+      rescue:
+        - name: Clear gh-slack facts
+          set_fact:
+            gh_slack_module_path: ""
+            gh_slack_module_version: ""
+
+    - name: Upgrade gh-slack
+      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest
+      when: gh_slack_module_version is not defined or gh_slack_module_version == "" or gh_slack_module_version != gh_slack_latest.stdout

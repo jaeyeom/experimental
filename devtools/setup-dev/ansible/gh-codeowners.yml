@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure gh-codeowners is present
+  hosts: all
+  tasks:
+    - name: Include guard for gh-codeowners playbook
+      block:
+        - name: Stop early if the gh-codeowners playbook is already included
+          meta: end_play
+          when: gh_codeowners_playbook_imported is defined
+        - name: Ensure the gh-codeowners playbook is not included
+          set_fact:
+            gh_codeowners_playbook_imported: true
+          when: gh_codeowners_playbook_imported is not defined
+
+    - name: Check if gh-codeowners is installed
+      shell: go version -m $(command -v gh-codeowners) | grep '^\s*mod\s'
+      register: gh_codeowners_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract gh-codeowners version
+      block:
+        - name: Set gh-codeowners facts
+          set_fact:
+            gh_codeowners_module_path: "{{ gh_codeowners_installed.stdout.split()[1] }}"
+            gh_codeowners_module_version: "{{ gh_codeowners_installed.stdout.split()[2] }}"
+        - name: Determine the latest gh-codeowners version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ gh_codeowners_module_path }}@latest"
+          register: gh_codeowners_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ gh_codeowners_module_path }} {{ gh_codeowners_module_version }} => {{ gh_codeowners_latest.stdout }}"
+      rescue:
+        - name: Clear gh-codeowners facts
+          set_fact:
+            gh_codeowners_module_path: ""
+            gh_codeowners_module_version: ""
+
+    - name: Upgrade gh-codeowners
+      command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest
+      when: gh_codeowners_module_version is not defined or gh_codeowners_module_version == "" or gh_codeowners_module_version != gh_codeowners_latest.stdout
