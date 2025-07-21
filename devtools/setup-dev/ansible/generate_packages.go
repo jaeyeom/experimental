@@ -1024,6 +1024,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	{
+		command: "repo-sync",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"},
+		},
+		Imports: nil,
+	},
 }
 
 func generatePackages[T Commander](tmpl *template.Template, pkgs []T) {

@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure repo-sync is present
+  hosts: all
+  tasks:
+    - name: Include guard for repo-sync playbook
+      block:
+        - name: Stop early if the repo-sync playbook is already included
+          meta: end_play
+          when: repo_sync_playbook_imported is defined
+        - name: Ensure the repo-sync playbook is not included
+          set_fact:
+            repo_sync_playbook_imported: true
+          when: repo_sync_playbook_imported is not defined
+
+    - name: Check if repo-sync is installed
+      shell: go version -m $(command -v repo-sync) | grep '^\s*mod\s'
+      register: repo_sync_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract repo-sync version
+      block:
+        - name: Set repo-sync facts
+          set_fact:
+            repo_sync_module_path: "{{ repo_sync_installed.stdout.split()[1] }}"
+            repo_sync_module_version: "{{ repo_sync_installed.stdout.split()[2] }}"
+        - name: Determine the latest repo-sync version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ repo_sync_module_path }}@latest"
+          register: repo_sync_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ repo_sync_module_path }} {{ repo_sync_module_version }} => {{ repo_sync_latest.stdout }}"
+      rescue:
+        - name: Clear repo-sync facts
+          set_fact:
+            repo_sync_module_path: ""
+            repo_sync_module_version: ""
+
+    - name: Upgrade repo-sync
+      command: go install github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest
+      when: repo_sync_module_version is not defined or repo_sync_module_version == "" or repo_sync_module_version != repo_sync_latest.stdout
