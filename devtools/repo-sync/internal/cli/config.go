@@ -33,7 +33,8 @@ var removeProjectCmd = &cobra.Command{
 	Short: "Remove a project configuration",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRemoveProject(args[0])
+		force, _ := cmd.Flags().GetBool("force")
+		return runRemoveProject(args[0], force)
 	},
 }
 
@@ -74,6 +75,9 @@ func init() {
 		slog.Error("Failed to mark remote-prefix flag as required", "error", err)
 		os.Exit(1)
 	}
+
+	// Remove project flags
+	removeProjectCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
 	// Add subcommands
 	configCmd.AddCommand(addProjectCmd)
@@ -145,7 +149,7 @@ func runAddProject(name string, cmd *cobra.Command) error {
 	return nil
 }
 
-func runRemoveProject(name string) error {
+func runRemoveProject(name string, force bool) error {
 	slog.Info("Removing project configuration", "project", name)
 
 	// Check if project exists
@@ -153,16 +157,19 @@ func runRemoveProject(name string) error {
 		return fmt.Errorf("project not found: %s", name)
 	}
 
-	// Confirm removal
-	fmt.Printf("Are you sure you want to remove project '%s'? [y/N]: ", name)
-	var response string
-	if _, err := fmt.Scanln(&response); err != nil {
-		slog.Debug("Failed to read user input, treating as no", "error", err)
-		response = "n"
-	}
-	if response != "y" && response != "Y" && response != "yes" {
-		fmt.Println("Operation cancelled")
-		return nil
+	// Skip confirmation if force flag is set
+	if !force {
+		// Confirm removal
+		fmt.Printf("Are you sure you want to remove project '%s'? [y/N]: ", name)
+		var response string
+		if _, err := fmt.Scanln(&response); err != nil {
+			slog.Debug("Failed to read user input, treating as no", "error", err)
+			response = "n"
+		}
+		if response != "y" && response != "Y" && response != "yes" {
+			fmt.Println("Operation cancelled")
+			return nil
+		}
 	}
 
 	// Remove project configuration
