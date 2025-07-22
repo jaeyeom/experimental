@@ -11,7 +11,7 @@ format: format-whitespace
 	bazel run //:format
 
 format-whitespace:
-	find . -name "*.md" -o -name "*.org" | xargs sed -i 's/[[:space:]]*$$//'
+	find . -name "*.md" -o -name "*.org" | xargs $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi) 's/[[:space:]]*$$//'
 
 test:
 	go test ./...
