@@ -85,7 +85,8 @@ The utility uses the unified gh-nudge storage system under `~/.config/gh-nudge/`
       "body": "Consider using const instead of let",
       "side": "RIGHT",
       "sha": "abc123...",
-      "created_at": "2025-07-09T12:00:00Z"
+      "created_at": "2025-07-09T12:00:00Z",
+      "source": "local"
     },
     {
       "path": "path/to/file.js",
@@ -94,7 +95,11 @@ The utility uses the unified gh-nudge storage system under `~/.config/gh-nudge/`
       "body": "This function needs refactoring",
       "side": "RIGHT",
       "sha": "abc123...",
-      "created_at": "2025-07-09T12:00:00Z"
+      "created_at": "2025-07-09T12:00:00Z",
+      "source": "github",
+      "github_id": 987654321,
+      "author": "reviewer123",
+      "updated_at": "2025-07-09T12:15:00Z"
     }
   ]
 }
@@ -228,6 +233,35 @@ gh-pr-review clear <owner>/<repo> <pr_number>
 - `--file`: Clear comments for specific file only
 - `--confirm`: Skip confirmation prompt
 
+**** Pull Review Comments
+
+#+BEGIN_SRC bash
+gh-pr-review pull <owner>/<repo> <pr_number>
+#+END_SRC
+
+***** Options:
+- `--force`: Replace all local comments with GitHub comments
+- `--author`: Filter by comment author (username or "me" for authenticated user)
+- `--format`: Output format (table, json) [default: table]
+
+***** Examples:
+#+BEGIN_SRC bash
+# Pull all review comments from GitHub
+gh-pr-review pull octocat/Hello-World 42
+
+# Pull only your own comments
+gh-pr-review pull octocat/Hello-World 42 --author me
+
+# Pull comments from specific author
+gh-pr-review pull octocat/Hello-World 42 --author johndoe
+
+# Force replace all local comments with GitHub comments
+gh-pr-review pull octocat/Hello-World 42 --force
+
+# Show results in JSON format
+gh-pr-review pull octocat/Hello-World 42 --format json
+#+END_SRC
+
 *** Workflow Examples
 
 **** Basic Review Workflow
@@ -270,9 +304,47 @@ done
 gh-pr-review submit myorg/myrepo 123 --body "Batch review: copyright headers"
 #+END_SRC
 
+**** Pull and Merge Workflow
+
+#+BEGIN_SRC bash
+# Pull existing review comments before starting review
+gh-pr-review pull myorg/myrepo 123
+
+# Review what comments already exist
+gh-pr-review list myorg/myrepo 123
+
+# Add new comments alongside existing ones
+gh-pr-review comment myorg/myrepo 123 src/main.js 25 "Additional feedback"
+
+# Submit combined review (existing + new comments)
+gh-pr-review submit myorg/myrepo 123 --body "Updated review with additional feedback"
+#+END_SRC
+
+**** Collaborative Review Workflow
+
+#+BEGIN_SRC bash
+# Pull comments from specific team member
+gh-pr-review pull myorg/myrepo 123 --author teammate1
+
+# Review their feedback
+gh-pr-review list myorg/myrepo 123 --author teammate1
+
+# Add follow-up comments
+gh-pr-review comment myorg/myrepo 123 src/main.js 30 "Addressing @teammate1's feedback"
+
+# Pull latest comments from all reviewers
+gh-pr-review pull myorg/myrepo 123 --force
+
+# Submit final review
+gh-pr-review submit myorg/myrepo 123 --body "Final review addressing all feedback"
+#+END_SRC
+
 **** AI Agent / Automation Usage
 
 #+BEGIN_SRC bash
+# Pull existing comments in JSON format for analysis
+gh-pr-review pull myorg/myrepo 123 --format json > pulled_comments.json
+
 # List comments in JSON format for parsing
 gh-pr-review list myorg/myrepo 123 --format json > comments.json
 
@@ -359,7 +431,37 @@ gh api -X POST /repos/:owner/:repo/pulls/:pr_number/reviews \
 # Get PR diff
 gh api /repos/:owner/:repo/pulls/:pr_number/files \
   --jq '.[] | {filename, patch, sha}'
+
+# Pull review comments
+gh api /repos/:owner/:repo/pulls/:pr_number/comments \
+  --jq '.[] | {path, line, body, side, user: .user.login, created_at, updated_at, id}'
+
+# Pull line-specific review comments
+gh api /repos/:owner/:repo/pulls/:pr_number/comments \
+  --jq '.[] | select(.line != null) | {path, line, body, side, user: .user.login, created_at, updated_at, id}'
 #+END_SRC
+
+*** Pull Comment Processing
+
+The pull command retrieves existing review comments from GitHub:
+
+1. **Comment Retrieval**: Fetches all line-specific review comments from GitHub
+2. **Filtering**: Applies author filters before local storage
+3. **Deduplication**: Identifies and handles duplicate comments by comparing:
+   - File path
+   - Line number
+   - Comment body (normalized)
+   - Comment ID (for exact GitHub matches)
+4. **Merge Strategy**:
+   - **Default (merge)**: Adds GitHub comments to existing local comments, skipping duplicates
+   - **Force**: Replaces all local comments with GitHub comments
+5. **Metadata Preservation**: Stores additional GitHub metadata:
+   - Comment ID
+   - Author information
+   - Creation/update timestamps
+   - Comment type (line comment vs review comment)
+6. **Line Mapping**: Maps GitHub comment positions to local diff hunks
+7. **Atomic Operation**: Uses exclusive file locking during pull operations
 
 ** Security Considerations
 
@@ -383,6 +485,12 @@ Wait for rate limit reset or use authenticated requests with higher limits.
 
 **** "Invalid diff format"
 GitHub API returned unexpected diff format. Clear and re-capture diff hunks.
+
+**** "No comments found on GitHub"
+The PR may not have any review comments yet, or the filters (author, state) excluded all comments.
+
+**** "Comment merge conflicts"
+When pulling comments, some GitHub comments may conflict with local comments. Use `--force` to overwrite local comments or review and manually resolve conflicts.
 
 *** Debug Mode
 
