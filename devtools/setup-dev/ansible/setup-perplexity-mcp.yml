@@ -140,21 +140,37 @@
     # Claude Code configuration
     - name: Configure Claude Code for perplexity-mcp
       block:
-        - name: Get Perplexity API key from pass
-          shell: pass show api.perplexity.ai
-          register: perplexity_api_key_claude_code
+        - name: Check if perplexity-mcp is already configured in Claude Code
+          shell: claude mcp list
+          register: claude_mcp_list
           ignore_errors: yes
           changed_when: False
 
-        - name: Configure perplexity-mcp in Claude Code
-          shell: |
-            claude mcp add-json --scope user perplexity-mcp '{"type":"stdio","command":"perplexity-mcp","env":{"PERPLEXITY_API_KEY":"{{ perplexity_api_key_claude_code.stdout }}"}}'
-          when: perplexity_api_key_claude_code.rc == 0
-
-        - name: Warn if Perplexity API key not found for Claude Code
+        - name: Report that perplexity-mcp is already configured
           debug:
-            msg: "Warning: Perplexity API key not found in pass. Please set it manually or add it to pass with 'pass insert api.perplexity.ai'"
-          when: perplexity_api_key_claude_code.rc != 0
+            msg: "perplexity-mcp is already configured in Claude Code"
+          when: "'perplexity-mcp:' in claude_mcp_list.stdout"
+
+        - name: Configure perplexity-mcp in Claude Code
+          block:
+            - name: Get Perplexity API key from pass
+              shell: pass show api.perplexity.ai
+              register: perplexity_api_key_claude_code
+              ignore_errors: yes
+              changed_when: False
+
+            - name: Add perplexity-mcp configuration to Claude Code
+              shell: |
+                claude mcp add-json --scope user perplexity-mcp '{"type":"stdio","command":"perplexity-mcp","env":{"PERPLEXITY_API_KEY":"{{ perplexity_api_key_claude_code.stdout }}"}}'
+              when: perplexity_api_key_claude_code.rc == 0
+              register: claude_mcp_add_result
+              ignore_errors: yes
+
+            - name: Warn if Perplexity API key not found for Claude Code
+              debug:
+                msg: "Warning: Perplexity API key not found in pass. Please set it manually or add it to pass with 'pass insert api.perplexity.ai'"
+              when: perplexity_api_key_claude_code.rc != 0
+          when: "'perplexity-mcp:' not in claude_mcp_list.stdout"
 
     - name: Display installation success message
       debug:
