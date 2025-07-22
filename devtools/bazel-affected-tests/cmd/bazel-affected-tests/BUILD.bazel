@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//devtools/bazel-affected-tests/internal/cache:go_default_library",
+        "//devtools/bazel-affected-tests/internal/git:go_default_library",
+        "//devtools/bazel-affected-tests/internal/query:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "bazel-affected-tests",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
