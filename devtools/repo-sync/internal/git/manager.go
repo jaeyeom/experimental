@@ -44,6 +44,11 @@ func NewManager(project *config.Project) (*Manager, error) {
 
 // PerformWorkflow executes the complete Git workflow: add, commit, pull, push.
 func (m *Manager) PerformWorkflow() (*WorkflowResult, error) {
+	return m.PerformWorkflowWithFiles(nil)
+}
+
+// PerformWorkflowWithFiles executes the complete Git workflow for specific files.
+func (m *Manager) PerformWorkflowWithFiles(filePaths []string) (*WorkflowResult, error) {
 	m.logger.Info("Starting Git workflow")
 
 	// Change to remote work directory
@@ -80,9 +85,15 @@ func (m *Manager) PerformWorkflow() (*WorkflowResult, error) {
 
 	result.HasChanges = true
 
-	// Step 2: Stage all changes
-	if err := m.stageAllChanges(); err != nil {
-		return nil, fmt.Errorf("failed to stage changes: %w", err)
+	// Step 2: Stage changes (specific files if provided, otherwise all changes)
+	if len(filePaths) > 0 {
+		if err := m.stageSpecificFiles(filePaths); err != nil {
+			return nil, fmt.Errorf("failed to stage specific files: %w", err)
+		}
+	} else {
+		if err := m.stageAllChanges(); err != nil {
+			return nil, fmt.Errorf("failed to stage changes: %w", err)
+		}
 	}
 
 	// Step 3: Commit changes
@@ -113,6 +124,11 @@ func (m *Manager) PerformWorkflow() (*WorkflowResult, error) {
 
 // CommitAndPush commits changes with a custom message and pushes to remote.
 func (m *Manager) CommitAndPush(message string) (*WorkflowResult, error) {
+	return m.CommitAndPushSpecificFiles(message, nil)
+}
+
+// CommitAndPushSpecificFiles commits specific files with a custom message and pushes to remote.
+func (m *Manager) CommitAndPushSpecificFiles(message string, filePaths []string) (*WorkflowResult, error) {
 	originalDir, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current directory: %w", err)
@@ -127,9 +143,15 @@ func (m *Manager) CommitAndPush(message string) (*WorkflowResult, error) {
 		return nil, fmt.Errorf("failed to change to remote work directory: %w", err)
 	}
 
-	// Stage all changes
-	if err := m.stageAllChanges(); err != nil {
-		return nil, fmt.Errorf("failed to stage changes: %w", err)
+	// Stage specific files or all changes if no files specified
+	if len(filePaths) > 0 {
+		if err := m.stageSpecificFiles(filePaths); err != nil {
+			return nil, fmt.Errorf("failed to stage specific files: %w", err)
+		}
+	} else {
+		if err := m.stageAllChanges(); err != nil {
+			return nil, fmt.Errorf("failed to stage changes: %w", err)
+		}
 	}
 
 	// Commit with custom message
@@ -315,6 +337,42 @@ func (m *Manager) stageAllChanges() error {
 	if err != nil {
 		return fmt.Errorf("failed to stage changes: %w\nOutput: %s", err, string(output))
 	}
+	return nil
+}
+
+// stageSpecificFiles stages only the specified files in the repository.
+func (m *Manager) stageSpecificFiles(filePaths []string) error {
+	if len(filePaths) == 0 {
+		// If no specific files provided, check if there are any changes to stage
+		hasChanges, err := m.hasUnstagedChanges()
+		if err != nil {
+			return fmt.Errorf("failed to check for changes: %w", err)
+		}
+		if !hasChanges {
+			return nil // No changes to stage
+		}
+		// Fallback to staging all changes if no specific files provided
+		return m.stageAllChanges()
+	}
+
+	// Stage files in batches to avoid command line length limits
+	const maxFilesPerBatch = 100
+	for i := 0; i < len(filePaths); i += maxFilesPerBatch {
+		end := i + maxFilesPerBatch
+		if end > len(filePaths) {
+			end = len(filePaths)
+		}
+		batch := filePaths[i:end]
+
+		// Prepare git add command with specific files
+		args := append([]string{"add"}, batch...)
+		cmd := exec.Command("git", args...)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to stage files %v: %w\nOutput: %s", batch, err, string(output))
+		}
+	}
+
 	return nil
 }
 

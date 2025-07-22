@@ -148,7 +148,7 @@ func (e *Engine) Sync(opts *Options) (*Result, error) {
 
 	// Phase 3: Git operations (commit, pull, push)
 	e.logger.Info("Performing Git operations")
-	gitResult, err := e.gitManager.PerformWorkflow()
+	gitResult, err := e.gitManager.PerformWorkflowWithFiles(rsyncResult.TransferredFiles)
 	if err != nil {
 		syncOp.Status = "failed"
 		errorMsg := err.Error()
@@ -236,8 +236,8 @@ func (e *Engine) Upload(opts *Options) (*Result, error) {
 	}
 
 	if !opts.DryRun {
-		// Commit and push changes
-		gitResult, err := e.gitManager.CommitAndPush("Upload from local")
+		// Commit and push changes, staging only the files that were transferred
+		gitResult, err := e.gitManager.CommitAndPushSpecificFiles("Upload from local", rsyncResult.TransferredFiles)
 		if err != nil {
 			return nil, fmt.Errorf("failed to commit and push: %w", err)
 		}

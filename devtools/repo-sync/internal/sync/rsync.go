@@ -18,6 +18,7 @@ type RsyncResult struct {
 	BytesTransferred int64
 	Duration         time.Duration
 	Output           string
+	TransferredFiles []string // List of file paths that were transferred
 }
 
 // generateRsyncPatterns creates rsync include/exclude patterns from project config.
@@ -165,15 +166,20 @@ func (e *Engine) performRsync(src, dst string, dryRun bool) (*RsyncResult, error
 // parseRsyncOutput parses rsync output to extract statistics.
 func (e *Engine) parseRsyncOutput(lines []string, result *RsyncResult) error {
 	// Regular expressions for parsing rsync output
-	fileRegex := regexp.MustCompile(`^(>|\.|<)[f]`)
+	fileRegex := regexp.MustCompile(`^(>|\.|<)[f](.{9}) (.+)$`)
 	totalSizeRegex := regexp.MustCompile(`Total transferred file size: ([\d,]+) bytes`)
 	totalBytesRegex := regexp.MustCompile(`Total bytes sent: ([\d,]+)`)
 
 	fileCount := 0
+	var transferredFiles []string
 	for _, line := range lines {
-		// Count transferred files
-		if fileRegex.MatchString(line) {
+		// Extract transferred file paths
+		if matches := fileRegex.FindStringSubmatch(line); len(matches) > 3 {
 			fileCount++
+			filePath := strings.TrimSpace(matches[3])
+			if filePath != "" {
+				transferredFiles = append(transferredFiles, filePath)
+			}
 		}
 
 		// Extract total transferred size
@@ -196,5 +202,6 @@ func (e *Engine) parseRsyncOutput(lines []string, result *RsyncResult) error {
 	}
 
 	result.FilesSynced = fileCount
+	result.TransferredFiles = transferredFiles
 	return nil
 }
