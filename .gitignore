@@ -1,7 +1,7 @@
 .aider*
 .bazel_output
 bazel-bin
-bazel-experimental
+bazel-experimental*
 bazel-out
 bazel-testlogs
 
