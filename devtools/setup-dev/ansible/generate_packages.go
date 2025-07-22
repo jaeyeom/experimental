@@ -786,6 +786,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "bazel-affected-tests",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "fillstruct",
 		platforms: map[string]InstallMethod{
 			"all": GoInstallMethod{PkgPath: "github.com/davidrjenni/reftools/cmd/fillstruct@latest"},

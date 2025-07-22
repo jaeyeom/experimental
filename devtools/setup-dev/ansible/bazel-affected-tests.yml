@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure bazel-affected-tests is present
+  hosts: all
+  tasks:
+    - name: Include guard for bazel-affected-tests playbook
+      block:
+        - name: Stop early if the bazel-affected-tests playbook is already included
+          meta: end_play
+          when: bazel_affected_tests_playbook_imported is defined
+        - name: Ensure the bazel-affected-tests playbook is not included
+          set_fact:
+            bazel_affected_tests_playbook_imported: true
+          when: bazel_affected_tests_playbook_imported is not defined
+
+    - name: Check if bazel-affected-tests is installed
+      shell: go version -m $(command -v bazel-affected-tests) | grep '^\s*mod\s'
+      register: bazel_affected_tests_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract bazel-affected-tests version
+      block:
+        - name: Set bazel-affected-tests facts
+          set_fact:
+            bazel_affected_tests_module_path: "{{ bazel_affected_tests_installed.stdout.split()[1] }}"
+            bazel_affected_tests_module_version: "{{ bazel_affected_tests_installed.stdout.split()[2] }}"
+        - name: Determine the latest bazel-affected-tests version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ bazel_affected_tests_module_path }}@latest"
+          register: bazel_affected_tests_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ bazel_affected_tests_module_path }} {{ bazel_affected_tests_module_version }} => {{ bazel_affected_tests_latest.stdout }}"
+      rescue:
+        - name: Clear bazel-affected-tests facts
+          set_fact:
+            bazel_affected_tests_module_path: ""
+            bazel_affected_tests_module_version: ""
+
+    - name: Upgrade bazel-affected-tests
+      command: go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest
+      when: bazel_affected_tests_module_version is not defined or bazel_affected_tests_module_version == "" or bazel_affected_tests_module_version != bazel_affected_tests_latest.stdout
