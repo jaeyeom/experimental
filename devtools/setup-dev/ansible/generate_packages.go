@@ -954,6 +954,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "claudelytics",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "claudelytics"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "protovalidate",
 		platforms: map[string]InstallMethod{
 			"all": PipInstallMethod{Name: "protovalidate"},

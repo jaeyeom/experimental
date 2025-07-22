@@ -8,6 +8,7 @@
 - import_playbook: repo-sync.yml
 - import_playbook: setup-perplexity-mcp.yml
 - import_playbook: setup-windsurf-rules.yml
+- import_playbook: claudelytics.yml
 
 - name: Setup vibe coding environment
   hosts: all
@@ -24,4 +25,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, repo-sync, perplexity MCP, and windsurf rules"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, repo-sync, perplexity MCP, windsurf rules, and claudelytics"
