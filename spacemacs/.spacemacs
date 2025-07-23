@@ -1517,6 +1517,47 @@ to be `:text'.
       "A _file_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
       (ha-eshell-output "file" indices))
 
+    ;; Termux-specific eshell configuration for shebang handling
+    (when my/termux-p
+      ;; Configure paths for Termux environment immediately
+      (let ((termux-bin "/data/data/com.termux/files/usr/bin"))
+        (setenv "PATH" (concat termux-bin ":" (getenv "PATH")))
+        (push termux-bin exec-path))
+
+      ;; Set up eshell-specific configuration when eshell loads
+      (with-eval-after-load 'eshell
+        ;; Add interpreter redirection for /usr/bin/env
+        (add-to-list 'eshell-interpreter-alist
+                     '("^/usr/bin/env$" . "/data/data/com.termux/files/usr/bin/env"))
+
+        ;; Override script interpreter for comprehensive shebang handling
+        (defun my/termux-eshell-script-interpreter (orig-fun file)
+          "Handle shebang lines with Termux path corrections."
+          (let ((interpreter-info (funcall orig-fun file)))
+            (when interpreter-info
+              (let ((interpreter (car interpreter-info))
+                    (args (cdr interpreter-info)))
+                (cond
+                 ;; Handle /usr/bin/env specifically
+                 ((string-equal interpreter "/usr/bin/env")
+                  (cons "/data/data/com.termux/files/usr/bin/env" args))
+                 ;; Handle other /usr/bin paths
+                 ((string-match "^/usr/bin/" interpreter)
+                  (cons (replace-regexp-in-string
+                         "^/usr/bin/" "/data/data/com.termux/files/usr/bin/"
+                         interpreter)
+                        args))
+                 ;; Handle /bin paths (like /bin/sh, /bin/bash)
+                 ((string-match "^/bin/" interpreter)
+                  (cons (replace-regexp-in-string
+                         "^/bin/" "/data/data/com.termux/files/usr/bin/"
+                         interpreter)
+                        args))
+                 ;; Return original for everything else
+                 (t interpreter-info))))))
+
+        (advice-add 'eshell-script-interpreter :around #'my/termux-eshell-script-interpreter)))
+
     )
 
   ;;; Slack
