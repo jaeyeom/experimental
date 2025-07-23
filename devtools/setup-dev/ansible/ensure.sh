@@ -63,7 +63,7 @@ elif [ "$OS" = "Darwin" ]; then
     # Only update if not done in the last 24 hours
     if [ ! -f $BREW_CACHE ] || [ $(find $BREW_CACHE -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
         echo "Updating Homebrew..."
-        brew update
+        brew update && brew upgrade
         touch $BREW_CACHE
     fi
 
