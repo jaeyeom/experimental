@@ -43,6 +43,13 @@ func (gs *GitHubStorage) buildPRPath(owner, repo string, prNumber int) string {
 	return filepath.Join("repos", owner, repo, "pull", strconv.Itoa(prNumber))
 }
 
+// buildBranchPath constructs the storage path for a branch.
+func (gs *GitHubStorage) buildBranchPath(owner, repo, branchName string) string {
+	// Sanitize branch name for filesystem storage
+	sanitizedBranch := strings.ReplaceAll(branchName, "/", "_")
+	return filepath.Join("repos", owner, repo, "branch", sanitizedBranch)
+}
+
 // CaptureDiffHunks stores the diff hunks for a pull request.
 func (gs *GitHubStorage) CaptureDiffHunks(owner, repo string, prNumber int, diffHunks models.PRDiffHunks) error {
 	prPath := gs.buildPRPath(owner, repo, prNumber)
@@ -409,4 +416,158 @@ func ParseRepoAndPR(repoSpec string) (owner, repo string, err error) {
 		return "", "", fmt.Errorf("invalid repository format, expected 'owner/repo'")
 	}
 	return parts[0], parts[1], nil
+}
+
+// Branch-specific storage methods
+
+// CaptureBranchDiffHunks stores the diff hunks for a branch.
+func (gs *GitHubStorage) CaptureBranchDiffHunks(owner, repo string, branchName string, diffHunks models.BranchDiffHunks) error {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	diffPath := filepath.Join(branchPath, "diff-hunks.json")
+
+	if err := gs.locker.WithLock(diffPath, func() error {
+		return gs.store.Set(diffPath, diffHunks)
+	}); err != nil {
+		return fmt.Errorf("failed to store branch diff hunks with lock: %w", err)
+	}
+	return nil
+}
+
+// GetBranchDiffHunks retrieves the diff hunks for a branch.
+func (gs *GitHubStorage) GetBranchDiffHunks(owner, repo string, branchName string) (*models.BranchDiffHunks, error) {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	diffPath := filepath.Join(branchPath, "diff-hunks.json")
+
+	var diffHunks models.BranchDiffHunks
+	err := gs.store.Get(diffPath, &diffHunks)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branch diff hunks: %w", err)
+	}
+
+	return &diffHunks, nil
+}
+
+// AddBranchComment adds a comment to a branch.
+func (gs *GitHubStorage) AddBranchComment(owner, repo string, branchName string, comment models.Comment) error {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	commentsPath := filepath.Join(branchPath, "comments.json")
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		var branchComments models.BranchComments
+		if gs.store.Exists(commentsPath) {
+			if err := gs.store.Get(commentsPath, &branchComments); err != nil {
+				return fmt.Errorf("failed to get existing branch comments: %w", err)
+			}
+		} else {
+			branchComments = models.BranchComments{
+				BranchName: branchName,
+				Owner:      owner,
+				Repo:       repo,
+				Comments:   []models.Comment{},
+			}
+		}
+
+		for _, existingComment := range branchComments.Comments {
+			if comment.IsDuplicate(existingComment) {
+				return fmt.Errorf("duplicate comment detected")
+			}
+		}
+
+		comment.CreatedAt = time.Now()
+		branchComments.Comments = append(branchComments.Comments, comment)
+		branchComments.UpdatedAt = time.Now()
+
+		return gs.store.Set(commentsPath, branchComments)
+	}); err != nil {
+		return fmt.Errorf("failed to add branch comment with lock: %w", err)
+	}
+	return nil
+}
+
+// GetBranchComments retrieves all comments for a branch.
+func (gs *GitHubStorage) GetBranchComments(owner, repo string, branchName string) (*models.BranchComments, error) {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	commentsPath := filepath.Join(branchPath, "comments.json")
+
+	if !gs.store.Exists(commentsPath) {
+		return &models.BranchComments{
+			BranchName: branchName,
+			Owner:      owner,
+			Repo:       repo,
+			Comments:   []models.Comment{},
+		}, nil
+	}
+
+	var branchComments models.BranchComments
+	err := gs.store.Get(commentsPath, &branchComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branch comments: %w", err)
+	}
+
+	return &branchComments, nil
+}
+
+// ClearBranchComments removes all comments for a branch.
+func (gs *GitHubStorage) ClearBranchComments(owner, repo string, branchName string) error {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	commentsPath := filepath.Join(branchPath, "comments.json")
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		return gs.store.Delete(commentsPath)
+	}); err != nil {
+		return fmt.Errorf("failed to clear branch comments with lock: %w", err)
+	}
+	return nil
+}
+
+// ValidateBranchCommentAgainstDiff validates that a comment line exists in the branch diff hunks.
+func (gs *GitHubStorage) ValidateBranchCommentAgainstDiff(owner, repo string, branchName string, comment models.Comment) error {
+	diffHunks, err := gs.GetBranchDiffHunks(owner, repo, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to get branch diff hunks for validation: %w", err)
+	}
+
+	for _, hunk := range diffHunks.DiffHunks {
+		if hunk.File == comment.Path && hunk.Side == comment.Side {
+			if hunk.IsInRange(comment.Line) {
+				if comment.SHA != "" && comment.SHA != hunk.SHA {
+					return fmt.Errorf("SHA mismatch: comment SHA %s does not match hunk SHA %s", comment.SHA, hunk.SHA)
+				}
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("line %d in file %s (side %s) is not within any diff hunk", comment.Line, comment.Path, comment.Side)
+}
+
+// SetBranchMetadata stores metadata for a branch.
+func (gs *GitHubStorage) SetBranchMetadata(owner, repo string, branchName string, metadata map[string]interface{}) error {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	metadataPath := filepath.Join(branchPath, "metadata.json")
+
+	if err := gs.locker.WithLock(metadataPath, func() error {
+		return gs.store.Set(metadataPath, metadata)
+	}); err != nil {
+		return fmt.Errorf("failed to set branch metadata with lock: %w", err)
+	}
+	return nil
+}
+
+// GetBranchMetadata retrieves metadata for a branch.
+func (gs *GitHubStorage) GetBranchMetadata(owner, repo string, branchName string) (map[string]interface{}, error) {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	metadataPath := filepath.Join(branchPath, "metadata.json")
+
+	if !gs.store.Exists(metadataPath) {
+		return make(map[string]interface{}), nil
+	}
+
+	var metadata map[string]interface{}
+	err := gs.store.Get(metadataPath, &metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branch metadata: %w", err)
+	}
+
+	return metadata, nil
 }

@@ -236,6 +236,86 @@ func CreatePostSubmitExecutor(s string) (Executor, error) {
 	case "archive":
 		return ArchiveAction{}, nil
 	default:
-		return nil, fmt.Errorf("invalid post-submit action: %s (valid: clear, keep, archive)", s)
+		return nil, fmt.Errorf("invalid post-submit action: %q (valid: clear, keep, archive)", s)
 	}
+}
+
+// IdentifierType represents the type of identifier (PR or branch).
+type IdentifierType int
+
+const (
+	IdentifierPR IdentifierType = iota
+	IdentifierBranch
+)
+
+// ParsedIdentifier represents a parsed identifier that can be either a PR number or branch name.
+type ParsedIdentifier struct {
+	Type       IdentifierType
+	PRNumber   int
+	BranchName string
+}
+
+// ParseIdentifier parses an identifier string to determine if it's a PR number or branch name.
+// Pure numeric strings are treated as PR numbers, all others as branch names.
+func ParseIdentifier(identifier string) (*ParsedIdentifier, error) {
+	if identifier == "" {
+		return nil, fmt.Errorf("identifier cannot be empty")
+	}
+
+	// Try to parse as integer (PR number)
+	if num, err := strconv.Atoi(identifier); err == nil {
+		if num <= 0 {
+			return nil, fmt.Errorf("PR number must be positive, got: %d", num)
+		}
+		return &ParsedIdentifier{
+			Type:     IdentifierPR,
+			PRNumber: num,
+		}, nil
+	}
+
+	// Otherwise treat as branch name
+	return &ParsedIdentifier{
+		Type:       IdentifierBranch,
+		BranchName: identifier,
+	}, nil
+}
+
+// IsPR returns true if the identifier represents a PR.
+func (p *ParsedIdentifier) IsPR() bool {
+	return p.Type == IdentifierPR
+}
+
+// IsBranch returns true if the identifier represents a branch.
+func (p *ParsedIdentifier) IsBranch() bool {
+	return p.Type == IdentifierBranch
+}
+
+// String returns a string representation of the identifier.
+func (p *ParsedIdentifier) String() string {
+	if p.IsPR() {
+		return strconv.Itoa(p.PRNumber)
+	}
+	return p.BranchName
+}
+
+// BranchDiffHunks represents the diff hunks for a local branch.
+type BranchDiffHunks struct {
+	BranchName  string     `json:"branch_name"`
+	Owner       string     `json:"owner"`
+	Repo        string     `json:"repo"`
+	CapturedAt  time.Time  `json:"captured_at"`
+	DiffHunks   []DiffHunk `json:"diff_hunks"`
+	CommitSHA   string     `json:"commit_sha"`
+	BaseSHA     string     `json:"base_sha"`
+	BaseBranch  string     `json:"base_branch,omitempty"`
+	Description string     `json:"description,omitempty"`
+}
+
+// BranchComments represents the comments for a local branch.
+type BranchComments struct {
+	BranchName string    `json:"branch_name"`
+	Owner      string    `json:"owner"`
+	Repo       string    `json:"repo"`
+	Comments   []Comment `json:"comments"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
