@@ -1,4 +1,4 @@
-package json_storage
+package jsonstorage
 
 import (
 	"os"

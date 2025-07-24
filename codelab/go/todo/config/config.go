@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
-	json_storage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
+	jsonstorage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
 	"github.com/jaeyeom/experimental/codelab/go/todo/storage/sqlite"
 )
 
@@ -88,7 +88,7 @@ func ParseStorageConfig(args []string) (*StorageConfig, *flag.FlagSet, error) {
 func (c *StorageConfig) NewStorage() (storage, error) {
 	switch c.Type {
 	case StorageTypeJSON:
-		s, err := json_storage.New(c.Path)
+		s, err := jsonstorage.New(c.Path)
 		if err != nil {
 			return nil, fmt.Errorf("create JSON storage: %w", err)
 		}

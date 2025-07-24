@@ -10,7 +10,7 @@ import (
 	"github.com/jaeyeom/experimental/codelab/go/todo/config"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core/coretest"
-	json_storage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
+	jsonstorage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
 )
 
 func Example_listItems() {
@@ -23,7 +23,7 @@ func Example_listItems() {
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
 
-	s, err := json_storage.New(path)
+	s, err := jsonstorage.New(path)
 	if err != nil {
 		fmt.Println("Error creating storage:", err)
 		return
@@ -52,7 +52,7 @@ func Example_addItem() {
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
 
-	s, err := json_storage.New(path)
+	s, err := jsonstorage.New(path)
 	if err != nil {
 		fmt.Println("Error creating storage:", err)
 		return
@@ -91,7 +91,7 @@ func Example_completeItem() {
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
 
-	s, err := json_storage.New(path)
+	s, err := jsonstorage.New(path)
 	if err != nil {
 		fmt.Println("Error creating storage:", err)
 		return
@@ -134,7 +134,7 @@ func Example_removeItem() {
 	defer os.RemoveAll(dir)
 	path := dir + "/todo.json"
 
-	s, err := json_storage.New(path)
+	s, err := jsonstorage.New(path)
 	if err != nil {
 		fmt.Println("Error creating storage:", err)
 		return
@@ -237,7 +237,7 @@ func Example_addSubtask() {
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "todo.json")
 
-	s, err := json_storage.New(path)
+	s, err := jsonstorage.New(path)
 	if err != nil {
 		fmt.Println("Error creating storage:", err)
 		return
@@ -282,7 +282,7 @@ func Example_completeWithSubtasks() {
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "todo.json")
 
-	s, err := json_storage.New(path)
+	s, err := jsonstorage.New(path)
 	if err != nil {
 		fmt.Println("Error creating storage:", err)
 		return
@@ -348,7 +348,7 @@ func Example_undoWithSubtasks() {
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "todo.json")
 
-	s, err := json_storage.New(path)
+	s, err := jsonstorage.New(path)
 	if err != nil {
 		fmt.Println("Error creating storage:", err)
 		return

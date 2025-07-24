@@ -1,6 +1,6 @@
 // Package json provides a JSON file-based implementation of the storage.Storage
 // interface for persisting todo lists.
-package json_storage
+package jsonstorage
 
 import (
 	"encoding/json"
