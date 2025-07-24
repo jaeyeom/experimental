@@ -23,8 +23,8 @@ func NewPRReviewClient(client *Client) *PRReviewClient {
 	}
 }
 
-// GitHubFile represents a file in a GitHub PR diff.
-type GitHubFile struct {
+// File represents a file in a GitHub PR diff.
+type File struct {
 	Filename         string `json:"filename"`
 	Patch            string `json:"patch"`
 	SHA              string `json:"sha"`
@@ -38,8 +38,8 @@ type GitHubFile struct {
 	PreviousFilename string `json:"previous_filename,omitempty"`
 }
 
-// GitHubPR represents basic PR information.
-type GitHubPR struct {
+// PR represents basic PR information.
+type PR struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
 	Head   struct {
@@ -59,7 +59,7 @@ func (prc *PRReviewClient) GetPRDiff(owner, repo string, prNumber int) (*models.
 		return nil, fmt.Errorf("failed to fetch PR files: %w", err)
 	}
 
-	var files []GitHubFile
+	var files []File
 	if err := json.Unmarshal(output, &files); err != nil {
 		return nil, fmt.Errorf("failed to parse PR files response: %w", err)
 	}
@@ -89,14 +89,14 @@ func (prc *PRReviewClient) GetPRDiff(owner, repo string, prNumber int) (*models.
 }
 
 // GetPRInfo fetches basic information about a pull request.
-func (prc *PRReviewClient) GetPRInfo(owner, repo string, prNumber int) (*GitHubPR, error) {
+func (prc *PRReviewClient) GetPRInfo(owner, repo string, prNumber int) (*PR, error) {
 	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR info: %w", err)
 	}
 
-	var pr GitHubPR
+	var pr PR
 	if err := json.Unmarshal(output, &pr); err != nil {
 		return nil, fmt.Errorf("failed to parse PR info response: %w", err)
 	}

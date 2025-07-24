@@ -56,7 +56,7 @@ func TestBasicExecutor_Execute(t *testing.T) {
 				WorkingDir: "/tmp",
 			},
 			wantErr: false,
-			checkOutput: func(t *testing.T, output, stderr string, exitCode int) {
+			checkOutput: func(t *testing.T, output, _ string, exitCode int) {
 				if runtime.GOOS != "windows" {
 					expectedOutput := "/tmp\n"
 					if output != expectedOutput {
@@ -76,7 +76,7 @@ func TestBasicExecutor_Execute(t *testing.T) {
 				Env:     map[string]string{"TEST_VAR": "test_value"},
 			},
 			wantErr: false,
-			checkOutput: func(t *testing.T, output, stderr string, exitCode int) {
+			checkOutput: func(t *testing.T, output, _ string, exitCode int) {
 				expectedOutput := "test_value\n"
 				if output != expectedOutput {
 					t.Errorf("output = %q, want %q", output, expectedOutput)
@@ -93,7 +93,7 @@ func TestBasicExecutor_Execute(t *testing.T) {
 				Args:    []string{"-c", "exit 42"},
 			},
 			wantErr: false,
-			checkOutput: func(t *testing.T, output, stderr string, exitCode int) {
+			checkOutput: func(t *testing.T, _, _ string, exitCode int) {
 				if exitCode != 42 {
 					t.Errorf("exitCode = %d, want 42", exitCode)
 				}
@@ -106,7 +106,7 @@ func TestBasicExecutor_Execute(t *testing.T) {
 				Args:    []string{"-c", "echo error >&2"},
 			},
 			wantErr: false,
-			checkOutput: func(t *testing.T, output, stderr string, exitCode int) {
+			checkOutput: func(t *testing.T, _, stderr string, exitCode int) {
 				expectedStderr := "error\n"
 				if stderr != expectedStderr {
 					t.Errorf("stderr = %q, want %q", stderr, expectedStderr)
@@ -262,7 +262,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 			},
 			wantErr:        false,
 			wantTimeoutErr: false,
-			checkResult: func(t *testing.T, result *config.ExecutionResult, err error) {
+			checkResult: func(t *testing.T, result *config.ExecutionResult, _ error) {
 				if result == nil {
 					t.Fatal("Expected result, got nil")
 				}
@@ -311,7 +311,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 			},
 			wantErr:        false,
 			wantTimeoutErr: false,
-			checkResult: func(t *testing.T, result *config.ExecutionResult, err error) {
+			checkResult: func(t *testing.T, result *config.ExecutionResult, _ error) {
 				if result == nil {
 					t.Fatal("Expected result, got nil")
 				}

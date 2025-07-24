@@ -16,7 +16,7 @@ var addCmd = &cobra.Command{
 This will first perform a sync operation, then copy the file to the remote
 work directory and commit it to the remote repository.`,
 	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		return runAdd(args[0], args[1])
 	},
 }

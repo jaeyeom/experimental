@@ -198,7 +198,7 @@ func (a ClearAction) Name() string {
 // KeepAction preserves all local comments after successful submission.
 type KeepAction struct{}
 
-func (a KeepAction) Execute(storage CommentClearer, owner, repo string, prNumber int) error {
+func (a KeepAction) Execute(_ CommentClearer, owner, repo string, prNumber int) error {
 	slog.Info("local comments preserved after submission",
 		"owner", owner,
 		"repo", repo,
@@ -213,7 +213,7 @@ func (a KeepAction) Name() string {
 // ArchiveAction moves comments to an archive/history (future enhancement).
 type ArchiveAction struct{}
 
-func (a ArchiveAction) Execute(storage CommentClearer, owner, repo string, prNumber int) error {
+func (a ArchiveAction) Execute(_ CommentClearer, owner, repo string, prNumber int) error {
 	// Future enhancement: implement archiving
 	slog.Info("archive feature not yet implemented, comments preserved",
 		"owner", owner,

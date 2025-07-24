@@ -48,13 +48,13 @@ func (ce *ConcurrentExecutor) IsAvailable(command string) bool {
 }
 
 // SetMaxConcurrency sets the maximum number of concurrent executions.
-func (ce *ConcurrentExecutor) SetMaxConcurrency(max int) {
+func (ce *ConcurrentExecutor) SetMaxConcurrency(maxConcurrency int) {
 	ce.mu.Lock()
 	defer ce.mu.Unlock()
-	if max <= 0 {
-		max = 1
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
 	}
-	ce.maxConcurrency = max
+	ce.maxConcurrency = maxConcurrency
 }
 
 // GetMaxConcurrency returns the current maximum concurrency setting.

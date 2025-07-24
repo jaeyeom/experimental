@@ -6,6 +6,7 @@ linters:
     - godot
     - gosec
     - iface
+    - revive
     - staticcheck
     - wrapcheck
   disable:

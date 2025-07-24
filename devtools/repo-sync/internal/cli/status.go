@@ -13,7 +13,7 @@ var statusCmd = &cobra.Command{
 	Short: "Show project sync status",
 	Long:  `Show the current synchronization status for a project or all projects.`,
 	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		if len(args) == 1 {
 			return runProjectStatus(args[0])
 		}
@@ -25,7 +25,7 @@ var verifyCmd = &cobra.Command{
 	Use:   "verify <project-name>",
 	Short: "Verify project configuration and connectivity",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		return runVerify(args[0])
 	},
 }

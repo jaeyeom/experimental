@@ -16,9 +16,8 @@ import (
 func createOutputFormatter(jsonOutput bool) prreview.OutputFormatter {
 	if jsonOutput {
 		return models.NewJSONFormatter()
-	} else {
-		return models.NewTextFormatter()
 	}
+	return models.NewTextFormatter()
 }
 
 const (

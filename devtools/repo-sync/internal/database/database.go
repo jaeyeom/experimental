@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/config"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // Import sqlite3 driver for database/sql
 )
 
 // ProjectStats represents project statistics.

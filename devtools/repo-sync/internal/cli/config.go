@@ -41,7 +41,7 @@ var removeProjectCmd = &cobra.Command{
 var listProjectsCmd = &cobra.Command{
 	Use:   "list-projects",
 	Short: "List all configured projects",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		return runListProjects()
 	},
 }
@@ -50,7 +50,7 @@ var showProjectCmd = &cobra.Command{
 	Use:   "show-project <name>",
 	Short: "Show project configuration details",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		return runShowProject(args[0])
 	},
 }

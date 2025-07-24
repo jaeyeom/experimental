@@ -217,7 +217,7 @@ func (d *BazelDetector) GetBuildSystem() config.BuildSystem {
 }
 
 // GetTools returns the available tools for Bazel.
-func (d *BazelDetector) GetTools(rootPath string) map[config.ToolType][]string {
+func (d *BazelDetector) GetTools(_ string) map[config.ToolType][]string {
 	tools := make(map[config.ToolType][]string)
 
 	// Bazel provides unified commands for all operations
@@ -258,7 +258,7 @@ func (d *MakeDetector) GetBuildSystem() config.BuildSystem {
 }
 
 // GetTools returns the available tools for Make.
-func (d *MakeDetector) GetTools(rootPath string) map[config.ToolType][]string {
+func (d *MakeDetector) GetTools(_ string) map[config.ToolType][]string {
 	tools := make(map[config.ToolType][]string)
 
 	// Make provides targets for different operations

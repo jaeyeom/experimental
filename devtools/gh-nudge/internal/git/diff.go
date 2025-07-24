@@ -11,8 +11,8 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
 
-// GitClient provides git operations for branch diff capture.
-type GitClient struct {
+// Client provides git operations for branch diff capture.
+type Client struct {
 	repoPath string
 }
 
@@ -51,15 +51,15 @@ func validateBranchName(branchName string) error {
 	return nil
 }
 
-// NewGitClient creates a new git client for the specified repository path.
-func NewGitClient(repoPath string) *GitClient {
-	return &GitClient{
+// NewClient creates a new git client for the specified repository path.
+func NewClient(repoPath string) *Client {
+	return &Client{
 		repoPath: repoPath,
 	}
 }
 
 // CaptureBranchDiff captures the diff hunks for a branch compared to its base branch.
-func (gc *GitClient) CaptureBranchDiff(owner, repo, branchName, baseBranch string) (*models.BranchDiffHunks, error) {
+func (gc *Client) CaptureBranchDiff(owner, repo, branchName, baseBranch string) (*models.BranchDiffHunks, error) {
 	// Validate branch names for security
 	if err := validateBranchName(branchName); err != nil {
 		return nil, fmt.Errorf("invalid branch name %q: %w", branchName, err)
@@ -106,7 +106,7 @@ func (gc *GitClient) CaptureBranchDiff(owner, repo, branchName, baseBranch strin
 }
 
 // getCommitSHA gets the commit SHA for a given branch.
-func (gc *GitClient) getCommitSHA(branch string) (string, error) {
+func (gc *Client) getCommitSHA(branch string) (string, error) {
 	// Branch name is already validated by the caller
 	cmd := exec.Command("git", "rev-parse", branch)
 	cmd.Dir = gc.repoPath
@@ -120,7 +120,7 @@ func (gc *GitClient) getCommitSHA(branch string) (string, error) {
 }
 
 // getDiffOutput gets the raw diff output between two branches.
-func (gc *GitClient) getDiffOutput(baseBranch, targetBranch string) (string, error) {
+func (gc *Client) getDiffOutput(baseBranch, targetBranch string) (string, error) {
 	// Branch names are validated by the caller via validateBranchName() - safe to use in git command.
 	cmd := exec.Command("git", "diff", "--unified=3", fmt.Sprintf("%s...%s", baseBranch, targetBranch)) // #nosec G204
 	cmd.Dir = gc.repoPath
@@ -134,7 +134,7 @@ func (gc *GitClient) getDiffOutput(baseBranch, targetBranch string) (string, err
 }
 
 // parseDiffOutput parses git diff output into DiffHunk structures.
-func (gc *GitClient) parseDiffOutput(diffOutput, commitSHA, baseSHA string) ([]models.DiffHunk, error) {
+func (gc *Client) parseDiffOutput(diffOutput, commitSHA, baseSHA string) ([]models.DiffHunk, error) {
 	lines := strings.Split(diffOutput, "\n")
 	var hunks []models.DiffHunk
 
@@ -205,7 +205,7 @@ func (gc *GitClient) parseDiffOutput(diffOutput, commitSHA, baseSHA string) ([]m
 }
 
 // parseHunkHeader parses a hunk header line and returns LEFT and RIGHT hunks.
-func (gc *GitClient) parseHunkHeader(header, file, commitSHA, baseSHA string) (*models.DiffHunk, *models.DiffHunk, error) {
+func (gc *Client) parseHunkHeader(header, file, commitSHA, baseSHA string) (*models.DiffHunk, *models.DiffHunk, error) {
 	// Extract line range information: @@ -old_start,old_count +new_start,new_count @@
 	parts := strings.Fields(header)
 	if len(parts) < 3 {
@@ -250,7 +250,7 @@ func (gc *GitClient) parseHunkHeader(header, file, commitSHA, baseSHA string) (*
 }
 
 // parseRange parses a range specification like "15,10" or "15" and returns start line and count.
-func (gc *GitClient) parseRange(rangeSpec string) (int, int, error) {
+func (gc *Client) parseRange(rangeSpec string) (int, int, error) {
 	if strings.Contains(rangeSpec, ",") {
 		parts := strings.Split(rangeSpec, ",")
 		if len(parts) != 2 {
@@ -280,7 +280,7 @@ func (gc *GitClient) parseRange(rangeSpec string) (int, int, error) {
 }
 
 // GetDefaultBaseBranch attempts to determine the default base branch (main or master).
-func (gc *GitClient) GetDefaultBaseBranch() (string, error) {
+func (gc *Client) GetDefaultBaseBranch() (string, error) {
 	// Try to get the default branch from git
 	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	cmd.Dir = gc.repoPath
@@ -309,7 +309,7 @@ func (gc *GitClient) GetDefaultBaseBranch() (string, error) {
 }
 
 // BranchExists checks if a branch exists in the repository.
-func (gc *GitClient) BranchExists(branchName string) (bool, error) {
+func (gc *Client) BranchExists(branchName string) (bool, error) {
 	// Validate branch name for security
 	if err := validateBranchName(branchName); err != nil {
 		return false, fmt.Errorf("invalid branch name %q: %w", branchName, err)

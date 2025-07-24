@@ -78,6 +78,7 @@ func (c *Client) GetMergeablePullRequests() ([]models.PullRequest, error) {
 // FilterPullRequestsByAge filters pull requests by their age.
 // This is a placeholder for future implementation.
 func (c *Client) FilterPullRequestsByAge(prs []models.PullRequest, hours int) []models.PullRequest {
+	_ = hours // TODO: implement age filtering
 	// In a real implementation, we would fetch PR creation time and filter by age
 	// For now, this is just a placeholder
 	return prs

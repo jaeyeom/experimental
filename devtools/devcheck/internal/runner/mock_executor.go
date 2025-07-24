@@ -112,7 +112,7 @@ func (m *MockExecutor) ExpectCommand(command string) *MockExpectationBuilder {
 	return &MockExpectationBuilder{
 		mock: m,
 		expectation: MockExpectation{
-			Matcher: func(ctx context.Context, cfg ToolConfig) bool {
+			Matcher: func(_ context.Context, cfg ToolConfig) bool {
 				return cfg.Command == command
 			},
 		},
@@ -124,7 +124,7 @@ func (m *MockExecutor) ExpectCommandWithArgs(command string, args ...string) *Mo
 	return &MockExpectationBuilder{
 		mock: m,
 		expectation: MockExpectation{
-			Matcher: func(ctx context.Context, cfg ToolConfig) bool {
+			Matcher: func(_ context.Context, cfg ToolConfig) bool {
 				if cfg.Command != command {
 					return false
 				}

@@ -25,7 +25,7 @@ type OutputFormatter interface {
 type CommandHandler struct {
 	storage     *storage.GitHubStorage
 	ghClient    *github.PRReviewClient
-	gitClient   *git.GitClient
+	gitClient   *git.Client
 	storageHome string
 }
 
@@ -46,7 +46,7 @@ func NewCommandHandler(storageHome string) (*CommandHandler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get working directory: %w", err)
 	}
-	gitClient := git.NewGitClient(wd)
+	gitClient := git.NewClient(wd)
 
 	return &CommandHandler{
 		storage:     ghStorage,
@@ -65,9 +65,8 @@ func (ch *CommandHandler) CaptureCommand(owner, repo, identifier string, force b
 
 	if parsed.IsPR() {
 		return ch.capturePRDiff(owner, repo, parsed.PRNumber, force)
-	} else {
-		return ch.captureBranchDiff(owner, repo, parsed.BranchName, force)
 	}
+	return ch.captureBranchDiff(owner, repo, parsed.BranchName, force)
 }
 
 // capturePRDiff captures and stores PR diff hunks.
@@ -145,9 +144,8 @@ func (ch *CommandHandler) CommentCommand(owner, repo, identifier string, file st
 
 	if parsed.IsPR() {
 		return ch.addPRComment(owner, repo, parsed.PRNumber, file, lineSpec, commentBody, side, force)
-	} else {
-		return ch.addBranchComment(owner, repo, parsed.BranchName, file, lineSpec, commentBody, side, force)
 	}
+	return ch.addBranchComment(owner, repo, parsed.BranchName, file, lineSpec, commentBody, side, force)
 }
 
 // addPRComment adds a line-specific comment to a PR.
@@ -300,9 +298,8 @@ func (ch *CommandHandler) ListCommand(owner, repo, identifier string, formatter 
 
 	if parsed.IsPR() {
 		return ch.listPRComments(owner, repo, parsed.PRNumber, formatter, file, line, side)
-	} else {
-		return ch.listBranchComments(owner, repo, parsed.BranchName, formatter, file, line, side)
 	}
+	return ch.listBranchComments(owner, repo, parsed.BranchName, formatter, file, line, side)
 }
 
 // listPRComments lists stored comments for a PR.
@@ -392,9 +389,8 @@ func (ch *CommandHandler) DeleteCommand(owner, repo, identifier string, file, li
 
 	if parsed.IsPR() {
 		return ch.deletePRComments(owner, repo, parsed.PRNumber, file, lineSpec, side, all, index, confirm, formatter)
-	} else {
-		return ch.deleteBranchComments(owner, repo, parsed.BranchName, file, lineSpec, side, all, index, confirm, formatter)
 	}
+	return ch.deleteBranchComments(owner, repo, parsed.BranchName, file, lineSpec, side, all, index, confirm, formatter)
 }
 
 // deletePRComments deletes specific comments from a PR.
@@ -438,9 +434,8 @@ func (ch *CommandHandler) ClearCommand(owner, repo, identifier string, file stri
 
 	if parsed.IsPR() {
 		return ch.clearPRComments(owner, repo, parsed.PRNumber, file, confirm)
-	} else {
-		return ch.clearBranchComments(owner, repo, parsed.BranchName, file, confirm)
 	}
+	return ch.clearBranchComments(owner, repo, parsed.BranchName, file, confirm)
 }
 
 // clearPRComments clears comments for a PR or file.
@@ -554,7 +549,7 @@ func (ch *CommandHandler) branchDiffHunksExist(owner, repo, branchName string) b
 	return fs.Exists(diffPath)
 }
 
-func (ch *CommandHandler) deleteSingleLineComments(owner, repo string, prNumber int, file string, line int, side string, all bool, index *int, confirm bool, formatter OutputFormatter) error {
+func (ch *CommandHandler) deleteSingleLineComments(owner, repo string, prNumber int, file string, line int, side string, all bool, index *int, _ bool, formatter OutputFormatter) error {
 	// Find comments on the line
 	matches, err := ch.storage.FindCommentsOnLine(owner, repo, prNumber, file, line, side)
 	if err != nil {
@@ -598,7 +593,7 @@ func (ch *CommandHandler) deleteSingleLineComments(owner, repo string, prNumber 
 	return nil
 }
 
-func (ch *CommandHandler) deleteRangeComments(owner, repo string, prNumber int, file string, startLine, endLine int, side string, confirm bool, formatter OutputFormatter) error {
+func (ch *CommandHandler) deleteRangeComments(owner, repo string, prNumber int, file string, startLine, endLine int, side string, confirm bool, _ OutputFormatter) error {
 	if !confirm {
 		fmt.Printf("This will delete all comments in range %d-%d. Continue? (y/N): ", startLine, endLine)
 		var response string
@@ -617,7 +612,7 @@ func (ch *CommandHandler) deleteRangeComments(owner, repo string, prNumber int, 
 	return nil
 }
 
-func (ch *CommandHandler) deleteSingleLineBranchComments(owner, repo, branchName string, file string, line int, side string, all bool, index *int, confirm bool, formatter OutputFormatter) error {
+func (ch *CommandHandler) deleteSingleLineBranchComments(owner, repo, branchName string, file string, line int, side string, all bool, index *int, _ bool, formatter OutputFormatter) error {
 	// Find comments on the line
 	matches, err := ch.findBranchCommentsOnLine(owner, repo, branchName, file, line, side)
 	if err != nil {
@@ -661,7 +656,7 @@ func (ch *CommandHandler) deleteSingleLineBranchComments(owner, repo, branchName
 	return nil
 }
 
-func (ch *CommandHandler) deleteRangeBranchComments(owner, repo, branchName string, file string, startLine, endLine int, side string, confirm bool, formatter OutputFormatter) error {
+func (ch *CommandHandler) deleteRangeBranchComments(owner, repo, branchName string, file string, startLine, endLine int, side string, confirm bool, _ OutputFormatter) error {
 	if !confirm {
 		fmt.Printf("This will delete all comments in range %d-%d. Continue? (y/N): ", startLine, endLine)
 		var response string

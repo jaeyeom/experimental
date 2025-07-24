@@ -69,7 +69,7 @@ type mockExecutor struct {
 	shouldFail bool
 }
 
-func (m *mockExecutor) Execute(cmd string, args ...string) (string, error) {
+func (m *mockExecutor) Execute(_ string, _ ...string) (string, error) {
 	if m.shouldFail {
 		return "", &mockError{message: "command failed"}
 	}

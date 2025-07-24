@@ -24,7 +24,7 @@ across multiple development machines using Git-based workflow automation.
 
 It addresses the unique challenge of keeping development configurations and project
 files in sync without uploading entire repositories to remote storage.`,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRun: func(_ *cobra.Command, _ []string) {
 		setupLogging()
 	},
 }

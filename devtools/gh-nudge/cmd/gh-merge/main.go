@@ -90,6 +90,7 @@ func loadConfig() (*config.Config, error) {
 
 // listMergeablePRs lists all PRs that are ready to merge.
 func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
+	_ = cfg // TODO: use config for filtering/display options
 	slog.Info("Finding PRs with no review requests in the current repository")
 
 	prs, err := githubClient.GetMergeablePullRequests()
@@ -116,6 +117,7 @@ func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
 
 // mergePRs merges all eligible PRs.
 func mergePRs(githubClient *github.Client, cfg *config.Config) error {
+	_ = cfg // TODO: use config for merge strategies/rules
 	slog.Info("Finding and merging PRs with no review requests",
 		"dry_run", dryRun,
 		"delete_branch", deleteBranch)

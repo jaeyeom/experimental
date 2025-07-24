@@ -227,7 +227,7 @@ func TestMockExecutor_Execute_CustomMatcher(t *testing.T) {
 	ctx := context.Background()
 
 	// Custom matcher that checks working directory
-	mock.ExpectCustom(func(ctx context.Context, cfg ToolConfig) bool {
+	mock.ExpectCustom(func(_ context.Context, cfg ToolConfig) bool {
 		return cfg.WorkingDir == "/tmp"
 	}).WillSucceed("Matched working dir", 0).Build()
 
