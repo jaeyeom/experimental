@@ -324,7 +324,7 @@ func TestConfig_ForEach(t *testing.T) {
 				MaxRepeat: 1,
 			}
 			var count int
-			c.ForEach(func(trial []int) {
+			c.ForEach(func([]int) {
 				count++
 			})
 			return count == permutation(numChars, numDigits)

@@ -19,7 +19,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := split.SplitMarkdown(*inputFile, *outputDir); err != nil {
+	if err := split.Markdown(*inputFile, *outputDir); err != nil {
 		slog.Error("Failed to split markdown", "error", err)
 		os.Exit(1)
 	}

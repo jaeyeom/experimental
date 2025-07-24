@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" //nolint:revive // FIXME
 )
 
 // Storage implements todo list storage using SQLite.
