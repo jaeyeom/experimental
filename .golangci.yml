@@ -6,10 +6,13 @@ linters:
     - godot
     - gosec
     - iface
+    - staticcheck
     - wrapcheck
   disable:
     - testpackage
   settings:
+    staticcheck:
+      checks: ["all"]
     iface:
       enable:
         - identical
