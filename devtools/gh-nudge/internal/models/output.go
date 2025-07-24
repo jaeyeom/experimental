@@ -46,7 +46,7 @@ func (f *JSONFormatter) FormatComments(comments []Comment) (string, error) {
 }
 
 // FormatCommentMatches formats comment matches as JSON.
-func (f *JSONFormatter) FormatCommentMatches(matches []CommentMatch, line int) (string, error) {
+func (f *JSONFormatter) FormatCommentMatches(matches []CommentMatch, _ int) (string, error) {
 	jsonData, err := json.MarshalIndent(matches, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal matches: %w", err)

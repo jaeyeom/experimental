@@ -25,7 +25,7 @@ func init() {
 	initCmd.Flags().Bool("reset-db", false, "Reset existing database")
 }
 
-func runInit(cmd *cobra.Command, args []string) error {
+func runInit(cmd *cobra.Command, _ []string) error {
 	slog.Info("Initializing repo-sync...")
 
 	// Create configuration directory

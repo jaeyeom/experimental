@@ -255,7 +255,7 @@ func (pm *PatternMatcher) matchPatterns(files []string, patterns []FilePattern) 
 
 // matchBazelPatterns handles special Bazel detection logic.
 // Bazel requires either MODULE.bazel (new) OR WORKSPACE (legacy).
-func (pm *PatternMatcher) matchBazelPatterns(files []string, patterns []FilePattern) bool {
+func (pm *PatternMatcher) matchBazelPatterns(files []string, _ []FilePattern) bool {
 	hasModuleBazel := false
 	hasWorkspace := false
 

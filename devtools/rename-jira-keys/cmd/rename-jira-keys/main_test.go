@@ -127,7 +127,7 @@ func TestRenameDocFile(t *testing.T) {
 		},
 		{
 			name: "source file not found",
-			setupFunc: func(dir string) error {
+			setupFunc: func(_ string) error {
 				return nil // No file created
 			},
 			docsDir:     "",

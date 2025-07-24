@@ -191,7 +191,7 @@ func TestConcurrentExecutor_ExecuteConcurrent_ConcurrencyLimit(t *testing.T) {
 	var maxConcurrent int64
 
 	// Set up expectation that tracks concurrency
-	mock.ExpectCustom(func(ctx context.Context, cfg ToolConfig) bool {
+	mock.ExpectCustom(func(_ context.Context, cfg ToolConfig) bool {
 		return cfg.Command == "sleep"
 	}).WillReturn(&config.ExecutionResult{
 		Output:   "sleep completed",
@@ -409,8 +409,8 @@ func (e *concurrencyTrackingExecutor) Execute(ctx context.Context, cfg ToolConfi
 
 	// Update max concurrent if needed
 	for {
-		max := atomic.LoadInt64(e.maxConcurrent)
-		if current <= max || atomic.CompareAndSwapInt64(e.maxConcurrent, max, current) {
+		maxConcurrent := atomic.LoadInt64(e.maxConcurrent)
+		if current <= maxConcurrent || atomic.CompareAndSwapInt64(e.maxConcurrent, maxConcurrent, current) {
 			break
 		}
 	}

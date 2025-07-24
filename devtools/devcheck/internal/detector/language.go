@@ -60,7 +60,7 @@ func (d *GoDetector) GetConfigFiles(rootPath string) map[string]string {
 }
 
 // GetTools returns the available tools for Go development.
-func (d *GoDetector) GetTools(rootPath string) map[config.ToolType][]string {
+func (d *GoDetector) GetTools(_ string) map[config.ToolType][]string {
 	tools := make(map[config.ToolType][]string)
 
 	// Format tools
@@ -130,7 +130,7 @@ func (d *PythonDetector) GetConfigFiles(rootPath string) map[string]string {
 }
 
 // GetTools returns the available tools for Python development.
-func (d *PythonDetector) GetTools(rootPath string) map[config.ToolType][]string {
+func (d *PythonDetector) GetTools(_ string) map[config.ToolType][]string {
 	tools := make(map[config.ToolType][]string)
 
 	// Format tools

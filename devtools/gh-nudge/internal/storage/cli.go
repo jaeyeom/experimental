@@ -84,7 +84,7 @@ func (cid *CLIInfoDisplayer) ListFiles(path string, recursive bool, format strin
 	var walkFunc filepath.WalkFunc
 
 	if recursive {
-		walkFunc = func(path string, info os.FileInfo, err error) error {
+		walkFunc = func(path string, _ os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -102,7 +102,7 @@ func (cid *CLIInfoDisplayer) ListFiles(path string, recursive bool, format strin
 			return nil
 		}
 	} else {
-		walkFunc = func(path string, info os.FileInfo, err error) error {
+		walkFunc = func(path string, _ os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -147,7 +147,7 @@ func (cid *CLIInfoDisplayer) ListFiles(path string, recursive bool, format strin
 
 func (cid *CLIInfoDisplayer) calculateDirStats(path string) (int64, int64) {
 	var totalFiles, totalSize int64
-	_ = filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -211,7 +211,7 @@ func (cf *CLIFormatter) GetFormatted(key string, format string, pretty bool) err
 	return nil
 }
 
-func (cf *CLIFormatter) SetFormatted(key string, value string, fromFile bool, isJSON bool, isYAML bool) error {
+func (cf *CLIFormatter) SetFormatted(key string, value string, fromFile bool, isJSON bool, _ bool) error {
 	var data []byte
 	var err error
 

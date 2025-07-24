@@ -224,8 +224,8 @@ func (p *ArgParser) ValidateOptions(allowedOptions []string) error {
 }
 
 // RequirePositionals ensures the minimum number of positional arguments.
-func (p *ArgParser) RequirePositionals(min int, usage string) error {
-	if len(p.positionals) < min {
+func (p *ArgParser) RequirePositionals(minCount int, usage string) error {
+	if len(p.positionals) < minCount {
 		return fmt.Errorf("insufficient arguments. Usage: %s", usage)
 	}
 	return nil

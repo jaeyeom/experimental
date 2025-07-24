@@ -120,7 +120,7 @@ func (p PackageInstallMethod) GetImports() []string {
 	return nil
 }
 
-func (p PackageInstallMethod) RenderSetupTasks(command string) string {
+func (p PackageInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
@@ -195,7 +195,7 @@ func (t TermuxPkgInstallMethod) GetImports() []string {
 	return nil
 }
 
-func (t TermuxPkgInstallMethod) RenderSetupTasks(command string) string {
+func (t TermuxPkgInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
@@ -222,7 +222,7 @@ func (p PipInstallMethod) GetImports() []string {
 	return nil
 }
 
-func (p PipInstallMethod) RenderSetupTasks(command string) string {
+func (p PipInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
@@ -247,7 +247,7 @@ func (g GoInstallMethod) GetImports() []string {
 	return []string{"setup-user-go-bin-directory"}
 }
 
-func (g GoInstallMethod) RenderSetupTasks(command string) string {
+func (g GoInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
@@ -299,7 +299,7 @@ func (c CargoInstallMethod) GetImports() []string {
 	return []string{"setup-cargo", "cargo-install-update"}
 }
 
-func (c CargoInstallMethod) RenderSetupTasks(command string) string {
+func (c CargoInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
@@ -337,7 +337,7 @@ func (n NpmInstallMethod) GetImports() []string {
 	return []string{"npm"}
 }
 
-func (n NpmInstallMethod) RenderSetupTasks(command string) string {
+func (n NpmInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
@@ -411,7 +411,7 @@ func (d DebianPkgInstallMethod) GetImports() []string {
 	return nil
 }
 
-func (d DebianPkgInstallMethod) RenderSetupTasks(command string) string {
+func (d DebianPkgInstallMethod) RenderSetupTasks(_ string) string {
 	return `    - name: Ensure bookworm-backports is added to sources.list.d
       ansible.builtin.apt_repository:
         repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
@@ -453,7 +453,7 @@ func (s ShellInstallMethod) GetImports() []string {
 	return nil
 }
 
-func (s ShellInstallMethod) RenderSetupTasks(command string) string {
+func (s ShellInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
@@ -498,8 +498,9 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
         - name: Install/update ` + command + ` if outdated
           shell: ` + s.InstallCommand + `
           when: ` + commandID + `_installed_version != ` + commandID + `_latest_version`
-	} else {
-		return `      block:
+	}
+
+	return `      block:
         - name: Check if ` + command + ` is installed
           shell: command -v ` + command + `
           register: ` + commandID + `_installed
@@ -509,7 +510,6 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
         - name: Install ` + command + `
           shell: ` + s.InstallCommand + `
           when: ` + commandID + `_installed.rc != 0`
-	}
 }
 
 // PlatformSpecificTool represents a development tool that can be installed
