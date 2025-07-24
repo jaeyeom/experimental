@@ -141,30 +141,6 @@ func (gs *GitHubStorage) GetComments(owner, repo string, prNumber int) (*models.
 	return &prComments, nil
 }
 
-// DeleteComment deletes a specific comment.
-func (gs *GitHubStorage) DeleteComment(owner, repo string, prNumber int, file string, line int, side string) error {
-	return gs.deleteComments(owner, repo, prNumber, func(comment models.Comment) bool {
-		return comment.Path == file && comment.Line == line && comment.Side == side
-	}, false)
-}
-
-// DeleteCommentsInRange deletes comments within a line range.
-func (gs *GitHubStorage) DeleteCommentsInRange(owner, repo string, prNumber int, file string, startLine, endLine int, side string) error {
-	return gs.deleteComments(owner, repo, prNumber, func(comment models.Comment) bool {
-		return comment.Path == file &&
-			comment.Side == side &&
-			comment.Line >= startLine &&
-			comment.Line <= endLine
-	}, true)
-}
-
-// DeleteAllCommentsOnLine deletes all comments on a specific line.
-func (gs *GitHubStorage) DeleteAllCommentsOnLine(owner, repo string, prNumber int, file string, line int, side string) error {
-	return gs.deleteComments(owner, repo, prNumber, func(comment models.Comment) bool {
-		return comment.Path == file && comment.Line == line && comment.Side == side
-	}, true)
-}
-
 // FindCommentByIDPrefix finds a comment by ID prefix.
 func (gs *GitHubStorage) FindCommentByIDPrefix(owner, repo string, prNumber int, idPrefix string) (*models.Comment, error) {
 	prComments, err := gs.GetComments(owner, repo, prNumber)
@@ -231,65 +207,6 @@ func (gs *GitHubStorage) DeleteCommentByID(owner, repo string, prNumber int, idP
 		return fmt.Errorf("failed to delete comment by ID with lock: %w", err)
 	}
 	return nil
-}
-
-// DeleteCommentByIndex deletes a comment at a specific index.
-func (gs *GitHubStorage) DeleteCommentByIndex(owner, repo string, prNumber int, file string, line int, side string, index int) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
-	commentsPath := filepath.Join(prPath, "comments.json")
-
-	if err := gs.locker.WithLock(commentsPath, func() error {
-		prComments, err := gs.GetComments(owner, repo, prNumber)
-		if err != nil {
-			return err
-		}
-
-		var matchingIndices []int
-		for i, comment := range prComments.Comments {
-			if comment.Path == file && comment.Line == line && comment.Side == side {
-				matchingIndices = append(matchingIndices, i)
-			}
-		}
-
-		if len(matchingIndices) == 0 {
-			return fmt.Errorf("no comments found")
-		}
-
-		if index < 0 || index >= len(matchingIndices) {
-			return fmt.Errorf("invalid index %d, valid range: 0-%d", index, len(matchingIndices)-1)
-		}
-
-		actualIndex := matchingIndices[index]
-		prComments.Comments = append(prComments.Comments[:actualIndex], prComments.Comments[actualIndex+1:]...)
-		prComments.UpdatedAt = time.Now()
-
-		return gs.store.Set(commentsPath, prComments)
-	}); err != nil {
-		return fmt.Errorf("failed to delete comment by index with lock: %w", err)
-	}
-	return nil
-}
-
-// FindCommentsOnLine finds all comments on a specific line.
-func (gs *GitHubStorage) FindCommentsOnLine(owner, repo string, prNumber int, file string, line int, side string) ([]models.CommentMatch, error) {
-	prComments, err := gs.GetComments(owner, repo, prNumber)
-	if err != nil {
-		return nil, err
-	}
-
-	var matches []models.CommentMatch
-	index := 0
-	for _, comment := range prComments.Comments {
-		if comment.Path == file && comment.Line == line && comment.Side == side {
-			matches = append(matches, models.CommentMatch{
-				Index:   index,
-				Comment: comment,
-			})
-			index++
-		}
-	}
-
-	return matches, nil
 }
 
 // deleteComments is a helper function for deleting comments based on a filter.

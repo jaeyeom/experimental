@@ -45,15 +45,6 @@ func (f *JSONFormatter) FormatComments(comments []Comment) (string, error) {
 	return string(jsonData), nil
 }
 
-// FormatCommentMatches formats comment matches as JSON.
-func (f *JSONFormatter) FormatCommentMatches(matches []CommentMatch, _ int) (string, error) {
-	jsonData, err := json.MarshalIndent(matches, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal matches: %w", err)
-	}
-	return string(jsonData), nil
-}
-
 // TextFormatter formats output as human-readable text.
 type TextFormatter struct{}
 
@@ -94,17 +85,6 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 			comment.CreatedAt.Format("2006-01-02 15:04"))
 	}
 
-	return result.String(), nil
-}
-
-// FormatCommentMatches formats comment matches as human-readable text.
-func (f *TextFormatter) FormatCommentMatches(matches []CommentMatch, line int) (string, error) {
-	var result strings.Builder
-	fmt.Fprintf(&result, "Multiple comments found on line %d:\n", line)
-	for _, match := range matches {
-		fmt.Fprintf(&result, "  %s [index: %d] %s\n", match.Comment.FormatIDShort(), match.Index, TruncateString(match.Comment.Body, 80))
-	}
-	result.WriteString("Use --comment-id <ID> to delete a specific comment (recommended) or --index N (deprecated) or --all to delete all")
 	return result.String(), nil
 }
 

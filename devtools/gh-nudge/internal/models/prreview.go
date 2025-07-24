@@ -69,12 +69,6 @@ type CommentFilter struct {
 	Side      string `json:"side,omitempty"`
 }
 
-// CommentMatch represents a comment match for deletion.
-type CommentMatch struct {
-	Index   int     `json:"index"`
-	Comment Comment `json:"comment"`
-}
-
 // LineRange represents a range of lines.
 type LineRange struct {
 	StartLine int `json:"start_line"`
