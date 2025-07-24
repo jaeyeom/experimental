@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -20,6 +22,7 @@ type DiffHunk struct {
 
 // Comment represents a line-specific comment in a pull request.
 type Comment struct {
+	ID        string    `json:"id"`         // Unique comment ID (40-char hex string)
 	Path      string    `json:"path"`       // File path
 	Line      int       `json:"line"`       // Line number (for single line comments)
 	StartLine *int      `json:"start_line"` // Starting line for multi-line comments
@@ -296,6 +299,33 @@ func (p *ParsedIdentifier) String() string {
 		return strconv.Itoa(p.PRNumber)
 	}
 	return p.BranchName
+}
+
+// GenerateCommentID generates a random 40-character hex string for comment IDs.
+// This is similar to git commit hashes but uses pure randomness.
+func GenerateCommentID() string {
+	randomBytes := make([]byte, 20) // 20 bytes = 40 hex chars
+	if _, err := rand.Read(randomBytes); err != nil {
+		// This should never happen with crypto/rand
+		panic(fmt.Sprintf("failed to generate random bytes: %v", err))
+	}
+	return hex.EncodeToString(randomBytes)
+}
+
+// MatchesIDPrefix checks if the comment ID matches the given prefix.
+func (c Comment) MatchesIDPrefix(prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+	return strings.HasPrefix(c.ID, prefix)
+}
+
+// FormatIDShort returns a shortened version of the comment ID (first 8 characters).
+func (c Comment) FormatIDShort() string {
+	if len(c.ID) >= 8 {
+		return c.ID[:8]
+	}
+	return c.ID
 }
 
 // BranchDiffHunks represents the diff hunks for a local branch.

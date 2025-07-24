@@ -381,20 +381,32 @@ func (ch *CommandHandler) listBranchComments(owner, repo, branchName string, for
 }
 
 // DeleteCommand deletes specific comments for either PR or branch.
-func (ch *CommandHandler) DeleteCommand(owner, repo, identifier string, file, lineSpec, side string, all bool, index *int, confirm bool, formatter OutputFormatter) error {
+func (ch *CommandHandler) DeleteCommand(owner, repo, identifier string, file, lineSpec, side string, all bool, index *int, commentID string, confirm bool, formatter OutputFormatter) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		return ch.deletePRComments(owner, repo, parsed.PRNumber, file, lineSpec, side, all, index, confirm, formatter)
+		return ch.deletePRComments(owner, repo, parsed.PRNumber, file, lineSpec, side, all, index, commentID, confirm, formatter)
 	}
-	return ch.deleteBranchComments(owner, repo, parsed.BranchName, file, lineSpec, side, all, index, confirm, formatter)
+	return ch.deleteBranchComments(owner, repo, parsed.BranchName, file, lineSpec, side, all, index, commentID, confirm, formatter)
 }
 
 // deletePRComments deletes specific comments from a PR.
-func (ch *CommandHandler) deletePRComments(owner, repo string, prNumber int, file, lineSpec, side string, all bool, index *int, confirm bool, formatter OutputFormatter) error {
+func (ch *CommandHandler) deletePRComments(owner, repo string, prNumber int, file, lineSpec, side string, all bool, index *int, commentID string, confirm bool, formatter OutputFormatter) error {
+	// Handle deletion by comment ID
+	if commentID != "" {
+		if index != nil {
+			fmt.Println("Warning: --index flag ignored when --comment-id is specified")
+		}
+		if err := ch.storage.DeleteCommentByID(owner, repo, prNumber, commentID); err != nil {
+			return fmt.Errorf("failed to delete comment by ID: %w", err)
+		}
+		fmt.Printf("Deleted comment with ID prefix '%s'\n", commentID)
+		return nil
+	}
+
 	lineRange, err := models.ParseLineSpec(lineSpec)
 	if err != nil {
 		return fmt.Errorf("invalid line specification %q: %w", lineSpec, err)
@@ -410,7 +422,16 @@ func (ch *CommandHandler) deletePRComments(owner, repo string, prNumber int, fil
 }
 
 // deleteBranchComments deletes specific comments from a branch.
-func (ch *CommandHandler) deleteBranchComments(owner, repo, branchName string, file, lineSpec, side string, all bool, index *int, confirm bool, formatter OutputFormatter) error {
+func (ch *CommandHandler) deleteBranchComments(owner, repo, branchName string, file, lineSpec, side string, all bool, index *int, commentID string, confirm bool, formatter OutputFormatter) error {
+	// Handle deletion by comment ID
+	if commentID != "" {
+		if index != nil {
+			fmt.Println("Warning: --index flag ignored when --comment-id is specified")
+		}
+		// Note: For now, branch comment deletion by ID is not implemented
+		return fmt.Errorf("comment deletion by ID is not yet supported for branches")
+	}
+
 	lineRange, err := models.ParseLineSpec(lineSpec)
 	if err != nil {
 		return fmt.Errorf("invalid line specification %q: %w", lineSpec, err)
@@ -564,6 +585,7 @@ func (ch *CommandHandler) deleteSingleLineComments(owner, repo string, prNumber 
 	switch {
 	case index != nil:
 		// Delete specific index
+		fmt.Println("Warning: The --index flag is deprecated and will be removed in a future version. Use --comment-id instead.")
 		if err := ch.storage.DeleteCommentByIndex(owner, repo, prNumber, file, line, side, *index); err != nil {
 			return fmt.Errorf("failed to delete comment at index %d: %w", *index, err)
 		}

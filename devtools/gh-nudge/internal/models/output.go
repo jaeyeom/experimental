@@ -75,18 +75,18 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 	}
 
 	var result strings.Builder
-	fmt.Fprintf(&result, "%-5s %-30s %-8s %-8s %-50s %-20s\n", "Index", "File", "Line", "Side", "Comment", "Created")
-	result.WriteString(strings.Repeat("-", 122))
+	fmt.Fprintf(&result, "%-8s %-30s %-8s %-8s %-50s %-20s\n", "ID", "File", "Line", "Side", "Comment", "Created")
+	result.WriteString(strings.Repeat("-", 124))
 	result.WriteString("\n")
 
-	for i, comment := range comments {
+	for _, comment := range comments {
 		lineStr := strconv.Itoa(comment.Line)
 		if comment.IsMultiLine() {
 			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
 		}
 
-		fmt.Fprintf(&result, "%-5d %-30s %-8s %-8s %-50s %-20s\n",
-			i,
+		fmt.Fprintf(&result, "%-8s %-30s %-8s %-8s %-50s %-20s\n",
+			comment.FormatIDShort(),
 			TruncateString(comment.Path, 30),
 			lineStr,
 			comment.Side,
@@ -102,9 +102,9 @@ func (f *TextFormatter) FormatCommentMatches(matches []CommentMatch, line int) (
 	var result strings.Builder
 	fmt.Fprintf(&result, "Multiple comments found on line %d:\n", line)
 	for _, match := range matches {
-		fmt.Fprintf(&result, "  [%d] %s\n", match.Index, TruncateString(match.Comment.Body, 80))
+		fmt.Fprintf(&result, "  %s [index: %d] %s\n", match.Comment.FormatIDShort(), match.Index, TruncateString(match.Comment.Body, 80))
 	}
-	result.WriteString("Use --index N to delete a specific comment or --all to delete all")
+	result.WriteString("Use --comment-id <ID> to delete a specific comment (recommended) or --index N (deprecated) or --all to delete all")
 	return result.String(), nil
 }
 

@@ -103,6 +103,10 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 			}
 		}
 
+		// Generate ID if not provided
+		if comment.ID == "" {
+			comment.ID = models.GenerateCommentID()
+		}
 		comment.CreatedAt = time.Now()
 		prComments.Comments = append(prComments.Comments, comment)
 		prComments.UpdatedAt = time.Now()
@@ -159,6 +163,74 @@ func (gs *GitHubStorage) DeleteAllCommentsOnLine(owner, repo string, prNumber in
 	return gs.deleteComments(owner, repo, prNumber, func(comment models.Comment) bool {
 		return comment.Path == file && comment.Line == line && comment.Side == side
 	}, true)
+}
+
+// FindCommentByIDPrefix finds a comment by ID prefix.
+func (gs *GitHubStorage) FindCommentByIDPrefix(owner, repo string, prNumber int, idPrefix string) (*models.Comment, error) {
+	prComments, err := gs.GetComments(owner, repo, prNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []models.Comment
+	for _, comment := range prComments.Comments {
+		if comment.MatchesIDPrefix(idPrefix) {
+			matches = append(matches, comment)
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no comment found with ID prefix '%s'", idPrefix)
+	}
+
+	if len(matches) > 1 {
+		// Build error message with matching comments
+		var matchDetails []string
+		for _, c := range matches {
+			matchDetails = append(matchDetails, fmt.Sprintf("  %s | %s:%d | %.50s...", c.FormatIDShort(), c.Path, c.Line, c.Body))
+		}
+		return nil, fmt.Errorf("ambiguous comment ID prefix '%s' matches %d comments:\n%s", idPrefix, len(matches), strings.Join(matchDetails, "\n"))
+	}
+
+	return &matches[0], nil
+}
+
+// DeleteCommentByID deletes a comment by ID prefix.
+func (gs *GitHubStorage) DeleteCommentByID(owner, repo string, prNumber int, idPrefix string) error {
+	prPath := gs.buildPRPath(owner, repo, prNumber)
+	commentsPath := filepath.Join(prPath, "comments.json")
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		prComments, err := gs.GetComments(owner, repo, prNumber)
+		if err != nil {
+			return err
+		}
+
+		matchIndex := -1
+		matchCount := 0
+		for i, comment := range prComments.Comments {
+			if comment.MatchesIDPrefix(idPrefix) {
+				matchIndex = i
+				matchCount++
+			}
+		}
+
+		if matchCount == 0 {
+			return fmt.Errorf("no comment found with ID prefix '%s'", idPrefix)
+		}
+
+		if matchCount > 1 {
+			return fmt.Errorf("ambiguous comment ID prefix '%s' matches %d comments", idPrefix, matchCount)
+		}
+
+		prComments.Comments = append(prComments.Comments[:matchIndex], prComments.Comments[matchIndex+1:]...)
+		prComments.UpdatedAt = time.Now()
+
+		return gs.store.Set(commentsPath, prComments)
+	}); err != nil {
+		return fmt.Errorf("failed to delete comment by ID with lock: %w", err)
+	}
+	return nil
 }
 
 // DeleteCommentByIndex deletes a comment at a specific index.
@@ -473,6 +545,10 @@ func (gs *GitHubStorage) AddBranchComment(owner, repo string, branchName string,
 			}
 		}
 
+		// Generate ID if not provided
+		if comment.ID == "" {
+			comment.ID = models.GenerateCommentID()
+		}
 		comment.CreatedAt = time.Now()
 		branchComments.Comments = append(branchComments.Comments, comment)
 		branchComments.UpdatedAt = time.Now()
