@@ -67,7 +67,7 @@ Commands:
   comment <owner>/<repo> <identifier> <file> <line> "<comment>"  Add line comment
   list <owner>/<repo> <identifier>                List stored comments (PR or branch)
   clear <owner>/<repo> <identifier>               Clear all comments (PR or branch)
-  delete <owner>/<repo> <identifier> <file> <line>  Delete line comment (PR or branch)
+  delete <owner>/<repo> <identifier> --comment-id <ID>  Delete comment by ID (PR or branch)
   submit <owner>/<repo> <pr_number>               Submit review to GitHub (PR only)
   version                                         Show version information
   help                                           Show this help message
@@ -107,14 +107,11 @@ Examples:
   # Submit review and keep local comments (PR only)
   gh-pr-review submit octocat/Hello-World 42 --body "First pass" --after keep
 
-  # Delete specific comment from PR by ID (recommended)
+  # Delete specific comment from PR by ID
   gh-pr-review delete octocat/Hello-World 42 --comment-id a1b2c3d4
 
-  # Delete specific comment from PR by line (deprecated)
-  gh-pr-review delete octocat/Hello-World 42 src/main.js 15
-
-  # Delete specific comment from branch
-  gh-pr-review delete octocat/Hello-World feature/auth-fix src/auth.js 25 --confirm
+  # Delete specific comment from branch by ID
+  gh-pr-review delete octocat/Hello-World feature/auth-fix --comment-id b5f6e7d8 --confirm
 
 Environment Variables:
   GH_STORAGE_HOME         Storage directory [default: ~/.config/gh-nudge/storage]
@@ -371,39 +368,28 @@ func handleDelete(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review delete <owner>/<repo> <identifier> <file> <line> [options]")
-		fmt.Println("     OR: gh-pr-review delete <owner>/<repo> <identifier> --comment-id <ID>")
+		fmt.Println("Usage: gh-pr-review delete <owner>/<repo> <identifier> --comment-id <ID>")
 		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
-		fmt.Println("  --comment-id ID   Delete comment by ID prefix (recommended)")
-		fmt.Println("  --side SIDE       Side of diff (LEFT, RIGHT) [default: RIGHT]")
+		fmt.Println("  --comment-id ID   Delete comment by ID prefix (required)")
 		fmt.Println("  --confirm         Skip confirmation prompt")
-		fmt.Println("  --all             Delete all comments on the specified line")
-		fmt.Println("  --index INDEX     Delete comment at specific index (0-based, deprecated)")
 		fmt.Println("  --json            Output results in JSON format")
 		return
 	}
 
-	if err := parser.ValidateOptions([]string{"side", "confirm", "all", "index", "json", "comment-id"}); err != nil {
+	if err := parser.ValidateOptions([]string{"confirm", "json", "comment-id"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Check if using comment-id mode
+	// Comment ID is now required
 	commentID := parser.GetOption("comment-id")
-
-	var requiredPositionals int
-	if commentID != "" {
-		requiredPositionals = 2 // Only need owner/repo and identifier
-	} else {
-		requiredPositionals = 4 // Need owner/repo, identifier, file, and line
+	if commentID == "" {
+		fmt.Fprintf(os.Stderr, "Error: --comment-id is required\n")
+		fmt.Fprintf(os.Stderr, "Usage: gh-pr-review delete <owner>/<repo> <identifier> --comment-id <ID>\n")
+		os.Exit(1)
 	}
 
-	usage := "gh-pr-review delete <owner>/<repo> <identifier> <file> <line> [options]"
-	if commentID != "" {
-		usage = "gh-pr-review delete <owner>/<repo> <identifier> --comment-id <ID>"
-	}
-
-	if err := parser.RequireExactPositionals(requiredPositionals, usage); err != nil {
+	if err := parser.RequireExactPositionals(2, "gh-pr-review delete <owner>/<repo> <identifier> --comment-id <ID>"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -411,41 +397,14 @@ func handleDelete(args []string) {
 	repoSpec := parser.GetPositional(0)
 	identifier := parser.GetPositional(1)
 
-	var file, lineSpec string
-	if commentID == "" {
-		file = parser.GetPositional(2)
-		lineSpec = parser.GetPositional(3)
-	}
-
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	side := parser.GetOption("side")
-	if side == "" {
-		side = "RIGHT"
-	}
-	if side != "LEFT" && side != "RIGHT" {
-		fmt.Fprintf(os.Stderr, "Error: side must be LEFT or RIGHT\n")
-		os.Exit(1)
-	}
-
 	confirm := parser.HasOption("confirm")
-	all := parser.HasOption("all")
 	jsonOutput := parser.HasOption("json")
-
-	var index *int
-	if parser.HasOption("index") {
-		indexStr := parser.GetOption("index")
-		indexVal, err := strconv.Atoi(indexStr)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: invalid index '%s'\n", indexStr)
-			os.Exit(1)
-		}
-		index = &indexVal
-	}
 
 	formatter := createOutputFormatter(jsonOutput)
 
@@ -455,7 +414,7 @@ func handleDelete(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.DeleteCommand(owner, repo, identifier, file, lineSpec, side, all, index, commentID, confirm, formatter); err != nil {
+	if err := handler.DeleteCommand(owner, repo, identifier, commentID, confirm, formatter); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
