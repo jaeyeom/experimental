@@ -85,8 +85,8 @@ func generateFilename(title string, sectionCounters []int, level int) string {
 	return fmt.Sprintf("%s_%s.md", numericPrefix, sanitizedTitle)
 }
 
-// SplitMarkdown splits a markdown file into multiple files based on headers.
-func SplitMarkdown(inputFile, outputDir string) error {
+// Markdown splits a markdown file into multiple files based on headers.
+func Markdown(inputFile, outputDir string) error {
 	// Create output directory
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)

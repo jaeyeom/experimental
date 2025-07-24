@@ -256,13 +256,15 @@ func runExecutorDemo(dir string, w io.Writer, concurrent bool, maxWorkers int) e
 	defer signalExecutor.Stop()
 
 	// Run the demo
-	if concurrent {
+	switch concurrent {
+	case true:
 		fmt.Fprintf(w, "\nRunning %d tools concurrently (max %d workers)...\n\n", len(demoConfigs), maxWorkers)
 		return runConcurrentDemo(ctx, w, signalExecutor, demoConfigs, maxWorkers)
-	} else {
+	case false:
 		fmt.Fprintf(w, "\nRunning %d tools sequentially...\n\n", len(demoConfigs))
 		return runSequentialDemo(ctx, w, signalExecutor, demoConfigs)
 	}
+	panic("unreachable code reached") // Should never happen
 }
 
 // runSequentialDemo runs tools one by one.

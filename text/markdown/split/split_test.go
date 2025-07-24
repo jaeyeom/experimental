@@ -103,7 +103,7 @@ func TestGenerateFilename(t *testing.T) {
 	}
 }
 
-func TestSplitMarkdown(t *testing.T) {
+func TestMarkdown(t *testing.T) {
 	// Create a temporary directory for test files
 	tmpDir, err := os.MkdirTemp("", "split-markdown-test")
 	if err != nil {
@@ -130,7 +130,7 @@ Content 3
 	outputDir := filepath.Join(tmpDir, "output")
 
 	// Run split_markdown
-	if err := SplitMarkdown(inputFile, outputDir); err != nil {
+	if err := Markdown(inputFile, outputDir); err != nil {
 		t.Fatal(err)
 	}
 
