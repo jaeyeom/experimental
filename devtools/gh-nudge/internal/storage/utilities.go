@@ -11,7 +11,7 @@ import (
 // Initialize creates a new storage directory structure with metadata and subdirectories.
 func Initialize(storageHome string, force bool, migrate bool) error {
 	if !force && directoryExists(storageHome) {
-		return fmt.Errorf("storage directory already exists: %s", storageHome)
+		return fmt.Errorf("storage directory already exists: %q", storageHome)
 	}
 
 	if err := os.MkdirAll(storageHome, 0o755); err != nil {

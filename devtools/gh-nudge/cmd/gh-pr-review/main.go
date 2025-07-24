@@ -64,36 +64,55 @@ func showUsage() {
 Usage: gh-pr-review <command> [options]
 
 Commands:
-  capture <owner>/<repo> <pr_number>              Capture PR diff hunks
-  comment <owner>/<repo> <pr_number> <file> <line> "<comment>"  Add line comment
-  submit <owner>/<repo> <pr_number>               Submit review to GitHub
-  list <owner>/<repo> <pr_number>                 List stored comments
-  delete <owner>/<repo> <pr_number> <file> <line>  Delete line comment
-  clear <owner>/<repo> <pr_number>                Clear all comments
+  capture <owner>/<repo> <identifier>             Capture diff hunks (PR or branch)
+  comment <owner>/<repo> <identifier> <file> <line> "<comment>"  Add line comment
+  list <owner>/<repo> <identifier>                List stored comments (PR or branch)
+  clear <owner>/<repo> <identifier>               Clear all comments (PR or branch)
+  delete <owner>/<repo> <identifier> <file> <line>  Delete line comment (PR or branch)
+  submit <owner>/<repo> <pr_number>               Submit review to GitHub (PR only)
   version                                         Show version information
   help                                           Show this help message
+
+Identifier Types:
+  PR numbers     Pure integers (e.g., 42, 123)
+  Branch names   Any non-numeric string (e.g., feature/auth, main, my-branch)
 
 Examples:
   # Capture PR diff hunks
   gh-pr-review capture octocat/Hello-World 42
 
-  # Add line comment
+  # Capture branch diff hunks
+  gh-pr-review capture octocat/Hello-World feature/auth-fix
+
+  # Add line comment to PR
   gh-pr-review comment octocat/Hello-World 42 src/main.js 15 "Consider using const instead of let"
 
-  # Add multi-line comment
-  gh-pr-review comment octocat/Hello-World 42 src/main.js 15-20 "This function needs refactoring"
+  # Add line comment to branch
+  gh-pr-review comment octocat/Hello-World feature/auth-fix src/main.js 15 "Use const instead of let"
 
-  # List comments
+  # Add multi-line comment to branch
+  gh-pr-review comment octocat/Hello-World my-branch src/main.js 15-20 "This function needs refactoring"
+
+  # List comments from PR
   gh-pr-review list octocat/Hello-World 42 --format json
 
-  # Submit review (clears local comments by default)
+  # List comments from branch
+  gh-pr-review list octocat/Hello-World feature/auth-fix --file src/auth.js
+
+  # Clear all comments from branch
+  gh-pr-review clear octocat/Hello-World my-branch --confirm
+
+  # Submit review (PR only, clears local comments by default)
   gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
 
-  # Submit review and keep local comments
+  # Submit review and keep local comments (PR only)
   gh-pr-review submit octocat/Hello-World 42 --body "First pass" --after keep
 
-  # Delete specific comment
+  # Delete specific comment from PR
   gh-pr-review delete octocat/Hello-World 42 src/main.js 15
+
+  # Delete specific comment from branch
+  gh-pr-review delete octocat/Hello-World feature/auth-fix src/auth.js 25 --confirm
 
 Environment Variables:
   GH_STORAGE_HOME         Storage directory [default: ~/.config/gh-nudge/storage]
@@ -106,8 +125,9 @@ func handleCapture(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review capture <owner>/<repo> <pr_number> [options]")
-		fmt.Println("  --force    Overwrite existing diff hunks")
+		fmt.Println("Usage: gh-pr-review capture <owner>/<repo> <identifier> [options]")
+		fmt.Println("  <identifier>  PR number (e.g., 42) or branch name (e.g., feature/auth)")
+		fmt.Println("  --force       Overwrite existing diff hunks")
 		return
 	}
 
@@ -116,23 +136,17 @@ func handleCapture(args []string) {
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(2, "gh-pr-review capture <owner>/<repo> <pr_number> [options]"); err != nil {
+	if err := parser.RequireExactPositionals(2, "gh-pr-review capture <owner>/<repo> <identifier> [options]"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	repoSpec := parser.GetPositional(0)
-	prNumberStr := parser.GetPositional(1)
+	identifier := parser.GetPositional(1)
 
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	prNumber, err := strconv.Atoi(prNumberStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid PR number '%s'\n", prNumberStr)
 		os.Exit(1)
 	}
 
@@ -144,7 +158,7 @@ func handleCapture(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.CaptureCommand(owner, repo, prNumber, force); err != nil {
+	if err := handler.CaptureCommand(owner, repo, identifier, force); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -154,7 +168,8 @@ func handleComment(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review comment <owner>/<repo> <pr_number> <file> <line> \"<comment>\" [options]")
+		fmt.Println("Usage: gh-pr-review comment <owner>/<repo> <identifier> <file> <line> \"<comment>\" [options]")
+		fmt.Println("  <identifier>  PR number (e.g., 42) or branch name (e.g., feature/auth)")
 		fmt.Println("  --side SIDE   Side of diff (LEFT, RIGHT) [default: RIGHT]")
 		fmt.Println("  --force       Add comment even if duplicate detected")
 		return
@@ -165,13 +180,13 @@ func handleComment(args []string) {
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(5, "gh-pr-review comment <owner>/<repo> <pr_number> <file> <line> \"<comment>\" [options]"); err != nil {
+	if err := parser.RequireExactPositionals(5, "gh-pr-review comment <owner>/<repo> <identifier> <file> <line> \"<comment>\" [options]"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	repoSpec := parser.GetPositional(0)
-	prNumberStr := parser.GetPositional(1)
+	identifier := parser.GetPositional(1)
 	file := parser.GetPositional(2)
 	lineSpec := parser.GetPositional(3)
 	commentBody := parser.GetPositional(4)
@@ -179,12 +194,6 @@ func handleComment(args []string) {
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	prNumber, err := strconv.Atoi(prNumberStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid PR number '%s'\n", prNumberStr)
 		os.Exit(1)
 	}
 
@@ -205,7 +214,7 @@ func handleComment(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.CommentCommand(owner, repo, prNumber, file, lineSpec, commentBody, side, force); err != nil {
+	if err := handler.CommentCommand(owner, repo, identifier, file, lineSpec, commentBody, side, force); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -296,7 +305,8 @@ func handleList(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review list <owner>/<repo> <pr_number> [options]")
+		fmt.Println("Usage: gh-pr-review list <owner>/<repo> <identifier> [options]")
+		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
 		fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
 		fmt.Println("  --file FILE       Filter by file path")
 		fmt.Println("  --line LINE       Filter by line number or range (e.g., 15 or 15-20)")
@@ -309,23 +319,17 @@ func handleList(args []string) {
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(2, "gh-pr-review list <owner>/<repo> <pr_number> [options]"); err != nil {
+	if err := parser.RequireExactPositionals(2, "gh-pr-review list <owner>/<repo> <identifier> [options]"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	repoSpec := parser.GetPositional(0)
-	prNumberStr := parser.GetPositional(1)
+	identifier := parser.GetPositional(1)
 
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	prNumber, err := strconv.Atoi(prNumberStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid PR number '%s'\n", prNumberStr)
 		os.Exit(1)
 	}
 
@@ -355,7 +359,7 @@ func handleList(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.ListCommand(owner, repo, prNumber, formatter, file, line, side); err != nil {
+	if err := handler.ListCommand(owner, repo, identifier, formatter, file, line, side); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -365,7 +369,8 @@ func handleDelete(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review delete <owner>/<repo> <pr_number> <file> <line> [options]")
+		fmt.Println("Usage: gh-pr-review delete <owner>/<repo> <identifier> <file> <line> [options]")
+		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
 		fmt.Println("  --side SIDE       Side of diff (LEFT, RIGHT) [default: RIGHT]")
 		fmt.Println("  --confirm         Skip confirmation prompt")
 		fmt.Println("  --all             Delete all comments on the specified line")
@@ -379,25 +384,19 @@ func handleDelete(args []string) {
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(4, "gh-pr-review delete <owner>/<repo> <pr_number> <file> <line> [options]"); err != nil {
+	if err := parser.RequireExactPositionals(4, "gh-pr-review delete <owner>/<repo> <identifier> <file> <line> [options]"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	repoSpec := parser.GetPositional(0)
-	prNumberStr := parser.GetPositional(1)
+	identifier := parser.GetPositional(1)
 	file := parser.GetPositional(2)
 	lineSpec := parser.GetPositional(3)
 
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	prNumber, err := strconv.Atoi(prNumberStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid PR number '%s'\n", prNumberStr)
 		os.Exit(1)
 	}
 
@@ -433,7 +432,7 @@ func handleDelete(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.DeleteCommand(owner, repo, prNumber, file, lineSpec, side, all, index, confirm, formatter); err != nil {
+	if err := handler.DeleteCommand(owner, repo, identifier, file, lineSpec, side, all, index, confirm, formatter); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -443,7 +442,8 @@ func handleClear(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review clear <owner>/<repo> <pr_number> [options]")
+		fmt.Println("Usage: gh-pr-review clear <owner>/<repo> <identifier> [options]")
+		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
 		fmt.Println("  --file FILE       Clear comments for specific file only")
 		fmt.Println("  --confirm         Skip confirmation prompt")
 		return
@@ -454,23 +454,17 @@ func handleClear(args []string) {
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(2, "gh-pr-review clear <owner>/<repo> <pr_number> [options]"); err != nil {
+	if err := parser.RequireExactPositionals(2, "gh-pr-review clear <owner>/<repo> <identifier> [options]"); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	repoSpec := parser.GetPositional(0)
-	prNumberStr := parser.GetPositional(1)
+	identifier := parser.GetPositional(1)
 
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	prNumber, err := strconv.Atoi(prNumberStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid PR number '%s'\n", prNumberStr)
 		os.Exit(1)
 	}
 
@@ -483,7 +477,7 @@ func handleClear(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.ClearCommand(owner, repo, prNumber, file, confirm); err != nil {
+	if err := handler.ClearCommand(owner, repo, identifier, file, confirm); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
