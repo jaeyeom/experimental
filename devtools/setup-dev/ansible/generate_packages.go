@@ -63,9 +63,9 @@ func (p PackageData) Command() string {
 	return p.command
 }
 
-func (g PackageData) CommandID() string {
+func (p PackageData) CommandID() string {
 	// Replace dash to underscore.
-	return strings.ReplaceAll(g.command, "-", "_")
+	return strings.ReplaceAll(p.command, "-", "_")
 }
 
 func (p PackageData) DebianPkgName() string {
