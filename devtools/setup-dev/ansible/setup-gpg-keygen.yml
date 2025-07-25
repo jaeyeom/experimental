@@ -1,0 +1,67 @@
+---
+- import_playbook: setup-git.yml
+- import_playbook: gpg.yml
+- import_playbook: sshpass.yml
+
+- name: Ensure GPG keys are generated
+  hosts: all
+  tasks:
+    - name: Include guard for setup-gpg-keygen playbook
+      block:
+        - name: Stop early if the setup-gpg-keygen playbook is already included
+          meta: end_play
+          when: setup_gpg_keygen_playbook_imported is defined
+        - name: Ensure the setup-gpg-keygen playbook is not included
+          set_fact:
+            setup_gpg_keygen_playbook_imported: true
+          when: setup_gpg_keygen_playbook_imported is not defined
+
+    - name: Check if GPG keys already exist
+      shell: gpg --list-secret-keys --keyid-format=long | grep -E '^sec'
+      register: gpg_keys_check
+      changed_when: false
+      failed_when: false
+
+    - name: Generate GPG key if none exist
+      block:
+        - name: Create GPG batch file
+          ansible.builtin.copy:
+            dest: "{{ ansible_env.HOME }}/.gpg-batch"
+            mode: '0600'
+            content: |
+              %echo Generating GPG key
+              Key-Type: ed25519
+              Key-Curve: Ed25519
+              Key-Usage: sign
+              Subkey-Type: ECDH
+              Subkey-Curve: cv25519
+              Subkey-Usage: encrypt
+              Name-Real: {{ git_user_name }}
+              Name-Email: {{ git_user_email }}
+              Expire-Date: 1y
+              Passphrase: {{ ansible_env.SSHPASS }}
+              %commit
+              %echo done
+
+        - name: Generate GPG key using batch file
+          shell: gpg --batch --generate-key {{ ansible_env.HOME }}/.gpg-batch
+          register: gpg_keygen_result
+
+        - name: Remove GPG batch file
+          ansible.builtin.file:
+            path: "{{ ansible_env.HOME }}/.gpg-batch"
+            state: absent
+
+        - name: Get generated GPG key ID
+          shell: gpg --list-secret-keys --keyid-format=long | grep -E '^sec' | head -1 | awk '{print $2}' | cut -d'/' -f2
+          register: gpg_key_id
+          changed_when: false
+
+        - name: Display generated GPG key information
+          debug:
+            msg:
+              - "GPG key generated successfully"
+              - "Key ID: {{ gpg_key_id.stdout }}"
+              - "User: {{ git_user_name }} <{{ git_user_email }}>"
+
+      when: gpg_keys_check.rc != 0
