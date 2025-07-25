@@ -30,7 +30,7 @@
           ansible.builtin.file:
             path: "{{ ansible_env.HOME }}/.password-store/.extensions"
             state: directory
-            mode: '0755'
+            mode: '0700'
 
         - name: Display initialization success message
           debug:
