@@ -1,8 +1,6 @@
 ---
 - import_playbook: setup-history.yml
-- import_playbook: setup-z.yml
 - import_playbook: setup-ssh-key.yml
-- import_playbook: setup-spacemacs-go.yml
 - import_playbook: setup-gpg-agent.yml
 - import_playbook: setup-bazel.yml
   when: ansible_env.TERMUX_VERSION is not defined
@@ -18,4 +16,6 @@
 - import_playbook: grpcui.yml
 - import_playbook: cleanup-repo.yml
 - import_playbook: setup-vibe-coding.yml
+- import_playbook: setup-z.yml
+- import_playbook: setup-spacemacs-go.yml
 - import_playbook: gmi.yml
