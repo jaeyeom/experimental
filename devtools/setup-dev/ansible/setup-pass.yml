@@ -1,0 +1,49 @@
+---
+- import_playbook: setup-gpg-keygen.yml
+- import_playbook: pass.yml
+
+- name: Ensure pass (password-store) is initialized
+  hosts: all
+  tasks:
+    - name: Include guard for setup-pass playbook
+      block:
+        - name: Stop early if the setup-pass playbook is already included
+          meta: end_play
+          when: setup_pass_playbook_imported is defined
+        - name: Ensure the setup-pass playbook is not included
+          set_fact:
+            setup_pass_playbook_imported: true
+          when: setup_pass_playbook_imported is not defined
+
+    - name: Check if password store is already initialized
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.password-store/.gpg-id"
+      register: pass_initialized
+
+    - name: Initialize password store if not already initialized
+      block:
+        - name: Initialize password store with git user email
+          shell: pass init "{{ git_user_email }}"
+          register: pass_init_result
+
+        - name: Create .extensions directory
+          ansible.builtin.file:
+            path: "{{ ansible_env.HOME }}/.password-store/.extensions"
+            state: directory
+            mode: '0755'
+
+        - name: Display initialization success message
+          debug:
+            msg:
+              - "Password store initialized successfully"
+              - "Initialized with email: {{ git_user_email }}"
+              - "Extensions directory created at: {{ ansible_env.HOME }}/.password-store/.extensions"
+
+      when: not pass_initialized.stat.exists
+
+    - name: Display status when already initialized
+      debug:
+        msg:
+          - "Password store is already initialized"
+          - "Location: {{ ansible_env.HOME }}/.password-store"
+      when: pass_initialized.stat.exists
