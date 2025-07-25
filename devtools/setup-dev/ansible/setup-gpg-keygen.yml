@@ -30,11 +30,11 @@
             mode: '0600'
             content: |
               %echo Generating GPG key
-              Key-Type: ed25519
+              Key-Type: eddsa
               Key-Curve: Ed25519
               Key-Usage: sign
-              Subkey-Type: ECDH
-              Subkey-Curve: cv25519
+              Subkey-Type: ecdh
+              Subkey-Curve: Curve25519
               Subkey-Usage: encrypt
               Name-Real: {{ git_user_name }}
               Name-Email: {{ git_user_email }}
