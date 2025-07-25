@@ -154,6 +154,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-emacs-lsp-booster.yml
 - setup-git.yml
 - setup-gpg-agent.yml
+- setup-gpg-keygen.yml
 - setup-history.yml
 - setup-kotex.yml
 - setup-perplexity-mcp.yml
