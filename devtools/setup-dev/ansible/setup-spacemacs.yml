@@ -86,3 +86,16 @@
         dest: "{{ ansible_env.HOME }}/.spacemacs-upstream"
         state: link
         force: yes
+
+    - name: Check if ~/.spacemacs exists
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.spacemacs"
+      register: spacemacs_file
+
+    - name: Copy .spacemacs-upstream content to ~/.spacemacs if it doesn't exist
+      ansible.builtin.copy:
+        src: "{{ ansible_env.HOME }}/.spacemacs-upstream"
+        dest: "{{ ansible_env.HOME }}/.spacemacs"
+        remote_src: yes
+        force: no
+      when: not spacemacs_file.stat.exists
