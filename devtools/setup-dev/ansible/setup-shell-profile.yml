@@ -14,18 +14,22 @@
 
     - name: Get user shell
       shell: echo $SHELL
-      register: user_shell
+      register: user_shell_output
       changed_when: false
+
+    - name: Set user shell as fact
+      set_fact:
+        user_shell: "{{ user_shell_output }}"
 
     - name: Set profile path for bash
       set_fact:
         user_profile_path: "~/.bashrc"
-      when: user_shell.stdout is search('/bash$')
+      when: user_shell_output.stdout is search('/bash$')
 
     - name: Set profile path for zsh
       set_fact:
         user_profile_path: "~/.zshrc"
-      when: user_shell.stdout is search('/zsh$')
+      when: user_shell_output.stdout is search('/zsh$')
 
     - name: Debug shell profile path
       debug:
