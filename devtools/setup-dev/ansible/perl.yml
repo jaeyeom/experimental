@@ -1,0 +1,48 @@
+---
+- name: Ensure perl is present
+  hosts: all
+  tasks:
+    - name: Include guard for perl playbook
+      block:
+        - name: Stop early if the perl playbook is already included
+          meta: end_play
+          when: perl_playbook_imported is defined
+        - name: Ensure the perl playbook is not included
+          set_fact:
+            perl_playbook_imported: true
+          when: perl_playbook_imported is not defined
+
+    - name: Ensure perl is present on MacOS
+      block:
+        - name: Check if perl is installed
+          shell: command -v perl
+          changed_when: False
+      rescue:
+        - name: Install perl on MacOS
+          community.general.homebrew:
+            name: perl
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure perl is present on non-Termux, non-MacOS systems
+      block:
+        - name: Check if perl is installed
+          shell: command -v perl
+          changed_when: False
+      rescue:
+        - name: Install perl on non-Termux, non-MacOS systems
+          package:
+            name: perl
+            state: present
+          become: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Ensure perl is present on Termux
+      block:
+        - name: Check if perl is installed
+          shell: command -v perl
+          changed_when: False
+      rescue:
+        - name: Install perl on Termux
+          command: pkg install -y perl
+      when: ansible_env.TERMUX_VERSION is defined
