@@ -3,9 +3,10 @@ package runner
 import (
 	"os"
 	"runtime"
-	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestNewExecutorWithSignalHandling(t *testing.T) {
@@ -171,7 +172,7 @@ func TestExecutorWithSignalHandling_SignalCancellation(t *testing.T) {
 	// Send SIGTERM to cancel
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		if err := unix.Kill(os.Getpid(), unix.SIGTERM); err != nil {
 			t.Errorf("Failed to send SIGTERM: %v", err)
 		}
 	}()

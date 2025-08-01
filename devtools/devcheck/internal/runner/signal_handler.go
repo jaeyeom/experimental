@@ -6,7 +6,8 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // SignalHandler manages OS signal handling and graceful shutdown of processes.
@@ -51,9 +52,9 @@ func (sh *SignalHandler) Start() (context.Context, error) {
 
 	// Register for termination signals
 	signal.Notify(sh.signals,
-		syscall.SIGINT,  // Ctrl+C
-		syscall.SIGTERM, // Termination signal
-		syscall.SIGHUP,  // Hangup
+		unix.SIGINT,  // Ctrl+C
+		unix.SIGTERM, // Termination signal
+		unix.SIGHUP,  // Hangup
 	)
 
 	// Start the signal handling goroutine
@@ -98,7 +99,7 @@ func (sh *SignalHandler) handleSignals() {
 		slog.Info("Received signal", "signal", sig.String())
 
 		switch sig {
-		case syscall.SIGINT, syscall.SIGTERM:
+		case unix.SIGINT, unix.SIGTERM:
 			// Cancel the context for graceful shutdown
 			if sh.cancel != nil {
 				slog.Info("Initiating graceful shutdown", "signal", sig.String())
@@ -107,7 +108,7 @@ func (sh *SignalHandler) handleSignals() {
 			// For SIGINT/SIGTERM, we stop listening for more signals
 			signal.Stop(sh.signals)
 			return
-		case syscall.SIGHUP:
+		case unix.SIGHUP:
 			// SIGHUP typically means reload configuration, but for now we just log it
 			slog.Info("Received SIGHUP signal (reload not implemented)")
 		}

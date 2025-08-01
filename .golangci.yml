@@ -30,6 +30,8 @@ linters:
               desc: use log/slog instead
             - pkg: "io/ioutil"
               desc: "replaced by io and os packages since Go 1.16: https://tip.golang.org/doc/go1.16#ioutil"
+            - pkg: "syscall"
+              desc: "deprecated since Go 1.4, use golang.org/x/sys instead"
         Main:
           list-mode: strict
           files:
@@ -46,6 +48,7 @@ linters:
             - github.com/spf13/cobra
             - github.com/spf13/viper
             - github.com/mattn/go-sqlite3
+            - golang.org/x/sys
           deny:
             - pkg: "github.com/leanovate/gopter"
               desc: gopter is for test only
