@@ -3,9 +3,10 @@ package runner
 import (
 	"os"
 	"runtime"
-	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestNewSignalHandler(t *testing.T) {
@@ -110,7 +111,7 @@ func TestSignalHandler_SignalHandling(t *testing.T) {
 	// Send SIGTERM to ourselves
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		if err := unix.Kill(os.Getpid(), unix.SIGTERM); err != nil {
 			t.Errorf("Failed to send SIGTERM: %v", err)
 		}
 	}()
