@@ -388,8 +388,12 @@ func (ch *CommandHandler) DeleteCommand(owner, repo, identifier string, commentI
 		return nil
 	}
 
-	// For branches, deletion by ID is not yet implemented
-	return fmt.Errorf("comment deletion by ID is not yet supported for branches")
+	// Delete branch comment by ID
+	if err := ch.storage.DeleteBranchCommentByID(owner, repo, parsed.BranchName, commentID); err != nil {
+		return fmt.Errorf("failed to delete branch comment by ID: %w", err)
+	}
+	fmt.Printf("Deleted comment with ID prefix '%s' from branch %s/%s:%s\n", commentID, owner, repo, parsed.BranchName)
+	return nil
 }
 
 // ClearCommand clears comments for either PR or branch.
