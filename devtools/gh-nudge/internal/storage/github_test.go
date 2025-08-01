@@ -240,6 +240,110 @@ func TestCommentIDGeneration(t *testing.T) {
 	}
 }
 
+func TestDeleteBranchCommentByID(t *testing.T) {
+	// Create temporary storage directory
+	tmpDir, err := os.MkdirTemp("", "gh-storage-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create storage instance
+	storage, err := NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+
+	owner := "testowner"
+	repo := "testrepo"
+	branchName := "feature-branch"
+
+	// Add test comments with IDs
+	comment1 := models.Comment{
+		ID:   "a1b2c3d4e5f67890abcdef1234567890abcdef12",
+		Path: "test.go",
+		Line: 10,
+		Body: "First comment",
+		Side: "RIGHT",
+	}
+
+	comment2 := models.Comment{
+		ID:   "a1b2c3d4ffffff90abcdef1234567890abcdef12",
+		Path: "test.go",
+		Line: 10,
+		Body: "Second comment with similar prefix",
+		Side: "RIGHT",
+	}
+
+	comment3 := models.Comment{
+		ID:   "b1234567890abcde1234567890abcdef12345678",
+		Path: "test.go",
+		Line: 20,
+		Body: "Third comment",
+		Side: "RIGHT",
+	}
+
+	// Add comments
+	if err := storage.AddBranchComment(owner, repo, branchName, comment1); err != nil {
+		t.Fatalf("Failed to add comment1: %v", err)
+	}
+	if err := storage.AddBranchComment(owner, repo, branchName, comment2); err != nil {
+		t.Fatalf("Failed to add comment2: %v", err)
+	}
+	if err := storage.AddBranchComment(owner, repo, branchName, comment3); err != nil {
+		t.Fatalf("Failed to add comment3: %v", err)
+	}
+
+	// Test deletion with unique prefix
+	if err := storage.DeleteBranchCommentByID(owner, repo, branchName, "b123"); err != nil {
+		t.Errorf("Failed to delete branch comment by unique prefix: %v", err)
+	}
+
+	// Verify comment3 was deleted
+	branchComments, err := storage.GetBranchComments(owner, repo, branchName)
+	if err != nil {
+		t.Fatalf("Failed to get branch comments: %v", err)
+	}
+	if len(branchComments.Comments) != 2 {
+		t.Errorf("Expected 2 comments after deletion, got %d", len(branchComments.Comments))
+	}
+
+	// Test deletion with ambiguous prefix (should fail)
+	err = storage.DeleteBranchCommentByID(owner, repo, branchName, "a1b2c3d4")
+	if err == nil {
+		t.Error("Expected error for ambiguous prefix, got nil")
+	}
+	if err != nil && !contains(err.Error(), "ambiguous") {
+		t.Errorf("Expected ambiguous error, got: %v", err)
+	}
+
+	// Test deletion with non-existent prefix
+	err = storage.DeleteBranchCommentByID(owner, repo, branchName, "nonexistent")
+	if err == nil {
+		t.Error("Expected error for non-existent prefix, got nil")
+	}
+	if err != nil && !contains(err.Error(), "no comment found") {
+		t.Errorf("Expected 'no comment found' error, got: %v", err)
+	}
+
+	// Test deletion with long unique prefix
+	if err := storage.DeleteBranchCommentByID(owner, repo, branchName, "a1b2c3d4e5f67890"); err != nil {
+		t.Errorf("Failed to delete branch comment by long unique prefix: %v", err)
+	}
+
+	// Verify only one comment remains
+	branchComments, err = storage.GetBranchComments(owner, repo, branchName)
+	if err != nil {
+		t.Fatalf("Failed to get branch comments: %v", err)
+	}
+	if len(branchComments.Comments) != 1 {
+		t.Errorf("Expected 1 comment after second deletion, got %d", len(branchComments.Comments))
+	}
+	if branchComments.Comments[0].ID != comment2.ID {
+		t.Errorf("Wrong comment remained: expected ID %s, got %s", comment2.ID, branchComments.Comments[0].ID)
+	}
+}
+
 // Helper function.
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
