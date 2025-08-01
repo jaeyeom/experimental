@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,7 +51,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		// Verify the file was created
 		sanitizedBranch := "feature_test-branch" // slashes replaced with underscores
 		expectedPath := filepath.Join(tmpDir, "repos", owner, repo, "branch", sanitizedBranch, "diff-hunks.json")
-		if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		if _, err := os.Stat(expectedPath); errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("Expected diff hunks file not created at %s", expectedPath)
 		}
 	})
