@@ -767,11 +767,9 @@ var packages = []PackageData{
 
 var platformSpecificTools = []PlatformSpecificTool{
 	{
-		command: "ruff",
+		command: "bazel-affected-tests",
 		platforms: map[string]InstallMethod{
-			"termux":      TermuxPkgInstallMethod{Name: "ruff"},
-			"darwin":      BrewInstallMethod{Name: "ruff"},
-			"debian-like": PipInstallMethod{Name: "ruff"},
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"},
 		},
 		Imports: nil,
 	},
@@ -790,9 +788,44 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
-		command: "bazel-affected-tests",
+		command: "cargo-add",
 		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"},
+			"all": CargoInstallMethod{Name: "cargo-edit"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "cargo-install-update",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "cargo-update"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "cargo-outdated",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "cargo-outdated"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "claude",
+		platforms: map[string]InstallMethod{
+			"all": NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "claudelytics",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "claudelytics"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "emacs-lsp-booster",
+		platforms: map[string]InstallMethod{
+			"all": CargoInstallMethod{Name: "emacs-lsp-booster"},
 		},
 		Imports: nil,
 	},
@@ -800,6 +833,48 @@ var platformSpecificTools = []PlatformSpecificTool{
 		command: "fillstruct",
 		platforms: map[string]InstallMethod{
 			"all": GoInstallMethod{PkgPath: "github.com/davidrjenni/reftools/cmd/fillstruct@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-codeowners",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-merge",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-nudge",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-pr-review",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-slack",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "gh-storage",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"},
 		},
 		Imports: nil,
 	},
@@ -916,6 +991,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "oserrorsgodernize",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "protoc-gen-go",
 		platforms: map[string]InstallMethod{
 			"all": GoInstallMethod{PkgPath: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"},
@@ -937,48 +1019,6 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
-		command: "cargo-add",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "cargo-edit"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "cargo-install-update",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "cargo-update"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "cargo-outdated",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "cargo-outdated"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "emacs-lsp-booster",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "emacs-lsp-booster"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "claudelytics",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "claudelytics"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "oserrorsgodernize",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"},
-		},
-		Imports: nil,
-	},
-	{
 		command: "protovalidate",
 		platforms: map[string]InstallMethod{
 			"all": PipInstallMethod{Name: "protovalidate"},
@@ -986,9 +1026,18 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
-		command: "claude",
+		command: "repo-sync",
 		platforms: map[string]InstallMethod{
-			"all": NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "ruff",
+		platforms: map[string]InstallMethod{
+			"termux":      TermuxPkgInstallMethod{Name: "ruff"},
+			"darwin":      BrewInstallMethod{Name: "ruff"},
+			"debian-like": PipInstallMethod{Name: "ruff"},
 		},
 		Imports: nil,
 	},
@@ -1004,55 +1053,6 @@ var platformSpecificTools = []PlatformSpecificTool{
 				LatestVersionURL:  "https://api.github.com/repos/starship/starship/releases/latest",
 				LatestVersionPath: "tag_name",
 			},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-codeowners",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-merge",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-nudge",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-pr-review",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-slack",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-storage",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "repo-sync",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"},
 		},
 		Imports: nil,
 	},
