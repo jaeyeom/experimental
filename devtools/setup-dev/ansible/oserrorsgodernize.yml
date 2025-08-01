@@ -1,0 +1,46 @@
+---
+- import_playbook: setup-user-go-bin-directory.yml
+
+- name: Ensure oserrorsgodernize is present
+  hosts: all
+  tasks:
+    - name: Include guard for oserrorsgodernize playbook
+      block:
+        - name: Stop early if the oserrorsgodernize playbook is already included
+          meta: end_play
+          when: oserrorsgodernize_playbook_imported is defined
+        - name: Ensure the oserrorsgodernize playbook is not included
+          set_fact:
+            oserrorsgodernize_playbook_imported: true
+          when: oserrorsgodernize_playbook_imported is not defined
+
+    - name: Check if oserrorsgodernize is installed
+      shell: go version -m $(command -v oserrorsgodernize) | grep '^\s*mod\s'
+      register: oserrorsgodernize_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Extract oserrorsgodernize version
+      block:
+        - name: Set oserrorsgodernize facts
+          set_fact:
+            oserrorsgodernize_module_path: "{{ oserrorsgodernize_installed.stdout.split()[1] }}"
+            oserrorsgodernize_module_version: "{{ oserrorsgodernize_installed.stdout.split()[2] }}"
+        - name: Determine the latest oserrorsgodernize version
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ oserrorsgodernize_module_path }}@latest"
+          register: oserrorsgodernize_latest
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Debug module path and version
+          debug:
+            msg: "{{ oserrorsgodernize_module_path }} {{ oserrorsgodernize_module_version }} => {{ oserrorsgodernize_latest.stdout }}"
+      rescue:
+        - name: Clear oserrorsgodernize facts
+          set_fact:
+            oserrorsgodernize_module_path: ""
+            oserrorsgodernize_module_version: ""
+
+    - name: Upgrade oserrorsgodernize
+      command: go install github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest
+      when: oserrorsgodernize_module_version is not defined or oserrorsgodernize_module_version == "" or oserrorsgodernize_module_version != oserrorsgodernize_latest.stdout

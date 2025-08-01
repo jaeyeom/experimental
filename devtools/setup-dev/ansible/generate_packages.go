@@ -972,6 +972,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "oserrorsgodernize",
+		platforms: map[string]InstallMethod{
+			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "protovalidate",
 		platforms: map[string]InstallMethod{
 			"all": PipInstallMethod{Name: "protovalidate"},
