@@ -13,12 +13,14 @@ API.
 
 - **Diff Capture**: Automatically captures and stores GitHub PR diff hunks in
   structured format
+- **Local Branch Support**: Review local git branches without creating PRs
 - **Comment Management**: Add line-specific comments with duplicate detection
   and validation
 - **Atomic Operations**: Uses OS file locking to ensure thread-safe operations
 - **GitHub Integration**: Seamlessly integrates with GitHub API via `gh` CLI
 - **Draft Reviews**: Creates pending review comments for review before
   submission
+- **Parallel Access**: Multiple LLM instances can review code in parallel
 
 ** Architecture
 
@@ -35,11 +37,16 @@ The utility uses the unified gh-nudge storage system under `~/.config/gh-nudge/`
 │   │   └── owner/
 │   │       └── repo/
 │   │           ├── metadata.json  # Repo-level metadata
-│   │           └── pull/
-│   │               └── 123/       # PR number
+│   │           ├── pull/
+│   │           │   └── 123/       # PR number
+│   │           │       ├── diff-hunks.json
+│   │           │       ├── comments.json
+│   │           │       ├── notifications.json
+│   │           │       └── metadata.json
+│   │           └── branch/
+│   │               └── feature_auth/  # Branch name (/ replaced with _)
 │   │                   ├── diff-hunks.json
 │   │                   ├── comments.json
-│   │                   ├── notifications.json
 │   │                   └── metadata.json
 │   └── cache/                    # Cached data (GitHub API responses)
 │       ├── github/
@@ -123,25 +130,34 @@ go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@la
 
 *** Command Reference
 
-**** Capture PR Diff
+**** Capture Diff
 
 #+BEGIN_SRC bash
-gh-pr-review capture <owner>/<repo> <pr_number>
+gh-pr-review capture <owner>/<repo> <identifier>
 #+END_SRC
 
 ***** Options:
 - `--force`: Overwrite existing diff hunks
 
-***** Example:
+***** Examples:
 #+BEGIN_SRC bash
+# Capture PR diff from GitHub
 gh-pr-review capture octocat/Hello-World 42
+
+# Capture branch diff from local git
+gh-pr-review capture octocat/Hello-World feature/auth-fix
 #+END_SRC
+
+***** Notes:
+- **PR numbers**: Pure integers (e.g., 42, 123) are treated as PR numbers
+- **Branch names**: Any non-numeric string (e.g., feature/auth, main) is treated as a branch name
+- **Branch diffs**: Uses `git diff` to compare branch against its base branch (main/master)
 
 **** Add Line Comment
 
 #+BEGIN_SRC bash
-gh-pr-review comment <owner>/<repo> <pr_number> <file> <line> "<comment>"
-gh-pr-review comment <owner>/<repo> <pr_number> <file> <start_line>-<end_line> "<comment>"
+gh-pr-review comment <owner>/<repo> <identifier> <file> <line> "<comment>"
+gh-pr-review comment <owner>/<repo> <identifier> <file> <start_line>-<end_line> "<comment>"
 #+END_SRC
 
 ***** Options:
@@ -150,11 +166,17 @@ gh-pr-review comment <owner>/<repo> <pr_number> <file> <start_line>-<end_line> "
 
 ***** Examples:
 #+BEGIN_SRC bash
-# Comment on single line
+# Comment on PR - single line
 gh-pr-review comment octocat/Hello-World 42 src/main.js 15 "Consider using const instead of let"
 
-# Comment on line range
+# Comment on PR - line range
 gh-pr-review comment octocat/Hello-World 42 src/main.js 15-20 "This function needs refactoring"
+
+# Comment on branch - single line
+gh-pr-review comment octocat/Hello-World feature/auth src/auth.js 45 "Add input validation"
+
+# Comment on branch - line range
+gh-pr-review comment octocat/Hello-World my-branch src/config.js 10-15 "Extract to constants"
 #+END_SRC
 
 **** Submit Review
@@ -173,10 +195,13 @@ gh-pr-review submit <owner>/<repo> <pr_number>
 gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
 #+END_SRC
 
+***** Note:
+Submit is only available for PRs, not branches. Branch comments are stored locally for later use.
+
 **** List Comments
 
 #+BEGIN_SRC bash
-gh-pr-review list <owner>/<repo> <pr_number>
+gh-pr-review list <owner>/<repo> <identifier>
 #+END_SRC
 
 ***** Options:
@@ -184,6 +209,18 @@ gh-pr-review list <owner>/<repo> <pr_number>
 - `--file`: Filter by file path
 - `--line`: Filter by specific line number or range (e.g., 15 or 15-20)
 - `--side`: Filter by side (LEFT, RIGHT)
+
+***** Examples:
+#+BEGIN_SRC bash
+# List PR comments
+gh-pr-review list octocat/Hello-World 42
+
+# List branch comments
+gh-pr-review list octocat/Hello-World feature/auth
+
+# List with filters
+gh-pr-review list octocat/Hello-World my-branch --file src/auth.js --format json
+#+END_SRC
 
 **** Delete Line Comment
 
@@ -365,6 +402,51 @@ gh-pr-review clear myorg/myrepo 123 --file src/main.js --confirm
 
 # Submit review with JSON output for status tracking
 gh-pr-review submit myorg/myrepo 123 --body "Automated review" --event COMMENT --json
+#+END_SRC
+
+**** Local Branch Review Workflow
+
+#+BEGIN_SRC bash
+# Capture diff for local branch
+gh-pr-review capture myorg/myrepo feature/new-api
+
+# Add comments during development
+gh-pr-review comment myorg/myrepo feature/new-api src/api.js 25 "TODO: Add error handling"
+gh-pr-review comment myorg/myrepo feature/new-api src/api.js 30-35 "Consider extracting to separate function"
+
+# List all comments on the branch
+gh-pr-review list myorg/myrepo feature/new-api
+
+# Clear comments after addressing them
+gh-pr-review clear myorg/myrepo feature/new-api --confirm
+
+# When ready to create PR, comments can be manually added to the PR review
+#+END_SRC
+
+**** Parallel LLM Review Workflow
+
+#+BEGIN_SRC bash
+# Multiple LLM instances can review the same branch in parallel
+# Each instance captures the diff once
+gh-pr-review capture myorg/myrepo feature/complex-feature
+
+# LLM Instance 1: Reviews authentication logic
+gh-pr-review comment myorg/myrepo feature/complex-feature src/auth.js 15 "Missing CSRF protection"
+gh-pr-review comment myorg/myrepo feature/complex-feature src/auth.js 45 "Password should be hashed"
+
+# LLM Instance 2: Reviews API endpoints (running concurrently)
+gh-pr-review comment myorg/myrepo feature/complex-feature src/api.js 20 "Add rate limiting"
+gh-pr-review comment myorg/myrepo feature/complex-feature src/api.js 55 "Missing input validation"
+
+# LLM Instance 3: Reviews database queries (running concurrently)
+gh-pr-review comment myorg/myrepo feature/complex-feature src/db.js 30 "Potential SQL injection"
+gh-pr-review comment myorg/myrepo feature/complex-feature src/db.js 45 "Use parameterized queries"
+
+# Aggregate all comments from all instances
+gh-pr-review list myorg/myrepo feature/complex-feature --format json > all_comments.json
+
+# Process and resolve comments one by one
+# The file locking ensures atomic operations even with concurrent access
 #+END_SRC
 
 ** Implementation Details
