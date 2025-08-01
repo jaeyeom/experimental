@@ -12,9 +12,10 @@ import (
 
 // GitHubStorage provides GitHub-specific storage operations.
 type GitHubStorage struct {
-	store  *FileSystemStore
-	locker *FileLockManager
-	lister *FileSystemLister
+	store      *FileSystemStore
+	locker     *FileLockManager
+	lister     *FileSystemLister
+	lockConfig FileLockConfig
 }
 
 // NewGitHubStorage creates a new GitHub storage instance.
@@ -32,9 +33,10 @@ func NewGitHubStorage(rootPath string) (*GitHubStorage, error) {
 	}
 
 	return &GitHubStorage{
-		store:  store,
-		locker: locker,
-		lister: lister,
+		store:      store,
+		locker:     locker,
+		lister:     lister,
+		lockConfig: GetFileLockConfig(),
 	}, nil
 }
 
@@ -82,7 +84,7 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 	prPath := gs.buildPRPath(owner, repo, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
-	if err := gs.locker.WithLock(commentsPath, func() error {
+	if err := gs.locker.WithLockRetry(commentsPath, gs.lockConfig, func() error {
 		var prComments models.PRComments
 		if gs.store.Exists(commentsPath) {
 			if err := gs.store.Get(commentsPath, &prComments); err != nil {
@@ -441,7 +443,7 @@ func (gs *GitHubStorage) AddBranchComment(owner, repo string, branchName string,
 	branchPath := gs.buildBranchPath(owner, repo, branchName)
 	commentsPath := filepath.Join(branchPath, "comments.json")
 
-	if err := gs.locker.WithLock(commentsPath, func() error {
+	if err := gs.locker.WithLockRetry(commentsPath, gs.lockConfig, func() error {
 		var branchComments models.BranchComments
 		if gs.store.Exists(commentsPath) {
 			if err := gs.store.Get(commentsPath, &branchComments); err != nil {

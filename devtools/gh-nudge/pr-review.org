@@ -461,6 +461,95 @@ The utility uses the unified storage system's atomic operations with file lockin
 - **Automatic cleanup** on process termination
 - **Lock management** via `gh-storage lock` commands
 
+*** Concurrent Access and Parallel LLM Support
+
+The utility now supports improved concurrent access for parallel LLM instances through configurable retry logic with exponential backoff. This enables multiple AI agents to review code simultaneously without lock contention failures.
+
+**** Configuration
+
+Configure retry behavior using environment variables:
+
+#+BEGIN_SRC bash
+# Maximum number of retry attempts (default: 10)
+export GH_STORAGE_LOCK_MAX_RETRIES=20
+
+# Initial delay between retries (default: 50ms)
+export GH_STORAGE_LOCK_INITIAL_DELAY=100ms
+
+# Maximum delay between retries (default: 2s)
+export GH_STORAGE_LOCK_MAX_DELAY=5s
+
+# Backoff factor for exponential delay (default: 1.5)
+export GH_STORAGE_LOCK_BACKOFF_FACTOR=1.2
+#+END_SRC
+
+**** Parallel LLM Code Review Example
+
+Multiple LLM instances can now review the same PR/branch concurrently:
+
+#+BEGIN_SRC bash
+# Instance 1: Reviews authentication code
+gh-pr-review comment myorg/repo 123 src/auth.js 15 "Add CSRF protection" &
+
+# Instance 2: Reviews API endpoints (concurrent)
+gh-pr-review comment myorg/repo 123 src/api.js 20 "Add rate limiting" &
+
+# Instance 3: Reviews database queries (concurrent)
+gh-pr-review comment myorg/repo 123 src/db.js 30 "Use parameterized queries" &
+
+# Wait for all instances to complete
+wait
+#+END_SRC
+
+**** Batch Processing with Parallelism
+
+Process multiple files in parallel without lock contention:
+
+#+BEGIN_SRC bash
+# Parallel processing of multiple files
+for file in src/*.js; do
+  (
+    # Each file processed in parallel
+    gh-pr-review comment myorg/repo 123 "$file" 1 "Add copyright header"
+  ) &
+done
+
+# Wait for all parallel jobs to complete
+wait
+
+# Submit all comments at once
+gh-pr-review submit myorg/repo 123 --body "Batch review completed"
+#+END_SRC
+
+**** Benefits
+
+1. **Better Parallel Support**: Multiple LLM instances can work effectively on the same PR/branch
+2. **Configurable Behavior**: Users can tune retry behavior for their specific use cases
+3. **Improved Reliability**: Transient lock contention doesn't cause operation failures
+4. **Backward Compatibility**: Existing workflows continue to work unchanged
+
+**** Performance Tuning
+
+For high-concurrency scenarios with many parallel agents:
+
+#+BEGIN_SRC bash
+# Aggressive retry configuration for heavy parallel usage
+export GH_STORAGE_LOCK_MAX_RETRIES=30
+export GH_STORAGE_LOCK_INITIAL_DELAY=20ms
+export GH_STORAGE_LOCK_MAX_DELAY=1s
+export GH_STORAGE_LOCK_BACKOFF_FACTOR=1.3
+#+END_SRC
+
+For low-concurrency scenarios with occasional conflicts:
+
+#+BEGIN_SRC bash
+# Conservative configuration for light usage
+export GH_STORAGE_LOCK_MAX_RETRIES=5
+export GH_STORAGE_LOCK_INITIAL_DELAY=100ms
+export GH_STORAGE_LOCK_MAX_DELAY=5s
+export GH_STORAGE_LOCK_BACKOFF_FACTOR=2.0
+#+END_SRC
+
 *** Diff Validation
 
 Comments are validated against captured diff hunks:
