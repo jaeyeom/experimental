@@ -2,8 +2,11 @@ package storage
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -348,4 +351,121 @@ func splitLines(s string) []string {
 	}
 
 	return lines
+}
+
+func TestLockManager_StaleLockDetection(t *testing.T) {
+	manager := NewLockManager()
+	tempDir := t.TempDir()
+	lockPath := filepath.Join(tempDir, "test_stale.lock")
+
+	t.Run("should detect and clean up stale lock", func(t *testing.T) {
+		// Create a stale lock file with a non-existent PID
+		stalePID := 999999 // Very unlikely to exist
+		lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n",
+			time.Now().Format(time.RFC3339), stalePID)
+
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatalf("Failed to create stale lock file: %v", err)
+		}
+
+		// Acquiring lock should succeed after cleaning up stale lock
+		if err := manager.AcquireLock(lockPath); err != nil {
+			t.Fatalf("Failed to acquire lock after stale lock cleanup: %v", err)
+		}
+
+		// Clean up
+		if err := manager.ReleaseLock(lockPath); err != nil {
+			t.Errorf("Failed to release lock: %v", err)
+		}
+	})
+
+	t.Run("should not remove lock for running process", func(t *testing.T) {
+		// Create a lock file with current process PID
+		currentPID := os.Getpid()
+		lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n",
+			time.Now().Format(time.RFC3339), currentPID)
+
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatalf("Failed to create lock file: %v", err)
+		}
+
+		// Acquiring lock should fail because process is still running
+		if err := manager.AcquireLock(lockPath); err == nil {
+			t.Fatal("Should not have acquired lock for running process")
+		}
+
+		// Clean up manually
+		os.Remove(lockPath)
+	})
+
+	t.Run("should handle lock file without PID", func(t *testing.T) {
+		// Create a lock file without PID (legacy format)
+		lockContent := fmt.Sprintf("locked_at: %s\n", time.Now().Format(time.RFC3339))
+
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatalf("Failed to create lock file: %v", err)
+		}
+
+		// Should fail to acquire lock (no PID means we assume it's not stale)
+		if err := manager.AcquireLock(lockPath); err == nil {
+			t.Fatal("Should not have acquired lock without PID info")
+		}
+
+		// Clean up manually
+		os.Remove(lockPath)
+	})
+}
+
+func TestLockManager_StaleLockRaceCondition(t *testing.T) {
+	tempDir := t.TempDir()
+	lockPath := filepath.Join(tempDir, "test_race.lock")
+
+	// Create stale lock
+	stalePID := 999999
+	lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n",
+		time.Now().Format(time.RFC3339), stalePID)
+
+	if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+		t.Fatalf("Failed to create stale lock file: %v", err)
+	}
+
+	// Multiple managers try to clean up and acquire the stale lock simultaneously
+	var wg sync.WaitGroup
+	initialSuccessCount := int32(0)
+	totalAttempts := 5
+
+	// Use a channel to coordinate so we can test the initial race condition
+	start := make(chan struct{})
+
+	for i := 0; i < totalAttempts; i++ {
+		wg.Add(1)
+		go func(_ int) {
+			defer wg.Done()
+			// Wait for all goroutines to be ready
+			<-start
+
+			manager := NewLockManager()
+			if err := manager.AcquireLock(lockPath); err == nil {
+				atomic.AddInt32(&initialSuccessCount, 1)
+				// Hold lock very briefly to prevent immediate re-acquisition
+				time.Sleep(1 * time.Millisecond)
+				if err := manager.ReleaseLock(lockPath); err != nil {
+					// Don't fail the test here as this could be a race condition
+					// where another goroutine cleaned up the lock file
+					t.Logf("Warning: Failed to release lock: %v", err)
+				}
+			}
+		}(i)
+	}
+
+	// Signal all goroutines to start simultaneously
+	close(start)
+	wg.Wait()
+
+	// At least one should succeed (could be more if they acquire after release)
+	if initialSuccessCount == 0 {
+		t.Fatal("Expected at least 1 success, got 0")
+	}
+
+	t.Logf("Successful lock acquisitions: %d out of %d attempts", initialSuccessCount, totalAttempts)
 }
