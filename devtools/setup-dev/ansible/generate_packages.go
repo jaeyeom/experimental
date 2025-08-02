@@ -718,6 +718,7 @@ var packages = []PackageData{
 	{command: "curl"},
 	{command: "dart"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-native-comp", "with-dbus", "with-imagemagick"}},
+	{command: "fd", debianPkgName: "fd-find", termuxPkgName: "fd", brewPkgName: "fd"},
 	{command: "fzf"},
 	{command: "gh"},
 	{command: "git"},
