@@ -1,0 +1,48 @@
+---
+- name: Ensure fd is present
+  hosts: all
+  tasks:
+    - name: Include guard for fd playbook
+      block:
+        - name: Stop early if the fd playbook is already included
+          meta: end_play
+          when: fd_playbook_imported is defined
+        - name: Ensure the fd playbook is not included
+          set_fact:
+            fd_playbook_imported: true
+          when: fd_playbook_imported is not defined
+
+    - name: Ensure fd is present on MacOS
+      block:
+        - name: Check if fd is installed
+          shell: command -v fd
+          changed_when: False
+      rescue:
+        - name: Install fd on MacOS
+          community.general.homebrew:
+            name: fd
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure fd is present on non-Termux, non-MacOS systems
+      block:
+        - name: Check if fd is installed
+          shell: command -v fd
+          changed_when: False
+      rescue:
+        - name: Install fd on non-Termux, non-MacOS systems
+          package:
+            name: fd-find
+            state: present
+          become: yes
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Ensure fd is present on Termux
+      block:
+        - name: Check if fd is installed
+          shell: command -v fd
+          changed_when: False
+      rescue:
+        - name: Install fd on Termux
+          command: pkg install -y fd
+      when: ansible_env.TERMUX_VERSION is defined
