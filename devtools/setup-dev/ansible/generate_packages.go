@@ -699,7 +699,7 @@ var platformSpecificTemplate = `---
 {{- else }}
 {{- if index $platforms "debian-like" }}
 {{- $method := index $platforms "debian-like" }}
-{{- if eq $method.GetMethodType "pip" }}
+{{- if or (eq $method.GetMethodType "pip") (eq $method.GetMethodType "uv") }}
 
 {{$method.RenderInstallTask .Command}}
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
