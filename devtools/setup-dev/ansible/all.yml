@@ -17,6 +17,7 @@
 - import_playbook: oserrorsgodernize.yml
 - import_playbook: grpcui.yml
 - import_playbook: fd.yml
+- import_playbook: locate.yml
 - import_playbook: cleanup-repo.yml
 - import_playbook: setup-vibe-coding.yml
 - import_playbook: setup-z.yml
