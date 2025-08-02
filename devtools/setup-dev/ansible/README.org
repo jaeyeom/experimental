@@ -18,6 +18,40 @@ Playbooks to handle dependencies. To prevent multiple inclusion, I added include
 guards for each playbook file. Generating it is very cumbersome, so I made a Go
 program to generate repetitive text in playbook.
 
+** Platform-Specific Installation Strategy
+The generator follows a platform-specific installation strategy to ensure optimal
+package management across different environments:
+
+*** Termux
+Package manager =pkg= should be strongly preferred on Termux if the package is
+available, because Termux has an unconventional setup that usually needs
+patching. The =pkg= package manager is also nearly up-to-date and handles
+dependencies properly within the Termux environment.
+
+*** Debian/Ubuntu
+Debian/Ubuntu's package manager =apt= is often not up-to-date, so it's not
+preferred for packages that are actively being developed. Only use =apt= when
+old versions are totally acceptable for the use case.
+
+If there's a well-maintained PPA that provides up-to-date packages, it's good to
+use it with =apt=. One example is the Emacs PPA (=ppa:ubuntuhandbook1/emacs=)
+which provides recent Emacs versions.
+
+*** Python Packages
+For Python packages, =uv= is the most preferred installation method. It's
+significantly faster than =pip=, has better dependency resolution, and doesn't
+suffer from issues like the Python 3.12+ =distutils= removal that affects
+system =pip= installations.
+
+*** Go Packages
+Go installer (=go install=) is quite cross-platform and handles versioning well,
+so it's usually a good idea to use it for Go projects. The generator includes
+automatic version checking and upgrade logic for Go packages.
+
+*** macOS
+Homebrew is the preferred package manager for macOS, with support for taps and
+installation options when needed.
+
 To regenerate the playbooks, simply run:
 #+begin_src sh
   go run .

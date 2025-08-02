@@ -329,6 +329,11 @@ type NpmInstallMethod struct {
 	Name string
 }
 
+// UvInstallMethod handles installation via uv tool command.
+type UvInstallMethod struct {
+	Name string
+}
+
 func (n NpmInstallMethod) GetMethodType() string {
 	return "npm"
 }
@@ -352,6 +357,25 @@ func (n NpmInstallMethod) RenderInstallTask(command string) string {
     - name: Install ` + command + ` using npm
       command: npm install -g ` + n.Name + `
       when: ` + commandID + `_installed.rc != 0`
+}
+
+func (u UvInstallMethod) GetMethodType() string {
+	return "uv"
+}
+
+func (u UvInstallMethod) GetImports() []string {
+	return []string{"uv"}
+}
+
+func (u UvInstallMethod) RenderSetupTasks(_ string) string {
+	return ""
+}
+
+func (u UvInstallMethod) RenderInstallTask(command string) string {
+	return `    - name: Ensure ` + command + ` is installed with uv
+      shell: uv tool install ` + u.Name + `
+      args:
+        creates: ~/.local/bin/` + command
 }
 
 // UbuntuPkgInstallMethod handles Ubuntu-specific package installation
@@ -1038,7 +1062,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		platforms: map[string]InstallMethod{
 			"termux":      TermuxPkgInstallMethod{Name: "ruff"},
 			"darwin":      BrewInstallMethod{Name: "ruff"},
-			"debian-like": PipInstallMethod{Name: "ruff"},
+			"debian-like": UvInstallMethod{Name: "ruff"},
 		},
 		Imports: nil,
 	},
@@ -1053,6 +1077,17 @@ var platformSpecificTools = []PlatformSpecificTool{
 				VersionRegex:      "starship ([0-9.]+)",
 				LatestVersionURL:  "https://api.github.com/repos/starship/starship/releases/latest",
 				LatestVersionPath: "tag_name",
+			},
+		},
+		Imports: nil,
+	},
+	{
+		command: "uv",
+		platforms: map[string]InstallMethod{
+			"darwin": BrewInstallMethod{Name: "uv"},
+			"termux": TermuxPkgInstallMethod{Name: "uv"},
+			"debian-like": ShellInstallMethod{
+				InstallCommand: "curl -LsSf https://astral.sh/uv/install.sh | sh",
 			},
 		},
 		Imports: nil,
