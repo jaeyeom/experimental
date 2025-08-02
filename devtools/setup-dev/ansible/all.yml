@@ -13,6 +13,7 @@
 - import_playbook: jira.yml
 - import_playbook: tmux.yml
 - import_playbook: clang-format.yml
+- import_playbook: uv.yml
 - import_playbook: ruff.yml
 - import_playbook: oserrorsgodernize.yml
 - import_playbook: grpcui.yml

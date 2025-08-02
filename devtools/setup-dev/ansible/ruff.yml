@@ -1,4 +1,5 @@
 ---
+- import_playbook: uv.yml
 
 - name: Ensure ruff is present
   hosts: all
@@ -35,8 +36,9 @@
           command: pkg install -y ruff
       when: ansible_env.TERMUX_VERSION is defined
 
-    - name: Ensure if ruff is installed
-      ansible.builtin.pip:
-        name: ruff
-        state: latest
+    - name: Install ruff via uv on Debian/Ubuntu
+    - name: Ensure ruff is installed with uv
+      shell: uv tool install ruff
+      args:
+        creates: ~/.local/bin/ruff
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
