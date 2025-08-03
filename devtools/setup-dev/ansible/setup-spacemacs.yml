@@ -8,6 +8,7 @@
 - import_playbook: rg.yml
 - import_playbook: pandoc.yml
 - import_playbook: pass.yml
+- import_playbook: 7z.yml
 - import_playbook: vipsthumbnail.yml
 - import_playbook: ffmpegthumbnailer.yml
 - import_playbook: setup-shell-profile.yml
