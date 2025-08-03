@@ -161,6 +161,7 @@ This function should only modify configuration layer settings."
      ;; consult-gh-embark
      ;; consult-gh-forge
      copilot-chat
+     dirvish
      eshell-command-not-found
      green-is-the-new-black-theme
      (highlight-chars :location (recipe :fetcher github
@@ -1820,6 +1821,36 @@ the email."
                    (not (string= (substring-no-properties clipboard)
                                  (substring-no-properties (or (car kill-ring) "")))))))
         ad-do-it)))
+
+  ;; Dirvish
+  (use-package dirvish
+    :defer t
+    :config
+    (evilified-state-evilify-map dirvish-mode-map
+      :mode dired-mode
+      :bindings
+      "h" #'dired-up-directory
+      "l" #'dired-find-file
+      "q" #'dirvish-quit
+      "<tab>" #'dirvish-subtree-toggle
+      "TAB" #'dirvish-subtree-toggle
+      "f" #'dirvish-layout-toggle
+      "gf" #'dirvish-layout-toggle
+      "gt" #'dirvish-layout-switch
+      "gd" #'dirvish-dispatch
+      "gl" #'dirvish-ls-switches-menu
+      "gr" #'revert-buffer
+      "g$" #'dired-hide-subdir
+      "g?" #'dired-summary
+      "gj" #'dired-next-dirline
+      "gk" #'dired-prev-dirline
+      "go" #'dired-view-file
+      "gy" #'dired-show-file-type
+      "gG" #'dired-do-chgrp
+      "gO" #'dired-find-file-other-window
+      )
+    (dirvish-override-dired-mode))
+  (require 'dirvish nil 'noerror)
 
   ;; Frame keybindings
   (when my/crostini-p
