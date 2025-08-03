@@ -103,7 +103,8 @@ type InstallMethod interface {
 	GetMethodType() string
 	GetImports() []string
 	RenderInstallTask(command string) string
-	RenderSetupTasks(command string) string // For PPA, taps, backports, etc.
+	RenderSetupTasks(command string) string       // For PPA, taps, backports, etc.
+	RenderBlockInstallTask(command string) string // For use inside blocks
 }
 
 // PackageInstallMethod handles installation via system package managers
@@ -130,6 +131,10 @@ func (p PackageInstallMethod) RenderInstallTask(command string) string {
             name: ` + p.Name + `
             state: present
           become: yes`
+}
+
+func (p PackageInstallMethod) RenderBlockInstallTask(command string) string {
+	return p.RenderInstallTask(command)
 }
 
 // BrewInstallMethod handles installation via Homebrew on macOS.
@@ -182,6 +187,10 @@ func (b BrewInstallMethod) RenderInstallTask(command string) string {
 	return task
 }
 
+func (b BrewInstallMethod) RenderBlockInstallTask(command string) string {
+	return b.RenderInstallTask(command)
+}
+
 // TermuxPkgInstallMethod handles installation via the pkg command on Termux.
 type TermuxPkgInstallMethod struct {
 	Name string
@@ -209,6 +218,10 @@ func (t TermuxPkgInstallMethod) RenderInstallTask(command string) string {
           command: pkg install -y ` + t.Name
 }
 
+func (t TermuxPkgInstallMethod) RenderBlockInstallTask(command string) string {
+	return t.RenderInstallTask(command)
+}
+
 // PipInstallMethod handles installation via Python pip.
 type PipInstallMethod struct {
 	Name string
@@ -231,6 +244,10 @@ func (p PipInstallMethod) RenderInstallTask(command string) string {
       ansible.builtin.pip:
         name: ` + p.Name + `
         state: latest`
+}
+
+func (p PipInstallMethod) RenderBlockInstallTask(command string) string {
+	return p.RenderInstallTask(command)
 }
 
 // GoInstallMethod handles installation via 'go install' command.
@@ -285,6 +302,10 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
       when: ` + commandID + `_module_version is not defined or ` + commandID + `_module_version == "" or ` + commandID + `_module_version != ` + commandID + `_latest.stdout`
 }
 
+func (g GoInstallMethod) RenderBlockInstallTask(command string) string {
+	return g.RenderInstallTask(command)
+}
+
 // CargoInstallMethod handles installation via Rust cargo command.
 // Includes update logic using cargo-install-update.
 type CargoInstallMethod struct {
@@ -324,6 +345,27 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
 	return task
 }
 
+func (c CargoInstallMethod) RenderBlockInstallTask(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
+	task := `        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          register: ` + commandID + `_installed
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Install ` + command + ` using Cargo
+          command: cargo install ` + c.Name + `
+          when: ` + commandID + `_installed.rc != 0
+
+        - name: Update ` + command + ` to latest version
+          command: cargo install-update ` + c.Name + `
+          register: ` + commandID + `_update_result
+          changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
+          when: ` + commandID + `_installed.rc == 0`
+
+	return task
+}
+
 // NpmInstallMethod handles installation via Node.js npm command.
 type NpmInstallMethod struct {
 	Name string
@@ -359,6 +401,10 @@ func (n NpmInstallMethod) RenderInstallTask(command string) string {
       when: ` + commandID + `_installed.rc != 0`
 }
 
+func (n NpmInstallMethod) RenderBlockInstallTask(command string) string {
+	return n.RenderInstallTask(command)
+}
+
 func (u UvInstallMethod) GetMethodType() string {
 	return "uv"
 }
@@ -376,6 +422,10 @@ func (u UvInstallMethod) RenderInstallTask(command string) string {
       shell: uv tool install ` + u.Name + `
       args:
         creates: ~/.local/bin/` + command
+}
+
+func (u UvInstallMethod) RenderBlockInstallTask(command string) string {
+	return u.RenderInstallTask(command)
 }
 
 // UbuntuPkgInstallMethod handles Ubuntu-specific package installation
@@ -421,6 +471,10 @@ func (u UbuntuPkgInstallMethod) RenderInstallTask(command string) string {
           become: yes`
 }
 
+func (u UbuntuPkgInstallMethod) RenderBlockInstallTask(command string) string {
+	return u.RenderInstallTask(command)
+}
+
 // DebianPkgInstallMethod handles Debian-specific package installation
 // with bookworm-backports repository support.
 type DebianPkgInstallMethod struct {
@@ -458,6 +512,10 @@ func (d DebianPkgInstallMethod) RenderInstallTask(command string) string {
             name: ` + d.Name + `
             state: present
           become: yes`
+}
+
+func (d DebianPkgInstallMethod) RenderBlockInstallTask(command string) string {
+	return d.RenderInstallTask(command)
 }
 
 // ShellInstallMethod handles installation via shell commands with version checking.
@@ -534,6 +592,10 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
         - name: Install ` + command + `
           shell: ` + s.InstallCommand + `
           when: ` + commandID + `_installed.rc != 0`
+}
+
+func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {
+	return s.RenderInstallTask(command)
 }
 
 // PlatformSpecificTool represents a development tool that can be installed
@@ -703,6 +765,12 @@ var platformSpecificTemplate = `---
 
 {{$method.RenderInstallTask .Command}}
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+{{- else if eq $method.GetMethodType "cargo" }}
+
+    - name: Install {{.Command}} via cargo on Debian/Ubuntu
+      block:
+{{$method.RenderBlockInstallTask .Command}}
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
 {{- else }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian/Ubuntu
@@ -742,7 +810,6 @@ var packages = []PackageData{
 	{command: "curl"},
 	{command: "dart"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-native-comp", "with-dbus", "with-imagemagick"}},
-	{command: "fd", debianPkgName: "fd-find", termuxPkgName: "fd", brewPkgName: "fd"},
 	{command: "fzf"},
 	{command: "gh"},
 	{command: "git"},
@@ -853,6 +920,14 @@ var platformSpecificTools = []PlatformSpecificTool{
 			"all": CargoInstallMethod{Name: "emacs-lsp-booster"},
 		},
 		Imports: nil,
+	},
+	{
+		command: "fd",
+		platforms: map[string]InstallMethod{
+			"debian-like": CargoInstallMethod{Name: "fd-find"},
+			"termux":      TermuxPkgInstallMethod{Name: "fd"},
+			"darwin":      BrewInstallMethod{Name: "fd"},
+		},
 	},
 	{
 		command: "fillstruct",
