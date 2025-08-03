@@ -6,11 +6,11 @@
       block:
         - name: Stop early if the 7z playbook is already included
           meta: end_play
-          when: 7z_playbook_imported is defined
+          when: cmd_7z_playbook_imported is defined
         - name: Ensure the 7z playbook is not included
           set_fact:
-            7z_playbook_imported: true
-          when: 7z_playbook_imported is not defined
+            cmd_7z_playbook_imported: true
+          when: cmd_7z_playbook_imported is not defined
 
     - name: Ensure 7z is present on MacOS
       block:

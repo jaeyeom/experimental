@@ -1,6 +1,9 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible
 
-all: requirements.txt format test fix
+all: requirements.txt generate-ansible format test fix
+
+generate-ansible:
+	$(MAKE) -C devtools/setup-dev/ansible
 
 check-format:
 	goimports -l .
