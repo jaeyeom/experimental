@@ -7,6 +7,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/gh-nudge/internal/argparser:go_default_library",
+        "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/prreview:go_default_library",
         "//devtools/gh-nudge/internal/storage:go_default_library",
     ],

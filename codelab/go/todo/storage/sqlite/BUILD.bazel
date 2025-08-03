@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["sqlite_storage.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/storage/sqlite",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//codelab/go/todo/core:go_default_library",
+        "@org_modernc_sqlite//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "reorder_test.go",
+        "sqlite_storage_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//codelab/go/todo/core:go_default_library",
+        "//codelab/go/todo/core/coretest:go_default_library",
+    ],
+)

@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
@@ -9,4 +9,13 @@ go_library(
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "prreview_identifier_test.go",
+        "prreview_test.go",
+    ],
+    embed = [":go_default_library"],
 )

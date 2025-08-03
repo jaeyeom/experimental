@@ -11,6 +11,7 @@ import (
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core/coretest"
 	jsonstorage "github.com/jaeyeom/experimental/codelab/go/todo/storage/json"
+	"github.com/jaeyeom/experimental/codelab/go/todo/testutil"
 )
 
 func Example_listItems() {
@@ -166,6 +167,13 @@ func Example_noCommand() {
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
 
+	cleanup, err := testutil.WithTempHomeForExample()
+	if err != nil {
+		fmt.Printf("Error creating temp dir: %v\n", err)
+		return
+	}
+	defer cleanup()
+
 	os.Args = []string{"todo"}
 	if err := run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -195,6 +203,13 @@ func Example_noCommand() {
 func Example_invalidCommand() {
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
+
+	cleanup, err := testutil.WithTempHomeForExample()
+	if err != nil {
+		fmt.Printf("Error creating temp dir: %v\n", err)
+		return
+	}
+	defer cleanup()
 
 	os.Args = []string{"todo", "invalid"}
 	if err := run(); err != nil {

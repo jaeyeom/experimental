@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["testutil.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/testutil",
+    visibility = ["//codelab/go/todo:__subpackages__"],
+)

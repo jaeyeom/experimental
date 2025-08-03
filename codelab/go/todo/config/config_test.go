@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
+	"github.com/jaeyeom/experimental/codelab/go/todo/testutil"
 )
 
 func TestStorageConfig(t *testing.T) {
@@ -31,7 +32,7 @@ func TestStorageConfig(t *testing.T) {
 			env:  map[string]string{},
 			want: &StorageConfig{
 				Type: StorageTypeJSON,
-				Path: filepath.Join(os.Getenv("HOME"), ".todo", "todos.json"),
+				// Path will be set dynamically in the test
 			},
 		},
 		{
@@ -106,6 +107,16 @@ func TestStorageConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Set up temporary HOME directory for all tests
+			cleanup := testutil.WithTempHome(t)
+			defer cleanup()
+
+			// Update expected path to use the real temp directory for default config test
+			if tt.want != nil && tt.want.Path == "" {
+				tempHome := os.Getenv("HOME")
+				tt.want.Path = filepath.Join(tempHome, ".todo", "todos.json")
+			}
+
 			// Set test env
 			for k, v := range tt.env {
 				os.Setenv(k, v)
