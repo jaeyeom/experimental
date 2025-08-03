@@ -17,14 +17,19 @@ go_library(
     visibility = ["//devtools/gh-nudge:__subpackages__"],
     deps = [
         "//devtools/gh-nudge/internal/models:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
 
 go_test(
     name = "go_default_test",
     srcs = [
+        "github_branch_test.go",
+        "github_test.go",
         "lock_test.go",
+        "locker_test.go",
         "store_test.go",
     ],
     embed = [":go_default_library"],
+    deps = ["//devtools/gh-nudge/internal/models:go_default_library"],
 )

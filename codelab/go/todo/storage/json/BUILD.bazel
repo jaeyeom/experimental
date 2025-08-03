@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["jsonstorage.go"],
+    importpath = "github.com/jaeyeom/experimental/codelab/go/todo/storage/json",
+    visibility = ["//visibility:public"],
+    deps = ["//codelab/go/todo/core:go_default_library"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["jsonstorage_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//codelab/go/todo/core:go_default_library"],
+)
