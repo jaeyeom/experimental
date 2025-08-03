@@ -41,6 +41,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"unicode"
 )
 
 // PackageData represents a traditional system package that can be installed
@@ -64,8 +65,11 @@ func (p PackageData) Command() string {
 }
 
 func (p PackageData) CommandID() string {
-	// Replace dash to underscore.
-	return strings.ReplaceAll(p.command, "-", "_")
+	id := strings.ReplaceAll(p.command, "-", "_")
+	if len(id) > 0 && unicode.IsDigit(rune(id[0])) {
+		id = "cmd_" + id
+	}
+	return id
 }
 
 func (p PackageData) DebianPkgName() string {
@@ -612,8 +616,11 @@ func (p PlatformSpecificTool) Command() string {
 }
 
 func (p PlatformSpecificTool) CommandID() string {
-	// Replace dash to underscore.
-	return strings.ReplaceAll(p.command, "-", "_")
+	id := strings.ReplaceAll(p.command, "-", "_")
+	if len(id) > 0 && unicode.IsDigit(rune(id[0])) {
+		id = "cmd_" + id
+	}
+	return id
 }
 
 func (p PlatformSpecificTool) GetPlatforms() map[string]InstallMethod {
