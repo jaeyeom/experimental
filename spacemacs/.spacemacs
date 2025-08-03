@@ -1826,14 +1826,22 @@ the email."
   (use-package dirvish
     :defer t
     :config
+    (defun my/dired-find-file-smart ()
+      "Open directory in same window, file in other window."
+      (interactive)
+      (let ((file (dired-get-file-for-visit)))
+        (if (file-directory-p file)
+            (dired-find-file)
+          (dired-find-file-other-window))))
     (evilified-state-evilify-map dirvish-mode-map
       :mode dired-mode
       :bindings
       "h" #'dired-up-directory
-      "l" #'dired-find-file
+      "l" #'my/dired-find-file-smart
       "q" #'dirvish-quit
-      "<tab>" #'dirvish-subtree-toggle
-      "TAB" #'dirvish-subtree-toggle
+      "/" #'dirvish-narrow
+      (kbd "<tab>") #'dirvish-subtree-toggle
+      (kbd "TAB") #'dirvish-subtree-toggle
       "f" #'dirvish-layout-toggle
       "gf" #'dirvish-layout-toggle
       "gt" #'dirvish-layout-switch
@@ -1848,6 +1856,7 @@ the email."
       "gy" #'dired-show-file-type
       "gG" #'dired-do-chgrp
       "gO" #'dired-find-file-other-window
+      (kbd "C-l") #'recenter-top-bottom
       )
     (dirvish-override-dired-mode))
   (require 'dirvish nil 'noerror)
