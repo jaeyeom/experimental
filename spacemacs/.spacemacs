@@ -1858,6 +1858,7 @@ the email."
       "gO" #'dired-find-file-other-window
       (kbd "C-l") #'recenter-top-bottom
       )
+    (add-hook 'dired-mode-hook 'dired-omit-mode)
     (dirvish-override-dired-mode))
   (require 'dirvish nil 'noerror)
 
