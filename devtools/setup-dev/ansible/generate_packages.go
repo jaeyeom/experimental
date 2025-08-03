@@ -803,6 +803,7 @@ type Commander interface {
 }
 
 var packages = []PackageData{
+	{command: "7z", debianPkgName: "p7zip-full", termuxPkgName: "p7zip", brewPkgName: "p7zip"},
 	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag", brewPkgName: "the_silver_searcher"},
 	{command: "buf"},
 	{command: "clang-format"},
