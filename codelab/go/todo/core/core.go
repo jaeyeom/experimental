@@ -29,7 +29,7 @@ type Item struct {
 	ID          string    `json:"id"`
 	Description string    `json:"description"`
 	State       ItemState `json:"state"`
-	ParentID    string    `json:"parent_id,omitempty"`
+	ParentID    string    `json:"parentId,omitempty"`
 	Subtasks    []Item    `json:"subtasks,omitempty"`
 }
 

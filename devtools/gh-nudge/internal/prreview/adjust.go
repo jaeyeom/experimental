@@ -16,20 +16,20 @@ type AdjustmentPreview struct {
 	Repo           string                  `json:"repo"`
 	Identifier     string                  `json:"identifier"`
 	File           string                  `json:"file"`
-	DiffSpec       string                  `json:"diff_spec"`
+	DiffSpec       string                  `json:"diffSpec"`
 	Adjustments    []models.LineAdjustment `json:"adjustments"`
-	CommentChanges []CommentChange         `json:"comment_changes"`
+	CommentChanges []CommentChange         `json:"commentChanges"`
 	Warnings       []string                `json:"warnings,omitempty"`
 }
 
 // CommentChange represents how a comment will be adjusted.
 type CommentChange struct {
-	CommentID      string `json:"comment_id"`
-	CommentIDShort string `json:"comment_id_short"`
-	OriginalLine   int    `json:"original_line"`
-	NewLine        int    `json:"new_line"`
-	StartLine      *int   `json:"start_line,omitempty"`
-	NewStartLine   *int   `json:"new_start_line,omitempty"`
+	CommentID      string `json:"commentId"`
+	CommentIDShort string `json:"commentIdShort"`
+	OriginalLine   int    `json:"originalLine"`
+	NewLine        int    `json:"newLine"`
+	StartLine      *int   `json:"startLine,omitempty"`
+	NewStartLine   *int   `json:"newStartLine,omitempty"`
 	Body           string `json:"body"`
 	Status         string `json:"status"` // "adjusted", "deleted", "warning"
 	Warning        string `json:"warning,omitempty"`

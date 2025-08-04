@@ -32,10 +32,10 @@ type File struct {
 	Additions        int    `json:"additions"`
 	Deletions        int    `json:"deletions"`
 	Changes          int    `json:"changes"`
-	BlobURL          string `json:"blob_url"`
-	ContentsURL      string `json:"contents_url"`
-	RawURL           string `json:"raw_url"`
-	PreviousFilename string `json:"previous_filename,omitempty"`
+	BlobURL          string `json:"blobUrl"`
+	ContentsURL      string `json:"contentsUrl"`
+	RawURL           string `json:"rawUrl"`
+	PreviousFilename string `json:"previousFilename,omitempty"`
 }
 
 // PR represents basic PR information.

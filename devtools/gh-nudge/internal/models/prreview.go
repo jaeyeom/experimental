@@ -414,5 +414,5 @@ type BranchComments struct {
 	Owner      string    `json:"owner"`
 	Repo       string    `json:"repo"`
 	Comments   []Comment `json:"comments"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
