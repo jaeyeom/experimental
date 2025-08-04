@@ -46,6 +46,8 @@ func main() {
 		handleDelete(args)
 	case "clear":
 		handleClear(args)
+	case "adjust":
+		handleAdjust(args)
 	case "version":
 		fmt.Printf("gh-pr-review version %s\n", version)
 	case "help", "-h", "--help":
@@ -69,6 +71,7 @@ Commands:
   clear <owner>/<repo> <identifier>               Clear all comments (PR or branch)
   delete <owner>/<repo> <identifier> --comment-id <ID>  Delete comment by ID (PR or branch)
   submit <owner>/<repo> <pr_number>               Submit review to GitHub (PR only)
+  adjust <owner>/<repo> <identifier> <file> --diff <spec>  Adjust comment line numbers
   version                                         Show version information
   help                                           Show this help message
 
@@ -460,6 +463,76 @@ func handleClear(args []string) {
 	}
 
 	if err := handler.ClearCommand(owner, repo, identifier, file, confirm); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func handleAdjust(args []string) {
+	parser := argparser.NewArgParser(args)
+
+	if parser.IsHelp() {
+		fmt.Println("Usage: gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]")
+		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
+		fmt.Println("  <file>            File path to adjust comments for")
+		fmt.Println("  --diff SPEC       Classic diff format specification (required)")
+		fmt.Println("                    e.g., \"15,17d14\" or \"30a31,33\" or \"5,7c6,8\"")
+		fmt.Println("  --dry-run         Show what would be adjusted without making changes")
+		fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
+		fmt.Println("  --force           Apply adjustments even if validation fails")
+		fmt.Println()
+		fmt.Println("Classic diff format examples:")
+		fmt.Println("  15,17d14          Delete lines 15-17, next line becomes 14")
+		fmt.Println("  30a31,33          After line 30, insert what becomes lines 31-33")
+		fmt.Println("  5,7c6,8           Replace lines 5-7 with content that becomes lines 6-8")
+		fmt.Println("  15d14;30a31       Multiple operations separated by semicolons")
+		return
+	}
+
+	if err := parser.ValidateOptions([]string{"diff", "dry-run", "format", "force"}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := parser.RequireExactPositionals(3, "gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	diffSpec := parser.GetOption("diff")
+	if diffSpec == "" {
+		fmt.Fprintf(os.Stderr, "Error: --diff option is required\n")
+		os.Exit(1)
+	}
+
+	repoSpec := parser.GetPositional(0)
+	identifier := parser.GetPositional(1)
+	file := parser.GetPositional(2)
+
+	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	dryRun := parser.HasOption("dry-run")
+	force := parser.HasOption("force")
+	format := parser.GetOption("format")
+	if format == "" {
+		format = "table"
+	}
+	if format != "table" && format != "json" {
+		fmt.Fprintf(os.Stderr, "Error: format must be 'table' or 'json'\n")
+		os.Exit(1)
+	}
+
+	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := handler.AdjustCommand(owner, repo, identifier, file, diffSpec, dryRun, force, format); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

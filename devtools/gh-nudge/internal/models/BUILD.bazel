@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "adjustment.go",
         "output.go",
         "pr.go",
         "prreview.go",
@@ -13,7 +14,9 @@ go_library(
 
 go_test(
     name = "go_default_test",
+    size = "small",
     srcs = [
+        "adjustment_test.go",
         "prreview_identifier_test.go",
         "prreview_test.go",
     ],

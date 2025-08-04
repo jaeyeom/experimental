@@ -1,8 +1,11 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["commands.go"],
+    srcs = [
+        "adjust.go",
+        "commands.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
     deps = [
@@ -11,4 +14,11 @@ go_library(
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/storage:go_default_library",
     ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["adjust_test.go"],
+    embed = [":go_default_library"],
 )

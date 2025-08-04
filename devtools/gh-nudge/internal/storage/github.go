@@ -143,6 +143,19 @@ func (gs *GitHubStorage) GetComments(owner, repo string, prNumber int) (*models.
 	return &prComments, nil
 }
 
+// UpdateComments updates all comments for a pull request.
+func (gs *GitHubStorage) UpdateComments(owner, repo string, prNumber int, comments models.PRComments) error {
+	prPath := gs.buildPRPath(owner, repo, prNumber)
+	commentsPath := filepath.Join(prPath, "comments.json")
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		return gs.store.Set(commentsPath, comments)
+	}); err != nil {
+		return fmt.Errorf("failed to update comments with lock: %w", err)
+	}
+	return nil
+}
+
 // FindCommentByIDPrefix finds a comment by ID prefix.
 func (gs *GitHubStorage) FindCommentByIDPrefix(owner, repo string, prNumber int, idPrefix string) (*models.Comment, error) {
 	prComments, err := gs.GetComments(owner, repo, prNumber)
@@ -500,6 +513,19 @@ func (gs *GitHubStorage) GetBranchComments(owner, repo string, branchName string
 	}
 
 	return &branchComments, nil
+}
+
+// UpdateBranchComments updates all comments for a branch.
+func (gs *GitHubStorage) UpdateBranchComments(owner, repo string, branchName string, comments models.BranchComments) error {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	commentsPath := filepath.Join(branchPath, "comments.json")
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		return gs.store.Set(commentsPath, comments)
+	}); err != nil {
+		return fmt.Errorf("failed to update branch comments with lock: %w", err)
+	}
+	return nil
 }
 
 // ClearBranchComments removes all comments for a branch.
