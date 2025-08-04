@@ -982,6 +982,10 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
   ;; Make termux-open work with browse-url.
   (if my/termux-p
       (with-eval-after-load 'browse-url
+        ;; Define Android browser function to use xdg-open (which will be termux-open)
+        (defun browse-url-default-android-browser (url &rest args)
+          "Open URL using xdg-open (termux-open) on Android."
+          (browse-url-xdg-open url args))
         (defadvice browse-url-can-use-xdg-open (around termux-can-use-xdg-open activate)
           "Use termux-open if available."
           (if (executable-find "termux-open")
