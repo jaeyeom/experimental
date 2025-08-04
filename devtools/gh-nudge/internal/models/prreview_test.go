@@ -3,6 +3,7 @@ package models
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGenerateCommentID(t *testing.T) {
@@ -228,5 +229,191 @@ func TestCommentIDInJSON(t *testing.T) {
 		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
 			t.Errorf("Invalid character in comment ID: %c", char)
 		}
+	}
+}
+
+func TestDiffSpec(t *testing.T) {
+	tests := []struct {
+		name string
+		adj  LineAdjustment
+		want string
+	}{
+		// Delete operations
+		{
+			name: "delete single line",
+			adj: LineAdjustment{
+				Operation: OperationDelete,
+				OldStart:  12,
+				OldEnd:    12,
+				NewStart:  11,
+				NewEnd:    11,
+			},
+			want: "12d11",
+		},
+		{
+			name: "delete multiple lines",
+			adj: LineAdjustment{
+				Operation: OperationDelete,
+				OldStart:  15,
+				OldEnd:    17,
+				NewStart:  14,
+				NewEnd:    14,
+			},
+			want: "15,17d14",
+		},
+		// Insert operations
+		{
+			name: "insert single line",
+			adj: LineAdjustment{
+				Operation: OperationInsert,
+				OldStart:  10,
+				OldEnd:    10,
+				NewStart:  11,
+				NewEnd:    11,
+			},
+			want: "10a11",
+		},
+		{
+			name: "insert multiple lines",
+			adj: LineAdjustment{
+				Operation: OperationInsert,
+				OldStart:  30,
+				OldEnd:    30,
+				NewStart:  31,
+				NewEnd:    33,
+			},
+			want: "30a31,33",
+		},
+		// Change operations
+		{
+			name: "change single line",
+			adj: LineAdjustment{
+				Operation: OperationChange,
+				OldStart:  101,
+				OldEnd:    101,
+				NewStart:  101,
+				NewEnd:    101,
+			},
+			want: "101c101",
+		},
+		{
+			name: "change multiple lines to single line",
+			adj: LineAdjustment{
+				Operation: OperationChange,
+				OldStart:  5,
+				OldEnd:    7,
+				NewStart:  6,
+				NewEnd:    6,
+			},
+			want: "5,7c6",
+		},
+		{
+			name: "change single line to multiple lines",
+			adj: LineAdjustment{
+				Operation: OperationChange,
+				OldStart:  8,
+				OldEnd:    8,
+				NewStart:  9,
+				NewEnd:    12,
+			},
+			want: "8c9,12",
+		},
+		{
+			name: "change multiple lines to multiple lines",
+			adj: LineAdjustment{
+				Operation: OperationChange,
+				OldStart:  45,
+				OldEnd:    47,
+				NewStart:  45,
+				NewEnd:    46,
+			},
+			want: "45,47c45,46",
+		},
+		// Edge cases
+		{
+			name: "invalid operation type",
+			adj: LineAdjustment{
+				Operation: "x", // Invalid operation
+				OldStart:  1,
+				OldEnd:    1,
+				NewStart:  1,
+				NewEnd:    1,
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.adj.DiffSpec()
+			if got != tt.want {
+				t.Errorf("DiffSpec() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDiffSpecRoundTrip(t *testing.T) {
+	// Test that ParseDiffSpec and DiffSpec are inverse operations
+	specs := []string{
+		"12d11",
+		"15,17d14",
+		"10a11",
+		"30a31,33",
+		"101c101",
+		"5,7c6",
+		"8c9,12",
+		"45,47c45,46",
+	}
+
+	for _, spec := range specs {
+		t.Run(spec, func(t *testing.T) {
+			// Parse the spec
+			adjustments, err := ParseDiffSpec(spec)
+			if err != nil {
+				t.Fatalf("ParseDiffSpec(%q) failed: %v", spec, err)
+			}
+			if len(adjustments) != 1 {
+				t.Fatalf("Expected 1 adjustment, got %d", len(adjustments))
+			}
+
+			// Convert back to spec
+			got := adjustments[0].DiffSpec()
+			if got != spec {
+				t.Errorf("Round trip failed: ParseDiffSpec(%q).DiffSpec() = %q", spec, got)
+			}
+		})
+	}
+}
+
+func TestDiffSpecWithTimestamp(t *testing.T) {
+	// Test that DiffSpec doesn't depend on other fields like AppliedAt
+	adj1 := LineAdjustment{
+		Operation:   OperationDelete,
+		OldStart:    10,
+		OldEnd:      12,
+		NewStart:    10,
+		NewEnd:      10,
+		AppliedAt:   time.Now(),
+		Description: "Test deletion",
+	}
+
+	adj2 := LineAdjustment{
+		Operation:   OperationDelete,
+		OldStart:    10,
+		OldEnd:      12,
+		NewStart:    10,
+		NewEnd:      10,
+		AppliedAt:   time.Now().Add(time.Hour),
+		Description: "Different description",
+	}
+
+	if adj1.DiffSpec() != adj2.DiffSpec() {
+		t.Errorf("DiffSpec should only depend on operation and line numbers")
+	}
+
+	expected := "10,12d10"
+	if adj1.DiffSpec() != expected {
+		t.Errorf("DiffSpec() = %q, want %q", adj1.DiffSpec(), expected)
 	}
 }

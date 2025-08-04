@@ -10,47 +10,89 @@ import (
 	"time"
 )
 
+// OperationType represents the type of diff operation as a single character.
+type OperationType string
+
+const (
+	OperationDelete OperationType = "d" // Delete operation
+	OperationInsert OperationType = "a" // Insert (add) operation
+	OperationChange OperationType = "c" // Change operation
+)
+
+// String returns the string representation of the operation type.
+func (op OperationType) String() string {
+	return string(op)
+}
+
+// ParseOperationType parses a single character into an OperationType.
+func ParseOperationType(s string) (OperationType, error) {
+	switch s {
+	case "d":
+		return OperationDelete, nil
+	case "a":
+		return OperationInsert, nil
+	case "c":
+		return OperationChange, nil
+	default:
+		return "", fmt.Errorf("unknown operation type: %s", s)
+	}
+}
+
 // DiffHunk represents a diff hunk in a pull request.
 type DiffHunk struct {
 	File      string `json:"file"`
-	Side      string `json:"side"`       // "LEFT" or "RIGHT"
-	StartLine int    `json:"start_line"` // Starting line number
-	EndLine   int    `json:"end_line"`   // Ending line number
-	Content   string `json:"content"`    // The diff content
-	SHA       string `json:"sha"`        // Commit SHA
+	Side      string `json:"side"`      // "LEFT" or "RIGHT"
+	StartLine int    `json:"startLine"` // Starting line number
+	EndLine   int    `json:"endLine"`   // Ending line number
+	Content   string `json:"content"`   // The diff content
+	SHA       string `json:"sha"`       // Commit SHA
+}
+
+// LineAdjustment represents a line number adjustment operation.
+type LineAdjustment struct {
+	Operation   OperationType `json:"operation"`   // Type of operation (delete, insert, change)
+	OldStart    int           `json:"oldStart"`    // Start line in original file
+	OldEnd      int           `json:"oldEnd"`      // End line in original file
+	NewStart    int           `json:"newStart"`    // Start line in new file
+	NewEnd      int           `json:"newEnd"`      // End line in new file
+	AppliedAt   time.Time     `json:"appliedAt"`   // When adjustment was applied
+	Description string        `json:"description"` // Human-readable description
 }
 
 // Comment represents a line-specific comment in a pull request.
 type Comment struct {
-	ID        string    `json:"id"`         // Unique comment ID (40-char hex string)
-	Path      string    `json:"path"`       // File path
-	Line      int       `json:"line"`       // Line number (for single line comments)
-	StartLine *int      `json:"start_line"` // Starting line for multi-line comments
-	Body      string    `json:"body"`       // Comment text
-	Side      string    `json:"side"`       // "LEFT" or "RIGHT"
-	SHA       string    `json:"sha"`        // Commit SHA
-	CreatedAt time.Time `json:"created_at"` // When comment was created
+	ID                string           `json:"id"`                          // Unique comment ID (40-char hex string)
+	Path              string           `json:"path"`                        // File path
+	Line              int              `json:"line"`                        // Line number (for single line comments)
+	StartLine         *int             `json:"startLine"`                   // Starting line for multi-line comments
+	Body              string           `json:"body"`                        // Comment text
+	Side              string           `json:"side"`                        // "LEFT" or "RIGHT"
+	SHA               string           `json:"sha"`                         // Commit SHA
+	CreatedAt         time.Time        `json:"createdAt"`                   // When comment was created
+	OriginalLine      int              `json:"originalLine,omitempty"`      // Original line number before adjustments
+	OriginalStartLine *int             `json:"originalStartLine,omitempty"` // Original start line for multi-line comments
+	AdjustmentHistory []LineAdjustment `json:"adjustmentHistory,omitempty"` // History of line adjustments
 }
 
 // PRDiffHunks represents the diff hunks for a pull request.
 type PRDiffHunks struct {
-	PRNumber    int        `json:"pr_number"`
+	PRNumber    int        `json:"prNumber"`
 	Owner       string     `json:"owner"`
 	Repo        string     `json:"repo"`
-	CapturedAt  time.Time  `json:"captured_at"`
-	DiffHunks   []DiffHunk `json:"diff_hunks"`
-	CommitSHA   string     `json:"commit_sha"`
-	BaseSHA     string     `json:"base_sha"`
+	CapturedAt  time.Time  `json:"capturedAt"`
+	DiffHunks   []DiffHunk `json:"diffHunks"`
+	CommitSHA   string     `json:"commitSha"`
+	BaseSHA     string     `json:"baseSha"`
 	Description string     `json:"description,omitempty"`
 }
 
 // PRComments represents the comments for a pull request.
 type PRComments struct {
-	PRNumber  int       `json:"pr_number"`
+	PRNumber  int       `json:"prNumber"`
 	Owner     string    `json:"owner"`
 	Repo      string    `json:"repo"`
 	Comments  []Comment `json:"comments"`
-	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // PRReview represents a review to be submitted to GitHub.
@@ -64,15 +106,15 @@ type PRReview struct {
 type CommentFilter struct {
 	File      string `json:"file,omitempty"`
 	Line      *int   `json:"line,omitempty"`
-	StartLine *int   `json:"start_line,omitempty"`
-	EndLine   *int   `json:"end_line,omitempty"`
+	StartLine *int   `json:"startLine,omitempty"`
+	EndLine   *int   `json:"endLine,omitempty"`
 	Side      string `json:"side,omitempty"`
 }
 
 // LineRange represents a range of lines.
 type LineRange struct {
-	StartLine int `json:"start_line"`
-	EndLine   int `json:"end_line"`
+	StartLine int `json:"startLine"`
+	EndLine   int `json:"endLine"`
 }
 
 // ParseLineSpec parses a line specification (e.g., "15" or "15-20").
@@ -295,6 +337,37 @@ func (p *ParsedIdentifier) String() string {
 	return p.BranchName
 }
 
+// DiffSpec generates a diff specification string from the adjustment fields.
+// Returns format like "15,17d14" for deletions, "14a15,17" for insertions, "15,17c14,16" for changes.
+func (adj LineAdjustment) DiffSpec() string {
+	// Validate operation type
+	switch adj.Operation {
+	case OperationDelete, OperationInsert, OperationChange:
+		// Valid operations, continue
+	default:
+		return ""
+	}
+
+	// Format old range
+	oldRange := ""
+	if adj.OldStart == adj.OldEnd {
+		oldRange = fmt.Sprintf("%d", adj.OldStart)
+	} else {
+		oldRange = fmt.Sprintf("%d,%d", adj.OldStart, adj.OldEnd)
+	}
+
+	// Format new range
+	newRange := ""
+	if adj.NewStart == adj.NewEnd {
+		newRange = fmt.Sprintf("%d", adj.NewStart)
+	} else {
+		newRange = fmt.Sprintf("%d,%d", adj.NewStart, adj.NewEnd)
+	}
+
+	// Combine with operation character
+	return fmt.Sprintf("%s%s%s", oldRange, adj.Operation, newRange)
+}
+
 // GenerateCommentID generates a random 40-character hex string for comment IDs.
 // This is similar to git commit hashes but uses pure randomness.
 func GenerateCommentID() string {
@@ -324,20 +397,20 @@ func (c Comment) FormatIDShort() string {
 
 // BranchDiffHunks represents the diff hunks for a local branch.
 type BranchDiffHunks struct {
-	BranchName  string     `json:"branch_name"`
+	BranchName  string     `json:"branchName"`
 	Owner       string     `json:"owner"`
 	Repo        string     `json:"repo"`
-	CapturedAt  time.Time  `json:"captured_at"`
-	DiffHunks   []DiffHunk `json:"diff_hunks"`
-	CommitSHA   string     `json:"commit_sha"`
-	BaseSHA     string     `json:"base_sha"`
-	BaseBranch  string     `json:"base_branch,omitempty"`
+	CapturedAt  time.Time  `json:"capturedAt"`
+	DiffHunks   []DiffHunk `json:"diffHunks"`
+	CommitSHA   string     `json:"commitSha"`
+	BaseSHA     string     `json:"baseSha"`
+	BaseBranch  string     `json:"baseBranch,omitempty"`
 	Description string     `json:"description,omitempty"`
 }
 
 // BranchComments represents the comments for a local branch.
 type BranchComments struct {
-	BranchName string    `json:"branch_name"`
+	BranchName string    `json:"branchName"`
 	Owner      string    `json:"owner"`
 	Repo       string    `json:"repo"`
 	Comments   []Comment `json:"comments"`
