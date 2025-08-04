@@ -11,12 +11,12 @@ import (
 // SubmitResult contains the result data from a submit operation.
 type SubmitResult struct {
 	Status           string    `json:"status"`
-	PRNumber         int       `json:"pr_number"`
+	PRNumber         int       `json:"prNumber"`
 	Owner            string    `json:"owner"`
 	Repo             string    `json:"repo"`
 	Comments         int       `json:"comments"`
-	SubmittedAt      time.Time `json:"submitted_at"`
-	PostSubmitAction string    `json:"post_submit_action"`
+	SubmittedAt      time.Time `json:"submittedAt"`
+	PostSubmitAction string    `json:"postSubmitAction"`
 }
 
 // JSONFormatter formats output as JSON.

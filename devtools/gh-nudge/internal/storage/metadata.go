@@ -9,8 +9,8 @@ import (
 
 // Metadata represents file metadata with creation time, modification time, size, and other attributes.
 type Metadata struct {
-	CreatedAt   time.Time `json:"created_at"`
-	ModifiedAt  time.Time `json:"modified_at"`
+	CreatedAt   time.Time `json:"createdAt"`
+	ModifiedAt  time.Time `json:"modifiedAt"`
 	Size        int64     `json:"size"`
 	Type        string    `json:"type"`
 	Version     string    `json:"version"`

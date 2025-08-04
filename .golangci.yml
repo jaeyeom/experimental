@@ -8,12 +8,19 @@ linters:
     - iface
     - revive
     - staticcheck
+    - tagliatelle
     - wrapcheck
   disable:
     - testpackage
   settings:
     staticcheck:
       checks: ["all"]
+    tagliatelle:
+      case:
+        rules:
+          json: camel
+          yaml: snake
+      use-field-name: true
     iface:
       enable:
         - identical
