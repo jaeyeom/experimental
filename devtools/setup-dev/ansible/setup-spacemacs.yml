@@ -11,6 +11,7 @@
 - import_playbook: 7z.yml
 - import_playbook: vipsthumbnail.yml
 - import_playbook: ffmpegthumbnailer.yml
+- import_playbook: image2ascii.yml
 - import_playbook: setup-shell-profile.yml
 - import_playbook: setup-starship.yml
 
