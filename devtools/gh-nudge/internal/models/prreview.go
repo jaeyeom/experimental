@@ -200,7 +200,7 @@ func (c Comment) IsDuplicate(other Comment) bool {
 // Executor defines a generic action that can be executed with context.
 type Executor interface {
 	// Execute performs the action
-	Execute(storage CommentClearer, owner, repo string, prNumber int) error
+	Execute(storage CommentClearer, owner, repo string, prNumber int, file string) error
 	// Name returns the name of the action
 	Name() string
 }
@@ -208,25 +208,46 @@ type Executor interface {
 // CommentClearer defines the ability to clear comments.
 type CommentClearer interface {
 	ClearComments(owner, repo string, prNumber int) error
+	ClearCommentsForFile(owner, repo string, prNumber int, file string) error
 }
 
 // ClearAction removes all local comments after successful submission.
 type ClearAction struct{}
 
-func (a ClearAction) Execute(storage CommentClearer, owner, repo string, prNumber int) error {
-	if err := storage.ClearComments(owner, repo, prNumber); err != nil {
-		// Don't fail the entire operation if clearing fails - just warn
-		slog.Warn("failed to clear local comments after submission",
+func (a ClearAction) Execute(storage CommentClearer, owner, repo string, prNumber int, file string) error {
+	if file != "" {
+		// Clear comments for specific file only
+		if err := storage.ClearCommentsForFile(owner, repo, prNumber, file); err != nil {
+			// Don't fail the entire operation if clearing fails - just warn
+			slog.Warn("failed to clear local comments for file after submission",
+				"owner", owner,
+				"repo", repo,
+				"pr", prNumber,
+				"file", file,
+				"error", err)
+			return nil // Return nil to not fail the submission
+		}
+		slog.Info("cleared local comments for file after successful submission",
 			"owner", owner,
 			"repo", repo,
 			"pr", prNumber,
-			"error", err)
-		return nil // Return nil to not fail the submission
+			"file", file)
+	} else {
+		// Clear all comments
+		if err := storage.ClearComments(owner, repo, prNumber); err != nil {
+			// Don't fail the entire operation if clearing fails - just warn
+			slog.Warn("failed to clear local comments after submission",
+				"owner", owner,
+				"repo", repo,
+				"pr", prNumber,
+				"error", err)
+			return nil // Return nil to not fail the submission
+		}
+		slog.Info("cleared local comments after successful submission",
+			"owner", owner,
+			"repo", repo,
+			"pr", prNumber)
 	}
-	slog.Info("cleared local comments after successful submission",
-		"owner", owner,
-		"repo", repo,
-		"pr", prNumber)
 	return nil
 }
 
@@ -237,11 +258,19 @@ func (a ClearAction) Name() string {
 // KeepAction preserves all local comments after successful submission.
 type KeepAction struct{}
 
-func (a KeepAction) Execute(_ CommentClearer, owner, repo string, prNumber int) error {
-	slog.Info("local comments preserved after submission",
-		"owner", owner,
-		"repo", repo,
-		"pr", prNumber)
+func (a KeepAction) Execute(_ CommentClearer, owner, repo string, prNumber int, file string) error {
+	if file != "" {
+		slog.Info("local comments for file preserved after submission",
+			"owner", owner,
+			"repo", repo,
+			"pr", prNumber,
+			"file", file)
+	} else {
+		slog.Info("local comments preserved after submission",
+			"owner", owner,
+			"repo", repo,
+			"pr", prNumber)
+	}
 	return nil
 }
 
@@ -252,12 +281,20 @@ func (a KeepAction) Name() string {
 // ArchiveAction moves comments to an archive/history (future enhancement).
 type ArchiveAction struct{}
 
-func (a ArchiveAction) Execute(_ CommentClearer, owner, repo string, prNumber int) error {
+func (a ArchiveAction) Execute(_ CommentClearer, owner, repo string, prNumber int, file string) error {
 	// Future enhancement: implement archiving
-	slog.Info("archive feature not yet implemented, comments preserved",
-		"owner", owner,
-		"repo", repo,
-		"pr", prNumber)
+	if file != "" {
+		slog.Info("archive feature not yet implemented, comments for file preserved",
+			"owner", owner,
+			"repo", repo,
+			"pr", prNumber,
+			"file", file)
+	} else {
+		slog.Info("archive feature not yet implemented, comments preserved",
+			"owner", owner,
+			"repo", repo,
+			"pr", prNumber)
+	}
 	return nil
 }
 

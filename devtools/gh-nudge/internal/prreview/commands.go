@@ -240,18 +240,33 @@ func (ch *CommandHandler) addBranchComment(owner, repo, branchName string, file 
 }
 
 // SubmitCommand submits a review to GitHub.
-func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, event string, formatter OutputFormatter, postSubmitAction models.Executor) error {
+func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, event, file string, formatter OutputFormatter, postSubmitAction models.Executor) error {
 	// Get comments
 	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
 
+	// Filter comments by file if specified
+	var commentsToSubmit []models.Comment
+	if file != "" {
+		for _, comment := range prComments.Comments {
+			if comment.Path == file {
+				commentsToSubmit = append(commentsToSubmit, comment)
+			}
+		}
+		if len(commentsToSubmit) == 0 {
+			return fmt.Errorf("no comments found for file: %s", file)
+		}
+	} else {
+		commentsToSubmit = prComments.Comments
+	}
+
 	// Convert to GitHub API format
 	review := models.PRReview{
 		Body:     body,
 		Event:    event,
-		Comments: prComments.Comments,
+		Comments: commentsToSubmit,
 	}
 
 	// Submit review
@@ -265,9 +280,10 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 		PRNumber:         prNumber,
 		Owner:            owner,
 		Repo:             repo,
-		Comments:         len(prComments.Comments),
+		Comments:         len(commentsToSubmit),
 		SubmittedAt:      time.Now(),
 		PostSubmitAction: postSubmitAction.Name(),
+		File:             file,
 	}
 
 	output, err := formatter.FormatSubmitResult(result)
@@ -277,7 +293,7 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 	fmt.Println(output)
 
 	// Execute post-submit action
-	if err := postSubmitAction.Execute(ch.storage, owner, repo, prNumber); err != nil {
+	if err := postSubmitAction.Execute(ch.storage, owner, repo, prNumber, file); err != nil {
 		return fmt.Errorf("post-submit action failed: %w", err)
 	}
 

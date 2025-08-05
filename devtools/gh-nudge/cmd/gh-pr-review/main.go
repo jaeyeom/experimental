@@ -107,6 +107,9 @@ Examples:
   # Submit review (PR only, clears local comments by default)
   gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
 
+  # Submit review for specific file only
+  gh-pr-review submit octocat/Hello-World 42 --file src/main.js --body "JavaScript review"
+
   # Submit review and keep local comments (PR only)
   gh-pr-review submit octocat/Hello-World 42 --body "First pass" --after keep
 
@@ -229,13 +232,14 @@ func handleSubmit(args []string) {
 		fmt.Println("Usage: gh-pr-review submit <owner>/<repo> <pr_number> [options]")
 		fmt.Println("  --body TEXT       Review body text")
 		fmt.Println("  --event EVENT     Review event (COMMENT, APPROVE, REQUEST_CHANGES)")
+		fmt.Println("  --file FILE       Submit comments for specific file only")
 		fmt.Println("  --json            Output result in JSON format")
 		fmt.Println("  --after ACTION    What to do with local comments after submission")
 		fmt.Println("                    (clear, keep, archive) [default: clear]")
 		return
 	}
 
-	if err := parser.ValidateOptions([]string{"body", "event", "json", "after"}); err != nil {
+	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -262,6 +266,7 @@ func handleSubmit(args []string) {
 
 	body := parser.GetOption("body")
 	event := parser.GetOption("event")
+	file := parser.GetOption("file")
 	jsonOutput := parser.HasOption("json")
 	afterAction := parser.GetOption("after")
 
@@ -297,7 +302,7 @@ func handleSubmit(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.SubmitCommand(owner, repo, prNumber, body, event, formatter, postSubmitAction); err != nil {
+	if err := handler.SubmitCommand(owner, repo, prNumber, body, event, file, formatter, postSubmitAction); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
