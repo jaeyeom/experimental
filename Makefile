@@ -1,4 +1,4 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config
 
 all: requirements.txt generate-ansible format test fix
 
@@ -23,11 +23,11 @@ lint: lint-golangci lint-ruff
 
 fix: fix-golangci fix-ruff
 
-lint-golangci:
+lint-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run ./...
 	oserrorsgodernize ./...
 
-fix-golangci:
+fix-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run --fix ./...
 	oserrorsgodernize --fix ./...
 
@@ -40,3 +40,6 @@ fix-ruff:
 requirements.txt: requirements.in
 	pip install pip-tools
 	pip-compile --upgrade --output-file=requirements.txt requirements.in
+
+verify-golangci-config: .golangci.yml
+	golangci-lint config verify
