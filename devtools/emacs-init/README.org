@@ -1,0 +1,65 @@
+#+TITLE: Emacs Init Files and Extensions
+#+AUTHOR: Jaehyun Yeom
+#+DATE: 2025-01-05
+
+* Overview
+
+This directory contains Emacs initialization files and custom extensions.
+
+* Files
+
+** init.el
+Main Emacs initialization file with configuration for various packages and modes.
+
+** dirvish-termux-fix.el
+Fix for dirvish image preview functionality in text terminal Emacs (especially Termux).
+
+*** Problem
+When using dirvish in text terminal Emacs, attempting to preview image files results in:
+#+BEGIN_SRC
+Debugger entered--Lisp error: (void-function image-size)
+#+END_SRC
+
+This occurs because ~image-size~ is part of Emacs's image display functionality, which is not available in text terminals.
+
+*** Solution
+This file provides:
+1. A stub ~image-size~ function to prevent errors
+2. Integration with ~image2ascii~ for ASCII art preview in dirvish
+3. Automatic detection and configuration for text terminal environments
+
+*** Usage
+Add to your Emacs configuration:
+#+BEGIN_SRC elisp
+(when (not (display-graphic-p))
+  (load "path/to/dirvish-termux-fix.el"))
+#+END_SRC
+
+*** Requirements
+- ~image2ascii~ command for ASCII art generation
+- ~magick~ (ImageMagick) for image dimension detection (optional)
+
+** dirvish-terminal-fix.el
+Basic fix for dirvish in text terminals that shows file information instead of images.
+
+** dirvish-ascii-art-preview.el
+More comprehensive ASCII art preview system supporting multiple converters:
+- chafa
+- jp2a
+- img2txt
+- ascii-image-converter
+
+* Installation
+
+1. For basic terminal compatibility:
+   #+BEGIN_SRC elisp
+   (load "~/.../devtools/emacs-init/dirvish-termux-fix.el")
+   #+END_SRC
+
+2. The fix will automatically activate in text terminal environments and integrate with your existing ~image2ascii~ setup.
+
+* Notes
+
+- The ~dirvish-termux-fix.el~ is specifically designed to work with the existing Spacemacs configuration that uses ~image2ascii~ for image viewing in Termux
+- The fix preserves all original functionality when running in GUI Emacs
+- ASCII art preview respects the dirvish preview window dimensions
