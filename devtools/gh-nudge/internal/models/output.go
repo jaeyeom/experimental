@@ -85,8 +85,8 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 	sideWidth := 8
 	createdWidth := 16
 
-	// Reserve space for separators and padding
-	reservedWidth := idWidth + lineWidth + sideWidth + createdWidth + 8 // 8 for separators
+	// Reserve space for separators and padding (6 separators * 3 chars each = 18)
+	reservedWidth := idWidth + lineWidth + sideWidth + createdWidth + 18
 
 	// Remaining width for file and comment columns
 	remainingWidth := termWidth - reservedWidth
@@ -94,19 +94,21 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 		remainingWidth = 40 // Minimum usable width
 	}
 
-	// Allocate remaining width: prioritize comment over file, but ensure file gets reasonable space
-	fileWidth := minInt(40, remainingWidth/3)  // File gets 1/3 or max 40
+	// Allocate remaining width: prioritize comment over file
+	fileWidth := minInt(50, remainingWidth/3)  // File gets 1/3 or max 50
 	commentWidth := remainingWidth - fileWidth // Comment gets the rest
 
 	var result strings.Builder
-	fmt.Fprintf(&result, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
+
+	// Print header
+	fmt.Fprintf(&result, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
 		idWidth, "ID",
 		fileWidth, "File",
 		lineWidth, "Line",
 		sideWidth, "Side",
 		commentWidth, "Comment",
 		createdWidth, "Created")
-	result.WriteString(strings.Repeat("-", minInt(termWidth, idWidth+fileWidth+lineWidth+sideWidth+commentWidth+createdWidth+12)))
+	result.WriteString(strings.Repeat("-", termWidth))
 	result.WriteString("\n")
 
 	for _, comment := range comments {
@@ -115,13 +117,49 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
 		}
 
-		fmt.Fprintf(&result, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
-			idWidth, comment.FormatIDShort(),
-			fileWidth, smartTruncateFilePath(comment.Path, fileWidth),
-			lineWidth, lineStr,
-			sideWidth, comment.Side,
-			commentWidth, TruncateString(comment.Body, commentWidth),
-			createdWidth, comment.CreatedAt.Format("2006-01-02 15:04"))
+		// Wrap long content into multiple lines
+		fileLines := wrapText(comment.Path, fileWidth)
+		commentLines := wrapText(comment.Body, commentWidth)
+
+		// Determine max number of lines needed for this row
+		maxLines := maxInt(len(fileLines), len(commentLines))
+
+		// Print each line of the multiline row
+		for i := 0; i < maxLines; i++ {
+			fileLine := ""
+			if i < len(fileLines) {
+				fileLine = fileLines[i]
+			}
+
+			commentLine := ""
+			if i < len(commentLines) {
+				commentLine = commentLines[i]
+			}
+
+			if i == 0 {
+				// First line includes all fields
+				fmt.Fprintf(&result, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
+					idWidth, comment.FormatIDShort(),
+					fileWidth, fileLine,
+					lineWidth, lineStr,
+					sideWidth, comment.Side,
+					commentWidth, commentLine,
+					createdWidth, comment.CreatedAt.Format("2006-01-02 15:04"))
+			} else {
+				// Continuation lines only show file and comment
+				fmt.Fprintf(&result, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
+					idWidth, "",
+					fileWidth, fileLine,
+					lineWidth, "",
+					sideWidth, "",
+					commentWidth, commentLine,
+					createdWidth, "")
+			}
+		}
+
+		// Add separator between rows
+		result.WriteString(strings.Repeat("-", termWidth))
+		result.WriteString("\n")
 	}
 
 	return result.String(), nil
@@ -141,45 +179,73 @@ func TruncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// smartTruncateFilePath truncates a file path by preserving the most important part (end of path).
-func smartTruncateFilePath(path string, maxLen int) string {
-	if len(path) <= maxLen {
-		return path
-	}
-
-	if maxLen <= 3 {
-		return path[:maxLen]
-	}
-
-	// For file paths, the end is usually more important than the beginning
-	// Try to preserve the filename and some directory context
-	parts := strings.Split(path, "/")
-	if len(parts) == 1 {
-		// No directory separators, just truncate normally
-		return TruncateString(path, maxLen)
-	}
-
-	// Start with the filename and work backwards adding directories
-	result := parts[len(parts)-1] // filename
-	for i := len(parts) - 2; i >= 0; i-- {
-		candidate := parts[i] + "/" + result
-		if len(candidate) > maxLen-3 { // leave room for "..."
-			if result == parts[len(parts)-1] {
-				// Even just the filename is too long
-				return TruncateString(result, maxLen)
-			}
-			return "..." + result
-		}
-		result = candidate
-	}
-
-	return result
-}
-
 // minInt returns the smaller of two integers.
 func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
+}
+
+// maxInt returns the larger of two integers.
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// wrapText wraps text to fit within the specified width, breaking at word boundaries when possible.
+func wrapText(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+
+	var lines []string
+	words := strings.Fields(text)
+
+	if len(words) == 0 {
+		return []string{""}
+	}
+
+	currentLine := ""
+	for _, word := range words {
+		// If the word itself is longer than width, we need to break it
+		switch {
+		case len(word) > width:
+			// Add current line if it exists
+			if currentLine != "" {
+				lines = append(lines, currentLine)
+				currentLine = ""
+			}
+
+			// Break the long word into chunks
+			for len(word) > width {
+				lines = append(lines, word[:width])
+				word = word[width:]
+			}
+
+			// Set remaining part as current line
+			if word != "" {
+				currentLine = word
+			}
+		case currentLine == "":
+			currentLine = word
+		case len(currentLine)+1+len(word) <= width:
+			currentLine += " " + word
+		default:
+			lines = append(lines, currentLine)
+			currentLine = word
+		}
+	}
+
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	if len(lines) == 0 {
+		return []string{""}
+	}
+
+	return lines
 }
