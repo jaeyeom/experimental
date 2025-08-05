@@ -2,13 +2,17 @@ version: "2"
 linters:
   enable:
     - depguard
+    - errcheck
     - gocritic
     - godot
     - gosec
+    - govet
     - iface
+    - ineffassign
     - revive
     - staticcheck
     - tagliatelle
+    - unused
     - wrapcheck
   disable:
     - testpackage
