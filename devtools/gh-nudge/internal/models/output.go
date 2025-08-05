@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -65,9 +66,42 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 		return "No comments found", nil
 	}
 
+	// Get terminal width from environment or default to 120
+	termWidth := 120
+	if os.Getenv("COLUMNS") != "" {
+		if width, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && width > 0 {
+			termWidth = width
+		}
+	}
+
+	// Calculate column widths dynamically
+	idWidth := 8
+	lineWidth := 8
+	sideWidth := 8
+	createdWidth := 16
+
+	// Reserve space for separators and padding
+	reservedWidth := idWidth + lineWidth + sideWidth + createdWidth + 8 // 8 for separators
+
+	// Remaining width for file and comment columns
+	remainingWidth := termWidth - reservedWidth
+	if remainingWidth < 40 {
+		remainingWidth = 40 // Minimum usable width
+	}
+
+	// Allocate remaining width: prioritize comment over file, but ensure file gets reasonable space
+	fileWidth := minInt(40, remainingWidth/3)  // File gets 1/3 or max 40
+	commentWidth := remainingWidth - fileWidth // Comment gets the rest
+
 	var result strings.Builder
-	fmt.Fprintf(&result, "%-8s %-30s %-8s %-8s %-50s %-20s\n", "ID", "File", "Line", "Side", "Comment", "Created")
-	result.WriteString(strings.Repeat("-", 124))
+	fmt.Fprintf(&result, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
+		idWidth, "ID",
+		fileWidth, "File",
+		lineWidth, "Line",
+		sideWidth, "Side",
+		commentWidth, "Comment",
+		createdWidth, "Created")
+	result.WriteString(strings.Repeat("-", minInt(termWidth, idWidth+fileWidth+lineWidth+sideWidth+commentWidth+createdWidth+12)))
 	result.WriteString("\n")
 
 	for _, comment := range comments {
@@ -76,13 +110,13 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
 		}
 
-		fmt.Fprintf(&result, "%-8s %-30s %-8s %-8s %-50s %-20s\n",
-			comment.FormatIDShort(),
-			TruncateString(comment.Path, 30),
-			lineStr,
-			comment.Side,
-			TruncateString(comment.Body, 50),
-			comment.CreatedAt.Format("2006-01-02 15:04"))
+		fmt.Fprintf(&result, "%-*s %-*s %-*s %-*s %-*s %-*s\n",
+			idWidth, comment.FormatIDShort(),
+			fileWidth, smartTruncateFilePath(comment.Path, fileWidth),
+			lineWidth, lineStr,
+			sideWidth, comment.Side,
+			commentWidth, TruncateString(comment.Body, commentWidth),
+			createdWidth, comment.CreatedAt.Format("2006-01-02 15:04"))
 	}
 
 	return result.String(), nil
@@ -90,8 +124,57 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 
 // TruncateString truncates a string to maxLen characters, adding "..." if truncated.
 func TruncateString(s string, maxLen int) string {
+	if maxLen <= 3 {
+		if len(s) <= maxLen {
+			return s
+		}
+		return s[:maxLen]
+	}
 	if len(s) <= maxLen {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// smartTruncateFilePath truncates a file path by preserving the most important part (end of path).
+func smartTruncateFilePath(path string, maxLen int) string {
+	if len(path) <= maxLen {
+		return path
+	}
+
+	if maxLen <= 3 {
+		return path[:maxLen]
+	}
+
+	// For file paths, the end is usually more important than the beginning
+	// Try to preserve the filename and some directory context
+	parts := strings.Split(path, "/")
+	if len(parts) == 1 {
+		// No directory separators, just truncate normally
+		return TruncateString(path, maxLen)
+	}
+
+	// Start with the filename and work backwards adding directories
+	result := parts[len(parts)-1] // filename
+	for i := len(parts) - 2; i >= 0; i-- {
+		candidate := parts[i] + "/" + result
+		if len(candidate) > maxLen-3 { // leave room for "..."
+			if result == parts[len(parts)-1] {
+				// Even just the filename is too long
+				return TruncateString(result, maxLen)
+			}
+			return "..." + result
+		}
+		result = candidate
+	}
+
+	return result
+}
+
+// minInt returns the smaller of two integers.
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
