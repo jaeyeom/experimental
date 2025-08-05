@@ -20,7 +20,6 @@ linters:
         rules:
           json: camel
           yaml: snake
-      use-field-name: true
     iface:
       enable:
         - identical
