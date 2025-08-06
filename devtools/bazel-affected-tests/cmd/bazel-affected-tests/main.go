@@ -12,67 +12,106 @@ import (
 )
 
 func main() {
-	var (
-		debug      = flag.Bool("debug", false, "Enable debug output")
-		cacheDir   = flag.String("cache-dir", "", "Cache directory (default: $HOME/.cache/bazel-affected-tests)")
-		clearCache = flag.Bool("clear-cache", false, "Clear the cache and exit")
-		noCache    = flag.Bool("no-cache", false, "Disable caching")
-	)
-	flag.Parse()
+	config := parseFlags()
 
-	// Set debug from environment if not set via flag
-	if !*debug && os.Getenv("DEBUG") != "" {
-		*debug = true
+	c := cache.NewCache(config.cacheDir, config.debug)
+
+	if config.clearCache {
+		handleCacheClear(c, config.debug)
+		return
 	}
 
-	// Initialize cache
-	c := cache.NewCache(*cacheDir, *debug)
-
-	// Handle cache clearing
-	if *clearCache {
-		if err := c.Clear(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error clearing cache: %v\n", err)
-			os.Exit(1)
-		}
-		if *debug {
-			fmt.Println("Cache cleared successfully")
-		}
-		os.Exit(0)
-	}
-
-	// Get staged files
-	stagedFiles, err := git.GetStagedFiles()
+	stagedFiles, err := getStagedFiles()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting staged files: %v\n", err)
 		os.Exit(1)
 	}
 
 	if len(stagedFiles) == 0 {
-		// No staged files, no tests to run
 		os.Exit(0)
 	}
 
-	debugf := func(format string, args ...interface{}) {
-		if *debug {
+	debugf := createDebugFunc(config.debug)
+	debugf("Found %d staged files", len(stagedFiles))
+
+	cacheKey := getCacheKey(c, config.noCache, debugf)
+	packages := findPackages(stagedFiles, debugf)
+
+	querier := query.NewBazelQuerier(config.debug)
+	allTests := collectAllTests(packages, querier, c, cacheKey, config.noCache, debugf)
+
+	// Filter and output results
+	filter := query.NewFormatTestFilter(stagedFiles, config.debug)
+	filteredTests := filter.Filter(allTests)
+	outputResults(filteredTests)
+}
+
+type config struct {
+	debug      bool
+	cacheDir   string
+	clearCache bool
+	noCache    bool
+}
+
+func parseFlags() config {
+	var cfg config
+	flag.BoolVar(&cfg.debug, "debug", false, "Enable debug output")
+	flag.StringVar(&cfg.cacheDir, "cache-dir", "", "Cache directory (default: $HOME/.cache/bazel-affected-tests)")
+	flag.BoolVar(&cfg.clearCache, "clear-cache", false, "Clear the cache and exit")
+	flag.BoolVar(&cfg.noCache, "no-cache", false, "Disable caching")
+	flag.Parse()
+
+	// Set debug from environment if not set via flag
+	if !cfg.debug && os.Getenv("DEBUG") != "" {
+		cfg.debug = true
+	}
+
+	return cfg
+}
+
+func handleCacheClear(c *cache.Cache, debug bool) {
+	if err := c.Clear(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error clearing cache: %v\n", err)
+		os.Exit(1)
+	}
+	if debug {
+		fmt.Println("Cache cleared successfully")
+	}
+	os.Exit(0)
+}
+
+func getStagedFiles() ([]string, error) {
+	files, err := git.GetStagedFiles()
+	if err != nil {
+		return nil, fmt.Errorf("getting staged files: %w", err)
+	}
+	return files, nil
+}
+
+func createDebugFunc(debug bool) func(string, ...interface{}) {
+	return func(format string, args ...interface{}) {
+		if debug {
 			fmt.Printf("DEBUG: "+format+"\n", args...)
 		}
 	}
+}
 
-	debugf("Found %d staged files", len(stagedFiles))
-
-	// Get cache key
-	var cacheKey string
-	if !*noCache {
-		cacheKey, err = c.GetCacheKey()
-		if err != nil {
-			debugf("Failed to compute cache key: %v", err)
-			*noCache = true
-		} else {
-			debugf("Cache key: %s", cacheKey)
-		}
+func getCacheKey(c *cache.Cache, noCache bool, debugf func(string, ...interface{})) string {
+	if noCache {
+		return ""
 	}
 
-	// Find packages for staged files
+	cacheKey, err := c.GetCacheKey()
+	if err != nil {
+		debugf("Failed to compute cache key: %v", err)
+		return ""
+	}
+
+	debugf("Cache key: %s", cacheKey)
+	return cacheKey
+}
+
+func findPackages(stagedFiles []string, debugf func(string, ...interface{})) []string {
 	packageMap := make(map[string]bool)
 	for _, file := range stagedFiles {
 		debugf("Processing file: %s", file)
@@ -84,54 +123,25 @@ func main() {
 		}
 	}
 
-	// Convert to slice
 	var packages []string
 	for pkg := range packageMap {
 		packages = append(packages, pkg)
 	}
+	return packages
+}
 
-	// Initialize querier
-	querier := query.NewBazelQuerier(*debug)
-
-	// Process packages and collect tests
+func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool, debugf func(string, ...interface{})) []string {
 	allTestsMap := make(map[string]bool)
 
+	// Process packages
 	for _, pkg := range packages {
-		var tests []string
-		cacheHit := false
-
-		// Try to get from cache
-		if !*noCache {
-			if cachedTests, found := c.Get(cacheKey, pkg); found {
-				tests = cachedTests
-				cacheHit = true
-			}
-		}
-
-		// If not in cache, query Bazel
-		if !cacheHit {
-			pkgTests, err := querier.FindAffectedTests([]string{pkg})
-			if err != nil {
-				debugf("Error querying tests for package %s: %v", pkg, err)
-				continue
-			}
-			tests = pkgTests
-
-			// Store in cache
-			if !*noCache {
-				if err := c.Set(cacheKey, pkg, tests); err != nil {
-					debugf("Failed to cache results for %s: %v", pkg, err)
-				}
-			}
-		}
-
-		// Add to all tests
+		tests := getPackageTests(pkg, querier, c, cacheKey, noCache, debugf)
 		for _, test := range tests {
 			allTestsMap[test] = true
 		}
 	}
 
-	// Always check for format tests (will be filtered based on file types)
+	// Always check for format tests
 	formatTests, err := querier.FindAffectedTests([]string{"//tools/format"})
 	if err == nil {
 		for _, test := range formatTests {
@@ -139,19 +149,39 @@ func main() {
 		}
 	}
 
-	// Convert to slice
 	var allTests []string
 	for test := range allTestsMap {
 		allTests = append(allTests, test)
 	}
+	return allTests
+}
 
-	// Filter format tests based on file types
-	filter := query.NewFormatTestFilter(stagedFiles, *debug)
-	filteredTests := filter.Filter(allTests)
+func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool, debugf func(string, ...interface{})) []string {
+	if !noCache && cacheKey != "" {
+		if cachedTests, found := c.Get(cacheKey, pkg); found {
+			return cachedTests
+		}
+	}
 
-	// Sort and output
-	sort.Strings(filteredTests)
-	for _, test := range filteredTests {
+	tests, err := querier.FindAffectedTests([]string{pkg})
+	if err != nil {
+		debugf("Error querying tests for package %s: %v", pkg, err)
+		return nil
+	}
+
+	// Store in cache
+	if !noCache && cacheKey != "" {
+		if err := c.Set(cacheKey, pkg, tests); err != nil {
+			debugf("Failed to cache results for %s: %v", pkg, err)
+		}
+	}
+
+	return tests
+}
+
+func outputResults(tests []string) {
+	sort.Strings(tests)
+	for _, test := range tests {
 		fmt.Println(test)
 	}
 }

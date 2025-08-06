@@ -22,91 +22,98 @@ func NewBasicExecutor() *BasicExecutor {
 
 // Execute runs a tool with the given configuration and returns the result.
 func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.ExecutionResult, error) {
-	// Validate configuration
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	// Create timeout context if timeout is specified
-	execCtx := ctx
-	var cancel context.CancelFunc
-	if cfg.Timeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+	execCtx, cancel := e.createExecutionContext(ctx, cfg.Timeout)
+	if cancel != nil {
 		defer cancel()
 	}
 
-	// Create the command
-	var cmd *exec.Cmd
-	if requiresShellExecution(cfg.Command) {
-		// Some tools (like Bazel) work better when run through a shell
-		// This provides proper session management and I/O handling
-		fullCommand := buildShellCommand(cfg.Command, cfg.Args)
-		// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
-		cmd = exec.CommandContext(execCtx, "sh", "-c", fullCommand)
-	} else {
-		// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
-		cmd = exec.CommandContext(execCtx, cfg.Command, cfg.Args...)
+	cmd := e.createCommand(execCtx, cfg)
+	e.setupCommand(cmd, cfg)
+
+	stdout, stderr, startTime, endTime, err := e.executeCommand(cmd)
+
+	if timedOut := e.handleTimeout(execCtx, err, cfg); timedOut {
+		return nil, &TimeoutError{
+			Command: buildCommandString(cfg.Command, cfg.Args),
+			Timeout: cfg.Timeout,
+		}
 	}
 
-	// Set working directory if specified
+	exitCode, err := e.processExecutionError(err, cfg.Command)
+	if err != nil {
+		return nil, err
+	}
+
+	return e.buildExecutionResult(cfg, stdout, stderr, startTime, endTime, exitCode, err), nil
+}
+
+func (e *BasicExecutor) createExecutionContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout > 0 {
+		return context.WithTimeout(ctx, timeout)
+	}
+	return ctx, nil
+}
+
+func (e *BasicExecutor) createCommand(ctx context.Context, cfg ToolConfig) *exec.Cmd {
+	if requiresShellExecution(cfg.Command) {
+		fullCommand := buildShellCommand(cfg.Command, cfg.Args)
+		// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
+		return exec.CommandContext(ctx, "sh", "-c", fullCommand)
+	}
+	// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
+	return exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+}
+
+func (e *BasicExecutor) setupCommand(cmd *exec.Cmd, cfg ToolConfig) {
 	if cfg.WorkingDir != "" {
 		cmd.Dir = cfg.WorkingDir
 	}
 
-	// Set up environment variables
 	if len(cfg.Env) > 0 {
 		cmd.Env = os.Environ()
 		for key, value := range cfg.Env {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 		}
 	}
+}
 
-	// Set up output buffers
+func (e *BasicExecutor) executeCommand(cmd *exec.Cmd) (bytes.Buffer, bytes.Buffer, time.Time, time.Time, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Record start time
 	startTime := time.Now()
-
-	// Execute the command
 	err := cmd.Run()
-
-	// Record end time
 	endTime := time.Now()
 
-	// Check if the command timed out
-	timedOut := false
-	if err != nil && execCtx.Err() == context.DeadlineExceeded {
-		timedOut = true
-		// Return a timeout error if this was due to our configured timeout
-		if cfg.Timeout > 0 {
-			return nil, &TimeoutError{
-				Command: buildCommandString(cfg.Command, cfg.Args),
-				Timeout: cfg.Timeout,
-			}
-		}
+	return stdout, stderr, startTime, endTime, err //nolint:wrapcheck // Need to preserve original error type for exit code extraction
+}
+
+func (e *BasicExecutor) handleTimeout(ctx context.Context, err error, cfg ToolConfig) bool {
+	return err != nil && ctx.Err() == context.DeadlineExceeded && cfg.Timeout > 0
+}
+
+func (e *BasicExecutor) processExecutionError(err error, command string) (int, error) {
+	if err == nil {
+		return 0, nil
 	}
 
-	// Get exit code
-	exitCode := 0
-	if err != nil && !timedOut {
-		// Check if it's an exec.ExitError to get the exit code
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else if err == exec.ErrNotFound {
-			// Handle missing executable
-			return nil, &ExecutableNotFoundError{Command: cfg.Command}
-		} else {
-			// For other errors, use -1 as exit code
-			exitCode = -1
-		}
-	} else if timedOut {
-		// Use special exit code for timeout
-		exitCode = -2
+	if err == exec.ErrNotFound {
+		return 0, &ExecutableNotFoundError{Command: command}
 	}
 
-	// Create the execution result
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode(), nil
+	}
+
+	return -1, nil
+}
+
+func (e *BasicExecutor) buildExecutionResult(cfg ToolConfig, stdout, stderr bytes.Buffer, startTime, endTime time.Time, exitCode int, execErr error) *config.ExecutionResult {
 	result := &config.ExecutionResult{
 		Command:    cfg.Command,
 		Args:       cfg.Args,
@@ -116,15 +123,14 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.Ex
 		ExitCode:   exitCode,
 		StartTime:  startTime,
 		EndTime:    endTime,
-		TimedOut:   timedOut,
+		TimedOut:   false,
 	}
 
-	// Set error message if execution failed (but not for timeout, as we return TimeoutError)
-	if err != nil && err != exec.ErrNotFound && !timedOut {
-		result.Error = err.Error()
+	if execErr != nil && execErr != exec.ErrNotFound {
+		result.Error = execErr.Error()
 	}
 
-	return result, nil
+	return result
 }
 
 // IsAvailable checks if a command is available in the system PATH.

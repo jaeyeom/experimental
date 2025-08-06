@@ -262,14 +262,9 @@ func run() error {
 		return fmt.Errorf("parse config: %v", err)
 	}
 
-	// Create parent directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0o755); err != nil {
-		return fmt.Errorf("create storage directory: %v", err)
-	}
-
-	s, err := cfg.NewStorage()
+	s, err := initializeStorage(cfg)
 	if err != nil {
-		return fmt.Errorf("create storage: %v", err)
+		return err
 	}
 	defer s.Close()
 
@@ -280,70 +275,133 @@ func run() error {
 		return fmt.Errorf("no command provided")
 	}
 
-	switch args[0] {
+	return executeCommand(s, args)
+}
+
+func initializeStorage(cfg *config.StorageConfig) (storage, error) {
+	// Create parent directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(cfg.Path), 0o755); err != nil {
+		return nil, fmt.Errorf("create storage directory: %v", err)
+	}
+
+	s, err := cfg.NewStorage()
+	if err != nil {
+		return nil, fmt.Errorf("create storage: %v", err)
+	}
+	return s, nil
+}
+
+func executeCommand(s storage, args []string) error {
+	command := args[0]
+
+	switch command {
 	case "ls":
-		if err := listItems(s); err != nil {
-			return fmt.Errorf("list items: %v", err)
-		}
+		return executeListCommand(s, args)
 	case "add":
-		if len(args) != 2 {
-			return fmt.Errorf("add command requires exactly one argument")
-		}
-		if err := addItem(s, args[1]); err != nil {
-			return fmt.Errorf("add item: %v", err)
-		}
+		return executeAddCommand(s, args)
 	case "addsubtask":
-		if len(args) != 3 {
-			return fmt.Errorf("addsubtask command requires exactly two arguments")
-		}
-		if err := addSubtask(s, args[1], args[2]); err != nil {
-			return fmt.Errorf("add subtask: %v", err)
-		}
+		return executeAddSubtaskCommand(s, args)
 	case "complete":
-		if len(args) != 2 {
-			return fmt.Errorf("complete command requires exactly one argument")
-		}
-		if err := completeItem(s, args[1]); err != nil {
-			return fmt.Errorf("complete item: %v", err)
-		}
+		return executeCompleteCommand(s, args)
 	case "uncomplete":
-		if len(args) != 2 {
-			return fmt.Errorf("uncomplete command requires exactly one argument")
-		}
-		if err := uncompleteItem(s, args[1]); err != nil {
-			return fmt.Errorf("uncomplete item: %v", err)
-		}
+		return executeUncompleteCommand(s, args)
 	case "undo":
-		if len(args) != 2 {
-			return fmt.Errorf("undo command requires exactly one argument")
-		}
-		if err := undoItem(s, args[1]); err != nil {
-			return fmt.Errorf("undo item: %v", err)
-		}
+		return executeUndoCommand(s, args)
 	case "remove":
-		if len(args) != 2 {
-			return fmt.Errorf("remove command requires exactly one argument")
-		}
-		if err := removeItem(s, args[1]); err != nil {
-			return fmt.Errorf("remove item: %v", err)
-		}
+		return executeRemoveCommand(s, args)
 	case "moveup":
-		if len(args) != 2 {
-			return fmt.Errorf("moveup command requires exactly one argument")
-		}
-		if err := moveItemUp(s, args[1]); err != nil {
-			return fmt.Errorf("move item up: %v", err)
-		}
+		return executeMoveUpCommand(s, args)
 	case "movedown":
-		if len(args) != 2 {
-			return fmt.Errorf("movedown command requires exactly one argument")
-		}
-		if err := moveItemDown(s, args[1]); err != nil {
-			return fmt.Errorf("move item down: %v", err)
-		}
+		return executeMoveDownCommand(s, args)
 	default:
 		printUsage()
-		return fmt.Errorf("unknown command: %s", args[0])
+		return fmt.Errorf("unknown command: %s", command)
+	}
+}
+
+func executeListCommand(s storage, _ []string) error {
+	if err := listItems(s); err != nil {
+		return fmt.Errorf("list items: %v", err)
+	}
+	return nil
+}
+
+func executeAddCommand(s storage, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("add command requires exactly one argument")
+	}
+	if err := addItem(s, args[1]); err != nil {
+		return fmt.Errorf("add item: %v", err)
+	}
+	return nil
+}
+
+func executeAddSubtaskCommand(s storage, args []string) error {
+	if len(args) != 3 {
+		return fmt.Errorf("addsubtask command requires exactly two arguments")
+	}
+	if err := addSubtask(s, args[1], args[2]); err != nil {
+		return fmt.Errorf("add subtask: %v", err)
+	}
+	return nil
+}
+
+func executeCompleteCommand(s storage, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("complete command requires exactly one argument")
+	}
+	if err := completeItem(s, args[1]); err != nil {
+		return fmt.Errorf("complete item: %v", err)
+	}
+	return nil
+}
+
+func executeUncompleteCommand(s storage, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("uncomplete command requires exactly one argument")
+	}
+	if err := uncompleteItem(s, args[1]); err != nil {
+		return fmt.Errorf("uncomplete item: %v", err)
+	}
+	return nil
+}
+
+func executeUndoCommand(s storage, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("undo command requires exactly one argument")
+	}
+	if err := undoItem(s, args[1]); err != nil {
+		return fmt.Errorf("undo item: %v", err)
+	}
+	return nil
+}
+
+func executeRemoveCommand(s storage, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("remove command requires exactly one argument")
+	}
+	if err := removeItem(s, args[1]); err != nil {
+		return fmt.Errorf("remove item: %v", err)
+	}
+	return nil
+}
+
+func executeMoveUpCommand(s storage, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("moveup command requires exactly one argument")
+	}
+	if err := moveItemUp(s, args[1]); err != nil {
+		return fmt.Errorf("move item up: %v", err)
+	}
+	return nil
+}
+
+func executeMoveDownCommand(s storage, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("movedown command requires exactly one argument")
+	}
+	if err := moveItemDown(s, args[1]); err != nil {
+		return fmt.Errorf("move item down: %v", err)
 	}
 	return nil
 }

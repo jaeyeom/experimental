@@ -74,89 +74,22 @@ func NewProjectDetector() *ProjectDetector {
 
 // Detect analyzes the given path and returns project configuration.
 func (d *ProjectDetector) Detect(rootPath string) (*config.ProjectConfig, error) {
-	// Resolve to absolute path
 	absPath, err := filepath.Abs(rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
 
-	// Scan the directory
-	scanner := NewScanner(DefaultScanOptions())
-	scanResult, err := scanner.Scan(absPath)
+	scanResult, err := d.performInitialScan(absPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Detect languages
 	languages := d.patternMatcher.MatchLanguages(scanResult.Files)
-
-	// Detect build system with location awareness
 	buildSystem := d.patternMatcher.MatchBuildSystemWithLocation(scanResult.Files)
+	hasGit := d.detectGitRepository(absPath)
 
-	// Check for git repository (scan with different options to include .git)
-	gitScanOptions := DefaultScanOptions()
-	gitScanOptions.IncludeHidden = true
-	gitScanOptions.MaxDepth = 2 // Scan one level deeper to find .git/HEAD
-	// Remove .git from ignore patterns temporarily
-	newIgnorePatterns := make([]string, 0, len(gitScanOptions.IgnorePatterns))
-	for _, pattern := range gitScanOptions.IgnorePatterns {
-		if pattern != ".git" {
-			newIgnorePatterns = append(newIgnorePatterns, pattern)
-		}
-	}
-	gitScanOptions.IgnorePatterns = newIgnorePatterns
-
-	gitScanner := NewScanner(gitScanOptions)
-	gitScanResult, _ := gitScanner.Scan(absPath)
-	hasGit := false
-	if gitScanResult != nil {
-		// Check for .git directory or .git file (in case of worktrees)
-		for _, dir := range gitScanResult.Directories {
-			if dir == ".git" {
-				hasGit = true
-				break
-			}
-		}
-		// Also check for .git/HEAD or other git files
-		if !hasGit {
-			hasGit = gitScanResult.HasPattern(".git/*") || gitScanResult.HasFile(".git")
-		}
-	}
-
-	// Aggregate tools from all detected components
-	tools := make(map[config.ToolType][]string)
-
-	// Add language-specific tools
-	for _, lang := range languages {
-		if detector, exists := d.languageDetectors[lang]; exists {
-			langTools := detector.GetTools(absPath)
-			for toolType, toolList := range langTools {
-				tools[toolType] = append(tools[toolType], toolList...)
-			}
-		}
-	}
-
-	// Add build system tools (these take priority)
-	if detector, exists := d.buildSystemDetectors[buildSystem]; exists {
-		buildTools := detector.GetTools(absPath)
-		for toolType, toolList := range buildTools {
-			// Prepend build system tools to give them priority
-			tools[toolType] = append(toolList, tools[toolType]...)
-		}
-	}
-
-	// Collect configuration files
-	configFiles := make(map[string]string)
-
-	// Add language-specific config files
-	for _, lang := range languages {
-		if detector, exists := d.languageDetectors[lang]; exists {
-			langConfigs := detector.GetConfigFiles(absPath)
-			for tool, file := range langConfigs {
-				configFiles[tool] = file
-			}
-		}
-	}
+	tools := d.aggregateTools(languages, buildSystem, absPath)
+	configFiles := d.collectConfigFiles(languages, absPath)
 
 	return &config.ProjectConfig{
 		RootPath:      absPath,
@@ -167,6 +100,100 @@ func (d *ProjectDetector) Detect(rootPath string) (*config.ProjectConfig, error)
 		HasGit:        hasGit,
 		DetectionTime: time.Now(),
 	}, nil
+}
+
+func (d *ProjectDetector) performInitialScan(absPath string) (*ScanResult, error) {
+	scanner := NewScanner(DefaultScanOptions())
+	return scanner.Scan(absPath)
+}
+
+func (d *ProjectDetector) detectGitRepository(absPath string) bool {
+	gitScanOptions := d.createGitScanOptions()
+	gitScanner := NewScanner(gitScanOptions)
+	gitScanResult, _ := gitScanner.Scan(absPath)
+
+	if gitScanResult == nil {
+		return false
+	}
+
+	return d.checkForGitIndicators(gitScanResult)
+}
+
+func (d *ProjectDetector) createGitScanOptions() ScanOptions {
+	gitScanOptions := DefaultScanOptions()
+	gitScanOptions.IncludeHidden = true
+	gitScanOptions.MaxDepth = 2
+
+	// Remove .git from ignore patterns
+	newIgnorePatterns := make([]string, 0, len(gitScanOptions.IgnorePatterns))
+	for _, pattern := range gitScanOptions.IgnorePatterns {
+		if pattern != ".git" {
+			newIgnorePatterns = append(newIgnorePatterns, pattern)
+		}
+	}
+	gitScanOptions.IgnorePatterns = newIgnorePatterns
+
+	return gitScanOptions
+}
+
+func (d *ProjectDetector) checkForGitIndicators(gitScanResult *ScanResult) bool {
+	// Check for .git directory
+	for _, dir := range gitScanResult.Directories {
+		if dir == ".git" {
+			return true
+		}
+	}
+
+	// Check for .git files (worktrees)
+	return gitScanResult.HasPattern(".git/*") || gitScanResult.HasFile(".git")
+}
+
+func (d *ProjectDetector) aggregateTools(languages []config.Language, buildSystem config.BuildSystem, absPath string) map[config.ToolType][]string {
+	tools := make(map[config.ToolType][]string)
+
+	// Add language-specific tools
+	d.addLanguageTools(tools, languages, absPath)
+
+	// Add build system tools (with priority)
+	d.addBuildSystemTools(tools, buildSystem, absPath)
+
+	return tools
+}
+
+func (d *ProjectDetector) addLanguageTools(tools map[config.ToolType][]string, languages []config.Language, absPath string) {
+	for _, lang := range languages {
+		if detector, exists := d.languageDetectors[lang]; exists {
+			langTools := detector.GetTools(absPath)
+			for toolType, toolList := range langTools {
+				tools[toolType] = append(tools[toolType], toolList...)
+			}
+		}
+	}
+}
+
+func (d *ProjectDetector) addBuildSystemTools(tools map[config.ToolType][]string, buildSystem config.BuildSystem, absPath string) {
+	if detector, exists := d.buildSystemDetectors[buildSystem]; exists {
+		buildTools := detector.GetTools(absPath)
+		for toolType, toolList := range buildTools {
+			// Prepend build system tools to give them priority
+			tools[toolType] = append(toolList, tools[toolType]...)
+		}
+	}
+}
+
+func (d *ProjectDetector) collectConfigFiles(languages []config.Language, absPath string) map[string]string {
+	configFiles := make(map[string]string)
+
+	for _, lang := range languages {
+		if detector, exists := d.languageDetectors[lang]; exists {
+			langConfigs := detector.GetConfigFiles(absPath)
+			for tool, file := range langConfigs {
+				configFiles[tool] = file
+			}
+		}
+	}
+
+	return configFiles
 }
 
 // SupportedLanguages returns the list of languages this detector supports.

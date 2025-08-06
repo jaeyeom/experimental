@@ -23,46 +23,54 @@ func main() {
 	command := os.Args[1]
 	args := os.Args[2:]
 
-	switch command {
-	case "init":
-		handleInit(args)
-	case "info":
-		handleInfo(args)
-	case "ls":
-		handleList(args)
-	case "get":
-		handleGet(args)
-	case "set":
-		handleSet(args)
-	case "delete":
-		handleDelete(args)
-	case "migrate":
-		handleMigrate(args)
-	case "backup":
-		handleBackup(args)
-	case "restore":
-		handleRestore(args)
-	case "clean":
-		handleClean(args)
-	case "vacuum":
-		handleVacuum(args)
-	case "lock":
-		handleLock(args)
-	case "export":
-		handleExport(args)
-	case "import":
-		handleImport(args)
-	case "verify":
-		handleVerify(args)
-	case "version":
-		fmt.Printf("gh-storage version %s\n", version)
-	case "help", "-h", "--help":
-		showUsage()
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
-		showUsage()
-		os.Exit(1)
+	executeCommand(command, args)
+}
+
+func executeCommand(command string, args []string) {
+	handler := getCommandHandler(command)
+	if handler != nil {
+		handler(args)
+		return
 	}
+
+	if isHelpCommand(command) {
+		showUsage()
+		return
+	}
+
+	if command == "version" {
+		fmt.Printf("gh-storage version %s\n", version)
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
+	showUsage()
+	os.Exit(1)
+}
+
+func getCommandHandler(command string) func([]string) {
+	handlers := map[string]func([]string){
+		"init":    handleInit,
+		"info":    handleInfo,
+		"ls":      handleList,
+		"get":     handleGet,
+		"set":     handleSet,
+		"delete":  handleDelete,
+		"migrate": handleMigrate,
+		"backup":  handleBackup,
+		"restore": handleRestore,
+		"clean":   handleClean,
+		"vacuum":  handleVacuum,
+		"lock":    handleLock,
+		"export":  handleExport,
+		"import":  handleImport,
+		"verify":  handleVerify,
+	}
+	return handlers[command]
+}
+
+func isHelpCommand(command string) bool {
+	return command == "help" || command == "-h" || command == "--help"
 }
 
 func showUsage() {
@@ -212,43 +220,13 @@ func handleInfo(args []string) {
 }
 
 func handleList(args []string) {
-	var path string
-	var recursive bool
-	format := "table"
-	var filter string
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--recursive":
-			recursive = true
-		case "--format":
-			if i+1 >= len(args) {
-				fmt.Fprintf(os.Stderr, "--format requires a value\n")
-				os.Exit(1)
-			}
-			format = args[i+1]
-			i++
-		case "--filter":
-			if i+1 >= len(args) {
-				fmt.Fprintf(os.Stderr, "--filter requires a value\n")
-				os.Exit(1)
-			}
-			filter = args[i+1]
-			i++
-		case "-h", "--help":
-			fmt.Println("Usage: gh-storage ls [path] [options]")
-			fmt.Println("  --recursive       List recursively")
-			fmt.Println("  --format FORMAT   Output format (table, json, tree)")
-			fmt.Println("  --filter PATTERN  Filter by pattern")
+	path, recursive, format, filter, err := parseListArgs(args)
+	if err != nil {
+		if err.Error() == "help requested" {
 			return
-		default:
-			if path == "" {
-				path = args[i]
-			} else {
-				fmt.Fprintf(os.Stderr, "Too many arguments\n")
-				os.Exit(1)
-			}
 		}
+		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
+		os.Exit(1)
 	}
 
 	storageHome := getStorageHome()
@@ -262,6 +240,50 @@ func handleList(args []string) {
 		fmt.Fprintf(os.Stderr, "Error listing storage: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func parseListArgs(args []string) (string, bool, string, string, error) {
+	var path string
+	var recursive bool
+	format := "table"
+	var filter string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--recursive":
+			recursive = true
+		case "--format":
+			if i+1 >= len(args) {
+				return "", false, "", "", fmt.Errorf("--format requires a value")
+			}
+			format = args[i+1]
+			i++
+		case "--filter":
+			if i+1 >= len(args) {
+				return "", false, "", "", fmt.Errorf("--filter requires a value")
+			}
+			filter = args[i+1]
+			i++
+		case "-h", "--help":
+			showListUsage()
+			return "", false, "", "", fmt.Errorf("help requested")
+		default:
+			if path == "" {
+				path = args[i]
+			} else {
+				return "", false, "", "", fmt.Errorf("too many arguments")
+			}
+		}
+	}
+
+	return path, recursive, format, filter, nil
+}
+
+func showListUsage() {
+	fmt.Println("Usage: gh-storage ls [path] [options]")
+	fmt.Println("  --recursive       List recursively")
+	fmt.Println("  --format FORMAT   Output format (table, json, tree)")
+	fmt.Println("  --filter PATTERN  Filter by pattern")
 }
 
 func handleGet(args []string) {
@@ -389,40 +411,13 @@ func handleDelete(args []string) {
 }
 
 func handleMigrate(args []string) {
-	var from, to string
-	var dryRun, backup bool
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--from":
-			if i+1 >= len(args) {
-				fmt.Fprintf(os.Stderr, "--from requires a value\n")
-				os.Exit(1)
-			}
-			from = args[i+1]
-			i++
-		case "--to":
-			if i+1 >= len(args) {
-				fmt.Fprintf(os.Stderr, "--to requires a value\n")
-				os.Exit(1)
-			}
-			to = args[i+1]
-			i++
-		case "--dry-run":
-			dryRun = true
-		case "--backup":
-			backup = true
-		case "-h", "--help":
-			fmt.Println("Usage: gh-storage migrate [options]")
-			fmt.Println("  --from PATH     Source format/path")
-			fmt.Println("  --to PATH       Target format/path")
-			fmt.Println("  --dry-run       Preview migration without changes")
-			fmt.Println("  --backup        Create backup before migration")
+	from, to, dryRun, backup, err := parseMigrateArgs(args)
+	if err != nil {
+		if err.Error() == "help requested" {
 			return
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown option: %s\n", args[i])
-			os.Exit(1)
 		}
+		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
+		os.Exit(1)
 	}
 
 	storageHome := getStorageHome()
@@ -437,6 +432,47 @@ func handleMigrate(args []string) {
 	} else {
 		fmt.Println("Migration completed")
 	}
+}
+
+func parseMigrateArgs(args []string) (string, string, bool, bool, error) {
+	var from, to string
+	var dryRun, backup bool
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--from":
+			if i+1 >= len(args) {
+				return "", "", false, false, fmt.Errorf("--from requires a value")
+			}
+			from = args[i+1]
+			i++
+		case "--to":
+			if i+1 >= len(args) {
+				return "", "", false, false, fmt.Errorf("--to requires a value")
+			}
+			to = args[i+1]
+			i++
+		case "--dry-run":
+			dryRun = true
+		case "--backup":
+			backup = true
+		case "-h", "--help":
+			showMigrateUsage()
+			return "", "", false, false, fmt.Errorf("help requested")
+		default:
+			return "", "", false, false, fmt.Errorf("unknown option: %s", args[i])
+		}
+	}
+
+	return from, to, dryRun, backup, nil
+}
+
+func showMigrateUsage() {
+	fmt.Println("Usage: gh-storage migrate [options]")
+	fmt.Println("  --from PATH     Source format/path")
+	fmt.Println("  --to PATH       Target format/path")
+	fmt.Println("  --dry-run       Preview migration without changes")
+	fmt.Println("  --backup        Create backup before migration")
 }
 
 func handleBackup(args []string) {
@@ -486,34 +522,13 @@ func handleBackup(args []string) {
 }
 
 func handleRestore(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: gh-storage restore <backup-id> [path] [options]\n")
-		os.Exit(1)
-	}
-
-	backupID := args[0]
-	var path string
-	var list, preview bool
-
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--list":
-			list = true
-		case "--preview":
-			preview = true
-		case "-h", "--help":
-			fmt.Println("Usage: gh-storage restore <backup-id> [path] [options]")
-			fmt.Println("  --list     List available backups")
-			fmt.Println("  --preview  Preview restore operation")
+	backupID, path, list, preview, err := parseRestoreArgs(args)
+	if err != nil {
+		if err.Error() == "help requested" {
 			return
-		default:
-			if path == "" {
-				path = args[i]
-			} else {
-				fmt.Fprintf(os.Stderr, "Too many arguments\n")
-				os.Exit(1)
-			}
 		}
+		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
+		os.Exit(1)
 	}
 
 	storageHome := getStorageHome()
@@ -539,38 +554,50 @@ func handleRestore(args []string) {
 	}
 }
 
-func handleClean(args []string) {
-	var olderThan, cleanType string
-	var dryRun bool
+func parseRestoreArgs(args []string) (string, string, bool, bool, error) {
+	if len(args) < 1 {
+		return "", "", false, false, fmt.Errorf("backup-id is required")
+	}
 
-	for i := 0; i < len(args); i++ {
+	backupID := args[0]
+	var path string
+	var list, preview bool
+
+	for i := 1; i < len(args); i++ {
 		switch args[i] {
-		case "--older-than":
-			if i+1 >= len(args) {
-				fmt.Fprintf(os.Stderr, "--older-than requires a value\n")
-				os.Exit(1)
-			}
-			olderThan = args[i+1]
-			i++
-		case "--type":
-			if i+1 >= len(args) {
-				fmt.Fprintf(os.Stderr, "--type requires a value\n")
-				os.Exit(1)
-			}
-			cleanType = args[i+1]
-			i++
-		case "--dry-run":
-			dryRun = true
+		case "--list":
+			list = true
+		case "--preview":
+			preview = true
 		case "-h", "--help":
-			fmt.Println("Usage: gh-storage clean [options]")
-			fmt.Println("  --older-than DURATION  Remove data older than duration (30d, 1w, etc.)")
-			fmt.Println("  --type TYPE            Data type to clean (cache, logs, temp)")
-			fmt.Println("  --dry-run              Preview cleanup without changes")
-			return
+			showRestoreUsage()
+			return "", "", false, false, fmt.Errorf("help requested")
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown option: %s\n", args[i])
-			os.Exit(1)
+			if path == "" {
+				path = args[i]
+			} else {
+				return "", "", false, false, fmt.Errorf("too many arguments")
+			}
 		}
+	}
+
+	return backupID, path, list, preview, nil
+}
+
+func showRestoreUsage() {
+	fmt.Println("Usage: gh-storage restore <backup-id> [path] [options]")
+	fmt.Println("  --list     List available backups")
+	fmt.Println("  --preview  Preview restore operation")
+}
+
+func handleClean(args []string) {
+	olderThan, cleanType, dryRun, err := parseCleanArgs(args)
+	if err != nil {
+		if err.Error() == "help requested" {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
+		os.Exit(1)
 	}
 
 	storageHome := getStorageHome()
@@ -585,6 +612,44 @@ func handleClean(args []string) {
 	} else {
 		fmt.Println("Storage cleaned")
 	}
+}
+
+func parseCleanArgs(args []string) (string, string, bool, error) {
+	var olderThan, cleanType string
+	var dryRun bool
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--older-than":
+			if i+1 >= len(args) {
+				return "", "", false, fmt.Errorf("--older-than requires a value")
+			}
+			olderThan = args[i+1]
+			i++
+		case "--type":
+			if i+1 >= len(args) {
+				return "", "", false, fmt.Errorf("--type requires a value")
+			}
+			cleanType = args[i+1]
+			i++
+		case "--dry-run":
+			dryRun = true
+		case "-h", "--help":
+			showCleanUsage()
+			return "", "", false, fmt.Errorf("help requested")
+		default:
+			return "", "", false, fmt.Errorf("unknown option: %s", args[i])
+		}
+	}
+
+	return olderThan, cleanType, dryRun, nil
+}
+
+func showCleanUsage() {
+	fmt.Println("Usage: gh-storage clean [options]")
+	fmt.Println("  --older-than DURATION  Remove data older than duration (30d, 1w, etc.)")
+	fmt.Println("  --type TYPE            Data type to clean (cache, logs, temp)")
+	fmt.Println("  --dry-run              Preview cleanup without changes")
 }
 
 func handleVacuum(args []string) {

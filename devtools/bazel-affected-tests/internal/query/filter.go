@@ -36,80 +36,111 @@ func (f *FormatTestFilter) Filter(tests []string) []string {
 // detectFileTypes returns a map of file types present in staged files.
 func (f *FormatTestFilter) detectFileTypes() map[string]bool {
 	types := make(map[string]bool)
-
 	hasHFiles := false
+
 	for _, file := range f.stagedFiles {
 		ext := strings.ToLower(filepath.Ext(file))
 		base := filepath.Base(file)
 
-		// Track .h files separately as they could be C or C++
 		if ext == ".h" {
 			hasHFiles = true
 		}
 
-		// C++ files
-		if ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".c++" ||
-			ext == ".hpp" || ext == ".hxx" || ext == ".hh" {
-			types["cpp"] = true
-		}
-
-		// C files
-		if ext == ".c" {
-			types["c"] = true
-		}
-
-		// Go files
-		if ext == ".go" {
-			types["go"] = true
-		}
-
-		// Jsonnet files
-		if ext == ".jsonnet" || ext == ".libsonnet" {
-			types["jsonnet"] = true
-		}
-
-		// Protocol Buffer files
-		if ext == ".proto" {
-			types["proto"] = true
-		}
-
-		// Python files
-		if ext == ".py" {
-			types["python"] = true
-		}
-
-		// Rust files
-		if ext == ".rs" {
-			types["rust"] = true
-		}
-
-		// Starlark/Bazel files
-		if ext == ".bzl" || base == "BUILD" || base == "BUILD.bazel" ||
-			base == "WORKSPACE" || base == "WORKSPACE.bazel" ||
-			base == "MODULE" || base == "MODULE.bazel" {
-			types["starlark"] = true
+		fileType := detectFileType(ext, base)
+		if fileType != "" {
+			types[fileType] = true
 		}
 	}
 
-	// If we have .h files but no C++ files, assume they're C headers
-	// If we have C++ files, .h files are included with C++
-	// If we have neither, include both C and C++ tests to be safe
+	// Handle .h file ambiguity
 	if hasHFiles {
-		switch {
-		case !types["cpp"] && !types["c"]:
-			// .h files only - could be either, so include both
-			types["c"] = true
-			types["cpp"] = true
-		case !types["cpp"] && types["c"]:
-			// C files exist, no C++ files - treat .h as C
-			// Already have types["c"] = true
-		case types["cpp"]:
-			// C++ files exist - .h files are already covered by C++
-			// Already have types["cpp"] = true
-		}
+		resolveHeaderFileTypes(types)
 	}
 
 	return types
+}
+
+func detectFileType(ext, base string) string {
+	// C++ files
+	if isCppExtension(ext) {
+		return "cpp"
+	}
+
+	// C files
+	if ext == ".c" {
+		return "c"
+	}
+
+	// Go files
+	if ext == ".go" {
+		return "go"
+	}
+
+	// Jsonnet files
+	if ext == ".jsonnet" || ext == ".libsonnet" {
+		return "jsonnet"
+	}
+
+	// Protocol Buffer files
+	if ext == ".proto" {
+		return "proto"
+	}
+
+	// Python files
+	if ext == ".py" {
+		return "python"
+	}
+
+	// Rust files
+	if ext == ".rs" {
+		return "rust"
+	}
+
+	// Starlark/Bazel files
+	if isStarlarkFile(ext, base) {
+		return "starlark"
+	}
+
+	return ""
+}
+
+func isCppExtension(ext string) bool {
+	cppExtensions := []string{".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hxx", ".hh"}
+	for _, cppExt := range cppExtensions {
+		if ext == cppExt {
+			return true
+		}
+	}
+	return false
+}
+
+func isStarlarkFile(ext, base string) bool {
+	if ext == ".bzl" {
+		return true
+	}
+
+	starlarkFiles := []string{"BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel", "MODULE", "MODULE.bazel"}
+	for _, starlarkFile := range starlarkFiles {
+		if base == starlarkFile {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveHeaderFileTypes(types map[string]bool) {
+	switch {
+	case !types["cpp"] && !types["c"]:
+		// .h files only - could be either, so include both
+		types["c"] = true
+		types["cpp"] = true
+	case !types["cpp"] && types["c"]:
+		// C files exist, no C++ files - treat .h as C
+		// Already have types["c"] = true
+	case types["cpp"]:
+		// C++ files exist - .h files are already covered by C++
+		// Already have types["cpp"] = true
+	}
 }
 
 // shouldIncludeTest determines if a test should be included based on file types.

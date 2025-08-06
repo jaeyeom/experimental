@@ -209,10 +209,42 @@ type Issue struct {
 
 // Validate ensures the Issue has valid data.
 func (i *Issue) Validate() error {
+	if err := i.validatePositions(); err != nil {
+		return err
+	}
+
+	if err := i.validateRequiredFields(); err != nil {
+		return err
+	}
+
+	return i.validateSeverity()
+}
+
+func (i *Issue) validateRequiredFields() error {
 	if i.FilePath == "" {
 		return fmt.Errorf("filePath cannot be empty")
 	}
 
+	if i.Message == "" {
+		return fmt.Errorf("message cannot be empty")
+	}
+
+	if i.ToolName == "" {
+		return fmt.Errorf("toolName cannot be empty")
+	}
+
+	return nil
+}
+
+func (i *Issue) validatePositions() error {
+	if err := i.validateNonNegativePositions(); err != nil {
+		return err
+	}
+
+	return i.validateEndPositions()
+}
+
+func (i *Issue) validateNonNegativePositions() error {
 	if i.Line < 0 {
 		return fmt.Errorf("line cannot be negative")
 	}
@@ -229,7 +261,10 @@ func (i *Issue) Validate() error {
 		return fmt.Errorf("endColumn cannot be negative")
 	}
 
-	// If end positions are specified, they should be after start positions
+	return nil
+}
+
+func (i *Issue) validateEndPositions() error {
 	if i.EndLine > 0 && i.EndLine < i.Line {
 		return fmt.Errorf("endLine cannot be before line")
 	}
@@ -238,25 +273,18 @@ func (i *Issue) Validate() error {
 		return fmt.Errorf("endColumn cannot be before column on the same line")
 	}
 
-	// Validate severity
+	return nil
+}
+
+func (i *Issue) validateSeverity() error {
 	switch i.Severity {
 	case SeverityError, SeverityWarning, SeverityInfo, SeverityHint:
-		// Valid values
+		return nil
 	case "":
 		return fmt.Errorf("severity cannot be empty")
 	default:
 		return fmt.Errorf("invalid severity: %s", i.Severity)
 	}
-
-	if i.Message == "" {
-		return fmt.Errorf("message cannot be empty")
-	}
-
-	if i.ToolName == "" {
-		return fmt.Errorf("toolName cannot be empty")
-	}
-
-	return nil
 }
 
 // String returns a human-readable representation of the issue.
