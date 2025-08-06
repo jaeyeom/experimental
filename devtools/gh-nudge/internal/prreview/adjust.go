@@ -36,12 +36,24 @@ type CommentChange struct {
 }
 
 // AdjustCommand adjusts comment line numbers based on diff specifications.
+// Supports both single-file and multi-file processing modes.
 func (ch *CommandHandler) AdjustCommand(owner, repo, identifier, file, diffSpec string, dryRun, force bool, format string) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
+	// Check if this is a unified diff that might contain multiple files
+	if models.DetectFormat(diffSpec) == models.FormatUnifiedDiff {
+		return ch.adjustCommandUnifiedDiff(owner, repo, *parsed, file, diffSpec, dryRun, force, format)
+	}
+
+	// Traditional single-file processing
+	return ch.adjustCommandSingleFile(owner, repo, *parsed, file, diffSpec, dryRun, force, format)
+}
+
+// adjustCommandSingleFile handles traditional single-file adjustment.
+func (ch *CommandHandler) adjustCommandSingleFile(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, dryRun, force bool, format string) error {
 	// Parse diff spec with auto-detection
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -73,6 +85,97 @@ func (ch *CommandHandler) AdjustCommand(owner, repo, identifier, file, diffSpec 
 		return ch.applyPRAdjustments(owner, repo, parsed.PRNumber, file, adjustments, force)
 	}
 	return ch.applyBranchAdjustments(owner, repo, parsed.BranchName, file, adjustments, force)
+}
+
+// adjustCommandUnifiedDiff handles unified diff processing (single-file or multi-file).
+func (ch *CommandHandler) adjustCommandUnifiedDiff(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, dryRun, force bool, format string) error {
+	if file != "" {
+		// Single-file mode: filter unified diff for specific file
+		filteredDiff, err := models.FilterUnifiedDiffForFile(diffSpec, file)
+		if err != nil {
+			return fmt.Errorf("failed to filter unified diff for file %s: %w", file, err)
+		}
+		return ch.adjustCommandSingleFile(owner, repo, parsed, file, filteredDiff, dryRun, force, format)
+	}
+
+	// Multi-file mode: process all files in the unified diff
+	fileSpecs, err := models.ConvertUnifiedDiffToMultiFileClassicDiff(diffSpec)
+	if err != nil {
+		return fmt.Errorf("failed to parse unified diff: %w", err)
+	}
+
+	fmt.Printf("Processing %d file(s) from unified diff:\n", len(fileSpecs))
+	for _, spec := range fileSpecs {
+		fmt.Printf("- %s\n", spec.FilePath)
+	}
+	fmt.Println()
+
+	totalAdjusted := 0
+	totalOrphaned := 0
+	totalWarnings := 0
+
+	for i, spec := range fileSpecs {
+		fmt.Printf("=== Processing file %d/%d: %s ===\n", i+1, len(fileSpecs), spec.FilePath)
+
+		// Get preview for this file
+		var preview string
+		if parsed.IsPR() {
+			preview, err = ch.getAdjustmentPreview(owner, repo, parsed.PRNumber, spec.FilePath, spec.ClassicDiff, format)
+		} else {
+			preview, err = ch.getBranchAdjustmentPreview(owner, repo, parsed.BranchName, spec.FilePath, spec.ClassicDiff, format)
+		}
+
+		if err != nil {
+			fmt.Printf("Warning: Failed to get preview for %s: %v\n", spec.FilePath, err)
+			continue
+		}
+
+		// Display preview
+		fmt.Println(preview)
+
+		if !dryRun {
+			// Parse adjustments for this file
+			adjustments, err := models.ParseDiffSpecWithAutoDetection(spec.ClassicDiff)
+			if err != nil {
+				fmt.Printf("Warning: Failed to parse diff spec for %s: %v\n", spec.FilePath, err)
+				continue
+			}
+
+			// Apply adjustments for this file
+			var fileAdjusted, fileOrphaned, fileWarnings int
+			if parsed.IsPR() {
+				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyPRAdjustmentsWithCounts(owner, repo, parsed.PRNumber, spec.FilePath, adjustments, force)
+			} else {
+				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyBranchAdjustmentsWithCounts(owner, repo, parsed.BranchName, spec.FilePath, adjustments, force)
+			}
+
+			if err != nil {
+				fmt.Printf("Warning: Failed to apply adjustments for %s: %v\n", spec.FilePath, err)
+				continue
+			}
+
+			totalAdjusted += fileAdjusted
+			totalOrphaned += fileOrphaned
+			totalWarnings += fileWarnings
+		}
+
+		fmt.Println()
+	}
+
+	if dryRun {
+		fmt.Println("\n[DRY RUN] No changes were made.")
+	} else {
+		fmt.Printf("\nOverall adjustment summary:\n")
+		fmt.Printf("- %d comments adjusted across %d files\n", totalAdjusted, len(fileSpecs))
+		if totalOrphaned > 0 {
+			fmt.Printf("- %d comments orphaned\n", totalOrphaned)
+		}
+		if totalWarnings > 0 {
+			fmt.Printf("- %d warnings\n", totalWarnings)
+		}
+	}
+
+	return nil
 }
 
 // getBranchAdjustmentPreview generates a preview of the adjustments for a branch.
@@ -454,4 +557,128 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// applyPRAdjustmentsWithCounts applies adjustments to PR comments and returns counts.
+func (ch *CommandHandler) applyPRAdjustmentsWithCounts(owner, repo string, prNumber int, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
+	// Get all comments
+	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Get diff hunks for validation
+	prDiffHunks, err := ch.storage.GetDiffHunks(owner, repo, prNumber)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get diff hunks: %w", err)
+	}
+
+	adjustedCount := 0
+	orphanedCount := 0
+	warningCount := 0
+
+	// Process each comment
+	updatedComments := make([]models.Comment, 0, len(prComments.Comments))
+	for _, comment := range prComments.Comments {
+		if comment.Path != file {
+			// Keep comments from other files unchanged
+			updatedComments = append(updatedComments, comment)
+			continue
+		}
+
+		// Apply adjustments
+		if models.AdjustComment(&comment, adjustments) {
+			// Validate against diff hunks
+			if err := models.ValidateAdjustmentAgainstDiff(comment, adjustments, prDiffHunks.DiffHunks); err != nil {
+				if !force {
+					return 0, 0, 0, fmt.Errorf("comment %s: %w (use --force to override)", comment.FormatIDShort(), err)
+				}
+				warningCount++
+				fmt.Printf("Warning: Comment %s: %s\n", comment.FormatIDShort(), err.Error())
+			}
+			adjustedCount++
+			updatedComments = append(updatedComments, comment)
+		} else {
+			// Comment is on deleted line
+			orphanedCount++
+			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
+			// Optionally keep orphaned comments with a special marker
+			if force {
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", comment.OriginalLine, comment.Body)
+				updatedComments = append(updatedComments, comment)
+			}
+		}
+	}
+
+	// Update storage
+	prComments.Comments = updatedComments
+	prComments.UpdatedAt = time.Now()
+
+	if err := ch.storage.UpdateComments(owner, repo, prNumber, *prComments); err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to update comments: %w", err)
+	}
+
+	return adjustedCount, orphanedCount, warningCount, nil
+}
+
+// applyBranchAdjustmentsWithCounts applies adjustments to branch comments and returns counts.
+func (ch *CommandHandler) applyBranchAdjustmentsWithCounts(owner, repo, branchName, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
+	// Get all comments
+	branchComments, err := ch.storage.GetBranchComments(owner, repo, branchName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get branch comments: %w", err)
+	}
+
+	// Get diff hunks for validation
+	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(owner, repo, branchName)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get branch diff hunks: %w", err)
+	}
+
+	adjustedCount := 0
+	orphanedCount := 0
+	warningCount := 0
+
+	// Process each comment
+	updatedComments := make([]models.Comment, 0, len(branchComments.Comments))
+	for _, comment := range branchComments.Comments {
+		if comment.Path != file {
+			// Keep comments from other files unchanged
+			updatedComments = append(updatedComments, comment)
+			continue
+		}
+
+		// Apply adjustments
+		if models.AdjustComment(&comment, adjustments) {
+			// Validate against diff hunks
+			if err := models.ValidateAdjustmentAgainstDiff(comment, adjustments, branchDiffHunks.DiffHunks); err != nil {
+				if !force {
+					return 0, 0, 0, fmt.Errorf("comment %s: %w (use --force to override)", comment.FormatIDShort(), err)
+				}
+				warningCount++
+				fmt.Printf("Warning: Comment %s: %s\n", comment.FormatIDShort(), err.Error())
+			}
+			adjustedCount++
+			updatedComments = append(updatedComments, comment)
+		} else {
+			// Comment is on deleted line
+			orphanedCount++
+			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
+			// Optionally keep orphaned comments with a special marker
+			if force {
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", comment.OriginalLine, comment.Body)
+				updatedComments = append(updatedComments, comment)
+			}
+		}
+	}
+
+	// Update storage
+	branchComments.Comments = updatedComments
+	branchComments.UpdatedAt = time.Now()
+
+	if err := ch.storage.UpdateBranchComments(owner, repo, branchName, *branchComments); err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to update branch comments: %w", err)
+	}
+
+	return adjustedCount, orphanedCount, warningCount, nil
 }

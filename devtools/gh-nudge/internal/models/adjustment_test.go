@@ -493,6 +493,454 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 	}
 }
 
+// TestConvertUnifiedDiffToClassicDiff tests the unified diff conversion functionality.
+func TestConvertUnifiedDiffToClassicDiff(t *testing.T) {
+	tests := []struct {
+		name        string
+		unifiedDiff string
+		want        string
+		wantErr     bool
+	}{
+		{
+			name: "simple deletion",
+			unifiedDiff: `diff --git a/old.txt b/old.txt
+--- a/old.txt
++++ b/old.txt
+@@ -1,7 +1,6 @@
+ 1
+ 2
+-3
+-4
+ 5
+ 6
+ 7`,
+			want:    "3,4d2",
+			wantErr: false,
+		},
+		{
+			name: "simple insertion",
+			unifiedDiff: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,5 @@
+ line1
+ line2
++new_line3
++new_line4
+ line3`,
+			want:    "2a3,4",
+			wantErr: false,
+		},
+		{
+			name: "simple change",
+			unifiedDiff: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,3 @@
+ line1
+-old_line2
++new_line2
+ line3`,
+			want:    "2c2",
+			wantErr: false,
+		},
+		{
+			name: "mixed operations",
+			unifiedDiff: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,7 +1,6 @@
+ 1
+ 2
+-3
+-4
++NEW_LINE
+ 5
+ 6
+ 7`,
+			want:    "3,4c3",
+			wantErr: false,
+		},
+		{
+			name: "multiple hunks",
+			unifiedDiff: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3
+@@ -10,3 +9,4 @@
+ line10
+ line11
++new_line
+ line12`,
+			want:    "2d1;11a11",
+			wantErr: false,
+		},
+		{
+			name: "no changes",
+			unifiedDiff: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,3 @@
+ line1
+ line2
+ line3`,
+			wantErr: true,
+		},
+		{
+			name:        "empty diff",
+			unifiedDiff: "",
+			wantErr:     true,
+		},
+		{
+			name: "malformed hunk header",
+			unifiedDiff: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ invalid @@
+ line1`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ConvertUnifiedDiffToClassicDiff(tt.unifiedDiff)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ConvertUnifiedDiffToClassicDiff() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("ConvertUnifiedDiffToClassicDiff() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestConvertUnifiedDiffToMultiFileClassicDiff tests multi-file unified diff conversion.
+func TestConvertUnifiedDiffToMultiFileClassicDiff(t *testing.T) {
+	tests := []struct {
+		name        string
+		unifiedDiff string
+		want        []FileAdjustmentSpec
+		wantErr     bool
+	}{
+		{
+			name: "single file",
+			unifiedDiff: `diff --git a/file1.txt b/file1.txt
+--- a/file1.txt
++++ b/file1.txt
+@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3`,
+			want: []FileAdjustmentSpec{
+				{
+					FilePath:    "file1.txt",
+					ClassicDiff: "2d1",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "multiple files",
+			unifiedDiff: `diff --git a/file1.txt b/file1.txt
+--- a/file1.txt
++++ b/file1.txt
+@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3
+diff --git a/file2.txt b/file2.txt
+--- a/file2.txt
++++ b/file2.txt
+@@ -5,3 +5,4 @@
+ line5
+ line6
++new_line
+ line7`,
+			want: []FileAdjustmentSpec{
+				{
+					FilePath:    "file1.txt",
+					ClassicDiff: "2d1",
+				},
+				{
+					FilePath:    "file2.txt",
+					ClassicDiff: "6a7",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:        "empty diff",
+			unifiedDiff: "",
+			wantErr:     true,
+		},
+		{
+			name: "file without changes",
+			unifiedDiff: `diff --git a/file1.txt b/file1.txt
+--- a/file1.txt
++++ b/file1.txt
+@@ -1,3 +1,3 @@
+ line1
+ line2
+ line3`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ConvertUnifiedDiffToMultiFileClassicDiff(tt.unifiedDiff)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ConvertUnifiedDiffToMultiFileClassicDiff() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if len(got) != len(tt.want) {
+					t.Errorf("ConvertUnifiedDiffToMultiFileClassicDiff() returned %d files, want %d", len(got), len(tt.want))
+					return
+				}
+				for i, spec := range got {
+					wantSpec := tt.want[i]
+					if spec.FilePath != wantSpec.FilePath {
+						t.Errorf("ConvertUnifiedDiffToMultiFileClassicDiff()[%d].FilePath = %v, want %v", i, spec.FilePath, wantSpec.FilePath)
+					}
+					if spec.ClassicDiff != wantSpec.ClassicDiff {
+						t.Errorf("ConvertUnifiedDiffToMultiFileClassicDiff()[%d].ClassicDiff = %v, want %v", i, spec.ClassicDiff, wantSpec.ClassicDiff)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestFilterUnifiedDiffForFile tests filtering unified diff for a specific file.
+func TestFilterUnifiedDiffForFile(t *testing.T) {
+	multiFileDiff := `diff --git a/file1.txt b/file1.txt
+--- a/file1.txt
++++ b/file1.txt
+@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3
+diff --git a/file2.txt b/file2.txt
+--- a/file2.txt
++++ b/file2.txt
+@@ -5,3 +5,4 @@
+ line5
+ line6
++new_line
+ line7
+diff --git a/file3.txt b/file3.txt
+--- a/file3.txt
++++ b/file3.txt
+@@ -10,2 +10,3 @@
+ line10
++inserted_line
+ line11`
+
+	tests := []struct {
+		name       string
+		targetFile string
+		want       string
+		wantErr    bool
+	}{
+		{
+			name:       "existing file1",
+			targetFile: "file1.txt",
+			want:       "2d1",
+			wantErr:    false,
+		},
+		{
+			name:       "existing file2",
+			targetFile: "file2.txt",
+			want:       "6a7",
+			wantErr:    false,
+		},
+		{
+			name:       "existing file3",
+			targetFile: "file3.txt",
+			want:       "10a11",
+			wantErr:    false,
+		},
+		{
+			name:       "non-existing file",
+			targetFile: "nonexistent.txt",
+			want:       "",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := FilterUnifiedDiffForFile(multiFileDiff, tt.targetFile)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FilterUnifiedDiffForFile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("FilterUnifiedDiffForFile() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDetectUnifiedDiffFormat tests unified diff format detection.
+func TestDetectUnifiedDiffFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		diffSpec string
+		want     bool
+	}{
+		{
+			name: "valid unified diff with file headers",
+			diffSpec: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3`,
+			want: true,
+		},
+		{
+			name: "minimal unified diff (hunk header only)",
+			diffSpec: `@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3`,
+			want: true,
+		},
+		{
+			name:     "classic diff format",
+			diffSpec: "15,17d14",
+			want:     false,
+		},
+		{
+			name:     "simple mapping format",
+			diffSpec: "15:-2",
+			want:     false,
+		},
+		{
+			name:     "empty string",
+			diffSpec: "",
+			want:     false,
+		},
+		{
+			name: "just file headers without hunks",
+			diffSpec: `diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt`,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectUnifiedDiffFormat(tt.diffSpec)
+			if got != tt.want {
+				t.Errorf("detectUnifiedDiffFormat() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDetectFormat tests format detection including unified diff.
+func TestDetectFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		diffSpec string
+		want     FormatType
+	}{
+		{
+			name:     "classic diff format",
+			diffSpec: "15,17d14",
+			want:     FormatClassicDiff,
+		},
+		{
+			name:     "simple mapping format",
+			diffSpec: "15:-2;30:+3",
+			want:     FormatSimpleMapping,
+		},
+		{
+			name: "unified diff format",
+			diffSpec: `@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3`,
+			want: FormatUnifiedDiff,
+		},
+		{
+			name:     "unknown format",
+			diffSpec: "invalid format",
+			want:     FormatUnknown,
+		},
+		{
+			name:     "empty string",
+			diffSpec: "",
+			want:     FormatUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DetectFormat(tt.diffSpec)
+			if got != tt.want {
+				t.Errorf("DetectFormat() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestParseUnifiedDiffSpec tests parsing unified diff specs.
+func TestParseUnifiedDiffSpec(t *testing.T) {
+	tests := []struct {
+		name        string
+		spec        string
+		wantErr     bool
+		wantOpCount int
+	}{
+		{
+			name: "valid unified diff",
+			spec: `@@ -1,3 +1,2 @@
+ line1
+-line2
+ line3`,
+			wantErr:     false,
+			wantOpCount: 1,
+		},
+		{
+			name:        "empty spec",
+			spec:        "",
+			wantErr:     true,
+			wantOpCount: 0,
+		},
+		{
+			name: "malformed unified diff",
+			spec: `@@ invalid @@
+ line1`,
+			wantErr:     true,
+			wantOpCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseUnifiedDiffSpec(tt.spec)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseUnifiedDiffSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && len(got) != tt.wantOpCount {
+				t.Errorf("ParseUnifiedDiffSpec() returned %d operations, want %d", len(got), tt.wantOpCount)
+			}
+		})
+	}
+}
+
 // Helper functions.
 func intPtr(i int) *int {
 	return &i

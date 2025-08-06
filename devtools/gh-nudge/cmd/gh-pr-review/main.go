@@ -87,7 +87,8 @@ Commands:
   clear <owner>/<repo> <identifier>               Clear all comments (PR or branch)
   delete <owner>/<repo> <identifier> --comment-id <ID>  Delete comment by ID (PR or branch)
   submit <owner>/<repo> <pr_number>               Submit review to GitHub (PR only)
-  adjust <owner>/<repo> <identifier> <file> --diff <spec>  Adjust comment line numbers
+  adjust <owner>/<repo> <identifier> [file] --diff <spec>     Adjust comment line numbers
+  adjust <owner>/<repo> <identifier> [file] --unified-diff <spec>  Adjust using git diff output
   version                                         Show version information
   help                                           Show this help message
 
@@ -570,15 +571,44 @@ func handleAdjust(args []string) {
 }
 
 func showAdjustUsage() {
-	fmt.Println("Usage: gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]")
+	fmt.Println("Usage:")
+	fmt.Println("  gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]")
+	fmt.Println("  gh-pr-review adjust <owner>/<repo> <identifier> [file] --unified-diff <spec> [options]")
+	fmt.Println()
+	fmt.Println("Arguments:")
 	fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
-	fmt.Println("  <file>            File path to adjust comments for")
-	fmt.Println("  --diff SPEC       Diff specification (auto-detected format, required)")
+	fmt.Println("  <file>            File path to adjust comments for (required with --diff, optional with --unified-diff)")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  --diff SPEC       Diff specification (classic or simple mapping format)")
+	fmt.Println("  --unified-diff SPEC  Unified diff specification (git diff output)")
 	fmt.Println("  --dry-run         Show what would be adjusted without making changes")
 	fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
 	fmt.Println("  --force           Apply adjustments even if validation fails")
 	fmt.Println()
+	fmt.Println("Unified Diff Mode:")
+	fmt.Println("  When using --unified-diff:")
+	fmt.Println("  - If <file> is specified: Process only that file from the diff")
+	fmt.Println("  - If <file> is omitted: Process ALL files found in the unified diff")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Println("  # Process all files in git diff")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 --unified-diff \"$(git diff HEAD~1 HEAD)\"")
+	fmt.Println()
+	fmt.Println("  # Process specific file from git diff")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 src/main.js --unified-diff \"$(git diff HEAD~1 HEAD)\"")
+	fmt.Println()
+	fmt.Println("  # Traditional single-file mode")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 src/main.js --diff \"15:-2;30:+3\"")
+	fmt.Println()
 	fmt.Println("Supported diff formats (auto-detected):")
+	fmt.Println()
+	fmt.Println("Unified Diff Format:")
+	fmt.Println("  Standard git diff output with file headers and hunk headers")
+	fmt.Println("  @@ -1,7 +1,6 @@     Hunk showing old range (-1,7) and new range (+1,6)")
+	fmt.Println("  - deleted line      Lines removed from old file")
+	fmt.Println("  + added line        Lines added to new file")
+	fmt.Println("    context line      Unchanged context lines")
 	fmt.Println()
 	fmt.Println("Simple Mapping Format:")
 	fmt.Println("  IMPORTANT: All line numbers refer to the ORIGINAL file, not the current state")
@@ -586,11 +616,6 @@ func showAdjustUsage() {
 	fmt.Println("  15:-2             Delete 2 lines starting at original line 15")
 	fmt.Println("  30:+3             Insert 3 lines before original line 30")
 	fmt.Println("  15:-2;30:+3       Multiple operations on original line numbers")
-	fmt.Println()
-	fmt.Println("  Example walkthrough for '10:-1;20:+2':")
-	fmt.Println("    1. Delete 1 line at original line 10 → '10d9'")
-	fmt.Println("    2. Insert 2 lines before original line 20 → '19a20,21'")
-	fmt.Println("    Result: Original line 20 becomes new line 21 (after deletion + insertion)")
 	fmt.Println()
 	fmt.Println("Classic Diff Format:")
 	fmt.Println("  15,17d14          Delete original lines 15-17, next line becomes 14")
@@ -600,24 +625,53 @@ func showAdjustUsage() {
 }
 
 func validateAdjustOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"diff", "dry-run", "format", "force"}); err != nil {
+	if err := parser.ValidateOptions([]string{"diff", "unified-diff", "dry-run", "format", "force"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
-	if err := parser.RequireExactPositionals(3, "gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]"); err != nil {
-		return fmt.Errorf("validating positionals: %w", err)
+
+	// Check mutually exclusive diff options
+	hasDiff := parser.GetOption("diff") != ""
+	hasUnifiedDiff := parser.GetOption("unified-diff") != ""
+
+	if hasDiff && hasUnifiedDiff {
+		return fmt.Errorf("--diff and --unified-diff options are mutually exclusive")
 	}
+
+	if !hasDiff && !hasUnifiedDiff {
+		return fmt.Errorf("either --diff or --unified-diff option is required")
+	}
+
+	// For unified diff, file argument is optional (enables multi-file mode)
+	if hasUnifiedDiff {
+		positionals := parser.GetPositionals()
+		if len(positionals) < 2 || len(positionals) > 3 {
+			return fmt.Errorf("wrong number of arguments for unified diff: gh-pr-review adjust <owner>/<repo> <identifier> [file] --unified-diff <spec> [options]")
+		}
+	} else {
+		if err := parser.RequireExactPositionals(3, "gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]"); err != nil {
+			return fmt.Errorf("validating positionals: %w", err)
+		}
+	}
+
 	return nil
 }
 
 func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, string, string, error) {
+	// Get diff spec from either --diff or --unified-diff
 	diffSpec := parser.GetOption("diff")
 	if diffSpec == "" {
-		return "", "", "", "", "", fmt.Errorf("--diff option is required")
+		diffSpec = parser.GetOption("unified-diff")
 	}
 
 	repoSpec := parser.GetPositional(0)
 	identifier := parser.GetPositional(1)
-	file := parser.GetPositional(2)
+
+	var file string
+	positionals := parser.GetPositionals()
+	if len(positionals) >= 3 {
+		file = parser.GetPositional(2)
+	}
+	// If no file specified and using unified diff, leave empty for multi-file mode
 
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {

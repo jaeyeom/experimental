@@ -17,6 +17,9 @@ var simpleMappingRegex = regexp.MustCompile(`^\s*(\d+)\s*:\s*([+-]?\d+)\s*$`)
 // relaxedMappingRegex allows more formats for better error messages.
 var relaxedMappingRegex = regexp.MustCompile(`^\s*([^:]+)\s*:\s*(.+)\s*$`)
 
+// unifiedDiffHunkHeaderRegex matches unified diff hunk headers like "@@ -1,7 +1,6 @@".
+var unifiedDiffHunkHeaderRegex = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
+
 // FormatType represents different diff format types.
 type FormatType int
 
@@ -24,6 +27,7 @@ const (
 	FormatUnknown FormatType = iota
 	FormatClassicDiff
 	FormatSimpleMapping
+	FormatUnifiedDiff
 )
 
 // ParseDiffSpec parses a classic diff format specification into LineAdjustment structs.
@@ -271,7 +275,12 @@ func DetectFormat(diffSpec string) FormatType {
 		return FormatUnknown
 	}
 
-	// Normalize whitespace and split by semicolon
+	// Check for unified diff format first (multi-line format)
+	if detectUnifiedDiffFormat(diffSpec) {
+		return FormatUnifiedDiff
+	}
+
+	// Normalize whitespace and split by semicolon for single-line formats
 	operations := strings.Split(diffSpec, ";")
 
 	hasSimpleMapping := false
@@ -310,6 +319,42 @@ func DetectFormat(diffSpec string) FormatType {
 	}
 
 	return FormatUnknown
+}
+
+// detectUnifiedDiffFormat checks if the input appears to be a unified diff format.
+func detectUnifiedDiffFormat(diffSpec string) bool {
+	lines := strings.Split(diffSpec, "\n")
+
+	// Look for unified diff markers
+	hasFileHeaders := false
+	hasHunkHeaders := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// File headers like "diff --git a/file b/file" or "--- a/file"
+		if strings.HasPrefix(line, "diff --git") ||
+			strings.HasPrefix(line, "---") ||
+			strings.HasPrefix(line, "+++") {
+			hasFileHeaders = true
+		}
+
+		// Hunk headers like "@@ -1,7 +1,6 @@"
+		if unifiedDiffHunkHeaderRegex.MatchString(line) {
+			hasHunkHeaders = true
+		}
+
+		// If we have both file headers and hunk headers, it's likely unified diff
+		if hasFileHeaders && hasHunkHeaders {
+			return true
+		}
+	}
+
+	// Also accept minimal unified diff (just hunk headers without file headers)
+	return hasHunkHeaders
 }
 
 // ParseSimpleMappingSpec parses a simple mapping format specification into LineAdjustment structs.
@@ -421,8 +466,315 @@ func ConvertSimpleMappingToClassicDiff(mapping string) (string, error) {
 	return strings.Join(parts, ";"), nil
 }
 
+// ParseUnifiedDiffSpec parses a unified diff format specification into LineAdjustment structs.
+// Converts unified diff format (git diff output) to classic diff format, then parses that.
+func ParseUnifiedDiffSpec(spec string) ([]LineAdjustment, error) {
+	classicDiff, err := ConvertUnifiedDiffToClassicDiff(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	if classicDiff == "" {
+		return nil, fmt.Errorf("no valid operations found in unified diff")
+	}
+
+	return ParseDiffSpec(classicDiff)
+}
+
+// ConvertUnifiedDiffToClassicDiff converts a unified diff format to classic diff format.
+// This is the main function that implements Phase 3 functionality.
+func ConvertUnifiedDiffToClassicDiff(unifiedDiff string) (string, error) {
+	multiFileSpecs, err := ConvertUnifiedDiffToMultiFileClassicDiff(unifiedDiff)
+	if err != nil {
+		return "", err
+	}
+
+	// Combine all files into a single spec (for backward compatibility)
+	var allOps []string
+	for _, spec := range multiFileSpecs {
+		if spec.ClassicDiff != "" {
+			allOps = append(allOps, spec.ClassicDiff)
+		}
+	}
+
+	if len(allOps) == 0 {
+		return "", fmt.Errorf("no valid operations found in unified diff")
+	}
+
+	return strings.Join(allOps, ";"), nil
+}
+
+// FileAdjustmentSpec represents the adjustment specification for a single file.
+type FileAdjustmentSpec struct {
+	FilePath    string
+	ClassicDiff string
+}
+
+// ConvertUnifiedDiffToMultiFileClassicDiff converts a unified diff to per-file classic diff specs.
+// This enables multi-file processing support.
+func ConvertUnifiedDiffToMultiFileClassicDiff(unifiedDiff string) ([]FileAdjustmentSpec, error) {
+	if unifiedDiff == "" {
+		return nil, fmt.Errorf("empty unified diff")
+	}
+
+	parser := &unifiedDiffParser{}
+	return parser.parse(unifiedDiff)
+}
+
+// unifiedDiffParser handles parsing unified diff format into classic diff specifications.
+type unifiedDiffParser struct {
+	fileSpecs   []FileAdjustmentSpec
+	currentFile string
+	currentOps  []string
+	inHunk      bool
+	oldPos      int
+	newPos      int
+	hunkChanges []hunkChange
+}
+
+// hunkChange represents a change within a unified diff hunk.
+type hunkChange struct {
+	changeType string // "delete", "insert", "context"
+	oldLineNum int
+	newLineNum int
+}
+
+// parse processes the unified diff and returns file adjustment specifications.
+func (p *unifiedDiffParser) parse(unifiedDiff string) ([]FileAdjustmentSpec, error) {
+	lines := strings.Split(unifiedDiff, "\n")
+
+	for _, line := range lines {
+		originalLine := line
+		line = strings.TrimSpace(line)
+
+		if line == "" {
+			continue
+		}
+
+		if err := p.processLine(line, originalLine); err != nil {
+			return nil, err
+		}
+	}
+
+	// Process final hunk and file
+	p.finalizeCurrentHunk()
+	p.finalizeCurrentFile()
+
+	if len(p.fileSpecs) == 0 {
+		return nil, fmt.Errorf("no valid operations found in unified diff")
+	}
+
+	return p.fileSpecs, nil
+}
+
+// processLine handles a single line from the unified diff.
+func (p *unifiedDiffParser) processLine(line, originalLine string) error {
+	switch {
+	case strings.HasPrefix(line, "diff --git"):
+		return p.handleGitDiffHeader(line)
+	case strings.HasPrefix(line, "---"), strings.HasPrefix(line, "+++"):
+		return p.handleFilePathHeader(line)
+	case unifiedDiffHunkHeaderRegex.MatchString(line):
+		return p.handleHunkHeader(line)
+	case p.inHunk:
+		return p.handleHunkContentLine(originalLine)
+	default:
+		return nil
+	}
+}
+
+// handleGitDiffHeader processes "diff --git a/file b/file" headers.
+func (p *unifiedDiffParser) handleGitDiffHeader(line string) error {
+	p.finalizeCurrentHunk()
+	p.finalizeCurrentFile()
+
+	// Extract file path from git diff header
+	parts := strings.Fields(line)
+	if len(parts) >= 4 {
+		p.currentFile = strings.TrimPrefix(parts[3], "b/")
+	}
+	p.inHunk = false
+	return nil
+}
+
+// handleFilePathHeader processes "--- a/file" or "+++ b/file" headers.
+func (p *unifiedDiffParser) handleFilePathHeader(line string) error {
+	// Extract file path as fallback
+	if p.currentFile == "" && strings.HasPrefix(line, "+++") {
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			p.currentFile = strings.TrimPrefix(parts[1], "b/")
+		}
+	}
+	return nil
+}
+
+// handleHunkHeader processes "@@ -old_start,old_count +new_start,new_count @@" headers.
+func (p *unifiedDiffParser) handleHunkHeader(line string) error {
+	p.finalizeCurrentHunk()
+
+	matches := unifiedDiffHunkHeaderRegex.FindStringSubmatch(line)
+	if matches == nil {
+		return fmt.Errorf("invalid hunk header: %s", line)
+	}
+
+	var err error
+	p.oldPos, err = strconv.Atoi(matches[1])
+	if err != nil {
+		return fmt.Errorf("invalid old start line: %s", matches[1])
+	}
+
+	p.newPos, err = strconv.Atoi(matches[3])
+	if err != nil {
+		return fmt.Errorf("invalid new start line: %s", matches[3])
+	}
+
+	p.inHunk = true
+	p.hunkChanges = nil
+	return nil
+}
+
+// handleHunkContentLine processes content lines within a hunk.
+func (p *unifiedDiffParser) handleHunkContentLine(originalLine string) error {
+	switch {
+	case strings.HasPrefix(originalLine, "-"):
+		p.hunkChanges = append(p.hunkChanges, hunkChange{"delete", p.oldPos, -1})
+		p.oldPos++
+	case strings.HasPrefix(originalLine, "+"):
+		p.hunkChanges = append(p.hunkChanges, hunkChange{"insert", -1, p.newPos})
+		p.newPos++
+	case strings.HasPrefix(originalLine, " "):
+		p.hunkChanges = append(p.hunkChanges, hunkChange{"context", p.oldPos, p.newPos})
+		p.oldPos++
+		p.newPos++
+	}
+	return nil
+}
+
+// finalizeCurrentHunk processes the current hunk changes and generates classic diff operations.
+func (p *unifiedDiffParser) finalizeCurrentHunk() {
+	if len(p.hunkChanges) == 0 {
+		return
+	}
+
+	// Collect ranges of deletions and insertions
+	var deletions []int
+	var insertions []int
+
+	for _, change := range p.hunkChanges {
+		switch change.changeType {
+		case "delete":
+			deletions = append(deletions, change.oldLineNum)
+		case "insert":
+			insertions = append(insertions, change.newLineNum)
+		}
+	}
+
+	if len(deletions) == 0 && len(insertions) == 0 {
+		return
+	}
+
+	op := p.generateClassicDiffOp(deletions, insertions)
+	if op != "" {
+		p.currentOps = append(p.currentOps, op)
+	}
+
+	p.hunkChanges = nil
+}
+
+// generateClassicDiffOp generates a classic diff operation from deletions and insertions.
+func (p *unifiedDiffParser) generateClassicDiffOp(deletions, insertions []int) string {
+	switch {
+	case len(deletions) > 0 && len(insertions) > 0:
+		return p.formatChangeOperation(deletions, insertions)
+	case len(deletions) > 0:
+		return p.formatDeleteOperation(deletions)
+	case len(insertions) > 0:
+		return p.formatInsertOperation(insertions)
+	default:
+		return ""
+	}
+}
+
+// formatChangeOperation formats a change operation (delete + insert).
+func (p *unifiedDiffParser) formatChangeOperation(deletions, insertions []int) string {
+	delStart, delEnd := deletions[0], deletions[len(deletions)-1]
+	insStart, insEnd := insertions[0], insertions[len(insertions)-1]
+
+	switch {
+	case len(deletions) == 1 && len(insertions) == 1:
+		return fmt.Sprintf("%dc%d", delStart, insStart)
+	case len(insertions) == 1:
+		return fmt.Sprintf("%d,%dc%d", delStart, delEnd, insStart)
+	case len(deletions) == 1:
+		return fmt.Sprintf("%dc%d,%d", delStart, insStart, insEnd)
+	default:
+		return fmt.Sprintf("%d,%dc%d,%d", delStart, delEnd, insStart, insEnd)
+	}
+}
+
+// formatDeleteOperation formats a delete operation.
+func (p *unifiedDiffParser) formatDeleteOperation(deletions []int) string {
+	delStart, delEnd := deletions[0], deletions[len(deletions)-1]
+	newLineAfterDel := delStart - 1
+
+	if len(deletions) == 1 {
+		return fmt.Sprintf("%dd%d", delStart, newLineAfterDel)
+	}
+	return fmt.Sprintf("%d,%dd%d", delStart, delEnd, newLineAfterDel)
+}
+
+// formatInsertOperation formats an insert operation.
+func (p *unifiedDiffParser) formatInsertOperation(insertions []int) string {
+	insStart, insEnd := insertions[0], insertions[len(insertions)-1]
+	oldLineBeforeIns := insStart - 1
+
+	// Find the old line position by looking at the hunk context
+	for _, change := range p.hunkChanges {
+		if change.changeType == "context" && change.newLineNum < insStart {
+			oldLineBeforeIns = change.oldLineNum
+		}
+	}
+
+	if len(insertions) == 1 {
+		return fmt.Sprintf("%da%d", oldLineBeforeIns, insStart)
+	}
+	return fmt.Sprintf("%da%d,%d", oldLineBeforeIns, insStart, insEnd)
+}
+
+// finalizeCurrentFile adds the current file to the results if it has operations.
+func (p *unifiedDiffParser) finalizeCurrentFile() {
+	if len(p.currentOps) > 0 {
+		fileName := p.currentFile
+		if fileName == "" {
+			fileName = "file" // Default filename for minimal diffs
+		}
+		p.fileSpecs = append(p.fileSpecs, FileAdjustmentSpec{
+			FilePath:    fileName,
+			ClassicDiff: strings.Join(p.currentOps, ";"),
+		})
+		p.currentOps = nil
+	}
+}
+
+// FilterUnifiedDiffForFile extracts only the portions of a unified diff that relate to a specific file.
+func FilterUnifiedDiffForFile(unifiedDiff, targetFile string) (string, error) {
+	multiFileSpecs, err := ConvertUnifiedDiffToMultiFileClassicDiff(unifiedDiff)
+	if err != nil {
+		return "", err
+	}
+
+	for _, spec := range multiFileSpecs {
+		if spec.FilePath == targetFile {
+			return spec.ClassicDiff, nil
+		}
+	}
+
+	return "", fmt.Errorf("file %s not found in unified diff", targetFile)
+}
+
 // ParseDiffSpecWithAutoDetection parses a diff specification with automatic format detection.
-// This is the main entry point that supports both classic diff and simple mapping formats.
+// This is the main entry point that supports all supported formats.
 func ParseDiffSpecWithAutoDetection(spec string) ([]LineAdjustment, error) {
 	format := DetectFormat(spec)
 
@@ -431,6 +783,8 @@ func ParseDiffSpecWithAutoDetection(spec string) ([]LineAdjustment, error) {
 		return ParseDiffSpec(spec)
 	case FormatSimpleMapping:
 		return ParseSimpleMappingSpec(spec)
+	case FormatUnifiedDiff:
+		return ParseUnifiedDiffSpec(spec)
 	default:
 		return nil, fmt.Errorf("unknown or invalid diff format: %s", spec)
 	}
