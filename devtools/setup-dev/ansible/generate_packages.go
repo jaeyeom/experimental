@@ -44,7 +44,7 @@ import (
 	"unicode"
 )
 
-// Import represents a playbook import with optional conditional logic
+// Import represents a playbook import with optional conditional logic.
 type Import struct {
 	Playbook string // Name of the playbook to import
 	When     string // Optional Ansible when clause for conditional imports
