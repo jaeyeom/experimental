@@ -20,7 +20,8 @@ type File struct {
 
 // ReviewRequest represents a user or team requested to review a PR.
 type ReviewRequest struct {
-	Type  string `json:"typename"`        // "User" or "Team"
+	//nolint: tagliatelle
+	Type  string `json:"__typename"`      // "User" or "Team"
 	Login string `json:"login,omitempty"` // For users
 	Name  string `json:"name,omitempty"`  // For teams
 	Slug  string `json:"slug,omitempty"`  // For teams
