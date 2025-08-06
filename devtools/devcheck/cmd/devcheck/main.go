@@ -150,25 +150,46 @@ func detectAndPrint(dir string, w io.Writer) error {
 
 // runExecutorDemo demonstrates the tool executor framework capabilities.
 func runExecutorDemo(dir string, w io.Writer, concurrent bool, maxWorkers int) error {
+	printDemoHeader(w)
+
+	projectConfig, err := detectProject(dir, w)
+	if err != nil {
+		return err
+	}
+
+	demoConfigs, err := prepareDemoConfigs(projectConfig, dir)
+	if err != nil {
+		return err
+	}
+
+	if len(demoConfigs) == 0 {
+		fmt.Fprintf(w, "\nNo demo tools available to run.\n")
+		return nil
+	}
+
+	return executeDemoConfigs(demoConfigs, w, concurrent, maxWorkers)
+}
+
+func printDemoHeader(w io.Writer) {
 	fmt.Fprintf(w, "🚀 DevCheck Tool Executor Demo\n")
 	fmt.Fprintf(w, "==============================\n\n")
+}
 
-	// First detect the project
+func detectProject(dir string, w io.Writer) (*config.ProjectConfig, error) {
 	projectDetector := detector.NewProjectDetector()
 	projectConfig, err := projectDetector.Detect(dir)
 	if err != nil {
-		return fmt.Errorf("failed to detect project: %w", err)
+		return nil, fmt.Errorf("failed to detect project: %w", err)
 	}
 
-	// Path information
 	absPath, _ := filepath.Abs(dir)
 	fmt.Fprintf(w, "Path: %s\n", absPath)
 
-	// Prepare demo tools based on detected configuration
-	var demoConfigs []runner.ToolConfig
-	basicExec := runner.NewBasicExecutor()
+	showDetectedTools(w, projectConfig)
+	return projectConfig, nil
+}
 
-	// Show detected tools
+func showDetectedTools(w io.Writer, projectConfig *config.ProjectConfig) {
 	fmt.Fprintf(w, "\nDetected Tools:\n")
 	if len(projectConfig.Tools) > 0 {
 		for toolType, tools := range projectConfig.Tools {
@@ -177,77 +198,100 @@ func runExecutorDemo(dir string, w io.Writer, concurrent bool, maxWorkers int) e
 			}
 		}
 	}
+}
 
-	// Add Bazel support using shell execution (addresses issue #9)
-	// Bazel's client-server architecture works better when run through a shell
-	// which provides proper session management and I/O handling
+func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string) ([]runner.ToolConfig, error) {
+	var demoConfigs []runner.ToolConfig
+	basicExec := runner.NewBasicExecutor()
+
+	// Add Bazel support
 	if projectConfig.BuildSystem == "bazel" && basicExec.IsAvailable("bazel") {
-		demoConfigs = append(demoConfigs,
-			runner.ToolConfig{
-				Command:    "bazel",
-				Args:       []string{"info", "workspace"},
-				WorkingDir: dir,
-				Timeout:    15 * time.Second,
-			},
-		)
+		demoConfigs = append(demoConfigs, createBazelConfig(dir))
 	}
 
-	// Add language-specific tools based on detected languages
+	// Add language-specific tools
+	langConfigs := addLanguageSpecificTools(projectConfig, dir, basicExec)
+	demoConfigs = append(demoConfigs, langConfigs...)
+
+	// Add git status
+	if projectConfig.HasGit && basicExec.IsAvailable("git") {
+		demoConfigs = append(demoConfigs, createGitConfig(dir))
+	}
+
+	return demoConfigs, nil
+}
+
+func createBazelConfig(dir string) runner.ToolConfig {
+	return runner.ToolConfig{
+		Command:    "bazel",
+		Args:       []string{"info", "workspace"},
+		WorkingDir: dir,
+		Timeout:    15 * time.Second,
+	}
+}
+
+func createGitConfig(dir string) runner.ToolConfig {
+	return runner.ToolConfig{
+		Command:    "git",
+		Args:       []string{"status", "--short"},
+		WorkingDir: dir,
+	}
+}
+
+func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, basicExec *runner.BasicExecutor) []runner.ToolConfig {
+	var configs []runner.ToolConfig
+
 	for _, lang := range projectConfig.Languages {
 		switch lang {
 		case config.LanguageGo:
-			if basicExec.IsAvailable("go") {
-				demoConfigs = append(demoConfigs,
-					runner.ToolConfig{
-						Command:    "go",
-						Args:       []string{"list", "./devtools/devcheck/..."},
-						WorkingDir: dir,
-					},
-				)
-			}
-			// Check for golangci-lint
-			if basicExec.IsAvailable("golangci-lint") {
-				demoConfigs = append(demoConfigs,
-					runner.ToolConfig{
-						Command:    "golangci-lint",
-						Args:       []string{"run", "--timeout=30s", "./devtools/devcheck/..."},
-						WorkingDir: dir,
-						Timeout:    45 * time.Second,
-					},
-				)
-			}
+			configs = append(configs, addGoTools(dir, basicExec)...)
 		case config.LanguagePython:
-			// Check for ruff
-			if basicExec.IsAvailable("ruff") && projectConfig.ConfigFiles["ruff"] != "" {
-				demoConfigs = append(demoConfigs,
-					runner.ToolConfig{
-						Command:    "ruff",
-						Args:       []string{"check", "--statistics"},
-						WorkingDir: dir,
-						Timeout:    10 * time.Second,
-					},
-				)
-			}
+			configs = append(configs, addPythonTools(projectConfig, dir, basicExec)...)
 		}
 	}
 
-	// Add git status if it's a git repo
-	if projectConfig.HasGit && basicExec.IsAvailable("git") {
-		demoConfigs = append(demoConfigs,
-			runner.ToolConfig{
-				Command:    "git",
-				Args:       []string{"status", "--short"},
-				WorkingDir: dir,
-			},
-		)
+	return configs
+}
+
+func addGoTools(dir string, basicExec *runner.BasicExecutor) []runner.ToolConfig {
+	var configs []runner.ToolConfig
+
+	if basicExec.IsAvailable("go") {
+		configs = append(configs, runner.ToolConfig{
+			Command:    "go",
+			Args:       []string{"list", "./devtools/devcheck/..."},
+			WorkingDir: dir,
+		})
 	}
 
-	if len(demoConfigs) == 0 {
-		fmt.Fprintf(w, "\nNo demo tools available to run.\n")
-		return nil
+	if basicExec.IsAvailable("golangci-lint") {
+		configs = append(configs, runner.ToolConfig{
+			Command:    "golangci-lint",
+			Args:       []string{"run", "--timeout=30s", "./devtools/devcheck/..."},
+			WorkingDir: dir,
+			Timeout:    45 * time.Second,
+		})
 	}
 
-	// Create executor with signal handling
+	return configs
+}
+
+func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec *runner.BasicExecutor) []runner.ToolConfig {
+	var configs []runner.ToolConfig
+
+	if basicExec.IsAvailable("ruff") && projectConfig.ConfigFiles["ruff"] != "" {
+		configs = append(configs, runner.ToolConfig{
+			Command:    "ruff",
+			Args:       []string{"check", "--statistics"},
+			WorkingDir: dir,
+			Timeout:    10 * time.Second,
+		})
+	}
+
+	return configs
+}
+
+func executeDemoConfigs(demoConfigs []runner.ToolConfig, w io.Writer, concurrent bool, maxWorkers int) error {
 	signalExecutor := runner.NewExecutorWithSignalHandling()
 	ctx, err := signalExecutor.Start()
 	if err != nil {
@@ -255,16 +299,13 @@ func runExecutorDemo(dir string, w io.Writer, concurrent bool, maxWorkers int) e
 	}
 	defer signalExecutor.Stop()
 
-	// Run the demo
-	switch concurrent {
-	case true:
+	if concurrent {
 		fmt.Fprintf(w, "\nRunning %d tools concurrently (max %d workers)...\n\n", len(demoConfigs), maxWorkers)
 		return runConcurrentDemo(ctx, w, signalExecutor, demoConfigs, maxWorkers)
-	case false:
-		fmt.Fprintf(w, "\nRunning %d tools sequentially...\n\n", len(demoConfigs))
-		return runSequentialDemo(ctx, w, signalExecutor, demoConfigs)
 	}
-	panic("unreachable code reached") // Should never happen
+
+	fmt.Fprintf(w, "\nRunning %d tools sequentially...\n\n", len(demoConfigs))
+	return runSequentialDemo(ctx, w, signalExecutor, demoConfigs)
 }
 
 // runSequentialDemo runs tools one by one.

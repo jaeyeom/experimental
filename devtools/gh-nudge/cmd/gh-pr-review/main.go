@@ -33,30 +33,46 @@ func main() {
 	command := os.Args[1]
 	args := os.Args[2:]
 
-	switch command {
-	case "capture":
-		handleCapture(args)
-	case "comment":
-		handleComment(args)
-	case "submit":
-		handleSubmit(args)
-	case "list":
-		handleList(args)
-	case "delete":
-		handleDelete(args)
-	case "clear":
-		handleClear(args)
-	case "adjust":
-		handleAdjust(args)
-	case "version":
-		fmt.Printf("gh-pr-review version %s\n", version)
-	case "help", "-h", "--help":
-		showUsage()
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
-		showUsage()
-		os.Exit(1)
+	executeCommand(command, args)
+}
+
+func executeCommand(command string, args []string) {
+	handler := getCommandHandler(command)
+	if handler != nil {
+		handler(args)
+		return
 	}
+
+	if isHelpCommand(command) {
+		showUsage()
+		return
+	}
+
+	if command == "version" {
+		fmt.Printf("gh-pr-review version %s\n", version)
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
+	showUsage()
+	os.Exit(1)
+}
+
+func getCommandHandler(command string) func([]string) {
+	handlers := map[string]func([]string){
+		"capture": handleCapture,
+		"comment": handleComment,
+		"submit":  handleSubmit,
+		"list":    handleList,
+		"delete":  handleDelete,
+		"clear":   handleClear,
+		"adjust":  handleAdjust,
+	}
+	return handlers[command]
+}
+
+func isHelpCommand(command string) bool {
+	return command == "help" || command == "-h" || command == "--help"
 }
 
 func showUsage() {
@@ -229,38 +245,18 @@ func handleSubmit(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review submit <owner>/<repo> <pr_number> [options]")
-		fmt.Println("  --body TEXT       Review body text")
-		fmt.Println("  --event EVENT     Review event (COMMENT, APPROVE, REQUEST_CHANGES)")
-		fmt.Println("  --file FILE       Submit comments for specific file only")
-		fmt.Println("  --json            Output result in JSON format")
-		fmt.Println("  --after ACTION    What to do with local comments after submission")
-		fmt.Println("                    (clear, keep, archive) [default: clear]")
+		showSubmitUsage()
 		return
 	}
 
-	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after"}); err != nil {
+	if err := validateSubmitOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(2, "gh-pr-review submit <owner>/<repo> <pr_number> [options]"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	repoSpec := parser.GetPositional(0)
-	prNumberStr := parser.GetPositional(1)
-
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	owner, repo, prNumber, err := parseSubmitArgs(parser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	prNumber, err := strconv.Atoi(prNumberStr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid PR number '%s'\n", prNumberStr)
 		os.Exit(1)
 	}
 
@@ -270,24 +266,11 @@ func handleSubmit(args []string) {
 	jsonOutput := parser.HasOption("json")
 	afterAction := parser.GetOption("after")
 
-	// Validate event if provided
-	if event != "" {
-		validEvents := []string{"COMMENT", "APPROVE", "REQUEST_CHANGES"}
-		valid := false
-		for _, validEvent := range validEvents {
-			if event == validEvent {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			fmt.Fprintf(os.Stderr, "Error: invalid event '%s', must be one of: %s\n",
-				event, strings.Join(validEvents, ", "))
-			os.Exit(1)
-		}
+	if err := validateSubmitEvent(event); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Parse post-submit action
 	postSubmitAction, err := models.CreatePostSubmitExecutor(afterAction)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -308,53 +291,78 @@ func handleSubmit(args []string) {
 	}
 }
 
+func showSubmitUsage() {
+	fmt.Println("Usage: gh-pr-review submit <owner>/<repo> <pr_number> [options]")
+	fmt.Println("  --body TEXT       Review body text")
+	fmt.Println("  --event EVENT     Review event (COMMENT, APPROVE, REQUEST_CHANGES)")
+	fmt.Println("  --file FILE       Submit comments for specific file only")
+	fmt.Println("  --json            Output result in JSON format")
+	fmt.Println("  --after ACTION    What to do with local comments after submission")
+	fmt.Println("                    (clear, keep, archive) [default: clear]")
+}
+
+func validateSubmitOptions(parser *argparser.ArgParser) error {
+	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after"}); err != nil {
+		return fmt.Errorf("validating options: %w", err)
+	}
+	if err := parser.RequireExactPositionals(2, "gh-pr-review submit <owner>/<repo> <pr_number> [options]"); err != nil {
+		return fmt.Errorf("validating positionals: %w", err)
+	}
+	return nil
+}
+
+func parseSubmitArgs(parser *argparser.ArgParser) (string, string, int, error) {
+	repoSpec := parser.GetPositional(0)
+	prNumberStr := parser.GetPositional(1)
+
+	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("parsing repo spec: %w", err)
+	}
+
+	prNumber, err := strconv.Atoi(prNumberStr)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("invalid PR number '%s'", prNumberStr)
+	}
+
+	return owner, repo, prNumber, nil
+}
+
+func validateSubmitEvent(event string) error {
+	if event == "" {
+		return nil
+	}
+	validEvents := []string{"COMMENT", "APPROVE", "REQUEST_CHANGES"}
+	for _, validEvent := range validEvents {
+		if event == validEvent {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid event '%s', must be one of: %s", event, strings.Join(validEvents, ", "))
+}
+
 func handleList(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review list <owner>/<repo> <identifier> [options]")
-		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
-		fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
-		fmt.Println("  --file FILE       Filter by file path")
-		fmt.Println("  --line LINE       Filter by line number or range (e.g., 15 or 15-20)")
-		fmt.Println("  --side SIDE       Filter by side (LEFT, RIGHT)")
+		showListUsage()
 		return
 	}
 
-	if err := parser.ValidateOptions([]string{"format", "file", "line", "side"}); err != nil {
+	if err := validateListOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(2, "gh-pr-review list <owner>/<repo> <identifier> [options]"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	repoSpec := parser.GetPositional(0)
-	identifier := parser.GetPositional(1)
-
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	owner, repo, identifier, err := parseListArgs(parser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	format := parser.GetOption("format")
-	if format == "" {
-		format = "table"
-	}
-	if format != "table" && format != "json" {
-		fmt.Fprintf(os.Stderr, "Error: format must be 'table' or 'json'\n")
-		os.Exit(1)
-	}
-
-	file := parser.GetOption("file")
-	line := parser.GetOption("line")
-	side := parser.GetOption("side")
-
-	if side != "" && side != "LEFT" && side != "RIGHT" {
-		fmt.Fprintf(os.Stderr, "Error: side must be LEFT or RIGHT\n")
+	format, file, line, side, err := parseListFilters(parser)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -370,6 +378,57 @@ func handleList(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func showListUsage() {
+	fmt.Println("Usage: gh-pr-review list <owner>/<repo> <identifier> [options]")
+	fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
+	fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
+	fmt.Println("  --file FILE       Filter by file path")
+	fmt.Println("  --line LINE       Filter by line number or range (e.g., 15 or 15-20)")
+	fmt.Println("  --side SIDE       Filter by side (LEFT, RIGHT)")
+}
+
+func validateListOptions(parser *argparser.ArgParser) error {
+	if err := parser.ValidateOptions([]string{"format", "file", "line", "side"}); err != nil {
+		return fmt.Errorf("validating options: %w", err)
+	}
+	if err := parser.RequireExactPositionals(2, "gh-pr-review list <owner>/<repo> <identifier> [options]"); err != nil {
+		return fmt.Errorf("validating positionals: %w", err)
+	}
+	return nil
+}
+
+func parseListArgs(parser *argparser.ArgParser) (string, string, string, error) {
+	repoSpec := parser.GetPositional(0)
+	identifier := parser.GetPositional(1)
+
+	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		return "", "", "", fmt.Errorf("parsing repo spec: %w", err)
+	}
+
+	return owner, repo, identifier, nil
+}
+
+func parseListFilters(parser *argparser.ArgParser) (string, string, string, string, error) {
+	format := parser.GetOption("format")
+	if format == "" {
+		format = "table"
+	}
+	if format != "table" && format != "json" {
+		return "", "", "", "", fmt.Errorf("format must be 'table' or 'json'")
+	}
+
+	file := parser.GetOption("file")
+	line := parser.GetOption("line")
+	side := parser.GetOption("side")
+
+	if side != "" && side != "LEFT" && side != "RIGHT" {
+		return "", "", "", "", fmt.Errorf("side must be LEFT or RIGHT")
+	}
+
+	return format, file, line, side, nil
 }
 
 func handleDelete(args []string) {
@@ -477,57 +536,24 @@ func handleAdjust(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]")
-		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
-		fmt.Println("  <file>            File path to adjust comments for")
-		fmt.Println("  --diff SPEC       Classic diff format specification (required)")
-		fmt.Println("                    e.g., \"15,17d14\" or \"30a31,33\" or \"5,7c6,8\"")
-		fmt.Println("  --dry-run         Show what would be adjusted without making changes")
-		fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
-		fmt.Println("  --force           Apply adjustments even if validation fails")
-		fmt.Println()
-		fmt.Println("Classic diff format examples:")
-		fmt.Println("  15,17d14          Delete lines 15-17, next line becomes 14")
-		fmt.Println("  30a31,33          After line 30, insert what becomes lines 31-33")
-		fmt.Println("  5,7c6,8           Replace lines 5-7 with content that becomes lines 6-8")
-		fmt.Println("  15d14;30a31       Multiple operations separated by semicolons")
+		showAdjustUsage()
 		return
 	}
 
-	if err := parser.ValidateOptions([]string{"diff", "dry-run", "format", "force"}); err != nil {
+	if err := validateAdjustOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := parser.RequireExactPositionals(3, "gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]"); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	diffSpec := parser.GetOption("diff")
-	if diffSpec == "" {
-		fmt.Fprintf(os.Stderr, "Error: --diff option is required\n")
-		os.Exit(1)
-	}
-
-	repoSpec := parser.GetPositional(0)
-	identifier := parser.GetPositional(1)
-	file := parser.GetPositional(2)
-
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	owner, repo, identifier, file, diffSpec, err := parseAdjustArgs(parser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	dryRun := parser.HasOption("dry-run")
-	force := parser.HasOption("force")
-	format := parser.GetOption("format")
-	if format == "" {
-		format = "table"
-	}
-	if format != "table" && format != "json" {
-		fmt.Fprintf(os.Stderr, "Error: format must be 'table' or 'json'\n")
+	dryRun, force, format, err := parseAdjustOptions(parser)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -541,4 +567,63 @@ func handleAdjust(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func showAdjustUsage() {
+	fmt.Println("Usage: gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]")
+	fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
+	fmt.Println("  <file>            File path to adjust comments for")
+	fmt.Println("  --diff SPEC       Classic diff format specification (required)")
+	fmt.Println("                    e.g., \"15,17d14\" or \"30a31,33\" or \"5,7c6,8\"")
+	fmt.Println("  --dry-run         Show what would be adjusted without making changes")
+	fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
+	fmt.Println("  --force           Apply adjustments even if validation fails")
+	fmt.Println()
+	fmt.Println("Classic diff format examples:")
+	fmt.Println("  15,17d14          Delete lines 15-17, next line becomes 14")
+	fmt.Println("  30a31,33          After line 30, insert what becomes lines 31-33")
+	fmt.Println("  5,7c6,8           Replace lines 5-7 with content that becomes lines 6-8")
+	fmt.Println("  15d14;30a31       Multiple operations separated by semicolons")
+}
+
+func validateAdjustOptions(parser *argparser.ArgParser) error {
+	if err := parser.ValidateOptions([]string{"diff", "dry-run", "format", "force"}); err != nil {
+		return fmt.Errorf("validating options: %w", err)
+	}
+	if err := parser.RequireExactPositionals(3, "gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]"); err != nil {
+		return fmt.Errorf("validating positionals: %w", err)
+	}
+	return nil
+}
+
+func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, string, string, error) {
+	diffSpec := parser.GetOption("diff")
+	if diffSpec == "" {
+		return "", "", "", "", "", fmt.Errorf("--diff option is required")
+	}
+
+	repoSpec := parser.GetPositional(0)
+	identifier := parser.GetPositional(1)
+	file := parser.GetPositional(2)
+
+	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		return "", "", "", "", "", fmt.Errorf("parsing repo spec: %w", err)
+	}
+
+	return owner, repo, identifier, file, diffSpec, nil
+}
+
+func parseAdjustOptions(parser *argparser.ArgParser) (bool, bool, string, error) {
+	dryRun := parser.HasOption("dry-run")
+	force := parser.HasOption("force")
+	format := parser.GetOption("format")
+	if format == "" {
+		format = "table"
+	}
+	if format != "table" && format != "json" {
+		return false, false, "", fmt.Errorf("format must be 'table' or 'json'")
+	}
+
+	return dryRun, force, format, nil
 }

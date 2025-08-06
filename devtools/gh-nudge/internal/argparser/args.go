@@ -28,73 +28,27 @@ func NewArgParser(args []string) *ArgParser {
 // parse processes the arguments according to standard CLI conventions.
 func (p *ArgParser) parse(args []string) {
 	i := 0
-	foundDoubleDash := false
 
 	for i < len(args) {
 		arg := args[i]
 
 		// Everything after -- is treated as positional arguments
 		if arg == "--" {
-			foundDoubleDash = true
 			i++
+			p.addRemainingAsPositional(args[i:])
 			break
 		}
 
 		// Check for help flags
-		if arg == "-h" || arg == "--help" {
+		if p.isHelpFlag(arg) {
 			p.help = true
 			i++
 			continue
 		}
 
-		// Long options (--option or --option=value)
-		if strings.HasPrefix(arg, "--") {
-			if strings.Contains(arg, "=") {
-				// --option=value format
-				parts := strings.SplitN(arg, "=", 2)
-				optionName := parts[0][2:] // remove --
-				optionValue := parts[1]
-				p.addOption(optionName, optionValue)
-			} else {
-				// --option format, next arg might be value
-				optionName := arg[2:] // remove --
-
-				// Check if next argument is a value (not starting with - and not empty)
-				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && args[i+1] != "" {
-					// For known boolean flags, don't consume the next argument
-					if p.isBooleanFlag(optionName) {
-						p.addOption(optionName, "true")
-					} else {
-						p.addOption(optionName, args[i+1])
-						i++ // skip the value
-					}
-				} else {
-					// Boolean flag
-					p.addOption(optionName, "true")
-				}
-			}
-			i++
-			continue
-		}
-
-		// Short options (-o or -o value)
-		if strings.HasPrefix(arg, "-") && len(arg) > 1 {
-			optionName := arg[1:] // remove -
-
-			// Check if next argument is a value (not starting with - and not empty)
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && args[i+1] != "" {
-				// For known boolean flags, don't consume the next argument
-				if p.isBooleanFlag(optionName) {
-					p.addOption(optionName, "true")
-				} else {
-					p.addOption(optionName, args[i+1])
-					i++ // skip the value
-				}
-			} else {
-				// Boolean flag
-				p.addOption(optionName, "true")
-			}
-			i++
+		// Handle different argument types
+		if consumed := p.handleArgument(arg, args, i); consumed > 0 {
+			i += consumed
 			continue
 		}
 
@@ -102,14 +56,67 @@ func (p *ArgParser) parse(args []string) {
 		p.positionals = append(p.positionals, arg)
 		i++
 	}
+}
 
-	// Add remaining arguments as positional (after --)
-	if foundDoubleDash {
-		for i < len(args) {
-			p.positionals = append(p.positionals, args[i])
-			i++
-		}
+func (p *ArgParser) isHelpFlag(arg string) bool {
+	return arg == "-h" || arg == "--help"
+}
+
+func (p *ArgParser) addRemainingAsPositional(args []string) {
+	p.positionals = append(p.positionals, args...)
+}
+
+func (p *ArgParser) handleArgument(arg string, args []string, i int) int {
+	// Long options (--option or --option=value)
+	if strings.HasPrefix(arg, "--") {
+		return p.handleLongOption(arg, args, i)
 	}
+
+	// Short options (-o or -o value)
+	if strings.HasPrefix(arg, "-") && len(arg) > 1 {
+		return p.handleShortOption(arg, args, i)
+	}
+
+	return 0 // Not an option
+}
+
+func (p *ArgParser) handleLongOption(arg string, args []string, i int) int {
+	if strings.Contains(arg, "=") {
+		// --option=value format
+		parts := strings.SplitN(arg, "=", 2)
+		optionName := parts[0][2:] // remove --
+		optionValue := parts[1]
+		p.addOption(optionName, optionValue)
+		return 1
+	}
+
+	// --option format, next arg might be value
+	optionName := arg[2:] // remove --
+	return p.handleOptionWithPossibleValue(optionName, args, i)
+}
+
+func (p *ArgParser) handleShortOption(arg string, args []string, i int) int {
+	optionName := arg[1:] // remove -
+	return p.handleOptionWithPossibleValue(optionName, args, i)
+}
+
+func (p *ArgParser) handleOptionWithPossibleValue(optionName string, args []string, i int) int {
+	// Check if next argument is a value (not starting with - and not empty)
+	if p.hasNextValue(args, i) {
+		if p.isBooleanFlag(optionName) {
+			p.addOption(optionName, "true")
+			return 1
+		}
+		p.addOption(optionName, args[i+1])
+		return 2 // consumed current arg and next arg
+	}
+	// Boolean flag
+	p.addOption(optionName, "true")
+	return 1
+}
+
+func (p *ArgParser) hasNextValue(args []string, i int) bool {
+	return i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && args[i+1] != ""
 }
 
 // addOption adds an option value, supporting multiple values for the same option.

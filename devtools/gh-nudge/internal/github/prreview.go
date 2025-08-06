@@ -174,52 +174,23 @@ func (prc *PRReviewClient) parsePatchToDiffHunks(filename, patch, sha string) []
 		return []models.DiffHunk{}
 	}
 
-	var hunks []models.DiffHunk
 	lines := strings.Split(patch, "\n")
+	hunks := prc.parseHunksFromLines(lines, filename, sha)
+	return prc.createBidirectionalHunks(hunks)
+}
 
+func (prc *PRReviewClient) parseHunksFromLines(lines []string, filename, sha string) []models.DiffHunk {
+	var hunks []models.DiffHunk
 	var currentHunk *models.DiffHunk
 	var rightLineNum, leftLineNum int
 
 	for _, line := range lines {
-		// Parse hunk header (e.g., "@@ -1,4 +1,6 @@")
 		if strings.HasPrefix(line, "@@") {
 			if currentHunk != nil {
 				hunks = append(hunks, *currentHunk)
 			}
-
-			// Parse line numbers from hunk header
-			parts := strings.Fields(line)
-			if len(parts) >= 3 {
-				// Parse left side (old file)
-				if leftPart := parts[1]; strings.HasPrefix(leftPart, "-") {
-					leftNumbers := strings.Split(leftPart[1:], ",")
-					if len(leftNumbers) > 0 {
-						if num, err := strconv.Atoi(leftNumbers[0]); err == nil {
-							leftLineNum = num
-						}
-					}
-				}
-
-				// Parse right side (new file)
-				if rightPart := parts[2]; strings.HasPrefix(rightPart, "+") {
-					rightNumbers := strings.Split(rightPart[1:], ",")
-					if len(rightNumbers) > 0 {
-						if num, err := strconv.Atoi(rightNumbers[0]); err == nil {
-							rightLineNum = num
-						}
-					}
-				}
-			}
-
-			// Start new hunk
-			currentHunk = &models.DiffHunk{
-				File:      filename,
-				SHA:       sha,
-				StartLine: rightLineNum,
-				EndLine:   rightLineNum,
-				Content:   line + "\n",
-				Side:      "RIGHT", // Default to RIGHT side
-			}
+			leftLineNum, rightLineNum = prc.parseHunkHeader(line)
+			currentHunk = prc.createNewHunk(filename, sha, line, rightLineNum)
 			continue
 		}
 
@@ -227,45 +198,82 @@ func (prc *PRReviewClient) parsePatchToDiffHunks(filename, patch, sha string) []
 			continue
 		}
 
-		// Add line to current hunk content
 		currentHunk.Content += line + "\n"
-
-		// Track line numbers
-		switch {
-		case strings.HasPrefix(line, "+"):
-			currentHunk.EndLine = rightLineNum
-			rightLineNum++
-		case strings.HasPrefix(line, "-"):
-			leftLineNum++
-		case strings.HasPrefix(line, " "):
-			// Context line, present in both sides
-			currentHunk.EndLine = rightLineNum
-			rightLineNum++
-			leftLineNum++
-		}
+		rightLineNum, leftLineNum = prc.updateLineNumbers(line, rightLineNum, leftLineNum, currentHunk)
 	}
 
-	// Add the last hunk
 	if currentHunk != nil {
 		hunks = append(hunks, *currentHunk)
 	}
 
-	// Create separate hunks for LEFT side (deletions)
+	return hunks
+}
+
+func (prc *PRReviewClient) parseHunkHeader(line string) (int, int) {
+	parts := strings.Fields(line)
+	if len(parts) < 3 {
+		return 0, 0
+	}
+
+	leftLineNum := prc.parseLineNumber(parts[1], "-")
+	rightLineNum := prc.parseLineNumber(parts[2], "+")
+
+	return leftLineNum, rightLineNum
+}
+
+func (prc *PRReviewClient) parseLineNumber(part, prefix string) int {
+	if !strings.HasPrefix(part, prefix) {
+		return 0
+	}
+
+	numbers := strings.Split(part[1:], ",")
+	if len(numbers) == 0 {
+		return 0
+	}
+
+	if num, err := strconv.Atoi(numbers[0]); err == nil {
+		return num
+	}
+	return 0
+}
+
+func (prc *PRReviewClient) createNewHunk(filename, sha, line string, rightLineNum int) *models.DiffHunk {
+	return &models.DiffHunk{
+		File:      filename,
+		SHA:       sha,
+		StartLine: rightLineNum,
+		EndLine:   rightLineNum,
+		Content:   line + "\n",
+		Side:      "RIGHT",
+	}
+}
+
+func (prc *PRReviewClient) updateLineNumbers(line string, rightLineNum, leftLineNum int, currentHunk *models.DiffHunk) (int, int) {
+	switch {
+	case strings.HasPrefix(line, "+"):
+		currentHunk.EndLine = rightLineNum
+		rightLineNum++
+	case strings.HasPrefix(line, "-"):
+		leftLineNum++
+	case strings.HasPrefix(line, " "):
+		currentHunk.EndLine = rightLineNum
+		rightLineNum++
+		leftLineNum++
+	}
+	return rightLineNum, leftLineNum
+}
+
+func (prc *PRReviewClient) createBidirectionalHunks(hunks []models.DiffHunk) []models.DiffHunk {
 	var allHunks []models.DiffHunk
 	for _, hunk := range hunks {
-		// Add the RIGHT side hunk
 		allHunks = append(allHunks, hunk)
 
-		// Check if there are deletions to create a LEFT side hunk
 		if strings.Contains(hunk.Content, "\n-") {
 			leftHunk := hunk
 			leftHunk.Side = "LEFT"
-			// Note: We'd need more sophisticated parsing to get accurate LEFT side line numbers
-			// For now, we'll use the same range which is not entirely accurate
 			allHunks = append(allHunks, leftHunk)
 		}
 	}
-
 	return allHunks
 }
 

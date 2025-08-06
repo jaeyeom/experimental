@@ -1,6 +1,7 @@
 version: "2"
 linters:
   enable:
+    - cyclop
     - depguard
     - errcheck
     - gocritic
@@ -24,6 +25,9 @@ linters:
         rules:
           json: camel
           yaml: snake
+    cyclop:
+      max-complexity: 15
+      package-average: 0.0
     iface:
       enable:
         - identical

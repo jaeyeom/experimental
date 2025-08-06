@@ -106,18 +106,14 @@ func (s *Scanner) Scan(rootPath string) (*ScanResult, error) {
 
 // walkDirectory recursively walks through directories, respecting the scan options.
 func (s *Scanner) walkDirectory(absRoot, relPath string, depth int, result *ScanResult) error {
-	// Check depth limit
-	if s.options.MaxDepth > 0 && depth > s.options.MaxDepth {
+	if s.shouldSkipDepth(depth) {
 		return nil
 	}
 
 	currentPath := filepath.Join(absRoot, relPath)
-
-	// Read directory contents
-	entries, err := os.ReadDir(currentPath)
+	entries, err := s.readDirectoryEntries(currentPath, result)
 	if err != nil {
-		result.Errors = append(result.Errors, fmt.Errorf("failed to read directory %s: %w", currentPath, err))
-		return nil // Continue with other directories
+		return nil
 	}
 
 	for _, entry := range entries {
@@ -125,62 +121,87 @@ func (s *Scanner) walkDirectory(absRoot, relPath string, depth int, result *Scan
 		entryRelPath := filepath.Join(relPath, name)
 		entryAbsPath := filepath.Join(absRoot, entryRelPath)
 
-		// Skip hidden files if not included
-		if !s.options.IncludeHidden && strings.HasPrefix(name, ".") {
+		if s.shouldSkipEntry(name, entryRelPath, entry, entryAbsPath, absRoot, result) {
 			continue
 		}
 
-		// Check ignore patterns
-		if s.shouldIgnore(name, entryRelPath) {
-			continue
-		}
-
-		// Handle symbolic links
-		if entry.Type()&os.ModeSymlink != 0 {
-			if !s.options.FollowSymlinks {
-				continue
-			}
-
-			// Resolve symlink and check if it's valid
-			target, err := os.Readlink(entryAbsPath)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("failed to read symlink %s: %w", entryAbsPath, err))
-				continue
-			}
-
-			// Make sure we don't follow symlinks that point outside the root
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(filepath.Dir(entryAbsPath), target)
-			}
-
-			cleanTarget, err := filepath.EvalSymlinks(target)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("failed to evaluate symlink target %s: %w", target, err))
-				continue
-			}
-
-			// Check if target is within root (prevent infinite loops)
-			if !strings.HasPrefix(cleanTarget, absRoot) {
-				continue
-			}
-		}
-
-		if entry.IsDir() {
-			// Add directory to results
-			result.Directories = append(result.Directories, entryRelPath)
-
-			// Recursively scan subdirectory
-			err := s.walkDirectory(absRoot, entryRelPath, depth+1, result)
-			if err != nil {
-				result.Errors = append(result.Errors, err)
-			}
-		} else {
-			// Add file to results
-			result.Files = append(result.Files, entryRelPath)
-		}
+		s.processEntry(entry, entryRelPath, absRoot, depth, result)
 	}
 
 	return nil
+}
+
+func (s *Scanner) shouldSkipDepth(depth int) bool {
+	return s.options.MaxDepth > 0 && depth > s.options.MaxDepth
+}
+
+func (s *Scanner) readDirectoryEntries(currentPath string, result *ScanResult) ([]os.DirEntry, error) {
+	entries, err := os.ReadDir(currentPath)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Errorf("failed to read directory %s: %w", currentPath, err))
+		return nil, fmt.Errorf("reading directory %s: %w", currentPath, err)
+	}
+	return entries, nil
+}
+
+func (s *Scanner) shouldSkipEntry(name, entryRelPath string, entry os.DirEntry, entryAbsPath, absRoot string, result *ScanResult) bool {
+	if s.shouldSkipHiddenFile(name) {
+		return true
+	}
+
+	if s.shouldIgnore(name, entryRelPath) {
+		return true
+	}
+
+	return s.shouldSkipSymlink(entry, entryAbsPath, absRoot, result)
+}
+
+func (s *Scanner) shouldSkipHiddenFile(name string) bool {
+	return !s.options.IncludeHidden && strings.HasPrefix(name, ".")
+}
+
+func (s *Scanner) shouldSkipSymlink(entry os.DirEntry, entryAbsPath, absRoot string, result *ScanResult) bool {
+	if entry.Type()&os.ModeSymlink == 0 {
+		return false
+	}
+
+	if !s.options.FollowSymlinks {
+		return true
+	}
+
+	return !s.isValidSymlinkTarget(entryAbsPath, absRoot, result)
+}
+
+func (s *Scanner) isValidSymlinkTarget(entryAbsPath, absRoot string, result *ScanResult) bool {
+	target, err := os.Readlink(entryAbsPath)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Errorf("failed to read symlink %s: %w", entryAbsPath, err))
+		return false
+	}
+
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(entryAbsPath), target)
+	}
+
+	cleanTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Errorf("failed to evaluate symlink target %s: %w", target, err))
+		return false
+	}
+
+	return strings.HasPrefix(cleanTarget, absRoot)
+}
+
+func (s *Scanner) processEntry(entry os.DirEntry, entryRelPath, absRoot string, depth int, result *ScanResult) {
+	if entry.IsDir() {
+		result.Directories = append(result.Directories, entryRelPath)
+		err := s.walkDirectory(absRoot, entryRelPath, depth+1, result)
+		if err != nil {
+			result.Errors = append(result.Errors, err)
+		}
+	} else {
+		result.Files = append(result.Files, entryRelPath)
+	}
 }
 
 // shouldIgnore checks if a file or directory should be ignored based on patterns.
