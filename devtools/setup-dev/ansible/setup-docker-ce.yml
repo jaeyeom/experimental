@@ -1,0 +1,107 @@
+---
+- name: Install Docker CE on Ubuntu/Debian systems
+  hosts: all
+  vars:
+    docker_packages:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    docker_old_packages:
+      - docker
+      - docker-engine
+      - docker-compose-plugin
+      - docker.io
+      - containerd
+      - runc
+  tasks:
+    - name: Include guard for setup-docker-ce playbook
+      block:
+        - name: Stop early if the setup-docker-ce playbook is already included
+          meta: end_play
+          when: setup_docker_ce_playbook_imported is defined
+        - name: Ensure the setup-docker-ce playbook is not included
+          set_fact:
+            setup_docker_ce_playbook_imported: true
+          when: setup_docker_ce_playbook_imported is not defined
+
+    - name: Install Docker CE on Ubuntu/Debian systems
+      block:
+        - name: Remove old Docker packages
+          apt:
+            name: "{{ docker_old_packages }}"
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: Install Docker prerequisites
+          apt:
+            name:
+              - ca-certificates
+              - curl
+              - gnupg
+              - lsb-release
+              - apt-transport-https
+              - software-properties-common
+            state: present
+            update_cache: yes
+
+        - name: Ensure keyrings directory exists
+          file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Download Docker's official GPG key
+          get_url:
+            url: "https://download.docker.com/linux/{{ ansible_lsb.id | lower }}/gpg"
+            dest: /etc/apt/keyrings/docker.asc
+            mode: '0644'
+
+        - name: Add Docker apt repository
+          apt_repository:
+            repo: "deb [arch={{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_lsb.id | lower }} {{ ansible_lsb.codename }} stable"
+            state: present
+            filename: docker
+
+        - name: Update apt cache after adding Docker repository
+          apt:
+            update_cache: yes
+
+        - name: Install Docker CE and related packages
+          apt:
+            name: "{{ docker_packages }}"
+            state: present
+
+        - name: Add current user to docker group
+          user:
+            name: "{{ ansible_user }}"
+            groups: docker
+            append: yes
+          when: ansible_user is defined and ansible_user != "root"
+
+        - name: Start and enable Docker service
+          systemd:
+            name: docker
+            state: started
+            enabled: yes
+
+        - name: Display Docker installation completion message
+          debug:
+            msg: |
+              Docker CE installation completed successfully!
+
+              Important: You need to log out and log back in (or reboot) for the docker group membership to take effect.
+
+              You can verify the installation with:
+              - docker --version
+              - docker run hello-world
+
+      when: ansible_env.TERMUX_VERSION is not defined and (ansible_facts['distribution'] == "Ubuntu" or ansible_facts['distribution'] == "Debian")
+      become: yes
+
+    - name: Skip Docker CE installation on unsupported systems
+      debug:
+        msg: "Docker CE installation skipped - only supported on Ubuntu/Debian systems (not Termux or macOS)"
+      when: ansible_env.TERMUX_VERSION is defined or ansible_facts['distribution'] not in ["Ubuntu", "Debian"]

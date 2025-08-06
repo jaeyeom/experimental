@@ -183,6 +183,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
+- setup-docker-ce.yml
 - setup-docker-lima.yml
 - setup-emacs.yml
 - setup-emacs-lsp-booster.yml
