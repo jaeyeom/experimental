@@ -487,9 +487,7 @@ func (ch *CommandHandler) clearBranchComments(owner, repo, branchName string, fi
 
 	var err error
 	if file != "" {
-		// For now, we'll clear all branch comments (file-specific clearing not implemented)
-		err = ch.storage.ClearBranchComments(owner, repo, branchName)
-		fmt.Printf("Note: Cleared ALL branch comments (file-specific clearing not yet implemented)\n")
+		err = ch.storage.ClearBranchCommentsForFile(owner, repo, branchName, file)
 	} else {
 		err = ch.storage.ClearBranchComments(owner, repo, branchName)
 	}

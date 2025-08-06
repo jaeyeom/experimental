@@ -125,6 +125,53 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		}
 	})
 
+	t.Run("ClearBranchCommentsForFile", func(t *testing.T) {
+		// Clear any existing comments first
+		_ = storage.ClearBranchComments(owner, repo, branchName)
+
+		// Add multiple comments for different files
+		comment1 := models.Comment{
+			Path: "file1.go",
+			Line: 10,
+			Body: "Comment on file1",
+			Side: "RIGHT",
+		}
+		comment2 := models.Comment{
+			Path: "file2.go",
+			Line: 20,
+			Body: "Comment on file2",
+			Side: "RIGHT",
+		}
+		comment3 := models.Comment{
+			Path: "file1.go",
+			Line: 30,
+			Body: "Another comment on file1",
+			Side: "RIGHT",
+		}
+
+		_ = storage.AddBranchComment(owner, repo, branchName, comment1)
+		_ = storage.AddBranchComment(owner, repo, branchName, comment2)
+		_ = storage.AddBranchComment(owner, repo, branchName, comment3)
+
+		// Clear comments for file1.go only
+		err := storage.ClearBranchCommentsForFile(owner, repo, branchName, "file1.go")
+		if err != nil {
+			t.Errorf("ClearBranchCommentsForFile() error = %v", err)
+		}
+
+		// Verify only file2.go comments remain
+		comments, err := storage.GetBranchComments(owner, repo, branchName)
+		if err != nil {
+			t.Fatalf("GetBranchComments() after file-specific clear error = %v", err)
+		}
+		if len(comments.Comments) != 1 {
+			t.Errorf("Comments count after file-specific clear = %v, want 1", len(comments.Comments))
+		}
+		if comments.Comments[0].Path != "file2.go" {
+			t.Errorf("Remaining comment path = %v, want 'file2.go'", comments.Comments[0].Path)
+		}
+	})
+
 	t.Run("ClearBranchComments", func(t *testing.T) {
 		err := storage.ClearBranchComments(owner, repo, branchName)
 		if err != nil {

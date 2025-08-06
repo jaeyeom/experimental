@@ -541,6 +541,32 @@ func (gs *GitHubStorage) ClearBranchComments(owner, repo string, branchName stri
 	return nil
 }
 
+// ClearBranchCommentsForFile removes all comments for a specific file in a branch.
+func (gs *GitHubStorage) ClearBranchCommentsForFile(owner, repo string, branchName string, file string) error {
+	branchPath := gs.buildBranchPath(owner, repo, branchName)
+	commentsPath := filepath.Join(branchPath, "comments.json")
+
+	return gs.locker.WithLock(commentsPath, func() error {
+		branchComments, err := gs.GetBranchComments(owner, repo, branchName)
+		if err != nil {
+			return err
+		}
+
+		// Filter out comments for the specified file
+		var filteredComments []models.Comment
+		for _, comment := range branchComments.Comments {
+			if comment.Path != file {
+				filteredComments = append(filteredComments, comment)
+			}
+		}
+
+		branchComments.Comments = filteredComments
+		branchComments.UpdatedAt = time.Now()
+
+		return gs.store.Set(commentsPath, branchComments)
+	})
+}
+
 // DeleteBranchCommentByID deletes a specific branch comment by ID prefix.
 func (gs *GitHubStorage) DeleteBranchCommentByID(owner, repo string, branchName string, idPrefix string) error {
 	branchPath := gs.buildBranchPath(owner, repo, branchName)
