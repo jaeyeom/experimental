@@ -11,6 +11,21 @@ import (
 // diffOpRegex matches classic diff format operations like "15,17d14" or "30a31,33".
 var diffOpRegex = regexp.MustCompile(`^(\d+)(?:,(\d+))?([adc])(\d+)(?:,(\d+))?$`)
 
+// simpleMappingRegex matches simple mapping format operations like "15:-2" or "30:+3".
+var simpleMappingRegex = regexp.MustCompile(`^\s*(\d+)\s*:\s*([+-]?\d+)\s*$`)
+
+// relaxedMappingRegex allows more formats for better error messages.
+var relaxedMappingRegex = regexp.MustCompile(`^\s*([^:]+)\s*:\s*(.+)\s*$`)
+
+// FormatType represents different diff format types.
+type FormatType int
+
+const (
+	FormatUnknown FormatType = iota
+	FormatClassicDiff
+	FormatSimpleMapping
+)
+
 // ParseDiffSpec parses a classic diff format specification into LineAdjustment structs.
 // Supports formats like:
 // - "15,17d14" - Delete lines 15-17
@@ -247,5 +262,176 @@ func (adj LineAdjustment) FormatDescription() string {
 		return fmt.Sprintf("Replace lines %d-%d with %d lines", adj.OldStart, adj.OldEnd, newCount)
 	default:
 		return adj.DiffSpec()
+	}
+}
+
+// DetectFormat auto-detects the format type of a diff specification.
+func DetectFormat(diffSpec string) FormatType {
+	if diffSpec == "" {
+		return FormatUnknown
+	}
+
+	// Normalize whitespace and split by semicolon
+	operations := strings.Split(diffSpec, ";")
+
+	hasSimpleMapping := false
+	hasClassicDiff := false
+
+	for _, op := range operations {
+		op = strings.TrimSpace(op)
+		if op == "" {
+			continue
+		}
+
+		// Check for simple mapping format (line:offset)
+		switch {
+		case simpleMappingRegex.MatchString(op):
+			hasSimpleMapping = true
+		case diffOpRegex.MatchString(op):
+			// Check for classic diff format (line[,line]op[line[,line]])
+			hasClassicDiff = true
+		default:
+			// Invalid format found
+			return FormatUnknown
+		}
+	}
+
+	// Mixed formats are not allowed
+	if hasSimpleMapping && hasClassicDiff {
+		return FormatUnknown
+	}
+
+	if hasSimpleMapping {
+		return FormatSimpleMapping
+	}
+
+	if hasClassicDiff {
+		return FormatClassicDiff
+	}
+
+	return FormatUnknown
+}
+
+// ParseSimpleMappingSpec parses a simple mapping format specification into LineAdjustment structs.
+// Simple mapping format: "line:offset;line:offset"
+// Examples: "15:-2" (delete 2 lines at 15), "30:+3" (insert 3 lines before 30).
+//
+// IMPORTANT: All line numbers in simple mapping format refer to the ORIGINAL file,
+// NOT the current state after previous operations. This means:
+//   - "10:-1;20:+2" deletes line 10 from original file, then inserts before original line 20
+//   - The operations are applied logically as if viewing the original file
+//   - This differs from sequential application where line 20 might have moved after the first operation
+func ParseSimpleMappingSpec(spec string) ([]LineAdjustment, error) {
+	if spec == "" {
+		return nil, fmt.Errorf("empty mapping")
+	}
+
+	// First, convert to classic diff format and then parse that
+	// This ensures consistent behavior between both formats
+	classicDiff, err := ConvertSimpleMappingToClassicDiff(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	if classicDiff == "" {
+		return nil, fmt.Errorf("no valid operations found in mapping spec")
+	}
+
+	return ParseDiffSpec(classicDiff)
+}
+
+// ConvertSimpleMappingToClassicDiff converts simple mapping format to classic diff format.
+func ConvertSimpleMappingToClassicDiff(mapping string) (string, error) {
+	if mapping == "" {
+		return "", fmt.Errorf("empty mapping")
+	}
+
+	operations := strings.Split(mapping, ";")
+	var parts []string
+	lineOffset := 0 // Track cumulative changes to the new file line numbering
+
+	for _, op := range operations {
+		op = strings.TrimSpace(op)
+		if op == "" {
+			continue
+		}
+
+		matches := relaxedMappingRegex.FindStringSubmatch(op)
+		if matches == nil {
+			return "", fmt.Errorf("invalid simple mapping format: %s", op)
+		}
+
+		lineNum, err := strconv.Atoi(strings.TrimSpace(matches[1]))
+		if err != nil {
+			return "", fmt.Errorf("invalid line number: %s", matches[1])
+		}
+		if lineNum <= 0 {
+			return "", fmt.Errorf("line number must be positive: %d", lineNum)
+		}
+
+		offset, err := strconv.Atoi(strings.TrimSpace(matches[2]))
+		if err != nil {
+			return "", fmt.Errorf("invalid offset: %s", matches[2])
+		}
+
+		// Skip zero offset operations
+		if offset == 0 {
+			continue
+		}
+
+		var part string
+
+		if offset < 0 {
+			// Deletion: "line:-n" means delete n lines starting at line
+			deleteCount := -offset
+
+			if deleteCount == 1 {
+				// Single line deletion: "15d14"
+				part = fmt.Sprintf("%dd%d", lineNum, lineNum+lineOffset-1)
+			} else {
+				// Range deletion: "15,17d14"
+				part = fmt.Sprintf("%d,%dd%d", lineNum, lineNum+deleteCount-1, lineNum+lineOffset-1)
+			}
+
+			// Update offset for subsequent operations
+			lineOffset -= deleteCount
+		} else {
+			// Insertion: "line:+n" means insert n lines before line
+			insertCount := offset
+
+			if insertCount == 1 {
+				// Single line insertion: "29a30"
+				part = fmt.Sprintf("%da%d", lineNum-1, lineNum)
+			} else {
+				// Range insertion: "29a30,32"
+				part = fmt.Sprintf("%da%d,%d", lineNum-1, lineNum+lineOffset, lineNum+lineOffset+insertCount-1)
+			}
+
+			// Update offset for subsequent operations
+			lineOffset += insertCount
+		}
+
+		parts = append(parts, part)
+	}
+
+	if len(parts) == 0 {
+		return "", nil
+	}
+
+	return strings.Join(parts, ";"), nil
+}
+
+// ParseDiffSpecWithAutoDetection parses a diff specification with automatic format detection.
+// This is the main entry point that supports both classic diff and simple mapping formats.
+func ParseDiffSpecWithAutoDetection(spec string) ([]LineAdjustment, error) {
+	format := DetectFormat(spec)
+
+	switch format {
+	case FormatClassicDiff:
+		return ParseDiffSpec(spec)
+	case FormatSimpleMapping:
+		return ParseSimpleMappingSpec(spec)
+	default:
+		return nil, fmt.Errorf("unknown or invalid diff format: %s", spec)
 	}
 }

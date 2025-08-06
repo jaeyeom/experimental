@@ -42,8 +42,8 @@ func (ch *CommandHandler) AdjustCommand(owner, repo, identifier, file, diffSpec 
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
-	// Parse diff spec
-	adjustments, err := models.ParseDiffSpec(diffSpec)
+	// Parse diff spec with auto-detection
+	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
 		return fmt.Errorf("invalid diff spec: %w", err)
 	}
@@ -77,8 +77,8 @@ func (ch *CommandHandler) AdjustCommand(owner, repo, identifier, file, diffSpec 
 
 // getBranchAdjustmentPreview generates a preview of the adjustments for a branch.
 func (ch *CommandHandler) getBranchAdjustmentPreview(owner, repo, branchName, file, diffSpec, format string) (string, error) {
-	// Parse adjustments
-	adjustments, err := models.ParseDiffSpec(diffSpec)
+	// Parse adjustments with auto-detection
+	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse diff spec: %w", err)
 	}
@@ -153,8 +153,8 @@ func (ch *CommandHandler) getBranchAdjustmentPreview(owner, repo, branchName, fi
 
 // getAdjustmentPreview generates a preview of the adjustments.
 func (ch *CommandHandler) getAdjustmentPreview(owner, repo string, prNumber int, file, diffSpec, format string) (string, error) {
-	// Parse adjustments
-	adjustments, err := models.ParseDiffSpec(diffSpec)
+	// Parse adjustments with auto-detection
+	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse diff spec: %w", err)
 	}
