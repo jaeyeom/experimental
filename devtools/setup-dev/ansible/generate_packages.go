@@ -44,6 +44,12 @@ import (
 	"unicode"
 )
 
+// Import represents a playbook import with optional conditional logic
+type Import struct {
+	Playbook string // Name of the playbook to import
+	When     string // Optional Ansible when clause for conditional imports
+}
+
 // PackageData represents a traditional system package that can be installed
 // via platform-specific package managers (apt, yum, pkg, brew, etc.).
 // It supports different package names per platform and additional setup
@@ -56,7 +62,7 @@ type PackageData struct {
 	brewPkgName   string
 	brewTap       string
 	brewOptions   []string
-	Imports       []string
+	Imports       []Import
 	Suffix        string
 }
 
@@ -105,7 +111,7 @@ func (p PackageData) BrewOptions() []string {
 // It provides a unified way to handle different installation approaches across platforms.
 type InstallMethod interface {
 	GetMethodType() string
-	GetImports() []string
+	GetImports() []Import
 	RenderInstallTask(command string) string
 	RenderSetupTasks(command string) string       // For PPA, taps, backports, etc.
 	RenderBlockInstallTask(command string) string // For use inside blocks
@@ -121,7 +127,7 @@ func (p PackageInstallMethod) GetMethodType() string {
 	return "package"
 }
 
-func (p PackageInstallMethod) GetImports() []string {
+func (p PackageInstallMethod) GetImports() []Import {
 	return nil
 }
 
@@ -153,7 +159,7 @@ func (b BrewInstallMethod) GetMethodType() string {
 	return "brew"
 }
 
-func (b BrewInstallMethod) GetImports() []string {
+func (b BrewInstallMethod) GetImports() []Import {
 	return nil
 }
 
@@ -204,7 +210,7 @@ func (t TermuxPkgInstallMethod) GetMethodType() string {
 	return "termux-pkg"
 }
 
-func (t TermuxPkgInstallMethod) GetImports() []string {
+func (t TermuxPkgInstallMethod) GetImports() []Import {
 	return nil
 }
 
@@ -235,7 +241,7 @@ func (p PipInstallMethod) GetMethodType() string {
 	return "pip"
 }
 
-func (p PipInstallMethod) GetImports() []string {
+func (p PipInstallMethod) GetImports() []Import {
 	return nil
 }
 
@@ -264,8 +270,8 @@ func (g GoInstallMethod) GetMethodType() string {
 	return "go"
 }
 
-func (g GoInstallMethod) GetImports() []string {
-	return []string{"setup-user-go-bin-directory"}
+func (g GoInstallMethod) GetImports() []Import {
+	return []Import{{Playbook: "setup-user-go-bin-directory"}}
 }
 
 func (g GoInstallMethod) RenderSetupTasks(_ string) string {
@@ -320,8 +326,11 @@ func (c CargoInstallMethod) GetMethodType() string {
 	return "cargo"
 }
 
-func (c CargoInstallMethod) GetImports() []string {
-	return []string{"setup-cargo", "cargo-install-update"}
+func (c CargoInstallMethod) GetImports() []Import {
+	return []Import{
+		{Playbook: "setup-cargo"},
+		{Playbook: "cargo-install-update"},
+	}
 }
 
 func (c CargoInstallMethod) RenderSetupTasks(_ string) string {
@@ -384,8 +393,8 @@ func (n NpmInstallMethod) GetMethodType() string {
 	return "npm"
 }
 
-func (n NpmInstallMethod) GetImports() []string {
-	return []string{"npm"}
+func (n NpmInstallMethod) GetImports() []Import {
+	return []Import{{Playbook: "npm"}}
 }
 
 func (n NpmInstallMethod) RenderSetupTasks(_ string) string {
@@ -413,8 +422,8 @@ func (u UvInstallMethod) GetMethodType() string {
 	return "uv"
 }
 
-func (u UvInstallMethod) GetImports() []string {
-	return []string{"uv"}
+func (u UvInstallMethod) GetImports() []Import {
+	return []Import{{Playbook: "uv"}}
 }
 
 func (u UvInstallMethod) RenderSetupTasks(_ string) string {
@@ -443,7 +452,7 @@ func (u UbuntuPkgInstallMethod) GetMethodType() string {
 	return "ubuntu"
 }
 
-func (u UbuntuPkgInstallMethod) GetImports() []string {
+func (u UbuntuPkgInstallMethod) GetImports() []Import {
 	return nil
 }
 
@@ -489,7 +498,7 @@ func (d DebianPkgInstallMethod) GetMethodType() string {
 	return "debian"
 }
 
-func (d DebianPkgInstallMethod) GetImports() []string {
+func (d DebianPkgInstallMethod) GetImports() []Import {
 	return nil
 }
 
@@ -535,7 +544,7 @@ func (s ShellInstallMethod) GetMethodType() string {
 	return "shell"
 }
 
-func (s ShellInstallMethod) GetImports() []string {
+func (s ShellInstallMethod) GetImports() []Import {
 	return nil
 }
 
@@ -608,7 +617,7 @@ func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {
 type PlatformSpecificTool struct {
 	command   string
 	platforms map[string]InstallMethod
-	Imports   []string
+	Imports   []Import
 }
 
 func (p PlatformSpecificTool) Command() string {
@@ -627,14 +636,14 @@ func (p PlatformSpecificTool) GetPlatforms() map[string]InstallMethod {
 	return p.platforms
 }
 
-func (p PlatformSpecificTool) GetAllImports() []string {
+func (p PlatformSpecificTool) GetAllImports() []Import {
 	importsMap := make(map[string]bool)
-	var importsOrder []string
+	var importsOrder []Import
 
 	// Add explicit imports first, maintaining order
 	for _, imp := range p.Imports {
-		if !importsMap[imp] && imp != p.command {
-			importsMap[imp] = true
+		if !importsMap[imp.Playbook] && imp.Playbook != p.command {
+			importsMap[imp.Playbook] = true
 			importsOrder = append(importsOrder, imp)
 		}
 	}
@@ -642,8 +651,8 @@ func (p PlatformSpecificTool) GetAllImports() []string {
 	// Add imports from platform methods, maintaining their order
 	for _, method := range p.platforms {
 		for _, imp := range method.GetImports() {
-			if !importsMap[imp] && imp != p.command {
-				importsMap[imp] = true
+			if !importsMap[imp.Playbook] && imp.Playbook != p.command {
+				importsMap[imp.Playbook] = true
 				importsOrder = append(importsOrder, imp)
 			}
 		}
@@ -654,7 +663,8 @@ func (p PlatformSpecificTool) GetAllImports() []string {
 
 var packagesTemplate = `---
 {{- range .Imports }}
-- import_playbook: {{.}}.yml
+- import_playbook: {{.Playbook}}.yml{{if .When}}
+  when: {{.When}}{{end}}
 {{- end }}
 - name: Ensure {{.Command}} is present
   hosts: all
@@ -731,7 +741,8 @@ var packagesTemplate = `---
 
 var platformSpecificTemplate = `---
 {{- range .GetAllImports }}
-- import_playbook: {{.}}.yml
+- import_playbook: {{.Playbook}}.yml{{if .When}}
+  when: {{.When}}{{end}}
 {{- end }}
 
 - name: Ensure {{.Command}} is present
@@ -823,7 +834,7 @@ var packages = []PackageData{
 	{command: "gh"},
 	{command: "git"},
 	{command: "gpg", brewPkgName: "gnupg"},
-	{command: "gpg-agent", Imports: []string{"gpg"}, brewPkgName: "gnupg"},
+	{command: "gpg-agent", Imports: []Import{{Playbook: "gpg"}}, brewPkgName: "gnupg"},
 	{command: "grep"},
 	{command: "grpcio", debianPkgName: "python3-grpcio", termuxPkgName: "python-grpcio", brewPkgName: "python-grpcio"},
 	{command: "htop"},
@@ -845,7 +856,7 @@ var packages = []PackageData{
 	{command: "libvterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
 	{command: "man", brewPkgName: "man-db"},
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
-	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []string{"python3-notmuch2"}},
+	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []Import{{Playbook: "python3-notmuch2"}}},
 	{command: "npm", debianPkgName: "npm", termuxPkgName: "nodejs", brewPkgName: "node"},
 	{command: "pandoc"},
 	{command: "pass"},
@@ -1112,14 +1123,14 @@ var platformSpecificTools = []PlatformSpecificTool{
 		platforms: map[string]InstallMethod{
 			"all": GoInstallMethod{PkgPath: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"},
 		},
-		Imports: []string{"protoc"},
+		Imports: []Import{{Playbook: "protoc"}},
 	},
 	{
 		command: "protoc-gen-go-grpc",
 		platforms: map[string]InstallMethod{
 			"all": GoInstallMethod{PkgPath: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"},
 		},
-		Imports: []string{"protoc"},
+		Imports: []Import{{Playbook: "protoc"}},
 	},
 	{
 		command: "protolint",
