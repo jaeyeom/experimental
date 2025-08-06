@@ -871,6 +871,7 @@ var packages = []PackageData{
 	{command: "sshpass"},
 	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer", brewPkgName: "mactex"},
 	{command: "tmux"},
+	{command: "udocker"},
 	{command: "unzip"},
 	{command: "vipsthumbnail", debianPkgName: "libvips-tools", termuxPkgName: "libvips", brewPkgName: "vips"},
 	{command: "which"},
