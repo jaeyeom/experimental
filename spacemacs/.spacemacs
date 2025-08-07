@@ -1758,7 +1758,7 @@ the email."
     (cond
      ((region-active-p)
       (cond
-       ((string-empty-p additional-prompt) (chatgpt-shell-proofread-region))
+       ((string-empty-p additional-prompt) (chatgpt-shell-proofread-paragraph-or-region))
        ((string= "!" additional-prompt) (chatgpt-shell-quick-insert))
        ((string= "p" additional-prompt) (chatgpt-shell-prompt-compose nil))
        (t (chatgpt-shell-send-to-buffer
