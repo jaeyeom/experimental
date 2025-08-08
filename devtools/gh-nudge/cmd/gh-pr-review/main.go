@@ -216,6 +216,8 @@ Commands:
   submit <owner>/<repo> <pr_number>               Submit review to GitHub (PR only)
   adjust [<owner>/<repo>] [<identifier>] [file] --diff <spec>     Adjust comment line numbers
   adjust [<owner>/<repo>] [<identifier>] [file] --unified-diff <spec>  Adjust using git diff output
+  adjust [<owner>/<repo>] [<identifier>] --all-files --diff <spec>     Batch adjust all files
+  adjust [<owner>/<repo>] [<identifier>] --mapping-file <file>         Adjust using mapping file
   version                                         Show version information
   help                                           Show this help message
 
@@ -734,7 +736,7 @@ func handleAdjust(args []string) {
 		os.Exit(1)
 	}
 
-	dryRun, force, format, err := parseAdjustOptions(parser)
+	options, err := parseAdjustOptions(parser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -746,7 +748,17 @@ func handleAdjust(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.AdjustCommand(owner, repo, identifier, file, diffSpec, dryRun, force, format); err != nil {
+	// Convert options to the extended format
+	extendedOpts := prreview.AdjustOptionsExtended{
+		DryRun:      options.DryRun,
+		Force:       options.Force,
+		Format:      options.Format,
+		Interactive: options.Interactive,
+		AllFiles:    options.AllFiles,
+		MappingFile: options.MappingFile,
+	}
+
+	if err := handler.AdjustCommandExtended(owner, repo, identifier, file, diffSpec, extendedOpts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -756,6 +768,8 @@ func showAdjustUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] <file> --diff <spec> [options]")
 	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] [file] --unified-diff <spec> [options]")
+	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] --all-files --diff <spec> [options]")
+	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] --mapping-file <file> [options]")
 	fmt.Println()
 	fmt.Println("Arguments:")
 	fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
@@ -765,6 +779,9 @@ func showAdjustUsage() {
 	fmt.Println("Options:")
 	fmt.Println("  --diff SPEC       Diff specification (classic or simple mapping format)")
 	fmt.Println("  --unified-diff SPEC  Unified diff specification (git diff output)")
+	fmt.Println("  --all-files       Process all files with comments (requires --diff or --unified-diff)")
+	fmt.Println("  --mapping-file FILE  Read file-specific mappings from file")
+	fmt.Println("  --interactive     Interactive confirmation for each adjustment")
 	fmt.Println("  --dry-run         Show what would be adjusted without making changes")
 	fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
 	fmt.Println("  --force           Apply adjustments even if validation fails")
@@ -783,6 +800,15 @@ func showAdjustUsage() {
 	fmt.Println()
 	fmt.Println("  # Traditional single-file mode")
 	fmt.Println("  gh-pr-review adjust owner/repo 123 src/main.js --diff \"15:-2;30:+3\"")
+	fmt.Println()
+	fmt.Println("  # Interactive mode")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 src/main.js --diff \"15:-2;30:+3\" --interactive")
+	fmt.Println()
+	fmt.Println("  # Batch mode - all files")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 --all-files --diff \"15:-2;30:+3\"")
+	fmt.Println()
+	fmt.Println("  # Mapping file mode")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 --mapping-file adjustments.txt")
 	fmt.Println()
 	fmt.Println("Supported diff formats (auto-detected):")
 	fmt.Println()
@@ -805,37 +831,110 @@ func showAdjustUsage() {
 	fmt.Println("  30a31,33          After original line 30, insert what becomes lines 31-33")
 	fmt.Println("  5,7c6,8           Replace original lines 5-7 with content at lines 6-8")
 	fmt.Println("  15d14;30a31       Multiple operations separated by semicolons")
+	fmt.Println()
+	fmt.Println("Mapping File Format:")
+	fmt.Println("  Each line: file:line:offset   Apply offset to specific file and line")
+	fmt.Println("  src/main.js:15:-2             Delete 2 lines at line 15 in src/main.js")
+	fmt.Println("  src/utils.js:30:+3            Insert 3 lines before line 30 in src/utils.js")
+	fmt.Println("  # Comments and empty lines are ignored")
 }
 
 func validateAdjustOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"diff", "unified-diff", "dry-run", "format", "force"}); err != nil {
+	if err := parser.ValidateOptions([]string{"diff", "unified-diff", "all-files", "mapping-file", "interactive", "dry-run", "format", "force"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
 
-	// Check mutually exclusive diff options
+	return validateAdjustModes(parser)
+}
+
+// validateAdjustModes validates the mutually exclusive modes and their positional arguments.
+func validateAdjustModes(parser *argparser.ArgParser) error {
 	hasDiff := parser.GetOption("diff") != ""
 	hasUnifiedDiff := parser.GetOption("unified-diff") != ""
+	hasMappingFile := parser.GetOption("mapping-file") != ""
+	hasAllFiles := parser.HasOption("all-files")
 
-	if hasDiff && hasUnifiedDiff {
-		return fmt.Errorf("--diff and --unified-diff options are mutually exclusive")
+	if err := validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile); err != nil {
+		return err
 	}
 
-	if !hasDiff && !hasUnifiedDiff {
-		return fmt.Errorf("either --diff or --unified-diff option is required")
+	if err := validateAllFilesRequirement(hasAllFiles, hasDiff, hasUnifiedDiff); err != nil {
+		return err
 	}
 
-	// For unified diff, file argument is optional (enables multi-file mode)
+	return validatePositionalArguments(parser, hasDiff, hasUnifiedDiff, hasMappingFile, hasAllFiles)
+}
+
+// validateDiffMethodCount ensures exactly one diff specification method is used.
+func validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile bool) error {
+	count := 0
+	if hasDiff {
+		count++
+	}
 	if hasUnifiedDiff {
-		positionals := parser.GetPositionals()
-		if len(positionals) < 2 || len(positionals) > 3 {
-			return fmt.Errorf("wrong number of arguments for unified diff: gh-pr-review adjust <owner>/<repo> <identifier> [file] --unified-diff <spec> [options]")
-		}
-	} else {
-		if err := parser.RequireExactPositionals(3, "gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]"); err != nil {
-			return fmt.Errorf("validating positionals: %w", err)
-		}
+		count++
+	}
+	if hasMappingFile {
+		count++
 	}
 
+	if count == 0 {
+		return fmt.Errorf("one of --diff, --unified-diff, or --mapping-file option is required")
+	}
+	if count > 1 {
+		return fmt.Errorf("--diff, --unified-diff, and --mapping-file options are mutually exclusive")
+	}
+	return nil
+}
+
+// validateAllFilesRequirement checks that --all-files is used with compatible options.
+func validateAllFilesRequirement(hasAllFiles, hasDiff, hasUnifiedDiff bool) error {
+	if hasAllFiles && !hasDiff && !hasUnifiedDiff {
+		return fmt.Errorf("--all-files requires either --diff or --unified-diff option")
+	}
+	return nil
+}
+
+// validatePositionalArguments validates the number of positional arguments based on the selected mode.
+func validatePositionalArguments(parser *argparser.ArgParser, hasDiff, hasUnifiedDiff, hasMappingFile, hasAllFiles bool) error {
+	positionals := parser.GetPositionals()
+
+	switch {
+	case hasMappingFile || hasAllFiles:
+		return validateNoFileArgumentMode(positionals)
+	case hasUnifiedDiff:
+		return validateUnifiedDiffMode(positionals)
+	case hasDiff:
+		return validateTraditionalDiffMode(positionals)
+	default:
+		return fmt.Errorf("no valid mode selected")
+	}
+}
+
+// validateNoFileArgumentMode validates modes that don't require file arguments.
+func validateNoFileArgumentMode(positionals []string) error {
+	if len(positionals) != 2 {
+		return fmt.Errorf("wrong number of arguments: gh-pr-review adjust <owner>/<repo> <identifier> --mapping-file <file> [options]")
+	}
+	return nil
+}
+
+// validateUnifiedDiffMode validates unified diff mode arguments.
+func validateUnifiedDiffMode(positionals []string) error {
+	if len(positionals) < 2 || len(positionals) > 3 {
+		return fmt.Errorf("wrong number of arguments for unified diff: gh-pr-review adjust <owner>/<repo> <identifier> [file] --unified-diff <spec> [options]")
+	}
+	return nil
+}
+
+// validateTraditionalDiffMode validates traditional diff mode arguments.
+func validateTraditionalDiffMode(positionals []string) error {
+	if len(positionals) < 2 || len(positionals) > 3 {
+		return fmt.Errorf("wrong number of arguments: gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]")
+	}
+	if len(positionals) == 2 {
+		return fmt.Errorf("file argument required for --diff option (use --all-files to process all files)")
+	}
 	return nil
 }
 
@@ -890,7 +989,7 @@ func parseAdjustArgsCase2(positionals []string) (string, string, string, error) 
 }
 
 func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, string, string, error) {
-	// Get diff spec from either --diff or --unified-diff
+	// Get diff spec from either --diff or --unified-diff (mapping-file is handled separately)
 	diffSpec := parser.GetOption("diff")
 	if diffSpec == "" {
 		diffSpec = parser.GetOption("unified-diff")
@@ -930,16 +1029,32 @@ func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, strin
 	return owner, repo, identifier, file, diffSpec, nil
 }
 
-func parseAdjustOptions(parser *argparser.ArgParser) (bool, bool, string, error) {
-	dryRun := parser.HasOption("dry-run")
-	force := parser.HasOption("force")
-	format := parser.GetOption("format")
-	if format == "" {
-		format = "table"
-	}
-	if format != "table" && format != "json" {
-		return false, false, "", fmt.Errorf("format must be 'table' or 'json'")
+// AdjustOptions holds all the options for the adjust command.
+type AdjustOptions struct {
+	DryRun      bool
+	Force       bool
+	Format      string
+	Interactive bool
+	AllFiles    bool
+	MappingFile string
+}
+
+func parseAdjustOptions(parser *argparser.ArgParser) (AdjustOptions, error) {
+	options := AdjustOptions{
+		DryRun:      parser.HasOption("dry-run"),
+		Force:       parser.HasOption("force"),
+		Interactive: parser.HasOption("interactive"),
+		AllFiles:    parser.HasOption("all-files"),
+		MappingFile: parser.GetOption("mapping-file"),
 	}
 
-	return dryRun, force, format, nil
+	options.Format = parser.GetOption("format")
+	if options.Format == "" {
+		options.Format = "table"
+	}
+	if options.Format != "table" && options.Format != "json" {
+		return options, fmt.Errorf("format must be 'table' or 'json'")
+	}
+
+	return options, nil
 }

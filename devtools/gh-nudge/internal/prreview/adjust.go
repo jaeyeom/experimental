@@ -1,8 +1,12 @@
 package prreview
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -33,6 +37,23 @@ type CommentChange struct {
 	Body           string `json:"body"`
 	Status         string `json:"status"` // "adjusted", "deleted", "warning"
 	Warning        string `json:"warning,omitempty"`
+}
+
+// MappingFileEntry represents an entry in a mapping file.
+type MappingFileEntry struct {
+	FilePath string
+	Line     int
+	Offset   int
+}
+
+// AdjustOptionsExtended holds extended options for the adjust command.
+type AdjustOptionsExtended struct {
+	DryRun      bool
+	Force       bool
+	Format      string
+	Interactive bool
+	AllFiles    bool
+	MappingFile string
 }
 
 // AdjustCommand adjusts comment line numbers based on diff specifications.
@@ -681,4 +702,449 @@ func (ch *CommandHandler) applyBranchAdjustmentsWithCounts(owner, repo, branchNa
 	}
 
 	return adjustedCount, orphanedCount, warningCount, nil
+}
+
+// parseMappingFile parses a mapping file and returns entries grouped by file.
+func parseMappingFile(filePath string) (map[string][]MappingFileEntry, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open mapping file: %w", err)
+	}
+	defer file.Close()
+
+	// Regular expression to match mapping file entries: file:line:offset
+	mappingRegex := regexp.MustCompile(`^([^:]+):(\d+):([-+]?\d+)\s*$`)
+
+	entries := make(map[string][]MappingFileEntry)
+	scanner := bufio.NewScanner(file)
+	lineNum := 0
+
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		matches := mappingRegex.FindStringSubmatch(line)
+		if matches == nil {
+			return nil, fmt.Errorf("invalid mapping format at line %d: %s (expected: file:line:offset)", lineNum, line)
+		}
+
+		filePath := matches[1]
+		lineInt, err := strconv.Atoi(matches[2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid line number at line %d: %s", lineNum, matches[2])
+		}
+
+		offset, err := strconv.Atoi(matches[3])
+		if err != nil {
+			return nil, fmt.Errorf("invalid offset at line %d: %s", lineNum, matches[3])
+		}
+
+		entry := MappingFileEntry{
+			FilePath: filePath,
+			Line:     lineInt,
+			Offset:   offset,
+		}
+
+		entries[filePath] = append(entries[filePath], entry)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading mapping file: %w", err)
+	}
+
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no valid entries found in mapping file")
+	}
+
+	return entries, nil
+}
+
+// convertMappingEntriesToDiffSpec converts mapping entries for a file to a simple mapping diff spec.
+func convertMappingEntriesToDiffSpec(entries []MappingFileEntry) string {
+	var parts []string
+	for _, entry := range entries {
+		if entry.Offset >= 0 {
+			parts = append(parts, fmt.Sprintf("%d:+%d", entry.Line, entry.Offset))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d:%d", entry.Line, entry.Offset))
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
+// promptUser prompts the user for confirmation and returns their response.
+func promptUser(prompt string) (string, error) {
+	fmt.Print(prompt)
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		return strings.TrimSpace(strings.ToLower(scanner.Text())), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("failed to read user input: %w", err)
+	}
+	return "", nil
+}
+
+// AdjustCommandExtended provides extended adjust functionality with Phase 2 features.
+func (ch *CommandHandler) AdjustCommandExtended(owner, repo, identifier, file, diffSpec string, opts AdjustOptionsExtended) error {
+	parsed, err := models.ParseIdentifier(identifier)
+	if err != nil {
+		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
+	}
+
+	// Handle mapping file mode
+	if opts.MappingFile != "" {
+		return ch.adjustCommandMappingFile(owner, repo, *parsed, opts)
+	}
+
+	// Handle all-files mode
+	if opts.AllFiles {
+		return ch.adjustCommandAllFiles(owner, repo, *parsed, diffSpec, opts)
+	}
+
+	// Handle unified diff mode
+	if models.DetectFormat(diffSpec) == models.FormatUnifiedDiff {
+		return ch.adjustCommandUnifiedDiffExtended(owner, repo, *parsed, file, diffSpec, opts)
+	}
+
+	// Traditional single-file processing with possible interactive mode
+	return ch.adjustCommandSingleFileExtended(owner, repo, *parsed, file, diffSpec, opts)
+}
+
+// adjustCommandMappingFile handles mapping file processing.
+func (ch *CommandHandler) adjustCommandMappingFile(owner, repo string, parsed models.ParsedIdentifier, opts AdjustOptionsExtended) error {
+	// Parse mapping file
+	mappingEntries, err := parseMappingFile(opts.MappingFile)
+	if err != nil {
+		return fmt.Errorf("failed to parse mapping file: %w", err)
+	}
+
+	fmt.Printf("Processing %d file(s) from mapping file %s:\n", len(mappingEntries), opts.MappingFile)
+	for filePath := range mappingEntries {
+		fmt.Printf("- %s\n", filePath)
+	}
+	fmt.Println()
+
+	totalAdjusted := 0
+	totalOrphaned := 0
+	totalWarnings := 0
+
+	for filePath, entries := range mappingEntries {
+		fmt.Printf("=== Processing file: %s ===\n", filePath)
+
+		// Convert mapping entries to diff spec
+		diffSpec := convertMappingEntriesToDiffSpec(entries)
+
+		// Process this file
+		var fileAdjusted, fileOrphaned, fileWarnings int
+		if parsed.IsPR() {
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, parsed.PRNumber, filePath, diffSpec, opts, true)
+		} else {
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, 0, filePath, diffSpec, opts, false)
+		}
+
+		if err != nil {
+			fmt.Printf("Warning: Failed to process file %s: %v\n", filePath, err)
+			continue
+		}
+
+		totalAdjusted += fileAdjusted
+		totalOrphaned += fileOrphaned
+		totalWarnings += fileWarnings
+		fmt.Println()
+	}
+
+	if opts.DryRun {
+		fmt.Println("\n[DRY RUN] No changes were made.")
+	} else {
+		fmt.Printf("\nOverall adjustment summary:\n")
+		fmt.Printf("- %d comments adjusted across %d files\n", totalAdjusted, len(mappingEntries))
+		if totalOrphaned > 0 {
+			fmt.Printf("- %d comments orphaned\n", totalOrphaned)
+		}
+		if totalWarnings > 0 {
+			fmt.Printf("- %d warnings\n", totalWarnings)
+		}
+	}
+
+	return nil
+}
+
+// adjustCommandAllFiles handles all-files batch processing.
+func (ch *CommandHandler) adjustCommandAllFiles(owner, repo string, parsed models.ParsedIdentifier, diffSpec string, opts AdjustOptionsExtended) error {
+	files, err := ch.getAllFilesWithComments(owner, repo, parsed)
+	if err != nil {
+		return err
+	}
+
+	if len(files) == 0 {
+		fmt.Println("No files with comments found.")
+		return nil
+	}
+
+	ch.printFileProcessingHeader(files)
+	return ch.processAllFiles(owner, repo, parsed, files, diffSpec, opts)
+}
+
+// getAllFilesWithComments retrieves all files that contain comments.
+func (ch *CommandHandler) getAllFilesWithComments(owner, repo string, parsed models.ParsedIdentifier) ([]string, error) {
+	if parsed.IsPR() {
+		prComments, err := ch.storage.GetComments(owner, repo, parsed.PRNumber)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get PR comments: %w", err)
+		}
+		return extractUniqueFilePaths(prComments.Comments), nil
+	}
+
+	branchComments, err := ch.storage.GetBranchComments(owner, repo, parsed.BranchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branch comments: %w", err)
+	}
+	return extractUniqueFilePaths(branchComments.Comments), nil
+}
+
+// extractUniqueFilePaths extracts unique file paths from a list of comments.
+func extractUniqueFilePaths(comments []models.Comment) []string {
+	fileMap := make(map[string]bool)
+	for _, comment := range comments {
+		fileMap[comment.Path] = true
+	}
+
+	files := make([]string, 0, len(fileMap))
+	for filePath := range fileMap {
+		files = append(files, filePath)
+	}
+	return files
+}
+
+// printFileProcessingHeader prints the header for file processing.
+func (ch *CommandHandler) printFileProcessingHeader(files []string) {
+	fmt.Printf("Processing %d file(s) with comments:\n", len(files))
+	for _, filePath := range files {
+		fmt.Printf("- %s\n", filePath)
+	}
+	fmt.Println()
+}
+
+// processAllFiles processes all files and returns summary statistics.
+func (ch *CommandHandler) processAllFiles(owner, repo string, parsed models.ParsedIdentifier, files []string, diffSpec string, opts AdjustOptionsExtended) error {
+	totalAdjusted := 0
+	totalOrphaned := 0
+	totalWarnings := 0
+
+	for i, filePath := range files {
+		fmt.Printf("=== Processing file %d/%d: %s ===\n", i+1, len(files), filePath)
+
+		fileAdjusted, fileOrphaned, fileWarnings, err := ch.processSingleFileInBatch(owner, repo, parsed, filePath, diffSpec, opts)
+		if err != nil {
+			fmt.Printf("Warning: Failed to process file %s: %v\n", filePath, err)
+			continue
+		}
+
+		totalAdjusted += fileAdjusted
+		totalOrphaned += fileOrphaned
+		totalWarnings += fileWarnings
+		fmt.Println()
+	}
+
+	ch.printBatchSummary(opts.DryRun, totalAdjusted, totalOrphaned, totalWarnings, len(files))
+	return nil
+}
+
+// processSingleFileInBatch processes a single file as part of batch processing.
+func (ch *CommandHandler) processSingleFileInBatch(owner, repo string, parsed models.ParsedIdentifier, filePath, diffSpec string, opts AdjustOptionsExtended) (int, int, int, error) {
+	if parsed.IsPR() {
+		return ch.processFileWithInteractive(owner, repo, parsed.PRNumber, filePath, diffSpec, opts, true)
+	}
+	return ch.processFileWithInteractive(owner, repo, 0, filePath, diffSpec, opts, false)
+}
+
+// printBatchSummary prints the summary of batch processing results.
+func (ch *CommandHandler) printBatchSummary(dryRun bool, totalAdjusted, totalOrphaned, totalWarnings, fileCount int) {
+	if dryRun {
+		fmt.Println("\n[DRY RUN] No changes were made.")
+		return
+	}
+
+	fmt.Printf("\nOverall adjustment summary:\n")
+	fmt.Printf("- %d comments adjusted across %d files\n", totalAdjusted, fileCount)
+	if totalOrphaned > 0 {
+		fmt.Printf("- %d comments orphaned\n", totalOrphaned)
+	}
+	if totalWarnings > 0 {
+		fmt.Printf("- %d warnings\n", totalWarnings)
+	}
+}
+
+// adjustCommandSingleFileExtended handles single-file processing with extended options.
+func (ch *CommandHandler) adjustCommandSingleFileExtended(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, opts AdjustOptionsExtended) error {
+	// Parse diff spec with auto-detection
+	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
+	if err != nil {
+		return fmt.Errorf("invalid diff spec: %w", err)
+	}
+
+	// Get preview
+	var preview string
+	if parsed.IsPR() {
+		preview, err = ch.getAdjustmentPreview(owner, repo, parsed.PRNumber, file, diffSpec, opts.Format)
+	} else {
+		preview, err = ch.getBranchAdjustmentPreview(owner, repo, parsed.BranchName, file, diffSpec, opts.Format)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Display preview
+	fmt.Println(preview)
+
+	// If dry run, stop here
+	if opts.DryRun {
+		fmt.Println("\n[DRY RUN] No changes were made.")
+		return nil
+	}
+
+	// Interactive confirmation if requested
+	if opts.Interactive {
+		response, err := promptUser("Apply these adjustments? (y/n): ")
+		if err != nil {
+			return err
+		}
+		if response != "y" && response != "yes" {
+			fmt.Println("Adjustments cancelled.")
+			return nil
+		}
+	}
+
+	// Apply adjustments
+	if parsed.IsPR() {
+		return ch.applyPRAdjustments(owner, repo, parsed.PRNumber, file, adjustments, opts.Force)
+	}
+	return ch.applyBranchAdjustments(owner, repo, parsed.BranchName, file, adjustments, opts.Force)
+}
+
+// adjustCommandUnifiedDiffExtended handles unified diff processing with extended options.
+func (ch *CommandHandler) adjustCommandUnifiedDiffExtended(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, opts AdjustOptionsExtended) error {
+	if file != "" {
+		// Single-file mode: filter unified diff for specific file
+		filteredDiff, err := models.FilterUnifiedDiffForFile(diffSpec, file)
+		if err != nil {
+			return fmt.Errorf("failed to filter unified diff for file %s: %w", file, err)
+		}
+		return ch.adjustCommandSingleFileExtended(owner, repo, parsed, file, filteredDiff, opts)
+	}
+
+	// Multi-file mode: process all files in the unified diff
+	fileSpecs, err := models.ConvertUnifiedDiffToMultiFileClassicDiff(diffSpec)
+	if err != nil {
+		return fmt.Errorf("failed to parse unified diff: %w", err)
+	}
+
+	fmt.Printf("Processing %d file(s) from unified diff:\n", len(fileSpecs))
+	for _, spec := range fileSpecs {
+		fmt.Printf("- %s\n", spec.FilePath)
+	}
+	fmt.Println()
+
+	totalAdjusted := 0
+	totalOrphaned := 0
+	totalWarnings := 0
+
+	for i, spec := range fileSpecs {
+		fmt.Printf("=== Processing file %d/%d: %s ===\n", i+1, len(fileSpecs), spec.FilePath)
+
+		// Process this file
+		var fileAdjusted, fileOrphaned, fileWarnings int
+		if parsed.IsPR() {
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, parsed.PRNumber, spec.FilePath, spec.ClassicDiff, opts, true)
+		} else {
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, 0, spec.FilePath, spec.ClassicDiff, opts, false)
+		}
+
+		if err != nil {
+			fmt.Printf("Warning: Failed to process file %s: %v\n", spec.FilePath, err)
+			continue
+		}
+
+		totalAdjusted += fileAdjusted
+		totalOrphaned += fileOrphaned
+		totalWarnings += fileWarnings
+		fmt.Println()
+	}
+
+	if opts.DryRun {
+		fmt.Println("\n[DRY RUN] No changes were made.")
+	} else {
+		fmt.Printf("\nOverall adjustment summary:\n")
+		fmt.Printf("- %d comments adjusted across %d files\n", totalAdjusted, len(fileSpecs))
+		if totalOrphaned > 0 {
+			fmt.Printf("- %d comments orphaned\n", totalOrphaned)
+		}
+		if totalWarnings > 0 {
+			fmt.Printf("- %d warnings\n", totalWarnings)
+		}
+	}
+
+	return nil
+}
+
+// processFileWithInteractive processes a single file with optional interactive confirmation.
+func (ch *CommandHandler) processFileWithInteractive(owner, repo string, prNumber int, file, diffSpec string, opts AdjustOptionsExtended, isPR bool) (int, int, int, error) {
+	// Parse adjustments
+	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse diff spec: %w", err)
+	}
+
+	// Get and display preview
+	var preview string
+	if isPR {
+		preview, err = ch.getAdjustmentPreview(owner, repo, prNumber, file, diffSpec, opts.Format)
+	} else {
+		// For branch, we need to pass the branch name instead of prNumber
+		// This is a bit of a hack - we should refactor this
+		return 0, 0, 0, fmt.Errorf("branch processing not fully implemented in interactive mode")
+	}
+
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get preview: %w", err)
+	}
+
+	fmt.Println(preview)
+
+	if opts.DryRun {
+		return 0, 0, 0, nil
+	}
+
+	// Interactive confirmation if requested
+	if opts.Interactive {
+		response, err := promptUser("Apply adjustments for this file? (y/n/s/q): ")
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		switch response {
+		case "q", "quit":
+			return 0, 0, 0, fmt.Errorf("user quit")
+		case "s", "skip":
+			fmt.Println("Skipping this file.")
+			return 0, 0, 0, nil
+		case "y", "yes":
+			// Continue with processing
+		default:
+			fmt.Println("Skipping this file.")
+			return 0, 0, 0, nil
+		}
+	}
+
+	// Apply adjustments
+	if isPR {
+		return ch.applyPRAdjustmentsWithCounts(owner, repo, prNumber, file, adjustments, opts.Force)
+	}
+	// Branch processing would go here
+	return 0, 0, 0, fmt.Errorf("branch processing not implemented")
 }
