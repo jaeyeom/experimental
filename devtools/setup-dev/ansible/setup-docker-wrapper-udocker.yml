@@ -1,0 +1,157 @@
+---
+- import_playbook: udocker.yml
+- import_playbook: setup-user-bin-directory.yml
+
+- name: Install Docker-to-udocker compatibility wrapper for Termux
+  hosts: all
+  tasks:
+    - name: Include guard for setup-docker-wrapper-udocker playbook
+      block:
+        - name: Stop early if the setup-docker-wrapper-udocker playbook is already included
+          meta: end_play
+          when: setup_docker_wrapper_udocker_playbook_imported is defined
+        - name: Ensure the setup-docker-wrapper-udocker playbook is not included
+          set_fact:
+            setup_docker_wrapper_udocker_playbook_imported: true
+          when: setup_docker_wrapper_udocker_playbook_imported is not defined
+
+    - name: Deploy docker wrapper script to provide Docker compatibility via udocker
+      ansible.builtin.copy:
+        dest: "{{ user_bin_directory }}/docker"
+        mode: '0755'
+        content: |
+          #!/data/data/com.termux/files/usr/bin/bash
+
+          # Docker-to-udocker compatibility wrapper for Termux
+          # Automatically filters out incompatible options like -i/-t
+
+          # Check if udocker is available
+          if ! command -v udocker &> /dev/null; then
+              echo "Error: udocker is not installed or not in PATH" >&2
+              exit 1
+          fi
+
+          # Function to filter Docker run options for udocker compatibility
+          filter_run_options() {
+              local args=()
+              local skip_next=false
+
+              for arg in "$@"; do
+                  if [[ "$skip_next" == true ]]; then
+                      skip_next=false
+                      continue
+                  fi
+
+                  case "$arg" in
+                      # Skip interactive/TTY options
+                      -i|--interactive|-t|--tty|-it|-ti)
+                          continue
+                          ;;
+                      # Skip unsupported options that take values
+                      --name|--name=*|-h|--hostname|--hostname=*|--network|--network=*)
+                          if [[ "$arg" == *=* ]]; then
+                              continue
+                          else
+                              skip_next=true
+                              continue
+                          fi
+                          ;;
+                      # Skip other unsupported single options
+                      -d|--detach|--rm|-P|--publish-all)
+                          continue
+                          ;;
+                      # Skip port mapping options
+                      -p|--publish|--publish=*)
+                          if [[ "$arg" == *=* ]]; then
+                              continue
+                          else
+                              skip_next=true
+                              continue
+                          fi
+                          ;;
+                      # Keep everything else
+                      *)
+                          args+=("$arg")
+                          ;;
+                  esac
+              done
+
+              printf '%s\n' "${args[@]}"
+          }
+
+          # Main command processing
+          case "${1:-}" in
+              --version|-v)
+                  echo "Docker-to-udocker wrapper (using udocker $(udocker --version 2>/dev/null | head -1 || echo 'unknown'))"
+                  ;;
+              --help|-h|help)
+                  cat << 'EOF'
+          Docker-to-udocker compatibility wrapper for Termux
+
+          Supported commands:
+            docker run [OPTIONS] IMAGE [COMMAND] [ARG...]
+            docker pull IMAGE[:TAG]
+            docker images [OPTIONS]
+            docker ps [OPTIONS]
+            docker exec CONTAINER COMMAND [ARG...]
+            docker --version
+            docker --help
+
+          Note: Interactive options (-i, -t, -it) are automatically filtered out
+                as udocker doesn't support TTY/interactive modes.
+
+          Filtered options: -i, -t, -it, -d, --rm, -p, --name, --network, etc.
+          EOF
+                  ;;
+              run)
+                  shift
+                  filtered_args=($(filter_run_options "$@"))
+
+                  # Check if we have any arguments left
+                  if [[ ${#filtered_args[@]} -eq 0 ]]; then
+                      echo "Error: No arguments left after filtering unsupported options" >&2
+                      exit 1
+                  fi
+
+                  echo "Running: udocker run ${filtered_args[*]}" >&2
+                  exec udocker run "${filtered_args[@]}"
+                  ;;
+              pull)
+                  shift
+                  exec udocker pull "$@"
+                  ;;
+              images|image)
+                  shift
+                  exec udocker images "$@"
+                  ;;
+              ps)
+                  shift
+                  exec udocker ps "$@"
+                  ;;
+              exec)
+                  shift
+                  if [[ $# -lt 2 ]]; then
+                      echo "Error: docker exec requires CONTAINER and COMMAND arguments" >&2
+                      exit 1
+                  fi
+
+                  container="$1"
+                  shift
+                  echo "Running: udocker exec $container $*" >&2
+                  exec udocker exec "$container" "$@"
+                  ;;
+              rmi|rm|stop|start|restart)
+                  echo "Warning: '$1' command not supported by udocker" >&2
+                  exit 1
+                  ;;
+              "")
+                  echo "Docker-to-udocker wrapper - use 'docker --help' for usage"
+                  exit 1
+                  ;;
+              *)
+                  echo "Warning: Command '$1' may not be supported by udocker" >&2
+                  echo "Attempting to pass through to udocker..." >&2
+                  exec udocker "$@"
+                  ;;
+          esac
+      when: ansible_env.TERMUX_VERSION is defined
