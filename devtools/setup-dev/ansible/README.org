@@ -123,10 +123,14 @@ Example:
 *** TODO C++ Development environment
 *** DONE Docker Setup
 CLOSED: [2025-01-06 Mon]
-Added Docker installation support:
-- macOS: Uses Lima for Docker virtualization with brew installation
-- Linux: Installs Docker CE from official repositories
-- Termux: Skipped (not supported)
+Added Docker installation support with platform-specific implementations:
+- macOS: Uses Lima for Docker virtualization (setup-docker-lima.yml)
+- Linux: Installs Docker CE from official repositories using modern security practices (setup-docker-ce.yml)
+- Termux: Uses udocker with Docker compatibility wrapper (setup-docker-wrapper-udocker.yml)
+
+The docker.yml playbook now uses conditional imports to provide seamless Docker
+command availability across all platforms, including Termux where Docker is not
+natively supported.
 *** TODO Docker Testing
 *** DONE Cargo installer
 CLOSED: [2025-03-02 Sun 00:03]
@@ -175,7 +179,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - all.yml
 - bazel.yml
 - cleanup-repo.yml
-- docker.yml
 - e.yml
 - gmi.yml
 - go.yml
@@ -185,6 +188,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-cargo.yml
 - setup-docker-ce.yml
 - setup-docker-lima.yml
+- setup-docker-wrapper-udocker.yml
 - setup-emacs.yml
 - setup-emacs-lsp-booster.yml
 - setup-git.yml

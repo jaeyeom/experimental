@@ -1,6 +1,12 @@
 ---
 - import_playbook: setup-docker-lima.yml
-- name: Ensure Docker is present
+  when: ansible_facts['os_family'] == "Darwin"
+- import_playbook: setup-docker-wrapper-udocker.yml
+  when: ansible_env.TERMUX_VERSION is defined
+- import_playbook: setup-docker-ce.yml
+  when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+
+- name: Ensure docker is present
   hosts: all
   tasks:
     - name: Include guard for docker playbook
@@ -12,72 +18,3 @@
           set_fact:
             docker_playbook_imported: true
           when: docker_playbook_imported is not defined
-
-    - name: Setup Docker on Linux (non-Termux) systems
-      block:
-        - name: Install required packages for Docker repository
-          package:
-            name:
-              - apt-transport-https
-              - ca-certificates
-              - curl
-              - gnupg
-              - lsb-release
-            state: present
-          become: yes
-
-        - name: Add Docker's official GPG key (Ubuntu/Debian)
-          apt_key:
-            url: https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg
-            state: present
-          when: ansible_facts['distribution'] in ['Ubuntu', 'Debian']
-          become: yes
-
-        - name: Add Docker repository (Ubuntu/Debian)
-          apt_repository:
-            repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }} {{ ansible_facts['distribution_release'] }} stable"
-            state: present
-            update_cache: yes
-          when: ansible_facts['distribution'] in ['Ubuntu', 'Debian']
-          become: yes
-
-        - name: Install Docker CE
-          package:
-            name:
-              - docker-ce
-              - docker-ce-cli
-              - containerd.io
-              - docker-buildx-plugin
-              - docker-compose-plugin
-            state: present
-          become: yes
-
-        - name: Start and enable Docker service
-          systemd:
-            name: docker
-            state: started
-            enabled: yes
-          become: yes
-
-        - name: Add current user to docker group
-          user:
-            name: "{{ ansible_user_id }}"
-            groups: docker
-            append: yes
-          become: yes
-
-        - name: Test Docker installation
-          command: docker --version
-          register: docker_version_result
-          changed_when: false
-
-        - name: Display Docker version
-          debug:
-            msg: "Docker installed: {{ docker_version_result.stdout }}"
-
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
-
-    - name: Skip Docker installation on Termux
-      debug:
-        msg: "Docker installation is skipped on Termux as it's not supported"
-      when: ansible_env.TERMUX_VERSION is defined

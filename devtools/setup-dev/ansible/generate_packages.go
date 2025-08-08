@@ -937,6 +937,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command:   "docker",
+		platforms: nil, // No installation tasks - only conditional imports
+		Imports: []Import{
+			{Playbook: "setup-docker-lima", When: "ansible_facts['os_family'] == \"Darwin\""},
+			{Playbook: "setup-docker-wrapper-udocker", When: "ansible_env.TERMUX_VERSION is defined"},
+			{Playbook: "setup-docker-ce", When: "ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != \"Darwin\""},
+		},
+	},
+	{
 		command: "emacs-lsp-booster",
 		platforms: map[string]InstallMethod{
 			"all": CargoInstallMethod{Name: "emacs-lsp-booster"},
