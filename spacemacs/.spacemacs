@@ -1021,7 +1021,12 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     ;; I do not like proportional fonts.
     (setopt shr-use-fonts nil))
 
+
   ;;; Org Mode
+
+  ;; Set indentation for org-export-define-derived-backend even when org isn't loaded
+  (put 'org-export-define-derived-backend 'lisp-indent-function 2)
+
   (with-eval-after-load 'org
     ;; Org Roam
     (org-roam-db-autosync-mode)
