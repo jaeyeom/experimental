@@ -42,5 +42,5 @@
             gotests_module_version: ""
 
     - name: Upgrade gotests
-      command: go install github.com/cweill/gotests/...@latest
+      command: go install github.com/cweill/gotests/gotests@latest
       when: gotests_module_version is not defined or gotests_module_version == "" or gotests_module_version != gotests_latest.stdout
