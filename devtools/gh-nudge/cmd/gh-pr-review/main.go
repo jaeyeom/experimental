@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,132 @@ func createOutputFormatter(jsonOutput bool) prreview.OutputFormatter {
 const (
 	version = "1.0.0"
 )
+
+// autoDetectOwnerRepo gets the default owner/repo using gh CLI.
+func autoDetectOwnerRepo() (string, error) {
+	cmd := exec.Command("gh", "repo", "set-default", "-v")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get default repo: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// autoDetectIdentifier gets the PR number if available, otherwise the current branch.
+func autoDetectIdentifier() (string, error) {
+	// Try to get PR number first
+	cmd := exec.Command("gh", "pr", "view", "--json", "number", "-t", "{{.number}}")
+	if output, err := cmd.Output(); err == nil {
+		return strings.TrimSpace(string(output)), nil
+	}
+
+	// Fall back to current branch
+	cmd = exec.Command("git", "branch", "--show-current")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// autoDetectArgs fills in missing owner/repo and identifier arguments.
+func autoDetectArgs(args []string) ([]string, error) {
+	if len(args) < 2 {
+		// Need to auto-detect both owner/repo and identifier
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		identifier, err := autoDetectIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting identifier: %w", err)
+		}
+
+		// Insert the auto-detected values at the beginning
+		newArgs := make([]string, 0, len(args)+2)
+		newArgs = append(newArgs, ownerRepo, identifier)
+		newArgs = append(newArgs, args...)
+		return newArgs, nil
+	}
+
+	// Check if first argument looks like owner/repo format
+	if !strings.Contains(args[0], "/") {
+		// First argument doesn't look like owner/repo, try to auto-detect
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		// Insert owner/repo at the beginning
+		newArgs := make([]string, 0, len(args)+1)
+		newArgs = append(newArgs, ownerRepo)
+		newArgs = append(newArgs, args...)
+		return newArgs, nil
+	}
+
+	return args, nil
+}
+
+// autoDetectArgsForComment handles auto-detection for comment command which has additional required args.
+func autoDetectArgsForComment(args []string) ([]string, error) {
+	// Count non-option arguments (those that don't start with --)
+	nonOptionArgs := make([]string, 0)
+	options := make([]string, 0)
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			options = append(options, arg)
+		} else {
+			nonOptionArgs = append(nonOptionArgs, arg)
+		}
+	}
+
+	// We need at least 3 non-option args: file, line, comment
+	if len(nonOptionArgs) < 3 {
+		return args, nil // Not enough args even with auto-detection
+	}
+
+	// If we have exactly 3 non-option args, we need to auto-detect owner/repo and identifier
+	if len(nonOptionArgs) == 3 {
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		identifier, err := autoDetectIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting identifier: %w", err)
+		}
+
+		// Rebuild args with auto-detected values first
+		newArgs := make([]string, 0, len(args)+2)
+		newArgs = append(newArgs, ownerRepo, identifier)
+		newArgs = append(newArgs, nonOptionArgs...)
+		newArgs = append(newArgs, options...)
+		return newArgs, nil
+	}
+
+	// If we have 4 non-option args, check if first looks like owner/repo
+	if len(nonOptionArgs) == 4 && !strings.Contains(nonOptionArgs[0], "/") {
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		// Rebuild args with auto-detected owner/repo first
+		newArgs := make([]string, 0, len(args)+1)
+		newArgs = append(newArgs, ownerRepo)
+		newArgs = append(newArgs, nonOptionArgs...)
+		newArgs = append(newArgs, options...)
+		return newArgs, nil
+	}
+
+	// Return original args if no auto-detection needed
+	return args, nil
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -81,45 +208,52 @@ func showUsage() {
 Usage: gh-pr-review <command> [options]
 
 Commands:
-  capture <owner>/<repo> <identifier>             Capture diff hunks (PR or branch)
-  comment <owner>/<repo> <identifier> <file> <line> "<comment>"  Add line comment
-  list <owner>/<repo> <identifier>                List stored comments (PR or branch)
-  clear <owner>/<repo> <identifier>               Clear all comments (PR or branch)
-  delete <owner>/<repo> <identifier> --comment-id <ID>  Delete comment by ID (PR or branch)
+  capture [<owner>/<repo>] [<identifier>]         Capture diff hunks (PR or branch)
+  comment [<owner>/<repo>] [<identifier>] <file> <line> "<comment>"  Add line comment
+  list [<owner>/<repo>] [<identifier>]            List stored comments (PR or branch)
+  clear [<owner>/<repo>] [<identifier>]           Clear all comments (PR or branch)
+  delete [<owner>/<repo>] [<identifier>] --comment-id <ID>  Delete comment by ID (PR or branch)
   submit <owner>/<repo> <pr_number>               Submit review to GitHub (PR only)
-  adjust <owner>/<repo> <identifier> [file] --diff <spec>     Adjust comment line numbers
-  adjust <owner>/<repo> <identifier> [file] --unified-diff <spec>  Adjust using git diff output
+  adjust [<owner>/<repo>] [<identifier>] [file] --diff <spec>     Adjust comment line numbers
+  adjust [<owner>/<repo>] [<identifier>] [file] --unified-diff <spec>  Adjust using git diff output
   version                                         Show version information
   help                                           Show this help message
+
+Auto-detection:
+  <owner>/<repo>  Auto-detected from 'gh repo set-default -v' if omitted
+  <identifier>    Auto-detected from current PR or git branch if omitted
 
 Identifier Types:
   PR numbers     Pure integers (e.g., 42, 123)
   Branch names   Any non-numeric string (e.g., feature/auth, main, my-branch)
 
 Examples:
-  # Capture PR diff hunks
+  # Auto-detect repo and PR/branch
+  gh-pr-review capture
+
+  # Auto-detect repo, specify branch
+  gh-pr-review capture feature/auth-fix
+
+  # Explicit repo and PR
   gh-pr-review capture octocat/Hello-World 42
 
-  # Capture branch diff hunks
-  gh-pr-review capture octocat/Hello-World feature/auth-fix
+  # Auto-detect repo and PR/branch, add comment
+  gh-pr-review comment src/main.js 15 "Consider using const instead of let"
 
-  # Add line comment to PR
-  gh-pr-review comment octocat/Hello-World 42 src/main.js 15 "Consider using const instead of let"
+  # Auto-detect repo, specify branch, add comment
+  gh-pr-review comment feature/auth-fix src/main.js 15 "Use const instead of let"
 
-  # Add line comment to branch
-  gh-pr-review comment octocat/Hello-World feature/auth-fix src/main.js 15 "Use const instead of let"
+  # Explicit repo, PR, and multi-line comment
+  gh-pr-review comment octocat/Hello-World 42 src/main.js 15-20 "This function needs refactoring"
 
-  # Add multi-line comment to branch
-  gh-pr-review comment octocat/Hello-World my-branch src/main.js 15-20 "This function needs refactoring"
+  # Auto-detect and list comments
+  gh-pr-review list --format json
 
-  # List comments from PR
-  gh-pr-review list octocat/Hello-World 42 --format json
+  # Auto-detect repo, specify branch, filter by file
+  gh-pr-review list feature/auth-fix --file src/auth.js
 
-  # List comments from branch
-  gh-pr-review list octocat/Hello-World feature/auth-fix --file src/auth.js
-
-  # Clear all comments from branch
-  gh-pr-review clear octocat/Hello-World my-branch --confirm
+  # Auto-detect and clear all comments
+  gh-pr-review clear --confirm
 
   # Submit review (PR only, clears local comments by default)
   gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
@@ -147,11 +281,20 @@ func handleCapture(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review capture <owner>/<repo> <identifier> [options]")
-		fmt.Println("  <identifier>  PR number (e.g., 42) or branch name (e.g., feature/auth)")
-		fmt.Println("  --force       Overwrite existing diff hunks")
+		fmt.Println("Usage: gh-pr-review capture [<owner>/<repo>] [<identifier>] [options]")
+		fmt.Println("  <owner>/<repo>  Repository (auto-detected if omitted)")
+		fmt.Println("  <identifier>    PR number or branch name (auto-detected if omitted)")
+		fmt.Println("  --force         Overwrite existing diff hunks")
 		return
 	}
+
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
 
 	if err := parser.ValidateOptions([]string{"force"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -190,12 +333,21 @@ func handleComment(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review comment <owner>/<repo> <identifier> <file> <line> \"<comment>\" [options]")
-		fmt.Println("  <identifier>  PR number (e.g., 42) or branch name (e.g., feature/auth)")
-		fmt.Println("  --side SIDE   Side of diff (LEFT, RIGHT) [default: RIGHT]")
-		fmt.Println("  --force       Add comment even if duplicate detected")
+		fmt.Println("Usage: gh-pr-review comment [<owner>/<repo>] [<identifier>] <file> <line> \"<comment>\" [options]")
+		fmt.Println("  <owner>/<repo>  Repository (auto-detected if omitted)")
+		fmt.Println("  <identifier>    PR number or branch name (auto-detected if omitted)")
+		fmt.Println("  --side SIDE     Side of diff (LEFT, RIGHT) [default: RIGHT]")
+		fmt.Println("  --force         Add comment even if duplicate detected")
 		return
 	}
+
+	// Auto-detect missing arguments (but keep remaining args for file/line/comment)
+	detectedArgs, err := autoDetectArgsForComment(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
 
 	if err := parser.ValidateOptions([]string{"side", "force"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -350,6 +502,14 @@ func handleList(args []string) {
 		return
 	}
 
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
+
 	if err := validateListOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -382,8 +542,9 @@ func handleList(args []string) {
 }
 
 func showListUsage() {
-	fmt.Println("Usage: gh-pr-review list <owner>/<repo> <identifier> [options]")
-	fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
+	fmt.Println("Usage: gh-pr-review list [<owner>/<repo>] [<identifier>] [options]")
+	fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
+	fmt.Println("  <identifier>      PR number or branch name (auto-detected if omitted)")
 	fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
 	fmt.Println("  --file FILE       Filter by file path")
 	fmt.Println("  --line LINE       Filter by line number or range (e.g., 15 or 15-20)")
@@ -436,13 +597,22 @@ func handleDelete(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review delete <owner>/<repo> <identifier> --comment-id <ID>")
-		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
+		fmt.Println("Usage: gh-pr-review delete [<owner>/<repo>] [<identifier>] --comment-id <ID>")
+		fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
+		fmt.Println("  <identifier>      PR number or branch name (auto-detected if omitted)")
 		fmt.Println("  --comment-id ID   Delete comment by ID prefix (required)")
 		fmt.Println("  --confirm         Skip confirmation prompt")
 		fmt.Println("  --json            Output results in JSON format")
 		return
 	}
+
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
 
 	if err := parser.ValidateOptions([]string{"confirm", "json", "comment-id"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -492,12 +662,21 @@ func handleClear(args []string) {
 	parser := argparser.NewArgParser(args)
 
 	if parser.IsHelp() {
-		fmt.Println("Usage: gh-pr-review clear <owner>/<repo> <identifier> [options]")
-		fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
+		fmt.Println("Usage: gh-pr-review clear [<owner>/<repo>] [<identifier>] [options]")
+		fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
+		fmt.Println("  <identifier>      PR number or branch name (auto-detected if omitted)")
 		fmt.Println("  --file FILE       Clear comments for specific file only")
 		fmt.Println("  --confirm         Skip confirmation prompt")
 		return
 	}
+
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
 
 	if err := parser.ValidateOptions([]string{"file", "confirm"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -541,6 +720,9 @@ func handleAdjust(args []string) {
 		return
 	}
 
+	// Note: Adjust command has complex argument handling, so we'll do auto-detection
+	// at the parseAdjustArgs level instead of here
+
 	if err := validateAdjustOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -572,11 +754,12 @@ func handleAdjust(args []string) {
 
 func showAdjustUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec> [options]")
-	fmt.Println("  gh-pr-review adjust <owner>/<repo> <identifier> [file] --unified-diff <spec> [options]")
+	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] <file> --diff <spec> [options]")
+	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] [file] --unified-diff <spec> [options]")
 	fmt.Println()
 	fmt.Println("Arguments:")
-	fmt.Println("  <identifier>      PR number (e.g., 42) or branch name (e.g., feature/auth)")
+	fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
+	fmt.Println("  <identifier>      PR number or branch name (auto-detected if omitted)")
 	fmt.Println("  <file>            File path to adjust comments for (required with --diff, optional with --unified-diff)")
 	fmt.Println()
 	fmt.Println("Options:")
@@ -656,6 +839,56 @@ func validateAdjustOptions(parser *argparser.ArgParser) error {
 	return nil
 }
 
+// parseAdjustArgsCase0 handles case when no positionals are provided.
+func parseAdjustArgsCase0() (string, string, string, error) {
+	ownerRepo, err := autoDetectOwnerRepo()
+	if err != nil {
+		return "", "", "", fmt.Errorf("auto-detecting owner/repo: %w", err)
+	}
+	identifier, err := autoDetectIdentifier()
+	if err != nil {
+		return "", "", "", fmt.Errorf("auto-detecting identifier: %w", err)
+	}
+	return ownerRepo, identifier, "", nil // file remains empty for unified-diff multi-file mode
+}
+
+// parseAdjustArgsCase1 handles case when one positional is provided.
+func parseAdjustArgsCase1(arg string) (string, string, string, error) {
+	if strings.Contains(arg, "/") {
+		// Looks like owner/repo, auto-detect identifier
+		identifier, err := autoDetectIdentifier()
+		if err != nil {
+			return "", "", "", fmt.Errorf("auto-detecting identifier: %w", err)
+		}
+		return arg, identifier, "", nil
+	}
+
+	// Doesn't look like owner/repo, assume it's file and auto-detect both
+	ownerRepo, err := autoDetectOwnerRepo()
+	if err != nil {
+		return "", "", "", fmt.Errorf("auto-detecting owner/repo: %w", err)
+	}
+	identifier, err := autoDetectIdentifier()
+	if err != nil {
+		return "", "", "", fmt.Errorf("auto-detecting identifier: %w", err)
+	}
+	return ownerRepo, identifier, arg, nil
+}
+
+// parseAdjustArgsCase2 handles case when two positionals are provided.
+func parseAdjustArgsCase2(positionals []string) (string, string, string, error) {
+	if strings.Contains(positionals[0], "/") {
+		return positionals[0], positionals[1], "", nil
+	}
+
+	// Auto-detect owner/repo, treat both args as identifier and file
+	ownerRepo, err := autoDetectOwnerRepo()
+	if err != nil {
+		return "", "", "", fmt.Errorf("auto-detecting owner/repo: %w", err)
+	}
+	return ownerRepo, positionals[0], positionals[1], nil
+}
+
 func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, string, string, error) {
 	// Get diff spec from either --diff or --unified-diff
 	diffSpec := parser.GetOption("diff")
@@ -663,15 +896,31 @@ func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, strin
 		diffSpec = parser.GetOption("unified-diff")
 	}
 
-	repoSpec := parser.GetPositional(0)
-	identifier := parser.GetPositional(1)
-
-	var file string
 	positionals := parser.GetPositionals()
-	if len(positionals) >= 3 {
-		file = parser.GetPositional(2)
+
+	// Auto-detect missing owner/repo and identifier based on positional count
+	var repoSpec, identifier, file string
+	var err error
+
+	switch len(positionals) {
+	case 0:
+		repoSpec, identifier, file, err = parseAdjustArgsCase0()
+	case 1:
+		repoSpec, identifier, file, err = parseAdjustArgsCase1(positionals[0])
+	case 2:
+		repoSpec, identifier, file, err = parseAdjustArgsCase2(positionals)
+	default:
+		// Three or more positionals, use them directly
+		repoSpec = positionals[0]
+		identifier = positionals[1]
+		if len(positionals) >= 3 {
+			file = positionals[2]
+		}
 	}
-	// If no file specified and using unified diff, leave empty for multi-file mode
+
+	if err != nil {
+		return "", "", "", "", "", err
+	}
 
 	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
