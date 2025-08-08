@@ -60,27 +60,9 @@ var packages = []PackageData{
 }
 
 var platformSpecificTools = []PlatformSpecificTool{
-	{
-		command: "bazel-affected-tests",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "buildifier",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/bazelbuild/buildtools/buildifier@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "buildozer",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/bazelbuild/buildtools/buildozer@latest"},
-		},
-		Imports: nil,
-	},
+	GoTool("github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
+	GoTool("github.com/bazelbuild/buildtools/buildifier@latest"),
+	GoTool("github.com/bazelbuild/buildtools/buildozer@latest"),
 	{
 		command: "cargo-add",
 		platforms: map[string]InstallMethod{
@@ -140,195 +122,33 @@ var platformSpecificTools = []PlatformSpecificTool{
 			"darwin":      BrewInstallMethod{Name: "fd"},
 		},
 	},
-	{
-		command: "fillstruct",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/davidrjenni/reftools/cmd/fillstruct@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-codeowners",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-merge",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-nudge",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-pr-review",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-slack",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gh-storage",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "godef",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/rogpeppe/godef@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "godoc",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/godoc@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "godoctor",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/godoctor/godoctor@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gofumpt",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "mvdan.cc/gofumpt@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "goimports",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/goimports@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gomodifytags",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/fatih/gomodifytags@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gopkgs",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gopls",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/gopls@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gorename",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/gorename@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "gotests",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/cweill/gotests/...@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "grpcui",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/fullstorydev/grpcui/cmd/grpcui@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "guru",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "golang.org/x/tools/cmd/guru@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "hugo",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/gohugoio/hugo@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "image2ascii",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/qeesung/image2ascii@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "impl",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/josharian/impl@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "jira",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/ankitpokhrel/jira-cli/cmd/jira@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "oserrorsgodernize",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "protoc-gen-go",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "google.golang.org/protobuf/cmd/protoc-gen-go@latest"},
-		},
-		Imports: []Import{{Playbook: "protoc"}},
-	},
-	{
-		command: "protoc-gen-go-grpc",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest"},
-		},
-		Imports: []Import{{Playbook: "protoc"}},
-	},
-	{
-		command: "protolint",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/yoheimuta/protolint/cmd/protolint@latest"},
-		},
-		Imports: nil,
-	},
+	GoTool("github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
+	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"),
+	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"),
+	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"),
+	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"),
+	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"),
+	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"),
+	GoTool("github.com/rogpeppe/godef@latest"),
+	GoTool("golang.org/x/tools/cmd/godoc@latest"),
+	GoTool("github.com/godoctor/godoctor@latest"),
+	GoTool("mvdan.cc/gofumpt@latest"),
+	GoTool("golang.org/x/tools/cmd/goimports@latest"),
+	GoTool("github.com/fatih/gomodifytags@latest"),
+	GoTool("github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"),
+	GoTool("golang.org/x/tools/gopls@latest"),
+	GoTool("golang.org/x/tools/cmd/gorename@latest"),
+	GoTool("github.com/cweill/gotests/gotests@latest"),
+	GoTool("github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
+	GoTool("golang.org/x/tools/cmd/guru@latest"),
+	GoTool("github.com/gohugoio/hugo@latest"),
+	GoTool("github.com/qeesung/image2ascii@latest"),
+	GoTool("github.com/josharian/impl@latest"),
+	GoTool("github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
+	GoTool("github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
+	GoTool("google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
+	GoTool("google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
+	GoTool("github.com/yoheimuta/protolint/cmd/protolint@latest"),
 	{
 		command: "protovalidate",
 		platforms: map[string]InstallMethod{
@@ -336,13 +156,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
-	{
-		command: "repo-sync",
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"},
-		},
-		Imports: nil,
-	},
+	GoTool("github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
 	{
 		command: "ruff",
 		platforms: map[string]InstallMethod{
