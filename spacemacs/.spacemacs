@@ -1918,6 +1918,10 @@ the email."
     (setopt magit-display-buffer-function
             #'magit-display-buffer-same-window-except-diff-v1))
 
+  (with-eval-after-load 'magit-diff
+    ;; Workaround of C-<return> for text Terminal users
+    (define-key magit-diff-section-map (kbd "g RET") #'magit-diff-visit-worktree-file))
+
   (with-eval-after-load 'projectile
     ;; By Spacemacs default, switch project asked me the project file to open.
     ;; But I prefer to open magit=status or the version-control (VC) buffer. It
