@@ -19,7 +19,7 @@
     - name: Check if starship is already initialized in bash profile
       lineinfile:
         path: ~/.bashrc
-        line: 'eval "$(starship init bash)"'
+        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init bash)"'
         state: present
       check_mode: yes
       register: bash_starship_check
@@ -28,14 +28,14 @@
     - name: Add starship initialization to bash profile
       lineinfile:
         path: ~/.bashrc
-        line: 'eval "$(starship init bash)"'
+        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init bash)"'
         create: yes
       when: user_shell.stdout is search('/bash$') and bash_starship_check is changed
 
     - name: Check if starship is already initialized in zsh profile
       lineinfile:
         path: ~/.zshrc
-        line: 'eval "$(starship init zsh)"'
+        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init zsh)"'
         state: present
       check_mode: yes
       register: zsh_starship_check
@@ -44,7 +44,7 @@
     - name: Add starship initialization to zsh profile
       lineinfile:
         path: ~/.zshrc
-        line: 'eval "$(starship init zsh)"'
+        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init zsh)"'
         create: yes
       when: user_shell.stdout is search('/zsh$') and zsh_starship_check is changed
 
