@@ -2,7 +2,13 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_library(
     name = "go_default_library",
-    srcs = ["generate_packages.go"],
+    srcs = [
+        "generate_packages.go",
+        "install_methods.go",
+        "packages_data.go",
+        "templates.go",
+        "types.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/setup-dev/ansible",
     visibility = ["//visibility:private"],
 )
