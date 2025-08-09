@@ -1021,7 +1021,6 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
     ;; I do not like proportional fonts.
     (setopt shr-use-fonts nil))
 
-
   ;;; Org Mode
 
   ;; Set indentation for org-export-define-derived-backend even when org isn't loaded
@@ -1662,7 +1661,9 @@ This function uses the 'magick identify' command to get the dimensions of the im
       (add-hook 'before-save-hook #'lsp-format-buffer t t)
       (add-hook 'before-save-hook #'lsp-organize-imports t t))
 
-    (add-hook 'go-mode-hook #'go-mode-setup))
+    ;; FIXME: Termux does not work with gopls somehow.
+    (when my/termux-p
+      (add-hook 'go-mode-hook #'go-mode-setup)))
 
   ;;; Copilot
   (with-eval-after-load 'company
