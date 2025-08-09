@@ -51,9 +51,9 @@ type PR struct {
 }
 
 // GetPRDiff fetches the diff for a pull request.
-func (prc *PRReviewClient) GetPRDiff(owner, repo string, prNumber int) (*models.PRDiffHunks, error) {
+func (prc *PRReviewClient) GetPRDiff(repository models.Repository, prNumber int) (*models.PRDiffHunks, error) {
 	// Get PR files via GitHub API
-	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/%s/pulls/%d/files", owner, repo, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
+	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/files", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR files: %w", err)
@@ -65,7 +65,7 @@ func (prc *PRReviewClient) GetPRDiff(owner, repo string, prNumber int) (*models.
 	}
 
 	// Get basic PR info for SHA values
-	prInfo, err := prc.GetPRInfo(owner, repo, prNumber)
+	prInfo, err := prc.GetPRInfo(repository, prNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR info: %w", err)
 	}
@@ -79,8 +79,7 @@ func (prc *PRReviewClient) GetPRDiff(owner, repo string, prNumber int) (*models.
 
 	return &models.PRDiffHunks{
 		PRNumber:   prNumber,
-		Owner:      owner,
-		Repo:       repo,
+		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks:  diffHunks,
 		CommitSHA:  prInfo.Head.SHA,
@@ -89,8 +88,8 @@ func (prc *PRReviewClient) GetPRDiff(owner, repo string, prNumber int) (*models.
 }
 
 // GetPRInfo fetches basic information about a pull request.
-func (prc *PRReviewClient) GetPRInfo(owner, repo string, prNumber int) (*PR, error) {
-	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
+func (prc *PRReviewClient) GetPRInfo(repository models.Repository, prNumber int) (*PR, error) {
+	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR info: %w", err)
@@ -105,13 +104,13 @@ func (prc *PRReviewClient) GetPRInfo(owner, repo string, prNumber int) (*PR, err
 }
 
 // ValidatePRAccess checks if the PR is accessible.
-func (prc *PRReviewClient) ValidatePRAccess(owner, repo string, prNumber int) error {
-	_, err := prc.GetPRInfo(owner, repo, prNumber)
+func (prc *PRReviewClient) ValidatePRAccess(repository models.Repository, prNumber int) error {
+	_, err := prc.GetPRInfo(repository, prNumber)
 	return err
 }
 
 // SubmitReview submits a review to GitHub.
-func (prc *PRReviewClient) SubmitReview(owner, repo string, prNumber int, review models.PRReview) error {
+func (prc *PRReviewClient) SubmitReview(repository models.Repository, prNumber int, review models.PRReview) error {
 	// Convert our comment format to GitHub's format
 	githubComments := make([]map[string]interface{}, len(review.Comments))
 	for i, comment := range review.Comments {
@@ -156,7 +155,7 @@ func (prc *PRReviewClient) SubmitReview(owner, repo string, prNumber int, review
 
 	// Submit via gh CLI
 	cmd := exec.Command("gh", "api", "-X", "POST", //nolint:gosec // Intentional subprocess execution with gh CLI
-		fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, prNumber),
+		fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber),
 		"--input", "-")
 	cmd.Stdin = strings.NewReader(string(payloadBytes))
 
@@ -278,19 +277,19 @@ func (prc *PRReviewClient) createBidirectionalHunks(hunks []models.DiffHunk) []m
 }
 
 // CreatePendingReview creates a pending review (draft).
-func (prc *PRReviewClient) CreatePendingReview(owner, repo string, prNumber int, comments []models.Comment, body string) error {
+func (prc *PRReviewClient) CreatePendingReview(repository models.Repository, prNumber int, comments []models.Comment, body string) error {
 	review := models.PRReview{
 		Body:     body,
 		Comments: comments,
 		// Event is omitted to create a pending review
 	}
 
-	return prc.SubmitReview(owner, repo, prNumber, review)
+	return prc.SubmitReview(repository, prNumber, review)
 }
 
 // GetExistingReviews fetches existing reviews for a PR.
-func (prc *PRReviewClient) GetExistingReviews(owner, repo string, prNumber int) ([]map[string]interface{}, error) {
-	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", owner, repo, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
+func (prc *PRReviewClient) GetExistingReviews(repository models.Repository, prNumber int) ([]map[string]interface{}, error) {
+	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch existing reviews: %w", err)

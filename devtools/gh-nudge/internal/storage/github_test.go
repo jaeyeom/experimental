@@ -22,8 +22,7 @@ func TestDeleteCommentByID(t *testing.T) {
 		t.Fatalf("Failed to create storage: %v", err)
 	}
 
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 42
 
 	// Add test comments with IDs
@@ -52,23 +51,23 @@ func TestDeleteCommentByID(t *testing.T) {
 	}
 
 	// Add comments
-	if err := storage.AddComment(owner, repo, prNumber, comment1); err != nil {
+	if err := storage.AddComment(repository, prNumber, comment1); err != nil {
 		t.Fatalf("Failed to add comment1: %v", err)
 	}
-	if err := storage.AddComment(owner, repo, prNumber, comment2); err != nil {
+	if err := storage.AddComment(repository, prNumber, comment2); err != nil {
 		t.Fatalf("Failed to add comment2: %v", err)
 	}
-	if err := storage.AddComment(owner, repo, prNumber, comment3); err != nil {
+	if err := storage.AddComment(repository, prNumber, comment3); err != nil {
 		t.Fatalf("Failed to add comment3: %v", err)
 	}
 
 	// Test deletion with unique prefix
-	if err := storage.DeleteCommentByID(owner, repo, prNumber, "b123"); err != nil {
+	if err := storage.DeleteCommentByID(repository, prNumber, "b123"); err != nil {
 		t.Errorf("Failed to delete comment by unique prefix: %v", err)
 	}
 
 	// Verify comment3 was deleted
-	prComments, err := storage.GetComments(owner, repo, prNumber)
+	prComments, err := storage.GetComments(repository, prNumber)
 	if err != nil {
 		t.Fatalf("Failed to get comments: %v", err)
 	}
@@ -77,7 +76,7 @@ func TestDeleteCommentByID(t *testing.T) {
 	}
 
 	// Test deletion with ambiguous prefix (should fail)
-	err = storage.DeleteCommentByID(owner, repo, prNumber, "a1b2c3d4")
+	err = storage.DeleteCommentByID(repository, prNumber, "a1b2c3d4")
 	if err == nil {
 		t.Error("Expected error for ambiguous prefix, got nil")
 	}
@@ -86,7 +85,7 @@ func TestDeleteCommentByID(t *testing.T) {
 	}
 
 	// Test deletion with non-existent prefix
-	err = storage.DeleteCommentByID(owner, repo, prNumber, "nonexistent")
+	err = storage.DeleteCommentByID(repository, prNumber, "nonexistent")
 	if err == nil {
 		t.Error("Expected error for non-existent prefix, got nil")
 	}
@@ -95,12 +94,12 @@ func TestDeleteCommentByID(t *testing.T) {
 	}
 
 	// Test deletion with long unique prefix
-	if err := storage.DeleteCommentByID(owner, repo, prNumber, "a1b2c3d4e5f67890"); err != nil {
+	if err := storage.DeleteCommentByID(repository, prNumber, "a1b2c3d4e5f67890"); err != nil {
 		t.Errorf("Failed to delete comment by long unique prefix: %v", err)
 	}
 
 	// Verify only one comment remains
-	prComments, err = storage.GetComments(owner, repo, prNumber)
+	prComments, err = storage.GetComments(repository, prNumber)
 	if err != nil {
 		t.Fatalf("Failed to get comments: %v", err)
 	}
@@ -126,8 +125,7 @@ func TestFindCommentByIDPrefix(t *testing.T) {
 		t.Fatalf("Failed to create storage: %v", err)
 	}
 
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 42
 
 	// Add test comment
@@ -139,7 +137,7 @@ func TestFindCommentByIDPrefix(t *testing.T) {
 		Side: "RIGHT",
 	}
 
-	if err := storage.AddComment(owner, repo, prNumber, comment); err != nil {
+	if err := storage.AddComment(repository, prNumber, comment); err != nil {
 		t.Fatalf("Failed to add comment: %v", err)
 	}
 
@@ -170,7 +168,7 @@ func TestFindCommentByIDPrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			found, err := storage.FindCommentByIDPrefix(owner, repo, prNumber, tt.prefix)
+			found, err := storage.FindCommentByIDPrefix(repository, prNumber, tt.prefix)
 			if tt.shouldErr {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -205,8 +203,7 @@ func TestCommentIDGeneration(t *testing.T) {
 		t.Fatalf("Failed to create storage: %v", err)
 	}
 
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 42
 
 	// Add comment without ID (should generate one)
@@ -217,12 +214,12 @@ func TestCommentIDGeneration(t *testing.T) {
 		Side: "RIGHT",
 	}
 
-	if err := storage.AddComment(owner, repo, prNumber, comment); err != nil {
+	if err := storage.AddComment(repository, prNumber, comment); err != nil {
 		t.Fatalf("Failed to add comment: %v", err)
 	}
 
 	// Retrieve and check that ID was generated
-	prComments, err := storage.GetComments(owner, repo, prNumber)
+	prComments, err := storage.GetComments(repository, prNumber)
 	if err != nil {
 		t.Fatalf("Failed to get comments: %v", err)
 	}
@@ -254,8 +251,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 		t.Fatalf("Failed to create storage: %v", err)
 	}
 
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	branchName := "feature-branch"
 
 	// Add test comments with IDs
@@ -284,23 +280,23 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 	}
 
 	// Add comments
-	if err := storage.AddBranchComment(owner, repo, branchName, comment1); err != nil {
+	if err := storage.AddBranchComment(repository, branchName, comment1); err != nil {
 		t.Fatalf("Failed to add comment1: %v", err)
 	}
-	if err := storage.AddBranchComment(owner, repo, branchName, comment2); err != nil {
+	if err := storage.AddBranchComment(repository, branchName, comment2); err != nil {
 		t.Fatalf("Failed to add comment2: %v", err)
 	}
-	if err := storage.AddBranchComment(owner, repo, branchName, comment3); err != nil {
+	if err := storage.AddBranchComment(repository, branchName, comment3); err != nil {
 		t.Fatalf("Failed to add comment3: %v", err)
 	}
 
 	// Test deletion with unique prefix
-	if err := storage.DeleteBranchCommentByID(owner, repo, branchName, "b123"); err != nil {
+	if err := storage.DeleteBranchCommentByID(repository, branchName, "b123"); err != nil {
 		t.Errorf("Failed to delete branch comment by unique prefix: %v", err)
 	}
 
 	// Verify comment3 was deleted
-	branchComments, err := storage.GetBranchComments(owner, repo, branchName)
+	branchComments, err := storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		t.Fatalf("Failed to get branch comments: %v", err)
 	}
@@ -309,7 +305,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 	}
 
 	// Test deletion with ambiguous prefix (should fail)
-	err = storage.DeleteBranchCommentByID(owner, repo, branchName, "a1b2c3d4")
+	err = storage.DeleteBranchCommentByID(repository, branchName, "a1b2c3d4")
 	if err == nil {
 		t.Error("Expected error for ambiguous prefix, got nil")
 	}
@@ -318,7 +314,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 	}
 
 	// Test deletion with non-existent prefix
-	err = storage.DeleteBranchCommentByID(owner, repo, branchName, "nonexistent")
+	err = storage.DeleteBranchCommentByID(repository, branchName, "nonexistent")
 	if err == nil {
 		t.Error("Expected error for non-existent prefix, got nil")
 	}
@@ -327,12 +323,12 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 	}
 
 	// Test deletion with long unique prefix
-	if err := storage.DeleteBranchCommentByID(owner, repo, branchName, "a1b2c3d4e5f67890"); err != nil {
+	if err := storage.DeleteBranchCommentByID(repository, branchName, "a1b2c3d4e5f67890"); err != nil {
 		t.Errorf("Failed to delete branch comment by long unique prefix: %v", err)
 	}
 
 	// Verify only one comment remains
-	branchComments, err = storage.GetBranchComments(owner, repo, branchName)
+	branchComments, err = storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		t.Fatalf("Failed to get branch comments: %v", err)
 	}

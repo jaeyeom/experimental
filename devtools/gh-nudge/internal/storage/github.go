@@ -41,20 +41,20 @@ func NewGitHubStorage(rootPath string) (*GitHubStorage, error) {
 }
 
 // buildPRPath constructs the storage path for a pull request.
-func (gs *GitHubStorage) buildPRPath(owner, repo string, prNumber int) string {
-	return filepath.Join("repos", owner, repo, "pull", strconv.Itoa(prNumber))
+func (gs *GitHubStorage) buildPRPath(repository models.Repository, prNumber int) string {
+	return filepath.Join("repos", repository.Owner, repository.Name, "pull", strconv.Itoa(prNumber))
 }
 
 // buildBranchPath constructs the storage path for a branch.
-func (gs *GitHubStorage) buildBranchPath(owner, repo, branchName string) string {
+func (gs *GitHubStorage) buildBranchPath(repository models.Repository, branchName string) string {
 	// Sanitize branch name for filesystem storage
 	sanitizedBranch := strings.ReplaceAll(branchName, "/", "_")
-	return filepath.Join("repos", owner, repo, "branch", sanitizedBranch)
+	return filepath.Join("repos", repository.Owner, repository.Name, "branch", sanitizedBranch)
 }
 
 // CaptureDiffHunks stores the diff hunks for a pull request.
-func (gs *GitHubStorage) CaptureDiffHunks(owner, repo string, prNumber int, diffHunks models.PRDiffHunks) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) CaptureDiffHunks(repository models.Repository, prNumber int, diffHunks models.PRDiffHunks) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	diffPath := filepath.Join(prPath, "diff-hunks.json")
 
 	if err := gs.locker.WithLock(diffPath, func() error {
@@ -66,8 +66,8 @@ func (gs *GitHubStorage) CaptureDiffHunks(owner, repo string, prNumber int, diff
 }
 
 // GetDiffHunks retrieves the diff hunks for a pull request.
-func (gs *GitHubStorage) GetDiffHunks(owner, repo string, prNumber int) (*models.PRDiffHunks, error) {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) GetDiffHunks(repository models.Repository, prNumber int) (*models.PRDiffHunks, error) {
+	prPath := gs.buildPRPath(repository, prNumber)
 	diffPath := filepath.Join(prPath, "diff-hunks.json")
 
 	var diffHunks models.PRDiffHunks
@@ -80,8 +80,8 @@ func (gs *GitHubStorage) GetDiffHunks(owner, repo string, prNumber int) (*models
 }
 
 // AddComment adds a comment to a pull request.
-func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment models.Comment) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) AddComment(repository models.Repository, prNumber int, comment models.Comment) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
 	if err := gs.locker.WithLockRetry(commentsPath, gs.lockConfig, func() error {
@@ -92,10 +92,9 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 			}
 		} else {
 			prComments = models.PRComments{
-				PRNumber: prNumber,
-				Owner:    owner,
-				Repo:     repo,
-				Comments: []models.Comment{},
+				PRNumber:   prNumber,
+				Repository: repository,
+				Comments:   []models.Comment{},
 			}
 		}
 
@@ -121,16 +120,15 @@ func (gs *GitHubStorage) AddComment(owner, repo string, prNumber int, comment mo
 }
 
 // GetComments retrieves all comments for a pull request.
-func (gs *GitHubStorage) GetComments(owner, repo string, prNumber int) (*models.PRComments, error) {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) GetComments(repository models.Repository, prNumber int) (*models.PRComments, error) {
+	prPath := gs.buildPRPath(repository, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
 	if !gs.store.Exists(commentsPath) {
 		return &models.PRComments{
-			PRNumber: prNumber,
-			Owner:    owner,
-			Repo:     repo,
-			Comments: []models.Comment{},
+			PRNumber:   prNumber,
+			Repository: repository,
+			Comments:   []models.Comment{},
 		}, nil
 	}
 
@@ -144,8 +142,8 @@ func (gs *GitHubStorage) GetComments(owner, repo string, prNumber int) (*models.
 }
 
 // UpdateComments updates all comments for a pull request.
-func (gs *GitHubStorage) UpdateComments(owner, repo string, prNumber int, comments models.PRComments) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) UpdateComments(repository models.Repository, prNumber int, comments models.PRComments) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
@@ -157,8 +155,8 @@ func (gs *GitHubStorage) UpdateComments(owner, repo string, prNumber int, commen
 }
 
 // FindCommentByIDPrefix finds a comment by ID prefix.
-func (gs *GitHubStorage) FindCommentByIDPrefix(owner, repo string, prNumber int, idPrefix string) (*models.Comment, error) {
-	prComments, err := gs.GetComments(owner, repo, prNumber)
+func (gs *GitHubStorage) FindCommentByIDPrefix(repository models.Repository, prNumber int, idPrefix string) (*models.Comment, error) {
+	prComments, err := gs.GetComments(repository, prNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -187,12 +185,12 @@ func (gs *GitHubStorage) FindCommentByIDPrefix(owner, repo string, prNumber int,
 }
 
 // DeleteCommentByID deletes a comment by ID prefix.
-func (gs *GitHubStorage) DeleteCommentByID(owner, repo string, prNumber int, idPrefix string) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) DeleteCommentByID(repository models.Repository, prNumber int, idPrefix string) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
-		prComments, err := gs.GetComments(owner, repo, prNumber)
+		prComments, err := gs.GetComments(repository, prNumber)
 		if err != nil {
 			return err
 		}
@@ -225,12 +223,12 @@ func (gs *GitHubStorage) DeleteCommentByID(owner, repo string, prNumber int, idP
 }
 
 // deleteComments is a helper function for deleting comments based on a filter.
-func (gs *GitHubStorage) deleteComments(owner, repo string, prNumber int, shouldDelete func(models.Comment) bool, allowMultiple bool) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) deleteComments(repository models.Repository, prNumber int, shouldDelete func(models.Comment) bool, allowMultiple bool) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
-		prComments, err := gs.GetComments(owner, repo, prNumber)
+		prComments, err := gs.GetComments(repository, prNumber)
 		if err != nil {
 			return err
 		}
@@ -265,8 +263,8 @@ func (gs *GitHubStorage) deleteComments(owner, repo string, prNumber int, should
 }
 
 // ClearComments removes all comments for a pull request.
-func (gs *GitHubStorage) ClearComments(owner, repo string, prNumber int) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) ClearComments(repository models.Repository, prNumber int) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	commentsPath := filepath.Join(prPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
@@ -278,15 +276,15 @@ func (gs *GitHubStorage) ClearComments(owner, repo string, prNumber int) error {
 }
 
 // ClearCommentsForFile removes all comments for a specific file.
-func (gs *GitHubStorage) ClearCommentsForFile(owner, repo string, prNumber int, file string) error {
-	return gs.deleteComments(owner, repo, prNumber, func(comment models.Comment) bool {
+func (gs *GitHubStorage) ClearCommentsForFile(repository models.Repository, prNumber int, file string) error {
+	return gs.deleteComments(repository, prNumber, func(comment models.Comment) bool {
 		return comment.Path == file
 	}, true)
 }
 
 // ValidateCommentAgainstDiff validates that a comment line exists in the diff hunks.
-func (gs *GitHubStorage) ValidateCommentAgainstDiff(owner, repo string, prNumber int, comment models.Comment) error {
-	diffHunks, err := gs.GetDiffHunks(owner, repo, prNumber)
+func (gs *GitHubStorage) ValidateCommentAgainstDiff(repository models.Repository, prNumber int, comment models.Comment) error {
+	diffHunks, err := gs.GetDiffHunks(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get diff hunks for validation: %w", err)
 	}
@@ -306,8 +304,8 @@ func (gs *GitHubStorage) ValidateCommentAgainstDiff(owner, repo string, prNumber
 }
 
 // SetPRMetadata stores metadata for a pull request.
-func (gs *GitHubStorage) SetPRMetadata(owner, repo string, prNumber int, metadata map[string]interface{}) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) SetPRMetadata(repository models.Repository, prNumber int, metadata map[string]interface{}) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	metadataPath := filepath.Join(prPath, "metadata.json")
 
 	if err := gs.locker.WithLock(metadataPath, func() error {
@@ -319,8 +317,8 @@ func (gs *GitHubStorage) SetPRMetadata(owner, repo string, prNumber int, metadat
 }
 
 // GetPRMetadata retrieves metadata for a pull request.
-func (gs *GitHubStorage) GetPRMetadata(owner, repo string, prNumber int) (map[string]interface{}, error) {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) GetPRMetadata(repository models.Repository, prNumber int) (map[string]interface{}, error) {
+	prPath := gs.buildPRPath(repository, prNumber)
 	metadataPath := filepath.Join(prPath, "metadata.json")
 
 	if !gs.store.Exists(metadataPath) {
@@ -337,8 +335,8 @@ func (gs *GitHubStorage) GetPRMetadata(owner, repo string, prNumber int) (map[st
 }
 
 // RecordNotification records that a notification was sent for a PR reviewer.
-func (gs *GitHubStorage) RecordNotification(owner, repo string, prNumber int, reviewerLogin string, timestamp time.Time) error {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) RecordNotification(repository models.Repository, prNumber int, reviewerLogin string, timestamp time.Time) error {
+	prPath := gs.buildPRPath(repository, prNumber)
 	notificationsPath := filepath.Join(prPath, "notifications.json")
 
 	if err := gs.locker.WithLock(notificationsPath, func() error {
@@ -360,8 +358,8 @@ func (gs *GitHubStorage) RecordNotification(owner, repo string, prNumber int, re
 }
 
 // GetLastNotification retrieves the last notification time for a PR reviewer.
-func (gs *GitHubStorage) GetLastNotification(owner, repo string, prNumber int, reviewerLogin string) (*time.Time, error) {
-	prPath := gs.buildPRPath(owner, repo, prNumber)
+func (gs *GitHubStorage) GetLastNotification(repository models.Repository, prNumber int, reviewerLogin string) (*time.Time, error) {
+	prPath := gs.buildPRPath(repository, prNumber)
 	notificationsPath := filepath.Join(prPath, "notifications.json")
 
 	if !gs.store.Exists(notificationsPath) {
@@ -391,8 +389,8 @@ func (gs *GitHubStorage) CleanupOldNotifications(olderThan time.Duration) error 
 }
 
 // ListPRs lists all pull requests in storage for a repository.
-func (gs *GitHubStorage) ListPRs(owner, repo string) ([]int, error) {
-	repoPath := filepath.Join("repos", owner, repo, "pull")
+func (gs *GitHubStorage) ListPRs(repository models.Repository) ([]int, error) {
+	repoPath := filepath.Join("repos", repository.Owner, repository.Name, "pull")
 
 	if !gs.store.Exists(repoPath) {
 		return []int{}, nil
@@ -414,19 +412,19 @@ func (gs *GitHubStorage) ListPRs(owner, repo string) ([]int, error) {
 }
 
 // ParseRepoAndPR parses owner/repo format and extracts components.
-func ParseRepoAndPR(repoSpec string) (owner, repo string, err error) {
+func ParseRepoAndPR(repoSpec string) (models.Repository, error) {
 	parts := strings.Split(repoSpec, "/")
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid repository format, expected 'owner/repo'")
+		return models.Repository{}, fmt.Errorf("invalid repository format, expected 'owner/repo'")
 	}
-	return parts[0], parts[1], nil
+	return models.NewRepository(parts[0], parts[1]), nil
 }
 
 // Branch-specific storage methods
 
 // CaptureBranchDiffHunks stores the diff hunks for a branch.
-func (gs *GitHubStorage) CaptureBranchDiffHunks(owner, repo string, branchName string, diffHunks models.BranchDiffHunks) error {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) CaptureBranchDiffHunks(repository models.Repository, branchName string, diffHunks models.BranchDiffHunks) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	diffPath := filepath.Join(branchPath, "diff-hunks.json")
 
 	if err := gs.locker.WithLock(diffPath, func() error {
@@ -438,8 +436,8 @@ func (gs *GitHubStorage) CaptureBranchDiffHunks(owner, repo string, branchName s
 }
 
 // GetBranchDiffHunks retrieves the diff hunks for a branch.
-func (gs *GitHubStorage) GetBranchDiffHunks(owner, repo string, branchName string) (*models.BranchDiffHunks, error) {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) GetBranchDiffHunks(repository models.Repository, branchName string) (*models.BranchDiffHunks, error) {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	diffPath := filepath.Join(branchPath, "diff-hunks.json")
 
 	var diffHunks models.BranchDiffHunks
@@ -452,8 +450,8 @@ func (gs *GitHubStorage) GetBranchDiffHunks(owner, repo string, branchName strin
 }
 
 // AddBranchComment adds a comment to a branch.
-func (gs *GitHubStorage) AddBranchComment(owner, repo string, branchName string, comment models.Comment) error {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) AddBranchComment(repository models.Repository, branchName string, comment models.Comment) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	commentsPath := filepath.Join(branchPath, "comments.json")
 
 	if err := gs.locker.WithLockRetry(commentsPath, gs.lockConfig, func() error {
@@ -465,8 +463,7 @@ func (gs *GitHubStorage) AddBranchComment(owner, repo string, branchName string,
 		} else {
 			branchComments = models.BranchComments{
 				BranchName: branchName,
-				Owner:      owner,
-				Repo:       repo,
+				Repository: repository,
 				Comments:   []models.Comment{},
 			}
 		}
@@ -493,15 +490,14 @@ func (gs *GitHubStorage) AddBranchComment(owner, repo string, branchName string,
 }
 
 // GetBranchComments retrieves all comments for a branch.
-func (gs *GitHubStorage) GetBranchComments(owner, repo string, branchName string) (*models.BranchComments, error) {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) GetBranchComments(repository models.Repository, branchName string) (*models.BranchComments, error) {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	commentsPath := filepath.Join(branchPath, "comments.json")
 
 	if !gs.store.Exists(commentsPath) {
 		return &models.BranchComments{
 			BranchName: branchName,
-			Owner:      owner,
-			Repo:       repo,
+			Repository: repository,
 			Comments:   []models.Comment{},
 		}, nil
 	}
@@ -516,8 +512,8 @@ func (gs *GitHubStorage) GetBranchComments(owner, repo string, branchName string
 }
 
 // UpdateBranchComments updates all comments for a branch.
-func (gs *GitHubStorage) UpdateBranchComments(owner, repo string, branchName string, comments models.BranchComments) error {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) UpdateBranchComments(repository models.Repository, branchName string, comments models.BranchComments) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	commentsPath := filepath.Join(branchPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
@@ -529,8 +525,8 @@ func (gs *GitHubStorage) UpdateBranchComments(owner, repo string, branchName str
 }
 
 // ClearBranchComments removes all comments for a branch.
-func (gs *GitHubStorage) ClearBranchComments(owner, repo string, branchName string) error {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) ClearBranchComments(repository models.Repository, branchName string) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	commentsPath := filepath.Join(branchPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
@@ -542,12 +538,12 @@ func (gs *GitHubStorage) ClearBranchComments(owner, repo string, branchName stri
 }
 
 // ClearBranchCommentsForFile removes all comments for a specific file in a branch.
-func (gs *GitHubStorage) ClearBranchCommentsForFile(owner, repo string, branchName string, file string) error {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) ClearBranchCommentsForFile(repository models.Repository, branchName string, file string) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	commentsPath := filepath.Join(branchPath, "comments.json")
 
 	return gs.locker.WithLock(commentsPath, func() error {
-		branchComments, err := gs.GetBranchComments(owner, repo, branchName)
+		branchComments, err := gs.GetBranchComments(repository, branchName)
 		if err != nil {
 			return err
 		}
@@ -568,12 +564,12 @@ func (gs *GitHubStorage) ClearBranchCommentsForFile(owner, repo string, branchNa
 }
 
 // DeleteBranchCommentByID deletes a specific branch comment by ID prefix.
-func (gs *GitHubStorage) DeleteBranchCommentByID(owner, repo string, branchName string, idPrefix string) error {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) DeleteBranchCommentByID(repository models.Repository, branchName string, idPrefix string) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	commentsPath := filepath.Join(branchPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
-		branchComments, err := gs.GetBranchComments(owner, repo, branchName)
+		branchComments, err := gs.GetBranchComments(repository, branchName)
 		if err != nil {
 			return err
 		}
@@ -606,8 +602,8 @@ func (gs *GitHubStorage) DeleteBranchCommentByID(owner, repo string, branchName 
 }
 
 // ValidateBranchCommentAgainstDiff validates that a comment line exists in the branch diff hunks.
-func (gs *GitHubStorage) ValidateBranchCommentAgainstDiff(owner, repo string, branchName string, comment models.Comment) error {
-	diffHunks, err := gs.GetBranchDiffHunks(owner, repo, branchName)
+func (gs *GitHubStorage) ValidateBranchCommentAgainstDiff(repository models.Repository, branchName string, comment models.Comment) error {
+	diffHunks, err := gs.GetBranchDiffHunks(repository, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to get branch diff hunks for validation: %w", err)
 	}
@@ -627,8 +623,8 @@ func (gs *GitHubStorage) ValidateBranchCommentAgainstDiff(owner, repo string, br
 }
 
 // SetBranchMetadata stores metadata for a branch.
-func (gs *GitHubStorage) SetBranchMetadata(owner, repo string, branchName string, metadata map[string]interface{}) error {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) SetBranchMetadata(repository models.Repository, branchName string, metadata map[string]interface{}) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	metadataPath := filepath.Join(branchPath, "metadata.json")
 
 	if err := gs.locker.WithLock(metadataPath, func() error {
@@ -640,8 +636,8 @@ func (gs *GitHubStorage) SetBranchMetadata(owner, repo string, branchName string
 }
 
 // GetBranchMetadata retrieves metadata for a branch.
-func (gs *GitHubStorage) GetBranchMetadata(owner, repo string, branchName string) (map[string]interface{}, error) {
-	branchPath := gs.buildBranchPath(owner, repo, branchName)
+func (gs *GitHubStorage) GetBranchMetadata(repository models.Repository, branchName string) (map[string]interface{}, error) {
+	branchPath := gs.buildBranchPath(repository, branchName)
 	metadataPath := filepath.Join(branchPath, "metadata.json")
 
 	if !gs.store.Exists(metadataPath) {

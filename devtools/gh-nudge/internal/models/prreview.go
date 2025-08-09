@@ -77,8 +77,7 @@ type Comment struct {
 // PRDiffHunks represents the diff hunks for a pull request.
 type PRDiffHunks struct {
 	PRNumber    int        `json:"prNumber"`
-	Owner       string     `json:"owner"`
-	Repo        string     `json:"repo"`
+	Repository  Repository `json:"repository"`
 	CapturedAt  time.Time  `json:"capturedAt"`
 	DiffHunks   []DiffHunk `json:"diffHunks"`
 	CommitSHA   string     `json:"commitSha"`
@@ -88,11 +87,10 @@ type PRDiffHunks struct {
 
 // PRComments represents the comments for a pull request.
 type PRComments struct {
-	PRNumber  int       `json:"prNumber"`
-	Owner     string    `json:"owner"`
-	Repo      string    `json:"repo"`
-	Comments  []Comment `json:"comments"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	PRNumber   int        `json:"prNumber"`
+	Repository Repository `json:"repository"`
+	Comments   []Comment  `json:"comments"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 // PRReview represents a review to be submitted to GitHub.
@@ -200,52 +198,52 @@ func (c Comment) IsDuplicate(other Comment) bool {
 // Executor defines a generic action that can be executed with context.
 type Executor interface {
 	// Execute performs the action
-	Execute(storage CommentClearer, owner, repo string, prNumber int, file string) error
+	Execute(storage CommentClearer, repository Repository, prNumber int, file string) error
 	// Name returns the name of the action
 	Name() string
 }
 
 // CommentClearer defines the ability to clear comments.
 type CommentClearer interface {
-	ClearComments(owner, repo string, prNumber int) error
-	ClearCommentsForFile(owner, repo string, prNumber int, file string) error
+	ClearComments(repository Repository, prNumber int) error
+	ClearCommentsForFile(repository Repository, prNumber int, file string) error
 }
 
 // ClearAction removes all local comments after successful submission.
 type ClearAction struct{}
 
-func (a ClearAction) Execute(storage CommentClearer, owner, repo string, prNumber int, file string) error {
+func (a ClearAction) Execute(storage CommentClearer, repository Repository, prNumber int, file string) error {
 	if file != "" {
 		// Clear comments for specific file only
-		if err := storage.ClearCommentsForFile(owner, repo, prNumber, file); err != nil {
+		if err := storage.ClearCommentsForFile(repository, prNumber, file); err != nil {
 			// Don't fail the entire operation if clearing fails - just warn
 			slog.Warn("failed to clear local comments for file after submission",
-				"owner", owner,
-				"repo", repo,
+				"owner", repository.Owner,
+				"repo", repository.Name,
 				"pr", prNumber,
 				"file", file,
 				"error", err)
 			return nil // Return nil to not fail the submission
 		}
 		slog.Info("cleared local comments for file after successful submission",
-			"owner", owner,
-			"repo", repo,
+			"owner", repository.Owner,
+			"repo", repository.Name,
 			"pr", prNumber,
 			"file", file)
 	} else {
 		// Clear all comments
-		if err := storage.ClearComments(owner, repo, prNumber); err != nil {
+		if err := storage.ClearComments(repository, prNumber); err != nil {
 			// Don't fail the entire operation if clearing fails - just warn
 			slog.Warn("failed to clear local comments after submission",
-				"owner", owner,
-				"repo", repo,
+				"owner", repository.Owner,
+				"repo", repository.Name,
 				"pr", prNumber,
 				"error", err)
 			return nil // Return nil to not fail the submission
 		}
 		slog.Info("cleared local comments after successful submission",
-			"owner", owner,
-			"repo", repo,
+			"owner", repository.Owner,
+			"repo", repository.Name,
 			"pr", prNumber)
 	}
 	return nil
@@ -258,17 +256,17 @@ func (a ClearAction) Name() string {
 // KeepAction preserves all local comments after successful submission.
 type KeepAction struct{}
 
-func (a KeepAction) Execute(_ CommentClearer, owner, repo string, prNumber int, file string) error {
+func (a KeepAction) Execute(_ CommentClearer, repository Repository, prNumber int, file string) error {
 	if file != "" {
 		slog.Info("local comments for file preserved after submission",
-			"owner", owner,
-			"repo", repo,
+			"owner", repository.Owner,
+			"repo", repository.Name,
 			"pr", prNumber,
 			"file", file)
 	} else {
 		slog.Info("local comments preserved after submission",
-			"owner", owner,
-			"repo", repo,
+			"owner", repository.Owner,
+			"repo", repository.Name,
 			"pr", prNumber)
 	}
 	return nil
@@ -281,18 +279,18 @@ func (a KeepAction) Name() string {
 // ArchiveAction moves comments to an archive/history (future enhancement).
 type ArchiveAction struct{}
 
-func (a ArchiveAction) Execute(_ CommentClearer, owner, repo string, prNumber int, file string) error {
+func (a ArchiveAction) Execute(_ CommentClearer, repository Repository, prNumber int, file string) error {
 	// Future enhancement: implement archiving
 	if file != "" {
 		slog.Info("archive feature not yet implemented, comments for file preserved",
-			"owner", owner,
-			"repo", repo,
+			"owner", repository.Owner,
+			"repo", repository.Name,
 			"pr", prNumber,
 			"file", file)
 	} else {
 		slog.Info("archive feature not yet implemented, comments preserved",
-			"owner", owner,
-			"repo", repo,
+			"owner", repository.Owner,
+			"repo", repository.Name,
 			"pr", prNumber)
 	}
 	return nil
@@ -435,8 +433,7 @@ func (c Comment) FormatIDShort() string {
 // BranchDiffHunks represents the diff hunks for a local branch.
 type BranchDiffHunks struct {
 	BranchName  string     `json:"branchName"`
-	Owner       string     `json:"owner"`
-	Repo        string     `json:"repo"`
+	Repository  Repository `json:"repository"`
 	CapturedAt  time.Time  `json:"capturedAt"`
 	DiffHunks   []DiffHunk `json:"diffHunks"`
 	CommitSHA   string     `json:"commitSha"`
@@ -447,9 +444,8 @@ type BranchDiffHunks struct {
 
 // BranchComments represents the comments for a local branch.
 type BranchComments struct {
-	BranchName string    `json:"branchName"`
-	Owner      string    `json:"owner"`
-	Repo       string    `json:"repo"`
-	Comments   []Comment `json:"comments"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	BranchName string     `json:"branchName"`
+	Repository Repository `json:"repository"`
+	Comments   []Comment  `json:"comments"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }

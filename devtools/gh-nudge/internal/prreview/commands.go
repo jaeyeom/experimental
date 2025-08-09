@@ -56,50 +56,50 @@ func NewCommandHandler(storageHome string) (*CommandHandler, error) {
 }
 
 // CaptureCommand captures and stores diff hunks for either PR or branch.
-func (ch *CommandHandler) CaptureCommand(owner, repo, identifier string, force bool) error {
+func (ch *CommandHandler) CaptureCommand(repository models.Repository, identifier string, force bool) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		return ch.capturePRDiff(owner, repo, parsed.PRNumber, force)
+		return ch.capturePRDiff(repository, parsed.PRNumber, force)
 	}
-	return ch.captureBranchDiff(owner, repo, parsed.BranchName, force)
+	return ch.captureBranchDiff(repository, parsed.BranchName, force)
 }
 
 // capturePRDiff captures and stores PR diff hunks.
-func (ch *CommandHandler) capturePRDiff(owner, repo string, prNumber int, force bool) error {
+func (ch *CommandHandler) capturePRDiff(repository models.Repository, prNumber int, force bool) error {
 	// Check if diff hunks already exist
-	if !force && ch.diffHunksExist(owner, repo, prNumber) {
+	if !force && ch.diffHunksExist(repository, prNumber) {
 		return fmt.Errorf("diff hunks already exist for PR %d, use --force to overwrite", prNumber)
 	}
 
 	// Validate PR access
-	if err := ch.ghClient.ValidatePRAccess(owner, repo, prNumber); err != nil {
-		return fmt.Errorf("failed to access PR %s/%s#%d: %w", owner, repo, prNumber, err)
+	if err := ch.ghClient.ValidatePRAccess(repository, prNumber); err != nil {
+		return fmt.Errorf("failed to access PR %s#%d: %w", repository, prNumber, err)
 	}
 
 	// Fetch diff hunks from GitHub
-	diffHunks, err := ch.ghClient.GetPRDiff(owner, repo, prNumber)
+	diffHunks, err := ch.ghClient.GetPRDiff(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to fetch diff hunks: %w", err)
 	}
 
 	// Store diff hunks
-	if err := ch.storage.CaptureDiffHunks(owner, repo, prNumber, *diffHunks); err != nil {
+	if err := ch.storage.CaptureDiffHunks(repository, prNumber, *diffHunks); err != nil {
 		return fmt.Errorf("failed to store diff hunks: %w", err)
 	}
 
-	fmt.Printf("Captured diff hunks for PR %s/%s#%d (%d hunks)\n",
-		owner, repo, prNumber, len(diffHunks.DiffHunks))
+	fmt.Printf("Captured diff hunks for PR %s#%d (%d hunks)\n",
+		repository, prNumber, len(diffHunks.DiffHunks))
 	return nil
 }
 
 // captureBranchDiff captures and stores branch diff hunks.
-func (ch *CommandHandler) captureBranchDiff(owner, repo, branchName string, force bool) error {
+func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branchName string, force bool) error {
 	// Check if diff hunks already exist
-	if !force && ch.branchDiffHunksExist(owner, repo, branchName) {
+	if !force && ch.branchDiffHunksExist(repository, branchName) {
 		return fmt.Errorf("diff hunks already exist for branch %q, use --force to overwrite", branchName)
 	}
 
@@ -119,36 +119,36 @@ func (ch *CommandHandler) captureBranchDiff(owner, repo, branchName string, forc
 	}
 
 	// Capture diff hunks from git
-	diffHunks, err := ch.gitClient.CaptureBranchDiff(owner, repo, branchName, baseBranch)
+	diffHunks, err := ch.gitClient.CaptureBranchDiff(repository, branchName, baseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to capture branch diff: %w", err)
 	}
 
 	// Store diff hunks
-	if err := ch.storage.CaptureBranchDiffHunks(owner, repo, branchName, *diffHunks); err != nil {
+	if err := ch.storage.CaptureBranchDiffHunks(repository, branchName, *diffHunks); err != nil {
 		return fmt.Errorf("failed to store branch diff hunks: %w", err)
 	}
 
-	fmt.Printf("Captured diff hunks for branch %s/%s:%s (%d hunks)\n",
-		owner, repo, branchName, len(diffHunks.DiffHunks))
+	fmt.Printf("Captured diff hunks for branch %s:%s (%d hunks)\n",
+		repository, branchName, len(diffHunks.DiffHunks))
 	return nil
 }
 
 // CommentCommand adds a line-specific comment for either PR or branch.
-func (ch *CommandHandler) CommentCommand(owner, repo, identifier string, file string, lineSpec, commentBody, side string, force bool) error {
+func (ch *CommandHandler) CommentCommand(repository models.Repository, identifier string, file string, lineSpec, commentBody, side string, force bool) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		return ch.addPRComment(owner, repo, parsed.PRNumber, file, lineSpec, commentBody, side, force)
+		return ch.addPRComment(repository, parsed.PRNumber, file, lineSpec, commentBody, side, force)
 	}
-	return ch.addBranchComment(owner, repo, parsed.BranchName, file, lineSpec, commentBody, side, force)
+	return ch.addBranchComment(repository, parsed.BranchName, file, lineSpec, commentBody, side, force)
 }
 
 // addPRComment adds a line-specific comment to a PR.
-func (ch *CommandHandler) addPRComment(owner, repo string, prNumber int, file string, lineSpec, commentBody, side string, force bool) error {
+func (ch *CommandHandler) addPRComment(repository models.Repository, prNumber int, file string, lineSpec, commentBody, side string, force bool) error {
 	// Parse line specification
 	lineRange, err := models.ParseLineSpec(lineSpec)
 	if err != nil {
@@ -169,8 +169,8 @@ func (ch *CommandHandler) addPRComment(owner, repo string, prNumber int, file st
 	}
 
 	// Validate comment against diff hunks if they exist
-	if ch.diffHunksExist(owner, repo, prNumber) {
-		if err := ch.storage.ValidateCommentAgainstDiff(owner, repo, prNumber, comment); err != nil {
+	if ch.diffHunksExist(repository, prNumber) {
+		if err := ch.storage.ValidateCommentAgainstDiff(repository, prNumber, comment); err != nil {
 			if !force {
 				return fmt.Errorf("validation failed: %w (use --force to override)", err)
 			}
@@ -181,20 +181,20 @@ func (ch *CommandHandler) addPRComment(owner, repo string, prNumber int, file st
 	}
 
 	// Add comment
-	if err := ch.storage.AddComment(owner, repo, prNumber, comment); err != nil {
+	if err := ch.storage.AddComment(repository, prNumber, comment); err != nil {
 		if strings.Contains(err.Error(), "duplicate") && !force {
 			return fmt.Errorf("duplicate comment detected (use --force to override): %w", err)
 		}
 		return fmt.Errorf("failed to add comment: %w", err)
 	}
 
-	fmt.Printf("Added comment to %s:%s in PR %s/%s#%d\n",
-		file, lineSpec, owner, repo, prNumber)
+	fmt.Printf("Added comment to %s:%s in PR %s#%d\n",
+		file, lineSpec, repository, prNumber)
 	return nil
 }
 
 // addBranchComment adds a line-specific comment to a branch.
-func (ch *CommandHandler) addBranchComment(owner, repo, branchName string, file string, lineSpec, commentBody, side string, force bool) error {
+func (ch *CommandHandler) addBranchComment(repository models.Repository, branchName string, file string, lineSpec, commentBody, side string, force bool) error {
 	// Parse line specification
 	lineRange, err := models.ParseLineSpec(lineSpec)
 	if err != nil {
@@ -215,8 +215,8 @@ func (ch *CommandHandler) addBranchComment(owner, repo, branchName string, file 
 	}
 
 	// Validate comment against diff hunks if they exist
-	if ch.branchDiffHunksExist(owner, repo, branchName) {
-		if err := ch.storage.ValidateBranchCommentAgainstDiff(owner, repo, branchName, comment); err != nil {
+	if ch.branchDiffHunksExist(repository, branchName) {
+		if err := ch.storage.ValidateBranchCommentAgainstDiff(repository, branchName, comment); err != nil {
 			if !force {
 				return fmt.Errorf("validation failed: %w (use --force to override)", err)
 			}
@@ -227,22 +227,22 @@ func (ch *CommandHandler) addBranchComment(owner, repo, branchName string, file 
 	}
 
 	// Add comment
-	if err := ch.storage.AddBranchComment(owner, repo, branchName, comment); err != nil {
+	if err := ch.storage.AddBranchComment(repository, branchName, comment); err != nil {
 		if strings.Contains(err.Error(), "duplicate") && !force {
 			return fmt.Errorf("duplicate comment detected (use --force to override): %w", err)
 		}
 		return fmt.Errorf("failed to add comment: %w", err)
 	}
 
-	fmt.Printf("Added comment to %s:%s in branch %s/%s:%s\n",
-		file, lineSpec, owner, repo, branchName)
+	fmt.Printf("Added comment to %s:%s in branch %s:%s\n",
+		file, lineSpec, repository, branchName)
 	return nil
 }
 
 // SubmitCommand submits a review to GitHub.
-func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, event, file string, formatter OutputFormatter, postSubmitAction models.Executor) error {
+func (ch *CommandHandler) SubmitCommand(repository models.Repository, prNumber int, body, event, file string, formatter OutputFormatter, postSubmitAction models.Executor) error {
 	// Get comments
-	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
+	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
@@ -270,7 +270,7 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 	}
 
 	// Submit review
-	if err := ch.ghClient.SubmitReview(owner, repo, prNumber, review); err != nil {
+	if err := ch.ghClient.SubmitReview(repository, prNumber, review); err != nil {
 		return fmt.Errorf("failed to submit review: %w", err)
 	}
 
@@ -278,8 +278,7 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 	result := models.SubmitResult{
 		Status:           "success",
 		PRNumber:         prNumber,
-		Owner:            owner,
-		Repo:             repo,
+		Repository:       repository,
 		Comments:         len(commentsToSubmit),
 		SubmittedAt:      time.Now(),
 		PostSubmitAction: postSubmitAction.Name(),
@@ -293,7 +292,7 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 	fmt.Println(output)
 
 	// Execute post-submit action
-	if err := postSubmitAction.Execute(ch.storage, owner, repo, prNumber, file); err != nil {
+	if err := postSubmitAction.Execute(ch.storage, repository, prNumber, file); err != nil {
 		return fmt.Errorf("post-submit action failed: %w", err)
 	}
 
@@ -301,21 +300,21 @@ func (ch *CommandHandler) SubmitCommand(owner, repo string, prNumber int, body, 
 }
 
 // ListCommand lists comments for either PR or branch.
-func (ch *CommandHandler) ListCommand(owner, repo, identifier string, formatter OutputFormatter, file, line, side string) error {
+func (ch *CommandHandler) ListCommand(repository models.Repository, identifier string, formatter OutputFormatter, file, line, side string) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		return ch.listPRComments(owner, repo, parsed.PRNumber, formatter, file, line, side)
+		return ch.listPRComments(repository, parsed.PRNumber, formatter, file, line, side)
 	}
-	return ch.listBranchComments(owner, repo, parsed.BranchName, formatter, file, line, side)
+	return ch.listBranchComments(repository, parsed.BranchName, formatter, file, line, side)
 }
 
 // listPRComments lists comments for a PR.
-func (ch *CommandHandler) listPRComments(owner, repo string, prNumber int, formatter OutputFormatter, file, line, side string) error {
-	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
+func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber int, formatter OutputFormatter, file, line, side string) error {
+	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
@@ -352,8 +351,8 @@ func (ch *CommandHandler) listPRComments(owner, repo string, prNumber int, forma
 }
 
 // listBranchComments lists comments for a branch.
-func (ch *CommandHandler) listBranchComments(owner, repo, branchName string, formatter OutputFormatter, file, line, side string) error {
-	branchComments, err := ch.storage.GetBranchComments(owner, repo, branchName)
+func (ch *CommandHandler) listBranchComments(repository models.Repository, branchName string, formatter OutputFormatter, file, line, side string) error {
+	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to get branch comments: %w", err)
 	}
@@ -390,50 +389,50 @@ func (ch *CommandHandler) listBranchComments(owner, repo, branchName string, for
 }
 
 // DeleteCommand deletes specific comments for either PR or branch.
-func (ch *CommandHandler) DeleteCommand(owner, repo, identifier string, commentID string, _ bool, _ OutputFormatter) error {
+func (ch *CommandHandler) DeleteCommand(repository models.Repository, identifier string, commentID string, _ bool, _ OutputFormatter) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		if err := ch.storage.DeleteCommentByID(owner, repo, parsed.PRNumber, commentID); err != nil {
+		if err := ch.storage.DeleteCommentByID(repository, parsed.PRNumber, commentID); err != nil {
 			return fmt.Errorf("failed to delete comment by ID: %w", err)
 		}
-		fmt.Printf("Deleted comment with ID prefix '%s' from PR %s/%s#%d\n", commentID, owner, repo, parsed.PRNumber)
+		fmt.Printf("Deleted comment with ID prefix '%s' from PR %s#%d\n", commentID, repository, parsed.PRNumber)
 		return nil
 	}
 
 	// Delete branch comment by ID
-	if err := ch.storage.DeleteBranchCommentByID(owner, repo, parsed.BranchName, commentID); err != nil {
+	if err := ch.storage.DeleteBranchCommentByID(repository, parsed.BranchName, commentID); err != nil {
 		return fmt.Errorf("failed to delete branch comment by ID: %w", err)
 	}
-	fmt.Printf("Deleted comment with ID prefix '%s' from branch %s/%s:%s\n", commentID, owner, repo, parsed.BranchName)
+	fmt.Printf("Deleted comment with ID prefix '%s' from branch %s:%s\n", commentID, repository, parsed.BranchName)
 	return nil
 }
 
 // ClearCommand clears comments for either PR or branch.
-func (ch *CommandHandler) ClearCommand(owner, repo, identifier string, file string, confirm bool) error {
+func (ch *CommandHandler) ClearCommand(repository models.Repository, identifier string, file string, confirm bool) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		return ch.clearPRComments(owner, repo, parsed.PRNumber, file, confirm)
+		return ch.clearPRComments(repository, parsed.PRNumber, file, confirm)
 	}
-	return ch.clearBranchComments(owner, repo, parsed.BranchName, file, confirm)
+	return ch.clearBranchComments(repository, parsed.BranchName, file, confirm)
 }
 
 // clearPRComments clears comments for a PR or file.
-func (ch *CommandHandler) clearPRComments(owner, repo string, prNumber int, file string, confirm bool) error {
+func (ch *CommandHandler) clearPRComments(repository models.Repository, prNumber int, file string, confirm bool) error {
 	if !confirm {
 		if file != "" {
-			fmt.Printf("This will delete all comments for file '%s' in PR %s/%s#%d. Continue? (y/N): ",
-				file, owner, repo, prNumber)
+			fmt.Printf("This will delete all comments for file '%s' in PR %s#%d. Continue? (y/N): ",
+				file, repository, prNumber)
 		} else {
-			fmt.Printf("This will delete ALL comments for PR %s/%s#%d. Continue? (y/N): ",
-				owner, repo, prNumber)
+			fmt.Printf("This will delete ALL comments for PR %s#%d. Continue? (y/N): ",
+				repository, prNumber)
 		}
 
 		var response string
@@ -446,9 +445,9 @@ func (ch *CommandHandler) clearPRComments(owner, repo string, prNumber int, file
 
 	var err error
 	if file != "" {
-		err = ch.storage.ClearCommentsForFile(owner, repo, prNumber, file)
+		err = ch.storage.ClearCommentsForFile(repository, prNumber, file)
 	} else {
-		err = ch.storage.ClearComments(owner, repo, prNumber)
+		err = ch.storage.ClearComments(repository, prNumber)
 	}
 
 	if err != nil {
@@ -456,25 +455,25 @@ func (ch *CommandHandler) clearPRComments(owner, repo string, prNumber int, file
 	}
 
 	if file != "" {
-		fmt.Printf("Cleared all comments for file '%s' in PR %s/%s#%d\n",
-			file, owner, repo, prNumber)
+		fmt.Printf("Cleared all comments for file '%s' in PR %s#%d\n",
+			file, repository, prNumber)
 	} else {
-		fmt.Printf("Cleared all comments for PR %s/%s#%d\n",
-			owner, repo, prNumber)
+		fmt.Printf("Cleared all comments for PR %s#%d\n",
+			repository, prNumber)
 	}
 
 	return nil
 }
 
 // clearBranchComments clears comments for a branch.
-func (ch *CommandHandler) clearBranchComments(owner, repo, branchName string, file string, confirm bool) error {
+func (ch *CommandHandler) clearBranchComments(repository models.Repository, branchName string, file string, confirm bool) error {
 	if !confirm {
 		if file != "" {
-			fmt.Printf("This will delete all comments for file '%s' in branch %s/%s:%s. Continue? (y/N): ",
-				file, owner, repo, branchName)
+			fmt.Printf("This will delete all comments for file '%s' in branch %s:%s. Continue? (y/N): ",
+				file, repository, branchName)
 		} else {
-			fmt.Printf("This will delete ALL comments for branch %s/%s:%s. Continue? (y/N): ",
-				owner, repo, branchName)
+			fmt.Printf("This will delete ALL comments for branch %s:%s. Continue? (y/N): ",
+				repository, branchName)
 		}
 
 		var response string
@@ -487,9 +486,9 @@ func (ch *CommandHandler) clearBranchComments(owner, repo, branchName string, fi
 
 	var err error
 	if file != "" {
-		err = ch.storage.ClearBranchCommentsForFile(owner, repo, branchName, file)
+		err = ch.storage.ClearBranchCommentsForFile(repository, branchName, file)
 	} else {
-		err = ch.storage.ClearBranchComments(owner, repo, branchName)
+		err = ch.storage.ClearBranchComments(repository, branchName)
 	}
 
 	if err != nil {
@@ -497,9 +496,9 @@ func (ch *CommandHandler) clearBranchComments(owner, repo, branchName string, fi
 	}
 
 	if file != "" {
-		fmt.Printf("Cleared all comments for file '%s' in branch %s/%s:%s\n", file, owner, repo, branchName)
+		fmt.Printf("Cleared all comments for file '%s' in branch %s:%s\n", file, repository, branchName)
 	} else {
-		fmt.Printf("Cleared all comments for branch %s/%s:%s\n", owner, repo, branchName)
+		fmt.Printf("Cleared all comments for branch %s:%s\n", repository, branchName)
 	}
 
 	return nil
@@ -507,8 +506,9 @@ func (ch *CommandHandler) clearBranchComments(owner, repo, branchName string, fi
 
 // Helper functions.
 
-func (ch *CommandHandler) diffHunksExist(owner, repo string, prNumber int) bool {
-	prPath := filepath.Join("repos", owner, repo, "pull", strconv.Itoa(prNumber))
+func (ch *CommandHandler) diffHunksExist(repository models.Repository, prNumber int) bool {
+	// TODO: Consider providing PR path creation.
+	prPath := filepath.Join("repos", repository.Owner, repository.Name, "pull", strconv.Itoa(prNumber))
 	diffPath := filepath.Join(prPath, "diff-hunks.json")
 
 	// Create a basic storage instance to check existence
@@ -520,9 +520,10 @@ func (ch *CommandHandler) diffHunksExist(owner, repo string, prNumber int) bool 
 	return fs.Exists(diffPath)
 }
 
-func (ch *CommandHandler) branchDiffHunksExist(owner, repo, branchName string) bool {
+func (ch *CommandHandler) branchDiffHunksExist(repository models.Repository, branchName string) bool {
 	sanitizedBranch := strings.ReplaceAll(branchName, "/", "_")
-	branchPath := filepath.Join("repos", owner, repo, "branch", sanitizedBranch)
+	// TODO: Consider providing branch path creation.
+	branchPath := filepath.Join("repos", repository.Owner, repository.Name, "branch", sanitizedBranch)
 	diffPath := filepath.Join(branchPath, "diff-hunks.json")
 
 	// Create a basic storage instance to check existence

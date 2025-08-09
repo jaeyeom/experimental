@@ -11,14 +11,13 @@ import (
 
 // SubmitResult contains the result data from a submit operation.
 type SubmitResult struct {
-	Status           string    `json:"status"`
-	PRNumber         int       `json:"prNumber"`
-	Owner            string    `json:"owner"`
-	Repo             string    `json:"repo"`
-	Comments         int       `json:"comments"`
-	SubmittedAt      time.Time `json:"submittedAt"`
-	PostSubmitAction string    `json:"postSubmitAction"`
-	File             string    `json:"file,omitempty"` // File path if file-specific submission
+	Status           string     `json:"status"`
+	PRNumber         int        `json:"prNumber"`
+	Repository       Repository `json:"repository"`
+	Comments         int        `json:"comments"`
+	SubmittedAt      time.Time  `json:"submittedAt"`
+	PostSubmitAction string     `json:"postSubmitAction"`
+	File             string     `json:"file,omitempty"` // File path if file-specific submission
 }
 
 // JSONFormatter formats output as JSON.
@@ -58,11 +57,11 @@ func NewTextFormatter() *TextFormatter {
 // FormatSubmitResult formats submit result as text.
 func (f *TextFormatter) FormatSubmitResult(result SubmitResult) (string, error) {
 	if result.File != "" {
-		return fmt.Sprintf("Submitted review for PR %s/%s#%d with %d comments from file %s",
-			result.Owner, result.Repo, result.PRNumber, result.Comments, result.File), nil
+		return fmt.Sprintf("Submitted review for PR %s#%d with %d comments from file %s",
+			result.Repository, result.PRNumber, result.Comments, result.File), nil
 	}
-	return fmt.Sprintf("Submitted review for PR %s/%s#%d with %d comments",
-		result.Owner, result.Repo, result.PRNumber, result.Comments), nil
+	return fmt.Sprintf("Submitted review for PR %s#%d with %d comments",
+		result.Repository, result.PRNumber, result.Comments), nil
 }
 
 // FormatComments formats comments as a table.

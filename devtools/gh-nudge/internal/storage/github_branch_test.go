@@ -18,15 +18,13 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		t.Fatalf("Failed to create storage: %v", err)
 	}
 
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	branchName := "feature/test-branch"
 
 	t.Run("CaptureBranchDiffHunks", func(t *testing.T) {
 		diffHunks := models.BranchDiffHunks{
 			BranchName: branchName,
-			Owner:      owner,
-			Repo:       repo,
+			Repository: repository,
 			CapturedAt: time.Now(),
 			DiffHunks: []models.DiffHunk{
 				{
@@ -43,21 +41,21 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			BaseBranch: "main",
 		}
 
-		err := storage.CaptureBranchDiffHunks(owner, repo, branchName, diffHunks)
+		err := storage.CaptureBranchDiffHunks(repository, branchName, diffHunks)
 		if err != nil {
 			t.Errorf("CaptureBranchDiffHunks() error = %v", err)
 		}
 
 		// Verify the file was created
 		sanitizedBranch := "feature_test-branch" // slashes replaced with underscores
-		expectedPath := filepath.Join(tmpDir, "repos", owner, repo, "branch", sanitizedBranch, "diff-hunks.json")
+		expectedPath := filepath.Join(tmpDir, "repos", repository.Owner, repository.Name, "branch", sanitizedBranch, "diff-hunks.json")
 		if _, err := os.Stat(expectedPath); errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("Expected diff hunks file not created at %s", expectedPath)
 		}
 	})
 
 	t.Run("GetBranchDiffHunks", func(t *testing.T) {
-		retrieved, err := storage.GetBranchDiffHunks(owner, repo, branchName)
+		retrieved, err := storage.GetBranchDiffHunks(repository, branchName)
 		if err != nil {
 			t.Fatalf("GetBranchDiffHunks() error = %v", err)
 		}
@@ -78,14 +76,14 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			Side: "RIGHT",
 		}
 
-		err := storage.AddBranchComment(owner, repo, branchName, comment)
+		err := storage.AddBranchComment(repository, branchName, comment)
 		if err != nil {
 			t.Errorf("AddBranchComment() error = %v", err)
 		}
 	})
 
 	t.Run("GetBranchComments", func(t *testing.T) {
-		comments, err := storage.GetBranchComments(owner, repo, branchName)
+		comments, err := storage.GetBranchComments(repository, branchName)
 		if err != nil {
 			t.Fatalf("GetBranchComments() error = %v", err)
 		}
@@ -108,7 +106,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			Line: 15,
 			Side: "RIGHT",
 		}
-		err := storage.ValidateBranchCommentAgainstDiff(owner, repo, branchName, validComment)
+		err := storage.ValidateBranchCommentAgainstDiff(repository, branchName, validComment)
 		if err != nil {
 			t.Errorf("ValidateBranchCommentAgainstDiff() error = %v for valid comment", err)
 		}
@@ -119,7 +117,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			Line: 100,
 			Side: "RIGHT",
 		}
-		err = storage.ValidateBranchCommentAgainstDiff(owner, repo, branchName, invalidComment)
+		err = storage.ValidateBranchCommentAgainstDiff(repository, branchName, invalidComment)
 		if err == nil {
 			t.Error("ValidateBranchCommentAgainstDiff() should error for comment outside diff range")
 		}
@@ -127,7 +125,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 
 	t.Run("ClearBranchCommentsForFile", func(t *testing.T) {
 		// Clear any existing comments first
-		_ = storage.ClearBranchComments(owner, repo, branchName)
+		_ = storage.ClearBranchComments(repository, branchName)
 
 		// Add multiple comments for different files
 		comment1 := models.Comment{
@@ -149,18 +147,18 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			Side: "RIGHT",
 		}
 
-		_ = storage.AddBranchComment(owner, repo, branchName, comment1)
-		_ = storage.AddBranchComment(owner, repo, branchName, comment2)
-		_ = storage.AddBranchComment(owner, repo, branchName, comment3)
+		_ = storage.AddBranchComment(repository, branchName, comment1)
+		_ = storage.AddBranchComment(repository, branchName, comment2)
+		_ = storage.AddBranchComment(repository, branchName, comment3)
 
 		// Clear comments for file1.go only
-		err := storage.ClearBranchCommentsForFile(owner, repo, branchName, "file1.go")
+		err := storage.ClearBranchCommentsForFile(repository, branchName, "file1.go")
 		if err != nil {
 			t.Errorf("ClearBranchCommentsForFile() error = %v", err)
 		}
 
 		// Verify only file2.go comments remain
-		comments, err := storage.GetBranchComments(owner, repo, branchName)
+		comments, err := storage.GetBranchComments(repository, branchName)
 		if err != nil {
 			t.Fatalf("GetBranchComments() after file-specific clear error = %v", err)
 		}
@@ -173,13 +171,13 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 	})
 
 	t.Run("ClearBranchComments", func(t *testing.T) {
-		err := storage.ClearBranchComments(owner, repo, branchName)
+		err := storage.ClearBranchComments(repository, branchName)
 		if err != nil {
 			t.Errorf("ClearBranchComments() error = %v", err)
 		}
 
 		// Verify comments are cleared
-		comments, err := storage.GetBranchComments(owner, repo, branchName)
+		comments, err := storage.GetBranchComments(repository, branchName)
 		if err != nil {
 			t.Fatalf("GetBranchComments() after clear error = %v", err)
 		}
@@ -194,12 +192,12 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			"reviewer":     "testuser",
 		}
 
-		err := storage.SetBranchMetadata(owner, repo, branchName, metadata)
+		err := storage.SetBranchMetadata(repository, branchName, metadata)
 		if err != nil {
 			t.Errorf("SetBranchMetadata() error = %v", err)
 		}
 
-		retrieved, err := storage.GetBranchMetadata(owner, repo, branchName)
+		retrieved, err := storage.GetBranchMetadata(repository, branchName)
 		if err != nil {
 			t.Fatalf("GetBranchMetadata() error = %v", err)
 		}
@@ -229,7 +227,8 @@ func TestGitHubStorage_BranchPathSanitization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.branchName, func(t *testing.T) {
-			path := storage.buildBranchPath("owner", "repo", tt.branchName)
+			repository := models.NewRepository("owner", "repo")
+			path := storage.buildBranchPath(repository, tt.branchName)
 			expectedPath := filepath.Join("repos", "owner", "repo", "branch", tt.expectedSuffix)
 			if path != expectedPath {
 				t.Errorf("buildBranchPath(%q) = %v, want %v", tt.branchName, path, expectedPath)

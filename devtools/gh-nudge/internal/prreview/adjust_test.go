@@ -21,8 +21,7 @@ func TestAdjustCommand(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Set up test data
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
 	file := "src/main.go"
 
@@ -40,8 +39,7 @@ func TestAdjustCommand(t *testing.T) {
 	// Set up diff hunks
 	diffHunks := models.PRDiffHunks{
 		PRNumber:   prNumber,
-		Owner:      owner,
-		Repo:       repo,
+		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
@@ -53,7 +51,7 @@ func TestAdjustCommand(t *testing.T) {
 		},
 	}
 
-	if err := store.CaptureDiffHunks(owner, repo, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +85,7 @@ func TestAdjustCommand(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(owner, repo, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, prNumber, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -107,7 +105,7 @@ func TestAdjustCommand(t *testing.T) {
 			wantErr:  false,
 			checkResults: func(t *testing.T) {
 				// Comments should not be modified in dry run
-				stored, err := store.GetComments(owner, repo, prNumber)
+				stored, err := store.GetComments(repository, prNumber)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -122,7 +120,7 @@ func TestAdjustCommand(t *testing.T) {
 			dryRun:   false,
 			wantErr:  false,
 			checkResults: func(t *testing.T) {
-				stored, err := store.GetComments(owner, repo, prNumber)
+				stored, err := store.GetComments(repository, prNumber)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -143,7 +141,7 @@ func TestAdjustCommand(t *testing.T) {
 			dryRun:   false,
 			wantErr:  false,
 			checkResults: func(t *testing.T) {
-				stored, err := store.GetComments(owner, repo, prNumber)
+				stored, err := store.GetComments(repository, prNumber)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -182,17 +180,17 @@ func TestAdjustCommand(t *testing.T) {
 			// Reset comments between tests
 			if !tt.dryRun {
 				// Re-add original comments
-				if err := store.ClearComments(owner, repo, prNumber); err != nil {
+				if err := store.ClearComments(repository, prNumber); err != nil {
 					t.Fatal(err)
 				}
 				for _, comment := range comments {
-					if err := store.AddComment(owner, repo, prNumber, comment); err != nil {
+					if err := store.AddComment(repository, prNumber, comment); err != nil {
 						t.Fatal(err)
 					}
 				}
 			}
 
-			err := handler.AdjustCommand(owner, repo, fmt.Sprintf("%d", prNumber),
+			err := handler.AdjustCommand(repository, fmt.Sprintf("%d", prNumber),
 				file, tt.diffSpec, tt.dryRun, tt.force, "table")
 
 			if (err != nil) != tt.wantErr {
@@ -214,8 +212,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
 	file := "src/main.go"
 
@@ -228,8 +225,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 	// Set up test data
 	diffHunks := models.PRDiffHunks{
 		PRNumber:   prNumber,
-		Owner:      owner,
-		Repo:       repo,
+		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
@@ -241,7 +237,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 		},
 	}
 
-	if err := store.CaptureDiffHunks(owner, repo, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -266,7 +262,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(owner, repo, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, prNumber, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -278,7 +274,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 
 	// Test table format output
 	t.Run("table format", func(t *testing.T) {
-		result, err := handler.getAdjustmentPreview(owner, repo, prNumber, file, "15,17d14", "table")
+		result, err := handler.getAdjustmentPreview(repository, prNumber, file, "15,17d14", "table")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -297,7 +293,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 
 	// Test JSON format output
 	t.Run("json format", func(t *testing.T) {
-		result, err := handler.getAdjustmentPreview(owner, repo, prNumber, file, "15,17d14", "json")
+		result, err := handler.getAdjustmentPreview(repository, prNumber, file, "15,17d14", "json")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -334,8 +330,7 @@ func TestAdjustBranchComments(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	owner := "testowner"
-	repo := "testrepo"
+	repository := models.NewRepository("testowner", "testrepo")
 	branch := "feature/test"
 	file := "src/main.go"
 
@@ -353,8 +348,7 @@ func TestAdjustBranchComments(t *testing.T) {
 	// Set up branch diff hunks
 	branchDiffHunks := models.BranchDiffHunks{
 		BranchName: branch,
-		Owner:      owner,
-		Repo:       repo,
+		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
@@ -366,7 +360,7 @@ func TestAdjustBranchComments(t *testing.T) {
 		},
 	}
 
-	if err := store.CaptureBranchDiffHunks(owner, repo, branch, branchDiffHunks); err != nil {
+	if err := store.CaptureBranchDiffHunks(repository, branch, branchDiffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -380,18 +374,18 @@ func TestAdjustBranchComments(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	if err := store.AddBranchComment(owner, repo, branch, comment); err != nil {
+	if err := store.AddBranchComment(repository, branch, comment); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test branch adjustment
-	err = handler.AdjustCommand(owner, repo, branch, file, "20,22d19", false, false, "table")
+	err = handler.AdjustCommand(repository, branch, file, "20,22d19", false, false, "table")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Verify adjustment
-	stored, err := store.GetBranchComments(owner, repo, branch)
+	stored, err := store.GetBranchComments(repository, branch)
 	if err != nil {
 		t.Fatal(err)
 	}
