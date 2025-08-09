@@ -27,16 +27,15 @@ var packages = []PackageData{
 		brewPkgName:   "findutils",
 		Suffix: `
 
-    - name: Ensure locate DB is up-to-date on macOS
-      command: /usr/libexec/locate.updatedb
-      become: yes
-      become_method: sudo
-      when: ansible_facts['os_family'] == "Darwin"
-
     - name: Ensure locate DB is up-to-date on non-macOS systems
       command: updatedb
       become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"
-      when: ansible_facts['os_family'] != "Darwin"`,
+      when: ansible_facts['os_family'] != "Darwin"
+
+    - name: Note about locate DB on macOS
+      debug:
+        msg: "On macOS, run 'sudo /usr/libexec/locate.updatedb' manually to update the locate database"
+      when: ansible_facts['os_family'] == "Darwin"`,
 	},
 	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
 	{command: "libtool"},
