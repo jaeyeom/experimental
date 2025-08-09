@@ -59,7 +59,7 @@ func NewClient(repoPath string) *Client {
 }
 
 // CaptureBranchDiff captures the diff hunks for a branch compared to its base branch.
-func (gc *Client) CaptureBranchDiff(owner, repo, branchName, baseBranch string) (*models.BranchDiffHunks, error) {
+func (gc *Client) CaptureBranchDiff(repository models.Repository, branchName, baseBranch string) (*models.BranchDiffHunks, error) {
 	// Validate branch names for security
 	if err := validateBranchName(branchName); err != nil {
 		return nil, fmt.Errorf("invalid branch name %q: %w", branchName, err)
@@ -94,8 +94,7 @@ func (gc *Client) CaptureBranchDiff(owner, repo, branchName, baseBranch string) 
 
 	return &models.BranchDiffHunks{
 		BranchName:  branchName,
-		Owner:       owner,
-		Repo:        repo,
+		Repository:  repository,
 		CapturedAt:  time.Now(),
 		DiffHunks:   diffHunks,
 		CommitSHA:   commitSHA,

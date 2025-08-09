@@ -16,8 +16,7 @@ import (
 
 // AdjustmentPreview represents the preview of line adjustments.
 type AdjustmentPreview struct {
-	Owner          string                  `json:"owner"`
-	Repo           string                  `json:"repo"`
+	Repository     models.Repository       `json:"repository"`
 	Identifier     string                  `json:"identifier"`
 	File           string                  `json:"file"`
 	DiffSpec       string                  `json:"diffSpec"`
@@ -58,7 +57,7 @@ type AdjustOptionsExtended struct {
 
 // AdjustCommand adjusts comment line numbers based on diff specifications.
 // Supports both single-file and multi-file processing modes.
-func (ch *CommandHandler) AdjustCommand(owner, repo, identifier, file, diffSpec string, dryRun, force bool, format string) error {
+func (ch *CommandHandler) AdjustCommand(repository models.Repository, identifier, file, diffSpec string, dryRun, force bool, format string) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
@@ -66,15 +65,15 @@ func (ch *CommandHandler) AdjustCommand(owner, repo, identifier, file, diffSpec 
 
 	// Check if this is a unified diff that might contain multiple files
 	if models.DetectFormat(diffSpec) == models.FormatUnifiedDiff {
-		return ch.adjustCommandUnifiedDiff(owner, repo, *parsed, file, diffSpec, dryRun, force, format)
+		return ch.adjustCommandUnifiedDiff(repository, *parsed, file, diffSpec, dryRun, force, format)
 	}
 
 	// Traditional single-file processing
-	return ch.adjustCommandSingleFile(owner, repo, *parsed, file, diffSpec, dryRun, force, format)
+	return ch.adjustCommandSingleFile(repository, *parsed, file, diffSpec, dryRun, force, format)
 }
 
 // adjustCommandSingleFile handles traditional single-file adjustment.
-func (ch *CommandHandler) adjustCommandSingleFile(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, dryRun, force bool, format string) error {
+func (ch *CommandHandler) adjustCommandSingleFile(repository models.Repository, parsed models.ParsedIdentifier, file, diffSpec string, dryRun, force bool, format string) error {
 	// Parse diff spec with auto-detection
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -84,9 +83,9 @@ func (ch *CommandHandler) adjustCommandSingleFile(owner, repo string, parsed mod
 	// Get preview
 	var preview string
 	if parsed.IsPR() {
-		preview, err = ch.getAdjustmentPreview(owner, repo, parsed.PRNumber, file, diffSpec, format)
+		preview, err = ch.getAdjustmentPreview(repository, parsed.PRNumber, file, diffSpec, format)
 	} else {
-		preview, err = ch.getBranchAdjustmentPreview(owner, repo, parsed.BranchName, file, diffSpec, format)
+		preview, err = ch.getBranchAdjustmentPreview(repository, parsed.BranchName, file, diffSpec, format)
 	}
 	if err != nil {
 		return err
@@ -103,20 +102,20 @@ func (ch *CommandHandler) adjustCommandSingleFile(owner, repo string, parsed mod
 
 	// Apply adjustments
 	if parsed.IsPR() {
-		return ch.applyPRAdjustments(owner, repo, parsed.PRNumber, file, adjustments, force)
+		return ch.applyPRAdjustments(repository, parsed.PRNumber, file, adjustments, force)
 	}
-	return ch.applyBranchAdjustments(owner, repo, parsed.BranchName, file, adjustments, force)
+	return ch.applyBranchAdjustments(repository, parsed.BranchName, file, adjustments, force)
 }
 
 // adjustCommandUnifiedDiff handles unified diff processing (single-file or multi-file).
-func (ch *CommandHandler) adjustCommandUnifiedDiff(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, dryRun, force bool, format string) error {
+func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository, parsed models.ParsedIdentifier, file, diffSpec string, dryRun, force bool, format string) error {
 	if file != "" {
 		// Single-file mode: filter unified diff for specific file
 		filteredDiff, err := models.FilterUnifiedDiffForFile(diffSpec, file)
 		if err != nil {
 			return fmt.Errorf("failed to filter unified diff for file %s: %w", file, err)
 		}
-		return ch.adjustCommandSingleFile(owner, repo, parsed, file, filteredDiff, dryRun, force, format)
+		return ch.adjustCommandSingleFile(repository, parsed, file, filteredDiff, dryRun, force, format)
 	}
 
 	// Multi-file mode: process all files in the unified diff
@@ -141,9 +140,9 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(owner, repo string, parsed mo
 		// Get preview for this file
 		var preview string
 		if parsed.IsPR() {
-			preview, err = ch.getAdjustmentPreview(owner, repo, parsed.PRNumber, spec.FilePath, spec.ClassicDiff, format)
+			preview, err = ch.getAdjustmentPreview(repository, parsed.PRNumber, spec.FilePath, spec.ClassicDiff, format)
 		} else {
-			preview, err = ch.getBranchAdjustmentPreview(owner, repo, parsed.BranchName, spec.FilePath, spec.ClassicDiff, format)
+			preview, err = ch.getBranchAdjustmentPreview(repository, parsed.BranchName, spec.FilePath, spec.ClassicDiff, format)
 		}
 
 		if err != nil {
@@ -165,9 +164,9 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(owner, repo string, parsed mo
 			// Apply adjustments for this file
 			var fileAdjusted, fileOrphaned, fileWarnings int
 			if parsed.IsPR() {
-				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyPRAdjustmentsWithCounts(owner, repo, parsed.PRNumber, spec.FilePath, adjustments, force)
+				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyPRAdjustmentsWithCounts(repository, parsed.PRNumber, spec.FilePath, adjustments, force)
 			} else {
-				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyBranchAdjustmentsWithCounts(owner, repo, parsed.BranchName, spec.FilePath, adjustments, force)
+				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyBranchAdjustmentsWithCounts(repository, parsed.BranchName, spec.FilePath, adjustments, force)
 			}
 
 			if err != nil {
@@ -200,7 +199,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(owner, repo string, parsed mo
 }
 
 // getBranchAdjustmentPreview generates a preview of the adjustments for a branch.
-func (ch *CommandHandler) getBranchAdjustmentPreview(owner, repo, branchName, file, diffSpec, format string) (string, error) {
+func (ch *CommandHandler) getBranchAdjustmentPreview(repository models.Repository, branchName, file, diffSpec, format string) (string, error) {
 	// Parse adjustments with auto-detection
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -208,20 +207,19 @@ func (ch *CommandHandler) getBranchAdjustmentPreview(owner, repo, branchName, fi
 	}
 
 	// Get comments for the file
-	branchComments, err := ch.storage.GetBranchComments(owner, repo, branchName)
+	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		return "", fmt.Errorf("failed to get branch comments: %w", err)
 	}
 
 	// Get diff hunks
-	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(owner, repo, branchName)
+	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(repository, branchName)
 	if err != nil {
 		return "", fmt.Errorf("failed to get branch diff hunks: %w", err)
 	}
 
 	preview := AdjustmentPreview{
-		Owner:       owner,
-		Repo:        repo,
+		Repository:  repository,
 		Identifier:  branchName,
 		File:        file,
 		DiffSpec:    diffSpec,
@@ -276,7 +274,7 @@ func (ch *CommandHandler) getBranchAdjustmentPreview(owner, repo, branchName, fi
 }
 
 // getAdjustmentPreview generates a preview of the adjustments.
-func (ch *CommandHandler) getAdjustmentPreview(owner, repo string, prNumber int, file, diffSpec, format string) (string, error) {
+func (ch *CommandHandler) getAdjustmentPreview(repository models.Repository, prNumber int, file, diffSpec, format string) (string, error) {
 	// Parse adjustments with auto-detection
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -284,20 +282,19 @@ func (ch *CommandHandler) getAdjustmentPreview(owner, repo string, prNumber int,
 	}
 
 	// Get comments for the file
-	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
+	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return "", fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Get diff hunks
-	prDiffHunks, err := ch.storage.GetDiffHunks(owner, repo, prNumber)
+	prDiffHunks, err := ch.storage.GetDiffHunks(repository, prNumber)
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff hunks: %w", err)
 	}
 
 	preview := AdjustmentPreview{
-		Owner:       owner,
-		Repo:        repo,
+		Repository:  repository,
 		Identifier:  fmt.Sprintf("%d", prNumber),
 		File:        file,
 		DiffSpec:    diffSpec,
@@ -352,15 +349,15 @@ func (ch *CommandHandler) getAdjustmentPreview(owner, repo string, prNumber int,
 }
 
 // applyPRAdjustments applies adjustments to PR comments.
-func (ch *CommandHandler) applyPRAdjustments(owner, repo string, prNumber int, file string, adjustments []models.LineAdjustment, force bool) error {
+func (ch *CommandHandler) applyPRAdjustments(repository models.Repository, prNumber int, file string, adjustments []models.LineAdjustment, force bool) error {
 	// Get all comments
-	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
+	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Get diff hunks for validation
-	prDiffHunks, err := ch.storage.GetDiffHunks(owner, repo, prNumber)
+	prDiffHunks, err := ch.storage.GetDiffHunks(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get diff hunks: %w", err)
 	}
@@ -406,7 +403,7 @@ func (ch *CommandHandler) applyPRAdjustments(owner, repo string, prNumber int, f
 	prComments.Comments = updatedComments
 	prComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateComments(owner, repo, prNumber, *prComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, prNumber, *prComments); err != nil {
 		return fmt.Errorf("failed to update comments: %w", err)
 	}
 
@@ -423,15 +420,15 @@ func (ch *CommandHandler) applyPRAdjustments(owner, repo string, prNumber int, f
 }
 
 // applyBranchAdjustments applies adjustments to branch comments.
-func (ch *CommandHandler) applyBranchAdjustments(owner, repo, branchName, file string, adjustments []models.LineAdjustment, force bool) error {
+func (ch *CommandHandler) applyBranchAdjustments(repository models.Repository, branchName, file string, adjustments []models.LineAdjustment, force bool) error {
 	// Get all comments
-	branchComments, err := ch.storage.GetBranchComments(owner, repo, branchName)
+	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to get branch comments: %w", err)
 	}
 
 	// Get diff hunks for validation
-	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(owner, repo, branchName)
+	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(repository, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to get branch diff hunks: %w", err)
 	}
@@ -477,7 +474,7 @@ func (ch *CommandHandler) applyBranchAdjustments(owner, repo, branchName, file s
 	branchComments.Comments = updatedComments
 	branchComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateBranchComments(owner, repo, branchName, *branchComments); err != nil {
+	if err := ch.storage.UpdateBranchComments(repository, branchName, *branchComments); err != nil {
 		return fmt.Errorf("failed to update branch comments: %w", err)
 	}
 
@@ -498,7 +495,7 @@ func formatTablePreview(preview AdjustmentPreview) (string, error) {
 	var sb strings.Builder
 
 	// Header
-	fmt.Fprintf(&sb, "Adjustment Preview for %s/%s#%s %s\n", preview.Owner, preview.Repo, preview.Identifier, preview.File)
+	fmt.Fprintf(&sb, "Adjustment Preview for %s#%s %s\n", preview.Repository, preview.Identifier, preview.File)
 	fmt.Fprintf(&sb, "Diff spec: %s\n\n", preview.DiffSpec)
 
 	// Adjustments
@@ -581,15 +578,15 @@ func truncateString(s string, maxLen int) string {
 }
 
 // applyPRAdjustmentsWithCounts applies adjustments to PR comments and returns counts.
-func (ch *CommandHandler) applyPRAdjustmentsWithCounts(owner, repo string, prNumber int, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
+func (ch *CommandHandler) applyPRAdjustmentsWithCounts(repository models.Repository, prNumber int, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
 	// Get all comments
-	prComments, err := ch.storage.GetComments(owner, repo, prNumber)
+	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Get diff hunks for validation
-	prDiffHunks, err := ch.storage.GetDiffHunks(owner, repo, prNumber)
+	prDiffHunks, err := ch.storage.GetDiffHunks(repository, prNumber)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get diff hunks: %w", err)
 	}
@@ -635,7 +632,7 @@ func (ch *CommandHandler) applyPRAdjustmentsWithCounts(owner, repo string, prNum
 	prComments.Comments = updatedComments
 	prComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateComments(owner, repo, prNumber, *prComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, prNumber, *prComments); err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to update comments: %w", err)
 	}
 
@@ -643,15 +640,15 @@ func (ch *CommandHandler) applyPRAdjustmentsWithCounts(owner, repo string, prNum
 }
 
 // applyBranchAdjustmentsWithCounts applies adjustments to branch comments and returns counts.
-func (ch *CommandHandler) applyBranchAdjustmentsWithCounts(owner, repo, branchName, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
+func (ch *CommandHandler) applyBranchAdjustmentsWithCounts(repository models.Repository, branchName, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
 	// Get all comments
-	branchComments, err := ch.storage.GetBranchComments(owner, repo, branchName)
+	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get branch comments: %w", err)
 	}
 
 	// Get diff hunks for validation
-	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(owner, repo, branchName)
+	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(repository, branchName)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get branch diff hunks: %w", err)
 	}
@@ -697,7 +694,7 @@ func (ch *CommandHandler) applyBranchAdjustmentsWithCounts(owner, repo, branchNa
 	branchComments.Comments = updatedComments
 	branchComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateBranchComments(owner, repo, branchName, *branchComments); err != nil {
+	if err := ch.storage.UpdateBranchComments(repository, branchName, *branchComments); err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to update branch comments: %w", err)
 	}
 
@@ -791,7 +788,7 @@ func promptUser(prompt string) (string, error) {
 }
 
 // AdjustCommandExtended provides extended adjust functionality with Phase 2 features.
-func (ch *CommandHandler) AdjustCommandExtended(owner, repo, identifier, file, diffSpec string, opts AdjustOptionsExtended) error {
+func (ch *CommandHandler) AdjustCommandExtended(repository models.Repository, identifier, file, diffSpec string, opts AdjustOptionsExtended) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
@@ -799,25 +796,25 @@ func (ch *CommandHandler) AdjustCommandExtended(owner, repo, identifier, file, d
 
 	// Handle mapping file mode
 	if opts.MappingFile != "" {
-		return ch.adjustCommandMappingFile(owner, repo, *parsed, opts)
+		return ch.adjustCommandMappingFile(repository, *parsed, opts)
 	}
 
 	// Handle all-files mode
 	if opts.AllFiles {
-		return ch.adjustCommandAllFiles(owner, repo, *parsed, diffSpec, opts)
+		return ch.adjustCommandAllFiles(repository, *parsed, diffSpec, opts)
 	}
 
 	// Handle unified diff mode
 	if models.DetectFormat(diffSpec) == models.FormatUnifiedDiff {
-		return ch.adjustCommandUnifiedDiffExtended(owner, repo, *parsed, file, diffSpec, opts)
+		return ch.adjustCommandUnifiedDiffExtended(repository, *parsed, file, diffSpec, opts)
 	}
 
 	// Traditional single-file processing with possible interactive mode
-	return ch.adjustCommandSingleFileExtended(owner, repo, *parsed, file, diffSpec, opts)
+	return ch.adjustCommandSingleFileExtended(repository, *parsed, file, diffSpec, opts)
 }
 
 // adjustCommandMappingFile handles mapping file processing.
-func (ch *CommandHandler) adjustCommandMappingFile(owner, repo string, parsed models.ParsedIdentifier, opts AdjustOptionsExtended) error {
+func (ch *CommandHandler) adjustCommandMappingFile(repository models.Repository, parsed models.ParsedIdentifier, opts AdjustOptionsExtended) error {
 	// Parse mapping file
 	mappingEntries, err := parseMappingFile(opts.MappingFile)
 	if err != nil {
@@ -843,9 +840,9 @@ func (ch *CommandHandler) adjustCommandMappingFile(owner, repo string, parsed mo
 		// Process this file
 		var fileAdjusted, fileOrphaned, fileWarnings int
 		if parsed.IsPR() {
-			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, parsed.PRNumber, filePath, diffSpec, opts, true)
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(repository, parsed.PRNumber, filePath, diffSpec, opts, true)
 		} else {
-			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, 0, filePath, diffSpec, opts, false)
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(repository, 0, filePath, diffSpec, opts, false)
 		}
 
 		if err != nil {
@@ -876,8 +873,8 @@ func (ch *CommandHandler) adjustCommandMappingFile(owner, repo string, parsed mo
 }
 
 // adjustCommandAllFiles handles all-files batch processing.
-func (ch *CommandHandler) adjustCommandAllFiles(owner, repo string, parsed models.ParsedIdentifier, diffSpec string, opts AdjustOptionsExtended) error {
-	files, err := ch.getAllFilesWithComments(owner, repo, parsed)
+func (ch *CommandHandler) adjustCommandAllFiles(repository models.Repository, parsed models.ParsedIdentifier, diffSpec string, opts AdjustOptionsExtended) error {
+	files, err := ch.getAllFilesWithComments(repository, parsed)
 	if err != nil {
 		return err
 	}
@@ -888,20 +885,20 @@ func (ch *CommandHandler) adjustCommandAllFiles(owner, repo string, parsed model
 	}
 
 	ch.printFileProcessingHeader(files)
-	return ch.processAllFiles(owner, repo, parsed, files, diffSpec, opts)
+	return ch.processAllFiles(repository, parsed, files, diffSpec, opts)
 }
 
 // getAllFilesWithComments retrieves all files that contain comments.
-func (ch *CommandHandler) getAllFilesWithComments(owner, repo string, parsed models.ParsedIdentifier) ([]string, error) {
+func (ch *CommandHandler) getAllFilesWithComments(repository models.Repository, parsed models.ParsedIdentifier) ([]string, error) {
 	if parsed.IsPR() {
-		prComments, err := ch.storage.GetComments(owner, repo, parsed.PRNumber)
+		prComments, err := ch.storage.GetComments(repository, parsed.PRNumber)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get PR comments: %w", err)
 		}
 		return extractUniqueFilePaths(prComments.Comments), nil
 	}
 
-	branchComments, err := ch.storage.GetBranchComments(owner, repo, parsed.BranchName)
+	branchComments, err := ch.storage.GetBranchComments(repository, parsed.BranchName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get branch comments: %w", err)
 	}
@@ -932,7 +929,7 @@ func (ch *CommandHandler) printFileProcessingHeader(files []string) {
 }
 
 // processAllFiles processes all files and returns summary statistics.
-func (ch *CommandHandler) processAllFiles(owner, repo string, parsed models.ParsedIdentifier, files []string, diffSpec string, opts AdjustOptionsExtended) error {
+func (ch *CommandHandler) processAllFiles(repository models.Repository, parsed models.ParsedIdentifier, files []string, diffSpec string, opts AdjustOptionsExtended) error {
 	totalAdjusted := 0
 	totalOrphaned := 0
 	totalWarnings := 0
@@ -940,7 +937,7 @@ func (ch *CommandHandler) processAllFiles(owner, repo string, parsed models.Pars
 	for i, filePath := range files {
 		fmt.Printf("=== Processing file %d/%d: %s ===\n", i+1, len(files), filePath)
 
-		fileAdjusted, fileOrphaned, fileWarnings, err := ch.processSingleFileInBatch(owner, repo, parsed, filePath, diffSpec, opts)
+		fileAdjusted, fileOrphaned, fileWarnings, err := ch.processSingleFileInBatch(repository, parsed, filePath, diffSpec, opts)
 		if err != nil {
 			fmt.Printf("Warning: Failed to process file %s: %v\n", filePath, err)
 			continue
@@ -957,11 +954,11 @@ func (ch *CommandHandler) processAllFiles(owner, repo string, parsed models.Pars
 }
 
 // processSingleFileInBatch processes a single file as part of batch processing.
-func (ch *CommandHandler) processSingleFileInBatch(owner, repo string, parsed models.ParsedIdentifier, filePath, diffSpec string, opts AdjustOptionsExtended) (int, int, int, error) {
+func (ch *CommandHandler) processSingleFileInBatch(repository models.Repository, parsed models.ParsedIdentifier, filePath, diffSpec string, opts AdjustOptionsExtended) (int, int, int, error) {
 	if parsed.IsPR() {
-		return ch.processFileWithInteractive(owner, repo, parsed.PRNumber, filePath, diffSpec, opts, true)
+		return ch.processFileWithInteractive(repository, parsed.PRNumber, filePath, diffSpec, opts, true)
 	}
-	return ch.processFileWithInteractive(owner, repo, 0, filePath, diffSpec, opts, false)
+	return ch.processFileWithInteractive(repository, 0, filePath, diffSpec, opts, false)
 }
 
 // printBatchSummary prints the summary of batch processing results.
@@ -982,7 +979,7 @@ func (ch *CommandHandler) printBatchSummary(dryRun bool, totalAdjusted, totalOrp
 }
 
 // adjustCommandSingleFileExtended handles single-file processing with extended options.
-func (ch *CommandHandler) adjustCommandSingleFileExtended(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, opts AdjustOptionsExtended) error {
+func (ch *CommandHandler) adjustCommandSingleFileExtended(repository models.Repository, parsed models.ParsedIdentifier, file, diffSpec string, opts AdjustOptionsExtended) error {
 	// Parse diff spec with auto-detection
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -992,9 +989,9 @@ func (ch *CommandHandler) adjustCommandSingleFileExtended(owner, repo string, pa
 	// Get preview
 	var preview string
 	if parsed.IsPR() {
-		preview, err = ch.getAdjustmentPreview(owner, repo, parsed.PRNumber, file, diffSpec, opts.Format)
+		preview, err = ch.getAdjustmentPreview(repository, parsed.PRNumber, file, diffSpec, opts.Format)
 	} else {
-		preview, err = ch.getBranchAdjustmentPreview(owner, repo, parsed.BranchName, file, diffSpec, opts.Format)
+		preview, err = ch.getBranchAdjustmentPreview(repository, parsed.BranchName, file, diffSpec, opts.Format)
 	}
 	if err != nil {
 		return err
@@ -1023,20 +1020,20 @@ func (ch *CommandHandler) adjustCommandSingleFileExtended(owner, repo string, pa
 
 	// Apply adjustments
 	if parsed.IsPR() {
-		return ch.applyPRAdjustments(owner, repo, parsed.PRNumber, file, adjustments, opts.Force)
+		return ch.applyPRAdjustments(repository, parsed.PRNumber, file, adjustments, opts.Force)
 	}
-	return ch.applyBranchAdjustments(owner, repo, parsed.BranchName, file, adjustments, opts.Force)
+	return ch.applyBranchAdjustments(repository, parsed.BranchName, file, adjustments, opts.Force)
 }
 
 // adjustCommandUnifiedDiffExtended handles unified diff processing with extended options.
-func (ch *CommandHandler) adjustCommandUnifiedDiffExtended(owner, repo string, parsed models.ParsedIdentifier, file, diffSpec string, opts AdjustOptionsExtended) error {
+func (ch *CommandHandler) adjustCommandUnifiedDiffExtended(repository models.Repository, parsed models.ParsedIdentifier, file, diffSpec string, opts AdjustOptionsExtended) error {
 	if file != "" {
 		// Single-file mode: filter unified diff for specific file
 		filteredDiff, err := models.FilterUnifiedDiffForFile(diffSpec, file)
 		if err != nil {
 			return fmt.Errorf("failed to filter unified diff for file %s: %w", file, err)
 		}
-		return ch.adjustCommandSingleFileExtended(owner, repo, parsed, file, filteredDiff, opts)
+		return ch.adjustCommandSingleFileExtended(repository, parsed, file, filteredDiff, opts)
 	}
 
 	// Multi-file mode: process all files in the unified diff
@@ -1061,9 +1058,9 @@ func (ch *CommandHandler) adjustCommandUnifiedDiffExtended(owner, repo string, p
 		// Process this file
 		var fileAdjusted, fileOrphaned, fileWarnings int
 		if parsed.IsPR() {
-			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, parsed.PRNumber, spec.FilePath, spec.ClassicDiff, opts, true)
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(repository, parsed.PRNumber, spec.FilePath, spec.ClassicDiff, opts, true)
 		} else {
-			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(owner, repo, 0, spec.FilePath, spec.ClassicDiff, opts, false)
+			fileAdjusted, fileOrphaned, fileWarnings, err = ch.processFileWithInteractive(repository, 0, spec.FilePath, spec.ClassicDiff, opts, false)
 		}
 
 		if err != nil {
@@ -1094,7 +1091,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiffExtended(owner, repo string, p
 }
 
 // processFileWithInteractive processes a single file with optional interactive confirmation.
-func (ch *CommandHandler) processFileWithInteractive(owner, repo string, prNumber int, file, diffSpec string, opts AdjustOptionsExtended, isPR bool) (int, int, int, error) {
+func (ch *CommandHandler) processFileWithInteractive(repository models.Repository, prNumber int, file, diffSpec string, opts AdjustOptionsExtended, isPR bool) (int, int, int, error) {
 	// Parse adjustments
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -1104,7 +1101,7 @@ func (ch *CommandHandler) processFileWithInteractive(owner, repo string, prNumbe
 	// Get and display preview
 	var preview string
 	if isPR {
-		preview, err = ch.getAdjustmentPreview(owner, repo, prNumber, file, diffSpec, opts.Format)
+		preview, err = ch.getAdjustmentPreview(repository, prNumber, file, diffSpec, opts.Format)
 	} else {
 		// For branch, we need to pass the branch name instead of prNumber
 		// This is a bit of a hack - we should refactor this
@@ -1143,7 +1140,7 @@ func (ch *CommandHandler) processFileWithInteractive(owner, repo string, prNumbe
 
 	// Apply adjustments
 	if isPR {
-		return ch.applyPRAdjustmentsWithCounts(owner, repo, prNumber, file, adjustments, opts.Force)
+		return ch.applyPRAdjustmentsWithCounts(repository, prNumber, file, adjustments, opts.Force)
 	}
 	// Branch processing would go here
 	return 0, 0, 0, fmt.Errorf("branch processing not implemented")

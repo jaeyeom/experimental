@@ -85,30 +85,6 @@ type Transaction interface {
 ### Specialized Storage Types
 
 ```go
-// GitHub-structured storage (repos, PRs, issues, etc.)
-type GitHubStorage interface {
-    Storage
-    // Repository operations
-    SetRepoMetadata(owner, repo string, metadata map[string]interface{}) error
-    GetRepoMetadata(owner, repo string) (map[string]interface{}, error)
-    // Pull request operations
-    CaptureDiffHunks(owner, repo string, prNumber int, diffHunks []DiffHunk) error
-    GetDiffHunks(owner, repo string, prNumber int) ([]DiffHunk, error)
-    AddComment(owner, repo string, prNumber int, comment Comment) error
-    GetComments(owner, repo string, prNumber int) ([]Comment, error)
-    DeleteComment(owner, repo string, prNumber int, file string, line int, side string) error
-    DeleteCommentsInRange(owner, repo string, prNumber int, file string, startLine, endLine int, side string) error
-    DeleteAllCommentsOnLine(owner, repo string, prNumber int, file string, line int, side string) error
-    ClearComments(owner, repo string, prNumber int) error
-    // Notification operations
-    RecordNotification(owner, repo string, prNumber int, reviewerLogin string, timestamp time.Time) error
-    GetLastNotification(owner, repo string, prNumber int, reviewerLogin string) (*time.Time, error)
-    CleanupOldNotifications(olderThan time.Duration) error
-    // Pull request metadata
-    SetPRMetadata(owner, repo string, prNumber int, metadata map[string]interface{}) error
-    GetPRMetadata(owner, repo string, prNumber int) (map[string]interface{}, error)
-}
-
 // Cache storage
 type CacheStorage interface {
     Storage

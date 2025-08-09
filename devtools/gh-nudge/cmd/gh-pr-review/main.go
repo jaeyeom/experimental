@@ -311,7 +311,7 @@ func handleCapture(args []string) {
 	repoSpec := parser.GetPositional(0)
 	identifier := parser.GetPositional(1)
 
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	repository, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -325,7 +325,7 @@ func handleCapture(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.CaptureCommand(owner, repo, identifier, force); err != nil {
+	if err := handler.CaptureCommand(repository, identifier, force); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -367,7 +367,7 @@ func handleComment(args []string) {
 	lineSpec := parser.GetPositional(3)
 	commentBody := parser.GetPositional(4)
 
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	repository, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -390,7 +390,7 @@ func handleComment(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.CommentCommand(owner, repo, identifier, file, lineSpec, commentBody, side, force); err != nil {
+	if err := handler.CommentCommand(repository, identifier, file, lineSpec, commentBody, side, force); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -409,7 +409,7 @@ func handleSubmit(args []string) {
 		os.Exit(1)
 	}
 
-	owner, repo, prNumber, err := parseSubmitArgs(parser)
+	repository, prNumber, err := parseSubmitArgs(parser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -440,7 +440,7 @@ func handleSubmit(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.SubmitCommand(owner, repo, prNumber, body, event, file, formatter, postSubmitAction); err != nil {
+	if err := handler.SubmitCommand(repository, prNumber, body, event, file, formatter, postSubmitAction); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -466,21 +466,21 @@ func validateSubmitOptions(parser *argparser.ArgParser) error {
 	return nil
 }
 
-func parseSubmitArgs(parser *argparser.ArgParser) (string, string, int, error) {
+func parseSubmitArgs(parser *argparser.ArgParser) (models.Repository, int, error) {
 	repoSpec := parser.GetPositional(0)
 	prNumberStr := parser.GetPositional(1)
 
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	repository, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("parsing repo spec: %w", err)
+		return models.Repository{}, 0, fmt.Errorf("parsing repo spec: %w", err)
 	}
 
 	prNumber, err := strconv.Atoi(prNumberStr)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("invalid PR number '%s'", prNumberStr)
+		return models.Repository{}, 0, fmt.Errorf("invalid PR number '%s'", prNumberStr)
 	}
 
-	return owner, repo, prNumber, nil
+	return repository, prNumber, nil
 }
 
 func validateSubmitEvent(event string) error {
@@ -517,7 +517,7 @@ func handleList(args []string) {
 		os.Exit(1)
 	}
 
-	owner, repo, identifier, err := parseListArgs(parser)
+	repository, identifier, err := parseListArgs(parser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -537,7 +537,7 @@ func handleList(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.ListCommand(owner, repo, identifier, formatter, file, line, side); err != nil {
+	if err := handler.ListCommand(repository, identifier, formatter, file, line, side); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -563,16 +563,16 @@ func validateListOptions(parser *argparser.ArgParser) error {
 	return nil
 }
 
-func parseListArgs(parser *argparser.ArgParser) (string, string, string, error) {
+func parseListArgs(parser *argparser.ArgParser) (models.Repository, string, error) {
 	repoSpec := parser.GetPositional(0)
 	identifier := parser.GetPositional(1)
 
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	repository, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
-		return "", "", "", fmt.Errorf("parsing repo spec: %w", err)
+		return models.Repository{}, "", fmt.Errorf("parsing repo spec: %w", err)
 	}
 
-	return owner, repo, identifier, nil
+	return repository, identifier, nil
 }
 
 func parseListFilters(parser *argparser.ArgParser) (string, string, string, string, error) {
@@ -637,7 +637,7 @@ func handleDelete(args []string) {
 	repoSpec := parser.GetPositional(0)
 	identifier := parser.GetPositional(1)
 
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	repository, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -654,7 +654,7 @@ func handleDelete(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.DeleteCommand(owner, repo, identifier, commentID, confirm, formatter); err != nil {
+	if err := handler.DeleteCommand(repository, identifier, commentID, confirm, formatter); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -693,7 +693,7 @@ func handleClear(args []string) {
 	repoSpec := parser.GetPositional(0)
 	identifier := parser.GetPositional(1)
 
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	repository, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -708,7 +708,7 @@ func handleClear(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.ClearCommand(owner, repo, identifier, file, confirm); err != nil {
+	if err := handler.ClearCommand(repository, identifier, file, confirm); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -730,7 +730,7 @@ func handleAdjust(args []string) {
 		os.Exit(1)
 	}
 
-	owner, repo, identifier, file, diffSpec, err := parseAdjustArgs(parser)
+	repository, identifier, file, diffSpec, err := parseAdjustArgs(parser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -758,7 +758,7 @@ func handleAdjust(args []string) {
 		MappingFile: options.MappingFile,
 	}
 
-	if err := handler.AdjustCommandExtended(owner, repo, identifier, file, diffSpec, extendedOpts); err != nil {
+	if err := handler.AdjustCommandExtended(repository, identifier, file, diffSpec, extendedOpts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -988,7 +988,7 @@ func parseAdjustArgsCase2(positionals []string) (string, string, string, error) 
 	return ownerRepo, positionals[0], positionals[1], nil
 }
 
-func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, string, string, error) {
+func parseAdjustArgs(parser *argparser.ArgParser) (models.Repository, string, string, string, error) {
 	// Get diff spec from either --diff or --unified-diff (mapping-file is handled separately)
 	diffSpec := parser.GetOption("diff")
 	if diffSpec == "" {
@@ -1018,15 +1018,15 @@ func parseAdjustArgs(parser *argparser.ArgParser) (string, string, string, strin
 	}
 
 	if err != nil {
-		return "", "", "", "", "", err
+		return models.Repository{}, "", "", "", err
 	}
 
-	owner, repo, err := storage.ParseRepoAndPR(repoSpec)
+	repository, err := storage.ParseRepoAndPR(repoSpec)
 	if err != nil {
-		return "", "", "", "", "", fmt.Errorf("parsing repo spec: %w", err)
+		return models.Repository{}, "", "", "", fmt.Errorf("parsing repo spec: %w", err)
 	}
 
-	return owner, repo, identifier, file, diffSpec, nil
+	return repository, identifier, file, diffSpec, nil
 }
 
 // AdjustOptions holds all the options for the adjust command.
