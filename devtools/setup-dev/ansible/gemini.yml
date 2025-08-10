@@ -1,0 +1,51 @@
+---
+- import_playbook: npm.yml
+
+- name: Ensure gemini is present
+  hosts: all
+  tasks:
+    - name: Include guard for gemini playbook
+      block:
+        - name: Stop early if the gemini playbook is already included
+          meta: end_play
+          when: gemini_playbook_imported is defined
+        - name: Ensure the gemini playbook is not included
+          set_fact:
+            gemini_playbook_imported: true
+          when: gemini_playbook_imported is not defined
+
+    - name: Ensure gemini is present on MacOS
+      block:
+        - name: Check if gemini is installed
+          shell: command -v gemini
+          changed_when: False
+      rescue:
+        - name: Install gemini on MacOS
+          community.general.homebrew:
+            name: gemini-cli
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure gemini is present on Termux
+    - name: Check if gemini is installed
+      shell: command -v gemini
+      register: gemini_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install gemini using npm
+      command: npm install -g @google/gemini-cli
+      when: gemini_installed.rc != 0
+      when: ansible_env.TERMUX_VERSION is defined
+
+    - name: Install gemini via npm on Debian/Ubuntu
+    - name: Check if gemini is installed
+      shell: command -v gemini
+      register: gemini_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install gemini using npm
+      command: npm install -g @google/gemini-cli
+      when: gemini_installed.rc != 0
+      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
