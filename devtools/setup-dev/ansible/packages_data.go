@@ -129,6 +129,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 	},
 	GoTool("github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
+	{
+		command: "gemini-cli",
+		platforms: map[string]InstallMethod{
+			"all": NpmInstallMethod{Name: "@google/gemini-cli"},
+		},
+		Imports: nil,
+	},
 	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"),
 	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"),
 	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"),
