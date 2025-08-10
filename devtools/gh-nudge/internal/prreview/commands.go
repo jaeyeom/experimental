@@ -103,8 +103,14 @@ func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branch
 		return fmt.Errorf("diff hunks already exist for branch %q, use --force to overwrite", branchName)
 	}
 
+	// Create validated branch
+	branch, err := git.NewBranch(branchName)
+	if err != nil {
+		return fmt.Errorf("invalid branch name %q: %w", branchName, err)
+	}
+
 	// Check if branch exists
-	exists, err := ch.gitClient.BranchExists(branchName)
+	exists, err := ch.gitClient.BranchExists(branch)
 	if err != nil {
 		return fmt.Errorf("failed to check if branch exists: %w", err)
 	}
@@ -119,7 +125,7 @@ func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branch
 	}
 
 	// Capture diff hunks from git
-	diffHunks, err := ch.gitClient.CaptureBranchDiff(repository, branchName, baseBranch)
+	diffHunks, err := ch.gitClient.CaptureBranchDiff(repository, branch, baseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to capture branch diff: %w", err)
 	}
