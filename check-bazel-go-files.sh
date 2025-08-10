@@ -22,7 +22,8 @@ BAZEL_GO_FILES="$TEMP_DIR/bazel_go_files.txt"
 echo "🔍 Checking if all Go files are included in Bazel targets..."
 echo
 
-# Find all Go files in the filesystem (excluding certain directories)
+# Find all Go files in the filesystem (excluding certain directories and patterns)
+# Note: test_*.go files are excluded as they are often temporary testing files
 echo "📂 Finding all Go files in filesystem..."
 find . -name "*.go" \
     -not -path "./.git/*" \
@@ -30,6 +31,7 @@ find . -name "*.go" \
     -not -path "./.bazel-*" \
     -not -path "./vendor/*" \
     -not -path "./.cache/*" \
+    -not -name "test_*.go" \
     | sed 's|^\./||' \
     | sort > "$FILESYSTEM_GO_FILES"
 
