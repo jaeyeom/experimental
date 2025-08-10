@@ -1,9 +1,22 @@
+// Package git provides functionality for interacting with Git repositories,
+// specifically focused on capturing and analyzing branch diffs.
+//
+// The package offers secure Git operations with branch name validation to prevent
+// command injection, diff parsing capabilities, and automatic change detection
+// between stored diff hunks and current file states. It supports both manual
+// and automatic line adjustment mapping for code review comments.
+//
+// Key features:
+//   - Secure branch name validation to prevent command injection
+//   - Branch diff capture with hunk parsing
+//   - Automatic change detection and line mapping suggestions
+//   - Support for detecting additions, deletions, and modifications
+//   - Confidence scoring for automatic mapping suggestions
 package git
 
 import (
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,41 +29,6 @@ type Client struct {
 	repoPath string
 }
 
-// validBranchNamePattern defines what constitutes a valid git branch name.
-// This follows git's branch naming rules to prevent command injection.
-var validBranchNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$`)
-
-// validateBranchName ensures a branch name is safe to use in git commands.
-func validateBranchName(branchName string) error {
-	if branchName == "" {
-		return fmt.Errorf("branch name cannot be empty")
-	}
-
-	// Check for dangerous characters and patterns
-	if strings.Contains(branchName, "..") {
-		return fmt.Errorf("branch name cannot contain '..'")
-	}
-	if strings.HasPrefix(branchName, "-") {
-		return fmt.Errorf("branch name cannot start with '-'")
-	}
-	if strings.HasSuffix(branchName, ".") {
-		return fmt.Errorf("branch name cannot end with '.'")
-	}
-	if strings.Contains(branchName, " ") {
-		return fmt.Errorf("branch name cannot contain spaces")
-	}
-	if strings.Contains(branchName, "\t") || strings.Contains(branchName, "\n") || strings.Contains(branchName, "\r") {
-		return fmt.Errorf("branch name cannot contain whitespace characters")
-	}
-
-	// Validate against the pattern
-	if !validBranchNamePattern.MatchString(branchName) {
-		return fmt.Errorf("invalid branch name: %q", branchName)
-	}
-
-	return nil
-}
-
 // NewClient creates a new git client for the specified repository path.
 func NewClient(repoPath string) *Client {
 	return &Client{
@@ -59,19 +37,11 @@ func NewClient(repoPath string) *Client {
 }
 
 // CaptureBranchDiff captures the diff hunks for a branch compared to its base branch.
-func (gc *Client) CaptureBranchDiff(repository models.Repository, branchName, baseBranch string) (*models.BranchDiffHunks, error) {
-	// Validate branch names for security
-	if err := validateBranchName(branchName); err != nil {
-		return nil, fmt.Errorf("invalid branch name %q: %w", branchName, err)
-	}
-	if err := validateBranchName(baseBranch); err != nil {
-		return nil, fmt.Errorf("invalid base branch name %q: %w", baseBranch, err)
-	}
-
+func (gc *Client) CaptureBranchDiff(repository models.Repository, branch, baseBranch Branch) (*models.BranchDiffHunks, error) {
 	// Get current commit SHA
-	commitSHA, err := gc.getCommitSHA(branchName)
+	commitSHA, err := gc.getCommitSHA(branch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get commit SHA for branch %s: %w", branchName, err)
+		return nil, fmt.Errorf("failed to get commit SHA for branch %s: %w", branch, err)
 	}
 
 	// Get base commit SHA
@@ -81,7 +51,7 @@ func (gc *Client) CaptureBranchDiff(repository models.Repository, branchName, ba
 	}
 
 	// Get diff output with unified context
-	diffOutput, err := gc.getDiffOutput(baseBranch, branchName)
+	diffOutput, err := gc.getDiffOutput(baseBranch, branch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get diff output: %w", err)
 	}
@@ -93,21 +63,21 @@ func (gc *Client) CaptureBranchDiff(repository models.Repository, branchName, ba
 	}
 
 	return &models.BranchDiffHunks{
-		BranchName:  branchName,
+		BranchName:  branch.String(),
 		Repository:  repository,
 		CapturedAt:  time.Now(),
 		DiffHunks:   diffHunks,
 		CommitSHA:   commitSHA,
 		BaseSHA:     baseSHA,
-		BaseBranch:  baseBranch,
-		Description: fmt.Sprintf("Diff between %s and %s", baseBranch, branchName),
+		BaseBranch:  baseBranch.String(),
+		Description: fmt.Sprintf("Diff between %s and %s", baseBranch, branch),
 	}, nil
 }
 
 // getCommitSHA gets the commit SHA for a given branch.
-func (gc *Client) getCommitSHA(branch string) (string, error) {
-	// Branch name is already validated by the caller
-	cmd := exec.Command("git", "rev-parse", branch)
+func (gc *Client) getCommitSHA(branch Branch) (string, error) {
+	// Branch is already validated during construction
+	cmd := exec.Command("git", "rev-parse", branch.String()) // #nosec G204
 	cmd.Dir = gc.repoPath
 
 	output, err := cmd.Output()
@@ -119,8 +89,8 @@ func (gc *Client) getCommitSHA(branch string) (string, error) {
 }
 
 // getDiffOutput gets the raw diff output between two branches.
-func (gc *Client) getDiffOutput(baseBranch, targetBranch string) (string, error) {
-	// Branch names are validated by the caller via validateBranchName() - safe to use in git command.
+func (gc *Client) getDiffOutput(baseBranch, targetBranch Branch) (string, error) {
+	// Branches are already validated during construction - safe to use in git command.
 	cmd := exec.Command("git", "diff", "--unified=3", fmt.Sprintf("%s...%s", baseBranch, targetBranch)) // #nosec G204
 	cmd.Dir = gc.repoPath
 
@@ -279,7 +249,7 @@ func (gc *Client) parseRange(rangeSpec string) (int, int, error) {
 }
 
 // GetDefaultBaseBranch attempts to determine the default base branch (main or master).
-func (gc *Client) GetDefaultBaseBranch() (string, error) {
+func (gc *Client) GetDefaultBaseBranch() (Branch, error) {
 	// Try to get the default branch from git
 	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	cmd.Dir = gc.repoPath
@@ -290,31 +260,27 @@ func (gc *Client) GetDefaultBaseBranch() (string, error) {
 		defaultRef := strings.TrimSpace(string(output))
 		parts := strings.Split(defaultRef, "/")
 		if len(parts) >= 3 {
-			return parts[len(parts)-1], nil
+			return NewBranch(parts[len(parts)-1])
 		}
 	}
 
 	// Fallback: check if main or master exists
-	for _, branch := range []string{"main", "master"} {
+	for _, branchName := range []string{"main", "master"} {
 		// #nosec G204 - git command with hardcoded branch names
-		cmd := exec.Command("git", "rev-parse", "--verify", fmt.Sprintf("origin/%s", branch))
+		cmd := exec.Command("git", "rev-parse", "--verify", fmt.Sprintf("origin/%s", branchName))
 		cmd.Dir = gc.repoPath
 		if err := cmd.Run(); err == nil {
-			return branch, nil
+			return NewBranch(branchName)
 		}
 	}
 
-	return "", fmt.Errorf("could not determine default base branch")
+	return Branch{}, fmt.Errorf("could not determine default base branch")
 }
 
 // BranchExists checks if a branch exists in the repository.
-func (gc *Client) BranchExists(branchName string) (bool, error) {
-	// Validate branch name for security
-	if err := validateBranchName(branchName); err != nil {
-		return false, fmt.Errorf("invalid branch name %q: %w", branchName, err)
-	}
-
-	cmd := exec.Command("git", "rev-parse", "--verify", branchName)
+func (gc *Client) BranchExists(branch Branch) (bool, error) {
+	// Branch is already validated during construction
+	cmd := exec.Command("git", "rev-parse", "--verify", branch.String()) // #nosec G204
 	cmd.Dir = gc.repoPath
 
 	err := cmd.Run()
