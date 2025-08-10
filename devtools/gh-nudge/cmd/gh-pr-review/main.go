@@ -218,6 +218,7 @@ Commands:
   adjust [<owner>/<repo>] [<identifier>] [file] --unified-diff <spec>  Adjust using git diff output
   adjust [<owner>/<repo>] [<identifier>] --all-files --diff <spec>     Batch adjust all files
   adjust [<owner>/<repo>] [<identifier>] --mapping-file <file>         Adjust using mapping file
+  adjust [<owner>/<repo>] [<identifier>] <file> --auto-detect          Auto-detect line changes
   version                                         Show version information
   help                                           Show this help message
 
@@ -756,6 +757,7 @@ func handleAdjust(args []string) {
 		Interactive: options.Interactive,
 		AllFiles:    options.AllFiles,
 		MappingFile: options.MappingFile,
+		AutoDetect:  options.AutoDetect,
 	}
 
 	if err := handler.AdjustCommandExtended(repository, identifier, file, diffSpec, extendedOpts); err != nil {
@@ -770,6 +772,7 @@ func showAdjustUsage() {
 	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] [file] --unified-diff <spec> [options]")
 	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] --all-files --diff <spec> [options]")
 	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] --mapping-file <file> [options]")
+	fmt.Println("  gh-pr-review adjust [<owner>/<repo>] [<identifier>] <file> --auto-detect [options]")
 	fmt.Println()
 	fmt.Println("Arguments:")
 	fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
@@ -781,6 +784,7 @@ func showAdjustUsage() {
 	fmt.Println("  --unified-diff SPEC  Unified diff specification (git diff output)")
 	fmt.Println("  --all-files       Process all files with comments (requires --diff or --unified-diff)")
 	fmt.Println("  --mapping-file FILE  Read file-specific mappings from file")
+	fmt.Println("  --auto-detect     Auto-detect line changes using git diff")
 	fmt.Println("  --interactive     Interactive confirmation for each adjustment")
 	fmt.Println("  --dry-run         Show what would be adjusted without making changes")
 	fmt.Println("  --format FORMAT   Output format (table, json) [default: table]")
@@ -809,6 +813,12 @@ func showAdjustUsage() {
 	fmt.Println()
 	fmt.Println("  # Mapping file mode")
 	fmt.Println("  gh-pr-review adjust owner/repo 123 --mapping-file adjustments.txt")
+	fmt.Println()
+	fmt.Println("  # Auto-detect changes (dry-run)")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 src/main.js --auto-detect --dry-run")
+	fmt.Println()
+	fmt.Println("  # Auto-detect changes with interactive confirmation")
+	fmt.Println("  gh-pr-review adjust owner/repo 123 src/main.js --auto-detect --interactive")
 	fmt.Println()
 	fmt.Println("Supported diff formats (auto-detected):")
 	fmt.Println()
@@ -840,7 +850,7 @@ func showAdjustUsage() {
 }
 
 func validateAdjustOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"diff", "unified-diff", "all-files", "mapping-file", "interactive", "dry-run", "format", "force"}); err != nil {
+	if err := parser.ValidateOptions([]string{"diff", "unified-diff", "all-files", "mapping-file", "interactive", "dry-run", "format", "force", "auto-detect"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
 
@@ -853,8 +863,9 @@ func validateAdjustModes(parser *argparser.ArgParser) error {
 	hasUnifiedDiff := parser.GetOption("unified-diff") != ""
 	hasMappingFile := parser.GetOption("mapping-file") != ""
 	hasAllFiles := parser.HasOption("all-files")
+	hasAutoDetect := parser.HasOption("auto-detect")
 
-	if err := validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile); err != nil {
+	if err := validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile, hasAutoDetect); err != nil {
 		return err
 	}
 
@@ -866,7 +877,7 @@ func validateAdjustModes(parser *argparser.ArgParser) error {
 }
 
 // validateDiffMethodCount ensures exactly one diff specification method is used.
-func validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile bool) error {
+func validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile, hasAutoDetect bool) error {
 	count := 0
 	if hasDiff {
 		count++
@@ -877,12 +888,15 @@ func validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile bool) error
 	if hasMappingFile {
 		count++
 	}
+	if hasAutoDetect {
+		count++
+	}
 
 	if count == 0 {
-		return fmt.Errorf("one of --diff, --unified-diff, or --mapping-file option is required")
+		return fmt.Errorf("one of --diff, --unified-diff, --mapping-file, or --auto-detect option is required")
 	}
 	if count > 1 {
-		return fmt.Errorf("--diff, --unified-diff, and --mapping-file options are mutually exclusive")
+		return fmt.Errorf("--diff, --unified-diff, --mapping-file, and --auto-detect options are mutually exclusive")
 	}
 	return nil
 }
@@ -1037,6 +1051,7 @@ type AdjustOptions struct {
 	Interactive bool
 	AllFiles    bool
 	MappingFile string
+	AutoDetect  bool
 }
 
 func parseAdjustOptions(parser *argparser.ArgParser) (AdjustOptions, error) {
@@ -1046,6 +1061,7 @@ func parseAdjustOptions(parser *argparser.ArgParser) (AdjustOptions, error) {
 		Interactive: parser.HasOption("interactive"),
 		AllFiles:    parser.HasOption("all-files"),
 		MappingFile: parser.GetOption("mapping-file"),
+		AutoDetect:  parser.HasOption("auto-detect"),
 	}
 
 	options.Format = parser.GetOption("format")

@@ -327,3 +327,339 @@ func (gc *Client) BranchExists(branchName string) (bool, error) {
 
 	return true, nil
 }
+
+// AutoDetectChanges analyzes differences between stored diff hunks and current file state
+// to automatically generate line adjustment mappings.
+func (gc *Client) AutoDetectChanges(file string, storedDiffHunks []models.DiffHunk) (*models.AutoDetectResult, error) {
+	// Get current file diff compared to the original captured state
+	currentDiff, err := gc.getFileDiffFromCapture(file, storedDiffHunks)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current file diff: %w", err)
+	}
+
+	// Parse the current diff to detect line changes
+	changes, err := gc.parseCurrentDiff(currentDiff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse current diff: %w", err)
+	}
+
+	// Generate automatic mapping suggestions with confidence scoring
+	suggestions := gc.generateMappingSuggestions(changes, storedDiffHunks)
+
+	return &models.AutoDetectResult{
+		File:        file,
+		Changes:     changes,
+		Suggestions: suggestions,
+		Confidence:  gc.calculateOverallConfidence(suggestions),
+	}, nil
+}
+
+// getFileDiffFromCapture gets the diff for a specific file since the diff hunks were captured.
+func (gc *Client) getFileDiffFromCapture(file string, storedDiffHunks []models.DiffHunk) (string, error) {
+	// Find the commit SHA from stored diff hunks
+	if len(storedDiffHunks) == 0 {
+		return "", fmt.Errorf("no stored diff hunks available for comparison")
+	}
+
+	// Use the SHA from the first hunk as the baseline
+	baseSHA := storedDiffHunks[0].SHA
+
+	// Validate that the commit SHA still exists
+	if err := gc.validateCommitExists(baseSHA); err != nil {
+		return "", fmt.Errorf("stored commit %s no longer exists: %w", baseSHA, err)
+	}
+
+	// Check if the file exists in the working directory
+	if err := gc.validateFileExists(file); err != nil {
+		return "", fmt.Errorf("file validation failed: %w", err)
+	}
+
+	// Get diff from the stored commit to the current working directory
+	cmd := exec.Command("git", "diff", baseSHA, "--", file)
+	cmd.Dir = gc.repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		// If the file doesn't exist or there are no changes, that's valid
+		if exitError, ok := err.(*exec.ExitError); ok {
+			// Exit code 1 typically means no changes or file not found
+			if exitError.ExitCode() == 1 {
+				return "", nil // No changes
+			}
+			return "", fmt.Errorf("git diff failed with exit code %d: %s",
+				exitError.ExitCode(), string(exitError.Stderr))
+		}
+		return "", fmt.Errorf("failed to get file diff: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// validateCommitExists checks if a commit SHA exists in the repository.
+func (gc *Client) validateCommitExists(sha string) error {
+	cmd := exec.Command("git", "cat-file", "-e", sha)
+	cmd.Dir = gc.repoPath
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("commit does not exist or is not accessible")
+	}
+	return nil
+}
+
+// validateFileExists checks if a file exists in the current working directory.
+func (gc *Client) validateFileExists(file string) error {
+	cmd := exec.Command("git", "ls-files", "--", file)
+	cmd.Dir = gc.repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to check if file is tracked by git: %w", err)
+	}
+
+	if strings.TrimSpace(string(output)) == "" {
+		return fmt.Errorf("file %s is not tracked by git", file)
+	}
+
+	return nil
+}
+
+// parseCurrentDiff parses the current diff output to detect specific line changes.
+func (gc *Client) parseCurrentDiff(diffOutput string) ([]models.LineChange, error) {
+	if diffOutput == "" {
+		return []models.LineChange{}, nil // No changes
+	}
+
+	lines := strings.Split(diffOutput, "\n")
+	var changes []models.LineChange
+
+	var inHunk bool
+	var oldLine, newLine int
+
+	for _, line := range lines {
+		// Hunk header: @@ -old_start,old_count +new_start,new_count @@
+		if strings.HasPrefix(line, "@@") {
+			inHunk = true
+
+			// Parse hunk header to get starting line numbers
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				if strings.HasPrefix(parts[1], "-") {
+					oldRange := strings.TrimPrefix(parts[1], "-")
+					if startLine, _, err := gc.parseRange(oldRange); err == nil {
+						oldLine = startLine
+					}
+				}
+				if strings.HasPrefix(parts[2], "+") {
+					newRange := strings.TrimPrefix(parts[2], "+")
+					if startLine, _, err := gc.parseRange(newRange); err == nil {
+						newLine = startLine
+					}
+				}
+			}
+			continue
+		}
+
+		if !inHunk {
+			continue
+		}
+
+		// Process diff content lines
+		switch {
+		case strings.HasPrefix(line, "-"):
+			// Line deleted
+			changes = append(changes, models.LineChange{
+				Type:         models.LineDeleted,
+				OriginalLine: oldLine,
+				NewLine:      -1, // Deleted
+			})
+			oldLine++
+
+		case strings.HasPrefix(line, "+"):
+			// Line added
+			changes = append(changes, models.LineChange{
+				Type:         models.LineAdded,
+				OriginalLine: oldLine,
+				NewLine:      newLine,
+			})
+			newLine++
+
+		case strings.HasPrefix(line, " "):
+			// Context line (unchanged)
+			oldLine++
+			newLine++
+		}
+	}
+
+	return changes, nil
+}
+
+// generateMappingSuggestions creates automatic mapping suggestions based on detected changes.
+func (gc *Client) generateMappingSuggestions(changes []models.LineChange, storedDiffHunks []models.DiffHunk) []models.MappingSuggestion {
+	if len(changes) == 0 {
+		return []models.MappingSuggestion{}
+	}
+
+	var suggestions []models.MappingSuggestion
+
+	// Group changes by line ranges to create more accurate suggestions
+	changeGroups := gc.groupConsecutiveChanges(changes)
+
+	for _, group := range changeGroups {
+		suggestion := gc.createSuggestionFromGroup(group, storedDiffHunks)
+		if suggestion != nil {
+			suggestions = append(suggestions, *suggestion)
+		}
+	}
+
+	// Validate suggestions don't conflict with stored diff hunks
+	return gc.validateSuggestionsAgainstDiffHunks(suggestions, storedDiffHunks)
+}
+
+// ChangeGroup represents a group of consecutive line changes.
+type ChangeGroup struct {
+	StartLine int
+	EndLine   int
+	Changes   []models.LineChange
+	NetOffset int // Net change in line count
+}
+
+// groupConsecutiveChanges groups consecutive line changes together.
+func (gc *Client) groupConsecutiveChanges(changes []models.LineChange) []ChangeGroup {
+	if len(changes) == 0 {
+		return []ChangeGroup{}
+	}
+
+	var groups []ChangeGroup
+	currentGroup := ChangeGroup{
+		StartLine: changes[0].OriginalLine,
+		Changes:   []models.LineChange{changes[0]},
+	}
+
+	for i := 1; i < len(changes); i++ {
+		change := changes[i]
+
+		// Calculate current group's end line based on existing changes
+		currentEndLine := currentGroup.StartLine + len(currentGroup.Changes) - 1
+
+		// If this change is consecutive or close to the previous group, add to current group
+		if change.OriginalLine <= currentEndLine+2 {
+			currentGroup.Changes = append(currentGroup.Changes, change)
+		} else {
+			// Finalize current group and start new one
+			currentGroup.EndLine = currentEndLine
+			currentGroup.NetOffset = gc.calculateNetOffset(currentGroup.Changes)
+			groups = append(groups, currentGroup)
+
+			currentGroup = ChangeGroup{
+				StartLine: change.OriginalLine,
+				Changes:   []models.LineChange{change},
+			}
+		}
+	}
+
+	// Finalize the last group
+	currentGroup.EndLine = currentGroup.StartLine + len(currentGroup.Changes) - 1
+	currentGroup.NetOffset = gc.calculateNetOffset(currentGroup.Changes)
+	groups = append(groups, currentGroup)
+
+	return groups
+}
+
+// calculateNetOffset calculates the net change in line count for a group of changes.
+func (gc *Client) calculateNetOffset(changes []models.LineChange) int {
+	netOffset := 0
+	for _, change := range changes {
+		switch change.Type {
+		case models.LineAdded:
+			netOffset++
+		case models.LineDeleted:
+			netOffset--
+		}
+	}
+	return netOffset
+}
+
+// createSuggestionFromGroup creates a mapping suggestion from a change group.
+func (gc *Client) createSuggestionFromGroup(group ChangeGroup, storedDiffHunks []models.DiffHunk) *models.MappingSuggestion {
+	if group.NetOffset == 0 {
+		// No net change, no adjustment needed
+		return nil
+	}
+
+	confidence := models.ConfidenceHigh
+	reason := fmt.Sprintf("Net %d line change detected in range %d-%d",
+		group.NetOffset, group.StartLine, group.EndLine)
+
+	// Lower confidence for complex change patterns
+	if len(group.Changes) > 5 {
+		confidence = models.ConfidenceMedium
+		reason += " (complex change pattern)"
+	}
+
+	// Check if this change conflicts with existing diff hunks
+	if gc.conflictsWithDiffHunks(group, storedDiffHunks) {
+		confidence = models.ConfidenceLow
+		reason += " (potential conflict with stored diff hunks)"
+	}
+
+	return &models.MappingSuggestion{
+		OriginalLine: group.StartLine,
+		Offset:       group.NetOffset,
+		Confidence:   confidence,
+		Reason:       reason,
+	}
+}
+
+// conflictsWithDiffHunks checks if a change group conflicts with stored diff hunks.
+func (gc *Client) conflictsWithDiffHunks(group ChangeGroup, storedDiffHunks []models.DiffHunk) bool {
+	for _, hunk := range storedDiffHunks {
+		// Check if the change group overlaps with any stored hunk
+		if group.StartLine <= hunk.EndLine && group.EndLine >= hunk.StartLine {
+			return true
+		}
+	}
+	return false
+}
+
+// validateSuggestionsAgainstDiffHunks validates suggestions against stored diff hunks.
+func (gc *Client) validateSuggestionsAgainstDiffHunks(suggestions []models.MappingSuggestion, _ []models.DiffHunk) []models.MappingSuggestion {
+	var validSuggestions []models.MappingSuggestion
+
+	for _, suggestion := range suggestions {
+		// Check if suggestion line range is reasonable
+		if suggestion.OriginalLine < 1 {
+			continue // Invalid line number
+		}
+
+		// Check for unreasonably large offsets (likely indicates parsing error)
+		if suggestion.Offset > 1000 || suggestion.Offset < -1000 {
+			suggestion.Confidence = models.ConfidenceLow
+			suggestion.Reason += " (unusually large offset - may be incorrect)"
+		}
+
+		validSuggestions = append(validSuggestions, suggestion)
+	}
+
+	return validSuggestions
+}
+
+// calculateOverallConfidence determines overall confidence based on individual suggestion confidence.
+func (gc *Client) calculateOverallConfidence(suggestions []models.MappingSuggestion) models.ConfidenceLevel {
+	if len(suggestions) == 0 {
+		return models.ConfidenceLow
+	}
+
+	highCount := 0
+	for _, suggestion := range suggestions {
+		if suggestion.Confidence == models.ConfidenceHigh {
+			highCount++
+		}
+	}
+
+	// If majority are high confidence, overall is high
+	if float64(highCount)/float64(len(suggestions)) >= 0.7 {
+		return models.ConfidenceHigh
+	}
+
+	return models.ConfidenceMedium
+}
