@@ -1662,7 +1662,7 @@ This function uses the 'magick identify' command to get the dimensions of the im
       (add-hook 'before-save-hook #'lsp-organize-imports t t))
 
     ;; FIXME: Termux does not work with gopls somehow.
-    (when my/termux-p
+    (unless my/termux-p
       (add-hook 'go-mode-hook #'go-mode-setup)))
 
   ;;; Copilot
