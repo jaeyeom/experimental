@@ -22,3 +22,10 @@ go_test(
     srcs = ["adjust_test.go"],
     embed = [":go_default_library"],
 )
+
+go_test(
+    name = "adjust_extended_test",
+    size = "small",
+    srcs = ["adjust_extended_test.go"],
+    embed = [":go_default_library"],
+)
