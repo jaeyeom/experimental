@@ -53,6 +53,7 @@ type AdjustOptionsExtended struct {
 	Interactive bool
 	AllFiles    bool
 	MappingFile string
+	AutoDetect  bool
 }
 
 // AdjustCommand adjusts comment line numbers based on diff specifications.
@@ -794,6 +795,11 @@ func (ch *CommandHandler) AdjustCommandExtended(repository models.Repository, id
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
+	// Handle auto-detect mode
+	if opts.AutoDetect {
+		return ch.adjustCommandAutoDetect(repository, *parsed, file, opts)
+	}
+
 	// Handle mapping file mode
 	if opts.MappingFile != "" {
 		return ch.adjustCommandMappingFile(repository, *parsed, opts)
@@ -1144,4 +1150,137 @@ func (ch *CommandHandler) processFileWithInteractive(repository models.Repositor
 	}
 	// Branch processing would go here
 	return 0, 0, 0, fmt.Errorf("branch processing not implemented")
+}
+
+// adjustCommandAutoDetect handles auto-detection mode.
+func (ch *CommandHandler) adjustCommandAutoDetect(repository models.Repository, parsed models.ParsedIdentifier, file string, opts AdjustOptionsExtended) error {
+	if file == "" {
+		return fmt.Errorf("file path is required for auto-detection mode")
+	}
+
+	// Get stored diff hunks to compare against
+	storedDiffHunks, err := ch.getStoredDiffHunks(repository, parsed)
+	if err != nil {
+		return err
+	}
+
+	if len(storedDiffHunks) == 0 {
+		return fmt.Errorf("no stored diff hunks found. Please run 'gh-pr-review capture' first")
+	}
+
+	// Perform auto-detection
+	result, err := ch.gitClient.AutoDetectChanges(file, storedDiffHunks)
+	if err != nil {
+		return fmt.Errorf("failed to auto-detect changes: %w", err)
+	}
+
+	// Display auto-detection results
+	ch.displayAutoDetectionResults(file, result)
+
+	// Check confidence and handle low confidence cases
+	if err := ch.handleLowConfidenceDetection(result, opts); err != nil {
+		return err
+	}
+
+	// Convert suggestions to diff spec and apply
+	return ch.applyAutoDetectedChanges(repository, parsed, file, result, opts)
+}
+
+// getStoredDiffHunks retrieves stored diff hunks for either PR or branch.
+func (ch *CommandHandler) getStoredDiffHunks(repository models.Repository, parsed models.ParsedIdentifier) ([]models.DiffHunk, error) {
+	if parsed.IsPR() {
+		prDiffHunks, err := ch.storage.GetDiffHunks(repository, parsed.PRNumber)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get stored diff hunks for PR %d: %w", parsed.PRNumber, err)
+		}
+		return prDiffHunks.DiffHunks, nil
+	}
+
+	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(repository, parsed.BranchName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stored diff hunks for branch %s: %w", parsed.BranchName, err)
+	}
+	return branchDiffHunks.DiffHunks, nil
+}
+
+// displayAutoDetectionResults shows the auto-detection results to the user.
+func (ch *CommandHandler) displayAutoDetectionResults(file string, result *models.AutoDetectResult) {
+	fmt.Printf("Auto-detected changes in %s:\n", file)
+	fmt.Printf("Overall confidence: %s\n", result.Confidence)
+	fmt.Printf("Detected %d line changes\n", len(result.Changes))
+	fmt.Printf("Generated %d mapping suggestions\n\n", len(result.Suggestions))
+
+	ch.displayDetectedChanges(result.Changes)
+	ch.displayMappingSuggestions(result.Suggestions)
+}
+
+// displayDetectedChanges shows the detected line changes.
+func (ch *CommandHandler) displayDetectedChanges(changes []models.LineChange) {
+	if len(changes) == 0 {
+		return
+	}
+
+	fmt.Println("Detected changes:")
+	for _, change := range changes {
+		switch change.Type {
+		case models.LineAdded:
+			fmt.Printf("  + Line added at %d\n", change.NewLine)
+		case models.LineDeleted:
+			fmt.Printf("  - Line deleted from %d\n", change.OriginalLine)
+		case models.LineChanged:
+			fmt.Printf("  ~ Line %d changed to %d\n", change.OriginalLine, change.NewLine)
+		}
+	}
+	fmt.Println()
+}
+
+// displayMappingSuggestions shows the mapping suggestions.
+func (ch *CommandHandler) displayMappingSuggestions(suggestions []models.MappingSuggestion) {
+	if len(suggestions) == 0 {
+		return
+	}
+
+	fmt.Println("Suggested adjustments:")
+	for _, suggestion := range suggestions {
+		var offsetStr string
+		if suggestion.Offset >= 0 {
+			offsetStr = fmt.Sprintf("+%d", suggestion.Offset)
+		} else {
+			offsetStr = fmt.Sprintf("%d", suggestion.Offset)
+		}
+		fmt.Printf("  Line %d: %s offset (%s confidence) - %s\n",
+			suggestion.OriginalLine, offsetStr, suggestion.Confidence, suggestion.Reason)
+	}
+	fmt.Println()
+}
+
+// handleLowConfidenceDetection handles cases where auto-detection has low confidence.
+func (ch *CommandHandler) handleLowConfidenceDetection(result *models.AutoDetectResult, opts AdjustOptionsExtended) error {
+	if result.Confidence != models.ConfidenceLow {
+		return nil
+	}
+
+	fmt.Println("⚠ Low confidence in auto-detection. Manual review recommended.")
+	if opts.DryRun {
+		fmt.Println("[DRY RUN] No changes were made.")
+		return fmt.Errorf("dry run completed")
+	}
+	if !opts.Force {
+		return fmt.Errorf("low confidence auto-detection (use --force to apply anyway)")
+	}
+	return nil
+}
+
+// applyAutoDetectedChanges converts suggestions to diff spec and applies them.
+func (ch *CommandHandler) applyAutoDetectedChanges(repository models.Repository, parsed models.ParsedIdentifier, file string, result *models.AutoDetectResult, opts AdjustOptionsExtended) error {
+	diffSpec := result.ConvertToSimpleMappingSpec()
+	if diffSpec == "" {
+		fmt.Println("No adjustments needed - file appears unchanged.")
+		return nil
+	}
+
+	fmt.Printf("Generated diff spec: %s\n\n", diffSpec)
+
+	// Use existing adjustment logic with the auto-generated diff spec
+	return ch.adjustCommandSingleFileExtended(repository, parsed, file, diffSpec, opts)
 }

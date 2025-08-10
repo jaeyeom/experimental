@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "adjustment.go",
+        "autodetect.go",
         "output.go",
         "pr.go",
         "prreview.go",
@@ -18,6 +19,7 @@ go_test(
     size = "small",
     srcs = [
         "adjustment_test.go",
+        "autodetect_test.go",
         "diff_format_test.go",
         "prreview_identifier_test.go",
         "prreview_test.go",
