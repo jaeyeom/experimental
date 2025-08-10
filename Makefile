@@ -1,6 +1,6 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config check-bazel-go-files
 
-all: requirements.txt generate-ansible format test fix
+all: requirements.txt generate-ansible format test fix check-bazel-go-files
 
 generate-ansible:
 	$(MAKE) -C devtools/setup-dev/ansible
@@ -43,3 +43,6 @@ requirements.txt: requirements.in
 
 verify-golangci-config: .golangci.yml
 	golangci-lint config verify
+
+check-bazel-go-files:
+	@./check-bazel-go-files.sh
