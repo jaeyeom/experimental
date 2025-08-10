@@ -130,9 +130,11 @@ var platformSpecificTools = []PlatformSpecificTool{
 	},
 	GoTool("github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
 	{
-		command: "gemini-cli",
+		command: "gemini",
 		platforms: map[string]InstallMethod{
-			"all": NpmInstallMethod{Name: "@google/gemini-cli"},
+			"debian-like": NpmInstallMethod{Name: "@google/gemini-cli"},
+			"termux":      NpmInstallMethod{Name: "@google/gemini-cli"},
+			"darwin":      BrewInstallMethod{Name: "gemini-cli"},
 		},
 		Imports: nil,
 	},
