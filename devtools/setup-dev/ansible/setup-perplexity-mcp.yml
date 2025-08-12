@@ -116,7 +116,7 @@
 
         - name: Configure perplexity-mcp in Claude Desktop
           shell: |
-            jq '.mcpServers.perplexity-mcp = {
+            jq '.mcpServers["perplexity-mcp"] = {
               "command": "perplexity-mcp",
               "args": [
                 "--model",
