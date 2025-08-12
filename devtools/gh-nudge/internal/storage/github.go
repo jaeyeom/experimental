@@ -141,19 +141,6 @@ func (gs *GitHubStorage) GetComments(repository models.Repository, prNumber int)
 	return &prComments, nil
 }
 
-// UpdateComments updates all comments for a pull request.
-func (gs *GitHubStorage) UpdateComments(repository models.Repository, prNumber int, comments models.PRComments) error {
-	prPath := gs.buildPRPath(repository, prNumber)
-	commentsPath := filepath.Join(prPath, "comments.json")
-
-	if err := gs.locker.WithLock(commentsPath, func() error {
-		return gs.store.Set(commentsPath, comments)
-	}); err != nil {
-		return fmt.Errorf("failed to update comments with lock: %w", err)
-	}
-	return nil
-}
-
 // FindCommentByIDPrefix finds a comment by ID prefix.
 func (gs *GitHubStorage) FindCommentByIDPrefix(repository models.Repository, prNumber int, idPrefix string) (*models.Comment, error) {
 	prComments, err := gs.GetComments(repository, prNumber)
@@ -511,19 +498,6 @@ func (gs *GitHubStorage) GetBranchComments(repository models.Repository, branchN
 	return &branchComments, nil
 }
 
-// UpdateBranchComments updates all comments for a branch.
-func (gs *GitHubStorage) UpdateBranchComments(repository models.Repository, branchName string, comments models.BranchComments) error {
-	branchPath := gs.buildBranchPath(repository, branchName)
-	commentsPath := filepath.Join(branchPath, "comments.json")
-
-	if err := gs.locker.WithLock(commentsPath, func() error {
-		return gs.store.Set(commentsPath, comments)
-	}); err != nil {
-		return fmt.Errorf("failed to update branch comments with lock: %w", err)
-	}
-	return nil
-}
-
 // ClearBranchComments removes all comments for a branch.
 func (gs *GitHubStorage) ClearBranchComments(repository models.Repository, branchName string) error {
 	branchPath := gs.buildBranchPath(repository, branchName)
@@ -651,4 +625,32 @@ func (gs *GitHubStorage) GetBranchMetadata(repository models.Repository, branchN
 	}
 
 	return metadata, nil
+}
+
+// UpdateComments updates the entire comment list for a PR.
+func (gs *GitHubStorage) UpdateComments(repository models.Repository, prNumber int, comments *models.PRComments) error {
+	prPath := gs.buildPRPath(repository, prNumber)
+	commentsPath := filepath.Join(prPath, "comments.json")
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		comments.UpdatedAt = time.Now()
+		return gs.store.Set(commentsPath, comments)
+	}); err != nil {
+		return fmt.Errorf("failed to update comments with lock: %w", err)
+	}
+	return nil
+}
+
+// UpdateBranchComments updates the entire comment list for a branch.
+func (gs *GitHubStorage) UpdateBranchComments(repository models.Repository, branchName string, comments *models.BranchComments) error {
+	branchPath := gs.buildBranchPath(repository, branchName)
+	commentsPath := filepath.Join(branchPath, "comments.json")
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		comments.UpdatedAt = time.Now()
+		return gs.store.Set(commentsPath, comments)
+	}); err != nil {
+		return fmt.Errorf("failed to update branch comments with lock: %w", err)
+	}
+	return nil
 }

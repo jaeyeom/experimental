@@ -21,6 +21,8 @@ API.
 - **Draft Reviews**: Creates pending review comments for review before
   submission
 - **Parallel Access**: Multiple LLM instances can review code in parallel
+- **Iterative Resolution**: Systematically work through comments with status tracking
+- **Auto Line Adjustment**: Automatically update comment line numbers after code changes
 
 ** Architecture
 
@@ -93,7 +95,9 @@ The utility uses the unified gh-nudge storage system under `~/.config/gh-nudge/`
       "side": "RIGHT",
       "sha": "abc123...",
       "created_at": "2025-07-09T12:00:00Z",
-      "source": "local"
+      "source": "local",
+      "status": "unresolved",
+      "priority": "medium"
     },
     {
       "path": "path/to/file.js",
@@ -106,7 +110,10 @@ The utility uses the unified gh-nudge storage system under `~/.config/gh-nudge/`
       "source": "github",
       "github_id": 987654321,
       "author": "reviewer123",
-      "updated_at": "2025-07-09T12:15:00Z"
+      "updated_at": "2025-07-09T12:15:00Z",
+      "status": "resolved",
+      "resolved_at": "2025-07-09T14:00:00Z",
+      "resolution_reason": "Refactored in commit abc123"
     }
   ]
 }
@@ -270,6 +277,85 @@ gh-pr-review clear <owner>/<repo> <pr_number>
 - `--file`: Clear comments for specific file only
 - `--confirm`: Skip confirmation prompt
 
+**** Get Next Unresolved Comment
+
+#+BEGIN_SRC bash
+gh-pr-review next <owner>/<repo> <identifier>
+#+END_SRC
+
+***** Options:
+- `--file`: Limit to specific file
+- `--format`: Output format (table, json) [default: table]
+- `--priority`: Filter by priority (high, medium, low)
+
+***** Examples:
+#+BEGIN_SRC bash
+# Get next unresolved comment for PR
+gh-pr-review next octocat/Hello-World 42
+
+# Get next comment for specific file
+gh-pr-review next octocat/Hello-World 42 --file src/auth.js
+
+# Get next high-priority comment
+gh-pr-review next octocat/Hello-World 42 --priority high
+
+# Get next comment for branch
+gh-pr-review next octocat/Hello-World feature/auth
+#+END_SRC
+
+**** Resolve Comment
+
+#+BEGIN_SRC bash
+gh-pr-review resolve <owner>/<repo> <identifier> --comment-id <ID>
+#+END_SRC
+
+***** Options:
+- `--comment-id`: Comment ID to resolve (required)
+- `--archive`: Mark as archived instead of resolved
+- `--reason`: Resolution reason/note
+
+***** Examples:
+#+BEGIN_SRC bash
+# Mark comment as resolved
+gh-pr-review resolve octocat/Hello-World 42 --comment-id a1b2c3d4
+
+# Archive comment with reason
+gh-pr-review resolve octocat/Hello-World 42 --comment-id a1b2c3d4 --archive --reason "Not applicable"
+
+# Resolve branch comment
+gh-pr-review resolve octocat/Hello-World feature/auth --comment-id a1b2c3d4 --reason "Fixed in commit abc123"
+#+END_SRC
+
+**** Auto-Adjust Line Numbers
+
+#+BEGIN_SRC bash
+gh-pr-review auto-adjust <owner>/<repo> <identifier>
+#+END_SRC
+
+***** Options:
+- `--since`: Adjust based on changes since specific commit [default: HEAD~1]
+- `--staged`: Adjust based on staged git changes
+- `--git-diff`: Use specific git diff output
+- `--if-needed`: Only adjust if changes detected
+
+***** Examples:
+#+BEGIN_SRC bash
+# Auto-adjust based on recent changes
+gh-pr-review auto-adjust octocat/Hello-World 42
+
+# Adjust based on staged changes
+gh-pr-review auto-adjust octocat/Hello-World 42 --staged
+
+# Adjust since specific commit
+gh-pr-review auto-adjust octocat/Hello-World 42 --since HEAD~3
+
+# Only adjust if needed
+gh-pr-review auto-adjust octocat/Hello-World 42 --if-needed
+
+# Use specific diff
+gh-pr-review auto-adjust octocat/Hello-World 42 --git-diff "$(git diff HEAD~1 HEAD)"
+#+END_SRC
+
 **** Pull Review Comments
 
 #+BEGIN_SRC bash
@@ -300,6 +386,67 @@ gh-pr-review pull octocat/Hello-World 42 --format json
 #+END_SRC
 
 *** Workflow Examples
+
+**** Iterative Comment Resolution Workflow
+
+1. **Get next unresolved comment**:
+   #+BEGIN_SRC bash
+   gh-pr-review next myorg/myrepo 123
+   # Output: Comment a1b2c3d4 in src/auth.js:15 "Use const instead of let"
+   #+END_SRC
+
+2. **Fix the issue in your editor**:
+   #+BEGIN_SRC bash
+   vim src/auth.js +15
+   #+END_SRC
+
+3. **Auto-adjust remaining comment line numbers**:
+   #+BEGIN_SRC bash
+   gh-pr-review auto-adjust myorg/myrepo 123 --staged
+   #+END_SRC
+
+4. **Mark comment as resolved**:
+   #+BEGIN_SRC bash
+   gh-pr-review resolve myorg/myrepo 123 --comment-id a1b2c3d4 --reason "Changed to const"
+   #+END_SRC
+
+5. **Continue with next comment**:
+   #+BEGIN_SRC bash
+   gh-pr-review next myorg/myrepo 123
+   #+END_SRC
+
+6. **Automated script for complete workflow**:
+   #+BEGIN_SRC bash
+   #!/bin/bash
+   # iterative-resolve.sh
+   REPO="myorg/myrepo"
+   IDENTIFIER="123"
+
+   while true; do
+       # Get next comment
+       NEXT=$(gh-pr-review next $REPO $IDENTIFIER --format json)
+       if [ $? -ne 0 ]; then
+           echo "All comments resolved!"
+           break
+       fi
+
+       # Extract details
+       COMMENT_ID=$(echo $NEXT | jq -r '.id')
+       FILE=$(echo $NEXT | jq -r '.path')
+       LINE=$(echo $NEXT | jq -r '.line')
+       BODY=$(echo $NEXT | jq -r '.body')
+
+       echo "Next: $FILE:$LINE - $BODY"
+       echo "Fix the issue, then press ENTER..."
+       read
+
+       # Auto-adjust line numbers
+       gh-pr-review auto-adjust $REPO $IDENTIFIER --if-needed
+
+       # Mark as resolved
+       gh-pr-review resolve $REPO $IDENTIFIER --comment-id $COMMENT_ID
+   done
+   #+END_SRC
 
 **** Basic Review Workflow
 
