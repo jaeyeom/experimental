@@ -404,7 +404,7 @@ func (ch *CommandHandler) applyPRAdjustments(repository models.Repository, prNum
 	prComments.Comments = updatedComments
 	prComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateComments(repository, prNumber, *prComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, prNumber, prComments); err != nil {
 		return fmt.Errorf("failed to update comments: %w", err)
 	}
 
@@ -475,7 +475,7 @@ func (ch *CommandHandler) applyBranchAdjustments(repository models.Repository, b
 	branchComments.Comments = updatedComments
 	branchComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateBranchComments(repository, branchName, *branchComments); err != nil {
+	if err := ch.storage.UpdateBranchComments(repository, branchName, branchComments); err != nil {
 		return fmt.Errorf("failed to update branch comments: %w", err)
 	}
 
@@ -633,7 +633,7 @@ func (ch *CommandHandler) applyPRAdjustmentsWithCounts(repository models.Reposit
 	prComments.Comments = updatedComments
 	prComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateComments(repository, prNumber, *prComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, prNumber, prComments); err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to update comments: %w", err)
 	}
 
@@ -695,7 +695,7 @@ func (ch *CommandHandler) applyBranchAdjustmentsWithCounts(repository models.Rep
 	branchComments.Comments = updatedComments
 	branchComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateBranchComments(repository, branchName, *branchComments); err != nil {
+	if err := ch.storage.UpdateBranchComments(repository, branchName, branchComments); err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to update branch comments: %w", err)
 	}
 

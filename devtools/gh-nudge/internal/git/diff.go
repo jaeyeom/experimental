@@ -88,6 +88,32 @@ func (gc *Client) getCommitSHA(branch Branch) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// GetStagedDiff gets the diff of staged changes.
+func (gc *Client) GetStagedDiff() (string, error) {
+	cmd := exec.Command("git", "diff", "--cached", "--unified=3")
+	cmd.Dir = gc.repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get staged diff: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// GetDiffSince gets the diff since a specific commit.
+func (gc *Client) GetDiffSince(since string) (string, error) {
+	cmd := exec.Command("git", "diff", "--unified=3", since)
+	cmd.Dir = gc.repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff since %s: %w", since, err)
+	}
+
+	return string(output), nil
+}
+
 // getDiffOutput gets the raw diff output between two branches.
 func (gc *Client) getDiffOutput(baseBranch, targetBranch Branch) (string, error) {
 	// Branches are already validated during construction - safe to use in git command.

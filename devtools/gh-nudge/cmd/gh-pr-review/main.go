@@ -187,13 +187,16 @@ func executeCommand(command string, args []string) {
 
 func getCommandHandler(command string) func([]string) {
 	handlers := map[string]func([]string){
-		"capture": handleCapture,
-		"comment": handleComment,
-		"submit":  handleSubmit,
-		"list":    handleList,
-		"delete":  handleDelete,
-		"clear":   handleClear,
-		"adjust":  handleAdjust,
+		"capture":     handleCapture,
+		"comment":     handleComment,
+		"submit":      handleSubmit,
+		"list":        handleList,
+		"delete":      handleDelete,
+		"clear":       handleClear,
+		"adjust":      handleAdjust,
+		"next":        handleNext,
+		"resolve":     handleResolve,
+		"auto-adjust": handleAutoAdjust,
 	}
 	return handlers[command]
 }
@@ -219,6 +222,9 @@ Commands:
   adjust [<owner>/<repo>] [<identifier>] --all-files --diff <spec>     Batch adjust all files
   adjust [<owner>/<repo>] [<identifier>] --mapping-file <file>         Adjust using mapping file
   adjust [<owner>/<repo>] [<identifier>] <file> --auto-detect          Auto-detect line changes
+  next [<owner>/<repo>] [<identifier>]            Get next unresolved comment
+  resolve [<owner>/<repo>] [<identifier>] --comment-id <ID>  Mark comment as resolved
+  auto-adjust [<owner>/<repo>] [<identifier>]     Auto-adjust line numbers based on git diff
   version                                         Show version information
   help                                           Show this help message
 
@@ -1073,4 +1079,199 @@ func parseAdjustOptions(parser *argparser.ArgParser) (AdjustOptions, error) {
 	}
 
 	return options, nil
+}
+
+func handleNext(args []string) {
+	parser := argparser.NewArgParser(args)
+
+	if parser.IsHelp() {
+		fmt.Println("Usage: gh-pr-review next [<owner>/<repo>] [<identifier>] [options]")
+		fmt.Println("  <owner>/<repo>  Repository (auto-detected if omitted)")
+		fmt.Println("  <identifier>    PR number or branch name (auto-detected if omitted)")
+		fmt.Println("  --file FILE     Limit to specific file")
+		fmt.Println("  --format FORMAT Output format (table, json) [default: table]")
+		fmt.Println("  --priority LEVEL Filter by priority (high, medium, low)")
+		return
+	}
+
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
+
+	if err := parser.ValidateOptions([]string{"file", "format", "priority"}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := parser.RequireExactPositionals(2, "gh-pr-review next <owner>/<repo> <identifier> [options]"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	repoSpec := parser.GetPositional(0)
+	identifier := parser.GetPositional(1)
+
+	repository, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	file := parser.GetOption("file")
+	priorityStr := parser.GetOption("priority")
+	format := parser.GetOption("format")
+	if format == "" {
+		format = "table"
+	}
+
+	var priority models.CommentPriority
+	if priorityStr != "" {
+		switch strings.ToLower(priorityStr) {
+		case "high":
+			priority = models.PriorityHigh
+		case "medium":
+			priority = models.PriorityMedium
+		case "low":
+			priority = models.PriorityLow
+		default:
+			fmt.Fprintf(os.Stderr, "Error: invalid priority level '%s' (valid: high, medium, low)\n", priorityStr)
+			os.Exit(1)
+		}
+	}
+
+	formatter := createOutputFormatter(format == "json")
+
+	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := handler.NextCommand(repository, identifier, formatter, file, priority); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func handleResolve(args []string) {
+	parser := argparser.NewArgParser(args)
+
+	if parser.IsHelp() {
+		fmt.Println("Usage: gh-pr-review resolve [<owner>/<repo>] [<identifier>] --comment-id <ID> [options]")
+		fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
+		fmt.Println("  <identifier>      PR number or branch name (auto-detected if omitted)")
+		fmt.Println("  --comment-id ID   Comment ID to resolve (required)")
+		fmt.Println("  --archive         Mark as archived instead of resolved")
+		fmt.Println("  --reason TEXT     Resolution reason/note")
+		return
+	}
+
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
+
+	if err := parser.ValidateOptions([]string{"comment-id", "archive", "reason"}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	commentID := parser.GetOption("comment-id")
+	if commentID == "" {
+		fmt.Fprintf(os.Stderr, "Error: --comment-id is required\n")
+		os.Exit(1)
+	}
+
+	if err := parser.RequireExactPositionals(2, "gh-pr-review resolve <owner>/<repo> <identifier> --comment-id <ID> [options]"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	repoSpec := parser.GetPositional(0)
+	identifier := parser.GetPositional(1)
+
+	repository, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	archive := parser.HasOption("archive")
+	reason := parser.GetOption("reason")
+
+	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := handler.ResolveCommand(repository, identifier, commentID, archive, reason); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func handleAutoAdjust(args []string) {
+	parser := argparser.NewArgParser(args)
+
+	if parser.IsHelp() {
+		fmt.Println("Usage: gh-pr-review auto-adjust [<owner>/<repo>] [<identifier>] [options]")
+		fmt.Println("  <owner>/<repo>    Repository (auto-detected if omitted)")
+		fmt.Println("  <identifier>      PR number or branch name (auto-detected if omitted)")
+		fmt.Println("  --since COMMIT    Adjust based on changes since specific commit [default: HEAD~1]")
+		fmt.Println("  --staged          Adjust based on staged git changes")
+		fmt.Println("  --git-diff SPEC   Use specific git diff output")
+		fmt.Println("  --if-needed       Only adjust if changes detected")
+		return
+	}
+
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
+
+	if err := parser.ValidateOptions([]string{"since", "staged", "git-diff", "if-needed"}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := parser.RequireExactPositionals(2, "gh-pr-review auto-adjust <owner>/<repo> <identifier> [options]"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	repoSpec := parser.GetPositional(0)
+	identifier := parser.GetPositional(1)
+
+	repository, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	since := parser.GetOption("since")
+	staged := parser.HasOption("staged")
+	gitDiffSpec := parser.GetOption("git-diff")
+	ifNeeded := parser.HasOption("if-needed")
+
+	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := handler.AutoAdjustCommand(repository, identifier, since, staged, gitDiffSpec, ifNeeded); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }

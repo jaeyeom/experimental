@@ -430,6 +430,80 @@ func (ch *CommandHandler) ClearCommand(repository models.Repository, identifier 
 	return ch.clearBranchComments(repository, parsed.BranchName, file, confirm)
 }
 
+// NextCommand gets the next unresolved comment for either PR or branch.
+func (ch *CommandHandler) NextCommand(repository models.Repository, identifier string, formatter OutputFormatter, file string, priority models.CommentPriority) error {
+	parsed, err := models.ParseIdentifier(identifier)
+	if err != nil {
+		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
+	}
+
+	if parsed.IsPR() {
+		return ch.nextPRComment(repository, parsed.PRNumber, formatter, file, priority)
+	}
+	return ch.nextBranchComment(repository, parsed.BranchName, formatter, file, priority)
+}
+
+// ResolveCommand marks a comment as resolved for either PR or branch.
+func (ch *CommandHandler) ResolveCommand(repository models.Repository, identifier string, commentID string, archive bool, reason string) error {
+	parsed, err := models.ParseIdentifier(identifier)
+	if err != nil {
+		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
+	}
+
+	if parsed.IsPR() {
+		return ch.resolvePRComment(repository, parsed.PRNumber, commentID, archive, reason)
+	}
+	return ch.resolveBranchComment(repository, parsed.BranchName, commentID, archive, reason)
+}
+
+// AutoAdjustCommand automatically adjusts line numbers based on git diff.
+func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identifier string, since string, staged bool, gitDiffSpec string, ifNeeded bool) error {
+	_, err := models.ParseIdentifier(identifier)
+	if err != nil {
+		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
+	}
+
+	// Get current diff
+	var diffOutput string
+	switch {
+	case gitDiffSpec != "":
+		diffOutput = gitDiffSpec
+	case staged:
+		// Get staged changes
+		diffOutput, err = ch.gitClient.GetStagedDiff()
+		if err != nil {
+			return fmt.Errorf("failed to get staged diff: %w", err)
+		}
+	case since != "":
+		// Get diff since specific commit
+		diffOutput, err = ch.gitClient.GetDiffSince(since)
+		if err != nil {
+			return fmt.Errorf("failed to get diff since %s: %w", since, err)
+		}
+	default:
+		// Default to diff since last adjustment or HEAD~1
+		diffOutput, err = ch.gitClient.GetDiffSince("HEAD~1")
+		if err != nil {
+			return fmt.Errorf("failed to get diff: %w", err)
+		}
+	}
+
+	// If --if-needed flag is set, check if adjustment is needed
+	if ifNeeded && diffOutput == "" {
+		fmt.Println("No changes detected, adjustment not needed.")
+		return nil
+	}
+
+	// Use the existing adjust command with unified diff
+	options := AdjustOptionsExtended{
+		DryRun: false,
+		Force:  false,
+		Format: "table",
+	}
+
+	return ch.AdjustCommandExtended(repository, identifier, "", diffOutput, options)
+}
+
 // clearPRComments clears comments for a PR or file.
 func (ch *CommandHandler) clearPRComments(repository models.Repository, prNumber int, file string, confirm bool) error {
 	if !confirm {
@@ -544,6 +618,191 @@ func (ch *CommandHandler) branchDiffHunksExist(repository models.Repository, bra
 func commentInRange(comment models.Comment, lineRange *models.LineRange) bool {
 	commentRange := comment.GetLineRange()
 	return commentRange.StartLine <= lineRange.EndLine && commentRange.EndLine >= lineRange.StartLine
+}
+
+// nextPRComment gets the next unresolved comment for a PR.
+func (ch *CommandHandler) nextPRComment(repository models.Repository, prNumber int, formatter OutputFormatter, file string, priority models.CommentPriority) error {
+	prComments, err := ch.storage.GetComments(repository, prNumber)
+	if err != nil {
+		return fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Filter and sort comments
+	var unresolvedComments []models.Comment
+	for _, comment := range prComments.Comments {
+		if !comment.IsUnresolved() {
+			continue
+		}
+		if file != "" && comment.Path != file {
+			continue
+		}
+		if priority != "" && comment.Priority != priority {
+			continue
+		}
+		unresolvedComments = append(unresolvedComments, comment)
+	}
+
+	if len(unresolvedComments) == 0 {
+		fmt.Println("No unresolved comments found.")
+		return nil
+	}
+
+	// Sort by file path, then line number, then creation time
+	nextComment := sortAndGetNextComment(unresolvedComments)
+
+	// Output next comment
+	output, err := formatter.FormatComments([]models.Comment{nextComment})
+	if err != nil {
+		return fmt.Errorf("failed to format comment: %w", err)
+	}
+	fmt.Println(output)
+
+	return nil
+}
+
+// nextBranchComment gets the next unresolved comment for a branch.
+func (ch *CommandHandler) nextBranchComment(repository models.Repository, branchName string, formatter OutputFormatter, file string, priority models.CommentPriority) error {
+	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to get branch comments: %w", err)
+	}
+
+	// Filter and sort comments
+	var unresolvedComments []models.Comment
+	for _, comment := range branchComments.Comments {
+		if !comment.IsUnresolved() {
+			continue
+		}
+		if file != "" && comment.Path != file {
+			continue
+		}
+		if priority != "" && comment.Priority != priority {
+			continue
+		}
+		unresolvedComments = append(unresolvedComments, comment)
+	}
+
+	if len(unresolvedComments) == 0 {
+		fmt.Println("No unresolved comments found.")
+		return nil
+	}
+
+	// Sort by file path, then line number, then creation time
+	nextComment := sortAndGetNextComment(unresolvedComments)
+
+	// Output next comment
+	output, err := formatter.FormatComments([]models.Comment{nextComment})
+	if err != nil {
+		return fmt.Errorf("failed to format comment: %w", err)
+	}
+	fmt.Println(output)
+
+	return nil
+}
+
+// resolvePRComment marks a PR comment as resolved.
+func (ch *CommandHandler) resolvePRComment(repository models.Repository, prNumber int, commentID string, archive bool, reason string) error {
+	// Get current comments
+	prComments, err := ch.storage.GetComments(repository, prNumber)
+	if err != nil {
+		return fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Find and update the comment
+	found := false
+	for i, comment := range prComments.Comments {
+		if comment.MatchesIDPrefix(commentID) {
+			now := time.Now()
+			if archive {
+				prComments.Comments[i].Status = models.StatusArchived
+			} else {
+				prComments.Comments[i].Status = models.StatusResolved
+			}
+			prComments.Comments[i].ResolvedAt = &now
+			prComments.Comments[i].ResolutionReason = reason
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("comment with ID prefix '%s' not found", commentID)
+	}
+
+	// Save updated comments
+	if err := ch.storage.UpdateComments(repository, prNumber, prComments); err != nil {
+		return fmt.Errorf("failed to update comments: %w", err)
+	}
+
+	if archive {
+		fmt.Printf("Archived comment with ID prefix '%s' in PR %s#%d\n", commentID, repository, prNumber)
+	} else {
+		fmt.Printf("Resolved comment with ID prefix '%s' in PR %s#%d\n", commentID, repository, prNumber)
+	}
+	if reason != "" {
+		fmt.Printf("Resolution reason: %s\n", reason)
+	}
+
+	return nil
+}
+
+// resolveBranchComment marks a branch comment as resolved.
+func (ch *CommandHandler) resolveBranchComment(repository models.Repository, branchName string, commentID string, archive bool, reason string) error {
+	// Get current comments
+	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to get branch comments: %w", err)
+	}
+
+	// Find and update the comment
+	found := false
+	for i, comment := range branchComments.Comments {
+		if comment.MatchesIDPrefix(commentID) {
+			now := time.Now()
+			if archive {
+				branchComments.Comments[i].Status = models.StatusArchived
+			} else {
+				branchComments.Comments[i].Status = models.StatusResolved
+			}
+			branchComments.Comments[i].ResolvedAt = &now
+			branchComments.Comments[i].ResolutionReason = reason
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("comment with ID prefix '%s' not found", commentID)
+	}
+
+	// Save updated comments
+	if err := ch.storage.UpdateBranchComments(repository, branchName, branchComments); err != nil {
+		return fmt.Errorf("failed to update comments: %w", err)
+	}
+
+	if archive {
+		fmt.Printf("Archived comment with ID prefix '%s' in branch %s:%s\n", commentID, repository, branchName)
+	} else {
+		fmt.Printf("Resolved comment with ID prefix '%s' in branch %s:%s\n", commentID, repository, branchName)
+	}
+	if reason != "" {
+		fmt.Printf("Resolution reason: %s\n", reason)
+	}
+
+	return nil
+}
+
+// sortAndGetNextComment sorts comments and returns the next one to work on.
+func sortAndGetNextComment(comments []models.Comment) models.Comment {
+	// Sort by: file path (alphabetical), line number (ascending), creation time (oldest first)
+	// This is a simple implementation - you may want to use sort.Slice for more complex sorting
+	if len(comments) == 0 {
+		return models.Comment{}
+	}
+
+	// For now, return the first comment
+	// TODO: Implement proper sorting logic
+	return comments[0]
 }
 
 // getStorageHome returns the storage home directory.

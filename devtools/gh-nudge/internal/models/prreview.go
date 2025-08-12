@@ -59,6 +59,24 @@ type LineAdjustment struct {
 	Description string        `json:"description"` // Human-readable description
 }
 
+// CommentStatus represents the status of a comment.
+type CommentStatus string
+
+const (
+	StatusUnresolved CommentStatus = "unresolved"
+	StatusResolved   CommentStatus = "resolved"
+	StatusArchived   CommentStatus = "archived"
+)
+
+// CommentPriority represents the priority level of a comment.
+type CommentPriority string
+
+const (
+	PriorityHigh   CommentPriority = "high"
+	PriorityMedium CommentPriority = "medium"
+	PriorityLow    CommentPriority = "low"
+)
+
 // Comment represents a line-specific comment in a pull request.
 type Comment struct {
 	ID                string           `json:"id"`                          // Unique comment ID (40-char hex string)
@@ -72,6 +90,10 @@ type Comment struct {
 	OriginalLine      int              `json:"originalLine,omitempty"`      // Original line number before adjustments
 	OriginalStartLine *int             `json:"originalStartLine,omitempty"` // Original start line for multi-line comments
 	AdjustmentHistory []LineAdjustment `json:"adjustmentHistory,omitempty"` // History of line adjustments
+	Status            CommentStatus    `json:"status,omitempty"`            // Comment status (unresolved, resolved, archived)
+	ResolvedAt        *time.Time       `json:"resolvedAt,omitempty"`        // When comment was resolved
+	ResolutionReason  string           `json:"resolutionReason,omitempty"`  // Reason for resolution
+	Priority          CommentPriority  `json:"priority,omitempty"`          // Priority level
 }
 
 // PRDiffHunks represents the diff hunks for a pull request.
@@ -428,6 +450,21 @@ func (c Comment) FormatIDShort() string {
 		return c.ID[:8]
 	}
 	return c.ID
+}
+
+// IsUnresolved returns true if the comment is unresolved.
+func (c Comment) IsUnresolved() bool {
+	return c.Status == "" || c.Status == StatusUnresolved
+}
+
+// IsResolved returns true if the comment is resolved.
+func (c Comment) IsResolved() bool {
+	return c.Status == StatusResolved
+}
+
+// IsArchived returns true if the comment is archived.
+func (c Comment) IsArchived() bool {
+	return c.Status == StatusArchived
 }
 
 // BranchDiffHunks represents the diff hunks for a local branch.
