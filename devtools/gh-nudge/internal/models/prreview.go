@@ -231,6 +231,15 @@ type CommentClearer interface {
 	ClearCommentsForFile(repository Repository, prNumber int, file string) error
 }
 
+// CommentArchiver defines the ability to archive comments.
+type CommentArchiver interface {
+	CommentClearer
+	ArchiveComments(repository Repository, prNumber int, reviewBody, reviewEvent string) (*ArchivedSubmission, error)
+	ListArchivedSubmissions(repository Repository, prNumber int) (*ArchiveMetadata, error)
+	GetArchivedSubmission(repository Repository, prNumber int, submissionID string) (*ArchivedSubmission, error)
+	CleanupOldArchives(repository Repository, prNumber int, olderThan time.Duration) error
+}
+
 // ClearAction removes all local comments after successful submission.
 type ClearAction struct{}
 
@@ -301,20 +310,45 @@ func (a KeepAction) Name() string {
 // ArchiveAction moves comments to an archive/history (future enhancement).
 type ArchiveAction struct{}
 
-func (a ArchiveAction) Execute(_ CommentClearer, repository Repository, prNumber int, file string) error {
-	// Future enhancement: implement archiving
+func (a ArchiveAction) Execute(storage CommentClearer, repository Repository, prNumber int, file string) error {
+	// Cast to access archive functionality
+	archiveStorage, ok := storage.(CommentArchiver)
+	if !ok {
+		slog.Warn("storage does not support archiving, preserving comments instead",
+			"owner", repository.Owner,
+			"repo", repository.Name,
+			"pr", prNumber)
+		return nil
+	}
+
 	if file != "" {
-		slog.Info("archive feature not yet implemented, comments for file preserved",
+		// File-specific archiving is not supported yet - just preserve
+		slog.Info("file-specific archiving not supported yet, comments for file preserved",
 			"owner", repository.Owner,
 			"repo", repository.Name,
 			"pr", prNumber,
 			"file", file)
-	} else {
-		slog.Info("archive feature not yet implemented, comments preserved",
+		return nil
+	}
+
+	// Archive all comments for the PR
+	archivedSubmission, err := archiveStorage.ArchiveComments(repository, prNumber, "", "COMMENT")
+	if err != nil {
+		slog.Warn("failed to archive comments, preserving instead",
 			"owner", repository.Owner,
 			"repo", repository.Name,
-			"pr", prNumber)
+			"pr", prNumber,
+			"error", err)
+		return nil // Don't fail the submission if archiving fails
 	}
+
+	slog.Info("archived review comments for historical reference",
+		"owner", repository.Owner,
+		"repo", repository.Name,
+		"pr", prNumber,
+		"submission_id", archivedSubmission.SubmissionID,
+		"comment_count", archivedSubmission.CommentCount)
+
 	return nil
 }
 
@@ -485,4 +519,29 @@ type BranchComments struct {
 	Repository Repository `json:"repository"`
 	Comments   []Comment  `json:"comments"`
 	UpdatedAt  time.Time  `json:"updatedAt"`
+}
+
+// ArchivedSubmission represents a complete archived review submission.
+type ArchivedSubmission struct {
+	SubmissionID string                 `json:"submissionId"` // Unique identifier
+	ArchivedAt   time.Time              `json:"archivedAt"`   // When archived
+	SubmittedAt  time.Time              `json:"submittedAt"`  // When originally submitted
+	PRNumber     int                    `json:"prNumber"`
+	Owner        string                 `json:"owner"`
+	Repo         string                 `json:"repo"`
+	ReviewBody   string                 `json:"reviewBody"`  // The PR review body
+	ReviewEvent  string                 `json:"reviewEvent"` // COMMENT/APPROVE/REQUEST_CHANGES
+	Comments     []Comment              `json:"comments"`    // The archived comments
+	CommentCount int                    `json:"commentCount"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ArchiveMetadata maintains an index of all archives for a PR.
+type ArchiveMetadata struct {
+	PRNumber      int                  `json:"prNumber"`
+	Owner         string               `json:"owner"`
+	Repo          string               `json:"repo"`
+	Archives      []ArchivedSubmission `json:"archives"`
+	LastUpdated   time.Time            `json:"lastUpdated"`
+	TotalArchives int                  `json:"totalArchives"`
 }

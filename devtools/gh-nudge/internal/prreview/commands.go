@@ -819,3 +819,80 @@ func GetStorageHome() string {
 
 	return filepath.Join(userHome, ".config", "gh-nudge", "storage")
 }
+
+// ArchiveListCommand lists all archived submissions for a PR.
+func (ch *CommandHandler) ArchiveListCommand(repository models.Repository, prNumber int, _ OutputFormatter) error {
+	metadata, err := ch.storage.ListArchivedSubmissions(repository, prNumber)
+	if err != nil {
+		return fmt.Errorf("failed to list archived submissions: %w", err)
+	}
+
+	if len(metadata.Archives) == 0 {
+		fmt.Printf("No archived submissions found for PR %s#%d\n", repository, prNumber)
+		return nil
+	}
+
+	fmt.Printf("Archives for PR %s#%d:\n", repository, prNumber)
+	for _, archive := range metadata.Archives {
+		fmt.Printf("  %s  %s  %d comments  %s\n",
+			archive.SubmissionID[:8],
+			archive.ArchivedAt.Format("2006-01-02T15:04:05Z"),
+			archive.CommentCount,
+			archive.ReviewEvent)
+	}
+
+	return nil
+}
+
+// ArchiveShowCommand shows a specific archived submission.
+func (ch *CommandHandler) ArchiveShowCommand(repository models.Repository, prNumber int, submissionID string, formatter OutputFormatter) error {
+	submission, err := ch.storage.GetArchivedSubmission(repository, prNumber, submissionID)
+	if err != nil {
+		return fmt.Errorf("failed to get archived submission: %w", err)
+	}
+
+	fmt.Printf("Archived Submission: %s\n", submission.SubmissionID)
+	fmt.Printf("Archived At: %s\n", submission.ArchivedAt.Format("2006-01-02T15:04:05Z"))
+	fmt.Printf("Submitted At: %s\n", submission.SubmittedAt.Format("2006-01-02T15:04:05Z"))
+	fmt.Printf("PR: %s/%s#%d\n", submission.Owner, submission.Repo, submission.PRNumber)
+	fmt.Printf("Review Event: %s\n", submission.ReviewEvent)
+	fmt.Printf("Review Body: %s\n", submission.ReviewBody)
+	fmt.Printf("Comment Count: %d\n", submission.CommentCount)
+	fmt.Println()
+
+	if len(submission.Comments) > 0 {
+		fmt.Println("Comments:")
+		output, err := formatter.FormatComments(submission.Comments)
+		if err != nil {
+			return fmt.Errorf("failed to format comments: %w", err)
+		}
+		fmt.Print(output)
+	}
+
+	return nil
+}
+
+// ArchiveCleanupCommand removes archives older than the specified duration.
+func (ch *CommandHandler) ArchiveCleanupCommand(repository models.Repository, prNumber int, olderThanStr string) error {
+	olderThan, err := time.ParseDuration(olderThanStr)
+	if err != nil {
+		// Try to parse as days if duration parsing fails
+		if strings.HasSuffix(olderThanStr, "d") {
+			daysStr := strings.TrimSuffix(olderThanStr, "d")
+			days, parseErr := strconv.Atoi(daysStr)
+			if parseErr != nil {
+				return fmt.Errorf("invalid duration '%s': %w", olderThanStr, err)
+			}
+			olderThan = time.Duration(days) * 24 * time.Hour
+		} else {
+			return fmt.Errorf("invalid duration '%s': %w", olderThanStr, err)
+		}
+	}
+
+	if err := ch.storage.CleanupOldArchives(repository, prNumber, olderThan); err != nil {
+		return fmt.Errorf("failed to cleanup old archives: %w", err)
+	}
+
+	fmt.Printf("Cleaned up archives older than %s for PR %s#%d\n", olderThanStr, repository, prNumber)
+	return nil
+}

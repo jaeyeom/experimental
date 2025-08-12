@@ -197,6 +197,7 @@ func getCommandHandler(command string) func([]string) {
 		"next":        handleNext,
 		"resolve":     handleResolve,
 		"auto-adjust": handleAutoAdjust,
+		"archive":     handleArchive,
 	}
 	return handlers[command]
 }
@@ -224,6 +225,7 @@ Commands:
   adjust [<owner>/<repo>] [<identifier>] <file> --auto-detect          Auto-detect line changes
   next [<owner>/<repo>] [<identifier>]            Get next unresolved comment
   resolve [<owner>/<repo>] [<identifier>] --comment-id <ID>  Mark comment as resolved
+  archive [<owner>/<repo>] <pr_number> [list|show|cleanup] Archive management
   auto-adjust [<owner>/<repo>] [<identifier>]     Auto-adjust line numbers based on git diff
   version                                         Show version information
   help                                           Show this help message
@@ -1274,4 +1276,125 @@ func handleAutoAdjust(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func handleArchive(args []string) {
+	parser := argparser.NewArgParser(args)
+	if parser.IsHelp() {
+		showArchiveUsage()
+		return
+	}
+
+	if len(args) < 2 {
+		fmt.Fprintf(os.Stderr, "Error: insufficient arguments\n")
+		showArchiveUsage()
+		os.Exit(1)
+	}
+
+	repoSpec := args[0]
+	prNumberStr := args[1]
+	subcommand := "list" // default subcommand
+	if len(args) >= 3 {
+		subcommand = args[2]
+	}
+
+	repository, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	prNumber, err := strconv.Atoi(prNumberStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid PR number '%s'\n", prNumberStr)
+		os.Exit(1)
+	}
+
+	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch subcommand {
+	case "list":
+		if err := handleArchiveList(handler, repository, prNumber, args[3:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "show":
+		if err := handleArchiveShow(handler, repository, prNumber, args[3:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "cleanup":
+		if err := handleArchiveCleanup(handler, repository, prNumber, args[3:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unknown archive subcommand '%s'\n", subcommand)
+		showArchiveUsage()
+		os.Exit(1)
+	}
+}
+
+func showArchiveUsage() {
+	fmt.Println("Usage: gh-pr-review archive <owner>/<repo> <pr_number> [subcommand] [options]")
+	fmt.Println()
+	fmt.Println("Subcommands:")
+	fmt.Println("  list                    List all archived submissions for the PR")
+	fmt.Println("  show --submission-id ID Show specific archived submission")
+	fmt.Println("  cleanup --older-than D  Remove archives older than duration (e.g., 90d, 6m)")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  --format FORMAT         Output format (table, json) [default: table]")
+	fmt.Println("  --submission-id ID      Submission ID for show command")
+	fmt.Println("  --older-than DURATION   Duration for cleanup (e.g., 90d, 30d, 6m)")
+}
+
+func handleArchiveList(handler *prreview.CommandHandler, repository models.Repository, prNumber int, args []string) error {
+	parser := argparser.NewArgParser(args)
+	format := parser.GetOption("format")
+	if format == "" {
+		format = "table"
+	}
+
+	formatter := createOutputFormatter(format == "json")
+	if err := handler.ArchiveListCommand(repository, prNumber, formatter); err != nil {
+		return fmt.Errorf("archive list command failed: %w", err)
+	}
+	return nil
+}
+
+func handleArchiveShow(handler *prreview.CommandHandler, repository models.Repository, prNumber int, args []string) error {
+	parser := argparser.NewArgParser(args)
+	submissionID := parser.GetOption("submission-id")
+	if submissionID == "" {
+		return fmt.Errorf("--submission-id is required for show command")
+	}
+
+	format := parser.GetOption("format")
+	if format == "" {
+		format = "table"
+	}
+
+	formatter := createOutputFormatter(format == "json")
+	if err := handler.ArchiveShowCommand(repository, prNumber, submissionID, formatter); err != nil {
+		return fmt.Errorf("archive show command failed: %w", err)
+	}
+	return nil
+}
+
+func handleArchiveCleanup(handler *prreview.CommandHandler, repository models.Repository, prNumber int, args []string) error {
+	parser := argparser.NewArgParser(args)
+	olderThan := parser.GetOption("older-than")
+	if olderThan == "" {
+		return fmt.Errorf("--older-than is required for cleanup command")
+	}
+
+	if err := handler.ArchiveCleanupCommand(repository, prNumber, olderThan); err != nil {
+		return fmt.Errorf("archive cleanup command failed: %w", err)
+	}
+	return nil
 }
