@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -652,5 +654,193 @@ func (gs *GitHubStorage) UpdateBranchComments(repository models.Repository, bran
 	}); err != nil {
 		return fmt.Errorf("failed to update branch comments with lock: %w", err)
 	}
+	return nil
+}
+
+// generateSubmissionID generates a unique submission ID.
+func (gs *GitHubStorage) generateSubmissionID() string {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to timestamp-based ID if crypto rand fails
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(bytes)
+}
+
+// buildArchivePath constructs the storage path for archived submissions.
+func (gs *GitHubStorage) buildArchivePath(repository models.Repository, prNumber int) string {
+	prPath := gs.buildPRPath(repository, prNumber)
+	return filepath.Join(prPath, "archives")
+}
+
+// ArchiveComments moves comments to archive storage and clears active comments.
+func (gs *GitHubStorage) ArchiveComments(repository models.Repository, prNumber int, reviewBody, reviewEvent string) (*models.ArchivedSubmission, error) {
+	prPath := gs.buildPRPath(repository, prNumber)
+	commentsPath := filepath.Join(prPath, "comments.json")
+	archivePath := gs.buildArchivePath(repository, prNumber)
+	metadataPath := filepath.Join(archivePath, "metadata.json")
+
+	var archivedSubmission *models.ArchivedSubmission
+
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		// Get current comments
+		prComments, err := gs.GetComments(repository, prNumber)
+		if err != nil {
+			return fmt.Errorf("failed to get comments for archiving: %w", err)
+		}
+
+		if len(prComments.Comments) == 0 {
+			return fmt.Errorf("no comments to archive")
+		}
+
+		// Create archived submission
+		now := time.Now()
+		submissionID := gs.generateSubmissionID()
+
+		archivedSubmission = &models.ArchivedSubmission{
+			SubmissionID: submissionID,
+			ArchivedAt:   now,
+			SubmittedAt:  now, // Using now since we don't track actual submission time
+			PRNumber:     prNumber,
+			Owner:        repository.Owner,
+			Repo:         repository.Name,
+			ReviewBody:   reviewBody,
+			ReviewEvent:  reviewEvent,
+			Comments:     prComments.Comments,
+			CommentCount: len(prComments.Comments),
+			Metadata:     make(map[string]interface{}),
+		}
+
+		// Store the archived submission
+		archiveFilePath := filepath.Join(archivePath, fmt.Sprintf("%s.json", submissionID))
+		if err := gs.store.Set(archiveFilePath, archivedSubmission); err != nil {
+			return fmt.Errorf("failed to store archived submission: %w", err)
+		}
+
+		// Update archive metadata
+		if err := gs.updateArchiveMetadata(repository, prNumber, *archivedSubmission, metadataPath); err != nil {
+			return fmt.Errorf("failed to update archive metadata: %w", err)
+		}
+
+		// Clear active comments
+		return gs.store.Delete(commentsPath)
+	}); err != nil {
+		return nil, fmt.Errorf("failed to archive comments with lock: %w", err)
+	}
+
+	return archivedSubmission, nil
+}
+
+// updateArchiveMetadata updates the archive metadata index.
+func (gs *GitHubStorage) updateArchiveMetadata(repository models.Repository, prNumber int, submission models.ArchivedSubmission, metadataPath string) error {
+	var metadata models.ArchiveMetadata
+
+	if gs.store.Exists(metadataPath) {
+		if err := gs.store.Get(metadataPath, &metadata); err != nil {
+			return fmt.Errorf("failed to get existing archive metadata: %w", err)
+		}
+	} else {
+		metadata = models.ArchiveMetadata{
+			PRNumber:      prNumber,
+			Owner:         repository.Owner,
+			Repo:          repository.Name,
+			Archives:      []models.ArchivedSubmission{},
+			TotalArchives: 0,
+		}
+	}
+
+	// Add the new submission to the metadata
+	metadata.Archives = append(metadata.Archives, submission)
+	metadata.TotalArchives = len(metadata.Archives)
+	metadata.LastUpdated = time.Now()
+
+	return gs.store.Set(metadataPath, metadata)
+}
+
+// ListArchivedSubmissions returns all archived submissions for a PR.
+func (gs *GitHubStorage) ListArchivedSubmissions(repository models.Repository, prNumber int) (*models.ArchiveMetadata, error) {
+	archivePath := gs.buildArchivePath(repository, prNumber)
+	metadataPath := filepath.Join(archivePath, "metadata.json")
+
+	if !gs.store.Exists(metadataPath) {
+		return &models.ArchiveMetadata{
+			PRNumber:      prNumber,
+			Owner:         repository.Owner,
+			Repo:          repository.Name,
+			Archives:      []models.ArchivedSubmission{},
+			TotalArchives: 0,
+			LastUpdated:   time.Now(),
+		}, nil
+	}
+
+	var metadata models.ArchiveMetadata
+	err := gs.store.Get(metadataPath, &metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get archive metadata: %w", err)
+	}
+
+	return &metadata, nil
+}
+
+// GetArchivedSubmission retrieves a specific archived submission.
+func (gs *GitHubStorage) GetArchivedSubmission(repository models.Repository, prNumber int, submissionID string) (*models.ArchivedSubmission, error) {
+	archivePath := gs.buildArchivePath(repository, prNumber)
+	archiveFilePath := filepath.Join(archivePath, fmt.Sprintf("%s.json", submissionID))
+
+	if !gs.store.Exists(archiveFilePath) {
+		return nil, fmt.Errorf("archived submission with ID '%s' not found", submissionID)
+	}
+
+	var submission models.ArchivedSubmission
+	err := gs.store.Get(archiveFilePath, &submission)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get archived submission: %w", err)
+	}
+
+	return &submission, nil
+}
+
+// CleanupOldArchives removes archives older than the specified duration.
+func (gs *GitHubStorage) CleanupOldArchives(repository models.Repository, prNumber int, olderThan time.Duration) error {
+	archivePath := gs.buildArchivePath(repository, prNumber)
+	metadataPath := filepath.Join(archivePath, "metadata.json")
+
+	if !gs.store.Exists(metadataPath) {
+		return nil // No archives to clean up
+	}
+
+	if err := gs.locker.WithLock(metadataPath, func() error {
+		metadata, err := gs.ListArchivedSubmissions(repository, prNumber)
+		if err != nil {
+			return err
+		}
+
+		cutoffTime := time.Now().Add(-olderThan)
+		var remainingArchives []models.ArchivedSubmission
+
+		// Filter archives and delete old ones
+		for _, submission := range metadata.Archives {
+			if submission.ArchivedAt.After(cutoffTime) {
+				remainingArchives = append(remainingArchives, submission)
+			} else {
+				// Delete the archived submission file
+				archiveFilePath := filepath.Join(archivePath, fmt.Sprintf("%s.json", submission.SubmissionID))
+				if err := gs.store.Delete(archiveFilePath); err != nil {
+					// Log error but continue with cleanup
+					continue
+				}
+			}
+		}
+
+		// Update metadata with remaining archives
+		metadata.Archives = remainingArchives
+		metadata.TotalArchives = len(remainingArchives)
+		metadata.LastUpdated = time.Now()
+
+		return gs.store.Set(metadataPath, metadata)
+	}); err != nil {
+		return fmt.Errorf("failed to cleanup old archives with lock: %w", err)
+	}
+
 	return nil
 }
