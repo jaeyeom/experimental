@@ -247,55 +247,50 @@ func (ch *CommandHandler) addBranchComment(repository models.Repository, branchN
 
 // SubmitCommand submits a review to GitHub.
 func (ch *CommandHandler) SubmitCommand(repository models.Repository, prNumber int, body, event, file string, formatter OutputFormatter, postSubmitAction models.Executor) error {
+	return ch.SubmitCommandWithOptions(repository, prNumber, body, event, file, formatter, postSubmitAction, SubmitOptions{})
+}
+
+// SubmitOptions contains options for the submit command.
+type SubmitOptions struct {
+	AutoAdjust          bool
+	ValidateAdjustments bool
+	SmartMerge          bool
+	MergeOptions        models.MergeOptions
+}
+
+// SubmitCommandWithOptions submits a review to GitHub with advanced options.
+func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository, prNumber int, body, event, file string, formatter OutputFormatter, postSubmitAction models.Executor, options SubmitOptions) error {
 	// Get comments
 	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
 
-	// Filter comments by file if specified
-	var commentsToSubmit []models.Comment
-	if file != "" {
-		for _, comment := range prComments.Comments {
-			if comment.Path == file {
-				commentsToSubmit = append(commentsToSubmit, comment)
-			}
-		}
-		if len(commentsToSubmit) == 0 {
-			return fmt.Errorf("no comments found for file: %s", file)
-		}
-	} else {
-		commentsToSubmit = prComments.Comments
-	}
-
-	// Convert to GitHub API format
-	review := models.PRReview{
-		Body:     body,
-		Event:    event,
-		Comments: commentsToSubmit,
-	}
-
-	// Submit review
-	if err := ch.ghClient.SubmitReview(repository, prNumber, review); err != nil {
-		return fmt.Errorf("failed to submit review: %w", err)
-	}
-
-	// Format result
-	result := models.SubmitResult{
-		Status:           "success",
-		PRNumber:         prNumber,
-		Repository:       repository,
-		Comments:         len(commentsToSubmit),
-		SubmittedAt:      time.Now(),
-		PostSubmitAction: postSubmitAction.Name(),
-		File:             file,
-	}
-
-	output, err := formatter.FormatSubmitResult(result)
+	// Process comments for submission
+	commentsToSubmit, err := ch.processCommentsForSubmission(prComments.Comments, file, options)
 	if err != nil {
-		return fmt.Errorf("failed to format result: %w", err)
+		return fmt.Errorf("failed to process comments: %w", err)
 	}
-	fmt.Println(output)
+
+	// Validate adjustments if requested
+	if err := ch.validateAdjustmentsIfRequested(commentsToSubmit, repository, prNumber, options); err != nil {
+		return err
+	}
+
+	// Submit review to GitHub
+	if err := ch.submitReviewToGitHub(repository, prNumber, body, event, commentsToSubmit); err != nil {
+		return err
+	}
+
+	// Update local storage if needed
+	if err := ch.updateLocalStorageAfterSubmit(repository, prNumber, prComments, commentsToSubmit, options); err != nil {
+		fmt.Printf("Warning: Failed to update local comments after auto-adjustment: %v\n", err)
+	}
+
+	// Format and display result
+	if err := ch.formatAndDisplayResult(repository, prNumber, commentsToSubmit, postSubmitAction, file, formatter); err != nil {
+		return err
+	}
 
 	// Execute post-submit action
 	if err := postSubmitAction.Execute(ch.storage, repository, prNumber, file); err != nil {
@@ -806,6 +801,241 @@ func sortAndGetNextComment(comments []models.Comment) models.Comment {
 }
 
 // getStorageHome returns the storage home directory.
+// processCommentsForSubmission processes comments based on the options provided.
+func (ch *CommandHandler) processCommentsForSubmission(prComments []models.Comment, file string, options SubmitOptions) ([]models.Comment, error) {
+	if options.AutoAdjust {
+		return ch.autoAdjustComments(prComments, file, options)
+	}
+	return ch.filterCommentsByFile(prComments, file)
+}
+
+// autoAdjustComments automatically adjusts comments before submission.
+func (ch *CommandHandler) autoAdjustComments(prComments []models.Comment, file string, options SubmitOptions) ([]models.Comment, error) {
+	fmt.Println("Auto-adjusting comments before submission...")
+
+	// Get latest diff to auto-adjust against
+	diffOutput, err := ch.gitClient.GetDiffSince("HEAD~1")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git diff for auto-adjustment: %w", err)
+	}
+
+	if diffOutput == "" {
+		fmt.Println("No changes detected, using comments as-is.")
+		return prComments, nil
+	}
+
+	return ch.processFilesForAutoAdjustment(prComments, file, diffOutput, options)
+}
+
+// processFilesForAutoAdjustment processes each file for auto-adjustment.
+func (ch *CommandHandler) processFilesForAutoAdjustment(prComments []models.Comment, file string, diffOutput string, options SubmitOptions) ([]models.Comment, error) {
+	// Process each unique file
+	fileComments := ch.groupCommentsByFile(prComments, file)
+
+	var commentsToSubmit []models.Comment
+	for filePath, fileCommentList := range fileComments {
+		fmt.Printf("Auto-adjusting comments in %s...\n", filePath)
+
+		adjustedComments, err := ch.adjustCommentsForFile(filePath, fileCommentList, diffOutput, options)
+		if err != nil {
+			fmt.Printf("Warning: %v, using comments as-is\n", err)
+			commentsToSubmit = append(commentsToSubmit, fileCommentList...)
+			continue
+		}
+
+		commentsToSubmit = append(commentsToSubmit, adjustedComments...)
+	}
+
+	fmt.Printf("Auto-adjustment completed. %d comments ready for submission.\n", len(commentsToSubmit))
+	return commentsToSubmit, nil
+}
+
+// groupCommentsByFile groups comments by file path.
+func (ch *CommandHandler) groupCommentsByFile(prComments []models.Comment, file string) map[string][]models.Comment {
+	fileComments := make(map[string][]models.Comment)
+	for _, comment := range prComments {
+		if file == "" || comment.Path == file {
+			fileComments[comment.Path] = append(fileComments[comment.Path], comment)
+		}
+	}
+	return fileComments
+}
+
+// adjustCommentsForFile adjusts comments for a specific file.
+func (ch *CommandHandler) adjustCommentsForFile(filePath string, fileCommentList []models.Comment, diffOutput string, options SubmitOptions) ([]models.Comment, error) {
+	// Filter unified diff for this file
+	filteredDiff, err := models.FilterUnifiedDiffForFile(diffOutput, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("could not filter diff for %s: %w", filePath, err)
+	}
+
+	if filteredDiff == "" {
+		// No changes for this file
+		return fileCommentList, nil
+	}
+
+	// Parse adjustments
+	adjustments, err := models.ParseDiffSpecWithAutoDetection(filteredDiff)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse diff for %s: %w", filePath, err)
+	}
+
+	return ch.applyAdjustmentsToComments(fileCommentList, adjustments, filePath, options)
+}
+
+// applyAdjustmentsToComments applies adjustments to comments with optional smart merging.
+func (ch *CommandHandler) applyAdjustmentsToComments(fileCommentList []models.Comment, adjustments []models.LineAdjustment, filePath string, options SubmitOptions) ([]models.Comment, error) {
+	if options.SmartMerge {
+		return ch.applySmartMerging(fileCommentList, adjustments, filePath, options)
+	}
+	return ch.applyRegularAdjustments(fileCommentList, adjustments)
+}
+
+// applySmartMerging applies smart merging to comments.
+func (ch *CommandHandler) applySmartMerging(fileCommentList []models.Comment, adjustments []models.LineAdjustment, filePath string, options SubmitOptions) ([]models.Comment, error) {
+	adjustedComments, conflicts, err := models.ApplySmartMerging(fileCommentList, adjustments, options.MergeOptions)
+	if err != nil {
+		fmt.Printf("Warning: Smart merging failed for %s: %v\n", filePath, err)
+		// Fall back to regular adjustment
+		return ch.applyRegularAdjustmentsFallback(fileCommentList, adjustments)
+	}
+
+	if len(conflicts) > 0 {
+		ch.reportMergeConflicts(conflicts, filePath)
+	}
+
+	return adjustedComments, nil
+}
+
+// applyRegularAdjustmentsFallback applies regular adjustments as fallback.
+func (ch *CommandHandler) applyRegularAdjustmentsFallback(fileCommentList []models.Comment, adjustments []models.LineAdjustment) ([]models.Comment, error) {
+	adjustedComments := fileCommentList
+	for i := range adjustedComments {
+		models.AdjustComment(&adjustedComments[i], adjustments)
+	}
+	return adjustedComments, nil
+}
+
+// applyRegularAdjustments applies regular adjustments to comments.
+func (ch *CommandHandler) applyRegularAdjustments(fileCommentList []models.Comment, adjustments []models.LineAdjustment) ([]models.Comment, error) {
+	var adjustedComments []models.Comment
+	for _, comment := range fileCommentList {
+		testComment := comment
+		if models.AdjustComment(&testComment, adjustments) {
+			adjustedComments = append(adjustedComments, testComment)
+		} else {
+			fmt.Printf("Warning: Comment %s became orphaned during auto-adjustment\n", comment.FormatIDShort())
+		}
+	}
+	return adjustedComments, nil
+}
+
+// reportMergeConflicts reports merge conflicts to the user.
+func (ch *CommandHandler) reportMergeConflicts(conflicts []models.MergeConflict, filePath string) {
+	fmt.Printf("Warning: %d unresolved merge conflicts in %s\n", len(conflicts), filePath)
+	for _, conflict := range conflicts {
+		fmt.Printf("  - Conflict at line %d: %d comments\n", conflict.Line, len(conflict.ConflictingComments))
+	}
+}
+
+// filterCommentsByFile filters comments by file if specified.
+func (ch *CommandHandler) filterCommentsByFile(prComments []models.Comment, file string) ([]models.Comment, error) {
+	if file == "" {
+		return prComments, nil
+	}
+
+	var commentsToSubmit []models.Comment
+	for _, comment := range prComments {
+		if comment.Path == file {
+			commentsToSubmit = append(commentsToSubmit, comment)
+		}
+	}
+
+	if len(commentsToSubmit) == 0 {
+		return nil, fmt.Errorf("no comments found for file: %s", file)
+	}
+
+	return commentsToSubmit, nil
+}
+
+// validateAdjustmentsIfRequested validates adjustments if requested in options.
+func (ch *CommandHandler) validateAdjustmentsIfRequested(commentsToSubmit []models.Comment, repository models.Repository, prNumber int, options SubmitOptions) error {
+	if !options.ValidateAdjustments {
+		return nil
+	}
+
+	fmt.Println("Validating adjusted comments against diff hunks...")
+
+	prDiffHunks, err := ch.storage.GetDiffHunks(repository, prNumber)
+	if err != nil {
+		return fmt.Errorf("failed to get diff hunks for validation: %w", err)
+	}
+
+	var validationErrors []string
+	for _, comment := range commentsToSubmit {
+		if err := models.ValidateAdjustmentAgainstDiff(comment, nil, prDiffHunks.DiffHunks); err != nil {
+			validationErrors = append(validationErrors, fmt.Sprintf("Comment %s: %s", comment.FormatIDShort(), err.Error()))
+		}
+	}
+
+	if len(validationErrors) > 0 {
+		return fmt.Errorf("validation failed:\n%s", strings.Join(validationErrors, "\n"))
+	}
+
+	fmt.Println("All comments validated successfully.")
+	return nil
+}
+
+// submitReviewToGitHub submits the review to GitHub.
+func (ch *CommandHandler) submitReviewToGitHub(repository models.Repository, prNumber int, body, event string, commentsToSubmit []models.Comment) error {
+	review := models.PRReview{
+		Body:     body,
+		Event:    event,
+		Comments: commentsToSubmit,
+	}
+
+	if err := ch.ghClient.SubmitReview(repository, prNumber, review); err != nil {
+		return fmt.Errorf("failed to submit review: %w", err)
+	}
+
+	return nil
+}
+
+// updateLocalStorageAfterSubmit updates local storage after successful submission.
+func (ch *CommandHandler) updateLocalStorageAfterSubmit(repository models.Repository, prNumber int, prComments *models.PRComments, commentsToSubmit []models.Comment, options SubmitOptions) error {
+	if !options.AutoAdjust {
+		return nil
+	}
+
+	prComments.Comments = commentsToSubmit
+	prComments.UpdatedAt = time.Now()
+	if err := ch.storage.UpdateComments(repository, prNumber, prComments); err != nil {
+		return fmt.Errorf("failed to update comments: %w", err)
+	}
+	return nil
+}
+
+// formatAndDisplayResult formats and displays the submission result.
+func (ch *CommandHandler) formatAndDisplayResult(repository models.Repository, prNumber int, commentsToSubmit []models.Comment, postSubmitAction models.Executor, file string, formatter OutputFormatter) error {
+	result := models.SubmitResult{
+		Status:           "success",
+		PRNumber:         prNumber,
+		Repository:       repository,
+		Comments:         len(commentsToSubmit),
+		SubmittedAt:      time.Now(),
+		PostSubmitAction: postSubmitAction.Name(),
+		File:             file,
+	}
+
+	output, err := formatter.FormatSubmitResult(result)
+	if err != nil {
+		return fmt.Errorf("failed to format result: %w", err)
+	}
+	fmt.Println(output)
+
+	return nil
+}
+
 func GetStorageHome() string {
 	if home := os.Getenv("GH_STORAGE_HOME"); home != "" {
 		return home

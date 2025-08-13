@@ -429,6 +429,9 @@ func handleSubmit(args []string) {
 	file := parser.GetOption("file")
 	jsonOutput := parser.HasOption("json")
 	afterAction := parser.GetOption("after")
+	autoAdjust := parser.HasOption("auto-adjust")
+	validateAdjustments := parser.HasOption("validate-adjustments")
+	smartMerge := parser.HasOption("smart-merge")
 
 	if err := validateSubmitEvent(event); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -449,7 +452,15 @@ func handleSubmit(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.SubmitCommand(repository, prNumber, body, event, file, formatter, postSubmitAction); err != nil {
+	// Create submit options
+	submitOptions := prreview.SubmitOptions{
+		AutoAdjust:          autoAdjust,
+		ValidateAdjustments: validateAdjustments,
+		SmartMerge:          smartMerge,
+		MergeOptions:        models.DefaultMergeOptions(),
+	}
+
+	if err := handler.SubmitCommandWithOptions(repository, prNumber, body, event, file, formatter, postSubmitAction, submitOptions); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -457,16 +468,19 @@ func handleSubmit(args []string) {
 
 func showSubmitUsage() {
 	fmt.Println("Usage: gh-pr-review submit <owner>/<repo> <pr_number> [options]")
-	fmt.Println("  --body TEXT       Review body text")
-	fmt.Println("  --event EVENT     Review event (COMMENT, APPROVE, REQUEST_CHANGES)")
-	fmt.Println("  --file FILE       Submit comments for specific file only")
-	fmt.Println("  --json            Output result in JSON format")
-	fmt.Println("  --after ACTION    What to do with local comments after submission")
-	fmt.Println("                    (clear, keep, archive) [default: clear]")
+	fmt.Println("  --body TEXT           Review body text")
+	fmt.Println("  --event EVENT         Review event (COMMENT, APPROVE, REQUEST_CHANGES)")
+	fmt.Println("  --file FILE           Submit comments for specific file only")
+	fmt.Println("  --json                Output result in JSON format")
+	fmt.Println("  --after ACTION        What to do with local comments after submission")
+	fmt.Println("                        (clear, keep, archive) [default: clear]")
+	fmt.Println("  --auto-adjust         Auto-adjust comment line numbers before submission")
+	fmt.Println("  --validate-adjustments Validate adjusted comments against diff hunks")
+	fmt.Println("  --smart-merge         Enable smart merging for conflicting comments")
 }
 
 func validateSubmitOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after"}); err != nil {
+	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after", "auto-adjust", "validate-adjustments", "smart-merge"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
 	if err := parser.RequireExactPositionals(2, "gh-pr-review submit <owner>/<repo> <pr_number> [options]"); err != nil {
