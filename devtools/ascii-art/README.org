@@ -1,0 +1,167 @@
+#+TITLE: ASCII Art Tools for Code Documentation
+
+* Overview
+
+ASCII art tools for creating visualizations in code comments and documentation.
+These tools help make test cases, timelines, and complex logic more
+understandable by embedding visual representations directly in source code.
+
+** Benefits
+- More efficient than embedding image files in source code
+- Version control friendly (text-based)
+- Universal compatibility across editors and platforms
+- Improved code documentation and test case clarity
+- Uses basic ASCII characters for consistent fixed-width rendering across all fonts
+
+* Tools
+
+** GANTT Chart Generator (~gantt-chart~)
+
+Creates timeline visualizations for scheduling, task management, and temporal analysis.
+
+*** Features
+- Configurable time units (1s, 100ms, etc.)
+- Customizable characters for different fill patterns
+- Optional grid display with configurable intervals
+- Row text labels and descriptions
+- Configurable comment prefixes (~//~, ~#~, etc.)
+
+*** Example Output
+#+BEGIN_EXAMPLE
+        // Timeline: PRIORITY VS TIME ORDER - Priority Overrides Time Order
+        //
+        // BEFORE Resolution:
+        // Time:   0s    5s    10s   15s   20s
+        //         |-----|-----|-----|-----|
+        // Task_A  |#####|#####|     |     |   (0s-10s) Priority: 2 (MEDIUM) - starts first but lower priority
+        // Task_B  |     |#####|#####|     |   (5s-15s) Priority: 3 (LOWEST) - middle start time
+        // Task_C  |     |     |#####|#####|   (10s-20s) Priority: 1 (HIGHEST) - starts last but highest priority
+        //         |-----|-----|-----|-----|
+        //         Node_1: A∩B(5s-10s) + B∩C(10s-15s), but C has highest priority despite starting last ⚠️
+#+END_EXAMPLE
+
+*** Character Types
+- ~#~ - Full block (0 to 1)
+- ~<~ - Right side only (0.5 to 1)
+- ~>~ - Left side only (0 to 0.5)
+- ~X~ - Both ends filled but not full (e.g. 0 to 0.2 and 0.8 to 1)
+
+** Graph Visualizer (~graph-viz~)
+
+Creates node and edge diagrams for data structures, algorithms, and system
+architectures.
+
+*** Features
+- Node positioning and labeling
+- Edge connections with optional labels
+- Directional arrows
+- Configurable comment prefixes
+- Multiple layout algorithms
+
+*** Example Output
+#+BEGIN_EXAMPLE
+        //     A ---> B
+        //     |      |
+        //     v      v
+        //     C ---> D
+        //
+        // Graph: A->B, A->C, B->D, C->D
+#+END_EXAMPLE
+
+* Directory Structure
+
+#+BEGIN_EXAMPLE
+devtools/ascii-art/
+├── cmd/
+│   ├── gantt-chart/        # CLI for GANTT chart generation
+│   │   ├── BUILD.bazel
+│   │   └── main.go
+│   └── graph-viz/          # CLI for graph visualization
+│       ├── BUILD.bazel
+│       └── main.go
+├── internal/
+│   ├── gantt/             # GANTT chart generation logic
+│   │   ├── BUILD.bazel
+│   │   ├── gantt.go
+│   │   └── gantt_test.go
+│   ├── graph/             # Graph visualization logic
+│   │   ├── BUILD.bazel
+│   │   ├── graph.go
+│   │   └── graph_test.go
+│   └── common/            # Shared ASCII art utilities
+│       ├── BUILD.bazel
+│       ├── prefix.go      # Comment prefix handling
+│       ├── grid.go        # Grid generation utilities
+│       └── charset.go     # Character set management
+└── README.org
+#+END_EXAMPLE
+
+* Usage Examples
+
+** GANTT Chart CLI
+#+BEGIN_SRC bash
+# Generate a simple timeline
+gantt-chart --time-unit=1s --prefix="//" --grid-interval=5s \
+  --task="Task_A,0s,10s,#,Priority: 2 (MEDIUM)" \
+  --task="Task_B,5s,15s,#,Priority: 3 (LOWEST)" \
+  --task="Task_C,10s,20s,#,Priority: 1 (HIGHEST)"
+
+# Output with custom characters for partial fills
+gantt-chart --time-unit=100ms --prefix="#" --chars="full:#,right:<,left:>,partial:X"
+#+END_SRC
+
+** Graph Visualization CLI
+#+BEGIN_SRC bash
+# Generate a directed graph
+graph-viz --prefix="//" --layout=grid \
+  --node="A,0,0" --node="B,2,0" --node="C,0,2" --node="D,2,2" \
+  --edge="A,B" --edge="A,C" --edge="B,D" --edge="C,D"
+#+END_SRC
+
+* Configuration
+
+** Common Options
+- ~--prefix~: Comment prefix (default: "// ")
+- ~--indent~: Base indentation (default: 0 spaces)
+- ~--width~: Maximum output width (default: 80 characters)
+
+** GANTT Specific
+- ~--time-unit~: Time per character (default: "1s")
+- ~--grid-interval~: Grid line spacing (default: "5s")
+- ~--chars~: Character set for fills (default: "full:#,right:<,left:>,partial:X")
+
+** Graph Specific
+- ~--layout~: Layout algorithm (grid, force, circular)
+- ~--arrow-style~: Arrow character style (default: ascii for fixed-width compatibility)
+
+* Related Issues
+
+- GitHub Issue #45: Implementation tracking and requirements
+
+* Development
+
+** Building
+#+BEGIN_SRC bash
+# Build all tools
+bazel build //devtools/ascii-art/...
+
+# Build specific tool
+bazel build //devtools/ascii-art/cmd/gantt-chart:gantt-chart
+#+END_SRC
+
+** Testing
+#+BEGIN_SRC bash
+# Run all tests
+bazel test //devtools/ascii-art/...
+
+# Run specific package tests
+bazel test //devtools/ascii-art/internal/gantt:gantt_test
+#+END_SRC
+
+** Integration
+These tools are designed to be integrated into:
+- Code generation templates
+- Test documentation
+- Design documents
+- Algorithm explanations
+- System architecture diagrams
