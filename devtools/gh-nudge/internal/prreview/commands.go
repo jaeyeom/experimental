@@ -1126,3 +1126,165 @@ func (ch *CommandHandler) ArchiveCleanupCommand(repository models.Repository, pr
 	fmt.Printf("Cleaned up archives older than %s for PR %s#%d\n", olderThanStr, repository, prNumber)
 	return nil
 }
+
+// PullCommand fetches comments from GitHub and stores them in local storage with merge strategies.
+func (ch *CommandHandler) PullCommand(repository models.Repository, prNumber int, options models.PullOptions) (*models.MergeResult, error) {
+	// Validate PR access
+	if err := ch.ghClient.ValidatePRAccess(repository, prNumber); err != nil {
+		return nil, fmt.Errorf("failed to access PR %s#%d: %w", repository, prNumber, err)
+	}
+
+	// Fetch comments from GitHub
+	githubComments, err := ch.ghClient.GetPRComments(repository, prNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch comments from GitHub: %w", err)
+	}
+
+	// Apply filters if specified
+	filteredComments := ch.filterGitHubComments(githubComments, options)
+
+	if options.DryRun {
+		return &models.MergeResult{
+			PulledComments: filteredComments,
+			TotalProcessed: len(filteredComments),
+		}, nil
+	}
+
+	// Get existing local comments
+	existingComments, err := ch.storage.GetComments(repository, prNumber)
+	if err != nil && !strings.Contains(err.Error(), "not found") {
+		return nil, fmt.Errorf("failed to get existing comments: %w", err)
+	}
+
+	// Merge with existing comments using specified strategy
+	mergeResult := ch.mergeGitHubComments(filteredComments, existingComments.Comments, options.MergeStrategy)
+
+	// Update local storage with merged results
+	updatedComments := models.PRComments{
+		PRNumber:   prNumber,
+		Repository: repository,
+		Comments:   mergeResult.PulledComments,
+		UpdatedAt:  time.Now(),
+	}
+
+	if err := ch.storage.UpdateComments(repository, prNumber, &updatedComments); err != nil {
+		return nil, fmt.Errorf("failed to update local comments: %w", err)
+	}
+
+	return mergeResult, nil
+}
+
+// filterGitHubComments applies filters to GitHub comments based on options.
+func (ch *CommandHandler) filterGitHubComments(comments []models.Comment, options models.PullOptions) []models.Comment {
+	if options.File == "" && options.Author == "" {
+		return comments
+	}
+
+	var filtered []models.Comment
+	for _, comment := range comments {
+		// Filter by file if specified
+		if options.File != "" && comment.Path != options.File {
+			continue
+		}
+
+		// Filter by author if specified (GitHub comments don't have author info in our current model)
+		// This would need to be implemented if we store author information
+
+		filtered = append(filtered, comment)
+	}
+
+	return filtered
+}
+
+// mergeGitHubComments merges GitHub comments with existing local comments using the specified strategy.
+func (ch *CommandHandler) mergeGitHubComments(githubComments, localComments []models.Comment, strategy models.MergeStrategy) *models.MergeResult {
+	result := &models.MergeResult{
+		TotalProcessed: len(githubComments),
+	}
+
+	// Default strategy is overwrite if not specified
+	if strategy == "" {
+		strategy = models.MergeStrategyOverwrite
+	}
+
+	switch strategy {
+	case models.MergeStrategyOverwrite:
+		result.PulledComments = githubComments
+	case models.MergeStrategyMerge:
+		result = ch.mergeCommentsStrategy(githubComments, localComments)
+	case models.MergeStrategySkip:
+		result = ch.skipConflictsStrategy(githubComments, localComments)
+	}
+
+	return result
+}
+
+// mergeCommentsStrategy implements the merge strategy: keep both local and GitHub comments.
+func (ch *CommandHandler) mergeCommentsStrategy(githubComments, localComments []models.Comment) *models.MergeResult {
+	result := &models.MergeResult{
+		TotalProcessed: len(githubComments),
+	}
+
+	// Start with all local comments
+	mergedComments := make([]models.Comment, len(localComments))
+	copy(mergedComments, localComments)
+
+	// Add GitHub comments, checking for conflicts
+	for _, ghComment := range githubComments {
+		conflict := ch.findConflictingComment(ghComment, localComments)
+		if conflict != nil {
+			result.ConflictedComments = append(result.ConflictedComments, ghComment)
+			// Keep both - add GitHub comment with modified ID to avoid conflicts
+			ghComment.ID = models.GenerateCommentID()
+			mergedComments = append(mergedComments, ghComment)
+		} else {
+			mergedComments = append(mergedComments, ghComment)
+		}
+	}
+
+	result.PulledComments = mergedComments
+	return result
+}
+
+// skipConflictsStrategy implements the skip strategy: skip conflicting comments, only pull non-conflicting ones.
+func (ch *CommandHandler) skipConflictsStrategy(githubComments, localComments []models.Comment) *models.MergeResult {
+	result := &models.MergeResult{
+		TotalProcessed: len(githubComments),
+	}
+
+	// Start with all local comments
+	mergedComments := make([]models.Comment, len(localComments))
+	copy(mergedComments, localComments)
+
+	// Add only non-conflicting GitHub comments
+	for _, ghComment := range githubComments {
+		conflict := ch.findConflictingComment(ghComment, localComments)
+		if conflict != nil {
+			result.SkippedComments = append(result.SkippedComments, ghComment)
+		} else {
+			mergedComments = append(mergedComments, ghComment)
+		}
+	}
+
+	result.PulledComments = mergedComments
+	return result
+}
+
+// findConflictingComment checks if a GitHub comment conflicts with any existing local comment.
+func (ch *CommandHandler) findConflictingComment(ghComment models.Comment, localComments []models.Comment) *models.Comment {
+	for i := range localComments {
+		if ch.isConflictingComment(ghComment, localComments[i]) {
+			return &localComments[i]
+		}
+	}
+	return nil
+}
+
+// isConflictingComment determines if two comments are conflicting.
+// Comments conflict if they are on the same file, line, side, and have different content.
+func (ch *CommandHandler) isConflictingComment(comment1, comment2 models.Comment) bool {
+	return comment1.Path == comment2.Path &&
+		comment1.Line == comment2.Line &&
+		comment1.Side == comment2.Side &&
+		comment1.Body != comment2.Body
+}

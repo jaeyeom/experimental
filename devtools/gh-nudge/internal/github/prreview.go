@@ -302,3 +302,134 @@ func (prc *PRReviewClient) GetExistingReviews(repository models.Repository, prNu
 
 	return reviews, nil
 }
+
+//nolint:revive // GitHubComment is appropriate naming for this context
+type GitHubComment struct {
+	ID                int64     `json:"id"`
+	Path              string    `json:"path"`
+	Position          *int      `json:"position"`
+	OriginalPosition  *int      `json:"original_position"` //nolint:tagliatelle // GitHub API uses snake_case
+	Line              *int      `json:"line"`
+	OriginalLine      *int      `json:"original_line"`       //nolint:tagliatelle // GitHub API uses snake_case
+	StartLine         *int      `json:"start_line"`          //nolint:tagliatelle // GitHub API uses snake_case
+	OriginalStartLine *int      `json:"original_start_line"` //nolint:tagliatelle // GitHub API uses snake_case
+	Body              string    `json:"body"`
+	Side              string    `json:"side"`
+	CommitID          string    `json:"commit_id"`  //nolint:tagliatelle // GitHub API uses snake_case
+	CreatedAt         time.Time `json:"created_at"` //nolint:tagliatelle // GitHub API uses snake_case
+	UpdatedAt         time.Time `json:"updated_at"` //nolint:tagliatelle // GitHub API uses snake_case
+	User              struct {
+		Login string `json:"login"`
+	} `json:"user"`
+}
+
+// GetPRComments fetches all line comments for a PR from GitHub.
+func (prc *PRReviewClient) GetPRComments(repository models.Repository, prNumber int) ([]models.Comment, error) {
+	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/comments", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PR comments: %w", err)
+	}
+
+	var githubComments []GitHubComment
+	if err := json.Unmarshal(output, &githubComments); err != nil {
+		return nil, fmt.Errorf("failed to parse comments response: %w", err)
+	}
+
+	// Convert GitHub comments to local comment format
+	var comments []models.Comment
+	for _, ghComment := range githubComments {
+		localComment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			fmt.Printf("Warning: Failed to convert comment %d: %v\n", ghComment.ID, err)
+			continue
+		}
+		comments = append(comments, localComment)
+	}
+
+	return comments, nil
+}
+
+// GetPRReviewComments fetches comments from all reviews for a PR.
+func (prc *PRReviewClient) GetPRReviewComments(repository models.Repository, prNumber int) ([]models.Comment, error) {
+	// Get all reviews
+	reviews, err := prc.GetExistingReviews(repository, prNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reviews: %w", err)
+	}
+
+	var allComments []models.Comment
+
+	// Get comments from each review
+	for _, review := range reviews {
+		reviewID, ok := review["id"].(float64)
+		if !ok {
+			continue
+		}
+
+		cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments", repository, prNumber, int64(reviewID))) //nolint:gosec // Intentional subprocess execution with gh CLI
+		output, err := cmd.Output()
+		if err != nil {
+			fmt.Printf("Warning: Failed to fetch comments for review %d: %v\n", int64(reviewID), err)
+			continue
+		}
+
+		var githubComments []GitHubComment
+		if err := json.Unmarshal(output, &githubComments); err != nil {
+			fmt.Printf("Warning: Failed to parse comments for review %d: %v\n", int64(reviewID), err)
+			continue
+		}
+
+		// Convert and add comments
+		for _, ghComment := range githubComments {
+			localComment, err := prc.convertGitHubComment(ghComment)
+			if err != nil {
+				fmt.Printf("Warning: Failed to convert comment %d: %v\n", ghComment.ID, err)
+				continue
+			}
+			allComments = append(allComments, localComment)
+		}
+	}
+
+	return allComments, nil
+}
+
+// convertGitHubComment converts GitHub API comment to local Comment model.
+func (prc *PRReviewClient) convertGitHubComment(ghComment GitHubComment) (models.Comment, error) {
+	now := time.Now()
+	comment := models.Comment{
+		ID:         models.GenerateCommentID(), // Generate new local ID
+		Path:       ghComment.Path,
+		Body:       ghComment.Body,
+		Side:       strings.ToUpper(ghComment.Side), // Ensure uppercase
+		SHA:        ghComment.CommitID,
+		CreatedAt:  ghComment.CreatedAt,
+		Status:     models.StatusUnresolved,
+		Source:     "github",
+		GitHubID:   &ghComment.ID,
+		LastSynced: &now,
+		SyncStatus: "synced",
+	}
+
+	// Handle line numbers - GitHub API can use different fields
+	switch {
+	case ghComment.Line != nil:
+		comment.Line = *ghComment.Line
+	case ghComment.OriginalLine != nil:
+		comment.Line = *ghComment.OriginalLine
+	default:
+		return models.Comment{}, fmt.Errorf("comment has no line number")
+	}
+
+	// Handle multi-line comments
+	if ghComment.StartLine != nil && *ghComment.StartLine != comment.Line {
+		comment.StartLine = ghComment.StartLine
+	}
+
+	// Validate side (default to RIGHT if invalid)
+	if comment.Side != "LEFT" && comment.Side != "RIGHT" {
+		comment.Side = "RIGHT"
+	}
+
+	return comment, nil
+}

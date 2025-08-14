@@ -189,6 +189,7 @@ func getCommandHandler(command string) func([]string) {
 	handlers := map[string]func([]string){
 		"capture":     handleCapture,
 		"comment":     handleComment,
+		"pull":        handlePull,
 		"submit":      handleSubmit,
 		"list":        handleList,
 		"delete":      handleDelete,
@@ -214,6 +215,7 @@ Usage: gh-pr-review <command> [options]
 Commands:
   capture [<owner>/<repo>] [<identifier>]         Capture diff hunks (PR or branch)
   comment [<owner>/<repo>] [<identifier>] <file> <line> "<comment>"  Add line comment
+  pull [<owner>/<repo>] [<pr_number>]             Fetch line comments from GitHub to local storage
   list [<owner>/<repo>] [<identifier>]            List stored comments (PR or branch)
   clear [<owner>/<repo>] [<identifier>]           Clear all comments (PR or branch)
   delete [<owner>/<repo>] [<identifier>] --comment-id <ID>  Delete comment by ID (PR or branch)
@@ -274,6 +276,21 @@ Examples:
 
   # Submit review and keep local comments (PR only)
   gh-pr-review submit octocat/Hello-World 42 --body "First pass" --after keep
+
+  # Pull all comments from GitHub PR to local storage (auto-detect repo and PR)
+  gh-pr-review pull
+
+  # Pull comments from specific repo and PR
+  gh-pr-review pull octocat/Hello-World 42
+
+  # Pull comments with merge strategy (overwrite, merge, skip)
+  gh-pr-review pull --merge-strategy merge
+
+  # Pull comments for specific file only (auto-detect repo and PR)
+  gh-pr-review pull --file src/main.js
+
+  # Dry-run to see what would be pulled without making changes
+  gh-pr-review pull --dry-run
 
   # Delete specific comment from PR by ID
   gh-pr-review delete octocat/Hello-World 42 --comment-id a1b2c3d4
@@ -1411,4 +1428,213 @@ func handleArchiveCleanup(handler *prreview.CommandHandler, repository models.Re
 		return fmt.Errorf("archive cleanup command failed: %w", err)
 	}
 	return nil
+}
+
+func handlePull(args []string) {
+	parser := argparser.NewArgParser(args)
+
+	if parser.IsHelp() {
+		showPullUsage()
+		return
+	}
+
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectPullArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
+
+	if err := validatePullOptions(parser); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	repository, prNumber, err := parsePullArgs(parser)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	options, err := parsePullOptions(parser)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
+		os.Exit(1)
+	}
+
+	result, err := handler.PullCommand(repository, prNumber, options)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Display results
+	if options.DryRun {
+		fmt.Printf("Dry-run: Would pull %d comments from GitHub PR %s#%d\n",
+			result.TotalProcessed, repository, prNumber)
+	} else {
+		fmt.Printf("Pulled %d comments from GitHub PR %s#%d\n",
+			len(result.PulledComments), repository, prNumber)
+
+		if len(result.ConflictedComments) > 0 {
+			fmt.Printf("  %d comments had conflicts (kept both versions)\n", len(result.ConflictedComments))
+		}
+		if len(result.SkippedComments) > 0 {
+			fmt.Printf("  %d comments were skipped due to conflicts\n", len(result.SkippedComments))
+		}
+	}
+}
+
+func showPullUsage() {
+	fmt.Println("Usage: gh-pr-review pull [<owner>/<repo>] [<pr_number>] [options]")
+	fmt.Println("  <owner>/<repo>          Repository (auto-detected if omitted)")
+	fmt.Println("  <pr_number>             PR number (auto-detected if omitted)")
+	fmt.Println("  --file FILE             Pull comments for specific file only")
+	fmt.Println("  --author USER           Pull comments from specific author only")
+	fmt.Println("  --merge-strategy STRATEGY How to handle conflicts with existing local comments")
+	fmt.Println("                          (overwrite, merge, skip) [default: overwrite]")
+	fmt.Println("  --dry-run               Show what would be pulled without making changes")
+	fmt.Println()
+	fmt.Println("Merge strategies:")
+	fmt.Println("  overwrite               Replace local comments with GitHub comments (default)")
+	fmt.Println("  merge                   Keep both local and GitHub comments")
+	fmt.Println("  skip                    Skip conflicting comments, only pull non-conflicting ones")
+}
+
+func validatePullOptions(parser *argparser.ArgParser) error {
+	if err := parser.ValidateOptions([]string{"file", "author", "merge-strategy", "dry-run"}); err != nil {
+		return fmt.Errorf("validating options: %w", err)
+	}
+	// Pull supports 0, 1, or 2 positional arguments due to auto-detection
+	positionals := parser.GetPositionals()
+	if len(positionals) > 2 {
+		return fmt.Errorf("too many arguments: gh-pr-review pull [<owner>/<repo>] [<pr_number>] [options]")
+	}
+	return nil
+}
+
+func parsePullArgs(parser *argparser.ArgParser) (models.Repository, int, error) {
+	repoSpec := parser.GetPositional(0)
+	prNumberStr := parser.GetPositional(1)
+
+	repository, err := storage.ParseRepoAndPR(repoSpec)
+	if err != nil {
+		return models.Repository{}, 0, fmt.Errorf("parsing repo spec: %w", err)
+	}
+
+	prNumber, err := strconv.Atoi(prNumberStr)
+	if err != nil {
+		return models.Repository{}, 0, fmt.Errorf("invalid PR number '%s'", prNumberStr)
+	}
+
+	return repository, prNumber, nil
+}
+
+func parsePullOptions(parser *argparser.ArgParser) (models.PullOptions, error) {
+	options := models.PullOptions{
+		File:          parser.GetOption("file"),
+		Author:        parser.GetOption("author"),
+		DryRun:        parser.HasOption("dry-run"),
+		MergeStrategy: models.MergeStrategyOverwrite, // default
+	}
+
+	// Parse merge strategy
+	if strategyStr := parser.GetOption("merge-strategy"); strategyStr != "" {
+		switch strings.ToLower(strategyStr) {
+		case "overwrite":
+			options.MergeStrategy = models.MergeStrategyOverwrite
+		case "merge":
+			options.MergeStrategy = models.MergeStrategyMerge
+		case "skip":
+			options.MergeStrategy = models.MergeStrategySkip
+		default:
+			return options, fmt.Errorf("invalid merge strategy '%s', must be one of: overwrite, merge, skip", strategyStr)
+		}
+	}
+
+	return options, nil
+}
+
+// autoDetectPullArgs handles auto-detection for pull command arguments.
+func autoDetectPullArgs(args []string) ([]string, error) {
+	// Count non-option arguments (those that don't start with --)
+	nonOptionArgs := make([]string, 0)
+	options := make([]string, 0)
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			options = append(options, arg)
+		} else {
+			nonOptionArgs = append(nonOptionArgs, arg)
+		}
+	}
+
+	switch len(nonOptionArgs) {
+	case 0:
+		// Auto-detect both owner/repo and PR number
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		prNumber, err := autoDetectPRNumber()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting PR number: %w", err)
+		}
+
+		// Build new args with auto-detected values
+		newArgs := make([]string, 0, len(args)+2)
+		newArgs = append(newArgs, ownerRepo, prNumber)
+		newArgs = append(newArgs, options...)
+		return newArgs, nil
+
+	case 1:
+		// Check if the single argument looks like owner/repo
+		if strings.Contains(nonOptionArgs[0], "/") {
+			// Auto-detect PR number
+			prNumber, err := autoDetectPRNumber()
+			if err != nil {
+				return nil, fmt.Errorf("auto-detecting PR number: %w", err)
+			}
+
+			// Build new args with auto-detected PR number
+			newArgs := make([]string, 0, len(args)+1)
+			newArgs = append(newArgs, nonOptionArgs[0], prNumber)
+			newArgs = append(newArgs, options...)
+			return newArgs, nil
+		}
+		// Assume it's PR number, auto-detect owner/repo
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		// Build new args with auto-detected owner/repo
+		newArgs := make([]string, 0, len(args)+1)
+		newArgs = append(newArgs, ownerRepo, nonOptionArgs[0])
+		newArgs = append(newArgs, options...)
+		return newArgs, nil
+
+	default:
+		// Two or more arguments, use as-is
+		return args, nil
+	}
+}
+
+// autoDetectPRNumber gets the current PR number if available.
+func autoDetectPRNumber() (string, error) {
+	cmd := exec.Command("gh", "pr", "view", "--json", "number", "-t", "{{.number}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current PR number: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
 }

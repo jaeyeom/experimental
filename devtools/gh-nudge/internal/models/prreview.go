@@ -94,6 +94,10 @@ type Comment struct {
 	ResolvedAt        *time.Time       `json:"resolvedAt,omitempty"`        // When comment was resolved
 	ResolutionReason  string           `json:"resolutionReason,omitempty"`  // Reason for resolution
 	Priority          CommentPriority  `json:"priority,omitempty"`          // Priority level
+	Source            string           `json:"source,omitempty"`            // "local" or "github"
+	GitHubID          *int64           `json:"githubId,omitempty"`          // Original GitHub comment ID
+	LastSynced        *time.Time       `json:"lastSynced,omitempty"`        // When last synced with GitHub
+	SyncStatus        string           `json:"syncStatus,omitempty"`        // "synced", "modified", "conflict"
 }
 
 // PRDiffHunks represents the diff hunks for a pull request.
@@ -544,4 +548,29 @@ type ArchiveMetadata struct {
 	Archives      []ArchivedSubmission `json:"archives"`
 	LastUpdated   time.Time            `json:"lastUpdated"`
 	TotalArchives int                  `json:"totalArchives"`
+}
+
+// MergeStrategy represents different strategies for handling conflicting comments.
+type MergeStrategy string
+
+const (
+	MergeStrategyOverwrite MergeStrategy = "overwrite"
+	MergeStrategyMerge     MergeStrategy = "merge"
+	MergeStrategySkip      MergeStrategy = "skip"
+)
+
+// PullOptions contains options for the pull command.
+type PullOptions struct {
+	File          string        `json:"file,omitempty"`
+	Author        string        `json:"author,omitempty"`
+	MergeStrategy MergeStrategy `json:"mergeStrategy,omitempty"`
+	DryRun        bool          `json:"dryRun,omitempty"`
+}
+
+// MergeResult contains the result of merging GitHub comments with local comments.
+type MergeResult struct {
+	PulledComments     []Comment `json:"pulledComments"`
+	ConflictedComments []Comment `json:"conflictedComments"`
+	SkippedComments    []Comment `json:"skippedComments"`
+	TotalProcessed     int       `json:"totalProcessed"`
 }
