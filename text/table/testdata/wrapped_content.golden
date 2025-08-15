@@ -1,0 +1,14 @@
+Service         | Description                   |   Status
+------------------------------------------------------------
+API Gateway     | This is a very long           |  Running
+                | description that will be      |
+                | wrapped across multiple lines |
+                | to demonstrate text wrapping  |
+                | functionality                 |
+------------------------------------------------------------
+Database        | MySQL primary server          |  Healthy
+------------------------------------------------------------
+Cache           | Redis cluster for session     |  Warning
+                | management and frequently     |
+                | accessed data                 |
+------------------------------------------------------------

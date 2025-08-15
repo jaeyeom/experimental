@@ -1,0 +1,5 @@
+Resource     │    Usage │    Limit │   Status
+-----------------------------------------------------
+CPU          │      65% │      80% │     OK
+Memory       │   4.2 GB │   8.0 GB │     OK
+Disk         │    45 GB │    50 GB │  WARNING
