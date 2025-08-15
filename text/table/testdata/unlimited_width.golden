@@ -1,0 +1,5 @@
+Timestamp            |  Level   | Component       | Message
+------------------------------------------------------------------------------------------
+2023-12-01 10:30:45  |   INFO   | AuthService     | User login successful
+2023-12-01 10:31:02  |   WARN   | DatabasePool    | Connection pool usage at 85%
+2023-12-01 10:31:15  |  ERROR   | PaymentGateway  | Transaction failed: insufficient funds
