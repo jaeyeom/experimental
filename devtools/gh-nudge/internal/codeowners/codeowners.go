@@ -1,3 +1,6 @@
+// Package codeowners provides functionality for parsing and working with GitHub
+// CODEOWNERS files. It supports section-based parsing and owner resolution for
+// files based on glob patterns.
 package codeowners
 
 import (
@@ -7,20 +10,36 @@ import (
 	"strings"
 )
 
+// Rule represents a single CODEOWNERS rule that maps a file pattern to a list
+// of owners.
 type Rule struct {
+	// File pattern (supports glob syntax including **)
 	Pattern string
-	Owners  []string
+
+	// List of owners (users or teams) for files matching the pattern
+	Owners []string
 }
 
+// Section represents a group of CODEOWNERS rules, typically separated by ##
+// comments. Each section can have different rules that are processed
+// independently.
 type Section struct {
-	Rules []Rule
+	Rules []Rule // List of rules in this section
 }
 
+// Codeowners represents a parsed CODEOWNERS file with support for multiple
+// sections. It provides methods to find owners for specific files based on the
+// defined rules.
 type Codeowners struct {
+	// List of sections containing ownership rules
 	Sections []Section
 }
 
-// ParseSections parses a CODEOWNERS file with section-based logic.
+// ParseSections parses a CODEOWNERS file with section-based logic. It reads
+// from the provided io.Reader and returns a Codeowners structure. Sections are
+// separated by lines starting with ## (double hash comments). Empty lines and
+// single # comments are ignored. Each rule line should contain a file pattern
+// followed by one or more owners.
 func ParseSections(r io.Reader) *Codeowners {
 	scanner := bufio.NewScanner(r)
 	var sections []Section
@@ -51,7 +70,11 @@ func ParseSections(r io.Reader) *Codeowners {
 	return &Codeowners{Sections: sections}
 }
 
-// OwnersFor returns the union of the last-matching owners from each section for the given file.
+// OwnersFor returns the union of the last-matching owners from each section for
+// the given file. For each section, it finds the last rule that matches the
+// file and includes those owners. The result is a deduplicated list of all
+// owners from the last-matching rule in each section. If no rules match the
+// file, an empty slice is returned.
 func (c *Codeowners) OwnersFor(file string) []string {
 	ownerSet := make(map[string]struct{})
 	for _, section := range c.Sections {
@@ -72,7 +95,17 @@ func (c *Codeowners) OwnersFor(file string) []string {
 	return owners
 }
 
-// matchPattern matches CODEOWNERS-style globs, including ** for any directory depth and **/*.ext for extension matches at any depth.
+// matchPattern matches CODEOWNERS-style globs, including ** for any directory
+// depth and **/*.ext for extension matches at any depth.
+//
+// Supported patterns:
+//   - Exact matches: "path/to/file.go"
+//   - Extension matches: "*.go" (root only), "**/*.go" (any depth)
+//   - Directory matches: "path/**" (any files under path)
+//   - Complex patterns: "path/**/subdir/*.ext"
+//
+// The function normalizes paths using forward slashes for cross-platform
+// compatibility.
 func matchPattern(pattern, file string) bool {
 	pattern = filepath.ToSlash(strings.TrimPrefix(pattern, "/"))
 	file = filepath.ToSlash(strings.TrimPrefix(file, "/"))
