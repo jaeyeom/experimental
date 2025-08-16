@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "canvas",
+    srcs = ["canvas.go"],
+    importpath = "github.com/jaeyeom/experimental/text/canvas",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "canvas_test",
+    srcs = ["canvas_test.go"],
+    embed = [":canvas"],
+)
