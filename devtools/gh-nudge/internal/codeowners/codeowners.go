@@ -194,50 +194,112 @@ func matchPattern(pattern, file string) bool {
 		return true
 	}
 
-	// Special case for patterns like myorg/api/**/*.proto
-	if strings.Contains(pattern, "/**/") {
-		parts := strings.Split(pattern, "/**/")
-		if len(parts) == 2 && strings.HasPrefix(file, parts[0]) {
-			// Check if the suffix part matches the file extension
-			if strings.HasPrefix(parts[1], "*.") {
-				ext := parts[1][1:] // Get the extension including the dot
-				return strings.HasSuffix(file, ext)
-			}
-			// For other patterns, check if the file ends with the suffix
-			return strings.HasSuffix(file, parts[1])
-		}
+	// Handle recursive patterns with **
+	if strings.Contains(pattern, "**") {
+		return matchRecursivePattern(pattern, file)
 	}
 
-	// Handle patterns with '**' anywhere (e.g., myorg/api/**/*.proto)
-	if strings.Contains(pattern, "**") {
-		parts := strings.Split(pattern, "**")
-		if len(parts) == 2 {
-			prefix := parts[0]
-			suffix := parts[1]
-			// Check if file starts with prefix and ends with suffix
-			if strings.HasPrefix(file, prefix) && strings.HasSuffix(file, suffix) {
+	// Handle simple patterns without **
+	return matchSimplePattern(pattern, file)
+}
+
+// matchRecursivePattern handles patterns containing **.
+func matchRecursivePattern(pattern, file string) bool {
+	// Split pattern on ** to handle multiple ** segments
+	parts := strings.Split(pattern, "**")
+
+	// For patterns like **/suffix, prefix/**, or prefix/**/suffix
+	if len(parts) == 2 {
+		prefix := parts[0]
+		suffix := parts[1]
+
+		// Remove trailing / from prefix and leading / from suffix
+		prefix = strings.TrimSuffix(prefix, "/")
+		suffix = strings.TrimPrefix(suffix, "/")
+
+		// Check prefix match
+		if prefix != "" && !strings.HasPrefix(file, prefix+"/") && file != prefix {
+			return false
+		}
+
+		// Check suffix match
+		if suffix != "" {
+			// If suffix starts with /, it's a path-based match
+			if strings.Contains(suffix, "/") {
+				return strings.HasSuffix(file, "/"+suffix) || strings.HasSuffix(file, suffix)
+			}
+			// Otherwise, it's a filename pattern match
+			fileBase := filepath.Base(file)
+			if matched, _ := filepath.Match(suffix, fileBase); matched {
 				return true
 			}
+		} else {
+			// Pattern ends with ** (like "dir/**")
+			// Should match files under the directory, but not the directory itself
+			return prefix == "" || strings.HasPrefix(file, prefix+"/")
 		}
 	}
 
-	// Handle patterns like **/*.go or **/foo.go
-	if strings.HasPrefix(pattern, "**/") {
-		sub := pattern[3:]
-		if ok, _ := filepath.Match(sub, filepath.Base(file)); ok {
-			return true
+	// Handle more complex patterns with multiple **
+	if len(parts) > 2 {
+		return matchComplexRecursivePattern(pattern, file)
+	}
+
+	return false
+}
+
+// matchComplexRecursivePattern handles patterns with multiple ** segments.
+func matchComplexRecursivePattern(pattern, file string) bool {
+	// For now, use a simplified approach for complex patterns
+	// This could be improved with a more sophisticated algorithm
+	parts := strings.Split(pattern, "**")
+
+	currentFile := file
+	for i, part := range parts {
+		part = strings.Trim(part, "/")
+		if part == "" {
+			continue
 		}
-		if ok, _ := filepath.Match(sub, file); ok {
-			return true
+
+		if i == len(parts)-1 {
+			// Last part - check if it matches the end
+			if strings.Contains(part, "/") {
+				return strings.HasSuffix(currentFile, part)
+			}
+			// Filename pattern
+			fileBase := filepath.Base(currentFile)
+			matched, _ := filepath.Match(part, fileBase)
+			return matched
+		}
+		// Find this part somewhere in the remaining file path
+		if idx := strings.Index(currentFile, part); idx >= 0 {
+			currentFile = currentFile[idx+len(part):]
+		} else {
+			return false
 		}
 	}
 
-	// Handle patterns like *.go (matches files in root only)
-	if strings.HasPrefix(pattern, "*.") {
-		return filepath.Ext(file) == pattern[1:]
+	return true
+}
+
+// matchSimplePattern handles patterns without **.
+func matchSimplePattern(pattern, file string) bool {
+	// For patterns like *.go, they should only match files at the same directory level
+	if strings.Contains(pattern, "*") || strings.Contains(pattern, "?") {
+		// If pattern contains no /, it should only match the basename
+		if !strings.Contains(pattern, "/") {
+			// Only match if file is also at root level (no /)
+			if strings.Contains(file, "/") {
+				return false
+			}
+			matched, _ := filepath.Match(pattern, file)
+			return matched
+		}
+		// Pattern contains /, use normal matching
+		matched, _ := filepath.Match(pattern, file)
+		return matched
 	}
 
-	// Fallback to filepath.Match for single * and ?
-	ok, _ := filepath.Match(pattern, file)
-	return ok
+	// Exact string match (no wildcards)
+	return pattern == file
 }

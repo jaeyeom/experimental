@@ -134,6 +134,109 @@ func TestParseOwner(t *testing.T) {
 	}
 }
 
+func TestMatchPattern(t *testing.T) {
+	testCases := []struct {
+		pattern string
+		file    string
+		want    bool
+		desc    string
+	}{
+		// Exact matches
+		{"foo.go", "foo.go", true, "exact match"},
+		{"foo.go", "bar.go", false, "exact non-match"},
+		{"dir/foo.go", "dir/foo.go", true, "exact path match"},
+		{"dir/foo.go", "dir/bar.go", false, "exact path non-match"},
+
+		// Simple glob patterns
+		{"*.go", "foo.go", true, "simple extension match"},
+		{"*.go", "foo.txt", false, "simple extension non-match"},
+		{"*.go", "dir/foo.go", false, "extension at root only - should not match subdirs"},
+		{"foo.*", "foo.go", true, "simple prefix match"},
+		{"foo.*", "bar.go", false, "simple prefix non-match"},
+
+		// Directory patterns with **
+		{"**/*.go", "foo.go", true, "** extension at root"},
+		{"**/*.go", "dir/foo.go", true, "** extension in subdir"},
+		{"**/*.go", "dir/subdir/foo.go", true, "** extension in deep subdir"},
+		{"**/*.go", "foo.txt", false, "** extension non-match"},
+
+		// Directory prefix patterns
+		{"dir/**", "dir/foo.go", true, "directory prefix match"},
+		{"dir/**", "dir/subdir/foo.go", true, "directory prefix deep match"},
+		{"dir/**", "other/foo.go", false, "directory prefix non-match"},
+		{"dir/**", "dir", false, "directory itself doesn't match **"},
+
+		// Complex patterns with directory and extension
+		{"myorg/api/**/*.proto", "myorg/api/foo.proto", true, "complex pattern match"},
+		{"myorg/api/**/*.proto", "myorg/api/v1/foo.proto", true, "complex pattern with subdir"},
+		{"myorg/api/**/*.proto", "myorg/api/v1/v2/foo.proto", true, "complex pattern with deep subdir"},
+		{"myorg/api/**/*.proto", "myorg/other/foo.proto", false, "complex pattern wrong dir"},
+		{"myorg/api/**/*.proto", "myorg/api/foo.go", false, "complex pattern wrong extension"},
+		{"myorg/api/**/*.proto", "other/api/foo.proto", false, "complex pattern wrong prefix"},
+
+		// Edge cases with leading/trailing slashes
+		{"/foo.go", "foo.go", true, "leading slash pattern"},
+		{"foo.go", "/foo.go", true, "leading slash file"},
+		{"/dir/foo.go", "/dir/foo.go", true, "both leading slashes"},
+		{"/dir/foo.go", "dir/foo.go", true, "pattern leading slash only"},
+
+		// Multiple ** patterns
+		{"**/src/**/*.go", "src/foo.go", true, "multiple ** - direct"},
+		{"**/src/**/*.go", "proj/src/foo.go", true, "multiple ** - with prefix"},
+		{"**/src/**/*.go", "proj/src/util/foo.go", true, "multiple ** - with subdir"},
+		{"**/src/**/*.go", "proj/test/foo.go", false, "multiple ** - wrong middle"},
+
+		// Patterns with single *
+		{"foo*.go", "foo.go", true, "single * suffix"},
+		{"foo*.go", "foobar.go", true, "single * with content"},
+		{"foo*.go", "bar.go", false, "single * non-match"},
+		{"*foo.go", "testfoo.go", true, "single * prefix"},
+		{"*foo.go", "foo.go", true, "single * empty prefix"},
+		{"*foo.go", "bar.go", false, "single * prefix non-match"},
+
+		// Question mark patterns
+		{"foo?.go", "foox.go", true, "question mark match"},
+		{"foo?.go", "foo.go", false, "question mark requires char"},
+		{"foo?.go", "fooxx.go", false, "question mark single char only"},
+
+		// Mixed patterns
+		{"test/**/foo*.go", "test/foo.go", true, "mixed ** and *"},
+		{"test/**/foo*.go", "test/util/foobar.go", true, "mixed ** and * with subdir"},
+		{"test/**/foo*.go", "test/util/bar.go", false, "mixed ** and * non-match"},
+
+		// Empty and special cases
+		{"", "", true, "both empty"},
+		{"", "foo.go", false, "empty pattern, non-empty file"},
+		{"foo.go", "", false, "non-empty pattern, empty file"},
+
+		// Case sensitivity (should be case sensitive)
+		{"Foo.go", "foo.go", false, "case sensitive - different case"},
+		{"foo.go", "Foo.go", false, "case sensitive - different case reverse"},
+
+		// Patterns without globs that should not match subdirs
+		{"foo.go", "dir/foo.go", false, "no glob should not match subdir"},
+		{"dir/foo.go", "dir/subdir/foo.go", false, "specific path should not match deeper"},
+
+		// Real-world CODEOWNERS patterns
+		{"*", "anything.txt", true, "global pattern"},
+		{"package.json", "package.json", true, "specific file"},
+		{"*.md", "README.md", true, "markdown files"},
+		{"docs/**", "docs/readme.txt", true, "docs directory"},
+		{"src/**/*.ts", "src/components/Button.ts", true, "TypeScript in src"},
+		{".github/**", ".github/workflows/ci.yml", true, "GitHub directory"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := matchPattern(tc.pattern, tc.file)
+			if got != tc.want {
+				t.Errorf("matchPattern(%q, %q) = %v, want %v",
+					tc.pattern, tc.file, got, tc.want)
+			}
+		})
+	}
+}
+
 // equalUnordered checks if two slices contain the same elements, order-independent.
 func equalUnordered(a, b []string) bool {
 	if len(a) != len(b) {
