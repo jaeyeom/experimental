@@ -65,8 +65,70 @@ package.json                                                        @myorg/packa
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := owners.OwnersFor(tc.file)
-			if !equalUnordered(got, tc.want) {
-				t.Errorf("file %q: got owners %v, want %v", tc.file, got, tc.want)
+			// Convert Owner interface to strings for comparison
+			gotStrings := make([]string, len(got))
+			for i, owner := range got {
+				gotStrings[i] = owner.String()
+			}
+			if !equalUnordered(gotStrings, tc.want) {
+				t.Errorf("file %q: got owners %v, want %v", tc.file, gotStrings, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseOwner(t *testing.T) {
+	testCases := []struct {
+		input    string
+		expected Owner
+	}{
+		{
+			input:    "@username",
+			expected: User{Name: "username"},
+		},
+		{
+			input:    "@myorg/team",
+			expected: Team{Org: "myorg", Name: "team"},
+		},
+		{
+			input:    "user@example.com",
+			expected: Email{Address: "user@example.com"},
+		},
+		{
+			input:    "  @spaced  ",
+			expected: User{Name: "spaced"},
+		},
+		{
+			input:    "username", // without @
+			expected: User{Name: "username"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			got := ParseOwner(tc.input)
+			if got.String() != tc.expected.String() {
+				t.Errorf("ParseOwner(%q): got %v (%T), want %v (%T)",
+					tc.input, got, got, tc.expected, tc.expected)
+			}
+
+			// Also test that the types match
+			switch expected := tc.expected.(type) {
+			case User:
+				if user, ok := got.(User); !ok || user.Name != expected.Name {
+					t.Errorf("ParseOwner(%q): expected User{Name: %q}, got %v",
+						tc.input, expected.Name, got)
+				}
+			case Team:
+				if team, ok := got.(Team); !ok || team.Org != expected.Org || team.Name != expected.Name {
+					t.Errorf("ParseOwner(%q): expected Team{Org: %q, Name: %q}, got %v",
+						tc.input, expected.Org, expected.Name, got)
+				}
+			case Email:
+				if email, ok := got.(Email); !ok || email.Address != expected.Address {
+					t.Errorf("ParseOwner(%q): expected Email{Address: %q}, got %v",
+						tc.input, expected.Address, got)
+				}
 			}
 		})
 	}

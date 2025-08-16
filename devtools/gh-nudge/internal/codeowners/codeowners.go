@@ -10,21 +10,93 @@ import (
 	"strings"
 )
 
+// Owner represents a code owner that can be a user, team, or email address.
+type Owner interface {
+	String() string
+}
+
+// User represents a GitHub user owner (e.g., @username).
+type User struct {
+	// GitHub username
+	Name string
+}
+
+// String returns the CODEOWNERS format for a user (@username).
+func (u User) String() string {
+	return "@" + u.Name
+}
+
+// Team represents a GitHub team owner (e.g., @org/team).
+type Team struct {
+	Org  string // GitHub organization name
+	Name string // Team name within the organization
+}
+
+// String returns the CODEOWNERS format for a team (@org/team).
+func (t Team) String() string {
+	return "@" + t.Org + "/" + t.Name
+}
+
+// Email represents an email address owner (e.g., user@example.com).
+type Email struct {
+	// Email address
+	Address string
+}
+
+// String returns the CODEOWNERS format for an email (user@example.com).
+func (e Email) String() string {
+	return e.Address
+}
+
+// ParseOwner parses an owner string from CODEOWNERS format into the appropriate Owner type.
+// It handles three formats:
+//   - @username -> User{Name: "username"}
+//   - @org/team -> Team{Org: "org", Name: "team"}
+//   - user@example.com -> Email{Address: "user@example.com"}
+func ParseOwner(s string) Owner {
+	s = strings.TrimSpace(s)
+
+	// Handle email addresses (contains @ but doesn't start with @)
+	if strings.Contains(s, "@") && !strings.HasPrefix(s, "@") {
+		return Email{Address: s}
+	}
+
+	// Handle GitHub users and teams (starts with @)
+	if strings.HasPrefix(s, "@") {
+		ownerPart := s[1:] // Remove the @ prefix
+
+		// Check if it's a team (contains /)
+		if strings.Contains(ownerPart, "/") {
+			parts := strings.SplitN(ownerPart, "/", 2)
+			if len(parts) == 2 {
+				return Team{Org: parts[0], Name: parts[1]}
+			}
+		}
+
+		// It's a user
+		return User{Name: ownerPart}
+	}
+
+	// Fallback: treat as user without @ prefix
+	return User{Name: s}
+}
+
 // Rule represents a single CODEOWNERS rule that maps a file pattern to a list
 // of owners.
 type Rule struct {
 	// File pattern (supports glob syntax including **)
 	Pattern string
 
-	// List of owners (users or teams) for files matching the pattern
-	Owners []string
+	// List of owners (users, teams, or emails) for files matching the pattern
+	Owners []Owner
 }
 
 // Section represents a group of CODEOWNERS rules, typically separated by ##
 // comments. Each section can have different rules that are processed
 // independently.
 type Section struct {
-	Rules []Rule // List of rules in this section
+	// List of rules in this section
+	Rules []Rule
 }
 
 // Codeowners represents a parsed CODEOWNERS file with support for multiple
@@ -61,7 +133,14 @@ func ParseSections(r io.Reader) *Codeowners {
 			continue
 		}
 		pattern := fields[0]
-		owners := fields[1:]
+		ownerStrings := fields[1:]
+
+		// Parse owner strings into Owner types
+		owners := make([]Owner, len(ownerStrings))
+		for i, ownerStr := range ownerStrings {
+			owners[i] = ParseOwner(ownerStr)
+		}
+
 		current.Rules = append(current.Rules, Rule{Pattern: pattern, Owners: owners})
 	}
 	if len(current.Rules) > 0 {
@@ -75,21 +154,21 @@ func ParseSections(r io.Reader) *Codeowners {
 // file and includes those owners. The result is a deduplicated list of all
 // owners from the last-matching rule in each section. If no rules match the
 // file, an empty slice is returned.
-func (c *Codeowners) OwnersFor(file string) []string {
-	ownerSet := make(map[string]struct{})
+func (c *Codeowners) OwnersFor(file string) []Owner {
+	ownerSet := make(map[string]Owner)
 	for _, section := range c.Sections {
-		var lastOwners []string
+		var lastOwners []Owner
 		for _, rule := range section.Rules {
 			if matchPattern(rule.Pattern, file) {
 				lastOwners = rule.Owners // Always overwrite, so only the last match in the section is kept
 			}
 		}
 		for _, o := range lastOwners {
-			ownerSet[o] = struct{}{}
+			ownerSet[o.String()] = o
 		}
 	}
-	owners := make([]string, 0, len(ownerSet))
-	for o := range ownerSet {
+	owners := make([]Owner, 0, len(ownerSet))
+	for _, o := range ownerSet {
 		owners = append(owners, o)
 	}
 	return owners
