@@ -7,10 +7,10 @@ import (
 )
 
 func TestFormatMessage(t *testing.T) {
-	userIDMapping := map[string]string{
+	userIDMapping := UserIDMapping{
 		"github-user": "U12345",
 	}
-	dmChannelIDMapping := map[string]string{
+	dmChannelIDMapping := DMChannelIDMapping{
 		"github-user": "C12345",
 	}
 
@@ -33,7 +33,7 @@ func TestFormatMessage(t *testing.T) {
 
 	t.Run("should replace all placeholders in template", func(t *testing.T) {
 		template := "Hey <@{slack_id}>, the PR '{title}' by {githubUsername} has been waiting for your review for {hours} hours. {url}"
-		message := client.FormatMessage(template, pr, "github-user", 24)
+		message := client.FormatMessage(template, pr, GitHubUsername("github-user"), 24)
 
 		expected := "Hey <@U12345>, the PR 'Test PR' by github-user has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
 		if message != expected {
@@ -43,7 +43,7 @@ func TestFormatMessage(t *testing.T) {
 
 	t.Run("should handle template without githubUsername placeholder", func(t *testing.T) {
 		template := "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
-		message := client.FormatMessage(template, pr, "github-user", 24)
+		message := client.FormatMessage(template, pr, GitHubUsername("github-user"), 24)
 
 		expected := "Hey <@U12345>, the PR 'Test PR' has been waiting for your review for 24 hours. https://github.com/org/repo/pull/1"
 		if message != expected {
@@ -53,11 +53,11 @@ func TestFormatMessage(t *testing.T) {
 }
 
 func TestGetSlackUserIDForGitHubUser(t *testing.T) {
-	userIDMapping := map[string]string{
+	userIDMapping := UserIDMapping{
 		"github-user1": "U12345",
 		"github-user2": "U67890",
 	}
-	dmChannelIDMapping := map[string]string{
+	dmChannelIDMapping := DMChannelIDMapping{
 		"github-user1": "C12345",
 		"github-user2": "C67890",
 	}
@@ -69,17 +69,17 @@ func TestGetSlackUserIDForGitHubUser(t *testing.T) {
 	})
 
 	t.Run("should return correct Slack user ID for GitHub user", func(t *testing.T) {
-		slackID, ok := client.GetSlackUserIDForGitHubUser("github-user1")
+		slackID, ok := client.GetSlackUserIDForGitHubUser(GitHubUsername("github-user1"))
 		if !ok {
 			t.Error("Expected to find Slack user ID for github-user1")
 		}
-		if slackID != "U12345" {
+		if string(slackID) != "U12345" {
 			t.Errorf("Expected Slack user ID 'U12345', got %q", slackID)
 		}
 	})
 
 	t.Run("should handle unknown GitHub user", func(t *testing.T) {
-		_, ok := client.GetSlackUserIDForGitHubUser("unknown-user")
+		_, ok := client.GetSlackUserIDForGitHubUser(GitHubUsername("unknown-user"))
 		if ok {
 			t.Error("Expected not to find Slack user ID for unknown-user")
 		}
@@ -87,11 +87,11 @@ func TestGetSlackUserIDForGitHubUser(t *testing.T) {
 }
 
 func TestGetDMChannelIDForGitHubUser(t *testing.T) {
-	userIDMapping := map[string]string{
+	userIDMapping := UserIDMapping{
 		"github-user1": "U12345",
 		"github-user2": "U67890",
 	}
-	dmChannelIDMapping := map[string]string{
+	dmChannelIDMapping := DMChannelIDMapping{
 		"github-user1": "C12345",
 		"github-user2": "C67890",
 	}
@@ -103,17 +103,17 @@ func TestGetDMChannelIDForGitHubUser(t *testing.T) {
 	})
 
 	t.Run("should return correct DM channel ID for GitHub user", func(t *testing.T) {
-		channelID, ok := client.GetDMChannelIDForGitHubUser("github-user1")
+		channelID, ok := client.GetDMChannelIDForGitHubUser(GitHubUsername("github-user1"))
 		if !ok {
 			t.Error("Expected to find DM channel ID for github-user1")
 		}
-		if channelID != "C12345" {
+		if string(channelID) != "C12345" {
 			t.Errorf("Expected DM channel ID 'C12345', got %q", channelID)
 		}
 	})
 
 	t.Run("should handle unknown GitHub user", func(t *testing.T) {
-		_, ok := client.GetDMChannelIDForGitHubUser("unknown-user")
+		_, ok := client.GetDMChannelIDForGitHubUser(GitHubUsername("unknown-user"))
 		if ok {
 			t.Error("Expected not to find DM channel ID for unknown-user")
 		}
@@ -175,10 +175,10 @@ func TestGetChannelForPR(t *testing.T) {
 }
 
 func TestSendDirectMessage(t *testing.T) {
-	userIDMapping := map[string]string{
+	userIDMapping := UserIDMapping{
 		"github-user": "U12345",
 	}
-	dmChannelIDMapping := map[string]string{
+	dmChannelIDMapping := DMChannelIDMapping{
 		"github-user": "C12345",
 	}
 
@@ -192,7 +192,7 @@ func TestSendDirectMessage(t *testing.T) {
 	t.Run("should prefer DM channel ID when available", func(t *testing.T) {
 		// In a real test, we would mock the Slack API and verify the correct channel ID is used
 		// For now, we're just ensuring the method doesn't panic
-		err := client.SendDirectMessage("github-user", "Test message")
+		err := client.SendDirectMessage(GitHubUsername("github-user"), "Test message")
 		// We expect an error in tests since we're not actually connecting to Slack
 		// Just checking that the function handles the logic correctly
 		if err == nil {
@@ -202,19 +202,12 @@ func TestSendDirectMessage(t *testing.T) {
 }
 
 func TestNudgeReviewer(t *testing.T) {
-	userIDMapping := map[string]string{
+	userIDMapping := UserIDMapping{
 		"github-user": "U12345",
 	}
-	dmChannelIDMapping := map[string]string{
+	dmChannelIDMapping := DMChannelIDMapping{
 		"github-user": "C12345",
 	}
-
-	client := NewClient(ClientConfig{
-		Token:              "test-token",
-		UserIDMapping:      userIDMapping,
-		DMChannelIDMapping: dmChannelIDMapping,
-	})
-	client.SetDefaultChannel("#default")
 
 	pr := models.PullRequest{
 		Title: "Test PR",
@@ -230,7 +223,15 @@ func TestNudgeReviewer(t *testing.T) {
 	template := "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
 
 	t.Run("should return destination and message in dry run mode with DM", func(t *testing.T) {
-		destination, message, err := client.NudgeReviewer(pr, "github-user", 24, template, true, true)
+		client := NewClient(ClientConfig{
+			Token:              "test-token",
+			UserIDMapping:      userIDMapping,
+			DMChannelIDMapping: dmChannelIDMapping,
+			MessagePoster:      NewDryRunMessagePoster(),
+		})
+		client.SetDefaultChannel("#default")
+
+		destination, message, err := client.NudgeReviewer(pr, GitHubUsername("github-user"), 24, template, true)
 		if err != nil {
 			t.Errorf("Expected no error in dry run mode, got: %v", err)
 		}
@@ -247,7 +248,15 @@ func TestNudgeReviewer(t *testing.T) {
 	})
 
 	t.Run("should return destination and message in dry run mode with channel", func(t *testing.T) {
-		destination, message, err := client.NudgeReviewer(pr, "github-user", 24, template, false, true)
+		client := NewClient(ClientConfig{
+			Token:              "test-token",
+			UserIDMapping:      userIDMapping,
+			DMChannelIDMapping: dmChannelIDMapping,
+			MessagePoster:      NewDryRunMessagePoster(),
+		})
+		client.SetDefaultChannel("#default")
+
+		destination, message, err := client.NudgeReviewer(pr, GitHubUsername("github-user"), 24, template, false)
 		if err != nil {
 			t.Errorf("Expected no error in dry run mode, got: %v", err)
 		}
@@ -264,15 +273,32 @@ func TestNudgeReviewer(t *testing.T) {
 	})
 
 	t.Run("should handle unknown GitHub user", func(t *testing.T) {
-		_, _, err := client.NudgeReviewer(pr, "unknown-user", 24, template, true, true)
+		client := NewClient(ClientConfig{
+			Token:              "test-token",
+			UserIDMapping:      userIDMapping,
+			DMChannelIDMapping: dmChannelIDMapping,
+			MessagePoster:      NewDryRunMessagePoster(),
+		})
+		client.SetDefaultChannel("#default")
+
+		_, _, err := client.NudgeReviewer(pr, GitHubUsername("unknown-user"), 24, template, true)
 
 		if err == nil {
 			t.Error("Expected an error for unknown GitHub user")
 		}
 	})
 
-	t.Run("should attempt to send message in non-dry run mode", func(t *testing.T) {
-		_, _, err := client.NudgeReviewer(pr, "github-user", 24, template, true, false)
+	t.Run("should attempt to send message with real client", func(t *testing.T) {
+		// Test with nil MessagePoster (should default to real Slack client)
+		client := NewClient(ClientConfig{
+			Token:              "test-token",
+			UserIDMapping:      userIDMapping,
+			DMChannelIDMapping: dmChannelIDMapping,
+			MessagePoster:      nil, // Will default to real Slack client
+		})
+		client.SetDefaultChannel("#default")
+
+		_, _, err := client.NudgeReviewer(pr, GitHubUsername("github-user"), 24, template, true)
 
 		// We expect an error in tests since we're not actually connecting to Slack
 		if err == nil {

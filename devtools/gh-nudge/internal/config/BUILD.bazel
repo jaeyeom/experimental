@@ -5,7 +5,10 @@ go_library(
     srcs = ["config.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
-    deps = ["@in_gopkg_yaml_v3//:go_default_library"],
+    deps = [
+        "//devtools/gh-nudge/internal/slack:go_default_library",
+        "@in_gopkg_yaml_v3//:go_default_library",
+    ],
 )
 
 go_test(

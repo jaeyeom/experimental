@@ -61,11 +61,20 @@ func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
 	// Initialize GitHub client
 	githubClient := github.NewClient(nil)
 
-	// Initialize Slack client
+	// Initialize Slack client with appropriate MessagePoster
+	var messagePoster slack.MessagePoster
+	if dryRun {
+		messagePoster = slack.NewDryRunMessagePoster()
+	} else {
+		// Use nil to let NewClient create the real Slack client
+		messagePoster = nil
+	}
+
 	slackClient := slack.NewClient(slack.ClientConfig{
 		Token:              cfg.Slack.Token,
 		UserIDMapping:      cfg.Slack.UserIDMapping,
 		DMChannelIDMapping: cfg.Slack.DMChannelIDMapping,
+		MessagePoster:      messagePoster,
 	})
 	slackClient.SetChannelRouting(convertChannelRouting(cfg.Slack.ChannelRouting))
 	slackClient.SetDefaultChannel(cfg.Slack.DefaultChannel)
@@ -99,7 +108,7 @@ func processReviewer(
 	slog.Debug("Processing reviewer", "login", reviewer.Login)
 
 	// Check if we have a Slack user ID for this GitHub user
-	_, ok := slackClient.GetSlackUserIDForGitHubUser(reviewer.Login)
+	_, ok := slackClient.GetSlackUserIDForGitHubUser(slack.GitHubUsername(reviewer.Login))
 	if !ok {
 		return fmt.Errorf("no Slack user ID mapping for GitHub user: %s", reviewer.Login)
 	}
@@ -117,25 +126,20 @@ func processReviewer(
 	// Use the NudgeReviewer method to send or simulate sending a notification
 	destination, message, err := slackClient.NudgeReviewer(
 		pr,
-		reviewer.Login,
+		slack.GitHubUsername(reviewer.Login),
 		cfg.Settings.ReminderThresholdHours,
 		cfg.Settings.MessageTemplate,
 		cfg.Settings.DMByDefault,
-		dryRun,
 	)
 
-	// Handle the results
-	if dryRun {
-		if err != nil {
-			slog.Error("Would fail to send notification", "error", err)
-		} else {
-			fmt.Printf("Would send to %s: %s\n", destination, message)
-		}
+	if err == slack.ErrDryRun {
+		slog.Info("Dry run mode, not sending notification",
+			"pr", pr.Title,
+			"reviewer", reviewer.Login,
+			"destination", destination,
+			"message", message)
 		return nil
-	}
-
-	// Handle the actual notification result
-	if err != nil {
+	} else if err != nil {
 		return fmt.Errorf("failed to send notification: %w", err)
 	}
 
