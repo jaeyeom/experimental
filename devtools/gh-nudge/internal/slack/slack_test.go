@@ -14,7 +14,11 @@ func TestFormatMessage(t *testing.T) {
 		"github-user": "C12345",
 	}
 
-	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+	client := NewClient(ClientConfig{
+		Token:              "test-token",
+		UserIDMapping:      userIDMapping,
+		DMChannelIDMapping: dmChannelIDMapping,
+	})
 
 	pr := models.PullRequest{
 		Title: "Test PR",
@@ -58,7 +62,11 @@ func TestGetSlackUserIDForGitHubUser(t *testing.T) {
 		"github-user2": "C67890",
 	}
 
-	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+	client := NewClient(ClientConfig{
+		Token:              "test-token",
+		UserIDMapping:      userIDMapping,
+		DMChannelIDMapping: dmChannelIDMapping,
+	})
 
 	t.Run("should return correct Slack user ID for GitHub user", func(t *testing.T) {
 		slackID, ok := client.GetSlackUserIDForGitHubUser("github-user1")
@@ -88,7 +96,11 @@ func TestGetDMChannelIDForGitHubUser(t *testing.T) {
 		"github-user2": "C67890",
 	}
 
-	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+	client := NewClient(ClientConfig{
+		Token:              "test-token",
+		UserIDMapping:      userIDMapping,
+		DMChannelIDMapping: dmChannelIDMapping,
+	})
 
 	t.Run("should return correct DM channel ID for GitHub user", func(t *testing.T) {
 		channelID, ok := client.GetDMChannelIDForGitHubUser("github-user1")
@@ -114,7 +126,11 @@ func TestGetChannelForPR(t *testing.T) {
 		{Pattern: "backend/.*\\.go$", Channel: "#backend"},
 	}
 
-	client := NewClient("test-token", nil, nil)
+	client := NewClient(ClientConfig{
+		Token:              "test-token",
+		UserIDMapping:      nil,
+		DMChannelIDMapping: nil,
+	})
 	client.SetChannelRouting(channelRouting)
 	client.SetDefaultChannel("#default")
 
@@ -166,7 +182,11 @@ func TestSendDirectMessage(t *testing.T) {
 		"github-user": "C12345",
 	}
 
-	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+	client := NewClient(ClientConfig{
+		Token:              "test-token",
+		UserIDMapping:      userIDMapping,
+		DMChannelIDMapping: dmChannelIDMapping,
+	})
 
 	// This is just a basic test structure since we can't actually send messages in tests
 	t.Run("should prefer DM channel ID when available", func(t *testing.T) {
@@ -189,7 +209,11 @@ func TestNudgeReviewer(t *testing.T) {
 		"github-user": "C12345",
 	}
 
-	client := NewClient("test-token", userIDMapping, dmChannelIDMapping)
+	client := NewClient(ClientConfig{
+		Token:              "test-token",
+		UserIDMapping:      userIDMapping,
+		DMChannelIDMapping: dmChannelIDMapping,
+	})
 	client.SetDefaultChannel("#default")
 
 	pr := models.PullRequest{

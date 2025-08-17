@@ -62,7 +62,11 @@ func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
 	githubClient := github.NewClient(nil)
 
 	// Initialize Slack client
-	slackClient := slack.NewClient(cfg.Slack.Token, cfg.Slack.UserIDMapping, cfg.Slack.DMChannelIDMapping)
+	slackClient := slack.NewClient(slack.ClientConfig{
+		Token:              cfg.Slack.Token,
+		UserIDMapping:      cfg.Slack.UserIDMapping,
+		DMChannelIDMapping: cfg.Slack.DMChannelIDMapping,
+	})
 	slackClient.SetChannelRouting(convertChannelRouting(cfg.Slack.ChannelRouting))
 	slackClient.SetDefaultChannel(cfg.Slack.DefaultChannel)
 

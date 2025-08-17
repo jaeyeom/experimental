@@ -151,7 +151,11 @@ func main() {
 	}
 
 	// Initialize Slack client
-	slackClient := slack.NewClient(cfg.Slack.Token, cfg.Slack.UserIDMapping, cfg.Slack.DMChannelIDMapping)
+	slackClient := slack.NewClient(slack.ClientConfig{
+		Token:              cfg.Slack.Token,
+		UserIDMapping:      cfg.Slack.UserIDMapping,
+		DMChannelIDMapping: cfg.Slack.DMChannelIDMapping,
+	})
 
 	// Parse variables for template
 	variables := parseVariables(vars)
