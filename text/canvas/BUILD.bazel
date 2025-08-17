@@ -5,10 +5,12 @@ go_library(
     srcs = ["canvas.go"],
     importpath = "github.com/jaeyeom/experimental/text/canvas",
     visibility = ["//visibility:public"],
+    deps = ["//text/wrap:go_default_library"],
 )
 
 go_test(
     name = "canvas_test",
+    size = "small",
     srcs = ["canvas_test.go"],
     embed = [":canvas"],
 )
