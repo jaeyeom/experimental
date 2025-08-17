@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/slack"
 )
 
 // Config represents the application configuration.
@@ -24,11 +26,11 @@ type GitHubConfig struct {
 
 // SlackConfig contains Slack-related configuration.
 type SlackConfig struct {
-	Token              string                 `yaml:"token"`
-	DefaultChannel     string                 `yaml:"default_channel"`
-	UserIDMapping      map[string]string      `yaml:"user_id_mapping"`
-	DMChannelIDMapping map[string]string      `yaml:"dm_channel_id_mapping"`
-	ChannelRouting     []ChannelRoutingConfig `yaml:"channel_routing"`
+	Token              string                   `yaml:"token"`
+	DefaultChannel     string                   `yaml:"default_channel"`
+	UserIDMapping      slack.UserIDMapping      `yaml:"user_id_mapping"`
+	DMChannelIDMapping slack.DMChannelIDMapping `yaml:"dm_channel_id_mapping"`
+	ChannelRouting     []ChannelRoutingConfig   `yaml:"channel_routing"`
 }
 
 // ChannelRoutingConfig defines file pattern to Slack channel mapping.

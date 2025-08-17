@@ -108,7 +108,7 @@ func formatMessage(msgTemplate string, variables map[string]string) string {
 
 // processMessage handles sending a message to a GitHub user.
 func processMessage(githubUsername, msgContent string, slackClient *slack.Client, dryRun bool) error {
-	destination, err := slackClient.SendDirectMessageWithDryRun(githubUsername, msgContent, dryRun)
+	destination, err := slackClient.SendDirectMessageWithDestination(slack.GitHubUsername(githubUsername), msgContent)
 
 	if dryRun {
 		if err != nil {
@@ -150,11 +150,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize Slack client
+	// Initialize Slack client with appropriate MessagePoster
+	var messagePoster slack.MessagePoster
+	if dryRun {
+		messagePoster = slack.NewDryRunMessagePoster()
+	} else {
+		// Use nil to let NewClient create the real Slack client
+		messagePoster = nil
+	}
+
 	slackClient := slack.NewClient(slack.ClientConfig{
 		Token:              cfg.Slack.Token,
 		UserIDMapping:      cfg.Slack.UserIDMapping,
 		DMChannelIDMapping: cfg.Slack.DMChannelIDMapping,
+		MessagePoster:      messagePoster,
 	})
 
 	// Parse variables for template
