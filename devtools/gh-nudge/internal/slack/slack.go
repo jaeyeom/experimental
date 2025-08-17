@@ -74,6 +74,12 @@ func (c *Client) GetChannelForPR(pr models.PullRequest) string {
 }
 
 // FormatMessage formats a notification message using the provided template.
+// Available template placeholders:
+//   - {githubUsername}: GitHub username of the PR author
+//   - {title}: Title of the pull request
+//   - {url}: URL of the pull request
+//   - {hours}: Number of hours since the PR was created
+//   - {slack_id}: Slack user ID (when used as <@{slack_id}>, falls back to githubUsername if no mapping exists)
 func (c *Client) FormatMessage(template string, pr models.PullRequest, githubUsername string, hours int) string {
 	message := template
 
