@@ -16,6 +16,13 @@ type ChannelRouting struct {
 	Channel string
 }
 
+// ClientConfig holds configuration options for creating a Slack client.
+type ClientConfig struct {
+	Token              string
+	UserIDMapping      map[string]string
+	DMChannelIDMapping map[string]string
+}
+
 // Client provides methods to interact with Slack.
 type Client struct {
 	api                *slack.Client
@@ -25,12 +32,12 @@ type Client struct {
 	defaultChannel     string
 }
 
-// NewClient creates a new Slack client with the given token and mappings.
-func NewClient(token string, userIDMapping, dmChannelIDMapping map[string]string) *Client {
+// NewClient creates a new Slack client with the given configuration.
+func NewClient(config ClientConfig) *Client {
 	return &Client{
-		api:                slack.New(token),
-		userIDMapping:      userIDMapping,
-		dmChannelIDMapping: dmChannelIDMapping,
+		api:                slack.New(config.Token),
+		userIDMapping:      config.UserIDMapping,
+		dmChannelIDMapping: config.DMChannelIDMapping,
 	}
 }
 
@@ -74,6 +81,7 @@ func (c *Client) GetChannelForPR(pr models.PullRequest) string {
 }
 
 // FormatMessage formats a notification message using the provided template.
+//
 // Available template placeholders:
 //   - {githubUsername}: GitHub username of the PR author
 //   - {title}: Title of the pull request
