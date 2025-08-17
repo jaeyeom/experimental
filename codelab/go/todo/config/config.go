@@ -85,7 +85,7 @@ func ParseStorageConfig(args []string) (*StorageConfig, *flag.FlagSet, error) {
 }
 
 // NewStorage creates a new storage instance based on the configuration.
-func (c *StorageConfig) NewStorage() (storage, error) {
+func (c *StorageConfig) NewStorage() (Storage, error) {
 	switch c.Type {
 	case StorageTypeJSON:
 		s, err := jsonstorage.New(c.Path)
@@ -104,8 +104,8 @@ func (c *StorageConfig) NewStorage() (storage, error) {
 	}
 }
 
-// storage is an interface for persisting todo lists.
-type storage interface {
+// Storage is an interface for persisting todo lists.
+type Storage interface {
 	Save(list *core.List) error
 	Load() (*core.List, error)
 	Close() error

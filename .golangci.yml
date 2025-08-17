@@ -33,6 +33,7 @@ linters:
         - identical
         - unused
         - opaque
+        - unexported
     depguard:
       rules:
         Base:
