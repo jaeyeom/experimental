@@ -219,7 +219,7 @@ Commands:
   list [<owner>/<repo>] [<identifier>]            List stored comments (PR or branch)
   clear [<owner>/<repo>] [<identifier>]           Clear all comments (PR or branch)
   delete [<owner>/<repo>] [<identifier>] --comment-id <ID>  Delete comment by ID (PR or branch)
-  submit <owner>/<repo> <pr_number>               Submit review to GitHub (PR only)
+  submit [<owner>/<repo>] [<pr_number>]           Submit review to GitHub (PR only)
   adjust [<owner>/<repo>] [<identifier>] [file] --diff <spec>     Adjust comment line numbers
   adjust [<owner>/<repo>] [<identifier>] [file] --unified-diff <spec>  Adjust using git diff output
   adjust [<owner>/<repo>] [<identifier>] --all-files --diff <spec>     Batch adjust all files
@@ -268,7 +268,10 @@ Examples:
   # Auto-detect and clear all comments
   gh-pr-review clear --confirm
 
-  # Submit review (PR only, clears local comments by default)
+  # Submit review (auto-detect repo and PR, clears local comments by default)
+  gh-pr-review submit --body "Code review completed" --event APPROVE
+
+  # Submit review (explicit repo and PR)
   gh-pr-review submit octocat/Hello-World 42 --body "Code review completed" --event APPROVE
 
   # Submit review for specific file only
@@ -430,6 +433,14 @@ func handleSubmit(args []string) {
 		return
 	}
 
+	// Auto-detect missing arguments
+	detectedArgs, err := autoDetectSubmitArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
+		os.Exit(1)
+	}
+	parser = argparser.NewArgParser(detectedArgs)
+
 	if err := validateSubmitOptions(parser); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -484,7 +495,9 @@ func handleSubmit(args []string) {
 }
 
 func showSubmitUsage() {
-	fmt.Println("Usage: gh-pr-review submit <owner>/<repo> <pr_number> [options]")
+	fmt.Println("Usage: gh-pr-review submit [<owner>/<repo>] [<pr_number>] [options]")
+	fmt.Println("  <owner>/<repo>        Repository (auto-detected if omitted)")
+	fmt.Println("  <pr_number>           PR number (auto-detected if omitted)")
 	fmt.Println("  --body TEXT           Review body text")
 	fmt.Println("  --event EVENT         Review event (COMMENT, APPROVE, REQUEST_CHANGES)")
 	fmt.Println("  --file FILE           Submit comments for specific file only")
@@ -1637,4 +1650,70 @@ func autoDetectPRNumber() (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// autoDetectSubmitArgs handles auto-detection for submit command arguments.
+func autoDetectSubmitArgs(args []string) ([]string, error) {
+	// Count non-option arguments (those that don't start with --)
+	nonOptionArgs := make([]string, 0)
+	options := make([]string, 0)
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			options = append(options, arg)
+		} else {
+			nonOptionArgs = append(nonOptionArgs, arg)
+		}
+	}
+
+	switch len(nonOptionArgs) {
+	case 0:
+		// Auto-detect both owner/repo and PR number
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		prNumber, err := autoDetectPRNumber()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting PR number: %w", err)
+		}
+
+		// Build new args with auto-detected values
+		newArgs := make([]string, 0, len(args)+2)
+		newArgs = append(newArgs, ownerRepo, prNumber)
+		newArgs = append(newArgs, options...)
+		return newArgs, nil
+
+	case 1:
+		// Check if the single argument looks like owner/repo
+		if strings.Contains(nonOptionArgs[0], "/") {
+			// Auto-detect PR number
+			prNumber, err := autoDetectPRNumber()
+			if err != nil {
+				return nil, fmt.Errorf("auto-detecting PR number: %w", err)
+			}
+
+			// Build new args with auto-detected PR number
+			newArgs := make([]string, 0, len(args)+1)
+			newArgs = append(newArgs, nonOptionArgs[0], prNumber)
+			newArgs = append(newArgs, options...)
+			return newArgs, nil
+		}
+		// Assume it's PR number, auto-detect owner/repo
+		ownerRepo, err := autoDetectOwnerRepo()
+		if err != nil {
+			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
+		}
+
+		// Build new args with auto-detected owner/repo
+		newArgs := make([]string, 0, len(args)+1)
+		newArgs = append(newArgs, ownerRepo, nonOptionArgs[0])
+		newArgs = append(newArgs, options...)
+		return newArgs, nil
+
+	default:
+		// Two or more arguments, use as-is
+		return args, nil
+	}
 }
