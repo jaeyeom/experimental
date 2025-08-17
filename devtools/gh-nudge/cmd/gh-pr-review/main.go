@@ -36,12 +36,16 @@ func autoDetectOwnerRepo() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// autoDetectIdentifier gets the PR number if available, otherwise the current branch.
-func autoDetectIdentifier() (string, error) {
+// autoDetectIdentifier gets the PR number if available, optionally falls back to current branch.
+func autoDetectIdentifier(prOnly bool) (string, error) {
 	// Try to get PR number first
 	cmd := exec.Command("gh", "pr", "view", "--json", "number", "-t", "{{.number}}")
 	if output, err := cmd.Output(); err == nil {
 		return strings.TrimSpace(string(output)), nil
+	}
+
+	if prOnly {
+		return "", fmt.Errorf("failed to get current PR number")
 	}
 
 	// Fall back to current branch
@@ -55,46 +59,74 @@ func autoDetectIdentifier() (string, error) {
 }
 
 // autoDetectArgs fills in missing owner/repo and identifier arguments.
-func autoDetectArgs(args []string) ([]string, error) {
-	if len(args) < 2 {
-		// Need to auto-detect both owner/repo and identifier
+// If requirePR is true, will only detect PR numbers, not branch names.
+func autoDetectArgs(args []string, requirePR bool) ([]string, error) {
+	// Count non-option arguments (those that don't start with --)
+	nonOptionArgs := make([]string, 0)
+	options := make([]string, 0)
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			options = append(options, arg)
+		} else {
+			nonOptionArgs = append(nonOptionArgs, arg)
+		}
+	}
+
+	switch len(nonOptionArgs) {
+	case 0:
+		// Auto-detect both owner/repo and identifier
 		ownerRepo, err := autoDetectOwnerRepo()
 		if err != nil {
 			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
 		}
 
-		identifier, err := autoDetectIdentifier()
+		identifier, err := autoDetectIdentifier(requirePR)
 		if err != nil {
 			return nil, fmt.Errorf("auto-detecting identifier: %w", err)
 		}
 
-		// Insert the auto-detected values at the beginning
+		// Build new args with auto-detected values
 		newArgs := make([]string, 0, len(args)+2)
 		newArgs = append(newArgs, ownerRepo, identifier)
-		newArgs = append(newArgs, args...)
+		newArgs = append(newArgs, options...)
 		return newArgs, nil
-	}
 
-	// Check if first argument looks like owner/repo format
-	if !strings.Contains(args[0], "/") {
-		// First argument doesn't look like owner/repo, try to auto-detect
+	case 1:
+		// Check if the single argument looks like owner/repo
+		if strings.Contains(nonOptionArgs[0], "/") {
+			// Auto-detect identifier
+			identifier, err := autoDetectIdentifier(requirePR)
+			if err != nil {
+				return nil, fmt.Errorf("auto-detecting identifier: %w", err)
+			}
+
+			// Build new args with auto-detected identifier
+			newArgs := make([]string, 0, len(args)+1)
+			newArgs = append(newArgs, nonOptionArgs[0], identifier)
+			newArgs = append(newArgs, options...)
+			return newArgs, nil
+		}
+		// Assume it's identifier, auto-detect owner/repo
 		ownerRepo, err := autoDetectOwnerRepo()
 		if err != nil {
 			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
 		}
 
-		// Insert owner/repo at the beginning
+		// Build new args with auto-detected owner/repo
 		newArgs := make([]string, 0, len(args)+1)
-		newArgs = append(newArgs, ownerRepo)
-		newArgs = append(newArgs, args...)
+		newArgs = append(newArgs, ownerRepo, nonOptionArgs[0])
+		newArgs = append(newArgs, options...)
 		return newArgs, nil
-	}
 
-	return args, nil
+	default:
+		// Two or more arguments, use as-is
+		return args, nil
+	}
 }
 
 // autoDetectArgsForComment handles auto-detection for comment command which has additional required args.
-func autoDetectArgsForComment(args []string) ([]string, error) {
+func autoDetectArgsForComment(args []string, requirePR bool) ([]string, error) {
 	// Count non-option arguments (those that don't start with --)
 	nonOptionArgs := make([]string, 0)
 	options := make([]string, 0)
@@ -119,7 +151,7 @@ func autoDetectArgsForComment(args []string) ([]string, error) {
 			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
 		}
 
-		identifier, err := autoDetectIdentifier()
+		identifier, err := autoDetectIdentifier(requirePR)
 		if err != nil {
 			return nil, fmt.Errorf("auto-detecting identifier: %w", err)
 		}
@@ -320,7 +352,7 @@ func handleCapture(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args)
+	detectedArgs, err := autoDetectArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -373,7 +405,7 @@ func handleComment(args []string) {
 	}
 
 	// Auto-detect missing arguments (but keep remaining args for file/line/comment)
-	detectedArgs, err := autoDetectArgsForComment(args)
+	detectedArgs, err := autoDetectArgsForComment(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -434,7 +466,7 @@ func handleSubmit(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectSubmitArgs(args)
+	detectedArgs, err := autoDetectArgs(args, true)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -558,7 +590,7 @@ func handleList(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args)
+	detectedArgs, err := autoDetectArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -662,7 +694,7 @@ func handleDelete(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args)
+	detectedArgs, err := autoDetectArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -726,7 +758,7 @@ func handleClear(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args)
+	detectedArgs, err := autoDetectArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -1010,7 +1042,7 @@ func parseAdjustArgsCase0() (string, string, string, error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("auto-detecting owner/repo: %w", err)
 	}
-	identifier, err := autoDetectIdentifier()
+	identifier, err := autoDetectIdentifier(false)
 	if err != nil {
 		return "", "", "", fmt.Errorf("auto-detecting identifier: %w", err)
 	}
@@ -1021,7 +1053,7 @@ func parseAdjustArgsCase0() (string, string, string, error) {
 func parseAdjustArgsCase1(arg string) (string, string, string, error) {
 	if strings.Contains(arg, "/") {
 		// Looks like owner/repo, auto-detect identifier
-		identifier, err := autoDetectIdentifier()
+		identifier, err := autoDetectIdentifier(false)
 		if err != nil {
 			return "", "", "", fmt.Errorf("auto-detecting identifier: %w", err)
 		}
@@ -1033,7 +1065,7 @@ func parseAdjustArgsCase1(arg string) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("auto-detecting owner/repo: %w", err)
 	}
-	identifier, err := autoDetectIdentifier()
+	identifier, err := autoDetectIdentifier(false)
 	if err != nil {
 		return "", "", "", fmt.Errorf("auto-detecting identifier: %w", err)
 	}
@@ -1141,7 +1173,7 @@ func handleNext(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args)
+	detectedArgs, err := autoDetectArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -1217,7 +1249,7 @@ func handleResolve(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args)
+	detectedArgs, err := autoDetectArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -1279,7 +1311,7 @@ func handleAutoAdjust(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectArgs(args)
+	detectedArgs, err := autoDetectArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -1452,7 +1484,7 @@ func handlePull(args []string) {
 	}
 
 	// Auto-detect missing arguments
-	detectedArgs, err := autoDetectPullArgs(args)
+	detectedArgs, err := autoDetectArgs(args, true)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error auto-detecting arguments: %v\n", err)
 		os.Exit(1)
@@ -1573,147 +1605,4 @@ func parsePullOptions(parser *argparser.ArgParser) (models.PullOptions, error) {
 	}
 
 	return options, nil
-}
-
-// autoDetectPullArgs handles auto-detection for pull command arguments.
-func autoDetectPullArgs(args []string) ([]string, error) {
-	// Count non-option arguments (those that don't start with --)
-	nonOptionArgs := make([]string, 0)
-	options := make([]string, 0)
-
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--") {
-			options = append(options, arg)
-		} else {
-			nonOptionArgs = append(nonOptionArgs, arg)
-		}
-	}
-
-	switch len(nonOptionArgs) {
-	case 0:
-		// Auto-detect both owner/repo and PR number
-		ownerRepo, err := autoDetectOwnerRepo()
-		if err != nil {
-			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
-		}
-
-		prNumber, err := autoDetectPRNumber()
-		if err != nil {
-			return nil, fmt.Errorf("auto-detecting PR number: %w", err)
-		}
-
-		// Build new args with auto-detected values
-		newArgs := make([]string, 0, len(args)+2)
-		newArgs = append(newArgs, ownerRepo, prNumber)
-		newArgs = append(newArgs, options...)
-		return newArgs, nil
-
-	case 1:
-		// Check if the single argument looks like owner/repo
-		if strings.Contains(nonOptionArgs[0], "/") {
-			// Auto-detect PR number
-			prNumber, err := autoDetectPRNumber()
-			if err != nil {
-				return nil, fmt.Errorf("auto-detecting PR number: %w", err)
-			}
-
-			// Build new args with auto-detected PR number
-			newArgs := make([]string, 0, len(args)+1)
-			newArgs = append(newArgs, nonOptionArgs[0], prNumber)
-			newArgs = append(newArgs, options...)
-			return newArgs, nil
-		}
-		// Assume it's PR number, auto-detect owner/repo
-		ownerRepo, err := autoDetectOwnerRepo()
-		if err != nil {
-			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
-		}
-
-		// Build new args with auto-detected owner/repo
-		newArgs := make([]string, 0, len(args)+1)
-		newArgs = append(newArgs, ownerRepo, nonOptionArgs[0])
-		newArgs = append(newArgs, options...)
-		return newArgs, nil
-
-	default:
-		// Two or more arguments, use as-is
-		return args, nil
-	}
-}
-
-// autoDetectPRNumber gets the current PR number if available.
-func autoDetectPRNumber() (string, error) {
-	cmd := exec.Command("gh", "pr", "view", "--json", "number", "-t", "{{.number}}")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current PR number: %w", err)
-	}
-
-	return strings.TrimSpace(string(output)), nil
-}
-
-// autoDetectSubmitArgs handles auto-detection for submit command arguments.
-func autoDetectSubmitArgs(args []string) ([]string, error) {
-	// Count non-option arguments (those that don't start with --)
-	nonOptionArgs := make([]string, 0)
-	options := make([]string, 0)
-
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--") {
-			options = append(options, arg)
-		} else {
-			nonOptionArgs = append(nonOptionArgs, arg)
-		}
-	}
-
-	switch len(nonOptionArgs) {
-	case 0:
-		// Auto-detect both owner/repo and PR number
-		ownerRepo, err := autoDetectOwnerRepo()
-		if err != nil {
-			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
-		}
-
-		prNumber, err := autoDetectPRNumber()
-		if err != nil {
-			return nil, fmt.Errorf("auto-detecting PR number: %w", err)
-		}
-
-		// Build new args with auto-detected values
-		newArgs := make([]string, 0, len(args)+2)
-		newArgs = append(newArgs, ownerRepo, prNumber)
-		newArgs = append(newArgs, options...)
-		return newArgs, nil
-
-	case 1:
-		// Check if the single argument looks like owner/repo
-		if strings.Contains(nonOptionArgs[0], "/") {
-			// Auto-detect PR number
-			prNumber, err := autoDetectPRNumber()
-			if err != nil {
-				return nil, fmt.Errorf("auto-detecting PR number: %w", err)
-			}
-
-			// Build new args with auto-detected PR number
-			newArgs := make([]string, 0, len(args)+1)
-			newArgs = append(newArgs, nonOptionArgs[0], prNumber)
-			newArgs = append(newArgs, options...)
-			return newArgs, nil
-		}
-		// Assume it's PR number, auto-detect owner/repo
-		ownerRepo, err := autoDetectOwnerRepo()
-		if err != nil {
-			return nil, fmt.Errorf("auto-detecting owner/repo: %w", err)
-		}
-
-		// Build new args with auto-detected owner/repo
-		newArgs := make([]string, 0, len(args)+1)
-		newArgs = append(newArgs, ownerRepo, nonOptionArgs[0])
-		newArgs = append(newArgs, options...)
-		return newArgs, nil
-
-	default:
-		// Two or more arguments, use as-is
-		return args, nil
-	}
 }
