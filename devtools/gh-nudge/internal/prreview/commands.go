@@ -277,22 +277,39 @@ func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository,
 		return err
 	}
 
-	// Submit review to GitHub
-	if err := ch.submitReviewToGitHub(repository, prNumber, body, event, commentsToSubmit); err != nil {
+	// Filter out comments that are not within valid diff hunks
+	validComments, filteredComments := ch.filterCommentsAgainstDiffHunks(repository, prNumber, commentsToSubmit)
+
+	// Report filtering results
+	if len(filteredComments) > 0 {
+		fmt.Printf("Warning: Filtered out %d comment(s) not within diff hunks:\n", len(filteredComments))
+		for _, comment := range filteredComments {
+			fmt.Printf("  - %s:%d (side %s) - %s\n", comment.Path, comment.Line, comment.Side, comment.FormatIDShort())
+		}
+	}
+
+	if len(validComments) == 0 {
+		return fmt.Errorf("no valid comments to submit after filtering")
+	}
+
+	fmt.Printf("Submitting %d valid comment(s) to GitHub\n", len(validComments))
+
+	// Submit review to GitHub with only valid comments
+	if err := ch.submitReviewToGitHub(repository, prNumber, body, event, validComments); err != nil {
 		return err
 	}
 
-	// Update local storage if needed
-	if err := ch.updateLocalStorageAfterSubmit(repository, prNumber, prComments, commentsToSubmit, options); err != nil {
+	// Update local storage if needed (use validComments instead of commentsToSubmit)
+	if err := ch.updateLocalStorageAfterSubmit(repository, prNumber, prComments, validComments, options); err != nil {
 		fmt.Printf("Warning: Failed to update local comments after auto-adjustment: %v\n", err)
 	}
 
-	// Format and display result
-	if err := ch.formatAndDisplayResult(repository, prNumber, commentsToSubmit, postSubmitAction, file, formatter); err != nil {
+	// Format and display result (use validComments instead of commentsToSubmit)
+	if err := ch.formatAndDisplayResult(repository, prNumber, validComments, postSubmitAction, file, formatter); err != nil {
 		return err
 	}
 
-	// Execute post-submit action
+	// Execute post-submit action (this will now only affect comments that were actually submitted)
 	if err := postSubmitAction.Execute(ch.storage, repository, prNumber, file); err != nil {
 		return fmt.Errorf("post-submit action failed: %w", err)
 	}
@@ -593,6 +610,29 @@ func (ch *CommandHandler) diffHunksExist(repository models.Repository, prNumber 
 	}
 
 	return fs.Exists(diffPath)
+}
+
+// filterCommentsAgainstDiffHunks filters comments to only include those within valid diff hunks.
+// Returns validComments (those within diff hunks) and filteredComments (those outside diff hunks).
+func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repository, prNumber int, comments []models.Comment) ([]models.Comment, []models.Comment) {
+	// If no diff hunks exist, return all comments as valid (skip validation)
+	if !ch.diffHunksExist(repository, prNumber) {
+		fmt.Printf("Warning: No diff hunks found, comment validation skipped\n")
+		return comments, nil
+	}
+
+	var validComments []models.Comment
+	var filteredComments []models.Comment
+
+	for _, comment := range comments {
+		if err := ch.storage.ValidateCommentAgainstDiff(repository, prNumber, comment); err != nil {
+			filteredComments = append(filteredComments, comment)
+		} else {
+			validComments = append(validComments, comment)
+		}
+	}
+
+	return validComments, filteredComments
 }
 
 func (ch *CommandHandler) branchDiffHunksExist(repository models.Repository, branchName string) bool {
