@@ -58,20 +58,50 @@ func autoDetectIdentifier(prOnly bool) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// reconstructFlagsAndValues separates positional arguments from flags and their values.
+// Returns positionals and a slice of flag arguments (including values).
+func reconstructFlagsAndValues(args []string) ([]string, []string) {
+	// Use argparser to properly separate positional arguments from flags
+	parser := argparser.NewArgParser(args)
+	nonOptionArgs := parser.GetPositionals()
+
+	// Reconstruct original flags and their values
+	options := make([]string, 0)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "--") {
+			if strings.Contains(arg, "=") {
+				// Flag with equals syntax: --flag=value
+				options = append(options, arg)
+			} else {
+				// Flag with space syntax: --flag value
+				options = append(options, arg)
+				// Check if next argument is the value (not a positional or another flag)
+				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+					// Check if this value is in our positionals list - if not, it's a flag value
+					nextArg := args[i+1]
+					isPositional := false
+					for _, pos := range nonOptionArgs {
+						if pos == nextArg {
+							isPositional = true
+							break
+						}
+					}
+					if !isPositional {
+						options = append(options, nextArg)
+						i++ // Skip the value argument
+					}
+				}
+			}
+		}
+	}
+	return nonOptionArgs, options
+}
+
 // autoDetectArgs fills in missing owner/repo and identifier arguments.
 // If requirePR is true, will only detect PR numbers, not branch names.
 func autoDetectArgs(args []string, requirePR bool) ([]string, error) {
-	// Count non-option arguments (those that don't start with --)
-	nonOptionArgs := make([]string, 0)
-	options := make([]string, 0)
-
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--") {
-			options = append(options, arg)
-		} else {
-			nonOptionArgs = append(nonOptionArgs, arg)
-		}
-	}
+	nonOptionArgs, options := reconstructFlagsAndValues(args)
 
 	switch len(nonOptionArgs) {
 	case 0:
@@ -127,17 +157,7 @@ func autoDetectArgs(args []string, requirePR bool) ([]string, error) {
 
 // autoDetectArgsForComment handles auto-detection for comment command which has additional required args.
 func autoDetectArgsForComment(args []string, requirePR bool) ([]string, error) {
-	// Count non-option arguments (those that don't start with --)
-	nonOptionArgs := make([]string, 0)
-	options := make([]string, 0)
-
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--") {
-			options = append(options, arg)
-		} else {
-			nonOptionArgs = append(nonOptionArgs, arg)
-		}
-	}
+	nonOptionArgs, options := reconstructFlagsAndValues(args)
 
 	// We need at least 3 non-option args: file, line, comment
 	if len(nonOptionArgs) < 3 {

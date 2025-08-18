@@ -418,3 +418,107 @@ func TestArgParser_WithBooleanFlags_MultipleOptions(t *testing.T) {
 		t.Errorf("Expected %v, got %v", expectedPositionals, parser.GetPositionals())
 	}
 }
+
+func TestArgParser_NonBooleanFlagWithValue(t *testing.T) {
+	// Test case that demonstrates potential issue: boolean flags should NOT consume next argument
+	// when there's a value that looks like an argument but should be left as positional
+
+	// Test with a known boolean flag - verbose should not consume "file.txt" as its value
+	parser1 := NewArgParser([]string{"--verbose", "file.txt"})
+
+	t.Logf("Boolean flag test: verbose value='%s', positionals=%v", parser1.GetOption("verbose"), parser1.GetPositionals())
+
+	if parser1.GetOption("verbose") != "true" {
+		t.Errorf("Expected 'true' for verbose flag, got '%s'", parser1.GetOption("verbose"))
+	}
+
+	expectedPositionals1 := []string{"file.txt"}
+	if !reflect.DeepEqual(parser1.GetPositionals(), expectedPositionals1) {
+		t.Errorf("Expected %v positionals for boolean flag, got %v", expectedPositionals1, parser1.GetPositionals())
+	}
+
+	// Test the specific issue: --comment-id ID vs --comment-id=ID
+	// Test space syntax (potentially broken)
+	args1 := []string{"resolve", "owner/repo", "123", "--comment-id", "a1b2c3d4"}
+	parser2 := NewArgParser(args1)
+
+	t.Logf("Space syntax test: comment-id='%s', positionals=%v", parser2.GetOption("comment-id"), parser2.GetPositionals())
+
+	if parser2.GetOption("comment-id") != "a1b2c3d4" {
+		t.Fatalf("ISSUE FOUND: --comment-id a1b2c3d4 should set comment-id to 'a1b2c3d4', got '%s'", parser2.GetOption("comment-id"))
+	}
+
+	expectedPositionals2 := []string{"resolve", "owner/repo", "123"}
+	if !reflect.DeepEqual(parser2.GetPositionals(), expectedPositionals2) {
+		t.Fatalf("ISSUE FOUND: --comment-id a1b2c3d4 should consume the ID, leaving positionals %v, got %v", expectedPositionals2, parser2.GetPositionals())
+	}
+
+	// Test equals syntax (should work)
+	args2 := []string{"resolve", "owner/repo", "123", "--comment-id=a1b2c3d4"}
+	parser3 := NewArgParser(args2)
+
+	t.Logf("Equals syntax test: comment-id='%s', positionals=%v", parser3.GetOption("comment-id"), parser3.GetPositionals())
+
+	if parser3.GetOption("comment-id") != "a1b2c3d4" {
+		t.Errorf("Expected 'a1b2c3d4' for comment-id with equals syntax, got '%s'", parser3.GetOption("comment-id"))
+	}
+
+	expectedPositionals3 := []string{"resolve", "owner/repo", "123"}
+	if !reflect.DeepEqual(parser3.GetPositionals(), expectedPositionals3) {
+		t.Errorf("Expected %v positionals with equals syntax, got %v", expectedPositionals3, parser3.GetPositionals())
+	}
+
+	// Both should produce identical results
+	if parser2.GetOption("comment-id") != parser3.GetOption("comment-id") {
+		t.Errorf("Space and equals syntax should produce same result: space='%s', equals='%s'",
+			parser2.GetOption("comment-id"), parser3.GetOption("comment-id"))
+	}
+
+	// Test what happens when we have exactly 2 positionals + comment-id flag
+	// This mimics the exact issue where resolve command requires exactly 2 positionals
+	if parser2.PositionalCount() != 3 {
+		t.Errorf("Expected exactly 3 positionals for space syntax, got %d", parser2.PositionalCount())
+	}
+
+	if parser3.PositionalCount() != 3 {
+		t.Errorf("Expected exactly 3 positionals for equals syntax, got %d", parser3.PositionalCount())
+	}
+}
+
+func TestArgParser_AutoDetectArgsIssue(t *testing.T) {
+	// Test the specific issue where autoDetectArgs function incorrectly splits arguments
+	// This test mimics the exact scenario: gh-pr-review delete --comment-id 7ff
+
+	args := []string{"--comment-id", "7ff"}
+	parser := NewArgParser(args)
+
+	t.Logf("delete --comment-id 7ff: comment-id='%s', positionals=%v", parser.GetOption("comment-id"), parser.GetPositionals())
+
+	// The key issue: comment-id should get value "7ff", not "true"
+	if parser.GetOption("comment-id") != "7ff" {
+		t.Fatalf("CRITICAL BUG: --comment-id 7ff should set comment-id to '7ff', got '%s'", parser.GetOption("comment-id"))
+	}
+
+	// There should be no positional arguments
+	if parser.PositionalCount() != 0 {
+		t.Fatalf("CRITICAL BUG: --comment-id 7ff should not create positional args, got %v", parser.GetPositionals())
+	}
+
+	// Test with equals syntax for comparison
+	args2 := []string{"--comment-id=7ff"}
+	parser2 := NewArgParser(args2)
+
+	if parser2.GetOption("comment-id") != "7ff" {
+		t.Errorf("Expected '7ff' for equals syntax, got '%s'", parser2.GetOption("comment-id"))
+	}
+
+	if parser2.PositionalCount() != 0 {
+		t.Errorf("Expected no positionals for equals syntax, got %v", parser2.GetPositionals())
+	}
+
+	// Both should produce identical results
+	if parser.GetOption("comment-id") != parser2.GetOption("comment-id") {
+		t.Errorf("Space and equals syntax should produce same result: space='%s', equals='%s'",
+			parser.GetOption("comment-id"), parser2.GetOption("comment-id"))
+	}
+}
