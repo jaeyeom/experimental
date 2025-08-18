@@ -29,3 +29,14 @@ go_test(
     srcs = ["adjust_extended_test.go"],
     embed = [":go_default_library"],
 )
+
+go_test(
+    name = "submit_filter_test",
+    size = "small",
+    srcs = ["submit_filter_test.go"],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/gh-nudge/internal/models:go_default_library",
+        "//devtools/gh-nudge/internal/storage:go_default_library",
+    ],
+)
