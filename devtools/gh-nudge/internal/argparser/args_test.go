@@ -308,3 +308,113 @@ func TestArgParser_GetOption_NonExistent(t *testing.T) {
 		t.Errorf("Expected empty string for non-existent option, got '%s'", value)
 	}
 }
+
+func TestArgParser_WithBooleanFlags(t *testing.T) {
+	// Test custom boolean flags
+	parser := NewArgParser([]string{"--custom-flag", "file.txt", "--another-bool", "--output", "result.txt"},
+		WithBooleanFlags("custom-flag", "another-bool"))
+
+	// custom-flag should be treated as boolean and not consume file.txt
+	if parser.GetOption("custom-flag") != "true" {
+		t.Errorf("Expected 'true' for custom-flag, got '%s'", parser.GetOption("custom-flag"))
+	}
+
+	// another-bool should be treated as boolean
+	if parser.GetOption("another-bool") != "true" {
+		t.Errorf("Expected 'true' for another-bool, got '%s'", parser.GetOption("another-bool"))
+	}
+
+	// output should consume result.txt as value
+	if parser.GetOption("output") != "result.txt" {
+		t.Errorf("Expected 'result.txt' for output, got '%s'", parser.GetOption("output"))
+	}
+
+	// file.txt should be a positional argument
+	expectedPositionals := []string{"file.txt"}
+	if !reflect.DeepEqual(parser.GetPositionals(), expectedPositionals) {
+		t.Errorf("Expected %v, got %v", expectedPositionals, parser.GetPositionals())
+	}
+}
+
+func TestArgParser_WithBooleanFlags_OverrideDefault(t *testing.T) {
+	// Test that custom boolean flags are added to defaults, not replacing them
+	parser := NewArgParser([]string{"--verbose", "--custom", "--output", "file.txt"},
+		WithBooleanFlags("custom"))
+
+	// Default boolean flag should still work
+	if parser.GetOption("verbose") != "true" {
+		t.Errorf("Expected 'true' for verbose, got '%s'", parser.GetOption("verbose"))
+	}
+
+	// Custom boolean flag should work
+	if parser.GetOption("custom") != "true" {
+		t.Errorf("Expected 'true' for custom, got '%s'", parser.GetOption("custom"))
+	}
+
+	// Non-boolean flag should consume value
+	if parser.GetOption("output") != "file.txt" {
+		t.Errorf("Expected 'file.txt' for output, got '%s'", parser.GetOption("output"))
+	}
+}
+
+func TestArgParser_WithBooleanFlags_Empty(t *testing.T) {
+	// Test that empty WithBooleanFlags still has default flags
+	parser := NewArgParser([]string{"--verbose", "file.txt"}, WithBooleanFlags())
+
+	// Default boolean flags should still work
+	if parser.GetOption("verbose") != "true" {
+		t.Errorf("Expected 'true' for verbose, got '%s'", parser.GetOption("verbose"))
+	}
+
+	// file.txt should be positional since verbose is still a boolean flag
+	expectedPositionals := []string{"file.txt"}
+	if !reflect.DeepEqual(parser.GetPositionals(), expectedPositionals) {
+		t.Errorf("Expected %v, got %v", expectedPositionals, parser.GetPositionals())
+	}
+}
+
+func TestArgParser_BackwardCompatibility(t *testing.T) {
+	// Test that existing code without WithBooleanFlags still works
+	parser := NewArgParser([]string{"--verbose", "--debug", "file.txt"})
+
+	// Default boolean flags should work as before
+	if parser.GetOption("verbose") != "true" {
+		t.Errorf("Expected 'true' for verbose, got '%s'", parser.GetOption("verbose"))
+	}
+
+	if parser.GetOption("debug") != "true" {
+		t.Errorf("Expected 'true' for debug, got '%s'", parser.GetOption("debug"))
+	}
+
+	// file.txt should be positional
+	expectedPositionals := []string{"file.txt"}
+	if !reflect.DeepEqual(parser.GetPositionals(), expectedPositionals) {
+		t.Errorf("Expected %v, got %v", expectedPositionals, parser.GetPositionals())
+	}
+}
+
+func TestArgParser_WithBooleanFlags_MultipleOptions(t *testing.T) {
+	// Test multiple WithBooleanFlags calls
+	parser := NewArgParser([]string{"--flag1", "--flag2", "--flag3", "file.txt"},
+		WithBooleanFlags("flag1"),
+		WithBooleanFlags("flag2", "flag3"))
+
+	// All custom flags should be boolean
+	if parser.GetOption("flag1") != "true" {
+		t.Errorf("Expected 'true' for flag1, got '%s'", parser.GetOption("flag1"))
+	}
+
+	if parser.GetOption("flag2") != "true" {
+		t.Errorf("Expected 'true' for flag2, got '%s'", parser.GetOption("flag2"))
+	}
+
+	if parser.GetOption("flag3") != "true" {
+		t.Errorf("Expected 'true' for flag3, got '%s'", parser.GetOption("flag3"))
+	}
+
+	// file.txt should be positional
+	expectedPositionals := []string{"file.txt"}
+	if !reflect.DeepEqual(parser.GetPositionals(), expectedPositionals) {
+		t.Errorf("Expected %v, got %v", expectedPositionals, parser.GetPositionals())
+	}
+}
