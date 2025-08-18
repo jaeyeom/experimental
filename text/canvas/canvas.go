@@ -5,12 +5,87 @@
 // at specific coordinates, clearing the canvas, and rendering the entire canvas
 // as a string.
 //
+// The package also provides TextBlock functionality that integrates with the
+// text/wrap package to support various text wrapping and positioning modes.
+//
 // Basic usage:
 //
 //	canvas := canvas.New(10, 5)
 //	canvas.SetChar(0, 0, 'H')
 //	canvas.SetChar(1, 0, 'i')
 //	fmt.Print(canvas.Render())
+//
+// TextBlock integration patterns with text/wrap package:
+//
+// Basic text wrapping:
+//
+//	canvas := canvas.New(20, 10)
+//	block := canvas.TextBlock{
+//		ID:       "main",
+//		Text:     "This is a long text that will wrap at word boundaries",
+//		Position: canvas.Position{X: 2, Y: 1},
+//		Width:    15,
+//		WrapMode: canvas.WrapBasic,
+//		Align:    canvas.AlignLeft,
+//	}
+//	canvas.AddTextBlock(block)
+//	fmt.Print(canvas.Render())
+//
+// Word wrapping with long word handling:
+//
+//	block := canvas.TextBlock{
+//		ID:       "wordwrap",
+//		Text:     "Normal words superlongwordthatexceedswidth more text",
+//		Position: canvas.Position{X: 0, Y: 0},
+//		Width:    10,
+//		WrapMode: canvas.WrapWord,  // Breaks long words
+//		Align:    canvas.AlignCenter,
+//	}
+//	canvas.AddTextBlock(block)
+//
+// Soft wrapping (prefers natural word boundaries):
+//
+//	block := canvas.TextBlock{
+//		ID:       "softwrap",
+//		Text:     "This text prefers to break at natural boundaries",
+//		Position: canvas.Position{X: 0, Y: 0},
+//		Width:    12,
+//		WrapMode: canvas.WrapSoft,
+//		Align:    canvas.AlignRight,
+//	}
+//	canvas.AddTextBlock(block)
+//
+// Indented wrapping (continuation lines are indented):
+//
+//	block := canvas.TextBlock{
+//		ID:       "indent",
+//		Text:     "First line starts without indent, continuation lines are indented",
+//		Position: canvas.Position{X: 0, Y: 0},
+//		Width:    20,
+//		WrapMode: canvas.WrapIndent,
+//		Align:    canvas.AlignLeft,
+//		Indent:   "    ",  // 4-space indent for continuation lines
+//	}
+//	canvas.AddTextBlock(block)
+//
+// Dynamic text block management:
+//
+//	// Add multiple blocks
+//	canvas.AddTextBlock(headerBlock)
+//	canvas.AddTextBlock(contentBlock)
+//
+//	// Update existing block (same ID replaces)
+//	updatedHeader := headerBlock
+//	updatedHeader.Text = "Updated Header"
+//	canvas.AddTextBlock(updatedHeader)
+//
+//	// Remove specific block
+//	canvas.RemoveTextBlock("content")
+//
+//	// Inspect all blocks
+//	for _, block := range canvas.GetTextBlocks() {
+//		fmt.Printf("Block %s: %q\n", block.ID, block.Text)
+//	}
 package canvas
 
 import (
