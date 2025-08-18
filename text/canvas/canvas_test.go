@@ -13,6 +13,13 @@ func TestNew(t *testing.T) {
 		expectedHeight int
 	}{
 		{
+			name:           "zero by zero",
+			width:          0,
+			height:         0,
+			expectedWidth:  1,
+			expectedHeight: 1,
+		},
+		{
 			name:           "valid dimensions",
 			width:          10,
 			height:         5,
@@ -341,6 +348,15 @@ func TestPosition(t *testing.T) {
 	}
 }
 
+// TestUnicodeCharacters verifies that the canvas can properly store and retrieve
+// various Unicode characters including Greek letters, CJK characters, emojis,
+// and mathematical symbols.
+//
+// Limitations:
+// - Only tests characters that can be represented as single runes
+// - Does not test complex Unicode sequences like combining characters
+// - Canvas width limits how many Unicode characters can be tested simultaneously
+// - No validation of proper visual width handling for wide characters (e.g., CJK).
 func TestUnicodeCharacters(t *testing.T) {
 	canvas := New(3, 1)
 
@@ -361,7 +377,7 @@ func TestUnicodeCharacters(t *testing.T) {
 }
 
 func TestLargeCanvas(t *testing.T) {
-	// Test with a larger canvas to ensure performance is reasonable
+	// Test with a larger canvas for functionality
 	canvas := New(100, 50)
 
 	// Fill diagonal with 'X'
