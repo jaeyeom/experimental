@@ -30,17 +30,38 @@ import (
 // ArgParser represents a parsed command line with options and positional
 // arguments.
 type ArgParser struct {
-	options     map[string][]string // option name -> values
-	positionals []string            // positional arguments
-	help        bool                // whether help was requested
+	options      map[string][]string // option name -> values
+	positionals  []string            // positional arguments
+	help         bool                // whether help was requested
+	booleanFlags map[string]bool     // configurable boolean flags
+}
+
+// Option is a functional option for configuring ArgParser.
+type Option func(*ArgParser)
+
+// WithBooleanFlags configures custom boolean flags for the parser.
+// These flags will not consume the next argument as their value.
+func WithBooleanFlags(flags ...string) Option {
+	return func(p *ArgParser) {
+		for _, flag := range flags {
+			p.booleanFlags[flag] = true
+		}
+	}
 }
 
 // NewArgParser creates a new argument parser from the given arguments.
-func NewArgParser(args []string) *ArgParser {
+// It accepts optional functional options to configure the parser behavior.
+func NewArgParser(args []string, options ...Option) *ArgParser {
 	parser := &ArgParser{
-		options:     make(map[string][]string),
-		positionals: make([]string, 0),
-		help:        false,
+		options:      make(map[string][]string),
+		positionals:  make([]string, 0),
+		help:         false,
+		booleanFlags: getDefaultBooleanFlags(),
+	}
+
+	// Apply functional options
+	for _, option := range options {
+		option(parser)
 	}
 
 	parser.parse(args)
@@ -196,18 +217,9 @@ func (p *ArgParser) addOption(name, value string) {
 	p.options[name] = append(p.options[name], value)
 }
 
-// isBooleanFlag checks if an option is a known boolean flag. Boolean flags
-// don't consume the next argument as their value. This helps distinguish
-// between 'cmd -v file.txt' (verbose flag + file) vs 'cmd --output file.txt'
-// (output option with value).
-//
-// TODO(#53): Replace hardcoded boolean flags with configurable approach. This
-// hardcoded list makes the library inflexible. See GitHub issue #53 for
-// detailed discussion of proposed solutions including functional options
-// pattern, configuration methods, and heuristic-based detection.
-func (p *ArgParser) isBooleanFlag(name string) bool {
-	// Common boolean flags that shouldn't consume the next argument
-	booleanFlags := map[string]bool{
+// getDefaultBooleanFlags returns the default set of boolean flags for backward compatibility.
+func getDefaultBooleanFlags() map[string]bool {
+	return map[string]bool{
 		"verbose":          true,
 		"v":                true,
 		"debug":            true,
@@ -241,8 +253,18 @@ func (p *ArgParser) isBooleanFlag(name string) bool {
 		"defragment":       true,
 		"include-metadata": true,
 	}
+}
 
-	return booleanFlags[name]
+// isBooleanFlag checks if an option is a configured boolean flag. Boolean flags
+// don't consume the next argument as their value. This helps distinguish
+// between 'cmd -v file.txt' (verbose flag + file) vs 'cmd --output file.txt'
+// (output option with value).
+//
+// Boolean flags can now be configured using WithBooleanFlags() option when
+// creating the parser, providing flexibility while maintaining backward
+// compatibility with common boolean flags.
+func (p *ArgParser) isBooleanFlag(name string) bool {
+	return p.booleanFlags[name]
 }
 
 // HasOption checks if an option was provided.
