@@ -662,3 +662,172 @@ func TestTextBlockAlignment(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderableInterface(t *testing.T) {
+	// Test that TextBlock implements Renderable interface
+	var _ Renderable = TextBlock{}
+
+	block := TextBlock{
+		ID:       "test-block",
+		Text:     "Hello",
+		Position: Position{X: 0, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	if block.GetID() != "test-block" {
+		t.Errorf("expected ID 'test-block', got %s", block.GetID())
+	}
+}
+
+func TestRenderableCollection(t *testing.T) {
+	collection := NewRenderableCollection()
+
+	// Test empty collection
+	if collection.Count() != 0 {
+		t.Errorf("expected count 0 for empty collection, got %d", collection.Count())
+	}
+
+	// Create test text blocks
+	block1 := TextBlock{
+		ID:       "block1",
+		Text:     "First",
+		Position: Position{X: 0, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	block2 := TextBlock{
+		ID:       "block2",
+		Text:     "Second",
+		Position: Position{X: 0, Y: 1},
+		Width:    10,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	// Test Add
+	collection.Add(block1)
+	collection.Add(block2)
+
+	if collection.Count() != 2 {
+		t.Errorf("expected count 2 after adding 2 blocks, got %d", collection.Count())
+	}
+
+	// Test Get
+	retrieved, exists := collection.Get("block1")
+	if !exists {
+		t.Error("expected to find block1 in collection")
+	}
+	if retrieved.GetID() != "block1" {
+		t.Errorf("expected retrieved block ID 'block1', got %s", retrieved.GetID())
+	}
+
+	// Test Get non-existent
+	_, exists = collection.Get("nonexistent")
+	if exists {
+		t.Error("expected not to find nonexistent block")
+	}
+
+	// Test Remove
+	removed := collection.Remove("block1")
+	if !removed {
+		t.Error("expected Remove to return true for existing block")
+	}
+	if collection.Count() != 1 {
+		t.Errorf("expected count 1 after removing 1 block, got %d", collection.Count())
+	}
+
+	// Test Remove non-existent
+	removed = collection.Remove("nonexistent")
+	if removed {
+		t.Error("expected Remove to return false for non-existent block")
+	}
+
+	// Test GetIDs
+	ids := collection.GetIDs()
+	if len(ids) != 1 {
+		t.Errorf("expected 1 ID, got %d", len(ids))
+	}
+	if ids[0] != "block2" {
+		t.Errorf("expected ID 'block2', got %s", ids[0])
+	}
+
+	// Test Clear
+	collection.Clear()
+	if collection.Count() != 0 {
+		t.Errorf("expected count 0 after clear, got %d", collection.Count())
+	}
+}
+
+func TestCanvasRenderableIntegration(t *testing.T) {
+	canvas := New(15, 5)
+
+	// Test that canvas has empty renderables initially
+	if len(canvas.GetRenderableIDs()) != 0 {
+		t.Error("expected no renderables in new canvas")
+	}
+
+	// Create test text blocks
+	block1 := TextBlock{
+		ID:       "header",
+		Text:     "Header",
+		Position: Position{X: 0, Y: 0},
+		Width:    15,
+		WrapMode: WrapBasic,
+		Align:    AlignCenter,
+	}
+
+	block2 := TextBlock{
+		ID:       "content",
+		Text:     "Content line",
+		Position: Position{X: 0, Y: 2},
+		Width:    15,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	// Test AddRenderable
+	canvas.AddRenderable(block1)
+	canvas.AddRenderable(block2)
+
+	ids := canvas.GetRenderableIDs()
+	if len(ids) != 2 {
+		t.Errorf("expected 2 renderables, got %d", len(ids))
+	}
+
+	// Test GetRenderable
+	retrieved, exists := canvas.GetRenderable("header")
+	if !exists {
+		t.Error("expected to find header block")
+	}
+	if retrieved.GetID() != "header" {
+		t.Errorf("expected retrieved block ID 'header', got %s", retrieved.GetID())
+	}
+
+	// Test RenderWithObjects
+	result := canvas.RenderWithObjects()
+	expected := "    Header\n\nContent line"
+	if result != expected {
+		t.Errorf("expected:\n%q\ngot:\n%q", expected, result)
+	}
+
+	// Test RemoveRenderable
+	removed := canvas.RemoveRenderable("header")
+	if !removed {
+		t.Error("expected RemoveRenderable to return true")
+	}
+
+	ids = canvas.GetRenderableIDs()
+	if len(ids) != 1 {
+		t.Errorf("expected 1 renderable after removal, got %d", len(ids))
+	}
+
+	// Test ClearRenderables
+	canvas.ClearRenderables()
+	if len(canvas.GetRenderableIDs()) != 0 {
+		t.Error("expected no renderables after clear")
+	}
+}

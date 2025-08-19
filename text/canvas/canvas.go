@@ -25,6 +25,17 @@ type CharSetter interface {
 	SetChar(x, y int, r rune) bool
 }
 
+// Renderable defines an interface for objects that can be rendered to a CharSetter.
+// This allows different types of objects (text blocks, lines, bars, etc.) to be
+// rendered consistently to any canvas or drawing surface.
+type Renderable interface {
+	// RenderTo renders the object to the provided CharSetter implementation.
+	RenderTo(cs CharSetter)
+
+	// GetID returns a unique identifier for this renderable object.
+	GetID() string
+}
+
 // Position represents a coordinate position on the canvas.
 type Position struct {
 	X, Y int
@@ -85,6 +96,11 @@ type TextBlock struct {
 	Indent string
 }
 
+// GetID returns the unique identifier for this text block.
+func (tb TextBlock) GetID() string {
+	return tb.ID
+}
+
 // RenderTo renders the text block to any CharSetter implementation.
 func (tb TextBlock) RenderTo(cs CharSetter) {
 	if tb.Text == "" {
@@ -142,6 +158,7 @@ type Canvas struct {
 	width, height int
 	cells         [][]rune
 	background    rune
+	renderables   *RenderableCollection
 }
 
 // New creates a new Canvas with the specified width and height.
@@ -154,9 +171,10 @@ func New(width, height int) *Canvas {
 	}
 
 	c := &Canvas{
-		width:      width,
-		height:     height,
-		background: ' ',
+		width:       width,
+		height:      height,
+		background:  ' ',
+		renderables: NewRenderableCollection(),
 	}
 
 	c.initializeCells()
@@ -237,4 +255,99 @@ func (c *Canvas) Height() int {
 // isValidCoordinate checks if the given coordinates are within canvas bounds.
 func (c *Canvas) isValidCoordinate(x, y int) bool {
 	return x >= 0 && x < c.width && y >= 0 && y < c.height
+}
+
+// RenderableCollection manages a collection of renderable objects.
+// It provides methods to add, remove, and render multiple objects to a canvas.
+type RenderableCollection struct {
+	objects map[string]Renderable
+}
+
+// NewRenderableCollection creates a new empty collection of renderable objects.
+func NewRenderableCollection() *RenderableCollection {
+	return &RenderableCollection{
+		objects: make(map[string]Renderable),
+	}
+}
+
+// Add adds a renderable object to the collection.
+// If an object with the same ID already exists, it will be replaced.
+func (rc *RenderableCollection) Add(r Renderable) {
+	rc.objects[r.GetID()] = r
+}
+
+// Remove removes a renderable object from the collection by its ID.
+// Returns true if the object was found and removed, false otherwise.
+func (rc *RenderableCollection) Remove(id string) bool {
+	_, exists := rc.objects[id]
+	if exists {
+		delete(rc.objects, id)
+	}
+	return exists
+}
+
+// Get retrieves a renderable object by its ID.
+// Returns the object and true if found, nil and false otherwise.
+func (rc *RenderableCollection) Get(id string) (Renderable, bool) {
+	obj, exists := rc.objects[id]
+	return obj, exists
+}
+
+// Clear removes all renderable objects from the collection.
+func (rc *RenderableCollection) Clear() {
+	rc.objects = make(map[string]Renderable)
+}
+
+// Count returns the number of renderable objects in the collection.
+func (rc *RenderableCollection) Count() int {
+	return len(rc.objects)
+}
+
+// RenderAll renders all objects in the collection to the provided CharSetter.
+// Objects are rendered in an undefined order since they're stored in a map.
+func (rc *RenderableCollection) RenderAll(cs CharSetter) {
+	for _, obj := range rc.objects {
+		obj.RenderTo(cs)
+	}
+}
+
+// GetIDs returns a slice of all object IDs in the collection.
+func (rc *RenderableCollection) GetIDs() []string {
+	ids := make([]string, 0, len(rc.objects))
+	for id := range rc.objects {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// AddRenderable adds a renderable object to the canvas.
+func (c *Canvas) AddRenderable(r Renderable) {
+	c.renderables.Add(r)
+}
+
+// RemoveRenderable removes a renderable object from the canvas by its ID.
+func (c *Canvas) RemoveRenderable(id string) bool {
+	return c.renderables.Remove(id)
+}
+
+// GetRenderable retrieves a renderable object by its ID.
+func (c *Canvas) GetRenderable(id string) (Renderable, bool) {
+	return c.renderables.Get(id)
+}
+
+// ClearRenderables removes all renderable objects from the canvas.
+func (c *Canvas) ClearRenderables() {
+	c.renderables.Clear()
+}
+
+// GetRenderableIDs returns a slice of all renderable object IDs on the canvas.
+func (c *Canvas) GetRenderableIDs() []string {
+	return c.renderables.GetIDs()
+}
+
+// RenderWithObjects clears the canvas and renders all renderable objects to it.
+func (c *Canvas) RenderWithObjects() string {
+	c.Clear()
+	c.renderables.RenderAll(c)
+	return c.Render()
 }
