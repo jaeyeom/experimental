@@ -1,13 +1,13 @@
 package models
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
+// TestGenerateCommentID tests that GenerateCommentID produces unique IDs.
 func TestGenerateCommentID(t *testing.T) {
-	// Test that GenerateCommentID produces unique IDs
 	ids := make(map[string]bool)
 	numIDs := 1000
 
@@ -204,7 +204,7 @@ func TestPrefixMatchingAmbiguity(t *testing.T) {
 	}
 }
 
-// TestCommentIDInJSON tests that comment IDs are properly serialized/deserialized.
+// TestCommentIDInJSON tests that comment IDs are properly generated and serialized/deserialized.
 func TestCommentIDInJSON(t *testing.T) {
 	original := Comment{
 		ID:   GenerateCommentID(),
@@ -230,190 +230,33 @@ func TestCommentIDInJSON(t *testing.T) {
 			t.Errorf("Invalid character in comment ID: %c", char)
 		}
 	}
-}
 
-func TestDiffSpec(t *testing.T) {
-	tests := []struct {
-		name string
-		adj  LineAdjustment
-		want string
-	}{
-		// Delete operations
-		{
-			name: "delete single line",
-			adj: LineAdjustment{
-				Operation: OperationDelete,
-				OldStart:  12,
-				OldEnd:    12,
-				NewStart:  11,
-				NewEnd:    11,
-			},
-			want: "12d11",
-		},
-		{
-			name: "delete multiple lines",
-			adj: LineAdjustment{
-				Operation: OperationDelete,
-				OldStart:  15,
-				OldEnd:    17,
-				NewStart:  14,
-				NewEnd:    14,
-			},
-			want: "15,17d14",
-		},
-		// Insert operations
-		{
-			name: "insert single line",
-			adj: LineAdjustment{
-				Operation: OperationInsert,
-				OldStart:  10,
-				OldEnd:    10,
-				NewStart:  11,
-				NewEnd:    11,
-			},
-			want: "10a11",
-		},
-		{
-			name: "insert multiple lines",
-			adj: LineAdjustment{
-				Operation: OperationInsert,
-				OldStart:  30,
-				OldEnd:    30,
-				NewStart:  31,
-				NewEnd:    33,
-			},
-			want: "30a31,33",
-		},
-		// Change operations
-		{
-			name: "change single line",
-			adj: LineAdjustment{
-				Operation: OperationChange,
-				OldStart:  101,
-				OldEnd:    101,
-				NewStart:  101,
-				NewEnd:    101,
-			},
-			want: "101c101",
-		},
-		{
-			name: "change multiple lines to single line",
-			adj: LineAdjustment{
-				Operation: OperationChange,
-				OldStart:  5,
-				OldEnd:    7,
-				NewStart:  6,
-				NewEnd:    6,
-			},
-			want: "5,7c6",
-		},
-		{
-			name: "change single line to multiple lines",
-			adj: LineAdjustment{
-				Operation: OperationChange,
-				OldStart:  8,
-				OldEnd:    8,
-				NewStart:  9,
-				NewEnd:    12,
-			},
-			want: "8c9,12",
-		},
-		{
-			name: "change multiple lines to multiple lines",
-			adj: LineAdjustment{
-				Operation: OperationChange,
-				OldStart:  45,
-				OldEnd:    47,
-				NewStart:  45,
-				NewEnd:    46,
-			},
-			want: "45,47c45,46",
-		},
-		// Edge cases
-		{
-			name: "invalid operation type",
-			adj: LineAdjustment{
-				Operation: "x", // Invalid operation
-				OldStart:  1,
-				OldEnd:    1,
-				NewStart:  1,
-				NewEnd:    1,
-			},
-			want: "",
-		},
+	// Test JSON serialization/deserialization
+	jsonData, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Failed to marshal comment to JSON: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.adj.DiffSpec()
-			if got != tt.want {
-				t.Errorf("DiffSpec() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestDiffSpecRoundTrip(t *testing.T) {
-	// Test that ParseDiffSpec and DiffSpec are inverse operations
-	specs := []string{
-		"12d11",
-		"15,17d14",
-		"10a11",
-		"30a31,33",
-		"101c101",
-		"5,7c6",
-		"8c9,12",
-		"45,47c45,46",
+	var deserialized Comment
+	err = json.Unmarshal(jsonData, &deserialized)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal comment from JSON: %v", err)
 	}
 
-	for _, spec := range specs {
-		t.Run(spec, func(t *testing.T) {
-			// Parse the spec
-			adjustments, err := ParseDiffSpec(spec)
-			if err != nil {
-				t.Fatalf("ParseDiffSpec(%q) failed: %v", spec, err)
-			}
-			if len(adjustments) != 1 {
-				t.Fatalf("Expected 1 adjustment, got %d", len(adjustments))
-			}
-
-			// Convert back to spec
-			got := adjustments[0].DiffSpec()
-			if got != spec {
-				t.Errorf("Round trip failed: ParseDiffSpec(%q).DiffSpec() = %q", spec, got)
-			}
-		})
+	// Verify all fields are preserved
+	if deserialized.ID != original.ID {
+		t.Errorf("ID not preserved: expected %q, got %q", original.ID, deserialized.ID)
 	}
-}
-
-func TestDiffSpecWithTimestamp(t *testing.T) {
-	// Test that DiffSpec doesn't depend on other fields like AppliedAt
-	adj1 := LineAdjustment{
-		Operation:   OperationDelete,
-		OldStart:    10,
-		OldEnd:      12,
-		NewStart:    10,
-		NewEnd:      10,
-		AppliedAt:   time.Now(),
-		Description: "Test deletion",
+	if deserialized.Path != original.Path {
+		t.Errorf("Path not preserved: expected %q, got %q", original.Path, deserialized.Path)
 	}
-
-	adj2 := LineAdjustment{
-		Operation:   OperationDelete,
-		OldStart:    10,
-		OldEnd:      12,
-		NewStart:    10,
-		NewEnd:      10,
-		AppliedAt:   time.Now().Add(time.Hour),
-		Description: "Different description",
+	if deserialized.Line != original.Line {
+		t.Errorf("Line not preserved: expected %d, got %d", original.Line, deserialized.Line)
 	}
-
-	if adj1.DiffSpec() != adj2.DiffSpec() {
-		t.Errorf("DiffSpec should only depend on operation and line numbers")
+	if deserialized.Body != original.Body {
+		t.Errorf("Body not preserved: expected %q, got %q", original.Body, deserialized.Body)
 	}
-
-	expected := "10,12d10"
-	if adj1.DiffSpec() != expected {
-		t.Errorf("DiffSpec() = %q, want %q", adj1.DiffSpec(), expected)
+	if deserialized.Side != original.Side {
+		t.Errorf("Side not preserved: expected %q, got %q", original.Side, deserialized.Side)
 	}
 }

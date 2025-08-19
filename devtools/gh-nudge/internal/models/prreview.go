@@ -48,17 +48,6 @@ type DiffHunk struct {
 	SHA       string `json:"sha"`       // Commit SHA
 }
 
-// LineAdjustment represents a line number adjustment operation.
-type LineAdjustment struct {
-	Operation   OperationType `json:"operation"`   // Type of operation (delete, insert, change)
-	OldStart    int           `json:"oldStart"`    // Start line in original file
-	OldEnd      int           `json:"oldEnd"`      // End line in original file
-	NewStart    int           `json:"newStart"`    // Start line in new file
-	NewEnd      int           `json:"newEnd"`      // End line in new file
-	AppliedAt   time.Time     `json:"appliedAt"`   // When adjustment was applied
-	Description string        `json:"description"` // Human-readable description
-}
-
 // CommentStatus represents the status of a comment.
 type CommentStatus string
 
@@ -430,37 +419,6 @@ func (p *ParsedIdentifier) String() string {
 		return strconv.Itoa(p.PRNumber)
 	}
 	return p.BranchName
-}
-
-// DiffSpec generates a diff specification string from the adjustment fields.
-// Returns format like "15,17d14" for deletions, "14a15,17" for insertions, "15,17c14,16" for changes.
-func (adj LineAdjustment) DiffSpec() string {
-	// Validate operation type
-	switch adj.Operation {
-	case OperationDelete, OperationInsert, OperationChange:
-		// Valid operations, continue
-	default:
-		return ""
-	}
-
-	// Format old range
-	oldRange := ""
-	if adj.OldStart == adj.OldEnd {
-		oldRange = fmt.Sprintf("%d", adj.OldStart)
-	} else {
-		oldRange = fmt.Sprintf("%d,%d", adj.OldStart, adj.OldEnd)
-	}
-
-	// Format new range
-	newRange := ""
-	if adj.NewStart == adj.NewEnd {
-		newRange = fmt.Sprintf("%d", adj.NewStart)
-	} else {
-		newRange = fmt.Sprintf("%d,%d", adj.NewStart, adj.NewEnd)
-	}
-
-	// Combine with operation character
-	return fmt.Sprintf("%s%s%s", oldRange, adj.Operation, newRange)
 }
 
 // GenerateCommentID generates a random 40-character hex string for comment IDs.
