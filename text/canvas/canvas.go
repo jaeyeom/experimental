@@ -89,6 +89,7 @@
 package canvas
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/jaeyeom/experimental/text/wrap"
@@ -100,6 +101,44 @@ type CharSetter interface {
 	SetChar(x, y int, r rune) bool
 }
 
+// Rectangle represents a rectangular region with position and dimensions.
+type Rectangle struct {
+	X, Y, Width, Height int
+}
+
+// CollisionSeverity indicates the severity level of a collision.
+type CollisionSeverity int
+
+const (
+	// CollisionLow indicates a minor overlap that may be acceptable.
+	CollisionLow CollisionSeverity = iota
+	// CollisionMedium indicates a moderate overlap that should be addressed.
+	CollisionMedium
+	// CollisionHigh indicates a severe overlap that must be resolved.
+	CollisionHigh
+)
+
+// Collision represents an overlap between two renderable objects.
+type Collision struct {
+	Object1, Object2 Renderable
+	OverlapRegion    Rectangle
+	Severity         CollisionSeverity
+}
+
+// ResolutionStrategy defines how collision conflicts should be resolved.
+type ResolutionStrategy int
+
+const (
+	// StrategyOverwrite allows later objects to overwrite earlier ones at collision points.
+	StrategyOverwrite ResolutionStrategy = iota
+	// StrategySkip skips rendering objects that would collide with existing ones.
+	StrategySkip
+	// StrategyError returns an error when collisions are detected.
+	StrategyError
+	// StrategyBlend attempts to blend overlapping content (implementation specific).
+	StrategyBlend
+)
+
 // Renderable defines an interface for objects that can be rendered to a CharSetter.
 // This allows different types of objects (text blocks, lines, bars, etc.) to be
 // rendered consistently to any canvas or drawing surface.
@@ -109,6 +148,9 @@ type Renderable interface {
 
 	// GetID returns a unique identifier for this renderable object.
 	GetID() string
+
+	// GetBounds returns the rectangular bounds that this object occupies when rendered.
+	GetBounds() Rectangle
 }
 
 // Position represents a coordinate position on the canvas.
@@ -176,10 +218,10 @@ func (tb TextBlock) GetID() string {
 	return tb.ID
 }
 
-// RenderTo renders the text block to any CharSetter implementation.
-func (tb TextBlock) RenderTo(cs CharSetter) {
+// wrapText applies the configured wrapping mode to the text and returns the wrapped lines.
+func (tb TextBlock) wrapText() []string {
 	if tb.Text == "" {
-		return
+		return []string{}
 	}
 
 	var wrappedText string
@@ -195,7 +237,48 @@ func (tb TextBlock) RenderTo(cs CharSetter) {
 		wrappedText, _ = wrap.Text(tb.Text, tb.Width)
 	}
 
-	lines := strings.Split(wrappedText, "\n")
+	return strings.Split(wrappedText, "\n")
+}
+
+// GetBounds returns the rectangular bounds that this text block occupies when rendered.
+func (tb TextBlock) GetBounds() Rectangle {
+	if tb.Text == "" {
+		return Rectangle{X: tb.Position.X, Y: tb.Position.Y, Width: 0, Height: 0}
+	}
+
+	lines := tb.wrapText()
+
+	height := len(lines)
+	maxWidth := 0
+
+	for _, line := range lines {
+		lineWidth := len([]rune(strings.TrimRight(line, " ")))
+		if lineWidth > maxWidth {
+			maxWidth = lineWidth
+		}
+	}
+
+	// Use the configured width if no content or if content is shorter
+	width := tb.Width
+	if maxWidth > 0 && maxWidth < tb.Width {
+		width = maxWidth
+	}
+
+	return Rectangle{
+		X:      tb.Position.X,
+		Y:      tb.Position.Y,
+		Width:  width,
+		Height: height,
+	}
+}
+
+// RenderTo renders the text block to any CharSetter implementation.
+func (tb TextBlock) RenderTo(cs CharSetter) {
+	if tb.Text == "" {
+		return
+	}
+
+	lines := tb.wrapText()
 
 	for i, line := range lines {
 		alignedLine := tb.alignLine(line)
@@ -233,7 +316,6 @@ type Canvas struct {
 	width, height int
 	cells         [][]rune
 	background    rune
-	renderables   *RenderableCollection
 }
 
 // New creates a new Canvas with the specified width and height.
@@ -246,10 +328,9 @@ func New(width, height int) *Canvas {
 	}
 
 	c := &Canvas{
-		width:       width,
-		height:      height,
-		background:  ' ',
-		renderables: NewRenderableCollection(),
+		width:      width,
+		height:     height,
+		background: ' ',
 	}
 
 	c.initializeCells()
@@ -335,13 +416,15 @@ func (c *Canvas) isValidCoordinate(x, y int) bool {
 // RenderableCollection manages a collection of renderable objects.
 // It provides methods to add, remove, and render multiple objects to a canvas.
 type RenderableCollection struct {
-	objects map[string]Renderable
+	objects           map[string]Renderable
+	collisionStrategy ResolutionStrategy
 }
 
 // NewRenderableCollection creates a new empty collection of renderable objects.
 func NewRenderableCollection() *RenderableCollection {
 	return &RenderableCollection{
-		objects: make(map[string]Renderable),
+		objects:           make(map[string]Renderable),
+		collisionStrategy: StrategyOverwrite,
 	}
 }
 
@@ -379,7 +462,10 @@ func (rc *RenderableCollection) Count() int {
 }
 
 // RenderAll renders all objects in the collection to the provided CharSetter.
-// Objects are rendered in an undefined order since they're stored in a map.
+//
+// TODO(#57): Objects are rendered in an undefined order since they're stored in
+// a map. This makes StrategyOverwrite behavior non-deterministic. Consider
+// using ordered storage.
 func (rc *RenderableCollection) RenderAll(cs CharSetter) {
 	for _, obj := range rc.objects {
 		obj.RenderTo(cs)
@@ -395,34 +481,175 @@ func (rc *RenderableCollection) GetIDs() []string {
 	return ids
 }
 
-// AddRenderable adds a renderable object to the canvas.
-func (c *Canvas) AddRenderable(r Renderable) {
-	c.renderables.Add(r)
+// SetCollisionStrategy sets the collision resolution strategy for the collection.
+func (rc *RenderableCollection) SetCollisionStrategy(strategy ResolutionStrategy) {
+	rc.collisionStrategy = strategy
 }
 
-// RemoveRenderable removes a renderable object from the canvas by its ID.
-func (c *Canvas) RemoveRenderable(id string) bool {
-	return c.renderables.Remove(id)
+// GetCollisionStrategy returns the current collision resolution strategy.
+func (rc *RenderableCollection) GetCollisionStrategy() ResolutionStrategy {
+	return rc.collisionStrategy
 }
 
-// GetRenderable retrieves a renderable object by its ID.
-func (c *Canvas) GetRenderable(id string) (Renderable, bool) {
-	return c.renderables.Get(id)
+// rectanglesOverlap checks if two rectangles overlap and returns the overlap region.
+func rectanglesOverlap(r1, r2 Rectangle) (Rectangle, bool) {
+	// Check if rectangles don't overlap
+	if r1.X >= r2.X+r2.Width || r2.X >= r1.X+r1.Width ||
+		r1.Y >= r2.Y+r2.Height || r2.Y >= r1.Y+r1.Height {
+		return Rectangle{}, false
+	}
+
+	// Calculate overlap region
+	x := intMax(r1.X, r2.X)
+	y := intMax(r1.Y, r2.Y)
+	right := intMin(r1.X+r1.Width, r2.X+r2.Width)
+	bottom := intMin(r1.Y+r1.Height, r2.Y+r2.Height)
+
+	return Rectangle{
+		X:      x,
+		Y:      y,
+		Width:  right - x,
+		Height: bottom - y,
+	}, true
 }
 
-// ClearRenderables removes all renderable objects from the canvas.
-func (c *Canvas) ClearRenderables() {
-	c.renderables.Clear()
+// intMax returns the maximum of two integers.
+func intMax(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
-// GetRenderableIDs returns a slice of all renderable object IDs on the canvas.
-func (c *Canvas) GetRenderableIDs() []string {
-	return c.renderables.GetIDs()
+// intMin returns the minimum of two integers.
+func intMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
-// RenderWithObjects clears the canvas and renders all renderable objects to it.
-func (c *Canvas) RenderWithObjects() string {
-	c.Clear()
-	c.renderables.RenderAll(c)
-	return c.Render()
+// calculateCollisionSeverity determines the severity of a collision based on overlap area.
+func calculateCollisionSeverity(overlap Rectangle) CollisionSeverity {
+	area := overlap.Width * overlap.Height
+
+	if area <= 5 {
+		return CollisionLow
+	} else if area <= 20 {
+		return CollisionMedium
+	}
+	return CollisionHigh
+}
+
+// DetectCollisions detects all collisions between objects in the collection.
+func (rc *RenderableCollection) DetectCollisions() []Collision {
+	var collisions []Collision
+
+	// Get all objects as a slice for easier iteration
+	objects := make([]Renderable, 0, len(rc.objects))
+	for _, obj := range rc.objects {
+		objects = append(objects, obj)
+	}
+
+	// Check each pair of objects for collisions
+	for i := 0; i < len(objects); i++ {
+		for j := i + 1; j < len(objects); j++ {
+			obj1, obj2 := objects[i], objects[j]
+			bounds1, bounds2 := obj1.GetBounds(), obj2.GetBounds()
+
+			if overlap, hasOverlap := rectanglesOverlap(bounds1, bounds2); hasOverlap {
+				collision := Collision{
+					Object1:       obj1,
+					Object2:       obj2,
+					OverlapRegion: overlap,
+					Severity:      calculateCollisionSeverity(overlap),
+				}
+				collisions = append(collisions, collision)
+			}
+		}
+	}
+
+	return collisions
+}
+
+// ValidateLayout checks if the current layout has any collisions and returns an error if found.
+func (rc *RenderableCollection) ValidateLayout() error {
+	collisions := rc.DetectCollisions()
+	if len(collisions) > 0 {
+		return fmt.Errorf("layout validation failed: found %d collision(s)", len(collisions))
+	}
+	return nil
+}
+
+// GetOccupiedRegions returns a slice of all rectangular regions occupied by objects.
+func (rc *RenderableCollection) GetOccupiedRegions() []Rectangle {
+	regions := make([]Rectangle, 0, len(rc.objects))
+	for _, obj := range rc.objects {
+		regions = append(regions, obj.GetBounds())
+	}
+	return regions
+}
+
+// ResolveCollisions applies the configured collision resolution strategy.
+func (rc *RenderableCollection) ResolveCollisions() error {
+	collisions := rc.DetectCollisions()
+
+	if len(collisions) == 0 {
+		return nil
+	}
+
+	switch rc.collisionStrategy {
+	case StrategyError:
+		return fmt.Errorf("collision resolution failed: found %d collision(s)", len(collisions))
+
+	case StrategySkip:
+		// Remove objects that collide with earlier objects
+		// We keep track of which objects to remove
+		toRemove := make(map[string]bool)
+		processedIDs := make(map[string]bool)
+
+		for _, collision := range collisions {
+			id1, id2 := collision.Object1.GetID(), collision.Object2.GetID()
+
+			// If object1 was processed first, remove object2
+			// If object2 was processed first, remove object1
+			// If neither was processed, keep object1 and remove object2
+			switch {
+			case processedIDs[id1] && !processedIDs[id2]:
+				toRemove[id2] = true
+			case processedIDs[id2] && !processedIDs[id1]:
+				toRemove[id1] = true
+			case !processedIDs[id1] && !processedIDs[id2]:
+				// Neither processed, keep first object, remove second
+				processedIDs[id1] = true
+				toRemove[id2] = true
+			}
+		}
+
+		// Remove the conflicting objects
+		for id := range toRemove {
+			rc.Remove(id)
+		}
+
+	case StrategyOverwrite:
+		// TODO(#57): Fix non-deterministic overwrite order due to map
+		// iteration Currently RenderAll iterates over map in undefined
+		// order, making "later objects overwrite earlier ones" behavior
+		// unpredictable Default behavior - later objects overwrite
+		// earlier ones No action needed as RenderAll already handles
+		// this
+
+	case StrategyBlend:
+		// TODO(#56): Implement proper blending strategy for collision
+		// resolution For now, blend is the same as overwrite In a more
+		// sophisticated implementation, this could modify the
+		// characters at collision points (e.g., use different
+		// characters, combine characters, or apply visual effects like
+		// underlining)
+
+	default:
+		return fmt.Errorf("unknown collision resolution strategy: %d", rc.collisionStrategy)
+	}
+
+	return nil
 }
