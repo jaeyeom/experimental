@@ -18,6 +18,7 @@ import (
 type OutputFormatter interface {
 	FormatSubmitResult(result models.SubmitResult) (string, error)
 	FormatComments(comments []models.Comment) (string, error)
+	FormatSingleComment(comment models.Comment) (string, error)
 }
 
 // CommandHandler handles gh-pr-review commands.
@@ -685,12 +686,12 @@ func (ch *CommandHandler) nextPRComment(repository models.Repository, prNumber i
 	// Sort by file path, then line number, then creation time
 	nextComment := sortAndGetNextComment(unresolvedComments)
 
-	// Output next comment
-	output, err := formatter.FormatComments([]models.Comment{nextComment})
+	// Output next comment using the single comment formatter
+	output, err := formatter.FormatSingleComment(nextComment)
 	if err != nil {
 		return fmt.Errorf("failed to format comment: %w", err)
 	}
-	fmt.Println(output)
+	fmt.Print(output)
 
 	return nil
 }
@@ -725,12 +726,12 @@ func (ch *CommandHandler) nextBranchComment(repository models.Repository, branch
 	// Sort by file path, then line number, then creation time
 	nextComment := sortAndGetNextComment(unresolvedComments)
 
-	// Output next comment
-	output, err := formatter.FormatComments([]models.Comment{nextComment})
+	// Output next comment using the single comment formatter
+	output, err := formatter.FormatSingleComment(nextComment)
 	if err != nil {
 		return fmt.Errorf("failed to format comment: %w", err)
 	}
-	fmt.Println(output)
+	fmt.Print(output)
 
 	return nil
 }

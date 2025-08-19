@@ -46,6 +46,15 @@ func (f *JSONFormatter) FormatComments(comments []Comment) (string, error) {
 	return string(jsonData), nil
 }
 
+// FormatSingleComment formats a single comment as JSON.
+func (f *JSONFormatter) FormatSingleComment(comment Comment) (string, error) {
+	jsonData, err := json.MarshalIndent(comment, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal comment: %w", err)
+	}
+	return string(jsonData), nil
+}
+
 // TextFormatter formats output as human-readable text.
 type TextFormatter struct{}
 
@@ -163,6 +172,34 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 
 	// Add total count
 	fmt.Fprintf(&result, "\nTotal: %d items\n", len(comments))
+
+	return result.String(), nil
+}
+
+// FormatSingleComment formats a single comment in a clean, LLM-friendly format.
+func (f *TextFormatter) FormatSingleComment(comment Comment) (string, error) {
+	var result strings.Builder
+
+	// File and line information
+	fmt.Fprintf(&result, "File: %s\n", comment.Path)
+
+	if comment.IsMultiLine() {
+		fmt.Fprintf(&result, "Lines: %d-%d\n", *comment.StartLine, comment.Line)
+	} else {
+		fmt.Fprintf(&result, "Line: %d\n", comment.Line)
+	}
+
+	// Side information (LEFT/RIGHT)
+	fmt.Fprintf(&result, "Side: %s\n", comment.Side)
+
+	// Comment ID
+	fmt.Fprintf(&result, "ID: %s\n", comment.FormatIDShort())
+
+	// Creation time
+	fmt.Fprintf(&result, "Created: %s\n", comment.CreatedAt.Format("2006-01-02 15:04"))
+
+	// Comment body
+	fmt.Fprintf(&result, "\nComment:\n%s\n", comment.Body)
 
 	return result.String(), nil
 }
