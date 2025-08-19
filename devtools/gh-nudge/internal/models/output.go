@@ -67,7 +67,7 @@ func (f *TextFormatter) FormatSubmitResult(result SubmitResult) (string, error) 
 // FormatComments formats comments as a table.
 func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 	if len(comments) == 0 {
-		return "No comments found", nil
+		return "No comments found\n\nTotal: 0 items", nil
 	}
 
 	// Get terminal width from environment or default to 120
@@ -160,6 +160,9 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 		result.WriteString(strings.Repeat("-", termWidth))
 		result.WriteString("\n")
 	}
+
+	// Add total count
+	fmt.Fprintf(&result, "\nTotal: %d items\n", len(comments))
 
 	return result.String(), nil
 }
