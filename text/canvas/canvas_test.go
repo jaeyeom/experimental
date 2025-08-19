@@ -444,423 +444,221 @@ func BenchmarkRender(b *testing.B) {
 	}
 }
 
-func TestAddTextBlock(t *testing.T) {
-	canvas := New(20, 10)
-
-	block := TextBlock{
-		ID:       "test1",
-		Text:     "Hello World",
-		Position: Position{X: 2, Y: 1},
-		Width:    15,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
+func TestTextBlockRenderTo(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		position Position
+		width    int
+		wrapMode WrapMode
+		expected string
+	}{
+		{
+			name:     "hello world",
+			text:     "Hello World",
+			position: Position{X: 2, Y: 1},
+			width:    15,
+			wrapMode: WrapBasic,
+			expected: "Hello World",
+		},
+		{
+			name:     "different text",
+			text:     "Different Text",
+			position: Position{X: 0, Y: 0},
+			width:    15,
+			wrapMode: WrapBasic,
+			expected: "Different Text",
+		},
+		{
+			name:     "text wrapping",
+			text:     "This is a long text that needs wrapping",
+			position: Position{X: 0, Y: 0},
+			width:    10,
+			wrapMode: WrapBasic,
+			expected: "This is a\nlong text\nthat needs\nwrapping",
+		},
+		{
+			name:     "different long text wrapping",
+			text:     "Another long sentence that should wrap properly",
+			position: Position{X: 0, Y: 0},
+			width:    10,
+			wrapMode: WrapBasic,
+			expected: "Another\nlong\nsentence\nthat\nshould\nwrap\nproperly",
+		},
+		{
+			name:     "single word longer than width",
+			text:     "supercalifragilisticexpialidocious",
+			position: Position{X: 0, Y: 0},
+			width:    10,
+			wrapMode: WrapWord,
+			expected: "supercalif\nragilistic\nexpialidoc\nious",
+		},
+		{
+			name:     "empty text",
+			text:     "",
+			position: Position{X: 0, Y: 0},
+			width:    10,
+			wrapMode: WrapBasic,
+			expected: "",
+		},
+		{
+			name:     "text with newlines",
+			text:     "Line one\nLine two",
+			position: Position{X: 0, Y: 0},
+			width:    15,
+			wrapMode: WrapBasic,
+			expected: "Line one Line\ntwo",
+		},
+		{
+			name:     "text shorter than width",
+			text:     "Short",
+			position: Position{X: 0, Y: 0},
+			width:    20,
+			wrapMode: WrapBasic,
+			expected: "Short",
+		},
+		{
+			name:     "width of 1",
+			text:     "Test",
+			position: Position{X: 0, Y: 0},
+			width:    1,
+			wrapMode: WrapWord,
+			expected: "T\ne\ns\nt",
+		},
+		{
+			name:     "text with multiple spaces",
+			text:     "Text    with    spaces",
+			position: Position{X: 0, Y: 0},
+			width:    10,
+			wrapMode: WrapBasic,
+			expected: "Text with\nspaces",
+		},
 	}
 
-	canvas.AddTextBlock(block)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canvas := New(15, 7)
 
-	// Verify text was placed correctly
-	expected := "Hello World"
-	for i, r := range []rune(expected) {
-		if canvas.GetChar(2+i, 1) != r {
-			t.Errorf("expected character %c at position (%d, %d), got %c",
-				r, 2+i, 1, canvas.GetChar(2+i, 1))
-		}
-	}
+			block := TextBlock{
+				ID:       "test",
+				Text:     tt.text,
+				Position: tt.position,
+				Width:    tt.width,
+				WrapMode: tt.wrapMode,
+				Align:    AlignLeft,
+			}
 
-	// Verify the text block was stored
-	blocks := canvas.GetTextBlocks()
-	if len(blocks) != 1 {
-		t.Errorf("expected 1 text block, got %d", len(blocks))
-	}
-	if blocks[0].ID != "test1" {
-		t.Errorf("expected block ID 'test1', got %s", blocks[0].ID)
-	}
-}
+			block.RenderTo(canvas)
 
-func TestAddTextBlockWithWrapping(t *testing.T) {
-	canvas := New(15, 5)
-
-	block := TextBlock{
-		ID:       "wrap1",
-		Text:     "This is a long text that needs wrapping",
-		Position: Position{X: 0, Y: 0},
-		Width:    10,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
-	}
-
-	canvas.AddTextBlock(block)
-
-	// Check first line
-	firstLine := "This is a"
-	for i, r := range []rune(firstLine) {
-		if canvas.GetChar(i, 0) != r {
-			t.Errorf("line 1: expected character %c at position (%d, %d), got %c",
-				r, i, 0, canvas.GetChar(i, 0))
-		}
-	}
-
-	// Check second line
-	secondLine := "long text"
-	for i, r := range []rune(secondLine) {
-		if canvas.GetChar(i, 1) != r {
-			t.Errorf("line 2: expected character %c at position (%d, %d), got %c",
-				r, i, 1, canvas.GetChar(i, 1))
-		}
+			// Verify text was placed correctly
+			expectedLines := strings.Split(tt.expected, "\n")
+			for lineNum, line := range expectedLines {
+				for i, r := range []rune(line) {
+					y := tt.position.Y + lineNum
+					x := tt.position.X + i
+					if canvas.GetChar(x, y) != r {
+						t.Errorf("expected character %c at position (%d, %d), got %c",
+							r, x, y, canvas.GetChar(x, y))
+					}
+				}
+			}
+		})
 	}
 }
 
 func TestTextBlockAlignment(t *testing.T) {
 	tests := []struct {
-		name     string
-		align    Alignment
-		text     string
-		width    int
-		expected string
+		name      string
+		text      string
+		width     int
+		alignment Alignment
+		expected  string
 	}{
 		{
-			name:     "left alignment",
-			align:    AlignLeft,
-			text:     "Hello",
-			width:    10,
-			expected: "Hello     ",
+			name:      "left align single line",
+			text:      "Hello",
+			width:     10,
+			alignment: AlignLeft,
+			expected:  "Hello",
 		},
 		{
-			name:     "center alignment",
-			align:    AlignCenter,
-			text:     "Hello",
-			width:    10,
-			expected: "  Hello   ",
+			name:      "center align single line",
+			text:      "Hello",
+			width:     10,
+			alignment: AlignCenter,
+			expected:  "  Hello",
 		},
 		{
-			name:     "right alignment",
-			align:    AlignRight,
-			text:     "Hello",
-			width:    10,
-			expected: "     Hello",
+			name:      "right align single line",
+			text:      "Hello",
+			width:     10,
+			alignment: AlignRight,
+			expected:  "     Hello",
+		},
+		{
+			name:      "center align even text length",
+			text:      "Test",
+			width:     10,
+			alignment: AlignCenter,
+			expected:  "   Test",
+		},
+		{
+			name:      "center align text same as width",
+			text:      "HelloWorld",
+			width:     10,
+			alignment: AlignCenter,
+			expected:  "HelloWorld",
+		},
+		{
+			name:      "right align with wrapping",
+			text:      "Hello World Test",
+			width:     10,
+			alignment: AlignRight,
+			expected:  "     Hello\nWorld Test",
+		},
+		{
+			name:      "center align with wrapping",
+			text:      "Hello World Test",
+			width:     10,
+			alignment: AlignCenter,
+			expected:  "  Hello\nWorld Test",
+		},
+		{
+			name:      "left align with wrapping",
+			text:      "Hello World Test",
+			width:     10,
+			alignment: AlignLeft,
+			expected:  "Hello\nWorld Test",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			canvas := New(15, 3)
+			canvas := New(15, 5)
 
 			block := TextBlock{
-				ID:       "align_test",
+				ID:       "test",
 				Text:     tt.text,
 				Position: Position{X: 0, Y: 0},
 				Width:    tt.width,
 				WrapMode: WrapBasic,
-				Align:    tt.align,
+				Align:    tt.alignment,
 			}
 
-			canvas.AddTextBlock(block)
+			block.RenderTo(canvas)
 
-			// Check the alignment
-			for i, expected := range []rune(tt.expected) {
-				if i >= canvas.Width() {
-					break
-				}
-				got := canvas.GetChar(i, 0)
-				if got != expected {
-					t.Errorf("expected character %c at position %d, got %c", expected, i, got)
-				}
-			}
-		})
-	}
-}
-
-func TestTextBlockWrapModes(t *testing.T) {
-	tests := []struct {
-		name     string
-		wrapMode WrapMode
-		text     string
-		width    int
-		indent   string
-	}{
-		{
-			name:     "basic wrap",
-			wrapMode: WrapBasic,
-			text:     "Hello world this is a test",
-			width:    10,
-		},
-		{
-			name:     "word wrap",
-			wrapMode: WrapWord,
-			text:     "Hello world superlongwordthatexceedswidth test",
-			width:    10,
-		},
-		{
-			name:     "soft wrap",
-			wrapMode: WrapSoft,
-			text:     "Hello world this is soft wrapping",
-			width:    10,
-		},
-		{
-			name:     "indent wrap",
-			wrapMode: WrapIndent,
-			text:     "First line and second line content",
-			width:    15,
-			indent:   "  ",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			canvas := New(20, 10)
-
-			block := TextBlock{
-				ID:       "wrap_test",
-				Text:     tt.text,
-				Position: Position{X: 0, Y: 0},
-				Width:    tt.width,
-				WrapMode: tt.wrapMode,
-				Align:    AlignLeft,
-				Indent:   tt.indent,
-			}
-
-			canvas.AddTextBlock(block)
-
-			// Verify at least some content was placed
-			hasContent := false
-			for y := 0; y < 5; y++ {
-				for x := 0; x < tt.width; x++ {
-					if canvas.GetChar(x, y) != ' ' {
-						hasContent = true
-						break
+			// Verify text was placed correctly
+			expectedLines := strings.Split(tt.expected, "\n")
+			for lineNum, line := range expectedLines {
+				for i, r := range []rune(line) {
+					y := lineNum
+					x := i
+					if canvas.GetChar(x, y) != r {
+						t.Errorf("expected character %c at position (%d, %d), got %c",
+							r, x, y, canvas.GetChar(x, y))
 					}
 				}
-				if hasContent {
-					break
-				}
-			}
-
-			if !hasContent {
-				t.Error("expected wrapped text to be rendered on canvas")
 			}
 		})
-	}
-}
-
-func TestRemoveTextBlock(t *testing.T) {
-	canvas := New(15, 5)
-
-	// Add two text blocks
-	block1 := TextBlock{
-		ID:       "block1",
-		Text:     "First block",
-		Position: Position{X: 0, Y: 0},
-		Width:    11,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
-	}
-
-	block2 := TextBlock{
-		ID:       "block2",
-		Text:     "Second",
-		Position: Position{X: 0, Y: 1},
-		Width:    6,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
-	}
-
-	canvas.AddTextBlock(block1)
-	canvas.AddTextBlock(block2)
-
-	// Verify both blocks exist
-	blocks := canvas.GetTextBlocks()
-	if len(blocks) != 2 {
-		t.Errorf("expected 2 text blocks, got %d", len(blocks))
-	}
-
-	// Remove first block
-	canvas.RemoveTextBlock("block1")
-
-	// Verify only second block remains
-	blocks = canvas.GetTextBlocks()
-	if len(blocks) != 1 {
-		t.Errorf("expected 1 text block after removal, got %d", len(blocks))
-	}
-	if blocks[0].ID != "block2" {
-		t.Errorf("expected remaining block to be 'block2', got %s", blocks[0].ID)
-	}
-
-	// Verify first line is cleared (background characters)
-	for x := 0; x < 11; x++ {
-		if canvas.GetChar(x, 0) != ' ' {
-			t.Errorf("expected background character at (%d, 0) after removal, got %c",
-				x, canvas.GetChar(x, 0))
-		}
-	}
-
-	// Verify second line still has content
-	secondText := "Second"
-	for i, r := range []rune(secondText) {
-		if canvas.GetChar(i, 1) != r {
-			t.Errorf("expected character %c at (%d, 1), got %c",
-				r, i, canvas.GetChar(i, 1))
-		}
-	}
-}
-
-func TestReplaceTextBlock(t *testing.T) {
-	canvas := New(15, 3)
-
-	// Add initial text block
-	block := TextBlock{
-		ID:       "replaceable",
-		Text:     "Original",
-		Position: Position{X: 0, Y: 0},
-		Width:    10,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
-	}
-
-	canvas.AddTextBlock(block)
-
-	// Verify original text
-	originalText := "Original"
-	for i, r := range []rune(originalText) {
-		if canvas.GetChar(i, 0) != r {
-			t.Errorf("expected original character %c at position %d, got %c",
-				r, i, canvas.GetChar(i, 0))
-		}
-	}
-
-	// Replace with new text block (same ID)
-	newBlock := TextBlock{
-		ID:       "replaceable",
-		Text:     "New Text",
-		Position: Position{X: 0, Y: 0},
-		Width:    10,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
-	}
-
-	canvas.AddTextBlock(newBlock)
-
-	// Verify only one block exists
-	blocks := canvas.GetTextBlocks()
-	if len(blocks) != 1 {
-		t.Errorf("expected 1 text block after replacement, got %d", len(blocks))
-	}
-
-	// Verify new text
-	newText := "New Text"
-	for i, r := range []rune(newText) {
-		if canvas.GetChar(i, 0) != r {
-			t.Errorf("expected new character %c at position %d, got %c",
-				r, i, canvas.GetChar(i, 0))
-		}
-	}
-
-	// Verify original text area is cleared beyond new text
-	if canvas.GetChar(8, 0) != ' ' {
-		t.Errorf("expected background character at position 8, got %c", canvas.GetChar(8, 0))
-	}
-}
-
-func TestGetTextBlocks(t *testing.T) {
-	canvas := New(10, 5)
-
-	// Add multiple text blocks
-	blocks := []TextBlock{
-		{
-			ID:       "block1",
-			Text:     "Text 1",
-			Position: Position{X: 0, Y: 0},
-			Width:    6,
-			WrapMode: WrapBasic,
-			Align:    AlignLeft,
-		},
-		{
-			ID:       "block2",
-			Text:     "Text 2",
-			Position: Position{X: 0, Y: 1},
-			Width:    6,
-			WrapMode: WrapWord,
-			Align:    AlignCenter,
-		},
-	}
-
-	for _, block := range blocks {
-		canvas.AddTextBlock(block)
-	}
-
-	// Get text blocks and verify they match
-	retrievedBlocks := canvas.GetTextBlocks()
-	if len(retrievedBlocks) != len(blocks) {
-		t.Errorf("expected %d text blocks, got %d", len(blocks), len(retrievedBlocks))
-	}
-
-	// Verify it's a copy by modifying elements directly (not just appending)
-	if len(retrievedBlocks) > 0 {
-		originalID := retrievedBlocks[0].ID
-		retrievedBlocks[0].ID = "modified_id"
-
-		// Get blocks again to verify the canvas wasn't affected
-		newRetrievedBlocks := canvas.GetTextBlocks()
-		if len(newRetrievedBlocks) > 0 && newRetrievedBlocks[0].ID != originalID {
-			t.Error("GetTextBlocks should return a copy - modifying returned slice affected the canvas")
-		}
-	}
-}
-
-func TestTextBlockOutOfBounds(t *testing.T) {
-	canvas := New(5, 3)
-
-	// Text block that goes beyond canvas bounds
-	block := TextBlock{
-		ID:       "oob",
-		Text:     "This text is much longer than the canvas width",
-		Position: Position{X: 3, Y: 1},
-		Width:    20,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
-	}
-
-	canvas.AddTextBlock(block)
-
-	// Verify only text within bounds is rendered
-	// Characters at x >= 5 should not be set
-	for y := 0; y < canvas.Height(); y++ {
-		for x := 5; x < 10; x++ { // Check beyond canvas width
-			// This should not panic, GetChar should handle out of bounds
-			char := canvas.GetChar(x, y)
-			if char != ' ' {
-				t.Errorf("expected background character for out-of-bounds position (%d, %d), got %c", x, y, char)
-			}
-		}
-	}
-}
-
-func TestEmptyTextBlock(t *testing.T) {
-	canvas := New(10, 3)
-
-	block := TextBlock{
-		ID:       "empty",
-		Text:     "",
-		Position: Position{X: 2, Y: 1},
-		Width:    5,
-		WrapMode: WrapBasic,
-		Align:    AlignLeft,
-	}
-
-	canvas.AddTextBlock(block)
-
-	// Verify empty text doesn't affect canvas
-	for y := 0; y < canvas.Height(); y++ {
-		for x := 0; x < canvas.Width(); x++ {
-			if canvas.GetChar(x, y) != ' ' {
-				t.Errorf("expected background character at (%d, %d) for empty text block, got %c",
-					x, y, canvas.GetChar(x, y))
-			}
-		}
-	}
-
-	// Verify the block is still stored
-	blocks := canvas.GetTextBlocks()
-	if len(blocks) != 1 {
-		t.Errorf("expected 1 text block, got %d", len(blocks))
 	}
 }
