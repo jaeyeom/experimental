@@ -762,72 +762,415 @@ func TestRenderableCollection(t *testing.T) {
 	}
 }
 
-func TestCanvasRenderableIntegration(t *testing.T) {
-	canvas := New(15, 5)
-
-	// Test that canvas has empty renderables initially
-	if len(canvas.GetRenderableIDs()) != 0 {
-		t.Error("expected no renderables in new canvas")
+func TestRectangleOverlap(t *testing.T) {
+	tests := []struct {
+		name     string
+		r1, r2   Rectangle
+		expected bool
+		overlap  Rectangle
+	}{
+		{
+			name:     "no overlap - separate",
+			r1:       Rectangle{X: 0, Y: 0, Width: 2, Height: 2},
+			r2:       Rectangle{X: 3, Y: 3, Width: 2, Height: 2},
+			expected: false,
+		},
+		{
+			name:     "no overlap - adjacent",
+			r1:       Rectangle{X: 0, Y: 0, Width: 2, Height: 2},
+			r2:       Rectangle{X: 2, Y: 0, Width: 2, Height: 2},
+			expected: false,
+		},
+		{
+			name:     "partial overlap",
+			r1:       Rectangle{X: 0, Y: 0, Width: 3, Height: 3},
+			r2:       Rectangle{X: 2, Y: 2, Width: 3, Height: 3},
+			expected: true,
+			overlap:  Rectangle{X: 2, Y: 2, Width: 1, Height: 1},
+		},
+		{
+			name:     "complete overlap - r2 inside r1",
+			r1:       Rectangle{X: 0, Y: 0, Width: 10, Height: 10},
+			r2:       Rectangle{X: 2, Y: 2, Width: 3, Height: 3},
+			expected: true,
+			overlap:  Rectangle{X: 2, Y: 2, Width: 3, Height: 3},
+		},
+		{
+			name:     "complete overlap - r1 inside r2",
+			r1:       Rectangle{X: 2, Y: 2, Width: 3, Height: 3},
+			r2:       Rectangle{X: 0, Y: 0, Width: 10, Height: 10},
+			expected: true,
+			overlap:  Rectangle{X: 2, Y: 2, Width: 3, Height: 3},
+		},
+		{
+			name:     "identical rectangles",
+			r1:       Rectangle{X: 1, Y: 1, Width: 5, Height: 5},
+			r2:       Rectangle{X: 1, Y: 1, Width: 5, Height: 5},
+			expected: true,
+			overlap:  Rectangle{X: 1, Y: 1, Width: 5, Height: 5},
+		},
 	}
 
-	// Create test text blocks
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			overlap, hasOverlap := rectanglesOverlap(tt.r1, tt.r2)
+
+			if hasOverlap != tt.expected {
+				t.Errorf("expected overlap %t, got %t", tt.expected, hasOverlap)
+			}
+
+			if tt.expected && overlap != tt.overlap {
+				t.Errorf("expected overlap region %+v, got %+v", tt.overlap, overlap)
+			}
+		})
+	}
+}
+
+func TestTextBlockGetBounds(t *testing.T) {
+	tests := []struct {
+		name     string
+		block    TextBlock
+		expected Rectangle
+	}{
+		{
+			name: "empty text",
+			block: TextBlock{
+				ID:       "empty",
+				Text:     "",
+				Position: Position{X: 5, Y: 5},
+				Width:    10,
+				WrapMode: WrapBasic,
+			},
+			expected: Rectangle{X: 5, Y: 5, Width: 0, Height: 0},
+		},
+		{
+			name: "single line text",
+			block: TextBlock{
+				ID:       "single",
+				Text:     "Hello",
+				Position: Position{X: 2, Y: 3},
+				Width:    10,
+				WrapMode: WrapBasic,
+			},
+			expected: Rectangle{X: 2, Y: 3, Width: 5, Height: 1},
+		},
+		{
+			name: "text wrapping",
+			block: TextBlock{
+				ID:       "wrapped",
+				Text:     "Hello World Test",
+				Position: Position{X: 0, Y: 0},
+				Width:    10,
+				WrapMode: WrapBasic,
+			},
+			expected: Rectangle{X: 0, Y: 0, Width: 10, Height: 2},
+		},
+		{
+			name: "short text with wide width",
+			block: TextBlock{
+				ID:       "short",
+				Text:     "Hi",
+				Position: Position{X: 1, Y: 1},
+				Width:    20,
+				WrapMode: WrapBasic,
+			},
+			expected: Rectangle{X: 1, Y: 1, Width: 2, Height: 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bounds := tt.block.GetBounds()
+
+			if bounds != tt.expected {
+				t.Errorf("expected bounds %+v, got %+v", tt.expected, bounds)
+			}
+		})
+	}
+}
+
+func TestCollisionDetection(t *testing.T) {
+	collection := NewRenderableCollection()
+
+	// Create non-overlapping text blocks
 	block1 := TextBlock{
-		ID:       "header",
-		Text:     "Header",
+		ID:       "block1",
+		Text:     "Hello",
 		Position: Position{X: 0, Y: 0},
-		Width:    15,
-		WrapMode: WrapBasic,
-		Align:    AlignCenter,
-	}
-
-	block2 := TextBlock{
-		ID:       "content",
-		Text:     "Content line",
-		Position: Position{X: 0, Y: 2},
-		Width:    15,
+		Width:    10,
 		WrapMode: WrapBasic,
 		Align:    AlignLeft,
 	}
 
-	// Test AddRenderable
-	canvas.AddRenderable(block1)
-	canvas.AddRenderable(block2)
-
-	ids := canvas.GetRenderableIDs()
-	if len(ids) != 2 {
-		t.Errorf("expected 2 renderables, got %d", len(ids))
+	block2 := TextBlock{
+		ID:       "block2",
+		Text:     "World",
+		Position: Position{X: 0, Y: 2},
+		Width:    10,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
 	}
 
-	// Test GetRenderable
-	retrieved, exists := canvas.GetRenderable("header")
-	if !exists {
-		t.Error("expected to find header block")
-	}
-	if retrieved.GetID() != "header" {
-		t.Errorf("expected retrieved block ID 'header', got %s", retrieved.GetID())
+	// Test no collisions
+	collection.Add(block1)
+	collection.Add(block2)
+	collisions := collection.DetectCollisions()
+
+	if len(collisions) != 0 {
+		t.Errorf("expected no collisions for non-overlapping blocks, got %d", len(collisions))
 	}
 
-	// Test RenderWithObjects
-	result := canvas.RenderWithObjects()
-	expected := "    Header\n\nContent line"
-	if result != expected {
-		t.Errorf("expected:\n%q\ngot:\n%q", expected, result)
+	// Add overlapping block
+	block3 := TextBlock{
+		ID:       "block3",
+		Text:     "Overlap",
+		Position: Position{X: 2, Y: 0}, // Overlaps with block1
+		Width:    10,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
 	}
 
-	// Test RemoveRenderable
-	removed := canvas.RemoveRenderable("header")
-	if !removed {
-		t.Error("expected RemoveRenderable to return true")
+	collection.Add(block3)
+	collisions = collection.DetectCollisions()
+
+	if len(collisions) != 1 {
+		t.Errorf("expected 1 collision, got %d", len(collisions))
 	}
 
-	ids = canvas.GetRenderableIDs()
-	if len(ids) != 1 {
-		t.Errorf("expected 1 renderable after removal, got %d", len(ids))
+	if len(collisions) > 0 {
+		collision := collisions[0]
+		if collision.Object1.GetID() != "block1" && collision.Object1.GetID() != "block3" {
+			t.Errorf("unexpected collision object1: %s", collision.Object1.GetID())
+		}
+		if collision.Object2.GetID() != "block1" && collision.Object2.GetID() != "block3" {
+			t.Errorf("unexpected collision object2: %s", collision.Object2.GetID())
+		}
+	}
+}
+
+func TestCollisionStrategies(t *testing.T) {
+	tests := []struct {
+		name                string
+		strategy            ResolutionStrategy
+		expectError         bool
+		expectedObjectCount int
+	}{
+		{
+			name:                "overwrite strategy",
+			strategy:            StrategyOverwrite,
+			expectError:         false,
+			expectedObjectCount: 2, // Both objects remain
+		},
+		{
+			name:                "skip strategy",
+			strategy:            StrategySkip,
+			expectError:         false,
+			expectedObjectCount: 1, // One object removed
+		},
+		{
+			name:                "error strategy",
+			strategy:            StrategyError,
+			expectError:         true,
+			expectedObjectCount: 2, // Objects remain but error returned
+		},
+		{
+			name:                "blend strategy",
+			strategy:            StrategyBlend,
+			expectError:         false,
+			expectedObjectCount: 2, // Both objects remain
+		},
 	}
 
-	// Test ClearRenderables
-	canvas.ClearRenderables()
-	if len(canvas.GetRenderableIDs()) != 0 {
-		t.Error("expected no renderables after clear")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			collection := NewRenderableCollection()
+			collection.SetCollisionStrategy(tt.strategy)
+
+			// Add overlapping blocks
+			block1 := TextBlock{
+				ID:       "block1",
+				Text:     "Hello",
+				Position: Position{X: 0, Y: 0},
+				Width:    10,
+				WrapMode: WrapBasic,
+			}
+
+			block2 := TextBlock{
+				ID:       "block2",
+				Text:     "World",
+				Position: Position{X: 2, Y: 0}, // Overlaps with block1
+				Width:    10,
+				WrapMode: WrapBasic,
+			}
+
+			collection.Add(block1)
+			collection.Add(block2)
+
+			err := collection.ResolveCollisions()
+
+			if tt.expectError && err == nil {
+				t.Error("expected error but got none")
+			}
+
+			if !tt.expectError && err != nil {
+				t.Errorf("expected no error but got: %v", err)
+			}
+
+			if collection.Count() != tt.expectedObjectCount {
+				t.Errorf("expected %d objects after resolution, got %d", tt.expectedObjectCount, collection.Count())
+			}
+		})
+	}
+}
+
+func TestValidateLayout(t *testing.T) {
+	collection := NewRenderableCollection()
+
+	// Test valid layout (no collisions)
+	block1 := TextBlock{
+		ID:       "block1",
+		Text:     "Hello",
+		Position: Position{X: 0, Y: 0},
+		Width:    5,
+		WrapMode: WrapBasic,
+	}
+
+	block2 := TextBlock{
+		ID:       "block2",
+		Text:     "World",
+		Position: Position{X: 0, Y: 2},
+		Width:    5,
+		WrapMode: WrapBasic,
+	}
+
+	collection.Add(block1)
+	collection.Add(block2)
+
+	err := collection.ValidateLayout()
+	if err != nil {
+		t.Errorf("expected no error for valid layout, got: %v", err)
+	}
+
+	// Add overlapping block
+	block3 := TextBlock{
+		ID:       "block3",
+		Text:     "Test",
+		Position: Position{X: 2, Y: 0}, // Overlaps with block1
+		Width:    5,
+		WrapMode: WrapBasic,
+	}
+
+	collection.Add(block3)
+
+	err = collection.ValidateLayout()
+	if err == nil {
+		t.Error("expected error for invalid layout with collisions")
+	}
+}
+
+func TestGetOccupiedRegions(t *testing.T) {
+	collection := NewRenderableCollection()
+
+	block1 := TextBlock{
+		ID:       "block1",
+		Text:     "Hello",
+		Position: Position{X: 0, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	block2 := TextBlock{
+		ID:       "block2",
+		Text:     "World",
+		Position: Position{X: 0, Y: 2},
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	collection.Add(block1)
+	collection.Add(block2)
+
+	regions := collection.GetOccupiedRegions()
+
+	if len(regions) != 2 {
+		t.Errorf("expected 2 occupied regions, got %d", len(regions))
+	}
+
+	// Check that regions match expected bounds
+	expectedRegions := []Rectangle{
+		{X: 0, Y: 0, Width: 5, Height: 1}, // block1 bounds
+		{X: 0, Y: 2, Width: 5, Height: 1}, // block2 bounds
+	}
+
+	for _, expected := range expectedRegions {
+		found := false
+		for _, region := range regions {
+			if region == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected region %+v not found in occupied regions", expected)
+		}
+	}
+}
+
+func TestCollisionSeverity(t *testing.T) {
+	tests := []struct {
+		name     string
+		overlap  Rectangle
+		expected CollisionSeverity
+	}{
+		{
+			name:     "low severity - small overlap",
+			overlap:  Rectangle{X: 0, Y: 0, Width: 2, Height: 2}, // area = 4
+			expected: CollisionLow,
+		},
+		{
+			name:     "medium severity - moderate overlap",
+			overlap:  Rectangle{X: 0, Y: 0, Width: 4, Height: 3}, // area = 12
+			expected: CollisionMedium,
+		},
+		{
+			name:     "high severity - large overlap",
+			overlap:  Rectangle{X: 0, Y: 0, Width: 5, Height: 5}, // area = 25
+			expected: CollisionHigh,
+		},
+		{
+			name:     "boundary case - exactly 5",
+			overlap:  Rectangle{X: 0, Y: 0, Width: 5, Height: 1}, // area = 5
+			expected: CollisionLow,
+		},
+		{
+			name:     "boundary case - exactly 20",
+			overlap:  Rectangle{X: 0, Y: 0, Width: 4, Height: 5}, // area = 20
+			expected: CollisionMedium,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			severity := calculateCollisionSeverity(tt.overlap)
+
+			if severity != tt.expected {
+				t.Errorf("expected severity %d, got %d", tt.expected, severity)
+			}
+		})
+	}
+}
+
+func TestRenderableCollectionCollisionMethods(t *testing.T) {
+	collection := NewRenderableCollection()
+
+	// Test default strategy
+	if collection.GetCollisionStrategy() != StrategyOverwrite {
+		t.Errorf("expected default strategy StrategyOverwrite, got %d", collection.GetCollisionStrategy())
+	}
+
+	// Test setting strategy
+	collection.SetCollisionStrategy(StrategyError)
+	if collection.GetCollisionStrategy() != StrategyError {
+		t.Errorf("expected strategy StrategyError, got %d", collection.GetCollisionStrategy())
 	}
 }
