@@ -1174,3 +1174,85 @@ func TestRenderableCollectionCollisionMethods(t *testing.T) {
 		t.Errorf("expected strategy StrategyError, got %d", collection.GetCollisionStrategy())
 	}
 }
+
+func TestRenderableCollectionDeterministicOrder(t *testing.T) {
+	// Test that RenderAll produces deterministic results based on insertion order
+	canvas := New(10, 5)
+	collection := NewRenderableCollection()
+
+	// Create overlapping blocks that will overwrite each other
+	block1 := TextBlock{
+		ID:       "first",
+		Text:     "A",
+		Position: Position{X: 0, Y: 0},
+		Width:    5,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	block2 := TextBlock{
+		ID:       "second",
+		Text:     "B",
+		Position: Position{X: 0, Y: 0},
+		Width:    5,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	block3 := TextBlock{
+		ID:       "third",
+		Text:     "C",
+		Position: Position{X: 0, Y: 0},
+		Width:    5,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	// Add in specific order
+	collection.Add(block1)
+	collection.Add(block2)
+	collection.Add(block3)
+
+	// Render multiple times - should always produce same result
+	var results []string
+	for i := 0; i < 5; i++ {
+		canvas.Clear()
+		collection.RenderAll(canvas)
+		results = append(results, canvas.Render())
+	}
+
+	// All results should be identical
+	expected := results[0]
+	for i, result := range results {
+		if result != expected {
+			t.Errorf("render %d produced different result than render 0", i)
+		}
+	}
+
+	// Since block3 was added last, 'C' should be the final character at (0,0)
+	// due to StrategyOverwrite behavior
+	if canvas.GetChar(0, 0) != 'C' {
+		t.Errorf("expected 'C' at (0,0) due to overwrite, got %c", canvas.GetChar(0, 0))
+	}
+
+	// Test that insertion order is preserved even after remove/add operations
+	collection.Remove("second")
+	block4 := TextBlock{
+		ID:       "fourth",
+		Text:     "D",
+		Position: Position{X: 0, Y: 0},
+		Width:    5,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+	collection.Add(block4)
+
+	// Should now render first, third, fourth (in that order)
+	canvas.Clear()
+	collection.RenderAll(canvas)
+
+	// 'D' should be the final character since block4 was added last
+	if canvas.GetChar(0, 0) != 'D' {
+		t.Errorf("expected 'D' at (0,0) after remove/add, got %c", canvas.GetChar(0, 0))
+	}
+}

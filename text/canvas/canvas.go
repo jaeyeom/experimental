@@ -417,6 +417,7 @@ func (c *Canvas) isValidCoordinate(x, y int) bool {
 // It provides methods to add, remove, and render multiple objects to a canvas.
 type RenderableCollection struct {
 	objects           map[string]Renderable
+	insertionOrder    []string
 	collisionStrategy ResolutionStrategy
 }
 
@@ -424,6 +425,7 @@ type RenderableCollection struct {
 func NewRenderableCollection() *RenderableCollection {
 	return &RenderableCollection{
 		objects:           make(map[string]Renderable),
+		insertionOrder:    make([]string, 0),
 		collisionStrategy: StrategyOverwrite,
 	}
 }
@@ -431,7 +433,11 @@ func NewRenderableCollection() *RenderableCollection {
 // Add adds a renderable object to the collection.
 // If an object with the same ID already exists, it will be replaced.
 func (rc *RenderableCollection) Add(r Renderable) {
-	rc.objects[r.GetID()] = r
+	id := r.GetID()
+	if _, exists := rc.objects[id]; !exists {
+		rc.insertionOrder = append(rc.insertionOrder, id)
+	}
+	rc.objects[id] = r
 }
 
 // Remove removes a renderable object from the collection by its ID.
@@ -440,6 +446,13 @@ func (rc *RenderableCollection) Remove(id string) bool {
 	_, exists := rc.objects[id]
 	if exists {
 		delete(rc.objects, id)
+		// Remove from insertion order slice
+		for i, oid := range rc.insertionOrder {
+			if oid == id {
+				rc.insertionOrder = append(rc.insertionOrder[:i], rc.insertionOrder[i+1:]...)
+				break
+			}
+		}
 	}
 	return exists
 }
@@ -454,6 +467,7 @@ func (rc *RenderableCollection) Get(id string) (Renderable, bool) {
 // Clear removes all renderable objects from the collection.
 func (rc *RenderableCollection) Clear() {
 	rc.objects = make(map[string]Renderable)
+	rc.insertionOrder = make([]string, 0)
 }
 
 // Count returns the number of renderable objects in the collection.
@@ -462,13 +476,13 @@ func (rc *RenderableCollection) Count() int {
 }
 
 // RenderAll renders all objects in the collection to the provided CharSetter.
-//
-// TODO(#57): Objects are rendered in an undefined order since they're stored in
-// a map. This makes StrategyOverwrite behavior non-deterministic. Consider
-// using ordered storage.
+// Objects are rendered in insertion order, ensuring deterministic behavior
+// for collision resolution strategies like StrategyOverwrite.
 func (rc *RenderableCollection) RenderAll(cs CharSetter) {
-	for _, obj := range rc.objects {
-		obj.RenderTo(cs)
+	for _, id := range rc.insertionOrder {
+		if obj, exists := rc.objects[id]; exists {
+			obj.RenderTo(cs)
+		}
 	}
 }
 
