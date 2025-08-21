@@ -470,7 +470,7 @@ func (ch *CommandHandler) ResolveCommand(repository models.Repository, identifie
 }
 
 // AutoAdjustCommand automatically adjusts line numbers based on git diff.
-func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identifier string, since string, staged bool, gitDiffSpec string, ifNeeded bool) error {
+func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identifier string, since string, staged bool, unstaged bool, gitDiffSpec string, ifNeeded bool) error {
 	_, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
@@ -486,6 +486,12 @@ func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identi
 		diffOutput, err = ch.gitClient.GetStagedDiff()
 		if err != nil {
 			return fmt.Errorf("failed to get staged diff: %w", err)
+		}
+	case unstaged:
+		// Get unstaged working directory changes
+		diffOutput, err = ch.gitClient.GetUnstagedDiff()
+		if err != nil {
+			return fmt.Errorf("failed to get unstaged diff: %w", err)
 		}
 	case since != "":
 		// Get diff since specific commit

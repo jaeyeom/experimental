@@ -1325,6 +1325,7 @@ func handleAutoAdjust(args []string) {
 		fmt.Println("  <identifier>      PR number or branch name (auto-detected if omitted)")
 		fmt.Println("  --since COMMIT    Adjust based on changes since specific commit [default: HEAD~1]")
 		fmt.Println("  --staged          Adjust based on staged git changes")
+		fmt.Println("  --unstaged        Adjust based on unstaged working directory changes")
 		fmt.Println("  --git-diff SPEC   Use specific git diff output")
 		fmt.Println("  --if-needed       Only adjust if changes detected")
 		return
@@ -1338,7 +1339,7 @@ func handleAutoAdjust(args []string) {
 	}
 	parser = argparser.NewArgParser(detectedArgs)
 
-	if err := parser.ValidateOptions([]string{"since", "staged", "git-diff", "if-needed"}); err != nil {
+	if err := parser.ValidateOptions([]string{"since", "staged", "unstaged", "git-diff", "if-needed"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -1359,6 +1360,7 @@ func handleAutoAdjust(args []string) {
 
 	since := parser.GetOption("since")
 	staged := parser.HasOption("staged")
+	unstaged := parser.HasOption("unstaged")
 	gitDiffSpec := parser.GetOption("git-diff")
 	ifNeeded := parser.HasOption("if-needed")
 
@@ -1368,7 +1370,7 @@ func handleAutoAdjust(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.AutoAdjustCommand(repository, identifier, since, staged, gitDiffSpec, ifNeeded); err != nil {
+	if err := handler.AutoAdjustCommand(repository, identifier, since, staged, unstaged, gitDiffSpec, ifNeeded); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
