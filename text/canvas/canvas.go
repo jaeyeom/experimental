@@ -667,3 +667,143 @@ func (rc *RenderableCollection) ResolveCollisions() error {
 
 	return nil
 }
+
+// LineStyle specifies the visual style of a line.
+type LineStyle int
+
+const (
+	// LineStyleSingle uses single-character lines (- for horizontal, | for vertical).
+	LineStyleSingle LineStyle = iota
+	// LineStyleDouble uses double-character lines (= for horizontal, ‖ for vertical).
+	LineStyleDouble
+	// LineStyleDashed uses dashed lines (- - for horizontal, : for vertical).
+	LineStyleDashed
+	// LineStyleDotted uses dotted lines (. . for horizontal, · for vertical).
+	LineStyleDotted
+)
+
+// LineDirection specifies the direction of a line.
+type LineDirection int
+
+const (
+	// LineDirectionHorizontal creates horizontal lines.
+	LineDirectionHorizontal LineDirection = iota
+	// LineDirectionVertical creates vertical lines.
+	LineDirectionVertical
+)
+
+// Line represents a line element that can be rendered to a canvas.
+// Lines can be horizontal or vertical and support different visual styles.
+type Line struct {
+	// ID uniquely identifies the line for removal and updates.
+	ID string
+	// Start is the starting position of the line.
+	Start Position
+	// Length is the length of the line in characters.
+	Length int
+	// Direction specifies whether the line is horizontal or vertical.
+	Direction LineDirection
+	// Style specifies the visual appearance of the line.
+	Style LineStyle
+}
+
+// GetID returns the unique identifier for this line.
+func (l Line) GetID() string {
+	return l.ID
+}
+
+// GetBounds returns the rectangular bounds that this line occupies when rendered.
+func (l Line) GetBounds() Rectangle {
+	if l.Length <= 0 {
+		return Rectangle{X: l.Start.X, Y: l.Start.Y, Width: 0, Height: 0}
+	}
+
+	switch l.Direction {
+	case LineDirectionHorizontal:
+		return Rectangle{
+			X:      l.Start.X,
+			Y:      l.Start.Y,
+			Width:  l.Length,
+			Height: 1,
+		}
+	case LineDirectionVertical:
+		return Rectangle{
+			X:      l.Start.X,
+			Y:      l.Start.Y,
+			Width:  1,
+			Height: l.Length,
+		}
+	default:
+		return Rectangle{X: l.Start.X, Y: l.Start.Y, Width: 0, Height: 0}
+	}
+}
+
+// getLineChar returns the character to use for the line based on style and direction.
+func (l Line) getLineChar() rune {
+	switch l.Style {
+	case LineStyleSingle:
+		if l.Direction == LineDirectionHorizontal {
+			return '-'
+		}
+		return '|'
+	case LineStyleDouble:
+		if l.Direction == LineDirectionHorizontal {
+			return '='
+		}
+		return '‖'
+	case LineStyleDashed:
+		if l.Direction == LineDirectionHorizontal {
+			return '-'
+		}
+		return ':'
+	case LineStyleDotted:
+		if l.Direction == LineDirectionHorizontal {
+			return '·'
+		}
+		return '·'
+	default:
+		if l.Direction == LineDirectionHorizontal {
+			return '-'
+		}
+		return '|'
+	}
+}
+
+// shouldRenderCharAt determines if a character should be rendered at the given offset
+// for dashed and dotted line styles.
+func (l Line) shouldRenderCharAt(offset int) bool {
+	switch l.Style {
+	case LineStyleSingle, LineStyleDouble:
+		return true
+	case LineStyleDashed:
+		return offset%2 == 0 // Render every other character for dashed effect
+	case LineStyleDotted:
+		return offset%2 == 0 // Render every other character for dotted effect
+	default:
+		return true
+	}
+}
+
+// RenderTo renders the line to any CharSetter implementation.
+func (l Line) RenderTo(cs CharSetter) {
+	if l.Length <= 0 {
+		return
+	}
+
+	lineChar := l.getLineChar()
+
+	switch l.Direction {
+	case LineDirectionHorizontal:
+		for i := 0; i < l.Length; i++ {
+			if l.shouldRenderCharAt(i) {
+				cs.SetChar(l.Start.X+i, l.Start.Y, lineChar)
+			}
+		}
+	case LineDirectionVertical:
+		for i := 0; i < l.Length; i++ {
+			if l.shouldRenderCharAt(i) {
+				cs.SetChar(l.Start.X, l.Start.Y+i, lineChar)
+			}
+		}
+	}
+}

@@ -1256,3 +1256,419 @@ func TestRenderableCollectionDeterministicOrder(t *testing.T) {
 		t.Errorf("expected 'D' at (0,0) after remove/add, got %c", canvas.GetChar(0, 0))
 	}
 }
+
+func TestLineRenderTo(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     Line
+		canvasW  int
+		canvasH  int
+		expected string
+	}{
+		{
+			name: "horizontal single line",
+			line: Line{
+				ID:        "h-line",
+				Start:     Position{X: 1, Y: 1},
+				Length:    5,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleSingle,
+			},
+			canvasW:  8,
+			canvasH:  3,
+			expected: "\n -----",
+		},
+		{
+			name: "vertical single line",
+			line: Line{
+				ID:        "v-line",
+				Start:     Position{X: 2, Y: 0},
+				Length:    4,
+				Direction: LineDirectionVertical,
+				Style:     LineStyleSingle,
+			},
+			canvasW:  5,
+			canvasH:  4,
+			expected: "  |\n  |\n  |\n  |",
+		},
+		{
+			name: "horizontal double line",
+			line: Line{
+				ID:        "h-double",
+				Start:     Position{X: 0, Y: 0},
+				Length:    3,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleDouble,
+			},
+			canvasW:  3,
+			canvasH:  1,
+			expected: "===",
+		},
+		{
+			name: "vertical double line",
+			line: Line{
+				ID:        "v-double",
+				Start:     Position{X: 0, Y: 0},
+				Length:    3,
+				Direction: LineDirectionVertical,
+				Style:     LineStyleDouble,
+			},
+			canvasW:  1,
+			canvasH:  3,
+			expected: "‖\n‖\n‖",
+		},
+		{
+			name: "horizontal dashed line",
+			line: Line{
+				ID:        "h-dash",
+				Start:     Position{X: 0, Y: 0},
+				Length:    7,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleDashed,
+			},
+			canvasW:  7,
+			canvasH:  1,
+			expected: "- - - -",
+		},
+		{
+			name: "vertical dashed line",
+			line: Line{
+				ID:        "v-dash",
+				Start:     Position{X: 0, Y: 0},
+				Length:    5,
+				Direction: LineDirectionVertical,
+				Style:     LineStyleDashed,
+			},
+			canvasW:  1,
+			canvasH:  5,
+			expected: ":\n\n:\n\n:",
+		},
+		{
+			name: "horizontal dotted line",
+			line: Line{
+				ID:        "h-dot",
+				Start:     Position{X: 0, Y: 0},
+				Length:    6,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleDotted,
+			},
+			canvasW:  6,
+			canvasH:  1,
+			expected: "· · ·",
+		},
+		{
+			name: "vertical dotted line",
+			line: Line{
+				ID:        "v-dot",
+				Start:     Position{X: 0, Y: 0},
+				Length:    4,
+				Direction: LineDirectionVertical,
+				Style:     LineStyleDotted,
+			},
+			canvasW:  1,
+			canvasH:  4,
+			expected: "·\n\n·",
+		},
+		{
+			name: "zero length line",
+			line: Line{
+				ID:        "zero",
+				Start:     Position{X: 0, Y: 0},
+				Length:    0,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleSingle,
+			},
+			canvasW:  3,
+			canvasH:  3,
+			expected: "",
+		},
+		{
+			name: "single character line",
+			line: Line{
+				ID:        "single",
+				Start:     Position{X: 1, Y: 1},
+				Length:    1,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleSingle,
+			},
+			canvasW:  3,
+			canvasH:  3,
+			expected: "\n -",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canvas := New(tt.canvasW, tt.canvasH)
+			tt.line.RenderTo(canvas)
+			result := canvas.Render()
+
+			if result != tt.expected {
+				t.Errorf("expected:\n%q\ngot:\n%q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestLineGetBounds(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     Line
+		expected Rectangle
+	}{
+		{
+			name: "horizontal line bounds",
+			line: Line{
+				ID:        "h-line",
+				Start:     Position{X: 2, Y: 3},
+				Length:    5,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleSingle,
+			},
+			expected: Rectangle{X: 2, Y: 3, Width: 5, Height: 1},
+		},
+		{
+			name: "vertical line bounds",
+			line: Line{
+				ID:        "v-line",
+				Start:     Position{X: 4, Y: 1},
+				Length:    7,
+				Direction: LineDirectionVertical,
+				Style:     LineStyleSingle,
+			},
+			expected: Rectangle{X: 4, Y: 1, Width: 1, Height: 7},
+		},
+		{
+			name: "zero length line bounds",
+			line: Line{
+				ID:        "zero",
+				Start:     Position{X: 5, Y: 5},
+				Length:    0,
+				Direction: LineDirectionHorizontal,
+				Style:     LineStyleSingle,
+			},
+			expected: Rectangle{X: 5, Y: 5, Width: 0, Height: 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bounds := tt.line.GetBounds()
+
+			if bounds != tt.expected {
+				t.Errorf("expected bounds %+v, got %+v", tt.expected, bounds)
+			}
+		})
+	}
+}
+
+func TestLineGetID(t *testing.T) {
+	line := Line{
+		ID:        "test-line-id",
+		Start:     Position{X: 0, Y: 0},
+		Length:    5,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+
+	if line.GetID() != "test-line-id" {
+		t.Errorf("expected ID 'test-line-id', got %s", line.GetID())
+	}
+}
+
+func TestLineInterface(t *testing.T) {
+	// Test that Line implements Renderable interface
+	var _ Renderable = Line{}
+
+	line := Line{
+		ID:        "interface-test",
+		Start:     Position{X: 0, Y: 0},
+		Length:    3,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+
+	if line.GetID() != "interface-test" {
+		t.Errorf("expected ID 'interface-test', got %s", line.GetID())
+	}
+
+	// Test bounds calculation
+	bounds := line.GetBounds()
+	expectedBounds := Rectangle{X: 0, Y: 0, Width: 3, Height: 1}
+	if bounds != expectedBounds {
+		t.Errorf("expected bounds %+v, got %+v", expectedBounds, bounds)
+	}
+}
+
+func TestLineWithRenderableCollection(t *testing.T) {
+	collection := NewRenderableCollection()
+	canvas := New(10, 5)
+
+	// Create horizontal and vertical lines
+	hLine := Line{
+		ID:        "horizontal",
+		Start:     Position{X: 1, Y: 1},
+		Length:    5,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+
+	vLine := Line{
+		ID:        "vertical",
+		Start:     Position{X: 1, Y: 1},
+		Length:    3,
+		Direction: LineDirectionVertical,
+		Style:     LineStyleSingle,
+	}
+
+	// Add to collection
+	collection.Add(hLine)
+	collection.Add(vLine)
+
+	// Render all
+	collection.RenderAll(canvas)
+
+	// Check that both lines rendered (intersection should show vertical line due to order)
+	if canvas.GetChar(1, 1) != '|' { // Vertical line overwrites horizontal at intersection
+		t.Errorf("expected '|' at intersection (1,1), got %c", canvas.GetChar(1, 1))
+	}
+
+	// Check horizontal line
+	if canvas.GetChar(2, 1) != '-' {
+		t.Errorf("expected '-' at (2,1), got %c", canvas.GetChar(2, 1))
+	}
+
+	// Check vertical line
+	if canvas.GetChar(1, 2) != '|' {
+		t.Errorf("expected '|' at (1,2), got %c", canvas.GetChar(1, 2))
+	}
+}
+
+func TestLineStyles(t *testing.T) {
+	tests := []struct {
+		name         string
+		style        LineStyle
+		direction    LineDirection
+		expectedChar rune
+	}{
+		{"single horizontal", LineStyleSingle, LineDirectionHorizontal, '-'},
+		{"single vertical", LineStyleSingle, LineDirectionVertical, '|'},
+		{"double horizontal", LineStyleDouble, LineDirectionHorizontal, '='},
+		{"double vertical", LineStyleDouble, LineDirectionVertical, '‖'},
+		{"dashed horizontal", LineStyleDashed, LineDirectionHorizontal, '-'},
+		{"dashed vertical", LineStyleDashed, LineDirectionVertical, ':'},
+		{"dotted horizontal", LineStyleDotted, LineDirectionHorizontal, '·'},
+		{"dotted vertical", LineStyleDotted, LineDirectionVertical, '·'},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := Line{
+				ID:        "style-test",
+				Start:     Position{X: 0, Y: 0},
+				Length:    3,
+				Direction: tt.direction,
+				Style:     tt.style,
+			}
+
+			actualChar := line.getLineChar()
+			if actualChar != tt.expectedChar {
+				t.Errorf("expected character %c, got %c", tt.expectedChar, actualChar)
+			}
+		})
+	}
+}
+
+func TestLineTableExample(t *testing.T) {
+	// Example of using lines to create a simple table border
+	canvas := New(15, 8)
+	collection := NewRenderableCollection()
+
+	// Table content
+	headerBlock := TextBlock{
+		ID:       "header",
+		Text:     "Name   Age",
+		Position: Position{X: 2, Y: 2},
+		Width:    10,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	dataBlock := TextBlock{
+		ID:       "data",
+		Text:     "John   25\nJane   30",
+		Position: Position{X: 2, Y: 4},
+		Width:    10,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+
+	// Table borders
+	topBorder := Line{
+		ID:        "top",
+		Start:     Position{X: 1, Y: 1},
+		Length:    12,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+
+	bottomBorder := Line{
+		ID:        "bottom",
+		Start:     Position{X: 1, Y: 6},
+		Length:    12,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+
+	leftBorder := Line{
+		ID:        "left",
+		Start:     Position{X: 1, Y: 1},
+		Length:    6,
+		Direction: LineDirectionVertical,
+		Style:     LineStyleSingle,
+	}
+
+	rightBorder := Line{
+		ID:        "right",
+		Start:     Position{X: 12, Y: 1},
+		Length:    6,
+		Direction: LineDirectionVertical,
+		Style:     LineStyleSingle,
+	}
+
+	headerSeparator := Line{
+		ID:        "header-sep",
+		Start:     Position{X: 1, Y: 3},
+		Length:    12,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+
+	// Add all elements to collection
+	collection.Add(topBorder)
+	collection.Add(bottomBorder)
+	collection.Add(leftBorder)
+	collection.Add(rightBorder)
+	collection.Add(headerSeparator)
+	collection.Add(headerBlock)
+	collection.Add(dataBlock)
+
+	// Render
+	collection.RenderAll(canvas)
+	result := canvas.Render()
+
+	// Verify table structure is present
+	if !strings.Contains(result, "Name") {
+		t.Error("expected header content in table")
+	}
+	if !strings.Contains(result, "John") {
+		t.Error("expected data content in table")
+	}
+
+	// Simple verification that lines and text coexist
+	// Just verify that we have some line characters and some text
+	hasLines := strings.Contains(result, "-") || strings.Contains(result, "|")
+	if !hasLines {
+		t.Error("expected some line characters in rendered output")
+	}
+}
