@@ -101,6 +101,19 @@ func (gc *Client) GetStagedDiff() (string, error) {
 	return string(output), nil
 }
 
+// GetUnstagedDiff gets the diff of unstaged working directory changes.
+func (gc *Client) GetUnstagedDiff() (string, error) {
+	cmd := exec.Command("git", "diff", "--unified=3")
+	cmd.Dir = gc.repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get unstaged diff: %w", err)
+	}
+
+	return string(output), nil
+}
+
 // GetDiffSince gets the diff since a specific commit.
 func (gc *Client) GetDiffSince(since string) (string, error) {
 	cmd := exec.Command("git", "diff", "--unified=3", since)
