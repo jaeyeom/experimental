@@ -1019,7 +1019,11 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
   (with-eval-after-load 'shr
     ;; I do not like proportional fonts.
-    (setopt shr-use-fonts nil))
+    (setopt shr-use-fonts nil)
+
+    ;; I do not like too big images.
+    (setopt shr-max-image-proportion 0.5)
+    )
 
   ;;; Org Mode
 
@@ -1686,7 +1690,8 @@ This function uses the 'magick identify' command to get the dimensions of the im
   (setq-default openai-key (auth-source-pass-get 'secret "platform.openai.com")
                 openai-user (auth-source-pass-get "user" "platform.openai.com"))
 
-  (let ((anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com")))
+  (let ((anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com"))
+        (perplexity-api-key (auth-source-pass-get 'secret "api.perplexity.ai")))
 
     (with-eval-after-load 'gptel
       (setopt gptel-model 'gpt-4o-mini
@@ -1707,6 +1712,7 @@ This function uses the 'magick identify' command to get the dimensions of the im
     (setopt chatgpt-shell-openai-key openai-key
             gptel-api-key openai-key)
     (setopt chatgpt-shell-anthropic-key anthropic-api-key)
+    (setopt chatgpt-shell-perplexity-key perplexity-api-key)
 
     (setopt aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
     (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
