@@ -807,3 +807,28 @@ func (l Line) RenderTo(cs CharSetter) {
 		}
 	}
 }
+
+// NewTextBlock creates a new TextBlock with common defaults for simple text positioning.
+// This is a convenience function for creating text blocks from strings.
+func NewTextBlock(id string, text string, position Position) TextBlock {
+	return TextBlock{
+		ID:       id,
+		Text:     text,
+		Position: position,
+		Width:    0, // Auto-size width
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+}
+
+// NewTextBlockWithWidth creates a new TextBlock with specified width and wrapping.
+func NewTextBlockWithWidth(id string, text string, position Position, width int) TextBlock {
+	return TextBlock{
+		ID:       id,
+		Text:     text,
+		Position: position,
+		Width:    width,
+		WrapMode: WrapBasic,
+		Align:    AlignLeft,
+	}
+}

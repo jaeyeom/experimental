@@ -11,6 +11,10 @@ go_library(
 go_test(
     name = "canvas_test",
     size = "small",
-    srcs = ["canvas_test.go"],
+    srcs = [
+        "canvas_test.go",
+        "example_table_integration_test.go",
+    ],
     embed = [":canvas"],
+    deps = ["//text/table:go_default_library"],
 )
