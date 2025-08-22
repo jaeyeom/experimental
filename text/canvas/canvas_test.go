@@ -1672,3 +1672,139 @@ func TestLineTableExample(t *testing.T) {
 		t.Error("expected some line characters in rendered output")
 	}
 }
+
+func TestNewTextBlock(t *testing.T) {
+	block := NewTextBlock("test", "Hello World", Position{X: 5, Y: 3})
+
+	// Test struct fields
+	if block.ID != "test" {
+		t.Errorf("expected ID 'test', got %s", block.ID)
+	}
+	if block.Text != "Hello World" {
+		t.Errorf("expected text 'Hello World', got %s", block.Text)
+	}
+	if block.Position.X != 5 || block.Position.Y != 3 {
+		t.Errorf("expected position (5,3), got (%d,%d)", block.Position.X, block.Position.Y)
+	}
+	if block.Width != 0 {
+		t.Errorf("expected width 0 (auto-size), got %d", block.Width)
+	}
+	if block.WrapMode != WrapBasic {
+		t.Errorf("expected WrapBasic, got %d", block.WrapMode)
+	}
+	if block.Align != AlignLeft {
+		t.Errorf("expected AlignLeft, got %d", block.Align)
+	}
+
+	// Test that it implements Renderable
+	var _ Renderable = block
+
+	// Test rendering
+	canvas := New(20, 10)
+	block.RenderTo(canvas)
+
+	// Check that text was rendered at correct position
+	expectedText := "Hello World"
+	for i, r := range []rune(expectedText) {
+		if canvas.GetChar(5+i, 3) != r {
+			t.Errorf("expected character %c at (%d,%d), got %c", r, 5+i, 3, canvas.GetChar(5+i, 3))
+		}
+	}
+}
+
+func TestNewTextBlockWithWidth(t *testing.T) {
+	block := NewTextBlockWithWidth("test", "This is a long text that should wrap", Position{X: 2, Y: 1}, 10)
+
+	// Test struct fields
+	if block.ID != "test" {
+		t.Errorf("expected ID 'test', got %s", block.ID)
+	}
+	if block.Width != 10 {
+		t.Errorf("expected width 10, got %d", block.Width)
+	}
+	if block.WrapMode != WrapBasic {
+		t.Errorf("expected WrapBasic, got %d", block.WrapMode)
+	}
+
+	// Test rendering with wrapping
+	canvas := New(20, 10)
+	block.RenderTo(canvas)
+
+	// Check that text wrapped correctly (first line should have "This is a")
+	firstLineText := "This is a"
+	for i, r := range []rune(firstLineText) {
+		if canvas.GetChar(2+i, 1) != r {
+			t.Errorf("expected character %c at (%d,%d), got %c", r, 2+i, 1, canvas.GetChar(2+i, 1))
+		}
+	}
+
+	// Check that there's text on the second line
+	if canvas.GetChar(2, 2) == ' ' {
+		t.Error("expected wrapped text on second line")
+	}
+}
+
+func TestTableIntegrationExample(t *testing.T) {
+	// Simulate using the text/table package (we'll import it in real usage)
+	// For the test, we'll just create a table-like string
+	tableString := `Name      | Age
+----------|----
+John Doe  | 25
+Jane Smith| 30`
+
+	// Create canvas with table and other elements
+	canvas := New(30, 15)
+	collection := NewRenderableCollection()
+
+	// Add table as text block
+	tableBlock := NewTextBlock("table", tableString, Position{X: 5, Y: 5})
+	collection.Add(tableBlock)
+
+	// Add title
+	title := NewTextBlock("title", "User Report", Position{X: 5, Y: 2})
+	collection.Add(title)
+
+	// Add decorative lines
+	topLine := Line{
+		ID:        "top-line",
+		Start:     Position{X: 0, Y: 1},
+		Length:    25,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+	collection.Add(topLine)
+
+	bottomLine := Line{
+		ID:        "bottom-line",
+		Start:     Position{X: 0, Y: 12},
+		Length:    25,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleDouble,
+	}
+	collection.Add(bottomLine)
+
+	// Render everything
+	collection.RenderAll(canvas)
+	result := canvas.Render()
+
+	// Verify components are present
+	if !strings.Contains(result, "User Report") {
+		t.Error("expected title in output")
+	}
+	if !strings.Contains(result, "John Doe") {
+		t.Error("expected table content in output")
+	}
+	if !strings.Contains(result, "Name") {
+		t.Error("expected table header in output")
+	}
+
+	// Verify lines are present
+	hasHorizontalLine := strings.Contains(result, "-")
+	hasDoubleHorizontalLine := strings.Contains(result, "=")
+	if !hasHorizontalLine {
+		t.Error("expected horizontal line in output")
+	}
+	if !hasDoubleHorizontalLine {
+		t.Error("expected double horizontal line in output")
+	}
+}
