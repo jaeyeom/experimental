@@ -16,5 +16,5 @@ go_test(
         "example_table_integration_test.go",
     ],
     embed = [":canvas"],
-    deps = ["//text/table:go_default_library"],
+    deps = ["//text/table"],
 )
