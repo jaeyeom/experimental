@@ -1799,7 +1799,28 @@ the email."
   (with-eval-after-load 'claude-code
     (spacemacs/set-leader-keys "$ c" 'claude-code-transient)
     (autoload 'claude-code-transient "claude-code" nil t)
-    (setopt claude-code-terminal-backend 'vterm))
+    (setopt claude-code-terminal-backend 'vterm)
+
+    ;; Define your own hook listener function
+    (defun my/claude-hook-listener (message)
+      "Custom listener for Claude Code hooks.
+MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
+      (let ((hook-type (plist-get message :type))
+            (buffer-name (plist-get message :buffer-name))
+            (json-data (plist-get message :json-data))
+            (args (plist-get message :args)))
+        (cond
+         ((eq hook-type 'notification)
+          (message "Claude is ready in %s! JSON: %s" buffer-name json-data))
+         ((eq hook-type 'stop)
+          (message "Claude finished in %s! JSON: %s" buffer-name json-data))
+         (t
+          (message "Claude hook: %s with JSON: %s" hook-type json-data)))))
+
+    ;; Add the hook listener using standard Emacs hook functions
+    (add-hook 'claude-code-event-hook 'my/claude-hook-listener)
+
+    )
   (require 'claude-code nil 'noerror)
 
   ;;; Convenient functions
