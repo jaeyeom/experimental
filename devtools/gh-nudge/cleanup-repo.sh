@@ -72,13 +72,19 @@ if [ $DRY_RUN -eq 1 ]; then
     exit 0
 fi
 
+
 echo "Branches identical to '$MAIN_BRANCH' (will be deleted):"
+deleted_count=0
 for br in "${branches_to_delete[@]}"; do
     echo "  $br"
     # Use -D (force) in case Git doesn't recognize them as merged
-    git branch -D "$br"
-    # Also remove the remote tracking branch
-    git update-ref -d "refs/remotes/origin/$br"
+    if git branch -D "$br" 2>/dev/null; then
+        # Also remove the remote tracking branch (ignore failures)
+        git update-ref -d "refs/remotes/origin/$br" 2>/dev/null || true
+        ((deleted_count++))
+    else
+        echo "    Warning: Failed to delete branch '$br', skipping..."
+    fi
 done
 
-echo "Done! Deleted ${#branches_to_delete[@]} redundant branches."
+echo "Done! Deleted $deleted_count out of ${#branches_to_delete[@]} redundant branches."
