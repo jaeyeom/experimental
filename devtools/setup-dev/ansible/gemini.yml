@@ -27,25 +27,27 @@
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure gemini is present on Termux
-    - name: Check if gemini is installed
-      shell: command -v gemini
-      register: gemini_installed
-      ignore_errors: yes
-      changed_when: False
+      block:
+        - name: Check if gemini is installed
+          shell: command -v gemini
+          register: gemini_installed
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Install gemini using npm
-      command: npm install -g @google/gemini-cli
-      when: gemini_installed.rc != 0
+        - name: Install gemini using npm
+          command: npm install -g @google/gemini-cli
+          when: gemini_installed.rc != 0
       when: ansible_env.TERMUX_VERSION is defined
 
     - name: Install gemini via npm on Debian/Ubuntu
-    - name: Check if gemini is installed
-      shell: command -v gemini
-      register: gemini_installed
-      ignore_errors: yes
-      changed_when: False
+      block:
+        - name: Check if gemini is installed
+          shell: command -v gemini
+          register: gemini_installed
+          ignore_errors: yes
+          changed_when: False
 
-    - name: Install gemini using npm
-      command: npm install -g @google/gemini-cli
-      when: gemini_installed.rc != 0
+        - name: Install gemini using npm
+          command: npm install -g @google/gemini-cli
+          when: gemini_installed.rc != 0
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"

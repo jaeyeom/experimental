@@ -83,7 +83,23 @@ func (b BrewInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (b BrewInstallMethod) RenderBlockInstallTask(command string) string {
-	return b.RenderInstallTask(command)
+	task := `        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on MacOS
+          community.general.homebrew:
+            name: ` + b.Name + `
+            state: present`
+	if len(b.Options) > 0 {
+		task += `
+            install_options:`
+		for _, opt := range b.Options {
+			task += `
+              - ` + opt
+		}
+	}
+	return task
 }
 
 // TermuxPkgInstallMethod handles installation via the pkg command on Termux.
@@ -114,7 +130,12 @@ func (t TermuxPkgInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (t TermuxPkgInstallMethod) RenderBlockInstallTask(command string) string {
-	return t.RenderInstallTask(command)
+	return `        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on Termux
+          command: pkg install -y ` + t.Name
 }
 
 // PipInstallMethod handles installation via Python pip.
@@ -295,7 +316,16 @@ func (n NpmInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (n NpmInstallMethod) RenderBlockInstallTask(command string) string {
-	return n.RenderInstallTask(command)
+	commandID := strings.ReplaceAll(command, "-", "_")
+	return `        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          register: ` + commandID + `_installed
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Install ` + command + ` using npm
+          command: npm install -g ` + n.Name + `
+          when: ` + commandID + `_installed.rc != 0`
 }
 
 // UvInstallMethod handles installation via uv tool command.
@@ -493,5 +523,54 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {
-	return s.RenderInstallTask(command)
+	commandID := strings.ReplaceAll(command, "-", "_")
+
+	if s.VersionCommand != "" && s.LatestVersionURL != "" {
+		return `        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          register: ` + commandID + `_command_check
+          failed_when: false
+          changed_when: False
+
+        - name: Get installed ` + command + ` version
+          command: ` + s.VersionCommand + `
+          register: ` + commandID + `_version_output
+          failed_when: false
+          changed_when: False
+          when: ` + commandID + `_command_check.rc == 0
+
+        - name: Parse installed ` + command + ` version
+          set_fact:
+            ` + commandID + `_installed_version: "{{ (` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1')) | default(['0.0.0']) | first }}"
+          when: ` + commandID + `_command_check.rc == 0
+
+        - name: Set default version when ` + command + ` is not installed
+          set_fact:
+            ` + commandID + `_installed_version: "0.0.0"
+          when: ` + commandID + `_command_check.rc != 0
+
+        - name: Get latest available ` + command + ` version from GitHub
+          uri:
+            url: ` + s.LatestVersionURL + `
+            return_content: yes
+          register: ` + commandID + `_latest_release
+
+        - name: Parse latest ` + command + ` version from GitHub response
+          set_fact:
+            ` + commandID + `_latest_version: "{{ ` + commandID + `_latest_release.json.` + s.LatestVersionPath + ` | regex_replace('^v', '') }}"
+
+        - name: Install/update ` + command + ` if outdated
+          shell: ` + s.InstallCommand + `
+          when: ` + commandID + `_installed_version != ` + commandID + `_latest_version`
+	}
+
+	return `        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          register: ` + commandID + `_installed
+          failed_when: false
+          changed_when: False
+
+        - name: Install ` + command + `
+          shell: ` + s.InstallCommand + `
+          when: ` + commandID + `_installed.rc != 0`
 }
