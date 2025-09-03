@@ -108,7 +108,8 @@ var platformSpecificTemplate = `---
 {{- $method := index $platforms "termux" }}
 
     - name: Ensure {{.Command}} is present on Termux
-{{$method.RenderInstallTask .Command}}
+      block:
+{{$method.RenderBlockInstallTask .Command}}
       when: ansible_env.TERMUX_VERSION is defined
 {{- end }}
 {{- if index $platforms "all" }}
@@ -131,7 +132,8 @@ var platformSpecificTemplate = `---
 {{- else }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian/Ubuntu
-{{$method.RenderInstallTask .Command}}
+      block:
+{{$method.RenderBlockInstallTask .Command}}
       when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
 {{- end }}
 {{- else }}
