@@ -36,9 +36,10 @@
 
     - name: Asserts that user name and email are available
       ansible.builtin.assert:
-        that: (get_git_user_name.stdout or ansible_env.GIT_AUTHOR_NAME) and
-              (get_git_user_email.stdout or ansible_env.GIT_AUTHOR_EMAIL) and
-              (get_github_username.stdout or ansible_env.GITHUB_USERNAME)
+        that:
+          - (get_git_user_name.stdout | length > 0) or (ansible_env.GIT_AUTHOR_NAME is defined and ansible_env.GIT_AUTHOR_NAME | length > 0)
+          - (get_git_user_email.stdout | length > 0) or (ansible_env.GIT_AUTHOR_EMAIL is defined and ansible_env.GIT_AUTHOR_EMAIL | length > 0)
+          - (get_github_username.stdout | length > 0) or (ansible_env.GITHUB_USERNAME is defined and ansible_env.GITHUB_USERNAME | length > 0)
         fail_msg: "Please set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL and/or GITHUB_USERNAME"
 
     - name: Set global user name
