@@ -10,6 +10,7 @@ func TestNewTable(t *testing.T) {
 	table := NewTable()
 	if table == nil {
 		t.Fatal("NewTable() returned nil")
+		return
 	}
 
 	if table.config.Width < 40 {

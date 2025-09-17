@@ -13,6 +13,7 @@ func TestNewSignalHandler(t *testing.T) {
 	handler := NewSignalHandler()
 	if handler == nil {
 		t.Fatal("NewSignalHandler() returned nil")
+		return
 	}
 	if handler.signals == nil {
 		t.Error("signals channel not initialized")

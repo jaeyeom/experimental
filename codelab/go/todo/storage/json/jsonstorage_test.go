@@ -69,6 +69,7 @@ func TestLoadNonExistent(t *testing.T) {
 	}
 	if list == nil {
 		t.Fatal("Load() returned nil list")
+		return
 	}
 	if len(list.Items) != 0 {
 		t.Errorf("Load() got %d items, want 0", len(list.Items))

@@ -13,6 +13,7 @@ func TestNewExecutorWithSignalHandling(t *testing.T) {
 	executor := NewExecutorWithSignalHandling()
 	if executor == nil {
 		t.Fatal("NewExecutorWithSignalHandling() returned nil")
+		return
 	}
 	if executor.executor == nil {
 		t.Error("BasicExecutor not initialized")
@@ -67,6 +68,7 @@ func TestExecutorWithSignalHandling_Execute(t *testing.T) {
 
 	if result == nil {
 		t.Fatal("Execute() returned nil result")
+		return
 	}
 
 	if result.ExitCode != 0 {

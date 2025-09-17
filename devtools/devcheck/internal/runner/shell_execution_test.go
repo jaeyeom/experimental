@@ -109,6 +109,7 @@ func TestShellExecutionIntegration(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("Execute() returned nil result")
+		return
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("ExitCode = %d, want 0", result.ExitCode)
@@ -141,6 +142,7 @@ func TestBazelShellExecution(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("Execute() returned nil result")
+		return
 	}
 
 	// Bazel help should return 0 and contain usage information

@@ -12,6 +12,7 @@ func TestNewPatternMatcher(t *testing.T) {
 
 	if pm == nil {
 		t.Fatal("NewPatternMatcher returned nil")
+		return
 	}
 
 	// Test that default patterns are initialized
