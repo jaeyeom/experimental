@@ -226,6 +226,7 @@ func TestCompleteWithSubtasks(t *testing.T) {
 			}
 			if parent == nil {
 				t.Fatal("parent task not found")
+				return
 			}
 
 			// Verify parent state
@@ -360,6 +361,7 @@ func TestUndoWithSubtasks(t *testing.T) {
 			}
 			if parent == nil {
 				t.Fatal("parent task not found")
+				return
 			}
 
 			// Verify parent state

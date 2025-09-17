@@ -14,6 +14,7 @@ func TestNewMockExecutor(t *testing.T) {
 	mock := NewMockExecutor()
 	if mock == nil {
 		t.Fatal("NewMockExecutor() returned nil")
+		return
 	}
 	if mock.AvailableCommands == nil {
 		t.Error("AvailableCommands map not initialized")
@@ -41,6 +42,7 @@ func TestMockExecutor_Execute_DefaultBehavior(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("Execute() returned nil result")
+		return
 	}
 	if result.Command != cfg.Command {
 		t.Errorf("Command = %q, want %q", result.Command, cfg.Command)
@@ -75,6 +77,7 @@ func TestMockExecutor_Execute_WithExpectation(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("Execute() returned nil result")
+		return
 	}
 	if result.Output != expectedOutput {
 		t.Errorf("Output = %q, want %q", result.Output, expectedOutput)
@@ -172,6 +175,7 @@ func TestMockExecutor_Execute_FailureScenarios(t *testing.T) {
 		}
 		if result == nil {
 			t.Fatal("Execute() returned nil result")
+			return
 		}
 		if result.Stderr != "command failed" {
 			t.Errorf("Stderr = %q, want %q", result.Stderr, "command failed")
@@ -323,6 +327,7 @@ func TestMockExecutor_SetDefaultBehavior(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("Execute() returned nil result")
+		return
 	}
 	if result.Output != "Custom default output" {
 		t.Errorf("Output = %q, want %q", result.Output, "Custom default output")

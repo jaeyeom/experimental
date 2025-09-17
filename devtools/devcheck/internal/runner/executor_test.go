@@ -150,6 +150,7 @@ func TestBasicExecutor_Execute(t *testing.T) {
 
 			if result == nil {
 				t.Fatal("Execute() returned nil result")
+				return
 			}
 
 			// Verify basic fields
@@ -265,6 +266,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 			checkResult: func(t *testing.T, result *config.ExecutionResult, _ error) {
 				if result == nil {
 					t.Fatal("Expected result, got nil")
+					return
 				}
 				if result.TimedOut {
 					t.Error("Expected TimedOut to be false")
@@ -314,6 +316,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 			checkResult: func(t *testing.T, result *config.ExecutionResult, _ error) {
 				if result == nil {
 					t.Fatal("Expected result, got nil")
+					return
 				}
 				if result.TimedOut {
 					t.Error("Expected TimedOut to be false")

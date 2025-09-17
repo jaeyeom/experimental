@@ -81,6 +81,7 @@ func TestConcurrentExecutor_Execute(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("Execute() returned nil result")
+		return
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("ExitCode = %d, want 0", result.ExitCode)

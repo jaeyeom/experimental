@@ -475,6 +475,7 @@ func TestNewScanner(t *testing.T) {
 
 	if scanner == nil {
 		t.Fatal("NewScanner returned nil")
+		return
 	}
 
 	if scanner.options.MaxDepth != 3 {
