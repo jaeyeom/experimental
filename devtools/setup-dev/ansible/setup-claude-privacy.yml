@@ -1,0 +1,50 @@
+---
+- import_playbook: setup-shell-profile.yml
+
+- name: Setup Claude Code privacy and security environment variables
+  hosts: all
+  tasks:
+    - name: Include guard for claude privacy setup playbook
+      block:
+        - name: Stop early if the claude privacy setup playbook is already included
+          meta: end_play
+          when: claude_privacy_setup_playbook_imported is defined
+        - name: Ensure the claude privacy setup playbook is not included
+          set_fact:
+            claude_privacy_setup_playbook_imported: true
+          when: claude_privacy_setup_playbook_imported is not defined
+
+    - name: Add Claude Code privacy environment variables to shell profile
+      lineinfile:
+        path: "{{ user_profile_path }}"
+        line: "{{ item }}"
+        create: yes
+        backup: yes
+        state: present
+      loop:
+        - "# Claude Code privacy and security settings"
+        - "export DISABLE_TELEMETRY=1"
+        - "export DISABLE_ERROR_REPORTING=1"
+        - "export DISABLE_BUG_COMMAND=1"
+      when: user_profile_path is defined
+
+    - name: Set Claude Code privacy environment variables for current session
+      environment:
+        DISABLE_TELEMETRY: "1"
+        DISABLE_ERROR_REPORTING: "1"
+        DISABLE_BUG_COMMAND: "1"
+      shell: echo "Claude Code privacy environment variables set for current session"
+      changed_when: false
+
+    - name: Display privacy settings information
+      debug:
+        msg: |
+          Claude Code privacy settings have been configured:
+          - DISABLE_TELEMETRY=1: Reduces operational logging
+          - DISABLE_ERROR_REPORTING=1: Disables automatic error reporting
+          - DISABLE_BUG_COMMAND=1: Disables bug reporting command
+
+          Note: These settings control telemetry separate from training data.
+          Your account-level training toggle controls whether coding sessions can be used for training.
+
+          To apply these settings, either restart your shell or run: source {{ user_profile_path }}
