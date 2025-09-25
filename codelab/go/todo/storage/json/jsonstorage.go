@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/google/renameio/v2"
 	"github.com/jaeyeom/experimental/codelab/go/todo/core"
 )
 
@@ -52,8 +53,8 @@ func (s *Storage) Save(list *core.List) error {
 	if err != nil {
 		return fmt.Errorf("json.Marshal: %v", err)
 	}
-	if err := os.WriteFile(s.path, b, 0o600); err != nil {
-		return fmt.Errorf("os.WriteFile: %v", err)
+	if err := renameio.WriteFile(s.path, b, 0o600); err != nil {
+		return fmt.Errorf("renameio.WriteFile: %v", err)
 	}
 	return nil
 }
