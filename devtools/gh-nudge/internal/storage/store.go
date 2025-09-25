@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/google/renameio/v2"
 )
 
 // FileSystemStore implements the Store interface using the local filesystem.
@@ -61,7 +63,7 @@ func (fs *FileSystemStore) Set(key string, data interface{}) error {
 		return fmt.Errorf("failed to marshal data for key %s: %w", key, err)
 	}
 
-	if err := os.WriteFile(filePath, jsonData, 0o600); err != nil {
+	if err := renameio.WriteFile(filePath, jsonData, 0o600); err != nil {
 		return fmt.Errorf("failed to write file for key %s: %w", key, err)
 	}
 
