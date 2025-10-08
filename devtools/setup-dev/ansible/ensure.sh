@@ -45,7 +45,43 @@ elif [ "$OS" = "Darwin" ]; then
     # Check if Homebrew is installed
     if ! command -v brew >/dev/null 2>&1; then
         echo "Installing Homebrew..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        echo "Fetching recent changes to Homebrew install script..."
+
+        # Show recent commits to the install script
+        echo ""
+        echo "Recent commits to install.sh:"
+        curl -s "https://api.github.com/repos/Homebrew/install/commits?path=install.sh&per_page=10" | \
+            jq -r '.[] | "\(.commit.author.date | split("T")[0]) [\(.sha[0:7])] \(.commit.message | split("\n")[0])"' 2>/dev/null || \
+            echo "(Unable to fetch commit history)"
+
+        # Download the install script
+        BREW_INSTALL_SCRIPT=$(mktemp)
+        trap "rm -f $BREW_INSTALL_SCRIPT" EXIT
+
+        echo ""
+        echo "Downloading Homebrew install script..."
+        if ! curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$BREW_INSTALL_SCRIPT"; then
+            echo "Failed to download Homebrew installation script"
+            exit 1
+        fi
+
+        echo ""
+        echo "SECURITY: Please review the installation script before proceeding:"
+        echo "  Downloaded to: $BREW_INSTALL_SCRIPT"
+        echo "  View online: https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+        echo "  Commit history: https://github.com/Homebrew/install/commits/HEAD/install.sh"
+        echo ""
+        echo "You can review the script with: less $BREW_INSTALL_SCRIPT"
+        echo ""
+        read -p "Proceed with Homebrew installation? (y/N): " -n 1 -r
+        echo
+
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            /bin/bash "$BREW_INSTALL_SCRIPT"
+        else
+            echo "Homebrew installation cancelled. Ansible may fail without Homebrew."
+            exit 1
+        fi
 
         # Add Homebrew to PATH based on chip architecture
         if [ "$(uname -m)" = "arm64" ]; then
