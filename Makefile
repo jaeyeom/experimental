@@ -1,4 +1,4 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config check-bazel-go-files
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible check-bazel-go-files
 
 all: requirements.txt generate-ansible format test fix check-bazel-go-files
 
@@ -23,11 +23,11 @@ lint: lint-golangci lint-ruff
 
 fix: fix-golangci fix-ruff
 
-lint-golangci: verify-golangci-config
+lint-golangci: .golangci.yml.hash
 	GOPACKAGESDRIVER= golangci-lint run ./...
 	oserrorsgodernize ./...
 
-fix-golangci: verify-golangci-config
+fix-golangci: .golangci.yml.hash
 	GOPACKAGESDRIVER= golangci-lint run --fix ./...
 	oserrorsgodernize --fix ./...
 
@@ -41,8 +41,11 @@ requirements.txt: requirements.in
 	pip install pip-tools
 	pip-compile --upgrade --output-file=requirements.txt requirements.in
 
-verify-golangci-config: .golangci.yml
-	golangci-lint config verify
+.golangci.yml.hash: .golangci.yml
+	@echo "Verifying golangci-lint config..."
+	@golangci-lint config verify
+	@shasum -a 256 .golangci.yml | cut -d' ' -f1 > .golangci.yml.hash
+	@echo "Config verified and hash updated"
 
 check-bazel-go-files:
 	@./check-bazel-go-files.sh
