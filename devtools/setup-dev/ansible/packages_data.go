@@ -182,6 +182,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "semgrep",
+		platforms: map[string]InstallMethod{
+			"darwin":      BrewInstallMethod{Name: "semgrep"},
+			"termux":      PipInstallMethod{Name: "semgrep"},
+			"debian-like": PipInstallMethod{Name: "semgrep"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "starship",
 		platforms: map[string]InstallMethod{
 			"darwin": BrewInstallMethod{Name: "starship"},
