@@ -1543,7 +1543,17 @@ to be `:text'.
 
         (advice-add 'eshell-script-interpreter :around #'my/termux-eshell-script-interpreter)))
 
+    ;; Bind C-l to recenter-top-bottom in normal/visual state, keep clear in insert state
+    (evil-define-key 'normal eshell-mode-map (kbd "C-l") 'recenter-top-bottom)
+    (evil-define-key 'visual eshell-mode-map (kbd "C-l") 'recenter-top-bottom)
+
     )
+
+  ;;; Vterm
+  (with-eval-after-load 'vterm
+    ;; Bind C-l to recenter-top-bottom in normal/visual state, keep clear in insert state
+    (evil-define-key 'normal vterm-mode-map (kbd "C-l") 'recenter-top-bottom)
+    (evil-define-key 'visual vterm-mode-map (kbd "C-l") 'recenter-top-bottom))
 
   ;;; Slack
   ;; Slack configuration should look like the following
