@@ -1,4 +1,4 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible check-bazel-go-files
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config check-bazel-go-files
 
 all: requirements.txt generate-ansible format test fix check-bazel-go-files
 
@@ -23,11 +23,11 @@ lint: lint-golangci lint-ruff
 
 fix: fix-golangci fix-ruff
 
-lint-golangci: .golangci.yml.hash
+lint-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run ./...
 	oserrorsgodernize ./...
 
-fix-golangci: .golangci.yml.hash
+fix-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run --fix ./...
 	oserrorsgodernize --fix ./...
 
@@ -41,11 +41,12 @@ requirements.txt: requirements.in
 	pip install pip-tools
 	pip-compile --upgrade --output-file=requirements.txt requirements.in
 
-.golangci.yml.hash: .golangci.yml
-	@echo "Verifying golangci-lint config..."
-	@golangci-lint config verify
-	@shasum -a 256 .golangci.yml | cut -d' ' -f1 > .golangci.yml.hash
-	@echo "Config verified and hash updated"
+verify-golangci-config:
+	@CURRENT_HASH=$$(shasum -a 256 .golangci.yml | cut -d' ' -f1); \
+	if [ ! -f .golangci.yml.hash ] || [ "$$(cat .golangci.yml.hash)" != "$$CURRENT_HASH" ]; then \
+		echo "Verifying golangci-lint config..."; \
+		golangci-lint config verify && echo "$$CURRENT_HASH" > .golangci.yml.hash; \
+	fi
 
 check-bazel-go-files:
 	@./check-bazel-go-files.sh
