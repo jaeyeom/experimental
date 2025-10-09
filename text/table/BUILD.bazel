@@ -1,19 +1,19 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "table",
+    name = "go_default_library",
     srcs = ["table.go"],
     importpath = "github.com/jaeyeom/experimental/text/table",
     visibility = ["//visibility:public"],
 )
 
 go_test(
-    name = "table_test",
+    name = "go_default_test",
     srcs = [
         "example_test.go",
         "golden_test.go",
         "table_test.go",
     ],
     data = glob(["testdata/*.golden"]),
-    embed = [":table"],
+    embed = [":go_default_library"],
 )

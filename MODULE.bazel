@@ -11,9 +11,12 @@ bazel_dep(name = "gazelle", version = "0.42.0")
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
 
-# All *direct* Go dependencies of the module have to be listed explicitly.
+# All Go dependencies referenced by BUILD files must be listed explicitly.
+# Note: This includes both direct and indirect dependencies from go.mod.
+# gazelle:repository_macro go_deps.bzl%go_repositories
 use_repo(
     go_deps,
+    "com_github_google_renameio_v2",
     "com_github_google_uuid",
     "com_github_jaeyeom_sugo",
     "com_github_leanovate_gopter",
