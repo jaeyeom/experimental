@@ -162,8 +162,8 @@ func handleInit(args []string) {
 		os.Exit(1)
 	}
 
-	force := parser.HasOption("force")
-	migrate := parser.HasOption("migrate")
+	force := parser.GetBoolOption("force")
+	migrate := parser.GetBoolOption("migrate")
 
 	storageHome := getStorageHome()
 
@@ -311,7 +311,7 @@ func handleGet(args []string) {
 	if format == "" {
 		format = "json"
 	}
-	pretty := parser.HasOption("pretty")
+	pretty := parser.GetBoolOption("pretty")
 
 	storageHome := getStorageHome()
 	store, err := storage.NewFileSystemStore(storageHome)

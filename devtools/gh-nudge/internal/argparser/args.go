@@ -268,6 +268,18 @@ func (p *ArgParser) isBooleanFlag(name string) bool {
 }
 
 // HasOption checks if an option was provided.
+//
+// WARNING: Do NOT use HasOption for boolean flag checking!
+// HasOption returns true if the option exists, regardless of its value.
+// This means --force=false will return true, which is incorrect for boolean logic.
+//
+// For boolean flags, use GetBoolOption() instead:
+//
+//	// Wrong - treats --force=false as true:
+//	if parser.HasOption("force") { ... }
+//
+//	// Correct - properly handles --force=false:
+//	if parser.GetBoolOption("force") { ... }
 func (p *ArgParser) HasOption(name string) bool {
 	_, exists := p.options[name]
 	return exists
@@ -280,6 +292,44 @@ func (p *ArgParser) GetOption(name string) string {
 		return values[0]
 	}
 	return ""
+}
+
+// GetBoolOption returns the boolean value of a flag option.
+// It returns true if the flag is present and set to a truthy value,
+// false otherwise.
+//
+// IMPORTANT: This method ALWAYS returns false when the flag is absent.
+// It is designed for "opt-in" flags that default to false.
+// If you need a flag that defaults to true (e.g., --no-verify to disable),
+// you must handle that logic separately in your code.
+//
+// Truthy values: "true", "1", "yes", "y", "on"
+// Falsy values: "false", "0", "no", "n", "off", or absent
+//
+// Examples:
+//
+//	--verbose           -> true  (implicitly set to "true")
+//	--verbose=true      -> true
+//	--verbose=false     -> false
+//	--verbose=1         -> true
+//	--verbose=0         -> false
+//	(no flag)           -> false (always defaults to false)
+func (p *ArgParser) GetBoolOption(name string) bool {
+	value := p.GetOption(name)
+	if value == "" {
+		return false
+	}
+
+	// Normalize to lowercase for comparison
+	switch value {
+	case "true", "1", "yes", "y", "on":
+		return true
+	case "false", "0", "no", "n", "off":
+		return false
+	default:
+		// For any other value, treat as false
+		return false
+	}
 }
 
 // GetOptionValues returns all values for an option.
