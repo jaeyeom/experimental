@@ -522,3 +522,199 @@ func TestArgParser_AutoDetectArgsIssue(t *testing.T) {
 			parser.GetOption("comment-id"), parser2.GetOption("comment-id"))
 	}
 }
+
+func TestArgParser_EqualsFalseWithHasOption(t *testing.T) {
+	// CRITICAL ISSUE: --force=false breaks the HasOption() pattern used throughout the codebase
+	parser := NewArgParser([]string{"--force=false"})
+
+	// GetOption returns "false" - this works
+	if parser.GetOption("force") != "false" {
+		t.Errorf("Expected 'false' for force, got '%s'", parser.GetOption("force"))
+	}
+
+	// BUT HasOption returns true because the option exists!
+	// This breaks the pattern: force := parser.HasOption("force")
+	if !parser.HasOption("force") {
+		t.Error("HasOption should return true even when value is 'false'")
+	}
+
+	// This demonstrates the problem: the codebase uses HasOption() for boolean flags
+	// but --force=false sets the value to "false" while HasOption still returns true
+	force := parser.HasOption("force") // This is how the codebase currently uses it
+	if !force {
+		t.Error("Expected force to be true when using HasOption, even with =false")
+	}
+
+	t.Log("ISSUE CONFIRMED: --force=false doesn't work with HasOption() pattern!")
+	t.Log("The codebase would interpret --force=false as --force=true")
+}
+
+func TestArgParser_GetBoolOption(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		flagName string
+		expected bool
+	}{
+		// Test implicit "true" when flag is present without value
+		{
+			name:     "flag present without value",
+			args:     []string{"--verbose"},
+			flagName: "verbose",
+			expected: true,
+		},
+		{
+			name:     "short flag present without value",
+			args:     []string{"-v"},
+			flagName: "v",
+			expected: true,
+		},
+		// Test explicit true values
+		{
+			name:     "flag with =true",
+			args:     []string{"--verbose=true"},
+			flagName: "verbose",
+			expected: true,
+		},
+		{
+			name:     "flag with =1",
+			args:     []string{"--verbose=1"},
+			flagName: "verbose",
+			expected: true,
+		},
+		{
+			name:     "flag with =yes",
+			args:     []string{"--verbose=yes"},
+			flagName: "verbose",
+			expected: true,
+		},
+		{
+			name:     "flag with =y",
+			args:     []string{"--verbose=y"},
+			flagName: "verbose",
+			expected: true,
+		},
+		{
+			name:     "flag with =on",
+			args:     []string{"--verbose=on"},
+			flagName: "verbose",
+			expected: true,
+		},
+		// Test explicit false values
+		{
+			name:     "flag with =false",
+			args:     []string{"--verbose=false"},
+			flagName: "verbose",
+			expected: false,
+		},
+		{
+			name:     "flag with =0",
+			args:     []string{"--verbose=0"},
+			flagName: "verbose",
+			expected: false,
+		},
+		{
+			name:     "flag with =no",
+			args:     []string{"--verbose=no"},
+			flagName: "verbose",
+			expected: false,
+		},
+		{
+			name:     "flag with =n",
+			args:     []string{"--verbose=n"},
+			flagName: "verbose",
+			expected: false,
+		},
+		{
+			name:     "flag with =off",
+			args:     []string{"--verbose=off"},
+			flagName: "verbose",
+			expected: false,
+		},
+		// Test absent flag
+		{
+			name:     "flag not present",
+			args:     []string{"--other-flag"},
+			flagName: "verbose",
+			expected: false,
+		},
+		{
+			name:     "no flags at all",
+			args:     []string{},
+			flagName: "verbose",
+			expected: false,
+		},
+		// Test invalid values default to false
+		{
+			name:     "invalid value defaults to false",
+			args:     []string{"--verbose=invalid"},
+			flagName: "verbose",
+			expected: false,
+		},
+		{
+			name:     "random string defaults to false",
+			args:     []string{"--verbose=whatever"},
+			flagName: "verbose",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewArgParser(tt.args)
+			result := parser.GetBoolOption(tt.flagName)
+			if result != tt.expected {
+				t.Errorf("GetBoolOption(%q) = %v, expected %v (args: %v)",
+					tt.flagName, result, tt.expected, tt.args)
+			}
+		})
+	}
+}
+
+func TestArgParser_GetBoolOption_RealWorldUsage(t *testing.T) {
+	// Test the actual usage pattern from the codebase
+	tests := []struct {
+		name     string
+		args     []string
+		expected map[string]bool
+	}{
+		{
+			name: "multiple boolean flags",
+			args: []string{"--force", "--dry-run", "--verbose=false"},
+			expected: map[string]bool{
+				"force":   true,
+				"dry-run": true,
+				"verbose": false,
+			},
+		},
+		{
+			name: "mixed with positionals",
+			args: []string{"command", "--json", "arg1", "--confirm=false", "arg2"},
+			expected: map[string]bool{
+				"json":    true,
+				"confirm": false,
+			},
+		},
+		{
+			name: "explicit true and false",
+			args: []string{"--auto-adjust=true", "--smart-merge=false"},
+			expected: map[string]bool{
+				"auto-adjust": true,
+				"smart-merge": false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewArgParser(tt.args)
+			for flagName, expectedValue := range tt.expected {
+				result := parser.GetBoolOption(flagName)
+				if result != expectedValue {
+					t.Errorf("GetBoolOption(%q) = %v, expected %v",
+						flagName, result, expectedValue)
+				}
+			}
+		})
+	}
+}

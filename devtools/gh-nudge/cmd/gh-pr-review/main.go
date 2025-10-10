@@ -398,7 +398,7 @@ func handleCapture(args []string) {
 		os.Exit(1)
 	}
 
-	force := parser.HasOption("force")
+	force := parser.GetBoolOption("force")
 
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
@@ -463,7 +463,7 @@ func handleComment(args []string) {
 		os.Exit(1)
 	}
 
-	force := parser.HasOption("force")
+	force := parser.GetBoolOption("force")
 
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
@@ -507,11 +507,11 @@ func handleSubmit(args []string) {
 	body := parser.GetOption("body")
 	event := parser.GetOption("event")
 	file := parser.GetOption("file")
-	jsonOutput := parser.HasOption("json")
+	jsonOutput := parser.GetBoolOption("json")
 	afterAction := parser.GetOption("after")
-	autoAdjust := parser.HasOption("auto-adjust")
-	validateAdjustments := parser.HasOption("validate-adjustments")
-	smartMerge := parser.HasOption("smart-merge")
+	autoAdjust := parser.GetBoolOption("auto-adjust")
+	validateAdjustments := parser.GetBoolOption("validate-adjustments")
+	smartMerge := parser.GetBoolOption("smart-merge")
 
 	if err := validateSubmitEvent(event); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -748,8 +748,8 @@ func handleDelete(args []string) {
 		os.Exit(1)
 	}
 
-	confirm := parser.HasOption("confirm")
-	jsonOutput := parser.HasOption("json")
+	confirm := parser.GetBoolOption("confirm")
+	jsonOutput := parser.GetBoolOption("json")
 
 	formatter := createOutputFormatter(jsonOutput)
 
@@ -805,7 +805,7 @@ func handleClear(args []string) {
 	}
 
 	file := parser.GetOption("file")
-	confirm := parser.HasOption("confirm")
+	confirm := parser.GetBoolOption("confirm")
 
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
@@ -966,8 +966,8 @@ func validateAdjustModes(parser *argparser.ArgParser) error {
 	hasDiff := parser.GetOption("diff") != ""
 	hasUnifiedDiff := parser.GetOption("unified-diff") != ""
 	hasMappingFile := parser.GetOption("mapping-file") != ""
-	hasAllFiles := parser.HasOption("all-files")
-	hasAutoDetect := parser.HasOption("auto-detect")
+	hasAllFiles := parser.GetBoolOption("all-files")
+	hasAutoDetect := parser.GetBoolOption("auto-detect")
 
 	if err := validateDiffMethodCount(hasDiff, hasUnifiedDiff, hasMappingFile, hasAutoDetect); err != nil {
 		return err
@@ -1160,12 +1160,12 @@ type AdjustOptions struct {
 
 func parseAdjustOptions(parser *argparser.ArgParser) (AdjustOptions, error) {
 	options := AdjustOptions{
-		DryRun:      parser.HasOption("dry-run"),
-		Force:       parser.HasOption("force"),
-		Interactive: parser.HasOption("interactive"),
-		AllFiles:    parser.HasOption("all-files"),
+		DryRun:      parser.GetBoolOption("dry-run"),
+		Force:       parser.GetBoolOption("force"),
+		Interactive: parser.GetBoolOption("interactive"),
+		AllFiles:    parser.GetBoolOption("all-files"),
 		MappingFile: parser.GetOption("mapping-file"),
-		AutoDetect:  parser.HasOption("auto-detect"),
+		AutoDetect:  parser.GetBoolOption("auto-detect"),
 	}
 
 	options.Format = parser.GetOption("format")
@@ -1301,7 +1301,7 @@ func handleResolve(args []string) {
 		os.Exit(1)
 	}
 
-	archive := parser.HasOption("archive")
+	archive := parser.GetBoolOption("archive")
 	reason := parser.GetOption("reason")
 
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
@@ -1359,10 +1359,10 @@ func handleAutoAdjust(args []string) {
 	}
 
 	since := parser.GetOption("since")
-	staged := parser.HasOption("staged")
-	unstaged := parser.HasOption("unstaged")
+	staged := parser.GetBoolOption("staged")
+	unstaged := parser.GetBoolOption("unstaged")
 	gitDiffSpec := parser.GetOption("git-diff")
-	ifNeeded := parser.HasOption("if-needed")
+	ifNeeded := parser.GetBoolOption("if-needed")
 
 	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
 	if err != nil {
@@ -1608,7 +1608,7 @@ func parsePullOptions(parser *argparser.ArgParser) (models.PullOptions, error) {
 	options := models.PullOptions{
 		File:          parser.GetOption("file"),
 		Author:        parser.GetOption("author"),
-		DryRun:        parser.HasOption("dry-run"),
+		DryRun:        parser.GetBoolOption("dry-run"),
 		MergeStrategy: models.MergeStrategyOverwrite, // default
 	}
 
