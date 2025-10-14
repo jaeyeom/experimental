@@ -105,6 +105,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "copier",
+		platforms: map[string]InstallMethod{
+			"darwin":      BrewInstallMethod{Name: "copier"},
+			"termux":      UvInstallMethod{Name: "copier"},
+			"debian-like": UvInstallMethod{Name: "copier"},
+		},
+		Imports: nil,
+	},
+	{
 		command:   "docker",
 		platforms: nil, // No installation tasks - only conditional imports
 		Imports: []Import{
