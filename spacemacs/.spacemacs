@@ -106,7 +106,7 @@ This function should only modify configuration layer settings."
       ;; renpy
       restclient
       ;; ruby
-      ;; rust
+      rust
       search-engine
       (shell :variables
              shell-default-full-span nil
@@ -148,8 +148,6 @@ This function should only modify configuration layer settings."
    ;; Also include the dependencies as they will not be resolved automatically.
    dotspacemacs-additional-packages
    '(
-     (aider :location (recipe :fetcher github :repo "tninja/aider.el"))
-     aidermacs
      atomic-chrome
      bazel
      chatgpt-shell
