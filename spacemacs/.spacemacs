@@ -688,6 +688,11 @@ If you are unsure, try setting them in `dotspacemacs/user-config' first."
 
   (defvar my/termux-p (my/termux-p))
 
+  (defun my/macos-p ()
+    (eq system-type 'darwin))
+
+  (defvar my/macos-p (my/macos-p))
+
   ;; Bug patch for Termux. `async-start' does not work properly in Termux. Let's
   ;; make the function synchronous.
   (if my/termux-p
@@ -1880,7 +1885,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (require 'dirvish nil 'noerror)
 
   ;; Frame keybindings
-  (when my/crostini-p
+  (when (or my/crostini-p my/macos-p)
     (global-set-key (kbd "s-<up>") #'spacemacs/toggle-maximize-frame)
     (global-set-key (kbd "s-<down>") #'iconify-or-deiconify-frame))
 
