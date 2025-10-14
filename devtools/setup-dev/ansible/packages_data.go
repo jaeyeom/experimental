@@ -161,6 +161,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("github.com/josharian/impl@latest"),
 	GoTool("github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
 	GoTool("github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
+	GoTool("github.com/go-task/task/v3/cmd/task@latest"),
 	GoTool("google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
 	GoTool("google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
 	GoTool("github.com/yoheimuta/protolint/cmd/protolint@latest"),
