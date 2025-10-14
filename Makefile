@@ -17,7 +17,7 @@ format-whitespace:
 	find . -name "*.md" -o -name "*.org" | xargs $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi) 's/[[:space:]]*$$//'
 
 test:
-	go test ./...
+	bazel test //...
 
 lint: lint-golangci lint-ruff
 
