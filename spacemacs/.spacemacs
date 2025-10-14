@@ -1777,7 +1777,7 @@ the email."
 
   ;;; Claude Code
   (with-eval-after-load 'claude-code
-    (spacemacs/set-leader-keys "$ c" 'claude-code-transient)
+    (spacemacs/set-leader-keys "$ C" 'claude-code-transient)
     (autoload 'claude-code-transient "claude-code" nil t)
     (setopt claude-code-terminal-backend 'vterm)
 
