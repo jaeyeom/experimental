@@ -1,4 +1,5 @@
 ---
+- import_playbook: perl.yml
 - name: Ensure lcov is present
   hosts: all
   tasks:
