@@ -20,6 +20,7 @@ var packages = []PackageData{
 	{command: "htop"},
 	{command: "jq"},
 	{command: "keychain"},
+	{command: "lcov"},
 	{
 		command:       "locate",
 		debianPkgName: "mlocate",

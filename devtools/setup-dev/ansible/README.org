@@ -186,6 +186,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
+- setup-cicd.yml
 - setup-claude-privacy.yml
 - setup-docker-ce.yml
 - setup-docker-lima.yml
