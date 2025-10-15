@@ -1,0 +1,22 @@
+---
+- import_playbook: lcov.yml
+- import_playbook: bazel-affected-tests.yml
+- import_playbook: task.yml
+- import_playbook: copier.yml
+
+- name: Setup CI/CD environment
+  hosts: all
+  tasks:
+    - name: Include guard for setup-cicd playbook
+      block:
+        - name: Stop early if the setup-cicd playbook is already included
+          meta: end_play
+          when: setup_cicd_playbook_imported is defined
+        - name: Ensure the setup-cicd playbook is not included
+          set_fact:
+            setup_cicd_playbook_imported: true
+          when: setup_cicd_playbook_imported is not defined
+
+    - name: CI/CD environment setup completed
+      debug:
+        msg: "All CI/CD tools have been installed: lcov, bazel-affected-tests, task, copier"
