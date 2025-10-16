@@ -20,7 +20,6 @@ var packages = []PackageData{
 	{command: "htop"},
 	{command: "jq"},
 	{command: "keychain"},
-	{command: "lcov", Imports: []Import{{Playbook: "perl"}}},
 	{
 		command:       "locate",
 		debianPkgName: "mlocate",
@@ -41,6 +40,7 @@ var packages = []PackageData{
 	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
 	{command: "libtool"},
 	{command: "libvterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
+	{command: "make"},
 	{command: "man", brewPkgName: "man-db"},
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
 	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []Import{{Playbook: "python3-notmuch2"}}},
@@ -149,6 +149,25 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"),
+	{
+		command: "lcov",
+		platforms: map[string]InstallMethod{
+			"darwin":      BrewInstallMethod{Name: "lcov"},
+			"debian-like": PackageInstallMethod{Name: "lcov"},
+			"termux": ShellInstallMethod{
+				InstallCommand:    "cd /tmp && curl -L https://github.com/linux-test-project/lcov/releases/download/v2.3.2/lcov-2.3.2.tar.gz | tar xz && cd lcov-* && make install PREFIX=$HOME/.local",
+				VersionCommand:    "lcov --version",
+				VersionRegex:      "LCOV version ([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/linux-test-project/lcov/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
+		},
+		Imports: []Import{
+			{Playbook: "perl", When: WhenTermux},
+			{Playbook: "make", When: WhenTermux},
+			{Playbook: "setup-user-bin-directory", When: WhenTermux},
+		},
+	},
 	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"),
 	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"),
 	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"),

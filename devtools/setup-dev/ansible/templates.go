@@ -1,5 +1,14 @@
 package main
 
+const (
+	WhenDarwin     = `ansible_facts['os_family'] == "Darwin"`
+	WhenNotDarwin  = `ansible_facts['os_family'] != "Darwin"`
+	WhenTermux     = `ansible_env.TERMUX_VERSION is defined`
+	WhenNotTermux  = `ansible_env.TERMUX_VERSION is not defined`
+	WhenDebianLike = `ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"`
+	WhenUbuntu     = `ansible_facts['distribution'] == "Ubuntu"`
+)
+
 var packagesTemplate = `---
 {{- range .Imports }}
 - import_playbook: {{.Playbook}}.yml{{if .When}}
@@ -23,7 +32,7 @@ var packagesTemplate = `---
         repo: "{{.UbuntuPPA}}"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
+      when: ` + WhenDebianLike + ` and ` + WhenUbuntu + `
       become: yes
 
     - name: Ensure bookworm-backports is added to sources.list.d
@@ -31,14 +40,14 @@ var packagesTemplate = `---
         repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      when: ` + WhenDebianLike + ` and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
 {{ end }}{{ if .BrewTap }}
     - name: Tap {{.BrewTap}} for {{.Command}}
       community.general.homebrew_tap:
         name: {{.BrewTap}}
         state: present
-      when: ansible_facts['os_family'] == "Darwin"
+      when: ` + WhenDarwin + `
 {{ end }}
     - name: Ensure {{.Command}} is present on MacOS
       block:
@@ -52,7 +61,7 @@ var packagesTemplate = `---
             state: present{{ if .BrewOptions }}
             install_options:{{ range .BrewOptions }}
               - {{ . }}{{ end }}{{ end }}
-      when: ansible_facts['os_family'] == "Darwin"
+      when: ` + WhenDarwin + `
 
     - name: Ensure {{.Command}} is present on non-Termux, non-MacOS systems
       block:
@@ -65,7 +74,7 @@ var packagesTemplate = `---
             name: {{.DebianPkgName}}
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ` + WhenDebianLike + `
 
     - name: Ensure {{.Command}} is present on Termux
       block:
@@ -75,7 +84,7 @@ var packagesTemplate = `---
       rescue:
         - name: Install {{.Command}} on Termux
           command: pkg install -y {{.TermuxPkgName}}
-      when: ansible_env.TERMUX_VERSION is defined{{.Suffix}}
+      when: ` + WhenTermux + `{{.Suffix}}
 `
 
 var platformSpecificTemplate = `---
@@ -102,7 +111,7 @@ var platformSpecificTemplate = `---
 
     - name: Ensure {{.Command}} is present on MacOS
 {{$method.RenderInstallTask .Command}}
-      when: ansible_facts['os_family'] == "Darwin"
+      when: ` + WhenDarwin + `
 {{- end }}
 {{- if index $platforms "termux" }}
 {{- $method := index $platforms "termux" }}
@@ -110,7 +119,7 @@ var platformSpecificTemplate = `---
     - name: Ensure {{.Command}} is present on Termux
       block:
 {{$method.RenderBlockInstallTask .Command}}
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ` + WhenTermux + `
 {{- end }}
 {{- if index $platforms "all" }}
 {{- $method := index $platforms "all" }}
@@ -122,19 +131,19 @@ var platformSpecificTemplate = `---
 {{- if or (eq $method.GetMethodType "pip") (eq $method.GetMethodType "uv") }}
 
 {{$method.RenderInstallTask .Command}}
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ` + WhenDebianLike + `
 {{- else if eq $method.GetMethodType "cargo" }}
 
     - name: Install {{.Command}} via cargo on Debian/Ubuntu
       block:
 {{$method.RenderBlockInstallTask .Command}}
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ` + WhenDebianLike + `
 {{- else }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian/Ubuntu
       block:
 {{$method.RenderBlockInstallTask .Command}}
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ` + WhenDebianLike + `
 {{- end }}
 {{- else }}
 {{- if index $platforms "debian" }}
@@ -142,14 +151,14 @@ var platformSpecificTemplate = `---
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian
 {{$method.RenderInstallTask .Command}}
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian"
+      when: ` + WhenDebianLike + ` and ansible_facts['distribution'] == "Debian"
 {{- end }}
 {{- if index $platforms "ubuntu" }}
 {{- $method := index $platforms "ubuntu" }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Ubuntu
 {{$method.RenderInstallTask .Command}}
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
+      when: ` + WhenDebianLike + ` and ` + WhenUbuntu + `
 {{- end }}
 {{- end }}
 {{- end }}
