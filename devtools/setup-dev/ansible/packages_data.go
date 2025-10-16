@@ -30,12 +30,12 @@ var packages = []PackageData{
     - name: Ensure locate DB is up-to-date on non-macOS systems
       command: updatedb
       become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"
-      when: ansible_facts['os_family'] != "Darwin"
+      when: ` + WhenNotDarwin + `
 
     - name: Note about locate DB on macOS
       debug:
         msg: "On macOS, run 'sudo /usr/libexec/locate.updatedb' manually to update the locate database"
-      when: ansible_facts['os_family'] == "Darwin"`,
+      when: ` + WhenDarwin,
 	},
 	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
 	{command: "libtool"},
@@ -67,9 +67,9 @@ var packages = []PackageData{
 }
 
 var platformSpecificTools = []PlatformSpecificTool{
-	GoTool("github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
-	GoTool("github.com/bazelbuild/buildtools/buildifier@latest"),
-	GoTool("github.com/bazelbuild/buildtools/buildozer@latest"),
+	GoTool("bazel-affected-tests", "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
+	GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
+	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
 	{
 		command: "cargo-add",
 		platforms: map[string]InstallMethod{
@@ -138,7 +138,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 			"darwin":      BrewInstallMethod{Name: "fd"},
 		},
 	},
-	GoTool("github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
+	GoTool("fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
 	{
 		command: "gemini",
 		platforms: map[string]InstallMethod{
@@ -148,7 +148,28 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
-	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"),
+	GoTool("gh-codeowners", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"),
+	GoTool("gh-merge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"),
+	GoTool("gh-nudge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"),
+	GoTool("gh-pr-review", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"),
+	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"),
+	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"),
+	GoTool("godef", "github.com/rogpeppe/godef@latest"),
+	GoTool("godoc", "golang.org/x/tools/cmd/godoc@latest"),
+	GoTool("godoctor", "github.com/godoctor/godoctor@latest"),
+	GoTool("gofumpt", "mvdan.cc/gofumpt@latest"),
+	GoTool("goimports", "golang.org/x/tools/cmd/goimports@latest"),
+	GoTool("gomodifytags", "github.com/fatih/gomodifytags@latest"),
+	GoTool("gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"),
+	GoTool("gopls", "golang.org/x/tools/gopls@latest"),
+	GoTool("gorename", "golang.org/x/tools/cmd/gorename@latest"),
+	GoTool("gotests", "github.com/cweill/gotests/gotests@latest"),
+	GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
+	GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),
+	GoTool("hugo", "github.com/gohugoio/hugo@latest"),
+	GoTool("image2ascii", "github.com/qeesung/image2ascii@latest"),
+	GoTool("impl", "github.com/josharian/impl@latest"),
+	GoTool("jira", "github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
 	{
 		command: "lcov",
 		platforms: map[string]InstallMethod{
@@ -168,32 +189,10 @@ var platformSpecificTools = []PlatformSpecificTool{
 			{Playbook: "setup-user-bin-directory", When: WhenTermux},
 		},
 	},
-	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"),
-	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"),
-	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"),
-	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"),
-	GoTool("github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"),
-	GoTool("github.com/rogpeppe/godef@latest"),
-	GoTool("golang.org/x/tools/cmd/godoc@latest"),
-	GoTool("github.com/godoctor/godoctor@latest"),
-	GoTool("mvdan.cc/gofumpt@latest"),
-	GoTool("golang.org/x/tools/cmd/goimports@latest"),
-	GoTool("github.com/fatih/gomodifytags@latest"),
-	GoTool("github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"),
-	GoTool("golang.org/x/tools/gopls@latest"),
-	GoTool("golang.org/x/tools/cmd/gorename@latest"),
-	GoTool("github.com/cweill/gotests/gotests@latest"),
-	GoTool("github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
-	GoTool("golang.org/x/tools/cmd/guru@latest"),
-	GoTool("github.com/gohugoio/hugo@latest"),
-	GoTool("github.com/qeesung/image2ascii@latest"),
-	GoTool("github.com/josharian/impl@latest"),
-	GoTool("github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
-	GoTool("github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
-	GoTool("github.com/go-task/task/v3/cmd/task@latest"),
-	GoTool("google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
-	GoTool("google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
-	GoTool("github.com/yoheimuta/protolint/cmd/protolint@latest"),
+	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
+	GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
+	GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
+	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
 	{
 		command: "protovalidate",
 		platforms: map[string]InstallMethod{
@@ -201,7 +200,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
-	GoTool("github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
+	GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
 	{
 		command: "ruff",
 		platforms: map[string]InstallMethod{
@@ -235,6 +234,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
 		command: "uv",
 		platforms: map[string]InstallMethod{
