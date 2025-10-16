@@ -10,7 +10,6 @@ go_library(
     visibility = ["//devtools/gh-nudge:__subpackages__"],
     deps = [
         "//devtools/gh-nudge/internal/git:go_default_library",
-        "//devtools/gh-nudge/internal/github:go_default_library",
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/storage:go_default_library",
     ],

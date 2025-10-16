@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/git"
-	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
 )
@@ -21,39 +20,69 @@ type OutputFormatter interface {
 	FormatSingleComment(comment models.Comment) (string, error)
 }
 
+// GitHubClient defines the interface for GitHub PR operations.
+// This interface allows for easy mocking in tests.
+type GitHubClient interface {
+	// ValidatePRAccess validates that the PR exists and is accessible.
+	ValidatePRAccess(repository models.Repository, prNumber int) error
+
+	// GetPRDiff fetches the diff hunks for a pull request.
+	GetPRDiff(repository models.Repository, prNumber int) (*models.PRDiffHunks, error)
+
+	// SubmitReview submits a review to GitHub.
+	SubmitReview(repository models.Repository, prNumber int, review models.PRReview) error
+
+	// GetPRComments fetches comments from GitHub for a pull request.
+	GetPRComments(repository models.Repository, prNumber int) ([]models.Comment, error)
+}
+
+// GitClient defines the interface for git operations.
+// This interface allows for easy mocking in tests.
+type GitClient interface {
+	// BranchExists checks if a branch exists in the repository.
+	BranchExists(branch git.Branch) (bool, error)
+
+	// GetDefaultBaseBranch returns the default base branch (e.g., main, master).
+	GetDefaultBaseBranch() (git.Branch, error)
+
+	// CaptureBranchDiff captures the diff hunks for a branch compared to its base branch.
+	CaptureBranchDiff(repository models.Repository, branch, baseBranch git.Branch) (*models.BranchDiffHunks, error)
+
+	// GetStagedDiff gets the diff of staged changes.
+	GetStagedDiff() (string, error)
+
+	// GetUnstagedDiff gets the diff of unstaged working directory changes.
+	GetUnstagedDiff() (string, error)
+
+	// GetDiffSince gets the diff since a specific commit.
+	GetDiffSince(since string) (string, error)
+
+	// AutoDetectChanges analyzes differences between stored diff hunks and current file state.
+	AutoDetectChanges(file string, storedDiffHunks []models.DiffHunk) (*models.AutoDetectResult, error)
+}
+
 // CommandHandler handles gh-pr-review commands.
 type CommandHandler struct {
 	storage     *storage.GitHubStorage
-	ghClient    *github.PRReviewClient
-	gitClient   *git.Client
+	ghClient    GitHubClient
+	gitClient   GitClient
 	storageHome string
 }
 
-// NewCommandHandler creates a new command handler.
-func NewCommandHandler(storageHome string) (*CommandHandler, error) {
-	// Initialize storage
-	ghStorage, err := storage.NewGitHubStorage(storageHome)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize storage: %w", err)
-	}
-
-	// Initialize GitHub client
-	baseClient := github.NewClient(nil)
-	prClient := github.NewPRReviewClient(baseClient)
-
-	// Initialize git client (current working directory)
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get working directory: %w", err)
-	}
-	gitClient := git.NewClient(wd)
-
+// NewCommandHandler creates a new command handler with injected dependencies.
+// This constructor is primarily intended for testing purposes.
+func NewCommandHandler(
+	storage *storage.GitHubStorage,
+	ghClient GitHubClient,
+	gitClient GitClient,
+	storageHome string,
+) *CommandHandler {
 	return &CommandHandler{
-		storage:     ghStorage,
-		ghClient:    prClient,
+		storage:     storage,
+		ghClient:    ghClient,
 		gitClient:   gitClient,
 		storageHome: storageHome,
-	}, nil
+	}
 }
 
 // CaptureCommand captures and stores diff hunks for either PR or branch.
