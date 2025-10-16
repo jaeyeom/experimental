@@ -2,6 +2,7 @@ name: Bazel Tests
 
 permissions:
   contents: read
+  pull-requests: write
 
 on:
   push:
@@ -29,5 +30,29 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-bazel-
 
-    - name: Run tests
-      run: bazel test //...:all
+    - name: Install lcov
+      run: sudo apt-get update && sudo apt-get install -y lcov
+
+    - name: Run tests with coverage
+      run: |
+        mkdir -p coverage
+        bazel coverage --combined_report=lcov //...
+        OUTPUT_PATH=$(bazel info output_path)
+        COVERAGE_FILE="$OUTPUT_PATH/_coverage/_coverage_report.dat"
+        if [ -f "$COVERAGE_FILE" ]; then
+          lcov --remove "$COVERAGE_FILE" '*/*_test.go' '*/vendor/*' '*/external/*' -o coverage/lcov.info
+          echo "Coverage report generated successfully"
+        else
+          echo "Warning: Coverage file not found, running tests without coverage"
+          bazel test //...:all
+        fi
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
