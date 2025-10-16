@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/argparser"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/git"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
@@ -19,6 +21,28 @@ func createOutputFormatter(jsonOutput bool) prreview.OutputFormatter {
 		return models.NewJSONFormatter()
 	}
 	return models.NewTextFormatter()
+}
+
+// newCommandHandler creates a new command handler with all dependencies initialized.
+func newCommandHandler(storageHome string) (*prreview.CommandHandler, error) {
+	// Initialize storage
+	ghStorage, err := storage.NewGitHubStorage(storageHome)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
+	// Initialize GitHub client
+	baseClient := github.NewClient(nil)
+	prClient := github.NewPRReviewClient(baseClient)
+
+	// Initialize git client (current working directory)
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+	gitClient := git.NewClient(wd)
+
+	return prreview.NewCommandHandler(ghStorage, prClient, gitClient, storageHome), nil
 }
 
 const (
@@ -400,7 +424,7 @@ func handleCapture(args []string) {
 
 	force := parser.GetBoolOption("force")
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -465,7 +489,7 @@ func handleComment(args []string) {
 
 	force := parser.GetBoolOption("force")
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -526,7 +550,7 @@ func handleSubmit(args []string) {
 
 	formatter := createOutputFormatter(jsonOutput)
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -636,7 +660,7 @@ func handleList(args []string) {
 
 	formatter := createOutputFormatter(format == "json")
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -753,7 +777,7 @@ func handleDelete(args []string) {
 
 	formatter := createOutputFormatter(jsonOutput)
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -807,7 +831,7 @@ func handleClear(args []string) {
 	file := parser.GetOption("file")
 	confirm := parser.GetBoolOption("confirm")
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -847,7 +871,7 @@ func handleAdjust(args []string) {
 		os.Exit(1)
 	}
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -1243,7 +1267,7 @@ func handleNext(args []string) {
 
 	formatter := createOutputFormatter(format == "json")
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -1304,7 +1328,7 @@ func handleResolve(args []string) {
 	archive := parser.GetBoolOption("archive")
 	reason := parser.GetOption("reason")
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -1364,7 +1388,7 @@ func handleAutoAdjust(args []string) {
 	gitDiffSpec := parser.GetOption("git-diff")
 	ifNeeded := parser.GetBoolOption("if-needed")
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -1408,7 +1432,7 @@ func handleArchive(args []string) {
 		os.Exit(1)
 	}
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
@@ -1530,7 +1554,7 @@ func handlePull(args []string) {
 		os.Exit(1)
 	}
 
-	handler, err := prreview.NewCommandHandler(prreview.GetStorageHome())
+	handler, err := newCommandHandler(prreview.GetStorageHome())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing handler: %v\n", err)
 		os.Exit(1)
