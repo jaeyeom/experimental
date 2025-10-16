@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path"
 	"strings"
 	"unicode"
 )
@@ -130,12 +129,7 @@ func (p PlatformSpecificTool) GetAllImports() []Import {
 }
 
 // GoTool creates a PlatformSpecificTool for Go tools, allowing installation.
-func GoTool(pkgPath string, imports ...Import) PlatformSpecificTool {
-	baseName := path.Base(pkgPath)
-	if idx := strings.Index(baseName, "@"); idx != -1 {
-		baseName = baseName[:idx]
-	}
-	command := baseName
+func GoTool(command string, pkgPath string, imports ...Import) PlatformSpecificTool {
 	return PlatformSpecificTool{
 		command: command,
 		platforms: map[string]InstallMethod{
