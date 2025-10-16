@@ -13,6 +13,10 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["github_test.go"],
+    srcs = [
+        "github_test.go",
+        "prreview_test.go",
+    ],
     embed = [":go_default_library"],
+    deps = ["//devtools/gh-nudge/internal/models:go_default_library"],
 )
