@@ -59,7 +59,12 @@ coverage:
 	COVERAGE_FILE="$$OUTPUT_PATH/_coverage/_coverage_report.dat"; \
 	if [ -f "$$COVERAGE_FILE" ]; then \
 		echo "Filtering test files and vendor code..."; \
-		lcov --remove "$$COVERAGE_FILE" '*/*_test.go' '*/vendor/*' '*/external/*' -o coverage/lcov.info; \
+		lcov --ignore-errors unused --remove "$$COVERAGE_FILE" \
+			'*_test.go' \
+			'*/vendor/*' \
+			'*/external/*' \
+			'*/testdata/*' \
+			-o coverage/lcov.info; \
 		echo "Coverage report generated: coverage/lcov.info"; \
 	else \
 		echo "Error: Coverage file not found at $$COVERAGE_FILE"; \
