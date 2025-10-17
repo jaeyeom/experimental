@@ -54,10 +54,10 @@ installation options when needed.
 
 To regenerate the playbooks, simply run:
 #+begin_src sh
-  go run .
+  make generate-ansible
 #+end_src
 
-The playbook =all.ynl= just imports variuos other playbooks that I think are
+The playbook =all.yml= just imports variuos other playbooks that I think are
 essential.
 
 * Remaining Works
