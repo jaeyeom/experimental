@@ -2,6 +2,36 @@ package main
 
 import "strings"
 
+// indent adds the specified number of spaces to the beginning of each line
+// in the given string, useful for adjusting YAML indentation levels.
+func indent(s string, spaces int) string {
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = prefix + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// stripBlockAndIndent removes a leading "block:" line if present, then indents
+// the remaining content. This is useful for RenderBlockInstallTask implementations
+// where the template already provides the "block:" keyword.
+func stripBlockAndIndent(s string, spaces int) string {
+	lines := strings.Split(s, "\n")
+	startIdx := 0
+
+	// Check if first line contains just whitespace + "block:"
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "block:" {
+		startIdx = 1
+	}
+
+	// Rejoin and indent the remaining lines
+	remaining := strings.Join(lines[startIdx:], "\n")
+	return indent(remaining, spaces)
+}
+
 // PackageInstallMethod handles installation via system package managers
 // like apt, yum, dnf, etc. on Linux distributions.
 type PackageInstallMethod struct {
@@ -83,23 +113,7 @@ func (b BrewInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (b BrewInstallMethod) RenderBlockInstallTask(command string) string {
-	task := `        - name: Check if ` + command + ` is installed
-          shell: command -v ` + command + `
-          changed_when: False
-      rescue:
-        - name: Install ` + command + ` on MacOS
-          community.general.homebrew:
-            name: ` + b.Name + `
-            state: present`
-	if len(b.Options) > 0 {
-		task += `
-            install_options:`
-		for _, opt := range b.Options {
-			task += `
-              - ` + opt
-		}
-	}
-	return task
+	return stripBlockAndIndent(b.RenderInstallTask(command), 0)
 }
 
 // TermuxPkgInstallMethod handles installation via the pkg command on Termux.
@@ -130,12 +144,7 @@ func (t TermuxPkgInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (t TermuxPkgInstallMethod) RenderBlockInstallTask(command string) string {
-	return `        - name: Check if ` + command + ` is installed
-          shell: command -v ` + command + `
-          changed_when: False
-      rescue:
-        - name: Install ` + command + ` on Termux
-          command: pkg install -y ` + t.Name
+	return stripBlockAndIndent(t.RenderInstallTask(command), 0)
 }
 
 // PipInstallMethod handles installation via Python pip.
@@ -265,24 +274,7 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (c CargoInstallMethod) RenderBlockInstallTask(command string) string {
-	commandID := strings.ReplaceAll(command, "-", "_")
-	task := `        - name: Check if ` + command + ` is installed
-          shell: command -v ` + command + `
-          register: ` + commandID + `_installed
-          ignore_errors: yes
-          changed_when: False
-
-        - name: Install ` + command + ` using Cargo
-          command: cargo install ` + c.Name + `
-          when: ` + commandID + `_installed.rc != 0
-
-        - name: Update ` + command + ` to latest version
-          command: cargo install-update ` + c.Name + `
-          register: ` + commandID + `_update_result
-          changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
-          when: ` + commandID + `_installed.rc == 0`
-
-	return task
+	return indent(c.RenderInstallTask(command), 4)
 }
 
 // NpmInstallMethod handles installation via Node.js npm command.
@@ -316,16 +308,7 @@ func (n NpmInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (n NpmInstallMethod) RenderBlockInstallTask(command string) string {
-	commandID := strings.ReplaceAll(command, "-", "_")
-	return `        - name: Check if ` + command + ` is installed
-          shell: command -v ` + command + `
-          register: ` + commandID + `_installed
-          ignore_errors: yes
-          changed_when: False
-
-        - name: Install ` + command + ` using npm
-          command: npm install -g ` + n.Name + `
-          when: ` + commandID + `_installed.rc != 0`
+	return indent(n.RenderInstallTask(command), 4)
 }
 
 // UvInstallMethod handles installation via uv tool command.
@@ -353,7 +336,7 @@ func (u UvInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (u UvInstallMethod) RenderBlockInstallTask(command string) string {
-	return u.RenderInstallTask(command)
+	return indent(u.RenderInstallTask(command), 4)
 }
 
 // UbuntuPkgInstallMethod handles Ubuntu-specific package installation
@@ -523,54 +506,5 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {
-	commandID := strings.ReplaceAll(command, "-", "_")
-
-	if s.VersionCommand != "" && s.LatestVersionURL != "" {
-		return `        - name: Check if ` + command + ` is installed
-          shell: command -v ` + command + `
-          register: ` + commandID + `_command_check
-          failed_when: false
-          changed_when: False
-
-        - name: Get installed ` + command + ` version
-          command: ` + s.VersionCommand + `
-          register: ` + commandID + `_version_output
-          failed_when: false
-          changed_when: False
-          when: ` + commandID + `_command_check.rc == 0
-
-        - name: Parse installed ` + command + ` version
-          set_fact:
-            ` + commandID + `_installed_version: "{{ (` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1')) | default(['0.0.0']) | first }}"
-          when: ` + commandID + `_command_check.rc == 0
-
-        - name: Set default version when ` + command + ` is not installed
-          set_fact:
-            ` + commandID + `_installed_version: "0.0.0"
-          when: ` + commandID + `_command_check.rc != 0
-
-        - name: Get latest available ` + command + ` version from GitHub
-          uri:
-            url: ` + s.LatestVersionURL + `
-            return_content: yes
-          register: ` + commandID + `_latest_release
-
-        - name: Parse latest ` + command + ` version from GitHub response
-          set_fact:
-            ` + commandID + `_latest_version: "{{ ` + commandID + `_latest_release.json.` + s.LatestVersionPath + ` | regex_replace('^v', '') }}"
-
-        - name: Install/update ` + command + ` if outdated
-          shell: ` + s.InstallCommand + `
-          when: ` + commandID + `_installed_version != ` + commandID + `_latest_version`
-	}
-
-	return `        - name: Check if ` + command + ` is installed
-          shell: command -v ` + command + `
-          register: ` + commandID + `_installed
-          failed_when: false
-          changed_when: False
-
-        - name: Install ` + command + `
-          shell: ` + s.InstallCommand + `
-          when: ` + commandID + `_installed.rc != 0`
+	return stripBlockAndIndent(s.RenderInstallTask(command), 0)
 }
