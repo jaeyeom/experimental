@@ -172,7 +172,7 @@ func (p PipInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (p PipInstallMethod) RenderBlockInstallTask(command string) string {
-	return p.RenderInstallTask(command)
+	return indent(p.RenderInstallTask(command), 4)
 }
 
 // GoInstallMethod handles installation via 'go install' command.
