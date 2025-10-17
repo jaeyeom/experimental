@@ -160,6 +160,7 @@ This function should only modify configuration layer settings."
      ;; consult-gh-embark
      ;; consult-gh-forge
      copilot-chat
+     cov
      dirvish
      eshell-command-not-found
      green-is-the-new-black-theme
