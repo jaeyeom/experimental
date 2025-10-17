@@ -176,7 +176,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 			"darwin":      BrewInstallMethod{Name: "lcov"},
 			"debian-like": PackageInstallMethod{Name: "lcov"},
 			"termux": ShellInstallMethod{
-				InstallCommand:    "cd /tmp && curl -L https://github.com/linux-test-project/lcov/releases/download/v2.3.2/lcov-2.3.2.tar.gz | tar xz && cd lcov-* && make install PREFIX=$HOME/.local",
+				InstallCommand:    "tmpdir=$(mktemp -d) && cd \"$tmpdir\" && curl -L https://github.com/linux-test-project/lcov/releases/download/v2.3.2/lcov-2.3.2.tar.gz | tar xz && cd lcov-* && make install PREFIX=$HOME/.local",
 				VersionCommand:    "lcov --version",
 				VersionRegex:      "LCOV version ([0-9.]+)",
 				LatestVersionURL:  "https://api.github.com/repos/linux-test-project/lcov/releases/latest",
