@@ -37,4 +37,5 @@ tasks.json
 tasks/
 
 # Coverage reports
+lcov.info
 coverage/
