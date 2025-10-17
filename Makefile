@@ -64,8 +64,8 @@ coverage:
 			'*/vendor/*' \
 			'*/external/*' \
 			'*/testdata/*' \
-			-o coverage/lcov.info; \
-		echo "Coverage report generated: coverage/lcov.info"; \
+			-o lcov.info; \
+		echo "Coverage report generated: lcov.info"; \
 	else \
 		echo "Error: Coverage file not found at $$COVERAGE_FILE"; \
 		exit 1; \
@@ -73,15 +73,15 @@ coverage:
 
 coverage-report: coverage
 	@echo "Coverage summary:"
-	@lcov --list coverage/lcov.info
+	@lcov --list lcov.info
 
 coverage-html: coverage
 	@echo "Generating HTML coverage report..."
-	@genhtml --branch-coverage --output-directory coverage/html coverage/lcov.info
+	@genhtml --branch-coverage --output-directory coverage/html lcov.info
 	@echo "HTML coverage report generated in coverage/html/"
 	@echo "Open coverage/html/index.html in your browser to view the report"
 
 clean-coverage:
 	@echo "Cleaning coverage files..."
-	@rm -rf coverage
+	@rm -rf lcov.info coverage
 	@echo "Coverage files cleaned"
