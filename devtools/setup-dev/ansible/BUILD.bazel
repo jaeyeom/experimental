@@ -18,3 +18,1771 @@ go_binary(
     embed = [":go_default_library"],
     visibility = ["//visibility:public"],
 )
+
+# GENERATED ANSIBLE TESTS - DO NOT EDIT BELOW THIS LINE
+# Individual syntax check test for each playbook (for better caching)
+
+sh_test(
+    name = "7z_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["7z.yml"],
+    data = ["7z.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "ag_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["ag.yml"],
+    data = ["ag.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "all_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["all.yml"],
+    data = [
+        "7z.yml",
+        "all.yml",
+        "bazel.yml",
+        "bazel-affected-tests.yml",
+        "buildifier.yml",
+        "buildozer.yml",
+        "cargo-install-update.yml",
+        "clang-format.yml",
+        "claude.yml",
+        "claudelytics.yml",
+        "cleanup-repo.yml",
+        "cmake.yml",
+        "copier.yml",
+        "curl.yml",
+        "e.yml",
+        "emacs.yml",
+        "fd.yml",
+        "ffmpegthumbnailer.yml",
+        "fillstruct.yml",
+        "fzf.yml",
+        "gh.yml",
+        "gh-codeowners.yml",
+        "gh-merge.yml",
+        "gh-nudge.yml",
+        "gh-pr-review.yml",
+        "gh-slack.yml",
+        "gh-storage.yml",
+        "git.yml",
+        "gmi.yml",
+        "go.yml",
+        "godef.yml",
+        "godoc.yml",
+        "godoctor.yml",
+        "gofumpt.yml",
+        "goimports.yml",
+        "golangci-lint.yml",
+        "gomodifytags.yml",
+        "gopkgs.yml",
+        "gopls.yml",
+        "gorename.yml",
+        "gotests.yml",
+        "gpg.yml",
+        "gpg-agent.yml",
+        "grep.yml",
+        "grpcui.yml",
+        "guru.yml",
+        "htop.yml",
+        "image2ascii.yml",
+        "impl.yml",
+        "jira.yml",
+        "jq.yml",
+        "keychain.yml",
+        "lcov.yml",
+        "libtool.yml",
+        "libvterm.yml",
+        "locate.yml",
+        "make.yml",
+        "man.yml",
+        "notmuch.yml",
+        "npm.yml",
+        "oserrorsgodernize.yml",
+        "pandoc.yml",
+        "pass.yml",
+        "perl.yml",
+        "python3-notmuch2.yml",
+        "repo-sync.yml",
+        "rg.yml",
+        "ruff.yml",
+        "rustc.yml",
+        "sed.yml",
+        "setup-bazel.yml",
+        "setup-cargo.yml",
+        "setup-cicd.yml",
+        "setup-claude-privacy.yml",
+        "setup-emacs.yml",
+        "setup-git.yml",
+        "setup-gpg-agent.yml",
+        "setup-history.yml",
+        "setup-perplexity-mcp.yml",
+        "setup-shell-profile.yml",
+        "setup-spacemacs.yml",
+        "setup-spacemacs-go.yml",
+        "setup-ssh-key.yml",
+        "setup-starship.yml",
+        "setup-user-bin-directory.yml",
+        "setup-user-config-directory.yml",
+        "setup-user-go-bin-directory.yml",
+        "setup-vibe-coding.yml",
+        "setup-windsurf-rules.yml",
+        "setup-z.yml",
+        "spacemacs.yml",
+        "ssh.yml",
+        "sshpass.yml",
+        "starship.yml",
+        "task.yml",
+        "tmux.yml",
+        "uv.yml",
+        "vipsthumbnail.yml",
+        "which.yml",
+        "zoxide.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "bazel_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["bazel.yml"],
+    data = [
+        "bazel.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "bazel-affected-tests_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["bazel-affected-tests.yml"],
+    data = [
+        "bazel-affected-tests.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "buf_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["buf.yml"],
+    data = ["buf.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "buildifier_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["buildifier.yml"],
+    data = [
+        "buildifier.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "buildozer_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["buildozer.yml"],
+    data = [
+        "buildozer.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "cargo-add_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["cargo-add.yml"],
+    data = [
+        "cargo-add.yml",
+        "cargo-install-update.yml",
+        "curl.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "cargo-install-update_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["cargo-install-update.yml"],
+    data = [
+        "cargo-install-update.yml",
+        "curl.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "cargo-outdated_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["cargo-outdated.yml"],
+    data = [
+        "cargo-install-update.yml",
+        "cargo-outdated.yml",
+        "curl.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "clang-format_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["clang-format.yml"],
+    data = ["clang-format.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "claude_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["claude.yml"],
+    data = [
+        "claude.yml",
+        "npm.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "claudelytics_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["claudelytics.yml"],
+    data = [
+        "cargo-install-update.yml",
+        "claudelytics.yml",
+        "curl.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "cleanup-repo_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["cleanup-repo.yml"],
+    data = [
+        "cleanup-repo.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "cmake_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["cmake.yml"],
+    data = ["cmake.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "copier_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["copier.yml"],
+    data = [
+        "copier.yml",
+        "uv.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "curl_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["curl.yml"],
+    data = ["curl.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "dart_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["dart.yml"],
+    data = ["dart.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "docker_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["docker.yml"],
+    data = [
+        "docker.yml",
+        "setup-docker-ce.yml",
+        "setup-docker-lima.yml",
+        "setup-docker-wrapper-udocker.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "udocker.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "e_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["e.yml"],
+    data = [
+        "e.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "emacs_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["emacs.yml"],
+    data = ["emacs.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "emacs-lsp-booster_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["emacs-lsp-booster.yml"],
+    data = [
+        "cargo-install-update.yml",
+        "curl.yml",
+        "emacs-lsp-booster.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "fd_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["fd.yml"],
+    data = [
+        "cargo-install-update.yml",
+        "curl.yml",
+        "fd.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "ffmpegthumbnailer_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["ffmpegthumbnailer.yml"],
+    data = ["ffmpegthumbnailer.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "fillstruct_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["fillstruct.yml"],
+    data = [
+        "fillstruct.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "fzf_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["fzf.yml"],
+    data = ["fzf.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gemini_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gemini.yml"],
+    data = [
+        "gemini.yml",
+        "npm.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gh_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh.yml"],
+    data = ["gh.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gh-codeowners_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-codeowners.yml"],
+    data = [
+        "gh-codeowners.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gh-merge_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-merge.yml"],
+    data = [
+        "gh-merge.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gh-nudge_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-nudge.yml"],
+    data = [
+        "gh-nudge.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gh-pr-review_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-pr-review.yml"],
+    data = [
+        "gh-pr-review.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gh-slack_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-slack.yml"],
+    data = [
+        "gh-slack.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gh-storage_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-storage.yml"],
+    data = [
+        "gh-storage.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "git_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["git.yml"],
+    data = ["git.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gmi_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gmi.yml"],
+    data = [
+        "gmi.yml",
+        "notmuch.yml",
+        "python3-notmuch2.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "go_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["go.yml"],
+    data = [
+        "go.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "godef_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["godef.yml"],
+    data = [
+        "go.yml",
+        "godef.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "godoc_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["godoc.yml"],
+    data = [
+        "go.yml",
+        "godoc.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "godoctor_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["godoctor.yml"],
+    data = [
+        "go.yml",
+        "godoctor.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gofumpt_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gofumpt.yml"],
+    data = [
+        "go.yml",
+        "gofumpt.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "goimports_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["goimports.yml"],
+    data = [
+        "go.yml",
+        "goimports.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "golangci-lint_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["golangci-lint.yml"],
+    data = [
+        "curl.yml",
+        "git.yml",
+        "golangci-lint.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gomodifytags_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gomodifytags.yml"],
+    data = [
+        "go.yml",
+        "gomodifytags.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gopkgs_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gopkgs.yml"],
+    data = [
+        "go.yml",
+        "gopkgs.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gopls_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gopls.yml"],
+    data = [
+        "go.yml",
+        "gopls.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gorename_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gorename.yml"],
+    data = [
+        "go.yml",
+        "gorename.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gotests_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gotests.yml"],
+    data = [
+        "go.yml",
+        "gotests.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gpg_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gpg.yml"],
+    data = ["gpg.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "gpg-agent_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gpg-agent.yml"],
+    data = [
+        "gpg.yml",
+        "gpg-agent.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "grep_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["grep.yml"],
+    data = ["grep.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "grpcio_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["grpcio.yml"],
+    data = ["grpcio.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "grpcui_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["grpcui.yml"],
+    data = [
+        "go.yml",
+        "grpcui.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "guru_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["guru.yml"],
+    data = [
+        "go.yml",
+        "guru.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "htop_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["htop.yml"],
+    data = ["htop.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "hugo_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["hugo.yml"],
+    data = [
+        "go.yml",
+        "hugo.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "image2ascii_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["image2ascii.yml"],
+    data = [
+        "go.yml",
+        "image2ascii.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "impl_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["impl.yml"],
+    data = [
+        "go.yml",
+        "impl.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "jira_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["jira.yml"],
+    data = [
+        "go.yml",
+        "jira.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "jq_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["jq.yml"],
+    data = ["jq.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "keychain_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["keychain.yml"],
+    data = ["keychain.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "kotlinc_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["kotlinc.yml"],
+    data = ["kotlinc.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "lcov_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["lcov.yml"],
+    data = [
+        "lcov.yml",
+        "make.yml",
+        "perl.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "libtool_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["libtool.yml"],
+    data = ["libtool.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "libvterm_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["libvterm.yml"],
+    data = ["libvterm.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "locate_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["locate.yml"],
+    data = ["locate.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "make_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["make.yml"],
+    data = ["make.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "man_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["man.yml"],
+    data = ["man.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "mono_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["mono.yml"],
+    data = ["mono.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "notmuch_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["notmuch.yml"],
+    data = [
+        "notmuch.yml",
+        "python3-notmuch2.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "npm_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["npm.yml"],
+    data = ["npm.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "oserrorsgodernize_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["oserrorsgodernize.yml"],
+    data = [
+        "go.yml",
+        "oserrorsgodernize.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "pandoc_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["pandoc.yml"],
+    data = ["pandoc.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "pass_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["pass.yml"],
+    data = ["pass.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "perl_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["perl.yml"],
+    data = ["perl.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "poetry_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["poetry.yml"],
+    data = ["poetry.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "protoc_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["protoc.yml"],
+    data = ["protoc.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "protoc-gen-go_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["protoc-gen-go.yml"],
+    data = [
+        "go.yml",
+        "protoc.yml",
+        "protoc-gen-go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "protoc-gen-go-grpc_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["protoc-gen-go-grpc.yml"],
+    data = [
+        "go.yml",
+        "protoc.yml",
+        "protoc-gen-go-grpc.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "protolint_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["protolint.yml"],
+    data = [
+        "go.yml",
+        "protolint.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "protovalidate_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["protovalidate.yml"],
+    data = ["protovalidate.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "psql_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["psql.yml"],
+    data = ["psql.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "python3-notmuch2_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["python3-notmuch2.yml"],
+    data = ["python3-notmuch2.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "repo-sync_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["repo-sync.yml"],
+    data = [
+        "go.yml",
+        "repo-sync.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "rg_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["rg.yml"],
+    data = ["rg.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "ruff_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["ruff.yml"],
+    data = [
+        "ruff.yml",
+        "uv.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "rustc_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["rustc.yml"],
+    data = [
+        "curl.yml",
+        "rustc.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "sed_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["sed.yml"],
+    data = ["sed.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "semgrep_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["semgrep.yml"],
+    data = ["semgrep.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-bazel_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-bazel.yml"],
+    data = [
+        "bazel.yml",
+        "buildifier.yml",
+        "buildozer.yml",
+        "go.yml",
+        "setup-bazel.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-cargo_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-cargo.yml"],
+    data = [
+        "curl.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-cicd_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-cicd.yml"],
+    data = [
+        "bazel-affected-tests.yml",
+        "copier.yml",
+        "go.yml",
+        "lcov.yml",
+        "make.yml",
+        "perl.yml",
+        "setup-cicd.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "setup-user-go-bin-directory.yml",
+        "task.yml",
+        "uv.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-claude-privacy_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-claude-privacy.yml"],
+    data = [
+        "setup-claude-privacy.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-docker-ce_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-docker-ce.yml"],
+    data = ["setup-docker-ce.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-docker-lima_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-docker-lima.yml"],
+    data = ["setup-docker-lima.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-docker-wrapper-udocker_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-docker-wrapper-udocker.yml"],
+    data = [
+        "setup-docker-wrapper-udocker.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "udocker.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-emacs_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-emacs.yml"],
+    data = [
+        "e.yml",
+        "emacs.yml",
+        "setup-emacs.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-emacs-lsp-booster_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-emacs-lsp-booster.yml"],
+    data = [
+        "cargo-install-update.yml",
+        "curl.yml",
+        "emacs-lsp-booster.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-emacs-lsp-booster.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-git_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-git.yml"],
+    data = [
+        "git.yml",
+        "setup-git.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "which.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-gpg-agent_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-gpg-agent.yml"],
+    data = [
+        "gpg.yml",
+        "gpg-agent.yml",
+        "setup-gpg-agent.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-gpg-keygen_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-gpg-keygen.yml"],
+    data = [
+        "git.yml",
+        "gpg.yml",
+        "setup-git.yml",
+        "setup-gpg-keygen.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "sshpass.yml",
+        "which.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-history_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-history.yml"],
+    data = [
+        "setup-history.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-kotex_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-kotex.yml"],
+    data = [
+        "setup-kotex.yml",
+        "tlmgr.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-pass_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-pass.yml"],
+    data = [
+        "git.yml",
+        "gpg.yml",
+        "pass.yml",
+        "setup-git.yml",
+        "setup-gpg-keygen.yml",
+        "setup-pass.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "sshpass.yml",
+        "which.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-perplexity-mcp_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-perplexity-mcp.yml"],
+    data = [
+        "claude.yml",
+        "go.yml",
+        "jq.yml",
+        "npm.yml",
+        "pass.yml",
+        "setup-perplexity-mcp.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-shell-profile_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-shell-profile.yml"],
+    data = ["setup-shell-profile.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-spacemacs_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-spacemacs.yml"],
+    data = [
+        "7z.yml",
+        "cmake.yml",
+        "e.yml",
+        "emacs.yml",
+        "ffmpegthumbnailer.yml",
+        "git.yml",
+        "go.yml",
+        "image2ascii.yml",
+        "libtool.yml",
+        "libvterm.yml",
+        "pandoc.yml",
+        "pass.yml",
+        "perl.yml",
+        "rg.yml",
+        "setup-emacs.yml",
+        "setup-shell-profile.yml",
+        "setup-spacemacs.yml",
+        "setup-starship.yml",
+        "setup-user-bin-directory.yml",
+        "setup-user-config-directory.yml",
+        "setup-user-go-bin-directory.yml",
+        "spacemacs.yml",
+        "starship.yml",
+        "vipsthumbnail.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-spacemacs-go_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-spacemacs-go.yml"],
+    data = [
+        "7z.yml",
+        "cmake.yml",
+        "curl.yml",
+        "e.yml",
+        "emacs.yml",
+        "ffmpegthumbnailer.yml",
+        "fillstruct.yml",
+        "git.yml",
+        "go.yml",
+        "godef.yml",
+        "godoc.yml",
+        "godoctor.yml",
+        "gofumpt.yml",
+        "goimports.yml",
+        "golangci-lint.yml",
+        "gomodifytags.yml",
+        "gopkgs.yml",
+        "gopls.yml",
+        "gorename.yml",
+        "gotests.yml",
+        "guru.yml",
+        "image2ascii.yml",
+        "impl.yml",
+        "libtool.yml",
+        "libvterm.yml",
+        "pandoc.yml",
+        "pass.yml",
+        "perl.yml",
+        "rg.yml",
+        "setup-emacs.yml",
+        "setup-shell-profile.yml",
+        "setup-spacemacs.yml",
+        "setup-spacemacs-go.yml",
+        "setup-starship.yml",
+        "setup-user-bin-directory.yml",
+        "setup-user-config-directory.yml",
+        "setup-user-go-bin-directory.yml",
+        "spacemacs.yml",
+        "starship.yml",
+        "vipsthumbnail.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-ssh-key_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-ssh-key.yml"],
+    data = [
+        "git.yml",
+        "keychain.yml",
+        "setup-git.yml",
+        "setup-shell-profile.yml",
+        "setup-ssh-key.yml",
+        "setup-user-bin-directory.yml",
+        "ssh.yml",
+        "sshpass.yml",
+        "which.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-starship_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-starship.yml"],
+    data = [
+        "setup-shell-profile.yml",
+        "setup-starship.yml",
+        "setup-user-config-directory.yml",
+        "starship.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-user-bin-directory_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-user-bin-directory.yml"],
+    data = [
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-user-config-directory_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-user-config-directory.yml"],
+    data = ["setup-user-config-directory.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-user-go-bin-directory_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-user-go-bin-directory.yml"],
+    data = [
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-vibe-coding_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-vibe-coding.yml"],
+    data = [
+        "cargo-install-update.yml",
+        "claude.yml",
+        "claudelytics.yml",
+        "curl.yml",
+        "gh-codeowners.yml",
+        "gh-merge.yml",
+        "gh-nudge.yml",
+        "gh-pr-review.yml",
+        "gh-slack.yml",
+        "gh-storage.yml",
+        "go.yml",
+        "jq.yml",
+        "npm.yml",
+        "pass.yml",
+        "repo-sync.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-perplexity-mcp.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+        "setup-vibe-coding.yml",
+        "setup-windsurf-rules.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-windsurf-rules_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-windsurf-rules.yml"],
+    data = ["setup-windsurf-rules.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "setup-z_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-z.yml"],
+    data = [
+        "fzf.yml",
+        "setup-shell-profile.yml",
+        "setup-z.yml",
+        "zoxide.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "spacemacs_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["spacemacs.yml"],
+    data = [
+        "emacs.yml",
+        "git.yml",
+        "setup-user-config-directory.yml",
+        "spacemacs.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "ssh_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["ssh.yml"],
+    data = ["ssh.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "sshpass_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["sshpass.yml"],
+    data = ["sshpass.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "starship_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["starship.yml"],
+    data = ["starship.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "task_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["task.yml"],
+    data = [
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+        "task.yml",
+    ],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "tlmgr_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["tlmgr.yml"],
+    data = ["tlmgr.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "tmux_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["tmux.yml"],
+    data = ["tmux.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "udocker_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["udocker.yml"],
+    data = ["udocker.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "unzip_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["unzip.yml"],
+    data = ["unzip.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "uv_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["uv.yml"],
+    data = ["uv.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "vipsthumbnail_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["vipsthumbnail.yml"],
+    data = ["vipsthumbnail.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "which_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["which.yml"],
+    data = ["which.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "zip_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["zip.yml"],
+    data = ["zip.yml"],
+    tags = ["ansible"],
+)
+
+sh_test(
+    name = "zoxide_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["zoxide.yml"],
+    data = ["zoxide.yml"],
+    tags = ["ansible"],
+)
+
+# Test suite that runs all syntax tests
+test_suite(
+    name = "ansible_syntax_tests",
+    tags = ["ansible"],
+    tests = [
+        ":7z_syntax_test",
+        ":ag_syntax_test",
+        ":all_syntax_test",
+        ":bazel-affected-tests_syntax_test",
+        ":bazel_syntax_test",
+        ":buf_syntax_test",
+        ":buildifier_syntax_test",
+        ":buildozer_syntax_test",
+        ":cargo-add_syntax_test",
+        ":cargo-install-update_syntax_test",
+        ":cargo-outdated_syntax_test",
+        ":clang-format_syntax_test",
+        ":claude_syntax_test",
+        ":claudelytics_syntax_test",
+        ":cleanup-repo_syntax_test",
+        ":cmake_syntax_test",
+        ":copier_syntax_test",
+        ":curl_syntax_test",
+        ":dart_syntax_test",
+        ":docker_syntax_test",
+        ":e_syntax_test",
+        ":emacs-lsp-booster_syntax_test",
+        ":emacs_syntax_test",
+        ":fd_syntax_test",
+        ":ffmpegthumbnailer_syntax_test",
+        ":fillstruct_syntax_test",
+        ":fzf_syntax_test",
+        ":gemini_syntax_test",
+        ":gh-codeowners_syntax_test",
+        ":gh-merge_syntax_test",
+        ":gh-nudge_syntax_test",
+        ":gh-pr-review_syntax_test",
+        ":gh-slack_syntax_test",
+        ":gh-storage_syntax_test",
+        ":gh_syntax_test",
+        ":git_syntax_test",
+        ":gmi_syntax_test",
+        ":go_syntax_test",
+        ":godef_syntax_test",
+        ":godoc_syntax_test",
+        ":godoctor_syntax_test",
+        ":gofumpt_syntax_test",
+        ":goimports_syntax_test",
+        ":golangci-lint_syntax_test",
+        ":gomodifytags_syntax_test",
+        ":gopkgs_syntax_test",
+        ":gopls_syntax_test",
+        ":gorename_syntax_test",
+        ":gotests_syntax_test",
+        ":gpg-agent_syntax_test",
+        ":gpg_syntax_test",
+        ":grep_syntax_test",
+        ":grpcio_syntax_test",
+        ":grpcui_syntax_test",
+        ":guru_syntax_test",
+        ":htop_syntax_test",
+        ":hugo_syntax_test",
+        ":image2ascii_syntax_test",
+        ":impl_syntax_test",
+        ":jira_syntax_test",
+        ":jq_syntax_test",
+        ":keychain_syntax_test",
+        ":kotlinc_syntax_test",
+        ":lcov_syntax_test",
+        ":libtool_syntax_test",
+        ":libvterm_syntax_test",
+        ":locate_syntax_test",
+        ":make_syntax_test",
+        ":man_syntax_test",
+        ":mono_syntax_test",
+        ":notmuch_syntax_test",
+        ":npm_syntax_test",
+        ":oserrorsgodernize_syntax_test",
+        ":pandoc_syntax_test",
+        ":pass_syntax_test",
+        ":perl_syntax_test",
+        ":poetry_syntax_test",
+        ":protoc-gen-go-grpc_syntax_test",
+        ":protoc-gen-go_syntax_test",
+        ":protoc_syntax_test",
+        ":protolint_syntax_test",
+        ":protovalidate_syntax_test",
+        ":psql_syntax_test",
+        ":python3-notmuch2_syntax_test",
+        ":repo-sync_syntax_test",
+        ":rg_syntax_test",
+        ":ruff_syntax_test",
+        ":rustc_syntax_test",
+        ":sed_syntax_test",
+        ":semgrep_syntax_test",
+        ":setup-bazel_syntax_test",
+        ":setup-cargo_syntax_test",
+        ":setup-cicd_syntax_test",
+        ":setup-claude-privacy_syntax_test",
+        ":setup-docker-ce_syntax_test",
+        ":setup-docker-lima_syntax_test",
+        ":setup-docker-wrapper-udocker_syntax_test",
+        ":setup-emacs-lsp-booster_syntax_test",
+        ":setup-emacs_syntax_test",
+        ":setup-git_syntax_test",
+        ":setup-gpg-agent_syntax_test",
+        ":setup-gpg-keygen_syntax_test",
+        ":setup-history_syntax_test",
+        ":setup-kotex_syntax_test",
+        ":setup-pass_syntax_test",
+        ":setup-perplexity-mcp_syntax_test",
+        ":setup-shell-profile_syntax_test",
+        ":setup-spacemacs-go_syntax_test",
+        ":setup-spacemacs_syntax_test",
+        ":setup-ssh-key_syntax_test",
+        ":setup-starship_syntax_test",
+        ":setup-user-bin-directory_syntax_test",
+        ":setup-user-config-directory_syntax_test",
+        ":setup-user-go-bin-directory_syntax_test",
+        ":setup-vibe-coding_syntax_test",
+        ":setup-windsurf-rules_syntax_test",
+        ":setup-z_syntax_test",
+        ":spacemacs_syntax_test",
+        ":ssh_syntax_test",
+        ":sshpass_syntax_test",
+        ":starship_syntax_test",
+        ":task_syntax_test",
+        ":tlmgr_syntax_test",
+        ":tmux_syntax_test",
+        ":udocker_syntax_test",
+        ":unzip_syntax_test",
+        ":uv_syntax_test",
+        ":vipsthumbnail_syntax_test",
+        ":which_syntax_test",
+        ":zip_syntax_test",
+        ":zoxide_syntax_test",
+    ],
+)

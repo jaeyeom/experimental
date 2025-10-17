@@ -27,10 +27,10 @@
 
     - name: Ensure semgrep is present on Termux
       block:
-    - name: Ensure if semgrep is installed
-      ansible.builtin.pip:
-        name: semgrep
-        state: latest
+        - name: Ensure if semgrep is installed
+          ansible.builtin.pip:
+            name: semgrep
+            state: latest
       when: ansible_env.TERMUX_VERSION is defined
 
     - name: Ensure if semgrep is installed
