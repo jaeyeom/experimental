@@ -27,7 +27,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["7z.yml"],
     data = ["7z.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -35,7 +38,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["ag.yml"],
     data = ["ag.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -144,7 +150,10 @@ sh_test(
         "which.yml",
         "zoxide.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -156,7 +165,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -169,7 +181,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -177,7 +192,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["buf.yml"],
     data = ["buf.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -190,7 +208,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -203,7 +224,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -218,7 +242,10 @@ sh_test(
         "setup-cargo.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -232,7 +259,10 @@ sh_test(
         "setup-cargo.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -247,7 +277,10 @@ sh_test(
         "setup-cargo.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -255,7 +288,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["clang-format.yml"],
     data = ["clang-format.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -266,7 +302,10 @@ sh_test(
         "claude.yml",
         "npm.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -281,7 +320,10 @@ sh_test(
         "setup-cargo.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -293,7 +335,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -301,7 +346,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["cmake.yml"],
     data = ["cmake.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -312,7 +360,10 @@ sh_test(
         "copier.yml",
         "uv.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -320,7 +371,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["curl.yml"],
     data = ["curl.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -328,7 +382,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["dart.yml"],
     data = ["dart.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -344,7 +401,10 @@ sh_test(
         "setup-user-bin-directory.yml",
         "udocker.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -356,7 +416,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -364,7 +427,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["emacs.yml"],
     data = ["emacs.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -379,7 +445,10 @@ sh_test(
         "setup-cargo.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -394,7 +463,10 @@ sh_test(
         "setup-cargo.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -402,7 +474,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["ffmpegthumbnailer.yml"],
     data = ["ffmpegthumbnailer.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -415,7 +490,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -423,7 +501,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["fzf.yml"],
     data = ["fzf.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -434,7 +515,10 @@ sh_test(
         "gemini.yml",
         "npm.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -442,7 +526,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["gh.yml"],
     data = ["gh.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -455,7 +542,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -468,7 +558,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -481,7 +574,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -494,7 +590,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -507,7 +606,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -520,7 +622,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -528,7 +633,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["git.yml"],
     data = ["git.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -540,7 +648,10 @@ sh_test(
         "notmuch.yml",
         "python3-notmuch2.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -551,7 +662,10 @@ sh_test(
         "go.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -564,7 +678,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -577,7 +694,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -590,7 +710,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -603,7 +726,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -616,7 +742,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -628,7 +757,10 @@ sh_test(
         "git.yml",
         "golangci-lint.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -641,7 +773,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -654,7 +789,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -667,7 +805,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -680,7 +821,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -693,7 +837,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -701,7 +848,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["gpg.yml"],
     data = ["gpg.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -712,7 +862,10 @@ sh_test(
         "gpg.yml",
         "gpg-agent.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -720,7 +873,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["grep.yml"],
     data = ["grep.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -728,7 +884,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["grpcio.yml"],
     data = ["grpcio.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -741,7 +900,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -754,7 +916,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -762,7 +927,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["htop.yml"],
     data = ["htop.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -775,7 +943,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -788,7 +959,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -801,7 +975,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -814,7 +991,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -822,7 +1002,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["jq.yml"],
     data = ["jq.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -830,7 +1013,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["keychain.yml"],
     data = ["keychain.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -838,7 +1024,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["kotlinc.yml"],
     data = ["kotlinc.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -852,7 +1041,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -860,7 +1052,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["libtool.yml"],
     data = ["libtool.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -868,7 +1063,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["libvterm.yml"],
     data = ["libvterm.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -876,7 +1074,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["locate.yml"],
     data = ["locate.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -884,7 +1085,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["make.yml"],
     data = ["make.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -892,7 +1096,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["man.yml"],
     data = ["man.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -900,7 +1107,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["mono.yml"],
     data = ["mono.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -911,7 +1121,10 @@ sh_test(
         "notmuch.yml",
         "python3-notmuch2.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -919,7 +1132,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["npm.yml"],
     data = ["npm.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -932,7 +1148,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -940,7 +1159,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["pandoc.yml"],
     data = ["pandoc.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -948,7 +1170,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["pass.yml"],
     data = ["pass.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -956,7 +1181,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["perl.yml"],
     data = ["perl.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -964,7 +1192,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["poetry.yml"],
     data = ["poetry.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -972,7 +1203,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["protoc.yml"],
     data = ["protoc.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -986,7 +1220,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1000,7 +1237,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1013,7 +1253,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1021,7 +1264,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["protovalidate.yml"],
     data = ["protovalidate.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1029,7 +1275,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["psql.yml"],
     data = ["psql.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1037,7 +1286,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["python3-notmuch2.yml"],
     data = ["python3-notmuch2.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1050,7 +1302,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1058,7 +1313,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["rg.yml"],
     data = ["rg.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1069,7 +1327,10 @@ sh_test(
         "ruff.yml",
         "uv.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1080,7 +1341,10 @@ sh_test(
         "curl.yml",
         "rustc.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1088,7 +1352,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["sed.yml"],
     data = ["sed.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1096,7 +1363,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["semgrep.yml"],
     data = ["semgrep.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1113,7 +1383,10 @@ sh_test(
         "setup-user-bin-directory.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1126,7 +1399,10 @@ sh_test(
         "setup-cargo.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1147,7 +1423,10 @@ sh_test(
         "task.yml",
         "uv.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1158,7 +1437,10 @@ sh_test(
         "setup-claude-privacy.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1166,7 +1448,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-docker-ce.yml"],
     data = ["setup-docker-ce.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1174,7 +1459,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-docker-lima.yml"],
     data = ["setup-docker-lima.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1187,7 +1475,10 @@ sh_test(
         "setup-user-bin-directory.yml",
         "udocker.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1201,7 +1492,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1217,7 +1511,10 @@ sh_test(
         "setup-emacs-lsp-booster.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1231,7 +1528,10 @@ sh_test(
         "setup-user-bin-directory.yml",
         "which.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1244,7 +1544,10 @@ sh_test(
         "setup-gpg-agent.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1261,7 +1564,10 @@ sh_test(
         "sshpass.yml",
         "which.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1272,7 +1578,10 @@ sh_test(
         "setup-history.yml",
         "setup-shell-profile.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1283,7 +1592,10 @@ sh_test(
         "setup-kotex.yml",
         "tlmgr.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1302,7 +1614,10 @@ sh_test(
         "sshpass.yml",
         "which.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1319,7 +1634,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1327,7 +1645,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-shell-profile.yml"],
     data = ["setup-shell-profile.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1360,7 +1681,10 @@ sh_test(
         "starship.yml",
         "vipsthumbnail.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1409,7 +1733,10 @@ sh_test(
         "starship.yml",
         "vipsthumbnail.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1427,7 +1754,10 @@ sh_test(
         "sshpass.yml",
         "which.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1440,7 +1770,10 @@ sh_test(
         "setup-user-config-directory.yml",
         "starship.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1451,7 +1784,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1459,7 +1795,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-user-config-directory.yml"],
     data = ["setup-user-config-directory.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1471,7 +1810,10 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1502,7 +1844,10 @@ sh_test(
         "setup-vibe-coding.yml",
         "setup-windsurf-rules.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1510,7 +1855,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-windsurf-rules.yml"],
     data = ["setup-windsurf-rules.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1523,7 +1871,10 @@ sh_test(
         "setup-z.yml",
         "zoxide.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1536,7 +1887,10 @@ sh_test(
         "setup-user-config-directory.yml",
         "spacemacs.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1544,7 +1898,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["ssh.yml"],
     data = ["ssh.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1552,7 +1909,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["sshpass.yml"],
     data = ["sshpass.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1560,7 +1920,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["starship.yml"],
     data = ["starship.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1573,7 +1936,10 @@ sh_test(
         "setup-user-go-bin-directory.yml",
         "task.yml",
     ],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1581,7 +1947,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["tlmgr.yml"],
     data = ["tlmgr.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1589,7 +1958,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["tmux.yml"],
     data = ["tmux.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1597,7 +1969,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["udocker.yml"],
     data = ["udocker.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1605,7 +1980,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["unzip.yml"],
     data = ["unzip.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1613,7 +1991,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["uv.yml"],
     data = ["uv.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1621,7 +2002,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["vipsthumbnail.yml"],
     data = ["vipsthumbnail.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1629,7 +2013,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["which.yml"],
     data = ["which.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1637,7 +2024,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["zip.yml"],
     data = ["zip.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 sh_test(
@@ -1645,13 +2035,19 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["zoxide.yml"],
     data = ["zoxide.yml"],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 
 # Test suite that runs all syntax tests
 test_suite(
     name = "ansible_syntax_tests",
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
     tests = [
         ":7z_syntax_test",
         ":ag_syntax_test",

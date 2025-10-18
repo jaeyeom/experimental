@@ -313,7 +313,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["%s.yml"],
     data = [%s],
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
 )
 `, yml, yml, dataStr), nil
 }
@@ -353,7 +356,10 @@ func generateBuildBazel() error {
 # Test suite that runs all syntax tests
 test_suite(
     name = "ansible_syntax_tests",
-    tags = ["ansible"],
+    tags = [
+        "ansible",
+        "local",
+    ],
     tests = [
 `)
 
