@@ -175,19 +175,9 @@ var platformSpecificTools = []PlatformSpecificTool{
 		platforms: map[string]InstallMethod{
 			"darwin":      BrewInstallMethod{Name: "lcov"},
 			"debian-like": PackageInstallMethod{Name: "lcov"},
-			"termux": ShellInstallMethod{
-				InstallCommand:    "tmpdir=$(mktemp -d) && cd \"$tmpdir\" && curl -L https://github.com/linux-test-project/lcov/releases/download/v2.3.2/lcov-2.3.2.tar.gz | tar xz && cd lcov-* && make install PREFIX=$HOME/.local",
-				VersionCommand:    "lcov --version",
-				VersionRegex:      "LCOV version ([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/linux-test-project/lcov/releases/latest",
-				LatestVersionPath: "tag_name",
-			},
+			// termux: Skipped due to GNU Make 4.4.1 bugs with lcov's Makefile
 		},
-		Imports: []Import{
-			{Playbook: "perl", When: WhenTermux},
-			{Playbook: "make", When: WhenTermux},
-			{Playbook: "setup-user-bin-directory", When: WhenTermux},
-		},
+		Imports: nil,
 	},
 	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
