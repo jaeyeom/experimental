@@ -1,10 +1,4 @@
 ---
-- import_playbook: perl.yml
-  when: ansible_env.TERMUX_VERSION is defined
-- import_playbook: make.yml
-  when: ansible_env.TERMUX_VERSION is defined
-- import_playbook: setup-user-bin-directory.yml
-  when: ansible_env.TERMUX_VERSION is defined
 
 - name: Ensure lcov is present
   hosts: all
@@ -30,46 +24,6 @@
             name: lcov
             state: present
       when: ansible_facts['os_family'] == "Darwin"
-
-    - name: Ensure lcov is present on Termux
-      block:
-        - name: Check if lcov is installed
-          shell: command -v lcov
-          register: lcov_command_check
-          failed_when: false
-          changed_when: False
-
-        - name: Get installed lcov version
-          command: lcov --version
-          register: lcov_version_output
-          failed_when: false
-          changed_when: False
-          when: lcov_command_check.rc == 0
-
-        - name: Parse installed lcov version
-          set_fact:
-            lcov_installed_version: "{{ (lcov_version_output.stdout | regex_search('LCOV version ([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
-          when: lcov_command_check.rc == 0
-
-        - name: Set default version when lcov is not installed
-          set_fact:
-            lcov_installed_version: "0.0.0"
-          when: lcov_command_check.rc != 0
-
-        - name: Get latest available lcov version from GitHub
-          uri:
-            url: https://api.github.com/repos/linux-test-project/lcov/releases/latest
-            return_content: yes
-          register: lcov_latest_release
-
-        - name: Parse latest lcov version from GitHub response
-          set_fact:
-            lcov_latest_version: "{{ lcov_latest_release.json.tag_name | regex_replace('^v', '') }}"
-
-        - name: Install/update lcov if outdated
-          shell: tmpdir=$(mktemp -d) && cd "$tmpdir" && curl -L https://github.com/linux-test-project/lcov/releases/download/v2.3.2/lcov-2.3.2.tar.gz | tar xz && cd lcov-* && make install PREFIX=$HOME/.local
-          when: lcov_installed_version != lcov_latest_version
-      when: ansible_env.TERMUX_VERSION is defined
 
     - name: Install lcov via package on Debian/Ubuntu
       block:
