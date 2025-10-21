@@ -115,9 +115,10 @@ func (m *MockGitClient) AutoDetectChanges(file string, storedDiffHunks []models.
 
 // MockOutputFormatter is a mock implementation of OutputFormatter for testing.
 type MockOutputFormatter struct {
-	FormatSubmitResultFunc  func(result models.SubmitResult) (string, error)
-	FormatCommentsFunc      func(comments []models.Comment) (string, error)
-	FormatSingleCommentFunc func(comment models.Comment) (string, error)
+	FormatSubmitResultFunc        func(result models.SubmitResult) (string, error)
+	FormatCommentsFunc            func(comments []models.Comment) (string, error)
+	FormatCommentsWithContextFunc func(comments []models.CommentWithLineContext) (string, error)
+	FormatSingleCommentFunc       func(comment models.Comment) (string, error)
 }
 
 func (m *MockOutputFormatter) FormatSubmitResult(result models.SubmitResult) (string, error) {
@@ -132,6 +133,13 @@ func (m *MockOutputFormatter) FormatComments(comments []models.Comment) (string,
 		return m.FormatCommentsFunc(comments)
 	}
 	return fmt.Sprintf("Formatted %d comments", len(comments)), nil
+}
+
+func (m *MockOutputFormatter) FormatCommentsWithContext(comments []models.CommentWithLineContext) (string, error) {
+	if m.FormatCommentsWithContextFunc != nil {
+		return m.FormatCommentsWithContextFunc(comments)
+	}
+	return fmt.Sprintf("Formatted %d comments with context", len(comments)), nil
 }
 
 func (m *MockOutputFormatter) FormatSingleComment(comment models.Comment) (string, error) {
@@ -802,7 +810,7 @@ func TestListCommand_Filtering(t *testing.T) {
 				return fmt.Sprintf("%d comments", len(comments)), nil
 			}
 
-			err := handler.ListCommand(repository, "123", formatter, tt.file, tt.line, tt.side)
+			err := handler.ListCommand(repository, "123", formatter, tt.file, tt.line, tt.side, false, 0)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -863,7 +871,7 @@ func TestListCommand_LineRangeMatching(t *testing.T) {
 			return "", nil
 		}
 
-		err := handler.ListCommand(repository, "123", formatter, "", "10-20", "")
+		err := handler.ListCommand(repository, "123", formatter, "", "10-20", "", false, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

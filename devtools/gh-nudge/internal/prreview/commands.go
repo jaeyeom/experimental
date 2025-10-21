@@ -17,6 +17,7 @@ import (
 type OutputFormatter interface {
 	FormatSubmitResult(result models.SubmitResult) (string, error)
 	FormatComments(comments []models.Comment) (string, error)
+	FormatCommentsWithContext(comments []models.CommentWithLineContext) (string, error)
 	FormatSingleComment(comment models.Comment) (string, error)
 }
 
@@ -348,20 +349,20 @@ func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository,
 }
 
 // ListCommand lists comments for either PR or branch.
-func (ch *CommandHandler) ListCommand(repository models.Repository, identifier string, formatter OutputFormatter, file, line, side string) error {
+func (ch *CommandHandler) ListCommand(repository models.Repository, identifier string, formatter OutputFormatter, file, line, side string, showContext bool, contextLines int) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		return ch.listPRComments(repository, parsed.PRNumber, formatter, file, line, side)
+		return ch.listPRComments(repository, parsed.PRNumber, formatter, file, line, side, showContext, contextLines)
 	}
-	return ch.listBranchComments(repository, parsed.BranchName, formatter, file, line, side)
+	return ch.listBranchComments(repository, parsed.BranchName, formatter, file, line, side, showContext, contextLines)
 }
 
 // listPRComments lists comments for a PR.
-func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber int, formatter OutputFormatter, file, line, side string) error {
+func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber int, formatter OutputFormatter, file, line, side string, showContext bool, contextLines int) error {
 	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
@@ -389,17 +390,43 @@ func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber 
 	}
 
 	// Output results
-	output, err := formatter.FormatComments(filteredComments)
-	if err != nil {
-		return fmt.Errorf("failed to format comments: %w", err)
+	var output string
+	if showContext {
+		// Create comments with context
+		commentsWithContext := make([]models.CommentWithLineContext, 0, len(filteredComments))
+		for _, comment := range filteredComments {
+			cwc := models.CommentWithLineContext{Comment: comment}
+
+			// Try to get line context
+			context, err := models.GetLineContextForComment(comment.Path, comment, contextLines)
+			if err != nil {
+				// If we can't get context (file not found, etc.), just skip it
+				fmt.Fprintf(os.Stderr, "Warning: Could not get context for %s:%d - %v\n", comment.Path, comment.Line, err)
+			} else {
+				cwc.Context = context
+			}
+
+			commentsWithContext = append(commentsWithContext, cwc)
+		}
+
+		output, err = formatter.FormatCommentsWithContext(commentsWithContext)
+		if err != nil {
+			return fmt.Errorf("failed to format comments with context: %w", err)
+		}
+	} else {
+		output, err = formatter.FormatComments(filteredComments)
+		if err != nil {
+			return fmt.Errorf("failed to format comments: %w", err)
+		}
 	}
+
 	fmt.Println(output)
 
 	return nil
 }
 
 // listBranchComments lists comments for a branch.
-func (ch *CommandHandler) listBranchComments(repository models.Repository, branchName string, formatter OutputFormatter, file, line, side string) error {
+func (ch *CommandHandler) listBranchComments(repository models.Repository, branchName string, formatter OutputFormatter, file, line, side string, showContext bool, contextLines int) error {
 	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to get branch comments: %w", err)
@@ -427,10 +454,36 @@ func (ch *CommandHandler) listBranchComments(repository models.Repository, branc
 	}
 
 	// Output results
-	output, err := formatter.FormatComments(filteredComments)
-	if err != nil {
-		return fmt.Errorf("failed to format comments: %w", err)
+	var output string
+	if showContext {
+		// Create comments with context
+		commentsWithContext := make([]models.CommentWithLineContext, 0, len(filteredComments))
+		for _, comment := range filteredComments {
+			cwc := models.CommentWithLineContext{Comment: comment}
+
+			// Try to get line context
+			context, err := models.GetLineContextForComment(comment.Path, comment, contextLines)
+			if err != nil {
+				// If we can't get context (file not found, etc.), just skip it
+				fmt.Fprintf(os.Stderr, "Warning: Could not get context for %s:%d - %v\n", comment.Path, comment.Line, err)
+			} else {
+				cwc.Context = context
+			}
+
+			commentsWithContext = append(commentsWithContext, cwc)
+		}
+
+		output, err = formatter.FormatCommentsWithContext(commentsWithContext)
+		if err != nil {
+			return fmt.Errorf("failed to format comments with context: %w", err)
+		}
+	} else {
+		output, err = formatter.FormatComments(filteredComments)
+		if err != nil {
+			return fmt.Errorf("failed to format comments: %w", err)
+		}
 	}
+
 	fmt.Println(output)
 
 	return nil
