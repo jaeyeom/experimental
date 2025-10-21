@@ -7,37 +7,75 @@ import (
 	"time"
 )
 
-// UndoOperation represents a single undoable operation.
+// UndoOperation represents a single undoable operation in gh-pr-review.
+// It captures all the information needed to reverse PR review comment operations such as:
+//   - Line number adjustments (when code changes shift comment positions)
+//   - Smart merges (when conflicting comments are automatically resolved)
+//   - Comment additions, edits, deletions, and resolution status changes
+//
+// Each operation is assigned a unique ID and timestamp to enable selective undo functionality,
+// allowing users to revert specific changes without affecting other operations.
+//
+// The Data field stores operation-specific information:
+//   - For adjustments: "adjustments" ([]LineAdjustment), "beforeComments", "afterComments"
+//   - For comments: "comment" (Comment), optionally "previousComment" for edits
+//   - For merges: "conflicts", "mergedComments", "originalComments"
+//
+// The File field contains the repository-relative path (e.g., "src/main.js", "pkg/auth/handler.go")
+// and may be empty for operations that affect multiple files.
 type UndoOperation struct {
 	ID          string                 `json:"id"`
 	Type        UndoOperationType      `json:"type"`
 	Timestamp   time.Time              `json:"timestamp"`
 	Description string                 `json:"description"`
 	Repository  Repository             `json:"repository"`
-	Identifier  string                 `json:"identifier"` // PR number or branch name
-	File        string                 `json:"file,omitempty"`
-	Data        map[string]interface{} `json:"data"` // Operation-specific data
+	Identifier  string                 `json:"identifier"`     // PR number or branch name
+	File        string                 `json:"file,omitempty"` // Repository-relative file path
+	Data        map[string]interface{} `json:"data"`           // Operation-specific data
 }
 
 // UndoOperationType represents the type of operation that can be undone.
+// Different operation types require different data and have different undo strategies.
 type UndoOperationType string
 
 const (
+	// UndoTypeAdjustment represents line number adjustments made to comments when code changes.
+	// Undoing restores comments to their original line positions.
 	UndoTypeAdjustment UndoOperationType = "adjustment"
-	UndoTypeComment    UndoOperationType = "comment"
-	UndoTypeMerge      UndoOperationType = "merge"
-	UndoTypeResolve    UndoOperationType = "resolve"
-	UndoTypeDelete     UndoOperationType = "delete"
+
+	// UndoTypeComment represents adding or editing a comment.
+	// Undoing removes the added comment or restores the previous version.
+	UndoTypeComment UndoOperationType = "comment"
+
+	// UndoTypeMerge represents a smart merge operation that resolved conflicts between comments.
+	// Undoing restores the original conflicting comments before the merge.
+	UndoTypeMerge UndoOperationType = "merge"
+
+	// UndoTypeResolve represents marking a comment as resolved.
+	// Undoing changes the comment status back to unresolved.
+	UndoTypeResolve UndoOperationType = "resolve"
+
+	// UndoTypeDelete represents deleting a comment.
+	// Undoing restores the deleted comment.
+	UndoTypeDelete UndoOperationType = "delete"
 )
 
-// UndoSnapshot represents the state before an operation for undo purposes.
+// UndoSnapshot captures the complete state of PR review comments and adjustments before an operation.
+// This enables the system to restore the exact state when undoing operations, including all comment
+// positions, content, and adjustment history. This is particularly useful for undoing operations like
+// auto-adjust (which shifts comment line numbers) or smart merge (which resolves comment conflicts).
+// The Metadata field can store additional context like timestamps or user information.
 type UndoSnapshot struct {
 	Comments          []Comment              `json:"comments"`
 	AdjustmentHistory []LineAdjustment       `json:"adjustmentHistory,omitempty"`
 	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// UndoHistory manages the history of operations for undo functionality.
+// UndoHistory maintains a bounded collection of UndoOperation records for gh-pr-review operations.
+// It automatically enforces a size limit by removing the oldest operations when MaxEntries is exceeded,
+// preventing unbounded memory growth during long review sessions with many operations. Operations can be
+// queried by ID, timestamp, file, or repository to support selective undo (e.g., "undo the last adjustment
+// on auth.js" or "undo all operations from the last 10 minutes").
 type UndoHistory struct {
 	Operations []UndoOperation `json:"operations"`
 	MaxEntries int             `json:"maxEntries"`
@@ -201,7 +239,12 @@ func (h *UndoHistory) GetRecentOperations(limit int) []UndoOperation {
 	return sorted
 }
 
-// UndoManager provides high-level undo functionality.
+// UndoManager provides high-level undo functionality for gh-pr-review operations with type-safe methods
+// for recording and reversing different operation types. It wraps UndoHistory and provides specialized
+// methods like UndoAdjustment (reverses auto-adjust operations), UndoCommentOperation (reverses comment
+// add/edit/delete/resolve), and UndoMergeOperation (reverses smart merge conflict resolution).
+// Each method understands the structure of its operation type and returns the appropriate data to
+// reverse the operation, ensuring type safety and correctness.
 type UndoManager struct {
 	history *UndoHistory
 }
@@ -325,7 +368,13 @@ func (m *UndoManager) UndoMergeOperation(operationID string) ([]Comment, error) 
 	return originalComments, nil
 }
 
-// CommentUndoResult represents the result of undoing a comment operation.
+// CommentUndoResult describes the changes needed to reverse a gh-pr-review comment operation.
+// This type is returned by UndoManager.UndoCommentOperation and tells the caller exactly what
+// actions to take to reverse the original operation. Depending on the original operation type:
+//   - For added comments: RemovedComment indicates which comment to remove from the PR
+//   - For deleted comments: RestoredComment indicates which comment to restore to the PR
+//   - For edited comments: both fields are set (remove the new version and restore the old version)
+//   - For resolved comments: RestoredComment contains the comment with status reset to unresolved
 type CommentUndoResult struct {
 	OperationType   UndoOperationType `json:"operationType"`
 	File            string            `json:"file"`
@@ -333,7 +382,13 @@ type CommentUndoResult struct {
 	RestoredComment *Comment          `json:"restoredComment,omitempty"`
 }
 
-// UndoService provides a high-level service for undo operations.
+// UndoService provides the highest-level interface for gh-pr-review undo functionality,
+// adding safety features like operation validation and preview capabilities.
+// It checks for potential conflicts (e.g., newer operations on the same file that might
+// have dependencies), validates operation age (preventing undo of operations older than
+// 24 hours to avoid stale state issues), and provides preview functionality to show users
+// what will happen before actually performing an undo operation. This service layer ensures
+// that undo operations are safe and predictable in collaborative review scenarios.
 type UndoService struct {
 	manager *UndoManager
 }
@@ -434,7 +489,14 @@ func (s *UndoService) GetUndoPreview(operationID string) (*UndoPreview, error) {
 	return preview, nil
 }
 
-// UndoPreview provides information about what will happen when an operation is undone.
+// UndoPreview provides a detailed preview of a gh-pr-review undo operation before it's executed.
+// This allows users to understand the impact of an undo operation before committing to it.
+// It includes the original operation details, a boolean indicating whether the undo is safe to
+// perform, any warnings about potential conflicts or issues (e.g., "newer operations exist on
+// this file"), and a human-readable description of what the undo will do, such as:
+//   - "Restore 5 comments to their previous line positions" (for auto-adjust undo)
+//   - "Remove comment from main.go:42" (for comment addition undo)
+//   - "Restore 3 original comments before merge" (for smart merge undo)
 type UndoPreview struct {
 	Operation   UndoOperation `json:"operation"`
 	CanUndo     bool          `json:"canUndo"`
