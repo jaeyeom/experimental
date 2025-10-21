@@ -1787,6 +1787,15 @@ the email."
     (autoload 'claude-code-transient "claude-code" nil t)
     (setopt claude-code-terminal-backend 'vterm)
 
+    ;; Custom function to display claude-code buffer on the right side
+    (defun my/claude-code-display-buffer-right (buffer)
+      "Display the claude code BUFFER on the right side of the current window."
+      (display-buffer buffer '((display-buffer-in-direction)
+                               (direction . right))))
+
+    ;; Set claude-code to use the custom display function
+    (setopt claude-code-display-window-fn #'my/claude-code-display-buffer-right)
+
     ;; Define your own hook listener function
     (defun my/claude-hook-listener (message)
       "Custom listener for Claude Code hooks.
