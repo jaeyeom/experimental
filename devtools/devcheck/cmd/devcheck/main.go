@@ -238,7 +238,7 @@ func createGitConfig(dir string) runner.ToolConfig {
 	}
 }
 
-func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, basicExec *runner.BasicExecutor) []runner.ToolConfig {
+func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, basicExec runner.Executor) []runner.ToolConfig {
 	var configs []runner.ToolConfig
 
 	for _, lang := range projectConfig.Languages {
@@ -253,7 +253,7 @@ func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, b
 	return configs
 }
 
-func addGoTools(dir string, basicExec *runner.BasicExecutor) []runner.ToolConfig {
+func addGoTools(dir string, basicExec runner.Executor) []runner.ToolConfig {
 	var configs []runner.ToolConfig
 
 	if basicExec.IsAvailable("go") {
@@ -276,7 +276,7 @@ func addGoTools(dir string, basicExec *runner.BasicExecutor) []runner.ToolConfig
 	return configs
 }
 
-func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec *runner.BasicExecutor) []runner.ToolConfig {
+func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec runner.Executor) []runner.ToolConfig {
 	var configs []runner.ToolConfig
 
 	if basicExec.IsAvailable("ruff") && projectConfig.ConfigFiles["ruff"] != "" {
