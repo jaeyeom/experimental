@@ -1001,7 +1001,7 @@ func validateAdjustModes(parser *argparser.ArgParser) error {
 		return err
 	}
 
-	return validatePositionalArguments(parser, hasDiff, hasUnifiedDiff, hasMappingFile, hasAllFiles)
+	return validatePositionalArguments(parser, hasDiff, hasUnifiedDiff, hasMappingFile, hasAllFiles, hasAutoDetect)
 }
 
 // validateDiffMethodCount ensures exactly one diff specification method is used.
@@ -1038,7 +1038,7 @@ func validateAllFilesRequirement(hasAllFiles, hasDiff, hasUnifiedDiff bool) erro
 }
 
 // validatePositionalArguments validates the number of positional arguments based on the selected mode.
-func validatePositionalArguments(parser *argparser.ArgParser, hasDiff, hasUnifiedDiff, hasMappingFile, hasAllFiles bool) error {
+func validatePositionalArguments(parser *argparser.ArgParser, hasDiff, hasUnifiedDiff, hasMappingFile, hasAllFiles, hasAutoDetect bool) error {
 	positionals := parser.GetPositionals()
 
 	switch {
@@ -1048,6 +1048,8 @@ func validatePositionalArguments(parser *argparser.ArgParser, hasDiff, hasUnifie
 		return validateUnifiedDiffMode(positionals)
 	case hasDiff:
 		return validateTraditionalDiffMode(positionals)
+	case hasAutoDetect:
+		return validateAutoDetectMode(positionals)
 	default:
 		return fmt.Errorf("no valid mode selected")
 	}
@@ -1076,6 +1078,19 @@ func validateTraditionalDiffMode(positionals []string) error {
 	}
 	if len(positionals) == 2 {
 		return fmt.Errorf("file argument required for --diff option (use --all-files to process all files)")
+	}
+	return nil
+}
+
+// validateAutoDetectMode validates auto-detect mode arguments.
+func validateAutoDetectMode(positionals []string) error {
+	// Auto-detect mode supports 0-3 positionals for flexible auto-detection
+	// 0: auto-detect owner/repo, identifier, and file
+	// 1: could be owner/repo (auto-detect identifier) or file (auto-detect owner/repo and identifier)
+	// 2: owner/repo + identifier, or identifier + file (auto-detect owner/repo)
+	// 3: owner/repo + identifier + file
+	if len(positionals) > 3 {
+		return fmt.Errorf("too many arguments for auto-detect mode: gh-pr-review adjust [<owner>/<repo>] [<identifier>] [<file>] --auto-detect [options]")
 	}
 	return nil
 }
