@@ -6,6 +6,7 @@ go_library(
         "adjustment.go",
         "advanced_analysis.go",
         "autodetect.go",
+        "context.go",
         "context_analysis.go",
         "language_analyzers.go",
         "ml_enhancements.go",
@@ -26,7 +27,9 @@ go_test(
     srcs = [
         "adjustment_test.go",
         "autodetect_test.go",
+        "context_test.go",
         "diff_format_test.go",
+        "output_test.go",
         "prreview_identifier_test.go",
         "prreview_test.go",
         "smart_merge_test.go",

@@ -46,6 +46,15 @@ func (f *JSONFormatter) FormatComments(comments []Comment) (string, error) {
 	return string(jsonData), nil
 }
 
+// FormatCommentsWithContext formats comments with line context as JSON.
+func (f *JSONFormatter) FormatCommentsWithContext(comments []CommentWithLineContext) (string, error) {
+	jsonData, err := json.MarshalIndent(comments, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal comments with context: %w", err)
+	}
+	return string(jsonData), nil
+}
+
 // FormatSingleComment formats a single comment as JSON.
 func (f *JSONFormatter) FormatSingleComment(comment Comment) (string, error) {
 	jsonData, err := json.MarshalIndent(comment, "", "  ")
@@ -167,6 +176,57 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 
 		// Add separator between rows
 		result.WriteString(strings.Repeat("-", termWidth))
+		result.WriteString("\n")
+	}
+
+	// Add total count
+	fmt.Fprintf(&result, "\nTotal: %d items\n", len(comments))
+
+	return result.String(), nil
+}
+
+// FormatCommentsWithContext formats comments with line context as a table.
+func (f *TextFormatter) FormatCommentsWithContext(comments []CommentWithLineContext) (string, error) {
+	if len(comments) == 0 {
+		return "No comments found\n\nTotal: 0 items", nil
+	}
+
+	var result strings.Builder
+
+	for idx, cwc := range comments {
+		if idx > 0 {
+			result.WriteString("\n")
+		}
+
+		comment := cwc.Comment
+
+		// Print comment header
+		result.WriteString(strings.Repeat("=", 80))
+		result.WriteString("\n")
+		fmt.Fprintf(&result, "Comment ID: %s\n", comment.FormatIDShort())
+		fmt.Fprintf(&result, "File: %s\n", comment.Path)
+
+		lineStr := strconv.Itoa(comment.Line)
+		if comment.IsMultiLine() {
+			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
+		}
+		fmt.Fprintf(&result, "Line: %s | Side: %s\n", lineStr, comment.Side)
+		fmt.Fprintf(&result, "Created: %s\n", comment.CreatedAt.Format("2006-01-02 15:04"))
+		result.WriteString(strings.Repeat("-", 80))
+		result.WriteString("\n")
+
+		// Print code context if available
+		if cwc.Context != nil {
+			result.WriteString("Code Context:\n")
+			contextStr := FormatLineContext(cwc.Context, comment.Line)
+			result.WriteString(contextStr)
+			result.WriteString(strings.Repeat("-", 80))
+			result.WriteString("\n")
+		}
+
+		// Print comment body
+		fmt.Fprintf(&result, "Comment:\n%s\n", comment.Body)
+		result.WriteString(strings.Repeat("=", 80))
 		result.WriteString("\n")
 	}
 
