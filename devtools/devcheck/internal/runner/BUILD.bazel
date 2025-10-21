@@ -5,7 +5,6 @@ go_library(
     srcs = [
         "concurrent_executor.go",
         "executor.go",
-        "executor_interface.go",
         "mock_executor.go",
         "signal_executor.go",
         "signal_handler.go",
