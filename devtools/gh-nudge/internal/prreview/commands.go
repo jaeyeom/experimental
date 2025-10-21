@@ -349,44 +349,29 @@ func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository,
 }
 
 // ListCommand lists comments for either PR or branch.
-func (ch *CommandHandler) ListCommand(repository models.Repository, identifier string, formatter OutputFormatter, file, line, side string, showContext bool, contextLines int) error {
+func (ch *CommandHandler) ListCommand(repository models.Repository, identifier string, formatter OutputFormatter, file, line, side string, showContext bool, showArchived bool, contextLines int) error {
 	parsed, err := models.ParseIdentifier(identifier)
 	if err != nil {
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
 	if parsed.IsPR() {
-		return ch.listPRComments(repository, parsed.PRNumber, formatter, file, line, side, showContext, contextLines)
+		return ch.listPRComments(repository, parsed.PRNumber, formatter, file, line, side, showContext, showArchived, contextLines)
 	}
-	return ch.listBranchComments(repository, parsed.BranchName, formatter, file, line, side, showContext, contextLines)
+	return ch.listBranchComments(repository, parsed.BranchName, formatter, file, line, side, showContext, showArchived, contextLines)
 }
 
 // listPRComments lists comments for a PR.
-func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber int, formatter OutputFormatter, file, line, side string, showContext bool, contextLines int) error {
+func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber int, formatter OutputFormatter, file, line, side string, showContext bool, showArchived bool, contextLines int) error {
 	prComments, err := ch.storage.GetComments(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Apply filters
-	var filteredComments []models.Comment
-	for _, comment := range prComments.Comments {
-		if file != "" && comment.Path != file {
-			continue
-		}
-		if side != "" && comment.Side != side {
-			continue
-		}
-		if line != "" {
-			lineRange, err := models.ParseLineSpec(line)
-			if err != nil {
-				return fmt.Errorf("invalid line filter %q: %w", line, err)
-			}
-			if !commentInRange(comment, lineRange) {
-				continue
-			}
-		}
-		filteredComments = append(filteredComments, comment)
+	filteredComments, err := ch.filterComments(prComments.Comments, file, line, side, showArchived)
+	if err != nil {
+		return err
 	}
 
 	// Output results
@@ -426,31 +411,16 @@ func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber 
 }
 
 // listBranchComments lists comments for a branch.
-func (ch *CommandHandler) listBranchComments(repository models.Repository, branchName string, formatter OutputFormatter, file, line, side string, showContext bool, contextLines int) error {
+func (ch *CommandHandler) listBranchComments(repository models.Repository, branchName string, formatter OutputFormatter, file, line, side string, showContext bool, showArchived bool, contextLines int) error {
 	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
 	if err != nil {
 		return fmt.Errorf("failed to get branch comments: %w", err)
 	}
 
 	// Apply filters
-	var filteredComments []models.Comment
-	for _, comment := range branchComments.Comments {
-		if file != "" && comment.Path != file {
-			continue
-		}
-		if side != "" && comment.Side != side {
-			continue
-		}
-		if line != "" {
-			lineRange, err := models.ParseLineSpec(line)
-			if err != nil {
-				return fmt.Errorf("invalid line filter %q: %w", line, err)
-			}
-			if !commentInRange(comment, lineRange) {
-				continue
-			}
-		}
-		filteredComments = append(filteredComments, comment)
+	filteredComments, err := ch.filterComments(branchComments.Comments, file, line, side, showArchived)
+	if err != nil {
+		return err
 	}
 
 	// Output results
@@ -742,6 +712,34 @@ func (ch *CommandHandler) branchDiffHunksExist(repository models.Repository, bra
 func commentInRange(comment models.Comment, lineRange *models.LineRange) bool {
 	commentRange := comment.GetLineRange()
 	return commentRange.StartLine <= lineRange.EndLine && commentRange.EndLine >= lineRange.StartLine
+}
+
+// filterComments applies filters to a list of comments and returns the filtered result.
+func (ch *CommandHandler) filterComments(comments []models.Comment, file, line, side string, showArchived bool) ([]models.Comment, error) {
+	var filteredComments []models.Comment
+	for _, comment := range comments {
+		// Filter out archived comments by default
+		if !showArchived && comment.IsArchived() {
+			continue
+		}
+		if file != "" && comment.Path != file {
+			continue
+		}
+		if side != "" && comment.Side != side {
+			continue
+		}
+		if line != "" {
+			lineRange, err := models.ParseLineSpec(line)
+			if err != nil {
+				return nil, fmt.Errorf("invalid line filter %q: %w", line, err)
+			}
+			if !commentInRange(comment, lineRange) {
+				continue
+			}
+		}
+		filteredComments = append(filteredComments, comment)
+	}
+	return filteredComments, nil
 }
 
 // nextPRComment gets the next unresolved comment for a PR.

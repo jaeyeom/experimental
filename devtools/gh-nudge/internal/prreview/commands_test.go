@@ -810,7 +810,7 @@ func TestListCommand_Filtering(t *testing.T) {
 				return fmt.Sprintf("%d comments", len(comments)), nil
 			}
 
-			err := handler.ListCommand(repository, "123", formatter, tt.file, tt.line, tt.side, false, 0)
+			err := handler.ListCommand(repository, "123", formatter, tt.file, tt.line, tt.side, false, false, 0)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -871,7 +871,7 @@ func TestListCommand_LineRangeMatching(t *testing.T) {
 			return "", nil
 		}
 
-		err := handler.ListCommand(repository, "123", formatter, "", "10-20", "", false, 0)
+		err := handler.ListCommand(repository, "123", formatter, "", "10-20", "", false, false, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

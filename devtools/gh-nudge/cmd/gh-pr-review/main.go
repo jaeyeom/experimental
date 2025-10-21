@@ -659,6 +659,7 @@ func handleList(args []string) {
 	}
 
 	showContext := parser.GetBoolOption("show-context")
+	showArchived := parser.GetBoolOption("show-archived")
 	contextLines := 3 // default
 	if contextLinesStr := parser.GetOption("context-lines"); contextLinesStr != "" {
 		if n, err := strconv.Atoi(contextLinesStr); err == nil && n > 0 {
@@ -674,7 +675,7 @@ func handleList(args []string) {
 		os.Exit(1)
 	}
 
-	if err := handler.ListCommand(repository, identifier, formatter, file, line, side, showContext, contextLines); err != nil {
+	if err := handler.ListCommand(repository, identifier, formatter, file, line, side, showContext, showArchived, contextLines); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -689,11 +690,12 @@ func showListUsage() {
 	fmt.Println("  --line LINE       Filter by line number or range (e.g., 15 or 15-20)")
 	fmt.Println("  --side SIDE       Filter by side (LEFT, RIGHT)")
 	fmt.Println("  --show-context    Show code context around each comment")
+	fmt.Println("  --show-archived   Include archived comments in the list")
 	fmt.Println("  --context-lines N Number of context lines to show [default: 3]")
 }
 
 func validateListOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"format", "file", "line", "side", "show-context", "context-lines"}); err != nil {
+	if err := parser.ValidateOptions([]string{"format", "file", "line", "side", "show-context", "context-lines", "show-archived"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
 	if err := parser.RequireExactPositionals(2, "gh-pr-review list <owner>/<repo> <identifier> [options]"); err != nil {
