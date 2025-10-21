@@ -8,7 +8,15 @@ import (
 	"unicode"
 )
 
-// SmartMergeStrategy represents different strategies for merging comments.
+// SmartMergeStrategy represents different strategies for merging comments when multiple
+// comments end up on the same line after code changes.
+//
+// Each strategy has different trade-offs:
+//
+//   - concat: Simple, preserves all content, can be verbose
+//   - threeway: Organized by type, better for mixed feedback
+//   - manual: Safe for critical issues, requires human intervention
+//   - skip: Fast but loses information
 type SmartMergeStrategy string
 
 const (
@@ -18,14 +26,34 @@ const (
 	StrategySkip          SmartMergeStrategy = "skip"     // Skip conflicting comments
 )
 
-// MergeConflict represents a conflict when multiple comments end up on the same line.
+// MergeConflict represents a conflict when multiple comments end up on the same line
+// after line adjustments are applied.
+//
+// A conflict occurs when:
+//
+//   - Two or more comments map to the same file:line after adjustments
+//   - The comments are from different sources (e.g., different reviewers)
+//
+// The system analyzes the conflict and suggests a resolution strategy based on:
+//
+//   - Comment types (bug, style, etc.)
+//   - Number of reviewers involved
+//   - Severity of issues
+//
+// Example conflict:
+//
+//	File:                "main.go"
+//	Line:                42
+//	ConflictingComments: ["Use const instead", "Add error handling"]
+//	SuggestedStrategy:   StrategyThreeWayMerge
+//	SuggestedMerge:      "**Style**: Use const instead\n**Bug**: Add error handling"
 type MergeConflict struct {
-	Line                int                  `json:"line"`
-	StartLine           *int                 `json:"startLine,omitempty"`
-	File                string               `json:"file"`
-	ConflictingComments []CommentWithContext `json:"conflictingComments"`
-	SuggestedStrategy   SmartMergeStrategy   `json:"suggestedStrategy"`
-	SuggestedMerge      *Comment             `json:"suggestedMerge,omitempty"`
+	Line                int                  `json:"line"`                     // The line number where conflict occurs
+	StartLine           *int                 `json:"startLine,omitempty"`      // Start line if multi-line comment
+	File                string               `json:"file"`                     // File path where conflict occurs
+	ConflictingComments []CommentWithContext `json:"conflictingComments"`      // All comments that collided
+	SuggestedStrategy   SmartMergeStrategy   `json:"suggestedStrategy"`        // Recommended resolution strategy
+	SuggestedMerge      *Comment             `json:"suggestedMerge,omitempty"` // Pre-generated merged comment (if auto-mergeable)
 }
 
 // CommentWithContext includes additional context about a comment for merge decisions.
@@ -45,33 +73,95 @@ type CommentContext struct {
 	CommentType     CommentType `json:"commentType"`
 }
 
-// CommentType categorizes the type of comment.
+// CommentType categorizes the type of comment based on its content and intent.
+//
+// The system uses keyword-based analysis to automatically classify comments.
+// This classification influences merge strategy selection:
+//
+//   - Critical types (bug, security) → may trigger manual review
+//   - Different types → may trigger three-way merge
+//
+// Classification keywords:
+//
+//   - bug: "bug", "error", "issue", "problem", "broken", "fix", "crash"
+//   - security: "security", "vulnerability", "exploit", "unsafe", "danger", "risk"
+//   - performance: "performance", "slow", "optimize", "efficient", "memory", "cpu"
+//   - style: "style", "format", "indent", "space", "naming", "convention"
+//   - documentation: "comment", "doc", "documentation", "explain", "clarify"
+//   - question: "?", "why", "how", "what", "question", "unclear"
+//   - praise: "good", "great", "excellent", "nice", "well done", "perfect"
+//   - nit: "nit", "minor", "nitpick", "small"
+//   - suggestion: "suggest", "consider", "maybe", "could", "should", "recommend"
+//   - general: default when no keywords match
 type CommentType string
 
 const (
-	CommentBug           CommentType = "bug"
-	CommentSuggestion    CommentType = "suggestion"
-	CommentQuestion      CommentType = "question"
-	CommentPraise        CommentType = "praise"
-	CommentNit           CommentType = "nit"
-	CommentSecurity      CommentType = "security"
-	CommentPerformance   CommentType = "performance"
-	CommentStyle         CommentType = "style"
-	CommentDocumentation CommentType = "documentation"
-	CommentGeneral       CommentType = "general"
+	CommentBug           CommentType = "bug"           // Critical: bugs, errors, crashes
+	CommentSuggestion    CommentType = "suggestion"    // Improvement suggestions
+	CommentQuestion      CommentType = "question"      // Questions about code
+	CommentPraise        CommentType = "praise"        // Positive feedback
+	CommentNit           CommentType = "nit"           // Minor issues
+	CommentSecurity      CommentType = "security"      // Critical: security vulnerabilities
+	CommentPerformance   CommentType = "performance"   // Performance concerns
+	CommentStyle         CommentType = "style"         // Code style issues
+	CommentDocumentation CommentType = "documentation" // Documentation requests
+	CommentGeneral       CommentType = "general"       // Uncategorized comments
 )
 
 // MergeOptions controls how smart merging is performed.
+//
+// Options allow fine-grained control over merge behavior:
+//
+// Strategy: Base strategy to use (can be overridden per conflict)
+//
+//   - StrategyConcat: Simple concatenation (default, safe)
+//   - StrategyThreeWayMerge: Grouped by type (better organization)
+//   - StrategyManual: Never auto-merge (always require human review)
+//   - StrategySkip: Keep first, discard rest (fast but lossy)
+//
+// PreserveAttribution: Include reviewer names in merged comments
+//
+//   - true: "[Alice]: Use const" (default, maintains accountability)
+//   - false: "Use const" (cleaner, but loses attribution)
+//
+// MaxConflicts: Maximum conflicts to process (performance limit)
+//
+//   - Default: 10 (prevents excessive processing)
+//   - 0: No limit (process all conflicts)
+//
+// Interactive: Whether to prompt user for conflict resolution
+//
+//   - true: Conflicts flagged for manual review
+//   - false: Auto-resolve using suggested strategy (default)
+//
+// PreferLatest: How to order comments when merging
+//
+//   - true: Newest first (latest feedback prioritized)
+//   - false: Sort by reviewer name (default, consistent ordering)
+//
+// GroupByType: Add type indicators to merged comments
+//
+//   - true: "[BUG] Memory leak" (default, adds context)
+//   - false: "Memory leak" (cleaner output)
 type MergeOptions struct {
-	Strategy            SmartMergeStrategy `json:"strategy"`
-	PreserveAttribution bool               `json:"preserveAttribution"`
-	MaxConflicts        int                `json:"maxConflicts"`
-	Interactive         bool               `json:"interactive"`
-	PreferLatest        bool               `json:"preferLatest"`
-	GroupByType         bool               `json:"groupByType"`
+	Strategy            SmartMergeStrategy `json:"strategy"`            // Base merge strategy
+	PreserveAttribution bool               `json:"preserveAttribution"` // Include "[Reviewer]:" prefix
+	MaxConflicts        int                `json:"maxConflicts"`        // Limit conflicts processed (0=unlimited)
+	Interactive         bool               `json:"interactive"`         // Prompt for manual resolution
+	PreferLatest        bool               `json:"preferLatest"`        // Sort by timestamp vs reviewer name
+	GroupByType         bool               `json:"groupByType"`         // Add "[TYPE]" prefix to comments
 }
 
 // DefaultMergeOptions returns default merge options.
+//
+// These defaults balance safety, usability, and performance:
+//
+//   - Concat strategy: Simple, preserves all content
+//   - Attribution enabled: Maintains accountability
+//   - Max 10 conflicts: Prevents performance issues
+//   - Non-interactive: Auto-resolves for automation
+//   - Alphabetical order: Consistent, deterministic
+//   - Type grouping: Adds helpful context
 func DefaultMergeOptions() MergeOptions {
 	return MergeOptions{
 		Strategy:            StrategyConcat,
@@ -84,11 +174,115 @@ func DefaultMergeOptions() MergeOptions {
 }
 
 // SmartCommentMerger handles intelligent merging of comments that end up on the same line.
+//
+// # Smart Comment Merging Overview
+//
+// When code changes occur after PR review comments are created, line numbers can shift,
+// causing multiple comments to map to the same line. SmartCommentMerger provides intelligent
+// strategies to handle such conflicts automatically.
+//
+// # Problem Statement
+//
+// During a typical PR review workflow:
+//
+//  1. Reviewers add comments at specific line numbers
+//  2. Author modifies the code (adding/deleting lines)
+//  3. Line adjustments cause comments to shift
+//  4. Multiple comments may end up on the same line (conflict)
+//
+// Example scenario:
+//
+//	Original code:     Reviewer comments:      After deleting lines 10-12:
+//	10: func foo() {   (no comment)            10: func foo() {
+//	11:   x := 1       Alice: "Use const"      11:   y := 2    <- Both comments now on line 11!
+//	12:   // old code  (deleted)                12:   return y
+//	13:   y := 2       Bob: "Add validation"   }
+//	14:   return y
+//	15: }
+//
+// # Merge Strategies
+//
+// SmartCommentMerger detects and resolves conflicts using multiple strategies:
+//
+//  1. **Concat Strategy** (StrategyConcat) - Combines comments with attribution:
+//     "[Alice]: Use const\n\n[Bob]: Add validation"
+//
+//  2. **Three-Way Merge** (StrategyThreeWayMerge) - Groups by comment type:
+//     "**Bug**: [Alice] Memory leak here\n**Style**: [Bob] Use camelCase"
+//
+//  3. **Manual Strategy** (StrategyManual) - Flags conflicts for human review:
+//     Used for critical issues (bugs/security) with multiple reviewers
+//
+//  4. **Skip Strategy** (StrategySkip) - Keeps first comment, discards others:
+//     Fast but loses information
+//
+// # Key Capabilities
+//
+//   - **Context-Aware**: Analyzes comment content to detect type (bug, security, style, etc.)
+//   - **Reviewer Attribution**: Preserves who said what (configurable via MergeOptions)
+//   - **Conflict Detection**: Identifies when multiple comments collide on same line
+//   - **Automatic Resolution**: Intelligently merges using appropriate strategy
+//   - **History Tracking**: Records merge operations in comment adjustment history
+//   - **Configurable**: Fine-grained control via MergeOptions
+//
+// # Strategy Selection Logic
+//
+// The system automatically suggests the best strategy based on:
+//
+//   - Same reviewer → Concat (likely follow-up thoughts)
+//   - Critical issues (bug/security) + multiple reviewers → Manual (needs human judgment)
+//   - Different comment types → Three-Way Merge (organized by category)
+//   - Default → Concat (safe fallback)
+//
+// # Usage Example
+//
+//	// Create merger with options
+//	options := DefaultMergeOptions()
+//	merger := NewSmartCommentMerger(options)
+//
+//	// After code changes, detect conflicts
+//	adjustments := []LineAdjustment{
+//	    {Operation: OperationDelete, OldStart: 10, OldEnd: 12, ...},
+//	}
+//	conflicts, err := merger.DetectMergeConflicts(comments, adjustments)
+//
+//	// Resolve conflicts
+//	for _, conflict := range conflicts {
+//	    resolved, err := merger.ResolveMergeConflict(conflict, conflict.SuggestedStrategy)
+//	    if err != nil {
+//	        // Handle manual resolution needed
+//	    }
+//	}
+//
+// Or use the convenience function ApplySmartMerging() for end-to-end processing.
+//
+// # Integration
+//
+// This is used by the gh-pr-review tool when submitting reviews with --smart-merge flag:
+//
+//	gh pr-review submit --auto-adjust --smart-merge
+//
+// See: devtools/gh-nudge/internal/prreview/commands.go for integration details.
 type SmartCommentMerger struct {
 	options MergeOptions
 }
 
-// NewSmartCommentMerger creates a new smart comment merger.
+// NewSmartCommentMerger creates a new smart comment merger with the specified options.
+//
+// The options control merge behavior including strategy selection, attribution,
+// conflict limits, and presentation format. Use DefaultMergeOptions() for sensible
+// defaults that balance safety, usability, and performance.
+//
+// Example:
+//
+//	// Use defaults
+//	merger := NewSmartCommentMerger(DefaultMergeOptions())
+//
+//	// Customize options
+//	opts := DefaultMergeOptions()
+//	opts.Strategy = StrategyThreeWayMerge
+//	opts.PreserveAttribution = false
+//	merger := NewSmartCommentMerger(opts)
 func NewSmartCommentMerger(options MergeOptions) *SmartCommentMerger {
 	return &SmartCommentMerger{
 		options: options,
@@ -511,7 +705,74 @@ func toTitle(s string) string {
 	return string(r)
 }
 
-// ApplySmartMerging applies smart merging to a list of comments after adjustments.
+// ApplySmartMerging applies smart merging to a list of comments after line adjustments.
+//
+// This is the main entry point for the smart merge functionality. It:
+//
+//  1. Applies line adjustments to comments (shifting lines due to code changes)
+//  2. Detects conflicts (multiple comments on same line)
+//  3. Automatically resolves conflicts using appropriate strategies
+//  4. Returns merged comments and any unresolved conflicts
+//
+// Parameters:
+//
+//   - comments: Original review comments with line numbers
+//   - adjustments: Line changes (insertions, deletions, modifications)
+//   - options: Configuration for merge behavior
+//
+// Returns:
+//
+//   - []Comment: Final list with conflicts resolved
+//   - []MergeConflict: Conflicts that require manual resolution
+//   - error: Any error during processing
+//
+// Workflow:
+//
+//  1. Apply adjustments → shift comment line numbers
+//  2. Group by (file, line) → identify collisions
+//  3. Analyze conflicts → determine best strategy
+//  4. Auto-merge resolvable conflicts → combine into single comment
+//  5. Flag unresolvable conflicts → return for manual review
+//
+// Example:
+//
+//	// After code changes shift lines
+//	adjustments := []LineAdjustment{
+//	    {Operation: OperationDelete, OldStart: 10, OldEnd: 12},
+//	}
+//
+//	// Apply smart merging
+//	merged, conflicts, err := ApplySmartMerging(comments, adjustments, DefaultMergeOptions())
+//	if err != nil {
+//	    return err
+//	}
+//
+//	// Check for manual review needed
+//	if len(conflicts) > 0 {
+//	    fmt.Printf("Warning: %d conflicts need manual review\n", len(conflicts))
+//	    for _, c := range conflicts {
+//	        fmt.Printf("  %s:%d - %d comments\n", c.File, c.Line, len(c.ConflictingComments))
+//	    }
+//	}
+//
+//	// Submit merged comments
+//	submitComments(merged)
+//
+// Strategy Selection:
+//
+// The system automatically chooses the best strategy per conflict:
+//
+//   - Same reviewer → Concat (follow-up thoughts)
+//   - Bug/Security + multiple reviewers → Manual (critical, needs human judgment)
+//   - Different types → ThreeWayMerge (organized presentation)
+//   - Default → Concat (safe fallback)
+//
+// Conflict Resolution Behavior:
+//
+//   - Auto-resolvable (concat, threeway): Merged immediately
+//   - Manual required: Returned in conflicts list
+//   - Interactive mode: All conflicts returned (even auto-resolvable)
+//   - Fallback: If merge fails, keeps first comment
 func ApplySmartMerging(comments []Comment, adjustments []LineAdjustment, options MergeOptions) ([]Comment, []MergeConflict, error) {
 	merger := NewSmartCommentMerger(options)
 
