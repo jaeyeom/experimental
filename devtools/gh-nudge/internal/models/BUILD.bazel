@@ -30,6 +30,7 @@ go_test(
         "prreview_identifier_test.go",
         "prreview_test.go",
         "smart_merge_test.go",
+        "undo_system_test.go",
     ],
     embed = [":go_default_library"],
 )
