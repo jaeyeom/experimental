@@ -84,45 +84,9 @@ func (cid *CLIInfoDisplayer) ListFiles(path string, recursive bool, format strin
 	var walkFunc filepath.WalkFunc
 
 	if recursive {
-		walkFunc = func(path string, _ os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			relPath, err := filepath.Rel(cid.rootPath, path)
-			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
-			}
-
-			if filter != "" && !strings.Contains(relPath, filter) {
-				return nil
-			}
-
-			files = append(files, relPath)
-			return nil
-		}
+		walkFunc = cid.createRecursiveWalkFunc(&files, filter)
 	} else {
-		walkFunc = func(path string, _ os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if path != targetPath {
-				return filepath.SkipDir
-			}
-
-			relPath, err := filepath.Rel(cid.rootPath, path)
-			if err != nil {
-				return fmt.Errorf("failed to get relative path: %w", err)
-			}
-
-			if filter != "" && !strings.Contains(relPath, filter) {
-				return nil
-			}
-
-			files = append(files, relPath)
-			return nil
-		}
+		walkFunc = cid.createNonRecursiveWalkFunc(&files, filter, targetPath)
 	}
 
 	err := filepath.Walk(targetPath, walkFunc)
@@ -130,6 +94,72 @@ func (cid *CLIInfoDisplayer) ListFiles(path string, recursive bool, format strin
 		return fmt.Errorf("failed to walk directory: %w", err)
 	}
 
+	return cid.printFilesList(files, format)
+}
+
+func (cid *CLIInfoDisplayer) createRecursiveWalkFunc(files *[]string, filter string) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(cid.rootPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
+		}
+
+		if filter != "" && !strings.Contains(relPath, filter) {
+			return nil
+		}
+
+		// Add "/" suffix for directories
+		if info.IsDir() {
+			relPath += "/"
+		}
+
+		*files = append(*files, relPath)
+		return nil
+	}
+}
+
+func (cid *CLIInfoDisplayer) createNonRecursiveWalkFunc(files *[]string, filter string, targetPath string) filepath.WalkFunc {
+	return func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Don't include the target directory itself, only its contents
+		if path == targetPath {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(cid.rootPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
+		}
+
+		if filter != "" && !strings.Contains(relPath, filter) {
+			return nil
+		}
+
+		// Add "/" suffix for directories
+		if info.IsDir() {
+			relPath += "/"
+		}
+
+		// Add this entry (file or directory)
+		*files = append(*files, relPath)
+
+		// Don't recurse into subdirectories when not in recursive mode
+		if info.IsDir() {
+			return filepath.SkipDir
+		}
+
+		return nil
+	}
+}
+
+func (cid *CLIInfoDisplayer) printFilesList(files []string, format string) error {
 	if format == "json" {
 		jsonData, err := json.MarshalIndent(files, "", "  ")
 		if err != nil {
