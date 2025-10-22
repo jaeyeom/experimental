@@ -129,11 +129,6 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 	result.WriteString("\n")
 
 	for _, comment := range comments {
-		lineStr := strconv.Itoa(comment.Line)
-		if comment.IsMultiLine() {
-			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
-		}
-
 		// Wrap long content into multiple lines
 		fileLines := wrapText(comment.Path, fileWidth)
 		commentLines := wrapText(comment.Body, commentWidth)
@@ -158,7 +153,7 @@ func (f *TextFormatter) FormatComments(comments []Comment) (string, error) {
 				fmt.Fprintf(&result, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
 					idWidth, comment.FormatIDShort(),
 					fileWidth, fileLine,
-					lineWidth, lineStr,
+					lineWidth, comment.Line.String(),
 					sideWidth, comment.Side,
 					commentWidth, commentLine,
 					createdWidth, comment.CreatedAt.Format("2006-01-02 15:04"))
@@ -206,11 +201,7 @@ func (f *TextFormatter) FormatCommentsWithContext(comments []CommentWithLineCont
 		fmt.Fprintf(&result, "Comment ID: %s\n", comment.FormatIDShort())
 		fmt.Fprintf(&result, "File: %s\n", comment.Path)
 
-		lineStr := strconv.Itoa(comment.Line)
-		if comment.IsMultiLine() {
-			lineStr = fmt.Sprintf("%d-%d", *comment.StartLine, comment.Line)
-		}
-		fmt.Fprintf(&result, "Line: %s | Side: %s\n", lineStr, comment.Side)
+		fmt.Fprintf(&result, "Line: %v | Side: %s\n", comment.Line, comment.Side)
 		fmt.Fprintf(&result, "Created: %s\n", comment.CreatedAt.Format("2006-01-02 15:04"))
 		result.WriteString(strings.Repeat("-", 80))
 		result.WriteString("\n")
@@ -218,7 +209,7 @@ func (f *TextFormatter) FormatCommentsWithContext(comments []CommentWithLineCont
 		// Print code context if available
 		if cwc.Context != nil {
 			result.WriteString("Code Context:\n")
-			contextStr := FormatLineContext(cwc.Context, comment.Line)
+			contextStr := FormatLineContext(cwc.Context, comment.Line.EndLine)
 			result.WriteString(contextStr)
 			result.WriteString(strings.Repeat("-", 80))
 			result.WriteString("\n")
@@ -240,25 +231,11 @@ func (f *TextFormatter) FormatCommentsWithContext(comments []CommentWithLineCont
 func (f *TextFormatter) FormatSingleComment(comment Comment) (string, error) {
 	var result strings.Builder
 
-	// File and line information
 	fmt.Fprintf(&result, "File: %s\n", comment.Path)
-
-	if comment.IsMultiLine() {
-		fmt.Fprintf(&result, "Lines: %d-%d\n", *comment.StartLine, comment.Line)
-	} else {
-		fmt.Fprintf(&result, "Line: %d\n", comment.Line)
-	}
-
-	// Side information (LEFT/RIGHT)
+	fmt.Fprintf(&result, "Line: %v\n", comment.Line)
 	fmt.Fprintf(&result, "Side: %s\n", comment.Side)
-
-	// Comment ID
 	fmt.Fprintf(&result, "ID: %s\n", comment.FormatIDShort())
-
-	// Creation time
 	fmt.Fprintf(&result, "Created: %s\n", comment.CreatedAt.Format("2006-01-02 15:04"))
-
-	// Comment body
 	fmt.Fprintf(&result, "\nComment:\n%s\n", comment.Body)
 
 	return result.String(), nil

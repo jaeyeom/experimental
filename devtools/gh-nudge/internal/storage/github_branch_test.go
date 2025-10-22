@@ -28,12 +28,11 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			CapturedAt: time.Now(),
 			DiffHunks: []models.DiffHunk{
 				{
-					File:      "test.go",
-					Side:      "RIGHT",
-					StartLine: 10,
-					EndLine:   20,
-					Content:   "@@ -10,11 +10,11 @@\n+added line",
-					SHA:       "abc123",
+					File:    "test.go",
+					Side:    "RIGHT",
+					Range:   models.NewLineRange(10, 20),
+					Content: "@@ -10,11 +10,11 @@\n+added line",
+					SHA:     "abc123",
 				},
 			},
 			CommitSHA:  "abc123",
@@ -71,7 +70,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 	t.Run("AddBranchComment", func(t *testing.T) {
 		comment := models.Comment{
 			Path: "test.go",
-			Line: 15,
+			Line: models.NewSingleLine(15),
 			Body: "Test comment on branch",
 			Side: "RIGHT",
 		}
@@ -103,7 +102,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		// Valid comment within diff range
 		validComment := models.Comment{
 			Path: "test.go",
-			Line: 15,
+			Line: models.NewSingleLine(15),
 			Side: "RIGHT",
 		}
 		err := storage.ValidateBranchCommentAgainstDiff(repository, branchName, validComment)
@@ -114,7 +113,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		// Invalid comment outside diff range
 		invalidComment := models.Comment{
 			Path: "test.go",
-			Line: 100,
+			Line: models.NewSingleLine(100),
 			Side: "RIGHT",
 		}
 		err = storage.ValidateBranchCommentAgainstDiff(repository, branchName, invalidComment)
@@ -130,19 +129,19 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		// Add multiple comments for different files
 		comment1 := models.Comment{
 			Path: "file1.go",
-			Line: 10,
+			Line: models.NewSingleLine(10),
 			Body: "Comment on file1",
 			Side: "RIGHT",
 		}
 		comment2 := models.Comment{
 			Path: "file2.go",
-			Line: 20,
+			Line: models.NewSingleLine(20),
 			Body: "Comment on file2",
 			Side: "RIGHT",
 		}
 		comment3 := models.Comment{
 			Path: "file1.go",
-			Line: 30,
+			Line: models.NewSingleLine(30),
 			Body: "Another comment on file1",
 			Side: "RIGHT",
 		}

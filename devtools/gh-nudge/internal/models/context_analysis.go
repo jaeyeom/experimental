@@ -142,7 +142,7 @@ func (ca *ContextAnalyzer) AnalyzeComment(comment Comment, fileContent []byte) (
 	}
 
 	// Get line context
-	lineContext := ca.getLineContext(fileAnalysis, comment.Line)
+	lineContext := ca.getLineContext(fileAnalysis, comment.Line.EndLine)
 
 	// Analyze comment relevance
 	relevance := ca.calculateCommentRelevance(comment, lineContext, fileAnalysis)

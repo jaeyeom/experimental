@@ -132,7 +132,7 @@ func (h *UndoHistory) RecordCommentOperation(
 		ID:          GenerateCommentID(),
 		Type:        operationType,
 		Timestamp:   time.Now(),
-		Description: fmt.Sprintf("Comment %s on %s:%d", operationType, comment.Path, comment.Line),
+		Description: fmt.Sprintf("Comment %s on %s:%v", operationType, comment.Path, comment.Line),
 		Repository:  repo,
 		Identifier:  identifier,
 		File:        comment.Path,
@@ -478,7 +478,7 @@ func (s *UndoService) GetUndoPreview(operationID string) (*UndoPreview, error) {
 		}
 	case UndoTypeComment:
 		if comment, ok := op.Data["comment"].(Comment); ok {
-			preview.Description = fmt.Sprintf("Remove comment from %s:%d", comment.Path, comment.Line)
+			preview.Description = fmt.Sprintf("Remove comment from %s:%v", comment.Path, comment.Line)
 		}
 	case UndoTypeMerge:
 		if originalComments, ok := op.Data["originalComments"].([]Comment); ok {

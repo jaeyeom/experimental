@@ -310,7 +310,8 @@ func (m *SmartCommentMerger) DetectMergeConflicts(comments []Comment, adjustment
 	// Group by line number and file
 	conflicts := make(map[string][]CommentWithContext)
 	for _, commentCtx := range adjustedComments {
-		key := fmt.Sprintf("%s:%d", commentCtx.Comment.Path, commentCtx.Comment.Line)
+		// TODO: See if this should handled by a proper method.
+		key := fmt.Sprintf("%s:%d", commentCtx.Comment.Path, commentCtx.Comment.Line.EndLine)
 		conflicts[key] = append(conflicts[key], commentCtx)
 	}
 
@@ -318,8 +319,9 @@ func (m *SmartCommentMerger) DetectMergeConflicts(comments []Comment, adjustment
 	var mergeConflicts []MergeConflict
 	for key, commentList := range conflicts {
 		if len(commentList) > 1 {
+			// TODO: See if this parsing should be handled by a proper method.
 			parts := strings.Split(key, ":")
-			line := commentList[0].Comment.Line
+			line := commentList[0].Comment.Line.EndLine
 			file := parts[0]
 
 			conflict := MergeConflict{
@@ -331,8 +333,9 @@ func (m *SmartCommentMerger) DetectMergeConflicts(comments []Comment, adjustment
 
 			// Add start line if any comment is multi-line
 			for _, commentCtx := range commentList {
-				if commentCtx.Comment.StartLine != nil {
-					conflict.StartLine = commentCtx.Comment.StartLine
+				if commentCtx.Comment.IsMultiLine() {
+					startLine := commentCtx.Comment.Line.StartLine
+					conflict.StartLine = &startLine
 					break
 				}
 			}
@@ -524,11 +527,14 @@ func (m *SmartCommentMerger) finalizeComment(merged *Comment, bodyParts []string
 // preserveMultiLineRange preserves multi-line range from any comment.
 func (m *SmartCommentMerger) preserveMultiLineRange(merged *Comment, comments []CommentWithContext) {
 	for _, commentCtx := range comments {
-		if commentCtx.Comment.StartLine != nil && merged.StartLine == nil {
-			merged.StartLine = commentCtx.Comment.StartLine
+		// Expand the range to include the widest multi-line range
+		//
+		// TODO: See if this should be handled by a proper method of LineRange.
+		if commentCtx.Comment.Line.StartLine < merged.Line.StartLine {
+			merged.Line.StartLine = commentCtx.Comment.Line.StartLine
 		}
-		if commentCtx.Comment.StartLine != nil && merged.StartLine != nil && *commentCtx.Comment.StartLine < *merged.StartLine {
-			merged.StartLine = commentCtx.Comment.StartLine
+		if commentCtx.Comment.Line.EndLine > merged.Line.EndLine {
+			merged.Line.EndLine = commentCtx.Comment.Line.EndLine
 		}
 	}
 }

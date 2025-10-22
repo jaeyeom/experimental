@@ -228,12 +228,11 @@ func (gc *Client) parseHunkHeader(header, file, commitSHA, baseSHA string) (*mod
 		startLine, count, err := gc.parseRange(oldRange)
 		if err == nil && count > 0 {
 			leftHunk = &models.DiffHunk{
-				File:      file,
-				Side:      "LEFT",
-				StartLine: startLine,
-				EndLine:   startLine + count - 1,
-				Content:   header,
-				SHA:       baseSHA,
+				File:    file,
+				Side:    "LEFT",
+				Range:   models.NewLineRange(startLine, startLine+count-1),
+				Content: header,
+				SHA:     baseSHA,
 			}
 		}
 	}
@@ -244,12 +243,11 @@ func (gc *Client) parseHunkHeader(header, file, commitSHA, baseSHA string) (*mod
 		startLine, count, err := gc.parseRange(newRange)
 		if err == nil && count > 0 {
 			rightHunk = &models.DiffHunk{
-				File:      file,
-				Side:      "RIGHT",
-				StartLine: startLine,
-				EndLine:   startLine + count - 1,
-				Content:   header,
-				SHA:       commitSHA,
+				File:    file,
+				Side:    "RIGHT",
+				Range:   models.NewLineRange(startLine, startLine+count-1),
+				Content: header,
+				SHA:     commitSHA,
 			}
 		}
 	}
@@ -521,6 +519,8 @@ func (gc *Client) generateMappingSuggestions(changes []models.LineChange, stored
 }
 
 // ChangeGroup represents a group of consecutive line changes.
+//
+// TODO: Consider using models.LineRange instead of StartLine and EndLine field.
 type ChangeGroup struct {
 	StartLine int
 	EndLine   int
@@ -619,7 +619,9 @@ func (gc *Client) createSuggestionFromGroup(group ChangeGroup, storedDiffHunks [
 func (gc *Client) conflictsWithDiffHunks(group ChangeGroup, storedDiffHunks []models.DiffHunk) bool {
 	for _, hunk := range storedDiffHunks {
 		// Check if the change group overlaps with any stored hunk
-		if group.StartLine <= hunk.EndLine && group.EndLine >= hunk.StartLine {
+		//
+		// TODO: If group uses models.LineRange, consider using Overlaps() method.
+		if group.StartLine <= hunk.Range.EndLine && group.EndLine >= hunk.Range.StartLine {
 			return true
 		}
 	}

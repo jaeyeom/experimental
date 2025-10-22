@@ -43,10 +43,9 @@ func TestAdjustCommand(t *testing.T) {
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
-				File:      file,
-				Side:      "RIGHT",
-				StartLine: 10,
-				EndLine:   50,
+				File:  file,
+				Side:  "RIGHT",
+				Range: models.NewLineRange(10, 50),
 			},
 		},
 	}
@@ -60,7 +59,7 @@ func TestAdjustCommand(t *testing.T) {
 		{
 			ID:        "comment1",
 			Path:      file,
-			Line:      20,
+			Line:      models.NewSingleLine(20),
 			Body:      "Comment on line 20",
 			Side:      "RIGHT",
 			CreatedAt: time.Now(),
@@ -68,8 +67,7 @@ func TestAdjustCommand(t *testing.T) {
 		{
 			ID:        "comment2",
 			Path:      file,
-			Line:      30,
-			StartLine: intPtr(25),
+			Line:      models.NewLineRange(25, 30),
 			Body:      "Multi-line comment 25-30",
 			Side:      "RIGHT",
 			CreatedAt: time.Now(),
@@ -77,7 +75,7 @@ func TestAdjustCommand(t *testing.T) {
 		{
 			ID:        "comment3",
 			Path:      file,
-			Line:      45,
+			Line:      models.NewSingleLine(45),
 			Body:      "Comment on line 45",
 			Side:      "RIGHT",
 			CreatedAt: time.Now(),
@@ -109,8 +107,8 @@ func TestAdjustCommand(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if stored.Comments[0].Line != 20 {
-					t.Errorf("Comment line should not change in dry run, got %d", stored.Comments[0].Line)
+				if stored.Comments[0].Line != models.NewSingleLine(20) {
+					t.Errorf("Comment line should not change in dry run, got %v", stored.Comments[0].Line)
 				}
 			},
 		},
@@ -125,13 +123,13 @@ func TestAdjustCommand(t *testing.T) {
 					t.Fatal(err)
 				}
 				// Comment at line 20 should move to 17 (20 - 3)
-				if stored.Comments[0].Line != 17 {
-					t.Errorf("Comment line = %d, want 17", stored.Comments[0].Line)
+				if stored.Comments[0].Line != models.NewSingleLine(17) {
+					t.Errorf("Comment line = %v, want 17", stored.Comments[0].Line)
 				}
 				// Multi-line comment 25-30 should move to 22-27
-				if stored.Comments[1].Line != 27 || *stored.Comments[1].StartLine != 22 {
-					t.Errorf("Multi-line comment = %d-%d, want 22-27",
-						*stored.Comments[1].StartLine, stored.Comments[1].Line)
+				if stored.Comments[1].Line != models.NewLineRange(22, 27) {
+					t.Errorf("Multi-line comment = %v, want 22-27",
+						stored.Comments[1].Line)
 				}
 			},
 		},
@@ -229,10 +227,9 @@ func TestAdjustCommandOutput(t *testing.T) {
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
-				File:      file,
-				Side:      "RIGHT",
-				StartLine: 1,
-				EndLine:   100,
+				File:  file,
+				Side:  "RIGHT",
+				Range: models.NewLineRange(1, 100),
 			},
 		},
 	}
@@ -246,7 +243,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 		{
 			ID:        "abc123",
 			Path:      file,
-			Line:      20,
+			Line:      models.NewSingleLine(20),
 			Body:      "Fix this function",
 			Side:      "RIGHT",
 			CreatedAt: time.Now(),
@@ -254,7 +251,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 		{
 			ID:        "def456",
 			Path:      file,
-			Line:      30,
+			Line:      models.NewSingleLine(30),
 			Body:      "Add error handling",
 			Side:      "RIGHT",
 			CreatedAt: time.Now(),
@@ -352,10 +349,9 @@ func TestAdjustBranchComments(t *testing.T) {
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
-				File:      file,
-				Side:      "RIGHT",
-				StartLine: 10,
-				EndLine:   50,
+				File:  file,
+				Side:  "RIGHT",
+				Range: models.NewLineRange(10, 50),
 			},
 		},
 	}
@@ -368,7 +364,7 @@ func TestAdjustBranchComments(t *testing.T) {
 	comment := models.Comment{
 		ID:        "branch1",
 		Path:      file,
-		Line:      25,
+		Line:      models.NewSingleLine(25),
 		Body:      "Branch comment",
 		Side:      "RIGHT",
 		CreatedAt: time.Now(),
@@ -395,18 +391,17 @@ func TestAdjustBranchComments(t *testing.T) {
 	}
 
 	// Line 25 should move to 22 (25 - 3 deleted lines)
-	if stored.Comments[0].Line != 22 {
-		t.Errorf("Comment line = %d, want 22", stored.Comments[0].Line)
+	if stored.Comments[0].Line != models.NewSingleLine(22) {
+		t.Errorf("Comment line = %v, want 22", stored.Comments[0].Line)
 	}
 
-	if stored.Comments[0].OriginalLine != 25 {
-		t.Errorf("Original line = %d, want 25", stored.Comments[0].OriginalLine)
+	if stored.Comments[0].OriginalRange == nil || *stored.Comments[0].OriginalRange != models.NewSingleLine(25) {
+		if stored.Comments[0].OriginalRange == nil {
+			t.Error("Original range should be set")
+		} else {
+			t.Errorf("Original line = %v, want 25", *stored.Comments[0].OriginalRange)
+		}
 	}
-}
-
-// Helper function.
-func intPtr(i int) *int {
-	return &i
 }
 
 func contains(s, substr string) bool {

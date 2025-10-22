@@ -202,29 +202,25 @@ func AdjustLineNumber(line int, adjustments []LineAdjustment) (int, bool) {
 // Returns whether the comment is still valid (not on deleted lines).
 func AdjustComment(comment *Comment, adjustments []LineAdjustment) bool {
 	// Save original line numbers if not already saved
-	if comment.OriginalLine == 0 {
-		comment.OriginalLine = comment.Line
-		if comment.StartLine != nil {
-			origStart := *comment.StartLine
-			comment.OriginalStartLine = &origStart
-		}
+	if comment.OriginalRange == nil {
+		origRange := comment.Line
+		comment.OriginalRange = &origRange
 	}
 
-	// Adjust the main line number
-	newLine, isValid := AdjustLineNumber(comment.Line, adjustments)
+	// Adjust the end line
+	newEndLine, isValid := AdjustLineNumber(comment.Line.EndLine, adjustments)
 	if !isValid {
 		return false
 	}
-	comment.Line = newLine
 
-	// Adjust start line for multi-line comments
-	if comment.StartLine != nil {
-		newStartLine, isStartValid := AdjustLineNumber(*comment.StartLine, adjustments)
-		if !isStartValid {
-			return false
-		}
-		comment.StartLine = &newStartLine
+	// Adjust start line
+	newStartLine, isStartValid := AdjustLineNumber(comment.Line.StartLine, adjustments)
+	if !isStartValid {
+		return false
 	}
+
+	// Update the range
+	comment.Line = LineRange{StartLine: newStartLine, EndLine: newEndLine}
 
 	// Update adjustment history
 	for _, adj := range adjustments {
@@ -254,21 +250,21 @@ func ValidateAdjustmentAgainstDiff(comment Comment, adjustments []LineAdjustment
 	var lineToCheck int
 	if len(comment.AdjustmentHistory) > 0 {
 		// Comment is already adjusted, just check its current line
-		lineToCheck = comment.Line
+		lineToCheck = comment.Line.EndLine
 	} else {
 		// Create a copy to test adjustments
 		testComment := comment
 		if !AdjustComment(&testComment, adjustments) {
 			return fmt.Errorf("comment on deleted line")
 		}
-		lineToCheck = testComment.Line
+		lineToCheck = testComment.Line.EndLine
 	}
 
 	// Check if adjusted line is within any diff hunk
 	inHunk := false
 	for _, hunk := range diffHunks {
 		if hunk.File == comment.Path && hunk.Side == comment.Side {
-			if lineToCheck >= hunk.StartLine && lineToCheck <= hunk.EndLine {
+			if hunk.IsInRange(lineToCheck) {
 				inHunk = true
 				break
 			}

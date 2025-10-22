@@ -46,8 +46,8 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 			name:           "no diff hunks - skip validation",
 			setupDiffHunks: false,
 			inputComments: []models.Comment{
-				{Path: "test.go", Line: 10, Side: "RIGHT"},
-				{Path: "test.go", Line: 100, Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(100), Side: "RIGHT"},
 			},
 			expectedValidCount:    2,
 			expectedFilteredCount: 0,
@@ -56,12 +56,12 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 			name:           "all comments within diff hunks",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", StartLine: 10, EndLine: 20},
-				{File: "test.go", Side: "RIGHT", StartLine: 50, EndLine: 60},
+				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
+				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(50, 60)},
 			},
 			inputComments: []models.Comment{
-				{Path: "test.go", Line: 15, Side: "RIGHT"},
-				{Path: "test.go", Line: 55, Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(15), Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(55), Side: "RIGHT"},
 			},
 			expectedValidCount:    2,
 			expectedFilteredCount: 0,
@@ -70,12 +70,12 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 			name:           "some comments outside diff hunks",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", StartLine: 10, EndLine: 20},
+				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
 			},
 			inputComments: []models.Comment{
-				{Path: "test.go", Line: 15, Side: "RIGHT"},  // valid
-				{Path: "test.go", Line: 25, Side: "RIGHT"},  // invalid
-				{Path: "test.go", Line: 100, Side: "RIGHT"}, // invalid
+				{Path: "test.go", Line: models.NewSingleLine(15), Side: "RIGHT"},  // valid
+				{Path: "test.go", Line: models.NewSingleLine(25), Side: "RIGHT"},  // invalid
+				{Path: "test.go", Line: models.NewSingleLine(100), Side: "RIGHT"}, // invalid
 			},
 			expectedValidCount:    1,
 			expectedFilteredCount: 2,
@@ -84,11 +84,11 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 			name:           "all comments outside diff hunks",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", StartLine: 10, EndLine: 20},
+				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
 			},
 			inputComments: []models.Comment{
-				{Path: "test.go", Line: 5, Side: "RIGHT"},
-				{Path: "test.go", Line: 25, Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(5), Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(25), Side: "RIGHT"},
 			},
 			expectedValidCount:    0,
 			expectedFilteredCount: 2,
@@ -97,11 +97,11 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 			name:           "comments for different files",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", StartLine: 10, EndLine: 20},
+				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
 			},
 			inputComments: []models.Comment{
-				{Path: "test.go", Line: 15, Side: "RIGHT"},  // valid
-				{Path: "other.go", Line: 15, Side: "RIGHT"}, // invalid (different file)
+				{Path: "test.go", Line: models.NewSingleLine(15), Side: "RIGHT"},  // valid
+				{Path: "other.go", Line: models.NewSingleLine(15), Side: "RIGHT"}, // invalid (different file)
 			},
 			expectedValidCount:    1,
 			expectedFilteredCount: 1,
@@ -110,11 +110,11 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 			name:           "comments for different sides",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", StartLine: 10, EndLine: 20},
+				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
 			},
 			inputComments: []models.Comment{
-				{Path: "test.go", Line: 15, Side: "RIGHT"}, // valid
-				{Path: "test.go", Line: 15, Side: "LEFT"},  // invalid (different side)
+				{Path: "test.go", Line: models.NewSingleLine(15), Side: "RIGHT"}, // valid
+				{Path: "test.go", Line: models.NewSingleLine(15), Side: "LEFT"},  // invalid (different side)
 			},
 			expectedValidCount:    1,
 			expectedFilteredCount: 1,
@@ -201,7 +201,7 @@ func TestFilteringIntegration(t *testing.T) {
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
-			{File: "test.go", Side: "RIGHT", StartLine: 10, EndLine: 20},
+			{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
 		},
 	}
 	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
@@ -211,9 +211,9 @@ func TestFilteringIntegration(t *testing.T) {
 	// Test case 1: Mixed valid and invalid comments
 	t.Run("mixed valid and invalid comments", func(t *testing.T) {
 		comments := []models.Comment{
-			{Path: "test.go", Line: 15, Side: "RIGHT", Body: "Valid comment"},      // valid
-			{Path: "test.go", Line: 25, Side: "RIGHT", Body: "Invalid comment 1"},  // invalid
-			{Path: "test.go", Line: 100, Side: "RIGHT", Body: "Invalid comment 2"}, // invalid
+			{Path: "test.go", Line: models.NewSingleLine(15), Side: "RIGHT", Body: "Valid comment"},      // valid
+			{Path: "test.go", Line: models.NewSingleLine(25), Side: "RIGHT", Body: "Invalid comment 1"},  // invalid
+			{Path: "test.go", Line: models.NewSingleLine(100), Side: "RIGHT", Body: "Invalid comment 2"}, // invalid
 		}
 
 		validComments, filteredComments := handler.filterCommentsAgainstDiffHunks(repository, prNumber, comments)
@@ -232,8 +232,8 @@ func TestFilteringIntegration(t *testing.T) {
 	// Test case 2: All comments invalid
 	t.Run("all comments invalid", func(t *testing.T) {
 		comments := []models.Comment{
-			{Path: "test.go", Line: 25, Side: "RIGHT", Body: "Invalid comment 1"},
-			{Path: "test.go", Line: 100, Side: "RIGHT", Body: "Invalid comment 2"},
+			{Path: "test.go", Line: models.NewSingleLine(25), Side: "RIGHT", Body: "Invalid comment 1"},
+			{Path: "test.go", Line: models.NewSingleLine(100), Side: "RIGHT", Body: "Invalid comment 2"},
 		}
 
 		validComments, filteredComments := handler.filterCommentsAgainstDiffHunks(repository, prNumber, comments)

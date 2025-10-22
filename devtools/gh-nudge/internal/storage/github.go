@@ -165,7 +165,7 @@ func (gs *GitHubStorage) FindCommentByIDPrefix(repository models.Repository, prN
 		// Build error message with matching comments
 		var matchDetails []string
 		for _, c := range matches {
-			matchDetails = append(matchDetails, fmt.Sprintf("  %s | %s:%d | %.50s...", c.FormatIDShort(), c.Path, c.Line, c.Body))
+			matchDetails = append(matchDetails, fmt.Sprintf("  %s | %s:%v | %.50s...", c.FormatIDShort(), c.Path, c.Line, c.Body))
 		}
 		return nil, fmt.Errorf("ambiguous comment ID prefix '%s' matches %d comments:\n%s", idPrefix, len(matches), strings.Join(matchDetails, "\n"))
 	}
@@ -280,7 +280,7 @@ func (gs *GitHubStorage) ValidateCommentAgainstDiff(repository models.Repository
 
 	for _, hunk := range diffHunks.DiffHunks {
 		if hunk.File == comment.Path && hunk.Side == comment.Side {
-			if hunk.IsInRange(comment.Line) {
+			if comment.Line.Overlaps(hunk.Range) {
 				if comment.SHA != "" && comment.SHA != hunk.SHA {
 					return fmt.Errorf("SHA mismatch: comment SHA %s does not match hunk SHA %s", comment.SHA, hunk.SHA)
 				}
@@ -289,7 +289,7 @@ func (gs *GitHubStorage) ValidateCommentAgainstDiff(repository models.Repository
 		}
 	}
 
-	return fmt.Errorf("line %d in file %s (side %s) is not within any diff hunk", comment.Line, comment.Path, comment.Side)
+	return fmt.Errorf("line %v in file %s (side %s) is not within any diff hunk", comment.Line, comment.Path, comment.Side)
 }
 
 // SetPRMetadata stores metadata for a pull request.
@@ -586,7 +586,7 @@ func (gs *GitHubStorage) ValidateBranchCommentAgainstDiff(repository models.Repo
 
 	for _, hunk := range diffHunks.DiffHunks {
 		if hunk.File == comment.Path && hunk.Side == comment.Side {
-			if hunk.IsInRange(comment.Line) {
+			if comment.Line.Overlaps(hunk.Range) {
 				if comment.SHA != "" && comment.SHA != hunk.SHA {
 					return fmt.Errorf("SHA mismatch: comment SHA %s does not match hunk SHA %s", comment.SHA, hunk.SHA)
 				}
@@ -595,7 +595,7 @@ func (gs *GitHubStorage) ValidateBranchCommentAgainstDiff(repository models.Repo
 		}
 	}
 
-	return fmt.Errorf("line %d in file %s (side %s) is not within any diff hunk", comment.Line, comment.Path, comment.Side)
+	return fmt.Errorf("line %v in file %s (side %s) is not within any diff hunk", comment.Line, comment.Path, comment.Side)
 }
 
 // SetBranchMetadata stores metadata for a branch.

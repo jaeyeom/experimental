@@ -213,12 +213,11 @@ func TestCreateBidirectionalHunks(t *testing.T) {
 			name: "hunk with deletions",
 			hunks: []models.DiffHunk{
 				{
-					File:      "test.go",
-					Side:      "RIGHT",
-					StartLine: 1,
-					EndLine:   5,
-					Content:   "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
-					SHA:       "abc123",
+					File:    "test.go",
+					Side:    "RIGHT",
+					Range:   models.NewLineRange(1, 5),
+					Content: "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
+					SHA:     "abc123",
 				},
 			},
 			wantCount: 2, // RIGHT + LEFT
@@ -227,12 +226,11 @@ func TestCreateBidirectionalHunks(t *testing.T) {
 			name: "hunk without deletions",
 			hunks: []models.DiffHunk{
 				{
-					File:      "test.go",
-					Side:      "RIGHT",
-					StartLine: 1,
-					EndLine:   5,
-					Content:   "@@ -1,3 +1,4 @@\n package main\n+import \"fmt\"\n",
-					SHA:       "abc123",
+					File:    "test.go",
+					Side:    "RIGHT",
+					Range:   models.NewLineRange(1, 5),
+					Content: "@@ -1,3 +1,4 @@\n package main\n+import \"fmt\"\n",
+					SHA:     "abc123",
 				},
 			},
 			wantCount: 1, // RIGHT only
@@ -241,20 +239,18 @@ func TestCreateBidirectionalHunks(t *testing.T) {
 			name: "multiple hunks with mixed content",
 			hunks: []models.DiffHunk{
 				{
-					File:      "test.go",
-					Side:      "RIGHT",
-					StartLine: 1,
-					EndLine:   5,
-					Content:   "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
-					SHA:       "abc123",
+					File:    "test.go",
+					Side:    "RIGHT",
+					Range:   models.NewLineRange(1, 5),
+					Content: "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
+					SHA:     "abc123",
 				},
 				{
-					File:      "test.go",
-					Side:      "RIGHT",
-					StartLine: 10,
-					EndLine:   15,
-					Content:   "@@ -10,2 +11,3 @@\n+	fmt.Println(\"hello\")\n",
-					SHA:       "abc123",
+					File:    "test.go",
+					Side:    "RIGHT",
+					Range:   models.NewLineRange(10, 15),
+					Content: "@@ -10,2 +11,3 @@\n+	fmt.Println(\"hello\")\n",
+					SHA:     "abc123",
 				},
 			},
 			wantCount: 3, // First hunk: RIGHT + LEFT, Second hunk: RIGHT only
@@ -296,7 +292,7 @@ func TestSubmitReview(t *testing.T) {
 				Comments: []models.Comment{
 					{
 						Path: "test.go",
-						Line: 10,
+						Line: models.NewSingleLine(10),
 						Body: "Nice fix!",
 						Side: "RIGHT",
 						SHA:  "abc123",
@@ -312,12 +308,11 @@ func TestSubmitReview(t *testing.T) {
 				Event: "REQUEST_CHANGES",
 				Comments: []models.Comment{
 					{
-						Path:      "test.go",
-						StartLine: intPtr(10),
-						Line:      15,
-						Body:      "This whole section needs work",
-						Side:      "RIGHT",
-						SHA:       "abc123",
+						Path: "test.go",
+						Line: models.NewLineRange(10, 15),
+						Body: "This whole section needs work",
+						Side: "RIGHT",
+						SHA:  "abc123",
 					},
 				},
 			},
@@ -337,6 +332,8 @@ func TestSubmitReview(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test that the review payload can be marshaled correctly
+			//
+			// TODO: Investigate why this does not use GitHubComment struct.
 			githubComments := make([]map[string]interface{}, len(tt.review.Comments))
 			for i, comment := range tt.review.Comments {
 				githubComment := map[string]interface{}{
@@ -346,10 +343,10 @@ func TestSubmitReview(t *testing.T) {
 				}
 
 				if comment.IsMultiLine() {
-					githubComment["start_line"] = *comment.StartLine
-					githubComment["line"] = comment.Line
+					githubComment["start_line"] = comment.Line.StartLine
+					githubComment["line"] = comment.Line.EndLine
 				} else {
-					githubComment["line"] = comment.Line
+					githubComment["line"] = comment.Line.EndLine
 				}
 
 				if comment.SHA != "" {
@@ -412,8 +409,8 @@ func TestConvertGitHubComment(t *testing.T) {
 				if c.Path != "test.go" {
 					t.Errorf("expected path 'test.go', got %q", c.Path)
 				}
-				if c.Line != 10 {
-					t.Errorf("expected line 10, got %d", c.Line)
+				if c.Line != models.NewSingleLine(10) {
+					t.Errorf("expected line 10, got %d", c.Line.EndLine)
 				}
 				if c.Side != "RIGHT" {
 					t.Errorf("expected side 'RIGHT', got %q", c.Side)
@@ -444,13 +441,14 @@ func TestConvertGitHubComment(t *testing.T) {
 			},
 			wantErr: false,
 			checkFunc: func(t *testing.T, c models.Comment) {
-				if c.StartLine == nil {
-					t.Error("expected StartLine to be set")
-				} else if *c.StartLine != 5 {
-					t.Errorf("expected start line 5, got %d", *c.StartLine)
+				if !c.IsMultiLine() {
+					t.Error("expected multi-line comment")
 				}
-				if c.Line != 10 {
-					t.Errorf("expected line 10, got %d", c.Line)
+				if c.Line.StartLine != 5 {
+					t.Errorf("expected start line 5, got %d", c.Line.StartLine)
+				}
+				if c.Line.EndLine != 10 {
+					t.Errorf("expected line 10, got %d", c.Line.EndLine)
 				}
 			},
 		},
@@ -471,8 +469,8 @@ func TestConvertGitHubComment(t *testing.T) {
 			},
 			wantErr: false,
 			checkFunc: func(t *testing.T, c models.Comment) {
-				if c.Line != 15 {
-					t.Errorf("expected line 15, got %d", c.Line)
+				if c.Line.EndLine != 15 {
+					t.Errorf("expected line 15, got %d", c.Line.EndLine)
 				}
 			},
 		},
@@ -550,7 +548,7 @@ func TestCreatePendingReview(t *testing.T) {
 	comments := []models.Comment{
 		{
 			Path: "test.go",
-			Line: 10,
+			Line: models.NewSingleLine(10),
 			Body: "Test comment",
 			Side: "RIGHT",
 			SHA:  "abc123",
@@ -622,10 +620,9 @@ func TestUpdateLineNumbers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hunk := &models.DiffHunk{
-				File:      "test.go",
-				Side:      "RIGHT",
-				StartLine: 1,
-				EndLine:   0,
+				File:  "test.go",
+				Side:  "RIGHT",
+				Range: models.NewLineRange(1, 0),
 			}
 
 			gotRightLine, gotLeftLine := prc.updateLineNumbers(
@@ -644,8 +641,8 @@ func TestUpdateLineNumbers(t *testing.T) {
 
 			// Check if EndLine was updated correctly
 			if strings.HasPrefix(tt.line, "+") || strings.HasPrefix(tt.line, " ") {
-				if hunk.EndLine != tt.wantHunkEndLine {
-					t.Errorf("expected hunk end line %d, got %d", tt.wantHunkEndLine, hunk.EndLine)
+				if hunk.Range.EndLine != tt.wantHunkEndLine {
+					t.Errorf("expected hunk end line %d, got %d", tt.wantHunkEndLine, hunk.Range.EndLine)
 				}
 			}
 		})
@@ -669,11 +666,11 @@ func TestCreateNewHunk(t *testing.T) {
 	if hunk.SHA != sha {
 		t.Errorf("expected SHA %q, got %q", sha, hunk.SHA)
 	}
-	if hunk.StartLine != rightLineNum {
-		t.Errorf("expected start line %d, got %d", rightLineNum, hunk.StartLine)
+	if hunk.Range.StartLine != rightLineNum {
+		t.Errorf("expected start line %d, got %d", rightLineNum, hunk.Range.StartLine)
 	}
-	if hunk.EndLine != rightLineNum {
-		t.Errorf("expected end line %d, got %d", rightLineNum, hunk.EndLine)
+	if hunk.Range.EndLine != rightLineNum {
+		t.Errorf("expected end line %d, got %d", rightLineNum, hunk.Range.EndLine)
 	}
 	if hunk.Side != "RIGHT" {
 		t.Errorf("expected side 'RIGHT', got %q", hunk.Side)
