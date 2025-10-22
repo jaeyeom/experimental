@@ -75,13 +75,13 @@ func TestUndoHistory_RecordAdjustmentOperation(t *testing.T) {
 	}
 
 	beforeComments := []Comment{
-		{ID: "1", Path: "file.go", Line: 10},
-		{ID: "2", Path: "file.go", Line: 20},
+		{ID: "1", Path: "file.go", Line: NewSingleLine(10)},
+		{ID: "2", Path: "file.go", Line: NewSingleLine(20)},
 	}
 
 	afterComments := []Comment{
-		{ID: "1", Path: "file.go", Line: 8},
-		{ID: "2", Path: "file.go", Line: 23},
+		{ID: "1", Path: "file.go", Line: NewSingleLine(8)},
+		{ID: "2", Path: "file.go", Line: NewSingleLine(23)},
 	}
 
 	t.Run("records adjustment operation successfully", func(t *testing.T) {
@@ -123,7 +123,7 @@ func TestUndoHistory_RecordCommentOperation(t *testing.T) {
 	comment := Comment{
 		ID:   "comment1",
 		Path: "test.go",
-		Line: 15,
+		Line: NewSingleLine(15),
 		Body: "Test comment",
 	}
 
@@ -153,7 +153,7 @@ func TestUndoHistory_RecordCommentOperation(t *testing.T) {
 		previousComment := Comment{
 			ID:   "comment1",
 			Path: "test.go",
-			Line: 15,
+			Line: NewSingleLine(15),
 			Body: "Old comment",
 		}
 
@@ -179,20 +179,20 @@ func TestUndoHistory_RecordMergeOperation(t *testing.T) {
 			File: "test.go",
 			Line: 10,
 			ConflictingComments: []CommentWithContext{
-				{Comment: Comment{ID: "c1", Path: "test.go", Line: 10}},
-				{Comment: Comment{ID: "c2", Path: "test.go", Line: 10}},
+				{Comment: Comment{ID: "c1", Path: "test.go", Line: NewSingleLine(10)}},
+				{Comment: Comment{ID: "c2", Path: "test.go", Line: NewSingleLine(10)}},
 			},
 			SuggestedStrategy: StrategyConcat,
 		},
 	}
 
 	mergedComments := []Comment{
-		{ID: "merged1", Path: "test.go", Line: 10, Body: "Merged comment"},
+		{ID: "merged1", Path: "test.go", Line: NewSingleLine(10), Body: "Merged comment"},
 	}
 
 	originalComments := []Comment{
-		{ID: "c1", Path: "test.go", Line: 10, Body: "Comment 1"},
-		{ID: "c2", Path: "test.go", Line: 10, Body: "Comment 2"},
+		{ID: "c1", Path: "test.go", Line: NewSingleLine(10), Body: "Comment 1"},
+		{ID: "c2", Path: "test.go", Line: NewSingleLine(10), Body: "Comment 2"},
 	}
 
 	t.Run("records merge operation successfully", func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestUndoHistory_SizeLimit(t *testing.T) {
 
 		// Add 5 operations
 		for i := 0; i < 5; i++ {
-			comment := Comment{ID: GenerateCommentID(), Path: "test.go", Line: i}
+			comment := Comment{ID: GenerateCommentID(), Path: "test.go", Line: NewSingleLine(i)}
 			history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 		}
 
@@ -243,7 +243,7 @@ func TestUndoHistory_GetOperationByID(t *testing.T) {
 	history := NewUndoHistory(10)
 	repo := createTestRepository()
 
-	comment := Comment{ID: "test", Path: "test.go", Line: 1}
+	comment := Comment{ID: "test", Path: "test.go", Line: NewSingleLine(1)}
 	opID := history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 
 	t.Run("retrieves operation by full ID", func(t *testing.T) {
@@ -321,13 +321,13 @@ func TestUndoHistory_GetOperationsByFile(t *testing.T) {
 	_ = repo // Use repo to avoid unused variable error
 
 	// Add operations for different files
-	comment1 := Comment{ID: "1", Path: "file1.go", Line: 1}
+	comment1 := Comment{ID: "1", Path: "file1.go", Line: NewSingleLine(1)}
 	history.RecordCommentOperation(repo, "123", UndoTypeComment, comment1, nil)
 
-	comment2 := Comment{ID: "2", Path: "file2.go", Line: 1}
+	comment2 := Comment{ID: "2", Path: "file2.go", Line: NewSingleLine(1)}
 	history.RecordCommentOperation(repo, "123", UndoTypeComment, comment2, nil)
 
-	comment3 := Comment{ID: "3", Path: "file1.go", Line: 2}
+	comment3 := Comment{ID: "3", Path: "file1.go", Line: NewSingleLine(2)}
 	history.RecordCommentOperation(repo, "123", UndoTypeComment, comment3, nil)
 
 	t.Run("retrieves operations for specific file", func(t *testing.T) {
@@ -364,7 +364,7 @@ func TestUndoHistory_GetRecentOperations(t *testing.T) {
 
 	// Add operations with different timestamps
 	for i := 0; i < 5; i++ {
-		comment := Comment{ID: GenerateCommentID(), Path: "test.go", Line: i}
+		comment := Comment{ID: GenerateCommentID(), Path: "test.go", Line: NewSingleLine(i)}
 		opID := history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 		op, _ := history.GetOperationByID(opID)
 		op.Timestamp = now.Add(time.Duration(-i) * time.Minute)
@@ -417,8 +417,8 @@ func TestUndoManager_RecordAdjustment(t *testing.T) {
 	repo := createTestRepository()
 
 	adjustments := []LineAdjustment{{OldStart: 10, OldEnd: 10, NewStart: 8, NewEnd: 8, Operation: OperationDelete}}
-	beforeComments := []Comment{{ID: "1", Path: "test.go", Line: 10}}
-	afterComments := []Comment{{ID: "1", Path: "test.go", Line: 8}}
+	beforeComments := []Comment{{ID: "1", Path: "test.go", Line: NewSingleLine(10)}}
+	afterComments := []Comment{{ID: "1", Path: "test.go", Line: NewSingleLine(8)}}
 
 	t.Run("records adjustment and returns operation ID", func(t *testing.T) {
 		opID := manager.RecordAdjustment(repo, "123", "test.go", adjustments, beforeComments, afterComments)
@@ -438,10 +438,10 @@ func TestUndoManager_UndoAdjustment(t *testing.T) {
 	repo := createTestRepository()
 
 	beforeComments := []Comment{
-		{ID: "1", Path: "test.go", Line: 10, Body: "Original position"},
+		{ID: "1", Path: "test.go", Line: NewSingleLine(10), Body: "Original position"},
 	}
 	afterComments := []Comment{
-		{ID: "1", Path: "test.go", Line: 8, Body: "Original position"},
+		{ID: "1", Path: "test.go", Line: NewSingleLine(8), Body: "Original position"},
 	}
 	adjustments := []LineAdjustment{{OldStart: 10, OldEnd: 10, NewStart: 8, NewEnd: 8, Operation: OperationDelete}}
 
@@ -457,8 +457,8 @@ func TestUndoManager_UndoAdjustment(t *testing.T) {
 			t.Fatalf("Expected 1 restored comment, got %d", len(restoredComments))
 		}
 
-		if restoredComments[0].Line != 10 {
-			t.Errorf("Expected restored line 10, got %d", restoredComments[0].Line)
+		if restoredComments[0].Line != NewSingleLine(10) {
+			t.Errorf("Expected restored line 10, got %v", restoredComments[0].Line)
 		}
 	})
 
@@ -471,7 +471,7 @@ func TestUndoManager_UndoAdjustment(t *testing.T) {
 	})
 
 	t.Run("returns error for wrong operation type", func(t *testing.T) {
-		comment := Comment{ID: "test", Path: "test.go", Line: 1}
+		comment := Comment{ID: "test", Path: "test.go", Line: NewSingleLine(1)}
 		wrongOpID := manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 
 		_, err := manager.UndoAdjustment(wrongOpID)
@@ -487,7 +487,7 @@ func TestUndoManager_UndoCommentOperation(t *testing.T) {
 	repo := createTestRepository()
 
 	t.Run("undoes comment addition", func(t *testing.T) {
-		comment := Comment{ID: "1", Path: "test.go", Line: 10, Body: "New comment"}
+		comment := Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10), Body: "New comment"}
 		opID := manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 
 		result, err := manager.UndoCommentOperation(opID)
@@ -509,8 +509,8 @@ func TestUndoManager_UndoCommentOperation(t *testing.T) {
 	})
 
 	t.Run("undoes comment edit", func(t *testing.T) {
-		oldComment := Comment{ID: "1", Path: "test.go", Line: 10, Body: "Old"}
-		newComment := Comment{ID: "1", Path: "test.go", Line: 10, Body: "New"}
+		oldComment := Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10), Body: "Old"}
+		newComment := Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10), Body: "New"}
 
 		opID := manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, newComment, &oldComment)
 
@@ -533,7 +533,7 @@ func TestUndoManager_UndoCommentOperation(t *testing.T) {
 	})
 
 	t.Run("undoes comment deletion", func(t *testing.T) {
-		comment := Comment{ID: "1", Path: "test.go", Line: 10, Body: "Deleted"}
+		comment := Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10), Body: "Deleted"}
 		opID := manager.history.RecordCommentOperation(repo, "123", UndoTypeDelete, comment, nil)
 
 		result, err := manager.UndoCommentOperation(opID)
@@ -555,7 +555,7 @@ func TestUndoManager_UndoCommentOperation(t *testing.T) {
 		comment := Comment{
 			ID:               "1",
 			Path:             "test.go",
-			Line:             10,
+			Line:             NewSingleLine(10),
 			Status:           StatusResolved,
 			ResolvedAt:       &now,
 			ResolutionReason: "Fixed",
@@ -590,12 +590,12 @@ func TestUndoManager_UndoMergeOperation(t *testing.T) {
 	repo := createTestRepository()
 
 	originalComments := []Comment{
-		{ID: "1", Path: "test.go", Line: 10, Body: "Comment 1"},
-		{ID: "2", Path: "test.go", Line: 10, Body: "Comment 2"},
+		{ID: "1", Path: "test.go", Line: NewSingleLine(10), Body: "Comment 1"},
+		{ID: "2", Path: "test.go", Line: NewSingleLine(10), Body: "Comment 2"},
 	}
 
 	mergedComments := []Comment{
-		{ID: "merged", Path: "test.go", Line: 10, Body: "Merged"},
+		{ID: "merged", Path: "test.go", Line: NewSingleLine(10), Body: "Merged"},
 	}
 
 	conflicts := []MergeConflict{
@@ -603,8 +603,8 @@ func TestUndoManager_UndoMergeOperation(t *testing.T) {
 			File: "test.go",
 			Line: 10,
 			ConflictingComments: []CommentWithContext{
-				{Comment: Comment{ID: "1", Path: "test.go", Line: 10}},
-				{Comment: Comment{ID: "2", Path: "test.go", Line: 10}},
+				{Comment: Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10)}},
+				{Comment: Comment{ID: "2", Path: "test.go", Line: NewSingleLine(10)}},
 			},
 		},
 	}
@@ -628,7 +628,7 @@ func TestUndoManager_UndoMergeOperation(t *testing.T) {
 	})
 
 	t.Run("returns error for wrong operation type", func(t *testing.T) {
-		comment := Comment{ID: "test", Path: "test.go", Line: 1}
+		comment := Comment{ID: "test", Path: "test.go", Line: NewSingleLine(1)}
 		wrongOpID := manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 
 		_, err := manager.UndoMergeOperation(wrongOpID)
@@ -665,7 +665,7 @@ func TestUndoService_ListRecentOperations(t *testing.T) {
 
 	// Add multiple operations
 	for i := 0; i < 5; i++ {
-		comment := Comment{ID: GenerateCommentID(), Path: "test.go", Line: i}
+		comment := Comment{ID: GenerateCommentID(), Path: "test.go", Line: NewSingleLine(i)}
 		service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 		time.Sleep(time.Millisecond) // Ensure different timestamps
 	}
@@ -699,7 +699,7 @@ func TestUndoService_ValidateUndoOperation(t *testing.T) {
 	repo := createTestRepository()
 
 	t.Run("validates recent operation", func(t *testing.T) {
-		comment := Comment{ID: "1", Path: "test.go", Line: 1}
+		comment := Comment{ID: "1", Path: "test.go", Line: NewSingleLine(1)}
 		opID := service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 
 		err := service.ValidateUndoOperation(opID)
@@ -719,7 +719,7 @@ func TestUndoService_ValidateUndoOperation(t *testing.T) {
 			Identifier:  "123",
 			File:        "test.go",
 			Data: map[string]interface{}{
-				"comment": Comment{ID: "2", Path: "test.go", Line: 2},
+				"comment": Comment{ID: "2", Path: "test.go", Line: NewSingleLine(2)},
 			},
 		}
 		service.manager.history.Operations = append(service.manager.history.Operations, oldOp)
@@ -732,12 +732,12 @@ func TestUndoService_ValidateUndoOperation(t *testing.T) {
 	})
 
 	t.Run("detects potential conflicts with newer operations", func(t *testing.T) {
-		comment1 := Comment{ID: "3", Path: "conflict.go", Line: 10}
+		comment1 := Comment{ID: "3", Path: "conflict.go", Line: NewSingleLine(10)}
 		opID1 := service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment1, nil)
 
 		time.Sleep(10 * time.Millisecond)
 
-		comment2 := Comment{ID: "4", Path: "conflict.go", Line: 15}
+		comment2 := Comment{ID: "4", Path: "conflict.go", Line: NewSingleLine(15)}
 		service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment2, nil)
 
 		err := service.ValidateUndoOperation(opID1)
@@ -762,12 +762,12 @@ func TestUndoService_GetUndoPreview(t *testing.T) {
 
 	t.Run("generates preview for adjustment operation", func(t *testing.T) {
 		beforeComments := []Comment{
-			{ID: "1", Path: "test.go", Line: 10},
-			{ID: "2", Path: "test.go", Line: 20},
+			{ID: "1", Path: "test.go", Line: NewSingleLine(10)},
+			{ID: "2", Path: "test.go", Line: NewSingleLine(20)},
 		}
 		afterComments := []Comment{
-			{ID: "1", Path: "test.go", Line: 8},
-			{ID: "2", Path: "test.go", Line: 23},
+			{ID: "1", Path: "test.go", Line: NewSingleLine(8)},
+			{ID: "2", Path: "test.go", Line: NewSingleLine(23)},
 		}
 		adjustments := []LineAdjustment{{OldStart: 10, OldEnd: 10, NewStart: 8, NewEnd: 8, Operation: OperationDelete}}
 
@@ -792,7 +792,7 @@ func TestUndoService_GetUndoPreview(t *testing.T) {
 	})
 
 	t.Run("generates preview for comment operation", func(t *testing.T) {
-		comment := Comment{ID: "1", Path: "main.go", Line: 42, Body: "Test"}
+		comment := Comment{ID: "1", Path: "main.go", Line: NewSingleLine(42), Body: "Test"}
 		opID := service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment, nil)
 
 		preview, err := service.GetUndoPreview(opID)
@@ -807,16 +807,16 @@ func TestUndoService_GetUndoPreview(t *testing.T) {
 
 	t.Run("generates preview for merge operation", func(t *testing.T) {
 		originalComments := []Comment{
-			{ID: "1", Path: "test.go", Line: 10},
-			{ID: "2", Path: "test.go", Line: 10},
+			{ID: "1", Path: "test.go", Line: NewSingleLine(10)},
+			{ID: "2", Path: "test.go", Line: NewSingleLine(10)},
 		}
-		mergedComments := []Comment{{ID: "merged", Path: "test.go", Line: 10}}
+		mergedComments := []Comment{{ID: "merged", Path: "test.go", Line: NewSingleLine(10)}}
 		conflicts := []MergeConflict{{
 			File: "test.go",
 			Line: 10,
 			ConflictingComments: []CommentWithContext{
-				{Comment: Comment{ID: "1", Path: "test.go", Line: 10}},
-				{Comment: Comment{ID: "2", Path: "test.go", Line: 10}},
+				{Comment: Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10)}},
+				{Comment: Comment{ID: "2", Path: "test.go", Line: NewSingleLine(10)}},
 			},
 		}}
 
@@ -833,12 +833,12 @@ func TestUndoService_GetUndoPreview(t *testing.T) {
 	})
 
 	t.Run("includes warnings for operations with conflicts", func(t *testing.T) {
-		comment1 := Comment{ID: "1", Path: "warn.go", Line: 10}
+		comment1 := Comment{ID: "1", Path: "warn.go", Line: NewSingleLine(10)}
 		opID := service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment1, nil)
 
 		// Create a newer operation on same file
 		time.Sleep(10 * time.Millisecond)
-		comment2 := Comment{ID: "2", Path: "warn.go", Line: 15}
+		comment2 := Comment{ID: "2", Path: "warn.go", Line: NewSingleLine(15)}
 		service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment2, nil)
 
 		preview, err := service.GetUndoPreview(opID)
@@ -861,10 +861,10 @@ func TestUndoSystem_CompleteWorkflow(t *testing.T) {
 
 		// Step 1: Record an adjustment
 		beforeComments := []Comment{
-			{ID: "1", Path: "workflow.go", Line: 100, Body: "Original comment"},
+			{ID: "1", Path: "workflow.go", Line: NewSingleLine(100), Body: "Original comment"},
 		}
 		afterComments := []Comment{
-			{ID: "1", Path: "workflow.go", Line: 98, Body: "Original comment"},
+			{ID: "1", Path: "workflow.go", Line: NewSingleLine(98), Body: "Original comment"},
 		}
 		adjustments := []LineAdjustment{{OldStart: 100, OldEnd: 100, NewStart: 98, NewEnd: 98, Operation: OperationDelete}}
 
@@ -894,8 +894,8 @@ func TestUndoSystem_CompleteWorkflow(t *testing.T) {
 		if len(restoredComments) != 1 {
 			t.Fatalf("Expected 1 restored comment, got %d", len(restoredComments))
 		}
-		if restoredComments[0].Line != 100 {
-			t.Errorf("Expected line 100, got %d", restoredComments[0].Line)
+		if restoredComments[0].Line != NewSingleLine(100) {
+			t.Errorf("Expected line 100, got %v", restoredComments[0].Line)
 		}
 	})
 }
@@ -906,10 +906,10 @@ func TestUndoSystem_ConcurrentOperations(t *testing.T) {
 		repo := createTestRepository()
 
 		// Create operations on different files
-		comment1 := Comment{ID: "1", Path: "file1.go", Line: 10}
+		comment1 := Comment{ID: "1", Path: "file1.go", Line: NewSingleLine(10)}
 		opID1 := service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment1, nil)
 
-		comment2 := Comment{ID: "2", Path: "file2.go", Line: 10}
+		comment2 := Comment{ID: "2", Path: "file2.go", Line: NewSingleLine(10)}
 		opID2 := service.manager.history.RecordCommentOperation(repo, "123", UndoTypeComment, comment2, nil)
 
 		// Both should be independently undoable

@@ -530,7 +530,7 @@ func (aa *AdvancedAnalyzer) detectFramework() string {
 func (aa *AdvancedAnalyzer) AnalyzeCommentMovement(comment Comment, adjustments []LineAdjustment) *CommentMovementAnalysis {
 	analysis := &CommentMovementAnalysis{
 		Comment:          comment,
-		OriginalLocation: Location{FilePath: comment.Path, Line: comment.Line},
+		OriginalLocation: Location{FilePath: comment.Path, Line: comment.Line.EndLine},
 		ShouldMove:       false,
 		Confidence:       0.5,
 		Recommendations:  make([]MovementRecommendation, 0),
@@ -632,7 +632,7 @@ func (aa *AdvancedAnalyzer) findBetterLocation(comment Comment, fileAnalysis *Fi
 // commentHasCrossFileReference checks if a comment has cross-file references.
 func (aa *AdvancedAnalyzer) commentHasCrossFileReference(comment Comment) bool {
 	// Check cross-references at the comment location
-	refKey := fmt.Sprintf("%s:%d", comment.Path, comment.Line)
+	refKey := fmt.Sprintf("%s:%d", comment.Path, comment.Line.EndLine)
 	references, exists := aa.projectAnalysis.CrossReferences.References[refKey]
 	if !exists {
 		return false

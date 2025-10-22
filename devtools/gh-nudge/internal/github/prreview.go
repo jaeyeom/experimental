@@ -112,6 +112,8 @@ func (prc *PRReviewClient) ValidatePRAccess(repository models.Repository, prNumb
 // SubmitReview submits a review to GitHub.
 func (prc *PRReviewClient) SubmitReview(repository models.Repository, prNumber int, review models.PRReview) error {
 	// Convert our comment format to GitHub's format
+	//
+	// TODO: Investigate why this does not use GitHubComment struct.
 	githubComments := make([]map[string]interface{}, len(review.Comments))
 	for i, comment := range review.Comments {
 		githubComment := map[string]interface{}{
@@ -121,10 +123,10 @@ func (prc *PRReviewClient) SubmitReview(repository models.Repository, prNumber i
 		}
 
 		if comment.IsMultiLine() {
-			githubComment["start_line"] = *comment.StartLine
-			githubComment["line"] = comment.Line
+			githubComment["start_line"] = comment.Line.StartLine
+			githubComment["line"] = comment.Line.EndLine
 		} else {
-			githubComment["line"] = comment.Line
+			githubComment["line"] = comment.Line.EndLine
 		}
 
 		if comment.SHA != "" {
@@ -238,24 +240,23 @@ func (prc *PRReviewClient) parseLineNumber(part, prefix string) int {
 
 func (prc *PRReviewClient) createNewHunk(filename, sha, line string, rightLineNum int) *models.DiffHunk {
 	return &models.DiffHunk{
-		File:      filename,
-		SHA:       sha,
-		StartLine: rightLineNum,
-		EndLine:   rightLineNum,
-		Content:   line + "\n",
-		Side:      "RIGHT",
+		File:    filename,
+		SHA:     sha,
+		Range:   models.NewSingleLine(rightLineNum),
+		Content: line + "\n",
+		Side:    "RIGHT",
 	}
 }
 
 func (prc *PRReviewClient) updateLineNumbers(line string, rightLineNum, leftLineNum int, currentHunk *models.DiffHunk) (int, int) {
 	switch {
 	case strings.HasPrefix(line, "+"):
-		currentHunk.EndLine = rightLineNum
+		currentHunk.Range.EndLine = rightLineNum
 		rightLineNum++
 	case strings.HasPrefix(line, "-"):
 		leftLineNum++
 	case strings.HasPrefix(line, " "):
-		currentHunk.EndLine = rightLineNum
+		currentHunk.Range.EndLine = rightLineNum
 		rightLineNum++
 		leftLineNum++
 	}
@@ -412,18 +413,32 @@ func (prc *PRReviewClient) convertGitHubComment(ghComment GitHubComment) (models
 	}
 
 	// Handle line numbers - GitHub API can use different fields
+	//
+	// TODO: Consider implement ghComment.GetLineRange() and maybe ghComment.IsMultiLine().
+	var endLine int
 	switch {
 	case ghComment.Line != nil:
-		comment.Line = *ghComment.Line
+		endLine = *ghComment.Line
 	case ghComment.OriginalLine != nil:
-		comment.Line = *ghComment.OriginalLine
+		endLine = *ghComment.OriginalLine
 	default:
 		return models.Comment{}, fmt.Errorf("comment has no line number")
 	}
 
 	// Handle multi-line comments
-	if ghComment.StartLine != nil && *ghComment.StartLine != comment.Line {
-		comment.StartLine = ghComment.StartLine
+	if ghComment.StartLine != nil && *ghComment.StartLine != endLine {
+		comment.Line = models.NewLineRange(*ghComment.StartLine, endLine)
+	} else {
+		comment.Line = models.NewSingleLine(endLine)
+	}
+
+	// Handle original position for multi-line comments
+	if ghComment.OriginalStartLine != nil && ghComment.OriginalLine != nil && *ghComment.OriginalStartLine != *ghComment.OriginalLine {
+		origRange := models.NewLineRange(*ghComment.OriginalStartLine, *ghComment.OriginalLine)
+		comment.OriginalRange = &origRange
+	} else if ghComment.OriginalLine != nil {
+		origRange := models.NewSingleLine(*ghComment.OriginalLine)
+		comment.OriginalRange = &origRange
 	}
 
 	// Validate side (default to RIGHT if invalid)

@@ -351,7 +351,7 @@ func TestCommentIDInJSON(t *testing.T) {
 	original := Comment{
 		ID:   GenerateCommentID(),
 		Path: "test.go",
-		Line: 42,
+		Line: NewSingleLine(42),
 		Body: "Test comment",
 		Side: "RIGHT",
 	}
@@ -393,7 +393,7 @@ func TestCommentIDInJSON(t *testing.T) {
 		t.Errorf("Path not preserved: expected %q, got %q", original.Path, deserialized.Path)
 	}
 	if deserialized.Line != original.Line {
-		t.Errorf("Line not preserved: expected %d, got %d", original.Line, deserialized.Line)
+		t.Errorf("Line not preserved: expected %v, got %v", original.Line, deserialized.Line)
 	}
 	if deserialized.Body != original.Body {
 		t.Errorf("Body not preserved: expected %q, got %q", original.Body, deserialized.Body)
@@ -407,7 +407,7 @@ func TestCommentIDInJSON(t *testing.T) {
 func TestCommentGetLineRange(t *testing.T) {
 	t.Run("Single line comment", func(t *testing.T) {
 		comment := Comment{
-			Line: 42,
+			Line: NewSingleLine(42),
 			Path: "test.go",
 		}
 		lineRange := comment.GetLineRange()
@@ -418,11 +418,9 @@ func TestCommentGetLineRange(t *testing.T) {
 	})
 
 	t.Run("Multi-line comment", func(t *testing.T) {
-		startLine := 10
 		comment := Comment{
-			StartLine: &startLine,
-			Line:      20,
-			Path:      "test.go",
+			Line: NewLineRange(10, 20),
+			Path: "test.go",
 		}
 		lineRange := comment.GetLineRange()
 		if lineRange.StartLine != 10 || lineRange.EndLine != 20 {
@@ -432,11 +430,9 @@ func TestCommentGetLineRange(t *testing.T) {
 	})
 
 	t.Run("Multi-line comment with same start and end", func(t *testing.T) {
-		startLine := 15
 		comment := Comment{
-			StartLine: &startLine,
-			Line:      15,
-			Path:      "test.go",
+			Line: NewLineRange(15, 15),
+			Path: "test.go",
 		}
 		// Even though StartLine is set, if it equals Line, IsMultiLine() returns false
 		lineRange := comment.GetLineRange()
@@ -456,13 +452,13 @@ func TestCommentGetLineRange(t *testing.T) {
 		}{
 			{
 				name:      "Single line",
-				comment:   Comment{Line: 5},
+				comment:   Comment{Line: NewSingleLine(5)},
 				wantStart: 5,
 				wantEnd:   5,
 			},
 			{
 				name:      "Multi-line",
-				comment:   Comment{StartLine: intPtr(1), Line: 10},
+				comment:   Comment{Line: NewLineRange(1, 10)},
 				wantStart: 1,
 				wantEnd:   10,
 			},
@@ -484,9 +480,9 @@ func TestCommentGetLineRange(t *testing.T) {
 func TestCommentMatchesFilter(t *testing.T) {
 	t.Run("Empty filter matches all", func(t *testing.T) {
 		comments := []Comment{
-			{Path: "foo.go", Line: 10, Side: "RIGHT"},
-			{Path: "bar.go", Line: 20, Side: "LEFT"},
-			{Path: "baz.go", Line: 30, Side: "RIGHT"},
+			{Path: "foo.go", Line: NewSingleLine(10), Side: "RIGHT"},
+			{Path: "bar.go", Line: NewSingleLine(20), Side: "LEFT"},
+			{Path: "baz.go", Line: NewSingleLine(30), Side: "RIGHT"},
 		}
 		emptyFilter := CommentFilter{}
 		for i, comment := range comments {
@@ -498,9 +494,9 @@ func TestCommentMatchesFilter(t *testing.T) {
 
 	t.Run("File filter", func(t *testing.T) {
 		comments := []Comment{
-			{Path: "foo.go", Line: 10},
-			{Path: "bar.go", Line: 20},
-			{Path: "foo.go", Line: 30},
+			{Path: "foo.go", Line: NewSingleLine(10)},
+			{Path: "bar.go", Line: NewSingleLine(20)},
+			{Path: "foo.go", Line: NewSingleLine(30)},
 		}
 		filter := CommentFilter{File: "foo.go"}
 
@@ -520,9 +516,9 @@ func TestCommentMatchesFilter(t *testing.T) {
 
 	t.Run("Side filter", func(t *testing.T) {
 		comments := []Comment{
-			{Path: "test.go", Line: 10, Side: "LEFT"},
-			{Path: "test.go", Line: 20, Side: "RIGHT"},
-			{Path: "test.go", Line: 30, Side: "LEFT"},
+			{Path: "test.go", Line: NewSingleLine(10), Side: "LEFT"},
+			{Path: "test.go", Line: NewSingleLine(20), Side: "RIGHT"},
+			{Path: "test.go", Line: NewSingleLine(30), Side: "LEFT"},
 		}
 		filter := CommentFilter{Side: "LEFT"}
 
@@ -540,21 +536,21 @@ func TestCommentMatchesFilter(t *testing.T) {
 		}
 	})
 
-	t.Run("Line filter", func(t *testing.T) {
+	t.Run("LineRange filter - single line", func(t *testing.T) {
 		targetLine := 42
 		comments := []Comment{
-			{Path: "test.go", Line: 42},
-			{Path: "test.go", Line: 43},
-			{Path: "test.go", Line: 42},
+			{Path: "test.go", Line: NewSingleLine(42)},
+			{Path: "test.go", Line: NewSingleLine(43)},
+			{Path: "test.go", Line: NewSingleLine(42)},
 		}
-		filter := CommentFilter{Line: &targetLine}
+		filter := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}}
 
 		matched := 0
 		for _, comment := range comments {
 			if comment.MatchesFilter(filter) {
 				matched++
-				if comment.Line != targetLine {
-					t.Errorf("Comment with line %d should not match filter for line %d", comment.Line, targetLine)
+				if comment.Line.EndLine != targetLine {
+					t.Errorf("Comment with line %d should not match filter for line %d", comment.Line.EndLine, targetLine)
 				}
 			}
 		}
@@ -563,90 +559,15 @@ func TestCommentMatchesFilter(t *testing.T) {
 		}
 	})
 
-	t.Run("StartLine filter", func(t *testing.T) {
-		filterStartLine := 10
-		commentStartLine := 10
-		otherStartLine := 15
-
+	t.Run("LineRange filter - range overlap", func(t *testing.T) {
 		comments := []Comment{
-			{Path: "test.go", StartLine: &commentStartLine, Line: 20},
-			{Path: "test.go", StartLine: &otherStartLine, Line: 25},
-			{Path: "test.go", Line: 30}, // No StartLine - this will also match!
+			{Path: "test.go", Line: NewLineRange(10, 20)}, // overlaps: 10-20 overlaps with 15-25
+			{Path: "test.go", Line: NewLineRange(15, 25)}, // overlaps: 15-25 overlaps with 15-25
+			{Path: "test.go", Line: NewLineRange(26, 30)}, // no overlap: 26-30 does not overlap with 15-25
+			{Path: "test.go", Line: NewSingleLine(18)},    // overlaps: single line 18 overlaps with 15-25
+			{Path: "test.go", Line: NewSingleLine(10)},    // no overlap: single line 10 does not overlap with 15-25
 		}
-		filter := CommentFilter{StartLine: &filterStartLine}
-
-		// The filter only checks StartLine if BOTH filter.StartLine AND c.StartLine are non-nil
-		// So comments without StartLine will also match
-		matched := 0
-		matchedWithStartLine := 0
-		for _, comment := range comments {
-			if comment.MatchesFilter(filter) {
-				matched++
-				// Only count those that actually have matching StartLine
-				if comment.StartLine != nil && *comment.StartLine == filterStartLine {
-					matchedWithStartLine++
-				}
-			}
-		}
-		// Should match: the comment with StartLine=10 AND the single-line comment (no StartLine)
-		if matched != 2 {
-			t.Errorf("Expected 2 matches for startLine filter (including single-line comments), got %d", matched)
-		}
-		if matchedWithStartLine != 1 {
-			t.Errorf("Expected 1 multi-line comment with matching startLine, got %d", matchedWithStartLine)
-		}
-	})
-
-	t.Run("EndLine filter", func(t *testing.T) {
-		filterEndLine := 20
-		startLine1 := 10
-		startLine2 := 15
-
-		comments := []Comment{
-			{Path: "test.go", StartLine: &startLine1, Line: 20}, // matches: has StartLine and Line=20
-			{Path: "test.go", StartLine: &startLine2, Line: 25}, // doesn't match: Line=25
-			{Path: "test.go", Line: 20},                         // matches: no StartLine (filter skipped)
-		}
-		filter := CommentFilter{EndLine: &filterEndLine}
-
-		// EndLine filter only applies when BOTH filter.EndLine AND c.StartLine are non-nil
-		// It checks if c.Line == filter.EndLine
-		matched := 0
-		matchedWithEndLine := 0
-		for _, comment := range comments {
-			if comment.MatchesFilter(filter) {
-				matched++
-				// Count multi-line comments with matching end line
-				if comment.StartLine != nil && comment.Line == filterEndLine {
-					matchedWithEndLine++
-				}
-			}
-		}
-		// Should match: multi-line comment with Line=20 AND single-line comment (no StartLine)
-		if matched != 2 {
-			t.Errorf("Expected 2 matches for endLine filter (including single-line comments), got %d", matched)
-		}
-		if matchedWithEndLine != 1 {
-			t.Errorf("Expected 1 multi-line comment with matching endLine, got %d", matchedWithEndLine)
-		}
-	})
-
-	t.Run("StartLine and EndLine filters together", func(t *testing.T) {
-		filterStartLine := 10
-		filterEndLine := 20
-		startLine := 10
-		otherStartLine := 15
-
-		comments := []Comment{
-			{Path: "test.go", StartLine: &startLine, Line: 20},      // matches both
-			{Path: "test.go", StartLine: &otherStartLine, Line: 20}, // matches EndLine only
-			{Path: "test.go", StartLine: &startLine, Line: 25},      // matches StartLine only
-			{Path: "test.go", Line: 20},                             // single-line, matches both (filters skipped)
-		}
-		filter := CommentFilter{
-			StartLine: &filterStartLine,
-			EndLine:   &filterEndLine,
-		}
+		filter := CommentFilter{LineRange: &LineRange{StartLine: 15, EndLine: 25}}
 
 		matched := 0
 		for _, comment := range comments {
@@ -654,31 +575,31 @@ func TestCommentMatchesFilter(t *testing.T) {
 				matched++
 			}
 		}
-		// Should match: multi-line with StartLine=10 AND Line=20, plus single-line comment
-		if matched != 2 {
-			t.Errorf("Expected 2 matches for combined startLine+endLine filter, got %d", matched)
+		// Should match: first 3 comments overlap with range 15-25
+		if matched != 3 {
+			t.Errorf("Expected 3 matches for lineRange filter, got %d", matched)
 		}
 	})
 
 	t.Run("Combined filters", func(t *testing.T) {
 		targetLine := 42
 		comments := []Comment{
-			{Path: "foo.go", Line: 42, Side: "RIGHT"},
-			{Path: "foo.go", Line: 43, Side: "RIGHT"},
-			{Path: "bar.go", Line: 42, Side: "RIGHT"},
-			{Path: "foo.go", Line: 42, Side: "LEFT"},
+			{Path: "foo.go", Line: NewSingleLine(42), Side: "RIGHT"},
+			{Path: "foo.go", Line: NewSingleLine(43), Side: "RIGHT"},
+			{Path: "bar.go", Line: NewSingleLine(42), Side: "RIGHT"},
+			{Path: "foo.go", Line: NewSingleLine(42), Side: "LEFT"},
 		}
 		filter := CommentFilter{
-			File: "foo.go",
-			Line: &targetLine,
-			Side: "RIGHT",
+			File:      "foo.go",
+			LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine},
+			Side:      "RIGHT",
 		}
 
 		matched := 0
 		for _, comment := range comments {
 			if comment.MatchesFilter(filter) {
 				matched++
-				if comment.Path != "foo.go" || comment.Line != targetLine || comment.Side != "RIGHT" {
+				if comment.Path != "foo.go" || comment.Line.EndLine != targetLine || comment.Side != "RIGHT" {
 					t.Errorf("Comment should match all filter criteria")
 				}
 			}
@@ -692,14 +613,14 @@ func TestCommentMatchesFilter(t *testing.T) {
 		// Test that adding more filter criteria reduces matches
 		targetLine := 100
 		comments := []Comment{
-			{Path: "test.go", Line: 100, Side: "RIGHT"},
-			{Path: "test.go", Line: 100, Side: "LEFT"},
-			{Path: "other.go", Line: 100, Side: "RIGHT"},
+			{Path: "test.go", Line: NewSingleLine(100), Side: "RIGHT"},
+			{Path: "test.go", Line: NewSingleLine(100), Side: "LEFT"},
+			{Path: "other.go", Line: NewSingleLine(100), Side: "RIGHT"},
 		}
 
-		filter1 := CommentFilter{Line: &targetLine}
-		filter2 := CommentFilter{Line: &targetLine, Side: "RIGHT"}
-		filter3 := CommentFilter{Line: &targetLine, Side: "RIGHT", File: "test.go"}
+		filter1 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}}
+		filter2 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}, Side: "RIGHT"}
+		filter3 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}, Side: "RIGHT", File: "test.go"}
 
 		count1, count2, count3 := 0, 0, 0
 		for _, comment := range comments {

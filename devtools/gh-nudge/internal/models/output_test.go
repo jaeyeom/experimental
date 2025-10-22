@@ -22,7 +22,7 @@ func TestJSONFormatter_FormatCommentsWithContext(t *testing.T) {
 					Comment: Comment{
 						ID:        "comment-1",
 						Path:      "src/main.go",
-						Line:      10,
+						Line:      NewSingleLine(10),
 						Body:      "Add error handling",
 						Side:      "RIGHT",
 						CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
@@ -43,7 +43,7 @@ func TestJSONFormatter_FormatCommentsWithContext(t *testing.T) {
 					Comment: Comment{
 						ID:        "comment-2",
 						Path:      "src/utils.go",
-						Line:      20,
+						Line:      NewSingleLine(20),
 						Body:      "Consider refactoring",
 						Side:      "LEFT",
 						CreatedAt: time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),
@@ -65,7 +65,7 @@ func TestJSONFormatter_FormatCommentsWithContext(t *testing.T) {
 					Comment: Comment{
 						ID:   "comment-3",
 						Path: "file1.go",
-						Line: 5,
+						Line: NewSingleLine(5),
 						Body: "Comment 1",
 					},
 					Context: &LineContext{
@@ -78,7 +78,7 @@ func TestJSONFormatter_FormatCommentsWithContext(t *testing.T) {
 					Comment: Comment{
 						ID:   "comment-4",
 						Path: "file2.go",
-						Line: 10,
+						Line: NewSingleLine(10),
 						Body: "Comment 2",
 					},
 					Context: nil,
@@ -151,7 +151,7 @@ func TestTextFormatter_FormatCommentsWithContext(t *testing.T) {
 					Comment: Comment{
 						ID:        "abc123",
 						Path:      "src/main.go",
-						Line:      10,
+						Line:      NewSingleLine(10),
 						Body:      "Add error handling",
 						Side:      "RIGHT",
 						CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
@@ -185,7 +185,7 @@ func TestTextFormatter_FormatCommentsWithContext(t *testing.T) {
 					Comment: Comment{
 						ID:        "def456",
 						Path:      "src/utils.go",
-						Line:      20,
+						Line:      NewSingleLine(20),
 						Body:      "Consider refactoring",
 						Side:      "LEFT",
 						CreatedAt: time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),
@@ -222,8 +222,7 @@ func TestTextFormatter_FormatCommentsWithContext(t *testing.T) {
 					Comment: Comment{
 						ID:        "ghi789",
 						Path:      "test.go",
-						Line:      25,
-						StartLine: intPtr(23),
+						Line:      NewLineRange(23, 25),
 						Body:      "Refactor this block",
 						Side:      "RIGHT",
 						CreatedAt: time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC),
@@ -282,7 +281,7 @@ func TestTextFormatter_FormatCommentsWithContext_MultipleComments(t *testing.T) 
 			Comment: Comment{
 				ID:        "comment-1",
 				Path:      "file1.go",
-				Line:      10,
+				Line:      NewSingleLine(10),
 				Body:      "First comment",
 				Side:      "RIGHT",
 				CreatedAt: time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
@@ -297,7 +296,7 @@ func TestTextFormatter_FormatCommentsWithContext_MultipleComments(t *testing.T) 
 			Comment: Comment{
 				ID:        "comment-2",
 				Path:      "file2.go",
-				Line:      20,
+				Line:      NewSingleLine(20),
 				Body:      "Second comment",
 				Side:      "LEFT",
 				CreatedAt: time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),

@@ -26,6 +26,8 @@ type AdjustmentPreview struct {
 }
 
 // CommentChange represents how a comment will be adjusted.
+//
+// TODO: See if LineRange should be used.
 type CommentChange struct {
 	CommentID      string `json:"commentId"`
 	CommentIDShort string `json:"commentIdShort"`
@@ -236,19 +238,23 @@ func (ch *CommandHandler) getBranchAdjustmentPreview(repository models.Repositor
 		change := CommentChange{
 			CommentID:      comment.ID,
 			CommentIDShort: comment.FormatIDShort(),
-			OriginalLine:   comment.Line,
+			OriginalLine:   comment.Line.EndLine,
 			Body:           truncateString(comment.Body, 50),
 		}
 
-		if comment.StartLine != nil {
-			change.StartLine = comment.StartLine
+		if comment.IsMultiLine() {
+			startLine := comment.Line.StartLine
+			change.StartLine = &startLine
 		}
 
 		// Test adjustment
 		testComment := comment
 		if models.AdjustComment(&testComment, adjustments) {
-			change.NewLine = testComment.Line
-			change.NewStartLine = testComment.StartLine
+			change.NewLine = testComment.Line.EndLine
+			if testComment.IsMultiLine() {
+				newStartLine := testComment.Line.StartLine
+				change.NewStartLine = &newStartLine
+			}
 			change.Status = "adjusted"
 
 			// Validate against diff hunks
@@ -311,19 +317,23 @@ func (ch *CommandHandler) getAdjustmentPreview(repository models.Repository, prN
 		change := CommentChange{
 			CommentID:      comment.ID,
 			CommentIDShort: comment.FormatIDShort(),
-			OriginalLine:   comment.Line,
+			OriginalLine:   comment.Line.EndLine,
 			Body:           truncateString(comment.Body, 50),
 		}
 
-		if comment.StartLine != nil {
-			change.StartLine = comment.StartLine
+		if comment.IsMultiLine() {
+			startLine := comment.Line.StartLine
+			change.StartLine = &startLine
 		}
 
 		// Test adjustment
 		testComment := comment
 		if models.AdjustComment(&testComment, adjustments) {
-			change.NewLine = testComment.Line
-			change.NewStartLine = testComment.StartLine
+			change.NewLine = testComment.Line.EndLine
+			if testComment.IsMultiLine() {
+				newStartLine := testComment.Line.StartLine
+				change.NewStartLine = &newStartLine
+			}
 			change.Status = "adjusted"
 
 			// Validate against diff hunks
@@ -394,7 +404,11 @@ func (ch *CommandHandler) applyPRAdjustments(repository models.Repository, prNum
 			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
 			// Optionally keep orphaned comments with a special marker
 			if force {
-				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", comment.OriginalLine, comment.Body)
+				originalLine := comment.Line.EndLine
+				if comment.OriginalRange != nil {
+					originalLine = comment.OriginalRange.EndLine
+				}
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", originalLine, comment.Body)
 				updatedComments = append(updatedComments, comment)
 			}
 		}
@@ -465,7 +479,11 @@ func (ch *CommandHandler) applyBranchAdjustments(repository models.Repository, b
 			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
 			// Optionally keep orphaned comments with a special marker
 			if force {
-				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", comment.OriginalLine, comment.Body)
+				originalLine := comment.Line.EndLine
+				if comment.OriginalRange != nil {
+					originalLine = comment.OriginalRange.EndLine
+				}
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", originalLine, comment.Body)
 				updatedComments = append(updatedComments, comment)
 			}
 		}
@@ -623,7 +641,11 @@ func (ch *CommandHandler) applyPRAdjustmentsWithCounts(repository models.Reposit
 			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
 			// Optionally keep orphaned comments with a special marker
 			if force {
-				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", comment.OriginalLine, comment.Body)
+				originalLine := comment.Line.EndLine
+				if comment.OriginalRange != nil {
+					originalLine = comment.OriginalRange.EndLine
+				}
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", originalLine, comment.Body)
 				updatedComments = append(updatedComments, comment)
 			}
 		}
@@ -685,7 +707,11 @@ func (ch *CommandHandler) applyBranchAdjustmentsWithCounts(repository models.Rep
 			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
 			// Optionally keep orphaned comments with a special marker
 			if force {
-				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", comment.OriginalLine, comment.Body)
+				originalLine := comment.Line.EndLine
+				if comment.OriginalRange != nil {
+					originalLine = comment.OriginalRange.EndLine
+				}
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", originalLine, comment.Body)
 				updatedComments = append(updatedComments, comment)
 			}
 		}

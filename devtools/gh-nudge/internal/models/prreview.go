@@ -40,12 +40,11 @@ func ParseOperationType(s string) (OperationType, error) {
 
 // DiffHunk represents a diff hunk in a pull request.
 type DiffHunk struct {
-	File      string `json:"file"`
-	Side      string `json:"side"`      // "LEFT" or "RIGHT"
-	StartLine int    `json:"startLine"` // Starting line number
-	EndLine   int    `json:"endLine"`   // Ending line number
-	Content   string `json:"content"`   // The diff content
-	SHA       string `json:"sha"`       // Commit SHA
+	File    string    `json:"file"`
+	Side    string    `json:"side"`    // "LEFT" or "RIGHT"
+	Range   LineRange `json:"range"`   // Line range for this hunk
+	Content string    `json:"content"` // The diff content
+	SHA     string    `json:"sha"`     // Commit SHA
 }
 
 // CommentStatus represents the status of a comment.
@@ -68,16 +67,15 @@ const (
 
 // Comment represents a line-specific comment in a pull request.
 type Comment struct {
-	ID                string           `json:"id"`                          // Unique comment ID (40-char hex string)
-	Path              string           `json:"path"`                        // File path
-	Line              int              `json:"line"`                        // Line number (for single line comments)
-	StartLine         *int             `json:"startLine"`                   // Starting line for multi-line comments
+	ID   string `json:"id"`   // Unique comment ID (40-char hex string)
+	Path string `json:"path"` // File path
+	// TODO: Consider renaming this field to Line.
+	Line              LineRange        `json:"line"`                        // Line range for this comment
 	Body              string           `json:"body"`                        // Comment text
 	Side              string           `json:"side"`                        // "LEFT" or "RIGHT"
 	SHA               string           `json:"sha"`                         // Commit SHA
 	CreatedAt         time.Time        `json:"createdAt"`                   // When comment was created
-	OriginalLine      int              `json:"originalLine,omitempty"`      // Original line number before adjustments
-	OriginalStartLine *int             `json:"originalStartLine,omitempty"` // Original start line for multi-line comments
+	OriginalRange     *LineRange       `json:"originalRange,omitempty"`     // Original line range before adjustments
 	AdjustmentHistory []LineAdjustment `json:"adjustmentHistory,omitempty"` // History of line adjustments
 	Status            CommentStatus    `json:"status,omitempty"`            // Comment status (unresolved, resolved, archived)
 	ResolvedAt        *time.Time       `json:"resolvedAt,omitempty"`        // When comment was resolved
@@ -117,17 +115,45 @@ type PRReview struct {
 
 // CommentFilter represents filters for listing comments.
 type CommentFilter struct {
-	File      string `json:"file,omitempty"`
-	Line      *int   `json:"line,omitempty"`
-	StartLine *int   `json:"startLine,omitempty"`
-	EndLine   *int   `json:"endLine,omitempty"`
-	Side      string `json:"side,omitempty"`
+	File string `json:"file,omitempty"`
+	// TODO: Consider making Side a typed constant similar to OperationType.
+	Side         string     `json:"side,omitempty"`
+	LineRange    *LineRange `json:"lineRange,omitempty"`    // For filtering by line range (supports single line or range)
+	ShowArchived bool       `json:"showArchived,omitempty"` // Whether to include archived comments
 }
 
 // LineRange represents a range of lines.
 type LineRange struct {
 	StartLine int `json:"startLine"`
 	EndLine   int `json:"endLine"`
+}
+
+// NewLineRange creates a new LineRange from start and end line numbers.
+func NewLineRange(startLine, endLine int) LineRange {
+	return LineRange{StartLine: startLine, EndLine: endLine}
+}
+
+// NewSingleLine creates a LineRange for a single line.
+func NewSingleLine(line int) LineRange {
+	return LineRange{StartLine: line, EndLine: line}
+}
+
+// String returns a string representation of the line range.
+func (lr LineRange) String() string {
+	if lr.IsMultiLine() {
+		return fmt.Sprintf("%d-%d", lr.StartLine, lr.EndLine)
+	}
+	return fmt.Sprintf("%d", lr.StartLine)
+}
+
+// IsMultiLine checks if the range spans multiple lines.
+func (lr LineRange) IsMultiLine() bool {
+	return lr.StartLine != lr.EndLine
+}
+
+// Overlaps checks if this range overlaps with another range.
+func (lr LineRange) Overlaps(other LineRange) bool {
+	return lr.StartLine <= other.EndLine && lr.EndLine >= other.StartLine
 }
 
 // ParseLineSpec parses a line specification (e.g., "15" or "15-20").
@@ -163,42 +189,49 @@ func ParseLineSpec(spec string) (*LineRange, error) {
 	return &LineRange{StartLine: line, EndLine: line}, nil
 }
 
-// IsInRange checks if a line number is within the diff hunks.
+// IsInRange checks if a line number is within the diff hunk.
 func (h DiffHunk) IsInRange(line int) bool {
-	return line >= h.StartLine && line <= h.EndLine
+	return h.Range.StartLine <= line && line <= h.Range.EndLine
 }
 
 // MatchesFilter checks if a comment matches the given filter.
 func (c Comment) MatchesFilter(filter CommentFilter) bool {
+	if !filter.ShowArchived && c.IsArchived() {
+		return false
+	}
 	if filter.File != "" && c.Path != filter.File {
 		return false
 	}
 	if filter.Side != "" && c.Side != filter.Side {
 		return false
 	}
-	if filter.Line != nil && c.Line != *filter.Line {
-		return false
-	}
-	if filter.StartLine != nil && c.StartLine != nil && *c.StartLine != *filter.StartLine {
-		return false
-	}
-	if filter.EndLine != nil && c.StartLine != nil && c.Line != *filter.EndLine {
-		return false
+	if filter.LineRange != nil {
+		if !c.Line.Overlaps(*filter.LineRange) {
+			return false
+		}
 	}
 	return true
 }
 
+// Apply filters a list of comments and returns only those that match the filter.
+func (f CommentFilter) Apply(comments []Comment) []Comment {
+	var filtered []Comment
+	for _, comment := range comments {
+		if comment.MatchesFilter(f) {
+			filtered = append(filtered, comment)
+		}
+	}
+	return filtered
+}
+
 // IsMultiLine checks if the comment spans multiple lines.
 func (c Comment) IsMultiLine() bool {
-	return c.StartLine != nil && *c.StartLine != c.Line
+	return c.Line.IsMultiLine()
 }
 
 // GetLineRange returns the line range for the comment.
 func (c Comment) GetLineRange() LineRange {
-	if c.IsMultiLine() {
-		return LineRange{StartLine: *c.StartLine, EndLine: c.Line}
-	}
-	return LineRange{StartLine: c.Line, EndLine: c.Line}
+	return c.Line
 }
 
 // IsDuplicate checks if two comments are duplicates.

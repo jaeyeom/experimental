@@ -457,7 +457,7 @@ func TestAdjustComment(t *testing.T) {
 		name        string
 		comment     Comment
 		adjustments []LineAdjustment
-		wantLine    int
+		wantLine    LineRange
 		wantStart   *int
 		wantValid   bool
 	}{
@@ -466,12 +466,12 @@ func TestAdjustComment(t *testing.T) {
 			comment: Comment{
 				ID:   "test1",
 				Path: "file.go",
-				Line: 10,
+				Line: NewSingleLine(10),
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationDelete, OldStart: 15, OldEnd: 17, NewStart: 14, NewEnd: 14},
 			},
-			wantLine:  10,
+			wantLine:  NewSingleLine(10),
 			wantStart: nil,
 			wantValid: true,
 		},
@@ -480,57 +480,54 @@ func TestAdjustComment(t *testing.T) {
 			comment: Comment{
 				ID:   "test2",
 				Path: "file.go",
-				Line: 20,
+				Line: NewSingleLine(20),
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationDelete, OldStart: 15, OldEnd: 17, NewStart: 14, NewEnd: 14},
 			},
-			wantLine:  17,
+			wantLine:  NewSingleLine(17),
 			wantStart: nil,
 			wantValid: true,
 		},
 		{
 			name: "multi-line comment adjusted",
 			comment: Comment{
-				ID:        "test3",
-				Path:      "file.go",
-				Line:      25,
-				StartLine: intPtr(20),
+				ID:   "test3",
+				Path: "file.go",
+				Line: NewLineRange(20, 25),
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationDelete, OldStart: 15, OldEnd: 17, NewStart: 14, NewEnd: 14},
 			},
-			wantLine:  22,
+			wantLine:  NewLineRange(17, 22),
 			wantStart: intPtr(17),
 			wantValid: true,
 		},
 		{
 			name: "multi-line comment start deleted",
 			comment: Comment{
-				ID:        "test4",
-				Path:      "file.go",
-				Line:      20,
-				StartLine: intPtr(16),
+				ID:   "test4",
+				Path: "file.go",
+				Line: NewLineRange(16, 20),
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationDelete, OldStart: 15, OldEnd: 17, NewStart: 14, NewEnd: 14},
 			},
-			wantLine:  -1,
+			wantLine:  NewSingleLine(-1),
 			wantStart: nil,
 			wantValid: false,
 		},
 		{
 			name: "multi-line comment end deleted",
 			comment: Comment{
-				ID:        "test5",
-				Path:      "file.go",
-				Line:      16,
-				StartLine: intPtr(10),
+				ID:   "test5",
+				Path: "file.go",
+				Line: NewLineRange(10, 16),
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationDelete, OldStart: 15, OldEnd: 17, NewStart: 14, NewEnd: 14},
 			},
-			wantLine:  -1,
+			wantLine:  NewSingleLine(-1),
 			wantStart: nil,
 			wantValid: false,
 		},
@@ -539,12 +536,12 @@ func TestAdjustComment(t *testing.T) {
 			comment: Comment{
 				ID:   "test6",
 				Path: "file.go",
-				Line: 20,
+				Line: NewSingleLine(20),
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationInsert, OldStart: 10, OldEnd: 10, NewStart: 11, NewEnd: 13},
 			},
-			wantLine:  23,
+			wantLine:  NewSingleLine(23),
 			wantStart: nil,
 			wantValid: true,
 		},
@@ -565,21 +562,21 @@ func TestAdjustComment(t *testing.T) {
 
 			if isValid {
 				if comment.Line != tt.wantLine {
-					t.Errorf("AdjustComment() Line = %v, want %v", comment.Line, tt.wantLine)
+					t.Errorf("AdjustComment() Range.EndLine = %v, want %v", comment.Line, tt.wantLine)
 				}
 
 				switch {
-				case tt.wantStart == nil && comment.StartLine != nil:
-					t.Errorf("AdjustComment() StartLine = %v, want nil", *comment.StartLine)
-				case tt.wantStart != nil && comment.StartLine == nil:
-					t.Errorf("AdjustComment() StartLine = nil, want %v", *tt.wantStart)
-				case tt.wantStart != nil && comment.StartLine != nil && *comment.StartLine != *tt.wantStart:
-					t.Errorf("AdjustComment() StartLine = %v, want %v", *comment.StartLine, *tt.wantStart)
+				case tt.wantStart == nil && comment.IsMultiLine():
+					t.Errorf("AdjustComment() is multi-line (StartLine = %v), want single-line", comment.Line.StartLine)
+				case tt.wantStart != nil && !comment.IsMultiLine():
+					t.Errorf("AdjustComment() is single-line, want multi-line with StartLine = %v", *tt.wantStart)
+				case tt.wantStart != nil && comment.Line.StartLine != *tt.wantStart:
+					t.Errorf("AdjustComment() Range.StartLine = %v, want %v", comment.Line.StartLine, *tt.wantStart)
 				}
 
 				// Check that original line numbers are preserved
-				if comment.OriginalLine == 0 {
-					t.Error("AdjustComment() should set OriginalLine")
+				if comment.OriginalRange == nil {
+					t.Error("AdjustComment() should set OriginalRange")
 				}
 
 				// Check adjustment history
@@ -595,16 +592,14 @@ func TestAdjustComment(t *testing.T) {
 func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 	diffHunks := []DiffHunk{
 		{
-			File:      "file.go",
-			Side:      "RIGHT",
-			StartLine: 10,
-			EndLine:   20,
+			File:  "file.go",
+			Side:  "RIGHT",
+			Range: NewLineRange(10, 20),
 		},
 		{
-			File:      "file.go",
-			Side:      "RIGHT",
-			StartLine: 30,
-			EndLine:   40,
+			File:  "file.go",
+			Side:  "RIGHT",
+			Range: NewLineRange(30, 40),
 		},
 	}
 
@@ -619,7 +614,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			name: "adjusted comment within diff hunk",
 			comment: Comment{
 				Path: "file.go",
-				Line: 35,
+				Line: NewSingleLine(35),
 				Side: "RIGHT",
 			},
 			adjustments: []LineAdjustment{
@@ -631,7 +626,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			name: "adjusted comment outside diff hunks",
 			comment: Comment{
 				Path: "file.go",
-				Line: 50,
+				Line: NewSingleLine(50),
 				Side: "RIGHT",
 			},
 			adjustments: []LineAdjustment{
@@ -644,7 +639,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			name: "comment on deleted line",
 			comment: Comment{
 				Path: "file.go",
-				Line: 15,
+				Line: NewSingleLine(15),
 				Side: "RIGHT",
 			},
 			adjustments: []LineAdjustment{
@@ -657,7 +652,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			name: "wrong file path",
 			comment: Comment{
 				Path: "other.go",
-				Line: 15,
+				Line: NewSingleLine(15),
 				Side: "RIGHT",
 			},
 			adjustments: []LineAdjustment{},

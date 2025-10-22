@@ -29,7 +29,7 @@ func TestDeleteCommentByID(t *testing.T) {
 	comment1 := models.Comment{
 		ID:   "a1b2c3d4e5f67890abcdef1234567890abcdef12",
 		Path: "test.go",
-		Line: 10,
+		Line: models.NewSingleLine(10),
 		Body: "First comment",
 		Side: "RIGHT",
 	}
@@ -37,7 +37,7 @@ func TestDeleteCommentByID(t *testing.T) {
 	comment2 := models.Comment{
 		ID:   "a1b2c3d4ffffff90abcdef1234567890abcdef12",
 		Path: "test.go",
-		Line: 10,
+		Line: models.NewSingleLine(10),
 		Body: "Second comment with similar prefix",
 		Side: "RIGHT",
 	}
@@ -45,7 +45,7 @@ func TestDeleteCommentByID(t *testing.T) {
 	comment3 := models.Comment{
 		ID:   "b1234567890abcde1234567890abcdef12345678",
 		Path: "test.go",
-		Line: 20,
+		Line: models.NewSingleLine(20),
 		Body: "Third comment",
 		Side: "RIGHT",
 	}
@@ -132,7 +132,7 @@ func TestFindCommentByIDPrefix(t *testing.T) {
 	comment := models.Comment{
 		ID:   "a1b2c3d4e5f67890abcdef1234567890abcdef12",
 		Path: "test.go",
-		Line: 10,
+		Line: models.NewSingleLine(10),
 		Body: "Test comment",
 		Side: "RIGHT",
 	}
@@ -209,7 +209,7 @@ func TestCommentIDGeneration(t *testing.T) {
 	// Add comment without ID (should generate one)
 	comment := models.Comment{
 		Path: "test.go",
-		Line: 10,
+		Line: models.NewSingleLine(10),
 		Body: "Test comment",
 		Side: "RIGHT",
 	}
@@ -258,7 +258,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 	comment1 := models.Comment{
 		ID:   "a1b2c3d4e5f67890abcdef1234567890abcdef12",
 		Path: "test.go",
-		Line: 10,
+		Line: models.NewSingleLine(10),
 		Body: "First comment",
 		Side: "RIGHT",
 	}
@@ -266,7 +266,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 	comment2 := models.Comment{
 		ID:   "a1b2c3d4ffffff90abcdef1234567890abcdef12",
 		Path: "test.go",
-		Line: 10,
+		Line: models.NewSingleLine(10),
 		Body: "Second comment with similar prefix",
 		Side: "RIGHT",
 	}
@@ -274,7 +274,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 	comment3 := models.Comment{
 		ID:   "b1234567890abcde1234567890abcdef12345678",
 		Path: "test.go",
-		Line: 20,
+		Line: models.NewSingleLine(20),
 		Body: "Third comment",
 		Side: "RIGHT",
 	}

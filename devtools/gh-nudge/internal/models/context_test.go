@@ -175,7 +175,7 @@ func multiply(a, b int) int {
 			name: "single line comment",
 			comment: Comment{
 				Path: testFile,
-				Line: 4,
+				Line: NewSingleLine(4),
 			},
 			contextLines: 2,
 			wantStart:    2,
@@ -185,9 +185,8 @@ func multiply(a, b int) int {
 		{
 			name: "multi-line comment",
 			comment: Comment{
-				Path:      testFile,
-				Line:      9,
-				StartLine: intPtr(8),
+				Path: testFile,
+				Line: NewLineRange(8, 9),
 			},
 			contextLines: 1,
 			wantStart:    7,
@@ -318,7 +317,7 @@ func Multiply(a, b int) int {
 	comment := Comment{
 		ID:        "test-comment-1",
 		Path:      testFile,
-		Line:      5,
+		Line:      NewSingleLine(5),
 		Body:      "Consider adding error handling",
 		Side:      "RIGHT",
 		CreatedAt: time.Now(),
@@ -337,7 +336,7 @@ func Multiply(a, b int) int {
 	}
 
 	// Verify the structure
-	if cwc.Line != 5 {
+	if cwc.Line != NewSingleLine(5) {
 		t.Errorf("Comment line = %d, want 5", cwc.Line)
 	}
 

@@ -8,6 +8,8 @@ import (
 )
 
 // LineContext represents code lines around a comment for display purposes.
+//
+// TODO: Consider using LineRange type for the fields.
 type LineContext struct {
 	StartLine int      `json:"startLine"`
 	EndLine   int      `json:"endLine"`
