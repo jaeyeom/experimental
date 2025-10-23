@@ -1,6 +1,9 @@
 package git
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
@@ -265,4 +268,441 @@ func TestCalculateOverallConfidence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// setupTestRepo creates a temporary git repository for testing.
+func setupTestRepo(t *testing.T) (string, func()) {
+	t.Helper()
+
+	// Create temporary directory
+	tempDir, err := os.MkdirTemp("", "git-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+
+	cleanup := func() {
+		os.RemoveAll(tempDir)
+	}
+
+	// Initialize git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		cleanup()
+		t.Fatalf("Failed to initialize git repo: %v", err)
+	}
+
+	// Configure git user for commits
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		cleanup()
+		t.Fatalf("Failed to configure git email: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		cleanup()
+		t.Fatalf("Failed to configure git name: %v", err)
+	}
+
+	return tempDir, cleanup
+}
+
+// commitFile creates a file with content and commits it.
+func commitFile(t *testing.T, repoPath, filename, content string) string {
+	t.Helper()
+
+	// Write file
+	filePath := filepath.Join(repoPath, filename)
+	if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+
+	// Add file
+	cmd := exec.Command("git", "add", filename)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to add file: %v", err)
+	}
+
+	// Commit
+	cmd = exec.Command("git", "commit", "-m", "test commit")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Get commit SHA
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get commit SHA: %v", err)
+	}
+
+	return string(output[:40]) // Return SHA
+}
+
+func TestAutoDetectChanges(t *testing.T) {
+	tests := []struct {
+		name            string
+		initialContent  string
+		modifiedContent string
+		wantChanges     int
+		wantSuggestions int
+		wantConfidence  models.ConfidenceLevel
+		wantError       bool
+	}{
+		{
+			name: "no changes",
+			initialContent: `line 1
+line 2
+line 3`,
+			modifiedContent: `line 1
+line 2
+line 3`,
+			wantChanges:     0,
+			wantSuggestions: 0,
+			wantConfidence:  models.ConfidenceLow, // No suggestions = low confidence
+			wantError:       false,
+		},
+		{
+			name: "simple line addition",
+			initialContent: `line 1
+line 2
+line 3`,
+			modifiedContent: `line 1
+line 2
+new line
+line 3`,
+			wantChanges:     1,
+			wantSuggestions: 1,
+			wantConfidence:  models.ConfidenceHigh,
+			wantError:       false,
+		},
+		{
+			name: "simple line deletion",
+			initialContent: `line 1
+line 2
+line 3
+line 4`,
+			modifiedContent: `line 1
+line 2
+line 4`,
+			wantChanges:     1,
+			wantSuggestions: 1,
+			wantConfidence:  models.ConfidenceHigh,
+			wantError:       false,
+		},
+		{
+			name: "multiple additions",
+			initialContent: `line 1
+line 2
+line 3`,
+			modifiedContent: `line 1
+new line 1
+new line 2
+line 2
+line 3`,
+			wantChanges:     2,
+			wantSuggestions: 1, // Grouped together
+			wantConfidence:  models.ConfidenceHigh,
+			wantError:       false,
+		},
+		{
+			name: "mixed additions and deletions",
+			initialContent: `line 1
+line 2
+line 3
+line 4
+line 5`,
+			modifiedContent: `line 1
+new line
+line 3
+line 5`,
+			wantChanges:     3, // 1 deletion + 1 addition + 1 deletion
+			wantSuggestions: 1, // Grouped together as consecutive changes
+			wantConfidence:  models.ConfidenceHigh,
+			wantError:       false,
+		},
+		{
+			name: "non-consecutive changes",
+			initialContent: `line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10`,
+			modifiedContent: `line 1
+new line
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+another new line
+line 8
+line 9
+line 10`,
+			wantChanges:     2,
+			wantSuggestions: 2, // Two separate groups
+			wantConfidence:  models.ConfidenceHigh,
+			wantError:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup test repository
+			repoPath, cleanup := setupTestRepo(t)
+			defer cleanup()
+
+			// Create initial file and commit
+			filename := "test.txt"
+			sha := commitFile(t, repoPath, filename, tt.initialContent)
+
+			// Create stored diff hunks (simulating captured state)
+			// Use a range that won't overlap with test changes (far away)
+			storedDiffHunks := []models.DiffHunk{
+				{
+					File:  filename,
+					Side:  "RIGHT",
+					Range: models.LineRange{StartLine: 100, EndLine: 110},
+					SHA:   sha,
+				},
+			}
+
+			// Modify the file
+			filePath := filepath.Join(repoPath, filename)
+			if err := os.WriteFile(filePath, []byte(tt.modifiedContent), 0o600); err != nil {
+				t.Fatalf("Failed to modify file: %v", err)
+			}
+
+			// Run AutoDetectChanges
+			gc := &Client{repoPath: repoPath}
+			result, err := gc.AutoDetectChanges(filename, storedDiffHunks)
+
+			// Check error expectation
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("AutoDetectChanges() expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("AutoDetectChanges() unexpected error: %v", err)
+			}
+
+			// Verify result
+			if result.File != filename {
+				t.Errorf("AutoDetectChanges() File = %q, want %q", result.File, filename)
+			}
+
+			if len(result.Changes) != tt.wantChanges {
+				t.Errorf("AutoDetectChanges() Changes count = %d, want %d", len(result.Changes), tt.wantChanges)
+			}
+
+			if len(result.Suggestions) != tt.wantSuggestions {
+				t.Errorf("AutoDetectChanges() Suggestions count = %d, want %d", len(result.Suggestions), tt.wantSuggestions)
+			}
+
+			if result.Confidence != tt.wantConfidence {
+				t.Errorf("AutoDetectChanges() Confidence = %v, want %v", result.Confidence, tt.wantConfidence)
+			}
+		})
+	}
+}
+
+func TestAutoDetectChanges_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name            string
+		setupRepo       func(t *testing.T, repoPath string) (string, []models.DiffHunk)
+		wantErrorSubstr string
+	}{
+		{
+			name: "no stored diff hunks",
+			setupRepo: func(_ *testing.T, _ string) (string, []models.DiffHunk) {
+				return "test.txt", []models.DiffHunk{}
+			},
+			wantErrorSubstr: "no stored diff hunks",
+		},
+		{
+			name: "invalid commit SHA",
+			setupRepo: func(t *testing.T, repoPath string) (string, []models.DiffHunk) {
+				filename := "test.txt"
+				commitFile(t, repoPath, filename, "initial content")
+				return filename, []models.DiffHunk{
+					{
+						File:  filename,
+						Side:  "RIGHT",
+						Range: models.LineRange{StartLine: 1, EndLine: 3},
+						SHA:   "0000000000000000000000000000000000000000", // Invalid SHA
+					},
+				}
+			},
+			wantErrorSubstr: "no longer exists",
+		},
+		{
+			name: "file not tracked by git",
+			setupRepo: func(t *testing.T, repoPath string) (string, []models.DiffHunk) {
+				// Commit an initial file
+				filename := "test.txt"
+				sha := commitFile(t, repoPath, filename, "initial content")
+
+				// Return a different filename that doesn't exist
+				return "nonexistent.txt", []models.DiffHunk{
+					{
+						File:  "nonexistent.txt",
+						Side:  "RIGHT",
+						Range: models.LineRange{StartLine: 1, EndLine: 3},
+						SHA:   sha,
+					},
+				}
+			},
+			wantErrorSubstr: "not tracked by git",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup test repository
+			repoPath, cleanup := setupTestRepo(t)
+			defer cleanup()
+
+			// Setup specific test scenario
+			filename, storedDiffHunks := tt.setupRepo(t, repoPath)
+
+			// Run AutoDetectChanges
+			gc := &Client{repoPath: repoPath}
+			result, err := gc.AutoDetectChanges(filename, storedDiffHunks)
+
+			// Should return error
+			if err == nil {
+				t.Errorf("AutoDetectChanges() expected error containing %q, got nil", tt.wantErrorSubstr)
+				return
+			}
+
+			// Verify error message
+			if !contains(err.Error(), tt.wantErrorSubstr) {
+				t.Errorf("AutoDetectChanges() error = %q, want substring %q", err.Error(), tt.wantErrorSubstr)
+			}
+
+			// Result should be nil on error
+			if result != nil {
+				t.Errorf("AutoDetectChanges() result should be nil on error, got %v", result)
+			}
+		})
+	}
+}
+
+func TestAutoDetectChanges_ConfidenceScoring(t *testing.T) {
+	tests := []struct {
+		name            string
+		initialContent  string
+		modifiedContent string
+		wantConfidence  models.ConfidenceLevel
+		description     string
+	}{
+		{
+			name: "high confidence - simple changes",
+			initialContent: `line 1
+line 2
+line 3`,
+			modifiedContent: `line 1
+new line
+line 2
+line 3`,
+			wantConfidence: models.ConfidenceHigh,
+			description:    "Simple addition should result in high confidence",
+		},
+		{
+			name: "medium confidence - complex changes",
+			initialContent: `line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7`,
+			modifiedContent: `line 1
+new 1
+new 2
+new 3
+new 4
+new 5
+new 6
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7`,
+			wantConfidence: models.ConfidenceMedium,
+			description:    "Many consecutive changes (>5) should lower confidence",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup test repository
+			repoPath, cleanup := setupTestRepo(t)
+			defer cleanup()
+
+			// Create initial file and commit
+			filename := "test.txt"
+			sha := commitFile(t, repoPath, filename, tt.initialContent)
+
+			// Create stored diff hunks
+			// Use a range that won't overlap with test changes (far away)
+			storedDiffHunks := []models.DiffHunk{
+				{
+					File:  filename,
+					Side:  "RIGHT",
+					Range: models.LineRange{StartLine: 100, EndLine: 110},
+					SHA:   sha,
+				},
+			}
+
+			// Modify the file
+			filePath := filepath.Join(repoPath, filename)
+			if err := os.WriteFile(filePath, []byte(tt.modifiedContent), 0o600); err != nil {
+				t.Fatalf("Failed to modify file: %v", err)
+			}
+
+			// Run AutoDetectChanges
+			gc := &Client{repoPath: repoPath}
+			result, err := gc.AutoDetectChanges(filename, storedDiffHunks)
+			if err != nil {
+				t.Fatalf("AutoDetectChanges() unexpected error: %v", err)
+			}
+
+			if result.Confidence != tt.wantConfidence {
+				t.Errorf("AutoDetectChanges() Confidence = %v, want %v (%s)",
+					result.Confidence, tt.wantConfidence, tt.description)
+			}
+		})
+	}
+}
+
+// contains is a helper function to check if a string contains a substring.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && containsHelper(s, substr)))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
