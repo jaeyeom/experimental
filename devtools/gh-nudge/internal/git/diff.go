@@ -519,11 +519,8 @@ func (gc *Client) generateMappingSuggestions(changes []models.LineChange, stored
 }
 
 // ChangeGroup represents a group of consecutive line changes.
-//
-// TODO: Consider using models.LineRange instead of StartLine and EndLine field.
 type ChangeGroup struct {
-	StartLine int
-	EndLine   int
+	Line      models.LineRange
 	Changes   []models.LineChange
 	NetOffset int // Net change in line count
 }
@@ -534,36 +531,37 @@ func (gc *Client) groupConsecutiveChanges(changes []models.LineChange) []ChangeG
 		return []ChangeGroup{}
 	}
 
+	// TODO: Simplify the logic. I think it's possible with the prevChange variable (changes[i-1]).
 	var groups []ChangeGroup
 	currentGroup := ChangeGroup{
-		StartLine: changes[0].OriginalLine,
-		Changes:   []models.LineChange{changes[0]},
+		Line:    models.LineRange{StartLine: changes[0].OriginalLine},
+		Changes: []models.LineChange{changes[0]},
 	}
 
 	for i := 1; i < len(changes); i++ {
 		change := changes[i]
 
 		// Calculate current group's end line based on existing changes
-		currentEndLine := currentGroup.StartLine + len(currentGroup.Changes) - 1
+		currentEndLine := currentGroup.Line.StartLine + len(currentGroup.Changes) - 1
 
 		// If this change is consecutive or close to the previous group, add to current group
 		if change.OriginalLine <= currentEndLine+2 {
 			currentGroup.Changes = append(currentGroup.Changes, change)
 		} else {
 			// Finalize current group and start new one
-			currentGroup.EndLine = currentEndLine
+			currentGroup.Line.EndLine = currentEndLine
 			currentGroup.NetOffset = gc.calculateNetOffset(currentGroup.Changes)
 			groups = append(groups, currentGroup)
 
 			currentGroup = ChangeGroup{
-				StartLine: change.OriginalLine,
-				Changes:   []models.LineChange{change},
+				Line:    models.LineRange{StartLine: change.OriginalLine},
+				Changes: []models.LineChange{change},
 			}
 		}
 	}
 
 	// Finalize the last group
-	currentGroup.EndLine = currentGroup.StartLine + len(currentGroup.Changes) - 1
+	currentGroup.Line.EndLine = currentGroup.Line.StartLine + len(currentGroup.Changes) - 1
 	currentGroup.NetOffset = gc.calculateNetOffset(currentGroup.Changes)
 	groups = append(groups, currentGroup)
 
@@ -592,8 +590,7 @@ func (gc *Client) createSuggestionFromGroup(group ChangeGroup, storedDiffHunks [
 	}
 
 	confidence := models.ConfidenceHigh
-	reason := fmt.Sprintf("Net %d line change detected in range %d-%d",
-		group.NetOffset, group.StartLine, group.EndLine)
+	reason := fmt.Sprintf("Net %d line change detected in range %v", group.NetOffset, group.Line)
 
 	// Lower confidence for complex change patterns
 	if len(group.Changes) > 5 {
@@ -608,7 +605,7 @@ func (gc *Client) createSuggestionFromGroup(group ChangeGroup, storedDiffHunks [
 	}
 
 	return &models.MappingSuggestion{
-		OriginalLine: group.StartLine,
+		OriginalLine: group.Line.StartLine,
 		Offset:       group.NetOffset,
 		Confidence:   confidence,
 		Reason:       reason,
@@ -619,9 +616,7 @@ func (gc *Client) createSuggestionFromGroup(group ChangeGroup, storedDiffHunks [
 func (gc *Client) conflictsWithDiffHunks(group ChangeGroup, storedDiffHunks []models.DiffHunk) bool {
 	for _, hunk := range storedDiffHunks {
 		// Check if the change group overlaps with any stored hunk
-		//
-		// TODO: If group uses models.LineRange, consider using Overlaps() method.
-		if group.StartLine <= hunk.Range.EndLine && group.EndLine >= hunk.Range.StartLine {
+		if group.Line.Overlaps(hunk.Range) {
 			return true
 		}
 	}
