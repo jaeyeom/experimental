@@ -26,6 +26,7 @@ go_test(
     size = "small",
     srcs = [
         "adjustment_test.go",
+        "advanced_analysis_test.go",
         "autodetect_test.go",
         "context_analysis_test.go",
         "context_test.go",
