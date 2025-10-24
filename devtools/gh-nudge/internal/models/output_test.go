@@ -368,3 +368,593 @@ func TestFormatLineContext_Integration(t *testing.T) {
 		}
 	}
 }
+
+// TestJSONFormatter_FormatSubmitResult tests JSON formatting of submit results.
+func TestJSONFormatter_FormatSubmitResult(t *testing.T) {
+	formatter := NewJSONFormatter()
+
+	tests := []struct {
+		name    string
+		result  SubmitResult
+		wantErr bool
+	}{
+		{
+			name: "successful submission with all fields",
+			result: SubmitResult{
+				Status:           "success",
+				PRNumber:         123,
+				Repository:       Repository{Owner: "owner", Name: "repo"},
+				Comments:         5,
+				SubmittedAt:      time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+				PostSubmitAction: "clear",
+				File:             "src/main.go",
+			},
+			wantErr: false,
+		},
+		{
+			name: "submission without file",
+			result: SubmitResult{
+				Status:           "success",
+				PRNumber:         456,
+				Repository:       Repository{Owner: "org", Name: "project"},
+				Comments:         10,
+				SubmittedAt:      time.Date(2025, 1, 16, 14, 0, 0, 0, time.UTC),
+				PostSubmitAction: "archive",
+			},
+			wantErr: false,
+		},
+		{
+			name: "submission with zero comments",
+			result: SubmitResult{
+				Status:           "success",
+				PRNumber:         789,
+				Repository:       Repository{Owner: "user", Name: "test"},
+				Comments:         0,
+				SubmittedAt:      time.Date(2025, 1, 17, 9, 0, 0, 0, time.UTC),
+				PostSubmitAction: "none",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := formatter.FormatSubmitResult(tt.result)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FormatSubmitResult() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Verify it's valid JSON
+			var parsed SubmitResult
+			if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+				t.Errorf("Result is not valid JSON: %v", err)
+				return
+			}
+
+			// Verify key fields are preserved
+			if parsed.Status != tt.result.Status {
+				t.Errorf("Status = %s, want %s", parsed.Status, tt.result.Status)
+			}
+			if parsed.PRNumber != tt.result.PRNumber {
+				t.Errorf("PRNumber = %d, want %d", parsed.PRNumber, tt.result.PRNumber)
+			}
+			if parsed.Comments != tt.result.Comments {
+				t.Errorf("Comments = %d, want %d", parsed.Comments, tt.result.Comments)
+			}
+			if parsed.PostSubmitAction != tt.result.PostSubmitAction {
+				t.Errorf("PostSubmitAction = %s, want %s", parsed.PostSubmitAction, tt.result.PostSubmitAction)
+			}
+			if parsed.File != tt.result.File {
+				t.Errorf("File = %s, want %s", parsed.File, tt.result.File)
+			}
+		})
+	}
+}
+
+// TestJSONFormatter_FormatComments tests JSON formatting of comment lists.
+func TestJSONFormatter_FormatComments(t *testing.T) {
+	formatter := NewJSONFormatter()
+
+	tests := []struct {
+		name     string
+		comments []Comment
+		wantErr  bool
+	}{
+		{
+			name: "multiple comments",
+			comments: []Comment{
+				{
+					ID:        "comment-1",
+					Path:      "file1.go",
+					Line:      NewSingleLine(10),
+					Body:      "First comment",
+					Side:      "RIGHT",
+					CreatedAt: time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
+				},
+				{
+					ID:        "comment-2",
+					Path:      "file2.go",
+					Line:      NewLineRange(20, 25),
+					Body:      "Second comment",
+					Side:      "LEFT",
+					CreatedAt: time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:     "empty comments",
+			comments: []Comment{},
+			wantErr:  false,
+		},
+		{
+			name: "single comment",
+			comments: []Comment{
+				{
+					ID:   "comment-3",
+					Path: "test.go",
+					Line: NewSingleLine(5),
+					Body: "Test comment",
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := formatter.FormatComments(tt.comments)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FormatComments() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			// Verify it's valid JSON
+			var parsed []Comment
+			if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+				t.Errorf("Result is not valid JSON: %v", err)
+				return
+			}
+
+			// Verify count matches
+			if len(parsed) != len(tt.comments) {
+				t.Errorf("Got %d comments, want %d", len(parsed), len(tt.comments))
+			}
+
+			// Verify comment IDs are preserved
+			for i, comment := range tt.comments {
+				if i < len(parsed) && parsed[i].ID != comment.ID {
+					t.Errorf("Comment[%d].ID = %s, want %s", i, parsed[i].ID, comment.ID)
+				}
+			}
+		})
+	}
+}
+
+// TestJSONFormatter_FormatSingleComment tests JSON formatting of a single comment.
+func TestJSONFormatter_FormatSingleComment(t *testing.T) {
+	formatter := NewJSONFormatter()
+
+	tests := []struct {
+		name    string
+		comment Comment
+		wantErr bool
+	}{
+		{
+			name: "comment with all fields",
+			comment: Comment{
+				ID:        "abc123",
+				Path:      "src/main.go",
+				Line:      NewSingleLine(42),
+				Body:      "This needs refactoring",
+				Side:      "RIGHT",
+				CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+				Status:    StatusUnresolved,
+			},
+			wantErr: false,
+		},
+		{
+			name: "comment with line range",
+			comment: Comment{
+				ID:   "def456",
+				Path: "test.go",
+				Line: NewLineRange(10, 15),
+				Body: "Multi-line comment",
+				Side: "LEFT",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := formatter.FormatSingleComment(tt.comment)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FormatSingleComment() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			// Verify it's valid JSON
+			var parsed Comment
+			if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+				t.Errorf("Result is not valid JSON: %v", err)
+				return
+			}
+
+			// Verify key fields match
+			if parsed.ID != tt.comment.ID {
+				t.Errorf("ID = %s, want %s", parsed.ID, tt.comment.ID)
+			}
+			if parsed.Path != tt.comment.Path {
+				t.Errorf("Path = %s, want %s", parsed.Path, tt.comment.Path)
+			}
+			if parsed.Body != tt.comment.Body {
+				t.Errorf("Body = %s, want %s", parsed.Body, tt.comment.Body)
+			}
+		})
+	}
+}
+
+// TestTextFormatter_FormatSubmitResult tests text formatting of submit results.
+func TestTextFormatter_FormatSubmitResult(t *testing.T) {
+	formatter := NewTextFormatter()
+
+	tests := []struct {
+		name         string
+		result       SubmitResult
+		wantContains []string
+		wantErr      bool
+	}{
+		{
+			name: "submission with file",
+			result: SubmitResult{
+				Status:           "success",
+				PRNumber:         123,
+				Repository:       Repository{Owner: "owner", Name: "repo"},
+				Comments:         5,
+				SubmittedAt:      time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+				PostSubmitAction: "clear",
+				File:             "src/main.go",
+			},
+			wantContains: []string{
+				"owner/repo",
+				"#123",
+				"5 comments",
+				"src/main.go",
+			},
+			wantErr: false,
+		},
+		{
+			name: "submission without file",
+			result: SubmitResult{
+				Status:           "success",
+				PRNumber:         456,
+				Repository:       Repository{Owner: "org", Name: "project"},
+				Comments:         10,
+				SubmittedAt:      time.Date(2025, 1, 16, 14, 0, 0, 0, time.UTC),
+				PostSubmitAction: "archive",
+			},
+			wantContains: []string{
+				"org/project",
+				"#456",
+				"10 comments",
+			},
+			wantErr: false,
+		},
+		{
+			name: "submission with one comment",
+			result: SubmitResult{
+				Status:           "success",
+				PRNumber:         789,
+				Repository:       Repository{Owner: "user", Name: "test"},
+				Comments:         1,
+				SubmittedAt:      time.Date(2025, 1, 17, 9, 0, 0, 0, time.UTC),
+				PostSubmitAction: "none",
+			},
+			wantContains: []string{
+				"user/test",
+				"#789",
+				"1 comments", // Note: the implementation doesn't pluralize
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := formatter.FormatSubmitResult(tt.result)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FormatSubmitResult() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(output, want) {
+					t.Errorf("Output missing expected string %q\nGot: %s", want, output)
+				}
+			}
+		})
+	}
+}
+
+// TestTextFormatter_FormatComments tests text table formatting of comments.
+func TestTextFormatter_FormatComments(t *testing.T) {
+	formatter := NewTextFormatter()
+
+	tests := []struct {
+		name         string
+		comments     []Comment
+		wantContains []string
+		wantErr      bool
+	}{
+		{
+			name: "single comment",
+			comments: []Comment{
+				{
+					ID:        "abc123",
+					Path:      "src/main.go",
+					Line:      NewSingleLine(42),
+					Body:      "Fix this",
+					Side:      "RIGHT",
+					CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+				},
+			},
+			wantContains: []string{
+				"ID",
+				"File",
+				"Line",
+				"Side",
+				"Comment",
+				"abc123",
+				"src/main.go",
+				"42",
+				"RIGHT",
+				"Fix this",
+				"Total: 1 items",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "empty comments",
+			comments: []Comment{},
+			wantContains: []string{
+				"No comments found",
+				"Total: 0 items",
+			},
+			wantErr: false,
+		},
+		{
+			name: "multiple comments",
+			comments: []Comment{
+				{
+					ID:   "comment1",
+					Path: "file1.go",
+					Line: NewSingleLine(10),
+					Body: "First",
+					Side: "LEFT",
+				},
+				{
+					ID:   "comment2",
+					Path: "file2.go",
+					Line: NewLineRange(20, 25),
+					Body: "Second",
+					Side: "RIGHT",
+				},
+			},
+			wantContains: []string{
+				"comment1",
+				"comment2",
+				"file1.go",
+				"file2.go",
+				"Total: 2 items",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := formatter.FormatComments(tt.comments)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FormatComments() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(output, want) {
+					t.Errorf("Output missing expected string %q\nGot:\n%s", want, output)
+				}
+			}
+		})
+	}
+}
+
+// TestTextFormatter_FormatSingleComment tests text formatting of a single comment.
+func TestTextFormatter_FormatSingleComment(t *testing.T) {
+	formatter := NewTextFormatter()
+
+	tests := []struct {
+		name         string
+		comment      Comment
+		wantContains []string
+		wantErr      bool
+	}{
+		{
+			name: "comment with all fields",
+			comment: Comment{
+				ID:        "abc123def456",
+				Path:      "src/main.go",
+				Line:      NewSingleLine(42),
+				Body:      "This needs refactoring\nAcross multiple lines",
+				Side:      "RIGHT",
+				CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+			},
+			wantContains: []string{
+				"File: src/main.go",
+				"Line: 42",
+				"Side: RIGHT",
+				"ID: abc123de", // FormatIDShort truncates to 8 chars
+				"2025-01-15",
+				"This needs refactoring",
+			},
+			wantErr: false,
+		},
+		{
+			name: "comment with line range",
+			comment: Comment{
+				ID:   "xyz789",
+				Path: "test.go",
+				Line: NewLineRange(10, 15),
+				Body: "Multi-line range",
+				Side: "LEFT",
+			},
+			wantContains: []string{
+				"File: test.go",
+				"Line: 10-15",
+				"Side: LEFT",
+				"xyz789",
+				"Multi-line range",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := formatter.FormatSingleComment(tt.comment)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("FormatSingleComment() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(output, want) {
+					t.Errorf("Output missing expected string %q\nGot:\n%s", want, output)
+				}
+			}
+		})
+	}
+}
+
+// TestWrapText tests the text wrapping behavior.
+func TestWrapText(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		width     int
+		wantLines int
+		wantFirst string
+	}{
+		{
+			name:      "text fits in width",
+			text:      "short text",
+			width:     20,
+			wantLines: 1,
+			wantFirst: "short text",
+		},
+		{
+			name:      "text needs wrapping",
+			text:      "this is a longer text that needs wrapping",
+			width:     10,
+			wantLines: 5, // Should wrap at word boundaries
+			wantFirst: "this is a",
+		},
+		{
+			name:      "single long word",
+			text:      "verylongwordthatcannotbewrapped",
+			width:     10,
+			wantLines: 4, // Should break the word
+			wantFirst: "verylongwo",
+		},
+		{
+			name:      "empty text",
+			text:      "",
+			width:     10,
+			wantLines: 1,
+			wantFirst: "",
+		},
+		{
+			name:      "zero width",
+			text:      "some text",
+			width:     0,
+			wantLines: 1,
+			wantFirst: "some text",
+		},
+		{
+			name:      "multiple spaces",
+			text:      "word1    word2    word3",
+			width:     15,
+			wantLines: 2,
+			wantFirst: "word1 word2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := wrapText(tt.text, tt.width)
+
+			if len(lines) != tt.wantLines {
+				t.Errorf("wrapText() got %d lines, want %d\nLines: %v", len(lines), tt.wantLines, lines)
+			}
+
+			if len(lines) > 0 && lines[0] != tt.wantFirst {
+				t.Errorf("First line = %q, want %q", lines[0], tt.wantFirst)
+			}
+		})
+	}
+}
+
+// TestTruncateString tests string truncation behavior.
+func TestTruncateString(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{
+			name:   "no truncation needed",
+			input:  "short",
+			maxLen: 10,
+			want:   "short",
+		},
+		{
+			name:   "truncation with ellipsis",
+			input:  "this is a very long string",
+			maxLen: 10,
+			want:   "this is...",
+		},
+		{
+			name:   "exact length",
+			input:  "exactly10c",
+			maxLen: 10,
+			want:   "exactly10c",
+		},
+		{
+			name:   "maxLen less than 4",
+			input:  "test",
+			maxLen: 2,
+			want:   "te",
+		},
+		{
+			name:   "empty string",
+			input:  "",
+			maxLen: 10,
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TruncateString(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("TruncateString(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			}
+		})
+	}
+}
