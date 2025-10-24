@@ -10,14 +10,23 @@ import (
 )
 
 // SubmitResult contains the result data from a submit operation.
+//
+// A submit operation refers to submitting a code review to GitHub, which includes:
+//   - Posting review comments on specific lines of a pull request
+//   - Optionally submitting a review body with an overall assessment
+//   - Specifying a review event (e.g., COMMENT, APPROVE, REQUEST_CHANGES)
+//   - Executing post-submit actions (e.g., clearing local comments, archiving)
+//
+// This result is typically returned after successfully submitting a review via the GitHub API,
+// and contains metadata about what was submitted and when.
 type SubmitResult struct {
-	Status           string     `json:"status"`
-	PRNumber         int        `json:"prNumber"`
-	Repository       Repository `json:"repository"`
-	Comments         int        `json:"comments"`
-	SubmittedAt      time.Time  `json:"submittedAt"`
-	PostSubmitAction string     `json:"postSubmitAction"`
-	File             string     `json:"file,omitempty"` // File path if file-specific submission
+	Status           string     `json:"status"`           // Success/failure status of the submission
+	PRNumber         int        `json:"prNumber"`         // The PR number that was reviewed
+	Repository       Repository `json:"repository"`       // The repository (owner/name) containing the PR
+	Comments         int        `json:"comments"`         // Number of comments submitted in the review
+	SubmittedAt      time.Time  `json:"submittedAt"`      // Timestamp when the review was submitted
+	PostSubmitAction string     `json:"postSubmitAction"` // Name of the post-submit action that was executed (e.g., "clear", "archive", "none")
+	File             string     `json:"file,omitempty"`   // File path if this was a file-specific submission (only comments for this file were submitted)
 }
 
 // JSONFormatter formats output as JSON.
