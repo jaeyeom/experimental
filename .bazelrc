@@ -32,4 +32,4 @@ test --jobs=auto
 
 # Developer settings
 # build --sandbox_debug
-test --test_verbose_timeout_warnings
+# test --test_verbose_timeout_warnings
