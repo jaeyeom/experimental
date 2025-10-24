@@ -19,44 +19,60 @@ const (
 )
 
 // PatternLearningEngine learns from user correction patterns to improve future suggestions.
+// It acts as a machine learning system that observes how users correct line adjustment
+// suggestions and adapts its behavior over time to better match user preferences.
+// The engine maintains a history of patterns, tracks accuracy metrics, and uses this
+// information to provide increasingly accurate suggestions for future code changes.
 type PatternLearningEngine struct {
-	Patterns    []AdjustmentPattern `json:"patterns"`
-	Corrections []UserCorrection    `json:"corrections"`
-	Preferences UserPreferences     `json:"preferences"`
-	Stats       LearningStatistics  `json:"statistics"`
+	Patterns    []AdjustmentPattern `json:"patterns"`    // Learned patterns from historical corrections
+	Corrections []UserCorrection    `json:"corrections"` // Complete history of user corrections
+	Preferences UserPreferences     `json:"preferences"` // Inferred user preferences based on behavior
+	Stats       LearningStatistics  `json:"statistics"`  // Performance metrics and tracking data
 }
 
 // AdjustmentPattern represents a learned pattern for line adjustments.
+// Each pattern captures a recurring adjustment scenario and tracks its effectiveness.
+// Patterns are created when users make corrections and are strengthened or weakened
+// based on whether they prove useful in similar contexts over time. Patterns with
+// low accuracy or that haven't been seen recently are automatically pruned.
 type AdjustmentPattern struct {
-	ID          string                 `json:"id"`
-	Context     PatternContext         `json:"context"`
-	Adjustment  LineAdjustment         `json:"adjustment"`
-	Confidence  float64                `json:"confidence"` // 0.0 to 1.0
-	Occurrences int                    `json:"occurrences"`
-	LastSeen    time.Time              `json:"lastSeen"`
-	Accuracy    float64                `json:"accuracy"` // Success rate when applied
+	ID          string                 `json:"id"`          // Unique identifier for this pattern
+	Context     PatternContext         `json:"context"`     // The context where this pattern applies
+	Adjustment  LineAdjustment         `json:"adjustment"`  // The adjustment that should be applied
+	Confidence  float64                `json:"confidence"`  // Internal confidence score (0.0 to 1.0)
+	Occurrences int                    `json:"occurrences"` // How many times this pattern has been observed
+	LastSeen    time.Time              `json:"lastSeen"`    // Last time this pattern was relevant
+	Accuracy    float64                `json:"accuracy"`    // Success rate when this pattern was applied (0.0 to 1.0)
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // PatternContext represents the context in which an adjustment pattern applies.
+// Context is used to match similar situations when suggesting adjustments. The engine
+// compares contexts using a weighted similarity algorithm that considers file type,
+// change type, code structure, keywords, and line distance to determine if a learned
+// pattern is applicable to a new situation.
 type PatternContext struct {
-	FileType        string   `json:"fileType"`        // .go, .js, .py, etc.
-	ChangeType      string   `json:"changeType"`      // function_add, import_change, etc.
-	SurroundingCode string   `json:"surroundingCode"` // Code context around the change
-	Keywords        []string `json:"keywords"`        // Relevant keywords
-	LineDistance    int      `json:"lineDistance"`    // Distance from actual change
-	CodeStructure   string   `json:"codeStructure"`   // function, class, method, etc.
+	FileType        string   `json:"fileType"`        // File extension (.go, .js, .py, etc.)
+	ChangeType      string   `json:"changeType"`      // Type of change (function_add, import_change, etc.)
+	SurroundingCode string   `json:"surroundingCode"` // Snippet of code context around the change
+	Keywords        []string `json:"keywords"`        // Relevant keywords extracted from the change
+	LineDistance    int      `json:"lineDistance"`    // Distance in lines from the actual change location
+	CodeStructure   string   `json:"codeStructure"`   // Structural element (function, class, method, etc.)
 }
 
 // UserCorrection represents a correction made by the user to an auto-suggestion.
+// Each correction provides feedback to the learning engine about whether its
+// suggestions are accurate. The engine analyzes corrections to identify patterns
+// in user behavior and improve future suggestions. Corrections can indicate
+// acceptance, rejection, or partial modifications of suggestions.
 type UserCorrection struct {
-	ID                 string            `json:"id"`
-	Timestamp          time.Time         `json:"timestamp"`
-	OriginalSuggestion LineAdjustment    `json:"originalSuggestion"`
-	UserCorrection     LineAdjustment    `json:"userCorrection"`
-	Context            PatternContext    `json:"context"`
-	CorrectionType     CorrectionType    `json:"correctionType"`
-	Confidence         MLConfidenceLevel `json:"confidence"`
+	ID                 string            `json:"id"`                 // Unique identifier for this correction
+	Timestamp          time.Time         `json:"timestamp"`          // When the correction was made
+	OriginalSuggestion LineAdjustment    `json:"originalSuggestion"` // What the engine originally suggested
+	UserCorrection     LineAdjustment    `json:"userCorrection"`     // What the user actually wanted
+	Context            PatternContext    `json:"context"`            // Context in which the correction occurred
+	CorrectionType     CorrectionType    `json:"correctionType"`     // Type of correction (accept, reject, modify)
+	Confidence         MLConfidenceLevel `json:"confidence"`         // Original confidence level of the suggestion
 }
 
 // CorrectionType represents the type of correction made by the user.
@@ -71,45 +87,59 @@ const (
 )
 
 // UserPreferences represents learned user preferences.
+// The engine infers these preferences by observing user behavior over time. For example,
+// if a user consistently accepts low-confidence suggestions, the threshold is lowered.
+// Preferences are used to filter and rank suggestions to better match the user's
+// working style and expectations.
 type UserPreferences struct {
-	PreferredConfidenceThreshold float64                  `json:"preferredConfidenceThreshold"`
-	ReviewPatterns               []ReviewPattern          `json:"reviewPatterns"`
-	FileTypePreferences          map[string]FileTypePrefs `json:"fileTypePreferences"`
-	TeamCollaborationStyle       CollaborationStyle       `json:"teamCollaborationStyle"`
-	UpdatedAt                    time.Time                `json:"updatedAt"`
+	PreferredConfidenceThreshold float64                  `json:"preferredConfidenceThreshold"` // Minimum confidence for showing suggestions
+	ReviewPatterns               []ReviewPattern          `json:"reviewPatterns"`               // Patterns in how user reviews code
+	FileTypePreferences          map[string]FileTypePrefs `json:"fileTypePreferences"`          // Per-file-type adjustment preferences
+	TeamCollaborationStyle       CollaborationStyle       `json:"teamCollaborationStyle"`       // Team/collaboration preferences
+	UpdatedAt                    time.Time                `json:"updatedAt"`                    // Last time preferences were updated
 }
 
 // ReviewPattern represents a learned review pattern.
+// These patterns capture recurring themes in how users review and correct code,
+// helping the engine understand user priorities and common correction strategies.
 type ReviewPattern struct {
-	Pattern       string    `json:"pattern"`
-	Frequency     int       `json:"frequency"`
-	Effectiveness float64   `json:"effectiveness"`
-	LastUsed      time.Time `json:"lastUsed"`
+	Pattern       string    `json:"pattern"`       // Description of the pattern (e.g., "prefers detailed context")
+	Frequency     int       `json:"frequency"`     // How often this pattern has been observed
+	Effectiveness float64   `json:"effectiveness"` // How effective corrections following this pattern are
+	LastUsed      time.Time `json:"lastUsed"`      // Last time this pattern was observed
 }
 
 // FileTypePrefs represents preferences for a specific file type.
+// Different file types may have different characteristics (e.g., Go files might need
+// more conservative adjustments than test files). The engine learns these preferences
+// by observing acceptance/rejection rates per file type.
 type FileTypePrefs struct {
-	AdjustmentTolerance float64 `json:"adjustmentTolerance"`
-	PreferredStrategy   string  `json:"preferredStrategy"`
-	ContextSensitivity  float64 `json:"contextSensitivity"`
+	AdjustmentTolerance float64 `json:"adjustmentTolerance"` // How tolerant user is of adjustments for this file type (0.0 to 1.0)
+	PreferredStrategy   string  `json:"preferredStrategy"`   // Preferred adjustment strategy (e.g., "conservative", "auto")
+	ContextSensitivity  float64 `json:"contextSensitivity"`  // How important context matching is for this file type (0.0 to 1.0)
 }
 
 // CollaborationStyle represents team collaboration preferences.
+// These preferences capture how the user or team prefers to work with code reviews
+// and comments, influencing how suggestions are presented and merged.
 type CollaborationStyle struct {
-	PreferDetailedComments bool    `json:"preferDetailedComments"`
-	CommentMergeStrategy   string  `json:"commentMergeStrategy"`
-	ReviewThoroughness     float64 `json:"reviewThoroughness"`
+	PreferDetailedComments bool    `json:"preferDetailedComments"` // Whether user prefers detailed explanatory comments
+	CommentMergeStrategy   string  `json:"commentMergeStrategy"`   // How to merge multiple comments (e.g., "concat", "replace")
+	ReviewThoroughness     float64 `json:"reviewThoroughness"`     // Expected thoroughness level (0.0 to 1.0)
 }
 
 // LearningStatistics tracks learning performance metrics.
+// These statistics provide visibility into how well the learning engine is performing
+// and whether it's improving over time. They help identify when more training data
+// is needed or when the engine has reached a good level of accuracy.
 type LearningStatistics struct {
-	TotalSuggestions       int                       `json:"totalSuggestions"`
-	AcceptedSuggestions    int                       `json:"acceptedSuggestions"`
-	RejectedSuggestions    int                       `json:"rejectedSuggestions"`
-	AccuracyRate           float64                   `json:"accuracyRate"`
-	ConfidenceDistribution map[MLConfidenceLevel]int `json:"confidenceDistribution"`
-	LastUpdated            time.Time                 `json:"lastUpdated"`
-	ImprovementRate        float64                   `json:"improvementRate"` // Rate of improvement over time
+	TotalSuggestions       int                       `json:"totalSuggestions"`       // Total number of suggestions made
+	AcceptedSuggestions    int                       `json:"acceptedSuggestions"`    // Number of suggestions accepted by user
+	RejectedSuggestions    int                       `json:"rejectedSuggestions"`    // Number of suggestions rejected by user
+	AccuracyRate           float64                   `json:"accuracyRate"`           // Overall accuracy (accepted / total)
+	ConfidenceDistribution map[MLConfidenceLevel]int `json:"confidenceDistribution"` // Distribution of suggestions by confidence level
+	LastUpdated            time.Time                 `json:"lastUpdated"`            // Last time statistics were updated
+	ImprovementRate        float64                   `json:"improvementRate"`        // Rate of improvement comparing recent to overall accuracy
 }
 
 // NewPatternLearningEngine creates a new pattern learning engine.
@@ -316,12 +346,15 @@ func (e *PatternLearningEngine) SuggestAdjustments(context PatternContext) []Adj
 }
 
 // AdjustmentSuggestion represents a suggested adjustment with confidence.
+// Suggestions are generated by the learning engine based on learned patterns and
+// include a confidence level and human-readable explanation to help users understand
+// why the suggestion was made and how reliable it is likely to be.
 type AdjustmentSuggestion struct {
-	Adjustment LineAdjustment    `json:"adjustment"`
-	Confidence MLConfidenceLevel `json:"confidence"`
-	Reason     string            `json:"reason"`
-	PatternID  string            `json:"patternId"`
-	Context    PatternContext    `json:"context"`
+	Adjustment LineAdjustment    `json:"adjustment"` // The suggested line adjustment to apply
+	Confidence MLConfidenceLevel `json:"confidence"` // Confidence level (high, medium, low)
+	Reason     string            `json:"reason"`     // Human-readable explanation for this suggestion
+	PatternID  string            `json:"patternId"`  // ID of the pattern that generated this suggestion
+	Context    PatternContext    `json:"context"`    // Context for which this suggestion applies
 }
 
 // calculateSuggestionConfidence calculates the confidence level for a suggestion.
@@ -488,11 +521,14 @@ func (e *PatternLearningEngine) GetLearningInsights() *LearningInsights {
 }
 
 // LearningInsights provides insights into learning performance and patterns.
+// Insights help users understand how the learning engine is performing and provide
+// actionable recommendations for improving accuracy. This is useful for debugging,
+// monitoring, and understanding the system's behavior.
 type LearningInsights struct {
-	Statistics        LearningStatistics  `json:"statistics"`
-	TopPatterns       []AdjustmentPattern `json:"topPatterns"`
-	RecentCorrections []UserCorrection    `json:"recentCorrections"`
-	Recommendations   []string            `json:"recommendations"`
+	Statistics        LearningStatistics  `json:"statistics"`        // Current performance statistics
+	TopPatterns       []AdjustmentPattern `json:"topPatterns"`       // Most successful patterns learned
+	RecentCorrections []UserCorrection    `json:"recentCorrections"` // Recent user corrections for analysis
+	Recommendations   []string            `json:"recommendations"`   // Actionable recommendations for improvement
 }
 
 // getTopPatterns returns the top patterns by performance.
