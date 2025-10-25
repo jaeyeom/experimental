@@ -2,8 +2,10 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestParseOperationType tests the ParseOperationType function.
@@ -642,6 +644,781 @@ func TestCommentMatchesFilter(t *testing.T) {
 		}
 		if count3 != 1 {
 			t.Errorf("Most specific filter should match exactly 1 comment, got %d", count3)
+		}
+	})
+}
+
+// mockCommentClearer implements CommentClearer for testing.
+type mockCommentClearer struct {
+	clearCommentsCalled        bool
+	clearCommentsError         error
+	clearCommentsForFileCalled bool
+	clearCommentsForFileError  error
+	lastRepository             Repository
+	lastPRNumber               int
+	lastFile                   string
+}
+
+func (m *mockCommentClearer) ClearComments(repository Repository, prNumber int) error {
+	m.clearCommentsCalled = true
+	m.lastRepository = repository
+	m.lastPRNumber = prNumber
+	return m.clearCommentsError
+}
+
+func (m *mockCommentClearer) ClearCommentsForFile(repository Repository, prNumber int, file string) error {
+	m.clearCommentsForFileCalled = true
+	m.lastRepository = repository
+	m.lastPRNumber = prNumber
+	m.lastFile = file
+	return m.clearCommentsForFileError
+}
+
+// mockCommentArchiver implements CommentArchiver for testing.
+type mockCommentArchiver struct {
+	mockCommentClearer
+	archiveCommentsCalled bool
+	archiveCommentsError  error
+	archivedSubmission    *ArchivedSubmission
+}
+
+func (m *mockCommentArchiver) ArchiveComments(repository Repository, prNumber int, _, _ string) (*ArchivedSubmission, error) {
+	m.archiveCommentsCalled = true
+	m.lastRepository = repository
+	m.lastPRNumber = prNumber
+	if m.archiveCommentsError != nil {
+		return nil, m.archiveCommentsError
+	}
+	return m.archivedSubmission, nil
+}
+
+func (m *mockCommentArchiver) ListArchivedSubmissions(_ Repository, _ int) (*ArchiveMetadata, error) {
+	return nil, nil
+}
+
+func (m *mockCommentArchiver) GetArchivedSubmission(_ Repository, _ int, _ string) (*ArchivedSubmission, error) {
+	return nil, nil
+}
+
+func (m *mockCommentArchiver) CleanupOldArchives(_ Repository, _ int, _ time.Duration) error {
+	return nil
+}
+
+// TestCreatePostSubmitExecutor tests the CreatePostSubmitExecutor function.
+func TestCreatePostSubmitExecutor(t *testing.T) {
+	t.Run("Creates ClearAction for 'clear'", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("clear")
+		if err != nil {
+			t.Errorf("CreatePostSubmitExecutor('clear') returned error: %v", err)
+		}
+		if executor == nil {
+			t.Fatal("CreatePostSubmitExecutor('clear') returned nil executor")
+		}
+		if _, ok := executor.(ClearAction); !ok {
+			t.Errorf("CreatePostSubmitExecutor('clear') returned %T, want ClearAction", executor)
+		}
+		if executor.Name() != "clear" {
+			t.Errorf("executor.Name() = %q, want %q", executor.Name(), "clear")
+		}
+	})
+
+	t.Run("Creates ClearAction for empty string", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("")
+		if err != nil {
+			t.Errorf("CreatePostSubmitExecutor('') returned error: %v", err)
+		}
+		if executor == nil {
+			t.Fatal("CreatePostSubmitExecutor('') returned nil executor")
+		}
+		if _, ok := executor.(ClearAction); !ok {
+			t.Errorf("CreatePostSubmitExecutor('') returned %T, want ClearAction", executor)
+		}
+		if executor.Name() != "clear" {
+			t.Errorf("executor.Name() = %q, want %q", executor.Name(), "clear")
+		}
+	})
+
+	t.Run("Creates KeepAction for 'keep'", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("keep")
+		if err != nil {
+			t.Errorf("CreatePostSubmitExecutor('keep') returned error: %v", err)
+		}
+		if executor == nil {
+			t.Fatal("CreatePostSubmitExecutor('keep') returned nil executor")
+		}
+		if _, ok := executor.(KeepAction); !ok {
+			t.Errorf("CreatePostSubmitExecutor('keep') returned %T, want KeepAction", executor)
+		}
+		if executor.Name() != "keep" {
+			t.Errorf("executor.Name() = %q, want %q", executor.Name(), "keep")
+		}
+	})
+
+	t.Run("Creates ArchiveAction for 'archive'", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("archive")
+		if err != nil {
+			t.Errorf("CreatePostSubmitExecutor('archive') returned error: %v", err)
+		}
+		if executor == nil {
+			t.Fatal("CreatePostSubmitExecutor('archive') returned nil executor")
+		}
+		if _, ok := executor.(ArchiveAction); !ok {
+			t.Errorf("CreatePostSubmitExecutor('archive') returned %T, want ArchiveAction", executor)
+		}
+		if executor.Name() != "archive" {
+			t.Errorf("executor.Name() = %q, want %q", executor.Name(), "archive")
+		}
+	})
+
+	t.Run("Case insensitive - uppercase", func(t *testing.T) {
+		testCases := []struct {
+			input        string
+			expectedType interface{}
+			expectedName string
+		}{
+			{"CLEAR", ClearAction{}, "clear"},
+			{"KEEP", KeepAction{}, "keep"},
+			{"ARCHIVE", ArchiveAction{}, "archive"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.input, func(t *testing.T) {
+				executor, err := CreatePostSubmitExecutor(tc.input)
+				if err != nil {
+					t.Errorf("CreatePostSubmitExecutor(%q) returned error: %v", tc.input, err)
+				}
+				if executor == nil {
+					t.Fatalf("CreatePostSubmitExecutor(%q) returned nil executor", tc.input)
+				}
+				if executor.Name() != tc.expectedName {
+					t.Errorf("executor.Name() = %q, want %q", executor.Name(), tc.expectedName)
+				}
+			})
+		}
+	})
+
+	t.Run("Case insensitive - mixed case", func(t *testing.T) {
+		testCases := []struct {
+			input        string
+			expectedName string
+		}{
+			{"Clear", "clear"},
+			{"KeEp", "keep"},
+			{"ArChIvE", "archive"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.input, func(t *testing.T) {
+				executor, err := CreatePostSubmitExecutor(tc.input)
+				if err != nil {
+					t.Errorf("CreatePostSubmitExecutor(%q) returned error: %v", tc.input, err)
+				}
+				if executor == nil {
+					t.Fatalf("CreatePostSubmitExecutor(%q) returned nil executor", tc.input)
+				}
+				if executor.Name() != tc.expectedName {
+					t.Errorf("executor.Name() = %q, want %q", executor.Name(), tc.expectedName)
+				}
+			})
+		}
+	})
+
+	t.Run("Returns error for invalid action", func(t *testing.T) {
+		invalidInputs := []string{
+			"invalid",
+			"delete",
+			"remove",
+			"unknown",
+			"clearx",
+			"keepx",
+			"archivex",
+			"clear ",
+			" keep",
+		}
+
+		for _, input := range invalidInputs {
+			t.Run(input, func(t *testing.T) {
+				executor, err := CreatePostSubmitExecutor(input)
+				if err == nil {
+					t.Errorf("CreatePostSubmitExecutor(%q) expected error, got nil", input)
+				}
+				if executor != nil {
+					t.Errorf("CreatePostSubmitExecutor(%q) expected nil executor, got %T", input, executor)
+				}
+			})
+		}
+	})
+
+	t.Run("Error message contains invalid input", func(t *testing.T) {
+		invalidInput := "badaction"
+		_, err := CreatePostSubmitExecutor(invalidInput)
+		if err == nil {
+			t.Fatal("Expected error for invalid input")
+		}
+		if !strings.Contains(err.Error(), invalidInput) {
+			t.Errorf("Error message should contain %q, got: %v", invalidInput, err)
+		}
+		if !strings.Contains(err.Error(), "invalid") {
+			t.Errorf("Error message should contain 'invalid', got: %v", err)
+		}
+	})
+
+	t.Run("Error message lists valid options", func(t *testing.T) {
+		_, err := CreatePostSubmitExecutor("badaction")
+		if err == nil {
+			t.Fatal("Expected error for invalid input")
+		}
+		errorMsg := err.Error()
+		validOptions := []string{"clear", "keep", "archive"}
+		for _, option := range validOptions {
+			if !strings.Contains(errorMsg, option) {
+				t.Errorf("Error message should mention valid option %q, got: %v", option, err)
+			}
+		}
+	})
+}
+
+// TestKeepAction tests the KeepAction Execute method behavior.
+func TestKeepAction(t *testing.T) {
+	testRepo := Repository{Owner: "test-owner", Name: "test-repo"}
+	testPRNumber := 123
+
+	t.Run("Name returns correct string", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("keep")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('keep') failed: %v", err)
+		}
+		if got := executor.Name(); got != "keep" {
+			t.Errorf("executor.Name() = %q, want %q", got, "keep")
+		}
+	})
+
+	t.Run("Preserves all comments when file is empty", func(t *testing.T) {
+		mock := &mockCommentClearer{}
+		executor, err := CreatePostSubmitExecutor("keep")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('keep') failed: %v", err)
+		}
+
+		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		// Should not call any storage methods since we're keeping comments
+		if mock.clearCommentsCalled {
+			t.Error("ClearComments() should not be called when keeping comments")
+		}
+		if mock.clearCommentsForFileCalled {
+			t.Error("ClearCommentsForFile() should not be called when keeping comments")
+		}
+	})
+
+	t.Run("Preserves file-specific comments when file is specified", func(t *testing.T) {
+		mock := &mockCommentClearer{}
+		executor, err := CreatePostSubmitExecutor("keep")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('keep') failed: %v", err)
+		}
+		testFile := "test.go"
+
+		err = executor.Execute(mock, testRepo, testPRNumber, testFile)
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		// Should not call any storage methods since we're keeping comments
+		if mock.clearCommentsCalled {
+			t.Error("ClearComments() should not be called when keeping comments")
+		}
+		if mock.clearCommentsForFileCalled {
+			t.Error("ClearCommentsForFile() should not be called when keeping comments")
+		}
+	})
+
+	t.Run("Always returns nil regardless of inputs", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("keep")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('keep') failed: %v", err)
+		}
+		testCases := []struct {
+			name     string
+			repo     Repository
+			prNumber int
+			file     string
+		}{
+			{"empty file", testRepo, testPRNumber, ""},
+			{"with file", testRepo, testPRNumber, "main.go"},
+			{"different repo", Repository{Owner: "other", Name: "repo"}, 456, ""},
+			{"long path", testRepo, testPRNumber, "internal/models/prreview.go"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mock := &mockCommentClearer{}
+				err := executor.Execute(mock, tc.repo, tc.prNumber, tc.file)
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+			})
+		}
+	})
+
+	t.Run("Handles different repository configurations", func(t *testing.T) {
+		repos := []Repository{
+			{Owner: "owner1", Name: "repo1"},
+			{Owner: "owner-with-dash", Name: "repo-with-dash"},
+			{Owner: "org", Name: "very-long-repository-name"},
+		}
+
+		for _, repo := range repos {
+			t.Run(repo.Owner+"/"+repo.Name, func(t *testing.T) {
+				mock := &mockCommentClearer{}
+				action := KeepAction{}
+
+				err := action.Execute(mock, repo, testPRNumber, "")
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				// Verify no storage operations were called
+				if mock.clearCommentsCalled || mock.clearCommentsForFileCalled {
+					t.Error("No storage methods should be called when keeping comments")
+				}
+			})
+		}
+	})
+
+	t.Run("Handles different PR numbers", func(t *testing.T) {
+		prNumbers := []int{1, 42, 999, 10000}
+
+		for _, prNum := range prNumbers {
+			t.Run(fmt.Sprintf("PR-%d", prNum), func(t *testing.T) {
+				mock := &mockCommentClearer{}
+				action := KeepAction{}
+
+				err := action.Execute(mock, testRepo, prNum, "")
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				// Verify no storage operations were called
+				if mock.clearCommentsCalled || mock.clearCommentsForFileCalled {
+					t.Error("No storage methods should be called when keeping comments")
+				}
+			})
+		}
+	})
+
+	t.Run("Handles various file paths", func(t *testing.T) {
+		files := []string{
+			"main.go",
+			"pkg/server/handler.go",
+			"internal/models/prreview.go",
+			"docs/README.md",
+		}
+
+		for _, file := range files {
+			t.Run(file, func(t *testing.T) {
+				mock := &mockCommentClearer{}
+				action := KeepAction{}
+
+				err := action.Execute(mock, testRepo, testPRNumber, file)
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				// Verify no storage operations were called
+				if mock.clearCommentsCalled || mock.clearCommentsForFileCalled {
+					t.Error("No storage methods should be called when keeping comments")
+				}
+			})
+		}
+	})
+
+	t.Run("Storage errors do not affect behavior", func(t *testing.T) {
+		// Even if storage has errors configured, KeepAction should still succeed
+		// since it doesn't call any storage methods
+		mock := &mockCommentClearer{
+			clearCommentsError:        fmt.Errorf("hypothetical storage error"),
+			clearCommentsForFileError: fmt.Errorf("hypothetical file error"),
+		}
+		action := KeepAction{}
+
+		err := action.Execute(mock, testRepo, testPRNumber, "test.go")
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		// Verify no storage operations were attempted
+		if mock.clearCommentsCalled || mock.clearCommentsForFileCalled {
+			t.Error("No storage methods should be called when keeping comments")
+		}
+	})
+}
+
+// TestClearAction tests the ClearAction Execute method behavior.
+func TestClearAction(t *testing.T) {
+	testRepo := Repository{Owner: "test-owner", Name: "test-repo"}
+	testPRNumber := 123
+
+	t.Run("Name returns correct string", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("clear")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('clear') failed: %v", err)
+		}
+		if got := executor.Name(); got != "clear" {
+			t.Errorf("executor.Name() = %q, want %q", got, "clear")
+		}
+	})
+
+	t.Run("Clears all comments when file is empty", func(t *testing.T) {
+		mock := &mockCommentClearer{}
+		executor, err := CreatePostSubmitExecutor("clear")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('clear') failed: %v", err)
+		}
+
+		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		if !mock.clearCommentsCalled {
+			t.Error("ClearComments() was not called")
+		}
+		if mock.clearCommentsForFileCalled {
+			t.Error("ClearCommentsForFile() should not be called when file is empty")
+		}
+		if mock.lastRepository != testRepo {
+			t.Errorf("Repository = %+v, want %+v", mock.lastRepository, testRepo)
+		}
+		if mock.lastPRNumber != testPRNumber {
+			t.Errorf("PR number = %d, want %d", mock.lastPRNumber, testPRNumber)
+		}
+	})
+
+	t.Run("Clears specific file comments when file is specified", func(t *testing.T) {
+		mock := &mockCommentClearer{}
+		executor, err := CreatePostSubmitExecutor("clear")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('clear') failed: %v", err)
+		}
+		testFile := "test.go"
+
+		err = executor.Execute(mock, testRepo, testPRNumber, testFile)
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		if mock.clearCommentsCalled {
+			t.Error("ClearComments() should not be called when file is specified")
+		}
+		if !mock.clearCommentsForFileCalled {
+			t.Error("ClearCommentsForFile() was not called")
+		}
+		if mock.lastFile != testFile {
+			t.Errorf("File = %q, want %q", mock.lastFile, testFile)
+		}
+		if mock.lastRepository != testRepo {
+			t.Errorf("Repository = %+v, want %+v", mock.lastRepository, testRepo)
+		}
+		if mock.lastPRNumber != testPRNumber {
+			t.Errorf("PR number = %d, want %d", mock.lastPRNumber, testPRNumber)
+		}
+	})
+
+	t.Run("Returns nil even when ClearComments fails", func(t *testing.T) {
+		mock := &mockCommentClearer{
+			clearCommentsError: fmt.Errorf("storage error"),
+		}
+		executor, err := CreatePostSubmitExecutor("clear")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('clear') failed: %v", err)
+		}
+
+		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		// Should not fail the submission even if clearing fails
+		if err != nil {
+			t.Errorf("Execute() should return nil when ClearComments fails, got: %v", err)
+		}
+		if !mock.clearCommentsCalled {
+			t.Error("ClearComments() should still be called despite expected error")
+		}
+	})
+
+	t.Run("Returns nil even when ClearCommentsForFile fails", func(t *testing.T) {
+		mock := &mockCommentClearer{
+			clearCommentsForFileError: fmt.Errorf("file storage error"),
+		}
+		action := ClearAction{}
+
+		err := action.Execute(mock, testRepo, testPRNumber, "test.go")
+		// Should not fail the submission even if clearing fails
+		if err != nil {
+			t.Errorf("Execute() should return nil when ClearCommentsForFile fails, got: %v", err)
+		}
+		if !mock.clearCommentsForFileCalled {
+			t.Error("ClearCommentsForFile() should still be called despite expected error")
+		}
+	})
+
+	t.Run("Handles different repository configurations", func(t *testing.T) {
+		repos := []Repository{
+			{Owner: "owner1", Name: "repo1"},
+			{Owner: "owner-with-dash", Name: "repo-with-dash"},
+			{Owner: "org", Name: "very-long-repository-name"},
+		}
+
+		for _, repo := range repos {
+			t.Run(repo.Owner+"/"+repo.Name, func(t *testing.T) {
+				mock := &mockCommentClearer{}
+				action := ClearAction{}
+
+				err := action.Execute(mock, repo, testPRNumber, "")
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				if mock.lastRepository != repo {
+					t.Errorf("Repository = %+v, want %+v", mock.lastRepository, repo)
+				}
+			})
+		}
+	})
+
+	t.Run("Handles different PR numbers", func(t *testing.T) {
+		prNumbers := []int{1, 42, 999, 10000}
+
+		for _, prNum := range prNumbers {
+			t.Run(fmt.Sprintf("PR-%d", prNum), func(t *testing.T) {
+				mock := &mockCommentClearer{}
+				action := ClearAction{}
+
+				err := action.Execute(mock, testRepo, prNum, "")
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				if mock.lastPRNumber != prNum {
+					t.Errorf("PR number = %d, want %d", mock.lastPRNumber, prNum)
+				}
+			})
+		}
+	})
+
+	t.Run("Handles various file paths", func(t *testing.T) {
+		files := []string{
+			"main.go",
+			"pkg/server/handler.go",
+			"internal/models/prreview.go",
+			"docs/README.md",
+		}
+
+		for _, file := range files {
+			t.Run(file, func(t *testing.T) {
+				mock := &mockCommentClearer{}
+				action := ClearAction{}
+
+				err := action.Execute(mock, testRepo, testPRNumber, file)
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				if !mock.clearCommentsForFileCalled {
+					t.Error("ClearCommentsForFile() was not called")
+				}
+				if mock.lastFile != file {
+					t.Errorf("File = %q, want %q", mock.lastFile, file)
+				}
+			})
+		}
+	})
+}
+
+// TestArchiveAction tests the ArchiveAction Execute method behavior.
+func TestArchiveAction(t *testing.T) {
+	testRepo := Repository{Owner: "test-owner", Name: "test-repo"}
+	testPRNumber := 123
+
+	t.Run("Name returns correct string", func(t *testing.T) {
+		executor, err := CreatePostSubmitExecutor("archive")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('archive') failed: %v", err)
+		}
+		if got := executor.Name(); got != "archive" {
+			t.Errorf("executor.Name() = %q, want %q", got, "archive")
+		}
+	})
+
+	t.Run("Archives comments when storage supports archiving", func(t *testing.T) {
+		expectedSubmission := &ArchivedSubmission{
+			SubmissionID: "test-id-123",
+			CommentCount: 5,
+			PRNumber:     testPRNumber,
+			Owner:        testRepo.Owner,
+			Repo:         testRepo.Name,
+		}
+		mock := &mockCommentArchiver{
+			archivedSubmission: expectedSubmission,
+		}
+		executor, err := CreatePostSubmitExecutor("archive")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('archive') failed: %v", err)
+		}
+
+		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		if !mock.archiveCommentsCalled {
+			t.Error("ArchiveComments() was not called")
+		}
+		if mock.lastRepository != testRepo {
+			t.Errorf("Repository = %+v, want %+v", mock.lastRepository, testRepo)
+		}
+		if mock.lastPRNumber != testPRNumber {
+			t.Errorf("PR number = %d, want %d", mock.lastPRNumber, testPRNumber)
+		}
+	})
+
+	t.Run("Gracefully handles storage without archiving support", func(t *testing.T) {
+		// Use mockCommentClearer which doesn't implement CommentArchiver
+		mock := &mockCommentClearer{}
+		executor, err := CreatePostSubmitExecutor("archive")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('archive') failed: %v", err)
+		}
+
+		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		// Should succeed without error even when archiving is not supported
+		if err != nil {
+			t.Errorf("Execute() should return nil when storage doesn't support archiving, got: %v", err)
+		}
+		// Should not attempt to clear comments as fallback
+		if mock.clearCommentsCalled {
+			t.Error("ClearComments() should not be called when archiving is not supported")
+		}
+	})
+
+	t.Run("Returns nil when archiving fails", func(t *testing.T) {
+		mock := &mockCommentArchiver{
+			archiveCommentsError: fmt.Errorf("archive storage error"),
+		}
+		executor, err := CreatePostSubmitExecutor("archive")
+		if err != nil {
+			t.Fatalf("CreatePostSubmitExecutor('archive') failed: %v", err)
+		}
+
+		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		// Should not fail the submission even if archiving fails
+		if err != nil {
+			t.Errorf("Execute() should return nil when ArchiveComments fails, got: %v", err)
+		}
+		if !mock.archiveCommentsCalled {
+			t.Error("ArchiveComments() should still be called despite expected error")
+		}
+	})
+
+	t.Run("Preserves comments when file-specific archiving is requested", func(t *testing.T) {
+		mock := &mockCommentArchiver{
+			archivedSubmission: &ArchivedSubmission{SubmissionID: "test-id"},
+		}
+		action := ArchiveAction{}
+
+		err := action.Execute(mock, testRepo, testPRNumber, "test.go")
+		// Should succeed but not archive when file is specified
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		if mock.archiveCommentsCalled {
+			t.Error("ArchiveComments() should not be called for file-specific archiving")
+		}
+	})
+
+	t.Run("Handles different file paths for file-specific requests", func(t *testing.T) {
+		files := []string{
+			"main.go",
+			"pkg/server/handler.go",
+			"internal/models/prreview.go",
+		}
+
+		for _, file := range files {
+			t.Run(file, func(t *testing.T) {
+				mock := &mockCommentArchiver{
+					archivedSubmission: &ArchivedSubmission{SubmissionID: "test-id"},
+				}
+				action := ArchiveAction{}
+
+				err := action.Execute(mock, testRepo, testPRNumber, file)
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				// File-specific archiving is not supported, so should not call ArchiveComments
+				if mock.archiveCommentsCalled {
+					t.Error("ArchiveComments() should not be called for file-specific requests")
+				}
+			})
+		}
+	})
+
+	t.Run("Handles different repository configurations", func(t *testing.T) {
+		repos := []Repository{
+			{Owner: "owner1", Name: "repo1"},
+			{Owner: "owner-with-dash", Name: "repo-with-dash"},
+			{Owner: "org", Name: "very-long-repository-name"},
+		}
+
+		for _, repo := range repos {
+			t.Run(repo.Owner+"/"+repo.Name, func(t *testing.T) {
+				mock := &mockCommentArchiver{
+					archivedSubmission: &ArchivedSubmission{SubmissionID: "test-id"},
+				}
+				action := ArchiveAction{}
+
+				err := action.Execute(mock, repo, testPRNumber, "")
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				if mock.lastRepository != repo {
+					t.Errorf("Repository = %+v, want %+v", mock.lastRepository, repo)
+				}
+			})
+		}
+	})
+
+	t.Run("Handles different PR numbers", func(t *testing.T) {
+		prNumbers := []int{1, 42, 999, 10000}
+
+		for _, prNum := range prNumbers {
+			t.Run(fmt.Sprintf("PR-%d", prNum), func(t *testing.T) {
+				mock := &mockCommentArchiver{
+					archivedSubmission: &ArchivedSubmission{SubmissionID: "test-id"},
+				}
+				action := ArchiveAction{}
+
+				err := action.Execute(mock, testRepo, prNum, "")
+				if err != nil {
+					t.Errorf("Execute() returned error: %v", err)
+				}
+				if mock.lastPRNumber != prNum {
+					t.Errorf("PR number = %d, want %d", mock.lastPRNumber, prNum)
+				}
+			})
+		}
+	})
+
+	t.Run("Verifies archived submission data", func(t *testing.T) {
+		expectedSubmission := &ArchivedSubmission{
+			SubmissionID: "submission-abc123",
+			CommentCount: 10,
+			PRNumber:     testPRNumber,
+			Owner:        testRepo.Owner,
+			Repo:         testRepo.Name,
+			ReviewBody:   "LGTM",
+			ReviewEvent:  "COMMENT",
+		}
+		mock := &mockCommentArchiver{
+			archivedSubmission: expectedSubmission,
+		}
+		action := ArchiveAction{}
+
+		err := action.Execute(mock, testRepo, testPRNumber, "")
+		if err != nil {
+			t.Errorf("Execute() returned error: %v", err)
+		}
+		// The action should successfully complete regardless of submission details
+		if !mock.archiveCommentsCalled {
+			t.Error("ArchiveComments() was not called")
 		}
 	})
 }
