@@ -66,6 +66,8 @@ const (
 )
 
 // Comment represents a line-specific comment in a pull request.
+//
+// TODO: Add action methods like Archive, Resolve, Reopen, etc.
 type Comment struct {
 	ID   string `json:"id"`   // Unique comment ID (40-char hex string)
 	Path string `json:"path"` // File path
