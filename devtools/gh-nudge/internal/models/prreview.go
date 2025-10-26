@@ -498,6 +498,35 @@ func (c Comment) IsArchived() bool {
 	return c.Status == StatusArchived
 }
 
+// Resolve marks the comment as resolved with an optional reason.
+// It sets the status to StatusResolved, records the current time as ResolvedAt,
+// and stores the reason if provided.
+func (c *Comment) Resolve(reason string) {
+	now := time.Now()
+	c.Status = StatusResolved
+	c.ResolvedAt = &now
+	c.ResolutionReason = reason
+}
+
+// Archive marks the comment as archived with an optional reason.
+// It sets the status to StatusArchived, records the current time as ResolvedAt,
+// and stores the reason if provided.
+// Archiving is similar to resolving but indicates the comment is stored for historical reference.
+func (c *Comment) Archive(reason string) {
+	now := time.Now()
+	c.Status = StatusArchived
+	c.ResolvedAt = &now
+	c.ResolutionReason = reason
+}
+
+// Reopen marks the comment as unresolved, clearing resolution metadata.
+// This is typically used when a previously resolved comment needs to be revisited.
+func (c *Comment) Reopen() {
+	c.Status = StatusUnresolved
+	c.ResolvedAt = nil
+	c.ResolutionReason = ""
+}
+
 // BranchDiffHunks represents the diff hunks for a local branch.
 type BranchDiffHunks struct {
 	BranchName  string     `json:"branchName"`

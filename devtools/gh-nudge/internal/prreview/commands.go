@@ -799,14 +799,11 @@ func (ch *CommandHandler) resolvePRComment(repository models.Repository, prNumbe
 	found := false
 	for i, comment := range prComments.Comments {
 		if comment.MatchesIDPrefix(commentID) {
-			now := time.Now()
 			if archive {
-				prComments.Comments[i].Status = models.StatusArchived
+				prComments.Comments[i].Archive(reason)
 			} else {
-				prComments.Comments[i].Status = models.StatusResolved
+				prComments.Comments[i].Resolve(reason)
 			}
-			prComments.Comments[i].ResolvedAt = &now
-			prComments.Comments[i].ResolutionReason = reason
 			found = true
 			break
 		}
@@ -845,14 +842,11 @@ func (ch *CommandHandler) resolveBranchComment(repository models.Repository, bra
 	found := false
 	for i, comment := range branchComments.Comments {
 		if comment.MatchesIDPrefix(commentID) {
-			now := time.Now()
 			if archive {
-				branchComments.Comments[i].Status = models.StatusArchived
+				branchComments.Comments[i].Archive(reason)
 			} else {
-				branchComments.Comments[i].Status = models.StatusResolved
+				branchComments.Comments[i].Resolve(reason)
 			}
-			branchComments.Comments[i].ResolvedAt = &now
-			branchComments.Comments[i].ResolutionReason = reason
 			found = true
 			break
 		}
