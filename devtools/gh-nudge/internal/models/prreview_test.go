@@ -704,6 +704,380 @@ func (m *mockCommentArchiver) CleanupOldArchives(_ Repository, _ int, _ time.Dur
 	return nil
 }
 
+// TestCommentResolve tests the Comment.Resolve method behavior.
+func TestCommentResolve(t *testing.T) {
+	t.Run("Resolves comment and sets timestamp", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Path:   "test.go",
+			Line:   NewSingleLine(42),
+			Body:   "Test comment",
+			Status: StatusUnresolved,
+		}
+
+		beforeResolve := time.Now()
+		comment.Resolve("Fixed the issue")
+		afterResolve := time.Now()
+
+		if comment.Status != StatusResolved {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusResolved)
+		}
+		if comment.ResolvedAt == nil {
+			t.Fatal("ResolvedAt should not be nil")
+		}
+		if comment.ResolvedAt.Before(beforeResolve) || comment.ResolvedAt.After(afterResolve) {
+			t.Errorf("ResolvedAt timestamp out of expected range")
+		}
+		if comment.ResolutionReason != "Fixed the issue" {
+			t.Errorf("ResolutionReason = %q, want %q", comment.ResolutionReason, "Fixed the issue")
+		}
+	})
+
+	t.Run("Resolves without reason", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Status: StatusUnresolved,
+		}
+
+		comment.Resolve("")
+
+		if comment.Status != StatusResolved {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusResolved)
+		}
+		if comment.ResolvedAt == nil {
+			t.Fatal("ResolvedAt should not be nil")
+		}
+		if comment.ResolutionReason != "" {
+			t.Errorf("ResolutionReason = %q, want empty string", comment.ResolutionReason)
+		}
+	})
+
+	t.Run("Can resolve already resolved comment", func(t *testing.T) {
+		oldTime := time.Now().Add(-1 * time.Hour)
+		comment := Comment{
+			ID:               GenerateCommentID(),
+			Status:           StatusResolved,
+			ResolvedAt:       &oldTime,
+			ResolutionReason: "Old reason",
+		}
+
+		comment.Resolve("New reason")
+
+		if comment.Status != StatusResolved {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusResolved)
+		}
+		if comment.ResolutionReason != "New reason" {
+			t.Errorf("ResolutionReason = %q, want %q", comment.ResolutionReason, "New reason")
+		}
+		if comment.ResolvedAt.Before(oldTime) {
+			t.Error("ResolvedAt should be updated to newer timestamp")
+		}
+	})
+
+	t.Run("Preserves other comment fields", func(t *testing.T) {
+		comment := Comment{
+			ID:       GenerateCommentID(),
+			Path:     "important.go",
+			Line:     NewLineRange(10, 20),
+			Body:     "Important comment",
+			Side:     "RIGHT",
+			Status:   StatusUnresolved,
+			Priority: PriorityHigh,
+		}
+
+		comment.Resolve("Done")
+
+		if comment.Path != "important.go" {
+			t.Errorf("Path changed unexpectedly")
+		}
+		if comment.Line.StartLine != 10 || comment.Line.EndLine != 20 {
+			t.Errorf("Line range changed unexpectedly")
+		}
+		if comment.Body != "Important comment" {
+			t.Errorf("Body changed unexpectedly")
+		}
+		if comment.Priority != PriorityHigh {
+			t.Errorf("Priority changed unexpectedly")
+		}
+	})
+}
+
+// TestCommentArchive tests the Comment.Archive method behavior.
+func TestCommentArchive(t *testing.T) {
+	t.Run("Archives comment and sets timestamp", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Path:   "test.go",
+			Line:   NewSingleLine(42),
+			Body:   "Test comment",
+			Status: StatusUnresolved,
+		}
+
+		beforeArchive := time.Now()
+		comment.Archive("No longer relevant")
+		afterArchive := time.Now()
+
+		if comment.Status != StatusArchived {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusArchived)
+		}
+		if comment.ResolvedAt == nil {
+			t.Fatal("ResolvedAt should not be nil")
+		}
+		if comment.ResolvedAt.Before(beforeArchive) || comment.ResolvedAt.After(afterArchive) {
+			t.Errorf("ResolvedAt timestamp out of expected range")
+		}
+		if comment.ResolutionReason != "No longer relevant" {
+			t.Errorf("ResolutionReason = %q, want %q", comment.ResolutionReason, "No longer relevant")
+		}
+	})
+
+	t.Run("Archives without reason", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Status: StatusUnresolved,
+		}
+
+		comment.Archive("")
+
+		if comment.Status != StatusArchived {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusArchived)
+		}
+		if comment.ResolvedAt == nil {
+			t.Fatal("ResolvedAt should not be nil")
+		}
+		if comment.ResolutionReason != "" {
+			t.Errorf("ResolutionReason = %q, want empty string", comment.ResolutionReason)
+		}
+	})
+
+	t.Run("Can archive resolved comment", func(t *testing.T) {
+		oldTime := time.Now().Add(-1 * time.Hour)
+		comment := Comment{
+			ID:               GenerateCommentID(),
+			Status:           StatusResolved,
+			ResolvedAt:       &oldTime,
+			ResolutionReason: "Was resolved",
+		}
+
+		comment.Archive("Moving to archive")
+
+		if comment.Status != StatusArchived {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusArchived)
+		}
+		if comment.ResolutionReason != "Moving to archive" {
+			t.Errorf("ResolutionReason = %q, want %q", comment.ResolutionReason, "Moving to archive")
+		}
+		if comment.ResolvedAt.Before(oldTime) {
+			t.Error("ResolvedAt should be updated to newer timestamp")
+		}
+	})
+
+	t.Run("Preserves other comment fields", func(t *testing.T) {
+		comment := Comment{
+			ID:       GenerateCommentID(),
+			Path:     "legacy.go",
+			Line:     NewLineRange(100, 150),
+			Body:     "Legacy comment",
+			Side:     "LEFT",
+			Status:   StatusUnresolved,
+			Priority: PriorityLow,
+		}
+
+		comment.Archive("Archiving old comments")
+
+		if comment.Path != "legacy.go" {
+			t.Errorf("Path changed unexpectedly")
+		}
+		if comment.Line.StartLine != 100 || comment.Line.EndLine != 150 {
+			t.Errorf("Line range changed unexpectedly")
+		}
+		if comment.Body != "Legacy comment" {
+			t.Errorf("Body changed unexpectedly")
+		}
+		if comment.Priority != PriorityLow {
+			t.Errorf("Priority changed unexpectedly")
+		}
+	})
+}
+
+// TestCommentReopen tests the Comment.Reopen method behavior.
+func TestCommentReopen(t *testing.T) {
+	t.Run("Reopens resolved comment", func(t *testing.T) {
+		resolvedTime := time.Now()
+		comment := Comment{
+			ID:               GenerateCommentID(),
+			Path:             "test.go",
+			Line:             NewSingleLine(42),
+			Body:             "Test comment",
+			Status:           StatusResolved,
+			ResolvedAt:       &resolvedTime,
+			ResolutionReason: "Was fixed",
+		}
+
+		comment.Reopen()
+
+		if comment.Status != StatusUnresolved {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusUnresolved)
+		}
+		if comment.ResolvedAt != nil {
+			t.Errorf("ResolvedAt should be nil, got %v", comment.ResolvedAt)
+		}
+		if comment.ResolutionReason != "" {
+			t.Errorf("ResolutionReason = %q, want empty string", comment.ResolutionReason)
+		}
+	})
+
+	t.Run("Reopens archived comment", func(t *testing.T) {
+		archivedTime := time.Now()
+		comment := Comment{
+			ID:               GenerateCommentID(),
+			Status:           StatusArchived,
+			ResolvedAt:       &archivedTime,
+			ResolutionReason: "Archived",
+		}
+
+		comment.Reopen()
+
+		if comment.Status != StatusUnresolved {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusUnresolved)
+		}
+		if comment.ResolvedAt != nil {
+			t.Errorf("ResolvedAt should be nil, got %v", comment.ResolvedAt)
+		}
+		if comment.ResolutionReason != "" {
+			t.Errorf("ResolutionReason = %q, want empty string", comment.ResolutionReason)
+		}
+	})
+
+	t.Run("Reopening unresolved comment is idempotent", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Status: StatusUnresolved,
+		}
+
+		comment.Reopen()
+
+		if comment.Status != StatusUnresolved {
+			t.Errorf("Status = %s, want %s", comment.Status, StatusUnresolved)
+		}
+		if comment.ResolvedAt != nil {
+			t.Errorf("ResolvedAt should be nil")
+		}
+		if comment.ResolutionReason != "" {
+			t.Errorf("ResolutionReason should be empty")
+		}
+	})
+
+	t.Run("Preserves other comment fields", func(t *testing.T) {
+		resolvedTime := time.Now()
+		comment := Comment{
+			ID:               GenerateCommentID(),
+			Path:             "important.go",
+			Line:             NewLineRange(5, 10),
+			Body:             "Still important",
+			Side:             "RIGHT",
+			Status:           StatusResolved,
+			ResolvedAt:       &resolvedTime,
+			ResolutionReason: "Fixed",
+			Priority:         PriorityHigh,
+		}
+
+		comment.Reopen()
+
+		if comment.Path != "important.go" {
+			t.Errorf("Path changed unexpectedly")
+		}
+		if comment.Line.StartLine != 5 || comment.Line.EndLine != 10 {
+			t.Errorf("Line range changed unexpectedly")
+		}
+		if comment.Body != "Still important" {
+			t.Errorf("Body changed unexpectedly")
+		}
+		if comment.Priority != PriorityHigh {
+			t.Errorf("Priority changed unexpectedly")
+		}
+	})
+}
+
+// TestCommentActionSequence tests sequences of Resolve, Archive, and Reopen.
+func TestCommentActionSequence(t *testing.T) {
+	t.Run("Resolve then Reopen", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Status: StatusUnresolved,
+		}
+
+		comment.Resolve("Fixed")
+		if !comment.IsResolved() {
+			t.Error("Comment should be resolved")
+		}
+
+		comment.Reopen()
+		if !comment.IsUnresolved() {
+			t.Error("Comment should be unresolved")
+		}
+	})
+
+	t.Run("Archive then Reopen", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Status: StatusUnresolved,
+		}
+
+		comment.Archive("Old")
+		if !comment.IsArchived() {
+			t.Error("Comment should be archived")
+		}
+
+		comment.Reopen()
+		if !comment.IsUnresolved() {
+			t.Error("Comment should be unresolved")
+		}
+	})
+
+	t.Run("Resolve then Archive", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Status: StatusUnresolved,
+		}
+
+		comment.Resolve("Fixed")
+		firstResolvedAt := *comment.ResolvedAt
+
+		time.Sleep(10 * time.Millisecond) // Ensure timestamp difference
+
+		comment.Archive("Moving to archive")
+		if !comment.IsArchived() {
+			t.Error("Comment should be archived")
+		}
+		if !comment.ResolvedAt.After(firstResolvedAt) {
+			t.Error("Archive should update timestamp")
+		}
+	})
+
+	t.Run("Multiple resolve calls update timestamp", func(t *testing.T) {
+		comment := Comment{
+			ID:     GenerateCommentID(),
+			Status: StatusUnresolved,
+		}
+
+		comment.Resolve("First fix")
+		firstTime := *comment.ResolvedAt
+
+		time.Sleep(10 * time.Millisecond)
+
+		comment.Resolve("Second fix")
+		secondTime := *comment.ResolvedAt
+
+		if !secondTime.After(firstTime) {
+			t.Error("Second resolve should have later timestamp")
+		}
+		if comment.ResolutionReason != "Second fix" {
+			t.Errorf("ResolutionReason = %q, want %q", comment.ResolutionReason, "Second fix")
+		}
+	})
+}
+
 // TestCreatePostSubmitExecutor tests the CreatePostSubmitExecutor function.
 func TestCreatePostSubmitExecutor(t *testing.T) {
 	t.Run("Creates ClearAction for 'clear'", func(t *testing.T) {

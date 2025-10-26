@@ -336,9 +336,7 @@ func (m *UndoManager) UndoCommentOperation(operationID string) (*CommentUndoResu
 			return nil, fmt.Errorf("invalid operation data: missing comment")
 		}
 		// Restore original status
-		comment.Status = StatusUnresolved
-		comment.ResolvedAt = nil
-		comment.ResolutionReason = ""
+		comment.Reopen()
 		result.RestoredComment = &comment
 
 	default:
