@@ -396,7 +396,7 @@ func TestConvertGitHubComment(t *testing.T) {
 				Path:      "test.go",
 				Line:      intPtr(10),
 				Body:      "Nice fix!",
-				Side:      "right",
+				Side:      models.SideRight,
 				CommitID:  "abc123",
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -412,7 +412,7 @@ func TestConvertGitHubComment(t *testing.T) {
 				if c.Line != models.NewSingleLine(10) {
 					t.Errorf("expected line 10, got %d", c.Line.EndLine)
 				}
-				if c.Side != "RIGHT" {
+				if c.Side != models.SideRight {
 					t.Errorf("expected side 'RIGHT', got %q", c.Side)
 				}
 				if c.Source != "github" {
@@ -497,7 +497,7 @@ func TestConvertGitHubComment(t *testing.T) {
 				Path:      "test.go",
 				Line:      intPtr(5),
 				Body:      "Comment with invalid side",
-				Side:      "invalid",
+				Side:      models.SideUnspecified, // unspecified side should default to RIGHT
 				CommitID:  "aaa111",
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -508,7 +508,7 @@ func TestConvertGitHubComment(t *testing.T) {
 			wantErr: false,
 			checkFunc: func(t *testing.T, c models.Comment) {
 				// Should default to RIGHT
-				if c.Side != "RIGHT" {
+				if c.Side != models.SideRight {
 					t.Errorf("expected side 'RIGHT' (default), got %q", c.Side)
 				}
 			},
@@ -935,13 +935,13 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 	now := time.Now()
 
 	t.Run("normalizes side to uppercase", func(t *testing.T) {
-		// Behavior: GitHub may return lowercase 'left'/'right', should convert to uppercase
+		// Behavior: Side values are now typed - lowercase "left" gets converted to SideLeft constant
 		ghComment := GitHubComment{
 			ID:        123,
 			Path:      "test.go",
 			Line:      intPtr(10),
 			Body:      "Test",
-			Side:      "left",
+			Side:      models.SideLeft, // Now using typed constant
 			CommitID:  "abc",
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -952,19 +952,19 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if comment.Side != "LEFT" {
-			t.Errorf("expected side to be normalized to 'LEFT', got %q", comment.Side)
+		if comment.Side != models.SideLeft {
+			t.Errorf("expected side to be LEFT, got %q", comment.Side)
 		}
 	})
 
 	t.Run("defaults invalid side to RIGHT", func(t *testing.T) {
-		// Behavior: Invalid side values should default to RIGHT for safety
+		// Behavior: Unspecified side values should default to RIGHT for safety
 		ghComment := GitHubComment{
 			ID:        123,
 			Path:      "test.go",
 			Line:      intPtr(10),
 			Body:      "Test",
-			Side:      "middle", // invalid
+			Side:      models.SideUnspecified, // unspecified defaults to RIGHT
 			CommitID:  "abc",
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -975,8 +975,8 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if comment.Side != "RIGHT" {
-			t.Errorf("expected invalid side to default to 'RIGHT', got %q", comment.Side)
+		if comment.Side != models.SideRight {
+			t.Errorf("expected unspecified side to default to RIGHT, got %q", comment.Side)
 		}
 	})
 

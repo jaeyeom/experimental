@@ -38,10 +38,38 @@ func ParseOperationType(s string) (OperationType, error) {
 	}
 }
 
+// Side represents the side of a diff (LEFT or RIGHT).
+type Side string
+
+const (
+	SideUnspecified Side = ""      // Unspecified side
+	SideLeft        Side = "LEFT"  // Left side of diff (old version)
+	SideRight       Side = "RIGHT" // Right side of diff (new version)
+)
+
+// String returns the string representation of the side.
+func (s Side) String() string {
+	return string(s)
+}
+
+// ParseSide parses a string into a Side type.
+func ParseSide(s string) (Side, error) {
+	switch strings.ToUpper(s) {
+	case "":
+		return SideUnspecified, nil
+	case "LEFT":
+		return SideLeft, nil
+	case "RIGHT":
+		return SideRight, nil
+	default:
+		return SideUnspecified, fmt.Errorf("unknown side: %s (expected LEFT, RIGHT, or empty)", s)
+	}
+}
+
 // DiffHunk represents a diff hunk in a pull request.
 type DiffHunk struct {
 	File    string    `json:"file"`
-	Side    string    `json:"side"`    // "LEFT" or "RIGHT"
+	Side    Side      `json:"side"`    // Side of the diff (LEFT or RIGHT)
 	Range   LineRange `json:"range"`   // Line range for this hunk
 	Content string    `json:"content"` // The diff content
 	SHA     string    `json:"sha"`     // Commit SHA
@@ -84,7 +112,7 @@ type Comment struct {
 	// TODO: Consider renaming this field to Line.
 	Line              LineRange        `json:"line"`                        // Line range for this comment
 	Body              string           `json:"body"`                        // Comment text
-	Side              string           `json:"side"`                        // "LEFT" or "RIGHT"
+	Side              Side             `json:"side"`                        // Side of the diff (LEFT or RIGHT)
 	SHA               string           `json:"sha"`                         // Commit SHA
 	CreatedAt         time.Time        `json:"createdAt"`                   // When comment was created
 	OriginalRange     *LineRange       `json:"originalRange,omitempty"`     // Original line range before adjustments
@@ -127,9 +155,8 @@ type PRReview struct {
 
 // CommentFilter represents filters for listing comments.
 type CommentFilter struct {
-	File string `json:"file,omitempty"`
-	// TODO: Consider making Side a typed constant similar to OperationType.
-	Side         string     `json:"side,omitempty"`
+	File         string     `json:"file,omitempty"`
+	Side         Side       `json:"side,omitempty"`
 	LineRange    *LineRange `json:"lineRange,omitempty"`    // For filtering by line range (supports single line or range)
 	ShowArchived bool       `json:"showArchived,omitempty"` // Whether to include archived comments
 }
