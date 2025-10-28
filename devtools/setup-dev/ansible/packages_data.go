@@ -215,14 +215,14 @@ var platformSpecificTools = []PlatformSpecificTool{
 			"darwin": BrewInstallMethod{Name: "starship"},
 			"termux": TermuxPkgInstallMethod{Name: "starship"},
 			"debian-like": ShellInstallMethod{
-				InstallCommand:    "curl -sS https://starship.rs/install.sh | sh -s -- -y",
+				InstallCommand:    "curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir ~/.cargo/bin",
 				VersionCommand:    "starship --version",
 				VersionRegex:      "starship ([0-9.]+)",
 				LatestVersionURL:  "https://api.github.com/repos/starship/starship/releases/latest",
 				LatestVersionPath: "tag_name",
 			},
 		},
-		Imports: nil,
+		Imports: []Import{{Playbook: "rustc"}, {Playbook: "curl"}},
 	},
 	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
