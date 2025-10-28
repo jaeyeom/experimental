@@ -1648,6 +1648,7 @@ sh_test(
     data = [
         "7z.yml",
         "cmake.yml",
+        "curl.yml",
         "e.yml",
         "emacs.yml",
         "ffmpegthumbnailer.yml",
@@ -1660,6 +1661,7 @@ sh_test(
         "pass.yml",
         "perl.yml",
         "rg.yml",
+        "rustc.yml",
         "setup-emacs.yml",
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
@@ -1711,6 +1713,7 @@ sh_test(
         "pass.yml",
         "perl.yml",
         "rg.yml",
+        "rustc.yml",
         "setup-emacs.yml",
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
@@ -1755,6 +1758,8 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-starship.yml"],
     data = [
+        "curl.yml",
+        "rustc.yml",
         "setup-shell-profile.yml",
         "setup-starship.yml",
         "setup-user-config-directory.yml",
@@ -1909,7 +1914,11 @@ sh_test(
     name = "starship_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["starship.yml"],
-    data = ["starship.yml"],
+    data = [
+        "curl.yml",
+        "rustc.yml",
+        "starship.yml",
+    ],
     tags = [
         "ansible",
         "local",
