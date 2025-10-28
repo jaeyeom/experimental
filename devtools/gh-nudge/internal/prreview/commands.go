@@ -192,12 +192,18 @@ func (ch *CommandHandler) addPRComment(repository models.Repository, prNumber in
 		return fmt.Errorf("invalid line specification %q: %w", lineSpec, err)
 	}
 
+	// Parse side
+	parsedSide, err := models.ParseSide(side)
+	if err != nil {
+		return fmt.Errorf("invalid side %q: %w", side, err)
+	}
+
 	// Create comment
 	comment := models.Comment{
 		Path: file,
 		Line: *lineRange,
 		Body: commentBody,
-		Side: side,
+		Side: parsedSide,
 	}
 
 	// Validate comment against diff hunks if they exist
@@ -233,12 +239,18 @@ func (ch *CommandHandler) addBranchComment(repository models.Repository, branchN
 		return fmt.Errorf("invalid line specification %q: %w", lineSpec, err)
 	}
 
+	// Parse side
+	parsedSide, err := models.ParseSide(side)
+	if err != nil {
+		return fmt.Errorf("invalid side %q: %w", side, err)
+	}
+
 	// Create comment
 	comment := models.Comment{
 		Path: file,
 		Line: *lineRange,
 		Body: commentBody,
-		Side: side,
+		Side: parsedSide,
 	}
 
 	// Validate comment against diff hunks if they exist
@@ -346,9 +358,17 @@ func (ch *CommandHandler) ListCommand(repository models.Repository, identifier s
 	}
 
 	// Build filter
+	var parsedSide models.Side
+	if side != "" {
+		var err error
+		parsedSide, err = models.ParseSide(side)
+		if err != nil {
+			return fmt.Errorf("invalid side %q: %w", side, err)
+		}
+	}
 	filter := models.CommentFilter{
 		File:         file,
-		Side:         side,
+		Side:         parsedSide,
 		ShowArchived: showArchived,
 	}
 	if line != "" {

@@ -244,7 +244,7 @@ func (prc *PRReviewClient) createNewHunk(filename, sha, line string, rightLineNu
 		SHA:     sha,
 		Range:   models.NewSingleLine(rightLineNum),
 		Content: line + "\n",
-		Side:    "RIGHT",
+		Side:    models.SideRight,
 	}
 }
 
@@ -270,7 +270,7 @@ func (prc *PRReviewClient) createBidirectionalHunks(hunks []models.DiffHunk) []m
 
 		if strings.Contains(hunk.Content, "\n-") {
 			leftHunk := hunk
-			leftHunk.Side = "LEFT"
+			leftHunk.Side = models.SideLeft
 			allHunks = append(allHunks, leftHunk)
 		}
 	}
@@ -306,19 +306,19 @@ func (prc *PRReviewClient) GetExistingReviews(repository models.Repository, prNu
 
 //nolint:revive // GitHubComment is appropriate naming for this context
 type GitHubComment struct {
-	ID                int64     `json:"id"`
-	Path              string    `json:"path"`
-	Position          *int      `json:"position"`
-	OriginalPosition  *int      `json:"original_position"` //nolint:tagliatelle // GitHub API uses snake_case
-	Line              *int      `json:"line"`
-	OriginalLine      *int      `json:"original_line"`       //nolint:tagliatelle // GitHub API uses snake_case
-	StartLine         *int      `json:"start_line"`          //nolint:tagliatelle // GitHub API uses snake_case
-	OriginalStartLine *int      `json:"original_start_line"` //nolint:tagliatelle // GitHub API uses snake_case
-	Body              string    `json:"body"`
-	Side              string    `json:"side"`
-	CommitID          string    `json:"commit_id"`  //nolint:tagliatelle // GitHub API uses snake_case
-	CreatedAt         time.Time `json:"created_at"` //nolint:tagliatelle // GitHub API uses snake_case
-	UpdatedAt         time.Time `json:"updated_at"` //nolint:tagliatelle // GitHub API uses snake_case
+	ID                int64       `json:"id"`
+	Path              string      `json:"path"`
+	Position          *int        `json:"position"`
+	OriginalPosition  *int        `json:"original_position"` //nolint:tagliatelle // GitHub API uses snake_case
+	Line              *int        `json:"line"`
+	OriginalLine      *int        `json:"original_line"`       //nolint:tagliatelle // GitHub API uses snake_case
+	StartLine         *int        `json:"start_line"`          //nolint:tagliatelle // GitHub API uses snake_case
+	OriginalStartLine *int        `json:"original_start_line"` //nolint:tagliatelle // GitHub API uses snake_case
+	Body              string      `json:"body"`
+	Side              models.Side `json:"side"`
+	CommitID          string      `json:"commit_id"`  //nolint:tagliatelle // GitHub API uses snake_case
+	CreatedAt         time.Time   `json:"created_at"` //nolint:tagliatelle // GitHub API uses snake_case
+	UpdatedAt         time.Time   `json:"updated_at"` //nolint:tagliatelle // GitHub API uses snake_case
 	User              struct {
 		Login string `json:"login"`
 	} `json:"user"`
@@ -398,11 +398,18 @@ func (prc *PRReviewClient) GetPRReviewComments(repository models.Repository, prN
 // convertGitHubComment converts GitHub API comment to local Comment model.
 func (prc *PRReviewClient) convertGitHubComment(ghComment GitHubComment) (models.Comment, error) {
 	now := time.Now()
+
+	// Parse and validate side - default to RIGHT if unspecified
+	side := ghComment.Side
+	if side == models.SideUnspecified {
+		side = models.SideRight
+	}
+
 	comment := models.Comment{
 		ID:         models.GenerateCommentID(), // Generate new local ID
 		Path:       ghComment.Path,
 		Body:       ghComment.Body,
-		Side:       strings.ToUpper(ghComment.Side), // Ensure uppercase
+		Side:       side,
 		SHA:        ghComment.CommitID,
 		CreatedAt:  ghComment.CreatedAt,
 		Status:     models.StatusUnresolved,
@@ -439,11 +446,6 @@ func (prc *PRReviewClient) convertGitHubComment(ghComment GitHubComment) (models
 	} else if ghComment.OriginalLine != nil {
 		origRange := models.NewSingleLine(*ghComment.OriginalLine)
 		comment.OriginalRange = &origRange
-	}
-
-	// Validate side (default to RIGHT if invalid)
-	if comment.Side != "LEFT" && comment.Side != "RIGHT" {
-		comment.Side = "RIGHT"
 	}
 
 	return comment, nil
