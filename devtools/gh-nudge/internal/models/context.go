@@ -8,12 +8,9 @@ import (
 )
 
 // LineContext represents code lines around a comment for display purposes.
-//
-// TODO: Consider using LineRange type for the fields.
 type LineContext struct {
-	StartLine int      `json:"startLine"`
-	EndLine   int      `json:"endLine"`
-	Lines     []string `json:"lines"`
+	Range LineRange `json:"range"`
+	Lines []string  `json:"lines"`
 }
 
 // CommentWithLineContext wraps a Comment with its line context for display.
@@ -58,9 +55,8 @@ func GetLineContext(filePath string, lineNumber int, contextLines int) (*LineCon
 	contextLineSlice := allLines[startLine-1 : endLine]
 
 	return &LineContext{
-		StartLine: startLine,
-		EndLine:   endLine,
-		Lines:     contextLineSlice,
+		Range: NewLineRange(startLine, endLine),
+		Lines: contextLineSlice,
 	}, nil
 }
 
@@ -82,8 +78,9 @@ func FormatLineContext(context *LineContext, highlightLine int) string {
 	}
 
 	var result strings.Builder
+	// TODO: Consider if LineRange can provide an iterator.
 	for i, line := range context.Lines {
-		lineNum := context.StartLine + i
+		lineNum := context.Range.StartLine + i
 		prefix := "  "
 		if lineNum == highlightLine {
 			prefix = "> "
