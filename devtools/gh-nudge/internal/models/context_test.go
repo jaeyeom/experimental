@@ -118,12 +118,9 @@ func main() {
 				return
 			}
 
-			if ctx.StartLine != tt.wantStart {
-				t.Errorf("StartLine = %d, want %d", ctx.StartLine, tt.wantStart)
-			}
-
-			if ctx.EndLine != tt.wantEnd {
-				t.Errorf("EndLine = %d, want %d", ctx.EndLine, tt.wantEnd)
+			wantRange := NewLineRange(tt.wantStart, tt.wantEnd)
+			if ctx.Range != wantRange {
+				t.Errorf("Range = %v, want %v", ctx.Range, wantRange)
 			}
 
 			if len(ctx.Lines) != tt.wantLines {
@@ -211,12 +208,9 @@ func multiply(a, b int) int {
 				return
 			}
 
-			if ctx.StartLine != tt.wantStart {
-				t.Errorf("StartLine = %d, want %d", ctx.StartLine, tt.wantStart)
-			}
-
-			if ctx.EndLine != tt.wantEnd {
-				t.Errorf("EndLine = %d, want %d", ctx.EndLine, tt.wantEnd)
+			wantRange := NewLineRange(tt.wantStart, tt.wantEnd)
+			if ctx.Range != wantRange {
+				t.Errorf("Range = %v, want %v", ctx.Range, wantRange)
 			}
 		})
 	}
@@ -233,9 +227,8 @@ func TestFormatLineContext(t *testing.T) {
 		{
 			name: "normal context with highlight",
 			context: &LineContext{
-				StartLine: 10,
-				EndLine:   12,
-				Lines:     []string{"func main() {", "	fmt.Println(\"Hello\")", "}"},
+				Range: NewLineRange(10, 12),
+				Lines: []string{"func main() {", "	fmt.Println(\"Hello\")", "}"},
 			},
 			highlightLine: 11,
 			wantContains:  []string{">   11 |", "    10 |", "    12 |", "fmt.Println"},
@@ -243,9 +236,8 @@ func TestFormatLineContext(t *testing.T) {
 		{
 			name: "context without highlight",
 			context: &LineContext{
-				StartLine: 1,
-				EndLine:   3,
-				Lines:     []string{"package main", "", "import \"fmt\""},
+				Range: NewLineRange(1, 3),
+				Lines: []string{"package main", "", "import \"fmt\""},
 			},
 			highlightLine:  5, // Line not in context
 			wantContains:   []string{"     1 |", "     2 |", "     3 |"},
@@ -260,9 +252,8 @@ func TestFormatLineContext(t *testing.T) {
 		{
 			name: "empty lines",
 			context: &LineContext{
-				StartLine: 5,
-				EndLine:   7,
-				Lines:     []string{"", "", ""},
+				Range: NewLineRange(5, 7),
+				Lines: []string{"", "", ""},
 			},
 			highlightLine: 6,
 			wantContains:  []string{">    6 |", "     5 |", "     7 |"},
@@ -340,12 +331,9 @@ func Multiply(a, b int) int {
 		t.Errorf("Comment line = %d, want 5", cwc.Line)
 	}
 
-	if cwc.Context.StartLine != 3 {
-		t.Errorf("Context start line = %d, want 3", cwc.Context.StartLine)
-	}
-
-	if cwc.Context.EndLine != 7 {
-		t.Errorf("Context end line = %d, want 7", cwc.Context.EndLine)
+	wantRange := NewLineRange(3, 7)
+	if cwc.Context.Range != wantRange {
+		t.Errorf("Context range = %v, want %v", cwc.Context.Range, wantRange)
 	}
 
 	if len(cwc.Context.Lines) != 5 {

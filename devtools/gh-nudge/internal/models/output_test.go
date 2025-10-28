@@ -28,9 +28,14 @@ func TestJSONFormatter_FormatCommentsWithContext(t *testing.T) {
 						CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
 					},
 					Context: &LineContext{
-						StartLine: 8,
-						EndLine:   12,
-						Lines:     []string{"func main() {", "	result := process()", "	save(result)", "}", ""},
+						Range: NewLineRange(8, 12),
+						Lines: []string{
+							"func main() {",
+							"	result := process()",
+							"	save(result)",
+							"}",
+							"",
+						},
 					},
 				},
 			},
@@ -69,9 +74,8 @@ func TestJSONFormatter_FormatCommentsWithContext(t *testing.T) {
 						Body: "Comment 1",
 					},
 					Context: &LineContext{
-						StartLine: 3,
-						EndLine:   7,
-						Lines:     []string{"line3", "line4", "line5", "line6", "line7"},
+						Range: NewLineRange(3, 7),
+						Lines: []string{"line3", "line4", "line5", "line6", "line7"},
 					},
 				},
 				{
@@ -125,8 +129,8 @@ func TestJSONFormatter_FormatCommentsWithContext(t *testing.T) {
 				if comment.Context != nil {
 					if parsed[i].Context == nil {
 						t.Errorf("Comment[%d].Context should not be nil", i)
-					} else if parsed[i].Context.StartLine != comment.Context.StartLine {
-						t.Errorf("Comment[%d].Context.StartLine = %d, want %d", i, parsed[i].Context.StartLine, comment.Context.StartLine)
+					} else if parsed[i].Context.Range != comment.Context.Range {
+						t.Errorf("Comment[%d].Context.Range = %v, want %v", i, parsed[i].Context.Range, comment.Context.Range)
 					}
 				}
 			}
@@ -157,9 +161,14 @@ func TestTextFormatter_FormatCommentsWithContext(t *testing.T) {
 						CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
 					},
 					Context: &LineContext{
-						StartLine: 8,
-						EndLine:   12,
-						Lines:     []string{"func main() {", "	result := process()", "	save(result)", "}", ""},
+						Range: NewLineRange(8, 12),
+						Lines: []string{
+							"func main() {",
+							"	result := process()",
+							"	save(result)",
+							"}",
+							"",
+						},
 					},
 				},
 			},
@@ -228,9 +237,8 @@ func TestTextFormatter_FormatCommentsWithContext(t *testing.T) {
 						CreatedAt: time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC),
 					},
 					Context: &LineContext{
-						StartLine: 21,
-						EndLine:   27,
-						Lines:     []string{"line21", "line22", "line23", "line24", "line25", "line26", "line27"},
+						Range: NewLineRange(21, 27),
+						Lines: []string{"line21", "line22", "line23", "line24", "line25", "line26", "line27"},
 					},
 				},
 			},
@@ -287,9 +295,8 @@ func TestTextFormatter_FormatCommentsWithContext_MultipleComments(t *testing.T) 
 				CreatedAt: time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
 			},
 			Context: &LineContext{
-				StartLine: 8,
-				EndLine:   12,
-				Lines:     []string{"line8", "line9", "line10", "line11", "line12"},
+				Range: NewLineRange(8, 12),
+				Lines: []string{"line8", "line9", "line10", "line11", "line12"},
 			},
 		},
 		{
@@ -302,9 +309,8 @@ func TestTextFormatter_FormatCommentsWithContext_MultipleComments(t *testing.T) 
 				CreatedAt: time.Date(2025, 1, 15, 11, 0, 0, 0, time.UTC),
 			},
 			Context: &LineContext{
-				StartLine: 18,
-				EndLine:   22,
-				Lines:     []string{"line18", "line19", "line20", "line21", "line22"},
+				Range: NewLineRange(18, 22),
+				Lines: []string{"line18", "line19", "line20", "line21", "line22"},
 			},
 		},
 	}
@@ -341,8 +347,7 @@ func TestTextFormatter_FormatCommentsWithContext_MultipleComments(t *testing.T) 
 
 func TestFormatLineContext_Integration(t *testing.T) {
 	context := &LineContext{
-		StartLine: 10,
-		EndLine:   14,
+		Range: NewLineRange(10, 14),
 		Lines: []string{
 			"func calculate(x int) int {",
 			"	result := x * 2",
