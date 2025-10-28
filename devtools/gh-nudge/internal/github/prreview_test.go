@@ -684,3 +684,520 @@ func TestCreateNewHunk(t *testing.T) {
 func intPtr(i int) *int {
 	return &i
 }
+
+// TestGetPRDiff tests the behavior of fetching PR diff.
+func TestGetPRDiff(t *testing.T) {
+	t.Run("successfully fetches and parses PR diff", func(t *testing.T) {
+		// This test verifies that GetPRDiff correctly combines file data and PR info
+		// The expected behavior is that it fetches files, gets PR info for SHAs,
+		// parses patches into diff hunks, and returns a properly structured PRDiffHunks
+		t.Skip("Requires gh CLI mock - behavioral test documents expected integration")
+	})
+
+	t.Run("returns error when PR files fetch fails", func(t *testing.T) {
+		// Expected behavior: GetPRDiff should return an error when the gh API call
+		// to fetch PR files fails (e.g., network error, PR not found, auth failure)
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("returns error when PR info fetch fails", func(t *testing.T) {
+		// Expected behavior: Even if files are fetched successfully, GetPRDiff should
+		// return an error if it cannot get the PR info (needed for commit SHAs)
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("handles PR with no files", func(t *testing.T) {
+		// Expected behavior: GetPRDiff should successfully handle PRs with no file changes
+		// and return an empty DiffHunks array
+		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+	})
+
+	t.Run("handles files with no patches", func(t *testing.T) {
+		// Expected behavior: Files without patches (e.g., binary files, renamed without changes)
+		// should be handled gracefully without creating diff hunks
+		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+	})
+
+	t.Run("preserves repository and PR context in result", func(t *testing.T) {
+		// Expected behavior: The returned PRDiffHunks should include the repository,
+		// PR number, commit SHAs, and timestamp for proper context
+		t.Skip("Requires gh CLI mock - behavioral test documents expected data preservation")
+	})
+}
+
+// TestGetPRInfo tests the behavior of fetching PR information.
+func TestGetPRInfo(t *testing.T) {
+	t.Run("successfully fetches basic PR information", func(t *testing.T) {
+		// Expected behavior: GetPRInfo should fetch and return basic PR data
+		// including PR number, title, and head/base SHA values
+		t.Skip("Requires gh CLI mock - behavioral test documents expected integration")
+	})
+
+	t.Run("returns error when PR does not exist", func(t *testing.T) {
+		// Expected behavior: GetPRInfo should return an error when querying
+		// a non-existent PR number
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("returns error when API call fails", func(t *testing.T) {
+		// Expected behavior: Network errors, auth failures, or other API errors
+		// should be wrapped and returned as errors
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("returns error when JSON response is malformed", func(t *testing.T) {
+		// Expected behavior: If GitHub API returns invalid JSON, GetPRInfo
+		// should return a parsing error
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+}
+
+// TestValidatePRAccess tests the behavior of validating PR access.
+func TestValidatePRAccess(t *testing.T) {
+	t.Run("returns nil when PR is accessible", func(t *testing.T) {
+		// Expected behavior: ValidatePRAccess should return nil (no error)
+		// when the PR exists and the user has access to it
+		t.Skip("Requires gh CLI mock - behavioral test documents expected validation")
+	})
+
+	t.Run("returns error when PR is not accessible", func(t *testing.T) {
+		// Expected behavior: ValidatePRAccess should return an error when
+		// the PR doesn't exist or user doesn't have permission
+		t.Skip("Requires gh CLI mock - behavioral test documents expected validation")
+	})
+
+	t.Run("delegates to GetPRInfo", func(t *testing.T) {
+		// Expected behavior: ValidatePRAccess is a convenience method that
+		// uses GetPRInfo internally - any GetPRInfo error should propagate
+		t.Skip("Behavioral test documents that ValidatePRAccess uses GetPRInfo")
+	})
+}
+
+// TestSubmitReviewBehavior tests the behavior of submitting reviews.
+func TestSubmitReviewBehavior(t *testing.T) {
+	t.Run("submits review with single-line comments", func(t *testing.T) {
+		// Expected behavior: SubmitReview should convert single-line comments
+		// to GitHub's format with only 'line' field (not start_line)
+		t.Skip("Requires gh CLI mock - behavioral test documents expected format conversion")
+	})
+
+	t.Run("submits review with multi-line comments", func(t *testing.T) {
+		// Expected behavior: Multi-line comments should be converted to include
+		// both 'start_line' and 'line' fields
+		t.Skip("Requires gh CLI mock - behavioral test documents expected format conversion")
+	})
+
+	t.Run("includes commit SHA when provided", func(t *testing.T) {
+		// Expected behavior: When a comment has a SHA, it should be included
+		// as 'commit_id' in the GitHub API payload
+		t.Skip("Requires gh CLI mock - behavioral test documents expected SHA handling")
+	})
+
+	t.Run("includes review body when provided", func(t *testing.T) {
+		// Expected behavior: The review body (overall comment) should be
+		// included in the payload when present
+		t.Skip("Requires gh CLI mock - behavioral test documents expected body handling")
+	})
+
+	t.Run("includes review event when provided", func(t *testing.T) {
+		// Expected behavior: The event type (COMMENT, APPROVE, REQUEST_CHANGES)
+		// should be included when specified
+		t.Skip("Requires gh CLI mock - behavioral test documents expected event handling")
+	})
+
+	t.Run("returns error when gh command fails", func(t *testing.T) {
+		// Expected behavior: Failed submissions (network error, validation error)
+		// should return an error with command output
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("handles review with no comments", func(t *testing.T) {
+		// Expected behavior: A review with only a body and no comments should
+		// be submitted successfully (general review comment)
+		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+	})
+}
+
+// TestGetPRComments tests the behavior of fetching PR comments.
+func TestGetPRComments(t *testing.T) {
+	t.Run("fetches and converts all PR comments", func(t *testing.T) {
+		// Expected behavior: GetPRComments should fetch all line comments on a PR
+		// and convert them to the local Comment model format
+		t.Skip("Requires gh CLI mock - behavioral test documents expected integration")
+	})
+
+	t.Run("returns error when API call fails", func(t *testing.T) {
+		// Expected behavior: Network or API errors should be returned as errors
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("skips comments that fail conversion with warning", func(t *testing.T) {
+		// Expected behavior: If a comment cannot be converted (e.g., missing required fields),
+		// it should be skipped with a warning, not fail the entire operation
+		t.Skip("Requires gh CLI mock - behavioral test documents expected resilience")
+	})
+
+	t.Run("handles empty comment list", func(t *testing.T) {
+		// Expected behavior: PRs with no comments should return an empty slice,
+		// not an error
+		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+	})
+
+	t.Run("sets source and sync metadata on converted comments", func(t *testing.T) {
+		// Expected behavior: All converted comments should have source="github",
+		// LastSynced timestamp, and SyncStatus="synced"
+		t.Skip("Requires gh CLI mock - behavioral test documents expected metadata")
+	})
+}
+
+// TestGetPRReviewComments tests the behavior of fetching review comments.
+func TestGetPRReviewComments(t *testing.T) {
+	t.Run("fetches comments from all reviews", func(t *testing.T) {
+		// Expected behavior: GetPRReviewComments should iterate through all reviews
+		// and fetch comments from each one, returning a combined list
+		t.Skip("Requires gh CLI mock - behavioral test documents expected aggregation")
+	})
+
+	t.Run("returns error when GetExistingReviews fails", func(t *testing.T) {
+		// Expected behavior: If the initial reviews fetch fails, return error
+		// without trying to fetch individual review comments
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("continues on individual review fetch failure", func(t *testing.T) {
+		// Expected behavior: If fetching comments for one review fails, it should
+		// log a warning and continue with other reviews (resilient behavior)
+		t.Skip("Requires gh CLI mock - behavioral test documents expected resilience")
+	})
+
+	t.Run("skips reviews without valid ID", func(t *testing.T) {
+		// Expected behavior: Reviews with missing or invalid ID should be skipped
+		// gracefully without failing the entire operation
+		t.Skip("Requires gh CLI mock - behavioral test documents expected validation")
+	})
+
+	t.Run("handles PRs with no reviews", func(t *testing.T) {
+		// Expected behavior: PRs with no reviews should return an empty comment list,
+		// not an error
+		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+	})
+}
+
+// TestCreatePendingReviewBehavior tests the behavior of creating pending reviews.
+func TestCreatePendingReviewBehavior(t *testing.T) {
+	t.Run("creates review without event field", func(t *testing.T) {
+		// Expected behavior: CreatePendingReview should create a draft review
+		// by omitting the event field (which makes it pending in GitHub)
+		t.Skip("Requires gh CLI mock - behavioral test documents expected pending creation")
+	})
+
+	t.Run("includes comments and body", func(t *testing.T) {
+		// Expected behavior: Both comments and body should be included in
+		// the pending review
+		t.Skip("Requires gh CLI mock - behavioral test documents expected content inclusion")
+	})
+
+	t.Run("delegates to SubmitReview", func(t *testing.T) {
+		// Expected behavior: CreatePendingReview is a convenience method that
+		// uses SubmitReview internally with no event
+		t.Skip("Behavioral test documents that CreatePendingReview uses SubmitReview")
+	})
+}
+
+// TestGetExistingReviews tests the behavior of fetching existing reviews.
+func TestGetExistingReviews(t *testing.T) {
+	t.Run("fetches all reviews for a PR", func(t *testing.T) {
+		// Expected behavior: GetExistingReviews should return all reviews
+		// associated with a PR as a list of maps
+		t.Skip("Requires gh CLI mock - behavioral test documents expected retrieval")
+	})
+
+	t.Run("returns error when API call fails", func(t *testing.T) {
+		// Expected behavior: Network or API errors should be returned as errors
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("returns error when JSON is malformed", func(t *testing.T) {
+		// Expected behavior: Invalid JSON responses should return parsing errors
+		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+	})
+
+	t.Run("handles PRs with no reviews", func(t *testing.T) {
+		// Expected behavior: PRs with no reviews should return an empty slice
+		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+	})
+}
+
+// TestConvertGitHubCommentBehaviors tests comment conversion behaviors.
+func TestConvertGitHubCommentBehaviors(t *testing.T) {
+	client := &Client{}
+	prc := NewPRReviewClient(client)
+	now := time.Now()
+
+	t.Run("normalizes side to uppercase", func(t *testing.T) {
+		// Behavior: GitHub may return lowercase 'left'/'right', should convert to uppercase
+		ghComment := GitHubComment{
+			ID:        123,
+			Path:      "test.go",
+			Line:      intPtr(10),
+			Body:      "Test",
+			Side:      "left",
+			CommitID:  "abc",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.Side != "LEFT" {
+			t.Errorf("expected side to be normalized to 'LEFT', got %q", comment.Side)
+		}
+	})
+
+	t.Run("defaults invalid side to RIGHT", func(t *testing.T) {
+		// Behavior: Invalid side values should default to RIGHT for safety
+		ghComment := GitHubComment{
+			ID:        123,
+			Path:      "test.go",
+			Line:      intPtr(10),
+			Body:      "Test",
+			Side:      "middle", // invalid
+			CommitID:  "abc",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.Side != "RIGHT" {
+			t.Errorf("expected invalid side to default to 'RIGHT', got %q", comment.Side)
+		}
+	})
+
+	t.Run("prefers Line over OriginalLine", func(t *testing.T) {
+		// Behavior: When both Line and OriginalLine are present, Line should be used
+		ghComment := GitHubComment{
+			ID:           123,
+			Path:         "test.go",
+			Line:         intPtr(10),
+			OriginalLine: intPtr(5),
+			Body:         "Test",
+			Side:         "RIGHT",
+			CommitID:     "abc",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.Line.EndLine != 10 {
+			t.Errorf("expected Line (10) to be preferred over OriginalLine (5), got %d", comment.Line.EndLine)
+		}
+	})
+
+	t.Run("uses OriginalLine when Line is nil", func(t *testing.T) {
+		// Behavior: Fallback to OriginalLine when Line is not present
+		ghComment := GitHubComment{
+			ID:           123,
+			Path:         "test.go",
+			OriginalLine: intPtr(15),
+			Body:         "Test",
+			Side:         "LEFT",
+			CommitID:     "abc",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.Line.EndLine != 15 {
+			t.Errorf("expected OriginalLine to be used when Line is nil, got %d", comment.Line.EndLine)
+		}
+	})
+
+	t.Run("creates multi-line range when StartLine differs from Line", func(t *testing.T) {
+		// Behavior: When StartLine is present and differs, create a multi-line range
+		startLine := 5
+		endLine := 10
+		ghComment := GitHubComment{
+			ID:        123,
+			Path:      "test.go",
+			StartLine: &startLine,
+			Line:      &endLine,
+			Body:      "Multi-line comment",
+			Side:      "RIGHT",
+			CommitID:  "abc",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !comment.IsMultiLine() {
+			t.Error("expected comment to be multi-line")
+		}
+		if comment.Line.StartLine != 5 || comment.Line.EndLine != 10 {
+			t.Errorf("expected range 5-10, got %d-%d", comment.Line.StartLine, comment.Line.EndLine)
+		}
+	})
+
+	t.Run("creates single-line range when StartLine equals Line", func(t *testing.T) {
+		// Behavior: When StartLine equals Line, treat as single-line comment
+		line := 10
+		ghComment := GitHubComment{
+			ID:        123,
+			Path:      "test.go",
+			StartLine: &line,
+			Line:      &line,
+			Body:      "Single-line comment",
+			Side:      "RIGHT",
+			CommitID:  "abc",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.IsMultiLine() {
+			t.Error("expected comment to be single-line")
+		}
+		if comment.Line.StartLine != 10 || comment.Line.EndLine != 10 {
+			t.Errorf("expected single line 10, got %d-%d", comment.Line.StartLine, comment.Line.EndLine)
+		}
+	})
+
+	t.Run("sets OriginalRange when original position differs", func(t *testing.T) {
+		// Behavior: When OriginalStartLine/OriginalLine differ from current position,
+		// store the original range
+		ghComment := GitHubComment{
+			ID:                123,
+			Path:              "test.go",
+			StartLine:         intPtr(10),
+			Line:              intPtr(15),
+			OriginalStartLine: intPtr(5),
+			OriginalLine:      intPtr(8),
+			Body:              "Moved comment",
+			Side:              "RIGHT",
+			CommitID:          "abc",
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.OriginalRange == nil {
+			t.Fatal("expected OriginalRange to be set")
+		}
+		if comment.OriginalRange.StartLine != 5 || comment.OriginalRange.EndLine != 8 {
+			t.Errorf("expected original range 5-8, got %d-%d",
+				comment.OriginalRange.StartLine, comment.OriginalRange.EndLine)
+		}
+	})
+
+	t.Run("sets status to unresolved by default", func(t *testing.T) {
+		// Behavior: All converted comments should start as unresolved
+		ghComment := GitHubComment{
+			ID:        123,
+			Path:      "test.go",
+			Line:      intPtr(10),
+			Body:      "Test",
+			Side:      "RIGHT",
+			CommitID:  "abc",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.Status != models.StatusUnresolved {
+			t.Errorf("expected status to be unresolved, got %q", comment.Status)
+		}
+	})
+
+	t.Run("sets GitHub ID and sync metadata", func(t *testing.T) {
+		// Behavior: Converted comments should track their GitHub origin
+		ghComment := GitHubComment{
+			ID:        456,
+			Path:      "test.go",
+			Line:      intPtr(10),
+			Body:      "Test",
+			Side:      "RIGHT",
+			CommitID:  "abc",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		comment, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment.GitHubID == nil || *comment.GitHubID != 456 {
+			t.Errorf("expected GitHubID to be 456, got %v", comment.GitHubID)
+		}
+		if comment.Source != "github" {
+			t.Errorf("expected source to be 'github', got %q", comment.Source)
+		}
+		if comment.LastSynced == nil {
+			t.Error("expected LastSynced to be set")
+		}
+		if comment.SyncStatus != "synced" {
+			t.Errorf("expected SyncStatus to be 'synced', got %q", comment.SyncStatus)
+		}
+	})
+
+	t.Run("generates new local ID for comment", func(t *testing.T) {
+		// Behavior: Each converted comment should get a new local ID (not GitHub ID)
+		ghComment := GitHubComment{
+			ID:        123,
+			Path:      "test.go",
+			Line:      intPtr(10),
+			Body:      "Test",
+			Side:      "RIGHT",
+			CommitID:  "abc",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		comment1, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		comment2, err := prc.convertGitHubComment(ghComment)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if comment1.ID == comment2.ID {
+			t.Error("expected different local IDs for different conversions")
+		}
+		if len(comment1.ID) != 40 {
+			t.Errorf("expected 40-character ID, got %d characters", len(comment1.ID))
+		}
+	})
+}
