@@ -47,6 +47,18 @@ type DiffHunk struct {
 	SHA     string    `json:"sha"`     // Commit SHA
 }
 
+// GetLocation returns the file location for this diff hunk.
+// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use File and Range directly.
+func (dh DiffHunk) GetLocation() FileLocation {
+	return NewFileLocation(dh.File, dh.Range)
+}
+
+// GetLocationKey returns the location key for this diff hunk.
+// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use GetLocation().Key().
+func (dh DiffHunk) GetLocationKey() string {
+	return dh.GetLocation().Key()
+}
+
 // CommentStatus represents the status of a comment.
 type CommentStatus string
 
@@ -138,6 +150,59 @@ func NewSingleLine(line int) LineRange {
 	return LineRange{StartLine: line, EndLine: line}
 }
 
+// FileLocation represents a location in a file with line range information.
+// This provides a unified way to handle file+line references throughout the codebase.
+type FileLocation struct {
+	Path  string    `json:"path"`
+	Lines LineRange `json:"lines"`
+}
+
+// NewFileLocation creates a new FileLocation with the given path and line range.
+func NewFileLocation(path string, lines LineRange) FileLocation {
+	return FileLocation{Path: path, Lines: lines}
+}
+
+// NewFileLocationSingleLine creates a new FileLocation for a single line.
+func NewFileLocationSingleLine(path string, line int) FileLocation {
+	return FileLocation{Path: path, Lines: NewSingleLine(line)}
+}
+
+// Key returns a canonical string representation "path:line" or "path:startLine-endLine".
+// This is used for grouping and map keys.
+func (fl FileLocation) Key() string {
+	return fmt.Sprintf("%s:%s", fl.Path, fl.Lines.String())
+}
+
+// Equals checks if two file locations are the same.
+func (fl FileLocation) Equals(other FileLocation) bool {
+	return fl.Path == other.Path && fl.Lines == other.Lines
+}
+
+// String returns a human-readable representation.
+func (fl FileLocation) String() string {
+	return fl.Key()
+}
+
+// ParseFileLocation parses a "path:line" or "path:startLine-endLine" string.
+// Returns an error if the format is invalid.
+func ParseFileLocation(key string) (FileLocation, error) {
+	// Find the last colon to split path from line spec
+	lastColon := strings.LastIndex(key, ":")
+	if lastColon == -1 {
+		return FileLocation{}, fmt.Errorf("invalid file location format: missing colon")
+	}
+
+	path := key[:lastColon]
+	lineSpec := key[lastColon+1:]
+
+	lines, err := ParseLineSpec(lineSpec)
+	if err != nil {
+		return FileLocation{}, fmt.Errorf("invalid line specification: %w", err)
+	}
+
+	return FileLocation{Path: path, Lines: *lines}, nil
+}
+
 // String returns a string representation of the line range.
 func (lr LineRange) String() string {
 	if lr.IsMultiLine() {
@@ -190,8 +255,8 @@ func ParseLineSpec(spec string) (*LineRange, error) {
 }
 
 // IsInRange checks if a line number is within the diff hunk.
-func (h DiffHunk) IsInRange(line int) bool {
-	return h.Range.StartLine <= line && line <= h.Range.EndLine
+func (dh DiffHunk) IsInRange(line int) bool {
+	return dh.Range.StartLine <= line && line <= dh.Range.EndLine
 }
 
 // MatchesFilter checks if a comment matches the given filter.
@@ -232,6 +297,26 @@ func (c Comment) IsMultiLine() bool {
 // GetLineRange returns the line range for the comment.
 func (c Comment) GetLineRange() LineRange {
 	return c.Line
+}
+
+// GetLocation returns the file location for this comment.
+// TODO(jaeyeom): Remove this backward compatibility helper after migrating all callers to use Path and Line directly.
+func (c Comment) GetLocation() FileLocation {
+	return NewFileLocation(c.Path, c.Line)
+}
+
+// GetLocationKey returns the location key for this comment.
+// TODO(jaeyeom): Remove this backward compatibility helper after migrating all callers to use GetLocation().Key().
+func (c Comment) GetLocationKey() string {
+	return c.GetLocation().Key()
+}
+
+// GetEndLineLocationKey returns a key based on path and end line only.
+// This is used for conflict detection where comments with different start lines
+// but the same end line should be grouped together.
+// TODO(jaeyeom): Consider if this should be part of FileLocation or a separate concept.
+func (c Comment) GetEndLineLocationKey() string {
+	return NewFileLocationSingleLine(c.Path, c.Line.EndLine).Key()
 }
 
 // IsDuplicate checks if two comments are duplicates.
