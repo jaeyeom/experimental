@@ -319,7 +319,8 @@ func (aa *AdvancedAnalyzer) findReferencesInFile(filePath string, fileAnalysis *
 							Confidence: 0.7, // Could be improved with better analysis
 						}
 
-						refKey := fmt.Sprintf("%s:%d", filePath, line)
+						loc := NewFileLocationSingleLine(filePath, line)
+						refKey := loc.Key()
 						aa.projectAnalysis.CrossReferences.References[refKey] = append(
 							aa.projectAnalysis.CrossReferences.References[refKey], reference)
 					}
@@ -632,7 +633,7 @@ func (aa *AdvancedAnalyzer) findBetterLocation(comment Comment, fileAnalysis *Fi
 // commentHasCrossFileReference checks if a comment has cross-file references.
 func (aa *AdvancedAnalyzer) commentHasCrossFileReference(comment Comment) bool {
 	// Check cross-references at the comment location
-	refKey := fmt.Sprintf("%s:%d", comment.Path, comment.Line.EndLine)
+	refKey := comment.GetLocationKey()
 	references, exists := aa.projectAnalysis.CrossReferences.References[refKey]
 	if !exists {
 		return false

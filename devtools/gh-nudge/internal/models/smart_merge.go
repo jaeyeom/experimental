@@ -56,6 +56,24 @@ type MergeConflict struct {
 	SuggestedMerge      *Comment             `json:"suggestedMerge,omitempty"` // Pre-generated merged comment (if auto-mergeable)
 }
 
+// GetLocation returns the file location for this merge conflict.
+// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use File and Line directly.
+func (mc MergeConflict) GetLocation() FileLocation {
+	var lines LineRange
+	if mc.StartLine != nil {
+		lines = NewLineRange(*mc.StartLine, mc.Line)
+	} else {
+		lines = NewSingleLine(mc.Line)
+	}
+	return NewFileLocation(mc.File, lines)
+}
+
+// GetLocationKey returns the location key for this merge conflict.
+// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use GetLocation().Key().
+func (mc MergeConflict) GetLocationKey() string {
+	return mc.GetLocation().Key()
+}
+
 // CommentWithContext includes additional context about a comment for merge decisions.
 type CommentWithContext struct {
 	Comment   Comment        `json:"comment"`
@@ -308,10 +326,11 @@ func (m *SmartCommentMerger) DetectMergeConflicts(comments []Comment, adjustment
 	}
 
 	// Group by line number and file
+	// Note: We use GetEndLineLocationKey() to group by end line only,
+	// so that multi-line comments ending on the same line are detected as conflicts.
 	conflicts := make(map[string][]CommentWithContext)
 	for _, commentCtx := range adjustedComments {
-		// TODO: See if this should handled by a proper method.
-		key := fmt.Sprintf("%s:%d", commentCtx.Comment.Path, commentCtx.Comment.Line.EndLine)
+		key := commentCtx.Comment.GetEndLineLocationKey()
 		conflicts[key] = append(conflicts[key], commentCtx)
 	}
 
@@ -319,10 +338,13 @@ func (m *SmartCommentMerger) DetectMergeConflicts(comments []Comment, adjustment
 	var mergeConflicts []MergeConflict
 	for key, commentList := range conflicts {
 		if len(commentList) > 1 {
-			// TODO: See if this parsing should be handled by a proper method.
-			parts := strings.Split(key, ":")
-			line := commentList[0].Comment.Line.EndLine
-			file := parts[0]
+			loc, err := ParseFileLocation(key)
+			if err != nil {
+				// Fallback to using values from first comment if parsing fails
+				loc = commentList[0].Comment.GetLocation()
+			}
+			line := loc.Lines.EndLine
+			file := loc.Path
 
 			conflict := MergeConflict{
 				Line:                line,

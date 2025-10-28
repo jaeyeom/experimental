@@ -1796,3 +1796,449 @@ func TestArchiveAction(t *testing.T) {
 		}
 	})
 }
+
+// TestFileLocation_Key tests the Key() method behavior for FileLocation.
+func TestFileLocation_Key(t *testing.T) {
+	t.Run("Single line location creates correct key", func(t *testing.T) {
+		loc := NewFileLocationSingleLine("main.go", 42)
+		want := "main.go:42"
+		if got := loc.Key(); got != want {
+			t.Errorf("Key() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Multi-line location creates range key", func(t *testing.T) {
+		loc := NewFileLocation("main.go", NewLineRange(10, 20))
+		want := "main.go:10-20"
+		if got := loc.Key(); got != want {
+			t.Errorf("Key() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Paths with special characters are preserved", func(t *testing.T) {
+		testCases := []struct {
+			name string
+			path string
+			line int
+			want string
+		}{
+			{"Path with spaces", "my file.go", 5, "my file.go:5"},
+			{"Path with colons", "C:\\path\\to\\file.go", 10, "C:\\path\\to\\file.go:10"},
+			{"Nested path", "internal/models/prreview.go", 100, "internal/models/prreview.go:100"},
+			{"Path with dots", "../parent/file.go", 1, "../parent/file.go:1"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				loc := NewFileLocationSingleLine(tc.path, tc.line)
+				if got := loc.Key(); got != tc.want {
+					t.Errorf("Key() = %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("Key matches String output", func(t *testing.T) {
+		loc := NewFileLocationSingleLine("test.go", 15)
+		if loc.Key() != loc.String() {
+			t.Errorf("Key() = %q, String() = %q, should be equal", loc.Key(), loc.String())
+		}
+	})
+}
+
+// TestParseFileLocation tests the ParseFileLocation function behavior.
+func TestParseFileLocation(t *testing.T) {
+	t.Run("Parse single line location", func(t *testing.T) {
+		key := "main.go:42"
+		loc, err := ParseFileLocation(key)
+		if err != nil {
+			t.Fatalf("ParseFileLocation(%q) unexpected error: %v", key, err)
+		}
+
+		if loc.Path != "main.go" {
+			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
+		}
+		if loc.Lines.StartLine != 42 || loc.Lines.EndLine != 42 {
+			t.Errorf("Lines = %+v, want StartLine=42, EndLine=42", loc.Lines)
+		}
+	})
+
+	t.Run("Parse multi-line location", func(t *testing.T) {
+		key := "main.go:10-20"
+		loc, err := ParseFileLocation(key)
+		if err != nil {
+			t.Fatalf("ParseFileLocation(%q) unexpected error: %v", key, err)
+		}
+
+		if loc.Path != "main.go" {
+			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
+		}
+		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
+			t.Errorf("Lines = %+v, want StartLine=10, EndLine=20", loc.Lines)
+		}
+	})
+
+	t.Run("Parse paths with special characters", func(t *testing.T) {
+		testCases := []struct {
+			name      string
+			key       string
+			wantPath  string
+			wantStart int
+			wantEnd   int
+		}{
+			{"Path with spaces", "my file.go:5", "my file.go", 5, 5},
+			{"Path with multiple colons", "C:\\path\\to\\file.go:10", "C:\\path\\to\\file.go", 10, 10},
+			{"Nested path", "internal/models/prreview.go:100-200", "internal/models/prreview.go", 100, 200},
+			{"Parent relative path", "../parent/file.go:1", "../parent/file.go", 1, 1},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				loc, err := ParseFileLocation(tc.key)
+				if err != nil {
+					t.Fatalf("ParseFileLocation(%q) unexpected error: %v", tc.key, err)
+				}
+
+				if loc.Path != tc.wantPath {
+					t.Errorf("Path = %q, want %q", loc.Path, tc.wantPath)
+				}
+				if loc.Lines.StartLine != tc.wantStart {
+					t.Errorf("StartLine = %d, want %d", loc.Lines.StartLine, tc.wantStart)
+				}
+				if loc.Lines.EndLine != tc.wantEnd {
+					t.Errorf("EndLine = %d, want %d", loc.Lines.EndLine, tc.wantEnd)
+				}
+			})
+		}
+	})
+
+	t.Run("Round-trip: Key and ParseFileLocation are inverses", func(t *testing.T) {
+		testCases := []FileLocation{
+			NewFileLocationSingleLine("test.go", 1),
+			NewFileLocationSingleLine("main.go", 999),
+			NewFileLocation("file.go", NewLineRange(5, 10)),
+			NewFileLocation("internal/models/prreview.go", NewLineRange(100, 200)),
+		}
+
+		for _, original := range testCases {
+			t.Run(original.Key(), func(t *testing.T) {
+				key := original.Key()
+				parsed, err := ParseFileLocation(key)
+				if err != nil {
+					t.Fatalf("ParseFileLocation(%q) unexpected error: %v", key, err)
+				}
+
+				if !parsed.Equals(original) {
+					t.Errorf("Round-trip failed: original=%+v, parsed=%+v", original, parsed)
+				}
+			})
+		}
+	})
+
+	t.Run("Invalid formats return errors", func(t *testing.T) {
+		testCases := []struct {
+			name      string
+			key       string
+			wantError string
+		}{
+			{"Missing colon", "main.go", "missing colon"},
+			{"Missing line number", "main.go:", "invalid line"},
+			{"Invalid line number", "main.go:abc", "invalid line"},
+			{"Empty string", "", "missing colon"},
+			{"Only colon", ":", "invalid line"},
+			{"Negative line", "main.go:-5", "invalid line"},
+			{"Invalid range", "main.go:10-abc", "invalid end line"},
+			{"Reverse range", "main.go:20-10", ""}, // This might be valid depending on implementation
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := ParseFileLocation(tc.key)
+				if err == nil {
+					t.Errorf("ParseFileLocation(%q) expected error containing %q, got nil", tc.key, tc.wantError)
+				}
+			})
+		}
+	})
+}
+
+// TestFileLocation_Equals tests the Equals() method behavior.
+func TestFileLocation_Equals(t *testing.T) {
+	t.Run("Identical locations are equal", func(t *testing.T) {
+		loc1 := NewFileLocationSingleLine("main.go", 42)
+		loc2 := NewFileLocationSingleLine("main.go", 42)
+
+		if !loc1.Equals(loc2) {
+			t.Errorf("Expected identical locations to be equal: %+v vs %+v", loc1, loc2)
+		}
+		if !loc2.Equals(loc1) {
+			t.Errorf("Equals should be symmetric")
+		}
+	})
+
+	t.Run("Different paths are not equal", func(t *testing.T) {
+		loc1 := NewFileLocationSingleLine("main.go", 42)
+		loc2 := NewFileLocationSingleLine("test.go", 42)
+
+		if loc1.Equals(loc2) {
+			t.Errorf("Expected different paths to be unequal: %+v vs %+v", loc1, loc2)
+		}
+	})
+
+	t.Run("Different line numbers are not equal", func(t *testing.T) {
+		loc1 := NewFileLocationSingleLine("main.go", 42)
+		loc2 := NewFileLocationSingleLine("main.go", 43)
+
+		if loc1.Equals(loc2) {
+			t.Errorf("Expected different lines to be unequal: %+v vs %+v", loc1, loc2)
+		}
+	})
+
+	t.Run("Different ranges are not equal", func(t *testing.T) {
+		loc1 := NewFileLocation("main.go", NewLineRange(10, 20))
+		loc2 := NewFileLocation("main.go", NewLineRange(10, 21))
+
+		if loc1.Equals(loc2) {
+			t.Errorf("Expected different ranges to be unequal: %+v vs %+v", loc1, loc2)
+		}
+	})
+
+	t.Run("Single line vs range not equal even if end lines match", func(t *testing.T) {
+		loc1 := NewFileLocationSingleLine("main.go", 20)
+		loc2 := NewFileLocation("main.go", NewLineRange(10, 20))
+
+		if loc1.Equals(loc2) {
+			t.Errorf("Expected single line to be unequal to range: %+v vs %+v", loc1, loc2)
+		}
+	})
+
+	t.Run("Equals is reflexive", func(t *testing.T) {
+		// Create a location and verify it equals a copy of itself
+		loc1 := NewFileLocationSingleLine("main.go", 42)
+		loc2 := loc1 // Make a copy
+		if !loc1.Equals(loc2) {
+			t.Error("Location should equal a copy of itself")
+		}
+	})
+}
+
+// TestComment_GetLocation tests Comment.GetLocation() behavior.
+func TestComment_GetLocation(t *testing.T) {
+	t.Run("Single line comment returns correct location", func(t *testing.T) {
+		comment := Comment{
+			Path: "main.go",
+			Line: NewSingleLine(42),
+		}
+
+		loc := comment.GetLocation()
+		if loc.Path != "main.go" {
+			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
+		}
+		if loc.Lines.StartLine != 42 || loc.Lines.EndLine != 42 {
+			t.Errorf("Lines = %+v, want single line 42", loc.Lines)
+		}
+	})
+
+	t.Run("Multi-line comment returns correct location", func(t *testing.T) {
+		comment := Comment{
+			Path: "test.go",
+			Line: NewLineRange(10, 20),
+		}
+
+		loc := comment.GetLocation()
+		if loc.Path != "test.go" {
+			t.Errorf("Path = %q, want %q", loc.Path, "test.go")
+		}
+		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
+			t.Errorf("Lines = %+v, want range 10-20", loc.Lines)
+		}
+	})
+}
+
+// TestComment_GetLocationKey tests Comment.GetLocationKey() behavior.
+func TestComment_GetLocationKey(t *testing.T) {
+	t.Run("Single line comment key", func(t *testing.T) {
+		comment := Comment{
+			Path: "main.go",
+			Line: NewSingleLine(42),
+		}
+
+		want := "main.go:42"
+		if got := comment.GetLocationKey(); got != want {
+			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Multi-line comment key includes range", func(t *testing.T) {
+		comment := Comment{
+			Path: "test.go",
+			Line: NewLineRange(10, 20),
+		}
+
+		want := "test.go:10-20"
+		if got := comment.GetLocationKey(); got != want {
+			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestComment_GetEndLineLocationKey tests Comment.GetEndLineLocationKey() behavior.
+func TestComment_GetEndLineLocationKey(t *testing.T) {
+	t.Run("Single line comment end line key", func(t *testing.T) {
+		comment := Comment{
+			Path: "main.go",
+			Line: NewSingleLine(42),
+		}
+
+		want := "main.go:42"
+		if got := comment.GetEndLineLocationKey(); got != want {
+			t.Errorf("GetEndLineLocationKey() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Multi-line comment uses only end line", func(t *testing.T) {
+		comment := Comment{
+			Path: "test.go",
+			Line: NewLineRange(10, 20),
+		}
+
+		// Should use end line (20) only, not the full range
+		want := "test.go:20"
+		if got := comment.GetEndLineLocationKey(); got != want {
+			t.Errorf("GetEndLineLocationKey() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Comments with different ranges but same end line have same key", func(t *testing.T) {
+		comment1 := Comment{
+			Path: "test.go",
+			Line: NewLineRange(5, 10),
+		}
+		comment2 := Comment{
+			Path: "test.go",
+			Line: NewLineRange(8, 10),
+		}
+		comment3 := Comment{
+			Path: "test.go",
+			Line: NewSingleLine(10),
+		}
+
+		key1 := comment1.GetEndLineLocationKey()
+		key2 := comment2.GetEndLineLocationKey()
+		key3 := comment3.GetEndLineLocationKey()
+
+		if key1 != key2 || key1 != key3 {
+			t.Errorf("Expected all keys to be equal: %q, %q, %q", key1, key2, key3)
+		}
+	})
+}
+
+// TestDiffHunk_GetLocation tests DiffHunk.GetLocation() behavior.
+func TestDiffHunk_GetLocation(t *testing.T) {
+	t.Run("DiffHunk returns correct location", func(t *testing.T) {
+		hunk := DiffHunk{
+			File:  "main.go",
+			Range: NewLineRange(10, 20),
+		}
+
+		loc := hunk.GetLocation()
+		if loc.Path != "main.go" {
+			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
+		}
+		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
+			t.Errorf("Lines = %+v, want range 10-20", loc.Lines)
+		}
+	})
+}
+
+// TestDiffHunk_GetLocationKey tests DiffHunk.GetLocationKey() behavior.
+func TestDiffHunk_GetLocationKey(t *testing.T) {
+	t.Run("DiffHunk key includes full range", func(t *testing.T) {
+		hunk := DiffHunk{
+			File:  "test.go",
+			Range: NewLineRange(5, 15),
+		}
+
+		want := "test.go:5-15"
+		if got := hunk.GetLocationKey(); got != want {
+			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		}
+	})
+}
+
+// TestMergeConflict_GetLocation tests MergeConflict.GetLocation() behavior.
+func TestMergeConflict_GetLocation(t *testing.T) {
+	t.Run("Single line conflict returns correct location", func(t *testing.T) {
+		conflict := MergeConflict{
+			File: "main.go",
+			Line: 42,
+		}
+
+		loc := conflict.GetLocation()
+		if loc.Path != "main.go" {
+			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
+		}
+		if loc.Lines.StartLine != 42 || loc.Lines.EndLine != 42 {
+			t.Errorf("Lines = %+v, want single line 42", loc.Lines)
+		}
+	})
+
+	t.Run("Multi-line conflict with StartLine returns range", func(t *testing.T) {
+		startLine := 10
+		conflict := MergeConflict{
+			File:      "test.go",
+			Line:      20,
+			StartLine: &startLine,
+		}
+
+		loc := conflict.GetLocation()
+		if loc.Path != "test.go" {
+			t.Errorf("Path = %q, want %q", loc.Path, "test.go")
+		}
+		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
+			t.Errorf("Lines = %+v, want range 10-20", loc.Lines)
+		}
+	})
+
+	t.Run("Conflict with nil StartLine uses Line for both start and end", func(t *testing.T) {
+		conflict := MergeConflict{
+			File:      "main.go",
+			Line:      15,
+			StartLine: nil,
+		}
+
+		loc := conflict.GetLocation()
+		if loc.Lines.StartLine != 15 || loc.Lines.EndLine != 15 {
+			t.Errorf("Lines = %+v, want single line 15", loc.Lines)
+		}
+	})
+}
+
+// TestMergeConflict_GetLocationKey tests MergeConflict.GetLocationKey() behavior.
+func TestMergeConflict_GetLocationKey(t *testing.T) {
+	t.Run("Single line conflict key", func(t *testing.T) {
+		conflict := MergeConflict{
+			File: "main.go",
+			Line: 42,
+		}
+
+		want := "main.go:42"
+		if got := conflict.GetLocationKey(); got != want {
+			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("Multi-line conflict key includes range", func(t *testing.T) {
+		startLine := 10
+		conflict := MergeConflict{
+			File:      "test.go",
+			Line:      20,
+			StartLine: &startLine,
+		}
+
+		want := "test.go:10-20"
+		if got := conflict.GetLocationKey(); got != want {
+			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		}
+	})
+}
