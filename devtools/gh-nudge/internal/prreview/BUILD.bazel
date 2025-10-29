@@ -19,6 +19,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "adjust_behavior_test.go",
         "adjust_extended_test.go",
         "adjust_test.go",
         "commands_test.go",
