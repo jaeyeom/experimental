@@ -1,10 +1,8 @@
-package runner
+package executor
 
 import (
 	"context"
 	"sync"
-
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
 // ConcurrentResult represents the result of a concurrent command execution.
@@ -16,7 +14,7 @@ type ConcurrentResult struct {
 	Config ToolConfig
 
 	// Result is the execution result (nil if Error is set)
-	Result *config.ExecutionResult
+	Result *ExecutionResult
 
 	// Error is any error that occurred during execution
 	Error error
@@ -26,7 +24,7 @@ type ConcurrentResult struct {
 // It is implemented by BasicExecutor for production use and MockExecutor for testing.
 type Executor interface {
 	// Execute runs a tool with the given configuration and returns the result.
-	Execute(ctx context.Context, cfg ToolConfig) (*config.ExecutionResult, error)
+	Execute(ctx context.Context, cfg ToolConfig) (*ExecutionResult, error)
 
 	// IsAvailable checks if a command is available in the system PATH.
 	IsAvailable(command string) bool
@@ -48,7 +46,7 @@ func NewConcurrentExecutor(executor Executor) *ConcurrentExecutor {
 }
 
 // Execute implements the Executor interface by delegating to the wrapped executor.
-func (ce *ConcurrentExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.ExecutionResult, error) {
+func (ce *ConcurrentExecutor) Execute(ctx context.Context, cfg ToolConfig) (*ExecutionResult, error) {
 	return ce.executor.Execute(ctx, cfg) //nolint:wrapcheck // delegation pattern
 }
 

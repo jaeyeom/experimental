@@ -1,4 +1,4 @@
-package runner
+package executor
 
 import (
 	"context"
@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
 func TestNewMockExecutor(t *testing.T) {
@@ -314,7 +312,7 @@ func TestMockExecutor_SetDefaultBehavior(t *testing.T) {
 	ctx := context.Background()
 
 	// Set custom default behavior
-	defaultResult := &config.ExecutionResult{
+	defaultResult := &ExecutionResult{
 		Output:   "Custom default output",
 		ExitCode: 42,
 	}

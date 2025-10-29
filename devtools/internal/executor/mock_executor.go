@@ -1,4 +1,4 @@
-package runner
+package executor
 
 import (
 	"context"
@@ -6,8 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
 // MockExecutor is a mock implementation of the Executor interface for testing.
@@ -24,7 +22,7 @@ type MockExecutor struct {
 	CallHistory []MockCall
 
 	// Default behavior when no expectation matches
-	DefaultResult *config.ExecutionResult
+	DefaultResult *ExecutionResult
 	DefaultError  error
 }
 
@@ -34,7 +32,7 @@ type MockExpectation struct {
 	Matcher func(ctx context.Context, cfg ToolConfig) bool
 
 	// Response to return when matched
-	Result *config.ExecutionResult
+	Result *ExecutionResult
 	Error  error
 
 	// Times specifies how many times this expectation can be used (0 = unlimited)
@@ -59,7 +57,7 @@ func NewMockExecutor() *MockExecutor {
 }
 
 // Execute implements the Executor interface.
-func (m *MockExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.ExecutionResult, error) {
+func (m *MockExecutor) Execute(ctx context.Context, cfg ToolConfig) (*ExecutionResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -85,7 +83,7 @@ func (m *MockExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.Exe
 	}
 
 	// If no default is set, return a generic success result
-	return &config.ExecutionResult{
+	return &ExecutionResult{
 		Command:    cfg.Command,
 		Args:       cfg.Args,
 		WorkingDir: cfg.WorkingDir,
@@ -153,7 +151,7 @@ func (m *MockExecutor) ExpectCustom(matcher func(ctx context.Context, cfg ToolCo
 }
 
 // SetDefaultBehavior sets the default response when no expectation matches.
-func (m *MockExecutor) SetDefaultBehavior(result *config.ExecutionResult, err error) {
+func (m *MockExecutor) SetDefaultBehavior(result *ExecutionResult, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.DefaultResult = result
@@ -203,7 +201,7 @@ type MockExpectationBuilder struct {
 }
 
 // WillReturn sets the result to return when the expectation is matched.
-func (b *MockExpectationBuilder) WillReturn(result *config.ExecutionResult, err error) *MockExpectationBuilder {
+func (b *MockExpectationBuilder) WillReturn(result *ExecutionResult, err error) *MockExpectationBuilder {
 	b.expectation.Result = result
 	b.expectation.Error = err
 	return b
@@ -211,7 +209,7 @@ func (b *MockExpectationBuilder) WillReturn(result *config.ExecutionResult, err 
 
 // WillSucceed sets a successful execution result.
 func (b *MockExpectationBuilder) WillSucceed(output string, exitCode int) *MockExpectationBuilder {
-	b.expectation.Result = &config.ExecutionResult{
+	b.expectation.Result = &ExecutionResult{
 		Output:    output,
 		ExitCode:  exitCode,
 		StartTime: time.Now(),
@@ -223,7 +221,7 @@ func (b *MockExpectationBuilder) WillSucceed(output string, exitCode int) *MockE
 
 // WillFail sets a failed execution result.
 func (b *MockExpectationBuilder) WillFail(stderr string, exitCode int) *MockExpectationBuilder {
-	b.expectation.Result = &config.ExecutionResult{
+	b.expectation.Result = &ExecutionResult{
 		Stderr:    stderr,
 		ExitCode:  exitCode,
 		StartTime: time.Now(),

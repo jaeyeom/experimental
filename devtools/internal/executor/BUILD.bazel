@@ -6,14 +6,14 @@ go_library(
         "concurrent_executor.go",
         "executor.go",
         "mock_executor.go",
+        "result.go",
         "signal_executor.go",
         "signal_handler.go",
         "types.go",
     ],
-    importpath = "github.com/jaeyeom/experimental/devtools/devcheck/internal/runner",
-    visibility = ["//devtools/devcheck:__subpackages__"],
+    importpath = "github.com/jaeyeom/experimental/devtools/internal/executor",
+    visibility = ["//devtools:__subpackages__"],
     deps = [
-        "//devtools/devcheck/internal/config:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -31,7 +31,6 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
-        "//devtools/devcheck/internal/config:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )

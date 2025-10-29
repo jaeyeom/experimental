@@ -1,4 +1,4 @@
-package runner
+package executor
 
 import (
 	"os"
@@ -9,10 +9,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestNewExecutorWithSignalHandling(t *testing.T) {
-	executor := NewExecutorWithSignalHandling()
+func TestNewWithSignalHandling(t *testing.T) {
+	executor := NewWithSignalHandling()
 	if executor == nil {
-		t.Fatal("NewExecutorWithSignalHandling() returned nil")
+		t.Fatal("NewWithSignalHandling() returned nil")
 		return
 	}
 	if executor.executor == nil {
@@ -26,8 +26,8 @@ func TestNewExecutorWithSignalHandling(t *testing.T) {
 	}
 }
 
-func TestExecutorWithSignalHandling_Start_Stop(t *testing.T) {
-	executor := NewExecutorWithSignalHandling()
+func TestWithSignalHandling_Start_Stop(t *testing.T) {
+	executor := NewWithSignalHandling()
 
 	// Start the executor
 	ctx, err := executor.Start()
@@ -46,8 +46,8 @@ func TestExecutorWithSignalHandling_Start_Stop(t *testing.T) {
 	executor.Stop()
 }
 
-func TestExecutorWithSignalHandling_Execute(t *testing.T) {
-	executor := NewExecutorWithSignalHandling()
+func TestWithSignalHandling_Execute(t *testing.T) {
+	executor := NewWithSignalHandling()
 
 	ctx, err := executor.Start()
 	if err != nil {
@@ -81,12 +81,12 @@ func TestExecutorWithSignalHandling_Execute(t *testing.T) {
 	}
 }
 
-func TestExecutorWithSignalHandling_ProcessTracking(t *testing.T) {
+func TestWithSignalHandling_ProcessTracking(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping process tracking test on Windows")
 	}
 
-	executor := NewExecutorWithSignalHandling()
+	executor := NewWithSignalHandling()
 
 	ctx, err := executor.Start()
 	if err != nil {
@@ -136,12 +136,12 @@ func TestExecutorWithSignalHandling_ProcessTracking(t *testing.T) {
 	}
 }
 
-func TestExecutorWithSignalHandling_SignalCancellation(t *testing.T) {
+func TestWithSignalHandling_SignalCancellation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping signal cancellation test on Windows")
 	}
 
-	executor := NewExecutorWithSignalHandling()
+	executor := NewWithSignalHandling()
 
 	ctx, err := executor.Start()
 	if err != nil {
@@ -198,8 +198,8 @@ func TestExecutorWithSignalHandling_SignalCancellation(t *testing.T) {
 	}
 }
 
-func TestExecutorWithSignalHandling_IsAvailable(t *testing.T) {
-	executor := NewExecutorWithSignalHandling()
+func TestWithSignalHandling_IsAvailable(t *testing.T) {
+	executor := NewWithSignalHandling()
 
 	// Test with a command that should be available
 	if !executor.IsAvailable("echo") {

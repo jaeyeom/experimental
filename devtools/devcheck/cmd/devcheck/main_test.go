@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/runner"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 func TestDetectAndPrint(t *testing.T) {
@@ -279,7 +279,7 @@ func TestAddGoTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockExec := runner.NewMockExecutor()
+			mockExec := executor.NewMockExecutor()
 			for cmd, available := range tt.availableCommands {
 				mockExec.SetAvailableCommand(cmd, available)
 			}
@@ -342,7 +342,7 @@ func TestAddPythonTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockExec := runner.NewMockExecutor()
+			mockExec := executor.NewMockExecutor()
 			for cmd, available := range tt.availableCommands {
 				mockExec.SetAvailableCommand(cmd, available)
 			}
@@ -397,7 +397,7 @@ func TestAddLanguageSpecificTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockExec := runner.NewMockExecutor()
+			mockExec := executor.NewMockExecutor()
 			for cmd, available := range tt.availableCommands {
 				mockExec.SetAvailableCommand(cmd, available)
 			}
@@ -509,19 +509,19 @@ func TestPrepareDemoConfigs(t *testing.T) {
 func TestRunSequentialDemo(t *testing.T) {
 	tests := []struct {
 		name            string
-		configs         []runner.ToolConfig
-		mockResults     []*config.ExecutionResult
+		configs         []executor.ToolConfig
+		mockResults     []*executor.ExecutionResult
 		mockErrors      []error
 		expectedSuccess int
 		expectedOutput  []string
 	}{
 		{
 			name: "all tools succeed",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "tool1", Args: []string{"arg1"}},
 				{Command: "tool2", Args: []string{"arg2"}},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "tool1", ExitCode: 0, Output: "success1", StartTime: time.Now(), EndTime: time.Now()},
 				{Command: "tool2", ExitCode: 0, Output: "success2", StartTime: time.Now(), EndTime: time.Now()},
 			},
@@ -531,11 +531,11 @@ func TestRunSequentialDemo(t *testing.T) {
 		},
 		{
 			name: "one tool fails",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "tool1"},
 				{Command: "tool2"},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "tool1", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
 				{Command: "tool2", ExitCode: 1, Stderr: "error message", StartTime: time.Now(), EndTime: time.Now()},
 			},
@@ -545,10 +545,10 @@ func TestRunSequentialDemo(t *testing.T) {
 		},
 		{
 			name: "execution error",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "tool1"},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				nil,
 			},
 			mockErrors:      []error{fmt.Errorf("execution failed")},
@@ -557,12 +557,12 @@ func TestRunSequentialDemo(t *testing.T) {
 		},
 		{
 			name: "mixed results",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "tool1"},
 				{Command: "tool2"},
 				{Command: "tool3"},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "tool1", ExitCode: 0, Output: "ok", StartTime: time.Now(), EndTime: time.Now()},
 				nil,
 				{Command: "tool3", ExitCode: 1, Stderr: "failed", StartTime: time.Now(), EndTime: time.Now()},
@@ -575,7 +575,7 @@ func TestRunSequentialDemo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockExec := runner.NewMockExecutor()
+			mockExec := executor.NewMockExecutor()
 
 			// Set up expectations
 			for i, cfg := range tt.configs {
@@ -609,8 +609,8 @@ func TestRunSequentialDemo(t *testing.T) {
 func TestRunConcurrentDemo(t *testing.T) {
 	tests := []struct {
 		name            string
-		configs         []runner.ToolConfig
-		mockResults     []*config.ExecutionResult
+		configs         []executor.ToolConfig
+		mockResults     []*executor.ExecutionResult
 		mockErrors      []error
 		maxWorkers      int
 		expectedSuccess int
@@ -618,11 +618,11 @@ func TestRunConcurrentDemo(t *testing.T) {
 	}{
 		{
 			name: "all tools succeed",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "tool1", Args: []string{"arg1"}},
 				{Command: "tool2", Args: []string{"arg2"}},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "tool1", ExitCode: 0, Output: "success1", StartTime: time.Now(), EndTime: time.Now()},
 				{Command: "tool2", ExitCode: 0, Output: "success2", StartTime: time.Now(), EndTime: time.Now()},
 			},
@@ -633,11 +633,11 @@ func TestRunConcurrentDemo(t *testing.T) {
 		},
 		{
 			name: "one tool fails",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "tool1"},
 				{Command: "tool2"},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "tool1", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
 				{Command: "tool2", ExitCode: 1, Stderr: "error", StartTime: time.Now(), EndTime: time.Now()},
 			},
@@ -648,10 +648,10 @@ func TestRunConcurrentDemo(t *testing.T) {
 		},
 		{
 			name: "execution error",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "tool1"},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				nil,
 			},
 			mockErrors:      []error{fmt.Errorf("execution failed")},
@@ -661,10 +661,10 @@ func TestRunConcurrentDemo(t *testing.T) {
 		},
 		{
 			name: "command at 31 chars not truncated",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "cmd", Args: []string{"with", "args", "exactly", "31"}},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "cmd", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
 			},
 			mockErrors:      []error{nil},
@@ -674,11 +674,11 @@ func TestRunConcurrentDemo(t *testing.T) {
 		},
 		{
 			name: "command at 32 chars overflows column",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				// This command is exactly 32 chars: "cmd with args exactly thirtytwo"
 				{Command: "cmd", Args: []string{"with", "args", "exactly", "thirtytwo"}},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "cmd", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
 			},
 			mockErrors:      []error{nil},
@@ -689,10 +689,10 @@ func TestRunConcurrentDemo(t *testing.T) {
 		},
 		{
 			name: "command over 32 chars gets truncated",
-			configs: []runner.ToolConfig{
+			configs: []executor.ToolConfig{
 				{Command: "very-long-command-name-that-exceeds", Args: []string{"the", "thirty-two", "character", "limit"}},
 			},
-			mockResults: []*config.ExecutionResult{
+			mockResults: []*executor.ExecutionResult{
 				{Command: "very-long-command-name-that-exceeds", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
 			},
 			mockErrors:      []error{nil},
@@ -704,7 +704,7 @@ func TestRunConcurrentDemo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockExec := runner.NewMockExecutor()
+			mockExec := executor.NewMockExecutor()
 
 			// Set up expectations
 			for i, cfg := range tt.configs {

@@ -1,4 +1,4 @@
-package runner
+package executor
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
 func TestNewBasicExecutor(t *testing.T) {
@@ -211,7 +209,7 @@ func TestBasicExecutor_Execute_Context(t *testing.T) {
 
 	// Start execution in a goroutine
 	done := make(chan struct{})
-	var result *config.ExecutionResult
+	var result *ExecutionResult
 	var err error
 
 	go func() {
@@ -252,7 +250,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 		config         ToolConfig
 		wantErr        bool
 		wantTimeoutErr bool
-		checkResult    func(t *testing.T, result *config.ExecutionResult, err error)
+		checkResult    func(t *testing.T, result *ExecutionResult, err error)
 	}{
 		{
 			name: "command with timeout that completes in time",
@@ -263,7 +261,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 			},
 			wantErr:        false,
 			wantTimeoutErr: false,
-			checkResult: func(t *testing.T, result *config.ExecutionResult, _ error) {
+			checkResult: func(t *testing.T, result *ExecutionResult, _ error) {
 				if result == nil {
 					t.Fatal("Expected result, got nil")
 					return
@@ -285,7 +283,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 			},
 			wantErr:        true,
 			wantTimeoutErr: true,
-			checkResult: func(t *testing.T, result *config.ExecutionResult, err error) {
+			checkResult: func(t *testing.T, result *ExecutionResult, err error) {
 				if result != nil {
 					t.Error("Expected nil result for timeout error")
 				}
@@ -313,7 +311,7 @@ func TestBasicExecutor_Execute_Timeout(t *testing.T) {
 			},
 			wantErr:        false,
 			wantTimeoutErr: false,
-			checkResult: func(t *testing.T, result *config.ExecutionResult, _ error) {
+			checkResult: func(t *testing.T, result *ExecutionResult, _ error) {
 				if result == nil {
 					t.Fatal("Expected result, got nil")
 					return
