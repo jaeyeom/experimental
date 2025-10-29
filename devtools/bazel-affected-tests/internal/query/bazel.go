@@ -41,7 +41,7 @@ func (q *BazelQuerier) debugf(format string, args ...interface{}) {
 // FindAffectedTests finds test targets affected by changes to the given packages.
 func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 	if len(packages) == 0 {
-		return []string{}, nil
+		return nil, nil
 	}
 
 	// Deduplicate packages
@@ -115,7 +115,7 @@ func (q *BazelQuerier) query(queryStr string) ([]string, error) {
 
 	// Bazel query may return non-zero exit code for empty results
 	if result.ExitCode != 0 && result.Stderr == "" {
-		return []string{}, nil
+		return nil, nil
 	}
 
 	if result.ExitCode != 0 {
@@ -123,7 +123,7 @@ func (q *BazelQuerier) query(queryStr string) ([]string, error) {
 	}
 
 	if len(result.Output) == 0 {
-		return []string{}, nil
+		return nil, nil
 	}
 
 	lines := strings.Split(strings.TrimSpace(result.Output), "\n")
