@@ -326,6 +326,54 @@ gh-pr-review resolve octocat/Hello-World 42 --comment-id a1b2c3d4 --archive --re
 gh-pr-review resolve octocat/Hello-World feature/auth --comment-id a1b2c3d4 --reason "Fixed in commit abc123"
 #+END_SRC
 
+**** Adjust Line Numbers
+
+Manual adjustment of comment line numbers with explicit diff specifications or mapping files. For automatic adjustment based on git changes, see ~auto-adjust~ below.
+
+#+BEGIN_SRC bash
+gh-pr-review adjust <owner>/<repo> <identifier> <file> --diff <spec>
+gh-pr-review adjust <owner>/<repo> <identifier> <file> --unified-diff <spec>
+gh-pr-review adjust <owner>/<repo> <identifier> --all-files --diff <spec>
+gh-pr-review adjust <owner>/<repo> <identifier> --mapping-file <file>
+gh-pr-review adjust <owner>/<repo> <identifier> <file> --auto-detect
+#+END_SRC
+
+***** Options:
+- `--diff <spec>`: Diff specification in format "old_start:old_end:new_start:new_end"
+- `--unified-diff <spec>`: Unified diff output from git diff
+- `--all-files`: Apply adjustment to all files
+- `--mapping-file <file>`: JSON file with line number mappings
+- `--auto-detect`: Auto-detect line changes from git
+
+***** Examples:
+#+BEGIN_SRC bash
+# Adjust using explicit diff spec (5 lines added after line 10)
+gh-pr-review adjust octocat/Hello-World 42 src/main.js --diff "10:10:10:15"
+
+# Adjust using git unified diff output
+gh-pr-review adjust octocat/Hello-World 42 src/main.js --unified-diff "$(git diff HEAD~1 HEAD src/main.js)"
+
+# Adjust all files using mapping file
+gh-pr-review adjust octocat/Hello-World 42 --all-files --mapping-file adjustments.json
+
+# Auto-detect changes for specific file
+gh-pr-review adjust octocat/Hello-World 42 src/main.js --auto-detect
+#+END_SRC
+
+***** Mapping File Format:
+#+BEGIN_SRC json
+{
+  "src/main.js": {
+    "15": 20,
+    "20": 25,
+    "25": 30
+  },
+  "src/auth.js": {
+    "10": 15
+  }
+}
+#+END_SRC
+
 **** Auto-Adjust Line Numbers
 
 #+BEGIN_SRC bash
@@ -384,6 +432,47 @@ gh-pr-review pull octocat/Hello-World 42 --force
 # Show results in JSON format
 gh-pr-review pull octocat/Hello-World 42 --format json
 #+END_SRC
+
+**** Archive Management
+
+Manage archived PR review data and comments. The archive command provides subcommands to list, show, and cleanup archived PRs.
+
+#+BEGIN_SRC bash
+gh-pr-review archive <owner>/<repo> <pr_number> [list|show|cleanup]
+#+END_SRC
+
+***** Subcommands:
+- `list`: List all archived comments for a PR (default)
+- `show`: Show detailed information about archived data
+- `cleanup`: Remove archived data for the PR
+
+***** Options:
+- `--format`: Output format (table, json) [default: table]
+- `--confirm`: Skip confirmation prompt for cleanup
+
+***** Examples:
+#+BEGIN_SRC bash
+# List archived comments for a PR
+gh-pr-review archive octocat/Hello-World 42
+gh-pr-review archive octocat/Hello-World 42 list
+
+# Show archived data details
+gh-pr-review archive octocat/Hello-World 42 show
+
+# Cleanup archived data
+gh-pr-review archive octocat/Hello-World 42 cleanup
+
+# Cleanup without confirmation prompt
+gh-pr-review archive octocat/Hello-World 42 cleanup --confirm
+
+# List in JSON format
+gh-pr-review archive octocat/Hello-World 42 list --format json
+#+END_SRC
+
+***** Notes:
+- Archived comments are those marked with `--archive` flag during resolution
+- Archives help track historical review feedback that's no longer applicable
+- Cleanup is useful for removing old PR data to save storage space
 
 *** Workflow Examples
 
@@ -602,11 +691,11 @@ gh-pr-review list myorg/myrepo feature/complex-feature --format json > all_comme
 
 The utility uses the unified storage system's atomic operations with file locking:
 
-- **Shared locks** for read operations (capture, list)
-- **Exclusive locks** for write operations (comment, submit, clear)
-- **Lock timeout** configurable via `GH_NUDGE_TIMEOUT` [default: 30 seconds]
-- **Automatic cleanup** on process termination
-- **Lock management** via `gh-storage lock` commands
+- *Shared locks* for read operations (capture, list)
+- *Exclusive locks* for write operations (comment, submit, clear)
+- *Lock timeout* configurable via ~GH_NUDGE_TIMEOUT~ [default: 30 seconds]
+- *Automatic cleanup* on process termination
+- *Lock management* via ~gh-storage lock~ commands
 
 *** Concurrent Access and Parallel LLM Support
 
