@@ -1,19 +1,35 @@
 package query
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 // BazelQuerier executes Bazel queries.
 type BazelQuerier struct {
-	debug bool
+	executor executor.Executor
+	debug    bool
 }
 
 // NewBazelQuerier creates a new BazelQuerier.
 func NewBazelQuerier(debug bool) *BazelQuerier {
-	return &BazelQuerier{debug: debug}
+	return &BazelQuerier{
+		executor: executor.NewBasicExecutor(),
+		debug:    debug,
+	}
+}
+
+// NewBazelQuerierWithExecutor creates a new BazelQuerier with a custom executor.
+// This is primarily useful for testing.
+func NewBazelQuerierWithExecutor(exec executor.Executor, debug bool) *BazelQuerier {
+	return &BazelQuerier{
+		executor: exec,
+		debug:    debug,
+	}
 }
 
 func (q *BazelQuerier) debugf(format string, args ...interface{}) {
@@ -85,21 +101,32 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 
 // query executes a single bazel query.
 func (q *BazelQuerier) query(queryStr string) ([]string, error) {
-	cmd := exec.Command("bazel", "query", queryStr)
-	output, err := cmd.Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := q.executor.Execute(ctx, executor.ToolConfig{
+		Command: "bazel",
+		Args:    []string{"query", queryStr},
+		Timeout: 30 * time.Second,
+	})
 	if err != nil {
-		// Bazel query may return non-zero exit code for empty results
-		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) == 0 {
-			return []string{}, nil
-		}
 		return nil, fmt.Errorf("bazel query failed: %w", err)
 	}
 
-	if len(output) == 0 {
+	// Bazel query may return non-zero exit code for empty results
+	if result.ExitCode != 0 && result.Stderr == "" {
 		return []string{}, nil
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("bazel query failed with exit code %d: %s", result.ExitCode, result.Stderr)
+	}
+
+	if len(result.Output) == 0 {
+		return []string{}, nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(result.Output), "\n")
 	var results []string
 	for _, line := range lines {
 		if line != "" {
