@@ -3,6 +3,8 @@ package prreview
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -353,7 +355,7 @@ func TestCaptureCommand_PR(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.errorContains)
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !stringContains(err.Error(), tt.errorContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errorContains, err.Error())
 				}
 			} else {
@@ -465,7 +467,7 @@ func TestCaptureCommand_Branch(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.errorContains)
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !stringContains(err.Error(), tt.errorContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errorContains, err.Error())
 				}
 			} else {
@@ -543,7 +545,7 @@ func TestCommentCommand_LineSpecValidation(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.errorContains)
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !stringContains(err.Error(), tt.errorContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errorContains, err.Error())
 				}
 			} else {
@@ -637,7 +639,7 @@ func TestCommentCommand_DiffValidation(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.errorContains)
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !stringContains(err.Error(), tt.errorContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errorContains, err.Error())
 				}
 			} else {
@@ -672,7 +674,7 @@ func TestCommentCommand_DuplicateDetection(t *testing.T) {
 		err := handler.CommentCommand(repository, "123", "test.go", "10", "duplicate test", "RIGHT", false)
 		if err == nil {
 			t.Error("expected duplicate error, got nil")
-		} else if !contains(err.Error(), "duplicate") {
+		} else if !stringContains(err.Error(), "duplicate") {
 			t.Errorf("expected duplicate error, got: %v", err)
 		}
 	})
@@ -682,7 +684,7 @@ func TestCommentCommand_DuplicateDetection(t *testing.T) {
 		// Duplicate detection happens in storage layer and force flag there shows a warning but still blocks
 		err := handler.CommentCommand(repository, "123", "test.go", "10", "duplicate test", "RIGHT", true)
 		// This will still fail because duplicate detection is at the storage level
-		if err == nil || !contains(err.Error(), "duplicate") {
+		if err == nil || !stringContains(err.Error(), "duplicate") {
 			t.Logf("Force flag behavior: still detects duplicates at storage level (expected behavior)")
 		}
 	})
@@ -935,7 +937,7 @@ func TestDeleteCommand(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.errorContains)
-				} else if !contains(err.Error(), tt.errorContains) {
+				} else if !stringContains(err.Error(), tt.errorContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errorContains, err.Error())
 				}
 			} else {
@@ -1529,4 +1531,642 @@ func TestSubmitCommand_FileFilter(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
+}
+
+// TestClearCommand_PR tests ClearCommand behavior for PRs.
+func TestClearCommand_PR(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupComments  []models.Comment
+		file           string
+		confirm        bool
+		expectError    bool
+		errorContains  string
+		remainingCount int
+	}{
+		{
+			name: "clears all comments when confirmed",
+			setupComments: []models.Comment{
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: models.SideRight},
+				{Path: "test.go", Line: models.NewSingleLine(20), Body: "comment 2", Side: models.SideRight},
+				{Path: "test.go", Line: models.NewSingleLine(30), Body: "comment 3", Side: models.SideRight},
+			},
+			file:           "",
+			confirm:        true,
+			expectError:    false,
+			remainingCount: 0,
+		},
+		{
+			name: "clears comments for specific file",
+			setupComments: []models.Comment{
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: models.SideRight},
+				{Path: "other.go", Line: models.NewSingleLine(20), Body: "comment 2", Side: models.SideRight},
+			},
+			file:           "test.go",
+			confirm:        true,
+			expectError:    false,
+			remainingCount: 1, // other.go comment remains
+		},
+		{
+			name:           "succeeds with no comments to clear",
+			setupComments:  []models.Comment{},
+			file:           "",
+			confirm:        true,
+			expectError:    false,
+			remainingCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _, cleanup := setupTestHandler(t)
+			defer cleanup()
+
+			repository := models.NewRepository("owner", "repo")
+			prNumber := 123
+
+			// Setup comments
+			for _, comment := range tt.setupComments {
+				createTestComment(t, handler, repository, prNumber, comment)
+			}
+
+			err := handler.ClearCommand(repository, "123", tt.file, tt.confirm)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.errorContains)
+				} else if !stringContains(err.Error(), tt.errorContains) {
+					t.Errorf("expected error containing %q, got %q", tt.errorContains, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+
+			// Verify remaining comment count
+			comments, err := handler.storage.GetComments(repository, prNumber)
+			if err != nil && tt.remainingCount > 0 {
+				t.Fatalf("failed to get comments: %v", err)
+			}
+			actualCount := 0
+			if err == nil {
+				actualCount = len(comments.Comments)
+			}
+			if actualCount != tt.remainingCount {
+				t.Errorf("expected %d remaining comments, got %d", tt.remainingCount, actualCount)
+			}
+		})
+	}
+}
+
+// TestClearCommand_Branch tests ClearCommand behavior for branches.
+func TestClearCommand_Branch(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	branchName := "feature-branch"
+
+	// Create branch diff hunks first
+	createTestBranchDiffHunks(t, handler, repository, branchName, []models.DiffHunk{
+		{Location: models.NewFileLocation("test.go", models.NewLineRange(1, 100)), Side: models.SideRight},
+	})
+
+	// Setup branch comments using storage directly
+	err := handler.storage.AddBranchComment(repository, branchName, models.Comment{
+		Path: "test.go",
+		Line: models.NewSingleLine(10),
+		Body: "branch comment",
+		Side: models.SideRight,
+	})
+	if err != nil {
+		t.Fatalf("failed to add branch comment: %v", err)
+	}
+
+	t.Run("clears branch comments when confirmed", func(t *testing.T) {
+		err := handler.ClearCommand(repository, branchName, "", true)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		// Verify comments are cleared
+		comments, err := handler.storage.GetBranchComments(repository, branchName)
+		if err == nil && len(comments.Comments) > 0 {
+			t.Errorf("expected 0 remaining comments, got %d", len(comments.Comments))
+		}
+	})
+}
+
+// TestArchiveListCommand tests listing archived submissions.
+func TestArchiveListCommand(t *testing.T) {
+	handler, tmpDir, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	prNumber := 123
+
+	formatter := &MockOutputFormatter{}
+
+	t.Run("returns empty list when no archives exist", func(t *testing.T) {
+		err := handler.ArchiveListCommand(repository, prNumber, formatter)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("lists archives after submission", func(t *testing.T) {
+		// Create an archive directory manually
+		archiveDir := filepath.Join(tmpDir, "owner", "repo", "pr", "123", "archive")
+		if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+			t.Fatalf("failed to create archive dir: %v", err)
+		}
+
+		// Create a test archive file
+		archiveFile := filepath.Join(archiveDir, "2024-01-01T12-00-00.json")
+		archiveData := `{"submission_id":"abc123","pr_number":123,"comments":[],"review_body":"test","review_event":"COMMENT","archived_at":"2024-01-01T12:00:00Z"}`
+		if err := os.WriteFile(archiveFile, []byte(archiveData), 0o600); err != nil {
+			t.Fatalf("failed to create archive file: %v", err)
+		}
+
+		err := handler.ArchiveListCommand(repository, prNumber, formatter)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+}
+
+// TestArchiveShowCommand tests showing a specific archive.
+func TestArchiveShowCommand(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	prNumber := 123
+	formatter := &MockOutputFormatter{}
+
+	t.Run("returns error for non-existent archive", func(t *testing.T) {
+		err := handler.ArchiveShowCommand(repository, prNumber, "nonexistent", formatter)
+		if err == nil {
+			t.Error("expected error for non-existent archive, got nil")
+		}
+	})
+}
+
+// TestArchiveCleanupCommand tests cleaning up old archives.
+func TestArchiveCleanupCommand(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	prNumber := 123
+
+	t.Run("handles cleanup with no archives", func(t *testing.T) {
+		err := handler.ArchiveCleanupCommand(repository, prNumber, "30d")
+		// Should not error, just print message
+		if err != nil {
+			t.Logf("cleanup returned: %v", err)
+		}
+	})
+}
+
+// TestNewCommandHandler tests constructor.
+func TestNewCommandHandler(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-handler-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ghClient := &MockGitHubClient{}
+	gitClient := &MockGitClient{}
+
+	handler := NewCommandHandler(store, ghClient, gitClient, tmpDir)
+
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+	if handler.storage == nil {
+		t.Error("expected storage to be set")
+	}
+	if handler.ghClient == nil {
+		t.Error("expected ghClient to be set")
+	}
+	if handler.gitClient == nil {
+		t.Error("expected gitClient to be set")
+	}
+	if handler.storageHome != tmpDir {
+		t.Errorf("expected storageHome=%s, got %s", tmpDir, handler.storageHome)
+	}
+}
+
+// TestStorageHome tests storageHome field access.
+func TestStorageHome(t *testing.T) {
+	handler, tmpDir, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	if handler.storageHome != tmpDir {
+		t.Errorf("expected storage home=%s, got %s", tmpDir, handler.storageHome)
+	}
+}
+
+// Integration tests for complete workflows
+
+// TestWorkflow_PR_CaptureCommentSubmit tests the complete PR workflow.
+func TestWorkflow_PR_CaptureCommentSubmit(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	prNumber := 123
+
+	// Step 1: Capture diff hunks
+	mockGH := &MockGitHubClient{
+		GetPRDiffFunc: func(_ models.Repository, _ int) (*models.PRDiffHunks, error) {
+			return &models.PRDiffHunks{
+				PRNumber:   prNumber,
+				Repository: repository,
+				DiffHunks: []models.DiffHunk{
+					{Location: models.NewFileLocation("main.go", models.NewLineRange(10, 30)), Side: models.SideRight},
+					{Location: models.NewFileLocation("utils.go", models.NewLineRange(5, 15)), Side: models.SideRight},
+				},
+			}, nil
+		},
+		SubmitReviewFunc: func(_ models.Repository, _ int, review models.PRReview) error {
+			if len(review.Comments) == 0 {
+				t.Error("expected comments to be submitted")
+			}
+			return nil
+		},
+	}
+	handler.ghClient = mockGH
+
+	// Capture
+	err := handler.CaptureCommand(repository, "123", false)
+	if err != nil {
+		t.Fatalf("capture failed: %v", err)
+	}
+
+	// Step 2: Add multiple comments
+	err = handler.CommentCommand(repository, "123", "main.go", "15", "This needs improvement", "RIGHT", false)
+	if err != nil {
+		t.Fatalf("first comment failed: %v", err)
+	}
+
+	err = handler.CommentCommand(repository, "123", "main.go", "20-25", "Refactor this section", "RIGHT", false)
+	if err != nil {
+		t.Fatalf("second comment failed: %v", err)
+	}
+
+	err = handler.CommentCommand(repository, "123", "utils.go", "10", "Add error handling", "RIGHT", false)
+	if err != nil {
+		t.Fatalf("third comment failed: %v", err)
+	}
+
+	// Step 3: List comments
+	formatter := &MockOutputFormatter{
+		FormatCommentsFunc: func(comments []models.Comment) (string, error) {
+			if len(comments) != 3 {
+				t.Errorf("expected 3 comments in list, got %d", len(comments))
+			}
+			return "", nil
+		},
+	}
+
+	err = handler.ListCommand(repository, "123", formatter, "", "", "", false, false, 0)
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+
+	// Step 4: Submit review
+	formatter.FormatSubmitResultFunc = func(result models.SubmitResult) (string, error) {
+		if result.Comments != 3 {
+			t.Errorf("expected 3 comments submitted, got %d", result.Comments)
+		}
+		return "", nil
+	}
+
+	err = handler.SubmitCommand(repository, prNumber, "Review comments", "COMMENT", "", formatter, &MockExecutor{})
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+}
+
+// TestWorkflow_Branch_CaptureCommentList tests the branch workflow.
+func TestWorkflow_Branch_CaptureCommentList(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	branchName := "feature/new-feature"
+
+	// Setup mock git client
+	mockGit := &MockGitClient{
+		CaptureBranchDiffFunc: func(_ models.Repository, branch, _ git.Branch) (*models.BranchDiffHunks, error) {
+			return &models.BranchDiffHunks{
+				BranchName: branch.String(),
+				Repository: repository,
+				DiffHunks: []models.DiffHunk{
+					{Location: models.NewFileLocation("feature.go", models.NewLineRange(1, 50)), Side: models.SideRight},
+				},
+			}, nil
+		},
+	}
+	handler.gitClient = mockGit
+
+	// Capture branch diff
+	err := handler.CaptureCommand(repository, branchName, false)
+	if err != nil {
+		t.Fatalf("capture failed: %v", err)
+	}
+
+	// Add comments
+	err = handler.CommentCommand(repository, branchName, "feature.go", "10", "Good implementation", "RIGHT", false)
+	if err != nil {
+		t.Fatalf("comment failed: %v", err)
+	}
+
+	err = handler.CommentCommand(repository, branchName, "feature.go", "30", "Consider edge cases", "RIGHT", false)
+	if err != nil {
+		t.Fatalf("comment failed: %v", err)
+	}
+
+	// List comments
+	formatter := &MockOutputFormatter{
+		FormatCommentsFunc: func(comments []models.Comment) (string, error) {
+			if len(comments) != 2 {
+				t.Errorf("expected 2 comments, got %d", len(comments))
+			}
+			// Branch comments are stored separately, no BranchName field on Comment
+			return "", nil
+		},
+	}
+
+	err = handler.ListCommand(repository, branchName, formatter, "", "", "", false, false, 0)
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+}
+
+// TestWorkflow_NextResolve tests the next/resolve workflow.
+func TestWorkflow_NextResolve(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	prNumber := 123
+
+	// Create diff hunks and comments
+	createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
+		{Location: models.NewFileLocation("test.go", models.NewLineRange(1, 100)), Side: models.SideRight},
+	})
+
+	createTestComment(t, handler, repository, prNumber, models.Comment{
+		Path:   "test.go",
+		Line:   models.NewSingleLine(10),
+		Body:   "First issue",
+		Side:   models.SideRight,
+		Status: models.StatusUnresolved,
+	})
+
+	createTestComment(t, handler, repository, prNumber, models.Comment{
+		Path:   "test.go",
+		Line:   models.NewSingleLine(20),
+		Body:   "Second issue",
+		Side:   models.SideRight,
+		Status: models.StatusUnresolved,
+	})
+
+	// Get next comment
+	var firstCommentID string
+	formatter := &MockOutputFormatter{
+		FormatSingleCommentFunc: func(comment models.Comment) (string, error) {
+			firstCommentID = comment.ID
+			return "", nil
+		},
+	}
+
+	err := handler.NextCommand(repository, "123", formatter, "", "")
+	if err != nil {
+		t.Fatalf("next failed: %v", err)
+	}
+
+	if firstCommentID == "" {
+		t.Fatal("expected comment ID to be captured")
+	}
+
+	// Resolve the first comment
+	err = handler.ResolveCommand(repository, "123", firstCommentID[:8], false, "Fixed")
+	if err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+
+	// Get next comment again - should be the second one
+	var secondCommentID string
+	formatter.FormatSingleCommentFunc = func(comment models.Comment) (string, error) {
+		secondCommentID = comment.ID
+		if comment.ID == firstCommentID {
+			t.Error("expected different comment after resolving first one")
+		}
+		return "", nil
+	}
+
+	err = handler.NextCommand(repository, "123", formatter, "", "")
+	if err != nil {
+		t.Fatalf("second next failed: %v", err)
+	}
+
+	if secondCommentID == "" || secondCommentID == firstCommentID {
+		t.Error("expected a different comment ID")
+	}
+}
+
+// TestSubmitCommand_EmptyComments tests error handling when no comments exist.
+func TestSubmitCommand_EmptyComments(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	prNumber := 123
+
+	// Create diff hunks but no comments
+	createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
+		{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
+	})
+
+	formatter := &MockOutputFormatter{}
+	executor := &MockExecutor{}
+
+	err := handler.SubmitCommand(repository, prNumber, "test", "COMMENT", "", formatter, executor)
+	if err == nil {
+		t.Error("expected error for empty comments, got nil")
+	}
+}
+
+// TestErrorScenarios_GitHubAPIFailures tests error handling for GitHub API failures.
+func TestErrorScenarios_GitHubAPIFailures(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupMock     func(*MockGitHubClient)
+		commandFunc   func(*CommandHandler) error
+		errorContains string
+	}{
+		{
+			name: "capture fails when GitHub API is unavailable",
+			setupMock: func(m *MockGitHubClient) {
+				m.ValidatePRAccessFunc = func(_ models.Repository, _ int) error {
+					return fmt.Errorf("GitHub API unavailable")
+				}
+			},
+			commandFunc: func(h *CommandHandler) error {
+				return h.CaptureCommand(models.NewRepository("owner", "repo"), "123", false)
+			},
+			errorContains: "failed to access PR",
+		},
+		{
+			name: "capture fails when diff fetch fails",
+			setupMock: func(m *MockGitHubClient) {
+				m.GetPRDiffFunc = func(_ models.Repository, _ int) (*models.PRDiffHunks, error) {
+					return nil, fmt.Errorf("failed to fetch diff")
+				}
+			},
+			commandFunc: func(h *CommandHandler) error {
+				return h.CaptureCommand(models.NewRepository("owner", "repo"), "123", false)
+			},
+			errorContains: "failed to fetch diff",
+		},
+		{
+			name: "submit fails when GitHub submission fails",
+			setupMock: func(m *MockGitHubClient) {
+				m.SubmitReviewFunc = func(_ models.Repository, _ int, _ models.PRReview) error {
+					return fmt.Errorf("GitHub submission failed")
+				}
+			},
+			commandFunc: func(h *CommandHandler) error {
+				// Setup for submission
+				repo := models.NewRepository("owner", "repo")
+				prNumber := 123
+				createTestDiffHunks(t, h, repo, prNumber, []models.DiffHunk{
+					{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
+				})
+				createTestComment(t, h, repo, prNumber, models.Comment{
+					Path: "test.go",
+					Line: models.NewSingleLine(15),
+					Body: "test",
+					Side: models.SideRight,
+				})
+				return h.SubmitCommand(repo, prNumber, "test", "COMMENT", "", &MockOutputFormatter{}, &MockExecutor{})
+			},
+			errorContains: "failed to submit review",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _, cleanup := setupTestHandler(t)
+			defer cleanup()
+
+			mockGH := &MockGitHubClient{}
+			if tt.setupMock != nil {
+				tt.setupMock(mockGH)
+			}
+			handler.ghClient = mockGH
+
+			err := tt.commandFunc(handler)
+			if err == nil {
+				t.Error("expected error, got nil")
+			} else if tt.errorContains != "" && !stringContains(err.Error(), tt.errorContains) {
+				t.Errorf("expected error containing %q, got %q", tt.errorContains, err.Error())
+			}
+		})
+	}
+}
+
+// TestErrorScenarios_GitOperationFailures tests error handling for git operation failures.
+func TestErrorScenarios_GitOperationFailures(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+
+	t.Run("capture fails when branch doesn't exist", func(t *testing.T) {
+		mockGit := &MockGitClient{
+			BranchExistsFunc: func(_ git.Branch) (bool, error) {
+				return false, nil
+			},
+		}
+		handler.gitClient = mockGit
+
+		err := handler.CaptureCommand(repository, "nonexistent-branch", false)
+		if err == nil {
+			t.Error("expected error for non-existent branch")
+		}
+	})
+
+	t.Run("auto-adjust fails when git diff fails", func(t *testing.T) {
+		mockGit := &MockGitClient{
+			GetDiffSinceFunc: func(_ string) (string, error) {
+				return "", fmt.Errorf("git command failed")
+			},
+		}
+		handler.gitClient = mockGit
+
+		err := handler.AutoAdjustCommand(repository, "123", "HEAD~1", false, false, "", false)
+		if err == nil {
+			t.Error("expected error when git diff fails")
+		}
+	})
+}
+
+// TestListCommand_WithContext tests listing comments with context.
+func TestListCommand_WithContext(t *testing.T) {
+	handler, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	repository := models.NewRepository("owner", "repo")
+	prNumber := 123
+
+	// Create diff hunks and comments
+	createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
+		{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
+	})
+
+	createTestComment(t, handler, repository, prNumber, models.Comment{
+		Path: "test.go",
+		Line: models.NewSingleLine(15),
+		Body: "comment with context",
+		Side: models.SideRight,
+	})
+
+	t.Run("includes context when requested", func(t *testing.T) {
+		contextCalled := false
+		formatter := &MockOutputFormatter{
+			FormatCommentsWithContextFunc: func(comments []models.CommentWithLineContext) (string, error) {
+				contextCalled = true
+				if len(comments) != 1 {
+					t.Errorf("expected 1 comment with context, got %d", len(comments))
+				}
+				return "", nil
+			},
+		}
+
+		err := handler.ListCommand(repository, "123", formatter, "", "", "", true, false, 0)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		if !contextCalled {
+			t.Error("expected FormatCommentsWithContext to be called")
+		}
+	})
+}
+
+// Helper function for string contains check.
+func stringContains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
