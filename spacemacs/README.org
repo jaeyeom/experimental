@@ -38,10 +38,6 @@ The main Spacemacs configuration file. This contains:
 
 This file is deployed to ~~/.spacemacs~ by the Ansible setup scripts.
 
-** .dir-locals-sample.el
-
-Sample directory-local variables configuration that can be used as a template for project-specific Emacs settings.
-
 * Usage
 
 After running the setup script, launch Spacemacs with:
