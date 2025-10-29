@@ -1,11 +1,176 @@
 #+TITLE: setup-dev
-This directory will contain scripts to set up my development environment.
+This directory contains scripts to set up the development environment.
+
+* Status
+
+⚠️ *Migration in Progress*
+
+The shell script =setup-dev.sh= is being migrated to Ansible-based provisioning. See [[file:ansible/][ansible/]] for the new implementation.
+
+** Migration Status
+
+*** ✅ Fully Migrated
+- Core development tools installation → =ansible/all.yml=
+- Git configuration → =ansible/setup-git.yml=
+- Spacemacs/Emacs setup → =ansible/setup-spacemacs.yml=
+- SSH key generation → =ansible/setup-ssh-key.yml=
+- GPG and password store (pass) → =ansible/setup-pass.yml=, =ansible/setup-gpg-agent.yml=
+- Go development tools → =ansible/gopls.yml=, =ansible/goimports.yml=, =ansible/gorename.yml=, etc.
+- golangci-lint → =ansible/golangci-lint.yml=
+- Shell utilities → =ansible/ag.yml=, =ansible/rg.yml=, =ansible/htop.yml=, =ansible/curl.yml=, =ansible/grep.yml=, =ansible/sed.yml=, =ansible/man.yml=, =ansible/locate.yml=
+- z script (directory jumper) → =ansible/setup-z.yml=
+- Shell profile setup → =ansible/setup-shell-profile.yml=
+- Bazel → =ansible/setup-bazel.yml=
+
+*** 🚧 In Progress
+- [ ] w3m (text-based web browser) - See issue #68
+- [ ] wget (network downloader) - See issue #69
+
+*** ⛔ Not Being Migrated
+The following features from =setup-dev.sh= are intentionally not migrated:
+- Personal repository cloning (lines 114-126) - Too personal, not universal
+- Documents directory symlinks (lines 192-198) - Personal workspace organization
+- Interactive prompts for git config - Ansible version uses environment variables (better approach)
+- SSH agent in bashrc - Ansible uses keychain (=ansible/keychain.yml=) which is more robust
+- PATH setup in =~/.profile= - Handled differently via =ansible/setup-user-go-bin-directory.yml=
+
+** Recommendation
+- *New users*: Use the Ansible playbooks in =./ansible/=
+  #+BEGIN_SRC bash
+  cd devtools/setup-dev/ansible
+  ansible-playbook all.yml
+  #+END_SRC
+
+- *Existing users*: The =setup-dev.sh= script still works but won't receive updates
+- *Contributors*: Add new features to =ansible/= roles
 
 * Motivation
 Whenever I get a new machine, I spend some time setting up my development
 environment. To avoid repetition, I started writing a shell script. From there,
-I'm exploring other solutions like GNU Make to make this script more idempotent
-and effective for provisioning.
+I'm exploring other solutions like Ansible to make provisioning more idempotent,
+maintainable, and effective.
 
-** Current Progress
-This script is being migrated to =./ansible/= directory.
+* Design
+
+** Shell Script Approach (Legacy: =setup-dev.sh=)
+- *Pros*: Simple, no dependencies beyond bash
+- *Cons*: Not idempotent, error-prone, hard to maintain across platforms
+
+** Ansible Approach (Current: =./ansible/=)
+- *Pros*: Idempotent, declarative, modular, well-tested, cross-platform
+- *Cons*: Requires Ansible installation, steeper learning curve
+
+** Why Migrate?
+The shell script grew organically and became:
+- Hard to maintain across different platforms (Linux, macOS, Termux)
+- Difficult to test in isolation
+- Not idempotent (running twice could cause issues)
+- Lacking proper error handling and modularity
+
+Ansible provides:
+- *Idempotency*: Safe to run multiple times
+- *Modularity*: Each tool/feature is a separate playbook
+- *Declarative*: Describe desired state, not procedural steps
+- *Testing*: Easier to test individual components
+- *Documentation*: Self-documenting through YAML structure
+
+* Using Ansible Playbooks
+
+** Prerequisites
+#+BEGIN_SRC bash
+# Install Ansible (if not already installed)
+pip install ansible
+# or
+brew install ansible  # macOS
+#+END_SRC
+
+** Quick Start
+#+BEGIN_SRC bash
+# Navigate to ansible directory
+cd devtools/setup-dev/ansible
+
+# Run complete setup (requires environment variables)
+export GIT_AUTHOR_NAME="Your Name"
+export GIT_AUTHOR_EMAIL="your.email@example.com"
+export GITHUB_USERNAME="yourusername"
+
+ansible-playbook all.yml
+
+# Run specific playbook
+ansible-playbook setup-git.yml
+ansible-playbook setup-spacemacs.yml
+#+END_SRC
+
+** Individual Tool Installation
+Each tool has its own playbook:
+#+BEGIN_SRC bash
+ansible-playbook htop.yml      # Install htop
+ansible-playbook rg.yml        # Install ripgrep
+ansible-playbook gopls.yml     # Install Go language server
+#+END_SRC
+
+* Using Legacy Shell Script
+
+⚠️ This script is maintained for backward compatibility but won't receive new features.
+
+** Prerequisites
+- Bash 4.0+
+- sudo access (for package installation)
+- Internet connection
+
+** Usage
+#+BEGIN_SRC bash
+cd devtools/setup-dev
+./setup-dev.sh
+#+END_SRC
+
+* Contributing
+
+** For Bug Fixes
+- Critical bugs in =setup-dev.sh=: Submit PR (but consider if Ansible is better)
+- Bugs in Ansible playbooks: Submit PR to =ansible/= directory
+
+** For New Features
+Please contribute to =ansible/= directory:
+1. Create new playbook in =ansible/= (e.g., =newtool.yml=)
+2. Follow the pattern from existing playbooks (see =htop.yml= or =curl.yml=)
+3. Add appropriate include guard
+4. Test on clean system (Docker/VM)
+5. Add to =all.yml= if it should be part of default setup
+6. Submit PR
+
+** Testing Ansible Playbooks
+#+BEGIN_SRC bash
+# Test in Docker container (Ubuntu)
+docker run -it ubuntu:22.04 bash
+apt-get update && apt-get install -y ansible git
+# Clone repo and test playbook
+
+# Test in Docker container (Fedora)
+docker run -it fedora:latest bash
+dnf install -y ansible git
+# Clone repo and test playbook
+#+END_SRC
+
+* Roadmap
+
+** Phase 1: Core Migration ✅ (Completed)
+- [X] Development tools installation
+- [X] Editor setup (Emacs/Spacemacs)
+- [X] Git configuration
+- [X] SSH key generation
+- [X] Go tooling
+
+** Phase 2: Missing Tools 🚧 (In Progress)
+- [ ] w3m installation (#68)
+- [ ] wget installation (#69)
+
+** Phase 3: Documentation ⏳ (Current)
+- [X] Enhanced README with migration status
+- [X] Clear guidance on legacy vs. Ansible approach
+- [ ] Individual playbook documentation
+
+** Phase 4: Deprecation (Future)
+- [ ] Add deprecation notice to =setup-dev.sh= script output
+- [ ] Archive legacy script
+- [ ] Update main repository documentation
