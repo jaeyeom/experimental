@@ -1,4 +1,4 @@
-package runner
+package executor
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
 func TestNewConcurrentExecutor(t *testing.T) {
@@ -194,7 +192,7 @@ func TestConcurrentExecutor_ExecuteConcurrent_ConcurrencyLimit(t *testing.T) {
 	// Set up expectation that tracks concurrency
 	mock.ExpectCustom(func(_ context.Context, cfg ToolConfig) bool {
 		return cfg.Command == "sleep"
-	}).WillReturn(&config.ExecutionResult{
+	}).WillReturn(&ExecutionResult{
 		Output:   "sleep completed",
 		ExitCode: 0,
 	}, nil)
@@ -404,7 +402,7 @@ type concurrencyTrackingExecutor struct {
 	maxConcurrent   *int64
 }
 
-func (e *concurrencyTrackingExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.ExecutionResult, error) {
+func (e *concurrencyTrackingExecutor) Execute(ctx context.Context, cfg ToolConfig) (*ExecutionResult, error) {
 	// Increment concurrent count
 	current := atomic.AddInt64(e.concurrentCount, 1)
 

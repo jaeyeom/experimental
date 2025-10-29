@@ -1,4 +1,4 @@
-package runner
+package executor
 
 import (
 	"bytes"
@@ -8,8 +8,6 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
 // BasicExecutor handles the execution of external tools and commands.
@@ -21,7 +19,7 @@ func NewBasicExecutor() *BasicExecutor {
 }
 
 // Execute runs a tool with the given configuration and returns the result.
-func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*config.ExecutionResult, error) {
+func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*ExecutionResult, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -113,8 +111,8 @@ func (e *BasicExecutor) processExecutionError(err error, command string) (int, e
 	return -1, nil
 }
 
-func (e *BasicExecutor) buildExecutionResult(cfg ToolConfig, stdout, stderr bytes.Buffer, startTime, endTime time.Time, exitCode int, execErr error) *config.ExecutionResult {
-	result := &config.ExecutionResult{
+func (e *BasicExecutor) buildExecutionResult(cfg ToolConfig, stdout, stderr bytes.Buffer, startTime, endTime time.Time, exitCode int, execErr error) *ExecutionResult {
+	result := &ExecutionResult{
 		Command:    cfg.Command,
 		Args:       cfg.Args,
 		WorkingDir: cfg.WorkingDir,

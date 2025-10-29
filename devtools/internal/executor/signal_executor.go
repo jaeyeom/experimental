@@ -1,15 +1,13 @@
-package runner
+package executor
 
 import (
 	"context"
 	"log/slog"
 	"sync"
-
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
-// ExecutorWithSignalHandling wraps a BasicExecutor with signal handling capabilities.
-type ExecutorWithSignalHandling struct {
+// WithSignalHandling wraps a BasicExecutor with signal handling capabilities.
+type WithSignalHandling struct {
 	executor      *BasicExecutor
 	signalHandler *SignalHandler
 
@@ -19,9 +17,9 @@ type ExecutorWithSignalHandling struct {
 	processes map[string]context.CancelFunc
 }
 
-// NewExecutorWithSignalHandling creates a new executor with signal handling.
-func NewExecutorWithSignalHandling() *ExecutorWithSignalHandling {
-	return &ExecutorWithSignalHandling{
+// NewWithSignalHandling creates a new executor with signal handling.
+func NewWithSignalHandling() *WithSignalHandling {
+	return &WithSignalHandling{
 		executor:      NewBasicExecutor(),
 		signalHandler: NewSignalHandler(),
 		processes:     make(map[string]context.CancelFunc),
@@ -29,12 +27,12 @@ func NewExecutorWithSignalHandling() *ExecutorWithSignalHandling {
 }
 
 // Start initializes the signal handler and returns a context for the executor.
-func (e *ExecutorWithSignalHandling) Start() (context.Context, error) {
+func (e *WithSignalHandling) Start() (context.Context, error) {
 	return e.signalHandler.Start()
 }
 
 // Stop gracefully shuts down the executor and signal handler.
-func (e *ExecutorWithSignalHandling) Stop() {
+func (e *WithSignalHandling) Stop() {
 	// Cancel all running processes
 	e.mu.Lock()
 	for id, cancel := range e.processes {
@@ -49,7 +47,7 @@ func (e *ExecutorWithSignalHandling) Stop() {
 }
 
 // Execute runs a command with signal handling support.
-func (e *ExecutorWithSignalHandling) Execute(ctx context.Context, cfg ToolConfig) (*config.ExecutionResult, error) {
+func (e *WithSignalHandling) Execute(ctx context.Context, cfg ToolConfig) (*ExecutionResult, error) {
 	// Create a unique ID for this execution
 	execID := buildCommandString(cfg.Command, cfg.Args)
 
@@ -91,12 +89,12 @@ func (e *ExecutorWithSignalHandling) Execute(ctx context.Context, cfg ToolConfig
 }
 
 // IsAvailable checks if a command is available (delegates to BasicExecutor).
-func (e *ExecutorWithSignalHandling) IsAvailable(command string) bool {
+func (e *WithSignalHandling) IsAvailable(command string) bool {
 	return e.executor.IsAvailable(command)
 }
 
 // GetRunningProcesses returns the number of currently running processes.
-func (e *ExecutorWithSignalHandling) GetRunningProcesses() int {
+func (e *WithSignalHandling) GetRunningProcesses() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.processes)

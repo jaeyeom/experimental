@@ -14,7 +14,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/detector"
-	"github.com/jaeyeom/experimental/devtools/devcheck/internal/runner"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 func main() {
@@ -200,9 +200,9 @@ func showDetectedTools(w io.Writer, projectConfig *config.ProjectConfig) {
 	}
 }
 
-func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string) ([]runner.ToolConfig, error) {
-	var demoConfigs []runner.ToolConfig
-	basicExec := runner.NewBasicExecutor()
+func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string) ([]executor.ToolConfig, error) {
+	var demoConfigs []executor.ToolConfig
+	basicExec := executor.NewBasicExecutor()
 
 	// Add Bazel support
 	if projectConfig.BuildSystem == "bazel" && basicExec.IsAvailable("bazel") {
@@ -221,8 +221,8 @@ func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string) ([]runn
 	return demoConfigs, nil
 }
 
-func createBazelConfig(dir string) runner.ToolConfig {
-	return runner.ToolConfig{
+func createBazelConfig(dir string) executor.ToolConfig {
+	return executor.ToolConfig{
 		Command:    "bazel",
 		Args:       []string{"info", "workspace"},
 		WorkingDir: dir,
@@ -230,16 +230,16 @@ func createBazelConfig(dir string) runner.ToolConfig {
 	}
 }
 
-func createGitConfig(dir string) runner.ToolConfig {
-	return runner.ToolConfig{
+func createGitConfig(dir string) executor.ToolConfig {
+	return executor.ToolConfig{
 		Command:    "git",
 		Args:       []string{"status", "--short"},
 		WorkingDir: dir,
 	}
 }
 
-func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, basicExec runner.Executor) []runner.ToolConfig {
-	var configs []runner.ToolConfig
+func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, basicExec executor.Executor) []executor.ToolConfig {
+	var configs []executor.ToolConfig
 
 	for _, lang := range projectConfig.Languages {
 		switch lang {
@@ -253,11 +253,11 @@ func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, b
 	return configs
 }
 
-func addGoTools(dir string, basicExec runner.Executor) []runner.ToolConfig {
-	var configs []runner.ToolConfig
+func addGoTools(dir string, basicExec executor.Executor) []executor.ToolConfig {
+	var configs []executor.ToolConfig
 
 	if basicExec.IsAvailable("go") {
-		configs = append(configs, runner.ToolConfig{
+		configs = append(configs, executor.ToolConfig{
 			Command:    "go",
 			Args:       []string{"list", "./devtools/devcheck/..."},
 			WorkingDir: dir,
@@ -265,7 +265,7 @@ func addGoTools(dir string, basicExec runner.Executor) []runner.ToolConfig {
 	}
 
 	if basicExec.IsAvailable("golangci-lint") {
-		configs = append(configs, runner.ToolConfig{
+		configs = append(configs, executor.ToolConfig{
 			Command:    "golangci-lint",
 			Args:       []string{"run", "--timeout=30s", "./devtools/devcheck/..."},
 			WorkingDir: dir,
@@ -276,11 +276,11 @@ func addGoTools(dir string, basicExec runner.Executor) []runner.ToolConfig {
 	return configs
 }
 
-func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec runner.Executor) []runner.ToolConfig {
-	var configs []runner.ToolConfig
+func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec executor.Executor) []executor.ToolConfig {
+	var configs []executor.ToolConfig
 
 	if basicExec.IsAvailable("ruff") && projectConfig.ConfigFiles["ruff"] != "" {
-		configs = append(configs, runner.ToolConfig{
+		configs = append(configs, executor.ToolConfig{
 			Command:    "ruff",
 			Args:       []string{"check", "--statistics"},
 			WorkingDir: dir,
@@ -291,8 +291,8 @@ func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec r
 	return configs
 }
 
-func executeDemoConfigs(demoConfigs []runner.ToolConfig, w io.Writer, concurrent bool, maxWorkers int) error {
-	signalExecutor := runner.NewExecutorWithSignalHandling()
+func executeDemoConfigs(demoConfigs []executor.ToolConfig, w io.Writer, concurrent bool, maxWorkers int) error {
+	signalExecutor := executor.NewWithSignalHandling()
 	ctx, err := signalExecutor.Start()
 	if err != nil {
 		return fmt.Errorf("failed to start signal handler: %w", err)
@@ -309,7 +309,7 @@ func executeDemoConfigs(demoConfigs []runner.ToolConfig, w io.Writer, concurrent
 }
 
 // runSequentialDemo runs tools one by one.
-func runSequentialDemo(ctx context.Context, w io.Writer, executor runner.Executor, configs []runner.ToolConfig) error {
+func runSequentialDemo(ctx context.Context, w io.Writer, exec executor.Executor, configs []executor.ToolConfig) error {
 	startTime := time.Now()
 	successCount := 0
 
@@ -317,7 +317,7 @@ func runSequentialDemo(ctx context.Context, w io.Writer, executor runner.Executo
 		fmt.Fprintf(w, "[%d/%d] Running: %s %s\n", i+1, len(configs), cfg.Command, strings.Join(cfg.Args, " "))
 
 		cmdStart := time.Now()
-		result, err := executor.Execute(ctx, cfg)
+		result, err := exec.Execute(ctx, cfg)
 		duration := time.Since(cmdStart)
 
 		switch {
@@ -346,11 +346,11 @@ func runSequentialDemo(ctx context.Context, w io.Writer, executor runner.Executo
 }
 
 // runConcurrentDemo runs tools concurrently.
-func runConcurrentDemo(ctx context.Context, w io.Writer, executor runner.Executor, configs []runner.ToolConfig, maxWorkers int) error {
+func runConcurrentDemo(ctx context.Context, w io.Writer, exec executor.Executor, configs []executor.ToolConfig, maxWorkers int) error {
 	startTime := time.Now()
 
 	// Create concurrent executor
-	concurrentExec := runner.NewConcurrentExecutor(executor)
+	concurrentExec := executor.NewConcurrentExecutor(exec)
 	concurrentExec.SetMaxConcurrency(maxWorkers)
 
 	// Execute all tools concurrently
