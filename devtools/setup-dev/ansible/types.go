@@ -5,6 +5,38 @@ import (
 	"unicode"
 )
 
+// PlatformName represents a valid platform identifier used in tool configurations.
+// Using a typed constant prevents typos and provides compile-time safety.
+type PlatformName string
+
+const (
+	// PlatformAll represents tools that use the same installation method
+	// across all platforms.
+	PlatformAll PlatformName = "all"
+	// PlatformDarwin represents macOS-specific installation. It uses
+	// Homebrew.
+	PlatformDarwin PlatformName = "darwin"
+	// PlatformTermux represents Termux-specific installation. It uses pkg.
+	PlatformTermux PlatformName = "termux"
+	// PlatformDebianLike represents Debian/Ubuntu systems. It uses apt.
+	PlatformDebianLike PlatformName = "debian-like"
+	// PlatformDebian represents Debian-specific installation. It uses apt.
+	PlatformDebian PlatformName = "debian"
+	// PlatformUbuntu represents Ubuntu-specific installation. It uses apt.
+	PlatformUbuntu PlatformName = "ubuntu"
+)
+
+// AllPlatforms is the canonical list of all valid platform names.
+// This is the single source of truth for valid platforms.
+var AllPlatforms = []PlatformName{
+	PlatformAll,
+	PlatformDarwin,
+	PlatformTermux,
+	PlatformDebianLike,
+	PlatformDebian,
+	PlatformUbuntu,
+}
+
 // Import represents a playbook import with optional conditional logic.
 type Import struct {
 	Playbook string // Name of the playbook to import
@@ -83,7 +115,7 @@ type InstallMethod interface {
 // that replaced separate install type arrays (GoInstall, PipInstall, etc.).
 type PlatformSpecificTool struct {
 	command   string
-	platforms map[string]InstallMethod
+	platforms map[PlatformName]InstallMethod
 	Imports   []Import
 }
 
@@ -99,9 +131,29 @@ func (p PlatformSpecificTool) CommandID() string {
 	return id
 }
 
-func (p PlatformSpecificTool) GetPlatforms() map[string]InstallMethod {
-	return p.platforms
+// HasPlatform returns true if the tool has an install method for the given platform.
+func (p PlatformSpecificTool) HasPlatform(platform PlatformName) bool {
+	_, exists := p.platforms[platform]
+	return exists
 }
+
+// Platform-specific helper methods for use in templates.
+
+func (p PlatformSpecificTool) DarwinMethod() InstallMethod { return p.platforms[PlatformDarwin] }
+func (p PlatformSpecificTool) TermuxMethod() InstallMethod { return p.platforms[PlatformTermux] }
+func (p PlatformSpecificTool) AllMethod() InstallMethod    { return p.platforms[PlatformAll] }
+func (p PlatformSpecificTool) DebianLikeMethod() InstallMethod {
+	return p.platforms[PlatformDebianLike]
+}
+func (p PlatformSpecificTool) DebianMethod() InstallMethod { return p.platforms[PlatformDebian] }
+func (p PlatformSpecificTool) UbuntuMethod() InstallMethod { return p.platforms[PlatformUbuntu] }
+
+func (p PlatformSpecificTool) HasDarwin() bool     { return p.HasPlatform(PlatformDarwin) }
+func (p PlatformSpecificTool) HasTermux() bool     { return p.HasPlatform(PlatformTermux) }
+func (p PlatformSpecificTool) HasAll() bool        { return p.HasPlatform(PlatformAll) }
+func (p PlatformSpecificTool) HasDebianLike() bool { return p.HasPlatform(PlatformDebianLike) }
+func (p PlatformSpecificTool) HasDebian() bool     { return p.HasPlatform(PlatformDebian) }
+func (p PlatformSpecificTool) HasUbuntu() bool     { return p.HasPlatform(PlatformUbuntu) }
 
 func (p PlatformSpecificTool) GetAllImports() []Import {
 	importsMap := make(map[string]bool)
@@ -132,8 +184,8 @@ func (p PlatformSpecificTool) GetAllImports() []Import {
 func GoTool(command string, pkgPath string, imports ...Import) PlatformSpecificTool {
 	return PlatformSpecificTool{
 		command: command,
-		platforms: map[string]InstallMethod{
-			"all": GoInstallMethod{PkgPath: pkgPath},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: GoInstallMethod{PkgPath: pkgPath},
 		},
 		Imports: imports,
 	}
