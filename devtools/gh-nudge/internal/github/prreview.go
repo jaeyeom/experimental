@@ -240,23 +240,22 @@ func (prc *PRReviewClient) parseLineNumber(part, prefix string) int {
 
 func (prc *PRReviewClient) createNewHunk(filename, sha, line string, rightLineNum int) *models.DiffHunk {
 	return &models.DiffHunk{
-		File:    filename,
-		SHA:     sha,
-		Range:   models.NewSingleLine(rightLineNum),
-		Content: line + "\n",
-		Side:    models.SideRight,
+		Location: models.NewFileLocationSingleLine(filename, rightLineNum),
+		SHA:      sha,
+		Content:  line + "\n",
+		Side:     models.SideRight,
 	}
 }
 
 func (prc *PRReviewClient) updateLineNumbers(line string, rightLineNum, leftLineNum int, currentHunk *models.DiffHunk) (int, int) {
 	switch {
 	case strings.HasPrefix(line, "+"):
-		currentHunk.Range.EndLine = rightLineNum
+		currentHunk.Location.Lines.EndLine = rightLineNum
 		rightLineNum++
 	case strings.HasPrefix(line, "-"):
 		leftLineNum++
 	case strings.HasPrefix(line, " "):
-		currentHunk.Range.EndLine = rightLineNum
+		currentHunk.Location.Lines.EndLine = rightLineNum
 		rightLineNum++
 		leftLineNum++
 	}

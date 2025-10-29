@@ -355,7 +355,7 @@ func TestCommentIDInJSON(t *testing.T) {
 		Path: "test.go",
 		Line: NewSingleLine(42),
 		Body: "Test comment",
-		Side: "RIGHT",
+		Side: SideRight,
 	}
 
 	// Test that the ID is preserved through JSON marshaling
@@ -482,9 +482,9 @@ func TestCommentGetLineRange(t *testing.T) {
 func TestCommentMatchesFilter(t *testing.T) {
 	t.Run("Empty filter matches all", func(t *testing.T) {
 		comments := []Comment{
-			{Path: "foo.go", Line: NewSingleLine(10), Side: "RIGHT"},
-			{Path: "bar.go", Line: NewSingleLine(20), Side: "LEFT"},
-			{Path: "baz.go", Line: NewSingleLine(30), Side: "RIGHT"},
+			{Path: "foo.go", Line: NewSingleLine(10), Side: SideRight},
+			{Path: "bar.go", Line: NewSingleLine(20), Side: SideLeft},
+			{Path: "baz.go", Line: NewSingleLine(30), Side: SideRight},
 		}
 		emptyFilter := CommentFilter{}
 		for i, comment := range comments {
@@ -518,11 +518,11 @@ func TestCommentMatchesFilter(t *testing.T) {
 
 	t.Run("Side filter", func(t *testing.T) {
 		comments := []Comment{
-			{Path: "test.go", Line: NewSingleLine(10), Side: "LEFT"},
-			{Path: "test.go", Line: NewSingleLine(20), Side: "RIGHT"},
-			{Path: "test.go", Line: NewSingleLine(30), Side: "LEFT"},
+			{Path: "test.go", Line: NewSingleLine(10), Side: SideLeft},
+			{Path: "test.go", Line: NewSingleLine(20), Side: SideRight},
+			{Path: "test.go", Line: NewSingleLine(30), Side: SideLeft},
 		}
-		filter := CommentFilter{Side: "LEFT"}
+		filter := CommentFilter{Side: SideLeft}
 
 		matched := 0
 		for _, comment := range comments {
@@ -586,15 +586,15 @@ func TestCommentMatchesFilter(t *testing.T) {
 	t.Run("Combined filters", func(t *testing.T) {
 		targetLine := 42
 		comments := []Comment{
-			{Path: "foo.go", Line: NewSingleLine(42), Side: "RIGHT"},
-			{Path: "foo.go", Line: NewSingleLine(43), Side: "RIGHT"},
-			{Path: "bar.go", Line: NewSingleLine(42), Side: "RIGHT"},
-			{Path: "foo.go", Line: NewSingleLine(42), Side: "LEFT"},
+			{Path: "foo.go", Line: NewSingleLine(42), Side: SideRight},
+			{Path: "foo.go", Line: NewSingleLine(43), Side: SideRight},
+			{Path: "bar.go", Line: NewSingleLine(42), Side: SideRight},
+			{Path: "foo.go", Line: NewSingleLine(42), Side: SideLeft},
 		}
 		filter := CommentFilter{
 			File:      "foo.go",
 			LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine},
-			Side:      "RIGHT",
+			Side:      SideRight,
 		}
 
 		matched := 0
@@ -615,14 +615,14 @@ func TestCommentMatchesFilter(t *testing.T) {
 		// Test that adding more filter criteria reduces matches
 		targetLine := 100
 		comments := []Comment{
-			{Path: "test.go", Line: NewSingleLine(100), Side: "RIGHT"},
-			{Path: "test.go", Line: NewSingleLine(100), Side: "LEFT"},
-			{Path: "other.go", Line: NewSingleLine(100), Side: "RIGHT"},
+			{Path: "test.go", Line: NewSingleLine(100), Side: SideRight},
+			{Path: "test.go", Line: NewSingleLine(100), Side: SideLeft},
+			{Path: "other.go", Line: NewSingleLine(100), Side: SideRight},
 		}
 
 		filter1 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}}
-		filter2 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}, Side: "RIGHT"}
-		filter3 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}, Side: "RIGHT", File: "test.go"}
+		filter2 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}, Side: SideRight}
+		filter3 := CommentFilter{LineRange: &LineRange{StartLine: targetLine, EndLine: targetLine}, Side: SideRight, File: "test.go"}
 
 		count1, count2, count3 := 0, 0, 0
 		for _, comment := range comments {
@@ -780,7 +780,7 @@ func TestCommentResolve(t *testing.T) {
 			Path:     "important.go",
 			Line:     NewLineRange(10, 20),
 			Body:     "Important comment",
-			Side:     "RIGHT",
+			Side:     SideRight,
 			Status:   StatusUnresolved,
 			Priority: PriorityHigh,
 		}
@@ -878,7 +878,7 @@ func TestCommentArchive(t *testing.T) {
 			Path:     "legacy.go",
 			Line:     NewLineRange(100, 150),
 			Body:     "Legacy comment",
-			Side:     "LEFT",
+			Side:     SideLeft,
 			Status:   StatusUnresolved,
 			Priority: PriorityLow,
 		}
@@ -975,7 +975,7 @@ func TestCommentReopen(t *testing.T) {
 			Path:             "important.go",
 			Line:             NewLineRange(5, 10),
 			Body:             "Still important",
-			Side:             "RIGHT",
+			Side:             SideRight,
 			Status:           StatusResolved,
 			ResolvedAt:       &resolvedTime,
 			ResolutionReason: "Fixed",
@@ -2137,11 +2137,10 @@ func TestComment_GetEndLineLocationKey(t *testing.T) {
 func TestDiffHunk_GetLocation(t *testing.T) {
 	t.Run("DiffHunk returns correct location", func(t *testing.T) {
 		hunk := DiffHunk{
-			File:  "main.go",
-			Range: NewLineRange(10, 20),
+			Location: NewFileLocation("main.go", NewLineRange(10, 20)),
 		}
 
-		loc := hunk.GetLocation()
+		loc := hunk.Location
 		if loc.Path != "main.go" {
 			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
 		}
@@ -2151,17 +2150,16 @@ func TestDiffHunk_GetLocation(t *testing.T) {
 	})
 }
 
-// TestDiffHunk_GetLocationKey tests DiffHunk.GetLocationKey() behavior.
+// TestDiffHunk_GetLocationKey tests DiffHunk location key behavior.
 func TestDiffHunk_GetLocationKey(t *testing.T) {
 	t.Run("DiffHunk key includes full range", func(t *testing.T) {
 		hunk := DiffHunk{
-			File:  "test.go",
-			Range: NewLineRange(5, 15),
+			Location: NewFileLocation("test.go", NewLineRange(5, 15)),
 		}
 
 		want := "test.go:5-15"
-		if got := hunk.GetLocationKey(); got != want {
-			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		if got := hunk.Location.Key(); got != want {
+			t.Errorf("Location.Key() = %q, want %q", got, want)
 		}
 	})
 }

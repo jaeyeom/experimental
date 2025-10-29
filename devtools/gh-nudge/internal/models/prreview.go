@@ -68,23 +68,10 @@ func ParseSide(s string) (Side, error) {
 
 // DiffHunk represents a diff hunk in a pull request.
 type DiffHunk struct {
-	File    string    `json:"file"`
-	Side    Side      `json:"side"`    // Side of the diff (LEFT or RIGHT)
-	Range   LineRange `json:"range"`   // Line range for this hunk
-	Content string    `json:"content"` // The diff content
-	SHA     string    `json:"sha"`     // Commit SHA
-}
-
-// GetLocation returns the file location for this diff hunk.
-// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use File and Range directly.
-func (dh DiffHunk) GetLocation() FileLocation {
-	return NewFileLocation(dh.File, dh.Range)
-}
-
-// GetLocationKey returns the location key for this diff hunk.
-// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use GetLocation().Key().
-func (dh DiffHunk) GetLocationKey() string {
-	return dh.GetLocation().Key()
+	Location FileLocation `json:"location"` // File location (path + line range)
+	Side     Side         `json:"side"`     // Side of the diff (LEFT or RIGHT)
+	Content  string       `json:"content"`  // The diff content
+	SHA      string       `json:"sha"`      // Commit SHA
 }
 
 // CommentStatus represents the status of a comment.
@@ -283,7 +270,7 @@ func ParseLineSpec(spec string) (*LineRange, error) {
 
 // IsInRange checks if a line number is within the diff hunk.
 func (dh DiffHunk) IsInRange(line int) bool {
-	return dh.Range.StartLine <= line && line <= dh.Range.EndLine
+	return dh.Location.Lines.StartLine <= line && line <= dh.Location.Lines.EndLine
 }
 
 // MatchesFilter checks if a comment matches the given filter.

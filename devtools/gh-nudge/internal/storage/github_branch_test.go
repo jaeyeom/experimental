@@ -28,11 +28,10 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			CapturedAt: time.Now(),
 			DiffHunks: []models.DiffHunk{
 				{
-					File:    "test.go",
-					Side:    "RIGHT",
-					Range:   models.NewLineRange(10, 20),
-					Content: "@@ -10,11 +10,11 @@\n+added line",
-					SHA:     "abc123",
+					Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)),
+					Side:     models.SideRight,
+					Content:  "@@ -10,11 +10,11 @@\n+added line",
+					SHA:      "abc123",
 				},
 			},
 			CommitSHA:  "abc123",
@@ -72,7 +71,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			Path: "test.go",
 			Line: models.NewSingleLine(15),
 			Body: "Test comment on branch",
-			Side: "RIGHT",
+			Side: models.SideRight,
 		}
 
 		err := storage.AddBranchComment(repository, branchName, comment)
@@ -103,7 +102,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		validComment := models.Comment{
 			Path: "test.go",
 			Line: models.NewSingleLine(15),
-			Side: "RIGHT",
+			Side: models.SideRight,
 		}
 		err := storage.ValidateBranchCommentAgainstDiff(repository, branchName, validComment)
 		if err != nil {
@@ -114,7 +113,7 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 		invalidComment := models.Comment{
 			Path: "test.go",
 			Line: models.NewSingleLine(100),
-			Side: "RIGHT",
+			Side: models.SideRight,
 		}
 		err = storage.ValidateBranchCommentAgainstDiff(repository, branchName, invalidComment)
 		if err == nil {
@@ -131,19 +130,19 @@ func TestGitHubStorage_BranchOperations(t *testing.T) {
 			Path: "file1.go",
 			Line: models.NewSingleLine(10),
 			Body: "Comment on file1",
-			Side: "RIGHT",
+			Side: models.SideRight,
 		}
 		comment2 := models.Comment{
 			Path: "file2.go",
 			Line: models.NewSingleLine(20),
 			Body: "Comment on file2",
-			Side: "RIGHT",
+			Side: models.SideRight,
 		}
 		comment3 := models.Comment{
 			Path: "file1.go",
 			Line: models.NewSingleLine(30),
 			Body: "Another comment on file1",
-			Side: "RIGHT",
+			Side: models.SideRight,
 		}
 
 		_ = storage.AddBranchComment(repository, branchName, comment1)

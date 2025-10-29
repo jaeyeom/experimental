@@ -128,7 +128,7 @@ func Multiply(x, y int) int {
 				Path: testFile,
 				Line: NewSingleLine(tt.lineNumber),
 				Body: tt.commentBody,
-				Side: "RIGHT",
+				Side: SideRight,
 			}
 
 			result, err := analyzer.AnalyzeComment(comment, []byte(goCode))
@@ -221,7 +221,7 @@ func CalculateSum(a, b int) int {
 				Path: testFile,
 				Line: NewSingleLine(tt.lineNumber),
 				Body: tt.commentBody,
-				Side: "RIGHT",
+				Side: SideRight,
 			}
 
 			result, err := analyzer.AnalyzeComment(comment, []byte(goCode))
@@ -262,7 +262,7 @@ func TestFunc() {
 		Path: testFile,
 		Line: NewSingleLine(3),
 		Body: "Test comment",
-		Side: "RIGHT",
+		Side: SideRight,
 	}
 
 	// First call - should populate cache
@@ -323,7 +323,7 @@ for testing`
 		Path: testFile,
 		Line: NewSingleLine(2),
 		Body: "Test comment on unsupported file",
-		Side: "RIGHT",
+		Side: SideRight,
 	}
 
 	// Should use generic analyzer
@@ -393,7 +393,7 @@ func HelperFunction() {
 				Path: testFile,
 				Line: NewSingleLine(tt.lineNumber),
 				Body: tt.commentBody,
-				Side: "RIGHT",
+				Side: SideRight,
 			}
 
 			result, err := analyzer.AnalyzeComment(comment, []byte(goCode))
@@ -475,7 +475,7 @@ func ExistingFunction() {
 				Path: testFile,
 				Line: NewSingleLine(tt.lineNumber),
 				Body: tt.commentBody,
-				Side: "RIGHT",
+				Side: SideRight,
 			}
 
 			result, err := analyzer.AnalyzeComment(comment, []byte(goCode))
@@ -518,7 +518,7 @@ func ProcessItems(items []string) []string {
 		Path: testFile,
 		Line: NewLineRange(5, 7), // Multi-line comment
 		Body: "This loop could be optimized",
-		Side: "RIGHT",
+		Side: SideRight,
 	}
 
 	result, err := analyzer.AnalyzeComment(comment, []byte(goCode))
@@ -607,7 +607,7 @@ class ShoppingCart {
 				Path: testFile,
 				Line: NewSingleLine(tt.lineNumber),
 				Body: tt.commentBody,
-				Side: "RIGHT",
+				Side: SideRight,
 			}
 
 			result, err := analyzer.AnalyzeComment(comment, []byte(jsCode))
@@ -654,7 +654,7 @@ class Calculator:
 		Path: testFile,
 		Line: NewSingleLine(3),
 		Body: "calculate_sum should handle floats",
-		Side: "RIGHT",
+		Side: SideRight,
 	}
 
 	result, err := analyzer.AnalyzeComment(comment, []byte(pythonCode))
@@ -703,7 +703,7 @@ func SimpleFunc() {
 			Path: testFile,
 			Line: NewSingleLine(3),
 			Body: body,
-			Side: "RIGHT",
+			Side: SideRight,
 		}
 
 		result, err := analyzer.AnalyzeComment(comment, []byte(goCode))

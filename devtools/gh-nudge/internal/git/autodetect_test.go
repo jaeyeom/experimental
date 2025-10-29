@@ -472,10 +472,9 @@ line 10`,
 			// Use a range that won't overlap with test changes (far away)
 			storedDiffHunks := []models.DiffHunk{
 				{
-					File:  filename,
-					Side:  "RIGHT",
-					Range: models.LineRange{StartLine: 100, EndLine: 110},
-					SHA:   sha,
+					Location: models.NewFileLocation(filename, models.LineRange{StartLine: 100, EndLine: 110}),
+					Side:     models.SideRight,
+					SHA:      sha,
 				},
 			}
 
@@ -541,10 +540,9 @@ func TestAutoDetectChanges_ErrorCases(t *testing.T) {
 				commitFile(t, repoPath, filename, "initial content")
 				return filename, []models.DiffHunk{
 					{
-						File:  filename,
-						Side:  "RIGHT",
-						Range: models.LineRange{StartLine: 1, EndLine: 3},
-						SHA:   "0000000000000000000000000000000000000000", // Invalid SHA
+						Location: models.NewFileLocation(filename, models.LineRange{StartLine: 1, EndLine: 3}),
+						Side:     models.SideRight,
+						SHA:      "0000000000000000000000000000000000000000", // Invalid SHA
 					},
 				}
 			},
@@ -560,10 +558,9 @@ func TestAutoDetectChanges_ErrorCases(t *testing.T) {
 				// Return a different filename that doesn't exist
 				return "nonexistent.txt", []models.DiffHunk{
 					{
-						File:  "nonexistent.txt",
-						Side:  "RIGHT",
-						Range: models.LineRange{StartLine: 1, EndLine: 3},
-						SHA:   sha,
+						Location: models.NewFileLocation("nonexistent.txt", models.LineRange{StartLine: 1, EndLine: 3}),
+						Side:     models.SideRight,
+						SHA:      sha,
 					},
 				}
 			},
@@ -664,10 +661,9 @@ line 7`,
 			// Use a range that won't overlap with test changes (far away)
 			storedDiffHunks := []models.DiffHunk{
 				{
-					File:  filename,
-					Side:  "RIGHT",
-					Range: models.LineRange{StartLine: 100, EndLine: 110},
-					SHA:   sha,
+					Location: models.NewFileLocation(filename, models.LineRange{StartLine: 100, EndLine: 110}),
+					Side:     models.SideRight,
+					SHA:      sha,
 				},
 			}
 

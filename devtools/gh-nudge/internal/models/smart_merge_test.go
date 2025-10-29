@@ -14,7 +14,7 @@ func createTestComment(id string, path string, line int, body string) Comment {
 		Path:      path,
 		Line:      NewSingleLine(line),
 		Body:      body,
-		Side:      "RIGHT",
+		Side:      SideRight,
 		CreatedAt: time.Now(),
 	}
 }
@@ -399,7 +399,7 @@ func TestDetectMergeConflicts_WithMultiLineComments(t *testing.T) {
 			Path:      "file.go",
 			Line:      NewLineRange(5, 10),
 			Body:      "Multi-line comment 1",
-			Side:      "RIGHT",
+			Side:      SideRight,
 			CreatedAt: time.Now(),
 		},
 		createTestComment("c2", "file.go", 10, "Comment 2"),
