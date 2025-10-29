@@ -1,2 +1,441 @@
-#+TITLE: Devtools
-The devtools directory would include development related tools and scripts.
+#+TITLE: Developer Tools
+#+TAGS: stable active inactive experimental unimplemented deprecated
+
+* Overview
+
+Collection of developer tools and utilities for improving development workflow,
+code quality, and productivity. These tools help automate common development
+tasks, enforce code standards, and streamline collaboration.
+
+* Quick Navigation
+- [[#build-testing][Build & Testing Tools]]
+- [[#code-quality][Code Quality Tools]]
+- [[#development-utilities][Development Utilities]]
+- [[#configuration][Configuration & Setup]]
+
+* Tools
+:PROPERTIES:
+:CUSTOM_ID: tools
+:END:
+
+** Build & Testing Tools
+:PROPERTIES:
+:CUSTOM_ID: build-testing
+:END:
+
+*** bazel-affected-tests                                       :experimental:
+
+Fast Go implementation for detecting which Bazel test targets are affected by
+changes in your git staging area. Features intelligent caching, format test
+filtering, and cross-platform support.
+
+*Key Features:*
+- 10-100x faster than shell implementations with smart caching
+- Automatic cache invalidation when BUILD files change
+- Cross-platform (Linux, macOS, Windows)
+- Format test filtering by file type
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  bazel-affected-tests | xargs bazel test
+#+END_SRC
+
+[[file:bazel-affected-tests/README.md][→ Full Documentation]]
+
+** Code Quality Tools
+:PROPERTIES:
+:CUSTOM_ID: code-quality
+:END:
+
+*** devcheck                                                       :inactive:
+
+Automated formatter and linter runner that detects repository context and runs
+appropriate quality checks. Prioritizes universal build systems (Bazel, Make)
+over language-specific tools and provides LLM-friendly output.
+
+*Note:* Currently exploring copier templates as an alternative solution for
+project scaffolding and configuration management.
+
+*Key Features:*
+- Automatic detection of project type and build system
+- Unified interface for formatters, linters, and tests
+- Human-readable output optimized for AI agent consumption
+- Zero-configuration operation for standard layouts
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/devcheck@latest
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  devcheck                    # Run all applicable tools
+  devcheck --filter=format    # Run only formatters
+  devcheck --dry-run          # Preview what would be executed
+#+END_SRC
+
+[[file:devcheck/README.org][→ Full Documentation]]
+
+*** linters                                                    :experimental:
+
+Collection of linting tools for various file formats, starting with org-lint
+for Org-mode files. Provides command-line linting with Emacs org-lint
+functionality.
+
+*Available Linters:*
+- *org-lint*: Go wrapper around Emacs org-lint for Org-mode files
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  org-lint README.org file1.org file2.org
+#+END_SRC
+
+[[file:linters/README.org][→ Full Documentation]]
+
+** Development Utilities
+:PROPERTIES:
+:CUSTOM_ID: development-utilities
+:END:
+
+*** ascii-art                                                 :unimplemented:
+
+Tools for generating GANTT charts and graphs as ASCII art for embedding in code
+comments and documentation. Makes test cases, timelines, and complex logic more
+understandable through visual representations.
+
+*Note:* Design and requirements documented, but implementation not yet started.
+
+*Key Features:*
+- GANTT chart generator for timeline visualizations
+- Graph visualizer for node and edge diagrams
+- Configurable comment prefixes and characters
+- Multiple layout algorithms
+
+*Installation:*
+#+BEGIN_SRC bash
+  bazel build //devtools/ascii-art/cmd/gantt-chart:gantt-chart
+  bazel build //devtools/ascii-art/cmd/graph-viz:graph-viz
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  gantt-chart --time-unit=1s --task="Task_A,0s,10s,#,Priority: HIGH"
+  graph-viz --layout=grid --node="A,0,0" --edge="A,B"
+#+END_SRC
+
+[[file:ascii-art/README.org][→ Full Documentation]]
+
+*** gh-nudge                                                         :active:
+
+Suite of GitHub workflow utilities including PR review reminders, Slack
+integration, merge automation, CODEOWNERS management, and storage utilities.
+
+*Available Commands:*
+- *gh-nudge*: Send review reminders for pending PRs
+- *gh-slack*: Slack notifications for GitHub events
+- *gh-merge*: Automated PR merging with checks
+- *gh-codeowners*: CODEOWNERS file management
+- *gh-pr-review*: PR review workflow automation
+- *gh-storage*: GitHub storage management utilities
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest
+  go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest
+  # ... install other commands as needed
+#+END_SRC
+
+*Prerequisites:*
+- GitHub CLI (gh) installed and authenticated
+- Slack API token (for slack integration)
+
+[[file:gh-nudge/README.org][→ Full Documentation]]
+
+*** rename-jira-keys                                           :experimental:
+
+Tool for renaming Jira ticket keys across documentation files. Performs content
+replacement and file renaming to keep documentation in sync when tickets are
+moved or renumbered.
+
+*Key Features:*
+- Word boundary matching to prevent partial matches
+- File existence checks to prevent overwrites
+- Updates both file contents and filenames
+- Clear feedback on which files were modified
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/rename-jira-keys/cmd/rename-jira-keys@latest
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  rename-jira-keys --old PROJ-123 --new PROJ-456
+  rename-jira-keys --old DEV-400 --new DEV-900 -p plan.md -d docs/tickets
+#+END_SRC
+
+[[file:rename-jira-keys/README.org][→ Full Documentation]]
+
+** Configuration & Setup
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+
+*** setup-dev                                                        :active:
+
+Ansible playbooks for automated development environment setup with idempotent,
+modular installation of tools and configurations.
+
+*Key Features:*
+- Idempotent Ansible playbooks for each tool
+- Cross-platform support (Linux, macOS, Termux)
+- Modular installation of individual tools
+- Complete development environment setup
+
+*Installation:*
+#+BEGIN_SRC bash
+  cd devtools/setup-dev/ansible
+  ./ensure.sh all
+#+END_SRC
+
+[[file:setup-dev/README.org][→ Full Documentation]]
+
+*** repo-sync                                                      :inactive:
+
+Multi-machine development file synchronization using Git-based workflow
+automation. Selectively synchronizes project-specific files across machines
+without uploading entire repositories.
+
+*Note:* Exploring copier templates as a potentially better solution for
+managing project-specific configurations.
+
+*Key Features:*
+- Selective synchronization using rsync patterns
+- Git integration with automated commit-pull-push
+- Multi-machine coordination with deletion tracking
+- SQLite database for metadata and operation history
+
+*Installation:*
+#+BEGIN_SRC bash
+bazel build //devtools/repo-sync/cmd/repo-sync:repo-sync
+# or use make from devtools/repo-sync directory
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+repo-sync init
+repo-sync config add-project myproject --local-dir /path/to/project
+repo-sync sync myproject
+#+END_SRC
+
+[[file:repo-sync/README.org][→ Full Documentation]]
+
+*** emacs-init (Deprecated)                                      :deprecated:
+
+⚠️ *Out of date and no longer maintained.* Contains legacy Emacs initialization
+files from before 2013. For current Emacs setup, see [[file:../spacemacs/README.org][spacemacs/README.org]].
+
+[[file:emacs-init/README.org][→ Documentation]]
+
+*** doom (Deprecated)                                            :deprecated:
+
+⚠️ *Not actively maintained.* Legacy Doom Emacs configuration files. For current
+Emacs setup, see [[file:../spacemacs/README.org][spacemacs/README.org]].
+
+[[file:doom/README.org][→ Documentation]]
+
+* Installation
+:PROPERTIES:
+:CUSTOM_ID: installation
+:END:
+
+** Prerequisites
+
+*** Required
+- *Go 1.21+* - For Go-based tools (most tools in this directory)
+- *Git* - Version control and some tool dependencies
+
+*** Optional (tool-specific)
+- *Bazel* - For tools with Bazel build configuration
+- *Emacs* - For org-lint and other Emacs-related tools
+- *GitHub CLI (gh)* - For gh-nudge utilities
+- *Ansible* - For setup-dev automation
+- *rsync* - For repo-sync file synchronization
+
+** Common Installation Pattern
+
+Most Go-based tools follow this pattern:
+
+#+BEGIN_SRC bash
+# Install from GitHub (recommended)
+go install github.com/jaeyeom/experimental/devtools/<tool-name>/cmd/<tool-name>@latest
+
+# Or install from source
+cd devtools/<tool-name>
+go install ./cmd/<tool-name>
+
+# Or build with Bazel
+bazel build //devtools/<tool-name>/...
+#+END_SRC
+
+** Installing All Tools
+
+#+BEGIN_SRC bash
+# Install individual Go-based tools
+go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/...@latest
+go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/...@latest
+go install github.com/jaeyeom/experimental/devtools/rename-jira-keys/cmd/...@latest
+
+# Install linters
+go install github.com/jaeyeom/experimental/devtools/linters/cmd/...@latest
+
+# Install all gh-nudge suite tools
+go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/...@latest
+#+END_SRC
+
+* Contributing
+:PROPERTIES:
+:CUSTOM_ID: contributing
+:END:
+
+** Adding New Tools
+
+1. Create tool directory under =devtools/=
+2. Follow project structure conventions:
+   #+BEGIN_SRC text
+   devtools/<tool-name>/
+   ├── cmd/<tool-name>/     # Main entry point
+   │   └── main.go
+   ├── internal/            # Internal packages
+   ├── BUILD.bazel          # Bazel configuration
+   ├── go.mod               # Go module file (if applicable)
+   └── README.org           # Tool documentation
+   #+END_SRC
+
+3. Write comprehensive README with:
+   - Clear overview and problem statement
+   - Installation instructions
+   - Usage examples
+   - Key features
+   - Prerequisites
+
+4. Add entry to this main README under appropriate category
+
+** Documentation Standards
+
+- Use Org-mode format (=.org= files) for consistency
+- Include practical examples
+- Document prerequisites and dependencies
+- Provide both basic and advanced usage
+- Link to related issues or PRs
+
+** Testing Requirements
+
+- Include unit tests for core functionality
+- Integration tests for tools with external dependencies
+- Test across supported platforms when applicable
+- Follow Test Driven Development practices
+
+** Code Quality
+
+From repository root, run quality checks:
+
+#+BEGIN_SRC bash
+# Format, test, and lint (uses Makefile in repo root)
+make
+
+# Or explicitly
+make format test lint
+#+END_SRC
+
+* Common Patterns
+:PROPERTIES:
+:CUSTOM_ID: common-patterns
+:END:
+
+** Building with Go
+
+#+BEGIN_SRC bash
+# Build binary
+go build ./cmd/<tool-name>
+
+# Build and install to GOPATH/bin from local code (convenient during development)
+go install ./cmd/<tool-name>
+
+# Install from local changes using relative path from repo root
+go install ./devtools/<tool-name>/cmd/<tool-name>
+
+# Install from GitHub (latest release)
+go install github.com/jaeyeom/experimental/devtools/<tool-name>/cmd/<tool-name>@latest
+#+END_SRC
+
+** Building with Bazel
+
+#+BEGIN_SRC bash
+# Build specific tool
+bazel build //devtools/<tool-name>/...
+
+# Build all devtools
+bazel build //devtools/...
+
+# Run tests
+bazel test //devtools/<tool-name>/...
+#+END_SRC
+
+** Integration with Pre-commit Hooks
+
+Many tools can be integrated into Git pre-commit hooks:
+
+#+BEGIN_SRC bash
+#!/bin/sh
+# .git/hooks/pre-commit
+
+# Run affected tests
+bazel-affected-tests | xargs bazel test
+
+# Run quality checks
+devcheck
+
+# Lint org files
+git diff --cached --name-only --diff-filter=ACM | grep '\.org$' | xargs org-lint
+#+END_SRC
+
+** CI/CD Integration
+
+Example GitHub Actions workflow:
+
+#+BEGIN_SRC yaml
+- name: Install devtools
+  run: |
+    go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/devcheck@latest
+    go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest
+
+- name: Run quality checks
+  run: devcheck
+
+- name: Run affected tests
+  run: bazel-affected-tests | xargs bazel test
+#+END_SRC
+
+* Related Documentation
+:PROPERTIES:
+:CUSTOM_ID: related-docs
+:END:
+
+- [[file:../docs/windsurf/rules/][Windsurf Rules]] - Development workflow guidelines
+- [[file:../spacemacs/README.org][Spacemacs Configuration]] - Current Emacs setup
+- [[file:../CLAUDE.md][Claude AI Instructions]] - AI assistant guidelines
+
+* License
+
+This project follows the licensing terms of the parent experimental repository.
