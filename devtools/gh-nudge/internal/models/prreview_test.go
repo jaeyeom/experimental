@@ -2164,79 +2164,53 @@ func TestDiffHunk_GetLocationKey(t *testing.T) {
 	})
 }
 
-// TestMergeConflict_GetLocation tests MergeConflict.GetLocation() behavior.
-func TestMergeConflict_GetLocation(t *testing.T) {
+// TestMergeConflict_Location tests MergeConflict.Location field behavior.
+func TestMergeConflict_Location(t *testing.T) {
 	t.Run("Single line conflict returns correct location", func(t *testing.T) {
 		conflict := MergeConflict{
-			File: "main.go",
-			Line: 42,
+			Location: NewFileLocationSingleLine("main.go", 42),
 		}
 
-		loc := conflict.GetLocation()
-		if loc.Path != "main.go" {
-			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
+		if conflict.Location.Path != "main.go" {
+			t.Errorf("Path = %q, want %q", conflict.Location.Path, "main.go")
 		}
-		if loc.Lines.StartLine != 42 || loc.Lines.EndLine != 42 {
-			t.Errorf("Lines = %+v, want single line 42", loc.Lines)
+		if conflict.Location.Lines.StartLine != 42 || conflict.Location.Lines.EndLine != 42 {
+			t.Errorf("Lines = %+v, want single line 42", conflict.Location.Lines)
 		}
 	})
 
-	t.Run("Multi-line conflict with StartLine returns range", func(t *testing.T) {
-		startLine := 10
+	t.Run("Multi-line conflict with range", func(t *testing.T) {
 		conflict := MergeConflict{
-			File:      "test.go",
-			Line:      20,
-			StartLine: &startLine,
+			Location: NewFileLocation("test.go", NewLineRange(10, 20)),
 		}
 
-		loc := conflict.GetLocation()
-		if loc.Path != "test.go" {
-			t.Errorf("Path = %q, want %q", loc.Path, "test.go")
+		if conflict.Location.Path != "test.go" {
+			t.Errorf("Path = %q, want %q", conflict.Location.Path, "test.go")
 		}
-		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
-			t.Errorf("Lines = %+v, want range 10-20", loc.Lines)
+		if conflict.Location.Lines.StartLine != 10 || conflict.Location.Lines.EndLine != 20 {
+			t.Errorf("Lines = %+v, want range 10-20", conflict.Location.Lines)
 		}
 	})
 
-	t.Run("Conflict with nil StartLine uses Line for both start and end", func(t *testing.T) {
+	t.Run("Location key for single line conflict", func(t *testing.T) {
 		conflict := MergeConflict{
-			File:      "main.go",
-			Line:      15,
-			StartLine: nil,
-		}
-
-		loc := conflict.GetLocation()
-		if loc.Lines.StartLine != 15 || loc.Lines.EndLine != 15 {
-			t.Errorf("Lines = %+v, want single line 15", loc.Lines)
-		}
-	})
-}
-
-// TestMergeConflict_GetLocationKey tests MergeConflict.GetLocationKey() behavior.
-func TestMergeConflict_GetLocationKey(t *testing.T) {
-	t.Run("Single line conflict key", func(t *testing.T) {
-		conflict := MergeConflict{
-			File: "main.go",
-			Line: 42,
+			Location: NewFileLocationSingleLine("main.go", 42),
 		}
 
 		want := "main.go:42"
-		if got := conflict.GetLocationKey(); got != want {
-			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		if got := conflict.Location.Key(); got != want {
+			t.Errorf("Location.Key() = %q, want %q", got, want)
 		}
 	})
 
-	t.Run("Multi-line conflict key includes range", func(t *testing.T) {
-		startLine := 10
+	t.Run("Location key for multi-line conflict includes range", func(t *testing.T) {
 		conflict := MergeConflict{
-			File:      "test.go",
-			Line:      20,
-			StartLine: &startLine,
+			Location: NewFileLocation("test.go", NewLineRange(10, 20)),
 		}
 
 		want := "test.go:10-20"
-		if got := conflict.GetLocationKey(); got != want {
-			t.Errorf("GetLocationKey() = %q, want %q", got, want)
+		if got := conflict.Location.Key(); got != want {
+			t.Errorf("Location.Key() = %q, want %q", got, want)
 		}
 	})
 }

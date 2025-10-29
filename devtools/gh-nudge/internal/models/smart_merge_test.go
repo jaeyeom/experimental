@@ -317,8 +317,8 @@ func TestDetectMergeConflicts_SingleConflict(t *testing.T) {
 		if len(conflicts[0].ConflictingComments) != 2 {
 			t.Errorf("Expected 2 conflicting comments, got %d", len(conflicts[0].ConflictingComments))
 		}
-		if conflicts[0].File != "file.go" {
-			t.Errorf("Expected file = file.go, got %s", conflicts[0].File)
+		if conflicts[0].Location.Path != "file.go" {
+			t.Errorf("Expected file = file.go, got %s", conflicts[0].Location.Path)
 		}
 	}
 }
@@ -416,8 +416,8 @@ func TestDetectMergeConflicts_WithMultiLineComments(t *testing.T) {
 		t.Errorf("Expected 1 conflict, got %d", len(conflicts))
 	}
 
-	if len(conflicts) > 0 && conflicts[0].StartLine == nil {
-		t.Error("Expected conflict to preserve StartLine from multi-line comment")
+	if len(conflicts) > 0 && !conflicts[0].Location.Lines.IsMultiLine() {
+		t.Error("Expected conflict to preserve multi-line range from multi-line comment")
 	}
 }
 
@@ -668,8 +668,7 @@ func TestResolveMergeConflict_Concat(t *testing.T) {
 	merger := NewSmartCommentMerger(DefaultMergeOptions())
 
 	conflict := MergeConflict{
-		Line: 10,
-		File: "file.go",
+		Location: NewFileLocationSingleLine("file.go", 10),
 		ConflictingComments: []CommentWithContext{
 			createTestCommentWithContext("c1", "file.go", 10, "Comment 1", "alice", CommentGeneral),
 			createTestCommentWithContext("c2", "file.go", 10, "Comment 2", "bob", CommentGeneral),
@@ -695,8 +694,7 @@ func TestResolveMergeConflict_ThreeWayMerge(t *testing.T) {
 	merger := NewSmartCommentMerger(DefaultMergeOptions())
 
 	conflict := MergeConflict{
-		Line: 10,
-		File: "file.go",
+		Location: NewFileLocationSingleLine("file.go", 10),
 		ConflictingComments: []CommentWithContext{
 			createTestCommentWithContext("c1", "file.go", 10, "Bug here", "alice", CommentBug),
 			createTestCommentWithContext("c2", "file.go", 10, "Style issue", "bob", CommentStyle),
@@ -718,8 +716,7 @@ func TestResolveMergeConflict_Skip(t *testing.T) {
 	merger := NewSmartCommentMerger(DefaultMergeOptions())
 
 	conflict := MergeConflict{
-		Line: 10,
-		File: "file.go",
+		Location: NewFileLocationSingleLine("file.go", 10),
 		ConflictingComments: []CommentWithContext{
 			createTestCommentWithContext("c1", "file.go", 10, "Comment 1", "alice", CommentGeneral),
 			createTestCommentWithContext("c2", "file.go", 10, "Comment 2", "bob", CommentGeneral),
@@ -746,8 +743,7 @@ func TestResolveMergeConflict_Manual(t *testing.T) {
 	merger := NewSmartCommentMerger(DefaultMergeOptions())
 
 	conflict := MergeConflict{
-		Line: 10,
-		File: "file.go",
+		Location: NewFileLocationSingleLine("file.go", 10),
 		ConflictingComments: []CommentWithContext{
 			createTestCommentWithContext("c1", "file.go", 10, "Comment 1", "alice", CommentGeneral),
 			createTestCommentWithContext("c2", "file.go", 10, "Comment 2", "bob", CommentGeneral),
@@ -769,8 +765,7 @@ func TestResolveMergeConflict_InvalidStrategy(t *testing.T) {
 	merger := NewSmartCommentMerger(DefaultMergeOptions())
 
 	conflict := MergeConflict{
-		Line: 10,
-		File: "file.go",
+		Location: NewFileLocationSingleLine("file.go", 10),
 		ConflictingComments: []CommentWithContext{
 			createTestCommentWithContext("c1", "file.go", 10, "Comment 1", "alice", CommentGeneral),
 		},
@@ -1044,7 +1039,7 @@ func TestEdgeCases_MultipleFilesInConflicts(t *testing.T) {
 	// Verify conflicts are properly separated by file
 	filesSeen := make(map[string]bool)
 	for _, conflict := range conflicts {
-		filesSeen[conflict.File] = true
+		filesSeen[conflict.Location.Path] = true
 	}
 
 	if len(filesSeen) != 2 {

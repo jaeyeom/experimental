@@ -42,36 +42,15 @@ const (
 //
 // Example conflict:
 //
-//	File:                "main.go"
-//	Line:                42
+//	Location:            FileLocation{Path: "main.go", Lines: LineRange{StartLine: 42, EndLine: 42}}
 //	ConflictingComments: ["Use const instead", "Add error handling"]
 //	SuggestedStrategy:   StrategyThreeWayMerge
 //	SuggestedMerge:      "**Style**: Use const instead\n**Bug**: Add error handling"
 type MergeConflict struct {
-	Line                int                  `json:"line"`                     // The line number where conflict occurs
-	StartLine           *int                 `json:"startLine,omitempty"`      // Start line if multi-line comment
-	File                string               `json:"file"`                     // File path where conflict occurs
+	Location            FileLocation         `json:"location"`                 // File location where conflict occurs
 	ConflictingComments []CommentWithContext `json:"conflictingComments"`      // All comments that collided
 	SuggestedStrategy   SmartMergeStrategy   `json:"suggestedStrategy"`        // Recommended resolution strategy
 	SuggestedMerge      *Comment             `json:"suggestedMerge,omitempty"` // Pre-generated merged comment (if auto-mergeable)
-}
-
-// GetLocation returns the file location for this merge conflict.
-// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use File and Line directly.
-func (mc MergeConflict) GetLocation() FileLocation {
-	var lines LineRange
-	if mc.StartLine != nil {
-		lines = NewLineRange(*mc.StartLine, mc.Line)
-	} else {
-		lines = NewSingleLine(mc.Line)
-	}
-	return NewFileLocation(mc.File, lines)
-}
-
-// GetLocationKey returns the location key for this merge conflict.
-// FIXME(jaeyeom): Remove this backward compatibility helper after migrating all callers to use GetLocation().Key().
-func (mc MergeConflict) GetLocationKey() string {
-	return mc.GetLocation().Key()
 }
 
 // CommentWithContext includes additional context about a comment for merge decisions.
@@ -338,38 +317,7 @@ func (m *SmartCommentMerger) DetectMergeConflicts(comments []Comment, adjustment
 	var mergeConflicts []MergeConflict
 	for key, commentList := range conflicts {
 		if len(commentList) > 1 {
-			loc, err := ParseFileLocation(key)
-			if err != nil {
-				// Fallback to using values from first comment if parsing fails
-				loc = commentList[0].Comment.GetLocation()
-			}
-			line := loc.Lines.EndLine
-			file := loc.Path
-
-			conflict := MergeConflict{
-				Line:                line,
-				File:                file,
-				ConflictingComments: commentList,
-				SuggestedStrategy:   m.suggestMergeStrategy(commentList),
-			}
-
-			// Add start line if any comment is multi-line
-			for _, commentCtx := range commentList {
-				if commentCtx.Comment.IsMultiLine() {
-					startLine := commentCtx.Comment.Line.StartLine
-					conflict.StartLine = &startLine
-					break
-				}
-			}
-
-			// Generate suggested merge if strategy allows
-			if conflict.SuggestedStrategy != StrategyManual && conflict.SuggestedStrategy != StrategySkip {
-				suggestedMerge, err := m.generateMergedComment(commentList, conflict.SuggestedStrategy)
-				if err == nil {
-					conflict.SuggestedMerge = suggestedMerge
-				}
-			}
-
+			conflict := m.createMergeConflict(key, commentList)
 			mergeConflicts = append(mergeConflicts, conflict)
 		}
 	}
@@ -380,6 +328,50 @@ func (m *SmartCommentMerger) DetectMergeConflicts(comments []Comment, adjustment
 	}
 
 	return mergeConflicts, nil
+}
+
+// createMergeConflict creates a MergeConflict from a location key and list of conflicting comments.
+func (m *SmartCommentMerger) createMergeConflict(locationKey string, commentList []CommentWithContext) MergeConflict {
+	// Parse location from key
+	loc, err := ParseFileLocation(locationKey)
+	if err != nil {
+		// Fallback to using values from first comment if parsing fails
+		loc = commentList[0].Comment.GetLocation()
+	}
+
+	// Expand the location to include the widest range if any comment is multi-line
+	loc = m.expandLocationForMultiLineComments(loc, commentList)
+
+	conflict := MergeConflict{
+		Location:            loc,
+		ConflictingComments: commentList,
+		SuggestedStrategy:   m.suggestMergeStrategy(commentList),
+	}
+
+	// Generate suggested merge if strategy allows
+	if conflict.SuggestedStrategy != StrategyManual && conflict.SuggestedStrategy != StrategySkip {
+		suggestedMerge, err := m.generateMergedComment(commentList, conflict.SuggestedStrategy)
+		if err == nil {
+			conflict.SuggestedMerge = suggestedMerge
+		}
+	}
+
+	return conflict
+}
+
+// expandLocationForMultiLineComments expands the location range to include all multi-line comments.
+func (m *SmartCommentMerger) expandLocationForMultiLineComments(loc FileLocation, commentList []CommentWithContext) FileLocation {
+	for _, commentCtx := range commentList {
+		if commentCtx.Comment.IsMultiLine() {
+			if commentCtx.Comment.Line.StartLine < loc.Lines.StartLine {
+				loc.Lines.StartLine = commentCtx.Comment.Line.StartLine
+			}
+			if commentCtx.Comment.Line.EndLine > loc.Lines.EndLine {
+				loc.Lines.EndLine = commentCtx.Comment.Line.EndLine
+			}
+		}
+	}
+	return loc
 }
 
 // ResolveMergeConflict resolves a single merge conflict according to the specified strategy.
@@ -393,7 +385,7 @@ func (m *SmartCommentMerger) ResolveMergeConflict(conflict MergeConflict, strate
 		// Return the first comment, skip others
 		return &conflict.ConflictingComments[0].Comment, nil
 	case StrategyManual:
-		return nil, fmt.Errorf("manual resolution required for conflict at %s:%d", conflict.File, conflict.Line)
+		return nil, fmt.Errorf("manual resolution required for conflict at %s", conflict.Location)
 	default:
 		return nil, fmt.Errorf("unknown merge strategy: %s", strategy)
 	}
@@ -779,7 +771,7 @@ func toTitle(s string) string {
 //	if len(conflicts) > 0 {
 //	    fmt.Printf("Warning: %d conflicts need manual review\n", len(conflicts))
 //	    for _, c := range conflicts {
-//	        fmt.Printf("  %s:%d - %d comments\n", c.File, c.Line, len(c.ConflictingComments))
+//	        fmt.Printf("  %s - %d comments\n", c.Location, len(c.ConflictingComments))
 //	    }
 //	}
 //

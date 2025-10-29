@@ -176,8 +176,7 @@ func TestUndoHistory_RecordMergeOperation(t *testing.T) {
 
 	conflicts := []MergeConflict{
 		{
-			File: "test.go",
-			Line: 10,
+			Location: NewFileLocationSingleLine("test.go", 10),
 			ConflictingComments: []CommentWithContext{
 				{Comment: Comment{ID: "c1", Path: "test.go", Line: NewSingleLine(10)}},
 				{Comment: Comment{ID: "c2", Path: "test.go", Line: NewSingleLine(10)}},
@@ -600,8 +599,7 @@ func TestUndoManager_UndoMergeOperation(t *testing.T) {
 
 	conflicts := []MergeConflict{
 		{
-			File: "test.go",
-			Line: 10,
+			Location: NewFileLocationSingleLine("test.go", 10),
 			ConflictingComments: []CommentWithContext{
 				{Comment: Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10)}},
 				{Comment: Comment{ID: "2", Path: "test.go", Line: NewSingleLine(10)}},
@@ -812,8 +810,7 @@ func TestUndoService_GetUndoPreview(t *testing.T) {
 		}
 		mergedComments := []Comment{{ID: "merged", Path: "test.go", Line: NewSingleLine(10)}}
 		conflicts := []MergeConflict{{
-			File: "test.go",
-			Line: 10,
+			Location: NewFileLocationSingleLine("test.go", 10),
 			ConflictingComments: []CommentWithContext{
 				{Comment: Comment{ID: "1", Path: "test.go", Line: NewSingleLine(10)}},
 				{Comment: Comment{ID: "2", Path: "test.go", Line: NewSingleLine(10)}},
