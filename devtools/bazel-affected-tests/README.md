@@ -55,15 +55,9 @@ bazel-affected-tests | xargs bazel test
 
 ### Integration with Pre-commit Hooks
 
-Replace the shell script in your pre-commit configuration:
+Add to your pre-commit configuration:
 
 ```yaml
-# Before
-- id: bazel-affected-tests
-  name: Run affected Bazel tests
-  entry: devtools/bazel_affected_tests.sh
-
-# After
 - id: bazel-affected-tests
   name: Run affected Bazel tests
   entry: bazel-affected-tests
@@ -123,7 +117,13 @@ Format tests are only included if corresponding file types are staged:
 - Python files (`.py`) → Python format test
 - And so on for all supported languages
 
-## Migration from Shell Script
+## Design
 
-This Go implementation is a drop-in replacement for the shell scripts with the
-same behavior but better performance and maintainability.
+This tool uses package-level granularity (not file-level) to identify affected tests.
+It queries for:
+1. Test targets within the same package as modified files
+2. External test targets that depend on those packages
+3. Format tests (filtered by file type)
+
+The caching system stores results per package using a hash of all BUILD/WORKSPACE/MODULE
+files as the cache key, ensuring automatic invalidation when the dependency graph changes.
