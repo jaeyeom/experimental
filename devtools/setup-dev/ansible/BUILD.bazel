@@ -2008,6 +2008,17 @@ sh_test(
 )
 
 sh_test(
+    name = "wget_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["wget.yml"],
+    data = ["wget.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "which_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["which.yml"],
@@ -2176,6 +2187,7 @@ test_suite(
         ":unzip_syntax_test",
         ":uv_syntax_test",
         ":vipsthumbnail_syntax_test",
+        ":wget_syntax_test",
         ":which_syntax_test",
         ":zip_syntax_test",
         ":zoxide_syntax_test",
