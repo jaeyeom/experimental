@@ -61,6 +61,7 @@ var packages = []PackageData{
 	{command: "udocker"},
 	{command: "unzip"},
 	{command: "vipsthumbnail", debianPkgName: "libvips-tools", termuxPkgName: "libvips", brewPkgName: "vips"},
+	{command: "wget"},
 	{command: "which"},
 	{command: "zip"},
 	{command: "zoxide"},
