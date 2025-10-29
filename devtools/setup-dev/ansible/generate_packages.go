@@ -379,7 +379,40 @@ test_suite(
 	return nil
 }
 
+// validatePlatformNames checks that all platform names in platformSpecificTools
+// use the typed constants. This should now be enforced at compile-time, but we
+// keep this function for potential runtime checks on dynamically loaded configs.
+func validatePlatformNames() error {
+	// Build a set from the canonical list in types.go
+	validPlatforms := make(map[PlatformName]bool)
+	for _, platform := range AllPlatforms {
+		validPlatforms[platform] = true
+	}
+
+	for _, tool := range platformSpecificTools {
+		for platform := range tool.platforms {
+			if !validPlatforms[platform] {
+				// This should never happen with typed constants, but keeping for safety
+				return fmt.Errorf(
+					"invalid platform name '%s' for tool '%s'.\nValid platforms are: %v",
+					platform,
+					tool.command,
+					AllPlatforms,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
 func main() {
+	// Validate platform names before generating packages
+	if err := validatePlatformNames(); err != nil {
+		fmt.Fprintf(os.Stderr, "Platform validation failed: %v\n", err)
+		os.Exit(1)
+	}
+
 	tmpl := template.Must(template.New("packages").Parse(packagesTemplate))
 	template.Must(tmpl.New("platformspecific").Parse(platformSpecificTemplate))
 

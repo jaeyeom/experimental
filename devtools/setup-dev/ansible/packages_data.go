@@ -74,45 +74,45 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
 	{
 		command: "cargo-add",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "cargo-edit"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: CargoInstallMethod{Name: "cargo-edit"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "cargo-install-update",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "cargo-update"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: CargoInstallMethod{Name: "cargo-update"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "cargo-outdated",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "cargo-outdated"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: CargoInstallMethod{Name: "cargo-outdated"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "claude",
-		platforms: map[string]InstallMethod{
-			"all": NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "claudelytics",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "claudelytics"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: CargoInstallMethod{Name: "claudelytics"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "copier",
-		platforms: map[string]InstallMethod{
-			"darwin":      BrewInstallMethod{Name: "copier"},
-			"termux":      UvInstallMethod{Name: "copier"},
-			"debian-like": UvInstallMethod{Name: "copier"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "copier"},
+			PlatformTermux:     UvInstallMethod{Name: "copier"},
+			PlatformDebianLike: UvInstallMethod{Name: "copier"},
 		},
 		Imports: nil,
 	},
@@ -127,26 +127,26 @@ var platformSpecificTools = []PlatformSpecificTool{
 	},
 	{
 		command: "emacs-lsp-booster",
-		platforms: map[string]InstallMethod{
-			"all": CargoInstallMethod{Name: "emacs-lsp-booster"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: CargoInstallMethod{Name: "emacs-lsp-booster"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "fd",
-		platforms: map[string]InstallMethod{
-			"debian-like": CargoInstallMethod{Name: "fd-find"},
-			"termux":      TermuxPkgInstallMethod{Name: "fd"},
-			"darwin":      BrewInstallMethod{Name: "fd"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDebianLike: CargoInstallMethod{Name: "fd-find"},
+			PlatformTermux:     TermuxPkgInstallMethod{Name: "fd"},
+			PlatformDarwin:     BrewInstallMethod{Name: "fd"},
 		},
 	},
 	GoTool("fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
 	{
 		command: "gemini",
-		platforms: map[string]InstallMethod{
-			"debian-like": NpmInstallMethod{Name: "@google/gemini-cli"},
-			"termux":      NpmInstallMethod{Name: "@google/gemini-cli"},
-			"darwin":      BrewInstallMethod{Name: "gemini-cli"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDebianLike: NpmInstallMethod{Name: "@google/gemini-cli"},
+			PlatformTermux:     NpmInstallMethod{Name: "@google/gemini-cli"},
+			PlatformDarwin:     BrewInstallMethod{Name: "gemini-cli"},
 		},
 		Imports: nil,
 	},
@@ -174,9 +174,9 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("jira", "github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
 	{
 		command: "lcov",
-		platforms: map[string]InstallMethod{
-			"darwin":      BrewInstallMethod{Name: "lcov"},
-			"debian-like": PackageInstallMethod{Name: "lcov"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "lcov"},
+			PlatformDebianLike: PackageInstallMethod{Name: "lcov"},
 			// termux: Skipped due to GNU Make 4.4.1 bugs with lcov's Makefile
 		},
 		Imports: nil,
@@ -187,36 +187,36 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
 	{
 		command: "protovalidate",
-		platforms: map[string]InstallMethod{
-			"all": PipInstallMethod{Name: "protovalidate"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: PipInstallMethod{Name: "protovalidate"},
 		},
 		Imports: nil,
 	},
 	GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
 	{
 		command: "ruff",
-		platforms: map[string]InstallMethod{
-			"termux":      TermuxPkgInstallMethod{Name: "ruff"},
-			"darwin":      BrewInstallMethod{Name: "ruff"},
-			"debian-like": UvInstallMethod{Name: "ruff"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformTermux:     TermuxPkgInstallMethod{Name: "ruff"},
+			PlatformDarwin:     BrewInstallMethod{Name: "ruff"},
+			PlatformDebianLike: UvInstallMethod{Name: "ruff"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "semgrep",
-		platforms: map[string]InstallMethod{
-			"darwin":      BrewInstallMethod{Name: "semgrep"},
-			"termux":      PipInstallMethod{Name: "semgrep"},
-			"debian-like": PipInstallMethod{Name: "semgrep"},
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "semgrep"},
+			PlatformTermux:     PipInstallMethod{Name: "semgrep"},
+			PlatformDebianLike: PipInstallMethod{Name: "semgrep"},
 		},
 		Imports: nil,
 	},
 	{
 		command: "starship",
-		platforms: map[string]InstallMethod{
-			"darwin": BrewInstallMethod{Name: "starship"},
-			"termux": TermuxPkgInstallMethod{Name: "starship"},
-			"debian-like": ShellInstallMethod{
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "starship"},
+			PlatformTermux: TermuxPkgInstallMethod{Name: "starship"},
+			PlatformDebianLike: ShellInstallMethod{
 				InstallCommand:    "curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir ~/.cargo/bin",
 				VersionCommand:    "starship --version",
 				VersionRegex:      "starship ([0-9.]+)",
@@ -229,10 +229,10 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
 		command: "uv",
-		platforms: map[string]InstallMethod{
-			"darwin": BrewInstallMethod{Name: "uv"},
-			"termux": TermuxPkgInstallMethod{Name: "uv"},
-			"debian-like": ShellInstallMethod{
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "uv"},
+			PlatformTermux: TermuxPkgInstallMethod{Name: "uv"},
+			PlatformDebianLike: ShellInstallMethod{
 				InstallCommand: "curl -LsSf https://astral.sh/uv/install.sh | sh",
 			},
 		},

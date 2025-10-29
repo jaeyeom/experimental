@@ -111,29 +111,28 @@ var platformSpecificTemplate = `---
           set_fact:
             {{.CommandID}}_playbook_imported: true
           when: {{.CommandID}}_playbook_imported is not defined
-{{- $platforms := .GetPlatforms }}
-{{- if index $platforms "darwin" }}
-{{- $method := index $platforms "darwin" }}
+{{- if .HasDarwin }}
+{{- $method := .DarwinMethod }}
 
     - name: Ensure {{.Command}} is present on MacOS
 {{$method.RenderInstallTask .Command}}
       when: ` + WhenDarwin + `
 {{- end }}
-{{- if index $platforms "termux" }}
-{{- $method := index $platforms "termux" }}
+{{- if .HasTermux }}
+{{- $method := .TermuxMethod }}
 
     - name: Ensure {{.Command}} is present on Termux
       block:
 {{$method.RenderBlockInstallTask .Command}}
       when: ` + WhenTermux + `
 {{- end }}
-{{- if index $platforms "all" }}
-{{- $method := index $platforms "all" }}
+{{- if .HasAll }}
+{{- $method := .AllMethod }}
 
 {{$method.RenderInstallTask .Command}}
 {{- else }}
-{{- if index $platforms "debian-like" }}
-{{- $method := index $platforms "debian-like" }}
+{{- if .HasDebianLike }}
+{{- $method := .DebianLikeMethod }}
 {{- if or (eq $method.GetMethodType "pip") (eq $method.GetMethodType "uv") }}
 
 {{$method.RenderInstallTask .Command}}
@@ -152,15 +151,15 @@ var platformSpecificTemplate = `---
       when: ` + WhenDebianLike + `
 {{- end }}
 {{- else }}
-{{- if index $platforms "debian" }}
-{{- $method := index $platforms "debian" }}
+{{- if .HasDebian }}
+{{- $method := .DebianMethod }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian
 {{$method.RenderInstallTask .Command}}
       when: ` + WhenDebianLike + ` and ansible_facts['distribution'] == "Debian"
 {{- end }}
-{{- if index $platforms "ubuntu" }}
-{{- $method := index $platforms "ubuntu" }}
+{{- if .HasUbuntu }}
+{{- $method := .UbuntuMethod }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Ubuntu
 {{$method.RenderInstallTask .Command}}
