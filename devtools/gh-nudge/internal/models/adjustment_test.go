@@ -592,14 +592,12 @@ func TestAdjustComment(t *testing.T) {
 func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 	diffHunks := []DiffHunk{
 		{
-			File:  "file.go",
-			Side:  "RIGHT",
-			Range: NewLineRange(10, 20),
+			Location: NewFileLocation("file.go", NewLineRange(10, 20)),
+			Side:     SideRight,
 		},
 		{
-			File:  "file.go",
-			Side:  "RIGHT",
-			Range: NewLineRange(30, 40),
+			Location: NewFileLocation("file.go", NewLineRange(30, 40)),
+			Side:     SideRight,
 		},
 	}
 
@@ -615,7 +613,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			comment: Comment{
 				Path: "file.go",
 				Line: NewSingleLine(35),
-				Side: "RIGHT",
+				Side: SideRight,
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationDelete, OldStart: 22, OldEnd: 24, NewStart: 22, NewEnd: 22},
@@ -627,7 +625,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			comment: Comment{
 				Path: "file.go",
 				Line: NewSingleLine(50),
-				Side: "RIGHT",
+				Side: SideRight,
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationInsert, OldStart: 45, OldEnd: 45, NewStart: 46, NewEnd: 48},
@@ -640,7 +638,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			comment: Comment{
 				Path: "file.go",
 				Line: NewSingleLine(15),
-				Side: "RIGHT",
+				Side: SideRight,
 			},
 			adjustments: []LineAdjustment{
 				{Operation: OperationDelete, OldStart: 14, OldEnd: 16, NewStart: 14, NewEnd: 14},
@@ -653,7 +651,7 @@ func TestValidateAdjustmentAgainstDiff(t *testing.T) {
 			comment: Comment{
 				Path: "other.go",
 				Line: NewSingleLine(15),
-				Side: "RIGHT",
+				Side: SideRight,
 			},
 			adjustments: []LineAdjustment{},
 			wantErr:     true,

@@ -88,8 +88,8 @@ func TestParsePatchToDiffHunks(t *testing.T) {
 
 			// Verify all hunks have the correct filename and SHA
 			for _, hunk := range hunks {
-				if hunk.File != tt.filename {
-					t.Errorf("expected filename %q, got %q", tt.filename, hunk.File)
+				if hunk.Location.Path != tt.filename {
+					t.Errorf("expected filename %q, got %q", tt.filename, hunk.Location.Path)
 				}
 				if hunk.SHA != tt.sha {
 					t.Errorf("expected SHA %q, got %q", tt.sha, hunk.SHA)
@@ -213,11 +213,10 @@ func TestCreateBidirectionalHunks(t *testing.T) {
 			name: "hunk with deletions",
 			hunks: []models.DiffHunk{
 				{
-					File:    "test.go",
-					Side:    "RIGHT",
-					Range:   models.NewLineRange(1, 5),
-					Content: "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
-					SHA:     "abc123",
+					Location: models.NewFileLocation("test.go", models.NewLineRange(1, 5)),
+					Side:     models.SideRight,
+					Content:  "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
+					SHA:      "abc123",
 				},
 			},
 			wantCount: 2, // RIGHT + LEFT
@@ -226,11 +225,10 @@ func TestCreateBidirectionalHunks(t *testing.T) {
 			name: "hunk without deletions",
 			hunks: []models.DiffHunk{
 				{
-					File:    "test.go",
-					Side:    "RIGHT",
-					Range:   models.NewLineRange(1, 5),
-					Content: "@@ -1,3 +1,4 @@\n package main\n+import \"fmt\"\n",
-					SHA:     "abc123",
+					Location: models.NewFileLocation("test.go", models.NewLineRange(1, 5)),
+					Side:     models.SideRight,
+					Content:  "@@ -1,3 +1,4 @@\n package main\n+import \"fmt\"\n",
+					SHA:      "abc123",
 				},
 			},
 			wantCount: 1, // RIGHT only
@@ -239,18 +237,16 @@ func TestCreateBidirectionalHunks(t *testing.T) {
 			name: "multiple hunks with mixed content",
 			hunks: []models.DiffHunk{
 				{
-					File:    "test.go",
-					Side:    "RIGHT",
-					Range:   models.NewLineRange(1, 5),
-					Content: "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
-					SHA:     "abc123",
+					Location: models.NewFileLocation("test.go", models.NewLineRange(1, 5)),
+					Side:     models.SideRight,
+					Content:  "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n",
+					SHA:      "abc123",
 				},
 				{
-					File:    "test.go",
-					Side:    "RIGHT",
-					Range:   models.NewLineRange(10, 15),
-					Content: "@@ -10,2 +11,3 @@\n+	fmt.Println(\"hello\")\n",
-					SHA:     "abc123",
+					Location: models.NewFileLocation("test.go", models.NewLineRange(10, 15)),
+					Side:     models.SideRight,
+					Content:  "@@ -10,2 +11,3 @@\n+	fmt.Println(\"hello\")\n",
+					SHA:      "abc123",
 				},
 			},
 			wantCount: 3, // First hunk: RIGHT + LEFT, Second hunk: RIGHT only
@@ -294,7 +290,7 @@ func TestSubmitReview(t *testing.T) {
 						Path: "test.go",
 						Line: models.NewSingleLine(10),
 						Body: "Nice fix!",
-						Side: "RIGHT",
+						Side: models.SideRight,
 						SHA:  "abc123",
 					},
 				},
@@ -311,7 +307,7 @@ func TestSubmitReview(t *testing.T) {
 						Path: "test.go",
 						Line: models.NewLineRange(10, 15),
 						Body: "This whole section needs work",
-						Side: "RIGHT",
+						Side: models.SideRight,
 						SHA:  "abc123",
 					},
 				},
@@ -431,7 +427,7 @@ func TestConvertGitHubComment(t *testing.T) {
 				StartLine: intPtr(5),
 				Line:      intPtr(10),
 				Body:      "This whole section needs work",
-				Side:      "RIGHT",
+				Side:      models.SideRight,
 				CommitID:  "def456",
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -480,7 +476,7 @@ func TestConvertGitHubComment(t *testing.T) {
 				ID:        999,
 				Path:      "test.go",
 				Body:      "General comment",
-				Side:      "RIGHT",
+				Side:      models.SideRight,
 				CommitID:  "xyz999",
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -550,7 +546,7 @@ func TestCreatePendingReview(t *testing.T) {
 			Path: "test.go",
 			Line: models.NewSingleLine(10),
 			Body: "Test comment",
-			Side: "RIGHT",
+			Side: models.SideRight,
 			SHA:  "abc123",
 		},
 	}
@@ -620,9 +616,8 @@ func TestUpdateLineNumbers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hunk := &models.DiffHunk{
-				File:  "test.go",
-				Side:  "RIGHT",
-				Range: models.NewLineRange(1, 0),
+				Location: models.NewFileLocation("test.go", models.NewLineRange(1, 0)),
+				Side:     models.SideRight,
 			}
 
 			gotRightLine, gotLeftLine := prc.updateLineNumbers(
@@ -641,8 +636,8 @@ func TestUpdateLineNumbers(t *testing.T) {
 
 			// Check if EndLine was updated correctly
 			if strings.HasPrefix(tt.line, "+") || strings.HasPrefix(tt.line, " ") {
-				if hunk.Range.EndLine != tt.wantHunkEndLine {
-					t.Errorf("expected hunk end line %d, got %d", tt.wantHunkEndLine, hunk.Range.EndLine)
+				if hunk.Location.Lines.EndLine != tt.wantHunkEndLine {
+					t.Errorf("expected hunk end line %d, got %d", tt.wantHunkEndLine, hunk.Location.Lines.EndLine)
 				}
 			}
 		})
@@ -660,19 +655,16 @@ func TestCreateNewHunk(t *testing.T) {
 
 	hunk := prc.createNewHunk(filename, sha, line, rightLineNum)
 
-	if hunk.File != filename {
-		t.Errorf("expected file %q, got %q", filename, hunk.File)
+	if hunk.Location.Path != filename {
+		t.Errorf("expected file %q, got %q", filename, hunk.Location.Path)
 	}
 	if hunk.SHA != sha {
 		t.Errorf("expected SHA %q, got %q", sha, hunk.SHA)
 	}
-	if hunk.Range.StartLine != rightLineNum {
-		t.Errorf("expected start line %d, got %d", rightLineNum, hunk.Range.StartLine)
+	if hunk.Location.Lines != models.NewSingleLine(rightLineNum) {
+		t.Errorf("expected line %d, got %v", rightLineNum, hunk.Location.Lines)
 	}
-	if hunk.Range.EndLine != rightLineNum {
-		t.Errorf("expected end line %d, got %d", rightLineNum, hunk.Range.EndLine)
-	}
-	if hunk.Side != "RIGHT" {
+	if hunk.Side != models.SideRight {
 		t.Errorf("expected side 'RIGHT', got %q", hunk.Side)
 	}
 	if !strings.Contains(hunk.Content, line) {
@@ -988,7 +980,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			Line:         intPtr(10),
 			OriginalLine: intPtr(5),
 			Body:         "Test",
-			Side:         "RIGHT",
+			Side:         models.SideRight,
 			CommitID:     "abc",
 			CreatedAt:    now,
 			UpdatedAt:    now,
@@ -1011,7 +1003,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			Path:         "test.go",
 			OriginalLine: intPtr(15),
 			Body:         "Test",
-			Side:         "LEFT",
+			Side:         models.SideLeft,
 			CommitID:     "abc",
 			CreatedAt:    now,
 			UpdatedAt:    now,
@@ -1037,7 +1029,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			StartLine: &startLine,
 			Line:      &endLine,
 			Body:      "Multi-line comment",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CommitID:  "abc",
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -1065,7 +1057,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			StartLine: &line,
 			Line:      &line,
 			Body:      "Single-line comment",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CommitID:  "abc",
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -1095,7 +1087,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			OriginalStartLine: intPtr(5),
 			OriginalLine:      intPtr(8),
 			Body:              "Moved comment",
-			Side:              "RIGHT",
+			Side:              models.SideRight,
 			CommitID:          "abc",
 			CreatedAt:         now,
 			UpdatedAt:         now,
@@ -1122,7 +1114,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			Path:      "test.go",
 			Line:      intPtr(10),
 			Body:      "Test",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CommitID:  "abc",
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -1145,7 +1137,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			Path:      "test.go",
 			Line:      intPtr(10),
 			Body:      "Test",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CommitID:  "abc",
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -1177,7 +1169,7 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 			Path:      "test.go",
 			Line:      intPtr(10),
 			Body:      "Test",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CommitID:  "abc",
 			CreatedAt: now,
 			UpdatedAt: now,

@@ -31,7 +31,7 @@ func TestDeleteCommentByID(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(10),
 		Body: "First comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	comment2 := models.Comment{
@@ -39,7 +39,7 @@ func TestDeleteCommentByID(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(10),
 		Body: "Second comment with similar prefix",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	comment3 := models.Comment{
@@ -47,7 +47,7 @@ func TestDeleteCommentByID(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(20),
 		Body: "Third comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	// Add comments
@@ -134,7 +134,7 @@ func TestFindCommentByIDPrefix(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(10),
 		Body: "Test comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	if err := storage.AddComment(repository, prNumber, comment); err != nil {
@@ -211,7 +211,7 @@ func TestCommentIDGeneration(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(10),
 		Body: "Test comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	if err := storage.AddComment(repository, prNumber, comment); err != nil {
@@ -260,7 +260,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(10),
 		Body: "First comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	comment2 := models.Comment{
@@ -268,7 +268,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(10),
 		Body: "Second comment with similar prefix",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	comment3 := models.Comment{
@@ -276,7 +276,7 @@ func TestDeleteBranchCommentByID(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(20),
 		Body: "Third comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	}
 
 	// Add comments

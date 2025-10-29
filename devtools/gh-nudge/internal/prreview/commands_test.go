@@ -269,7 +269,7 @@ func TestCaptureCommand_PR(t *testing.T) {
 						PRNumber:   prNumber,
 						Repository: repository,
 						DiffHunks: []models.DiffHunk{
-							{File: "new.go", Side: "RIGHT", Range: models.NewLineRange(1, 10)},
+							{Location: models.NewFileLocation("new.go", models.NewLineRange(1, 10)), Side: models.SideRight},
 						},
 					}, nil
 				}
@@ -280,7 +280,7 @@ func TestCaptureCommand_PR(t *testing.T) {
 				if err != nil {
 					t.Fatalf("failed to get diff hunks after capture: %v", err)
 				}
-				if len(hunks.DiffHunks) != 1 || hunks.DiffHunks[0].File != "new.go" {
+				if len(hunks.DiffHunks) != 1 || hunks.DiffHunks[0].Location.Path != "new.go" {
 					t.Errorf("diff hunks not overwritten correctly")
 				}
 			},
@@ -305,8 +305,8 @@ func TestCaptureCommand_PR(t *testing.T) {
 						PRNumber:   prNumber,
 						Repository: repository,
 						DiffHunks: []models.DiffHunk{
-							{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
-							{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(50, 60)},
+							{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
+							{Location: models.NewFileLocation("test.go", models.NewLineRange(50, 60)), Side: models.SideRight},
 						},
 					}, nil
 				}
@@ -335,7 +335,7 @@ func TestCaptureCommand_PR(t *testing.T) {
 			// Setup existing diff hunks if needed
 			if tt.setupDiffHunks {
 				createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
-					{File: "old.go", Side: "RIGHT", Range: models.NewLineRange(1, 5)},
+					{Location: models.NewFileLocation("old.go", models.NewLineRange(1, 5)), Side: models.SideRight},
 				})
 			}
 
@@ -419,7 +419,7 @@ func TestCaptureCommand_Branch(t *testing.T) {
 						BranchName: branch.String(),
 						Repository: repository,
 						DiffHunks: []models.DiffHunk{
-							{File: "feature.go", Side: "RIGHT", Range: models.NewLineRange(1, 10)},
+							{Location: models.NewFileLocation("feature.go", models.NewLineRange(1, 10)), Side: models.SideRight},
 						},
 					}, nil
 				}
@@ -447,7 +447,7 @@ func TestCaptureCommand_Branch(t *testing.T) {
 			// Setup existing diff hunks if needed
 			if tt.setupDiffHunks {
 				createTestBranchDiffHunks(t, handler, repository, tt.branchName, []models.DiffHunk{
-					{File: "old.go", Side: "RIGHT", Range: models.NewLineRange(1, 5)},
+					{Location: models.NewFileLocation("old.go", models.NewLineRange(1, 5)), Side: models.SideRight},
 				})
 			}
 
@@ -535,7 +535,7 @@ func TestCommentCommand_LineSpecValidation(t *testing.T) {
 
 			// Create diff hunks to allow comment
 			createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(1, 100)},
+				{Location: models.NewFileLocation("test.go", models.NewLineRange(1, 100)), Side: models.SideRight},
 			})
 
 			err := handler.CommentCommand(repository, "123", "test.go", tt.lineSpec, "test comment", "RIGHT", true)
@@ -583,7 +583,7 @@ func TestCommentCommand_DiffValidation(t *testing.T) {
 			name:           "validates against diff hunks when available - valid",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
+				{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
 			},
 			commentLine: 15,
 			force:       false,
@@ -593,7 +593,7 @@ func TestCommentCommand_DiffValidation(t *testing.T) {
 			name:           "validates against diff hunks when available - invalid without force",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
+				{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
 			},
 			commentLine:   25,
 			force:         false,
@@ -604,7 +604,7 @@ func TestCommentCommand_DiffValidation(t *testing.T) {
 			name:           "allows invalid comments with force flag",
 			setupDiffHunks: true,
 			diffHunks: []models.DiffHunk{
-				{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
+				{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
 			},
 			commentLine: 25,
 			force:       true,
@@ -659,7 +659,7 @@ func TestCommentCommand_DuplicateDetection(t *testing.T) {
 
 	// Create diff hunks
 	createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
-		{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(1, 100)},
+		{Location: models.NewFileLocation("test.go", models.NewLineRange(1, 100)), Side: models.SideRight},
 	})
 
 	// Add first comment
@@ -698,7 +698,7 @@ func TestCommentCommand_Branch(t *testing.T) {
 
 	// Create branch diff hunks
 	createTestBranchDiffHunks(t, handler, repository, branchName, []models.DiffHunk{
-		{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
+		{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
 	})
 
 	t.Run("adds comment to branch successfully", func(t *testing.T) {
@@ -734,25 +734,25 @@ func TestListCommand_Filtering(t *testing.T) {
 		Path: "file1.go",
 		Line: models.NewSingleLine(10),
 		Body: "comment 1",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "file1.go",
 		Line: models.NewSingleLine(20),
 		Body: "comment 2",
-		Side: "LEFT",
+		Side: models.SideLeft,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "file2.go",
 		Line: models.NewSingleLine(15),
 		Body: "comment 3",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "file1.go",
 		Line: models.NewLineRange(18, 22),
 		Body: "multi-line comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 
 	formatter := &MockOutputFormatter{}
@@ -827,25 +827,25 @@ func TestListCommand_LineRangeMatching(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(5),
 		Body: "before range",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "test.go",
 		Line: models.NewSingleLine(15),
 		Body: "in range",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "test.go",
 		Line: models.NewLineRange(18, 22),
 		Body: "overlaps range",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "test.go",
 		Line: models.NewSingleLine(30),
 		Body: "after range",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 
 	formatter := &MockOutputFormatter{
@@ -886,7 +886,7 @@ func TestDeleteCommand(t *testing.T) {
 		{
 			name: "deletes by partial ID prefix",
 			setupComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: models.SideRight},
 			},
 			// ID will be generated, we'll use the first 8 chars in the actual test
 			expectError:    false,
@@ -895,7 +895,7 @@ func TestDeleteCommand(t *testing.T) {
 		{
 			name: "returns error for non-matching ID",
 			setupComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: models.SideRight},
 			},
 			deleteID:       "nonexistent",
 			expectError:    true,
@@ -969,7 +969,7 @@ func TestNextCommand(t *testing.T) {
 		Path:   "file1.go",
 		Line:   models.NewSingleLine(10),
 		Body:   "unresolved 1",
-		Side:   "RIGHT",
+		Side:   models.SideRight,
 		Status: models.StatusUnresolved,
 	})
 	resolvedTime := time.Now()
@@ -977,7 +977,7 @@ func TestNextCommand(t *testing.T) {
 		Path:       "file1.go",
 		Line:       models.NewSingleLine(20),
 		Body:       "resolved",
-		Side:       "RIGHT",
+		Side:       models.SideRight,
 		Status:     models.StatusResolved,
 		ResolvedAt: &resolvedTime,
 	})
@@ -985,7 +985,7 @@ func TestNextCommand(t *testing.T) {
 		Path:   "file2.go",
 		Line:   models.NewSingleLine(15),
 		Body:   "unresolved 2",
-		Side:   "RIGHT",
+		Side:   models.SideRight,
 		Status: models.StatusUnresolved,
 	})
 
@@ -1073,7 +1073,7 @@ func TestResolveCommand(t *testing.T) {
 				Path:   "test.go",
 				Line:   models.NewSingleLine(10),
 				Body:   "test comment",
-				Side:   "RIGHT",
+				Side:   models.SideRight,
 				Status: models.StatusUnresolved,
 			})
 
@@ -1264,10 +1264,10 @@ func TestPullCommand_MergeStrategies(t *testing.T) {
 			name:          "overwrites local comments with overwrite strategy",
 			mergeStrategy: models.MergeStrategyOverwrite,
 			localComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(10), Body: "local comment", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "local comment", Side: models.SideRight},
 			},
 			githubComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(20), Body: "github comment", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(20), Body: "github comment", Side: models.SideRight},
 			},
 			expectedCount: 1,
 			validateMerge: func(t *testing.T, result *models.MergeResult) {
@@ -1283,11 +1283,11 @@ func TestPullCommand_MergeStrategies(t *testing.T) {
 			name:          "merges keeping both with merge strategy",
 			mergeStrategy: models.MergeStrategyMerge,
 			localComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(10), Body: "local comment", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "local comment", Side: models.SideRight},
 			},
 			githubComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(10), Body: "github comment", Side: "RIGHT"}, // Conflicting
-				{Path: "test.go", Line: models.NewSingleLine(20), Body: "new comment", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "github comment", Side: models.SideRight}, // Conflicting
+				{Path: "test.go", Line: models.NewSingleLine(20), Body: "new comment", Side: models.SideRight},
 			},
 			expectedCount: 3, // local + 2 github (including conflicting one with new ID)
 			validateMerge: func(t *testing.T, result *models.MergeResult) {
@@ -1300,11 +1300,11 @@ func TestPullCommand_MergeStrategies(t *testing.T) {
 			name:          "skips conflicting comments with skip strategy",
 			mergeStrategy: models.MergeStrategySkip,
 			localComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(10), Body: "local comment", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "local comment", Side: models.SideRight},
 			},
 			githubComments: []models.Comment{
-				{Path: "test.go", Line: models.NewSingleLine(10), Body: "github comment", Side: "RIGHT"}, // Conflicting
-				{Path: "test.go", Line: models.NewSingleLine(20), Body: "new comment", Side: "RIGHT"},
+				{Path: "test.go", Line: models.NewSingleLine(10), Body: "github comment", Side: models.SideRight}, // Conflicting
+				{Path: "test.go", Line: models.NewSingleLine(20), Body: "new comment", Side: models.SideRight},
 			},
 			expectedCount: 2, // local + 1 non-conflicting github
 			validateMerge: func(t *testing.T, result *models.MergeResult) {
@@ -1371,9 +1371,9 @@ func TestPullCommand_Filtering(t *testing.T) {
 	prNumber := 123
 
 	githubComments := []models.Comment{
-		{Path: "file1.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: "RIGHT"},
-		{Path: "file2.go", Line: models.NewSingleLine(20), Body: "comment 2", Side: "RIGHT"},
-		{Path: "file3.go", Line: models.NewSingleLine(30), Body: "comment 3", Side: "RIGHT"},
+		{Path: "file1.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: models.SideRight},
+		{Path: "file2.go", Line: models.NewSingleLine(20), Body: "comment 2", Side: models.SideRight},
+		{Path: "file3.go", Line: models.NewSingleLine(30), Body: "comment 3", Side: models.SideRight},
 	}
 
 	mockGH := &MockGitHubClient{
@@ -1439,7 +1439,7 @@ func TestSubmitCommand_DiffHunkFiltering(t *testing.T) {
 
 	// Create diff hunks
 	createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
-		{File: "test.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
+		{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
 	})
 
 	// Create mix of valid and invalid comments
@@ -1447,13 +1447,13 @@ func TestSubmitCommand_DiffHunkFiltering(t *testing.T) {
 		Path: "test.go",
 		Line: models.NewSingleLine(15),
 		Body: "valid comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "test.go",
 		Line: models.NewSingleLine(25),
 		Body: "invalid comment",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 
 	mockGH := &MockGitHubClient{
@@ -1491,8 +1491,8 @@ func TestSubmitCommand_FileFilter(t *testing.T) {
 
 	// Create diff hunks for multiple files
 	createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
-		{File: "file1.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
-		{File: "file2.go", Side: "RIGHT", Range: models.NewLineRange(10, 20)},
+		{Location: models.NewFileLocation("file1.go", models.NewLineRange(10, 20)), Side: models.SideRight},
+		{Location: models.NewFileLocation("file2.go", models.NewLineRange(10, 20)), Side: models.SideRight},
 	})
 
 	// Create comments for different files
@@ -1500,13 +1500,13 @@ func TestSubmitCommand_FileFilter(t *testing.T) {
 		Path: "file1.go",
 		Line: models.NewSingleLine(15),
 		Body: "comment for file1",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 	createTestComment(t, handler, repository, prNumber, models.Comment{
 		Path: "file2.go",
 		Line: models.NewSingleLine(15),
 		Body: "comment for file2",
-		Side: "RIGHT",
+		Side: models.SideRight,
 	})
 
 	mockGH := &MockGitHubClient{

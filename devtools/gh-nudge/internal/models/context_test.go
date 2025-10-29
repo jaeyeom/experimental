@@ -310,7 +310,7 @@ func Multiply(a, b int) int {
 		Path:      testFile,
 		Line:      NewSingleLine(5),
 		Body:      "Consider adding error handling",
-		Side:      "RIGHT",
+		Side:      SideRight,
 		CreatedAt: time.Now(),
 	}
 

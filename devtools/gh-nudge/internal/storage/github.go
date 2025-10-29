@@ -279,8 +279,8 @@ func (gs *GitHubStorage) ValidateCommentAgainstDiff(repository models.Repository
 	}
 
 	for _, hunk := range diffHunks.DiffHunks {
-		if hunk.File == comment.Path && hunk.Side == comment.Side {
-			if comment.Line.Overlaps(hunk.Range) {
+		if hunk.Location.Path == comment.Path && hunk.Side == comment.Side {
+			if comment.Line.Overlaps(hunk.Location.Lines) {
 				if comment.SHA != "" && comment.SHA != hunk.SHA {
 					return fmt.Errorf("SHA mismatch: comment SHA %s does not match hunk SHA %s", comment.SHA, hunk.SHA)
 				}
@@ -585,8 +585,8 @@ func (gs *GitHubStorage) ValidateBranchCommentAgainstDiff(repository models.Repo
 	}
 
 	for _, hunk := range diffHunks.DiffHunks {
-		if hunk.File == comment.Path && hunk.Side == comment.Side {
-			if comment.Line.Overlaps(hunk.Range) {
+		if hunk.Location.Path == comment.Path && hunk.Side == comment.Side {
+			if comment.Line.Overlaps(hunk.Location.Lines) {
 				if comment.SHA != "" && comment.SHA != hunk.SHA {
 					return fmt.Errorf("SHA mismatch: comment SHA %s does not match hunk SHA %s", comment.SHA, hunk.SHA)
 				}

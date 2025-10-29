@@ -228,11 +228,10 @@ func (gc *Client) parseHunkHeader(header, file, commitSHA, baseSHA string) (*mod
 		startLine, count, err := gc.parseRange(oldRange)
 		if err == nil && count > 0 {
 			leftHunk = &models.DiffHunk{
-				File:    file,
-				Side:    "LEFT",
-				Range:   models.NewLineRange(startLine, startLine+count-1),
-				Content: header,
-				SHA:     baseSHA,
+				Location: models.NewFileLocation(file, models.NewLineRange(startLine, startLine+count-1)),
+				Side:     models.SideLeft,
+				Content:  header,
+				SHA:      baseSHA,
 			}
 		}
 	}
@@ -243,11 +242,10 @@ func (gc *Client) parseHunkHeader(header, file, commitSHA, baseSHA string) (*mod
 		startLine, count, err := gc.parseRange(newRange)
 		if err == nil && count > 0 {
 			rightHunk = &models.DiffHunk{
-				File:    file,
-				Side:    "RIGHT",
-				Range:   models.NewLineRange(startLine, startLine+count-1),
-				Content: header,
-				SHA:     commitSHA,
+				Location: models.NewFileLocation(file, models.NewLineRange(startLine, startLine+count-1)),
+				Side:     models.SideRight,
+				Content:  header,
+				SHA:      commitSHA,
 			}
 		}
 	}
@@ -616,7 +614,7 @@ func (gc *Client) createSuggestionFromGroup(group ChangeGroup, storedDiffHunks [
 func (gc *Client) conflictsWithDiffHunks(group ChangeGroup, storedDiffHunks []models.DiffHunk) bool {
 	for _, hunk := range storedDiffHunks {
 		// Check if the change group overlaps with any stored hunk
-		if group.Line.Overlaps(hunk.Range) {
+		if group.Line.Overlaps(hunk.Location.Lines) {
 			return true
 		}
 	}

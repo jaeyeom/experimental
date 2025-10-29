@@ -43,9 +43,8 @@ func TestAdjustCommand(t *testing.T) {
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
-				File:  file,
-				Side:  "RIGHT",
-				Range: models.NewLineRange(10, 50),
+				Location: models.NewFileLocation(file, models.NewLineRange(10, 50)),
+				Side:     models.SideRight,
 			},
 		},
 	}
@@ -61,7 +60,7 @@ func TestAdjustCommand(t *testing.T) {
 			Path:      file,
 			Line:      models.NewSingleLine(20),
 			Body:      "Comment on line 20",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CreatedAt: time.Now(),
 		},
 		{
@@ -69,7 +68,7 @@ func TestAdjustCommand(t *testing.T) {
 			Path:      file,
 			Line:      models.NewLineRange(25, 30),
 			Body:      "Multi-line comment 25-30",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CreatedAt: time.Now(),
 		},
 		{
@@ -77,7 +76,7 @@ func TestAdjustCommand(t *testing.T) {
 			Path:      file,
 			Line:      models.NewSingleLine(45),
 			Body:      "Comment on line 45",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CreatedAt: time.Now(),
 		},
 	}
@@ -227,9 +226,8 @@ func TestAdjustCommandOutput(t *testing.T) {
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
-				File:  file,
-				Side:  "RIGHT",
-				Range: models.NewLineRange(1, 100),
+				Location: models.NewFileLocation(file, models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
 			},
 		},
 	}
@@ -245,7 +243,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 			Path:      file,
 			Line:      models.NewSingleLine(20),
 			Body:      "Fix this function",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CreatedAt: time.Now(),
 		},
 		{
@@ -253,7 +251,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 			Path:      file,
 			Line:      models.NewSingleLine(30),
 			Body:      "Add error handling",
-			Side:      "RIGHT",
+			Side:      models.SideRight,
 			CreatedAt: time.Now(),
 		},
 	}
@@ -349,9 +347,8 @@ func TestAdjustBranchComments(t *testing.T) {
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{
-				File:  file,
-				Side:  "RIGHT",
-				Range: models.NewLineRange(10, 50),
+				Location: models.NewFileLocation(file, models.NewLineRange(10, 50)),
+				Side:     models.SideRight,
 			},
 		},
 	}
@@ -366,7 +363,7 @@ func TestAdjustBranchComments(t *testing.T) {
 		Path:      file,
 		Line:      models.NewSingleLine(25),
 		Body:      "Branch comment",
-		Side:      "RIGHT",
+		Side:      models.SideRight,
 		CreatedAt: time.Now(),
 	}
 

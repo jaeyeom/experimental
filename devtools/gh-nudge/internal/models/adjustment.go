@@ -236,7 +236,7 @@ func ValidateAdjustmentAgainstDiff(comment Comment, adjustments []LineAdjustment
 	// First check if file has diff hunks
 	hasFileHunks := false
 	for _, hunk := range diffHunks {
-		if hunk.File == comment.Path && hunk.Side == comment.Side {
+		if hunk.Location.Path == comment.Path && hunk.Side == comment.Side {
 			hasFileHunks = true
 			break
 		}
@@ -263,7 +263,7 @@ func ValidateAdjustmentAgainstDiff(comment Comment, adjustments []LineAdjustment
 	// Check if adjusted line is within any diff hunk
 	inHunk := false
 	for _, hunk := range diffHunks {
-		if hunk.File == comment.Path && hunk.Side == comment.Side {
+		if hunk.Location.Path == comment.Path && hunk.Side == comment.Side {
 			if hunk.IsInRange(lineToCheck) {
 				inHunk = true
 				break
