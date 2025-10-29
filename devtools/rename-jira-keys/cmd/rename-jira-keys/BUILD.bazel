@@ -11,6 +11,7 @@ go_test(
     timeout = "short",
     srcs = [
         "main.go",
+        "main_behavioral_test.go",
         "main_test.go",
     ],
     deps = [],
@@ -25,6 +26,9 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_behavioral_test.go",
+        "main_test.go",
+    ],
     embed = [":go_default_library"],
 )
