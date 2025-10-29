@@ -1,0 +1,53 @@
+#+TITLE: Spacemacs Configuration
+#+AUTHOR: Jaehyun Yeom
+#+DATE: 2025-01-28
+
+* Overview
+
+This directory contains the Spacemacs configuration used in this project.
+
+* Setup
+
+** Automated Setup (Recommended)
+
+Use the ~./ensure.sh~ script under ~devtools/setup-dev/ansible/~ directory:
+
+#+BEGIN_SRC bash
+cd devtools/setup-dev/ansible
+./ensure.sh spacemacs
+#+END_SRC
+
+This will set up Spacemacs with all necessary configurations and dependencies.
+
+** Available Playbooks
+
+- ~spacemacs.yml~ - Main Spacemacs setup
+- ~spacemacs-go.yml~ - Go development configuration for Spacemacs
+- ~emacs.yml~ - Base Emacs setup
+- ~emacs-lsp-booster.yml~ - LSP performance enhancements
+
+* Configuration Files
+
+** .spacemacs
+
+The main Spacemacs configuration file. This contains:
+- Layer configurations
+- Package settings
+- Custom functions and keybindings
+- User preferences
+
+This file is deployed to ~~/.spacemacs~ by the Ansible setup scripts.
+
+** .dir-locals-sample.el
+
+Sample directory-local variables configuration that can be used as a template for project-specific Emacs settings.
+
+* Usage
+
+After running the setup script, launch Spacemacs with:
+
+#+BEGIN_SRC bash
+emacs
+#+END_SRC
+
+On first launch, Spacemacs will install all configured packages automatically.
