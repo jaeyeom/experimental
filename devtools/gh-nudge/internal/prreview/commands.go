@@ -1040,7 +1040,7 @@ func (ch *CommandHandler) applyRegularAdjustments(fileCommentList []models.Comme
 func (ch *CommandHandler) reportMergeConflicts(conflicts []models.MergeConflict, filePath string) {
 	fmt.Printf("Warning: %d unresolved merge conflicts in %s\n", len(conflicts), filePath)
 	for _, conflict := range conflicts {
-		fmt.Printf("  - Conflict at line %d: %d comments\n", conflict.Line, len(conflict.ConflictingComments))
+		fmt.Printf("  - Conflict at %s: %d comments\n", conflict.Location, len(conflict.ConflictingComments))
 	}
 }
 
