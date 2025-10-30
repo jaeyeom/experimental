@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -72,13 +73,12 @@ func keyToString(key PRNotificationKey) string {
 
 // stringToKey converts a string back to a PRNotificationKey.
 func stringToKey(s string) PRNotificationKey {
-	parts := []string{"", ""}
-	for i, c := range s {
-		if c == '|' {
-			parts[1] = s[i+1:]
-			break
+	parts := strings.SplitN(s, "|", 2)
+	if len(parts) < 2 {
+		return PRNotificationKey{
+			PRURL:         s,
+			ReviewerLogin: "",
 		}
-		parts[0] += string(c)
 	}
 	return PRNotificationKey{
 		PRURL:         parts[0],
