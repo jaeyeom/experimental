@@ -1,0 +1,35 @@
+---
+- import_playbook: npm.yml
+- import_playbook: setup-shell-profile.yml
+
+- name: Configure npm for user-local global installs
+  hosts: all
+  tasks:
+    - name: Include guard for setup-npm playbook
+      block:
+        - name: Stop early if the setup-npm playbook is already included
+          meta: end_play
+          when: setup_npm_playbook_imported is defined
+        - name: Ensure the setup-npm playbook is not included
+          set_fact:
+            setup_npm_playbook_imported: true
+          when: setup_npm_playbook_imported is not defined
+
+    - name: Configure npm prefix to avoid permission issues
+      command: npm config set prefix ~/.npm-global
+      args:
+        creates: ~/.npmrc
+      when: ansible_env.TERMUX_VERSION is not defined
+
+    - name: Ensure npm global bin directory is in PATH
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} Setup npm global PATH"
+        block: |
+          if [ -d "$HOME/.npm-global/bin" ]; then
+            export PATH="$HOME/.npm-global/bin:$PATH"
+          fi
+      when: ansible_env.TERMUX_VERSION is not defined
