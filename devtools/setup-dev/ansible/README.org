@@ -198,6 +198,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-gpg-keygen.yml
 - setup-history.yml
 - setup-kotex.yml
+- setup-npm.yml
 - setup-pass.yml
 - setup-perplexity-mcp.yml
 - setup-shell-profile.yml

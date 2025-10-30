@@ -287,7 +287,7 @@ func (n NpmInstallMethod) GetMethodType() string {
 }
 
 func (n NpmInstallMethod) GetImports() []Import {
-	return []Import{{Playbook: "npm"}}
+	return []Import{{Playbook: "setup-npm"}}
 }
 
 func (n NpmInstallMethod) RenderSetupTasks(_ string) string {

@@ -126,6 +126,7 @@ sh_test(
         "setup-git.yml",
         "setup-gpg-agent.yml",
         "setup-history.yml",
+        "setup-npm.yml",
         "setup-perplexity-mcp.yml",
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
@@ -300,6 +301,8 @@ sh_test(
     data = [
         "claude.yml",
         "npm.yml",
+        "setup-npm.yml",
+        "setup-shell-profile.yml",
     ],
     tags = [
         "ansible",
@@ -513,6 +516,8 @@ sh_test(
     data = [
         "gemini.yml",
         "npm.yml",
+        "setup-npm.yml",
+        "setup-shell-profile.yml",
     ],
     tags = [
         "ansible",
@@ -1589,6 +1594,21 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-npm_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-npm.yml"],
+    data = [
+        "npm.yml",
+        "setup-npm.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-pass_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-pass.yml"],
@@ -1620,6 +1640,7 @@ sh_test(
         "jq.yml",
         "npm.yml",
         "pass.yml",
+        "setup-npm.yml",
         "setup-perplexity-mcp.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
@@ -1833,6 +1854,7 @@ sh_test(
         "repo-sync.yml",
         "rustc.yml",
         "setup-cargo.yml",
+        "setup-npm.yml",
         "setup-perplexity-mcp.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
@@ -2174,6 +2196,7 @@ test_suite(
         ":setup-gpg-keygen_syntax_test",
         ":setup-history_syntax_test",
         ":setup-kotex_syntax_test",
+        ":setup-npm_syntax_test",
         ":setup-pass_syntax_test",
         ":setup-perplexity-mcp_syntax_test",
         ":setup-shell-profile_syntax_test",
