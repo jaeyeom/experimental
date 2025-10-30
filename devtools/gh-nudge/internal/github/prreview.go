@@ -23,6 +23,10 @@ func NewPRReviewClient(client *Client) *PRReviewClient {
 }
 
 // File represents a file in a GitHub PR diff.
+//
+// NOTE: This struct maps to GitHub API response format from GET /repos/{owner}/{repo}/pulls/{pull_number}/files.
+// Do not refactor field names or JSON tags as they must match GitHub's API payload structure.
+// See: https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files
 type File struct {
 	Filename         string `json:"filename"`
 	Patch            string `json:"patch"`
@@ -38,6 +42,10 @@ type File struct {
 }
 
 // PR represents basic PR information.
+//
+// NOTE: This struct maps to GitHub API response format from GET /repos/{owner}/{repo}/pulls/{pull_number}.
+// Do not refactor field names or JSON tags as they must match GitHub's API payload structure.
+// See: https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request
 type PR struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
@@ -108,26 +116,24 @@ func (prc *PRReviewClient) ValidatePRAccess(repository models.Repository, prNumb
 
 // SubmitReview submits a review to GitHub.
 func (prc *PRReviewClient) SubmitReview(repository models.Repository, prNumber int, review models.PRReview) error {
-	// Convert our comment format to GitHub's format
-	//
-	// TODO: Investigate why this does not use GitHubComment struct.
-	githubComments := make([]map[string]interface{}, len(review.Comments))
+	// Convert our comment format to GitHub's request format
+	githubComments := make([]GitHubReviewCommentRequest, len(review.Comments))
 	for i, comment := range review.Comments {
-		githubComment := map[string]interface{}{
-			"path": comment.Path,
-			"body": comment.Body,
-			"side": comment.Side,
+		githubComment := GitHubReviewCommentRequest{
+			Path: comment.Path,
+			Body: comment.Body,
+			Side: comment.Side,
 		}
 
 		if comment.IsMultiLine() {
-			githubComment["start_line"] = comment.Line.StartLine
-			githubComment["line"] = comment.Line.EndLine
+			githubComment.StartLine = comment.Line.StartLine
+			githubComment.Line = comment.Line.EndLine
 		} else {
-			githubComment["line"] = comment.Line.EndLine
+			githubComment.Line = comment.Line.EndLine
 		}
 
 		if comment.SHA != "" {
-			githubComment["commit_id"] = comment.SHA
+			githubComment.CommitID = comment.SHA
 		}
 
 		githubComments[i] = githubComment
@@ -298,6 +304,37 @@ func (prc *PRReviewClient) GetExistingReviews(repository models.Repository, prNu
 	return reviews, nil
 }
 
+// GitHubReviewCommentRequest represents a single comment in a review creation request.
+//
+// NOTE: This struct maps to GitHub API request format for POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews.
+// Do not refactor field names or JSON tags as they must match GitHub's API payload structure.
+// This is specifically for CREATING comments in a review, distinct from GitHubComment which is for READING responses.
+//
+// See: https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request
+//
+//nolint:revive // GitHubReviewCommentRequest is appropriate naming for this GitHub API context
+type GitHubReviewCommentRequest struct {
+	Path      string      `json:"path"`                 // Required: relative path of the file
+	Body      string      `json:"body"`                 // Required: text of the review comment
+	Line      int         `json:"line,omitempty"`       // Required: line of the blob to comment on (for single-line or end of multi-line)
+	StartLine int         `json:"start_line,omitempty"` //nolint:tagliatelle // GitHub API uses snake_case
+	Side      models.Side `json:"side,omitempty"`       // Optional: "LEFT" or "RIGHT" (defaults to RIGHT)
+	CommitID  string      `json:"commit_id,omitempty"`  //nolint:tagliatelle // GitHub API uses snake_case
+	StartSide models.Side `json:"start_side,omitempty"` //nolint:tagliatelle // GitHub API uses snake_case
+}
+
+// GitHubComment represents a review comment from GitHub API responses.
+//
+// NOTE: This struct maps to GitHub API response format from:
+//   - GET /repos/{owner}/{repo}/pulls/{pull_number}/comments
+//   - GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/comments
+//
+// Do not refactor field names or JSON tags as they must match GitHub's API payload structure.
+// This struct is designed for READING API responses and includes read-only fields (ID, CreatedAt, UpdatedAt, User).
+// For CREATING comments, use GitHubReviewCommentRequest instead.
+//
+// See: https://docs.github.com/en/rest/pulls/comments#list-review-comments-on-a-pull-request
+//
 //nolint:revive // GitHubComment is appropriate naming for this context
 type GitHubComment struct {
 	ID                int64       `json:"id"`
