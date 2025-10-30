@@ -96,9 +96,17 @@ var platformSpecificTools = []PlatformSpecificTool{
 	{
 		command: "claude",
 		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+			PlatformDarwin: ShellInstallMethod{
+				InstallCommand: "curl -fsSL https://claude.ai/install.sh | bash",
+			},
+			PlatformDebianLike: NvmInstallMethod{Name: "@anthropic-ai/claude-code"},
+			PlatformTermux:     NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
 		},
-		Imports: nil,
+		Imports: []Import{
+			{Playbook: "curl", When: WhenDarwin},
+			{Playbook: "setup-npm", When: WhenTermux},
+			{Playbook: "setup-nvm", When: WhenDebianLike},
+		},
 	},
 	{
 		command: "claudelytics",
