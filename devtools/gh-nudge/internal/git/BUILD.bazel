@@ -20,9 +20,11 @@ go_test(
     srcs = [
         "autodetect_test.go",
         "branch_test.go",
+        "diff_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/gh-nudge/internal/models:go_default_library",
+        "//devtools/internal/executor:go_default_library",
     ],
 )
