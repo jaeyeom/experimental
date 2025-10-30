@@ -74,6 +74,11 @@ type DiffHunk struct {
 	SHA      string       `json:"sha"`      // Commit SHA
 }
 
+// IsInRange checks if a line number is within the diff hunk.
+func (dh DiffHunk) IsInRange(line int) bool {
+	return dh.Location.Lines.StartLine <= line && line <= dh.Location.Lines.EndLine
+}
+
 // CommentStatus represents the status of a comment.
 type CommentStatus string
 
@@ -94,9 +99,8 @@ const (
 
 // Comment represents a line-specific comment in a pull request.
 type Comment struct {
-	ID   string `json:"id"`   // Unique comment ID (40-char hex string)
-	Path string `json:"path"` // File path
-	// TODO: Consider renaming this field to Line.
+	ID                string           `json:"id"`                          // Unique comment ID (40-char hex string)
+	Path              string           `json:"path"`                        // File path
 	Line              LineRange        `json:"line"`                        // Line range for this comment
 	Body              string           `json:"body"`                        // Comment text
 	Side              Side             `json:"side"`                        // Side of the diff (LEFT or RIGHT)
@@ -164,59 +168,6 @@ func NewSingleLine(line int) LineRange {
 	return LineRange{StartLine: line, EndLine: line}
 }
 
-// FileLocation represents a location in a file with line range information.
-// This provides a unified way to handle file+line references throughout the codebase.
-type FileLocation struct {
-	Path  string    `json:"path"`
-	Lines LineRange `json:"lines"`
-}
-
-// NewFileLocation creates a new FileLocation with the given path and line range.
-func NewFileLocation(path string, lines LineRange) FileLocation {
-	return FileLocation{Path: path, Lines: lines}
-}
-
-// NewFileLocationSingleLine creates a new FileLocation for a single line.
-func NewFileLocationSingleLine(path string, line int) FileLocation {
-	return FileLocation{Path: path, Lines: NewSingleLine(line)}
-}
-
-// Key returns a canonical string representation "path:line" or "path:startLine-endLine".
-// This is used for grouping and map keys.
-func (fl FileLocation) Key() string {
-	return fmt.Sprintf("%s:%s", fl.Path, fl.Lines.String())
-}
-
-// Equals checks if two file locations are the same.
-func (fl FileLocation) Equals(other FileLocation) bool {
-	return fl.Path == other.Path && fl.Lines == other.Lines
-}
-
-// String returns a human-readable representation.
-func (fl FileLocation) String() string {
-	return fl.Key()
-}
-
-// ParseFileLocation parses a "path:line" or "path:startLine-endLine" string.
-// Returns an error if the format is invalid.
-func ParseFileLocation(key string) (FileLocation, error) {
-	// Find the last colon to split path from line spec
-	lastColon := strings.LastIndex(key, ":")
-	if lastColon == -1 {
-		return FileLocation{}, fmt.Errorf("invalid file location format: missing colon")
-	}
-
-	path := key[:lastColon]
-	lineSpec := key[lastColon+1:]
-
-	lines, err := ParseLineSpec(lineSpec)
-	if err != nil {
-		return FileLocation{}, fmt.Errorf("invalid line specification: %w", err)
-	}
-
-	return FileLocation{Path: path, Lines: *lines}, nil
-}
-
 // String returns a string representation of the line range.
 func (lr LineRange) String() string {
 	if lr.IsMultiLine() {
@@ -268,9 +219,57 @@ func ParseLineSpec(spec string) (*LineRange, error) {
 	return &LineRange{StartLine: line, EndLine: line}, nil
 }
 
-// IsInRange checks if a line number is within the diff hunk.
-func (dh DiffHunk) IsInRange(line int) bool {
-	return dh.Location.Lines.StartLine <= line && line <= dh.Location.Lines.EndLine
+// FileLocation represents a location in a file with line range information.
+// This provides a unified way to handle file+line references throughout the codebase.
+type FileLocation struct {
+	Path  string    `json:"path"`
+	Lines LineRange `json:"lines"`
+}
+
+// NewFileLocation creates a new FileLocation with the given path and line range.
+func NewFileLocation(path string, lines LineRange) FileLocation {
+	return FileLocation{Path: path, Lines: lines}
+}
+
+// NewFileLocationSingleLine creates a new FileLocation for a single line.
+func NewFileLocationSingleLine(path string, line int) FileLocation {
+	return FileLocation{Path: path, Lines: NewSingleLine(line)}
+}
+
+// Key returns a canonical string representation "path:line" or "path:startLine-endLine".
+// This is used for grouping and map keys.
+func (fl FileLocation) Key() string {
+	return fmt.Sprintf("%s:%s", fl.Path, fl.Lines.String())
+}
+
+// Equals checks if two file locations are the same.
+func (fl FileLocation) Equals(other FileLocation) bool {
+	return fl.Path == other.Path && fl.Lines == other.Lines
+}
+
+// String returns a human-readable representation.
+func (fl FileLocation) String() string {
+	return fl.Key()
+}
+
+// ParseFileLocation parses a "path:line" or "path:startLine-endLine" string.
+// Returns an error if the format is invalid.
+func ParseFileLocation(key string) (FileLocation, error) {
+	// Find the last colon to split path from line spec
+	lastColon := strings.LastIndex(key, ":")
+	if lastColon == -1 {
+		return FileLocation{}, fmt.Errorf("invalid file location format: missing colon")
+	}
+
+	path := key[:lastColon]
+	lineSpec := key[lastColon+1:]
+
+	lines, err := ParseLineSpec(lineSpec)
+	if err != nil {
+		return FileLocation{}, fmt.Errorf("invalid line specification: %w", err)
+	}
+
+	return FileLocation{Path: path, Lines: *lines}, nil
 }
 
 // MatchesFilter checks if a comment matches the given filter.
