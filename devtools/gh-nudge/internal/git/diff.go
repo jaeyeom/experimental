@@ -15,24 +15,34 @@
 package git
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 // Client provides git operations for branch diff capture.
 type Client struct {
 	repoPath string
+	exec     executor.Executor
+	ctx      context.Context
 }
 
 // NewClient creates a new git client for the specified repository path.
 func NewClient(repoPath string) *Client {
+	return NewClientWithExecutor(context.Background(), repoPath, executor.NewBasicExecutor())
+}
+
+// NewClientWithExecutor creates a new git client with a custom executor (useful for testing).
+func NewClientWithExecutor(ctx context.Context, repoPath string, exec executor.Executor) *Client {
 	return &Client{
 		repoPath: repoPath,
+		exec:     exec,
+		ctx:      ctx,
 	}
 }
 
@@ -77,10 +87,7 @@ func (gc *Client) CaptureBranchDiff(repository models.Repository, branch, baseBr
 // getCommitSHA gets the commit SHA for a given branch.
 func (gc *Client) getCommitSHA(branch Branch) (string, error) {
 	// Branch is already validated during construction
-	cmd := exec.Command("git", "rev-parse", branch.String()) // #nosec G204
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "rev-parse", branch.String())
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit SHA: %w", err)
 	}
@@ -90,10 +97,7 @@ func (gc *Client) getCommitSHA(branch Branch) (string, error) {
 
 // GetStagedDiff gets the diff of staged changes.
 func (gc *Client) GetStagedDiff() (string, error) {
-	cmd := exec.Command("git", "diff", "--cached", "--unified=3")
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "diff", "--cached", "--unified=3")
 	if err != nil {
 		return "", fmt.Errorf("failed to get staged diff: %w", err)
 	}
@@ -103,10 +107,7 @@ func (gc *Client) GetStagedDiff() (string, error) {
 
 // GetUnstagedDiff gets the diff of unstaged working directory changes.
 func (gc *Client) GetUnstagedDiff() (string, error) {
-	cmd := exec.Command("git", "diff", "--unified=3")
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "diff", "--unified=3")
 	if err != nil {
 		return "", fmt.Errorf("failed to get unstaged diff: %w", err)
 	}
@@ -116,10 +117,7 @@ func (gc *Client) GetUnstagedDiff() (string, error) {
 
 // GetDiffSince gets the diff since a specific commit.
 func (gc *Client) GetDiffSince(since string) (string, error) {
-	cmd := exec.Command("git", "diff", "--unified=3", since)
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "diff", "--unified=3", since)
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff since %s: %w", since, err)
 	}
@@ -130,10 +128,7 @@ func (gc *Client) GetDiffSince(since string) (string, error) {
 // getDiffOutput gets the raw diff output between two branches.
 func (gc *Client) getDiffOutput(baseBranch, targetBranch Branch) (string, error) {
 	// Branches are already validated during construction - safe to use in git command.
-	cmd := exec.Command("git", "diff", "--unified=3", fmt.Sprintf("%s...%s", baseBranch, targetBranch)) // #nosec G204
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "diff", "--unified=3", fmt.Sprintf("%s...%s", baseBranch, targetBranch))
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff output: %w", err)
 	}
@@ -286,10 +281,7 @@ func (gc *Client) parseRange(rangeSpec string) (int, int, error) {
 // GetDefaultBaseBranch attempts to determine the default base branch (main or master).
 func (gc *Client) GetDefaultBaseBranch() (Branch, error) {
 	// Try to get the default branch from git
-	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Parse output like "refs/remotes/origin/main"
 		defaultRef := strings.TrimSpace(string(output))
@@ -301,10 +293,8 @@ func (gc *Client) GetDefaultBaseBranch() (Branch, error) {
 
 	// Fallback: check if main or master exists
 	for _, branchName := range []string{"main", "master"} {
-		// #nosec G204 - git command with hardcoded branch names
-		cmd := exec.Command("git", "rev-parse", "--verify", fmt.Sprintf("origin/%s", branchName))
-		cmd.Dir = gc.repoPath
-		if err := cmd.Run(); err == nil {
+		err := executor.RunWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "rev-parse", "--verify", fmt.Sprintf("origin/%s", branchName))
+		if err == nil {
 			return NewBranch(branchName)
 		}
 	}
@@ -315,12 +305,9 @@ func (gc *Client) GetDefaultBaseBranch() (Branch, error) {
 // BranchExists checks if a branch exists in the repository.
 func (gc *Client) BranchExists(branch Branch) (bool, error) {
 	// Branch is already validated during construction
-	cmd := exec.Command("git", "rev-parse", "--verify", branch.String()) // #nosec G204
-	cmd.Dir = gc.repoPath
-
-	err := cmd.Run()
+	err := executor.RunWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "rev-parse", "--verify", branch.String())
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
+		if exitErr, ok := err.(*executor.ExitError); ok && exitErr.ExitCode == 1 {
 			return false, nil // Branch doesn't exist
 		}
 		return false, fmt.Errorf("failed to check if branch exists: %w", err)
@@ -376,19 +363,15 @@ func (gc *Client) getFileDiffFromCapture(file string, storedDiffHunks []models.D
 	}
 
 	// Get diff from the stored commit to the current working directory
-	cmd := exec.Command("git", "diff", baseSHA, "--", file)
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "diff", baseSHA, "--", file)
 	if err != nil {
 		// If the file doesn't exist or there are no changes, that's valid
-		if exitError, ok := err.(*exec.ExitError); ok {
+		if exitErr, ok := err.(*executor.ExitError); ok {
 			// Exit code 1 typically means no changes or file not found
-			if exitError.ExitCode() == 1 {
+			if exitErr.ExitCode == 1 {
 				return "", nil // No changes
 			}
-			return "", fmt.Errorf("git diff failed with exit code %d: %s",
-				exitError.ExitCode(), string(exitError.Stderr))
+			return "", fmt.Errorf("git diff failed with exit code %d: %s", exitErr.ExitCode, exitErr.Stderr)
 		}
 		return "", fmt.Errorf("failed to get file diff: %w", err)
 	}
@@ -398,10 +381,7 @@ func (gc *Client) getFileDiffFromCapture(file string, storedDiffHunks []models.D
 
 // validateCommitExists checks if a commit SHA exists in the repository.
 func (gc *Client) validateCommitExists(sha string) error {
-	cmd := exec.Command("git", "cat-file", "-e", sha)
-	cmd.Dir = gc.repoPath
-
-	if err := cmd.Run(); err != nil {
+	if err := executor.RunWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "cat-file", "-e", sha); err != nil {
 		return fmt.Errorf("commit does not exist or is not accessible")
 	}
 	return nil
@@ -409,10 +389,7 @@ func (gc *Client) validateCommitExists(sha string) error {
 
 // validateFileExists checks if a file exists in the current working directory.
 func (gc *Client) validateFileExists(file string) error {
-	cmd := exec.Command("git", "ls-files", "--", file)
-	cmd.Dir = gc.repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.OutputWithWorkDir(gc.ctx, gc.exec, gc.repoPath, "git", "ls-files", "--", file)
 	if err != nil {
 		return fmt.Errorf("failed to check if file is tracked by git: %w", err)
 	}

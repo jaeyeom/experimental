@@ -10,7 +10,7 @@ import (
 )
 
 func TestParseCurrentDiff(t *testing.T) {
-	gc := &Client{}
+	gc := NewClient("")
 
 	tests := []struct {
 		name     string
@@ -87,7 +87,7 @@ func TestParseCurrentDiff(t *testing.T) {
 }
 
 func TestGroupConsecutiveChanges(t *testing.T) {
-	gc := &Client{}
+	gc := NewClient("")
 
 	tests := []struct {
 		name     string
@@ -147,7 +147,7 @@ func TestGroupConsecutiveChanges(t *testing.T) {
 }
 
 func TestCalculateNetOffset(t *testing.T) {
-	gc := &Client{}
+	gc := NewClient("")
 
 	tests := []struct {
 		name     string
@@ -210,7 +210,7 @@ func TestCalculateNetOffset(t *testing.T) {
 }
 
 func TestCalculateOverallConfidence(t *testing.T) {
-	gc := &Client{}
+	gc := NewClient("")
 
 	tests := []struct {
 		name        string
@@ -485,7 +485,7 @@ line 10`,
 			}
 
 			// Run AutoDetectChanges
-			gc := &Client{repoPath: repoPath}
+			gc := NewClient(repoPath)
 			result, err := gc.AutoDetectChanges(filename, storedDiffHunks)
 
 			// Check error expectation
@@ -578,7 +578,7 @@ func TestAutoDetectChanges_ErrorCases(t *testing.T) {
 			filename, storedDiffHunks := tt.setupRepo(t, repoPath)
 
 			// Run AutoDetectChanges
-			gc := &Client{repoPath: repoPath}
+			gc := NewClient(repoPath)
 			result, err := gc.AutoDetectChanges(filename, storedDiffHunks)
 
 			// Should return error
@@ -674,7 +674,7 @@ line 7`,
 			}
 
 			// Run AutoDetectChanges
-			gc := &Client{repoPath: repoPath}
+			gc := NewClient(repoPath)
 			result, err := gc.AutoDetectChanges(filename, storedDiffHunks)
 			if err != nil {
 				t.Fatalf("AutoDetectChanges() unexpected error: %v", err)

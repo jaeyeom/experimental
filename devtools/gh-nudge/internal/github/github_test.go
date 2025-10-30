@@ -12,20 +12,9 @@ import (
 func TestNewClient(t *testing.T) {
 	t.Run("creates client with provided executor", func(t *testing.T) {
 		executor := &mockExecutor{output: "test"}
-		client := NewClient(executor)
+		client := NewClientWithExecutor(executor)
 		if client == nil {
 			t.Fatal("expected client to be created, got nil")
-		}
-	})
-
-	t.Run("creates client with default executor when nil provided", func(t *testing.T) {
-		client := NewClient(nil)
-		if client == nil {
-			t.Fatal("expected client with default executor to be created, got nil")
-		}
-		// Verify it's actually usable (won't panic)
-		if client.executor == nil {
-			t.Error("expected client to have an executor, got nil")
 		}
 	})
 }
@@ -33,7 +22,7 @@ func TestNewClient(t *testing.T) {
 // TestGetPendingPullRequests tests the behavior of fetching pending pull requests.
 func TestGetPendingPullRequests(t *testing.T) {
 	t.Run("returns error when gh command fails", func(t *testing.T) {
-		client := NewClient(&mockExecutor{shouldFail: true})
+		client := NewClientWithExecutor(&mockExecutor{shouldFail: true})
 		prs, err := client.GetPendingPullRequests()
 		if err == nil {
 			t.Error("expected error when gh command fails, got nil")
@@ -47,7 +36,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 	})
 
 	t.Run("returns error when JSON is invalid", func(t *testing.T) {
-		client := NewClient(&mockExecutor{output: "invalid json"})
+		client := NewClientWithExecutor(&mockExecutor{output: "invalid json"})
 		prs, err := client.GetPendingPullRequests()
 		if err == nil {
 			t.Error("expected error when JSON is invalid, got nil")
@@ -83,7 +72,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetPendingPullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -136,7 +125,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetPendingPullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -155,7 +144,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 	})
 
 	t.Run("handles empty PR list", func(t *testing.T) {
-		client := NewClient(&mockExecutor{output: "[]"})
+		client := NewClientWithExecutor(&mockExecutor{output: "[]"})
 		prs, err := client.GetPendingPullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -182,7 +171,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetPendingPullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -229,7 +218,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetPendingPullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -258,7 +247,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 // TestGetMergeablePullRequests tests the behavior of filtering mergeable PRs.
 func TestGetMergeablePullRequests(t *testing.T) {
 	t.Run("returns error when GetPendingPullRequests fails", func(t *testing.T) {
-		client := NewClient(&mockExecutor{shouldFail: true})
+		client := NewClientWithExecutor(&mockExecutor{shouldFail: true})
 		prs, err := client.GetMergeablePullRequests()
 		if err == nil {
 			t.Error("expected error when underlying call fails, got nil")
@@ -286,7 +275,7 @@ func TestGetMergeablePullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetMergeablePullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -319,7 +308,7 @@ func TestGetMergeablePullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetMergeablePullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -352,7 +341,7 @@ func TestGetMergeablePullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetMergeablePullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -381,7 +370,7 @@ func TestGetMergeablePullRequests(t *testing.T) {
 			}
 		]`
 
-		client := NewClient(&mockExecutor{output: sampleJSON})
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
 		prs, err := client.GetMergeablePullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -393,7 +382,7 @@ func TestGetMergeablePullRequests(t *testing.T) {
 	})
 
 	t.Run("handles empty PR list from upstream", func(t *testing.T) {
-		client := NewClient(&mockExecutor{output: "[]"})
+		client := NewClientWithExecutor(&mockExecutor{output: "[]"})
 		prs, err := client.GetMergeablePullRequests()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -407,7 +396,7 @@ func TestGetMergeablePullRequests(t *testing.T) {
 
 // TestFilterPullRequestsByAge tests the behavior of age filtering.
 func TestFilterPullRequestsByAge(t *testing.T) {
-	client := NewClient(nil)
+	client := NewClientWithExecutor(&mockExecutor{})
 
 	t.Run("returns all PRs unchanged (placeholder implementation)", func(t *testing.T) {
 		prs := []models.PullRequest{
@@ -448,7 +437,7 @@ func TestFilterPullRequestsByAge(t *testing.T) {
 
 // TestGetPullRequestDetails tests the behavior of fetching PR details.
 func TestGetPullRequestDetails(t *testing.T) {
-	client := NewClient(nil)
+	client := NewClientWithExecutor(&mockExecutor{})
 
 	t.Run("returns PR unchanged (placeholder implementation)", func(t *testing.T) {
 		pr := models.PullRequest{
@@ -501,7 +490,7 @@ func TestGetPullRequestDetails(t *testing.T) {
 func TestMergePullRequest(t *testing.T) {
 	t.Run("merges PR without deleting branch", func(t *testing.T) {
 		executor := &mockExecutor{captureArgs: true}
-		client := NewClient(executor)
+		client := NewClientWithExecutor(executor)
 
 		err := client.MergePullRequest("https://github.com/org/repo/pull/123", false)
 		if err != nil {
@@ -523,7 +512,7 @@ func TestMergePullRequest(t *testing.T) {
 
 	t.Run("merges PR with branch deletion", func(t *testing.T) {
 		executor := &mockExecutor{captureArgs: true}
-		client := NewClient(executor)
+		client := NewClientWithExecutor(executor)
 
 		err := client.MergePullRequest("https://github.com/org/repo/pull/456", true)
 		if err != nil {
@@ -542,7 +531,7 @@ func TestMergePullRequest(t *testing.T) {
 
 	t.Run("returns error when merge fails", func(t *testing.T) {
 		executor := &mockExecutor{shouldFail: true, output: "merge conflict detected"}
-		client := NewClient(executor)
+		client := NewClientWithExecutor(executor)
 
 		err := client.MergePullRequest("https://github.com/org/repo/pull/789", false)
 		if err == nil {
@@ -562,7 +551,7 @@ func TestMergePullRequest(t *testing.T) {
 
 	t.Run("handles different PR URL formats", func(t *testing.T) {
 		executor := &mockExecutor{captureArgs: true}
-		client := NewClient(executor)
+		client := NewClientWithExecutor(executor)
 
 		urls := []string{
 			"https://github.com/org/repo/pull/1",
@@ -579,30 +568,6 @@ func TestMergePullRequest(t *testing.T) {
 			if !executor.wasCalled {
 				t.Errorf("expected executor to be called for URL %q", url)
 			}
-		}
-	})
-}
-
-// TestDefaultExecutor tests the behavior of the default executor.
-func TestDefaultExecutor(t *testing.T) {
-	t.Run("executes echo command successfully", func(t *testing.T) {
-		executor := &DefaultExecutor{}
-		output, err := executor.Execute("echo", "test")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		expected := "test"
-		if !strings.Contains(output, expected) {
-			t.Errorf("expected output to contain %q, got %q", expected, output)
-		}
-	})
-
-	t.Run("returns error for non-existent command", func(t *testing.T) {
-		executor := &DefaultExecutor{}
-		_, err := executor.Execute("this-command-definitely-does-not-exist")
-		if err == nil {
-			t.Error("expected error for non-existent command, got nil")
 		}
 	})
 }
@@ -628,6 +593,11 @@ func (m *mockExecutor) Execute(cmd string, args ...string) (string, error) {
 		return m.output, errors.New("command failed")
 	}
 	return m.output, nil
+}
+
+func (m *mockExecutor) ExecuteWithStdin(_ /* stdin */, cmd string, args ...string) (string, error) {
+	// For testing purposes, just delegate to Execute
+	return m.Execute(cmd, args...)
 }
 
 // Helper function to compare slices.

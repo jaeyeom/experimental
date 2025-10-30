@@ -158,6 +158,25 @@ func (m *MockExecutor) SetDefaultBehavior(result *ExecutionResult, err error) {
 	m.DefaultError = err
 }
 
+// SetResult is a convenience method that sets the default behavior.
+// It's useful for simple test cases that don't need complex expectations.
+func (m *MockExecutor) SetResult(result *ExecutionResult, err error) {
+	m.SetDefaultBehavior(result, err)
+}
+
+// Executions returns the recorded executions as ToolConfig slices.
+// This is a convenience method for tests.
+func (m *MockExecutor) Executions() []ToolConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	configs := make([]ToolConfig, len(m.CallHistory))
+	for i, call := range m.CallHistory {
+		configs[i] = call.Config
+	}
+	return configs
+}
+
 // SetAvailableCommand marks a command as available or unavailable.
 func (m *MockExecutor) SetAvailableCommand(command string, available bool) {
 	m.mu.Lock()

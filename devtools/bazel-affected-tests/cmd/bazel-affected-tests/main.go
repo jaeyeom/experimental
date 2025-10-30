@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/cache"
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/git"
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/query"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 func main() {
@@ -81,7 +83,9 @@ func handleCacheClear(c *cache.Cache, debug bool) {
 }
 
 func getStagedFiles() ([]string, error) {
-	files, err := git.GetStagedFiles()
+	ctx := context.Background()
+	exec := executor.NewBasicExecutor()
+	files, err := git.GetStagedFiles(ctx, exec)
 	if err != nil {
 		return nil, fmt.Errorf("getting staged files: %w", err)
 	}

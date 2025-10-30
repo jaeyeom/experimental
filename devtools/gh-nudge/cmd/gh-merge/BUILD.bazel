@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//devtools/gh-nudge/internal/config:go_default_library",
         "//devtools/gh-nudge/internal/github:go_default_library",
+        "//devtools/internal/executor:go_default_library",
     ],
 )
 

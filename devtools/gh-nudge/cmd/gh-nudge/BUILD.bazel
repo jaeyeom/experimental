@@ -11,6 +11,7 @@ go_library(
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/notification:go_default_library",
         "//devtools/gh-nudge/internal/slack:go_default_library",
+        "//devtools/internal/executor:go_default_library",
     ],
 )
 

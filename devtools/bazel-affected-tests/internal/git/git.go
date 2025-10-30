@@ -1,15 +1,16 @@
 package git
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 // GetStagedFiles returns the list of staged files (Added, Copied, Modified - not Deleted).
-func GetStagedFiles() ([]string, error) {
-	cmd := exec.Command("git", "diff", "--cached", "--name-only", "--diff-filter=ACM")
-	output, err := cmd.Output()
+func GetStagedFiles(ctx context.Context, exec executor.Executor) ([]string, error) {
+	output, err := executor.Output(ctx, exec, "git", "diff", "--cached", "--name-only", "--diff-filter=ACM")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get staged files: %w", err)
 	}
