@@ -1628,7 +1628,7 @@ This function uses the 'magick identify' command to get the dimensions of the im
 
   ;;; EAF
   (with-eval-after-load 'eaf
-    ;; Check if Emacs is running in ChromeOS Crostini.
+    (setopt eaf-apps-to-install '(browser))
 
     ;; EAF is not stable yet. This is a workaround to prevent crashes.
     (defun my/safe-eaf-call-sync (orig-fun &rest args)
