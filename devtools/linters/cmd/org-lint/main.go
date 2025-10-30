@@ -34,11 +34,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
+
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 func main() {
@@ -207,17 +209,31 @@ func lintOrgFile(filename string) error {
             (princ (format "%s:%d: (%s) %s\n" filename line trust description))))
         (kill-emacs (if issues 1 0))))))`
 
-	cmd := exec.Command("emacs", "-Q", "--batch", "-l", "org", "--eval", emacsCode)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("FILENAME=%s", filename))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	ctx := context.Background()
+	exec := executor.NewBasicExecutor()
 
-	err := cmd.Run()
-	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			return fmt.Errorf("linting failed with exit code %d", exitError.ExitCode())
+	result, err := exec.Execute(ctx, executor.ToolConfig{
+		Command: "emacs",
+		Args:    []string{"-Q", "--batch", "-l", "org", "--eval", emacsCode},
+		Env:     map[string]string{"FILENAME": filename},
+	})
+
+	// Print output
+	if result != nil {
+		if result.Output != "" {
+			fmt.Print(result.Output)
 		}
+		if result.Stderr != "" {
+			fmt.Fprint(os.Stderr, result.Stderr)
+		}
+	}
+
+	if err != nil {
 		return fmt.Errorf("failed to run emacs: %v", err)
+	}
+
+	if result.ExitCode != 0 {
+		return fmt.Errorf("linting failed with exit code %d", result.ExitCode)
 	}
 
 	return nil

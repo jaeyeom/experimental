@@ -2,26 +2,36 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 // CommandExecutor defines an interface for executing shell commands.
 // This allows for easier testing by mocking command execution.
 type CommandExecutor interface {
 	Execute(cmd string, args ...string) (string, error)
+	ExecuteWithStdin(stdin, cmd string, args ...string) (string, error)
 }
 
-// DefaultExecutor is the default implementation of CommandExecutor.
-type DefaultExecutor struct{}
+// executorAdapter adapts our shared executor.Executor to CommandExecutor interface.
+type executorAdapter struct {
+	exec executor.Executor
+	ctx  context.Context
+}
 
-// Execute runs a command with the given arguments and returns its output.
-func (e *DefaultExecutor) Execute(cmd string, args ...string) (string, error) {
-	command := exec.Command(cmd, args...)
-	output, err := command.CombinedOutput()
+// Execute runs a command with the given arguments and returns its combined output.
+func (e *executorAdapter) Execute(cmd string, args ...string) (string, error) {
+	output, err := executor.CombinedOutput(e.ctx, e.exec, cmd, args...)
+	return string(output), err
+}
+
+// ExecuteWithStdin runs a command with stdin input and returns combined output.
+func (e *executorAdapter) ExecuteWithStdin(stdin, cmd string, args ...string) (string, error) {
+	output, err := executor.CombinedOutputWithStdin(e.ctx, e.exec, stdin, cmd, args...)
 	return string(output), err
 }
 
@@ -30,12 +40,18 @@ type Client struct {
 	executor CommandExecutor
 }
 
-// NewClient creates a new GitHub client with the given executor.
-// If nil is provided, it uses the DefaultExecutor.
-func NewClient(executor CommandExecutor) *Client {
-	if executor == nil {
-		executor = &DefaultExecutor{}
+// NewClient creates a new GitHub client with the shared executor.
+func NewClient(ctx context.Context, exec executor.Executor) *Client {
+	return &Client{
+		executor: &executorAdapter{
+			exec: exec,
+			ctx:  ctx,
+		},
 	}
+}
+
+// NewClientWithExecutor creates a client with a custom CommandExecutor (for backward compatibility).
+func NewClientWithExecutor(executor CommandExecutor) *Client {
 	return &Client{executor: executor}
 }
 

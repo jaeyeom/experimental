@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 // createOutputFormatter creates the appropriate output formatter based on jsonOutput flag.
@@ -31,8 +32,12 @@ func newCommandHandler(storageHome string) (*prreview.CommandHandler, error) {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
+	// Initialize executor and context
+	ctx := context.Background()
+	exec := executor.NewBasicExecutor()
+
 	// Initialize GitHub client
-	baseClient := github.NewClient(nil)
+	baseClient := github.NewClient(ctx, exec)
 	prClient := github.NewPRReviewClient(baseClient)
 
 	// Initialize git client (current working directory)
@@ -51,8 +56,10 @@ const (
 
 // autoDetectOwnerRepo gets the default owner/repo using gh CLI.
 func autoDetectOwnerRepo() (string, error) {
-	cmd := exec.Command("gh", "repo", "set-default", "-v")
-	output, err := cmd.Output()
+	ctx := context.Background()
+	exec := executor.NewBasicExecutor()
+
+	output, err := executor.Output(ctx, exec, "gh", "repo", "set-default", "-v")
 	if err != nil {
 		return "", fmt.Errorf("failed to get default repo: %w", err)
 	}
@@ -62,9 +69,11 @@ func autoDetectOwnerRepo() (string, error) {
 
 // autoDetectIdentifier gets the PR number if available, optionally falls back to current branch.
 func autoDetectIdentifier(prOnly bool) (string, error) {
+	ctx := context.Background()
+	exec := executor.NewBasicExecutor()
+
 	// Try to get PR number first
-	cmd := exec.Command("gh", "pr", "view", "--json", "number", "-t", "{{.number}}")
-	if output, err := cmd.Output(); err == nil {
+	if output, err := executor.Output(ctx, exec, "gh", "pr", "view", "--json", "number", "-t", "{{.number}}"); err == nil {
 		return strings.TrimSpace(string(output)), nil
 	}
 
@@ -73,8 +82,7 @@ func autoDetectIdentifier(prOnly bool) (string, error) {
 	}
 
 	// Fall back to current branch
-	cmd = exec.Command("git", "branch", "--show-current")
-	output, err := cmd.Output()
+	output, err := executor.Output(ctx, exec, "git", "branch", "--show-current")
 	if err != nil {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
 	}

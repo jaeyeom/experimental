@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/notification"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/slack"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 var (
@@ -59,7 +61,9 @@ func getNotificationPath() (string, error) {
 // initializeClients sets up the GitHub and Slack clients.
 func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
 	// Initialize GitHub client
-	githubClient := github.NewClient(nil)
+	ctx := context.Background()
+	exec := executor.NewBasicExecutor()
+	githubClient := github.NewClient(ctx, exec)
 
 	// Initialize Slack client with appropriate MessagePoster
 	var messagePoster slack.MessagePoster

@@ -3,7 +3,6 @@ package github
 import (
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -53,14 +52,13 @@ type PR struct {
 // GetPRDiff fetches the diff for a pull request.
 func (prc *PRReviewClient) GetPRDiff(repository models.Repository, prNumber int) (*models.PRDiffHunks, error) {
 	// Get PR files via GitHub API
-	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/files", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
-	output, err := cmd.Output()
+	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/files", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR files: %w", err)
 	}
 
 	var files []File
-	if err := json.Unmarshal(output, &files); err != nil {
+	if err := json.Unmarshal([]byte(output), &files); err != nil {
 		return nil, fmt.Errorf("failed to parse PR files response: %w", err)
 	}
 
@@ -89,14 +87,13 @@ func (prc *PRReviewClient) GetPRDiff(repository models.Repository, prNumber int)
 
 // GetPRInfo fetches basic information about a pull request.
 func (prc *PRReviewClient) GetPRInfo(repository models.Repository, prNumber int) (*PR, error) {
-	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
-	output, err := cmd.Output()
+	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR info: %w", err)
 	}
 
 	var pr PR
-	if err := json.Unmarshal(output, &pr); err != nil {
+	if err := json.Unmarshal([]byte(output), &pr); err != nil {
 		return nil, fmt.Errorf("failed to parse PR info response: %w", err)
 	}
 
@@ -156,14 +153,13 @@ func (prc *PRReviewClient) SubmitReview(repository models.Repository, prNumber i
 	}
 
 	// Submit via gh CLI
-	cmd := exec.Command("gh", "api", "-X", "POST", //nolint:gosec // Intentional subprocess execution with gh CLI
+	output, err := prc.client.executor.ExecuteWithStdin(
+		string(payloadBytes),
+		"gh", "api", "-X", "POST",
 		fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber),
 		"--input", "-")
-	cmd.Stdin = strings.NewReader(string(payloadBytes))
-
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to submit review: %w (output: %s)", err, string(output))
+		return fmt.Errorf("failed to submit review: %w (output: %s)", err, output)
 	}
 
 	return nil
@@ -289,14 +285,13 @@ func (prc *PRReviewClient) CreatePendingReview(repository models.Repository, prN
 
 // GetExistingReviews fetches existing reviews for a PR.
 func (prc *PRReviewClient) GetExistingReviews(repository models.Repository, prNumber int) ([]map[string]interface{}, error) {
-	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
-	output, err := cmd.Output()
+	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch existing reviews: %w", err)
 	}
 
 	var reviews []map[string]interface{}
-	if err := json.Unmarshal(output, &reviews); err != nil {
+	if err := json.Unmarshal([]byte(output), &reviews); err != nil {
 		return nil, fmt.Errorf("failed to parse reviews response: %w", err)
 	}
 
@@ -325,14 +320,13 @@ type GitHubComment struct {
 
 // GetPRComments fetches all line comments for a PR from GitHub.
 func (prc *PRReviewClient) GetPRComments(repository models.Repository, prNumber int) ([]models.Comment, error) {
-	cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/comments", repository, prNumber)) //nolint:gosec // Intentional subprocess execution with gh CLI
-	output, err := cmd.Output()
+	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/comments", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR comments: %w", err)
 	}
 
 	var githubComments []GitHubComment
-	if err := json.Unmarshal(output, &githubComments); err != nil {
+	if err := json.Unmarshal([]byte(output), &githubComments); err != nil {
 		return nil, fmt.Errorf("failed to parse comments response: %w", err)
 	}
 
@@ -367,15 +361,14 @@ func (prc *PRReviewClient) GetPRReviewComments(repository models.Repository, prN
 			continue
 		}
 
-		cmd := exec.Command("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments", repository, prNumber, int64(reviewID))) //nolint:gosec // Intentional subprocess execution with gh CLI
-		output, err := cmd.Output()
+		output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments", repository, prNumber, int64(reviewID)))
 		if err != nil {
 			fmt.Printf("Warning: Failed to fetch comments for review %d: %v\n", int64(reviewID), err)
 			continue
 		}
 
 		var githubComments []GitHubComment
-		if err := json.Unmarshal(output, &githubComments); err != nil {
+		if err := json.Unmarshal([]byte(output), &githubComments); err != nil {
 			fmt.Printf("Warning: Failed to parse comments for review %d: %v\n", int64(reviewID), err)
 			continue
 		}

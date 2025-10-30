@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/config"
 )
 
@@ -18,6 +20,8 @@ import (
 type Manager struct {
 	project *config.Project
 	logger  *slog.Logger
+	exec    executor.Executor
+	ctx     context.Context
 }
 
 // WorkflowResult represents the result of a Git workflow operation.
@@ -32,6 +36,8 @@ func NewManager(project *config.Project) (*Manager, error) {
 	manager := &Manager{
 		project: project,
 		logger:  slog.With("component", "git", "project", project.Name),
+		exec:    executor.NewBasicExecutor(),
+		ctx:     context.Background(),
 	}
 
 	// Initialize or update the remote repository

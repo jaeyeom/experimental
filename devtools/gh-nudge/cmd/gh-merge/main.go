@@ -23,6 +23,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
+	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 var (
@@ -187,7 +189,9 @@ func main() {
 	}
 
 	// Initialize GitHub client
-	githubClient := github.NewClient(nil)
+	ctx := context.Background()
+	exec := executor.NewBasicExecutor()
+	githubClient := github.NewClient(ctx, exec)
 
 	// Determine command
 	args := flag.Args()
