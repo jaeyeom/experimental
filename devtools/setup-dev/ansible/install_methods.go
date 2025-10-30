@@ -311,6 +311,42 @@ func (n NpmInstallMethod) RenderBlockInstallTask(command string) string {
 	return indent(n.RenderInstallTask(command), 4)
 }
 
+// NvmInstallMethod handles installation via npm through nvm.
+// This provides an alternative to NpmInstallMethod for packages that need
+// newer Node.js versions or better separation between system and development environments.
+type NvmInstallMethod struct {
+	Name string
+}
+
+func (n NvmInstallMethod) GetMethodType() string {
+	return "nvm"
+}
+
+func (n NvmInstallMethod) GetImports() []Import {
+	return []Import{{Playbook: "setup-nvm"}}
+}
+
+func (n NvmInstallMethod) RenderSetupTasks(_ string) string {
+	return ""
+}
+
+func (n NvmInstallMethod) RenderInstallTask(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
+	return `    - name: Check if ` + command + ` is installed
+      shell: command -v ` + command + `
+      register: ` + commandID + `_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install ` + command + ` using npm through nvm
+      command: nvm exec default npm install -g ` + n.Name + `
+      when: ` + commandID + `_installed.rc != 0`
+}
+
+func (n NvmInstallMethod) RenderBlockInstallTask(command string) string {
+	return indent(n.RenderInstallTask(command), 4)
+}
+
 // UvInstallMethod handles installation via uv tool command.
 type UvInstallMethod struct {
 	Name string
