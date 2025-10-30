@@ -199,6 +199,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-history.yml
 - setup-kotex.yml
 - setup-npm.yml
+- setup-nvm.yml
 - setup-pass.yml
 - setup-perplexity-mcp.yml
 - setup-shell-profile.yml

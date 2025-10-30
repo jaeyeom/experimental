@@ -181,6 +181,19 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	{
+		command: "nvm",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: ShellInstallMethod{
+				InstallCommand:    `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_latest_release.json.tag_name }}/install.sh | bash`,
+				VersionCommand:    "nvm --version",
+				VersionRegex:      "([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/nvm-sh/nvm/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
+		},
+		Imports: []Import{{Playbook: "curl"}},
+	},
 	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
 	GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
