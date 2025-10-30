@@ -431,10 +431,29 @@ func (d DebianPkgInstallMethod) RenderBlockInstallTask(command string) string {
 
 // ShellInstallMethod handles installation via shell commands with version checking.
 type ShellInstallMethod struct {
-	InstallCommand    string
-	VersionCommand    string
-	VersionRegex      string
-	LatestVersionURL  string
+	// InstallCommand is the shell command to install or update the tool.
+	// Can use Ansible template variables, particularly:
+	//   - {{ <command>_latest_release.json.<LatestVersionPath> }} for the version fetched from LatestVersionURL
+	// Example: curl -o- https://example.com/{{ nvm_latest_release.json.tag_name }}/install.sh | bash
+	InstallCommand string
+
+	// VersionCommand is the shell command to check the installed version (e.g., "tool --version").
+	// Leave empty to skip version checking and always run InstallCommand if tool is not found.
+	VersionCommand string
+
+	// VersionRegex is the regex pattern to extract the version number from VersionCommand output.
+	// Use capturing group to extract version (e.g., "([0-9.]+)" or "version ([0-9.]+)").
+	// Required if VersionCommand is specified.
+	VersionRegex string
+
+	// LatestVersionURL is the URL to fetch the latest version information (typically GitHub API).
+	// Example: "https://api.github.com/repos/owner/repo/releases/latest"
+	// Leave empty to skip version checking and always run InstallCommand if tool is not found.
+	LatestVersionURL string
+
+	// LatestVersionPath is the JSON path to extract the version from LatestVersionURL response.
+	// Example: "tag_name" for GitHub releases (accesses .tag_name in the JSON response)
+	// Required if LatestVersionURL is specified.
 	LatestVersionPath string
 }
 

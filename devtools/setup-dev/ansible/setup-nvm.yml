@@ -1,0 +1,66 @@
+---
+- import_playbook: nvm.yml
+- import_playbook: setup-shell-profile.yml
+
+- name: Configure Node Version Manager (nvm)
+  hosts: all
+  tasks:
+    - name: Include guard for setup-nvm playbook
+      block:
+        - name: Stop early if the setup-nvm playbook is already included
+          meta: end_play
+          when: setup_nvm_playbook_imported is defined
+        - name: Ensure the setup-nvm playbook is not included
+          set_fact:
+            setup_nvm_playbook_imported: true
+          when: setup_nvm_playbook_imported is not defined
+
+    - name: Ensure nvm is loaded in shell profile
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} Setup nvm (Node Version Manager)"
+        block: |
+          export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+          # Try XDG-compliant location first, then default location
+          if [ -s "$HOME/.config/nvm/nvm.sh" ]; then
+            export NVM_DIR="$HOME/.config/nvm"
+          fi
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+          [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+    - name: Detect nvm installation directory for Node.js installation
+      shell: |
+        if [ -n "$NVM_DIR" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
+          echo "$NVM_DIR"
+        elif [ -s "$HOME/.config/nvm/nvm.sh" ]; then
+          echo "$HOME/.config/nvm"
+        elif [ -s "$HOME/.nvm/nvm.sh" ]; then
+          echo "$HOME/.nvm"
+        else
+          echo ""
+        fi
+      register: nvm_dir_detection
+      changed_when: False
+
+    - name: Set nvm directory fact
+      set_fact:
+        detected_nvm_dir: "{{ nvm_dir_detection.stdout if nvm_dir_detection.stdout != '' else '$HOME/.nvm' }}"
+
+    - name: Check if Node.js LTS is already installed via nvm
+      shell: |
+        export NVM_DIR="{{ detected_nvm_dir }}"
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm ls --no-colors | grep -q lts
+      register: node_lts_check
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install Node.js LTS version using nvm
+      shell: |
+        export NVM_DIR="{{ detected_nvm_dir }}"
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm install --lts
+      when: node_lts_check.rc != 0
+      register: nvm_install_result
+      changed_when: "'is already installed' not in nvm_install_result.stderr"
