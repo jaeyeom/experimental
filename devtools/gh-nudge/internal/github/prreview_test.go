@@ -2,12 +2,63 @@ package github
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
+
+// mockCommandExecutor is a mock implementation of CommandExecutor for testing.
+type mockCommandExecutor struct {
+	// executeFunc is called when Execute is invoked
+	executeFunc func(cmd string, args ...string) (string, error)
+	// executeWithStdinFunc is called when ExecuteWithStdin is invoked
+	executeWithStdinFunc func(stdin, cmd string, args ...string) (string, error)
+
+	// callHistory records all calls made
+	executeCalls         []executeCall
+	executeWithStdinCall []executeWithStdinCall
+}
+
+type executeCall struct {
+	cmd  string
+	args []string
+}
+
+type executeWithStdinCall struct {
+	stdin string
+	cmd   string
+	args  []string
+}
+
+func newMockCommandExecutor() *mockCommandExecutor {
+	return &mockCommandExecutor{
+		executeCalls:         make([]executeCall, 0),
+		executeWithStdinCall: make([]executeWithStdinCall, 0),
+	}
+}
+
+func (m *mockCommandExecutor) Execute(cmd string, args ...string) (string, error) {
+	m.executeCalls = append(m.executeCalls, executeCall{cmd: cmd, args: args})
+	if m.executeFunc != nil {
+		return m.executeFunc(cmd, args...)
+	}
+	return "", nil
+}
+
+func (m *mockCommandExecutor) ExecuteWithStdin(stdin, cmd string, args ...string) (string, error) {
+	m.executeWithStdinCall = append(m.executeWithStdinCall, executeWithStdinCall{
+		stdin: stdin,
+		cmd:   cmd,
+		args:  args,
+	})
+	if m.executeWithStdinFunc != nil {
+		return m.executeWithStdinFunc(stdin, cmd, args...)
+	}
+	return "", nil
+}
 
 func TestNewPRReviewClient(t *testing.T) {
 	client := &Client{}
@@ -677,246 +728,1007 @@ func intPtr(i int) *int {
 	return &i
 }
 
-// TestGetPRDiff tests the behavior of fetching PR diff.
-func TestGetPRDiff(t *testing.T) {
+// TestGetPRDiffBehavior tests the behavior of fetching PR diff with full mocking.
+func TestGetPRDiffBehavior(t *testing.T) {
+	repo := models.NewRepository("owner", "repo")
+	prNumber := 42
+
 	t.Run("successfully fetches and parses PR diff", func(t *testing.T) {
-		// This test verifies that GetPRDiff correctly combines file data and PR info
-		// The expected behavior is that it fetches files, gets PR info for SHAs,
-		// parses patches into diff hunks, and returns a properly structured PRDiffHunks
-		t.Skip("Requires gh CLI mock - behavioral test documents expected integration")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, args ...string) (string, error) {
+			// Respond to /pulls/{number}/files request
+			if len(args) >= 2 && strings.Contains(args[1], "/files") {
+				files := []File{
+					{
+						Filename: "test.go",
+						Patch: `@@ -1,3 +1,4 @@
+ package main
++import "fmt"
+ func main() {`,
+						SHA:       "file123",
+						Status:    "modified",
+						Additions: 1,
+					},
+				}
+				data, _ := json.Marshal(files)
+				return string(data), nil
+			}
+			// Respond to /pulls/{number} request for PR info
+			if len(args) >= 2 && strings.Contains(args[1], fmt.Sprintf("/pulls/%d", prNumber)) && !strings.Contains(args[1], "/files") {
+				pr := PR{Number: prNumber, Title: "Test PR"}
+				pr.Head.SHA = "head123"
+				pr.Base.SHA = "base456"
+				data, _ := json.Marshal(pr)
+				return string(data), nil
+			}
+			return "", fmt.Errorf("unexpected call")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRDiff(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.PRNumber != prNumber {
+			t.Errorf("expected PR number %d, got %d", prNumber, result.PRNumber)
+		}
+		if result.CommitSHA != "head123" {
+			t.Errorf("expected commit SHA head123, got %s", result.CommitSHA)
+		}
+		if result.BaseSHA != "base456" {
+			t.Errorf("expected base SHA base456, got %s", result.BaseSHA)
+		}
+		if len(result.DiffHunks) == 0 {
+			t.Error("expected at least one diff hunk")
+		}
 	})
 
 	t.Run("returns error when PR files fetch fails", func(t *testing.T) {
-		// Expected behavior: GetPRDiff should return an error when the gh API call
-		// to fetch PR files fails (e.g., network error, PR not found, auth failure)
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("API error: not found")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetPRDiff(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to fetch PR files") {
+			t.Errorf("unexpected error message: %v", err)
+		}
 	})
 
 	t.Run("returns error when PR info fetch fails", func(t *testing.T) {
-		// Expected behavior: Even if files are fetched successfully, GetPRDiff should
-		// return an error if it cannot get the PR info (needed for commit SHAs)
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, args ...string) (string, error) {
+			// Files request succeeds
+			if strings.Contains(args[1], "/files") {
+				return "[]", nil
+			}
+			// PR info request fails
+			return "", fmt.Errorf("PR info error")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetPRDiff(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get PR info") {
+			t.Errorf("unexpected error message: %v", err)
+		}
 	})
 
 	t.Run("handles PR with no files", func(t *testing.T) {
-		// Expected behavior: GetPRDiff should successfully handle PRs with no file changes
-		// and return an empty DiffHunks array
-		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, args ...string) (string, error) {
+			if strings.Contains(args[1], "/files") {
+				return "[]", nil // Empty file list
+			}
+			pr := PR{Number: prNumber}
+			pr.Head.SHA = "head123"
+			pr.Base.SHA = "base456"
+			data, _ := json.Marshal(pr)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRDiff(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.DiffHunks) != 0 {
+			t.Errorf("expected empty diff hunks for PR with no files, got %d", len(result.DiffHunks))
+		}
 	})
 
 	t.Run("handles files with no patches", func(t *testing.T) {
-		// Expected behavior: Files without patches (e.g., binary files, renamed without changes)
-		// should be handled gracefully without creating diff hunks
-		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, args ...string) (string, error) {
+			if strings.Contains(args[1], "/files") {
+				files := []File{
+					{
+						Filename: "binary.png",
+						Patch:    "", // No patch for binary files
+						SHA:      "bin123",
+						Status:   "added",
+					},
+				}
+				data, _ := json.Marshal(files)
+				return string(data), nil
+			}
+			pr := PR{Number: prNumber}
+			pr.Head.SHA = "head123"
+			pr.Base.SHA = "base456"
+			data, _ := json.Marshal(pr)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRDiff(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Files with no patch should result in no hunks
+		if len(result.DiffHunks) != 0 {
+			t.Errorf("expected no hunks for files without patches, got %d", len(result.DiffHunks))
+		}
 	})
 
 	t.Run("preserves repository and PR context in result", func(t *testing.T) {
-		// Expected behavior: The returned PRDiffHunks should include the repository,
-		// PR number, commit SHAs, and timestamp for proper context
-		t.Skip("Requires gh CLI mock - behavioral test documents expected data preservation")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, args ...string) (string, error) {
+			if strings.Contains(args[1], "/files") {
+				return "[]", nil
+			}
+			pr := PR{Number: prNumber, Title: "Context Test"}
+			pr.Head.SHA = "context123"
+			pr.Base.SHA = "context456"
+			data, _ := json.Marshal(pr)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRDiff(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Repository.Owner != "owner" || result.Repository.Name != "repo" {
+			t.Errorf("repository not preserved: got %v", result.Repository)
+		}
+		if result.PRNumber != prNumber {
+			t.Errorf("PR number not preserved: got %d", result.PRNumber)
+		}
+		if result.CommitSHA != "context123" || result.BaseSHA != "context456" {
+			t.Errorf("commit SHAs not preserved: got %s, %s", result.CommitSHA, result.BaseSHA)
+		}
+		if result.CapturedAt.IsZero() {
+			t.Error("timestamp not set")
+		}
 	})
 }
 
-// TestGetPRInfo tests the behavior of fetching PR information.
-func TestGetPRInfo(t *testing.T) {
+// TestGetPRInfoBehavior tests the behavior of fetching PR information with mocking.
+func TestGetPRInfoBehavior(t *testing.T) {
+	repo := models.NewRepository("testowner", "testrepo")
+	prNumber := 99
+
 	t.Run("successfully fetches basic PR information", func(t *testing.T) {
-		// Expected behavior: GetPRInfo should fetch and return basic PR data
-		// including PR number, title, and head/base SHA values
-		t.Skip("Requires gh CLI mock - behavioral test documents expected integration")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			pr := PR{
+				Number: prNumber,
+				Title:  "Test Pull Request",
+			}
+			pr.Head.SHA = "headsha123"
+			pr.Base.SHA = "basesha456"
+			data, _ := json.Marshal(pr)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRInfo(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Number != prNumber {
+			t.Errorf("expected number %d, got %d", prNumber, result.Number)
+		}
+		if result.Title != "Test Pull Request" {
+			t.Errorf("expected title 'Test Pull Request', got %s", result.Title)
+		}
+		if result.Head.SHA != "headsha123" {
+			t.Errorf("expected head SHA headsha123, got %s", result.Head.SHA)
+		}
+		if result.Base.SHA != "basesha456" {
+			t.Errorf("expected base SHA basesha456, got %s", result.Base.SHA)
+		}
 	})
 
 	t.Run("returns error when PR does not exist", func(t *testing.T) {
-		// Expected behavior: GetPRInfo should return an error when querying
-		// a non-existent PR number
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("HTTP 404: Not Found")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetPRInfo(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to fetch PR info") {
+			t.Errorf("unexpected error message: %v", err)
+		}
 	})
 
 	t.Run("returns error when API call fails", func(t *testing.T) {
-		// Expected behavior: Network errors, auth failures, or other API errors
-		// should be wrapped and returned as errors
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("network error: connection refused")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetPRInfo(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
 	})
 
 	t.Run("returns error when JSON response is malformed", func(t *testing.T) {
-		// Expected behavior: If GitHub API returns invalid JSON, GetPRInfo
-		// should return a parsing error
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "{invalid json", nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetPRInfo(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to parse PR info response") {
+			t.Errorf("unexpected error message: %v", err)
+		}
 	})
 }
 
-// TestValidatePRAccess tests the behavior of validating PR access.
-func TestValidatePRAccess(t *testing.T) {
+// TestValidatePRAccessBehavior tests the behavior of validating PR access with mocking.
+func TestValidatePRAccessBehavior(t *testing.T) {
+	repo := models.NewRepository("owner", "repo")
+	prNumber := 100
+
 	t.Run("returns nil when PR is accessible", func(t *testing.T) {
-		// Expected behavior: ValidatePRAccess should return nil (no error)
-		// when the PR exists and the user has access to it
-		t.Skip("Requires gh CLI mock - behavioral test documents expected validation")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			pr := PR{Number: prNumber, Title: "Accessible PR"}
+			data, _ := json.Marshal(pr)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		err := prClient.ValidatePRAccess(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("returns error when PR is not accessible", func(t *testing.T) {
-		// Expected behavior: ValidatePRAccess should return an error when
-		// the PR doesn't exist or user doesn't have permission
-		t.Skip("Requires gh CLI mock - behavioral test documents expected validation")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("HTTP 403: Forbidden")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		err := prClient.ValidatePRAccess(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
 	})
 
 	t.Run("delegates to GetPRInfo", func(t *testing.T) {
-		// Expected behavior: ValidatePRAccess is a convenience method that
-		// uses GetPRInfo internally - any GetPRInfo error should propagate
-		t.Skip("Behavioral test documents that ValidatePRAccess uses GetPRInfo")
+		mock := newMockCommandExecutor()
+		callCount := 0
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			callCount++
+			pr := PR{Number: prNumber}
+			data, _ := json.Marshal(pr)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_ = prClient.ValidatePRAccess(repo, prNumber)
+		if callCount != 1 {
+			t.Errorf("expected GetPRInfo to be called once, got %d calls", callCount)
+		}
 	})
 }
 
-// TestSubmitReviewBehavior tests the behavior of submitting reviews.
-func TestSubmitReviewBehavior(t *testing.T) {
+// TestSubmitReviewComprehensive tests the behavior of submitting reviews with full mocking.
+func TestSubmitReviewComprehensive(t *testing.T) {
+	repo := models.NewRepository("owner", "repo")
+	prNumber := 50
+
 	t.Run("submits review with single-line comments", func(t *testing.T) {
-		// Expected behavior: SubmitReview should convert single-line comments
-		// to GitHub's format with only 'line' field (not start_line)
-		t.Skip("Requires gh CLI mock - behavioral test documents expected format conversion")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			comments := payload["comments"].([]interface{})
+			comment := comments[0].(map[string]interface{})
+			if _, hasStartLine := comment["start_line"]; hasStartLine {
+				t.Error("single-line comment should not have start_line field")
+			}
+			if line, ok := comment["line"]; !ok || line != float64(10) {
+				t.Errorf("expected line field with value 10, got %v", comment["line"])
+			}
+			return `{"id": 1}`, nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		review := models.PRReview{
+			Comments: []models.Comment{
+				{
+					Path: "test.go",
+					Line: models.NewSingleLine(10),
+					Body: "Single line comment",
+					Side: models.SideRight,
+				},
+			},
+		}
+
+		err := prClient.SubmitReview(repo, prNumber, review)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("submits review with multi-line comments", func(t *testing.T) {
-		// Expected behavior: Multi-line comments should be converted to include
-		// both 'start_line' and 'line' fields
-		t.Skip("Requires gh CLI mock - behavioral test documents expected format conversion")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			comments := payload["comments"].([]interface{})
+			comment := comments[0].(map[string]interface{})
+			if startLine, ok := comment["start_line"]; !ok || startLine != float64(5) {
+				t.Errorf("expected start_line field with value 5, got %v", comment["start_line"])
+			}
+			if line, ok := comment["line"]; !ok || line != float64(10) {
+				t.Errorf("expected line field with value 10, got %v", comment["line"])
+			}
+			return `{"id": 2}`, nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		review := models.PRReview{
+			Comments: []models.Comment{
+				{
+					Path: "test.go",
+					Line: models.NewLineRange(5, 10),
+					Body: "Multi-line comment",
+					Side: models.SideRight,
+				},
+			},
+		}
+
+		err := prClient.SubmitReview(repo, prNumber, review)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("includes commit SHA when provided", func(t *testing.T) {
-		// Expected behavior: When a comment has a SHA, it should be included
-		// as 'commit_id' in the GitHub API payload
-		t.Skip("Requires gh CLI mock - behavioral test documents expected SHA handling")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			comments := payload["comments"].([]interface{})
+			comment := comments[0].(map[string]interface{})
+			if commitID, ok := comment["commit_id"]; !ok || commitID != "sha123" {
+				t.Errorf("expected commit_id field with value sha123, got %v", comment["commit_id"])
+			}
+			return `{"id": 3}`, nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		review := models.PRReview{
+			Comments: []models.Comment{
+				{
+					Path: "test.go",
+					Line: models.NewSingleLine(5),
+					Body: "Comment with SHA",
+					Side: models.SideRight,
+					SHA:  "sha123",
+				},
+			},
+		}
+
+		err := prClient.SubmitReview(repo, prNumber, review)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("includes review body when provided", func(t *testing.T) {
-		// Expected behavior: The review body (overall comment) should be
-		// included in the payload when present
-		t.Skip("Requires gh CLI mock - behavioral test documents expected body handling")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			if body, ok := payload["body"]; !ok || body != "Great work!" {
+				t.Errorf("expected body field with value 'Great work!', got %v", payload["body"])
+			}
+			return `{"id": 4}`, nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		review := models.PRReview{
+			Body: "Great work!",
+			Comments: []models.Comment{
+				{
+					Path: "test.go",
+					Line: models.NewSingleLine(1),
+					Body: "Nice",
+					Side: models.SideRight,
+				},
+			},
+		}
+
+		err := prClient.SubmitReview(repo, prNumber, review)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("includes review event when provided", func(t *testing.T) {
-		// Expected behavior: The event type (COMMENT, APPROVE, REQUEST_CHANGES)
-		// should be included when specified
-		t.Skip("Requires gh CLI mock - behavioral test documents expected event handling")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			if event, ok := payload["event"]; !ok || event != "APPROVE" {
+				t.Errorf("expected event field with value 'APPROVE', got %v", payload["event"])
+			}
+			return `{"id": 5}`, nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		review := models.PRReview{
+			Event: "APPROVE",
+			Comments: []models.Comment{
+				{
+					Path: "test.go",
+					Line: models.NewSingleLine(1),
+					Body: "LGTM",
+					Side: models.SideRight,
+				},
+			},
+		}
+
+		err := prClient.SubmitReview(repo, prNumber, review)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("returns error when gh command fails", func(t *testing.T) {
-		// Expected behavior: Failed submissions (network error, validation error)
-		// should return an error with command output
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(_ string, _ string, _ ...string) (string, error) {
+			return "validation failed", fmt.Errorf("API error")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		review := models.PRReview{
+			Comments: []models.Comment{
+				{
+					Path: "test.go",
+					Line: models.NewSingleLine(1),
+					Body: "test",
+					Side: models.SideRight,
+				},
+			},
+		}
+
+		err := prClient.SubmitReview(repo, prNumber, review)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to submit review") {
+			t.Errorf("unexpected error message: %v", err)
+		}
 	})
 
 	t.Run("handles review with no comments", func(t *testing.T) {
-		// Expected behavior: A review with only a body and no comments should
-		// be submitted successfully (general review comment)
-		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			comments := payload["comments"].([]interface{})
+			if len(comments) != 0 {
+				t.Errorf("expected 0 comments, got %d", len(comments))
+			}
+			return `{"id": 6}`, nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		review := models.PRReview{
+			Body:     "Looks good overall",
+			Event:    "COMMENT",
+			Comments: []models.Comment{},
+		}
+
+		err := prClient.SubmitReview(repo, prNumber, review)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 }
 
-// TestGetPRComments tests the behavior of fetching PR comments.
-func TestGetPRComments(t *testing.T) {
+// TestGetPRCommentsBehavior tests the behavior of fetching PR comments with mocking.
+func TestGetPRCommentsBehavior(t *testing.T) {
+	repo := models.NewRepository("owner", "repo")
+	prNumber := 60
+	now := time.Now()
+
 	t.Run("fetches and converts all PR comments", func(t *testing.T) {
-		// Expected behavior: GetPRComments should fetch all line comments on a PR
-		// and convert them to the local Comment model format
-		t.Skip("Requires gh CLI mock - behavioral test documents expected integration")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			line := 10
+			comments := []GitHubComment{
+				{
+					ID:        100,
+					Path:      "main.go",
+					Line:      &line,
+					Body:      "Test comment",
+					Side:      models.SideRight,
+					CommitID:  "sha123",
+					CreatedAt: now,
+					UpdatedAt: now,
+				},
+			}
+			data, _ := json.Marshal(comments)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRComments(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result) != 1 {
+			t.Errorf("expected 1 comment, got %d", len(result))
+		}
+		if result[0].Path != "main.go" {
+			t.Errorf("expected path main.go, got %s", result[0].Path)
+		}
 	})
 
 	t.Run("returns error when API call fails", func(t *testing.T) {
-		// Expected behavior: Network or API errors should be returned as errors
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("API error")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetPRComments(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to fetch PR comments") {
+			t.Errorf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("skips comments that fail conversion with warning", func(t *testing.T) {
-		// Expected behavior: If a comment cannot be converted (e.g., missing required fields),
-		// it should be skipped with a warning, not fail the entire operation
-		t.Skip("Requires gh CLI mock - behavioral test documents expected resilience")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			line := 5
+			comments := []GitHubComment{
+				{
+					ID:        101,
+					Path:      "good.go",
+					Line:      &line,
+					Body:      "Valid comment",
+					Side:      models.SideRight,
+					CommitID:  "sha",
+					CreatedAt: now,
+					UpdatedAt: now,
+				},
+				{
+					ID:   102,
+					Path: "bad.go",
+					// Missing Line field - should be skipped
+					Body:      "Invalid comment",
+					Side:      models.SideRight,
+					CommitID:  "sha",
+					CreatedAt: now,
+					UpdatedAt: now,
+				},
+			}
+			data, _ := json.Marshal(comments)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRComments(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should only get the valid comment
+		if len(result) != 1 {
+			t.Errorf("expected 1 valid comment, got %d", len(result))
+		}
+		if result[0].Path != "good.go" {
+			t.Errorf("expected valid comment from good.go, got %s", result[0].Path)
+		}
 	})
 
 	t.Run("handles empty comment list", func(t *testing.T) {
-		// Expected behavior: PRs with no comments should return an empty slice,
-		// not an error
-		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "[]", nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRComments(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty list, got %d comments", len(result))
+		}
 	})
 
 	t.Run("sets source and sync metadata on converted comments", func(t *testing.T) {
-		// Expected behavior: All converted comments should have source="github",
-		// LastSynced timestamp, and SyncStatus="synced"
-		t.Skip("Requires gh CLI mock - behavioral test documents expected metadata")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			line := 20
+			comments := []GitHubComment{
+				{
+					ID:        200,
+					Path:      "test.go",
+					Line:      &line,
+					Body:      "Comment",
+					Side:      models.SideRight,
+					CommitID:  "sha",
+					CreatedAt: now,
+					UpdatedAt: now,
+				},
+			}
+			data, _ := json.Marshal(comments)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRComments(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result) != 1 {
+			t.Fatalf("expected 1 comment, got %d", len(result))
+		}
+		if result[0].Source != "github" {
+			t.Errorf("expected source 'github', got %s", result[0].Source)
+		}
+		if result[0].LastSynced == nil {
+			t.Error("expected LastSynced to be set")
+		}
+		if result[0].SyncStatus != "synced" {
+			t.Errorf("expected SyncStatus 'synced', got %s", result[0].SyncStatus)
+		}
 	})
 }
 
-// TestGetPRReviewComments tests the behavior of fetching review comments.
-func TestGetPRReviewComments(t *testing.T) {
+// TestGetPRReviewCommentsBehavior tests the behavior of fetching review comments with mocking.
+func TestGetPRReviewCommentsBehavior(t *testing.T) {
+	repo := models.NewRepository("owner", "repo")
+	prNumber := 70
+	now := time.Now()
+
 	t.Run("fetches comments from all reviews", func(t *testing.T) {
-		// Expected behavior: GetPRReviewComments should iterate through all reviews
-		// and fetch comments from each one, returning a combined list
-		t.Skip("Requires gh CLI mock - behavioral test documents expected aggregation")
+		mock := newMockCommandExecutor()
+		callCount := 0
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			callCount++
+			// First call: get reviews
+			if callCount == 1 {
+				reviews := []map[string]interface{}{
+					{"id": float64(1)},
+					{"id": float64(2)},
+				}
+				data, _ := json.Marshal(reviews)
+				return string(data), nil
+			}
+			// Subsequent calls: return comments for each review
+			line := 10
+			comments := []GitHubComment{
+				{
+					ID:        300,
+					Path:      "file.go",
+					Line:      &line,
+					Body:      "Review comment",
+					Side:      models.SideRight,
+					CommitID:  "sha",
+					CreatedAt: now,
+					UpdatedAt: now,
+				},
+			}
+			data, _ := json.Marshal(comments)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRReviewComments(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should have 2 comments (one from each review)
+		if len(result) != 2 {
+			t.Errorf("expected 2 comments, got %d", len(result))
+		}
 	})
 
 	t.Run("returns error when GetExistingReviews fails", func(t *testing.T) {
-		// Expected behavior: If the initial reviews fetch fails, return error
-		// without trying to fetch individual review comments
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
-	})
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("reviews API error")
+		}
 
-	t.Run("continues on individual review fetch failure", func(t *testing.T) {
-		// Expected behavior: If fetching comments for one review fails, it should
-		// log a warning and continue with other reviews (resilient behavior)
-		t.Skip("Requires gh CLI mock - behavioral test documents expected resilience")
-	})
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
 
-	t.Run("skips reviews without valid ID", func(t *testing.T) {
-		// Expected behavior: Reviews with missing or invalid ID should be skipped
-		// gracefully without failing the entire operation
-		t.Skip("Requires gh CLI mock - behavioral test documents expected validation")
+		_, err := prClient.GetPRReviewComments(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to get reviews") {
+			t.Errorf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("handles PRs with no reviews", func(t *testing.T) {
-		// Expected behavior: PRs with no reviews should return an empty comment list,
-		// not an error
-		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "[]", nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetPRReviewComments(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty list, got %d comments", len(result))
+		}
 	})
 }
 
-// TestCreatePendingReviewBehavior tests the behavior of creating pending reviews.
-func TestCreatePendingReviewBehavior(t *testing.T) {
+// TestCreatePendingReviewComprehensive tests the behavior of creating pending reviews with mocking.
+func TestCreatePendingReviewComprehensive(t *testing.T) {
+	repo := models.NewRepository("owner", "repo")
+	prNumber := 80
+
 	t.Run("creates review without event field", func(t *testing.T) {
-		// Expected behavior: CreatePendingReview should create a draft review
-		// by omitting the event field (which makes it pending in GitHub)
-		t.Skip("Requires gh CLI mock - behavioral test documents expected pending creation")
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			if _, hasEvent := payload["event"]; hasEvent {
+				t.Error("pending review should not have event field")
+			}
+			return `{"id": 100}`, nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		comments := []models.Comment{
+			{
+				Path: "test.go",
+				Line: models.NewSingleLine(5),
+				Body: "Pending comment",
+				Side: models.SideRight,
+			},
+		}
+
+		err := prClient.CreatePendingReview(repo, prNumber, comments, "Draft body")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("includes comments and body", func(t *testing.T) {
-		// Expected behavior: Both comments and body should be included in
-		// the pending review
-		t.Skip("Requires gh CLI mock - behavioral test documents expected content inclusion")
-	})
+		mock := newMockCommandExecutor()
+		mock.executeWithStdinFunc = func(stdin, _ string, _ ...string) (string, error) {
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(stdin), &payload); err != nil {
+				return "", fmt.Errorf("failed to parse payload: %w", err)
+			}
+			if body, ok := payload["body"]; !ok || body != "My draft" {
+				t.Errorf("expected body 'My draft', got %v", payload["body"])
+			}
+			comments := payload["comments"].([]interface{})
+			if len(comments) != 1 {
+				t.Errorf("expected 1 comment, got %d", len(comments))
+			}
+			return `{"id": 101}`, nil
+		}
 
-	t.Run("delegates to SubmitReview", func(t *testing.T) {
-		// Expected behavior: CreatePendingReview is a convenience method that
-		// uses SubmitReview internally with no event
-		t.Skip("Behavioral test documents that CreatePendingReview uses SubmitReview")
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		comments := []models.Comment{
+			{
+				Path: "file.go",
+				Line: models.NewSingleLine(10),
+				Body: "Test",
+				Side: models.SideRight,
+			},
+		}
+
+		err := prClient.CreatePendingReview(repo, prNumber, comments, "My draft")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 }
 
-// TestGetExistingReviews tests the behavior of fetching existing reviews.
-func TestGetExistingReviews(t *testing.T) {
+// TestGetExistingReviewsBehavior tests the behavior of fetching existing reviews with mocking.
+func TestGetExistingReviewsBehavior(t *testing.T) {
+	repo := models.NewRepository("owner", "repo")
+	prNumber := 90
+
 	t.Run("fetches all reviews for a PR", func(t *testing.T) {
-		// Expected behavior: GetExistingReviews should return all reviews
-		// associated with a PR as a list of maps
-		t.Skip("Requires gh CLI mock - behavioral test documents expected retrieval")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			reviews := []map[string]interface{}{
+				{
+					"id":    float64(1),
+					"state": "APPROVED",
+					"body":  "LGTM",
+				},
+				{
+					"id":    float64(2),
+					"state": "COMMENTED",
+					"body":  "Some comments",
+				},
+			}
+			data, _ := json.Marshal(reviews)
+			return string(data), nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetExistingReviews(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result) != 2 {
+			t.Errorf("expected 2 reviews, got %d", len(result))
+		}
+		if result[0]["state"] != "APPROVED" {
+			t.Errorf("expected first review state APPROVED, got %v", result[0]["state"])
+		}
 	})
 
 	t.Run("returns error when API call fails", func(t *testing.T) {
-		// Expected behavior: Network or API errors should be returned as errors
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "", fmt.Errorf("network error")
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetExistingReviews(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to fetch existing reviews") {
+			t.Errorf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("returns error when JSON is malformed", func(t *testing.T) {
-		// Expected behavior: Invalid JSON responses should return parsing errors
-		t.Skip("Requires gh CLI mock - behavioral test documents expected error handling")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "[{invalid json", nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		_, err := prClient.GetExistingReviews(repo, prNumber)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to parse reviews response") {
+			t.Errorf("unexpected error: %v", err)
+		}
 	})
 
 	t.Run("handles PRs with no reviews", func(t *testing.T) {
-		// Expected behavior: PRs with no reviews should return an empty slice
-		t.Skip("Requires gh CLI mock - behavioral test documents expected edge case")
+		mock := newMockCommandExecutor()
+		mock.executeFunc = func(_ string, _ ...string) (string, error) {
+			return "[]", nil
+		}
+
+		client := NewClientWithExecutor(mock)
+		prClient := NewPRReviewClient(client)
+
+		result, err := prClient.GetExistingReviews(repo, prNumber)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty list, got %d reviews", len(result))
+		}
 	})
 }
 
