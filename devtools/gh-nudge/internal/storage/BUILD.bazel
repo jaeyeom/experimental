@@ -31,6 +31,7 @@ go_test(
         "lock_test.go",
         "locker_test.go",
         "store_test.go",
+        "utilities_test.go",
     ],
     embed = [":go_default_library"],
     deps = ["//devtools/gh-nudge/internal/models:go_default_library"],
