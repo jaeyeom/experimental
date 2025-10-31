@@ -779,3 +779,765 @@ func TestMoveDownCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestAddCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name:      "add item to empty list",
+			setup:     nil,
+			args:      []string{"add", "buy groceries"},
+			wantError: false,
+		},
+		{
+			name: "add item to existing list",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1")))
+				list.Add("First item")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"add", "Second item"},
+			wantError: false,
+		},
+		{
+			name:      "add command with no arguments",
+			setup:     nil,
+			args:      []string{"add"},
+			wantError: true,
+			wantMsg:   "add command requires exactly one argument",
+		},
+		{
+			name:      "add command with too many arguments",
+			setup:     nil,
+			args:      []string{"add", "item1", "item2"},
+			wantError: true,
+			wantMsg:   "add command requires exactly one argument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestAddSubtaskCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name: "add subtask to existing item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("parent-1", "subtask-1")))
+				list.Add("Parent task")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"addsubtask", "parent", "Subtask"},
+			wantError: false,
+		},
+		{
+			name: "add subtask using full ID",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "subtask-1")))
+				list.Add("Parent task")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"addsubtask", "abc123", "Subtask"},
+			wantError: false,
+		},
+		{
+			name: "add subtask to non-existent item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList()
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"addsubtask", "nonexistent", "Subtask"},
+			wantError: true,
+			wantMsg:   "add subtask",
+		},
+		{
+			name:      "addsubtask command with no arguments",
+			setup:     nil,
+			args:      []string{"addsubtask"},
+			wantError: true,
+			wantMsg:   "addsubtask command requires exactly two arguments",
+		},
+		{
+			name:      "addsubtask command with one argument",
+			setup:     nil,
+			args:      []string{"addsubtask", "id"},
+			wantError: true,
+			wantMsg:   "addsubtask command requires exactly two arguments",
+		},
+		{
+			name:      "addsubtask command with too many arguments",
+			setup:     nil,
+			args:      []string{"addsubtask", "id", "task", "extra"},
+			wantError: true,
+			wantMsg:   "addsubtask command requires exactly two arguments",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestCompleteCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name: "complete existing item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"complete", "1"},
+			wantError: false,
+		},
+		{
+			name: "complete using prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "def456")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"complete", "abc"},
+			wantError: false,
+		},
+		{
+			name: "complete item with subtasks",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("parent", "subtask1", "subtask2")))
+				list.Add("Parent task")
+				if err := list.AddSubtask("parent", "Subtask 1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := list.AddSubtask("parent", "Subtask 2"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"complete", "parent"},
+			wantError: false,
+		},
+		{
+			name: "complete non-existent item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList()
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"complete", "nonexistent"},
+			wantError: true,
+			wantMsg:   "complete todo item",
+		},
+		{
+			name:      "complete command with no arguments",
+			setup:     nil,
+			args:      []string{"complete"},
+			wantError: true,
+			wantMsg:   "complete command requires exactly one argument",
+		},
+		{
+			name:      "complete command with too many arguments",
+			setup:     nil,
+			args:      []string{"complete", "id1", "id2"},
+			wantError: true,
+			wantMsg:   "complete command requires exactly one argument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestUncompleteCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name: "uncomplete completed item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := list.Complete("1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"uncomplete", "1"},
+			wantError: false,
+		},
+		{
+			name: "uncomplete using prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "def456")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := list.Complete("abc123"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"uncomplete", "abc"},
+			wantError: false,
+		},
+		{
+			name: "uncomplete non-existent item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList()
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"uncomplete", "nonexistent"},
+			wantError: true,
+			wantMsg:   "uncomplete todo item",
+		},
+		{
+			name:      "uncomplete command with no arguments",
+			setup:     nil,
+			args:      []string{"uncomplete"},
+			wantError: true,
+			wantMsg:   "uncomplete command requires exactly one argument",
+		},
+		{
+			name:      "uncomplete command with too many arguments",
+			setup:     nil,
+			args:      []string{"uncomplete", "id1", "id2"},
+			wantError: true,
+			wantMsg:   "uncomplete command requires exactly one argument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestUndoCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name: "undo completed item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := list.Complete("1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"undo", "1"},
+			wantError: false,
+		},
+		{
+			name: "undo item with completed subtasks",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("parent", "subtask1", "subtask2")))
+				list.Add("Parent task")
+				if err := list.AddSubtask("parent", "Subtask 1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := list.AddSubtask("parent", "Subtask 2"); err != nil {
+					t.Fatal(err)
+				}
+				if err := list.Complete("parent"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"undo", "parent"},
+			wantError: false,
+		},
+		{
+			name: "undo using prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "def456")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := list.Complete("abc123"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"undo", "abc"},
+			wantError: false,
+		},
+		{
+			name: "undo non-existent item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList()
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"undo", "nonexistent"},
+			wantError: true,
+			wantMsg:   "undo todo item",
+		},
+		{
+			name:      "undo command with no arguments",
+			setup:     nil,
+			args:      []string{"undo"},
+			wantError: true,
+			wantMsg:   "undo command requires exactly one argument",
+		},
+		{
+			name:      "undo command with too many arguments",
+			setup:     nil,
+			args:      []string{"undo", "id1", "id2"},
+			wantError: true,
+			wantMsg:   "undo command requires exactly one argument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestRemoveCommand(t *testing.T) {
+	// Save original args and env
+	origArgs := os.Args
+	origStorageType := os.Getenv("TODO_STORAGE_TYPE")
+	origStoragePath := os.Getenv("TODO_STORAGE_PATH")
+	defer func() {
+		os.Args = origArgs
+		os.Setenv("TODO_STORAGE_TYPE", origStorageType)
+		os.Setenv("TODO_STORAGE_PATH", origStoragePath)
+	}()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, s storage)
+		args      []string
+		wantError bool
+		wantMsg   string
+	}{
+		{
+			name: "remove existing item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("1", "2")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"remove", "1"},
+			wantError: false,
+		},
+		{
+			name: "remove using prefix",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("abc123", "def456")))
+				list.Add("First task")
+				list.Add("Second task")
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"remove", "abc"},
+			wantError: false,
+		},
+		{
+			name: "remove item with subtasks",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList(core.WithNewID(coretest.NewIDGen("parent", "subtask1", "subtask2")))
+				list.Add("Parent task")
+				if err := list.AddSubtask("parent", "Subtask 1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := list.AddSubtask("parent", "Subtask 2"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"remove", "parent"},
+			wantError: false,
+		},
+		{
+			name: "remove non-existent item",
+			setup: func(t *testing.T, s storage) {
+				list := core.NewList()
+				if err := s.Save(list); err != nil {
+					t.Fatal(err)
+				}
+			},
+			args:      []string{"remove", "nonexistent"},
+			wantError: true,
+			wantMsg:   "remove todo item",
+		},
+		{
+			name:      "remove command with no arguments",
+			setup:     nil,
+			args:      []string{"remove"},
+			wantError: true,
+			wantMsg:   "remove command requires exactly one argument",
+		},
+		{
+			name:      "remove command with too many arguments",
+			setup:     nil,
+			args:      []string{"remove", "id1", "id2"},
+			wantError: true,
+			wantMsg:   "remove command requires exactly one argument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a temporary directory for test storage
+			tmpDir := t.TempDir()
+			storageFile := filepath.Join(tmpDir, "todo.json")
+
+			// Set up test environment
+			args := append([]string{
+				"--storage-type", "json",
+				"--storage-path", storageFile,
+			}, tt.args...)
+
+			// Create storage
+			cfg, fs, err := config.ParseStorageConfig(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := cfg.NewStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
+
+			// Set args and env for run()
+			os.Args = append([]string{"todo"}, fs.Args()...)
+			os.Setenv("TODO_STORAGE_TYPE", string(cfg.Type))
+			os.Setenv("TODO_STORAGE_PATH", cfg.Path)
+
+			err = run()
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error but got nil")
+				} else if !strings.Contains(err.Error(), tt.wantMsg) {
+					t.Errorf("expected error message containing %q but got %q", tt.wantMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
