@@ -40,4 +40,12 @@ if [ $EXIT_CODE -ne 0 ]; then
     exit 1
 fi
 
+# Check for warnings (excluding expected inventory warnings)
+FILTERED_OUTPUT=$(echo "$OUTPUT" | grep -E "WARNING|warning" | grep -v "No inventory was parsed" | grep -v "provided hosts list is empty" || true)
+if [ -n "$FILTERED_OUTPUT" ]; then
+    echo "ERROR: Syntax check found warnings for $PLAYBOOK"
+    echo "$FILTERED_OUTPUT"
+    exit 1
+fi
+
 echo "✓ $PLAYBOOK passed syntax check"

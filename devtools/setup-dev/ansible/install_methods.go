@@ -15,16 +15,21 @@ func indent(s string, spaces int) string {
 	return strings.Join(lines, "\n")
 }
 
-// stripBlockAndIndent removes a leading "block:" line if present, then indents
-// the remaining content. This is useful for RenderBlockInstallTask implementations
-// where the template already provides the "block:" keyword.
+// stripBlockAndIndent removes a leading task name and "block:" lines if present,
+// then indents the remaining content. This is useful for RenderBlockInstallTask
+// implementations where the template already provides the "block:" keyword.
 func stripBlockAndIndent(s string, spaces int) string {
 	lines := strings.Split(s, "\n")
 	startIdx := 0
 
-	// Check if first line contains just whitespace + "block:"
-	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "block:" {
+	// Check if first line is a task name (starts with "    - name:")
+	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "- name:") {
 		startIdx = 1
+	}
+
+	// Check if next line contains just whitespace + "block:"
+	if startIdx < len(lines) && strings.TrimSpace(lines[startIdx]) == "block:" {
+		startIdx++
 	}
 
 	// Rejoin and indent the remaining lines
@@ -509,7 +514,8 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
 
 	if s.VersionCommand != "" && s.LatestVersionURL != "" {
-		return `      block:
+		return `    - name: Ensure ` + command + ` is present
+      block:
         - name: Check if ` + command + ` is installed
           shell: command -v ` + command + `
           register: ` + commandID + `_command_check
@@ -548,7 +554,8 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
           when: ` + commandID + `_installed_version != ` + commandID + `_latest_version`
 	}
 
-	return `      block:
+	return `    - name: Ensure ` + command + ` is present
+      block:
         - name: Check if ` + command + ` is installed
           shell: command -v ` + command + `
           register: ` + commandID + `_installed
