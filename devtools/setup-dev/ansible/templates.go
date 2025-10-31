@@ -115,7 +115,8 @@ var platformSpecificTemplate = `---
 {{- $method := .DarwinMethod }}
 
     - name: Ensure {{.Command}} is present on MacOS
-{{$method.RenderInstallTask .Command}}
+      block:
+{{$method.RenderBlockInstallTask .Command}}
       when: ` + WhenDarwin + `
 {{- end }}
 {{- if .HasTermux }}

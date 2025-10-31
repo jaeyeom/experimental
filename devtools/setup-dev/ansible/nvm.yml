@@ -17,6 +17,7 @@
             nvm_playbook_imported: true
           when: nvm_playbook_imported is not defined
 
+    - name: Ensure nvm is present
       block:
         - name: Check if nvm is installed
           shell: command -v nvm
