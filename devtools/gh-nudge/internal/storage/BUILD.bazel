@@ -28,6 +28,7 @@ go_test(
         "cli_test.go",
         "github_branch_test.go",
         "github_test.go",
+        "lister_test.go",
         "lock_test.go",
         "locker_test.go",
         "store_test.go",
