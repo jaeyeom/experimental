@@ -181,7 +181,15 @@ func TestConfig_validNumRepeats(t *testing.T) {
 	properties := gopter.NewProperties(nil)
 
 	properties.Property("unique trials are always valid", prop.ForAll(
-		func(charset []rune, maxRepeat int, trial []int) bool {
+		func(charset []rune, maxRepeat int, seed int) bool {
+			// Generate a unique trial by creating a permutation
+			// This avoids the high discard rate of SuchThat(unique)
+			arr := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+			// #nosec: G404
+			rnd := rand.New(rand.NewSource(int64(seed)))
+			rnd.Shuffle(len(arr), func(i, j int) { arr[i], arr[j] = arr[j], arr[i] })
+			trial := arr[:5]
+
 			c := Config{
 				Charset:   charset,
 				NumDigits: len(trial),
@@ -191,7 +199,7 @@ func TestConfig_validNumRepeats(t *testing.T) {
 		},
 		gen.SliceOfN(10, gen.Rune()).SuchThat(unique),
 		gen.IntRange(0, 3),
-		gen.SliceOfN(5, gen.IntRange(0, 9)).SuchThat(unique),
+		gen.IntRange(0, 10000),
 	))
 
 	properties.Property("always valid for big enough numRepeats", prop.ForAll(
@@ -318,12 +326,12 @@ func TestConfig_ForEach(t *testing.T) {
 
 	properties.Property("should count permutation", prop.ForAll(
 		func(numChars, numDigits int) bool {
-			charset, ok := gen.SliceOfN(numChars, gen.Rune()).SuchThat(unique).Sample()
-			if !ok {
-				t.Errorf("failed to sample %d chars", numChars)
-			}
+			// Use a predefined charset to avoid sampling issues with unique runes
+			fullCharset := []rune("0123456789abcdefghijklmnopqrstuvwxyz")
+			charset := fullCharset[:numChars]
+
 			c := Config{
-				Charset:   charset.([]rune),
+				Charset:   charset,
 				NumDigits: numDigits,
 				MaxRepeat: 1,
 			}
