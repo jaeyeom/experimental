@@ -77,6 +77,10 @@ func (e *BasicExecutor) setupCommand(cmd *exec.Cmd, cfg ToolConfig) {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 		}
 	}
+
+	if cfg.Stdin != nil {
+		cmd.Stdin = cfg.Stdin
+	}
 }
 
 func (e *BasicExecutor) executeCommand(cmd *exec.Cmd) (bytes.Buffer, bytes.Buffer, time.Time, time.Time, error) {

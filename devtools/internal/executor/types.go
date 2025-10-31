@@ -2,6 +2,7 @@ package executor
 
 import (
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -30,6 +31,10 @@ type ToolConfig struct {
 	// Env contains additional environment variables for the command
 	// These will be added to the current environment
 	Env map[string]string
+
+	// Stdin is an optional reader for providing input to the command
+	// If nil, the command will have no stdin
+	Stdin io.Reader
 }
 
 // Validate ensures the ToolConfig has valid data.
