@@ -50,10 +50,13 @@ func computeResult(a, b []int) Result {
 	return r
 }
 
+// Config defines the configuration for a baseball number guessing game.
 type Config struct {
-	Charset   []rune
+	// Charset is the set of characters that can be used in trials.
+	Charset []rune
+	// NumDigits is the number of digits in each trial.
 	NumDigits int
-	// Maximum number of repeated digits. (Default 1)
+	// MaxRepeat is the maximum number of times a digit can be repeated. (Default 1)
 	MaxRepeat int
 }
 
@@ -133,7 +136,7 @@ func (c Config) IntsToString(ints []int) string {
 	return string(r)
 }
 
-// IntsToString converts string to ints.
+// StringToInts converts a string to a slice of ints based on the Config's Charset.
 func (c Config) StringToInts(s string) ([]int, error) {
 	var ints []int
 	for _, r := range s {
@@ -146,17 +149,25 @@ func (c Config) StringToInts(s string) ([]int, error) {
 	return ints, nil
 }
 
+// Result represents the outcome of comparing a trial against the answer.
 type Result struct {
+	// Strike is the count of digits that are correct and in the correct position.
 	Strike int
-	Ball   int
-	Out    int
+	// Ball is the count of digits that are correct but in the wrong position.
+	Ball int
+	// Out is the count of digits that are not in the answer.
+	Out int
 }
 
+// Training represents a trial and its corresponding result used for training the picker.
 type Training struct {
-	Trial  []int
+	// Trial is the guess that was made.
+	Trial []int
+	// Result is the outcome of the trial.
 	Result Result
 }
 
+// AllMeets returns true if the trial produces the same results for all trainings.
 func AllMeets(trainings []Training, trial []int) bool {
 	for _, t := range trainings {
 		if computeResult(t.Trial, trial) != t.Result {
@@ -166,7 +177,9 @@ func AllMeets(trainings []Training, trial []int) bool {
 	return true
 }
 
+// Candidates manages a set of possible trials that satisfy all training data.
 type Candidates struct {
+	// Config is the game configuration.
 	Config     Config
 	trainings  []Training
 	candidates [][]int
@@ -182,6 +195,8 @@ func (c *Candidates) regnerate() {
 	})
 }
 
+// AppendTrainings adds new training data and filters candidates to only those that satisfy all trainings.
+// It returns the updated list of candidates.
 func (c *Candidates) AppendTrainings(trainings ...Training) (newCandidate [][]int) {
 	if c.candidates == nil {
 		c.regnerate()
@@ -197,16 +212,20 @@ func (c *Candidates) AppendTrainings(trainings ...Training) (newCandidate [][]in
 	return c.candidates
 }
 
+// RandomPicker randomly selects a candidate from the set of possible trials.
 type RandomPicker struct {
 	candidates Candidates
 }
 
+// NewRandomPicker creates a new RandomPicker with the given configuration.
 func NewRandomPicker(c Config) *RandomPicker {
 	return &RandomPicker{
 		candidates: Candidates{Config: c},
 	}
 }
 
+// Pick returns a random candidate that satisfies all training data.
+// It accepts additional training data to further filter candidates.
 func (p *RandomPicker) Pick(additional ...Training) []int {
 	candidates := p.candidates.AppendTrainings(additional...)
 	numCandidates := len(candidates)
@@ -215,7 +234,9 @@ func (p *RandomPicker) Pick(additional ...Training) []int {
 	return candidates[n]
 }
 
+// Picker is an interface for strategies that pick the next trial based on training data.
 type Picker interface {
+	// Pick returns the next trial to try, optionally incorporating additional training data.
 	Pick(additional ...Training) []int
 }
 
@@ -233,6 +254,9 @@ func countTrials(p Picker, answer []int) int32 {
 	}
 }
 
+// AverageTrials calculates the average number of trials needed to find the answer
+// across multiple test cases using the given picker factory. It runs each test case
+// concurrently for better performance.
 func AverageTrials(answers [][]int, pickerFactory func() Picker) float64 {
 	var total int32
 	var wg sync.WaitGroup
@@ -248,6 +272,8 @@ func AverageTrials(answers [][]int, pickerFactory func() Picker) float64 {
 	return float64(total) / float64(len(answers))
 }
 
+// EvaluatePickers evaluates the performance of different picker strategies
+// by running them against randomly generated answers and printing the average number of trials.
 func EvaluatePickers(c Config, times int) {
 	randomPicker := NewRandomPicker(c)
 	answers := make([][]int, times)
@@ -257,6 +283,8 @@ func EvaluatePickers(c Config, times int) {
 	fmt.Printf("RandomPicker average trials: %.5f\n", AverageTrials(answers, func() Picker { return NewRandomPicker(c) }))
 }
 
+// Interactive runs an interactive game session where the picker suggests trials
+// and the user provides the results until the correct answer is found.
 func Interactive(c Config, picker Picker) {
 	pick := picker.Pick()
 	for {
