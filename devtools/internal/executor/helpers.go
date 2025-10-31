@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -184,55 +183,6 @@ func OutputWithStdin(ctx context.Context, executor Executor, stdin string, comma
 	return []byte(result.Output), nil
 }
 
-// prepareStdinViaFile creates a temporary file with stdin content and returns a shell command configuration.
-// The cleanup function must be called by the caller to remove the temporary file.
-//
-// TODO(https://github.com/jaeyeom/experimental/issues/73): Replace this with native Stdin support in ToolConfig.
-// This temporary file approach is a workaround for the lack of stdin support in the executor framework.
-// Once ToolConfig has a Stdin field, this function can be removed and CombinedOutputWithStdin can
-// directly set cfg.Stdin instead of using shell wrappers.
-func prepareStdinViaFile(stdin, command string, args ...string) (cfg ToolConfig, cleanup func(), err error) {
-	// Create a temporary file with the stdin content
-	tmpfile, err := os.CreateTemp("", "stdin-*.tmp")
-	if err != nil {
-		return ToolConfig{}, nil, fmt.Errorf("failed to create temp file for stdin: %w", err)
-	}
-	tmpfileName := tmpfile.Name()
-
-	// Cleanup function to remove the temp file
-	cleanup = func() {
-		os.Remove(tmpfileName)
-	}
-
-	// Write stdin content to the temp file
-	if _, err := tmpfile.WriteString(stdin); err != nil {
-		tmpfile.Close()
-		cleanup()
-		return ToolConfig{}, nil, fmt.Errorf("failed to write stdin to temp file: %w", err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		cleanup()
-		return ToolConfig{}, nil, fmt.Errorf("failed to close temp file: %w", err)
-	}
-
-	// Build the command with proper quoting for args
-	var quotedArgs []string
-	for _, arg := range args {
-		// Simple quoting: wrap in single quotes and escape any existing single quotes
-		quoted := "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
-		quotedArgs = append(quotedArgs, quoted)
-	}
-
-	// Use cat to pipe the temp file to the command
-	shellCmd := fmt.Sprintf("cat %s | %s %s", tmpfileName, command, strings.Join(quotedArgs, " "))
-	cfg = ToolConfig{
-		Command: "sh",
-		Args:    []string{"-c", shellCmd},
-	}
-
-	return cfg, cleanup, nil
-}
-
 // CombinedOutputWithStdin runs a command with stdin input and returns combined stdout+stderr.
 func CombinedOutputWithStdin(ctx context.Context, executor Executor, stdin string, command string, args ...string) ([]byte, error) {
 	cfg := ToolConfig{
@@ -240,15 +190,9 @@ func CombinedOutputWithStdin(ctx context.Context, executor Executor, stdin strin
 		Args:    args,
 	}
 
-	// For commands that need stdin, use a temporary file approach
+	// Set stdin if provided
 	if stdin != "" {
-		var cleanup func()
-		var err error
-		cfg, cleanup, err = prepareStdinViaFile(stdin, command, args...)
-		if err != nil {
-			return nil, err
-		}
-		defer cleanup()
+		cfg.Stdin = strings.NewReader(stdin)
 	}
 
 	result, err := executor.Execute(ctx, cfg)
