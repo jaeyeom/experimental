@@ -57,10 +57,21 @@ func TestNewFileSystemLister_ConvertsRelativeToAbsolute(t *testing.T) {
 		t.Errorf("Expected absolute path for relative input, got %q", lister.rootPath)
 	}
 
-	// Verify it matches the temp directory
-	absTemp, _ := filepath.Abs(tempDir)
-	if lister.rootPath != absTemp {
-		t.Errorf("Expected rootPath %q, got %q", absTemp, lister.rootPath)
+	// Verify it matches the temp directory (resolve symlinks for comparison on macOS)
+	absTemp, err := filepath.Abs(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to get absolute path: %v", err)
+	}
+	expectedPath, err := filepath.EvalSymlinks(absTemp)
+	if err != nil {
+		t.Fatalf("Failed to resolve symlinks: %v", err)
+	}
+	actualPath, err := filepath.EvalSymlinks(lister.rootPath)
+	if err != nil {
+		t.Fatalf("Failed to resolve symlinks: %v", err)
+	}
+	if actualPath != expectedPath {
+		t.Errorf("Expected rootPath %q, got %q", expectedPath, actualPath)
 	}
 }
 
