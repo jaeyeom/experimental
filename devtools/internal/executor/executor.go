@@ -57,13 +57,12 @@ func (e *BasicExecutor) createExecutionContext(ctx context.Context, timeout time
 }
 
 func (e *BasicExecutor) createCommand(ctx context.Context, cfg ToolConfig) *exec.Cmd {
-	if requiresShellExecution(cfg.Command) {
-		fullCommand := buildShellCommand(cfg.Command, cfg.Args)
-		// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
-		return exec.CommandContext(ctx, "sh", "-c", fullCommand)
+	// Use the configured CommandBuilder, defaulting to DirectCommandBuilder
+	builder := cfg.CommandBuilder
+	if builder == nil {
+		builder = &DirectCommandBuilder{}
 	}
-	// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
-	return exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+	return builder.Build(ctx, cfg.Command, cfg.Args)
 }
 
 func (e *BasicExecutor) setupCommand(cmd *exec.Cmd, cfg ToolConfig) {
@@ -148,35 +147,6 @@ func buildCommandString(command string, args []string) string {
 		// Simple quoting for args with spaces
 		if strings.Contains(arg, " ") {
 			parts = append(parts, fmt.Sprintf("%q", arg))
-		} else {
-			parts = append(parts, arg)
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-// requiresShellExecution determines if a command should be run through a shell.
-// Some tools (like Bazel) have client-server architectures that work better
-// when executed in a proper shell environment.
-func requiresShellExecution(command string) bool {
-	shellRequiredTools := map[string]bool{
-		"bazel":  true,
-		"gradle": true, // Gradle daemon has similar issues
-		"maven":  true, // Maven can have similar server-based issues
-		"sbt":    true, // Scala Build Tool has a server mode
-	}
-	return shellRequiredTools[command]
-}
-
-// buildShellCommand constructs a properly quoted shell command string.
-func buildShellCommand(command string, args []string) string {
-	parts := []string{command}
-	for _, arg := range args {
-		// Properly quote arguments for shell execution
-		if strings.Contains(arg, " ") || strings.Contains(arg, "'") || strings.Contains(arg, "\"") {
-			// Use single quotes and escape any single quotes in the argument
-			escaped := strings.ReplaceAll(arg, "'", "'\"'\"'")
-			parts = append(parts, fmt.Sprintf("'%s'", escaped))
 		} else {
 			parts = append(parts, arg)
 		}
