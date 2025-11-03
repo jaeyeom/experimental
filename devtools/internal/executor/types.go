@@ -35,6 +35,11 @@ type ToolConfig struct {
 	// Stdin is an optional reader for providing input to the command
 	// If nil, the command will have no stdin
 	Stdin io.Reader
+
+	// CommandBuilder defines how to build the command for execution.
+	// If nil, defaults to DirectCommandBuilder for direct execution.
+	// Use ShellCommandBuilder for tools that need shell execution (e.g., Bazel, Gradle).
+	CommandBuilder CommandBuilder
 }
 
 // Validate ensures the ToolConfig has valid data.

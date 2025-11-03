@@ -105,9 +105,10 @@ func (q *BazelQuerier) query(queryStr string) ([]string, error) {
 	defer cancel()
 
 	result, err := q.executor.Execute(ctx, executor.ToolConfig{
-		Command: "bazel",
-		Args:    []string{"query", queryStr},
-		Timeout: 30 * time.Second,
+		Command:        "bazel",
+		Args:           []string{"query", queryStr},
+		Timeout:        30 * time.Second,
+		CommandBuilder: &executor.ShellCommandBuilder{},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("bazel query failed: %w", err)

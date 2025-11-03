@@ -223,10 +223,11 @@ func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string) ([]exec
 
 func createBazelConfig(dir string) executor.ToolConfig {
 	return executor.ToolConfig{
-		Command:    "bazel",
-		Args:       []string{"info", "workspace"},
-		WorkingDir: dir,
-		Timeout:    15 * time.Second,
+		Command:        "bazel",
+		Args:           []string{"info", "workspace"},
+		WorkingDir:     dir,
+		Timeout:        15 * time.Second,
+		CommandBuilder: &executor.ShellCommandBuilder{},
 	}
 }
 
