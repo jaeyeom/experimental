@@ -1,4 +1,5 @@
 #+TITLE: Ansible Setup Dev
+#+TODO: TODO DOING | DONE
 
 This directory includes Ansible playbooks and a generator of it.
 
