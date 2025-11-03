@@ -147,11 +147,11 @@ These are some fonts that I want to ensure that they are installed.
 **** TODO SF Mono
 **** TODO D2Coding
 **** TODO Noto
-*** TODO Aider
 *** DONE NPM
 CLOSED: [2025-06-22 Sat]
 Added NPM package installation support with platform-specific implementation.
-*** TODO Nala
+*** DONE Nala
+CLOSED: [2025-11-03 Mon 14:08]
 *** DONE cargo-update
 CLOSED: [2025-03-02 Sun 00:03]
 *** TODO yadm
@@ -173,7 +173,13 @@ CLOSED: [2025-03-01 Sat 03:54]
 
 ** Other Issues
 *** TODO Fix python3-notmuch2 on Termux
+*** TODO Fix trusted GPG for PPA
+Fix the following error message on Ubuntu.
 
+#+begin_example
+W: http://ppa.launchpad.net/ubuntuhandbook1/emacs/ubuntu/dists/noble/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+E: Can't select candidate version from package libqt5core5a as it has no candidate
+#+end_example
 * Manual Playbooks
 These files are playbooks not generated from =generate_packages.go=:
 
