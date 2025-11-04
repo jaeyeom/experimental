@@ -1,8 +1,10 @@
 EMACS ?= emacs
 
-.PHONY: build clean
+.PHONY: check clean
 
-build:
+check: .spacemacs.elc
+
+.spacemacs.elc: .spacemacs
 	$(EMACS) -Q --batch -L . -f batch-byte-compile .spacemacs
 
 clean:

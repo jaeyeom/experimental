@@ -1,9 +1,12 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config check-bazel-go-files coverage coverage-report coverage-html clean-coverage
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config check-bazel-go-files check-spacemacs coverage coverage-report coverage-html clean-coverage
 
-all: requirements.txt generate-ansible format test fix check-bazel-go-files
+all: requirements.txt generate-ansible format test fix check-bazel-go-files check-spacemacs
 
 generate-ansible:
 	$(MAKE) -C devtools/setup-dev/ansible
+
+check-spacemacs:
+	$(MAKE) -C spacemacs check
 
 check-format:
 	goimports -l .
@@ -19,7 +22,7 @@ format-whitespace:
 test:
 	bazel test //...
 
-lint: lint-golangci lint-ruff
+lint: lint-golangci lint-ruff check-spacemacs
 
 fix: fix-golangci fix-ruff
 
