@@ -1,6 +1,7 @@
 #+TITLE: Spacemacs Configuration
 #+AUTHOR: Jaehyun Yeom
 #+DATE: 2025-01-28
+#+TODO: TODO DOING | DONE
 
 * Overview
 
@@ -47,3 +48,11 @@ emacs
 #+END_SRC
 
 On first launch, Spacemacs will install all configured packages automatically.
+
+* Future Works
+** TODO Fix warnings
+The compilation warnings can be check by the following command:
+#+begin_src sh
+  touch .spacemacs
+  make
+#+end_src
