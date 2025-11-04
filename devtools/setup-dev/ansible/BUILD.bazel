@@ -109,6 +109,7 @@ sh_test(
         "notmuch.yml",
         "npm.yml",
         "nvm.yml",
+        "org-lint.yml",
         "oserrorsgodernize.yml",
         "pandoc.yml",
         "pass.yml",
@@ -1156,6 +1157,23 @@ sh_test(
 )
 
 sh_test(
+    name = "org-lint_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["org-lint.yml"],
+    data = [
+        "emacs.yml",
+        "go.yml",
+        "org-lint.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "oserrorsgodernize_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["oserrorsgodernize.yml"],
@@ -1429,8 +1447,10 @@ sh_test(
     data = [
         "bazel-affected-tests.yml",
         "copier.yml",
+        "emacs.yml",
         "go.yml",
         "lcov.yml",
+        "org-lint.yml",
         "setup-cicd.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
@@ -2205,6 +2225,7 @@ test_suite(
         ":notmuch_syntax_test",
         ":npm_syntax_test",
         ":nvm_syntax_test",
+        ":org-lint_syntax_test",
         ":oserrorsgodernize_syntax_test",
         ":pandoc_syntax_test",
         ":pass_syntax_test",
