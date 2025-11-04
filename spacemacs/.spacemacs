@@ -88,8 +88,20 @@ This function should only modify configuration layer settings."
       (org :variables
            org-directory (file-truename "~/Documents/projects")
            org-default-notes-file (concat org-directory "/todo.org")
-           org-agenda-files (directory-files-recursively
-                             (file-truename "~/Documents/projects") "\\.org$")
+           org-agenda-files (let ((agenda-dirs
+                                   '("~/Documents/projects"))
+                                  (agenda-files
+                                   '("~/go/src/github.com/jaeyeom/experimental/devtools/setup-dev/ansible/README.org")))
+                              (append
+                               (apply 'append
+                                      (mapcar (lambda (dir)
+                                                (let ((expanded (expand-file-name dir)))
+                                                  (when (file-exists-p expanded)
+                                                    (directory-files-recursively (file-truename expanded)
+                                                                                 "\\.org$"))))
+                                              agenda-dirs))
+                               (seq-filter 'file-exists-p
+                                           (mapcar 'expand-file-name agenda-files))))
            org-enable-github-support t
            org-enable-roam-support t
            org-enable-roam-ui t
