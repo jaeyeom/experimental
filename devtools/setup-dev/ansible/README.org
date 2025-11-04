@@ -89,10 +89,19 @@ CLOSED: [2024-08-26 Mon 19:37]
 ** New Features
 *** DONE Include guards for playbooks
 *** TODO Spacemacs packages keeping up-to-date
-I can run the following command to keep Spacemacs up-to-date.
+I can run the following command to keep Spacemacs up-to-date. It only deletes
+outdated packages, making Emacs unusable without internet connection. The follow
+up Emacs run will download, compile and install the missing packages.
 #+begin_src sh
   emacs --batch -l ~/.config/emacs/init.el --eval='(configuration-layer/update-packages t)'
 #+end_src
+
+Conditions:
+- It should not run it when there is an active Emacs process. On MacOS, the
+  process name is a little different like it contains capitalized like Emacs.
+- After the batch command ran successfully, it should run the batch command
+  again without --eval option, so that it downloads, compiles and installs all
+  the packages.
 
 Here are the caveats:
 - I'm not sure if it is okay to run the above command when there is an active
@@ -100,6 +109,8 @@ Here are the caveats:
 - I don't want Emacs to be in a state where it can't run offline. I may need to
   run Emacs one more time to make sure it downloads all the missing or
   to-be-upgraded packages.
+- Even if the above conditions meet, it may still silently fail and some
+  packages are malfunctioning and it may needs reinstallation of some packages.
 
 *** DONE gh
 CLOSED: [2024-08-21 Wed 13:27]
