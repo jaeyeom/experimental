@@ -923,10 +923,12 @@ Fallback file lists are returned for specific directories."
 
   ;;; Reddit
   (with-eval-after-load 'reddigg
-    (defadvice reddigg-view-comments (around no-query-string activate)
+    (defun my/reddigg-view-comments-no-query-string (orig-fun cmt &rest args)
       "Remove query string from the url for `reddigg-view-comments'."
       (let ((cmt (car (split-string cmt "\\?"))))
-        ad-do-it))
+        (apply orig-fun cmt args)))
+
+    (advice-add 'reddigg-view-comments :around #'my/reddigg-view-comments-no-query-string)
 
     (defun reddigg-find-browse-url-function (url)
       "Return the right reddigg function to browse URL and args. It
@@ -974,11 +976,14 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
         (defun browse-url-default-android-browser (url &rest args)
           "Open URL using xdg-open (termux-open) on Android."
           (browse-url-xdg-open url args))
-        (defadvice browse-url-can-use-xdg-open (around termux-can-use-xdg-open activate)
+
+        (defun my/browse-url-can-use-xdg-open-advice (orig-fun &rest args)
           "Use termux-open if available."
           (if (executable-find "termux-open")
-              (setq ad-return-value t)
-            ad-do-it))))
+              t
+            (apply orig-fun args)))
+
+        (advice-add 'browse-url-can-use-xdg-open :around #'my/browse-url-can-use-xdg-open-advice)))
 
   (with-eval-after-load 'eww
     ;; To open external browser from eww, press `, v x'
@@ -1851,20 +1856,18 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (when my/crostini-p
     ;; Fix yank bug by comparing the kill-ring and the clipboard.
     (setopt select-enable-primary t)
-    (defadvice evil-paste-after (around my/evil-paste-after activate)
+
+    (defun my/evil-paste-fix-clipboard-advice (orig-fun &rest args)
+      "Fix clipboard sync by comparing kill-ring with system clipboard."
       (let* ((clipboard (gui-get-selection))
              (select-enable-clipboard
               (and (stringp clipboard)
                    (not (string= (substring-no-properties clipboard)
                                  (substring-no-properties (or (car kill-ring) "")))))))
-        ad-do-it))
-    (defadvice evil-paste-before (around my/evil-paste-before activate)
-      (let* ((clipboard (gui-get-selection))
-             (select-enable-clipboard
-              (and (stringp clipboard)
-                   (not (string= (substring-no-properties clipboard)
-                                 (substring-no-properties (or (car kill-ring) "")))))))
-        ad-do-it)))
+        (apply orig-fun args)))
+
+    (advice-add 'evil-paste-after :around #'my/evil-paste-fix-clipboard-advice)
+    (advice-add 'evil-paste-before :around #'my/evil-paste-fix-clipboard-advice))
 
   ;; Dirvish
   (use-package dirvish
@@ -2028,8 +2031,11 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 
   (require 'tramp-gh)
 
-  (defadvice projectile-project-root (around ignore-remote first activate)
-    (unless (file-remote-p default-directory) ad-do-it))
+  (defun my/projectile-project-root-ignore-remote (orig-fun &rest args)
+    (unless (file-remote-p default-directory)
+      (apply orig-fun args)))
+
+  (advice-add 'projectile-project-root :around #'my/projectile-project-root-ignore-remote '((depth . -100)))
 
   ;;; More configuration follows
   )
