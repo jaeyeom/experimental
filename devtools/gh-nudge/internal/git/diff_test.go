@@ -42,6 +42,7 @@ func TestNewClient(t *testing.T) {
 		client := NewClient(testRepoPath)
 		if client == nil {
 			t.Fatal("expected non-nil client")
+			return
 		}
 		if client.repoPath != testRepoPath {
 			t.Errorf("expected repoPath %s, got %s", testRepoPath, client.repoPath)
