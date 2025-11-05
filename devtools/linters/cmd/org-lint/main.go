@@ -39,6 +39,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 
 	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
@@ -55,7 +56,16 @@ func main() {
 		return
 	}
 
-	hasIssues := false
+	// Parse flags and files
+	skipIfNoEmacs, files := parseArgs(os.Args[1:])
+
+	if len(files) == 0 {
+		printUsage()
+		os.Exit(1)
+	}
+
+	// Check if emacs is available
+	checkEmacsAvailable(skipIfNoEmacs)
 
 	// Debug: print all arguments with %q formatting
 	if os.Getenv("DEBUG") != "" {
@@ -65,7 +75,42 @@ func main() {
 		}
 	}
 
-	for _, filename := range os.Args[1:] {
+	hasIssues := lintFiles(files)
+
+	if hasIssues {
+		os.Exit(1)
+	}
+}
+
+func parseArgs(args []string) (skipIfNoEmacs bool, files []string) {
+	for _, arg := range args {
+		if arg == "--skip-if-no-emacs" {
+			skipIfNoEmacs = true
+		} else {
+			files = append(files, arg)
+		}
+	}
+	return skipIfNoEmacs, files
+}
+
+func checkEmacsAvailable(skipIfNoEmacs bool) {
+	if _, err := exec.LookPath("emacs"); err != nil {
+		if skipIfNoEmacs {
+			if os.Getenv("DEBUG") != "" {
+				fmt.Fprintf(os.Stderr, "DEBUG: Emacs not found, skipping (--skip-if-no-emacs)\n")
+			}
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "Error: emacs command not found in PATH\n")
+		fmt.Fprintf(os.Stderr, "Hint: Use --skip-if-no-emacs to succeed when emacs is not available\n")
+		os.Exit(1)
+	}
+}
+
+func lintFiles(files []string) bool {
+	hasIssues := false
+
+	for _, filename := range files {
 		// Debug: print each file being processed
 		if os.Getenv("DEBUG") != "" {
 			fmt.Fprintf(os.Stderr, "DEBUG: Processing file: %q\n", filename)
@@ -83,9 +128,7 @@ func main() {
 		}
 	}
 
-	if hasIssues {
-		os.Exit(1)
-	}
+	return hasIssues
 }
 
 func printUsage() {
@@ -98,7 +141,9 @@ ARGUMENTS:
     <files>    One or more .org files to lint
 
 OPTIONS:
-    -h, --help    Show this help message
+    -h, --help            Show this help message
+    --skip-if-no-emacs    Exit successfully if emacs is not available
+                          (useful for CI/CD environments)
 
 ENVIRONMENT VARIABLES:
     DEBUG         If set, prints debug information including load-path
@@ -120,6 +165,9 @@ EXAMPLES:
         echo "Issues found"
     fi
 
+    # Skip linting if emacs is not installed (CI/CD friendly)
+    org-lint --skip-if-no-emacs *.org
+
     # Enable debug output
     DEBUG=1 org-lint README.org
 
@@ -132,7 +180,7 @@ OUTPUT:
     - high:     Serious structural problems
 
 EXIT CODES:
-    0    All files are clean (no issues found)
+    0    All files are clean (no issues found) or emacs not available with --skip-if-no-emacs
     1    Issues found or error occurred
 
 FEATURES:
@@ -140,6 +188,7 @@ FEATURES:
     - Supports org-babel source blocks (loads ob-* packages)
     - Auto-discovers language modes for comprehensive linting
     - Works with both ~/.emacs.d and ~/.config/emacs setups
+    - Can gracefully skip when emacs is not available (--skip-if-no-emacs)
 
 For more information, visit: https://github.com/jaeyeom/experimental/tree/main/devtools/linters
 `)
