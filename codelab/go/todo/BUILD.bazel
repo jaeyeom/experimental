@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 go_library(
     name = "go_default_library",
@@ -30,79 +31,12 @@ go_test(
     ],
 )
 
-sh_test(
-    name = "IndentationFeature_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["IndentationFeature.org"],
-    data = ["IndentationFeature.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "Milestone1_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["Milestone1.org"],
-    data = ["Milestone1.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "Milestone2_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["Milestone2.org"],
-    data = ["Milestone2.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "Milestone3_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["Milestone3.org"],
-    data = ["Milestone3.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "README_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["README.org"],
-    data = ["README.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "ReorderingFeature_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["ReorderingFeature.org"],
-    data = ["ReorderingFeature.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "SubtasksFeature_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["SubtasksFeature.org"],
-    data = ["SubtasksFeature.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
+org_lint_tests([
+    "IndentationFeature.org",
+    "Milestone1.org",
+    "Milestone2.org",
+    "Milestone3.org",
+    "README.org",
+    "ReorderingFeature.org",
+    "SubtasksFeature.org",
+])

@@ -1,4 +1,5 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 go_library(
     name = "go_default_library",
