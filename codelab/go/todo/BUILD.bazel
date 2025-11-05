@@ -29,3 +29,80 @@ go_test(
         "//codelab/go/todo/testutil:go_default_library",
     ],
 )
+
+sh_test(
+    name = "IndentationFeature_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["IndentationFeature.org"],
+    data = ["IndentationFeature.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "Milestone1_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["Milestone1.org"],
+    data = ["Milestone1.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "Milestone2_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["Milestone2.org"],
+    data = ["Milestone2.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "Milestone3_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["Milestone3.org"],
+    data = ["Milestone3.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "README_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["README.org"],
+    data = ["README.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "ReorderingFeature_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["ReorderingFeature.org"],
+    data = ["ReorderingFeature.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "SubtasksFeature_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["SubtasksFeature.org"],
+    data = ["SubtasksFeature.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)

@@ -35,3 +35,14 @@ exports_files(
         "MODULE.bazel",
     ],
 )
+
+sh_test(
+    name = "README_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["README.org"],
+    data = ["README.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)

@@ -1,0 +1,54 @@
+sh_test(
+    name = "README_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["README.org"],
+    data = ["README.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "conflict-resolution_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["conflict-resolution.org"],
+    data = ["conflict-resolution.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "database-schema_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["database-schema.org"],
+    data = ["database-schema.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "error-handling_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["error-handling.org"],
+    data = ["error-handling.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
+
+sh_test(
+    name = "technical-implementation_org_lint_test",
+    srcs = ["//tools/org-lint:test_org_lint.sh"],
+    args = ["technical-implementation.org"],
+    data = ["technical-implementation.org"],
+    tags = [
+        "local",
+        "org-lint",
+    ],
+)
