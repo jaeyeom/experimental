@@ -1,76 +1,11 @@
-sh_test(
-    name = "README_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["README.org"],
-    data = ["README.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
-sh_test(
-    name = "codeowners_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["codeowners.org"],
-    data = ["codeowners.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "merge_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["merge.org"],
-    data = ["merge.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "nudge_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["nudge.org"],
-    data = ["nudge.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "pr-review_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["pr-review.org"],
-    data = ["pr-review.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "slack_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["slack.org"],
-    data = ["slack.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "storage_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["storage.org"],
-    data = ["storage.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
+org_lint_tests([
+    "README.org",
+    "codeowners.org",
+    "merge.org",
+    "nudge.org",
+    "pr-review.org",
+    "slack.org",
+    "storage.org",
+])

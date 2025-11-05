@@ -1,1 +1,4 @@
-exports_files(["test_org_lint.sh"])
+exports_files([
+    "test_org_lint.sh",
+    "defs.bzl",
+])
