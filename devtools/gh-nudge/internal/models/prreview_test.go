@@ -2214,3 +2214,140 @@ func TestMergeConflict_Location(t *testing.T) {
 		}
 	})
 }
+
+// TestLineRangeUnion tests the LineRange.Union method.
+func TestLineRangeUnion(t *testing.T) {
+	tests := []struct {
+		name  string
+		lr1   LineRange
+		lr2   LineRange
+		want  LineRange
+		about string
+	}{
+		{
+			name:  "Overlapping ranges",
+			lr1:   NewLineRange(10, 15),
+			lr2:   NewLineRange(12, 20),
+			want:  NewLineRange(10, 20),
+			about: "Union should create bounding box from 10 to 20",
+		},
+		{
+			name:  "Non-overlapping ranges with gap",
+			lr1:   NewLineRange(10, 15),
+			lr2:   NewLineRange(20, 25),
+			want:  NewLineRange(10, 25),
+			about: "Union should include gap between ranges",
+		},
+		{
+			name:  "Adjacent ranges",
+			lr1:   NewLineRange(10, 15),
+			lr2:   NewLineRange(16, 20),
+			want:  NewLineRange(10, 20),
+			about: "Union should create continuous range",
+		},
+		{
+			name:  "One range contains the other",
+			lr1:   NewLineRange(10, 30),
+			lr2:   NewLineRange(15, 20),
+			want:  NewLineRange(10, 30),
+			about: "Union should return the larger range",
+		},
+		{
+			name:  "Identical ranges",
+			lr1:   NewLineRange(10, 20),
+			lr2:   NewLineRange(10, 20),
+			want:  NewLineRange(10, 20),
+			about: "Union of identical ranges should return same range",
+		},
+		{
+			name:  "Single line ranges that overlap",
+			lr1:   NewSingleLine(15),
+			lr2:   NewSingleLine(15),
+			want:  NewSingleLine(15),
+			about: "Union of same single line should return that line",
+		},
+		{
+			name:  "Single line ranges that don't overlap",
+			lr1:   NewSingleLine(10),
+			lr2:   NewSingleLine(20),
+			want:  NewLineRange(10, 20),
+			about: "Union should create range spanning both lines",
+		},
+		{
+			name:  "Single line with multi-line range",
+			lr1:   NewSingleLine(15),
+			lr2:   NewLineRange(10, 20),
+			want:  NewLineRange(10, 20),
+			about: "Union should expand to encompass both",
+		},
+		{
+			name:  "Second range starts before first",
+			lr1:   NewLineRange(20, 30),
+			lr2:   NewLineRange(10, 15),
+			want:  NewLineRange(10, 30),
+			about: "Order shouldn't matter - should use min start and max end",
+		},
+		{
+			name:  "Ranges at file boundaries",
+			lr1:   NewLineRange(1, 5),
+			lr2:   NewLineRange(3, 10),
+			want:  NewLineRange(1, 10),
+			about: "Should work correctly at beginning of file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.lr1.Union(tt.lr2)
+			if got != tt.want {
+				t.Errorf("LineRange.Union() = %v, want %v\nAbout: %s", got, tt.want, tt.about)
+			}
+
+			// Verify Union is commutative (lr1.Union(lr2) == lr2.Union(lr1))
+			gotReverse := tt.lr2.Union(tt.lr1)
+			if gotReverse != got {
+				t.Errorf("Union is not commutative: %v.Union(%v) = %v, but %v.Union(%v) = %v",
+					tt.lr1, tt.lr2, got, tt.lr2, tt.lr1, gotReverse)
+			}
+		})
+	}
+
+	t.Run("Union result contains both original ranges", func(t *testing.T) {
+		// Behavior test: The union should always contain both original ranges
+		lr1 := NewLineRange(10, 15)
+		lr2 := NewLineRange(20, 25)
+		union := lr1.Union(lr2)
+
+		if union.StartLine > lr1.StartLine || union.EndLine < lr1.EndLine {
+			t.Errorf("Union %v doesn't fully contain first range %v", union, lr1)
+		}
+		if union.StartLine > lr2.StartLine || union.EndLine < lr2.EndLine {
+			t.Errorf("Union %v doesn't fully contain second range %v", union, lr2)
+		}
+	})
+
+	t.Run("Union is idempotent", func(t *testing.T) {
+		// Behavior test: lr.Union(lr) should equal lr
+		lr := NewLineRange(10, 20)
+		union := lr.Union(lr)
+
+		if union != lr {
+			t.Errorf("Union is not idempotent: %v.Union(%v) = %v, want %v", lr, lr, union, lr)
+		}
+	})
+
+	t.Run("Union is associative", func(t *testing.T) {
+		// Behavior test: (lr1.Union(lr2)).Union(lr3) == lr1.Union(lr2.Union(lr3))
+		lr1 := NewLineRange(5, 10)
+		lr2 := NewLineRange(15, 20)
+		lr3 := NewLineRange(25, 30)
+
+		leftFirst := lr1.Union(lr2).Union(lr3)
+		rightFirst := lr1.Union(lr2.Union(lr3))
+
+		if leftFirst != rightFirst {
+			t.Errorf("Union is not associative: (%v.Union(%v)).Union(%v) = %v, but %v.Union(%v.Union(%v)) = %v",
+				lr1, lr2, lr3, leftFirst, lr1, lr2, lr3, rightFirst)
+		}
+	})
+}
