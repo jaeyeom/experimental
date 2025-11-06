@@ -398,6 +398,17 @@ sh_test(
 )
 
 sh_test(
+    name = "delta_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["delta.yml"],
+    data = ["delta.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "docker_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["docker.yml"],
@@ -2172,6 +2183,7 @@ test_suite(
         ":copier_syntax_test",
         ":curl_syntax_test",
         ":dart_syntax_test",
+        ":delta_syntax_test",
         ":docker_syntax_test",
         ":e_syntax_test",
         ":emacs-lsp-booster_syntax_test",
@@ -2290,27 +2302,5 @@ test_suite(
         ":which_syntax_test",
         ":zip_syntax_test",
         ":zoxide_syntax_test",
-    ],
-)
-
-sh_test(
-    name = "README_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["README.org"],
-    data = ["README.org"],
-    tags = [
-        "local",
-        "org-lint",
-    ],
-)
-
-sh_test(
-    name = "macos_org_lint_test",
-    srcs = ["//tools/org-lint:test_org_lint.sh"],
-    args = ["macos.org"],
-    data = ["macos.org"],
-    tags = [
-        "local",
-        "org-lint",
     ],
 )

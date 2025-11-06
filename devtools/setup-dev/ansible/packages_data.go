@@ -8,6 +8,7 @@ var packages = []PackageData{
 	{command: "cmake"},
 	{command: "curl"},
 	{command: "dart"},
+	{command: "delta", brewPkgName: "git-delta", debianPkgName: "git-delta", termuxPkgName: "git-delta"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-native-comp", "with-dbus", "with-imagemagick"}},
 	{command: "ffmpegthumbnailer"},
 	{command: "fzf"},

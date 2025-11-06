@@ -1,5 +1,6 @@
 ---
 - import_playbook: git.yml
+- import_playbook: delta.yml
 - import_playbook: which.yml
 - import_playbook: setup-user-bin-directory.yml
 
