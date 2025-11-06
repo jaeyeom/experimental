@@ -355,6 +355,46 @@ type GitHubComment struct {
 	} `json:"user"`
 }
 
+// GetLineRange returns the current line range for this comment.
+// It handles the GitHub API's different line number fields (Line vs OriginalLine,
+// StartLine for multi-line ranges).
+func (c GitHubComment) GetLineRange() (models.LineRange, error) {
+	// Determine end line - prefer Line, fallback to OriginalLine
+	var endLine int
+	switch {
+	case c.Line != nil:
+		endLine = *c.Line
+	case c.OriginalLine != nil:
+		endLine = *c.OriginalLine
+	default:
+		return models.LineRange{}, fmt.Errorf("comment has no line number")
+	}
+
+	// Check for multi-line range
+	if c.StartLine != nil && *c.StartLine != endLine {
+		return models.NewLineRange(*c.StartLine, endLine), nil
+	}
+
+	return models.NewSingleLine(endLine), nil
+}
+
+// GetOriginalLineRange returns the original line range for this comment, if available.
+// Returns nil if no original line information is present.
+func (c GitHubComment) GetOriginalLineRange() *models.LineRange {
+	if c.OriginalLine == nil {
+		return nil
+	}
+
+	// Check for multi-line original range
+	if c.OriginalStartLine != nil && *c.OriginalStartLine != *c.OriginalLine {
+		lineRange := models.NewLineRange(*c.OriginalStartLine, *c.OriginalLine)
+		return &lineRange
+	}
+
+	lineRange := models.NewSingleLine(*c.OriginalLine)
+	return &lineRange
+}
+
 // GetPRComments fetches all line comments for a PR from GitHub.
 func (prc *PRReviewClient) GetPRComments(repository models.Repository, prNumber int) ([]models.Comment, error) {
 	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/comments", repository, prNumber))
@@ -448,34 +488,15 @@ func (prc *PRReviewClient) convertGitHubComment(ghComment GitHubComment) (models
 		SyncStatus: "synced",
 	}
 
-	// Handle line numbers - GitHub API can use different fields
-	//
-	// TODO: Consider implement ghComment.GetLineRange() and maybe ghComment.IsMultiLine().
-	var endLine int
-	switch {
-	case ghComment.Line != nil:
-		endLine = *ghComment.Line
-	case ghComment.OriginalLine != nil:
-		endLine = *ghComment.OriginalLine
-	default:
-		return models.Comment{}, fmt.Errorf("comment has no line number")
+	// Handle line numbers - use helper methods to extract line ranges
+	lineRange, err := ghComment.GetLineRange()
+	if err != nil {
+		return models.Comment{}, err
 	}
+	comment.Line = lineRange
 
-	// Handle multi-line comments
-	if ghComment.StartLine != nil && *ghComment.StartLine != endLine {
-		comment.Line = models.NewLineRange(*ghComment.StartLine, endLine)
-	} else {
-		comment.Line = models.NewSingleLine(endLine)
-	}
-
-	// Handle original position for multi-line comments
-	if ghComment.OriginalStartLine != nil && ghComment.OriginalLine != nil && *ghComment.OriginalStartLine != *ghComment.OriginalLine {
-		origRange := models.NewLineRange(*ghComment.OriginalStartLine, *ghComment.OriginalLine)
-		comment.OriginalRange = &origRange
-	} else if ghComment.OriginalLine != nil {
-		origRange := models.NewSingleLine(*ghComment.OriginalLine)
-		comment.OriginalRange = &origRange
-	}
+	// Handle original position
+	comment.OriginalRange = ghComment.GetOriginalLineRange()
 
 	return comment, nil
 }
