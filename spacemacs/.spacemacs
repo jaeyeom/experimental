@@ -720,7 +720,7 @@ If you are unsure, try setting them in `dotspacemacs/user-config' first."
             result))))
 
   (customize-set-variable
-   'custom-file (expand-file-name ".spacemacs-custom.el" (or dotspacemacs-directory "~/")) "Separate custom file")
+   'custom-file (expand-file-name ".spacemacs-custom.el" "~/") "Separate custom file")
   (load custom-file)
   )
 
