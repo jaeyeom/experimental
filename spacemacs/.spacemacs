@@ -57,7 +57,8 @@ This function should only modify configuration layer settings."
       emacs-lisp
       epub
       eww
-      git
+      (git :variables
+           git-enable-magit-delta-plugin t)
       github-copilot
       (go :variables
           go-backend 'lsp
