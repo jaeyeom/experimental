@@ -121,6 +121,7 @@ sh_test(
         "pandoc.yml",
         "pass.yml",
         "perl.yml",
+        "pylsp.yml",
         "python3-notmuch2.yml",
         "repo-sync.yml",
         "rg.yml",
@@ -141,6 +142,7 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
         "setup-spacemacs-go.yml",
+        "setup-spacemacs-python.yml",
         "setup-ssh-key.yml",
         "setup-starship.yml",
         "setup-user-bin-directory.yml",
@@ -1335,6 +1337,20 @@ sh_test(
 )
 
 sh_test(
+    name = "pylsp_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["pylsp.yml"],
+    data = [
+        "pylsp.yml",
+        "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "python3-notmuch2_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["python3-notmuch2.yml"],
@@ -1833,6 +1849,48 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-spacemacs-python_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-spacemacs-python.yml"],
+    data = [
+        "7z.yml",
+        "cmake.yml",
+        "curl.yml",
+        "e.yml",
+        "emacs.yml",
+        "ffmpegthumbnailer.yml",
+        "git.yml",
+        "go.yml",
+        "image2ascii.yml",
+        "libtool.yml",
+        "libvterm.yml",
+        "pandoc.yml",
+        "pass.yml",
+        "perl.yml",
+        "pylsp.yml",
+        "rg.yml",
+        "ruff.yml",
+        "rustc.yml",
+        "setup-emacs.yml",
+        "setup-shell-profile.yml",
+        "setup-spacemacs.yml",
+        "setup-spacemacs-python.yml",
+        "setup-starship.yml",
+        "setup-user-bin-directory.yml",
+        "setup-user-config-directory.yml",
+        "setup-user-go-bin-directory.yml",
+        "spacemacs.yml",
+        "starship.yml",
+        "uv.yml",
+        "vipsthumbnail.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-ssh-key_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-ssh-key.yml"],
@@ -2260,6 +2318,7 @@ test_suite(
         ":protolint_syntax_test",
         ":protovalidate_syntax_test",
         ":psql_syntax_test",
+        ":pylsp_syntax_test",
         ":python3-notmuch2_syntax_test",
         ":repo-sync_syntax_test",
         ":rg_syntax_test",
@@ -2287,6 +2346,7 @@ test_suite(
         ":setup-perplexity-mcp_syntax_test",
         ":setup-shell-profile_syntax_test",
         ":setup-spacemacs-go_syntax_test",
+        ":setup-spacemacs-python_syntax_test",
         ":setup-spacemacs_syntax_test",
         ":setup-ssh-key_syntax_test",
         ":setup-starship_syntax_test",
