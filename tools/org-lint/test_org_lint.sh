@@ -25,8 +25,11 @@ if [ ! -f "$ORG_FILE_PATH" ]; then
 fi
 
 # Run org-lint with --skip-if-no-emacs for CI compatibility
+# Temporarily disable set -e so we can capture the exit code
+set +e
 OUTPUT=$(org-lint --skip-if-no-emacs "$ORG_FILE_PATH" 2>&1)
 EXIT_CODE=$?
+set -e
 
 if [ $EXIT_CODE -ne 0 ]; then
     echo "ERROR: org-lint failed for $ORG_FILE"
