@@ -56,3 +56,38 @@ The compilation warnings can be check by the following command:
   touch .spacemacs
   make
 #+end_src
+** TODO Use EDNC (Emacs Desktop Notification Center)
+
+EDNC (ednc.el) is an Emacs package that implements a desktop notification service
+entirely in Emacs Lisp, serving as a flexible replacement for external notification
+daemons like Dunst.
+
+*** Features:
+- *Log Buffer (~*ednc-log*~)*: Provides a persistent, interactive history of all
+  notifications that you can view, expand, dismiss, and interact with
+- *Desktop Notification Server*: Implements the freedesktop.org D-Bus notification
+  spec, replacing external notification daemons
+- *Interactive Controls*:
+  - TAB to expand/collapse notifications
+  - RET or Mouse-1 to invoke default actions
+  - 'd' or Mouse-3 to dismiss notifications
+  - Mouse-2 to prioritize notifications
+- *Pure Emacs Lisp*: No external dependencies beyond D-Bus support
+- *Highly Customizable*: Via hooks like ~ednc-notification-amendment-functions~
+  and ~ednc-notification-presentation-functions~
+
+*** Usage:
+#+begin_src elisp
+;; Enable EDNC mode
+(ednc-mode 1)
+
+;; View notifications
+M-x ednc-log  ; or switch to *ednc-log* buffer
+#+end_src
+
+*** Claude Code Integration:
+EDNC can be used as a notification handler for Claude Code hooks defined in
+~spacemacs/.spacemacs~. This allows you to receive Emacs notifications when
+Claude Code events occur (e.g., tool completions, errors, or task updates),
+keeping you informed within your Emacs workflow without relying on external
+notification systems.
