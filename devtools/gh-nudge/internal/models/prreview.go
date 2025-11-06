@@ -186,6 +186,26 @@ func (lr LineRange) Overlaps(other LineRange) bool {
 	return lr.StartLine <= other.EndLine && lr.EndLine >= other.StartLine
 }
 
+// Union returns a new LineRange that encompasses both this range and another range.
+// The resulting range spans from the minimum start line to the maximum end line.
+// If the ranges don't overlap, the result will include any lines between them.
+//
+// Example:
+//
+//	LineRange{10, 15}.Union(LineRange{12, 20}) -> LineRange{10, 20}  // Overlapping
+//	LineRange{10, 15}.Union(LineRange{20, 25}) -> LineRange{10, 25}  // Non-overlapping (includes gap)
+func (lr LineRange) Union(other LineRange) LineRange {
+	startLine := lr.StartLine
+	if other.StartLine < startLine {
+		startLine = other.StartLine
+	}
+	endLine := lr.EndLine
+	if other.EndLine > endLine {
+		endLine = other.EndLine
+	}
+	return LineRange{StartLine: startLine, EndLine: endLine}
+}
+
 // ParseLineSpec parses a line specification (e.g., "15" or "15-20").
 func ParseLineSpec(spec string) (*LineRange, error) {
 	if strings.Contains(spec, "-") {

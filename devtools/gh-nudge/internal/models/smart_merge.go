@@ -363,12 +363,7 @@ func (m *SmartCommentMerger) createMergeConflict(locationKey string, commentList
 func (m *SmartCommentMerger) expandLocationForMultiLineComments(loc FileLocation, commentList []CommentWithContext) FileLocation {
 	for _, commentCtx := range commentList {
 		if commentCtx.Comment.IsMultiLine() {
-			if commentCtx.Comment.Line.StartLine < loc.Lines.StartLine {
-				loc.Lines.StartLine = commentCtx.Comment.Line.StartLine
-			}
-			if commentCtx.Comment.Line.EndLine > loc.Lines.EndLine {
-				loc.Lines.EndLine = commentCtx.Comment.Line.EndLine
-			}
+			loc.Lines = loc.Lines.Union(commentCtx.Comment.Line)
 		}
 	}
 	return loc
@@ -542,14 +537,7 @@ func (m *SmartCommentMerger) finalizeComment(merged *Comment, bodyParts []string
 func (m *SmartCommentMerger) preserveMultiLineRange(merged *Comment, comments []CommentWithContext) {
 	for _, commentCtx := range comments {
 		// Expand the range to include the widest multi-line range
-		//
-		// TODO: See if this should be handled by a proper method of LineRange.
-		if commentCtx.Comment.Line.StartLine < merged.Line.StartLine {
-			merged.Line.StartLine = commentCtx.Comment.Line.StartLine
-		}
-		if commentCtx.Comment.Line.EndLine > merged.Line.EndLine {
-			merged.Line.EndLine = commentCtx.Comment.Line.EndLine
-		}
+		merged.Line = merged.Line.Union(commentCtx.Comment.Line)
 	}
 }
 
