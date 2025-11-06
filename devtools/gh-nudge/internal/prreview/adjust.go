@@ -26,18 +26,14 @@ type AdjustmentPreview struct {
 }
 
 // CommentChange represents how a comment will be adjusted.
-//
-// TODO: See if LineRange should be used.
 type CommentChange struct {
-	CommentID      string `json:"commentId"`
-	CommentIDShort string `json:"commentIdShort"`
-	OriginalLine   int    `json:"originalLine"`
-	NewLine        int    `json:"newLine"`
-	StartLine      *int   `json:"startLine,omitempty"`
-	NewStartLine   *int   `json:"newStartLine,omitempty"`
-	Body           string `json:"body"`
-	Status         string `json:"status"` // "adjusted", "deleted", "warning"
-	Warning        string `json:"warning,omitempty"`
+	CommentID      string           `json:"commentId"`
+	CommentIDShort string           `json:"commentIdShort"`
+	OriginalLine   models.LineRange `json:"originalLine"`
+	NewLine        models.LineRange `json:"newLine"`
+	Body           string           `json:"body"`
+	Status         string           `json:"status"` // "adjusted", "deleted", "warning"
+	Warning        string           `json:"warning,omitempty"`
 }
 
 // MappingFileEntry represents an entry in a mapping file.
@@ -238,23 +234,14 @@ func (ch *CommandHandler) getBranchAdjustmentPreview(repository models.Repositor
 		change := CommentChange{
 			CommentID:      comment.ID,
 			CommentIDShort: comment.FormatIDShort(),
-			OriginalLine:   comment.Line.EndLine,
+			OriginalLine:   comment.Line,
 			Body:           truncateString(comment.Body, 50),
-		}
-
-		if comment.IsMultiLine() {
-			startLine := comment.Line.StartLine
-			change.StartLine = &startLine
 		}
 
 		// Test adjustment
 		testComment := comment
 		if models.AdjustComment(&testComment, adjustments) {
-			change.NewLine = testComment.Line.EndLine
-			if testComment.IsMultiLine() {
-				newStartLine := testComment.Line.StartLine
-				change.NewStartLine = &newStartLine
-			}
+			change.NewLine = testComment.Line
 			change.Status = "adjusted"
 
 			// Validate against diff hunks
@@ -265,7 +252,7 @@ func (ch *CommandHandler) getBranchAdjustmentPreview(repository models.Repositor
 			}
 		} else {
 			change.Status = "deleted"
-			change.NewLine = -1
+			change.NewLine = models.LineRange{StartLine: -1, EndLine: -1}
 			change.Warning = "Comment on deleted line"
 			preview.Warnings = append(preview.Warnings, fmt.Sprintf("Comment %s will be marked as orphaned (on deleted line)", change.CommentIDShort))
 		}
@@ -317,23 +304,14 @@ func (ch *CommandHandler) getAdjustmentPreview(repository models.Repository, prN
 		change := CommentChange{
 			CommentID:      comment.ID,
 			CommentIDShort: comment.FormatIDShort(),
-			OriginalLine:   comment.Line.EndLine,
+			OriginalLine:   comment.Line,
 			Body:           truncateString(comment.Body, 50),
-		}
-
-		if comment.IsMultiLine() {
-			startLine := comment.Line.StartLine
-			change.StartLine = &startLine
 		}
 
 		// Test adjustment
 		testComment := comment
 		if models.AdjustComment(&testComment, adjustments) {
-			change.NewLine = testComment.Line.EndLine
-			if testComment.IsMultiLine() {
-				newStartLine := testComment.Line.StartLine
-				change.NewStartLine = &newStartLine
-			}
+			change.NewLine = testComment.Line
 			change.Status = "adjusted"
 
 			// Validate against diff hunks
@@ -344,7 +322,7 @@ func (ch *CommandHandler) getAdjustmentPreview(repository models.Repository, prN
 			}
 		} else {
 			change.Status = "deleted"
-			change.NewLine = -1
+			change.NewLine = models.LineRange{StartLine: -1, EndLine: -1}
 			change.Warning = "Comment on deleted line"
 			preview.Warnings = append(preview.Warnings, fmt.Sprintf("Comment %s will be marked as orphaned (on deleted line)", change.CommentIDShort))
 		}
@@ -536,7 +514,7 @@ func formatTablePreview(preview AdjustmentPreview) (string, error) {
 	fmt.Fprintln(w, "--\t--------\t---\t------\t-------")
 
 	for _, change := range preview.CommentChanges {
-		lineStr := formatLineChange(change.OriginalLine, change.StartLine, change.NewLine, change.NewStartLine)
+		lineStr := formatLineChange(change.OriginalLine, change.NewLine)
 		status := change.Status
 		if change.Warning != "" {
 			status = fmt.Sprintf("%s ⚠", status)
@@ -566,22 +544,14 @@ func formatJSONPreview(preview AdjustmentPreview) (string, error) {
 }
 
 // formatLineChange formats a line change for display.
-func formatLineChange(origLine int, origStart *int, newLine int, newStart *int) string {
-	var orig, adjusted string
+func formatLineChange(originalLine, newLine models.LineRange) string {
+	orig := originalLine.String()
 
-	if origStart != nil && *origStart != origLine {
-		orig = fmt.Sprintf("%d-%d", *origStart, origLine)
-	} else {
-		orig = fmt.Sprintf("%d", origLine)
-	}
-
-	switch {
-	case newLine == -1:
+	var adjusted string
+	if newLine.EndLine == -1 {
 		adjusted = "deleted"
-	case newStart != nil && *newStart != newLine:
-		adjusted = fmt.Sprintf("%d-%d", *newStart, newLine)
-	default:
-		adjusted = fmt.Sprintf("%d", newLine)
+	} else {
+		adjusted = newLine.String()
 	}
 
 	return fmt.Sprintf("%s → %s", orig, adjusted)

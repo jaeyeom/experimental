@@ -494,8 +494,8 @@ func TestFormatTablePreview(t *testing.T) {
 					{
 						CommentID:      "abc123",
 						CommentIDShort: "abc123",
-						OriginalLine:   20,
-						NewLine:        17,
+						OriginalLine:   models.NewSingleLine(20),
+						NewLine:        models.NewSingleLine(17),
 						Body:           "Test comment",
 						Status:         "adjusted",
 					},
@@ -518,8 +518,8 @@ func TestFormatTablePreview(t *testing.T) {
 					{
 						CommentID:      "warn1",
 						CommentIDShort: "warn1",
-						OriginalLine:   10,
-						NewLine:        -1,
+						OriginalLine:   models.NewSingleLine(10),
+						NewLine:        models.LineRange{StartLine: -1, EndLine: -1},
 						Body:           "Deleted comment",
 						Status:         "deleted",
 						Warning:        "Comment on deleted line",
@@ -559,10 +559,8 @@ func TestFormatTablePreview(t *testing.T) {
 					{
 						CommentID:      "multi",
 						CommentIDShort: "multi",
-						OriginalLine:   25,
-						StartLine:      intPtr(20),
-						NewLine:        24,
-						NewStartLine:   intPtr(19),
+						OriginalLine:   models.NewLineRange(20, 25),
+						NewLine:        models.NewLineRange(19, 24),
 						Body:           "Multi-line comment",
 						Status:         "adjusted",
 					},
@@ -604,8 +602,8 @@ func TestFormatJSONPreview(t *testing.T) {
 			{
 				CommentID:      "abc123",
 				CommentIDShort: "abc123",
-				OriginalLine:   20,
-				NewLine:        17,
+				OriginalLine:   models.NewSingleLine(20),
+				NewLine:        models.NewSingleLine(17),
 				Body:           "Test comment",
 				Status:         "adjusted",
 			},
@@ -1285,9 +1283,4 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 			t.Errorf("Force flag should allow warnings: %v", err)
 		}
 	})
-}
-
-// Helper function to create int pointer.
-func intPtr(i int) *int {
-	return &i
 }
