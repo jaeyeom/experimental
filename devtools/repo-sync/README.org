@@ -171,24 +171,24 @@ sync_patterns:
 
 *** Core Components
 
-1. **Configuration Management** - YAML-based project configurations and user settings
-2. **Database Layer** - SQLite for metadata and operation tracking
-3. **Synchronization Engine** - Rsync integration for efficient file transfer
-4. **Git Workflow Manager** - Automated commit, pull, and push operations
-5. **Conflict Resolution System** - Multiple resolution strategies with backup capability
+1. *Configuration Management* - YAML-based project configurations and user settings
+2. *Database Layer* - SQLite for metadata and operation tracking
+3. *Synchronization Engine* - Rsync integration for efficient file transfer
+4. *Git Workflow Manager* - Automated commit, pull, and push operations
+5. *Conflict Resolution System* - Multiple resolution strategies with backup capability
 
 *** Workflow
 
-1. **Pre-sync validation** - Ensures remote repository is accessible
-2. **Initial rsync** - Syncs files from local to remote work directory using selective patterns
-3. **Git operations** - Commits, pulls with rebase, resolves conflicts, and pushes
-4. **Post-sync rsync** - Syncs any changes back to local work directory
+1. *Pre-sync validation* - Ensures remote repository is accessible
+2. *Initial rsync* - Syncs files from local to remote work directory using selective patterns
+3. *Git operations* - Commits, pulls with rebase, resolves conflicts, and pushes
+4. *Post-sync rsync* - Syncs any changes back to local work directory
 
 ** Configuration Structure
 
 The utility maintains configuration in the user's home directory:
 
-#+BEGIN_SRC
+#+begin_example
 ~/.config/repo-sync/
 ├── config.yaml           # Main configuration file
 ├── mappings/             # Project-specific mapping files
@@ -198,7 +198,7 @@ The utility maintains configuration in the user's home directory:
 └── logs/                # Operation logs
     ├── sync.log
     └── errors.log
-#+END_SRC
+#+end_example
 
 ** Development
 
@@ -223,7 +223,7 @@ make run
 
 *** Project Structure
 
-#+BEGIN_SRC
+#+begin_example
 devtools/repo-sync/
 ├── cmd/repo-sync/           # Main application entry point
 ├── internal/
@@ -235,14 +235,14 @@ devtools/repo-sync/
 ├── Makefile                 # Build automation
 ├── go.mod                   # Go module file
 └── README.org               # This file
-#+END_SRC
+#+end_example
 
 ** Dependencies
 
-- **Go 1.21+** - Programming language
-- **rsync** - File synchronization tool
-- **git** - Version control system
-- **sqlite3** - Database engine
+- *Go 1.21+* - Programming language
+- *rsync* - File synchronization tool
+- *git* - Version control system
+- *sqlite3* - Database engine
 
 *** Go Dependencies
 
@@ -448,7 +448,7 @@ coordination in a way that existing tools don't adequately address.
 
 ** Implementation Details
 
-The utility is implemented in **Go** for cross-platform compatibility, strong concurrency support, excellent performance, robust error handling, and easy deployment as a single binary. The implementation leverages Go's standard library along with carefully selected third-party packages while maintaining external dependencies on rsync and Git for their specialized functionality.
+The utility is implemented in *Go* for cross-platform compatibility, strong concurrency support, excellent performance, robust error handling, and easy deployment as a single binary. The implementation leverages Go's standard library along with carefully selected third-party packages while maintaining external dependencies on rsync and Git for their specialized functionality.
 
 ** License
 

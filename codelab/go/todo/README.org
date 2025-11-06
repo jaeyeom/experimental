@@ -40,7 +40,7 @@ are used together.
 
 The application provides the following commands:
 
-#+begin_src
+#+begin_example
 todo ls                     List todo items
 todo add "item"             Add a new todo item
 todo addsubtask <id> "item" Add a subtask to an existing item
@@ -50,7 +50,7 @@ todo undo <id>              Undo a completed item
 todo remove <id>            Remove a todo item
 todo moveup <id>            Move a todo item up among its siblings
 todo movedown <id>          Move a todo item down among its siblings
-#+end_src
+#+end_example
 
 Tasks can have subtasks, which are displayed with indentation. The state of a
 task is shown as:
@@ -65,13 +65,13 @@ Tasks and subtasks can be reordered within their sibling group using the moveup
 and movedown commands. This allows you to organize tasks in your preferred order.
 For example:
 
-#+begin_src
+#+begin_example
 # Move a task up among its siblings
 todo moveup 123
 
 # Move a task down among its siblings
 todo movedown abc
-#+end_src
+#+end_example
 
 The ID can be a prefix as long as it uniquely identifies a task. If multiple
 tasks match the prefix, you'll get an "ambiguous item ID" error.

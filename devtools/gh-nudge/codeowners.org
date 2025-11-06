@@ -84,7 +84,7 @@ GitHub's CODEOWNERS file defines code ownership rules for a repository. Each rul
 #+begin_example
 # This line is a comment
 
-*                                                                   @myorg/root-reviewers
+,*                                                                   @myorg/root-reviewers
 package.json                                                        @myorg/package-reviewers
 /myorg/api/**                                                       @myorg/api-reviewers
 /myorg/api/**/*.proto                                               @myorg/public-api-proto-reviewers
@@ -92,7 +92,7 @@ package.json                                                        @myorg/packa
 /myorg/device/**                                                    @myorg/universe-msa-reviewers
 
 ## READABILITY
-**/*.go                         @myorg/go-readability-reviewers
+,**/*.go                         @myorg/go-readability-reviewers
 #+end_example
 
 * Custom Section-Based Matching (Project-Specific)

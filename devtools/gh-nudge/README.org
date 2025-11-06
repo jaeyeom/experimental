@@ -55,7 +55,7 @@ the token in your configuration file.
 
 ** File Structure
 
-#+begin_src
+#+begin_example
 devtools/gh-nudge/
 ├── cmd/
 │   ├── gh-nudge/
@@ -88,7 +88,7 @@ devtools/gh-nudge/
 ├── slack.org
 ├── merge.org
 └── codeowners.org
-#+end_src
+#+end_example
 
 ** Configuration
 
