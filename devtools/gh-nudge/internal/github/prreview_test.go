@@ -2005,3 +2005,239 @@ func TestConvertGitHubCommentBehaviors(t *testing.T) {
 		}
 	})
 }
+
+// TestGitHubCommentGetLineRange tests the GetLineRange method.
+func TestGitHubCommentGetLineRange(t *testing.T) {
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name      string
+		comment   GitHubComment
+		want      models.LineRange
+		wantError bool
+		about     string
+	}{
+		{
+			name: "Single line comment with Line field",
+			comment: GitHubComment{
+				Line: intPtr(42),
+			},
+			want:  models.NewSingleLine(42),
+			about: "Should use Line field for single-line comment",
+		},
+		{
+			name: "Multi-line comment with StartLine and Line",
+			comment: GitHubComment{
+				StartLine: intPtr(10),
+				Line:      intPtr(20),
+			},
+			want:  models.NewLineRange(10, 20),
+			about: "Should create multi-line range when StartLine differs from Line",
+		},
+		{
+			name: "Single line with StartLine equal to Line",
+			comment: GitHubComment{
+				StartLine: intPtr(15),
+				Line:      intPtr(15),
+			},
+			want:  models.NewSingleLine(15),
+			about: "Should treat as single line when StartLine equals Line",
+		},
+		{
+			name: "Falls back to OriginalLine when Line is nil",
+			comment: GitHubComment{
+				OriginalLine: intPtr(30),
+			},
+			want:  models.NewSingleLine(30),
+			about: "Should use OriginalLine as fallback when Line is not set",
+		},
+		{
+			name: "Prefers Line over OriginalLine",
+			comment: GitHubComment{
+				Line:         intPtr(50),
+				OriginalLine: intPtr(40),
+			},
+			want:  models.NewSingleLine(50),
+			about: "Should prefer Line field over OriginalLine when both are set",
+		},
+		{
+			name: "Multi-line using StartLine and OriginalLine",
+			comment: GitHubComment{
+				StartLine:    intPtr(5),
+				OriginalLine: intPtr(15),
+			},
+			want:  models.NewLineRange(5, 15),
+			about: "Should create range using OriginalLine when Line is not set",
+		},
+		{
+			name:      "Error when no line information",
+			comment:   GitHubComment{},
+			wantError: true,
+			about:     "Should return error when neither Line nor OriginalLine is set",
+		},
+		{
+			name: "Only StartLine is set (uses OriginalLine fallback path)",
+			comment: GitHubComment{
+				StartLine: intPtr(10),
+			},
+			wantError: true,
+			about:     "Should error when only StartLine is set without end line",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.comment.GetLineRange()
+
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("GetLineRange() expected error, got nil\nAbout: %s", tt.about)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("GetLineRange() unexpected error: %v\nAbout: %s", err, tt.about)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("GetLineRange() = %v, want %v\nAbout: %s", got, tt.want, tt.about)
+			}
+		})
+	}
+
+	t.Run("Error message is informative", func(t *testing.T) {
+		comment := GitHubComment{}
+		_, err := comment.GetLineRange()
+
+		if err == nil {
+			t.Fatal("expected error when no line information")
+		}
+
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "no line number") {
+			t.Errorf("error message should mention 'no line number', got: %v", errMsg)
+		}
+	})
+}
+
+// TestGitHubCommentGetOriginalLineRange tests the GetOriginalLineRange method.
+func TestGitHubCommentGetOriginalLineRange(t *testing.T) {
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name    string
+		comment GitHubComment
+		want    *models.LineRange
+		about   string
+	}{
+		{
+			name:    "Returns nil when OriginalLine is not set",
+			comment: GitHubComment{},
+			want:    nil,
+			about:   "Should return nil when no original line information",
+		},
+		{
+			name: "Returns nil when only Line is set",
+			comment: GitHubComment{
+				Line: intPtr(42),
+			},
+			want:  nil,
+			about: "Should return nil when only current Line is set, not original",
+		},
+		{
+			name: "Single line original range",
+			comment: GitHubComment{
+				OriginalLine: intPtr(25),
+			},
+			want:  ptrToLineRange(models.NewSingleLine(25)),
+			about: "Should return single line range for OriginalLine",
+		},
+		{
+			name: "Multi-line original range",
+			comment: GitHubComment{
+				OriginalStartLine: intPtr(10),
+				OriginalLine:      intPtr(20),
+			},
+			want:  ptrToLineRange(models.NewLineRange(10, 20)),
+			about: "Should return multi-line range when OriginalStartLine differs from OriginalLine",
+		},
+		{
+			name: "Single line when OriginalStartLine equals OriginalLine",
+			comment: GitHubComment{
+				OriginalStartLine: intPtr(15),
+				OriginalLine:      intPtr(15),
+			},
+			want:  ptrToLineRange(models.NewSingleLine(15)),
+			about: "Should treat as single line when start equals end",
+		},
+		{
+			name: "Ignores current Line when returning original",
+			comment: GitHubComment{
+				Line:         intPtr(50),
+				OriginalLine: intPtr(30),
+			},
+			want:  ptrToLineRange(models.NewSingleLine(30)),
+			about: "Should return original line info, not current Line",
+		},
+		{
+			name: "OriginalStartLine without OriginalLine returns nil",
+			comment: GitHubComment{
+				OriginalStartLine: intPtr(10),
+			},
+			want:  nil,
+			about: "Should return nil when OriginalStartLine is set but OriginalLine is not",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.comment.GetOriginalLineRange()
+
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("GetOriginalLineRange() = %v, want nil\nAbout: %s", got, tt.about)
+				}
+				return
+			}
+
+			if got == nil {
+				t.Errorf("GetOriginalLineRange() = nil, want %v\nAbout: %s", tt.want, tt.about)
+				return
+			}
+
+			if *got != *tt.want {
+				t.Errorf("GetOriginalLineRange() = %v, want %v\nAbout: %s", *got, *tt.want, tt.about)
+			}
+		})
+	}
+
+	t.Run("Returns pointer to different instance", func(t *testing.T) {
+		// Behavior test: returned pointer should be independent
+		comment := GitHubComment{
+			OriginalLine: intPtr(42),
+		}
+
+		result1 := comment.GetOriginalLineRange()
+		result2 := comment.GetOriginalLineRange()
+
+		if result1 == nil || result2 == nil {
+			t.Fatal("expected non-nil results")
+		}
+
+		// Should have same value but different pointers
+		if result1 == result2 {
+			t.Error("GetOriginalLineRange() should return new pointer each time, not reuse same pointer")
+		}
+
+		if *result1 != *result2 {
+			t.Errorf("GetOriginalLineRange() values differ: %v vs %v", *result1, *result2)
+		}
+	})
+}
+
+// ptrToLineRange is a helper to create a pointer to a LineRange.
+func ptrToLineRange(lr models.LineRange) *models.LineRange {
+	return &lr
+}
