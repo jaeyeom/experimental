@@ -56,7 +56,7 @@ The compilation warnings can be check by the following command:
   touch .spacemacs
   make
 #+end_src
-** TODO Use EDNC (Emacs Desktop Notification Center)
+** DOING Use EDNC (Emacs Desktop Notification Center)
 
 EDNC (ednc.el) is an Emacs package that implements a desktop notification service
 entirely in Emacs Lisp, serving as a flexible replacement for external notification
