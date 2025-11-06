@@ -1967,6 +1967,10 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
     ;; Workaround of C-<return> for text Terminal users
     (define-key magit-diff-section-map (kbd "g RET") #'magit-diff-visit-worktree-file))
 
+  (with-eval-after-load 'magit-delta
+    (setopt magit-delta-default-dark-theme "Coldark-Dark"
+            magit-delta-default-light-theme "Github"))
+
   (with-eval-after-load 'projectile
     ;; By Spacemacs default, switch project asked me the project file to open.
     ;; But I prefer to open magit=status or the version-control (VC) buffer. It
