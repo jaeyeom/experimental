@@ -30,7 +30,7 @@ func main() {
 
 	tests := []struct {
 		name         string
-		lineNumber   int
+		lineRange    LineRange
 		contextLines int
 		wantStart    int
 		wantEnd      int
@@ -38,8 +38,8 @@ func main() {
 		wantErr      bool
 	}{
 		{
-			name:         "middle of file with 2 context lines",
-			lineNumber:   6,
+			name:         "single line in middle of file with 2 context lines",
+			lineRange:    NewSingleLine(6),
 			contextLines: 2,
 			wantStart:    4,
 			wantEnd:      8,
@@ -47,8 +47,8 @@ func main() {
 			wantErr:      false,
 		},
 		{
-			name:         "beginning of file with 3 context lines",
-			lineNumber:   2,
+			name:         "single line at beginning of file with 3 context lines",
+			lineRange:    NewSingleLine(2),
 			contextLines: 3,
 			wantStart:    1,
 			wantEnd:      5,
@@ -56,8 +56,8 @@ func main() {
 			wantErr:      false,
 		},
 		{
-			name:         "end of file with 3 context lines",
-			lineNumber:   9,
+			name:         "single line at end of file with 3 context lines",
+			lineRange:    NewSingleLine(9),
 			contextLines: 3,
 			wantStart:    6,
 			wantEnd:      10,
@@ -66,7 +66,7 @@ func main() {
 		},
 		{
 			name:         "first line with 1 context line",
-			lineNumber:   1,
+			lineRange:    NewSingleLine(1),
 			contextLines: 1,
 			wantStart:    1,
 			wantEnd:      2,
@@ -75,7 +75,7 @@ func main() {
 		},
 		{
 			name:         "last line with 1 context line",
-			lineNumber:   10,
+			lineRange:    NewSingleLine(10),
 			contextLines: 1,
 			wantStart:    9,
 			wantEnd:      10,
@@ -83,28 +83,52 @@ func main() {
 			wantErr:      false,
 		},
 		{
+			name:         "multi-line range with context",
+			lineRange:    NewLineRange(5, 7),
+			contextLines: 1,
+			wantStart:    4,
+			wantEnd:      8,
+			wantLines:    5,
+			wantErr:      false,
+		},
+		{
+			name:         "multi-line range at beginning",
+			lineRange:    NewLineRange(1, 3),
+			contextLines: 2,
+			wantStart:    1,
+			wantEnd:      5,
+			wantLines:    5,
+			wantErr:      false,
+		},
+		{
 			name:         "line number out of range - too large",
-			lineNumber:   100,
+			lineRange:    NewSingleLine(100),
 			contextLines: 3,
 			wantErr:      true,
 		},
 		{
 			name:         "line number out of range - zero",
-			lineNumber:   0,
+			lineRange:    NewSingleLine(0),
 			contextLines: 3,
 			wantErr:      true,
 		},
 		{
 			name:         "line number out of range - negative",
-			lineNumber:   -1,
+			lineRange:    NewSingleLine(-1),
 			contextLines: 3,
+			wantErr:      true,
+		},
+		{
+			name:         "invalid range - start after end",
+			lineRange:    NewLineRange(5, 3),
+			contextLines: 2,
 			wantErr:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, err := GetLineContext(testFile, tt.lineNumber, tt.contextLines)
+			ctx, err := GetLineContext(testFile, tt.lineRange, tt.contextLines)
 
 			if tt.wantErr {
 				if err == nil {
@@ -131,7 +155,7 @@ func main() {
 }
 
 func TestGetLineContext_FileNotFound(t *testing.T) {
-	_, err := GetLineContext("/nonexistent/file.go", 10, 3)
+	_, err := GetLineContext("/nonexistent/file.go", NewSingleLine(10), 3)
 	if err == nil {
 		t.Error("GetLineContext() expected error for nonexistent file")
 	}
@@ -187,7 +211,7 @@ func multiply(a, b int) int {
 			},
 			contextLines: 1,
 			wantStart:    7,
-			wantEnd:      9, // targetLine is (8+9)/2=8, so context is 8-1 to 8+1 = 7 to 9
+			wantEnd:      10, // Lines 8-9 with 1 context line: 7 to 10
 			wantErr:      false,
 		},
 	}
