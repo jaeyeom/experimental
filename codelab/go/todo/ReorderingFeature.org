@@ -68,15 +68,15 @@ var (
 *** DONE Add New Commands
 **** DONE moveup <id>
 Move the specified item up among its siblings
-#+begin_src
+#+begin_example
 todo moveup <id>     Move a todo item up
-#+end_src
+#+end_example
 
 **** DONE movedown <id>
 Move the specified item down among its siblings
-#+begin_src
+#+begin_example
 todo movedown <id>   Move a todo item down
-#+end_src
+#+end_example
 
 *** DONE Error Messages
 - [X] Implement "Cannot move first item up"
