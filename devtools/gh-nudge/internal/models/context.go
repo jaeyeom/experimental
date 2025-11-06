@@ -19,9 +19,9 @@ type CommentWithLineContext struct {
 	Context *LineContext `json:"context,omitempty"`
 }
 
-// GetLineContext reads a file and extracts lines around the specified line number.
-// It returns contextLines before and after the target line.
-func GetLineContext(filePath string, lineNumber int, contextLines int) (*LineContext, error) {
+// GetLineContext reads a file and extracts lines around the specified line range.
+// It returns contextLines before and after the target range.
+func GetLineContext(filePath string, lineRange LineRange, contextLines int) (*LineContext, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file %s: %w", filePath, err)
@@ -42,14 +42,20 @@ func GetLineContext(filePath string, lineNumber int, contextLines int) (*LineCon
 		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
 
-	// Check if line number is valid
-	if lineNumber < 1 || lineNumber > len(allLines) {
-		return nil, fmt.Errorf("line number %d out of range (file has %d lines)", lineNumber, len(allLines))
+	// Check if line range is valid
+	if lineRange.StartLine < 1 || lineRange.StartLine > len(allLines) {
+		return nil, fmt.Errorf("start line %d out of range (file has %d lines)", lineRange.StartLine, len(allLines))
+	}
+	if lineRange.EndLine < 1 || lineRange.EndLine > len(allLines) {
+		return nil, fmt.Errorf("end line %d out of range (file has %d lines)", lineRange.EndLine, len(allLines))
+	}
+	if lineRange.StartLine > lineRange.EndLine {
+		return nil, fmt.Errorf("invalid line range: start line %d is after end line %d", lineRange.StartLine, lineRange.EndLine)
 	}
 
-	// Calculate start and end lines (1-indexed)
-	startLine := maxInt(1, lineNumber-contextLines)
-	endLine := minInt(len(allLines), lineNumber+contextLines)
+	// Calculate start and end lines with context (1-indexed)
+	startLine := maxInt(1, lineRange.StartLine-contextLines)
+	endLine := minInt(len(allLines), lineRange.EndLine+contextLines)
 
 	// Extract the context lines (convert to 0-indexed for slice)
 	contextLineSlice := allLines[startLine-1 : endLine]
@@ -64,11 +70,7 @@ func GetLineContext(filePath string, lineNumber int, contextLines int) (*LineCon
 // For multi-line comments, it shows context around the entire range.
 func GetLineContextForComment(filePath string, comment Comment, contextLines int) (*LineContext, error) {
 	lineRange := comment.GetLineRange()
-
-	// For multi-line comments, show context around the entire range
-	targetLine := (lineRange.StartLine + lineRange.EndLine) / 2
-
-	return GetLineContext(filePath, targetLine, contextLines)
+	return GetLineContext(filePath, lineRange, contextLines)
 }
 
 // FormatLineContext formats line context for display with line numbers.
@@ -78,7 +80,6 @@ func FormatLineContext(context *LineContext, highlightLine int) string {
 	}
 
 	var result strings.Builder
-	// TODO: Consider if LineRange can provide an iterator.
 	for i, line := range context.Lines {
 		lineNum := context.Range.StartLine + i
 		prefix := "  "
