@@ -215,6 +215,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	{
+		command: "pylsp",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "python-lsp-server"},
+			PlatformTermux:     UvInstallMethod{Name: "python-lsp-server"},
+			PlatformDebianLike: UvInstallMethod{Name: "python-lsp-server"},
+		},
+		Imports: nil,
+	},
 	GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
 	{
 		command: "ruff",

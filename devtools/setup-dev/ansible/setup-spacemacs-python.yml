@@ -1,0 +1,7 @@
+---
+- import_playbook: setup-spacemacs.yml
+- import_playbook: pylsp.yml
+- import_playbook: ruff.yml
+
+- name: Ensure Spacemacs python layer is set up
+  hosts: all
