@@ -64,6 +64,7 @@ sh_test(
         "cmake.yml",
         "copier.yml",
         "curl.yml",
+        "delta.yml",
         "e.yml",
         "emacs.yml",
         "fd.yml",
@@ -1568,6 +1569,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-git.yml"],
     data = [
+        "delta.yml",
         "git.yml",
         "setup-git.yml",
         "setup-shell-profile.yml",
@@ -1601,6 +1603,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-gpg-keygen.yml"],
     data = [
+        "delta.yml",
         "git.yml",
         "gpg.yml",
         "setup-git.yml",
@@ -1680,6 +1683,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-pass.yml"],
     data = [
+        "delta.yml",
         "git.yml",
         "gpg.yml",
         "pass.yml",
@@ -1828,6 +1832,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-ssh-key.yml"],
     data = [
+        "delta.yml",
         "git.yml",
         "keychain.yml",
         "setup-git.yml",
