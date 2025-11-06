@@ -311,8 +311,8 @@ func TestAdjustCommandOutput(t *testing.T) {
 		if preview.CommentChanges[0].CommentID != "abc123" {
 			t.Errorf("Expected comment ID abc123, got %s", preview.CommentChanges[0].CommentID)
 		}
-		if preview.CommentChanges[0].NewLine != 17 {
-			t.Errorf("Expected new line 17, got %d", preview.CommentChanges[0].NewLine)
+		if preview.CommentChanges[0].NewLine.EndLine != 17 {
+			t.Errorf("Expected new line 17, got %d", preview.CommentChanges[0].NewLine.EndLine)
 		}
 	})
 }
