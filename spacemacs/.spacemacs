@@ -176,6 +176,7 @@ This function should only modify configuration layer settings."
      copilot-chat
      cov
      dirvish
+     ednc
      eshell-command-not-found
      green-is-the-new-black-theme
      (highlight-chars :location (recipe :fetcher github
@@ -1800,6 +1801,16 @@ the email."
 
   (autoload 'my/chatgpt-shell-dwim "chatgpt-shell")
 
+  ;;; EDNC (Emacs Desktop Notification Center)
+  (with-eval-after-load 'ednc
+    ;; Enable EDNC mode for desktop notification management
+    (ednc-mode 1)
+
+    ;; Customize EDNC behavior if needed
+    ;; (setopt ednc-notification-timeout 5000) ; Notification timeout in milliseconds
+    )
+  (require 'ednc nil 'noerror)
+
   ;;; Claude Code
   (with-eval-after-load 'claude-code
     (spacemacs/set-leader-keys "$ C" 'claude-code-transient)
@@ -1815,9 +1826,9 @@ the email."
     ;; Set claude-code to use the custom display function
     (setopt claude-code-display-window-fn #'my/claude-code-display-buffer-right)
 
-    ;; Define your own hook listener function
+    ;; Define your own hook listener function with EDNC integration
     (defun my/claude-hook-listener (message)
-      "Custom listener for Claude Code hooks.
+      "Custom listener for Claude Code hooks with EDNC desktop notifications.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       (let ((hook-type (plist-get message :type))
             (buffer-name (plist-get message :buffer-name))
@@ -1825,14 +1836,29 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
             (args (plist-get message :args)))
         (cond
          ((eq hook-type 'notification)
-          (message "Claude is ready in %s! JSON: %s" buffer-name json-data))
+          (let ((msg (format "Claude is ready in %s!" buffer-name)))
+            (message "%s" msg)
+            (when (featurep 'ednc)
+              (notifications-notify :title "Claude Code"
+                                    :body msg
+                                    :urgency 'normal))))
          ((eq hook-type 'stop)
-          (message "Claude finished in %s! JSON: %s" buffer-name json-data))
+          (let ((msg (format "Claude finished in %s!" buffer-name)))
+            (message "%s" msg)
+            (when (featurep 'ednc)
+              (notifications-notify :title "Claude Code"
+                                    :body msg
+                                    :urgency 'normal))))
          (t
-          (message "Claude hook: %s with JSON: %s" hook-type json-data)))))
+          (let ((msg (format "Claude hook: %s" hook-type)))
+            (message "%s" msg)
+            (when (featurep 'ednc)
+              (notifications-notify :title "Claude Code"
+                                    :body msg
+                                    :urgency 'low)))))))
 
     ;; Add the hook listener using standard Emacs hook functions
-    (add-hook 'claude-code-event-hook 'my/claude-hook-listener)
+    (add-hook 'claude-code-event-hook #'my/claude-hook-listener)
 
     )
   (require 'claude-code nil 'noerror)
