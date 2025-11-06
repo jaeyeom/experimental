@@ -58,7 +58,8 @@ This function should only modify configuration layer settings."
       epub
       eww
       (git :variables
-           git-enable-magit-delta-plugin t)
+           git-enable-magit-delta-plugin t
+           git-enable-magit-todos-plugin t)
       github-copilot
       (go :variables
           go-backend 'lsp
