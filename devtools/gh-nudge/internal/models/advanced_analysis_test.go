@@ -465,9 +465,15 @@ func TestAnalyzeCommentMovement_ShouldNotMove(t *testing.T) {
 			analysis.OriginalLocation.FilePath, comment.Path)
 	}
 
-	if analysis.OriginalLocation.Line != comment.Line.EndLine {
+	// Verify the comment is a single-line comment
+	expectedLine := NewSingleLine(15)
+	if comment.Line != expectedLine {
+		t.Errorf("Comment line = %v, want single line %v", comment.Line, expectedLine)
+	}
+
+	if analysis.OriginalLocation.Line != 15 {
 		t.Errorf("Original location line = %d, want %d",
-			analysis.OriginalLocation.Line, comment.Line.EndLine)
+			analysis.OriginalLocation.Line, 15)
 	}
 }
 
