@@ -1800,6 +1800,29 @@ the email."
 
   (autoload 'my/chatgpt-shell-dwim "chatgpt-shell")
 
+  ;;; Alert.el configuration for Claude Code notifications
+  (with-eval-after-load 'alert
+    ;; Use log style to keep notifications in *Alerts* buffer
+    ;; Also show in minibuffer with message style
+    ;;
+    ;; TODO: Consider using different notification styles for Termux and MacOS
+    ;; conditionally.
+    (setopt alert-default-style 'message)
+
+    ;; Always log alerts for persistent history
+    (setopt alert-log-messages t)
+
+    ;; Fade time for notifications (in seconds)
+    (setopt alert-fade-time 5)
+
+    ;; Custom rule for Claude Code alerts - always show and log
+    (alert-add-rule :category "claude-code"
+                    :style 'message
+                    :persistent t
+                    :continue t))
+
+  (require 'alert nil 'noerror)
+
   ;;; Claude Code
   (with-eval-after-load 'claude-code
     (spacemacs/set-leader-keys "$ C" 'claude-code-transient)
@@ -1815,9 +1838,9 @@ the email."
     ;; Set claude-code to use the custom display function
     (setopt claude-code-display-window-fn #'my/claude-code-display-buffer-right)
 
-    ;; Define your own hook listener function
+    ;; Define hook listener using alert.el
     (defun my/claude-hook-listener (message)
-      "Custom listener for Claude Code hooks.
+      "Custom listener for Claude Code hooks using alert.el.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       (let ((hook-type (plist-get message :type))
             (buffer-name (plist-get message :buffer-name))
@@ -1825,14 +1848,26 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
             (args (plist-get message :args)))
         (cond
          ((eq hook-type 'notification)
-          (message "Claude is ready in %s! JSON: %s" buffer-name json-data))
+          (alert (format "Claude is ready in %s!" buffer-name)
+                 :title "Claude Code"
+                 :category "claude-code"
+                 :severity 'normal
+                 :buffer buffer-name))
          ((eq hook-type 'stop)
-          (message "Claude finished in %s! JSON: %s" buffer-name json-data))
+          (alert (format "Claude finished in %s!" buffer-name)
+                 :title "Claude Code"
+                 :category "claude-code"
+                 :severity 'normal
+                 :buffer buffer-name))
          (t
-          (message "Claude hook: %s with JSON: %s" hook-type json-data)))))
+          (alert (format "Hook: %s" hook-type)
+                 :title "Claude Code"
+                 :category "claude-code"
+                 :severity 'trivial
+                 :buffer buffer-name)))))
 
     ;; Add the hook listener using standard Emacs hook functions
-    (add-hook 'claude-code-event-hook 'my/claude-hook-listener)
+    (add-hook 'claude-code-event-hook #'my/claude-hook-listener)
 
     )
   (require 'claude-code nil 'noerror)
