@@ -413,9 +413,9 @@ func TestCommentGetLineRange(t *testing.T) {
 			Path: "test.go",
 		}
 		lineRange := comment.GetLineRange()
-		if lineRange.StartLine != 42 || lineRange.EndLine != 42 {
-			t.Errorf("GetLineRange() for single line = {%d, %d}, want {42, 42}",
-				lineRange.StartLine, lineRange.EndLine)
+		expectedLine := NewSingleLine(42)
+		if lineRange != expectedLine {
+			t.Errorf("GetLineRange() = %v, want %v", lineRange, expectedLine)
 		}
 	})
 
@@ -438,9 +438,9 @@ func TestCommentGetLineRange(t *testing.T) {
 		}
 		// Even though StartLine is set, if it equals Line, IsMultiLine() returns false
 		lineRange := comment.GetLineRange()
-		if lineRange.StartLine != 15 || lineRange.EndLine != 15 {
-			t.Errorf("GetLineRange() for same start/end = {%d, %d}, want {15, 15}",
-				lineRange.StartLine, lineRange.EndLine)
+		expectedLine := NewSingleLine(15)
+		if lineRange != expectedLine {
+			t.Errorf("GetLineRange() = %v, want %v", lineRange, expectedLine)
 		}
 	})
 
@@ -469,9 +469,10 @@ func TestCommentGetLineRange(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				lineRange := tc.comment.GetLineRange()
-				if lineRange.StartLine != tc.wantStart || lineRange.EndLine != tc.wantEnd {
-					t.Errorf("GetLineRange() = {%d, %d}, want {%d, %d}",
-						lineRange.StartLine, lineRange.EndLine, tc.wantStart, tc.wantEnd)
+				expected := NewLineRange(tc.wantStart, tc.wantEnd)
+
+				if lineRange != expected {
+					t.Errorf("GetLineRange() = %v, want %v", lineRange, expected)
 				}
 			})
 		}
@@ -551,8 +552,9 @@ func TestCommentMatchesFilter(t *testing.T) {
 		for _, comment := range comments {
 			if comment.MatchesFilter(filter) {
 				matched++
-				if comment.Line.EndLine != targetLine {
-					t.Errorf("Comment with line %d should not match filter for line %d", comment.Line.EndLine, targetLine)
+				expectedLine := NewSingleLine(targetLine)
+				if comment.Line != expectedLine {
+					t.Errorf("Comment line %+v should equal single line %+v", comment.Line, expectedLine)
 				}
 			}
 		}
@@ -601,8 +603,9 @@ func TestCommentMatchesFilter(t *testing.T) {
 		for _, comment := range comments {
 			if comment.MatchesFilter(filter) {
 				matched++
-				if comment.Path != "foo.go" || comment.Line.EndLine != targetLine || comment.Side != "RIGHT" {
-					t.Errorf("Comment should match all filter criteria")
+				expectedLine := NewSingleLine(targetLine)
+				if comment.Path != "foo.go" || comment.Line != expectedLine || comment.Side != "RIGHT" {
+					t.Errorf("Comment should match all filter criteria: got path=%s line=%+v side=%s", comment.Path, comment.Line, comment.Side)
 				}
 			}
 		}
@@ -790,8 +793,9 @@ func TestCommentResolve(t *testing.T) {
 		if comment.Path != "important.go" {
 			t.Errorf("Path changed unexpectedly")
 		}
-		if comment.Line.StartLine != 10 || comment.Line.EndLine != 20 {
-			t.Errorf("Line range changed unexpectedly")
+		expectedRange := NewLineRange(10, 20)
+		if comment.Line != expectedRange {
+			t.Errorf("Line range = %v, want %v (changed unexpectedly)", comment.Line, expectedRange)
 		}
 		if comment.Body != "Important comment" {
 			t.Errorf("Body changed unexpectedly")
@@ -888,8 +892,9 @@ func TestCommentArchive(t *testing.T) {
 		if comment.Path != "legacy.go" {
 			t.Errorf("Path changed unexpectedly")
 		}
-		if comment.Line.StartLine != 100 || comment.Line.EndLine != 150 {
-			t.Errorf("Line range changed unexpectedly")
+		expectedRange := NewLineRange(100, 150)
+		if comment.Line != expectedRange {
+			t.Errorf("Line range = %v, want %v (changed unexpectedly)", comment.Line, expectedRange)
 		}
 		if comment.Body != "Legacy comment" {
 			t.Errorf("Body changed unexpectedly")
@@ -987,8 +992,9 @@ func TestCommentReopen(t *testing.T) {
 		if comment.Path != "important.go" {
 			t.Errorf("Path changed unexpectedly")
 		}
-		if comment.Line.StartLine != 5 || comment.Line.EndLine != 10 {
-			t.Errorf("Line range changed unexpectedly")
+		expectedRange := NewLineRange(5, 10)
+		if comment.Line != expectedRange {
+			t.Errorf("Line range = %v, want %v (changed unexpectedly)", comment.Line, expectedRange)
 		}
 		if comment.Body != "Still important" {
 			t.Errorf("Body changed unexpectedly")
@@ -1858,8 +1864,9 @@ func TestParseFileLocation(t *testing.T) {
 		if loc.Path != "main.go" {
 			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
 		}
-		if loc.Lines.StartLine != 42 || loc.Lines.EndLine != 42 {
-			t.Errorf("Lines = %+v, want StartLine=42, EndLine=42", loc.Lines)
+		expectedLine := NewSingleLine(42)
+		if loc.Lines != expectedLine {
+			t.Errorf("Lines = %v, want %v", loc.Lines, expectedLine)
 		}
 	})
 
@@ -1873,8 +1880,9 @@ func TestParseFileLocation(t *testing.T) {
 		if loc.Path != "main.go" {
 			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
 		}
-		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
-			t.Errorf("Lines = %+v, want StartLine=10, EndLine=20", loc.Lines)
+		expectedRange := NewLineRange(10, 20)
+		if loc.Lines != expectedRange {
+			t.Errorf("Lines = %v, want %v", loc.Lines, expectedRange)
 		}
 	})
 
@@ -1902,11 +1910,10 @@ func TestParseFileLocation(t *testing.T) {
 				if loc.Path != tc.wantPath {
 					t.Errorf("Path = %q, want %q", loc.Path, tc.wantPath)
 				}
-				if loc.Lines.StartLine != tc.wantStart {
-					t.Errorf("StartLine = %d, want %d", loc.Lines.StartLine, tc.wantStart)
-				}
-				if loc.Lines.EndLine != tc.wantEnd {
-					t.Errorf("EndLine = %d, want %d", loc.Lines.EndLine, tc.wantEnd)
+
+				expected := NewLineRange(tc.wantStart, tc.wantEnd)
+				if loc.Lines != expected {
+					t.Errorf("Lines = %v, want %v", loc.Lines, expected)
 				}
 			})
 		}
@@ -2034,8 +2041,9 @@ func TestComment_GetLocation(t *testing.T) {
 		if loc.Path != "main.go" {
 			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
 		}
-		if loc.Lines.StartLine != 42 || loc.Lines.EndLine != 42 {
-			t.Errorf("Lines = %+v, want single line 42", loc.Lines)
+		expectedLine := NewSingleLine(42)
+		if loc.Lines != expectedLine {
+			t.Errorf("Lines = %v, want %v", loc.Lines, expectedLine)
 		}
 	})
 
@@ -2049,8 +2057,9 @@ func TestComment_GetLocation(t *testing.T) {
 		if loc.Path != "test.go" {
 			t.Errorf("Path = %q, want %q", loc.Path, "test.go")
 		}
-		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
-			t.Errorf("Lines = %+v, want range 10-20", loc.Lines)
+		expectedRange := NewLineRange(10, 20)
+		if loc.Lines != expectedRange {
+			t.Errorf("Lines = %v, want %v", loc.Lines, expectedRange)
 		}
 	})
 }
@@ -2144,8 +2153,9 @@ func TestDiffHunk_GetLocation(t *testing.T) {
 		if loc.Path != "main.go" {
 			t.Errorf("Path = %q, want %q", loc.Path, "main.go")
 		}
-		if loc.Lines.StartLine != 10 || loc.Lines.EndLine != 20 {
-			t.Errorf("Lines = %+v, want range 10-20", loc.Lines)
+		expectedRange := NewLineRange(10, 20)
+		if loc.Lines != expectedRange {
+			t.Errorf("Lines = %v, want %v", loc.Lines, expectedRange)
 		}
 	})
 }
@@ -2174,8 +2184,9 @@ func TestMergeConflict_Location(t *testing.T) {
 		if conflict.Location.Path != "main.go" {
 			t.Errorf("Path = %q, want %q", conflict.Location.Path, "main.go")
 		}
-		if conflict.Location.Lines.StartLine != 42 || conflict.Location.Lines.EndLine != 42 {
-			t.Errorf("Lines = %+v, want single line 42", conflict.Location.Lines)
+		expectedLine := NewSingleLine(42)
+		if conflict.Location.Lines != expectedLine {
+			t.Errorf("Lines = %v, want %v", conflict.Location.Lines, expectedLine)
 		}
 	})
 
@@ -2187,8 +2198,9 @@ func TestMergeConflict_Location(t *testing.T) {
 		if conflict.Location.Path != "test.go" {
 			t.Errorf("Path = %q, want %q", conflict.Location.Path, "test.go")
 		}
-		if conflict.Location.Lines.StartLine != 10 || conflict.Location.Lines.EndLine != 20 {
-			t.Errorf("Lines = %+v, want range 10-20", conflict.Location.Lines)
+		expectedRange := NewLineRange(10, 20)
+		if conflict.Location.Lines != expectedRange {
+			t.Errorf("Lines = %v, want %v", conflict.Location.Lines, expectedRange)
 		}
 	})
 
