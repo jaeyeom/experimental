@@ -391,18 +391,14 @@ func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identi
 
 // Helper functions.
 
+// diffHunksExistUnified checks if diff hunks exist for any review target.
+func (ch *CommandHandler) diffHunksExistUnified(repository models.Repository, target models.ReviewTarget) bool {
+	return ch.storage.DiffHunksExistUnified(repository, target)
+}
+
 func (ch *CommandHandler) diffHunksExist(repository models.Repository, prNumber int) bool {
-	// TODO: Consider providing PR path creation.
-	prPath := filepath.Join("repos", repository.Owner, repository.Name, "pull", strconv.Itoa(prNumber))
-	diffPath := filepath.Join(prPath, "diff-hunks.json")
-
-	// Create a basic storage instance to check existence
-	fs, err := storage.NewFileSystemStore(ch.storageHome)
-	if err != nil {
-		return false
-	}
-
-	return fs.Exists(diffPath)
+	target := models.NewPRTarget(prNumber)
+	return ch.diffHunksExistUnified(repository, target)
 }
 
 // filterCommentsAgainstDiffHunks filters comments to only include those within valid diff hunks.
@@ -429,18 +425,8 @@ func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repos
 }
 
 func (ch *CommandHandler) branchDiffHunksExist(repository models.Repository, branchName string) bool {
-	sanitizedBranch := strings.ReplaceAll(branchName, "/", "_")
-	// TODO: Consider providing branch path creation.
-	branchPath := filepath.Join("repos", repository.Owner, repository.Name, "branch", sanitizedBranch)
-	diffPath := filepath.Join(branchPath, "diff-hunks.json")
-
-	// Create a basic storage instance to check existence
-	fs, err := storage.NewFileSystemStore(ch.storageHome)
-	if err != nil {
-		return false
-	}
-
-	return fs.Exists(diffPath)
+	target := models.NewBranchTarget(branchName)
+	return ch.diffHunksExistUnified(repository, target)
 }
 
 // sortAndGetNextComment sorts comments and returns the next one to work on.
