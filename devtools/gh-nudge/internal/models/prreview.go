@@ -712,3 +712,25 @@ type MergeResult struct {
 	SkippedComments    []Comment `json:"skippedComments"`
 	TotalProcessed     int       `json:"totalProcessed"`
 }
+
+// ReviewComments is a unified container for comments that works with any ReviewTarget.
+// This replaces the separate PRComments and BranchComments types for new code.
+type ReviewComments struct {
+	Target     string     `json:"target"` // String representation of target (from ReviewTarget.String())
+	Repository Repository `json:"repository"`
+	Comments   []Comment  `json:"comments"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
+}
+
+// ReviewDiffHunks is a unified container for diff hunks that works with any ReviewTarget.
+// This replaces the separate PRDiffHunks and BranchDiffHunks types for new code.
+type ReviewDiffHunks struct {
+	Target      string     `json:"target"` // String representation of target (from ReviewTarget.String())
+	Repository  Repository `json:"repository"`
+	CapturedAt  time.Time  `json:"capturedAt"`
+	DiffHunks   []DiffHunk `json:"diffHunks"`
+	CommitSHA   string     `json:"commitSha"`
+	BaseSHA     string     `json:"baseSha"`
+	BaseBranch  string     `json:"baseBranch,omitempty"` // For branches
+	Description string     `json:"description,omitempty"`
+}
