@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "cli.go",
         "github.go",
+        "github_unified.go",
         "interfaces.go",
         "lister.go",
         "lock.go",
@@ -28,6 +29,7 @@ go_test(
         "cli_test.go",
         "github_branch_test.go",
         "github_test.go",
+        "github_unified_test.go",
         "lister_test.go",
         "lock_test.go",
         "locker_test.go",
