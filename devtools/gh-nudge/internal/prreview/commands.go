@@ -178,104 +178,8 @@ func (ch *CommandHandler) CommentCommand(repository models.Repository, identifie
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
-	if parsed.IsPR() {
-		return ch.addPRComment(repository, parsed.PRNumber, file, lineSpec, commentBody, side, force)
-	}
-	return ch.addBranchComment(repository, parsed.BranchName, file, lineSpec, commentBody, side, force)
-}
-
-// addPRComment adds a line-specific comment to a PR.
-func (ch *CommandHandler) addPRComment(repository models.Repository, prNumber int, file string, lineSpec, commentBody, side string, force bool) error {
-	// Parse line specification
-	lineRange, err := models.ParseLineSpec(lineSpec)
-	if err != nil {
-		return fmt.Errorf("invalid line specification %q: %w", lineSpec, err)
-	}
-
-	// Parse side
-	parsedSide, err := models.ParseSide(side)
-	if err != nil {
-		return fmt.Errorf("invalid side %q: %w", side, err)
-	}
-
-	// Create comment
-	comment := models.Comment{
-		Path: file,
-		Line: *lineRange,
-		Body: commentBody,
-		Side: parsedSide,
-	}
-
-	// Validate comment against diff hunks if they exist
-	if ch.diffHunksExist(repository, prNumber) {
-		if err := ch.storage.ValidateCommentAgainstDiff(repository, prNumber, comment); err != nil {
-			if !force {
-				return fmt.Errorf("validation failed: %w (use --force to override)", err)
-			}
-			fmt.Printf("Warning: %v\n", err)
-		}
-	} else {
-		fmt.Printf("Warning: No diff hunks found, comment validation skipped\n")
-	}
-
-	// Add comment
-	if err := ch.storage.AddComment(repository, prNumber, comment); err != nil {
-		if strings.Contains(err.Error(), "duplicate") && !force {
-			return fmt.Errorf("duplicate comment detected (use --force to override): %w", err)
-		}
-		return fmt.Errorf("failed to add comment: %w", err)
-	}
-
-	fmt.Printf("Added comment to %s:%s in PR %s#%d\n",
-		file, lineSpec, repository, prNumber)
-	return nil
-}
-
-// addBranchComment adds a line-specific comment to a branch.
-func (ch *CommandHandler) addBranchComment(repository models.Repository, branchName string, file string, lineSpec, commentBody, side string, force bool) error {
-	// Parse line specification
-	lineRange, err := models.ParseLineSpec(lineSpec)
-	if err != nil {
-		return fmt.Errorf("invalid line specification %q: %w", lineSpec, err)
-	}
-
-	// Parse side
-	parsedSide, err := models.ParseSide(side)
-	if err != nil {
-		return fmt.Errorf("invalid side %q: %w", side, err)
-	}
-
-	// Create comment
-	comment := models.Comment{
-		Path: file,
-		Line: *lineRange,
-		Body: commentBody,
-		Side: parsedSide,
-	}
-
-	// Validate comment against diff hunks if they exist
-	if ch.branchDiffHunksExist(repository, branchName) {
-		if err := ch.storage.ValidateBranchCommentAgainstDiff(repository, branchName, comment); err != nil {
-			if !force {
-				return fmt.Errorf("validation failed: %w (use --force to override)", err)
-			}
-			fmt.Printf("Warning: %v\n", err)
-		}
-	} else {
-		fmt.Printf("Warning: No diff hunks found, comment validation skipped\n")
-	}
-
-	// Add comment
-	if err := ch.storage.AddBranchComment(repository, branchName, comment); err != nil {
-		if strings.Contains(err.Error(), "duplicate") && !force {
-			return fmt.Errorf("duplicate comment detected (use --force to override): %w", err)
-		}
-		return fmt.Errorf("failed to add comment: %w", err)
-	}
-
-	fmt.Printf("Added comment to %s:%s in branch %s:%s\n",
-		file, lineSpec, repository, branchName)
-	return nil
+	target := models.NewReviewTarget(parsed)
+	return ch.addCommentUnified(repository, target, file, lineSpec, commentBody, side, force)
 }
 
 // SubmitCommand submits a review to GitHub.
@@ -379,102 +283,8 @@ func (ch *CommandHandler) ListCommand(repository models.Repository, identifier s
 		filter.LineRange = lineRange
 	}
 
-	if parsed.IsPR() {
-		return ch.listPRComments(repository, parsed.PRNumber, formatter, filter, showContext, contextLines)
-	}
-	return ch.listBranchComments(repository, parsed.BranchName, formatter, filter, showContext, contextLines)
-}
-
-// listPRComments lists comments for a PR.
-func (ch *CommandHandler) listPRComments(repository models.Repository, prNumber int, formatter OutputFormatter, filter models.CommentFilter, showContext bool, contextLines int) error {
-	prComments, err := ch.storage.GetComments(repository, prNumber)
-	if err != nil {
-		return fmt.Errorf("failed to get comments: %w", err)
-	}
-
-	// Apply filters
-	filteredComments := filter.Apply(prComments.Comments)
-
-	// Output results
-	var output string
-	if showContext {
-		// Create comments with context
-		commentsWithContext := make([]models.CommentWithLineContext, 0, len(filteredComments))
-		for _, comment := range filteredComments {
-			cwc := models.CommentWithLineContext{Comment: comment}
-
-			// Try to get line context
-			context, err := models.GetLineContextForComment(comment.Path, comment, contextLines)
-			if err != nil {
-				// If we can't get context (file not found, etc.), just skip it
-				fmt.Fprintf(os.Stderr, "Warning: Could not get context for %s:%v - %v\n", comment.Path, comment.Line, err)
-			} else {
-				cwc.Context = context
-			}
-
-			commentsWithContext = append(commentsWithContext, cwc)
-		}
-
-		output, err = formatter.FormatCommentsWithContext(commentsWithContext)
-		if err != nil {
-			return fmt.Errorf("failed to format comments with context: %w", err)
-		}
-	} else {
-		output, err = formatter.FormatComments(filteredComments)
-		if err != nil {
-			return fmt.Errorf("failed to format comments: %w", err)
-		}
-	}
-
-	fmt.Println(output)
-
-	return nil
-}
-
-// listBranchComments lists comments for a branch.
-func (ch *CommandHandler) listBranchComments(repository models.Repository, branchName string, formatter OutputFormatter, filter models.CommentFilter, showContext bool, contextLines int) error {
-	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
-	if err != nil {
-		return fmt.Errorf("failed to get branch comments: %w", err)
-	}
-
-	// Apply filters
-	filteredComments := filter.Apply(branchComments.Comments)
-
-	// Output results
-	var output string
-	if showContext {
-		// Create comments with context
-		commentsWithContext := make([]models.CommentWithLineContext, 0, len(filteredComments))
-		for _, comment := range filteredComments {
-			cwc := models.CommentWithLineContext{Comment: comment}
-
-			// Try to get line context
-			context, err := models.GetLineContextForComment(comment.Path, comment, contextLines)
-			if err != nil {
-				// If we can't get context (file not found, etc.), just skip it
-				fmt.Fprintf(os.Stderr, "Warning: Could not get context for %s:%v - %v\n", comment.Path, comment.Line, err)
-			} else {
-				cwc.Context = context
-			}
-
-			commentsWithContext = append(commentsWithContext, cwc)
-		}
-
-		output, err = formatter.FormatCommentsWithContext(commentsWithContext)
-		if err != nil {
-			return fmt.Errorf("failed to format comments with context: %w", err)
-		}
-	} else {
-		output, err = formatter.FormatComments(filteredComments)
-		if err != nil {
-			return fmt.Errorf("failed to format comments: %w", err)
-		}
-	}
-
-	fmt.Println(output)
-
-	return nil
+	target := models.NewReviewTarget(parsed)
+	return ch.listCommentsUnified(repository, target, formatter, filter, showContext, contextLines)
 }
 
 // DeleteCommand deletes specific comments for either PR or branch.
@@ -484,19 +294,11 @@ func (ch *CommandHandler) DeleteCommand(repository models.Repository, identifier
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
-	if parsed.IsPR() {
-		if err := ch.storage.DeleteCommentByID(repository, parsed.PRNumber, commentID); err != nil {
-			return fmt.Errorf("failed to delete comment by ID: %w", err)
-		}
-		fmt.Printf("Deleted comment with ID prefix '%s' from PR %s#%d\n", commentID, repository, parsed.PRNumber)
-		return nil
+	target := models.NewReviewTarget(parsed)
+	if err := ch.storage.DeleteCommentByIDUnified(repository, target, commentID); err != nil {
+		return fmt.Errorf("failed to delete comment by ID: %w", err)
 	}
-
-	// Delete branch comment by ID
-	if err := ch.storage.DeleteBranchCommentByID(repository, parsed.BranchName, commentID); err != nil {
-		return fmt.Errorf("failed to delete branch comment by ID: %w", err)
-	}
-	fmt.Printf("Deleted comment with ID prefix '%s' from branch %s:%s\n", commentID, repository, parsed.BranchName)
+	fmt.Printf("Deleted comment with ID prefix '%s' from %s %s\n", commentID, target.String(), repository)
 	return nil
 }
 
@@ -507,10 +309,8 @@ func (ch *CommandHandler) ClearCommand(repository models.Repository, identifier 
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
-	if parsed.IsPR() {
-		return ch.clearPRComments(repository, parsed.PRNumber, file, confirm)
-	}
-	return ch.clearBranchComments(repository, parsed.BranchName, file, confirm)
+	target := models.NewReviewTarget(parsed)
+	return ch.clearCommentsUnified(repository, target, file, confirm)
 }
 
 // NextCommand gets the next unresolved comment for either PR or branch.
@@ -520,10 +320,8 @@ func (ch *CommandHandler) NextCommand(repository models.Repository, identifier s
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
-	if parsed.IsPR() {
-		return ch.nextPRComment(repository, parsed.PRNumber, formatter, file, priority)
-	}
-	return ch.nextBranchComment(repository, parsed.BranchName, formatter, file, priority)
+	target := models.NewReviewTarget(parsed)
+	return ch.nextCommentUnified(repository, target, formatter, file, priority)
 }
 
 // ResolveCommand marks a comment as resolved for either PR or branch.
@@ -533,10 +331,8 @@ func (ch *CommandHandler) ResolveCommand(repository models.Repository, identifie
 		return fmt.Errorf("invalid identifier %q: %w", identifier, err)
 	}
 
-	if parsed.IsPR() {
-		return ch.resolvePRComment(repository, parsed.PRNumber, commentID, archive, reason)
-	}
-	return ch.resolveBranchComment(repository, parsed.BranchName, commentID, archive, reason)
+	target := models.NewReviewTarget(parsed)
+	return ch.resolveCommentUnified(repository, target, commentID, archive, reason)
 }
 
 // AutoAdjustCommand automatically adjusts line numbers based on git diff.
@@ -593,86 +389,6 @@ func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identi
 	return ch.AdjustCommandExtended(repository, identifier, "", diffOutput, options)
 }
 
-// clearPRComments clears comments for a PR or file.
-func (ch *CommandHandler) clearPRComments(repository models.Repository, prNumber int, file string, confirm bool) error {
-	if !confirm {
-		if file != "" {
-			fmt.Printf("This will delete all comments for file '%s' in PR %s#%d. Continue? (y/N): ",
-				file, repository, prNumber)
-		} else {
-			fmt.Printf("This will delete ALL comments for PR %s#%d. Continue? (y/N): ",
-				repository, prNumber)
-		}
-
-		var response string
-		_, _ = fmt.Scanln(&response)
-		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
-			fmt.Println("Operation cancelled")
-			return nil
-		}
-	}
-
-	var err error
-	if file != "" {
-		err = ch.storage.ClearCommentsForFile(repository, prNumber, file)
-	} else {
-		err = ch.storage.ClearComments(repository, prNumber)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to clear comments: %w", err)
-	}
-
-	if file != "" {
-		fmt.Printf("Cleared all comments for file '%s' in PR %s#%d\n",
-			file, repository, prNumber)
-	} else {
-		fmt.Printf("Cleared all comments for PR %s#%d\n",
-			repository, prNumber)
-	}
-
-	return nil
-}
-
-// clearBranchComments clears comments for a branch.
-func (ch *CommandHandler) clearBranchComments(repository models.Repository, branchName string, file string, confirm bool) error {
-	if !confirm {
-		if file != "" {
-			fmt.Printf("This will delete all comments for file '%s' in branch %s:%s. Continue? (y/N): ",
-				file, repository, branchName)
-		} else {
-			fmt.Printf("This will delete ALL comments for branch %s:%s. Continue? (y/N): ",
-				repository, branchName)
-		}
-
-		var response string
-		_, _ = fmt.Scanln(&response)
-		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
-			fmt.Println("Operation cancelled")
-			return nil
-		}
-	}
-
-	var err error
-	if file != "" {
-		err = ch.storage.ClearBranchCommentsForFile(repository, branchName, file)
-	} else {
-		err = ch.storage.ClearBranchComments(repository, branchName)
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to clear comments: %w", err)
-	}
-
-	if file != "" {
-		fmt.Printf("Cleared all comments for file '%s' in branch %s:%s\n", file, repository, branchName)
-	} else {
-		fmt.Printf("Cleared all comments for branch %s:%s\n", repository, branchName)
-	}
-
-	return nil
-}
-
 // Helper functions.
 
 func (ch *CommandHandler) diffHunksExist(repository models.Repository, prNumber int) bool {
@@ -725,172 +441,6 @@ func (ch *CommandHandler) branchDiffHunksExist(repository models.Repository, bra
 	}
 
 	return fs.Exists(diffPath)
-}
-
-// nextPRComment gets the next unresolved comment for a PR.
-func (ch *CommandHandler) nextPRComment(repository models.Repository, prNumber int, formatter OutputFormatter, file string, priority models.CommentPriority) error {
-	prComments, err := ch.storage.GetComments(repository, prNumber)
-	if err != nil {
-		return fmt.Errorf("failed to get comments: %w", err)
-	}
-
-	// Filter and sort comments
-	var unresolvedComments []models.Comment
-	for _, comment := range prComments.Comments {
-		if !comment.IsUnresolved() {
-			continue
-		}
-		if file != "" && comment.Path != file {
-			continue
-		}
-		if priority != "" && comment.Priority != priority {
-			continue
-		}
-		unresolvedComments = append(unresolvedComments, comment)
-	}
-
-	if len(unresolvedComments) == 0 {
-		fmt.Println("No unresolved comments found.")
-		return nil
-	}
-
-	// Sort by file path, then line number, then creation time
-	nextComment := sortAndGetNextComment(unresolvedComments)
-
-	// Output next comment using the single comment formatter
-	output, err := formatter.FormatSingleComment(nextComment)
-	if err != nil {
-		return fmt.Errorf("failed to format comment: %w", err)
-	}
-	fmt.Print(output)
-
-	return nil
-}
-
-// nextBranchComment gets the next unresolved comment for a branch.
-func (ch *CommandHandler) nextBranchComment(repository models.Repository, branchName string, formatter OutputFormatter, file string, priority models.CommentPriority) error {
-	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
-	if err != nil {
-		return fmt.Errorf("failed to get branch comments: %w", err)
-	}
-
-	// Filter and sort comments
-	var unresolvedComments []models.Comment
-	for _, comment := range branchComments.Comments {
-		if !comment.IsUnresolved() {
-			continue
-		}
-		if file != "" && comment.Path != file {
-			continue
-		}
-		if priority != "" && comment.Priority != priority {
-			continue
-		}
-		unresolvedComments = append(unresolvedComments, comment)
-	}
-
-	if len(unresolvedComments) == 0 {
-		fmt.Println("No unresolved comments found.")
-		return nil
-	}
-
-	// Sort by file path, then line number, then creation time
-	nextComment := sortAndGetNextComment(unresolvedComments)
-
-	// Output next comment using the single comment formatter
-	output, err := formatter.FormatSingleComment(nextComment)
-	if err != nil {
-		return fmt.Errorf("failed to format comment: %w", err)
-	}
-	fmt.Print(output)
-
-	return nil
-}
-
-// resolvePRComment marks a PR comment as resolved.
-func (ch *CommandHandler) resolvePRComment(repository models.Repository, prNumber int, commentID string, archive bool, reason string) error {
-	// Get current comments
-	prComments, err := ch.storage.GetComments(repository, prNumber)
-	if err != nil {
-		return fmt.Errorf("failed to get comments: %w", err)
-	}
-
-	// Find and update the comment
-	found := false
-	for i, comment := range prComments.Comments {
-		if comment.MatchesIDPrefix(commentID) {
-			if archive {
-				prComments.Comments[i].Archive(reason)
-			} else {
-				prComments.Comments[i].Resolve(reason)
-			}
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("comment with ID prefix '%s' not found", commentID)
-	}
-
-	// Save updated comments
-	if err := ch.storage.UpdateComments(repository, prNumber, prComments); err != nil {
-		return fmt.Errorf("failed to update comments: %w", err)
-	}
-
-	if archive {
-		fmt.Printf("Archived comment with ID prefix '%s' in PR %s#%d\n", commentID, repository, prNumber)
-	} else {
-		fmt.Printf("Resolved comment with ID prefix '%s' in PR %s#%d\n", commentID, repository, prNumber)
-	}
-	if reason != "" {
-		fmt.Printf("Resolution reason: %s\n", reason)
-	}
-
-	return nil
-}
-
-// resolveBranchComment marks a branch comment as resolved.
-func (ch *CommandHandler) resolveBranchComment(repository models.Repository, branchName string, commentID string, archive bool, reason string) error {
-	// Get current comments
-	branchComments, err := ch.storage.GetBranchComments(repository, branchName)
-	if err != nil {
-		return fmt.Errorf("failed to get branch comments: %w", err)
-	}
-
-	// Find and update the comment
-	found := false
-	for i, comment := range branchComments.Comments {
-		if comment.MatchesIDPrefix(commentID) {
-			if archive {
-				branchComments.Comments[i].Archive(reason)
-			} else {
-				branchComments.Comments[i].Resolve(reason)
-			}
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("comment with ID prefix '%s' not found", commentID)
-	}
-
-	// Save updated comments
-	if err := ch.storage.UpdateBranchComments(repository, branchName, branchComments); err != nil {
-		return fmt.Errorf("failed to update comments: %w", err)
-	}
-
-	if archive {
-		fmt.Printf("Archived comment with ID prefix '%s' in branch %s:%s\n", commentID, repository, branchName)
-	} else {
-		fmt.Printf("Resolved comment with ID prefix '%s' in branch %s:%s\n", commentID, repository, branchName)
-	}
-	if reason != "" {
-		fmt.Printf("Resolution reason: %s\n", reason)
-	}
-
-	return nil
 }
 
 // sortAndGetNextComment sorts comments and returns the next one to work on.
