@@ -206,14 +206,15 @@ func setupTestHandler(t *testing.T) (*CommandHandler, string, func()) {
 func createTestDiffHunks(t *testing.T, handler *CommandHandler, repository models.Repository, prNumber int, hunks []models.DiffHunk) {
 	t.Helper()
 
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	target := models.NewPRTarget(prNumber)
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks:  hunks,
 	}
 
-	if err := handler.storage.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := handler.storage.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatalf("failed to create test diff hunks: %v", err)
 	}
 }
@@ -222,14 +223,15 @@ func createTestDiffHunks(t *testing.T, handler *CommandHandler, repository model
 func createTestBranchDiffHunks(t *testing.T, handler *CommandHandler, repository models.Repository, branchName string, hunks []models.DiffHunk) {
 	t.Helper()
 
-	diffHunks := models.BranchDiffHunks{
-		BranchName: branchName,
+	branchTarget := models.NewBranchTarget(branchName)
+	diffHunks := models.ReviewDiffHunks{
+		Target:     branchTarget.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks:  hunks,
 	}
 
-	if err := handler.storage.CaptureBranchDiffHunks(repository, branchName, diffHunks); err != nil {
+	if err := handler.storage.CaptureDiffHunks(repository, branchTarget, diffHunks); err != nil {
 		t.Fatalf("failed to create test branch diff hunks: %v", err)
 	}
 }
@@ -238,7 +240,8 @@ func createTestBranchDiffHunks(t *testing.T, handler *CommandHandler, repository
 func createTestComment(t *testing.T, handler *CommandHandler, repository models.Repository, prNumber int, comment models.Comment) {
 	t.Helper()
 
-	if err := handler.storage.AddComment(repository, prNumber, comment); err != nil {
+	target := models.NewPRTarget(prNumber)
+	if err := handler.storage.AddComment(repository, target, comment); err != nil {
 		t.Fatalf("failed to create test comment: %v", err)
 	}
 }
@@ -278,7 +281,8 @@ func TestCaptureCommand_PR(t *testing.T) {
 			},
 			expectError: false,
 			validateStorage: func(t *testing.T, handler *CommandHandler, repository models.Repository, prNumber int) {
-				hunks, err := handler.storage.GetDiffHunks(repository, prNumber)
+				target := models.NewPRTarget(prNumber)
+				hunks, err := handler.storage.GetDiffHunks(repository, target)
 				if err != nil {
 					t.Fatalf("failed to get diff hunks after capture: %v", err)
 				}
@@ -315,7 +319,8 @@ func TestCaptureCommand_PR(t *testing.T) {
 			},
 			expectError: false,
 			validateStorage: func(t *testing.T, handler *CommandHandler, repository models.Repository, prNumber int) {
-				hunks, err := handler.storage.GetDiffHunks(repository, prNumber)
+				target := models.NewPRTarget(prNumber)
+				hunks, err := handler.storage.GetDiffHunks(repository, target)
 				if err != nil {
 					t.Fatalf("failed to get diff hunks after capture: %v", err)
 				}
@@ -428,7 +433,8 @@ func TestCaptureCommand_Branch(t *testing.T) {
 			},
 			expectError: false,
 			validateStorage: func(t *testing.T, handler *CommandHandler, repository models.Repository, branchName string) {
-				hunks, err := handler.storage.GetBranchDiffHunks(repository, branchName)
+				branchTarget := models.NewBranchTarget(branchName)
+				hunks, err := handler.storage.GetDiffHunks(repository, branchTarget)
 				if err != nil {
 					t.Fatalf("failed to get branch diff hunks after capture: %v", err)
 				}
@@ -534,6 +540,7 @@ func TestCommentCommand_LineSpecValidation(t *testing.T) {
 
 			repository := models.NewRepository("owner", "repo")
 			prNumber := 123
+			target := models.NewPRTarget(prNumber)
 
 			// Create diff hunks to allow comment
 			createTestDiffHunks(t, handler, repository, prNumber, []models.DiffHunk{
@@ -555,7 +562,7 @@ func TestCommentCommand_LineSpecValidation(t *testing.T) {
 
 				// Validate the created comment
 				if tt.validateLine != nil {
-					comments, err := handler.storage.GetComments(repository, prNumber)
+					comments, err := handler.storage.GetComments(repository, target)
 					if err != nil {
 						t.Fatalf("failed to get comments: %v", err)
 					}
@@ -697,6 +704,7 @@ func TestCommentCommand_Branch(t *testing.T) {
 
 	repository := models.NewRepository("owner", "repo")
 	branchName := "feature-branch"
+	branchTarget := models.NewBranchTarget(branchName)
 
 	// Create branch diff hunks
 	createTestBranchDiffHunks(t, handler, repository, branchName, []models.DiffHunk{
@@ -710,7 +718,7 @@ func TestCommentCommand_Branch(t *testing.T) {
 		}
 
 		// Verify comment was added
-		comments, err := handler.storage.GetBranchComments(repository, branchName)
+		comments, err := handler.storage.GetComments(repository, branchTarget)
 		if err != nil {
 			t.Fatalf("failed to get branch comments: %v", err)
 		}
@@ -913,6 +921,7 @@ func TestDeleteCommand(t *testing.T) {
 
 			repository := models.NewRepository("owner", "repo")
 			prNumber := 123
+			target := models.NewPRTarget(prNumber)
 
 			// Setup comments
 			for _, comment := range tt.setupComments {
@@ -922,7 +931,7 @@ func TestDeleteCommand(t *testing.T) {
 			// Get the actual comment ID if needed
 			deleteID := tt.deleteID
 			if tt.name == "deletes by partial ID prefix" {
-				comments, err := handler.storage.GetComments(repository, prNumber)
+				comments, err := handler.storage.GetComments(repository, target)
 				if err != nil {
 					t.Fatalf("failed to get comments: %v", err)
 				}
@@ -947,7 +956,7 @@ func TestDeleteCommand(t *testing.T) {
 			}
 
 			// Verify remaining comment count
-			comments, err := handler.storage.GetComments(repository, prNumber)
+			comments, err := handler.storage.GetComments(repository, target)
 			if err != nil {
 				t.Fatalf("failed to get comments: %v", err)
 			}
@@ -1069,6 +1078,7 @@ func TestResolveCommand(t *testing.T) {
 
 			repository := models.NewRepository("owner", "repo")
 			prNumber := 123
+			target := models.NewPRTarget(prNumber)
 
 			// Create unresolved comment
 			createTestComment(t, handler, repository, prNumber, models.Comment{
@@ -1080,7 +1090,7 @@ func TestResolveCommand(t *testing.T) {
 			})
 
 			// Get comment ID
-			comments, err := handler.storage.GetComments(repository, prNumber)
+			comments, err := handler.storage.GetComments(repository, target)
 			if err != nil {
 				t.Fatalf("failed to get comments: %v", err)
 			}
@@ -1093,7 +1103,7 @@ func TestResolveCommand(t *testing.T) {
 			}
 
 			// Verify status change
-			comments, err = handler.storage.GetComments(repository, prNumber)
+			comments, err = handler.storage.GetComments(repository, target)
 			if err != nil {
 				t.Fatalf("failed to get comments: %v", err)
 			}
@@ -1324,6 +1334,7 @@ func TestPullCommand_MergeStrategies(t *testing.T) {
 
 			repository := models.NewRepository("owner", "repo")
 			prNumber := 123
+			target := models.NewPRTarget(prNumber)
 
 			// Setup local comments
 			for _, comment := range tt.localComments {
@@ -1353,7 +1364,7 @@ func TestPullCommand_MergeStrategies(t *testing.T) {
 			}
 
 			// Verify final count in storage
-			comments, err := handler.storage.GetComments(repository, prNumber)
+			comments, err := handler.storage.GetComments(repository, target)
 			if err != nil {
 				t.Fatalf("failed to get comments: %v", err)
 			}
@@ -1371,6 +1382,7 @@ func TestPullCommand_Filtering(t *testing.T) {
 
 	repository := models.NewRepository("owner", "repo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 
 	githubComments := []models.Comment{
 		{Path: "file1.go", Line: models.NewSingleLine(10), Body: "comment 1", Side: models.SideRight},
@@ -1406,7 +1418,7 @@ func TestPullCommand_Filtering(t *testing.T) {
 
 	t.Run("dry run doesn't modify storage", func(t *testing.T) {
 		// Clear storage first
-		_ = handler.storage.ClearComments(repository, prNumber)
+		_ = handler.storage.ClearComments(repository, target)
 
 		options := models.PullOptions{
 			DryRun:        true,
@@ -1424,7 +1436,7 @@ func TestPullCommand_Filtering(t *testing.T) {
 		}
 
 		// Storage should still be empty
-		comments, err := handler.storage.GetComments(repository, prNumber)
+		comments, err := handler.storage.GetComments(repository, target)
 		if err == nil && len(comments.Comments) > 0 {
 			t.Errorf("expected storage to be empty in dry run, got %d comments", len(comments.Comments))
 		}
@@ -1584,6 +1596,7 @@ func TestClearCommand_PR(t *testing.T) {
 
 			repository := models.NewRepository("owner", "repo")
 			prNumber := 123
+			target := models.NewPRTarget(prNumber)
 
 			// Setup comments
 			for _, comment := range tt.setupComments {
@@ -1605,7 +1618,7 @@ func TestClearCommand_PR(t *testing.T) {
 			}
 
 			// Verify remaining comment count
-			comments, err := handler.storage.GetComments(repository, prNumber)
+			comments, err := handler.storage.GetComments(repository, target)
 			if err != nil && tt.remainingCount > 0 {
 				t.Fatalf("failed to get comments: %v", err)
 			}
@@ -1627,6 +1640,7 @@ func TestClearCommand_Branch(t *testing.T) {
 
 	repository := models.NewRepository("owner", "repo")
 	branchName := "feature-branch"
+	branchTarget := models.NewBranchTarget(branchName)
 
 	// Create branch diff hunks first
 	createTestBranchDiffHunks(t, handler, repository, branchName, []models.DiffHunk{
@@ -1634,7 +1648,7 @@ func TestClearCommand_Branch(t *testing.T) {
 	})
 
 	// Setup branch comments using storage directly
-	err := handler.storage.AddBranchComment(repository, branchName, models.Comment{
+	err := handler.storage.AddComment(repository, branchTarget, models.Comment{
 		Path: "test.go",
 		Line: models.NewSingleLine(10),
 		Body: "branch comment",
@@ -1651,7 +1665,7 @@ func TestClearCommand_Branch(t *testing.T) {
 		}
 
 		// Verify comments are cleared
-		comments, err := handler.storage.GetBranchComments(repository, branchName)
+		comments, err := handler.storage.GetComments(repository, branchTarget)
 		if err == nil && len(comments.Comments) > 0 {
 			t.Errorf("expected 0 remaining comments, got %d", len(comments.Comments))
 		}
@@ -1787,9 +1801,9 @@ func TestWorkflow_PR_CaptureCommentSubmit(t *testing.T) {
 
 	// Step 1: Capture diff hunks
 	mockGH := &MockGitHubClient{
-		GetPRDiffFunc: func(_ models.Repository, _ int) (*models.PRDiffHunks, error) {
+		GetPRDiffFunc: func(_ models.Repository, prNum int) (*models.PRDiffHunks, error) {
 			return &models.PRDiffHunks{
-				PRNumber:   prNumber,
+				PRNumber:   prNum,
 				Repository: repository,
 				DiffHunks: []models.DiffHunk{
 					{Location: models.NewFileLocation("main.go", models.NewLineRange(10, 30)), Side: models.SideRight},

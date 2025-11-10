@@ -662,14 +662,14 @@ type mockCommentClearer struct {
 	lastFile                   string
 }
 
-func (m *mockCommentClearer) ClearComments(repository Repository, prNumber int) error {
+func (m *mockCommentClearer) ClearPRComments(repository Repository, prNumber int) error {
 	m.clearCommentsCalled = true
 	m.lastRepository = repository
 	m.lastPRNumber = prNumber
 	return m.clearCommentsError
 }
 
-func (m *mockCommentClearer) ClearCommentsForFile(repository Repository, prNumber int, file string) error {
+func (m *mockCommentClearer) ClearPRCommentsForFile(repository Repository, prNumber int, file string) error {
 	m.clearCommentsForFileCalled = true
 	m.lastRepository = repository
 	m.lastPRNumber = prNumber

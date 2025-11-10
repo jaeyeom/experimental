@@ -22,6 +22,7 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 	// Set up test data
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 
 	// Create storage and handler
 	store, err := storage.NewGitHubStorage(tmpDir)
@@ -139,13 +140,13 @@ func TestFilterCommentsAgainstDiffHunks(t *testing.T) {
 
 			// Set up diff hunks if needed
 			if tt.setupDiffHunks {
-				diffHunks := models.PRDiffHunks{
-					PRNumber:   prNumber,
+				diffHunks := models.ReviewDiffHunks{
+					Target:     target.String(),
 					Repository: repository,
 					CapturedAt: time.Now(),
 					DiffHunks:  tt.diffHunks,
 				}
-				if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+				if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 					t.Fatalf("failed to capture diff hunks: %v", err)
 				}
 			}
@@ -182,6 +183,7 @@ func TestFilteringIntegration(t *testing.T) {
 	// Set up test data
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 
 	// Create storage
 	store, err := storage.NewGitHubStorage(tmpDir)
@@ -196,15 +198,15 @@ func TestFilteringIntegration(t *testing.T) {
 	}
 
 	// Set up diff hunks
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
 			{Location: models.NewFileLocation("test.go", models.NewLineRange(10, 20)), Side: models.SideRight},
 		},
 	}
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 

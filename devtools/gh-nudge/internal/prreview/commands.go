@@ -104,7 +104,7 @@ func (ch *CommandHandler) capturePRDiff(repository models.Repository, prNumber i
 	target := models.NewPRTarget(prNumber)
 
 	// Check if diff hunks already exist
-	if !force && ch.diffHunksExistUnified(repository, target) {
+	if !force && ch.diffHunksExist(repository, target) {
 		return fmt.Errorf("diff hunks already exist for PR %d, use --force to overwrite", prNumber)
 	}
 
@@ -131,7 +131,7 @@ func (ch *CommandHandler) capturePRDiff(repository models.Repository, prNumber i
 	}
 
 	// Store diff hunks using unified API
-	if err := ch.storage.CaptureDiffHunksUnified(repository, target, reviewDiffHunks); err != nil {
+	if err := ch.storage.CaptureDiffHunks(repository, target, reviewDiffHunks); err != nil {
 		return fmt.Errorf("failed to store diff hunks: %w", err)
 	}
 
@@ -145,7 +145,7 @@ func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branch
 	target := models.NewBranchTarget(branchName)
 
 	// Check if diff hunks already exist
-	if !force && ch.diffHunksExistUnified(repository, target) {
+	if !force && ch.diffHunksExist(repository, target) {
 		return fmt.Errorf("diff hunks already exist for branch %q, use --force to overwrite", branchName)
 	}
 
@@ -189,7 +189,7 @@ func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branch
 	}
 
 	// Store diff hunks using unified API
-	if err := ch.storage.CaptureDiffHunksUnified(repository, target, reviewDiffHunks); err != nil {
+	if err := ch.storage.CaptureDiffHunks(repository, target, reviewDiffHunks); err != nil {
 		return fmt.Errorf("failed to store branch diff hunks: %w", err)
 	}
 
@@ -206,7 +206,7 @@ func (ch *CommandHandler) CommentCommand(repository models.Repository, identifie
 	}
 
 	target := models.NewReviewTarget(parsed)
-	return ch.addCommentUnified(repository, target, file, lineSpec, commentBody, side, force)
+	return ch.addComment(repository, target, file, lineSpec, commentBody, side, force)
 }
 
 // SubmitCommand submits a review to GitHub.
@@ -227,7 +227,7 @@ func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository,
 	target := models.NewPRTarget(prNumber)
 
 	// Get comments
-	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	reviewComments, err := ch.storage.GetComments(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
@@ -313,7 +313,7 @@ func (ch *CommandHandler) ListCommand(repository models.Repository, identifier s
 	}
 
 	target := models.NewReviewTarget(parsed)
-	return ch.listCommentsUnified(repository, target, formatter, filter, showContext, contextLines)
+	return ch.listComments(repository, target, formatter, filter, showContext, contextLines)
 }
 
 // DeleteCommand deletes specific comments for either PR or branch.
@@ -324,7 +324,7 @@ func (ch *CommandHandler) DeleteCommand(repository models.Repository, identifier
 	}
 
 	target := models.NewReviewTarget(parsed)
-	if err := ch.storage.DeleteCommentByIDUnified(repository, target, commentID); err != nil {
+	if err := ch.storage.DeleteCommentByID(repository, target, commentID); err != nil {
 		return fmt.Errorf("failed to delete comment by ID: %w", err)
 	}
 	fmt.Printf("Deleted comment with ID prefix '%s' from %s %s\n", commentID, target.String(), repository)
@@ -339,7 +339,7 @@ func (ch *CommandHandler) ClearCommand(repository models.Repository, identifier 
 	}
 
 	target := models.NewReviewTarget(parsed)
-	return ch.clearCommentsUnified(repository, target, file, confirm)
+	return ch.clearComments(repository, target, file, confirm)
 }
 
 // NextCommand gets the next unresolved comment for either PR or branch.
@@ -350,7 +350,7 @@ func (ch *CommandHandler) NextCommand(repository models.Repository, identifier s
 	}
 
 	target := models.NewReviewTarget(parsed)
-	return ch.nextCommentUnified(repository, target, formatter, file, priority)
+	return ch.nextComment(repository, target, formatter, file, priority)
 }
 
 // ResolveCommand marks a comment as resolved for either PR or branch.
@@ -361,7 +361,7 @@ func (ch *CommandHandler) ResolveCommand(repository models.Repository, identifie
 	}
 
 	target := models.NewReviewTarget(parsed)
-	return ch.resolveCommentUnified(repository, target, commentID, archive, reason)
+	return ch.resolveComment(repository, target, commentID, archive, reason)
 }
 
 // AutoAdjustCommand automatically adjusts line numbers based on git diff.
@@ -420,14 +420,9 @@ func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identi
 
 // Helper functions.
 
-// diffHunksExistUnified checks if diff hunks exist for any review target.
-func (ch *CommandHandler) diffHunksExistUnified(repository models.Repository, target models.ReviewTarget) bool {
-	return ch.storage.DiffHunksExistUnified(repository, target)
-}
-
-func (ch *CommandHandler) diffHunksExist(repository models.Repository, prNumber int) bool {
-	target := models.NewPRTarget(prNumber)
-	return ch.diffHunksExistUnified(repository, target)
+// diffHunksExist checks if diff hunks exist for any review target.
+func (ch *CommandHandler) diffHunksExist(repository models.Repository, target models.ReviewTarget) bool {
+	return ch.storage.DiffHunksExist(repository, target)
 }
 
 // filterCommentsAgainstDiffHunks filters comments to only include those within valid diff hunks.
@@ -436,7 +431,7 @@ func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repos
 	target := models.NewPRTarget(prNumber)
 
 	// If no diff hunks exist, return all comments as valid (skip validation)
-	if !ch.diffHunksExist(repository, prNumber) {
+	if !ch.diffHunksExist(repository, target) {
 		fmt.Printf("Warning: No diff hunks found, comment validation skipped\n")
 		return comments, nil
 	}
@@ -445,7 +440,7 @@ func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repos
 	var filteredComments []models.Comment
 
 	for _, comment := range comments {
-		if err := ch.storage.ValidateCommentAgainstDiffUnified(repository, target, comment); err != nil {
+		if err := ch.storage.ValidateCommentAgainstDiff(repository, target, comment); err != nil {
 			filteredComments = append(filteredComments, comment)
 		} else {
 			validComments = append(validComments, comment)
@@ -635,7 +630,7 @@ func (ch *CommandHandler) validateAdjustmentsIfRequested(commentsToSubmit []mode
 	target := models.NewPRTarget(prNumber)
 	fmt.Println("Validating adjusted comments against diff hunks...")
 
-	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	reviewDiffHunks, err := ch.storage.GetDiffHunks(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get diff hunks for validation: %w", err)
 	}
@@ -678,7 +673,7 @@ func (ch *CommandHandler) updateLocalStorageAfterSubmit(repository models.Reposi
 
 	reviewComments.Comments = commentsToSubmit
 	reviewComments.UpdatedAt = time.Now()
-	if err := ch.storage.UpdateCommentsUnified(repository, target, reviewComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, target, reviewComments); err != nil {
 		return fmt.Errorf("failed to update comments: %w", err)
 	}
 	return nil
@@ -822,7 +817,7 @@ func (ch *CommandHandler) PullCommand(repository models.Repository, prNumber int
 	}
 
 	// Get existing local comments
-	existingComments, err := ch.storage.GetCommentsUnified(repository, target)
+	existingComments, err := ch.storage.GetComments(repository, target)
 	if err != nil && !strings.Contains(err.Error(), "not found") {
 		return nil, fmt.Errorf("failed to get existing comments: %w", err)
 	}
@@ -838,7 +833,7 @@ func (ch *CommandHandler) PullCommand(repository models.Repository, prNumber int
 		UpdatedAt:  time.Now(),
 	}
 
-	if err := ch.storage.UpdateCommentsUnified(repository, target, &updatedComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, target, &updatedComments); err != nil {
 		return nil, fmt.Errorf("failed to update local comments: %w", err)
 	}
 
@@ -958,4 +953,220 @@ func (ch *CommandHandler) isConflictingComment(comment1, comment2 models.Comment
 		comment1.Line == comment2.Line &&
 		comment1.Side == comment2.Side &&
 		comment1.Body != comment2.Body
+}
+
+// addCommentUnified adds a line-specific comment to any review target.
+func (ch *CommandHandler) addComment(repository models.Repository, target models.ReviewTarget, file string, lineSpec, commentBody, side string, force bool) error {
+	// Parse line specification
+	lineRange, err := models.ParseLineSpec(lineSpec)
+	if err != nil {
+		return fmt.Errorf("invalid line specification %q: %w", lineSpec, err)
+	}
+
+	// Parse side
+	parsedSide, err := models.ParseSide(side)
+	if err != nil {
+		return fmt.Errorf("invalid side %q: %w", side, err)
+	}
+
+	// Create comment
+	comment := models.Comment{
+		Path: file,
+		Line: *lineRange,
+		Body: commentBody,
+		Side: parsedSide,
+	}
+
+	// Validate comment against diff hunks if they exist
+	if ch.storage.DiffHunksExist(repository, target) {
+		if err := ch.storage.ValidateCommentAgainstDiff(repository, target, comment); err != nil {
+			if !force {
+				return fmt.Errorf("validation failed: %w (use --force to override)", err)
+			}
+			fmt.Printf("Warning: %v\n", err)
+		}
+	} else {
+		fmt.Printf("Warning: No diff hunks found, comment validation skipped\n")
+	}
+
+	// Add comment
+	if err := ch.storage.AddComment(repository, target, comment); err != nil {
+		if strings.Contains(err.Error(), "duplicate") && !force {
+			return fmt.Errorf("duplicate comment detected (use --force to override): %w", err)
+		}
+		return fmt.Errorf("failed to add comment: %w", err)
+	}
+
+	fmt.Printf("Added comment to %s:%s in %s %s\n",
+		file, lineSpec, target.String(), repository)
+	return nil
+}
+
+// listCommentsUnified lists comments for any review target.
+func (ch *CommandHandler) listComments(repository models.Repository, target models.ReviewTarget, formatter OutputFormatter, filter models.CommentFilter, showContext bool, contextLines int) error {
+	comments, err := ch.storage.GetComments(repository, target)
+	if err != nil {
+		return fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Apply filters
+	filteredComments := filter.Apply(comments.Comments)
+
+	// Output results
+	var output string
+	if showContext {
+		// Create comments with context
+		commentsWithContext := make([]models.CommentWithLineContext, 0, len(filteredComments))
+		for _, comment := range filteredComments {
+			cwc := models.CommentWithLineContext{Comment: comment}
+
+			// Try to get line context
+			context, err := models.GetLineContextForComment(comment.Path, comment, contextLines)
+			if err != nil {
+				// If we can't get context (file not found, etc.), just skip it
+				fmt.Printf("Warning: Could not get context for %s:%v - %v\n", comment.Path, comment.Line, err)
+			} else {
+				cwc.Context = context
+			}
+
+			commentsWithContext = append(commentsWithContext, cwc)
+		}
+
+		output, err = formatter.FormatCommentsWithContext(commentsWithContext)
+		if err != nil {
+			return fmt.Errorf("failed to format comments with context: %w", err)
+		}
+	} else {
+		output, err = formatter.FormatComments(filteredComments)
+		if err != nil {
+			return fmt.Errorf("failed to format comments: %w", err)
+		}
+	}
+
+	fmt.Println(output)
+	return nil
+}
+
+// clearCommentsUnified clears comments for any review target.
+func (ch *CommandHandler) clearComments(repository models.Repository, target models.ReviewTarget, file string, confirm bool) error {
+	if !confirm {
+		if file != "" {
+			fmt.Printf("This will delete all comments for file '%s' in %s %s. Continue? (y/N): ",
+				file, target.String(), repository)
+		} else {
+			fmt.Printf("This will delete ALL comments for %s %s. Continue? (y/N): ",
+				target.String(), repository)
+		}
+
+		var response string
+		_, _ = fmt.Scanln(&response)
+		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+			fmt.Println("Operation cancelled")
+			return nil
+		}
+	}
+
+	var err error
+	if file != "" {
+		err = ch.storage.ClearCommentsForFile(repository, target, file)
+	} else {
+		err = ch.storage.ClearComments(repository, target)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to clear comments: %w", err)
+	}
+
+	if file != "" {
+		fmt.Printf("Cleared all comments for file '%s' in %s %s\n",
+			file, target.String(), repository)
+	} else {
+		fmt.Printf("Cleared all comments for %s %s\n",
+			target.String(), repository)
+	}
+
+	return nil
+}
+
+// nextCommentUnified gets the next unresolved comment for any review target.
+func (ch *CommandHandler) nextComment(repository models.Repository, target models.ReviewTarget, formatter OutputFormatter, file string, priority models.CommentPriority) error {
+	comments, err := ch.storage.GetComments(repository, target)
+	if err != nil {
+		return fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Filter and sort comments
+	var unresolvedComments []models.Comment
+	for _, comment := range comments.Comments {
+		if !comment.IsUnresolved() {
+			continue
+		}
+		if file != "" && comment.Path != file {
+			continue
+		}
+		if priority != "" && comment.Priority != priority {
+			continue
+		}
+		unresolvedComments = append(unresolvedComments, comment)
+	}
+
+	if len(unresolvedComments) == 0 {
+		fmt.Println("No unresolved comments found.")
+		return nil
+	}
+
+	// Sort by file path, then line number, then creation time
+	nextComment := sortAndGetNextComment(unresolvedComments)
+
+	// Output next comment using the single comment formatter
+	output, err := formatter.FormatSingleComment(nextComment)
+	if err != nil {
+		return fmt.Errorf("failed to format comment: %w", err)
+	}
+	fmt.Print(output)
+
+	return nil
+}
+
+// resolveCommentUnified marks a comment as resolved for any review target.
+func (ch *CommandHandler) resolveComment(repository models.Repository, target models.ReviewTarget, commentID string, archive bool, reason string) error {
+	// Get current comments
+	comments, err := ch.storage.GetComments(repository, target)
+	if err != nil {
+		return fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Find and update the comment
+	found := false
+	for i, comment := range comments.Comments {
+		if comment.MatchesIDPrefix(commentID) {
+			if archive {
+				comments.Comments[i].Archive(reason)
+			} else {
+				comments.Comments[i].Resolve(reason)
+			}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("comment with ID prefix '%s' not found", commentID)
+	}
+
+	// Save updated comments
+	if err := ch.storage.UpdateComments(repository, target, comments); err != nil {
+		return fmt.Errorf("failed to update comments: %w", err)
+	}
+
+	if archive {
+		fmt.Printf("Archived comment with ID prefix '%s' in %s %s\n", commentID, target.String(), repository)
+	} else {
+		fmt.Printf("Resolved comment with ID prefix '%s' in %s %s\n", commentID, target.String(), repository)
+	}
+	if reason != "" {
+		fmt.Printf("Resolution reason: %s\n", reason)
+	}
+
+	return nil
 }

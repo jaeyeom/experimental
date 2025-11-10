@@ -11,8 +11,8 @@ import (
 // Unified storage methods that work with ReviewTarget interface.
 // These methods replace the separate PR and Branch methods for new code.
 
-// GetCommentsUnified retrieves comments for any review target (PR or branch).
-func (gs *GitHubStorage) GetCommentsUnified(repository models.Repository, target models.ReviewTarget) (*models.ReviewComments, error) {
+// GetComments retrieves comments for any review target (PR or branch).
+func (gs *GitHubStorage) GetComments(repository models.Repository, target models.ReviewTarget) (*models.ReviewComments, error) {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
 
@@ -33,8 +33,8 @@ func (gs *GitHubStorage) GetCommentsUnified(repository models.Repository, target
 	return &comments, nil
 }
 
-// AddCommentUnified adds a comment to any review target (PR or branch).
-func (gs *GitHubStorage) AddCommentUnified(repository models.Repository, target models.ReviewTarget, comment models.Comment) error {
+// AddComment adds a comment to any review target (PR or branch).
+func (gs *GitHubStorage) AddComment(repository models.Repository, target models.ReviewTarget, comment models.Comment) error {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
 
@@ -72,13 +72,13 @@ func (gs *GitHubStorage) AddCommentUnified(repository models.Repository, target 
 	return nil
 }
 
-// DeleteCommentByIDUnified deletes a comment by ID prefix for any review target.
-func (gs *GitHubStorage) DeleteCommentByIDUnified(repository models.Repository, target models.ReviewTarget, idPrefix string) error {
+// DeleteCommentByID deletes a comment by ID prefix for any review target.
+func (gs *GitHubStorage) DeleteCommentByID(repository models.Repository, target models.ReviewTarget, idPrefix string) error {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
 
 	if err := gs.locker.WithLock(commentsPath, func() error {
-		comments, err := gs.GetCommentsUnified(repository, target)
+		comments, err := gs.GetComments(repository, target)
 		if err != nil {
 			return err
 		}
@@ -110,8 +110,8 @@ func (gs *GitHubStorage) DeleteCommentByIDUnified(repository models.Repository, 
 	return nil
 }
 
-// ClearCommentsUnified removes all comments for any review target.
-func (gs *GitHubStorage) ClearCommentsUnified(repository models.Repository, target models.ReviewTarget) error {
+// ClearComments removes all comments for any review target.
+func (gs *GitHubStorage) ClearComments(repository models.Repository, target models.ReviewTarget) error {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
 
@@ -123,13 +123,13 @@ func (gs *GitHubStorage) ClearCommentsUnified(repository models.Repository, targ
 	return nil
 }
 
-// ClearCommentsForFileUnified removes all comments for a specific file in any review target.
-func (gs *GitHubStorage) ClearCommentsForFileUnified(repository models.Repository, target models.ReviewTarget, file string) error {
+// ClearCommentsForFile removes all comments for a specific file in any review target.
+func (gs *GitHubStorage) ClearCommentsForFile(repository models.Repository, target models.ReviewTarget, file string) error {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
 
 	return gs.locker.WithLock(commentsPath, func() error {
-		comments, err := gs.GetCommentsUnified(repository, target)
+		comments, err := gs.GetComments(repository, target)
 		if err != nil {
 			return err
 		}
@@ -149,8 +149,8 @@ func (gs *GitHubStorage) ClearCommentsForFileUnified(repository models.Repositor
 	})
 }
 
-// UpdateCommentsUnified updates the entire comment list for any review target.
-func (gs *GitHubStorage) UpdateCommentsUnified(repository models.Repository, target models.ReviewTarget, comments *models.ReviewComments) error {
+// UpdateComments updates the entire comment list for any review target.
+func (gs *GitHubStorage) UpdateComments(repository models.Repository, target models.ReviewTarget, comments *models.ReviewComments) error {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
 
@@ -163,8 +163,8 @@ func (gs *GitHubStorage) UpdateCommentsUnified(repository models.Repository, tar
 	return nil
 }
 
-// GetDiffHunksUnified retrieves diff hunks for any review target.
-func (gs *GitHubStorage) GetDiffHunksUnified(repository models.Repository, target models.ReviewTarget) (*models.ReviewDiffHunks, error) {
+// GetDiffHunks retrieves diff hunks for any review target.
+func (gs *GitHubStorage) GetDiffHunks(repository models.Repository, target models.ReviewTarget) (*models.ReviewDiffHunks, error) {
 	targetPath := target.BuildPath(repository)
 	diffPath := filepath.Join(targetPath, "diff-hunks.json")
 
@@ -177,8 +177,8 @@ func (gs *GitHubStorage) GetDiffHunksUnified(repository models.Repository, targe
 	return &diffHunks, nil
 }
 
-// CaptureDiffHunksUnified stores diff hunks for any review target.
-func (gs *GitHubStorage) CaptureDiffHunksUnified(repository models.Repository, target models.ReviewTarget, diffHunks models.ReviewDiffHunks) error {
+// CaptureDiffHunks stores diff hunks for any review target.
+func (gs *GitHubStorage) CaptureDiffHunks(repository models.Repository, target models.ReviewTarget, diffHunks models.ReviewDiffHunks) error {
 	targetPath := target.BuildPath(repository)
 	diffPath := filepath.Join(targetPath, "diff-hunks.json")
 
@@ -190,9 +190,9 @@ func (gs *GitHubStorage) CaptureDiffHunksUnified(repository models.Repository, t
 	return nil
 }
 
-// ValidateCommentAgainstDiffUnified validates that a comment line exists in the diff hunks for any review target.
-func (gs *GitHubStorage) ValidateCommentAgainstDiffUnified(repository models.Repository, target models.ReviewTarget, comment models.Comment) error {
-	diffHunks, err := gs.GetDiffHunksUnified(repository, target)
+// ValidateCommentAgainstDiff validates that a comment line exists in the diff hunks for any review target.
+func (gs *GitHubStorage) ValidateCommentAgainstDiff(repository models.Repository, target models.ReviewTarget, comment models.Comment) error {
+	diffHunks, err := gs.GetDiffHunks(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get diff hunks for validation: %w", err)
 	}
@@ -211,8 +211,8 @@ func (gs *GitHubStorage) ValidateCommentAgainstDiffUnified(repository models.Rep
 	return fmt.Errorf("line %v in file %s (side %s) is not within any diff hunk", comment.Line, comment.Path, comment.Side)
 }
 
-// DiffHunksExistUnified checks if diff hunks exist for any review target.
-func (gs *GitHubStorage) DiffHunksExistUnified(repository models.Repository, target models.ReviewTarget) bool {
+// DiffHunksExist checks if diff hunks exist for any review target.
+func (gs *GitHubStorage) DiffHunksExist(repository models.Repository, target models.ReviewTarget) bool {
 	targetPath := target.BuildPath(repository)
 	diffPath := filepath.Join(targetPath, "diff-hunks.json")
 	return gs.store.Exists(diffPath)

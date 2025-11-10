@@ -371,8 +371,8 @@ type Executor interface {
 
 // CommentClearer defines the ability to clear comments.
 type CommentClearer interface {
-	ClearComments(repository Repository, prNumber int) error
-	ClearCommentsForFile(repository Repository, prNumber int, file string) error
+	ClearPRComments(repository Repository, prNumber int) error
+	ClearPRCommentsForFile(repository Repository, prNumber int, file string) error
 }
 
 // CommentArchiver defines the ability to archive comments.
@@ -390,7 +390,7 @@ type ClearAction struct{}
 func (a ClearAction) Execute(storage CommentClearer, repository Repository, prNumber int, file string) error {
 	if file != "" {
 		// Clear comments for specific file only
-		if err := storage.ClearCommentsForFile(repository, prNumber, file); err != nil {
+		if err := storage.ClearPRCommentsForFile(repository, prNumber, file); err != nil {
 			// Don't fail the entire operation if clearing fails - just warn
 			slog.Warn("failed to clear local comments for file after submission",
 				"owner", repository.Owner,
@@ -407,7 +407,7 @@ func (a ClearAction) Execute(storage CommentClearer, repository Repository, prNu
 			"file", file)
 	} else {
 		// Clear all comments
-		if err := storage.ClearComments(repository, prNumber); err != nil {
+		if err := storage.ClearPRComments(repository, prNumber); err != nil {
 			// Don't fail the entire operation if clearing fails - just warn
 			slog.Warn("failed to clear local comments after submission",
 				"owner", repository.Owner,

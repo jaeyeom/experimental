@@ -27,9 +27,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "cli_test.go",
-        "github_branch_test.go",
         "github_test.go",
-        "github_unified_test.go",
         "lister_test.go",
         "lock_test.go",
         "locker_test.go",

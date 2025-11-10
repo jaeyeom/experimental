@@ -82,7 +82,7 @@ func (ch *CommandHandler) adjustCommandSingleFile(repository models.Repository, 
 	}
 
 	// Get preview
-	preview, err := ch.getAdjustmentPreviewUnified(repository, target, file, diffSpec, format)
+	preview, err := ch.getAdjustmentPreview(repository, target, file, diffSpec, format)
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func (ch *CommandHandler) adjustCommandSingleFile(repository models.Repository, 
 	}
 
 	// Apply adjustments
-	return ch.applyAdjustmentsUnified(repository, target, file, adjustments, force)
+	return ch.applyAdjustments(repository, target, file, adjustments, force)
 }
 
 // adjustCommandUnifiedDiff handles unified diff processing (single-file or multi-file).
@@ -132,7 +132,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository,
 		fmt.Printf("=== Processing file %d/%d: %s ===\n", i+1, len(fileSpecs), spec.FilePath)
 
 		// Get preview for this file
-		preview, err := ch.getAdjustmentPreviewUnified(repository, target, spec.FilePath, spec.ClassicDiff, format)
+		preview, err := ch.getAdjustmentPreview(repository, target, spec.FilePath, spec.ClassicDiff, format)
 		if err != nil {
 			fmt.Printf("Warning: Failed to get preview for %s: %v\n", spec.FilePath, err)
 			continue
@@ -150,7 +150,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository,
 			}
 
 			// Apply adjustments for this file
-			fileAdjusted, fileOrphaned, fileWarnings, err := ch.applyAdjustmentsWithCountsUnified(repository, target, spec.FilePath, adjustments, force)
+			fileAdjusted, fileOrphaned, fileWarnings, err := ch.applyAdjustmentsWithCounts(repository, target, spec.FilePath, adjustments, force)
 			if err != nil {
 				fmt.Printf("Warning: Failed to apply adjustments for %s: %v\n", spec.FilePath, err)
 				continue
@@ -181,7 +181,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository,
 }
 
 // getAdjustmentPreviewUnified generates a preview of the adjustments for any review target.
-func (ch *CommandHandler) getAdjustmentPreviewUnified(repository models.Repository, target models.ReviewTarget, file, diffSpec, format string) (string, error) {
+func (ch *CommandHandler) getAdjustmentPreview(repository models.Repository, target models.ReviewTarget, file, diffSpec, format string) (string, error) {
 	// Parse adjustments with auto-detection
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -189,13 +189,13 @@ func (ch *CommandHandler) getAdjustmentPreviewUnified(repository models.Reposito
 	}
 
 	// Get comments for the file
-	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	reviewComments, err := ch.storage.GetComments(repository, target)
 	if err != nil {
 		return "", fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Get diff hunks
-	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	reviewDiffHunks, err := ch.storage.GetDiffHunks(repository, target)
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff hunks: %w", err)
 	}
@@ -251,15 +251,15 @@ func (ch *CommandHandler) getAdjustmentPreviewUnified(repository models.Reposito
 }
 
 // applyAdjustmentsUnified applies adjustments to comments for any review target.
-func (ch *CommandHandler) applyAdjustmentsUnified(repository models.Repository, target models.ReviewTarget, file string, adjustments []models.LineAdjustment, force bool) error {
+func (ch *CommandHandler) applyAdjustments(repository models.Repository, target models.ReviewTarget, file string, adjustments []models.LineAdjustment, force bool) error {
 	// Get all comments
-	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	reviewComments, err := ch.storage.GetComments(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Get diff hunks for validation
-	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	reviewDiffHunks, err := ch.storage.GetDiffHunks(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get diff hunks: %w", err)
 	}
@@ -309,7 +309,7 @@ func (ch *CommandHandler) applyAdjustmentsUnified(repository models.Repository, 
 	reviewComments.Comments = updatedComments
 	reviewComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateCommentsUnified(repository, target, reviewComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, target, reviewComments); err != nil {
 		return fmt.Errorf("failed to update comments: %w", err)
 	}
 
@@ -405,15 +405,15 @@ func truncateString(s string, maxLen int) string {
 }
 
 // applyAdjustmentsWithCountsUnified applies adjustments to comments for any review target and returns counts.
-func (ch *CommandHandler) applyAdjustmentsWithCountsUnified(repository models.Repository, target models.ReviewTarget, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
+func (ch *CommandHandler) applyAdjustmentsWithCounts(repository models.Repository, target models.ReviewTarget, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
 	// Get all comments
-	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	reviewComments, err := ch.storage.GetComments(repository, target)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Get diff hunks for validation
-	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	reviewDiffHunks, err := ch.storage.GetDiffHunks(repository, target)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get diff hunks: %w", err)
 	}
@@ -463,7 +463,7 @@ func (ch *CommandHandler) applyAdjustmentsWithCountsUnified(repository models.Re
 	reviewComments.Comments = updatedComments
 	reviewComments.UpdatedAt = time.Now()
 
-	if err := ch.storage.UpdateCommentsUnified(repository, target, reviewComments); err != nil {
+	if err := ch.storage.UpdateComments(repository, target, reviewComments); err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to update comments: %w", err)
 	}
 
@@ -661,7 +661,7 @@ func (ch *CommandHandler) adjustCommandAllFiles(repository models.Repository, pa
 // getAllFilesWithComments retrieves all files that contain comments.
 func (ch *CommandHandler) getAllFilesWithComments(repository models.Repository, parsed models.ParsedIdentifier) ([]string, error) {
 	target := models.NewReviewTarget(&parsed)
-	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	reviewComments, err := ch.storage.GetComments(repository, target)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get comments: %w", err)
 	}
@@ -750,7 +750,7 @@ func (ch *CommandHandler) adjustCommandSingleFileExtended(repository models.Repo
 	}
 
 	// Get preview
-	preview, err := ch.getAdjustmentPreviewUnified(repository, target, file, diffSpec, opts.Format)
+	preview, err := ch.getAdjustmentPreview(repository, target, file, diffSpec, opts.Format)
 	if err != nil {
 		return err
 	}
@@ -777,7 +777,7 @@ func (ch *CommandHandler) adjustCommandSingleFileExtended(repository models.Repo
 	}
 
 	// Apply adjustments
-	return ch.applyAdjustmentsUnified(repository, target, file, adjustments, opts.Force)
+	return ch.applyAdjustments(repository, target, file, adjustments, opts.Force)
 }
 
 // adjustCommandUnifiedDiffExtended handles unified diff processing with extended options.
@@ -850,7 +850,7 @@ func (ch *CommandHandler) processFileWithInteractive(repository models.Repositor
 	}
 
 	// Get and display preview
-	preview, err := ch.getAdjustmentPreviewUnified(repository, target, file, diffSpec, opts.Format)
+	preview, err := ch.getAdjustmentPreview(repository, target, file, diffSpec, opts.Format)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get preview: %w", err)
 	}
@@ -882,7 +882,7 @@ func (ch *CommandHandler) processFileWithInteractive(repository models.Repositor
 	}
 
 	// Apply adjustments
-	return ch.applyAdjustmentsWithCountsUnified(repository, target, file, adjustments, opts.Force)
+	return ch.applyAdjustmentsWithCounts(repository, target, file, adjustments, opts.Force)
 }
 
 // adjustCommandAutoDetect handles auto-detection mode.
@@ -922,7 +922,7 @@ func (ch *CommandHandler) adjustCommandAutoDetect(repository models.Repository, 
 // getStoredDiffHunks retrieves stored diff hunks for either PR or branch.
 func (ch *CommandHandler) getStoredDiffHunks(repository models.Repository, parsed models.ParsedIdentifier) ([]models.DiffHunk, error) {
 	target := models.NewReviewTarget(&parsed)
-	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	reviewDiffHunks, err := ch.storage.GetDiffHunks(repository, target)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stored diff hunks for %s: %w", target.String(), err)
 	}

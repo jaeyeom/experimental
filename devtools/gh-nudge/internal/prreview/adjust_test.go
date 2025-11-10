@@ -23,6 +23,7 @@ func TestAdjustCommand(t *testing.T) {
 	// Set up test data
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 	file := "src/main.go"
 
 	// Create storage and handler
@@ -37,8 +38,8 @@ func TestAdjustCommand(t *testing.T) {
 	}
 
 	// Set up diff hunks
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -49,7 +50,7 @@ func TestAdjustCommand(t *testing.T) {
 		},
 	}
 
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +83,7 @@ func TestAdjustCommand(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(repository, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, target, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -102,7 +103,7 @@ func TestAdjustCommand(t *testing.T) {
 			wantErr:  false,
 			checkResults: func(t *testing.T) {
 				// Comments should not be modified in dry run
-				stored, err := store.GetComments(repository, prNumber)
+				stored, err := store.GetComments(repository, target)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -117,7 +118,7 @@ func TestAdjustCommand(t *testing.T) {
 			dryRun:   false,
 			wantErr:  false,
 			checkResults: func(t *testing.T) {
-				stored, err := store.GetComments(repository, prNumber)
+				stored, err := store.GetComments(repository, target)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -138,7 +139,7 @@ func TestAdjustCommand(t *testing.T) {
 			dryRun:   false,
 			wantErr:  false,
 			checkResults: func(t *testing.T) {
-				stored, err := store.GetComments(repository, prNumber)
+				stored, err := store.GetComments(repository, target)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -177,11 +178,11 @@ func TestAdjustCommand(t *testing.T) {
 			// Reset comments between tests
 			if !tt.dryRun {
 				// Re-add original comments
-				if err := store.ClearComments(repository, prNumber); err != nil {
+				if err := store.ClearComments(repository, target); err != nil {
 					t.Fatal(err)
 				}
 				for _, comment := range comments {
-					if err := store.AddComment(repository, prNumber, comment); err != nil {
+					if err := store.AddComment(repository, target, comment); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -211,6 +212,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 	file := "src/main.go"
 
 	// Create storage
@@ -220,8 +222,8 @@ func TestAdjustCommandOutput(t *testing.T) {
 	}
 
 	// Set up test data
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -232,7 +234,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 		},
 	}
 
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -257,7 +259,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(repository, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, target, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -270,7 +272,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 	// Test table format output
 	t.Run("table format", func(t *testing.T) {
 		target := models.NewPRTarget(prNumber)
-		result, err := handler.getAdjustmentPreviewUnified(repository, target, file, "15,17d14", "table")
+		result, err := handler.getAdjustmentPreview(repository, target, file, "15,17d14", "table")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -290,7 +292,7 @@ func TestAdjustCommandOutput(t *testing.T) {
 	// Test JSON format output
 	t.Run("json format", func(t *testing.T) {
 		target := models.NewPRTarget(prNumber)
-		result, err := handler.getAdjustmentPreviewUnified(repository, target, file, "15,17d14", "json")
+		result, err := handler.getAdjustmentPreview(repository, target, file, "15,17d14", "json")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -329,6 +331,7 @@ func TestAdjustBranchComments(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	branch := "feature/test"
+	branchTarget := models.NewBranchTarget(branch)
 	file := "src/main.go"
 
 	// Create storage
@@ -343,8 +346,8 @@ func TestAdjustBranchComments(t *testing.T) {
 	}
 
 	// Set up branch diff hunks
-	branchDiffHunks := models.BranchDiffHunks{
-		BranchName: branch,
+	branchDiffHunks := models.ReviewDiffHunks{
+		Target:     branchTarget.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -355,7 +358,7 @@ func TestAdjustBranchComments(t *testing.T) {
 		},
 	}
 
-	if err := store.CaptureBranchDiffHunks(repository, branch, branchDiffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, branchTarget, branchDiffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -369,7 +372,7 @@ func TestAdjustBranchComments(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	if err := store.AddBranchComment(repository, branch, comment); err != nil {
+	if err := store.AddComment(repository, branchTarget, comment); err != nil {
 		t.Fatal(err)
 	}
 
@@ -380,7 +383,7 @@ func TestAdjustBranchComments(t *testing.T) {
 	}
 
 	// Verify adjustment
-	stored, err := store.GetBranchComments(repository, branch)
+	stored, err := store.GetComments(repository, branchTarget)
 	if err != nil {
 		t.Fatal(err)
 	}

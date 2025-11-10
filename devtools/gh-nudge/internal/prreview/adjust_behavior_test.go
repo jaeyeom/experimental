@@ -31,11 +31,12 @@ func TestAdjustCommandUnifiedDiff_SingleFile(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 	file := "src/main.go"
 
 	// Setup diff hunks and comments
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -45,7 +46,7 @@ func TestAdjustCommandUnifiedDiff_SingleFile(t *testing.T) {
 			},
 		},
 	}
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -70,7 +71,7 @@ func TestAdjustCommandUnifiedDiff_SingleFile(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(repository, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, target, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -94,7 +95,7 @@ func TestAdjustCommandUnifiedDiff_SingleFile(t *testing.T) {
 		}
 
 		// Comments should not change in dry run
-		stored, err := store.GetComments(repository, prNumber)
+		stored, err := store.GetComments(repository, target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +112,7 @@ func TestAdjustCommandUnifiedDiff_SingleFile(t *testing.T) {
 		}
 
 		// Comments should be adjusted (line 20 -> 17, line 30 -> 27)
-		stored, err := store.GetComments(repository, prNumber)
+		stored, err := store.GetComments(repository, target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -147,10 +148,11 @@ func TestAdjustCommandUnifiedDiff_MultiFile(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 
 	// Setup diff hunks for multiple files
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -164,7 +166,7 @@ func TestAdjustCommandUnifiedDiff_MultiFile(t *testing.T) {
 			},
 		},
 	}
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,7 +191,7 @@ func TestAdjustCommandUnifiedDiff_MultiFile(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(repository, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, target, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -220,7 +222,7 @@ diff --git a/file2.go b/file2.go
 			t.Errorf("AdjustCommand failed: %v", err)
 		}
 
-		stored, err := store.GetComments(repository, prNumber)
+		stored, err := store.GetComments(repository, target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -258,11 +260,12 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 	file := "test.go"
 
 	// Setup diff hunks
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -272,7 +275,7 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 			},
 		},
 	}
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -305,7 +308,7 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(repository, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, target, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -318,7 +321,7 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 
 	t.Run("counts adjusted comments correctly", func(t *testing.T) {
 		target := models.NewPRTarget(prNumber)
-		adjusted, orphaned, warnings, err := handler.applyAdjustmentsWithCountsUnified(
+		adjusted, orphaned, warnings, err := handler.applyAdjustmentsWithCounts(
 			repository, target, file, adjustments, false)
 		if err != nil {
 			t.Errorf("applyAdjustmentsWithCountsUnified failed: %v", err)
@@ -342,17 +345,17 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 
 	t.Run("force flag preserves orphaned comments with marker", func(t *testing.T) {
 		// Re-add comments
-		if err := store.ClearComments(repository, prNumber); err != nil {
+		if err := store.ClearComments(repository, target); err != nil {
 			t.Fatal(err)
 		}
 		for _, comment := range comments {
-			if err := store.AddComment(repository, prNumber, comment); err != nil {
+			if err := store.AddComment(repository, target, comment); err != nil {
 				t.Fatal(err)
 			}
 		}
 
 		target := models.NewPRTarget(prNumber)
-		adjusted, orphaned, _, err := handler.applyAdjustmentsWithCountsUnified(
+		adjusted, orphaned, _, err := handler.applyAdjustmentsWithCounts(
 			repository, target, file, adjustments, true)
 		if err != nil {
 			t.Errorf("applyAdjustmentsWithCountsUnified with force failed: %v", err)
@@ -364,7 +367,7 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 		}
 
 		// Verify orphaned comment has marker
-		stored, err := store.GetComments(repository, prNumber)
+		stored, err := store.GetComments(repository, target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -402,11 +405,12 @@ func TestApplyBranchAdjustmentsWithCounts(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	branchName := "feature/test"
+	branchTarget := models.NewBranchTarget(branchName)
 	file := "test.go"
 
 	// Setup branch diff hunks
-	branchDiffHunks := models.BranchDiffHunks{
-		BranchName: branchName,
+	branchDiffHunks := models.ReviewDiffHunks{
+		Target:     branchTarget.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -416,7 +420,7 @@ func TestApplyBranchAdjustmentsWithCounts(t *testing.T) {
 			},
 		},
 	}
-	if err := store.CaptureBranchDiffHunks(repository, branchName, branchDiffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, branchTarget, branchDiffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,7 +445,7 @@ func TestApplyBranchAdjustmentsWithCounts(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddBranchComment(repository, branchName, comment); err != nil {
+		if err := store.AddComment(repository, branchTarget, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -454,7 +458,7 @@ func TestApplyBranchAdjustmentsWithCounts(t *testing.T) {
 
 	t.Run("counts branch adjustments correctly", func(t *testing.T) {
 		target := models.NewBranchTarget(branchName)
-		adjusted, orphaned, warnings, err := handler.applyAdjustmentsWithCountsUnified(
+		adjusted, orphaned, warnings, err := handler.applyAdjustmentsWithCounts(
 			repository, target, file, adjustments, false)
 		if err != nil {
 			t.Errorf("applyAdjustmentsWithCountsUnified failed: %v", err)
@@ -740,10 +744,11 @@ func TestAdjustCommandExtended_MappingFile(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 
 	// Setup diff hunks for multiple files
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -757,7 +762,7 @@ func TestAdjustCommandExtended_MappingFile(t *testing.T) {
 			},
 		},
 	}
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -782,7 +787,7 @@ func TestAdjustCommandExtended_MappingFile(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(repository, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, target, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -814,7 +819,7 @@ file2.go:35:+2
 		}
 
 		// Verify comments were adjusted according to mapping
-		stored, err := store.GetComments(repository, prNumber)
+		stored, err := store.GetComments(repository, target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -871,10 +876,11 @@ func TestAdjustCommandExtended_AllFiles(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 
 	// Setup diff hunks for multiple files
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -892,7 +898,7 @@ func TestAdjustCommandExtended_AllFiles(t *testing.T) {
 			},
 		},
 	}
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -925,7 +931,7 @@ func TestAdjustCommandExtended_AllFiles(t *testing.T) {
 	}
 
 	for _, comment := range comments {
-		if err := store.AddComment(repository, prNumber, comment); err != nil {
+		if err := store.AddComment(repository, target, comment); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -948,7 +954,7 @@ func TestAdjustCommandExtended_AllFiles(t *testing.T) {
 		}
 
 		// Verify all comments in all files were adjusted
-		stored, err := store.GetComments(repository, prNumber)
+		stored, err := store.GetComments(repository, target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -977,7 +983,7 @@ func TestAdjustCommandExtended_AllFiles(t *testing.T) {
 
 	t.Run("handles empty comment list gracefully", func(t *testing.T) {
 		// Clear all comments
-		if err := store.ClearComments(repository, prNumber); err != nil {
+		if err := store.ClearComments(repository, target); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1067,6 +1073,7 @@ func TestGetAllFilesWithComments(t *testing.T) {
 
 		repository := models.NewRepository("testowner", "testrepo")
 		prNumber := 123
+		target := models.NewPRTarget(prNumber)
 
 		// Add comments in various files
 		comments := []models.Comment{
@@ -1077,7 +1084,7 @@ func TestGetAllFilesWithComments(t *testing.T) {
 		}
 
 		for _, comment := range comments {
-			if err := store.AddComment(repository, prNumber, comment); err != nil {
+			if err := store.AddComment(repository, target, comment); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -1112,10 +1119,11 @@ func TestGetAllFilesWithComments(t *testing.T) {
 
 		repository := models.NewRepository("testowner", "testrepo")
 		branchName := "feature/test-branch"
+		branchTarget := models.NewBranchTarget(branchName)
 
 		// First create branch diff hunks (required for branch storage)
-		branchDiffHunks := models.BranchDiffHunks{
-			BranchName: branchName,
+		branchDiffHunks := models.ReviewDiffHunks{
+			Target:     branchTarget.String(),
 			Repository: repository,
 			CapturedAt: time.Now(),
 			DiffHunks: []models.DiffHunk{
@@ -1123,7 +1131,7 @@ func TestGetAllFilesWithComments(t *testing.T) {
 				{Location: models.NewFileLocation("branch2.go", models.NewLineRange(1, 100)), Side: models.SideRight},
 			},
 		}
-		if err := store.CaptureBranchDiffHunks(repository, branchName, branchDiffHunks); err != nil {
+		if err := store.CaptureDiffHunks(repository, branchTarget, branchDiffHunks); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1134,13 +1142,13 @@ func TestGetAllFilesWithComments(t *testing.T) {
 		}
 
 		for _, comment := range comments {
-			if err := store.AddBranchComment(repository, branchName, comment); err != nil {
+			if err := store.AddComment(repository, branchTarget, comment); err != nil {
 				t.Fatal(err)
 			}
 		}
 
 		// Verify comments were stored
-		storedComments, err := store.GetBranchComments(repository, branchName)
+		storedComments, err := store.GetComments(repository, branchTarget)
 		if err != nil {
 			t.Fatalf("Failed to get branch comments: %v", err)
 		}
@@ -1188,11 +1196,12 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 
 	repository := models.NewRepository("testowner", "testrepo")
 	prNumber := 123
+	target := models.NewPRTarget(prNumber)
 	file := "test.go"
 
 	// Setup
-	diffHunks := models.PRDiffHunks{
-		PRNumber:   prNumber,
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
 		Repository: repository,
 		CapturedAt: time.Now(),
 		DiffHunks: []models.DiffHunk{
@@ -1202,7 +1211,7 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 			},
 		},
 	}
-	if err := store.CaptureDiffHunks(repository, prNumber, diffHunks); err != nil {
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1214,7 +1223,7 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 		Side:      models.SideRight,
 		CreatedAt: time.Now(),
 	}
-	if err := store.AddComment(repository, prNumber, comment); err != nil {
+	if err := store.AddComment(repository, target, comment); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1232,7 +1241,7 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 		}
 
 		// Comment should not be modified
-		stored, err := store.GetComments(repository, prNumber)
+		stored, err := store.GetComments(repository, target)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1257,8 +1266,8 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 
 	t.Run("force flag allows validation warnings", func(t *testing.T) {
 		// Add a comment that will be outside diff hunks after adjustment
-		diffHunks2 := models.PRDiffHunks{
-			PRNumber:   prNumber,
+		diffHunks2 := models.ReviewDiffHunks{
+			Target:     target.String(),
 			Repository: repository,
 			CapturedAt: time.Now(),
 			DiffHunks: []models.DiffHunk{
@@ -1268,7 +1277,7 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 				},
 			},
 		}
-		if err := store.CaptureDiffHunks(repository, prNumber, diffHunks2); err != nil {
+		if err := store.CaptureDiffHunks(repository, target, diffHunks2); err != nil {
 			t.Fatal(err)
 		}
 

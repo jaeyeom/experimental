@@ -5,7 +5,6 @@ go_library(
     srcs = [
         "adjust.go",
         "commands.go",
-        "commands_unified.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
