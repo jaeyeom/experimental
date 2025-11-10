@@ -101,8 +101,10 @@ func (ch *CommandHandler) CaptureCommand(repository models.Repository, identifie
 
 // capturePRDiff captures and stores PR diff hunks.
 func (ch *CommandHandler) capturePRDiff(repository models.Repository, prNumber int, force bool) error {
+	target := models.NewPRTarget(prNumber)
+
 	// Check if diff hunks already exist
-	if !force && ch.diffHunksExist(repository, prNumber) {
+	if !force && ch.diffHunksExistUnified(repository, target) {
 		return fmt.Errorf("diff hunks already exist for PR %d, use --force to overwrite", prNumber)
 	}
 
@@ -112,25 +114,38 @@ func (ch *CommandHandler) capturePRDiff(repository models.Repository, prNumber i
 	}
 
 	// Fetch diff hunks from GitHub
-	diffHunks, err := ch.ghClient.GetPRDiff(repository, prNumber)
+	prDiffHunks, err := ch.ghClient.GetPRDiff(repository, prNumber)
 	if err != nil {
 		return fmt.Errorf("failed to fetch diff hunks: %w", err)
 	}
 
-	// Store diff hunks
-	if err := ch.storage.CaptureDiffHunks(repository, prNumber, *diffHunks); err != nil {
+	// Convert to unified format
+	reviewDiffHunks := models.ReviewDiffHunks{
+		Target:      target.String(),
+		Repository:  prDiffHunks.Repository,
+		CapturedAt:  prDiffHunks.CapturedAt,
+		DiffHunks:   prDiffHunks.DiffHunks,
+		CommitSHA:   prDiffHunks.CommitSHA,
+		BaseSHA:     prDiffHunks.BaseSHA,
+		Description: prDiffHunks.Description,
+	}
+
+	// Store diff hunks using unified API
+	if err := ch.storage.CaptureDiffHunksUnified(repository, target, reviewDiffHunks); err != nil {
 		return fmt.Errorf("failed to store diff hunks: %w", err)
 	}
 
 	fmt.Printf("Captured diff hunks for PR %s#%d (%d hunks)\n",
-		repository, prNumber, len(diffHunks.DiffHunks))
+		repository, prNumber, len(reviewDiffHunks.DiffHunks))
 	return nil
 }
 
 // captureBranchDiff captures and stores branch diff hunks.
 func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branchName string, force bool) error {
+	target := models.NewBranchTarget(branchName)
+
 	// Check if diff hunks already exist
-	if !force && ch.branchDiffHunksExist(repository, branchName) {
+	if !force && ch.diffHunksExistUnified(repository, target) {
 		return fmt.Errorf("diff hunks already exist for branch %q, use --force to overwrite", branchName)
 	}
 
@@ -156,18 +171,30 @@ func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branch
 	}
 
 	// Capture diff hunks from git
-	diffHunks, err := ch.gitClient.CaptureBranchDiff(repository, branch, baseBranch)
+	branchDiffHunks, err := ch.gitClient.CaptureBranchDiff(repository, branch, baseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to capture branch diff: %w", err)
 	}
 
-	// Store diff hunks
-	if err := ch.storage.CaptureBranchDiffHunks(repository, branchName, *diffHunks); err != nil {
+	// Convert to unified format
+	reviewDiffHunks := models.ReviewDiffHunks{
+		Target:      target.String(),
+		Repository:  branchDiffHunks.Repository,
+		CapturedAt:  branchDiffHunks.CapturedAt,
+		DiffHunks:   branchDiffHunks.DiffHunks,
+		CommitSHA:   branchDiffHunks.CommitSHA,
+		BaseSHA:     branchDiffHunks.BaseSHA,
+		BaseBranch:  branchDiffHunks.BaseBranch,
+		Description: branchDiffHunks.Description,
+	}
+
+	// Store diff hunks using unified API
+	if err := ch.storage.CaptureDiffHunksUnified(repository, target, reviewDiffHunks); err != nil {
 		return fmt.Errorf("failed to store branch diff hunks: %w", err)
 	}
 
 	fmt.Printf("Captured diff hunks for branch %s:%s (%d hunks)\n",
-		repository, branchName, len(diffHunks.DiffHunks))
+		repository, branchName, len(reviewDiffHunks.DiffHunks))
 	return nil
 }
 
@@ -197,14 +224,16 @@ type SubmitOptions struct {
 
 // SubmitCommandWithOptions submits a review to GitHub with advanced options.
 func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository, prNumber int, body, event, file string, formatter OutputFormatter, postSubmitAction models.Executor, options SubmitOptions) error {
+	target := models.NewPRTarget(prNumber)
+
 	// Get comments
-	prComments, err := ch.storage.GetComments(repository, prNumber)
+	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get comments: %w", err)
 	}
 
 	// Process comments for submission
-	commentsToSubmit, err := ch.processCommentsForSubmission(prComments.Comments, file, options)
+	commentsToSubmit, err := ch.processCommentsForSubmission(reviewComments.Comments, file, options)
 	if err != nil {
 		return fmt.Errorf("failed to process comments: %w", err)
 	}
@@ -237,7 +266,7 @@ func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository,
 	}
 
 	// Update local storage if needed (use validComments instead of commentsToSubmit)
-	if err := ch.updateLocalStorageAfterSubmit(repository, prNumber, prComments, validComments, options); err != nil {
+	if err := ch.updateLocalStorageAfterSubmit(repository, target, reviewComments, validComments, options); err != nil {
 		fmt.Printf("Warning: Failed to update local comments after auto-adjustment: %v\n", err)
 	}
 
@@ -404,6 +433,8 @@ func (ch *CommandHandler) diffHunksExist(repository models.Repository, prNumber 
 // filterCommentsAgainstDiffHunks filters comments to only include those within valid diff hunks.
 // Returns validComments (those within diff hunks) and filteredComments (those outside diff hunks).
 func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repository, prNumber int, comments []models.Comment) ([]models.Comment, []models.Comment) {
+	target := models.NewPRTarget(prNumber)
+
 	// If no diff hunks exist, return all comments as valid (skip validation)
 	if !ch.diffHunksExist(repository, prNumber) {
 		fmt.Printf("Warning: No diff hunks found, comment validation skipped\n")
@@ -414,7 +445,7 @@ func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repos
 	var filteredComments []models.Comment
 
 	for _, comment := range comments {
-		if err := ch.storage.ValidateCommentAgainstDiff(repository, prNumber, comment); err != nil {
+		if err := ch.storage.ValidateCommentAgainstDiffUnified(repository, target, comment); err != nil {
 			filteredComments = append(filteredComments, comment)
 		} else {
 			validComments = append(validComments, comment)
@@ -422,11 +453,6 @@ func (ch *CommandHandler) filterCommentsAgainstDiffHunks(repository models.Repos
 	}
 
 	return validComments, filteredComments
-}
-
-func (ch *CommandHandler) branchDiffHunksExist(repository models.Repository, branchName string) bool {
-	target := models.NewBranchTarget(branchName)
-	return ch.diffHunksExistUnified(repository, target)
 }
 
 // sortAndGetNextComment sorts comments and returns the next one to work on.
@@ -606,16 +632,17 @@ func (ch *CommandHandler) validateAdjustmentsIfRequested(commentsToSubmit []mode
 		return nil
 	}
 
+	target := models.NewPRTarget(prNumber)
 	fmt.Println("Validating adjusted comments against diff hunks...")
 
-	prDiffHunks, err := ch.storage.GetDiffHunks(repository, prNumber)
+	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to get diff hunks for validation: %w", err)
 	}
 
 	var validationErrors []string
 	for _, comment := range commentsToSubmit {
-		if err := models.ValidateAdjustmentAgainstDiff(comment, nil, prDiffHunks.DiffHunks); err != nil {
+		if err := models.ValidateAdjustmentAgainstDiff(comment, nil, reviewDiffHunks.DiffHunks); err != nil {
 			validationErrors = append(validationErrors, fmt.Sprintf("Comment %s: %s", comment.FormatIDShort(), err.Error()))
 		}
 	}
@@ -644,14 +671,14 @@ func (ch *CommandHandler) submitReviewToGitHub(repository models.Repository, prN
 }
 
 // updateLocalStorageAfterSubmit updates local storage after successful submission.
-func (ch *CommandHandler) updateLocalStorageAfterSubmit(repository models.Repository, prNumber int, prComments *models.PRComments, commentsToSubmit []models.Comment, options SubmitOptions) error {
+func (ch *CommandHandler) updateLocalStorageAfterSubmit(repository models.Repository, target models.ReviewTarget, reviewComments *models.ReviewComments, commentsToSubmit []models.Comment, options SubmitOptions) error {
 	if !options.AutoAdjust {
 		return nil
 	}
 
-	prComments.Comments = commentsToSubmit
-	prComments.UpdatedAt = time.Now()
-	if err := ch.storage.UpdateComments(repository, prNumber, prComments); err != nil {
+	reviewComments.Comments = commentsToSubmit
+	reviewComments.UpdatedAt = time.Now()
+	if err := ch.storage.UpdateCommentsUnified(repository, target, reviewComments); err != nil {
 		return fmt.Errorf("failed to update comments: %w", err)
 	}
 	return nil
@@ -771,6 +798,8 @@ func (ch *CommandHandler) ArchiveCleanupCommand(repository models.Repository, pr
 
 // PullCommand fetches comments from GitHub and stores them in local storage with merge strategies.
 func (ch *CommandHandler) PullCommand(repository models.Repository, prNumber int, options models.PullOptions) (*models.MergeResult, error) {
+	target := models.NewPRTarget(prNumber)
+
 	// Validate PR access
 	if err := ch.ghClient.ValidatePRAccess(repository, prNumber); err != nil {
 		return nil, fmt.Errorf("failed to access PR %s#%d: %w", repository, prNumber, err)
@@ -793,7 +822,7 @@ func (ch *CommandHandler) PullCommand(repository models.Repository, prNumber int
 	}
 
 	// Get existing local comments
-	existingComments, err := ch.storage.GetComments(repository, prNumber)
+	existingComments, err := ch.storage.GetCommentsUnified(repository, target)
 	if err != nil && !strings.Contains(err.Error(), "not found") {
 		return nil, fmt.Errorf("failed to get existing comments: %w", err)
 	}
@@ -802,14 +831,14 @@ func (ch *CommandHandler) PullCommand(repository models.Repository, prNumber int
 	mergeResult := ch.mergeGitHubComments(filteredComments, existingComments.Comments, options.MergeStrategy)
 
 	// Update local storage with merged results
-	updatedComments := models.PRComments{
-		PRNumber:   prNumber,
+	updatedComments := models.ReviewComments{
+		Target:     target.String(),
 		Repository: repository,
 		Comments:   mergeResult.PulledComments,
 		UpdatedAt:  time.Now(),
 	}
 
-	if err := ch.storage.UpdateComments(repository, prNumber, &updatedComments); err != nil {
+	if err := ch.storage.UpdateCommentsUnified(repository, target, &updatedComments); err != nil {
 		return nil, fmt.Errorf("failed to update local comments: %w", err)
 	}
 

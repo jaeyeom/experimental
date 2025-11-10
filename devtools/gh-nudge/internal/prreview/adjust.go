@@ -73,6 +73,8 @@ func (ch *CommandHandler) AdjustCommand(repository models.Repository, identifier
 
 // adjustCommandSingleFile handles traditional single-file adjustment.
 func (ch *CommandHandler) adjustCommandSingleFile(repository models.Repository, parsed models.ParsedIdentifier, file, diffSpec string, dryRun, force bool, format string) error {
+	target := models.NewReviewTarget(&parsed)
+
 	// Parse diff spec with auto-detection
 	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
 	if err != nil {
@@ -80,12 +82,7 @@ func (ch *CommandHandler) adjustCommandSingleFile(repository models.Repository, 
 	}
 
 	// Get preview
-	var preview string
-	if parsed.IsPR() {
-		preview, err = ch.getAdjustmentPreview(repository, parsed.PRNumber, file, diffSpec, format)
-	} else {
-		preview, err = ch.getBranchAdjustmentPreview(repository, parsed.BranchName, file, diffSpec, format)
-	}
+	preview, err := ch.getAdjustmentPreviewUnified(repository, target, file, diffSpec, format)
 	if err != nil {
 		return err
 	}
@@ -100,10 +97,7 @@ func (ch *CommandHandler) adjustCommandSingleFile(repository models.Repository, 
 	}
 
 	// Apply adjustments
-	if parsed.IsPR() {
-		return ch.applyPRAdjustments(repository, parsed.PRNumber, file, adjustments, force)
-	}
-	return ch.applyBranchAdjustments(repository, parsed.BranchName, file, adjustments, force)
+	return ch.applyAdjustmentsUnified(repository, target, file, adjustments, force)
 }
 
 // adjustCommandUnifiedDiff handles unified diff processing (single-file or multi-file).
@@ -129,6 +123,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository,
 	}
 	fmt.Println()
 
+	target := models.NewReviewTarget(&parsed)
 	totalAdjusted := 0
 	totalOrphaned := 0
 	totalWarnings := 0
@@ -137,13 +132,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository,
 		fmt.Printf("=== Processing file %d/%d: %s ===\n", i+1, len(fileSpecs), spec.FilePath)
 
 		// Get preview for this file
-		var preview string
-		if parsed.IsPR() {
-			preview, err = ch.getAdjustmentPreview(repository, parsed.PRNumber, spec.FilePath, spec.ClassicDiff, format)
-		} else {
-			preview, err = ch.getBranchAdjustmentPreview(repository, parsed.BranchName, spec.FilePath, spec.ClassicDiff, format)
-		}
-
+		preview, err := ch.getAdjustmentPreviewUnified(repository, target, spec.FilePath, spec.ClassicDiff, format)
 		if err != nil {
 			fmt.Printf("Warning: Failed to get preview for %s: %v\n", spec.FilePath, err)
 			continue
@@ -161,13 +150,7 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository,
 			}
 
 			// Apply adjustments for this file
-			var fileAdjusted, fileOrphaned, fileWarnings int
-			if parsed.IsPR() {
-				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyPRAdjustmentsWithCounts(repository, parsed.PRNumber, spec.FilePath, adjustments, force)
-			} else {
-				fileAdjusted, fileOrphaned, fileWarnings, err = ch.applyBranchAdjustmentsWithCounts(repository, parsed.BranchName, spec.FilePath, adjustments, force)
-			}
-
+			fileAdjusted, fileOrphaned, fileWarnings, err := ch.applyAdjustmentsWithCountsUnified(repository, target, spec.FilePath, adjustments, force)
 			if err != nil {
 				fmt.Printf("Warning: Failed to apply adjustments for %s: %v\n", spec.FilePath, err)
 				continue
@@ -195,6 +178,76 @@ func (ch *CommandHandler) adjustCommandUnifiedDiff(repository models.Repository,
 	}
 
 	return nil
+}
+
+// getAdjustmentPreviewUnified generates a preview of the adjustments for any review target.
+func (ch *CommandHandler) getAdjustmentPreviewUnified(repository models.Repository, target models.ReviewTarget, file, diffSpec, format string) (string, error) {
+	// Parse adjustments with auto-detection
+	adjustments, err := models.ParseDiffSpecWithAutoDetection(diffSpec)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse diff spec: %w", err)
+	}
+
+	// Get comments for the file
+	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	if err != nil {
+		return "", fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Get diff hunks
+	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff hunks: %w", err)
+	}
+
+	preview := AdjustmentPreview{
+		Repository:  repository,
+		Identifier:  target.String(),
+		File:        file,
+		DiffSpec:    diffSpec,
+		Adjustments: adjustments,
+	}
+
+	// Process each comment in the file
+	for _, comment := range reviewComments.Comments {
+		if comment.Path != file {
+			continue
+		}
+
+		change := CommentChange{
+			CommentID:      comment.ID,
+			CommentIDShort: comment.FormatIDShort(),
+			OriginalLine:   comment.Line,
+			Body:           truncateString(comment.Body, 50),
+		}
+
+		// Test adjustment
+		testComment := comment
+		if models.AdjustComment(&testComment, adjustments) {
+			change.NewLine = testComment.Line
+			change.Status = "adjusted"
+
+			// Validate against diff hunks
+			if err := models.ValidateAdjustmentAgainstDiff(testComment, adjustments, reviewDiffHunks.DiffHunks); err != nil {
+				change.Status = "warning"
+				change.Warning = err.Error()
+				preview.Warnings = append(preview.Warnings, fmt.Sprintf("Comment %s: %s", change.CommentIDShort, err.Error()))
+			}
+		} else {
+			change.Status = "deleted"
+			change.NewLine = models.LineRange{StartLine: -1, EndLine: -1}
+			change.Warning = "Comment on deleted line"
+			preview.Warnings = append(preview.Warnings, fmt.Sprintf("Comment %s will be marked as orphaned (on deleted line)", change.CommentIDShort))
+		}
+
+		preview.CommentChanges = append(preview.CommentChanges, change)
+	}
+
+	// Format output
+	if format == "json" {
+		return formatJSONPreview(preview)
+	}
+	return formatTablePreview(preview)
 }
 
 // getBranchAdjustmentPreview generates a preview of the adjustments for a branch.
@@ -335,6 +388,81 @@ func (ch *CommandHandler) getAdjustmentPreview(repository models.Repository, prN
 		return formatJSONPreview(preview)
 	}
 	return formatTablePreview(preview)
+}
+
+// applyAdjustmentsUnified applies adjustments to comments for any review target.
+func (ch *CommandHandler) applyAdjustmentsUnified(repository models.Repository, target models.ReviewTarget, file string, adjustments []models.LineAdjustment, force bool) error {
+	// Get all comments
+	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	if err != nil {
+		return fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Get diff hunks for validation
+	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	if err != nil {
+		return fmt.Errorf("failed to get diff hunks: %w", err)
+	}
+
+	adjustedCount := 0
+	orphanedCount := 0
+	warningCount := 0
+
+	// Process each comment
+	updatedComments := make([]models.Comment, 0, len(reviewComments.Comments))
+	for _, comment := range reviewComments.Comments {
+		if comment.Path != file {
+			// Keep comments from other files unchanged
+			updatedComments = append(updatedComments, comment)
+			continue
+		}
+
+		// Apply adjustments
+		if models.AdjustComment(&comment, adjustments) {
+			// Validate against diff hunks
+			if err := models.ValidateAdjustmentAgainstDiff(comment, adjustments, reviewDiffHunks.DiffHunks); err != nil {
+				if !force {
+					return fmt.Errorf("comment %s: %w (use --force to override)", comment.FormatIDShort(), err)
+				}
+				warningCount++
+				fmt.Printf("Warning: Comment %s: %s\n", comment.FormatIDShort(), err.Error())
+			}
+			adjustedCount++
+			updatedComments = append(updatedComments, comment)
+		} else {
+			// Comment is on deleted line
+			orphanedCount++
+			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
+			// Optionally keep orphaned comments with a special marker
+			if force {
+				originalLine := comment.Line.EndLine
+				if comment.OriginalRange != nil {
+					originalLine = comment.OriginalRange.EndLine
+				}
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", originalLine, comment.Body)
+				updatedComments = append(updatedComments, comment)
+			}
+		}
+	}
+
+	// Update storage
+	reviewComments.Comments = updatedComments
+	reviewComments.UpdatedAt = time.Now()
+
+	if err := ch.storage.UpdateCommentsUnified(repository, target, reviewComments); err != nil {
+		return fmt.Errorf("failed to update comments: %w", err)
+	}
+
+	fmt.Printf("\nAdjustment complete:\n")
+	fmt.Printf("- %d comments adjusted\n", adjustedCount)
+	if orphanedCount > 0 {
+		fmt.Printf("- %d comments orphaned\n", orphanedCount)
+	}
+	if warningCount > 0 {
+		fmt.Printf("- %d warnings\n", warningCount)
+	}
+
+	return nil
 }
 
 // applyPRAdjustments applies adjustments to PR comments.
@@ -564,6 +692,72 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// applyAdjustmentsWithCountsUnified applies adjustments to comments for any review target and returns counts.
+func (ch *CommandHandler) applyAdjustmentsWithCountsUnified(repository models.Repository, target models.ReviewTarget, file string, adjustments []models.LineAdjustment, force bool) (int, int, int, error) {
+	// Get all comments
+	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get comments: %w", err)
+	}
+
+	// Get diff hunks for validation
+	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get diff hunks: %w", err)
+	}
+
+	adjustedCount := 0
+	orphanedCount := 0
+	warningCount := 0
+
+	// Process each comment
+	updatedComments := make([]models.Comment, 0, len(reviewComments.Comments))
+	for _, comment := range reviewComments.Comments {
+		if comment.Path != file {
+			// Keep comments from other files unchanged
+			updatedComments = append(updatedComments, comment)
+			continue
+		}
+
+		// Apply adjustments
+		if models.AdjustComment(&comment, adjustments) {
+			// Validate against diff hunks
+			if err := models.ValidateAdjustmentAgainstDiff(comment, adjustments, reviewDiffHunks.DiffHunks); err != nil {
+				if !force {
+					return 0, 0, 0, fmt.Errorf("comment %s: %w (use --force to override)", comment.FormatIDShort(), err)
+				}
+				warningCount++
+				fmt.Printf("Warning: Comment %s: %s\n", comment.FormatIDShort(), err.Error())
+			}
+			adjustedCount++
+			updatedComments = append(updatedComments, comment)
+		} else {
+			// Comment is on deleted line
+			orphanedCount++
+			fmt.Printf("Comment %s orphaned (on deleted line)\n", comment.FormatIDShort())
+			// Optionally keep orphaned comments with a special marker
+			if force {
+				originalLine := comment.Line.EndLine
+				if comment.OriginalRange != nil {
+					originalLine = comment.OriginalRange.EndLine
+				}
+				comment.Body = fmt.Sprintf("[ORPHANED - Original line %d deleted]\n%s", originalLine, comment.Body)
+				updatedComments = append(updatedComments, comment)
+			}
+		}
+	}
+
+	// Update storage
+	reviewComments.Comments = updatedComments
+	reviewComments.UpdatedAt = time.Now()
+
+	if err := ch.storage.UpdateCommentsUnified(repository, target, reviewComments); err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to update comments: %w", err)
+	}
+
+	return adjustedCount, orphanedCount, warningCount, nil
 }
 
 // applyPRAdjustmentsWithCounts applies adjustments to PR comments and returns counts.
@@ -892,19 +1086,12 @@ func (ch *CommandHandler) adjustCommandAllFiles(repository models.Repository, pa
 
 // getAllFilesWithComments retrieves all files that contain comments.
 func (ch *CommandHandler) getAllFilesWithComments(repository models.Repository, parsed models.ParsedIdentifier) ([]string, error) {
-	if parsed.IsPR() {
-		prComments, err := ch.storage.GetComments(repository, parsed.PRNumber)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get PR comments: %w", err)
-		}
-		return extractUniqueFilePaths(prComments.Comments), nil
-	}
-
-	branchComments, err := ch.storage.GetBranchComments(repository, parsed.BranchName)
+	target := models.NewReviewTarget(&parsed)
+	reviewComments, err := ch.storage.GetCommentsUnified(repository, target)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get branch comments: %w", err)
+		return nil, fmt.Errorf("failed to get comments: %w", err)
 	}
-	return extractUniqueFilePaths(branchComments.Comments), nil
+	return extractUniqueFilePaths(reviewComments.Comments), nil
 }
 
 // extractUniqueFilePaths extracts unique file paths from a list of comments.
@@ -1184,19 +1371,12 @@ func (ch *CommandHandler) adjustCommandAutoDetect(repository models.Repository, 
 
 // getStoredDiffHunks retrieves stored diff hunks for either PR or branch.
 func (ch *CommandHandler) getStoredDiffHunks(repository models.Repository, parsed models.ParsedIdentifier) ([]models.DiffHunk, error) {
-	if parsed.IsPR() {
-		prDiffHunks, err := ch.storage.GetDiffHunks(repository, parsed.PRNumber)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get stored diff hunks for PR %d: %w", parsed.PRNumber, err)
-		}
-		return prDiffHunks.DiffHunks, nil
-	}
-
-	branchDiffHunks, err := ch.storage.GetBranchDiffHunks(repository, parsed.BranchName)
+	target := models.NewReviewTarget(&parsed)
+	reviewDiffHunks, err := ch.storage.GetDiffHunksUnified(repository, target)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stored diff hunks for branch %s: %w", parsed.BranchName, err)
+		return nil, fmt.Errorf("failed to get stored diff hunks for %s: %w", target.String(), err)
 	}
-	return branchDiffHunks.DiffHunks, nil
+	return reviewDiffHunks.DiffHunks, nil
 }
 
 // displayAutoDetectionResults shows the auto-detection results to the user.
