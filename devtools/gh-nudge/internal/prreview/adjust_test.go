@@ -269,7 +269,8 @@ func TestAdjustCommandOutput(t *testing.T) {
 
 	// Test table format output
 	t.Run("table format", func(t *testing.T) {
-		result, err := handler.getAdjustmentPreview(repository, prNumber, file, "15,17d14", "table")
+		target := models.NewPRTarget(prNumber)
+		result, err := handler.getAdjustmentPreviewUnified(repository, target, file, "15,17d14", "table")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -288,7 +289,8 @@ func TestAdjustCommandOutput(t *testing.T) {
 
 	// Test JSON format output
 	t.Run("json format", func(t *testing.T) {
-		result, err := handler.getAdjustmentPreview(repository, prNumber, file, "15,17d14", "json")
+		target := models.NewPRTarget(prNumber)
+		result, err := handler.getAdjustmentPreviewUnified(repository, target, file, "15,17d14", "json")
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -317,10 +317,11 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 	}
 
 	t.Run("counts adjusted comments correctly", func(t *testing.T) {
-		adjusted, orphaned, warnings, err := handler.applyPRAdjustmentsWithCounts(
-			repository, prNumber, file, adjustments, false)
+		target := models.NewPRTarget(prNumber)
+		adjusted, orphaned, warnings, err := handler.applyAdjustmentsWithCountsUnified(
+			repository, target, file, adjustments, false)
 		if err != nil {
-			t.Errorf("applyPRAdjustmentsWithCounts failed: %v", err)
+			t.Errorf("applyAdjustmentsWithCountsUnified failed: %v", err)
 		}
 
 		// Should adjust 2 comments (line 25 and 35 move down)
@@ -350,10 +351,11 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 			}
 		}
 
-		adjusted, orphaned, _, err := handler.applyPRAdjustmentsWithCounts(
-			repository, prNumber, file, adjustments, true)
+		target := models.NewPRTarget(prNumber)
+		adjusted, orphaned, _, err := handler.applyAdjustmentsWithCountsUnified(
+			repository, target, file, adjustments, true)
 		if err != nil {
-			t.Errorf("applyPRAdjustmentsWithCounts with force failed: %v", err)
+			t.Errorf("applyAdjustmentsWithCountsUnified with force failed: %v", err)
 		}
 
 		if adjusted != 2 || orphaned != 1 {
@@ -451,10 +453,11 @@ func TestApplyBranchAdjustmentsWithCounts(t *testing.T) {
 	}
 
 	t.Run("counts branch adjustments correctly", func(t *testing.T) {
-		adjusted, orphaned, warnings, err := handler.applyBranchAdjustmentsWithCounts(
-			repository, branchName, file, adjustments, false)
+		target := models.NewBranchTarget(branchName)
+		adjusted, orphaned, warnings, err := handler.applyAdjustmentsWithCountsUnified(
+			repository, target, file, adjustments, false)
 		if err != nil {
-			t.Errorf("applyBranchAdjustmentsWithCounts failed: %v", err)
+			t.Errorf("applyAdjustmentsWithCountsUnified failed: %v", err)
 		}
 
 		// Both comments should be adjusted (moved down by 3 lines)
