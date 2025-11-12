@@ -218,8 +218,6 @@ func (ch *CommandHandler) SubmitCommand(repository models.Repository, prNumber i
 type SubmitOptions struct {
 	AutoAdjust          bool
 	ValidateAdjustments bool
-	SmartMerge          bool
-	MergeOptions        models.MergeOptions
 }
 
 // SubmitCommandWithOptions submits a review to GitHub with advanced options.
@@ -467,13 +465,13 @@ func sortAndGetNextComment(comments []models.Comment) models.Comment {
 // processCommentsForSubmission processes comments based on the options provided.
 func (ch *CommandHandler) processCommentsForSubmission(prComments []models.Comment, file string, options SubmitOptions) ([]models.Comment, error) {
 	if options.AutoAdjust {
-		return ch.autoAdjustComments(prComments, file, options)
+		return ch.autoAdjustComments(prComments, file)
 	}
 	return ch.filterCommentsByFile(prComments, file)
 }
 
 // autoAdjustComments automatically adjusts comments before submission.
-func (ch *CommandHandler) autoAdjustComments(prComments []models.Comment, file string, options SubmitOptions) ([]models.Comment, error) {
+func (ch *CommandHandler) autoAdjustComments(prComments []models.Comment, file string) ([]models.Comment, error) {
 	fmt.Println("Auto-adjusting comments before submission...")
 
 	// Get latest diff to auto-adjust against
@@ -487,11 +485,11 @@ func (ch *CommandHandler) autoAdjustComments(prComments []models.Comment, file s
 		return prComments, nil
 	}
 
-	return ch.processFilesForAutoAdjustment(prComments, file, diffOutput, options)
+	return ch.processFilesForAutoAdjustment(prComments, file, diffOutput)
 }
 
 // processFilesForAutoAdjustment processes each file for auto-adjustment.
-func (ch *CommandHandler) processFilesForAutoAdjustment(prComments []models.Comment, file string, diffOutput string, options SubmitOptions) ([]models.Comment, error) {
+func (ch *CommandHandler) processFilesForAutoAdjustment(prComments []models.Comment, file string, diffOutput string) ([]models.Comment, error) {
 	// Process each unique file
 	fileComments := ch.groupCommentsByFile(prComments, file)
 
@@ -499,7 +497,7 @@ func (ch *CommandHandler) processFilesForAutoAdjustment(prComments []models.Comm
 	for filePath, fileCommentList := range fileComments {
 		fmt.Printf("Auto-adjusting comments in %s...\n", filePath)
 
-		adjustedComments, err := ch.adjustCommentsForFile(filePath, fileCommentList, diffOutput, options)
+		adjustedComments, err := ch.adjustCommentsForFile(filePath, fileCommentList, diffOutput)
 		if err != nil {
 			fmt.Printf("Warning: %v, using comments as-is\n", err)
 			commentsToSubmit = append(commentsToSubmit, fileCommentList...)
@@ -525,7 +523,7 @@ func (ch *CommandHandler) groupCommentsByFile(prComments []models.Comment, file 
 }
 
 // adjustCommentsForFile adjusts comments for a specific file.
-func (ch *CommandHandler) adjustCommentsForFile(filePath string, fileCommentList []models.Comment, diffOutput string, options SubmitOptions) ([]models.Comment, error) {
+func (ch *CommandHandler) adjustCommentsForFile(filePath string, fileCommentList []models.Comment, diffOutput string) ([]models.Comment, error) {
 	// Filter unified diff for this file
 	filteredDiff, err := models.FilterUnifiedDiffForFile(diffOutput, filePath)
 	if err != nil {
@@ -543,44 +541,11 @@ func (ch *CommandHandler) adjustCommentsForFile(filePath string, fileCommentList
 		return nil, fmt.Errorf("could not parse diff for %s: %w", filePath, err)
 	}
 
-	return ch.applyAdjustmentsToComments(fileCommentList, adjustments, filePath, options)
+	return ch.applyAdjustmentsToComments(fileCommentList, adjustments)
 }
 
-// applyAdjustmentsToComments applies adjustments to comments with optional smart merging.
-func (ch *CommandHandler) applyAdjustmentsToComments(fileCommentList []models.Comment, adjustments []models.LineAdjustment, filePath string, options SubmitOptions) ([]models.Comment, error) {
-	if options.SmartMerge {
-		return ch.applySmartMerging(fileCommentList, adjustments, filePath, options)
-	}
-	return ch.applyRegularAdjustments(fileCommentList, adjustments)
-}
-
-// applySmartMerging applies smart merging to comments.
-func (ch *CommandHandler) applySmartMerging(fileCommentList []models.Comment, adjustments []models.LineAdjustment, filePath string, options SubmitOptions) ([]models.Comment, error) {
-	adjustedComments, conflicts, err := models.ApplySmartMerging(fileCommentList, adjustments, options.MergeOptions)
-	if err != nil {
-		fmt.Printf("Warning: Smart merging failed for %s: %v\n", filePath, err)
-		// Fall back to regular adjustment
-		return ch.applyRegularAdjustmentsFallback(fileCommentList, adjustments)
-	}
-
-	if len(conflicts) > 0 {
-		ch.reportMergeConflicts(conflicts, filePath)
-	}
-
-	return adjustedComments, nil
-}
-
-// applyRegularAdjustmentsFallback applies regular adjustments as fallback.
-func (ch *CommandHandler) applyRegularAdjustmentsFallback(fileCommentList []models.Comment, adjustments []models.LineAdjustment) ([]models.Comment, error) {
-	adjustedComments := fileCommentList
-	for i := range adjustedComments {
-		models.AdjustComment(&adjustedComments[i], adjustments)
-	}
-	return adjustedComments, nil
-}
-
-// applyRegularAdjustments applies regular adjustments to comments.
-func (ch *CommandHandler) applyRegularAdjustments(fileCommentList []models.Comment, adjustments []models.LineAdjustment) ([]models.Comment, error) {
+// applyAdjustmentsToComments applies adjustments to comments.
+func (ch *CommandHandler) applyAdjustmentsToComments(fileCommentList []models.Comment, adjustments []models.LineAdjustment) ([]models.Comment, error) {
 	var adjustedComments []models.Comment
 	for _, comment := range fileCommentList {
 		testComment := comment
@@ -591,14 +556,6 @@ func (ch *CommandHandler) applyRegularAdjustments(fileCommentList []models.Comme
 		}
 	}
 	return adjustedComments, nil
-}
-
-// reportMergeConflicts reports merge conflicts to the user.
-func (ch *CommandHandler) reportMergeConflicts(conflicts []models.MergeConflict, filePath string) {
-	fmt.Printf("Warning: %d unresolved merge conflicts in %s\n", len(conflicts), filePath)
-	for _, conflict := range conflicts {
-		fmt.Printf("  - Conflict at %s: %d comments\n", conflict.Location, len(conflict.ConflictingComments))
-	}
 }
 
 // filterCommentsByFile filters comments by file if specified.

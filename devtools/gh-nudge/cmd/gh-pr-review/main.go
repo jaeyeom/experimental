@@ -543,7 +543,6 @@ func handleSubmit(args []string) {
 	afterAction := parser.GetOption("after")
 	autoAdjust := parser.GetBoolOption("auto-adjust")
 	validateAdjustments := parser.GetBoolOption("validate-adjustments")
-	smartMerge := parser.GetBoolOption("smart-merge")
 
 	if err := validateSubmitEvent(event); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -568,8 +567,6 @@ func handleSubmit(args []string) {
 	submitOptions := prreview.SubmitOptions{
 		AutoAdjust:          autoAdjust,
 		ValidateAdjustments: validateAdjustments,
-		SmartMerge:          smartMerge,
-		MergeOptions:        models.DefaultMergeOptions(),
 	}
 
 	if err := handler.SubmitCommandWithOptions(repository, prNumber, body, event, file, formatter, postSubmitAction, submitOptions); err != nil {
@@ -590,11 +587,10 @@ func showSubmitUsage() {
 	fmt.Println("                        (clear, keep, archive) [default: clear]")
 	fmt.Println("  --auto-adjust         Auto-adjust comment line numbers before submission")
 	fmt.Println("  --validate-adjustments Validate adjusted comments against diff hunks")
-	fmt.Println("  --smart-merge         Enable smart merging for conflicting comments")
 }
 
 func validateSubmitOptions(parser *argparser.ArgParser) error {
-	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after", "auto-adjust", "validate-adjustments", "smart-merge"}); err != nil {
+	if err := parser.ValidateOptions([]string{"body", "event", "file", "json", "after", "auto-adjust", "validate-adjustments"}); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
 	if err := parser.RequireExactPositionals(2, "gh-pr-review submit <owner>/<repo> <pr_number> [options]"); err != nil {
