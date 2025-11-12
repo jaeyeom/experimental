@@ -113,6 +113,62 @@ func TestCache_GetCacheKey(t *testing.T) {
 	if key3 == key4 {
 		t.Error("GetCacheKey() returned same key after adding more BUILD files")
 	}
+
+	// Create a .bzl file
+	if err := os.WriteFile("defs.bzl", []byte("# macro definitions"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Key should change after adding .bzl file
+	key5, err := c.GetCacheKey()
+	if err != nil {
+		t.Fatalf("GetCacheKey() error = %v", err)
+	}
+	if key4 == key5 {
+		t.Error("GetCacheKey() returned same key after adding .bzl file")
+	}
+
+	// Modify the .bzl file
+	if err := os.WriteFile("defs.bzl", []byte("# modified macros"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Key should change after modifying .bzl file
+	key6, err := c.GetCacheKey()
+	if err != nil {
+		t.Fatalf("GetCacheKey() error = %v", err)
+	}
+	if key5 == key6 {
+		t.Error("GetCacheKey() returned same key after modifying .bzl file")
+	}
+
+	// Create WORKSPACE file (should NOT affect cache key)
+	if err := os.WriteFile("WORKSPACE", []byte("# workspace"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Key should NOT change after adding WORKSPACE file
+	key7, err := c.GetCacheKey()
+	if err != nil {
+		t.Fatalf("GetCacheKey() error = %v", err)
+	}
+	if key6 != key7 {
+		t.Error("GetCacheKey() should return same key after adding WORKSPACE file")
+	}
+
+	// Create MODULE.bazel file (should NOT affect cache key)
+	if err := os.WriteFile("MODULE.bazel", []byte("# module"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Key should NOT change after adding MODULE file
+	key8, err := c.GetCacheKey()
+	if err != nil {
+		t.Fatalf("GetCacheKey() error = %v", err)
+	}
+	if key7 != key8 {
+		t.Error("GetCacheKey() should return same key after adding MODULE.bazel file")
+	}
 }
 
 func TestCache_SetAndGet(t *testing.T) {
