@@ -394,47 +394,6 @@ func TestGetMergeablePullRequests(t *testing.T) {
 	})
 }
 
-// TestFilterPullRequestsByAge tests the behavior of age filtering.
-func TestFilterPullRequestsByAge(t *testing.T) {
-	client := NewClientWithExecutor(&mockExecutor{})
-
-	t.Run("returns all PRs unchanged (placeholder implementation)", func(t *testing.T) {
-		prs := []models.PullRequest{
-			{Title: "PR 1", URL: "url1"},
-			{Title: "PR 2", URL: "url2"},
-		}
-
-		filtered := client.FilterPullRequestsByAge(prs, 24)
-
-		if len(filtered) != len(prs) {
-			t.Errorf("expected %d PRs, got %d", len(prs), len(filtered))
-		}
-
-		for i, pr := range filtered {
-			if pr.Title != prs[i].Title {
-				t.Errorf("expected PR %d to be unchanged, got different PR", i)
-			}
-		}
-	})
-
-	t.Run("handles empty list", func(t *testing.T) {
-		prs := []models.PullRequest{}
-		filtered := client.FilterPullRequestsByAge(prs, 48)
-
-		if len(filtered) != 0 {
-			t.Errorf("expected empty list, got %d PRs", len(filtered))
-		}
-	})
-
-	t.Run("handles nil input", func(t *testing.T) {
-		filtered := client.FilterPullRequestsByAge(nil, 24)
-
-		if filtered != nil {
-			t.Errorf("expected nil result for nil input, got %v", filtered)
-		}
-	})
-}
-
 // TestGetPullRequestDetails tests the behavior of fetching PR details.
 func TestGetPullRequestDetails(t *testing.T) {
 	client := NewClientWithExecutor(&mockExecutor{})
