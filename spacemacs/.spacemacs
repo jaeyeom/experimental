@@ -850,6 +850,10 @@ Fallback file lists are returned for specific directories."
 
   (advice-add 'compilation-find-file :around #'my/compilation-find-file)
 
+  ;; Disable pytest terminalprogress plugin to avoid OSC sequences in
+  ;; compilation buffer.
+  (setopt compilation-environment '("PYTEST_ADDOPTS='-p no:terminalprogress'"))
+
   ;;; Font Settings
 
   ;; Fontconfig almost never works. The following tries to find the best font on
