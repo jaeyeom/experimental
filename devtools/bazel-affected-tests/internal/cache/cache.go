@@ -32,9 +32,10 @@ func (c *Cache) debugf(format string, args ...interface{}) {
 	}
 }
 
-// GetCacheKey computes a cache key based on BUILD files.
+// GetCacheKey computes a cache key based on BUILD and .bzl files.
 func (c *Cache) GetCacheKey() (string, error) {
-	// Find all BUILD, WORKSPACE, and MODULE files
+	// Find all BUILD and .bzl files
+	// WORKSPACE/MODULE are intentionally excluded as they don't affect internal dependency graph
 	var buildFiles []string
 	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -44,9 +45,7 @@ func (c *Cache) GetCacheKey() (string, error) {
 			return nil
 		}
 		name := info.Name()
-		if name == "BUILD" || name == "BUILD.bazel" ||
-			name == "WORKSPACE" || name == "WORKSPACE.bazel" ||
-			name == "MODULE" || name == "MODULE.bazel" {
+		if name == "BUILD" || name == "BUILD.bazel" || strings.HasSuffix(name, ".bzl") {
 			buildFiles = append(buildFiles, path)
 		}
 		return nil
@@ -58,7 +57,7 @@ func (c *Cache) GetCacheKey() (string, error) {
 	// Sort files for consistent hashing
 	sort.Strings(buildFiles)
 
-	// Compute hash of all BUILD files
+	// Compute hash of all BUILD and .bzl files
 	h := sha256.New()
 	for _, file := range buildFiles {
 		// Include file path in hash
