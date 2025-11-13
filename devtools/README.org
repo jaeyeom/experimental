@@ -240,13 +240,6 @@ repo-sync sync myproject
 
 [[file:repo-sync/README.org][→ Full Documentation]]
 
-*** emacs-init (Deprecated)                                      :deprecated:
-
-⚠️ *Out of date and no longer maintained.* Contains legacy Emacs initialization
-files from before 2013. For current Emacs setup, see [[file:../spacemacs/README.org][spacemacs/README.org]].
-
-[[file:emacs-init/README.org][→ Documentation]]
-
 *** doom (Deprecated)                                            :deprecated:
 
 ⚠️ *Not actively maintained.* Legacy Doom Emacs configuration files. For current
