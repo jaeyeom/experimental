@@ -332,26 +332,6 @@ func (c Comment) GetLineRange() LineRange {
 	return c.Line
 }
 
-// GetLocation returns the file location for this comment.
-// TODO(jaeyeom): Remove this backward compatibility helper after migrating all callers to use Path and Line directly.
-func (c Comment) GetLocation() FileLocation {
-	return NewFileLocation(c.Path, c.Line)
-}
-
-// GetLocationKey returns the location key for this comment.
-// TODO(jaeyeom): Remove this backward compatibility helper after migrating all callers to use GetLocation().Key().
-func (c Comment) GetLocationKey() string {
-	return c.GetLocation().Key()
-}
-
-// GetEndLineLocationKey returns a key based on path and end line only.
-// This is used for conflict detection where comments with different start lines
-// but the same end line should be grouped together.
-// TODO(jaeyeom): Consider if this should be part of FileLocation or a separate concept.
-func (c Comment) GetEndLineLocationKey() string {
-	return NewFileLocationSingleLine(c.Path, c.Line.EndLine).Key()
-}
-
 // IsDuplicate checks if two comments are duplicates.
 func (c Comment) IsDuplicate(other Comment) bool {
 	// Normalize body for comparison (trim whitespace, etc.)
