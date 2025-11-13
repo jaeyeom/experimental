@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -273,5 +274,177 @@ func TestRunRename(t *testing.T) {
 	// Verify old file is gone
 	if _, err := os.Stat(oldKeyFile); !errors.Is(err, fs.ErrNotExist) {
 		t.Error("Old key file should not exist")
+	}
+}
+
+func TestParseFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected Config
+	}{
+		{
+			name: "basic flags using --old and --new",
+			args: []string{"cmd", "--old", "PROJ-123", "--new", "PROJ-456"},
+			expected: Config{
+				OldKey:   "PROJ-123",
+				NewKey:   "PROJ-456",
+				PlanFile: "plan.md",
+				DocsDir:  "docs/project",
+			},
+		},
+		{
+			name: "long form flags --old-key and --new-key",
+			args: []string{"cmd", "--old-key", "DEV-100", "--new-key", "DEV-200"},
+			expected: Config{
+				OldKey:   "DEV-100",
+				NewKey:   "DEV-200",
+				PlanFile: "plan.md",
+				DocsDir:  "docs/project",
+			},
+		},
+		{
+			name: "custom plan file using -p",
+			args: []string{"cmd", "--old", "PROJ-1", "--new", "PROJ-2", "-p", "custom-plan.md"},
+			expected: Config{
+				OldKey:   "PROJ-1",
+				NewKey:   "PROJ-2",
+				PlanFile: "custom-plan.md",
+				DocsDir:  "docs/project",
+			},
+		},
+		{
+			name: "custom plan file using --plan-file",
+			args: []string{"cmd", "--old", "PROJ-1", "--new", "PROJ-2", "--plan-file", "roadmap.md"},
+			expected: Config{
+				OldKey:   "PROJ-1",
+				NewKey:   "PROJ-2",
+				PlanFile: "roadmap.md",
+				DocsDir:  "docs/project",
+			},
+		},
+		{
+			name: "custom docs dir using -d",
+			args: []string{"cmd", "--old", "A-1", "--new", "A-2", "-d", "documentation"},
+			expected: Config{
+				OldKey:   "A-1",
+				NewKey:   "A-2",
+				PlanFile: "plan.md",
+				DocsDir:  "documentation",
+			},
+		},
+		{
+			name: "custom docs dir using --docs-dir",
+			args: []string{"cmd", "--old", "A-1", "--new", "A-2", "--docs-dir", "docs/tickets"},
+			expected: Config{
+				OldKey:   "A-1",
+				NewKey:   "A-2",
+				PlanFile: "plan.md",
+				DocsDir:  "docs/tickets",
+			},
+		},
+		{
+			name: "all custom options",
+			args: []string{"cmd", "--old", "X-99", "--new", "Y-88", "-p", "my-plan.md", "-d", "my-docs"},
+			expected: Config{
+				OldKey:   "X-99",
+				NewKey:   "Y-88",
+				PlanFile: "my-plan.md",
+				DocsDir:  "my-docs",
+			},
+		},
+		{
+			name: "mixed short and long flags",
+			args: []string{"cmd", "-old", "PROJ-5", "-new", "PROJ-6", "--plan-file", "plan2.md", "-d", "docs/issues"},
+			expected: Config{
+				OldKey:   "PROJ-5",
+				NewKey:   "PROJ-6",
+				PlanFile: "plan2.md",
+				DocsDir:  "docs/issues",
+			},
+		},
+		{
+			name: "keys with different formats",
+			args: []string{"cmd", "--old", "OLDPROJ-123", "--new", "NEWPROJ-456"},
+			expected: Config{
+				OldKey:   "OLDPROJ-123",
+				NewKey:   "NEWPROJ-456",
+				PlanFile: "plan.md",
+				DocsDir:  "docs/project",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset flag.CommandLine to avoid conflicts between tests
+			flag.CommandLine = flag.NewFlagSet(tt.args[0], flag.ContinueOnError)
+
+			// Save and restore os.Args
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+
+			os.Args = tt.args
+
+			config := parseFlags()
+
+			if config.OldKey != tt.expected.OldKey {
+				t.Errorf("OldKey: expected %q, got %q", tt.expected.OldKey, config.OldKey)
+			}
+			if config.NewKey != tt.expected.NewKey {
+				t.Errorf("NewKey: expected %q, got %q", tt.expected.NewKey, config.NewKey)
+			}
+			if config.PlanFile != tt.expected.PlanFile {
+				t.Errorf("PlanFile: expected %q, got %q", tt.expected.PlanFile, config.PlanFile)
+			}
+			if config.DocsDir != tt.expected.DocsDir {
+				t.Errorf("DocsDir: expected %q, got %q", tt.expected.DocsDir, config.DocsDir)
+			}
+		})
+	}
+}
+
+func TestParseFlags_DefaultValues(t *testing.T) {
+	// Reset flag.CommandLine
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+
+	// Save and restore os.Args
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	// Provide only required flags
+	os.Args = []string{"cmd", "--old", "TEST-1", "--new", "TEST-2"}
+
+	config := parseFlags()
+
+	// Check that defaults are set correctly
+	if config.PlanFile != "plan.md" {
+		t.Errorf("Expected default PlanFile to be 'plan.md', got %q", config.PlanFile)
+	}
+	if config.DocsDir != "docs/project" {
+		t.Errorf("Expected default DocsDir to be 'docs/project', got %q", config.DocsDir)
+	}
+}
+
+func TestParseFlags_FlagOverriding(t *testing.T) {
+	// Test that later flags override earlier ones (flag package behavior)
+	// This tests the duplicate flag definitions in parseFlags
+
+	// Reset flag.CommandLine
+	flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
+
+	// Save and restore os.Args
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	// Use both --old and --old-key (should use the last one set)
+	os.Args = []string{"cmd", "--old", "FIRST", "--old-key", "SECOND", "--new", "NEW-1"}
+
+	config := parseFlags()
+
+	// The way the flags are defined in parseFlags, both --old and --old-key point to the same variable
+	// So the last value set should be used
+	if config.OldKey != "SECOND" {
+		t.Errorf("Expected OldKey to be 'SECOND' (last value), got %q", config.OldKey)
 	}
 }
