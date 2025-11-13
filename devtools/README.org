@@ -240,13 +240,6 @@ repo-sync sync myproject
 
 [[file:repo-sync/README.org][→ Full Documentation]]
 
-*** doom (Deprecated)                                            :deprecated:
-
-⚠️ *Not actively maintained.* Legacy Doom Emacs configuration files. For current
-Emacs setup, see [[file:../spacemacs/README.org][spacemacs/README.org]].
-
-[[file:doom/README.org][→ Documentation]]
-
 * Installation
 :PROPERTIES:
 :CUSTOM_ID: installation
