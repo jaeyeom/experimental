@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"errors"
+	"os"
 	"sort"
 	"testing"
 	"time"
@@ -433,6 +434,264 @@ func TestQuery_Timeout(t *testing.T) {
 
 	if capturedConfig.Timeout != 30*time.Second {
 		t.Errorf("Expected timeout of 30s, got %v", capturedConfig.Timeout)
+	}
+}
+
+func TestNewBazelQuerier_FailOnErrorEnvVar(t *testing.T) {
+	tests := []struct {
+		name         string
+		envValue     string
+		shouldSetEnv bool
+		expectFail   bool
+	}{
+		{
+			name:         "env not set",
+			shouldSetEnv: false,
+			expectFail:   false,
+		},
+		{
+			name:         "env set to true",
+			envValue:     "true",
+			shouldSetEnv: true,
+			expectFail:   true,
+		},
+		{
+			name:         "env set to 1",
+			envValue:     "1",
+			shouldSetEnv: true,
+			expectFail:   true,
+		},
+		{
+			name:         "env set to false",
+			envValue:     "false",
+			shouldSetEnv: true,
+			expectFail:   false,
+		},
+		{
+			name:         "env set to 0",
+			envValue:     "0",
+			shouldSetEnv: true,
+			expectFail:   false,
+		},
+		{
+			name:         "env set to random value",
+			envValue:     "random",
+			shouldSetEnv: true,
+			expectFail:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save and restore env var
+			oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+			defer func() {
+				if hadEnv {
+					os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+				} else {
+					os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+				}
+			}()
+
+			if tt.shouldSetEnv {
+				os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", tt.envValue)
+			} else {
+				os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+			}
+
+			q := NewBazelQuerier(false)
+			if q.failOnError != tt.expectFail {
+				t.Errorf("Expected failOnError=%v, got %v", tt.expectFail, q.failOnError)
+			}
+		})
+	}
+}
+
+func TestNewBazelQuerierWithExecutor_FailOnErrorEnvVar(t *testing.T) {
+	// Save and restore env var
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+	defer func() {
+		if hadEnv {
+			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+		} else {
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+		}
+	}()
+
+	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
+
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec, false)
+
+	if !q.failOnError {
+		t.Error("Expected failOnError=true when env var is set to 'true'")
+	}
+}
+
+func TestFindAffectedTests_FailOnError_True(t *testing.T) {
+	// Save and restore env var
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+	defer func() {
+		if hadEnv {
+			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+		} else {
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+		}
+	}()
+
+	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
+
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec, false)
+
+	// Same-package query fails
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillFail("query error", 1).
+		Build()
+
+	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
+
+	// Should return error when failOnError is true
+	if err == nil {
+		t.Fatal("Expected error when failOnError=true and query fails")
+	}
+
+	if !contains(err.Error(), "same package tests") {
+		t.Errorf("Expected error message to mention 'same package tests', got: %v", err)
+	}
+
+	if tests != nil {
+		t.Errorf("Expected nil tests on error, got %v", tests)
+	}
+}
+
+func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
+	// Save and restore env var
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+	defer func() {
+		if hadEnv {
+			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+		} else {
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+		}
+	}()
+
+	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
+
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec, false)
+
+	// Same-package query succeeds
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillSucceed("//pkg/foo:test", 0).
+		Build()
+
+	// External test deps query fails
+	mockExec.ExpectCommandWithArgs("bazel", "query", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+		WillFail("query error", 1).
+		Build()
+
+	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
+
+	// Should return error when failOnError is true
+	if err == nil {
+		t.Fatal("Expected error when failOnError=true and external test deps query fails")
+	}
+
+	if !contains(err.Error(), "external test deps") {
+		t.Errorf("Expected error message to mention 'external test deps', got: %v", err)
+	}
+
+	if tests != nil {
+		t.Errorf("Expected nil tests on error, got %v", tests)
+	}
+}
+
+func TestFindAffectedTests_FailOnError_FormatTests(t *testing.T) {
+	// Save and restore env var
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+	defer func() {
+		if hadEnv {
+			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+		} else {
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+		}
+	}()
+
+	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
+
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec, false)
+
+	// Package queries succeed
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillSucceed("//pkg/foo:test", 0).
+		Build()
+	mockExec.ExpectCommandWithArgs("bazel", "query", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+		WillSucceed("", 0).
+		Build()
+
+	// Format tests query fails
+	mockExec.ExpectCommandWithArgs("bazel", "query", "//tools/format:* intersect kind('.*_test rule', //...)").
+		WillFail("query error", 1).
+		Build()
+
+	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
+
+	// Should return error when failOnError is true
+	if err == nil {
+		t.Fatal("Expected error when failOnError=true and format tests query fails")
+	}
+
+	if !contains(err.Error(), "format tests") {
+		t.Errorf("Expected error message to mention 'format tests', got: %v", err)
+	}
+
+	if tests != nil {
+		t.Errorf("Expected nil tests on error, got %v", tests)
+	}
+}
+
+func TestFindAffectedTests_FailOnError_False(t *testing.T) {
+	// Save and restore env var
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+	defer func() {
+		if hadEnv {
+			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+		} else {
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+		}
+	}()
+
+	os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") // Default is false
+
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec, false)
+
+	// Same-package query fails
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillFail("query error", 1).
+		Build()
+
+	// External test deps query succeeds
+	mockExec.ExpectCommandWithArgs("bazel", "query", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+		WillSucceed("//other:test", 0).
+		Build()
+
+	// Format tests succeed
+	mockExec.ExpectCommandWithArgs("bazel", "query", "//tools/format:* intersect kind('.*_test rule', //...)").
+		WillSucceed("//tools/format:test", 0).
+		Build()
+
+	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
+	// Should NOT return error when failOnError is false
+	if err != nil {
+		t.Fatalf("Expected no error when failOnError=false, got: %v", err)
+	}
+
+	// Should still get results from successful queries
+	if len(tests) != 2 {
+		t.Errorf("Expected 2 tests from successful queries, got %d: %v", len(tests), tests)
 	}
 }
 
