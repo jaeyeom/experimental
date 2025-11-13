@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 
@@ -15,6 +16,10 @@ import (
 
 func main() {
 	config := parseFlags()
+
+	if config.debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 
 	c := cache.NewCache(config.cacheDir, config.debug)
 
@@ -33,14 +38,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	debugf := createDebugFunc(config.debug)
-	debugf("Found %d staged files", len(stagedFiles))
+	slog.Debug("Staged files found", "count", len(stagedFiles))
 
-	cacheKey := getCacheKey(c, config.noCache, debugf)
-	packages := findPackages(stagedFiles, debugf)
+	cacheKey := getCacheKey(c, config.noCache)
+	packages := findPackages(stagedFiles)
 
 	querier := query.NewBazelQuerier(config.debug)
-	allTests := collectAllTests(packages, querier, c, cacheKey, config.noCache, debugf)
+	allTests := collectAllTests(packages, querier, c, cacheKey, config.noCache)
 
 	// Filter and output results
 	filter := query.NewFormatTestFilter(stagedFiles, config.debug)
@@ -92,38 +96,30 @@ func getStagedFiles() ([]string, error) {
 	return files, nil
 }
 
-func createDebugFunc(debug bool) func(string, ...interface{}) {
-	return func(format string, args ...interface{}) {
-		if debug {
-			fmt.Printf("DEBUG: "+format+"\n", args...)
-		}
-	}
-}
-
-func getCacheKey(c *cache.Cache, noCache bool, debugf func(string, ...interface{})) string {
+func getCacheKey(c *cache.Cache, noCache bool) string {
 	if noCache {
 		return ""
 	}
 
 	cacheKey, err := c.GetCacheKey()
 	if err != nil {
-		debugf("Failed to compute cache key: %v", err)
+		slog.Debug("Failed to compute cache key", "error", err)
 		return ""
 	}
 
-	debugf("Cache key: %s", cacheKey)
+	slog.Debug("Cache key computed", "key", cacheKey)
 	return cacheKey
 }
 
-func findPackages(stagedFiles []string, debugf func(string, ...interface{})) []string {
+func findPackages(stagedFiles []string) []string {
 	packageMap := make(map[string]bool)
 	for _, file := range stagedFiles {
-		debugf("Processing file: %s", file)
+		slog.Debug("Processing file", "file", file)
 		if pkg, found := query.FindBazelPackage(file); found {
-			debugf("  Found package: %s", pkg)
+			slog.Debug("Found package", "package", pkg)
 			packageMap[pkg] = true
 		} else {
-			debugf("  No Bazel package found for this file")
+			slog.Debug("No Bazel package found for file", "file", file)
 		}
 	}
 
@@ -134,12 +130,12 @@ func findPackages(stagedFiles []string, debugf func(string, ...interface{})) []s
 	return packages
 }
 
-func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool, debugf func(string, ...interface{})) []string {
+func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool) []string {
 	allTestsMap := make(map[string]bool)
 
 	// Process packages
 	for _, pkg := range packages {
-		tests := getPackageTests(pkg, querier, c, cacheKey, noCache, debugf)
+		tests := getPackageTests(pkg, querier, c, cacheKey, noCache)
 		for _, test := range tests {
 			allTestsMap[test] = true
 		}
@@ -160,7 +156,7 @@ func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Ca
 	return allTests
 }
 
-func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool, debugf func(string, ...interface{})) []string {
+func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool) []string {
 	if !noCache && cacheKey != "" {
 		if cachedTests, found := c.Get(cacheKey, pkg); found {
 			return cachedTests
@@ -169,14 +165,14 @@ func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, ca
 
 	tests, err := querier.FindAffectedTests([]string{pkg})
 	if err != nil {
-		debugf("Error querying tests for package %s: %v", pkg, err)
+		slog.Debug("Error querying tests for package", "package", pkg, "error", err)
 		return nil
 	}
 
 	// Store in cache
 	if !noCache && cacheKey != "" {
 		if err := c.Set(cacheKey, pkg, tests); err != nil {
-			debugf("Failed to cache results for %s: %v", pkg, err)
+			slog.Debug("Failed to cache results", "package", pkg, "error", err)
 		}
 	}
 

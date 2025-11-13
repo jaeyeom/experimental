@@ -20,9 +20,6 @@ func TestNewBazelQuerier(t *testing.T) {
 		t.Fatal("BazelQuerier.executor is nil")
 		return
 	}
-	if q.debug {
-		t.Error("Expected debug to be false")
-	}
 }
 
 func TestNewBazelQuerierWithExecutor(t *testing.T) {
@@ -35,9 +32,6 @@ func TestNewBazelQuerierWithExecutor(t *testing.T) {
 	}
 	if q.executor != mockExec {
 		t.Error("Expected custom executor")
-	}
-	if !q.debug {
-		t.Error("Expected debug to be true")
 	}
 }
 

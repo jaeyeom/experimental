@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -31,6 +32,11 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*Execution
 
 	cmd := e.createCommand(execCtx, cfg)
 	e.setupCommand(cmd, cfg)
+
+	slog.Debug("Executing command",
+		"command", cfg.Command,
+		"args", cfg.Args,
+		"working_dir", cfg.WorkingDir)
 
 	stdout, stderr, startTime, endTime, err := e.executeCommand(cmd)
 
