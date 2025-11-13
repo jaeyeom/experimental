@@ -1,6 +1,7 @@
 package query
 
 import (
+	"log/slog"
 	"path/filepath"
 	"strings"
 )
@@ -8,14 +9,15 @@ import (
 // FormatTestFilter filters format tests based on staged file types.
 type FormatTestFilter struct {
 	stagedFiles []string
-	debug       bool
 }
 
 // NewFormatTestFilter creates a new format test filter.
 func NewFormatTestFilter(stagedFiles []string, debug bool) *FormatTestFilter {
+	if debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 	return &FormatTestFilter{
 		stagedFiles: stagedFiles,
-		debug:       debug,
 	}
 }
 

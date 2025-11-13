@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,23 +14,19 @@ import (
 
 // Cache manages caching of Bazel query results.
 type Cache struct {
-	dir   string
-	debug bool
+	dir string
 }
 
 // NewCache creates a new cache instance.
 func NewCache(dir string, debug bool) *Cache {
+	if debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 	if dir == "" {
 		homeDir, _ := os.UserHomeDir()
 		dir = filepath.Join(homeDir, ".cache", "bazel-affected-tests")
 	}
-	return &Cache{dir: dir, debug: debug}
-}
-
-func (c *Cache) debugf(format string, args ...interface{}) {
-	if c.debug {
-		fmt.Printf("DEBUG: "+format+"\n", args...)
-	}
+	return &Cache{dir: dir}
 }
 
 // GetCacheKey computes a cache key based on BUILD and .bzl files.
@@ -85,11 +82,11 @@ func (c *Cache) Get(cacheKey, pkg string) ([]string, bool) {
 
 	var tests []string
 	if err := json.Unmarshal(data, &tests); err != nil {
-		c.debugf("Failed to unmarshal cache for %s: %v", pkg, err)
+		slog.Debug("Failed to unmarshal cache", "package", pkg, "error", err)
 		return nil, false
 	}
 
-	c.debugf("Cache hit for package %s", pkg)
+	slog.Debug("Cache hit", "package", pkg)
 	return tests, true
 }
 

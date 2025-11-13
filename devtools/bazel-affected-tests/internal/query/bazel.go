@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -12,29 +13,26 @@ import (
 // BazelQuerier executes Bazel queries.
 type BazelQuerier struct {
 	executor executor.Executor
-	debug    bool
 }
 
 // NewBazelQuerier creates a new BazelQuerier.
 func NewBazelQuerier(debug bool) *BazelQuerier {
+	if debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 	return &BazelQuerier{
 		executor: executor.NewBasicExecutor(),
-		debug:    debug,
 	}
 }
 
 // NewBazelQuerierWithExecutor creates a new BazelQuerier with a custom executor.
 // This is primarily useful for testing.
 func NewBazelQuerierWithExecutor(exec executor.Executor, debug bool) *BazelQuerier {
+	if debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
 	return &BazelQuerier{
 		executor: exec,
-		debug:    debug,
-	}
-}
-
-func (q *BazelQuerier) debugf(format string, args ...interface{}) {
-	if q.debug {
-		fmt.Printf("DEBUG: "+format+"\n", args...)
 	}
 }
 
@@ -55,14 +53,14 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 
 	// Process each unique package
 	for pkg := range uniquePackages {
-		q.debugf("Processing package: %s", pkg)
+		slog.Debug("Processing package", "package", pkg)
 
 		// Get tests in the same package
 		samePackageTests, err := q.query(fmt.Sprintf("kind('.*_test rule', %s:*)", pkg))
 		if err != nil {
-			q.debugf("Error querying same package tests: %v", err)
+			slog.Debug("Error querying same package tests", "error", err)
 		} else {
-			q.debugf("  Same package tests: %d", len(samePackageTests))
+			slog.Debug("Same package tests found", "count", len(samePackageTests))
 			for _, test := range samePackageTests {
 				testsSet[test] = true
 			}
@@ -71,9 +69,9 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 		// Get external test dependencies
 		externalTests, err := q.query(fmt.Sprintf("rdeps(//..., %s:*) intersect kind('.*_test rule', //...)", pkg))
 		if err != nil {
-			q.debugf("Error querying external test deps: %v", err)
+			slog.Debug("Error querying external test deps", "error", err)
 		} else {
-			q.debugf("  External test deps: %d", len(externalTests))
+			slog.Debug("External test deps found", "count", len(externalTests))
 			for _, test := range externalTests {
 				testsSet[test] = true
 			}
@@ -83,9 +81,9 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 	// Always include format tests (will be filtered later based on file types)
 	formatTests, err := q.query("//tools/format:* intersect kind('.*_test rule', //...)")
 	if err != nil {
-		q.debugf("Error querying format tests: %v", err)
+		slog.Debug("Error querying format tests", "error", err)
 	} else {
-		q.debugf("Format test targets: %d", len(formatTests))
+		slog.Debug("Format test targets found", "count", len(formatTests))
 		for _, test := range formatTests {
 			testsSet[test] = true
 		}
