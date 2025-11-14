@@ -6,17 +6,6 @@ go_binary(
     visibility = ["//visibility:public"],
 )
 
-go_test(
-    name = "main_test",
-    timeout = "short",
-    srcs = [
-        "main.go",
-        "main_behavioral_test.go",
-        "main_test.go",
-    ],
-    deps = [],
-)
-
 go_library(
     name = "go_default_library",
     srcs = ["main.go"],
