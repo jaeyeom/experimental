@@ -1296,3 +1296,680 @@ func TestAdjustCommandSingleFileExtended(t *testing.T) {
 		}
 	})
 }
+
+// TestAdjustCommandExtended_AutoDetectHighConfidence tests auto-detection with high confidence.
+func TestAdjustCommandExtended_AutoDetectHighConfidence(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-autodetect-high-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockGitClient := &MockGitClient{
+		AutoDetectChangesFunc: func(file string, _ []models.DiffHunk) (*models.AutoDetectResult, error) {
+			return &models.AutoDetectResult{
+				File: file,
+				Changes: []models.LineChange{
+					{Type: models.LineDeleted, OriginalLine: 15, NewLine: 0},
+					{Type: models.LineDeleted, OriginalLine: 16, NewLine: 0},
+				},
+				Suggestions: []models.MappingSuggestion{
+					{OriginalLine: 20, Offset: -2, Confidence: models.ConfidenceHigh, Reason: "Lines deleted above"},
+					{OriginalLine: 30, Offset: -2, Confidence: models.ConfidenceHigh, Reason: "Lines deleted above"},
+				},
+				Confidence: models.ConfidenceHigh,
+			}, nil
+		},
+	}
+
+	handler := &CommandHandler{
+		storage:     store,
+		storageHome: tmpDir,
+		gitClient:   mockGitClient,
+	}
+
+	repository := models.NewRepository("testowner", "testrepo")
+	prNumber := 123
+	target := models.NewPRTarget(prNumber)
+	file := "test.go"
+
+	// Setup diff hunks
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
+		Repository: repository,
+		CapturedAt: time.Now(),
+		DiffHunks: []models.DiffHunk{
+			{
+				Location: models.NewFileLocation(file, models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
+			},
+		},
+	}
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add comments
+	comments := []models.Comment{
+		{
+			ID:        "c1",
+			Path:      file,
+			Line:      models.NewSingleLine(20),
+			Body:      "Comment at line 20",
+			Side:      models.SideRight,
+			CreatedAt: time.Now(),
+		},
+		{
+			ID:        "c2",
+			Path:      file,
+			Line:      models.NewSingleLine(30),
+			Body:      "Comment at line 30",
+			Side:      models.SideRight,
+			CreatedAt: time.Now(),
+		},
+	}
+
+	for _, comment := range comments {
+		if err := store.AddComment(repository, target, comment); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("applies high confidence auto-detection", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			AutoDetect: true,
+			DryRun:     false,
+			Format:     "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			file, "", opts)
+		if err != nil {
+			t.Errorf("Auto-detection with high confidence should succeed: %v", err)
+		}
+
+		// Verify comments were adjusted
+		stored, err := store.GetComments(repository, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, comment := range stored.Comments {
+			if comment.ID == "c1" && comment.Line != models.NewSingleLine(18) {
+				t.Errorf("Comment c1 should be at line 18, got %v", comment.Line)
+			}
+			if comment.ID == "c2" && comment.Line != models.NewSingleLine(28) {
+				t.Errorf("Comment c2 should be at line 28, got %v", comment.Line)
+			}
+		}
+	})
+}
+
+// TestAdjustCommandExtended_AutoDetectMediumConfidence tests auto-detection with medium confidence.
+func TestAdjustCommandExtended_AutoDetectMediumConfidence(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-autodetect-medium-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockGitClient := &MockGitClient{
+		AutoDetectChangesFunc: func(file string, _ []models.DiffHunk) (*models.AutoDetectResult, error) {
+			return &models.AutoDetectResult{
+				File: file,
+				Changes: []models.LineChange{
+					{Type: models.LineAdded, OriginalLine: 0, NewLine: 15},
+				},
+				Suggestions: []models.MappingSuggestion{
+					{OriginalLine: 20, Offset: 1, Confidence: models.ConfidenceMedium, Reason: "Line added above"},
+				},
+				Confidence: models.ConfidenceMedium,
+			}, nil
+		},
+	}
+
+	handler := &CommandHandler{
+		storage:     store,
+		storageHome: tmpDir,
+		gitClient:   mockGitClient,
+	}
+
+	repository := models.NewRepository("testowner", "testrepo")
+	prNumber := 124
+	target := models.NewPRTarget(prNumber)
+	file := "test.go"
+
+	// Setup diff hunks and comments
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
+		Repository: repository,
+		CapturedAt: time.Now(),
+		DiffHunks: []models.DiffHunk{
+			{
+				Location: models.NewFileLocation(file, models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
+			},
+		},
+	}
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
+		t.Fatal(err)
+	}
+
+	comment := models.Comment{
+		ID:        "c1",
+		Path:      file,
+		Line:      models.NewSingleLine(20),
+		Body:      "Comment at line 20",
+		Side:      models.SideRight,
+		CreatedAt: time.Now(),
+	}
+	if err := store.AddComment(repository, target, comment); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("applies medium confidence auto-detection", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			AutoDetect: true,
+			DryRun:     false,
+			Format:     "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			file, "", opts)
+		if err != nil {
+			t.Errorf("Auto-detection with medium confidence should succeed: %v", err)
+		}
+
+		// Verify comment was adjusted
+		stored, err := store.GetComments(repository, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if stored.Comments[0].Line != models.NewSingleLine(21) {
+			t.Errorf("Comment should be at line 21, got %v", stored.Comments[0].Line)
+		}
+	})
+}
+
+// TestAdjustCommandExtended_AutoDetectLowConfidence tests auto-detection with low confidence.
+func TestAdjustCommandExtended_AutoDetectLowConfidence(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-autodetect-low-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockGitClient := &MockGitClient{
+		AutoDetectChangesFunc: func(file string, _ []models.DiffHunk) (*models.AutoDetectResult, error) {
+			return &models.AutoDetectResult{
+				File: file,
+				Changes: []models.LineChange{
+					{Type: models.LineChanged, OriginalLine: 15, NewLine: 15},
+				},
+				Suggestions: []models.MappingSuggestion{
+					{OriginalLine: 20, Offset: 1, Confidence: models.ConfidenceLow, Reason: "Uncertain mapping"},
+				},
+				Confidence: models.ConfidenceLow,
+			}, nil
+		},
+	}
+
+	handler := &CommandHandler{
+		storage:     store,
+		storageHome: tmpDir,
+		gitClient:   mockGitClient,
+	}
+
+	repository := models.NewRepository("testowner", "testrepo")
+	prNumber := 125
+	target := models.NewPRTarget(prNumber)
+	file := "test.go"
+
+	// Setup diff hunks and comments
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
+		Repository: repository,
+		CapturedAt: time.Now(),
+		DiffHunks: []models.DiffHunk{
+			{
+				Location: models.NewFileLocation(file, models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
+			},
+		},
+	}
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
+		t.Fatal(err)
+	}
+
+	comment := models.Comment{
+		ID:        "c1",
+		Path:      file,
+		Line:      models.NewSingleLine(20),
+		Body:      "Comment at line 20",
+		Side:      models.SideRight,
+		CreatedAt: time.Now(),
+	}
+	if err := store.AddComment(repository, target, comment); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("rejects low confidence without force flag", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			AutoDetect: true,
+			DryRun:     false,
+			Force:      false,
+			Format:     "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			file, "", opts)
+		if err == nil {
+			t.Error("Auto-detection with low confidence should fail without force flag")
+		}
+		if !strings.Contains(err.Error(), "low confidence") {
+			t.Errorf("Error should mention low confidence, got: %v", err)
+		}
+
+		// Verify comment was NOT adjusted
+		stored, err := store.GetComments(repository, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Comments[0].Line != models.NewSingleLine(20) {
+			t.Error("Comment should not be adjusted when low confidence is rejected")
+		}
+	})
+
+	t.Run("applies low confidence with force flag", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			AutoDetect: true,
+			DryRun:     false,
+			Force:      true,
+			Format:     "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			file, "", opts)
+		if err != nil {
+			t.Errorf("Auto-detection with low confidence and force flag should succeed: %v", err)
+		}
+
+		// Verify comment was adjusted
+		stored, err := store.GetComments(repository, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Comments[0].Line != models.NewSingleLine(21) {
+			t.Errorf("Comment should be at line 21, got %v", stored.Comments[0].Line)
+		}
+	})
+}
+
+// TestAdjustCommandExtended_AutoDetectNoStoredHunks tests auto-detection without stored diff hunks.
+func TestAdjustCommandExtended_AutoDetectNoStoredHunks(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-autodetect-nohunks-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockGitClient := &MockGitClient{}
+
+	handler := &CommandHandler{
+		storage:     store,
+		storageHome: tmpDir,
+		gitClient:   mockGitClient,
+	}
+
+	repository := models.NewRepository("testowner", "testrepo")
+	prNumber := 126
+	file := "test.go"
+
+	t.Run("fails when no stored diff hunks exist", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			AutoDetect: true,
+			Format:     "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			file, "", opts)
+		if err == nil {
+			t.Error("Auto-detection should fail when no stored diff hunks exist")
+		}
+		// The error should be about failing to get stored diff hunks
+		if !strings.Contains(err.Error(), "failed to get stored diff hunks") &&
+			!strings.Contains(err.Error(), "failed to get diff hunks") {
+			t.Errorf("Error should mention failure to get stored diff hunks, got: %v", err)
+		}
+	})
+}
+
+// TestAdjustCommandExtended_AutoDetectNoChanges tests auto-detection with no changes.
+func TestAdjustCommandExtended_AutoDetectNoChanges(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-autodetect-nochanges-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockGitClient := &MockGitClient{
+		AutoDetectChangesFunc: func(file string, _ []models.DiffHunk) (*models.AutoDetectResult, error) {
+			return &models.AutoDetectResult{
+				File:        file,
+				Changes:     []models.LineChange{},
+				Suggestions: []models.MappingSuggestion{},
+				Confidence:  models.ConfidenceHigh,
+			}, nil
+		},
+	}
+
+	handler := &CommandHandler{
+		storage:     store,
+		storageHome: tmpDir,
+		gitClient:   mockGitClient,
+	}
+
+	repository := models.NewRepository("testowner", "testrepo")
+	prNumber := 127
+	target := models.NewPRTarget(prNumber)
+	file := "test.go"
+
+	// Setup diff hunks
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
+		Repository: repository,
+		CapturedAt: time.Now(),
+		DiffHunks: []models.DiffHunk{
+			{
+				Location: models.NewFileLocation(file, models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
+			},
+		},
+	}
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("handles no changes detected gracefully", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			AutoDetect: true,
+			Format:     "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			file, "", opts)
+		if err != nil {
+			t.Errorf("Auto-detection with no changes should succeed: %v", err)
+		}
+	})
+}
+
+// TestAdjustCommandExtended_UnifiedDiffWithExtendedOptions tests unified diff with extended options.
+func TestAdjustCommandExtended_UnifiedDiffWithExtendedOptions(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-unified-ext-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := &CommandHandler{
+		storage:     store,
+		storageHome: tmpDir,
+	}
+
+	repository := models.NewRepository("testowner", "testrepo")
+	prNumber := 128
+	target := models.NewPRTarget(prNumber)
+
+	// Setup diff hunks for multiple files
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
+		Repository: repository,
+		CapturedAt: time.Now(),
+		DiffHunks: []models.DiffHunk{
+			{
+				Location: models.NewFileLocation("file1.go", models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
+			},
+			{
+				Location: models.NewFileLocation("file2.go", models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
+			},
+		},
+	}
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add comments
+	comments := []models.Comment{
+		{
+			ID:        "f1c1",
+			Path:      "file1.go",
+			Line:      models.NewSingleLine(20),
+			Body:      "File1 comment",
+			Side:      models.SideRight,
+			CreatedAt: time.Now(),
+		},
+		{
+			ID:        "f2c1",
+			Path:      "file2.go",
+			Line:      models.NewSingleLine(25),
+			Body:      "File2 comment",
+			Side:      models.SideRight,
+			CreatedAt: time.Now(),
+		},
+	}
+
+	for _, comment := range comments {
+		if err := store.AddComment(repository, target, comment); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	multiFileUnifiedDiff := `diff --git a/file1.go b/file1.go
+--- a/file1.go
++++ b/file1.go
+@@ -15,6 +15,3 @@
+-line 15
+-line 16
+-line 17
+ line 18
+diff --git a/file2.go b/file2.go
+--- a/file2.go
++++ b/file2.go
+@@ -20,4 +20,2 @@
+-line 20
+-line 21
+ line 22
+`
+
+	t.Run("processes unified diff with dry run", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			DryRun: true,
+			Format: "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			"", multiFileUnifiedDiff, opts)
+		if err != nil {
+			t.Errorf("Unified diff with dry run should succeed: %v", err)
+		}
+
+		// Verify comments were NOT adjusted
+		stored, err := store.GetComments(repository, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, comment := range stored.Comments {
+			if comment.Path == "file1.go" && comment.Line != models.NewSingleLine(20) {
+				t.Error("file1.go comment should not change in dry run")
+			}
+			if comment.Path == "file2.go" && comment.Line != models.NewSingleLine(25) {
+				t.Error("file2.go comment should not change in dry run")
+			}
+		}
+	})
+
+	t.Run("processes unified diff with json format", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			DryRun: true,
+			Format: "json",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			"", multiFileUnifiedDiff, opts)
+		if err != nil {
+			t.Errorf("Unified diff with json format should succeed: %v", err)
+		}
+	})
+
+	t.Run("processes unified diff without dry run", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			DryRun: false,
+			Format: "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			"", multiFileUnifiedDiff, opts)
+		if err != nil {
+			t.Errorf("Unified diff should succeed: %v", err)
+		}
+
+		// Verify comments were adjusted
+		stored, err := store.GetComments(repository, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, comment := range stored.Comments {
+			if comment.Path == "file1.go" && comment.Line != models.NewSingleLine(17) {
+				t.Errorf("file1.go comment should be at line 17, got %v", comment.Line)
+			}
+			if comment.Path == "file2.go" && comment.Line != models.NewSingleLine(23) {
+				t.Errorf("file2.go comment should be at line 23, got %v", comment.Line)
+			}
+		}
+	})
+}
+
+// TestAdjustCommandExtended_AutoDetectDryRun tests auto-detection in dry run mode.
+func TestAdjustCommandExtended_AutoDetectDryRun(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test-autodetect-dryrun-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store, err := storage.NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockGitClient := &MockGitClient{
+		AutoDetectChangesFunc: func(file string, _ []models.DiffHunk) (*models.AutoDetectResult, error) {
+			return &models.AutoDetectResult{
+				File: file,
+				Changes: []models.LineChange{
+					{Type: models.LineDeleted, OriginalLine: 15, NewLine: 0},
+				},
+				Suggestions: []models.MappingSuggestion{
+					{OriginalLine: 20, Offset: -1, Confidence: models.ConfidenceHigh, Reason: "Line deleted above"},
+				},
+				Confidence: models.ConfidenceHigh,
+			}, nil
+		},
+	}
+
+	handler := &CommandHandler{
+		storage:     store,
+		storageHome: tmpDir,
+		gitClient:   mockGitClient,
+	}
+
+	repository := models.NewRepository("testowner", "testrepo")
+	prNumber := 129
+	target := models.NewPRTarget(prNumber)
+	file := "test.go"
+
+	// Setup diff hunks and comment
+	diffHunks := models.ReviewDiffHunks{
+		Target:     target.String(),
+		Repository: repository,
+		CapturedAt: time.Now(),
+		DiffHunks: []models.DiffHunk{
+			{
+				Location: models.NewFileLocation(file, models.NewLineRange(1, 100)),
+				Side:     models.SideRight,
+			},
+		},
+	}
+	if err := store.CaptureDiffHunks(repository, target, diffHunks); err != nil {
+		t.Fatal(err)
+	}
+
+	comment := models.Comment{
+		ID:        "c1",
+		Path:      file,
+		Line:      models.NewSingleLine(20),
+		Body:      "Comment at line 20",
+		Side:      models.SideRight,
+		CreatedAt: time.Now(),
+	}
+	if err := store.AddComment(repository, target, comment); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("dry run does not modify comments", func(t *testing.T) {
+		opts := AdjustOptionsExtended{
+			AutoDetect: true,
+			DryRun:     true,
+			Format:     "table",
+		}
+
+		err := handler.AdjustCommandExtended(repository, fmt.Sprintf("%d", prNumber),
+			file, "", opts)
+		if err != nil {
+			t.Errorf("Auto-detection dry run should succeed: %v", err)
+		}
+
+		// Verify comment was NOT adjusted
+		stored, err := store.GetComments(repository, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Comments[0].Line != models.NewSingleLine(20) {
+			t.Error("Comment should not change in dry run mode")
+		}
+	})
+}
