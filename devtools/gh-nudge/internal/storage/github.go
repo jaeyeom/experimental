@@ -171,16 +171,24 @@ func ParseRepoAndPR(repoSpec string) (models.Repository, error) {
 	return models.NewRepository(parts[0], parts[1]), nil
 }
 
-// Legacy PR-specific wrapper methods for backward compatibility.
-// These wrap the unified ReviewTarget-based methods.
+// PR-specific convenience wrappers for post-submit actions.
+// These methods are required by the models.CommentClearer interface used by
+// post-submit actions (ClearAction, ArchiveAction). They wrap the unified
+// ReviewTarget-based methods for PR-specific operations.
 
-// ClearPRComments clears all comments for a PR (wraps unified method).
+// ClearPRComments clears all comments for a PR.
+// This is a convenience wrapper for post-submit actions that require the
+// models.CommentClearer interface.
+//
+// TODO: Consider removing this method and just use ClearComments directly.
 func (gs *GitHubStorage) ClearPRComments(repository models.Repository, prNumber int) error {
 	target := models.NewPRTarget(prNumber)
 	return gs.ClearComments(repository, target)
 }
 
-// ClearPRCommentsForFile clears comments for a specific file in a PR (wraps unified method).
+// ClearPRCommentsForFile clears comments for a specific file in a PR.
+// This is a convenience wrapper for post-submit actions that require the
+// models.CommentClearer interface.
 func (gs *GitHubStorage) ClearPRCommentsForFile(repository models.Repository, prNumber int, file string) error {
 	target := models.NewPRTarget(prNumber)
 	return gs.ClearCommentsForFile(repository, target, file)

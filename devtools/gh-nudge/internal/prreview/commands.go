@@ -104,8 +104,8 @@ func (ch *CommandHandler) capturePRDiff(repository models.Repository, prNumber i
 	target := models.NewPRTarget(prNumber)
 
 	// Check if diff hunks already exist
-	if !force && ch.diffHunksExist(repository, target) {
-		return fmt.Errorf("diff hunks already exist for PR %d, use --force to overwrite", prNumber)
+	if err := ch.checkDiffHunksOverwrite(repository, target, force); err != nil {
+		return err
 	}
 
 	// Validate PR access
@@ -130,14 +130,7 @@ func (ch *CommandHandler) capturePRDiff(repository models.Repository, prNumber i
 		Description: prDiffHunks.Description,
 	}
 
-	// Store diff hunks using unified API
-	if err := ch.storage.CaptureDiffHunks(repository, target, reviewDiffHunks); err != nil {
-		return fmt.Errorf("failed to store diff hunks: %w", err)
-	}
-
-	fmt.Printf("Captured diff hunks for PR %s#%d (%d hunks)\n",
-		repository, prNumber, len(reviewDiffHunks.DiffHunks))
-	return nil
+	return ch.storeDiffHunks(repository, target, reviewDiffHunks)
 }
 
 // captureBranchDiff captures and stores branch diff hunks.
@@ -145,8 +138,8 @@ func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branch
 	target := models.NewBranchTarget(branchName)
 
 	// Check if diff hunks already exist
-	if !force && ch.diffHunksExist(repository, target) {
-		return fmt.Errorf("diff hunks already exist for branch %q, use --force to overwrite", branchName)
+	if err := ch.checkDiffHunksOverwrite(repository, target, force); err != nil {
+		return err
 	}
 
 	// Create validated branch
@@ -188,14 +181,7 @@ func (ch *CommandHandler) captureBranchDiff(repository models.Repository, branch
 		Description: branchDiffHunks.Description,
 	}
 
-	// Store diff hunks using unified API
-	if err := ch.storage.CaptureDiffHunks(repository, target, reviewDiffHunks); err != nil {
-		return fmt.Errorf("failed to store branch diff hunks: %w", err)
-	}
-
-	fmt.Printf("Captured diff hunks for branch %s:%s (%d hunks)\n",
-		repository, branchName, len(reviewDiffHunks.DiffHunks))
-	return nil
+	return ch.storeDiffHunks(repository, target, reviewDiffHunks)
 }
 
 // CommentCommand adds a line-specific comment for either PR or branch.
@@ -421,6 +407,25 @@ func (ch *CommandHandler) AutoAdjustCommand(repository models.Repository, identi
 // diffHunksExist checks if diff hunks exist for any review target.
 func (ch *CommandHandler) diffHunksExist(repository models.Repository, target models.ReviewTarget) bool {
 	return ch.storage.DiffHunksExist(repository, target)
+}
+
+// checkDiffHunksOverwrite checks if diff hunks already exist and whether overwrite is allowed.
+func (ch *CommandHandler) checkDiffHunksOverwrite(repository models.Repository, target models.ReviewTarget, force bool) error {
+	if !force && ch.diffHunksExist(repository, target) {
+		return fmt.Errorf("diff hunks already exist for %s, use --force to overwrite", target.String())
+	}
+	return nil
+}
+
+// storeDiffHunks stores diff hunks and prints a success message.
+func (ch *CommandHandler) storeDiffHunks(repository models.Repository, target models.ReviewTarget, reviewDiffHunks models.ReviewDiffHunks) error {
+	if err := ch.storage.CaptureDiffHunks(repository, target, reviewDiffHunks); err != nil {
+		return fmt.Errorf("failed to store diff hunks: %w", err)
+	}
+
+	fmt.Printf("Captured diff hunks for %s %s (%d hunks)\n",
+		target.String(), repository, len(reviewDiffHunks.DiffHunks))
+	return nil
 }
 
 // filterCommentsAgainstDiffHunks filters comments to only include those within valid diff hunks.

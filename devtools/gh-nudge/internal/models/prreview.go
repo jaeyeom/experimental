@@ -368,8 +368,12 @@ type CommentArchiver interface {
 type ClearAction struct{}
 
 func (a ClearAction) Execute(storage CommentClearer, repository Repository, prNumber int, file string) error {
+	// TODO: Consider accepting target instead of just PR number.
 	if file != "" {
 		// Clear comments for specific file only
+		//
+		// TODO: Consider consolidating ClearPRCommentsForFile into
+		// ClearPRComments with a filter.
 		if err := storage.ClearPRCommentsForFile(repository, prNumber, file); err != nil {
 			// Don't fail the entire operation if clearing fails - just warn
 			slog.Warn("failed to clear local comments for file after submission",
