@@ -344,66 +344,69 @@ func (c Comment) IsDuplicate(other Comment) bool {
 // Executor defines a generic action that can be executed with context.
 type Executor interface {
 	// Execute performs the action
-	Execute(storage CommentClearer, repository Repository, prNumber int, file string) error
+	Execute(storage CommentClearer, repository Repository, target ReviewTarget, file string) error
 	// Name returns the name of the action
 	Name() string
 }
 
 // CommentClearer defines the ability to clear comments.
+// Updated to use ReviewTarget instead of prNumber for target-agnostic operations.
 type CommentClearer interface {
-	ClearPRComments(repository Repository, prNumber int) error
-	ClearPRCommentsForFile(repository Repository, prNumber int, file string) error
+	// ClearComments removes comments for a review target.
+	// If filter is nil, clears all comments. If filter specifies a file, clears only that file's comments.
+	ClearComments(repository Repository, target ReviewTarget, filter *CommentFilter) error
 }
 
 // CommentArchiver defines the ability to archive comments.
+// Note: Archive operations are currently only supported for PR targets.
 type CommentArchiver interface {
 	CommentClearer
-	ArchiveComments(repository Repository, prNumber int, reviewBody, reviewEvent string) (*ArchivedSubmission, error)
-	ListArchivedSubmissions(repository Repository, prNumber int) (*ArchiveMetadata, error)
-	GetArchivedSubmission(repository Repository, prNumber int, submissionID string) (*ArchivedSubmission, error)
-	CleanupOldArchives(repository Repository, prNumber int, olderThan time.Duration) error
+	ArchiveComments(repository Repository, target ReviewTarget, reviewBody, reviewEvent string) (*ArchivedSubmission, error)
+	ListArchivedSubmissions(repository Repository, target ReviewTarget) (*ArchiveMetadata, error)
+	GetArchivedSubmission(repository Repository, target ReviewTarget, submissionID string) (*ArchivedSubmission, error)
+	CleanupOldArchives(repository Repository, target ReviewTarget, olderThan time.Duration) error
 }
 
 // ClearAction removes all local comments after successful submission.
 type ClearAction struct{}
 
-func (a ClearAction) Execute(storage CommentClearer, repository Repository, prNumber int, file string) error {
-	// TODO: Consider accepting target instead of just PR number.
+func (a ClearAction) Execute(storage CommentClearer, repository Repository, target ReviewTarget, file string) error {
+	// Build filter based on file parameter
+	var filter *CommentFilter
 	if file != "" {
-		// Clear comments for specific file only
-		//
-		// TODO: Consider consolidating ClearPRCommentsForFile into
-		// ClearPRComments with a filter.
-		if err := storage.ClearPRCommentsForFile(repository, prNumber, file); err != nil {
-			// Don't fail the entire operation if clearing fails - just warn
+		filter = &CommentFilter{File: file}
+	}
+
+	if err := storage.ClearComments(repository, target, filter); err != nil {
+		// Don't fail the entire operation if clearing fails - just warn
+		if file != "" {
 			slog.Warn("failed to clear local comments for file after submission",
 				"owner", repository.Owner,
 				"repo", repository.Name,
-				"pr", prNumber,
+				"target", target.String(),
 				"file", file,
 				"error", err)
-			return nil // Return nil to not fail the submission
-		}
-		slog.Info("cleared local comments for file after successful submission",
-			"owner", repository.Owner,
-			"repo", repository.Name,
-			"pr", prNumber,
-			"file", file)
-	} else {
-		// Clear all comments
-		if err := storage.ClearPRComments(repository, prNumber); err != nil {
-			// Don't fail the entire operation if clearing fails - just warn
+		} else {
 			slog.Warn("failed to clear local comments after submission",
 				"owner", repository.Owner,
 				"repo", repository.Name,
-				"pr", prNumber,
+				"target", target.String(),
 				"error", err)
-			return nil // Return nil to not fail the submission
 		}
+		return nil // Return nil to not fail the submission
+	}
+
+	if file != "" {
+		slog.Info("cleared local comments for file after successful submission",
+			"owner", repository.Owner,
+			"repo", repository.Name,
+			"target", target.String(),
+			"file", file)
+	} else {
 		slog.Info("cleared local comments after successful submission",
 			"owner", repository.Owner,
 			"repo", repository.Name,
-			"pr", prNumber)
+			"target", target.String())
 	}
 	return nil
 }
@@ -415,18 +418,18 @@ func (a ClearAction) Name() string {
 // KeepAction preserves all local comments after successful submission.
 type KeepAction struct{}
 
-func (a KeepAction) Execute(_ CommentClearer, repository Repository, prNumber int, file string) error {
+func (a KeepAction) Execute(_ CommentClearer, repository Repository, target ReviewTarget, file string) error {
 	if file != "" {
 		slog.Info("local comments for file preserved after submission",
 			"owner", repository.Owner,
 			"repo", repository.Name,
-			"pr", prNumber,
+			"target", target.String(),
 			"file", file)
 	} else {
 		slog.Info("local comments preserved after submission",
 			"owner", repository.Owner,
 			"repo", repository.Name,
-			"pr", prNumber)
+			"target", target.String())
 	}
 	return nil
 }
@@ -438,14 +441,14 @@ func (a KeepAction) Name() string {
 // ArchiveAction moves comments to an archive/history (future enhancement).
 type ArchiveAction struct{}
 
-func (a ArchiveAction) Execute(storage CommentClearer, repository Repository, prNumber int, file string) error {
+func (a ArchiveAction) Execute(storage CommentClearer, repository Repository, target ReviewTarget, file string) error {
 	// Cast to access archive functionality
 	archiveStorage, ok := storage.(CommentArchiver)
 	if !ok {
 		slog.Warn("storage does not support archiving, preserving comments instead",
 			"owner", repository.Owner,
 			"repo", repository.Name,
-			"pr", prNumber)
+			"target", target.String())
 		return nil
 	}
 
@@ -454,18 +457,18 @@ func (a ArchiveAction) Execute(storage CommentClearer, repository Repository, pr
 		slog.Info("file-specific archiving not supported yet, comments for file preserved",
 			"owner", repository.Owner,
 			"repo", repository.Name,
-			"pr", prNumber,
+			"target", target.String(),
 			"file", file)
 		return nil
 	}
 
-	// Archive all comments for the PR
-	archivedSubmission, err := archiveStorage.ArchiveComments(repository, prNumber, "", "COMMENT")
+	// Archive all comments for the target
+	archivedSubmission, err := archiveStorage.ArchiveComments(repository, target, "", "COMMENT")
 	if err != nil {
 		slog.Warn("failed to archive comments, preserving instead",
 			"owner", repository.Owner,
 			"repo", repository.Name,
-			"pr", prNumber,
+			"target", target.String(),
 			"error", err)
 		return nil // Don't fail the submission if archiving fails
 	}
@@ -473,7 +476,7 @@ func (a ArchiveAction) Execute(storage CommentClearer, repository Repository, pr
 	slog.Info("archived review comments for historical reference",
 		"owner", repository.Owner,
 		"repo", repository.Name,
-		"pr", prNumber,
+		"target", target.String(),
 		"submission_id", archivedSubmission.SubmissionID,
 		"comment_count", archivedSubmission.CommentCount)
 

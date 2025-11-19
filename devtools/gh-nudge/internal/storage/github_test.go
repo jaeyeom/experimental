@@ -210,7 +210,7 @@ func TestClearComments(t *testing.T) {
 	}
 
 	// Clear all comments
-	err = storage.ClearComments(repo, target)
+	err = storage.ClearComments(repo, target, nil)
 	if err != nil {
 		t.Fatalf("ClearComments() error = %v", err)
 	}

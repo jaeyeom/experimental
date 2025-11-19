@@ -110,19 +110,6 @@ func (gs *GitHubStorage) DeleteCommentByID(repository models.Repository, target 
 	return nil
 }
 
-// ClearComments removes all comments for any review target.
-func (gs *GitHubStorage) ClearComments(repository models.Repository, target models.ReviewTarget) error {
-	targetPath := target.BuildPath(repository)
-	commentsPath := filepath.Join(targetPath, "comments.json")
-
-	if err := gs.locker.WithLock(commentsPath, func() error {
-		return gs.store.Delete(commentsPath)
-	}); err != nil {
-		return fmt.Errorf("failed to clear comments with lock: %w", err)
-	}
-	return nil
-}
-
 // ClearCommentsForFile removes all comments for a specific file in any review target.
 func (gs *GitHubStorage) ClearCommentsForFile(repository models.Repository, target models.ReviewTarget, file string) error {
 	targetPath := target.BuildPath(repository)
