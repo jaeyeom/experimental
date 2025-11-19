@@ -115,8 +115,47 @@ func Import(storageHome string, path string, format string, merge bool, overwrit
 	return fmt.Errorf("import not implemented")
 }
 
-// Verify verifies storage integrity.
+// Verify verifies storage integrity by checking:
+//   - Storage directory exists
+//   - Required subdirectories exist (repos, cache, temp)
+//   - metadata.json file exists and contains valid JSON
+//   - metadata.json contains required fields (version, created_at, description)
+//
+// Returns an error if any integrity check fails.
 func Verify(storageHome string) error {
-	_ = storageHome // TODO: implement verify
-	return fmt.Errorf("verify not implemented")
+	// Check if storage directory exists
+	if !directoryExists(storageHome) {
+		return fmt.Errorf("storage directory does not exist: %q", storageHome)
+	}
+
+	// Check required subdirectories
+	subdirs := []string{"repos", "cache", "temp"}
+	for _, subdir := range subdirs {
+		subdirPath := filepath.Join(storageHome, subdir)
+		if !directoryExists(subdirPath) {
+			return fmt.Errorf("required subdirectory missing: %s", subdir)
+		}
+	}
+
+	// Check metadata.json exists and is valid
+	metadataPath := filepath.Join(storageHome, "metadata.json")
+	metadataData, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return fmt.Errorf("failed to read metadata.json: %w", err)
+	}
+
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(metadataData, &metadata); err != nil {
+		return fmt.Errorf("invalid metadata.json format: %w", err)
+	}
+
+	// Verify required metadata fields
+	requiredFields := []string{"version", "created_at", "description"}
+	for _, field := range requiredFields {
+		if _, exists := metadata[field]; !exists {
+			return fmt.Errorf("metadata.json missing required field: %s", field)
+		}
+	}
+
+	return nil
 }
