@@ -336,8 +336,8 @@ func TestVerify_MissingSubdirectory(t *testing.T) {
 		t.Error("Expected Verify to return error for missing subdirectory, got nil")
 	}
 
-	if !contains(err.Error(), "required subdirectory missing: temp") {
-		t.Errorf("Expected error about missing subdirectory, got %q", err.Error())
+	if !contains(err.Error(), "required subdirectory missing") || !contains(err.Error(), "temp") {
+		t.Errorf("Expected error about missing subdirectory temp, got %q", err.Error())
 	}
 }
 

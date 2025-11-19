@@ -133,7 +133,7 @@ func Verify(storageHome string) error {
 	for _, subdir := range subdirs {
 		subdirPath := filepath.Join(storageHome, subdir)
 		if !directoryExists(subdirPath) {
-			return fmt.Errorf("required subdirectory missing: %s", subdir)
+			return fmt.Errorf("required subdirectory missing: %q", subdirPath)
 		}
 	}
 
