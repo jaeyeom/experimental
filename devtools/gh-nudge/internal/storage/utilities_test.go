@@ -296,14 +296,160 @@ func TestImport_NotImplemented(t *testing.T) {
 	}
 }
 
-func TestVerify_NotImplemented(t *testing.T) {
-	err := Verify("storage")
+func TestVerify_StorageDirectoryDoesNotExist(t *testing.T) {
+	err := Verify("/nonexistent/storage/path")
 	if err == nil {
-		t.Error("Expected Verify to return error, got nil")
+		t.Error("Expected Verify to return error for nonexistent storage, got nil")
 	}
 
-	expectedMsg := "verify not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	if !contains(err.Error(), "storage directory does not exist") {
+		t.Errorf("Expected error about storage directory not existing, got %q", err.Error())
 	}
+}
+
+func TestVerify_MissingSubdirectory(t *testing.T) {
+	// Create a temporary storage directory
+	tmpDir := t.TempDir()
+
+	// Create metadata.json
+	metadataPath := filepath.Join(tmpDir, "metadata.json")
+	metadata := map[string]interface{}{
+		"version":     "1.0.0",
+		"created_at":  "2024-01-01T00:00:00Z",
+		"description": "test storage",
+	}
+	metadataData, _ := json.MarshalIndent(metadata, "", "  ")
+	if err := os.WriteFile(metadataPath, metadataData, 0o600); err != nil {
+		t.Fatalf("Failed to create metadata.json: %v", err)
+	}
+
+	// Create only some subdirectories (missing "temp")
+	if err := os.MkdirAll(filepath.Join(tmpDir, "repos"), 0o755); err != nil {
+		t.Fatalf("Failed to create repos dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "cache"), 0o755); err != nil {
+		t.Fatalf("Failed to create cache dir: %v", err)
+	}
+
+	err := Verify(tmpDir)
+	if err == nil {
+		t.Error("Expected Verify to return error for missing subdirectory, got nil")
+	}
+
+	if !contains(err.Error(), "required subdirectory missing: temp") {
+		t.Errorf("Expected error about missing subdirectory, got %q", err.Error())
+	}
+}
+
+func TestVerify_MissingMetadata(t *testing.T) {
+	// Create a temporary storage directory
+	tmpDir := t.TempDir()
+
+	// Create subdirectories but no metadata.json
+	subdirs := []string{"repos", "cache", "temp"}
+	for _, subdir := range subdirs {
+		if err := os.MkdirAll(filepath.Join(tmpDir, subdir), 0o755); err != nil {
+			t.Fatalf("Failed to create subdir %s: %v", subdir, err)
+		}
+	}
+
+	err := Verify(tmpDir)
+	if err == nil {
+		t.Error("Expected Verify to return error for missing metadata, got nil")
+	}
+
+	if !contains(err.Error(), "failed to read metadata.json") {
+		t.Errorf("Expected error about missing metadata.json, got %q", err.Error())
+	}
+}
+
+func TestVerify_InvalidMetadataJSON(t *testing.T) {
+	// Create a temporary storage directory
+	tmpDir := t.TempDir()
+
+	// Create subdirectories
+	subdirs := []string{"repos", "cache", "temp"}
+	for _, subdir := range subdirs {
+		if err := os.MkdirAll(filepath.Join(tmpDir, subdir), 0o755); err != nil {
+			t.Fatalf("Failed to create subdir %s: %v", subdir, err)
+		}
+	}
+
+	// Create invalid metadata.json
+	metadataPath := filepath.Join(tmpDir, "metadata.json")
+	if err := os.WriteFile(metadataPath, []byte("invalid json"), 0o600); err != nil {
+		t.Fatalf("Failed to create metadata.json: %v", err)
+	}
+
+	err := Verify(tmpDir)
+	if err == nil {
+		t.Error("Expected Verify to return error for invalid metadata JSON, got nil")
+	}
+
+	if !contains(err.Error(), "invalid metadata.json format") {
+		t.Errorf("Expected error about invalid JSON format, got %q", err.Error())
+	}
+}
+
+func TestVerify_MissingMetadataField(t *testing.T) {
+	// Create a temporary storage directory
+	tmpDir := t.TempDir()
+
+	// Create subdirectories
+	subdirs := []string{"repos", "cache", "temp"}
+	for _, subdir := range subdirs {
+		if err := os.MkdirAll(filepath.Join(tmpDir, subdir), 0o755); err != nil {
+			t.Fatalf("Failed to create subdir %s: %v", subdir, err)
+		}
+	}
+
+	// Create metadata.json missing a required field
+	metadataPath := filepath.Join(tmpDir, "metadata.json")
+	metadata := map[string]interface{}{
+		"version":    "1.0.0",
+		"created_at": "2024-01-01T00:00:00Z",
+		// missing "description"
+	}
+	metadataData, _ := json.MarshalIndent(metadata, "", "  ")
+	if err := os.WriteFile(metadataPath, metadataData, 0o600); err != nil {
+		t.Fatalf("Failed to create metadata.json: %v", err)
+	}
+
+	err := Verify(tmpDir)
+	if err == nil {
+		t.Error("Expected Verify to return error for missing metadata field, got nil")
+	}
+
+	if !contains(err.Error(), "metadata.json missing required field: description") {
+		t.Errorf("Expected error about missing field, got %q", err.Error())
+	}
+}
+
+func TestVerify_Success(t *testing.T) {
+	// Create a temporary storage directory
+	tmpDir := t.TempDir()
+
+	// Initialize it properly (use force=true since TempDir already created the directory)
+	if err := Initialize(tmpDir, true, false); err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+
+	// Verify should succeed
+	err := Verify(tmpDir)
+	if err != nil {
+		t.Errorf("Expected Verify to succeed, got error: %v", err)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && stringContains(s, substr))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
