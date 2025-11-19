@@ -757,6 +757,52 @@ before packages are loaded."
   ;;; Text Mode
   (add-hook 'text-mode-hook 'turn-on-auto-fill)
 
+  ;;; Implement image functions for Emacs without image support (issue #37)
+  (defun my/create-image (file-or-data &optional type data-p &rest props)
+    "Create an image spec for FILE-OR-DATA.
+TYPE is a symbol indicating the image type (e.g., png, jpeg, svg).
+If DATA-P is non-nil, FILE-OR-DATA is the actual image data as a string.
+PROPS are additional properties to add to the image spec.
+
+This implementation creates a minimal image spec without actual image
+support, allowing other functions like `my/image-size' to work with the spec."
+    (let* ((image-type (or type 'png))
+           (spec (if data-p
+                     (append (list 'image :type image-type :data file-or-data) props)
+                   (append (list 'image :type image-type :file file-or-data) props))))
+      spec))
+
+  (defun my/image-size (spec &optional pixels frame)
+    "Return the size of image SPEC as pair (WIDTH . HEIGHT).
+PIXELS non-nil means return the size in pixels, otherwise return the
+size in canonical character units.
+FRAME is the frame on which the image will be displayed. FRAME nil
+or omitted means use the selected frame.
+
+This implementation uses ImageMagick\='s `magick identify' command
+to determine image dimensions for Emacs builds without image support."
+    (unless (and (consp spec) (eq (car spec) 'image))
+      (error "Invalid image specification"))
+    (let* ((file (plist-get (cdr spec) :file))
+           (output (when file
+                     (shell-command-to-string
+                      (format "magick identify -format '%%w %%h' %s 2>/dev/null"
+                              (shell-quote-argument (expand-file-name file))))))
+           (dimensions (when (and output (string-match "\\([0-9]+\\) \\([0-9]+\\)" output))
+                         (cons (string-to-number (match-string 1 output))
+                               (string-to-number (match-string 2 output))))))
+      (if dimensions
+          (if pixels
+              dimensions
+            ;; Convert pixels to canonical character units
+            ;; Use frame-char-width and frame-char-height for the conversion
+            (let* ((char-width (frame-char-width frame))
+                   (char-height (frame-char-height frame)))
+              (cons (/ (car dimensions) char-width)
+                    (/ (cdr dimensions) char-height))))
+        ;; Return nil if we couldn't determine dimensions
+        nil)))
+
   ;;; Termux Permission denied solution
   (when my/termux-p
     (defvar my/directory-fallback-alist
