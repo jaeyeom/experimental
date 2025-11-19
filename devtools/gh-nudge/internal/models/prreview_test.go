@@ -658,23 +658,22 @@ type mockCommentClearer struct {
 	clearCommentsForFileCalled bool
 	clearCommentsForFileError  error
 	lastRepository             Repository
-	lastPRNumber               int
-	lastFile                   string
+	lastTarget                 ReviewTarget
+	lastFilter                 *CommentFilter
 }
 
-func (m *mockCommentClearer) ClearPRComments(repository Repository, prNumber int) error {
+func (m *mockCommentClearer) ClearComments(repository Repository, target ReviewTarget, filter *CommentFilter) error {
+	m.lastRepository = repository
+	m.lastTarget = target
+	m.lastFilter = filter
+
+	if filter != nil && filter.File != "" {
+		m.clearCommentsForFileCalled = true
+		return m.clearCommentsForFileError
+	}
+
 	m.clearCommentsCalled = true
-	m.lastRepository = repository
-	m.lastPRNumber = prNumber
 	return m.clearCommentsError
-}
-
-func (m *mockCommentClearer) ClearPRCommentsForFile(repository Repository, prNumber int, file string) error {
-	m.clearCommentsForFileCalled = true
-	m.lastRepository = repository
-	m.lastPRNumber = prNumber
-	m.lastFile = file
-	return m.clearCommentsForFileError
 }
 
 // mockCommentArchiver implements CommentArchiver for testing.
@@ -685,25 +684,25 @@ type mockCommentArchiver struct {
 	archivedSubmission    *ArchivedSubmission
 }
 
-func (m *mockCommentArchiver) ArchiveComments(repository Repository, prNumber int, _, _ string) (*ArchivedSubmission, error) {
+func (m *mockCommentArchiver) ArchiveComments(repository Repository, target ReviewTarget, _, _ string) (*ArchivedSubmission, error) {
 	m.archiveCommentsCalled = true
 	m.lastRepository = repository
-	m.lastPRNumber = prNumber
+	m.lastTarget = target
 	if m.archiveCommentsError != nil {
 		return nil, m.archiveCommentsError
 	}
 	return m.archivedSubmission, nil
 }
 
-func (m *mockCommentArchiver) ListArchivedSubmissions(_ Repository, _ int) (*ArchiveMetadata, error) {
+func (m *mockCommentArchiver) ListArchivedSubmissions(_ Repository, _ ReviewTarget) (*ArchiveMetadata, error) {
 	return nil, nil
 }
 
-func (m *mockCommentArchiver) GetArchivedSubmission(_ Repository, _ int, _ string) (*ArchivedSubmission, error) {
+func (m *mockCommentArchiver) GetArchivedSubmission(_ Repository, _ ReviewTarget, _ string) (*ArchivedSubmission, error) {
 	return nil, nil
 }
 
-func (m *mockCommentArchiver) CleanupOldArchives(_ Repository, _ int, _ time.Duration) error {
+func (m *mockCommentArchiver) CleanupOldArchives(_ Repository, _ ReviewTarget, _ time.Duration) error {
 	return nil
 }
 
@@ -1262,6 +1261,7 @@ func TestCreatePostSubmitExecutor(t *testing.T) {
 func TestKeepAction(t *testing.T) {
 	testRepo := Repository{Owner: "test-owner", Name: "test-repo"}
 	testPRNumber := 123
+	testTarget := NewPRTarget(testPRNumber)
 
 	t.Run("Name returns correct string", func(t *testing.T) {
 		executor, err := CreatePostSubmitExecutor("keep")
@@ -1280,7 +1280,7 @@ func TestKeepAction(t *testing.T) {
 			t.Fatalf("CreatePostSubmitExecutor('keep') failed: %v", err)
 		}
 
-		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		err = executor.Execute(mock, testRepo, testTarget, "")
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
 		}
@@ -1301,7 +1301,7 @@ func TestKeepAction(t *testing.T) {
 		}
 		testFile := "test.go"
 
-		err = executor.Execute(mock, testRepo, testPRNumber, testFile)
+		err = executor.Execute(mock, testRepo, testTarget, testFile)
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
 		}
@@ -1334,7 +1334,8 @@ func TestKeepAction(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mock := &mockCommentClearer{}
-				err := executor.Execute(mock, tc.repo, tc.prNumber, tc.file)
+				target := NewPRTarget(tc.prNumber)
+				err := executor.Execute(mock, tc.repo, target, tc.file)
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
@@ -1354,7 +1355,7 @@ func TestKeepAction(t *testing.T) {
 				mock := &mockCommentClearer{}
 				action := KeepAction{}
 
-				err := action.Execute(mock, repo, testPRNumber, "")
+				err := action.Execute(mock, repo, testTarget, "")
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
@@ -1373,8 +1374,9 @@ func TestKeepAction(t *testing.T) {
 			t.Run(fmt.Sprintf("PR-%d", prNum), func(t *testing.T) {
 				mock := &mockCommentClearer{}
 				action := KeepAction{}
+				target := NewPRTarget(prNum)
 
-				err := action.Execute(mock, testRepo, prNum, "")
+				err := action.Execute(mock, testRepo, target, "")
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
@@ -1399,7 +1401,7 @@ func TestKeepAction(t *testing.T) {
 				mock := &mockCommentClearer{}
 				action := KeepAction{}
 
-				err := action.Execute(mock, testRepo, testPRNumber, file)
+				err := action.Execute(mock, testRepo, testTarget, file)
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
@@ -1420,7 +1422,7 @@ func TestKeepAction(t *testing.T) {
 		}
 		action := KeepAction{}
 
-		err := action.Execute(mock, testRepo, testPRNumber, "test.go")
+		err := action.Execute(mock, testRepo, testTarget, "test.go")
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
 		}
@@ -1435,6 +1437,7 @@ func TestKeepAction(t *testing.T) {
 func TestClearAction(t *testing.T) {
 	testRepo := Repository{Owner: "test-owner", Name: "test-repo"}
 	testPRNumber := 123
+	testTarget := NewPRTarget(testPRNumber)
 
 	t.Run("Name returns correct string", func(t *testing.T) {
 		executor, err := CreatePostSubmitExecutor("clear")
@@ -1453,7 +1456,7 @@ func TestClearAction(t *testing.T) {
 			t.Fatalf("CreatePostSubmitExecutor('clear') failed: %v", err)
 		}
 
-		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		err = executor.Execute(mock, testRepo, testTarget, "")
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
 		}
@@ -1466,8 +1469,8 @@ func TestClearAction(t *testing.T) {
 		if mock.lastRepository != testRepo {
 			t.Errorf("Repository = %+v, want %+v", mock.lastRepository, testRepo)
 		}
-		if mock.lastPRNumber != testPRNumber {
-			t.Errorf("PR number = %d, want %d", mock.lastPRNumber, testPRNumber)
+		if prTarget, ok := mock.lastTarget.(PRTarget); !ok || prTarget.Number != testPRNumber {
+			t.Errorf("Target = %+v, want PR#%d", mock.lastTarget, testPRNumber)
 		}
 	})
 
@@ -1479,7 +1482,7 @@ func TestClearAction(t *testing.T) {
 		}
 		testFile := "test.go"
 
-		err = executor.Execute(mock, testRepo, testPRNumber, testFile)
+		err = executor.Execute(mock, testRepo, testTarget, testFile)
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
 		}
@@ -1489,14 +1492,18 @@ func TestClearAction(t *testing.T) {
 		if !mock.clearCommentsForFileCalled {
 			t.Error("ClearCommentsForFile() was not called")
 		}
-		if mock.lastFile != testFile {
-			t.Errorf("File = %q, want %q", mock.lastFile, testFile)
+		if mock.lastFilter == nil || mock.lastFilter.File != testFile {
+			if mock.lastFilter == nil {
+				t.Errorf("Filter = nil, want file %q", testFile)
+			} else {
+				t.Errorf("Filter.File = %q, want %q", mock.lastFilter.File, testFile)
+			}
 		}
 		if mock.lastRepository != testRepo {
 			t.Errorf("Repository = %+v, want %+v", mock.lastRepository, testRepo)
 		}
-		if mock.lastPRNumber != testPRNumber {
-			t.Errorf("PR number = %d, want %d", mock.lastPRNumber, testPRNumber)
+		if prTarget, ok := mock.lastTarget.(PRTarget); !ok || prTarget.Number != testPRNumber {
+			t.Errorf("Target = %+v, want PR#%d", mock.lastTarget, testPRNumber)
 		}
 	})
 
@@ -1509,7 +1516,7 @@ func TestClearAction(t *testing.T) {
 			t.Fatalf("CreatePostSubmitExecutor('clear') failed: %v", err)
 		}
 
-		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		err = executor.Execute(mock, testRepo, testTarget, "")
 		// Should not fail the submission even if clearing fails
 		if err != nil {
 			t.Errorf("Execute() should return nil when ClearComments fails, got: %v", err)
@@ -1525,7 +1532,7 @@ func TestClearAction(t *testing.T) {
 		}
 		action := ClearAction{}
 
-		err := action.Execute(mock, testRepo, testPRNumber, "test.go")
+		err := action.Execute(mock, testRepo, testTarget, "test.go")
 		// Should not fail the submission even if clearing fails
 		if err != nil {
 			t.Errorf("Execute() should return nil when ClearCommentsForFile fails, got: %v", err)
@@ -1547,7 +1554,7 @@ func TestClearAction(t *testing.T) {
 				mock := &mockCommentClearer{}
 				action := ClearAction{}
 
-				err := action.Execute(mock, repo, testPRNumber, "")
+				err := action.Execute(mock, repo, testTarget, "")
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
@@ -1566,12 +1573,13 @@ func TestClearAction(t *testing.T) {
 				mock := &mockCommentClearer{}
 				action := ClearAction{}
 
-				err := action.Execute(mock, testRepo, prNum, "")
+				target := NewPRTarget(prNum)
+				err := action.Execute(mock, testRepo, target, "")
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
-				if mock.lastPRNumber != prNum {
-					t.Errorf("PR number = %d, want %d", mock.lastPRNumber, prNum)
+				if prTarget, ok := mock.lastTarget.(PRTarget); !ok || prTarget.Number != prNum {
+					t.Errorf("Target = %+v, want PR#%d", mock.lastTarget, prNum)
 				}
 			})
 		}
@@ -1590,15 +1598,19 @@ func TestClearAction(t *testing.T) {
 				mock := &mockCommentClearer{}
 				action := ClearAction{}
 
-				err := action.Execute(mock, testRepo, testPRNumber, file)
+				err := action.Execute(mock, testRepo, testTarget, file)
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
 				if !mock.clearCommentsForFileCalled {
 					t.Error("ClearCommentsForFile() was not called")
 				}
-				if mock.lastFile != file {
-					t.Errorf("File = %q, want %q", mock.lastFile, file)
+				if mock.lastFilter == nil || mock.lastFilter.File != file {
+					if mock.lastFilter == nil {
+						t.Errorf("Filter = nil, want file %q", file)
+					} else {
+						t.Errorf("Filter.File = %q, want %q", mock.lastFilter.File, file)
+					}
 				}
 			})
 		}
@@ -1609,6 +1621,7 @@ func TestClearAction(t *testing.T) {
 func TestArchiveAction(t *testing.T) {
 	testRepo := Repository{Owner: "test-owner", Name: "test-repo"}
 	testPRNumber := 123
+	testTarget := NewPRTarget(testPRNumber)
 
 	t.Run("Name returns correct string", func(t *testing.T) {
 		executor, err := CreatePostSubmitExecutor("archive")
@@ -1636,7 +1649,7 @@ func TestArchiveAction(t *testing.T) {
 			t.Fatalf("CreatePostSubmitExecutor('archive') failed: %v", err)
 		}
 
-		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		err = executor.Execute(mock, testRepo, testTarget, "")
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
 		}
@@ -1646,8 +1659,8 @@ func TestArchiveAction(t *testing.T) {
 		if mock.lastRepository != testRepo {
 			t.Errorf("Repository = %+v, want %+v", mock.lastRepository, testRepo)
 		}
-		if mock.lastPRNumber != testPRNumber {
-			t.Errorf("PR number = %d, want %d", mock.lastPRNumber, testPRNumber)
+		if prTarget, ok := mock.lastTarget.(PRTarget); !ok || prTarget.Number != testPRNumber {
+			t.Errorf("Target = %+v, want PR#%d", mock.lastTarget, testPRNumber)
 		}
 	})
 
@@ -1659,7 +1672,7 @@ func TestArchiveAction(t *testing.T) {
 			t.Fatalf("CreatePostSubmitExecutor('archive') failed: %v", err)
 		}
 
-		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		err = executor.Execute(mock, testRepo, testTarget, "")
 		// Should succeed without error even when archiving is not supported
 		if err != nil {
 			t.Errorf("Execute() should return nil when storage doesn't support archiving, got: %v", err)
@@ -1679,7 +1692,7 @@ func TestArchiveAction(t *testing.T) {
 			t.Fatalf("CreatePostSubmitExecutor('archive') failed: %v", err)
 		}
 
-		err = executor.Execute(mock, testRepo, testPRNumber, "")
+		err = executor.Execute(mock, testRepo, testTarget, "")
 		// Should not fail the submission even if archiving fails
 		if err != nil {
 			t.Errorf("Execute() should return nil when ArchiveComments fails, got: %v", err)
@@ -1695,7 +1708,7 @@ func TestArchiveAction(t *testing.T) {
 		}
 		action := ArchiveAction{}
 
-		err := action.Execute(mock, testRepo, testPRNumber, "test.go")
+		err := action.Execute(mock, testRepo, testTarget, "test.go")
 		// Should succeed but not archive when file is specified
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
@@ -1719,7 +1732,7 @@ func TestArchiveAction(t *testing.T) {
 				}
 				action := ArchiveAction{}
 
-				err := action.Execute(mock, testRepo, testPRNumber, file)
+				err := action.Execute(mock, testRepo, testTarget, file)
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
@@ -1745,7 +1758,7 @@ func TestArchiveAction(t *testing.T) {
 				}
 				action := ArchiveAction{}
 
-				err := action.Execute(mock, repo, testPRNumber, "")
+				err := action.Execute(mock, repo, testTarget, "")
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
@@ -1766,12 +1779,13 @@ func TestArchiveAction(t *testing.T) {
 				}
 				action := ArchiveAction{}
 
-				err := action.Execute(mock, testRepo, prNum, "")
+				target := NewPRTarget(prNum)
+				err := action.Execute(mock, testRepo, target, "")
 				if err != nil {
 					t.Errorf("Execute() returned error: %v", err)
 				}
-				if mock.lastPRNumber != prNum {
-					t.Errorf("PR number = %d, want %d", mock.lastPRNumber, prNum)
+				if prTarget, ok := mock.lastTarget.(PRTarget); !ok || prTarget.Number != prNum {
+					t.Errorf("Target = %+v, want PR#%d", mock.lastTarget, prNum)
 				}
 			})
 		}
@@ -1792,7 +1806,7 @@ func TestArchiveAction(t *testing.T) {
 		}
 		action := ArchiveAction{}
 
-		err := action.Execute(mock, testRepo, testPRNumber, "")
+		err := action.Execute(mock, testRepo, testTarget, "")
 		if err != nil {
 			t.Errorf("Execute() returned error: %v", err)
 		}

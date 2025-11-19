@@ -178,7 +178,7 @@ func TestAdjustCommand(t *testing.T) {
 			// Reset comments between tests
 			if !tt.dryRun {
 				// Re-add original comments
-				if err := store.ClearComments(repository, target); err != nil {
+				if err := store.ClearComments(repository, target, nil); err != nil {
 					t.Fatal(err)
 				}
 				for _, comment := range comments {

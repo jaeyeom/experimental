@@ -345,7 +345,7 @@ func TestApplyPRAdjustmentsWithCounts(t *testing.T) {
 
 	t.Run("force flag preserves orphaned comments with marker", func(t *testing.T) {
 		// Re-add comments
-		if err := store.ClearComments(repository, target); err != nil {
+		if err := store.ClearComments(repository, target, nil); err != nil {
 			t.Fatal(err)
 		}
 		for _, comment := range comments {
@@ -983,7 +983,7 @@ func TestAdjustCommandExtended_AllFiles(t *testing.T) {
 
 	t.Run("handles empty comment list gracefully", func(t *testing.T) {
 		// Clear all comments
-		if err := store.ClearComments(repository, target); err != nil {
+		if err := store.ClearComments(repository, target, nil); err != nil {
 			t.Fatal(err)
 		}
 

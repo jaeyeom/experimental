@@ -154,7 +154,7 @@ func (m *MockOutputFormatter) FormatSingleComment(comment models.Comment) (strin
 // MockExecutor is a mock implementation of models.Executor for testing.
 type MockExecutor struct {
 	NameFunc    func() string
-	ExecuteFunc func(storage models.CommentClearer, repository models.Repository, prNumber int, file string) error
+	ExecuteFunc func(storage models.CommentClearer, repository models.Repository, target models.ReviewTarget, file string) error
 }
 
 func (m *MockExecutor) Name() string {
@@ -164,9 +164,9 @@ func (m *MockExecutor) Name() string {
 	return "mock"
 }
 
-func (m *MockExecutor) Execute(storage models.CommentClearer, repository models.Repository, prNumber int, file string) error {
+func (m *MockExecutor) Execute(storage models.CommentClearer, repository models.Repository, target models.ReviewTarget, file string) error {
 	if m.ExecuteFunc != nil {
-		return m.ExecuteFunc(storage, repository, prNumber, file)
+		return m.ExecuteFunc(storage, repository, target, file)
 	}
 	return nil
 }
@@ -1418,7 +1418,7 @@ func TestPullCommand_Filtering(t *testing.T) {
 
 	t.Run("dry run doesn't modify storage", func(t *testing.T) {
 		// Clear storage first
-		_ = handler.storage.ClearComments(repository, target)
+		_ = handler.storage.ClearComments(repository, target, nil)
 
 		options := models.PullOptions{
 			DryRun:        true,

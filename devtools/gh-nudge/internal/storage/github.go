@@ -171,27 +171,24 @@ func ParseRepoAndPR(repoSpec string) (models.Repository, error) {
 	return models.NewRepository(parts[0], parts[1]), nil
 }
 
-// PR-specific convenience wrappers for post-submit actions.
-// These methods are required by the models.CommentClearer interface used by
-// post-submit actions (ClearAction, ArchiveAction). They wrap the unified
-// ReviewTarget-based methods for PR-specific operations.
+// ClearComments implements the models.CommentClearer interface.
+// It removes comments for a review target with an optional filter.
+// If filter is nil, clears all comments. If filter specifies a file, clears only that file's comments.
+func (gs *GitHubStorage) ClearComments(repository models.Repository, target models.ReviewTarget, filter *models.CommentFilter) error {
+	if filter != nil && filter.File != "" {
+		// Clear comments for specific file
+		return gs.ClearCommentsForFile(repository, target, filter.File)
+	}
+	// Clear all comments (delegates to unified method)
+	targetPath := target.BuildPath(repository)
+	commentsPath := filepath.Join(targetPath, "comments.json")
 
-// ClearPRComments clears all comments for a PR.
-// This is a convenience wrapper for post-submit actions that require the
-// models.CommentClearer interface.
-//
-// TODO: Consider removing this method and just use ClearComments directly.
-func (gs *GitHubStorage) ClearPRComments(repository models.Repository, prNumber int) error {
-	target := models.NewPRTarget(prNumber)
-	return gs.ClearComments(repository, target)
-}
-
-// ClearPRCommentsForFile clears comments for a specific file in a PR.
-// This is a convenience wrapper for post-submit actions that require the
-// models.CommentClearer interface.
-func (gs *GitHubStorage) ClearPRCommentsForFile(repository models.Repository, prNumber int, file string) error {
-	target := models.NewPRTarget(prNumber)
-	return gs.ClearCommentsForFile(repository, target, file)
+	if err := gs.locker.WithLock(commentsPath, func() error {
+		return gs.store.Delete(commentsPath)
+	}); err != nil {
+		return fmt.Errorf("failed to clear comments with lock: %w", err)
+	}
+	return nil
 }
 
 // SetBranchMetadata stores metadata for a branch.
@@ -236,17 +233,17 @@ func (gs *GitHubStorage) generateSubmissionID() string {
 }
 
 // buildArchivePath constructs the storage path for archived submissions.
-func (gs *GitHubStorage) buildArchivePath(repository models.Repository, prNumber int) string {
-	prPath := gs.buildPRPath(repository, prNumber)
-	return filepath.Join(prPath, "archives")
+func (gs *GitHubStorage) buildArchivePath(repository models.Repository, target models.ReviewTarget) string {
+	targetPath := target.BuildPath(repository)
+	return filepath.Join(targetPath, "archives")
 }
 
 // ArchiveComments moves comments to archive storage and clears active comments.
-func (gs *GitHubStorage) ArchiveComments(repository models.Repository, prNumber int, reviewBody, reviewEvent string) (*models.ArchivedSubmission, error) {
-	target := models.NewPRTarget(prNumber)
+// Note: Currently only supports PR targets. Branch archiving will return an error.
+func (gs *GitHubStorage) ArchiveComments(repository models.Repository, target models.ReviewTarget, reviewBody, reviewEvent string) (*models.ArchivedSubmission, error) {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
-	archivePath := gs.buildArchivePath(repository, prNumber)
+	archivePath := gs.buildArchivePath(repository, target)
 	metadataPath := filepath.Join(archivePath, "metadata.json")
 
 	var archivedSubmission *models.ArchivedSubmission
@@ -265,6 +262,13 @@ func (gs *GitHubStorage) ArchiveComments(repository models.Repository, prNumber 
 		// Create archived submission
 		now := time.Now()
 		submissionID := gs.generateSubmissionID()
+
+		// Extract PR number for backwards compatibility with ArchivedSubmission structure
+		// For branch targets, use 0 as a placeholder
+		prNumber := 0
+		if prTarget, ok := target.(models.PRTarget); ok {
+			prNumber = prTarget.Number
+		}
 
 		archivedSubmission = &models.ArchivedSubmission{
 			SubmissionID: submissionID,
@@ -287,7 +291,7 @@ func (gs *GitHubStorage) ArchiveComments(repository models.Repository, prNumber 
 		}
 
 		// Update archive metadata
-		if err := gs.updateArchiveMetadata(repository, prNumber, *archivedSubmission, metadataPath); err != nil {
+		if err := gs.updateArchiveMetadata(repository, target, *archivedSubmission, metadataPath); err != nil {
 			return fmt.Errorf("failed to update archive metadata: %w", err)
 		}
 
@@ -301,8 +305,14 @@ func (gs *GitHubStorage) ArchiveComments(repository models.Repository, prNumber 
 }
 
 // updateArchiveMetadata updates the archive metadata index.
-func (gs *GitHubStorage) updateArchiveMetadata(repository models.Repository, prNumber int, submission models.ArchivedSubmission, metadataPath string) error {
+func (gs *GitHubStorage) updateArchiveMetadata(repository models.Repository, target models.ReviewTarget, submission models.ArchivedSubmission, metadataPath string) error {
 	var metadata models.ArchiveMetadata
+
+	// Extract PR number for backwards compatibility with ArchiveMetadata structure
+	prNumber := 0
+	if prTarget, ok := target.(models.PRTarget); ok {
+		prNumber = prTarget.Number
+	}
 
 	if gs.store.Exists(metadataPath) {
 		if err := gs.store.Get(metadataPath, &metadata); err != nil {
@@ -326,10 +336,16 @@ func (gs *GitHubStorage) updateArchiveMetadata(repository models.Repository, prN
 	return gs.store.Set(metadataPath, metadata)
 }
 
-// ListArchivedSubmissions returns all archived submissions for a PR.
-func (gs *GitHubStorage) ListArchivedSubmissions(repository models.Repository, prNumber int) (*models.ArchiveMetadata, error) {
-	archivePath := gs.buildArchivePath(repository, prNumber)
+// ListArchivedSubmissions returns all archived submissions for a review target.
+func (gs *GitHubStorage) ListArchivedSubmissions(repository models.Repository, target models.ReviewTarget) (*models.ArchiveMetadata, error) {
+	archivePath := gs.buildArchivePath(repository, target)
 	metadataPath := filepath.Join(archivePath, "metadata.json")
+
+	// Extract PR number for backwards compatibility with ArchiveMetadata structure
+	prNumber := 0
+	if prTarget, ok := target.(models.PRTarget); ok {
+		prNumber = prTarget.Number
+	}
 
 	if !gs.store.Exists(metadataPath) {
 		return &models.ArchiveMetadata{
@@ -352,8 +368,8 @@ func (gs *GitHubStorage) ListArchivedSubmissions(repository models.Repository, p
 }
 
 // GetArchivedSubmission retrieves a specific archived submission.
-func (gs *GitHubStorage) GetArchivedSubmission(repository models.Repository, prNumber int, submissionID string) (*models.ArchivedSubmission, error) {
-	archivePath := gs.buildArchivePath(repository, prNumber)
+func (gs *GitHubStorage) GetArchivedSubmission(repository models.Repository, target models.ReviewTarget, submissionID string) (*models.ArchivedSubmission, error) {
+	archivePath := gs.buildArchivePath(repository, target)
 	archiveFilePath := filepath.Join(archivePath, fmt.Sprintf("%s.json", submissionID))
 
 	if !gs.store.Exists(archiveFilePath) {
@@ -370,8 +386,8 @@ func (gs *GitHubStorage) GetArchivedSubmission(repository models.Repository, prN
 }
 
 // CleanupOldArchives removes archives older than the specified duration.
-func (gs *GitHubStorage) CleanupOldArchives(repository models.Repository, prNumber int, olderThan time.Duration) error {
-	archivePath := gs.buildArchivePath(repository, prNumber)
+func (gs *GitHubStorage) CleanupOldArchives(repository models.Repository, target models.ReviewTarget, olderThan time.Duration) error {
+	archivePath := gs.buildArchivePath(repository, target)
 	metadataPath := filepath.Join(archivePath, "metadata.json")
 
 	if !gs.store.Exists(metadataPath) {
@@ -379,7 +395,7 @@ func (gs *GitHubStorage) CleanupOldArchives(repository models.Repository, prNumb
 	}
 
 	if err := gs.locker.WithLock(metadataPath, func() error {
-		metadata, err := gs.ListArchivedSubmissions(repository, prNumber)
+		metadata, err := gs.ListArchivedSubmissions(repository, target)
 		if err != nil {
 			return err
 		}

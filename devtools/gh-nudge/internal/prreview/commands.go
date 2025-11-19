@@ -260,7 +260,7 @@ func (ch *CommandHandler) SubmitCommandWithOptions(repository models.Repository,
 	}
 
 	// Execute post-submit action (this will now only affect comments that were actually submitted)
-	if err := postSubmitAction.Execute(ch.storage, repository, prNumber, file); err != nil {
+	if err := postSubmitAction.Execute(ch.storage, repository, target, file); err != nil {
 		return fmt.Errorf("post-submit action failed: %w", err)
 	}
 
@@ -678,7 +678,8 @@ func GetStorageHome() string {
 
 // ArchiveListCommand lists all archived submissions for a PR.
 func (ch *CommandHandler) ArchiveListCommand(repository models.Repository, prNumber int, _ OutputFormatter) error {
-	metadata, err := ch.storage.ListArchivedSubmissions(repository, prNumber)
+	target := models.NewPRTarget(prNumber)
+	metadata, err := ch.storage.ListArchivedSubmissions(repository, target)
 	if err != nil {
 		return fmt.Errorf("failed to list archived submissions: %w", err)
 	}
@@ -702,7 +703,8 @@ func (ch *CommandHandler) ArchiveListCommand(repository models.Repository, prNum
 
 // ArchiveShowCommand shows a specific archived submission.
 func (ch *CommandHandler) ArchiveShowCommand(repository models.Repository, prNumber int, submissionID string, formatter OutputFormatter) error {
-	submission, err := ch.storage.GetArchivedSubmission(repository, prNumber, submissionID)
+	target := models.NewPRTarget(prNumber)
+	submission, err := ch.storage.GetArchivedSubmission(repository, target, submissionID)
 	if err != nil {
 		return fmt.Errorf("failed to get archived submission: %w", err)
 	}
@@ -745,7 +747,8 @@ func (ch *CommandHandler) ArchiveCleanupCommand(repository models.Repository, pr
 		}
 	}
 
-	if err := ch.storage.CleanupOldArchives(repository, prNumber, olderThan); err != nil {
+	target := models.NewPRTarget(prNumber)
+	if err := ch.storage.CleanupOldArchives(repository, target, olderThan); err != nil {
 		return fmt.Errorf("failed to cleanup old archives: %w", err)
 	}
 
@@ -1028,14 +1031,13 @@ func (ch *CommandHandler) clearComments(repository models.Repository, target mod
 		}
 	}
 
-	var err error
+	// Build filter based on file parameter
+	var filter *models.CommentFilter
 	if file != "" {
-		err = ch.storage.ClearCommentsForFile(repository, target, file)
-	} else {
-		err = ch.storage.ClearComments(repository, target)
+		filter = &models.CommentFilter{File: file}
 	}
 
-	if err != nil {
+	if err := ch.storage.ClearComments(repository, target, filter); err != nil {
 		return fmt.Errorf("failed to clear comments: %w", err)
 	}
 
