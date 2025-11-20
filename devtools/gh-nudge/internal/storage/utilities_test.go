@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestInitialize_CreatesStorageStructure(t *testing.T) {
@@ -307,7 +308,7 @@ func TestVerify_StorageDirectoryDoesNotExist(t *testing.T) {
 	}
 }
 
-func TestVerify_MissingSubdirectory(t *testing.T) {
+func TestVerify_MissingReposSubdirectory(t *testing.T) {
 	// Create a temporary storage directory
 	tmpDir := t.TempDir()
 
@@ -323,21 +324,16 @@ func TestVerify_MissingSubdirectory(t *testing.T) {
 		t.Fatalf("Failed to create metadata.json: %v", err)
 	}
 
-	// Create only some subdirectories (missing "temp")
-	if err := os.MkdirAll(filepath.Join(tmpDir, "repos"), 0o755); err != nil {
-		t.Fatalf("Failed to create repos dir: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(tmpDir, "cache"), 0o755); err != nil {
-		t.Fatalf("Failed to create cache dir: %v", err)
-	}
+	// Don't create repos directory - this should cause verification to fail
+	// (cache and temp are optional)
 
 	err := Verify(tmpDir)
 	if err == nil {
-		t.Error("Expected Verify to return error for missing subdirectory, got nil")
+		t.Error("Expected Verify to return error for missing repos subdirectory, got nil")
 	}
 
-	if !contains(err.Error(), "required subdirectory missing") || !contains(err.Error(), "temp") {
-		t.Errorf("Expected error about missing subdirectory temp, got %q", err.Error())
+	if !contains(err.Error(), "required subdirectory missing") || !contains(err.Error(), "repos") {
+		t.Errorf("Expected error about missing repos subdirectory, got %q", err.Error())
 	}
 }
 
@@ -345,12 +341,9 @@ func TestVerify_MissingMetadata(t *testing.T) {
 	// Create a temporary storage directory
 	tmpDir := t.TempDir()
 
-	// Create subdirectories but no metadata.json
-	subdirs := []string{"repos", "cache", "temp"}
-	for _, subdir := range subdirs {
-		if err := os.MkdirAll(filepath.Join(tmpDir, subdir), 0o755); err != nil {
-			t.Fatalf("Failed to create subdir %s: %v", subdir, err)
-		}
+	// Create required repos subdirectory but no metadata.json
+	if err := os.MkdirAll(filepath.Join(tmpDir, "repos"), 0o755); err != nil {
+		t.Fatalf("Failed to create repos dir: %v", err)
 	}
 
 	err := Verify(tmpDir)
@@ -367,12 +360,9 @@ func TestVerify_InvalidMetadataJSON(t *testing.T) {
 	// Create a temporary storage directory
 	tmpDir := t.TempDir()
 
-	// Create subdirectories
-	subdirs := []string{"repos", "cache", "temp"}
-	for _, subdir := range subdirs {
-		if err := os.MkdirAll(filepath.Join(tmpDir, subdir), 0o755); err != nil {
-			t.Fatalf("Failed to create subdir %s: %v", subdir, err)
-		}
+	// Create required repos subdirectory
+	if err := os.MkdirAll(filepath.Join(tmpDir, "repos"), 0o755); err != nil {
+		t.Fatalf("Failed to create repos dir: %v", err)
 	}
 
 	// Create invalid metadata.json
@@ -395,12 +385,9 @@ func TestVerify_MissingMetadataField(t *testing.T) {
 	// Create a temporary storage directory
 	tmpDir := t.TempDir()
 
-	// Create subdirectories
-	subdirs := []string{"repos", "cache", "temp"}
-	for _, subdir := range subdirs {
-		if err := os.MkdirAll(filepath.Join(tmpDir, subdir), 0o755); err != nil {
-			t.Fatalf("Failed to create subdir %s: %v", subdir, err)
-		}
+	// Create required repos subdirectory
+	if err := os.MkdirAll(filepath.Join(tmpDir, "repos"), 0o755); err != nil {
+		t.Fatalf("Failed to create repos dir: %v", err)
 	}
 
 	// Create metadata.json missing a required field
@@ -438,6 +425,34 @@ func TestVerify_Success(t *testing.T) {
 	err := Verify(tmpDir)
 	if err != nil {
 		t.Errorf("Expected Verify to succeed, got error: %v", err)
+	}
+}
+
+func TestVerify_SuccessWithoutCacheAndTemp(t *testing.T) {
+	// Create a temporary storage directory
+	tmpDir := t.TempDir()
+
+	// Create only the essential components (repos and metadata.json)
+	// Cache and temp directories are optional
+	if err := os.MkdirAll(filepath.Join(tmpDir, "repos"), 0o755); err != nil {
+		t.Fatalf("Failed to create repos dir: %v", err)
+	}
+
+	metadataPath := filepath.Join(tmpDir, "metadata.json")
+	metadata := map[string]interface{}{
+		"version":     "1.0.0",
+		"created_at":  time.Now(),
+		"description": "test storage without cache/temp",
+	}
+	metadataData, _ := json.MarshalIndent(metadata, "", "  ")
+	if err := os.WriteFile(metadataPath, metadataData, 0o600); err != nil {
+		t.Fatalf("Failed to create metadata.json: %v", err)
+	}
+
+	// Verify should succeed even without cache and temp directories
+	err := Verify(tmpDir)
+	if err != nil {
+		t.Errorf("Expected Verify to succeed without cache/temp dirs, got error: %v", err)
 	}
 }
 

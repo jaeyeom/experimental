@@ -117,9 +117,12 @@ func Import(storageHome string, path string, format string, merge bool, overwrit
 
 // Verify verifies storage integrity by checking:
 //   - Storage directory exists
-//   - Required subdirectories exist (repos, cache, temp)
+//   - Required subdirectory (repos) exists
 //   - metadata.json file exists and contains valid JSON
 //   - metadata.json contains required fields (version, created_at, description)
+//
+// Note: cache and temp directories are not verified as they are created on-demand
+// and are not required for the tools to function.
 //
 // Returns an error if any integrity check fails.
 func Verify(storageHome string) error {
@@ -128,13 +131,10 @@ func Verify(storageHome string) error {
 		return fmt.Errorf("storage directory does not exist: %q", storageHome)
 	}
 
-	// Check required subdirectories
-	subdirs := []string{"repos", "cache", "temp"}
-	for _, subdir := range subdirs {
-		subdirPath := filepath.Join(storageHome, subdir)
-		if !directoryExists(subdirPath) {
-			return fmt.Errorf("required subdirectory missing: %q", subdirPath)
-		}
+	// Check required subdirectories (only repos is essential)
+	reposPath := filepath.Join(storageHome, "repos")
+	if !directoryExists(reposPath) {
+		return fmt.Errorf("required subdirectory missing: %q", reposPath)
 	}
 
 	// Check metadata.json exists and is valid
