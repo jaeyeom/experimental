@@ -81,7 +81,7 @@ for br in "${branches_to_delete[@]}"; do
     if git branch -D "$br" 2>/dev/null; then
         # Also remove the remote tracking branch (ignore failures)
         git update-ref -d "refs/remotes/origin/$br" 2>/dev/null || true
-        ((deleted_count++))
+        ((deleted_count+=1))
     else
         echo "    Warning: Failed to delete branch '$br', skipping..."
     fi
