@@ -351,8 +351,8 @@ func TestVerify_MissingMetadata(t *testing.T) {
 		t.Error("Expected Verify to return error for missing metadata, got nil")
 	}
 
-	if !contains(err.Error(), "failed to read metadata.json") {
-		t.Errorf("Expected error about missing metadata.json, got %q", err.Error())
+	if !contains(err.Error(), "metadata.json not found") || !contains(err.Error(), "gh-storage init --force") {
+		t.Errorf("Expected helpful error about missing metadata.json, got %q", err.Error())
 	}
 }
 
