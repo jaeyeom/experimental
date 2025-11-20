@@ -767,9 +767,25 @@ PROPS are additional properties to add to the image spec.
 This implementation creates a minimal image spec without actual image
 support, allowing other functions like `my/image-size' to work with the spec."
     (let* ((image-type (or type 'png))
+           (has-scale (plist-member props :scale))
+           (has-rotation (plist-member props :rotation))
+           (scale-value (plist-get props :scale))
            (spec (if data-p
-                     (append (list 'image :type image-type :data file-or-data) props)
-                   (append (list 'image :type image-type :file file-or-data) props))))
+                     (list 'image :type image-type :data file-or-data)
+                   (list 'image :type image-type :file file-or-data))))
+      ;; Append user props first
+      (setq spec (append spec props))
+      ;; Add scale default if not specified
+      (unless has-scale
+        (setq spec (append spec '(:scale default))))
+      ;; Add transform-smoothing based on transformations
+      (when (or has-scale has-rotation)
+        (unless (plist-member props :transform-smoothing)
+          (setq spec (append spec (list :transform-smoothing
+                                       (if has-rotation
+                                           nil
+                                         (if (and has-scale (not (eq scale-value 'default)))
+                                             t nil)))))))
       spec))
 
   (defun my/image-size (spec &optional pixels frame)
