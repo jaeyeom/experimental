@@ -59,7 +59,9 @@
         create: true
         marker: "# {mark} running keychain"
         block: |
-          eval $(keychain --eval --agents ssh id_ed25519)
+          if [[ $- == *i* ]]; then
+              eval $(keychain --eval --agents ssh id_ed25519)
+          fi
       when: ansible_env.TERMUX_VERSION is not defined
 
     - name: Ensure SSH agent is enabled on Termux
@@ -80,7 +82,9 @@
             create: true
             marker: "# {mark} sourcing Termux ssh agent"
             block: |
-              . "${TERMUX__PREFIX:-"${PREFIX}"}"/libexec/source-ssh-agent.sh
+              if [[ $- == *i* ]]; then
+                  . "${TERMUX__PREFIX:-"${PREFIX}"}"/libexec/source-ssh-agent.sh
+              fi
         - name: Stat the ssh-agent down file
           ansible.builtin.stat:
             path: "{{ ansible_env.PREFIX }}/var/service/ssh-agent/down"
