@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/argparser"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
@@ -614,21 +615,21 @@ func handleClean(args []string) {
 	}
 }
 
-func parseCleanArgs(args []string) (string, string, bool, error) {
-	var olderThan, cleanType string
+func parseCleanArgs(args []string) (time.Duration, string, bool, error) {
+	var olderThanStr, cleanType string
 	var dryRun bool
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--older-than":
 			if i+1 >= len(args) {
-				return "", "", false, fmt.Errorf("--older-than requires a value")
+				return 0, "", false, fmt.Errorf("--older-than requires a value")
 			}
-			olderThan = args[i+1]
+			olderThanStr = args[i+1]
 			i++
 		case "--type":
 			if i+1 >= len(args) {
-				return "", "", false, fmt.Errorf("--type requires a value")
+				return 0, "", false, fmt.Errorf("--type requires a value")
 			}
 			cleanType = args[i+1]
 			i++
@@ -636,9 +637,18 @@ func parseCleanArgs(args []string) (string, string, bool, error) {
 			dryRun = true
 		case "-h", "--help":
 			showCleanUsage()
-			return "", "", false, fmt.Errorf("help requested")
+			return 0, "", false, fmt.Errorf("help requested")
 		default:
-			return "", "", false, fmt.Errorf("unknown option: %s", args[i])
+			return 0, "", false, fmt.Errorf("unknown option: %s", args[i])
+		}
+	}
+
+	var olderThan time.Duration
+	if olderThanStr != "" {
+		var err error
+		olderThan, err = time.ParseDuration(olderThanStr)
+		if err != nil {
+			return 0, "", false, fmt.Errorf("invalid duration %q: %w", olderThanStr, err)
 		}
 	}
 
@@ -647,8 +657,8 @@ func parseCleanArgs(args []string) (string, string, bool, error) {
 
 func showCleanUsage() {
 	fmt.Println("Usage: gh-storage clean [options]")
-	fmt.Println("  --older-than DURATION  Remove data older than duration (30d, 1w, etc.)")
-	fmt.Println("  --type TYPE            Data type to clean (cache, logs, temp)")
+	fmt.Println("  --older-than DURATION  Remove data older than duration (e.g., 720h, 24h)")
+	fmt.Println("  --type TYPE            Data type to clean (cache, temp, all)")
 	fmt.Println("  --dry-run              Preview cleanup without changes")
 }
 

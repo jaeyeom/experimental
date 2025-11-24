@@ -2,6 +2,8 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -237,15 +239,203 @@ func TestListBackups_NotImplemented(t *testing.T) {
 	}
 }
 
-func TestClean_NotImplemented(t *testing.T) {
-	err := Clean("storage", "30d", "temp", false)
-	if err == nil {
-		t.Error("Expected Clean to return error, got nil")
+func TestClean(t *testing.T) {
+	tests := []struct {
+		name      string
+		cleanType string
+		olderThan time.Duration
+		dryRun    bool
+		setup     func(t *testing.T, storageHome string)
+		wantErr   bool
+		validate  func(t *testing.T, storageHome string)
+	}{
+		{
+			name:      "clean cache directory - dry run",
+			cleanType: "cache",
+			olderThan: time.Hour,
+			dryRun:    true,
+			setup: func(t *testing.T, storageHome string) {
+				cacheDir := filepath.Join(storageHome, "cache")
+				if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				// Create an old file
+				oldFile := filepath.Join(cacheDir, "old.txt")
+				if err := os.WriteFile(oldFile, []byte("old"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				// Set modification time to 2 hours ago
+				oldTime := time.Now().Add(-2 * time.Hour)
+				if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+					t.Fatal(err)
+				}
+			},
+			validate: func(t *testing.T, storageHome string) {
+				// In dry run mode, file should still exist
+				oldFile := filepath.Join(storageHome, "cache", "old.txt")
+				if _, err := os.Stat(oldFile); errors.Is(err, fs.ErrNotExist) {
+					t.Error("File should still exist in dry run mode")
+				}
+			},
+		},
+		{
+			name:      "clean temp directory",
+			cleanType: "temp",
+			olderThan: time.Hour,
+			dryRun:    false,
+			setup: func(t *testing.T, storageHome string) {
+				tempDir := filepath.Join(storageHome, "temp")
+				if err := os.MkdirAll(tempDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				// Create an old file
+				oldFile := filepath.Join(tempDir, "old.tmp")
+				if err := os.WriteFile(oldFile, []byte("old"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				oldTime := time.Now().Add(-2 * time.Hour)
+				if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+					t.Fatal(err)
+				}
+				// Create a recent file
+				newFile := filepath.Join(tempDir, "new.tmp")
+				if err := os.WriteFile(newFile, []byte("new"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+			validate: func(t *testing.T, storageHome string) {
+				oldFile := filepath.Join(storageHome, "temp", "old.tmp")
+				if _, err := os.Stat(oldFile); !errors.Is(err, fs.ErrNotExist) {
+					t.Error("Old file should be removed")
+				}
+				newFile := filepath.Join(storageHome, "temp", "new.tmp")
+				if _, err := os.Stat(newFile); err != nil {
+					t.Error("New file should still exist")
+				}
+			},
+		},
+		{
+			name:      "clean all directories",
+			cleanType: "all",
+			olderThan: time.Hour,
+			dryRun:    false,
+			setup: func(t *testing.T, storageHome string) {
+				for _, dir := range []string{"cache", "temp"} {
+					dirPath := filepath.Join(storageHome, dir)
+					if err := os.MkdirAll(dirPath, 0o755); err != nil {
+						t.Fatal(err)
+					}
+					oldFile := filepath.Join(dirPath, "old.txt")
+					if err := os.WriteFile(oldFile, []byte("old"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					oldTime := time.Now().Add(-2 * time.Hour)
+					if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+						t.Fatal(err)
+					}
+				}
+			},
+			validate: func(t *testing.T, storageHome string) {
+				for _, dir := range []string{"cache", "temp"} {
+					oldFile := filepath.Join(storageHome, dir, "old.txt")
+					if _, err := os.Stat(oldFile); !errors.Is(err, fs.ErrNotExist) {
+						t.Errorf("Old file in %s should be removed", dir)
+					}
+				}
+			},
+		},
+		{
+			name:      "invalid clean type",
+			cleanType: "invalid",
+			olderThan: time.Hour,
+			dryRun:    false,
+			setup:     func(_ *testing.T, _ string) {},
+			wantErr:   true,
+		},
+		{
+			name:      "missing directory - should not error",
+			cleanType: "cache",
+			olderThan: time.Hour,
+			dryRun:    false,
+			setup:     func(_ *testing.T, _ string) {},
+			validate: func(_ *testing.T, _ string) {
+				// No validation needed - just ensuring no error
+			},
+		},
 	}
 
-	expectedMsg := "clean not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create temporary storage directory
+			storageHome, err := os.MkdirTemp("", "storage-test-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(storageHome)
+
+			// Run setup
+			if tt.setup != nil {
+				tt.setup(t, storageHome)
+			}
+
+			// Run Clean function
+			err = Clean(storageHome, tt.olderThan, tt.cleanType, tt.dryRun)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Clean() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			// Run validation
+			if !tt.wantErr && tt.validate != nil {
+				tt.validate(t, storageHome)
+			}
+		})
+	}
+}
+
+func TestCleanDirectory(t *testing.T) {
+	// Create temporary directory
+	tempDir, err := os.MkdirTemp("", "clean-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create test files
+	oldFile := filepath.Join(tempDir, "old.txt")
+	if err := os.WriteFile(oldFile, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	newFile := filepath.Join(tempDir, "new.txt")
+	if err := os.WriteFile(newFile, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Clean files older than 1 hour
+	cutoffTime := time.Now().Add(-1 * time.Hour)
+	removed, err := cleanDirectory(tempDir, cutoffTime, false)
+	if err != nil {
+		t.Fatalf("cleanDirectory() error = %v", err)
+	}
+
+	if removed != 1 {
+		t.Errorf("cleanDirectory() removed %d files, want 1", removed)
+	}
+
+	// Verify old file is removed
+	if _, err := os.Stat(oldFile); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("Old file should be removed")
+	}
+
+	// Verify new file still exists
+	if _, err := os.Stat(newFile); err != nil {
+		t.Error("New file should still exist")
 	}
 }
 
