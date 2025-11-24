@@ -800,24 +800,43 @@ to determine image dimensions for Emacs builds without image support."
     (unless (and (consp spec) (eq (car spec) 'image))
       (error "Invalid image specification"))
     (let* ((file (plist-get (cdr spec) :file))
-           (output (when file
+           (data (plist-get (cdr spec) :data))
+           (temp-file nil)
+           (actual-file (cond
+                         (file (expand-file-name file))
+                         (data
+                          ;; Write data to temp file for ImageMagick to read
+                          (setq temp-file (make-temp-file "emacs-image-" nil ".img"))
+                          (with-temp-file temp-file
+                            (set-buffer-multibyte nil)
+                            (insert data))
+                          temp-file)
+                         (t nil)))
+           (output (when actual-file
                      (shell-command-to-string
                       (format "magick identify -format '%%w %%h' %s 2>/dev/null"
-                              (shell-quote-argument (expand-file-name file))))))
+                              (shell-quote-argument actual-file)))))
            (dimensions (when (and output (string-match "\\([0-9]+\\) \\([0-9]+\\)" output))
                          (cons (string-to-number (match-string 1 output))
                                (string-to-number (match-string 2 output))))))
+      ;; Clean up temp file if we created one
+      (when (and temp-file (file-exists-p temp-file))
+        (delete-file temp-file))
       (if dimensions
           (if pixels
               dimensions
-            ;; Convert pixels to canonical character units
-            ;; Use frame-char-width and frame-char-height for the conversion
-            (let* ((char-width (frame-char-width frame))
-                   (char-height (frame-char-height frame)))
+            ;; Convert pixels to canonical character units using float division
+            (let ((char-width (float (frame-char-width frame)))
+                  (char-height (float (frame-char-height frame))))
               (cons (/ (car dimensions) char-width)
                     (/ (cdr dimensions) char-height))))
-        ;; Return nil if we couldn't determine dimensions
-        nil)))
+        ;; Return default (30 . 30) if we couldn't determine dimensions (matches built-in)
+        (if pixels
+            '(30 . 30)
+          (let ((char-width (float (frame-char-width frame)))
+                (char-height (float (frame-char-height frame))))
+            (cons (/ 30 char-width)
+                  (/ 30 char-height)))))))
 
   ;;; Termux Permission denied solution
   (when my/termux-p
