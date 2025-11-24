@@ -88,9 +88,88 @@ func ListBackups(backupDir string) error {
 }
 
 // Clean removes old or temporary storage data.
-func Clean(storageHome string, olderThan string, cleanType string, dryRun bool) error {
-	_, _, _, _ = storageHome, olderThan, cleanType, dryRun // TODO: implement clean
-	return fmt.Errorf("clean not implemented")
+// Parameters:
+//   - storageHome: path to the storage directory
+//   - olderThan: files older than this duration will be removed
+//   - cleanType: type of cleaning - "cache", "temp", or "all"
+//   - dryRun: if true, only report what would be deleted without actually deleting
+func Clean(storageHome string, olderThan time.Duration, cleanType string, dryRun bool) error {
+	// Calculate cutoff time
+	cutoffTime := time.Now().Add(-olderThan)
+
+	// Determine which directories to clean
+	var dirsToClean []string
+	switch cleanType {
+	case "cache":
+		dirsToClean = []string{"cache"}
+	case "temp":
+		dirsToClean = []string{"temp"}
+	case "all":
+		dirsToClean = []string{"cache", "temp"}
+	default:
+		return fmt.Errorf("invalid clean type %q: must be 'cache', 'temp', or 'all'", cleanType)
+	}
+
+	// Clean each directory
+	totalRemoved := 0
+	for _, dir := range dirsToClean {
+		dirPath := filepath.Join(storageHome, dir)
+
+		// Skip if directory doesn't exist
+		if !directoryExists(dirPath) {
+			continue
+		}
+
+		removed, err := cleanDirectory(dirPath, cutoffTime, dryRun)
+		if err != nil {
+			return fmt.Errorf("failed to clean %s: %w", dir, err)
+		}
+		totalRemoved += removed
+	}
+
+	if dryRun {
+		fmt.Printf("Dry run: would remove %d file(s) older than %s\n", totalRemoved, olderThan)
+	} else {
+		fmt.Printf("Removed %d file(s) older than %s\n", totalRemoved, olderThan)
+	}
+
+	return nil
+}
+
+// cleanDirectory recursively removes files older than cutoffTime from the given directory.
+func cleanDirectory(dirPath string, cutoffTime time.Time, dryRun bool) (int, error) {
+	removed := 0
+
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory itself
+		if path == dirPath {
+			return nil
+		}
+
+		// Only process files, not directories
+		if !info.IsDir() && info.ModTime().Before(cutoffTime) {
+			if dryRun {
+				fmt.Printf("Would remove: %s (modified: %s)\n", path, info.ModTime().Format(time.RFC3339))
+			} else {
+				if err := os.Remove(path); err != nil {
+					return fmt.Errorf("failed to remove %s: %w", path, err)
+				}
+				fmt.Printf("Removed: %s (modified: %s)\n", path, info.ModTime().Format(time.RFC3339))
+			}
+			removed++
+		}
+
+		return nil
+	})
+	if err != nil {
+		return removed, fmt.Errorf("failed to walk directory: %w", err)
+	}
+
+	return removed, nil
 }
 
 // Vacuum optimizes storage by compacting and reorganizing data.
