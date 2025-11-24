@@ -2,7 +2,9 @@ package storage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -141,7 +143,7 @@ func Verify(storageHome string) error {
 	metadataPath := filepath.Join(storageHome, "metadata.json")
 	metadataData, err := os.ReadFile(metadataPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("metadata.json not found at %q. Did you run 'gh-storage init --force'?", metadataPath)
 		}
 		return fmt.Errorf("failed to read metadata.json: %w", err)
