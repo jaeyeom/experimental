@@ -23,6 +23,7 @@
         deny:
           - "Read(.envrc)"
           - "Read(~/.aws/**)"
+          - "Read(~/.password-store/**)"
           - "Read(~/.ssh/**)"
   tasks:
     - name: Include guard for claude sandbox playbook
