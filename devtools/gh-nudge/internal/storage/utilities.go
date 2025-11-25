@@ -2,6 +2,7 @@ package storage
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -618,16 +619,460 @@ func ManageLocks(storageHome string, list bool, release bool, status bool, force
 	return fmt.Errorf("lock management not implemented")
 }
 
+// ExportData represents the structure of exported data.
+type ExportData struct {
+	Version  string                 `json:"version"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Files    map[string]string      `json:"files"`
+}
+
 // Export exports storage data to external formats.
-func Export(storageHome string, path string, format string, compress bool, includeMetadata bool) error {
-	_, _, _, _, _ = storageHome, path, format, compress, includeMetadata // TODO: implement export
-	return fmt.Errorf("export not implemented")
+// Parameters:
+//   - storageHome: path to the storage directory
+//   - outputPath: path to write the exported data
+//   - format: output format ("json", "yaml", or "tar")
+//   - compress: if true, compress the output (gzip for json/yaml, tar.gz for tar)
+//   - includeMetadata: if true, include storage metadata in the export
+func Export(storageHome string, outputPath string, format string, compress bool, includeMetadata bool) error {
+	if !directoryExists(storageHome) {
+		return fmt.Errorf("storage directory does not exist: %q", storageHome)
+	}
+
+	switch format {
+	case "json":
+		return exportJSON(storageHome, outputPath, compress, includeMetadata)
+	case "yaml":
+		return exportYAML(storageHome, outputPath, compress, includeMetadata)
+	case "tar":
+		return exportTar(storageHome, outputPath, compress)
+	default:
+		return fmt.Errorf("unsupported export format: %q (supported: json, yaml, tar)", format)
+	}
+}
+
+func collectExportData(storageHome string, includeMetadata bool) (*ExportData, error) {
+	data := &ExportData{
+		Version: "1.0.0",
+		Files:   make(map[string]string),
+	}
+
+	// Include metadata if requested
+	if includeMetadata {
+		metadataPath := filepath.Join(storageHome, "metadata.json")
+		if fileExists(metadataPath) {
+			metadataBytes, err := os.ReadFile(metadataPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read metadata: %w", err)
+			}
+			var metadata map[string]interface{}
+			if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+				return nil, fmt.Errorf("failed to parse metadata: %w", err)
+			}
+			data.Metadata = metadata
+		}
+	}
+
+	// Collect all files from repos directory (the main data)
+	reposPath := filepath.Join(storageHome, "repos")
+	if directoryExists(reposPath) {
+		err := filepath.Walk(reposPath, func(filePath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(storageHome, filePath)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %w", err)
+			}
+
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("failed to read file %s: %w", relPath, err)
+			}
+
+			data.Files[relPath] = string(content)
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to collect files: %w", err)
+		}
+	}
+
+	return data, nil
+}
+
+func exportJSON(storageHome, outputPath string, compress, includeMetadata bool) error {
+	data, err := collectExportData(storageHome, includeMetadata)
+	if err != nil {
+		return err
+	}
+
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	if compress {
+		return writeCompressedFile(outputPath, jsonData)
+	}
+	if err := os.WriteFile(outputPath, jsonData, 0o600); err != nil {
+		return fmt.Errorf("failed to write JSON file: %w", err)
+	}
+	return nil
+}
+
+func exportYAML(storageHome, outputPath string, compress, includeMetadata bool) error {
+	data, err := collectExportData(storageHome, includeMetadata)
+	if err != nil {
+		return err
+	}
+
+	// Convert to YAML-like format (simple key-value representation)
+	// Since we don't have a YAML library, we'll create a simple format
+	var buf strings.Builder
+	buf.WriteString("version: " + data.Version + "\n")
+
+	if data.Metadata != nil {
+		buf.WriteString("metadata:\n")
+		metaJSON, _ := json.MarshalIndent(data.Metadata, "  ", "  ")
+		buf.WriteString("  ")
+		buf.WriteString(strings.ReplaceAll(string(metaJSON), "\n", "\n  "))
+		buf.WriteString("\n")
+	}
+
+	buf.WriteString("files:\n")
+	for path, content := range data.Files {
+		buf.WriteString("  " + path + ": |\n")
+		lines := strings.Split(content, "\n")
+		for _, line := range lines {
+			buf.WriteString("    " + line + "\n")
+		}
+	}
+
+	yamlData := []byte(buf.String())
+
+	if compress {
+		return writeCompressedFile(outputPath, yamlData)
+	}
+	if err := os.WriteFile(outputPath, yamlData, 0o600); err != nil {
+		return fmt.Errorf("failed to write YAML file: %w", err)
+	}
+	return nil
+}
+
+func exportTar(storageHome, outputPath string, compress bool) error {
+	// Collect files from repos directory
+	reposPath := filepath.Join(storageHome, "repos")
+	if !directoryExists(reposPath) {
+		return fmt.Errorf("repos directory does not exist")
+	}
+
+	files, err := collectFilesToBackup(storageHome, reposPath)
+	if err != nil {
+		return err
+	}
+
+	// Also include metadata.json if it exists
+	metadataPath := filepath.Join(storageHome, "metadata.json")
+	if fileExists(metadataPath) {
+		files = append([]string{"metadata.json"}, files...)
+	}
+
+	return createBackupArchive(storageHome, outputPath, files, compress)
+}
+
+func writeCompressedFile(outputPath string, data []byte) error {
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer file.Close()
+
+	gw := gzip.NewWriter(file)
+	defer gw.Close()
+
+	if _, err := gw.Write(data); err != nil {
+		return fmt.Errorf("failed to write compressed data: %w", err)
+	}
+
+	return nil
 }
 
 // Import imports external data into storage.
-func Import(storageHome string, path string, format string, merge bool, overwrite bool) error {
-	_, _, _, _, _ = storageHome, path, format, merge, overwrite // TODO: implement import
-	return fmt.Errorf("import not implemented")
+// Parameters:
+//   - storageHome: path to the storage directory
+//   - inputPath: path to the file to import
+//   - format: input format ("json", "yaml", or "tar")
+//   - merge: if true, merge with existing data instead of replacing
+//   - overwrite: if true, overwrite existing files (only used with merge)
+func Import(storageHome string, inputPath string, format string, merge bool, overwrite bool) error {
+	if !fileExists(inputPath) {
+		return fmt.Errorf("input file does not exist: %q", inputPath)
+	}
+
+	// Create storage directory if it doesn't exist
+	if err := os.MkdirAll(storageHome, 0o755); err != nil {
+		return fmt.Errorf("failed to create storage directory: %w", err)
+	}
+
+	switch format {
+	case "json":
+		return importJSON(storageHome, inputPath, merge, overwrite)
+	case "yaml":
+		return importYAML(storageHome, inputPath, merge, overwrite)
+	case "tar":
+		return importTar(storageHome, inputPath, merge, overwrite)
+	default:
+		return fmt.Errorf("unsupported import format: %q (supported: json, yaml, tar)", format)
+	}
+}
+
+func readInputFile(inputPath string) ([]byte, error) {
+	data, err := os.ReadFile(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read input file: %w", err)
+	}
+
+	// Check if it's gzip compressed
+	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+		return decompressGzip(data)
+	}
+
+	return data, nil
+}
+
+func decompressGzip(data []byte) ([]byte, error) {
+	reader := bytes.NewReader(data)
+	gr, err := gzip.NewReader(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer gr.Close()
+
+	decompressed, err := io.ReadAll(gr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress: %w", err)
+	}
+
+	return decompressed, nil
+}
+
+func importJSON(storageHome, inputPath string, merge, overwrite bool) error {
+	data, err := readInputFile(inputPath)
+	if err != nil {
+		return err
+	}
+
+	var exportData ExportData
+	if err := json.Unmarshal(data, &exportData); err != nil {
+		return fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	return writeImportedFiles(storageHome, exportData.Files, merge, overwrite)
+}
+
+func importYAML(storageHome, inputPath string, merge, overwrite bool) error {
+	data, err := readInputFile(inputPath)
+	if err != nil {
+		return err
+	}
+
+	// Simple YAML parsing for our format
+	// Look for "files:" section and parse key-value pairs
+	content := string(data)
+	files := make(map[string]string)
+
+	lines := strings.Split(content, "\n")
+	inFiles := false
+	currentFile := ""
+	var currentContent strings.Builder
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "files:" {
+			inFiles = true
+			continue
+		}
+
+		if !inFiles {
+			continue
+		}
+
+		// Check if this is a new file entry (starts with 2 spaces, ends with : |)
+		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
+			// Save previous file if any
+			if currentFile != "" {
+				files[currentFile] = strings.TrimSuffix(currentContent.String(), "\n")
+			}
+
+			// Parse new file name
+			trimmed := strings.TrimPrefix(line, "  ")
+			if idx := strings.Index(trimmed, ": |"); idx > 0 {
+				currentFile = trimmed[:idx]
+				currentContent.Reset()
+			}
+		} else if strings.HasPrefix(line, "    ") && currentFile != "" {
+			// Content line (4 spaces indentation)
+			currentContent.WriteString(strings.TrimPrefix(line, "    "))
+			currentContent.WriteString("\n")
+		}
+	}
+
+	// Save last file
+	if currentFile != "" {
+		files[currentFile] = strings.TrimSuffix(currentContent.String(), "\n")
+	}
+
+	return writeImportedFiles(storageHome, files, merge, overwrite)
+}
+
+func importTar(storageHome, inputPath string, merge, overwrite bool) error {
+	compressed, err := isGzipCompressed(inputPath)
+	if err != nil {
+		return err
+	}
+
+	tr, cleanup, err := openTarReader(inputPath, compressed)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	return extractTarFiles(tr, storageHome, merge, overwrite)
+}
+
+func isGzipCompressed(inputPath string) (bool, error) {
+	file, err := os.Open(inputPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	header := make([]byte, 2)
+	n, err := file.Read(header)
+	if err != nil || n < 2 {
+		return false, nil // Not enough data, assume uncompressed
+	}
+
+	// #nosec G602 -- We've verified n >= 2 above, so indices 0 and 1 are safe
+	return header[0] == 0x1f && header[1] == 0x8b, nil
+}
+
+func openTarReader(inputPath string, compressed bool) (*tar.Reader, func(), error) {
+	file, err := os.Open(inputPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open tar file: %w", err)
+	}
+
+	if compressed {
+		gr, err := gzip.NewReader(file)
+		if err != nil {
+			file.Close()
+			return nil, nil, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		cleanup := func() {
+			gr.Close()
+			file.Close()
+		}
+		return tar.NewReader(gr), cleanup, nil
+	}
+
+	return tar.NewReader(file), func() { file.Close() }, nil
+}
+
+func extractTarFiles(tr *tar.Reader, destDir string, merge, overwrite bool) error {
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if err := importTarEntry(destDir, header, tr, merge, overwrite); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func importTarEntry(destDir string, header *tar.Header, tr *tar.Reader, merge, overwrite bool) error {
+	// Security: validate path to prevent path traversal (G305)
+	cleanName := filepath.Clean(header.Name)
+	if strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
+		return fmt.Errorf("invalid file path in archive: %s", header.Name)
+	}
+
+	targetPath := filepath.Join(destDir, cleanName)
+
+	// Verify the target path is within the destination directory
+	if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(destDir)) {
+		return fmt.Errorf("file path escapes destination directory: %s", header.Name)
+	}
+
+	// Check if file exists
+	if fileExists(targetPath) {
+		if !merge {
+			return fmt.Errorf("file already exists and merge not enabled: %s", header.Name)
+		}
+		if !overwrite {
+			return nil // Skip existing files when merge is enabled but overwrite is not
+		}
+	}
+
+	// Create parent directories
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Write file with safe mode
+	// #nosec G115 -- Mode is masked to 9-bit permission value
+	mode := os.FileMode(header.Mode & 0o777)
+	outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer outFile.Close()
+
+	// Use limited reader for safety
+	limitedReader := io.LimitReader(tr, maxDecompressedSize)
+	if _, err := io.Copy(outFile, limitedReader); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
+}
+
+func writeImportedFiles(storageHome string, files map[string]string, merge, overwrite bool) error {
+	for relPath, content := range files {
+		targetPath := filepath.Join(storageHome, relPath)
+
+		// Check if file exists
+		if fileExists(targetPath) {
+			if !merge {
+				return fmt.Errorf("file already exists and merge not enabled: %s", relPath)
+			}
+			if !overwrite {
+				// Skip existing files when merge is enabled but overwrite is not
+				continue
+			}
+		}
+
+		// Create parent directories
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return fmt.Errorf("failed to create directory for %s: %w", relPath, err)
+		}
+
+		// Write file
+		if err := os.WriteFile(targetPath, []byte(content), 0o600); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", relPath, err)
+		}
+	}
+
+	return nil
 }
 
 // Verify verifies storage integrity by checking:
