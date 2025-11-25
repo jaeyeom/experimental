@@ -206,6 +206,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-cargo.yml
 - setup-cicd.yml
 - setup-claude-privacy.yml
+- setup-claude-sandbox.yml
 - setup-docker-ce.yml
 - setup-docker-lima.yml
 - setup-docker-wrapper-udocker.yml
