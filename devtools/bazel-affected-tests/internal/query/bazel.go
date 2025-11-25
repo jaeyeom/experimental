@@ -119,12 +119,17 @@ func (q *BazelQuerier) query(queryStr string) ([]string, error) {
 
 	result, err := q.executor.Execute(ctx, executor.ToolConfig{
 		Command:        "bazel",
-		Args:           []string{"query", queryStr},
+		Args:           []string{"query", "--noblock_for_lock", queryStr},
 		Timeout:        30 * time.Second,
 		CommandBuilder: &executor.ShellCommandBuilder{},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("bazel query failed: %w", err)
+	}
+
+	// Check for lock contention - bazel exits with code 45 when another command is running
+	if result.ExitCode == 45 || strings.Contains(result.Stderr, "Another command is running") {
+		return nil, fmt.Errorf("another bazel command is running; wait for it to complete or run 'bazel shutdown'")
 	}
 
 	// Bazel query may return non-zero exit code for empty results
