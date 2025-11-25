@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -810,28 +811,448 @@ func TestManageLocks_NotImplemented(t *testing.T) {
 	}
 }
 
-func TestExport_NotImplemented(t *testing.T) {
-	err := Export("storage", "export.json", "json", false, false)
-	if err == nil {
-		t.Error("Expected Export to return error, got nil")
-	}
+func TestExport(t *testing.T) {
+	t.Run("exports to JSON format", func(t *testing.T) {
+		storageDir := t.TempDir()
+		outputPath := filepath.Join(t.TempDir(), "export.json")
 
-	expectedMsg := "export not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
-	}
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create test file
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		testContent := `{"key": "value"}`
+		if err := os.WriteFile(testFile, []byte(testContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Export
+		err := Export(storageDir, outputPath, "json", false, false)
+		if err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		// Verify export file exists and contains data
+		data, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("Failed to read export file: %v", err)
+		}
+
+		var exportData ExportData
+		if err := json.Unmarshal(data, &exportData); err != nil {
+			t.Fatalf("Failed to parse export JSON: %v", err)
+		}
+
+		if exportData.Version != "1.0.0" {
+			t.Errorf("Expected version 1.0.0, got %s", exportData.Version)
+		}
+
+		if content, ok := exportData.Files["repos/test.json"]; !ok || content != testContent {
+			t.Errorf("Expected file content %q, got %q", testContent, content)
+		}
+	})
+
+	t.Run("exports to JSON with metadata", func(t *testing.T) {
+		storageDir := t.TempDir()
+		outputPath := filepath.Join(t.TempDir(), "export.json")
+
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Export with metadata
+		err := Export(storageDir, outputPath, "json", false, true)
+		if err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		data, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("Failed to read export file: %v", err)
+		}
+
+		var exportData ExportData
+		if err := json.Unmarshal(data, &exportData); err != nil {
+			t.Fatalf("Failed to parse export JSON: %v", err)
+		}
+
+		if exportData.Metadata == nil {
+			t.Error("Expected metadata to be included")
+		}
+	})
+
+	t.Run("exports compressed JSON", func(t *testing.T) {
+		storageDir := t.TempDir()
+		outputPath := filepath.Join(t.TempDir(), "export.json.gz")
+
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Export compressed
+		err := Export(storageDir, outputPath, "json", true, false)
+		if err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		// Verify file is gzip compressed
+		data, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("Failed to read export file: %v", err)
+		}
+
+		if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+			t.Error("Expected gzip compressed file")
+		}
+	})
+
+	t.Run("exports to tar format", func(t *testing.T) {
+		storageDir := t.TempDir()
+		outputPath := filepath.Join(t.TempDir(), "export.tar")
+
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create test file
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(`{}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Export
+		err := Export(storageDir, outputPath, "tar", false, false)
+		if err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		// Verify tar file exists
+		if !fileExists(outputPath) {
+			t.Error("Export tar file not created")
+		}
+	})
+
+	t.Run("fails for non-existent storage", func(t *testing.T) {
+		outputPath := filepath.Join(t.TempDir(), "export.json")
+		err := Export("/nonexistent/path", outputPath, "json", false, false)
+		if err == nil {
+			t.Error("Expected error for non-existent storage")
+		}
+	})
+
+	t.Run("fails for unsupported format", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		outputPath := filepath.Join(t.TempDir(), "export.xml")
+		err := Export(storageDir, outputPath, "xml", false, false)
+		if err == nil {
+			t.Error("Expected error for unsupported format")
+		}
+	})
 }
 
-func TestImport_NotImplemented(t *testing.T) {
-	err := Import("storage", "import.json", "json", false, false)
-	if err == nil {
-		t.Error("Expected Import to return error, got nil")
-	}
+func TestImport(t *testing.T) {
+	t.Run("imports from JSON format", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.json")
 
-	expectedMsg := "import not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
-	}
+		// Create import file
+		exportData := ExportData{
+			Version: "1.0.0",
+			Files: map[string]string{
+				"repos/imported.json": `{"imported": true}`,
+			},
+		}
+		data, _ := json.MarshalIndent(exportData, "", "  ")
+		if err := os.WriteFile(importFile, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Import
+		err := Import(storageDir, importFile, "json", false, false)
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		// Verify imported file
+		importedPath := filepath.Join(storageDir, "repos", "imported.json")
+		content, err := os.ReadFile(importedPath)
+		if err != nil {
+			t.Fatalf("Failed to read imported file: %v", err)
+		}
+
+		if string(content) != `{"imported": true}` {
+			t.Errorf("Imported content mismatch: got %q", string(content))
+		}
+	})
+
+	t.Run("import with merge adds new files", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.json")
+
+		// Create existing file
+		existingPath := filepath.Join(storageDir, "repos", "existing.json")
+		if err := os.MkdirAll(filepath.Dir(existingPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(existingPath, []byte(`{"existing": true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create import file with new file
+		exportData := ExportData{
+			Version: "1.0.0",
+			Files: map[string]string{
+				"repos/new.json": `{"new": true}`,
+			},
+		}
+		data, _ := json.MarshalIndent(exportData, "", "  ")
+		if err := os.WriteFile(importFile, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Import with merge
+		err := Import(storageDir, importFile, "json", true, false)
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		// Verify both files exist
+		if !fileExists(existingPath) {
+			t.Error("Existing file should still exist")
+		}
+		if !fileExists(filepath.Join(storageDir, "repos", "new.json")) {
+			t.Error("New file should be imported")
+		}
+	})
+
+	t.Run("import with merge and overwrite updates existing", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.json")
+
+		// Create existing file
+		existingPath := filepath.Join(storageDir, "repos", "file.json")
+		if err := os.MkdirAll(filepath.Dir(existingPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(existingPath, []byte(`{"old": true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create import file with same filename
+		exportData := ExportData{
+			Version: "1.0.0",
+			Files: map[string]string{
+				"repos/file.json": `{"new": true}`,
+			},
+		}
+		data, _ := json.MarshalIndent(exportData, "", "  ")
+		if err := os.WriteFile(importFile, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Import with merge and overwrite
+		err := Import(storageDir, importFile, "json", true, true)
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		// Verify file was overwritten
+		content, err := os.ReadFile(existingPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if string(content) != `{"new": true}` {
+			t.Errorf("File should be overwritten, got %q", string(content))
+		}
+	})
+
+	t.Run("import without merge fails on existing file", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.json")
+
+		// Create existing file
+		existingPath := filepath.Join(storageDir, "repos", "file.json")
+		if err := os.MkdirAll(filepath.Dir(existingPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(existingPath, []byte(`{}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create import file with same filename
+		exportData := ExportData{
+			Version: "1.0.0",
+			Files: map[string]string{
+				"repos/file.json": `{"new": true}`,
+			},
+		}
+		data, _ := json.MarshalIndent(exportData, "", "  ")
+		if err := os.WriteFile(importFile, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Import without merge should fail
+		err := Import(storageDir, importFile, "json", false, false)
+		if err == nil {
+			t.Error("Expected error when file exists and merge not enabled")
+		}
+	})
+
+	t.Run("imports compressed JSON", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.json.gz")
+
+		// Create compressed import file
+		exportData := ExportData{
+			Version: "1.0.0",
+			Files: map[string]string{
+				"repos/compressed.json": `{"compressed": true}`,
+			},
+		}
+		jsonData, _ := json.MarshalIndent(exportData, "", "  ")
+
+		file, err := os.Create(importFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gw := gzip.NewWriter(file)
+		if _, err := gw.Write(jsonData); err != nil {
+			t.Fatal(err)
+		}
+		gw.Close()
+		file.Close()
+
+		// Import
+		err = Import(storageDir, importFile, "json", false, false)
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		// Verify imported file
+		content, _ := os.ReadFile(filepath.Join(storageDir, "repos", "compressed.json"))
+		if string(content) != `{"compressed": true}` {
+			t.Errorf("Imported content mismatch: got %q", string(content))
+		}
+	})
+
+	t.Run("fails for non-existent input file", func(t *testing.T) {
+		storageDir := t.TempDir()
+		err := Import(storageDir, "/nonexistent/file.json", "json", false, false)
+		if err == nil {
+			t.Error("Expected error for non-existent input file")
+		}
+	})
+
+	t.Run("fails for unsupported format", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.xml")
+		if err := os.WriteFile(importFile, []byte("<xml/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		err := Import(storageDir, importFile, "xml", false, false)
+		if err == nil {
+			t.Error("Expected error for unsupported format")
+		}
+	})
+}
+
+func TestExportImportRoundTrip(t *testing.T) {
+	t.Run("JSON round trip preserves data", func(t *testing.T) {
+		sourceDir := t.TempDir()
+		destDir := t.TempDir()
+		exportFile := filepath.Join(t.TempDir(), "export.json")
+
+		// Initialize source storage
+		if err := Initialize(sourceDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create test files
+		testFiles := map[string]string{
+			"repos/owner/repo/pr/123.json": `{"number": 123}`,
+			"repos/owner/repo/pr/456.json": `{"number": 456}`,
+		}
+		for relPath, content := range testFiles {
+			fullPath := filepath.Join(sourceDir, relPath)
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Export
+		if err := Export(sourceDir, exportFile, "json", false, false); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		// Import to new location
+		if err := Import(destDir, exportFile, "json", false, false); err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		// Verify all files were preserved
+		for relPath, expectedContent := range testFiles {
+			fullPath := filepath.Join(destDir, relPath)
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				t.Errorf("Failed to read %s: %v", relPath, err)
+				continue
+			}
+			if string(content) != expectedContent {
+				t.Errorf("Content mismatch for %s: got %q, want %q", relPath, string(content), expectedContent)
+			}
+		}
+	})
+
+	t.Run("tar round trip preserves data", func(t *testing.T) {
+		sourceDir := t.TempDir()
+		destDir := t.TempDir()
+		exportFile := filepath.Join(t.TempDir(), "export.tar")
+
+		// Initialize source storage
+		if err := Initialize(sourceDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create test file
+		testContent := `{"data": "test"}`
+		testFile := filepath.Join(sourceDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(testContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Export
+		if err := Export(sourceDir, exportFile, "tar", false, false); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		// Import to new location
+		if err := Import(destDir, exportFile, "tar", false, false); err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		// Verify file was preserved
+		content, err := os.ReadFile(filepath.Join(destDir, "repos", "test.json"))
+		if err != nil {
+			t.Fatalf("Failed to read imported file: %v", err)
+		}
+		if string(content) != testContent {
+			t.Errorf("Content mismatch: got %q, want %q", string(content), testContent)
+		}
+	})
 }
 
 func TestVerify_StorageDirectoryDoesNotExist(t *testing.T) {
