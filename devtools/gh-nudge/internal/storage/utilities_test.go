@@ -199,43 +199,390 @@ func TestMigrate_NotImplemented(t *testing.T) {
 	}
 }
 
-func TestCreateBackup_NotImplemented(t *testing.T) {
-	backupID, err := CreateBackup("storage", "backups", "path", false, false, "test")
-	if err == nil {
-		t.Error("Expected CreateBackup to return error, got nil")
+func TestCreateBackup(t *testing.T) {
+	t.Run("creates uncompressed backup", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create some test files
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(`{"test": true}`), 0o600); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		// Create backup
+		backupID, err := CreateBackup(storageDir, backupDir, "", true, false, "test backup")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		if backupID == "" {
+			t.Error("Expected non-empty backup ID")
+		}
+
+		// Verify backup file exists
+		backupFile := filepath.Join(backupDir, backupID+".tar")
+		if !fileExists(backupFile) {
+			t.Errorf("Backup file not found: %s", backupFile)
+		}
+
+		// Verify metadata file exists
+		metadataFile := filepath.Join(backupDir, backupID+".json")
+		if !fileExists(metadataFile) {
+			t.Errorf("Metadata file not found: %s", metadataFile)
+		}
+	})
+
+	t.Run("creates compressed backup", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create some test files
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(`{"test": true}`), 0o600); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		// Create compressed backup
+		backupID, err := CreateBackup(storageDir, backupDir, "", true, true, "compressed backup")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// Verify compressed backup file exists
+		backupFile := filepath.Join(backupDir, backupID+".tar.gz")
+		if !fileExists(backupFile) {
+			t.Errorf("Compressed backup file not found: %s", backupFile)
+		}
+	})
+
+	t.Run("fails for non-existent storage", func(t *testing.T) {
+		backupDir := t.TempDir()
+		_, err := CreateBackup("/nonexistent/path", backupDir, "", true, false, "")
+		if err == nil {
+			t.Error("Expected error for non-existent storage")
+		}
+	})
+
+	t.Run("fails for non-existent path", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		_, err := CreateBackup(storageDir, backupDir, "nonexistent/path", false, false, "")
+		if err == nil {
+			t.Error("Expected error for non-existent path")
+		}
+	})
+}
+
+func TestRestoreBackup(t *testing.T) {
+	t.Run("restores from uncompressed backup", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+		restoreDir := t.TempDir()
+
+		// Initialize and populate storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		testContent := `{"test": "data"}`
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(testContent), 0o600); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		// Create backup
+		backupID, err := CreateBackup(storageDir, backupDir, "", true, false, "test")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// Restore to new directory
+		err = RestoreBackup(restoreDir, backupDir, backupID, "", false)
+		if err != nil {
+			t.Fatalf("RestoreBackup failed: %v", err)
+		}
+
+		// Verify restored file
+		restoredFile := filepath.Join(restoreDir, "repos", "test.json")
+		restoredContent, err := os.ReadFile(restoredFile)
+		if err != nil {
+			t.Fatalf("Failed to read restored file: %v", err)
+		}
+
+		if string(restoredContent) != testContent {
+			t.Errorf("Restored content mismatch: got %q, want %q", string(restoredContent), testContent)
+		}
+	})
+
+	t.Run("restores from compressed backup", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+		restoreDir := t.TempDir()
+
+		// Initialize and populate storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		testContent := `{"compressed": true}`
+		testFile := filepath.Join(storageDir, "repos", "compressed.json")
+		if err := os.WriteFile(testFile, []byte(testContent), 0o600); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		// Create compressed backup
+		backupID, err := CreateBackup(storageDir, backupDir, "", true, true, "compressed")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// Restore
+		err = RestoreBackup(restoreDir, backupDir, backupID, "", false)
+		if err != nil {
+			t.Fatalf("RestoreBackup failed: %v", err)
+		}
+
+		// Verify
+		restoredFile := filepath.Join(restoreDir, "repos", "compressed.json")
+		restoredContent, err := os.ReadFile(restoredFile)
+		if err != nil {
+			t.Fatalf("Failed to read restored file: %v", err)
+		}
+
+		if string(restoredContent) != testContent {
+			t.Errorf("Restored content mismatch: got %q, want %q", string(restoredContent), testContent)
+		}
+	})
+
+	t.Run("preview mode does not restore", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+		restoreDir := t.TempDir()
+
+		// Initialize and populate storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(`{}`), 0o600); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		// Create backup
+		backupID, err := CreateBackup(storageDir, backupDir, "", true, false, "")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// Preview restore
+		err = RestoreBackup(restoreDir, backupDir, backupID, "", true)
+		if err != nil {
+			t.Fatalf("RestoreBackup preview failed: %v", err)
+		}
+
+		// Verify file was NOT restored
+		restoredFile := filepath.Join(restoreDir, "repos", "test.json")
+		if fileExists(restoredFile) {
+			t.Error("File should not exist in preview mode")
+		}
+	})
+
+	t.Run("fails for non-existent backup", func(t *testing.T) {
+		restoreDir := t.TempDir()
+		backupDir := t.TempDir()
+
+		err := RestoreBackup(restoreDir, backupDir, "nonexistent", "", false)
+		if err == nil {
+			t.Error("Expected error for non-existent backup")
+		}
+	})
+
+	t.Run("restores specific path", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+		restoreDir := t.TempDir()
+
+		// Initialize and populate storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create multiple files
+		file1 := filepath.Join(storageDir, "repos", "file1.json")
+		file2 := filepath.Join(storageDir, "cache", "file2.json")
+		if err := os.MkdirAll(filepath.Dir(file1), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(file2), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file1, []byte(`{"file": 1}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file2, []byte(`{"file": 2}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create backup
+		backupID, err := CreateBackup(storageDir, backupDir, "", true, false, "")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// Restore only repos path
+		err = RestoreBackup(restoreDir, backupDir, backupID, "repos", false)
+		if err != nil {
+			t.Fatalf("RestoreBackup failed: %v", err)
+		}
+
+		// Verify only repos file was restored
+		if !fileExists(filepath.Join(restoreDir, "repos", "file1.json")) {
+			t.Error("repos/file1.json should be restored")
+		}
+		if fileExists(filepath.Join(restoreDir, "cache", "file2.json")) {
+			t.Error("cache/file2.json should NOT be restored")
+		}
+	})
+}
+
+func TestListBackups(t *testing.T) {
+	t.Run("lists backups", func(t *testing.T) {
+		storageDir := t.TempDir()
+		backupDir := t.TempDir()
+
+		// Initialize storage
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create test file
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(`{}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create multiple backups
+		_, err := CreateBackup(storageDir, backupDir, "", true, false, "first backup")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		time.Sleep(time.Second) // Ensure different timestamps
+
+		_, err = CreateBackup(storageDir, backupDir, "", true, true, "second backup")
+		if err != nil {
+			t.Fatalf("CreateBackup failed: %v", err)
+		}
+
+		// List backups (should not error)
+		err = ListBackups(backupDir)
+		if err != nil {
+			t.Errorf("ListBackups failed: %v", err)
+		}
+	})
+
+	t.Run("handles empty backup directory", func(t *testing.T) {
+		backupDir := t.TempDir()
+
+		err := ListBackups(backupDir)
+		if err != nil {
+			t.Errorf("ListBackups failed for empty directory: %v", err)
+		}
+	})
+
+	t.Run("handles non-existent backup directory", func(t *testing.T) {
+		err := ListBackups("/nonexistent/backup/dir")
+		if err != nil {
+			t.Errorf("ListBackups should not error for non-existent directory: %v", err)
+		}
+	})
+}
+
+func TestFilterFilesByPath(t *testing.T) {
+	files := []string{
+		"repos/owner/repo/file1.json",
+		"repos/owner/repo/file2.json",
+		"cache/data.json",
+		"metadata.json",
 	}
 
-	if backupID != "" {
-		t.Errorf("Expected empty backup ID, got %q", backupID)
+	tests := []struct {
+		name     string
+		path     string
+		expected []string
+	}{
+		{
+			name:     "filter by repos prefix",
+			path:     "repos",
+			expected: []string{"repos/owner/repo/file1.json", "repos/owner/repo/file2.json"},
+		},
+		{
+			name:     "filter by specific file",
+			path:     "metadata.json",
+			expected: []string{"metadata.json"},
+		},
+		{
+			name:     "filter with no matches",
+			path:     "nonexistent",
+			expected: nil,
+		},
 	}
 
-	expectedMsg := "backup not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filterFilesByPath(files, tt.path)
+			if len(result) != len(tt.expected) {
+				t.Errorf("filterFilesByPath() returned %d items, want %d", len(result), len(tt.expected))
+				return
+			}
+			for i, f := range result {
+				if f != tt.expected[i] {
+					t.Errorf("filterFilesByPath()[%d] = %q, want %q", i, f, tt.expected[i])
+				}
+			}
+		})
 	}
 }
 
-func TestRestoreBackup_NotImplemented(t *testing.T) {
-	err := RestoreBackup("storage", "backups", "backup-id", "path", false)
-	if err == nil {
-		t.Error("Expected RestoreBackup to return error, got nil")
+func TestFormatSize(t *testing.T) {
+	tests := []struct {
+		bytes    int64
+		expected string
+	}{
+		{0, "0B"},
+		{512, "512B"},
+		{1024, "1.0KB"},
+		{1536, "1.5KB"},
+		{1048576, "1.0MB"},
+		{1572864, "1.5MB"},
+		{1073741824, "1.0GB"},
 	}
 
-	expectedMsg := "restore not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
-	}
-}
-
-func TestListBackups_NotImplemented(t *testing.T) {
-	err := ListBackups("backups")
-	if err == nil {
-		t.Error("Expected ListBackups to return error, got nil")
-	}
-
-	expectedMsg := "list backups not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := formatSize(tt.bytes)
+			if result != tt.expected {
+				t.Errorf("formatSize(%d) = %q, want %q", tt.bytes, result, tt.expected)
+			}
+		})
 	}
 }
 
