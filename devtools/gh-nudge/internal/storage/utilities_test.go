@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -932,16 +933,380 @@ func TestVacuum(t *testing.T) {
 	})
 }
 
-func TestManageLocks_NotImplemented(t *testing.T) {
-	err := ManageLocks("storage", false, false, false, false, "")
-	if err == nil {
-		t.Error("Expected ManageLocks to return error, got nil")
+func TestManageLocks(t *testing.T) {
+	t.Run("fails for non-existent storage", func(t *testing.T) {
+		err := ManageLocks("/nonexistent/storage", true, false, false, false, "")
+		if err == nil {
+			t.Error("Expected error for non-existent storage")
+		}
+		if !contains(err.Error(), "storage directory does not exist") {
+			t.Errorf("Expected error about non-existent storage, got %q", err.Error())
+		}
+	})
+
+	t.Run("fails when no operation specified", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, false, false, false, false, "")
+		if err == nil {
+			t.Error("Expected error when no operation specified")
+		}
+		if !contains(err.Error(), "no operation specified") {
+			t.Errorf("Expected error about no operation, got %q", err.Error())
+		}
+	})
+
+	t.Run("fails when multiple operations specified", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, true, true, false, false, "")
+		if err == nil {
+			t.Error("Expected error when multiple operations specified")
+		}
+		if !contains(err.Error(), "only one operation") {
+			t.Errorf("Expected error about multiple operations, got %q", err.Error())
+		}
+	})
+
+	t.Run("list succeeds with no locks", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, true, false, false, false, "")
+		if err != nil {
+			t.Errorf("Expected list to succeed, got error: %v", err)
+		}
+	})
+
+	t.Run("list shows existing locks", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create a lock file manually
+		lockPath := filepath.Join(storageDir, "repos", "test.lock")
+		lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n", time.Now().Format(time.RFC3339), os.Getpid())
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, true, false, false, false, "")
+		if err != nil {
+			t.Errorf("Expected list to succeed, got error: %v", err)
+		}
+	})
+
+	t.Run("status requires path", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, false, false, true, false, "")
+		if err == nil {
+			t.Error("Expected error when status has no path")
+		}
+		if !contains(err.Error(), "requires a path") {
+			t.Errorf("Expected error about missing path, got %q", err.Error())
+		}
+	})
+
+	t.Run("status shows lock info", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create a lock file
+		lockPath := filepath.Join(storageDir, "repos", "test.lock")
+		lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n", time.Now().Format(time.RFC3339), os.Getpid())
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Check status using relative path
+		err := ManageLocks(storageDir, false, false, true, false, "repos/test")
+		if err != nil {
+			t.Errorf("Expected status to succeed, got error: %v", err)
+		}
+	})
+
+	t.Run("status shows no lock for non-existent path", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, false, false, true, false, "nonexistent/path")
+		if err != nil {
+			t.Errorf("Expected status to succeed even for missing lock, got error: %v", err)
+		}
+	})
+
+	t.Run("release requires path", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, false, true, false, false, "")
+		if err == nil {
+			t.Error("Expected error when release has no path")
+		}
+		if !contains(err.Error(), "requires a path") {
+			t.Errorf("Expected error about missing path, got %q", err.Error())
+		}
+	})
+
+	t.Run("release fails for non-existent lock", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ManageLocks(storageDir, false, true, false, false, "nonexistent/path")
+		if err == nil {
+			t.Error("Expected error when releasing non-existent lock")
+		}
+		if !contains(err.Error(), "no lock exists") {
+			t.Errorf("Expected error about non-existent lock, got %q", err.Error())
+		}
+	})
+
+	t.Run("release stale lock succeeds", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create a stale lock file (PID that doesn't exist)
+		lockPath := filepath.Join(storageDir, "repos", "test.lock")
+		lockContent := fmt.Sprintf("locked_at: %s\npid: 99999999\n", time.Now().Format(time.RFC3339))
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Release should succeed for stale lock
+		err := ManageLocks(storageDir, false, true, false, false, "repos/test")
+		if err != nil {
+			t.Errorf("Expected release of stale lock to succeed, got error: %v", err)
+		}
+
+		// Verify lock file was removed
+		if fileExists(lockPath) {
+			t.Error("Lock file should be removed after release")
+		}
+	})
+
+	t.Run("release active lock requires force", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create an active lock file (current PID)
+		lockPath := filepath.Join(storageDir, "repos", "test.lock")
+		lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n", time.Now().Format(time.RFC3339), os.Getpid())
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Release without force should fail
+		err := ManageLocks(storageDir, false, true, false, false, "repos/test")
+		if err == nil {
+			t.Error("Expected error when releasing active lock without force")
+		}
+		if !contains(err.Error(), "use --force") {
+			t.Errorf("Expected error suggesting --force, got %q", err.Error())
+		}
+
+		// Verify lock file still exists
+		if !fileExists(lockPath) {
+			t.Error("Lock file should not be removed without force")
+		}
+	})
+
+	t.Run("release active lock with force succeeds", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create an active lock file (current PID)
+		lockPath := filepath.Join(storageDir, "repos", "test.lock")
+		lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n", time.Now().Format(time.RFC3339), os.Getpid())
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Release with force should succeed
+		err := ManageLocks(storageDir, false, true, false, true, "repos/test")
+		if err != nil {
+			t.Errorf("Expected release with force to succeed, got error: %v", err)
+		}
+
+		// Verify lock file was removed
+		if fileExists(lockPath) {
+			t.Error("Lock file should be removed after force release")
+		}
+	})
+}
+
+func TestParseLockFile(t *testing.T) {
+	t.Run("parses valid lock file", func(t *testing.T) {
+		lockPath := filepath.Join(t.TempDir(), "test.lock")
+		lockedAt := time.Now().Truncate(time.Second)
+		lockContent := fmt.Sprintf("locked_at: %s\npid: 12345\n", lockedAt.Format(time.RFC3339))
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		info, err := parseLockFile(lockPath)
+		if err != nil {
+			t.Errorf("Expected parse to succeed, got error: %v", err)
+		}
+		if info.PID != 12345 {
+			t.Errorf("Expected PID 12345, got %d", info.PID)
+		}
+		if !info.LockedAt.Equal(lockedAt) {
+			t.Errorf("Expected LockedAt %v, got %v", lockedAt, info.LockedAt)
+		}
+	})
+
+	t.Run("handles empty lock file", func(t *testing.T) {
+		lockPath := filepath.Join(t.TempDir(), "test.lock")
+		if err := os.WriteFile(lockPath, []byte(""), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		info, err := parseLockFile(lockPath)
+		if err != nil {
+			t.Errorf("Expected parse to succeed for empty file, got error: %v", err)
+		}
+		if info.PID != 0 {
+			t.Errorf("Expected PID 0 for empty file, got %d", info.PID)
+		}
+	})
+
+	t.Run("handles malformed lock file", func(t *testing.T) {
+		lockPath := filepath.Join(t.TempDir(), "test.lock")
+		if err := os.WriteFile(lockPath, []byte("garbage content"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		info, err := parseLockFile(lockPath)
+		if err != nil {
+			t.Errorf("Expected parse to succeed for malformed file, got error: %v", err)
+		}
+		if info.PID != 0 {
+			t.Errorf("Expected PID 0 for malformed file, got %d", info.PID)
+		}
+	})
+}
+
+func TestResolveLockPath(t *testing.T) {
+	storageHome := "/storage"
+
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{
+			name:     "relative path without .lock",
+			path:     "repos/test",
+			expected: "/storage/repos/test.lock",
+		},
+		{
+			name:     "relative path with .lock",
+			path:     "repos/test.lock",
+			expected: "/storage/repos/test.lock",
+		},
+		{
+			name:     "absolute path without .lock",
+			path:     "/absolute/path/test",
+			expected: "/absolute/path/test.lock",
+		},
+		{
+			name:     "absolute path with .lock",
+			path:     "/absolute/path/test.lock",
+			expected: "/absolute/path/test.lock",
+		},
 	}
 
-	expectedMsg := "lock management not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveLockPath(storageHome, tt.path)
+			if result != tt.expected {
+				t.Errorf("resolveLockPath(%q, %q) = %q, want %q", storageHome, tt.path, result, tt.expected)
+			}
+		})
 	}
+}
+
+func TestFindLockFiles(t *testing.T) {
+	t.Run("finds all lock files", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create multiple lock files
+		lockPaths := []string{
+			filepath.Join(storageDir, "repos", "lock1.lock"),
+			filepath.Join(storageDir, "repos", "owner", "lock2.lock"),
+			filepath.Join(storageDir, "cache", "lock3.lock"),
+		}
+		for _, path := range lockPaths {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			lockContent := fmt.Sprintf("locked_at: %s\npid: %d\n", time.Now().Format(time.RFC3339), os.Getpid())
+			if err := os.WriteFile(path, []byte(lockContent), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Create a non-lock file (should be ignored)
+		nonLockPath := filepath.Join(storageDir, "repos", "data.json")
+		if err := os.WriteFile(nonLockPath, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		locks, err := findLockFiles(storageDir)
+		if err != nil {
+			t.Fatalf("findLockFiles failed: %v", err)
+		}
+
+		if len(locks) != 3 {
+			t.Errorf("Expected 3 lock files, got %d", len(locks))
+		}
+	})
+
+	t.Run("returns empty for no locks", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatal(err)
+		}
+
+		locks, err := findLockFiles(storageDir)
+		if err != nil {
+			t.Fatalf("findLockFiles failed: %v", err)
+		}
+
+		if len(locks) != 0 {
+			t.Errorf("Expected 0 lock files, got %d", len(locks))
+		}
+	})
 }
 
 func TestExport(t *testing.T) {

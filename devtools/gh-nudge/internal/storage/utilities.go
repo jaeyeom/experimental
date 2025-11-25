@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -838,10 +839,237 @@ func tryRemoveEmptyDir(dir string) (bool, error) {
 	return false, nil
 }
 
+// LockInfo contains information about a lock file.
+type LockInfo struct {
+	Path     string    `json:"path"`
+	LockedAt time.Time `json:"lockedAt"`
+	PID      int       `json:"pid"`
+	IsStale  bool      `json:"isStale"`
+}
+
 // ManageLocks manages storage locks.
+// Parameters:
+//   - storageHome: path to the storage directory
+//   - list: if true, list all active locks
+//   - release: if true, release the lock at the specified path
+//   - status: if true, show lock status for the specified path
+//   - force: if true, force release even if lock is held by another process
+//   - path: the path to operate on (required for release and status)
 func ManageLocks(storageHome string, list bool, release bool, status bool, force bool, path string) error {
-	_, _, _, _, _, _ = storageHome, list, release, status, force, path // TODO: implement lock management
-	return fmt.Errorf("lock management not implemented")
+	if !directoryExists(storageHome) {
+		return fmt.Errorf("storage directory does not exist: %q", storageHome)
+	}
+
+	// Count how many operations were requested
+	opCount := 0
+	if list {
+		opCount++
+	}
+	if release {
+		opCount++
+	}
+	if status {
+		opCount++
+	}
+
+	if opCount == 0 {
+		return fmt.Errorf("no operation specified: use --list, --release, or --status")
+	}
+	if opCount > 1 {
+		return fmt.Errorf("only one operation can be specified at a time")
+	}
+
+	if list {
+		return listLocks(storageHome)
+	}
+
+	if status {
+		if path == "" {
+			return fmt.Errorf("--status requires a path argument")
+		}
+		return showLockStatus(storageHome, path)
+	}
+
+	if release {
+		if path == "" {
+			return fmt.Errorf("--release requires a path argument")
+		}
+		return releaseLock(storageHome, path, force)
+	}
+
+	return nil
+}
+
+// listLocks lists all lock files in the storage directory.
+func listLocks(storageHome string) error {
+	locks, err := findLockFiles(storageHome)
+	if err != nil {
+		return fmt.Errorf("failed to find lock files: %w", err)
+	}
+
+	if len(locks) == 0 {
+		fmt.Println("No active locks found.")
+		return nil
+	}
+
+	fmt.Printf("Found %d lock(s):\n\n", len(locks))
+	for _, lock := range locks {
+		staleStatus := ""
+		if lock.IsStale {
+			staleStatus = " (STALE)"
+		}
+		fmt.Printf("  Path: %s%s\n", lock.Path, staleStatus)
+		if !lock.LockedAt.IsZero() {
+			fmt.Printf("    Locked at: %s\n", lock.LockedAt.Format(time.RFC3339))
+		}
+		if lock.PID > 0 {
+			fmt.Printf("    PID: %d\n", lock.PID)
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+// showLockStatus shows the lock status for a specific path.
+func showLockStatus(storageHome string, path string) error {
+	lockPath := resolveLockPath(storageHome, path)
+
+	info, err := os.Stat(lockPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		fmt.Printf("No lock exists for: %s\n", path)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to stat lock file: %w", err)
+	}
+
+	lockInfo, err := parseLockFile(lockPath)
+	if err != nil {
+		return fmt.Errorf("failed to parse lock file: %w", err)
+	}
+
+	fmt.Printf("Lock status for: %s\n", path)
+	fmt.Printf("  Lock file: %s\n", lockPath)
+	fmt.Printf("  File size: %d bytes\n", info.Size())
+	fmt.Printf("  File modified: %s\n", info.ModTime().Format(time.RFC3339))
+	if !lockInfo.LockedAt.IsZero() {
+		fmt.Printf("  Locked at: %s\n", lockInfo.LockedAt.Format(time.RFC3339))
+	}
+	if lockInfo.PID > 0 {
+		fmt.Printf("  PID: %d\n", lockInfo.PID)
+		if lockInfo.IsStale {
+			fmt.Printf("  Status: STALE (process not running)\n")
+		} else {
+			fmt.Printf("  Status: ACTIVE (process running)\n")
+		}
+	}
+
+	return nil
+}
+
+// releaseLock releases a lock at the specified path.
+func releaseLock(storageHome string, path string, force bool) error {
+	lockPath := resolveLockPath(storageHome, path)
+
+	if _, err := os.Stat(lockPath); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("no lock exists for: %s", path)
+	}
+
+	lockInfo, err := parseLockFile(lockPath)
+	if err != nil {
+		return fmt.Errorf("failed to parse lock file: %w", err)
+	}
+
+	// Check if the lock is held by a running process
+	if lockInfo.PID > 0 && !lockInfo.IsStale {
+		if !force {
+			return fmt.Errorf("lock is held by running process (PID %d); use --force to release anyway", lockInfo.PID)
+		}
+		fmt.Printf("Warning: Force releasing lock held by running process (PID %d)\n", lockInfo.PID)
+	}
+
+	if err := os.Remove(lockPath); err != nil {
+		return fmt.Errorf("failed to remove lock file: %w", err)
+	}
+
+	fmt.Printf("Released lock: %s\n", path)
+	return nil
+}
+
+// findLockFiles finds all .lock files in the storage directory.
+func findLockFiles(storageHome string) ([]LockInfo, error) {
+	var locks []LockInfo
+
+	err := filepath.WalkDir(storageHome, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".lock") {
+			lockInfo, parseErr := parseLockFile(path)
+			if parseErr != nil {
+				// Include lock file even if we can't parse it
+				lockInfo = LockInfo{Path: path}
+			}
+			lockInfo.Path = path
+			locks = append(locks, lockInfo)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk storage directory: %w", err)
+	}
+
+	return locks, nil
+}
+
+// parseLockFile parses a lock file and returns its information.
+func parseLockFile(lockPath string) (LockInfo, error) {
+	info := LockInfo{Path: lockPath}
+
+	content, err := os.ReadFile(lockPath)
+	if err != nil {
+		return info, fmt.Errorf("failed to read lock file: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "locked_at: ") {
+			timeStr := strings.TrimPrefix(line, "locked_at: ")
+			if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
+				info.LockedAt = t
+			}
+		} else if strings.HasPrefix(line, "pid: ") {
+			pidStr := strings.TrimPrefix(line, "pid: ")
+			if pid, err := strconv.Atoi(pidStr); err == nil {
+				info.PID = pid
+				info.IsStale = !isProcessRunning(pid)
+			}
+		}
+	}
+
+	return info, nil
+}
+
+// resolveLockPath resolves the full path to a lock file.
+func resolveLockPath(storageHome string, path string) string {
+	// If the path already ends with .lock, use it as-is
+	if strings.HasSuffix(path, ".lock") {
+		if filepath.IsAbs(path) {
+			return path
+		}
+		return filepath.Join(storageHome, path)
+	}
+
+	// Otherwise, append .lock
+	if filepath.IsAbs(path) {
+		return path + ".lock"
+	}
+	return filepath.Join(storageHome, path+".lock")
 }
 
 // ExportData represents the structure of exported data.
