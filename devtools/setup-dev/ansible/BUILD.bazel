@@ -1512,6 +1512,20 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-claude-sandbox_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-claude-sandbox.yml"],
+    data = [
+        "jq.yml",
+        "setup-claude-sandbox.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-docker-ce_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-docker-ce.yml"],
@@ -2330,6 +2344,7 @@ test_suite(
         ":setup-cargo_syntax_test",
         ":setup-cicd_syntax_test",
         ":setup-claude-privacy_syntax_test",
+        ":setup-claude-sandbox_syntax_test",
         ":setup-docker-ce_syntax_test",
         ":setup-docker-lima_syntax_test",
         ":setup-docker-wrapper-udocker_syntax_test",

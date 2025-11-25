@@ -1,0 +1,83 @@
+---
+- import_playbook: jq.yml
+
+- name: Setup Claude Code sandbox configuration
+  hosts: all
+  vars:
+    claude_settings_dir: "{{ ansible_env.HOME }}/.claude"
+    claude_settings_file: "{{ claude_settings_dir }}/settings.json"
+    sandbox_config:
+      includeCoAuthoredBy: false
+      sandbox:
+        enabled: true
+        autoAllowBashIfSandboxed: true
+        excludedCommands:
+          - docker
+          - bazel
+        allowUnsandboxedCommands: false
+        network:
+          allowUnixSockets:
+            - /var/run/docker.sock
+          allowLocalBinding: true
+      permissions:
+        deny:
+          - "Read(.envrc)"
+          - "Read(~/.aws/**)"
+          - "Read(~/.ssh/**)"
+  tasks:
+    - name: Include guard for claude sandbox playbook
+      block:
+        - name: Stop early if the claude sandbox playbook is already included
+          meta: end_play
+          when: claude_sandbox_playbook_imported is defined
+        - name: Ensure the claude sandbox playbook is not included
+          set_fact:
+            claude_sandbox_playbook_imported: true
+          when: claude_sandbox_playbook_imported is not defined
+
+    - name: Create ~/.claude directory
+      file:
+        path: "{{ claude_settings_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if settings.json exists
+      stat:
+        path: "{{ claude_settings_file }}"
+      register: settings_file_stat
+
+    - name: Create empty settings.json if not exists
+      copy:
+        content: "{}"
+        dest: "{{ claude_settings_file }}"
+        mode: "0644"
+      when: not settings_file_stat.stat.exists
+
+    - name: Write sandbox config to temp file
+      copy:
+        content: "{{ sandbox_config | to_nice_json }}"
+        dest: "/tmp/claude-sandbox-config.json"
+        mode: "0644"
+
+    - name: Merge sandbox config into settings.json using jq
+      shell: |
+        jq -s '.[0] * .[1]' "{{ claude_settings_file }}" /tmp/claude-sandbox-config.json > /tmp/claude-settings-merged.json && \
+        mv /tmp/claude-settings-merged.json "{{ claude_settings_file }}"
+      args:
+        executable: /bin/bash
+      register: merge_result
+      changed_when: true
+
+    - name: Clean up temp file
+      file:
+        path: /tmp/claude-sandbox-config.json
+        state: absent
+
+    - name: Display current sandbox settings
+      shell: jq '.sandbox' "{{ claude_settings_file }}"
+      register: sandbox_display
+      changed_when: false
+
+    - name: Show sandbox configuration
+      debug:
+        msg: "{{ sandbox_display.stdout }}"
