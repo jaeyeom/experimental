@@ -663,16 +663,16 @@ func showCleanUsage() {
 }
 
 func handleVacuum(args []string) {
-	var compress, defragment, verify bool
+	var opts []storage.VacuumOption
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--compress":
-			compress = true
+			opts = append(opts, storage.VacuumCompress{})
 		case "--defragment":
-			defragment = true
+			opts = append(opts, storage.VacuumDefragment{})
 		case "--verify":
-			verify = true
+			opts = append(opts, storage.VacuumVerify{})
 		case "-h", "--help":
 			fmt.Println("Usage: gh-storage vacuum [options]")
 			fmt.Println("  --compress     Compress storage files")
@@ -687,7 +687,7 @@ func handleVacuum(args []string) {
 
 	storageHome := getStorageHome()
 
-	if err := storage.Vacuum(storageHome, compress, defragment, verify); err != nil {
+	if err := storage.Vacuum(storageHome, opts...); err != nil {
 		fmt.Fprintf(os.Stderr, "Error vacuuming storage: %v\n", err)
 		os.Exit(1)
 	}

@@ -787,16 +787,149 @@ func TestCleanDirectory(t *testing.T) {
 	}
 }
 
-func TestVacuum_NotImplemented(t *testing.T) {
-	err := Vacuum("storage", false, false, false)
-	if err == nil {
-		t.Error("Expected Vacuum to return error, got nil")
-	}
+func TestVacuum(t *testing.T) {
+	t.Run("returns error for non-existent storage", func(t *testing.T) {
+		err := Vacuum("/nonexistent/path")
+		if err == nil {
+			t.Error("Expected Vacuum to return error, got nil")
+		}
+	})
 
-	expectedMsg := "vacuum not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
-	}
+	t.Run("succeeds with no options on valid storage", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		err := Vacuum(storageDir)
+		if err != nil {
+			t.Errorf("Expected Vacuum to succeed, got error: %v", err)
+		}
+	})
+
+	t.Run("compacts JSON files", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create a JSON file with extra whitespace
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		prettyJSON := `{
+    "key1": "value1",
+    "key2": "value2",
+    "nested": {
+        "a": 1,
+        "b": 2
+    }
+}`
+		if err := os.WriteFile(testFile, []byte(prettyJSON), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		originalSize := int64(len(prettyJSON))
+
+		err := Vacuum(storageDir, VacuumCompress{})
+		if err != nil {
+			t.Errorf("Expected Vacuum to succeed, got error: %v", err)
+		}
+
+		// Verify file was compacted
+		compactedData, err := os.ReadFile(testFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if int64(len(compactedData)) >= originalSize {
+			t.Errorf("Expected file to be smaller after compaction, got %d bytes (original: %d)", len(compactedData), originalSize)
+		}
+
+		// Verify JSON is still valid
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(compactedData, &parsed); err != nil {
+			t.Errorf("Compacted JSON is invalid: %v", err)
+		}
+
+		// Verify data is preserved
+		if parsed["key1"] != "value1" {
+			t.Errorf("Expected key1 to be 'value1', got %v", parsed["key1"])
+		}
+	})
+
+	t.Run("removes empty directories", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create nested empty directories
+		emptyDir := filepath.Join(storageDir, "repos", "owner", "repo", "empty")
+		if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		err := Vacuum(storageDir, VacuumDefragment{})
+		if err != nil {
+			t.Errorf("Expected Vacuum to succeed, got error: %v", err)
+		}
+
+		// Verify empty directories were removed
+		if directoryExists(emptyDir) {
+			t.Error("Expected empty directory to be removed")
+		}
+	})
+
+	t.Run("verifies integrity after vacuum", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		err := Vacuum(storageDir, VacuumVerify{})
+		if err != nil {
+			t.Errorf("Expected Vacuum with verify to succeed, got error: %v", err)
+		}
+	})
+
+	t.Run("all options combined", func(t *testing.T) {
+		storageDir := t.TempDir()
+		if err := Initialize(storageDir, true, false); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		// Create a JSON file with extra whitespace
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		prettyJSON := `{"key": "value"  }`
+		if err := os.WriteFile(testFile, []byte(prettyJSON), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create an empty directory
+		emptyDir := filepath.Join(storageDir, "repos", "empty")
+		if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		err := Vacuum(storageDir, VacuumCompress{}, VacuumDefragment{}, VacuumVerify{})
+		if err != nil {
+			t.Errorf("Expected Vacuum to succeed, got error: %v", err)
+		}
+
+		// Verify empty directory was removed
+		if directoryExists(emptyDir) {
+			t.Error("Expected empty directory to be removed")
+		}
+
+		// Verify JSON file still exists and is valid
+		data, err := os.ReadFile(testFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Errorf("JSON file should still be valid: %v", err)
+		}
+	})
 }
 
 func TestManageLocks_NotImplemented(t *testing.T) {

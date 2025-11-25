@@ -607,10 +607,235 @@ func cleanDirectory(dirPath string, cutoffTime time.Time, dryRun bool) (int, err
 	return removed, nil
 }
 
+// VacuumResult contains statistics about the vacuum operation.
+type VacuumResult struct {
+	FilesProcessed   int   `json:"filesProcessed"`
+	FilesCompressed  int   `json:"filesCompressed"`
+	BytesSaved       int64 `json:"bytesSaved"`
+	EmptyDirsRemoved int   `json:"emptyDirsRemoved"`
+	ErrorCount       int   `json:"errorCount"`
+}
+
+// VacuumOption is a functional option for configuring vacuum operations.
+type VacuumOption interface {
+	applyVacuum(storageHome string, result *VacuumResult) error
+	printSummary(result *VacuumResult)
+}
+
+// VacuumCompress compacts JSON files by removing extra whitespace.
+type VacuumCompress struct{}
+
+func (VacuumCompress) applyVacuum(storageHome string, result *VacuumResult) error {
+	if err := compactJSONFiles(storageHome, result); err != nil {
+		return fmt.Errorf("failed to compact JSON files: %w", err)
+	}
+	return nil
+}
+
+func (VacuumCompress) printSummary(result *VacuumResult) {
+	fmt.Printf("  Files compacted: %d\n", result.FilesCompressed)
+	fmt.Printf("  Bytes saved: %s\n", formatSize(result.BytesSaved))
+}
+
+// VacuumDefragment removes empty directories.
+type VacuumDefragment struct{}
+
+func (VacuumDefragment) applyVacuum(storageHome string, result *VacuumResult) error {
+	if err := removeEmptyDirectories(storageHome, result); err != nil {
+		return fmt.Errorf("failed to remove empty directories: %w", err)
+	}
+	return nil
+}
+
+func (VacuumDefragment) printSummary(result *VacuumResult) {
+	fmt.Printf("  Empty directories removed: %d\n", result.EmptyDirsRemoved)
+}
+
+// VacuumVerify verifies storage integrity after vacuum.
+type VacuumVerify struct{}
+
+func (VacuumVerify) applyVacuum(storageHome string, _ *VacuumResult) error {
+	if err := Verify(storageHome); err != nil {
+		return fmt.Errorf("verification failed after vacuum: %w", err)
+	}
+	return nil
+}
+
+func (VacuumVerify) printSummary(_ *VacuumResult) {
+	// Verify has no summary output
+}
+
 // Vacuum optimizes storage by compacting and reorganizing data.
-func Vacuum(storageHome string, compress bool, defragment bool, verify bool) error {
-	_, _, _, _ = storageHome, compress, defragment, verify // TODO: implement vacuum
-	return fmt.Errorf("vacuum not implemented")
+// Parameters:
+//   - storageHome: path to the storage directory
+//   - opts: vacuum options (VacuumCompress, VacuumDefragment, VacuumVerify)
+//
+// Example:
+//
+//	Vacuum(storageHome, VacuumCompress{}, VacuumDefragment{}, VacuumVerify{})
+func Vacuum(storageHome string, opts ...VacuumOption) error {
+	if !directoryExists(storageHome) {
+		return fmt.Errorf("storage directory does not exist: %q", storageHome)
+	}
+
+	result := &VacuumResult{}
+
+	// Apply each option
+	for _, opt := range opts {
+		if err := opt.applyVacuum(storageHome, result); err != nil {
+			return err
+		}
+	}
+
+	// Print summary
+	fmt.Printf("Vacuum completed:\n")
+	fmt.Printf("  Files processed: %d\n", result.FilesProcessed)
+	for _, opt := range opts {
+		opt.printSummary(result)
+	}
+	if result.ErrorCount > 0 {
+		fmt.Printf("  Errors encountered: %d\n", result.ErrorCount)
+	}
+
+	return nil
+}
+
+// compactJSONFiles compacts all JSON files by removing extra whitespace.
+func compactJSONFiles(storageHome string, result *VacuumResult) error {
+	err := filepath.Walk(storageHome, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Only process JSON files
+		if !strings.HasSuffix(strings.ToLower(info.Name()), ".json") {
+			return nil
+		}
+
+		result.FilesProcessed++
+
+		saved, err := compactJSONFile(path, info.Size())
+		if err != nil {
+			result.ErrorCount++
+			fmt.Printf("Warning: failed to compact %s: %v\n", path, err)
+			return nil // Continue processing other files
+		}
+
+		if saved > 0 {
+			result.FilesCompressed++
+			result.BytesSaved += saved
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to walk storage directory: %w", err)
+	}
+	return nil
+}
+
+// compactJSONFile compacts a single JSON file and returns bytes saved.
+func compactJSONFile(path string, originalSize int64) (int64, error) {
+	// Read the file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Parse JSON
+	var parsed interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return 0, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	// Re-encode without extra whitespace (compact format)
+	compacted, err := json.Marshal(parsed)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Add a trailing newline for better compatibility
+	compacted = append(compacted, '\n')
+
+	newSize := int64(len(compacted))
+
+	// Only write if we actually saved space
+	if newSize < originalSize {
+		if err := os.WriteFile(path, compacted, 0o600); err != nil {
+			return 0, fmt.Errorf("failed to write compacted file: %w", err)
+		}
+		return originalSize - newSize, nil
+	}
+
+	return 0, nil
+}
+
+// removeEmptyDirectories removes all empty directories under storageHome.
+// It processes directories from deepest to shallowest to handle nested empty dirs.
+func removeEmptyDirectories(storageHome string, result *VacuumResult) error {
+	// Collect all directories first
+	var dirs []string
+	err := filepath.Walk(storageHome, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && path != storageHome {
+			dirs = append(dirs, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to walk directory: %w", err)
+	}
+
+	// Sort directories by depth (deepest first) to handle nested empty dirs
+	sort.Slice(dirs, func(i, j int) bool {
+		return strings.Count(dirs[i], string(os.PathSeparator)) > strings.Count(dirs[j], string(os.PathSeparator))
+	})
+
+	// Try to remove empty directories
+	for _, dir := range dirs {
+		removed, err := tryRemoveEmptyDir(dir)
+		if err != nil {
+			result.ErrorCount++
+			fmt.Printf("Warning: failed to check directory %s: %v\n", dir, err)
+			continue
+		}
+		if removed {
+			result.EmptyDirsRemoved++
+		}
+	}
+
+	return nil
+}
+
+// tryRemoveEmptyDir attempts to remove a directory if it's empty.
+// Returns true if the directory was removed.
+func tryRemoveEmptyDir(dir string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil // Already removed (parent was removed)
+		}
+		return false, fmt.Errorf("failed to read directory %s: %w", dir, err)
+	}
+
+	if len(entries) == 0 {
+		if err := os.Remove(dir); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return false, nil
+			}
+			return false, fmt.Errorf("failed to remove empty directory %s: %w", dir, err)
+		}
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // ManageLocks manages storage locks.
