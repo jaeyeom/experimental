@@ -40,8 +40,13 @@ func main() {
 
 	slog.Debug("Staged files found", "count", len(stagedFiles))
 
-	cacheKey := getCacheKey(c, config.noCache)
 	packages := findPackages(stagedFiles)
+	if len(packages) == 0 {
+		slog.Debug("No Bazel packages found for staged files")
+		os.Exit(0)
+	}
+
+	cacheKey := getCacheKey(c, config.noCache)
 
 	querier := query.NewBazelQuerier(config.debug)
 	allTests := collectAllTests(packages, querier, c, cacheKey, config.noCache)
