@@ -21,7 +21,7 @@ func TestInitialize_CreatesStorageStructure(t *testing.T) {
 
 	storageDir := filepath.Join(tempDir, "storage")
 
-	err = Initialize(storageDir, false, false)
+	err = Initialize(storageDir, false)
 	if err != nil {
 		t.Fatalf("Initialize failed: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestInitialize_RespectsForceFlag(t *testing.T) {
 			}
 
 			// Try to initialize
-			err = Initialize(storageDir, tt.force, false)
+			err = Initialize(storageDir, tt.force)
 
 			if tt.expectErr && err == nil {
 				t.Error("Expected error but got nil")
@@ -109,28 +109,6 @@ func TestInitialize_RespectsForceFlag(t *testing.T) {
 				t.Errorf("Expected no error but got: %v", err)
 			}
 		})
-	}
-}
-
-func TestInitialize_MigrationFlag(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gh-nudge-migrate-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	storageDir := filepath.Join(tempDir, "storage")
-
-	// Initialize with migration flag should fail (not implemented)
-	err = Initialize(storageDir, false, true)
-	if err == nil {
-		t.Error("Expected migration to fail with 'not implemented' error, but got nil")
-	}
-
-	// Verify the error message
-	expectedMsg := "migration not implemented"
-	if err != nil && err.Error() != "failed to migrate data: "+expectedMsg {
-		t.Errorf("Expected migration error, got: %v", err)
 	}
 }
 
@@ -189,25 +167,13 @@ func TestDirectoryExists(t *testing.T) {
 	}
 }
 
-func TestMigrate_NotImplemented(t *testing.T) {
-	err := Migrate("storage", "v1", "v2", false, false)
-	if err == nil {
-		t.Error("Expected Migrate to return error, got nil")
-	}
-
-	expectedMsg := "migration not implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
-	}
-}
-
 func TestCreateBackup(t *testing.T) {
 	t.Run("creates uncompressed backup", func(t *testing.T) {
 		storageDir := t.TempDir()
 		backupDir := t.TempDir()
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -245,7 +211,7 @@ func TestCreateBackup(t *testing.T) {
 		backupDir := t.TempDir()
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -281,7 +247,7 @@ func TestCreateBackup(t *testing.T) {
 		backupDir := t.TempDir()
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -299,7 +265,7 @@ func TestRestoreBackup(t *testing.T) {
 		restoreDir := t.TempDir()
 
 		// Initialize and populate storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -339,7 +305,7 @@ func TestRestoreBackup(t *testing.T) {
 		restoreDir := t.TempDir()
 
 		// Initialize and populate storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -379,7 +345,7 @@ func TestRestoreBackup(t *testing.T) {
 		restoreDir := t.TempDir()
 
 		// Initialize and populate storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -423,7 +389,7 @@ func TestRestoreBackup(t *testing.T) {
 		restoreDir := t.TempDir()
 
 		// Initialize and populate storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -471,7 +437,7 @@ func TestListBackups(t *testing.T) {
 		backupDir := t.TempDir()
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -798,7 +764,7 @@ func TestVacuum(t *testing.T) {
 
 	t.Run("succeeds with no options on valid storage", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -810,7 +776,7 @@ func TestVacuum(t *testing.T) {
 
 	t.Run("compacts JSON files", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -859,7 +825,7 @@ func TestVacuum(t *testing.T) {
 
 	t.Run("removes empty directories", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -882,7 +848,7 @@ func TestVacuum(t *testing.T) {
 
 	t.Run("verifies integrity after vacuum", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -894,7 +860,7 @@ func TestVacuum(t *testing.T) {
 
 	t.Run("all options combined", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -946,7 +912,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("fails when no operation specified", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -961,7 +927,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("fails when multiple operations specified", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -976,7 +942,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("list succeeds with no locks", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -988,7 +954,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("list shows existing locks", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1007,7 +973,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("status requires path", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1022,7 +988,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("status shows lock info", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1042,7 +1008,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("status shows no lock for non-existent path", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1054,7 +1020,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("release requires path", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1069,7 +1035,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("release fails for non-existent lock", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1084,7 +1050,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("release stale lock succeeds", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1109,7 +1075,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("release active lock requires force", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1137,7 +1103,7 @@ func TestManageLocks(t *testing.T) {
 
 	t.Run("release active lock with force succeeds", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1256,7 +1222,7 @@ func TestResolveLockPath(t *testing.T) {
 func TestFindLockFiles(t *testing.T) {
 	t.Run("finds all lock files", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1294,7 +1260,7 @@ func TestFindLockFiles(t *testing.T) {
 
 	t.Run("returns empty for no locks", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1315,7 +1281,7 @@ func TestExport(t *testing.T) {
 		outputPath := filepath.Join(t.TempDir(), "export.json")
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -1357,7 +1323,7 @@ func TestExport(t *testing.T) {
 		outputPath := filepath.Join(t.TempDir(), "export.json")
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -1387,7 +1353,7 @@ func TestExport(t *testing.T) {
 		outputPath := filepath.Join(t.TempDir(), "export.json.gz")
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -1413,7 +1379,7 @@ func TestExport(t *testing.T) {
 		outputPath := filepath.Join(t.TempDir(), "export.tar")
 
 		// Initialize storage
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatalf("Failed to initialize storage: %v", err)
 		}
 
@@ -1445,7 +1411,7 @@ func TestExport(t *testing.T) {
 
 	t.Run("fails for unsupported format", func(t *testing.T) {
 		storageDir := t.TempDir()
-		if err := Initialize(storageDir, true, false); err != nil {
+		if err := Initialize(storageDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1672,7 +1638,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 		exportFile := filepath.Join(t.TempDir(), "export.json")
 
 		// Initialize source storage
-		if err := Initialize(sourceDir, true, false); err != nil {
+		if err := Initialize(sourceDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1721,7 +1687,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 		exportFile := filepath.Join(t.TempDir(), "export.tar")
 
 		// Initialize source storage
-		if err := Initialize(sourceDir, true, false); err != nil {
+		if err := Initialize(sourceDir, true); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1873,7 +1839,7 @@ func TestVerify_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Initialize it properly (use force=true since TempDir already created the directory)
-	if err := Initialize(tmpDir, true, false); err != nil {
+	if err := Initialize(tmpDir, true); err != nil {
 		t.Fatalf("Failed to initialize storage: %v", err)
 	}
 

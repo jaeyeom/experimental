@@ -57,7 +57,6 @@ func getCommandHandler(command string) func([]string) {
 		"get":     handleGet,
 		"set":     handleSet,
 		"delete":  handleDelete,
-		"migrate": handleMigrate,
 		"backup":  handleBackup,
 		"restore": handleRestore,
 		"clean":   handleClean,
@@ -86,7 +85,6 @@ Commands:
   get <key>               Get value from storage
   set <key> <value>       Set value in storage
   delete <key>            Delete value from storage
-  migrate                 Migrate legacy data to unified storage
   backup [path]           Create backup of storage data
   restore <backup-id>     Restore from backup
   clean                   Clean up old/temporary data
@@ -149,11 +147,10 @@ func handleInit(args []string) {
 	if parser.IsHelp() {
 		fmt.Println("Usage: gh-storage init [options]")
 		fmt.Println("  --force    Reinitialize existing storage")
-		fmt.Println("  --migrate  Automatically migrate legacy data")
 		return
 	}
 
-	if err := parser.ValidateOptions([]string{"force", "migrate"}); err != nil {
+	if err := parser.ValidateOptions([]string{"force"}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -164,11 +161,10 @@ func handleInit(args []string) {
 	}
 
 	force := parser.GetBoolOption("force")
-	migrate := parser.GetBoolOption("migrate")
 
 	storageHome := getStorageHome()
 
-	if err := storage.Initialize(storageHome, force, migrate); err != nil {
+	if err := storage.Initialize(storageHome, force); err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing storage: %v\n", err)
 		os.Exit(1)
 	}
@@ -409,71 +405,6 @@ func handleDelete(args []string) {
 	}
 
 	fmt.Printf("Deleted %s\n", key)
-}
-
-func handleMigrate(args []string) {
-	from, to, dryRun, backup, err := parseMigrateArgs(args)
-	if err != nil {
-		if err.Error() == "help requested" {
-			return
-		}
-		fmt.Fprintf(os.Stderr, "Error parsing arguments: %v\n", err)
-		os.Exit(1)
-	}
-
-	storageHome := getStorageHome()
-
-	if err := storage.Migrate(storageHome, from, to, dryRun, backup); err != nil {
-		fmt.Fprintf(os.Stderr, "Error migrating: %v\n", err)
-		os.Exit(1)
-	}
-
-	if dryRun {
-		fmt.Println("Migration preview completed")
-	} else {
-		fmt.Println("Migration completed")
-	}
-}
-
-func parseMigrateArgs(args []string) (string, string, bool, bool, error) {
-	var from, to string
-	var dryRun, backup bool
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--from":
-			if i+1 >= len(args) {
-				return "", "", false, false, fmt.Errorf("--from requires a value")
-			}
-			from = args[i+1]
-			i++
-		case "--to":
-			if i+1 >= len(args) {
-				return "", "", false, false, fmt.Errorf("--to requires a value")
-			}
-			to = args[i+1]
-			i++
-		case "--dry-run":
-			dryRun = true
-		case "--backup":
-			backup = true
-		case "-h", "--help":
-			showMigrateUsage()
-			return "", "", false, false, fmt.Errorf("help requested")
-		default:
-			return "", "", false, false, fmt.Errorf("unknown option: %s", args[i])
-		}
-	}
-
-	return from, to, dryRun, backup, nil
-}
-
-func showMigrateUsage() {
-	fmt.Println("Usage: gh-storage migrate [options]")
-	fmt.Println("  --from PATH     Source format/path")
-	fmt.Println("  --to PATH       Target format/path")
-	fmt.Println("  --dry-run       Preview migration without changes")
-	fmt.Println("  --backup        Create backup before migration")
 }
 
 func handleBackup(args []string) {
