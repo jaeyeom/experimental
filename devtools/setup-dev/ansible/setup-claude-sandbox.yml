@@ -22,7 +22,23 @@
             - /var/run/docker.sock
           allowLocalBinding: true
       permissions:
+        allow:
+          - "Bash(bazel build:*)"  # Medium risk (may run genrule)
+          - "Bash(bazel query:*)"
+          - "Bash(bazel test:*)"   # Medium risk (may run genrule)
+          - "Bash(git add:*)"
+          - "Bash(git branch:*)"
+          - "Bash(git commit:*)"
+          - "Bash(git diff:*)"
+          - "Bash(git log:*)"
+          - "Bash(git status:*)"
+          - "Bash(golangci-lint run:*)"
+          - "Bash(ruff:*)"
         deny:
+          - "Bash(eval:*)"      # Shell eval
+          - "Bash(find:*)"      # Glob tool is safer
+          - "Bash(source:*)"    # Source scripts
+          - "Bash(xargs:*)"     # Can execute arbitrary commands
           - "Read(.envrc)"
           - "Read(~/.aws/**)"
           - "Read(~/.azure/**)"
