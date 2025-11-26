@@ -12,9 +12,11 @@
         enabled: true
         autoAllowBashIfSandboxed: true
         excludedCommands:
-          - docker
           - bazel
-        allowUnsandboxedCommands: false
+          - docker
+          - git
+          - make
+        allowUnsandboxedCommands: true
         network:
           allowUnixSockets:
             - /var/run/docker.sock
