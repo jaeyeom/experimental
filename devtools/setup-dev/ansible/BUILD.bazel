@@ -132,6 +132,7 @@ sh_test(
         "setup-cargo.yml",
         "setup-cicd.yml",
         "setup-claude-privacy.yml",
+        "setup-claude-sandbox.yml",
         "setup-emacs.yml",
         "setup-git.yml",
         "setup-gpg-agent.yml",
