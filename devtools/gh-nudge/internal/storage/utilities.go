@@ -18,7 +18,7 @@ import (
 )
 
 // Initialize creates a new storage directory structure with metadata and subdirectories.
-func Initialize(storageHome string, force bool, migrate bool) error {
+func Initialize(storageHome string, force bool) error {
 	if !force && directoryExists(storageHome) {
 		return fmt.Errorf("storage directory already exists: %q", storageHome)
 	}
@@ -51,29 +51,12 @@ func Initialize(storageHome string, force bool, migrate bool) error {
 		}
 	}
 
-	if migrate {
-		if err := migrateFrom(storageHome); err != nil {
-			return fmt.Errorf("failed to migrate data: %w", err)
-		}
-	}
-
 	return nil
 }
 
 func directoryExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-func migrateFrom(storageHome string) error {
-	_ = storageHome // TODO: implement migration
-	return fmt.Errorf("migration not implemented")
-}
-
-// Migrate migrates storage data between formats.
-func Migrate(storageHome string, from string, to string, dryRun bool, backup bool) error {
-	_, _, _, _, _ = storageHome, from, to, dryRun, backup // TODO: implement migration
-	return fmt.Errorf("migration not implemented")
 }
 
 // BackupMetadata contains information about a backup.
