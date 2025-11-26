@@ -23,8 +23,21 @@
         deny:
           - "Read(.envrc)"
           - "Read(~/.aws/**)"
+          - "Read(~/.azure/**)"
+          - "Read(~/.bash_history)"
+          - "Read(~/.config/gcloud/**)"
+          - "Read(~/.config/gh/hosts.yml)"
+          - "Read(~/.docker/config.json)"
+          - "Read(~/.gnupg/**)"
+          - "Read(~/.kube/config)"
+          - "Read(~/.my.cnf)"
+          - "Read(~/.netrc)"
+          - "Read(~/.npmrc)"
           - "Read(~/.password-store/**)"
+          - "Read(~/.pgpass)"
+          - "Read(~/.pypirc)"
           - "Read(~/.ssh/**)"
+          - "Read(~/.zsh_history)"
   tasks:
     - name: Include guard for claude sandbox playbook
       block:
