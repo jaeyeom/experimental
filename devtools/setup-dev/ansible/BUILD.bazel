@@ -2141,6 +2141,17 @@ sh_test(
 )
 
 sh_test(
+    name = "ucm_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["ucm.yml"],
+    data = ["ucm.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "udocker_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["udocker.yml"],
@@ -2379,6 +2390,7 @@ test_suite(
         ":task_syntax_test",
         ":tlmgr_syntax_test",
         ":tmux_syntax_test",
+        ":ucm_syntax_test",
         ":udocker_syntax_test",
         ":unzip_syntax_test",
         ":uv_syntax_test",

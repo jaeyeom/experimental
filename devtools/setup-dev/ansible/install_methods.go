@@ -570,3 +570,106 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
 func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {
 	return stripBlockAndIndent(s.RenderInstallTask(command), 0)
 }
+
+// AptRepoInstallMethod handles installation via external apt repositories
+// with GPG key support. This is useful for third-party packages that provide
+// their own Debian/Ubuntu repositories.
+type AptRepoInstallMethod struct {
+	// Name is the package name to install via apt.
+	Name string
+
+	// GPGKeyURL is the URL to download the GPG public key for the repository.
+	// Example: "https://debian.unison-lang.org/public.gpg"
+	GPGKeyURL string
+
+	// GPGKeyPath is the path where the GPG key will be stored.
+	// Example: "/etc/apt/trusted.gpg.d/unison-computing.gpg"
+	GPGKeyPath string
+
+	// RepoURL is the base URL of the apt repository.
+	// Example: "https://debian.unison-lang.org/"
+	RepoURL string
+
+	// RepoComponents are the components to enable (e.g., "main", "contrib").
+	// Example: "main"
+	RepoComponents string
+
+	// Codename is the distribution codename. Use empty string to auto-detect
+	// from ansible_facts['distribution_release'], or specify a fixed value
+	// like "trixie" or "bookworm".
+	Codename string
+
+	// Arch is the architecture constraint (e.g., "amd64"). Leave empty for no constraint.
+	Arch string
+}
+
+func (a AptRepoInstallMethod) GetMethodType() string {
+	return "apt-repo"
+}
+
+func (a AptRepoInstallMethod) GetImports() []Import {
+	return nil
+}
+
+func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
+	codename := a.Codename
+	if codename == "" {
+		codename = "{{ ansible_facts['distribution_release'] }}"
+	}
+
+	archOption := ""
+	if a.Arch != "" {
+		archOption = "arch=" + a.Arch + " "
+	}
+
+	return `    - name: Check if GPG key for ` + command + ` exists
+      ansible.builtin.stat:
+        path: ` + a.GPGKeyPath + `
+      register: ` + command + `_gpg_key
+      when: ` + WhenDebianLike + `
+
+    - name: Download GPG key for ` + command + `
+      ansible.builtin.get_url:
+        url: ` + a.GPGKeyURL + `
+        dest: /tmp/` + command + `-repo.gpg
+        mode: '0644'
+      become: yes
+      when: ` + WhenDebianLike + ` and not ` + command + `_gpg_key.stat.exists
+
+    - name: Dearmor and install GPG key for ` + command + `
+      ansible.builtin.shell: |
+        cat /tmp/` + command + `-repo.gpg | gpg --dearmor -o ` + a.GPGKeyPath + `
+      args:
+        creates: ` + a.GPGKeyPath + `
+      become: yes
+      when: ` + WhenDebianLike + ` and not ` + command + `_gpg_key.stat.exists
+
+    - name: Add apt repository for ` + command + `
+      ansible.builtin.apt_repository:
+        repo: "deb [` + archOption + `signed-by=` + a.GPGKeyPath + `] ` + a.RepoURL + ` ` + codename + ` ` + a.RepoComponents + `"
+        state: present
+        filename: ` + command + `
+        update_cache: yes
+      become: yes
+      when: ` + WhenDebianLike + `
+
+`
+}
+
+func (a AptRepoInstallMethod) RenderInstallTask(command string) string {
+	return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` via apt
+          ansible.builtin.apt:
+            name: ` + a.Name + `
+            state: present
+            update_cache: yes
+          become: yes`
+}
+
+func (a AptRepoInstallMethod) RenderBlockInstallTask(command string) string {
+	return stripBlockAndIndent(a.RenderInstallTask(command), 0)
+}

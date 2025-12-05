@@ -113,6 +113,11 @@ var platformSpecificTemplate = `---
           when: {{.CommandID}}_playbook_imported is not defined
 {{- if .HasDarwin }}
 {{- $method := .DarwinMethod }}
+{{- $setupTasks := $method.RenderSetupTasks .Command }}
+{{- if $setupTasks }}
+
+{{$setupTasks}}
+{{- end }}
 
     - name: Ensure {{.Command}} is present on MacOS
       block:
@@ -134,6 +139,11 @@ var platformSpecificTemplate = `---
 {{- else }}
 {{- if .HasDebianLike }}
 {{- $method := .DebianLikeMethod }}
+{{- $setupTasks := $method.RenderSetupTasks .Command }}
+{{- if $setupTasks }}
+
+{{$setupTasks}}
+{{- end }}
 {{- if or (eq $method.GetMethodType "pip") (eq $method.GetMethodType "uv") }}
 
 {{$method.RenderInstallTask .Command}}
