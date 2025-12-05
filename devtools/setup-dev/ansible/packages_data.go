@@ -260,6 +260,22 @@ var platformSpecificTools = []PlatformSpecificTool{
 	},
 	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
+		command: "ucm",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "unison-language", Tap: "unisonweb/unison"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "unisonweb",
+				GPGKeyURL:      "https://debian.unison-lang.org/public.gpg",
+				GPGKeyPath:     "/etc/apt/trusted.gpg.d/unison-computing.gpg",
+				RepoURL:        "https://debian.unison-lang.org/",
+				RepoComponents: "main",
+				Codename:       "trixie",
+				Arch:           "amd64",
+			},
+		},
+		Imports: nil,
+	},
+	{
 		command: "uv",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewInstallMethod{Name: "uv"},
