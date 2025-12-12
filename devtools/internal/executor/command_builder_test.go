@@ -25,6 +25,7 @@ func TestDirectCommandBuilder(t *testing.T) {
 			cmd := builder.Build(ctx, tt.command, tt.args)
 			if cmd == nil {
 				t.Fatal("Build() returned nil")
+				return
 			}
 			if cmd.Path != tt.command && !strings.Contains(cmd.Path, tt.command) {
 				t.Errorf("Command path = %q, want to contain %q", cmd.Path, tt.command)
@@ -52,6 +53,7 @@ func TestShellCommandBuilder(t *testing.T) {
 			cmd := builder.Build(ctx, tt.command, tt.args)
 			if cmd == nil {
 				t.Fatal("Build() returned nil")
+				return
 			}
 			// Should be using sh -c
 			if !strings.Contains(cmd.Path, "sh") {
@@ -353,6 +355,7 @@ func TestShellInjectionPrevention(t *testing.T) {
 			}
 			if result == nil {
 				t.Fatal("Execute() returned nil result")
+				return
 			}
 
 			// The output should be the literal string, not the result of command injection

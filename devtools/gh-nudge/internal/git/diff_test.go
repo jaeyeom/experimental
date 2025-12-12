@@ -70,6 +70,7 @@ func TestNewClientWithExecutor(t *testing.T) {
 
 		if client == nil {
 			t.Fatal("expected non-nil client")
+			return
 		}
 		if client.repoPath != testRepoPath {
 			t.Errorf("expected repoPath %s, got %s", testRepoPath, client.repoPath)
@@ -128,6 +129,7 @@ index abc123..def456 100644
 		}
 		if result == nil {
 			t.Fatal("expected non-nil result")
+			return
 		}
 		if result.BranchName != testBranch {
 			t.Errorf("expected branch %s, got %s", testBranch, result.BranchName)
@@ -683,6 +685,7 @@ func TestParseHunkHeader(t *testing.T) {
 			if tt.wantLeftSide {
 				if leftHunk == nil {
 					t.Fatal("expected left hunk but got nil")
+					return
 				}
 				if leftHunk.Side != models.SideLeft {
 					t.Errorf("expected LEFT side, got %s", leftHunk.Side)
@@ -703,6 +706,7 @@ func TestParseHunkHeader(t *testing.T) {
 			if tt.wantRightSide {
 				if rightHunk == nil {
 					t.Fatal("expected right hunk but got nil")
+					return
 				}
 				if rightHunk.Side != models.SideRight {
 					t.Errorf("expected RIGHT side, got %s", rightHunk.Side)
@@ -940,6 +944,7 @@ func TestCreateSuggestionFromGroup(t *testing.T) {
 
 		if suggestion == nil {
 			t.Fatal("expected suggestion but got nil")
+			return
 		}
 		if suggestion.Offset != 2 {
 			t.Errorf("expected offset 2, got %d", suggestion.Offset)
@@ -984,6 +989,7 @@ func TestCreateSuggestionFromGroup(t *testing.T) {
 
 		if suggestion == nil {
 			t.Fatal("expected suggestion but got nil")
+			return
 		}
 		if suggestion.Confidence != models.ConfidenceMedium {
 			t.Errorf("expected medium confidence for complex changes, got %s", suggestion.Confidence)
@@ -1009,6 +1015,7 @@ func TestCreateSuggestionFromGroup(t *testing.T) {
 
 		if suggestion == nil {
 			t.Fatal("expected suggestion but got nil")
+			return
 		}
 		if suggestion.Confidence != models.ConfidenceLow {
 			t.Errorf("expected low confidence for conflicts, got %s", suggestion.Confidence)

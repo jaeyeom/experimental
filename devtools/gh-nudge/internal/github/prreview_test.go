@@ -66,6 +66,7 @@ func TestNewPRReviewClient(t *testing.T) {
 
 	if prReviewClient == nil {
 		t.Fatal("expected non-nil PRReviewClient")
+		return
 	}
 
 	if prReviewClient.client != client {
@@ -2224,6 +2225,7 @@ func TestGitHubCommentGetOriginalLineRange(t *testing.T) {
 
 		if result1 == nil || result2 == nil {
 			t.Fatal("expected non-nil results")
+			return
 		}
 
 		// Should have same value but different pointers

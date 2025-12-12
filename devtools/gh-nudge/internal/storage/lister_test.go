@@ -21,6 +21,7 @@ func TestNewFileSystemLister_CreatesWithAbsolutePath(t *testing.T) {
 
 	if lister == nil {
 		t.Fatal("Expected non-nil lister")
+		return
 	}
 
 	// Verify the rootPath is absolute
