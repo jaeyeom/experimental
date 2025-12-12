@@ -1764,6 +1764,7 @@ func TestNewCommandHandler(t *testing.T) {
 
 	if handler == nil {
 		t.Fatal("expected non-nil handler")
+		return
 	}
 	if handler.storage == nil {
 		t.Error("expected storage to be set")
