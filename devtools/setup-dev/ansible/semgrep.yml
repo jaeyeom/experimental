@@ -34,10 +34,10 @@
           ansible.builtin.pip:
             name: semgrep
             state: latest
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Ensure if semgrep is installed
       ansible.builtin.pip:
         name: semgrep
         state: latest
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

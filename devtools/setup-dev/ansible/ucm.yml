@@ -40,7 +40,7 @@
       ansible.builtin.stat:
         path: /etc/apt/trusted.gpg.d/unison-computing.gpg
       register: ucm_gpg_key
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Download GPG key for ucm
       ansible.builtin.get_url:
@@ -48,7 +48,7 @@
         dest: /tmp/ucm-repo.gpg
         mode: '0644'
       become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and not ucm_gpg_key.stat.exists
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and not ucm_gpg_key.stat.exists
 
     - name: Dearmor and install GPG key for ucm
       ansible.builtin.shell: |
@@ -56,7 +56,7 @@
       args:
         creates: /etc/apt/trusted.gpg.d/unison-computing.gpg
       become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and not ucm_gpg_key.stat.exists
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and not ucm_gpg_key.stat.exists
 
     - name: Add apt repository for ucm
       ansible.builtin.apt_repository:
@@ -65,7 +65,7 @@
         filename: ucm
         update_cache: yes
       become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
 
 
@@ -81,4 +81,4 @@
             state: present
             update_cache: yes
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

@@ -20,7 +20,7 @@
         repo: "ppa:ubuntuhandbook1/emacs"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
       become: yes
 
     - name: Ensure bookworm-backports is added to sources.list.d
@@ -28,7 +28,7 @@
         repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
 
     - name: Tap d12frosted/emacs-plus for emacs
@@ -64,7 +64,7 @@
             name: emacs
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure emacs is present on Termux
       block:
@@ -74,4 +74,4 @@
       rescue:
         - name: Install emacs on Termux
           command: pkg install -y emacs
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

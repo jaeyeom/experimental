@@ -38,34 +38,34 @@
     - name: Asserts that user name and email are available
       ansible.builtin.assert:
         that:
-          - (get_git_user_name.stdout | length > 0) or (ansible_env.GIT_AUTHOR_NAME is defined and ansible_env.GIT_AUTHOR_NAME | length > 0)
-          - (get_git_user_email.stdout | length > 0) or (ansible_env.GIT_AUTHOR_EMAIL is defined and ansible_env.GIT_AUTHOR_EMAIL | length > 0)
-          - (get_github_username.stdout | length > 0) or (ansible_env.GITHUB_USERNAME is defined and ansible_env.GITHUB_USERNAME | length > 0)
+          - (get_git_user_name.stdout | length > 0) or (ansible_facts['env']['GIT_AUTHOR_NAME'] is defined and ansible_facts['env']['GIT_AUTHOR_NAME'] | length > 0)
+          - (get_git_user_email.stdout | length > 0) or (ansible_facts['env']['GIT_AUTHOR_EMAIL'] is defined and ansible_facts['env']['GIT_AUTHOR_EMAIL'] | length > 0)
+          - (get_github_username.stdout | length > 0) or (ansible_facts['env']['GITHUB_USERNAME'] is defined and ansible_facts['env']['GITHUB_USERNAME'] | length > 0)
         fail_msg: "Please set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL and/or GITHUB_USERNAME"
 
     - name: Set global user name
-      shell: git config --global user.name "{{ ansible_env.GIT_AUTHOR_NAME }}"
+      shell: git config --global user.name "{{ ansible_facts['env']['GIT_AUTHOR_NAME'] }}"
       when: get_git_user_name.stdout == ""
 
     - name: Set global user email
-      shell: git config --global user.email "{{ ansible_env.GIT_AUTHOR_EMAIL }}"
+      shell: git config --global user.email "{{ ansible_facts['env']['GIT_AUTHOR_EMAIL'] }}"
       when: get_git_user_email.stdout == ""
 
     - name: Set global user name
-      shell: git config --global github.user "{{ ansible_env.GITHUB_USERNAME }}"
+      shell: git config --global github.user "{{ ansible_facts['env']['GITHUB_USERNAME'] }}"
       when: get_github_username.stdout == ""
 
     - name: Ensure git user name is set
       ansible.builtin.set_fact:
-        git_user_name: "{{ get_git_user_name.stdout | default(ansible_env.GIT_AUTHOR_NAME) }}"
+        git_user_name: "{{ get_git_user_name.stdout | default(ansible_facts['env']['GIT_AUTHOR_NAME']) }}"
 
     - name: Ensure git user email is set
       ansible.builtin.set_fact:
-        git_user_email: "{{ get_git_user_email.stdout | default(ansible_env.GIT_AUTHOR_EMAIL) }}"
+        git_user_email: "{{ get_git_user_email.stdout | default(ansible_facts['env']['GIT_AUTHOR_EMAIL']) }}"
 
     - name: Ensure git user name is set
       ansible.builtin.set_fact:
-        github_username: "{{ get_github_username.stdout | default(ansible_env.GITHUB_USERNAME) }}"
+        github_username: "{{ get_github_username.stdout | default(ansible_facts['env']['GITHUB_USERNAME']) }}"
 
     - name: Debug name
       ansible.builtin.debug:

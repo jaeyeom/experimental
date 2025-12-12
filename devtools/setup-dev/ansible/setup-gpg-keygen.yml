@@ -26,7 +26,7 @@
       block:
         - name: Create GPG batch file
           ansible.builtin.copy:
-            dest: "{{ ansible_env.HOME }}/.gpg-batch"
+            dest: "{{ ansible_facts['env']['HOME'] }}/.gpg-batch"
             mode: '0600'
             content: |
               %echo Generating GPG key
@@ -39,17 +39,17 @@
               Name-Real: {{ git_user_name }}
               Name-Email: {{ git_user_email }}
               Expire-Date: 1y
-              Passphrase: {{ ansible_env.SSHPASS }}
+              Passphrase: {{ ansible_facts['env']['SSHPASS'] }}
               %commit
               %echo done
 
         - name: Generate GPG key using batch file
-          shell: gpg --batch --generate-key {{ ansible_env.HOME }}/.gpg-batch
+          shell: gpg --batch --generate-key {{ ansible_facts['env']['HOME'] }}/.gpg-batch
           register: gpg_keygen_result
 
         - name: Remove GPG batch file
           ansible.builtin.file:
-            path: "{{ ansible_env.HOME }}/.gpg-batch"
+            path: "{{ ansible_facts['env']['HOME'] }}/.gpg-batch"
             state: absent
 
         - name: Get generated GPG key ID

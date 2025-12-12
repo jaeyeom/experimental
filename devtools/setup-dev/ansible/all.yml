@@ -3,7 +3,7 @@
 - import_playbook: setup-ssh-key.yml
 - import_playbook: setup-gpg-agent.yml
 - import_playbook: setup-bazel.yml
-  when: ansible_env.TERMUX_VERSION is not defined
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 - import_playbook: setup-windsurf-rules.yml
 - import_playbook: htop.yml
 - import_playbook: sed.yml

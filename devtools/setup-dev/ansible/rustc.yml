@@ -22,9 +22,9 @@
 
       - name: Set cargo environment variables for the current playbook
         ansible.builtin.set_fact:
-          ansible_env: "{{ ansible_env | combine({'PATH': ansible_env.HOME + '/.cargo/bin:' + ansible_env.PATH}) }}"
-      when: ansible_env.TERMUX_VERSION is not defined
+          ansible_env: "{{ ansible_env | combine({'PATH': ansible_facts['env']['HOME'] + '/.cargo/bin:' + ansible_facts['env']['PATH']}) }}"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
     - name: Ensure rustc is present on Termux
       shell: command -v rust || pkg install -y rust
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

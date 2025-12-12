@@ -38,7 +38,7 @@
             name: zip
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure zip is present on Termux
       block:
@@ -48,4 +48,4 @@
       rescue:
         - name: Install zip on Termux
           command: pkg install -y zip
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

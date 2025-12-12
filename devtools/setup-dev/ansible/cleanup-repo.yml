@@ -16,8 +16,8 @@
 
     - name: Create symbolic link for cleanup-repo.sh
       ansible.builtin.file:
-        src: "{{ ansible_env.HOME }}/go/src/github.com/jaeyeom/experimental/devtools/gh-nudge/cleanup-repo.sh"
-        dest: "{{ ansible_env.HOME }}/.local/bin/cleanup-repo"
+        src: "{{ ansible_facts['env']['HOME'] }}/go/src/github.com/jaeyeom/experimental/devtools/gh-nudge/cleanup-repo.sh"
+        dest: "{{ ansible_facts['env']['HOME'] }}/.local/bin/cleanup-repo"
         state: link
         force: yes
         mode: '0755'

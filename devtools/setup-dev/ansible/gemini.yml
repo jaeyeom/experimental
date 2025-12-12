@@ -40,7 +40,7 @@
         - name: Install gemini using npm
           command: npm install -g @google/gemini-cli
           when: gemini_installed.rc != 0
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install gemini via npm on Debian/Ubuntu
       block:
@@ -53,4 +53,4 @@
         - name: Install gemini using npm
           command: npm install -g @google/gemini-cli
           when: gemini_installed.rc != 0
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

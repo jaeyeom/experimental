@@ -38,7 +38,7 @@
       rescue:
         - name: Install starship on Termux
           command: pkg install -y starship
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install starship via shell on Debian/Ubuntu
       block:
@@ -78,4 +78,4 @@
         - name: Install/update starship if outdated
           shell: curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir ~/.cargo/bin
           when: starship_installed_version != starship_latest_version
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

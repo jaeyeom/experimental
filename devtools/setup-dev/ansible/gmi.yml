@@ -17,10 +17,10 @@
     - name: Lieer repo is cloned and up-to-date
       ansible.builtin.git:
         repo: https://github.com/gauteh/lieer
-        dest: "{{ ansible_env.HOME }}/go/src/github.com/gauteh/lieer"
+        dest: "{{ ansible_facts['env']['HOME'] }}/go/src/github.com/gauteh/lieer"
 
     - name: Install lieer
       ansible.builtin.pip:
-        chdir: "{{ ansible_env.HOME }}/go/src/github.com/gauteh/lieer"
+        chdir: "{{ ansible_facts['env']['HOME'] }}/go/src/github.com/gauteh/lieer"
         name: .
       ignore_errors: yes

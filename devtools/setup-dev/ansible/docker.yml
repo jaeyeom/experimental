@@ -5,9 +5,9 @@
 - import_playbook: setup-docker-lima.yml
   when: ansible_facts['os_family'] == "Darwin"
 - import_playbook: setup-docker-wrapper-udocker.yml
-  when: ansible_env.TERMUX_VERSION is defined
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-docker-ce.yml
-  when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
 - name: Ensure docker is present
   hosts: all

@@ -38,7 +38,7 @@
             name: mlocate
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure locate is present on Termux
       block:
@@ -48,11 +48,11 @@
       rescue:
         - name: Install locate on Termux
           command: pkg install -y mlocate
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Ensure locate DB is up-to-date on non-macOS systems
       command: updatedb
-      become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"
+      become: "{{ 'no' if ansible_facts['env']['TERMUX_VERSION'] is defined else 'yes' }}"
       when: ansible_facts['os_family'] != "Darwin"
 
     - name: Note about locate DB on macOS

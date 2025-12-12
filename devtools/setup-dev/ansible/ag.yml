@@ -38,7 +38,7 @@
             name: silversearcher-ag
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure ag is present on Termux
       block:
@@ -48,4 +48,4 @@
       rescue:
         - name: Install ag on Termux
           command: pkg install -y silversearcher-ag
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

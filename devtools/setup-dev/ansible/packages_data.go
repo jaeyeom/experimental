@@ -30,7 +30,7 @@ var packages = []PackageData{
 
     - name: Ensure locate DB is up-to-date on non-macOS systems
       command: updatedb
-      become: "{{ 'no' if ansible_env.TERMUX_VERSION is defined else 'yes' }}"
+      become: "{{ 'no' if ansible_facts['env']['TERMUX_VERSION'] is defined else 'yes' }}"
       when: ` + WhenNotDarwin + `
 
     - name: Note about locate DB on macOS
@@ -130,8 +130,8 @@ var platformSpecificTools = []PlatformSpecificTool{
 		platforms: nil, // No installation tasks - only conditional imports
 		Imports: []Import{
 			{Playbook: "setup-docker-lima", When: "ansible_facts['os_family'] == \"Darwin\""},
-			{Playbook: "setup-docker-wrapper-udocker", When: "ansible_env.TERMUX_VERSION is defined"},
-			{Playbook: "setup-docker-ce", When: "ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != \"Darwin\""},
+			{Playbook: "setup-docker-wrapper-udocker", When: "ansible_facts['env']['TERMUX_VERSION'] is defined"},
+			{Playbook: "setup-docker-ce", When: "ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != \"Darwin\""},
 		},
 	},
 	{
