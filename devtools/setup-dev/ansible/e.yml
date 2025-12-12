@@ -24,6 +24,6 @@
     - name: Ensure e is present on Termux or MacOS
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/kilobyte/e/master/e
-        dest: "{{ ansible_env.HOME }}/.local/bin/e"
+        dest: "{{ ansible_facts['env']['HOME'] }}/.local/bin/e"
         mode: '0700'
       when: ansible_facts['os_family'] != 'Debian'

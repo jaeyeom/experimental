@@ -73,4 +73,4 @@
           when: bazelisk_url != ''
         when: bazelisk_installed.failed or
               bazelisk_latest_version not in bazelisk_installed.stdout
-      when: ansible_facts['os_family'] != "Darwin" and ansible_env.TERMUX_VERSION is not defined
+      when: ansible_facts['os_family'] != "Darwin" and ansible_facts['env']['TERMUX_VERSION'] is not defined

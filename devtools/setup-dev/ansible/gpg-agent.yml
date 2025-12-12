@@ -39,7 +39,7 @@
             name: gpg-agent
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure gpg-agent is present on Termux
       block:
@@ -49,4 +49,4 @@
       rescue:
         - name: Install gpg-agent on Termux
           command: pkg install -y gpg-agent
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

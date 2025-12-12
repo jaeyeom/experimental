@@ -404,7 +404,7 @@ func (u UbuntuPkgInstallMethod) RenderSetupTasks(command string) string {
         repo: "` + u.PPA + `"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
       become: yes
 
 `
@@ -447,7 +447,7 @@ func (d DebianPkgInstallMethod) RenderSetupTasks(_ string) string {
         repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
         state: present
         update_cache: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
       become: yes
 
 `

@@ -38,7 +38,7 @@
             name: protobuf-compiler
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure protoc is present on Termux
       block:
@@ -48,4 +48,4 @@
       rescue:
         - name: Install protoc on Termux
           command: pkg install -y protobuf
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

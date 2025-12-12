@@ -38,7 +38,7 @@
             name: git-delta
             state: present
           become: yes
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure delta is present on Termux
       block:
@@ -48,4 +48,4 @@
       rescue:
         - name: Install delta on Termux
           command: pkg install -y git-delta
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

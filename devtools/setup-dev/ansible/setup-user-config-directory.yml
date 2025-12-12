@@ -14,7 +14,7 @@
 
     - name: Determine the user config directory
       ansible.builtin.set_fact:
-        user_config_directory: "{{ ansible_env.XDG_CONFIG_HOME | default(ansible_env.HOME + '/.config') }}"
+        user_config_directory: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] + '/.config') }}"
 
     - name: Ensure the user config directory exists
       ansible.builtin.file:

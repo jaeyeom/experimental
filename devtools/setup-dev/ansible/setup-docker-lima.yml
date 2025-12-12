@@ -67,7 +67,7 @@
             lima_context_exists: "{{ docker_contexts | selectattr('Name', 'equalto', 'lima-docker') | list | length > 0 }}"
 
         - name: Create Docker context for Lima
-          command: docker context create lima-docker --docker "host=unix://{{ ansible_env.HOME }}/.lima/docker/sock/docker.sock"
+          command: docker context create lima-docker --docker "host=unix://{{ ansible_facts['env']['HOME'] }}/.lima/docker/sock/docker.sock"
           when: not lima_context_exists
 
         - name: Set Docker context to lima-docker

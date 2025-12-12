@@ -5,9 +5,9 @@
 - import_playbook: curl.yml
   when: ansible_facts['os_family'] == "Darwin"
 - import_playbook: setup-npm.yml
-  when: ansible_env.TERMUX_VERSION is defined
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-nvm.yml
-  when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
 - name: Ensure claude is present
   hosts: all
@@ -46,7 +46,7 @@
         - name: Install claude using npm
           command: npm install -g @anthropic-ai/claude-code
           when: claude_installed.rc != 0
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install claude via nvm on Debian/Ubuntu
       block:
@@ -59,4 +59,4 @@
         - name: Install claude using npm through nvm
           command: nvm exec default npm install -g @anthropic-ai/claude-code
           when: claude_installed.rc != 0
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

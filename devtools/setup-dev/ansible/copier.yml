@@ -35,10 +35,10 @@
           shell: uv tool install copier
           args:
             creates: ~/.local/bin/copier
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Ensure copier is installed with uv
       shell: uv tool install copier
       args:
         creates: ~/.local/bin/copier
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

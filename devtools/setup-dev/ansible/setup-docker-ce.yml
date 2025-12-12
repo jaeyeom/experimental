@@ -98,10 +98,10 @@
               - docker --version
               - docker run hello-world
 
-      when: ansible_env.TERMUX_VERSION is not defined and (ansible_facts['distribution'] == "Ubuntu" or ansible_facts['distribution'] == "Debian")
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and (ansible_facts['distribution'] == "Ubuntu" or ansible_facts['distribution'] == "Debian")
       become: yes
 
     - name: Skip Docker CE installation on unsupported systems
       debug:
         msg: "Docker CE installation skipped - only supported on Ubuntu/Debian systems (not Termux or macOS)"
-      when: ansible_env.TERMUX_VERSION is defined or ansible_facts['distribution'] not in ["Ubuntu", "Debian"]
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined or ansible_facts['distribution'] not in ["Ubuntu", "Debian"]

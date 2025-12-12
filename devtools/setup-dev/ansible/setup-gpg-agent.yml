@@ -36,11 +36,11 @@
           if ! pgrep -x -u "${USER}" gpg-agent >/dev/null 2>&1; then
             gpg-connect-agent /bye >/dev/null 2>&1
           fi
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure gpg-agent has pinentry setup
       ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.gnupg/gpg-agent.conf"
+        path: "{{ ansible_facts['env']['HOME'] }}/.gnupg/gpg-agent.conf"
         append_newline: true
         prepend_newline: true
         create: true

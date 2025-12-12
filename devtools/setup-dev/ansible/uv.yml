@@ -36,7 +36,7 @@
       rescue:
         - name: Install uv on Termux
           command: pkg install -y uv
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install uv via shell on Debian/Ubuntu
       block:
@@ -49,4 +49,4 @@
         - name: Install uv
           shell: curl -LsSf https://astral.sh/uv/install.sh | sh
           when: uv_installed.rc != 0
-      when: ansible_env.TERMUX_VERSION is not defined and ansible_facts['os_family'] != "Darwin"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

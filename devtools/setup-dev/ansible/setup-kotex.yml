@@ -25,7 +25,7 @@
         - name: Print the output of the tlmgr update
           ansible.builtin.debug:
             var: tlmgr_update_output.stdout
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Ensure kotex is installed on Termux
       block:
@@ -40,11 +40,11 @@
           when: kotex_installed.rc != 0
           register: tlmgr_kotex
           changed_when: "'package already present:' not in tlmgr_kotex.stdout"
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Run termux-patch-texlive
       ansible.builtin.shell: "termux-patch-texlive"
       register: termux_patch_texlive_applied
       ignore_errors: true
       changed_when: "'Yes' in termux_patch_texlive_applied.stdout"
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

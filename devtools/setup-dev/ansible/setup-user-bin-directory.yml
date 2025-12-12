@@ -16,7 +16,7 @@
 
     - name: Determine the user bin directory
       ansible.builtin.set_fact:
-        user_bin_directory: "{{ ansible_env.HOME + '/.local/bin' }}"
+        user_bin_directory: "{{ ansible_facts['env']['HOME'] + '/.local/bin' }}"
 
     - name: Ensure the user bin directory exists
       ansible.builtin.file:

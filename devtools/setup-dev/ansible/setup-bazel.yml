@@ -1,6 +1,6 @@
 ---
 - import_playbook: setup-user-bin-directory.yml
-  when: ansible_env.TERMUX_VERSION is defined
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: bazel.yml
 - import_playbook: buildifier.yml
 - import_playbook: buildozer.yml
@@ -82,4 +82,4 @@
 
           # Run bazel in proot-distro debian with the working directory set
           exec pd sh debian --user "$DEBIAN_USER" --termux-home --work-dir "$DEBIAN_CWD" $ENV_ARGS -- bazel "$@"
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

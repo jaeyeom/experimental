@@ -17,7 +17,7 @@
 
     - name: Check if password store is already initialized
       ansible.builtin.stat:
-        path: "{{ ansible_env.HOME }}/.password-store/.gpg-id"
+        path: "{{ ansible_facts['env']['HOME'] }}/.password-store/.gpg-id"
       register: pass_initialized
 
     - name: Initialize password store if not already initialized
@@ -28,7 +28,7 @@
 
         - name: Create .extensions directory
           ansible.builtin.file:
-            path: "{{ ansible_env.HOME }}/.password-store/.extensions"
+            path: "{{ ansible_facts['env']['HOME'] }}/.password-store/.extensions"
             state: directory
             mode: '0700'
 
@@ -37,7 +37,7 @@
             msg:
               - "Password store initialized successfully"
               - "Initialized with email: {{ git_user_email }}"
-              - "Extensions directory created at: {{ ansible_env.HOME }}/.password-store/.extensions"
+              - "Extensions directory created at: {{ ansible_facts['env']['HOME'] }}/.password-store/.extensions"
 
       when: not pass_initialized.stat.exists
 
@@ -45,5 +45,5 @@
       debug:
         msg:
           - "Password store is already initialized"
-          - "Location: {{ ansible_env.HOME }}/.password-store"
+          - "Location: {{ ansible_facts['env']['HOME'] }}/.password-store"
       when: pass_initialized.stat.exists

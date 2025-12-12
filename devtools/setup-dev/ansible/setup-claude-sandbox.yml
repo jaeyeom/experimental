@@ -4,7 +4,7 @@
 - name: Setup Claude Code sandbox configuration
   hosts: all
   vars:
-    claude_settings_dir: "{{ ansible_env.HOME }}/.claude"
+    claude_settings_dir: "{{ ansible_facts['env']['HOME'] }}/.claude"
     claude_settings_file: "{{ claude_settings_dir }}/settings.json"
     sandbox_config:
       includeCoAuthoredBy: false

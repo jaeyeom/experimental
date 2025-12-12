@@ -19,7 +19,7 @@
       command: npm config set prefix ~/.npm-global
       args:
         creates: ~/.npmrc
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
     - name: Ensure npm global bin directory is in PATH
       ansible.builtin.blockinfile:
@@ -32,4 +32,4 @@
           if [ -d "$HOME/.npm-global/bin" ]; then
             export PATH="$HOME/.npm-global/bin:$PATH"
           fi
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined

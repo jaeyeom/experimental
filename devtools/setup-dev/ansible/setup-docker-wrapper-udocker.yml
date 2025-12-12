@@ -154,4 +154,4 @@
                   exec udocker "$@"
                   ;;
           esac
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

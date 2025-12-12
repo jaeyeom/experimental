@@ -3,7 +3,7 @@
 - import_playbook: ssh.yml
 - import_playbook: sshpass.yml
 - import_playbook: keychain.yml
-  when: ansible_env.TERMUX_VERSION is not defined
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 - import_playbook: setup-shell-profile.yml
 
 - name: Ensure SSH keys are generated and SSH agent is configured
@@ -21,20 +21,20 @@
 
     - name: Ensure the user SSH directory exists
       ansible.builtin.file:
-        path: "{{ ansible_env.HOME }}/.ssh"
+        path: "{{ ansible_facts['env']['HOME'] }}/.ssh"
         state: directory
         mode: '0700'
 
     - name: Stat the key file
       ansible.builtin.stat:
-        path: "{{ ansible_env.HOME }}/.ssh/id_ed25519"
+        path: "{{ ansible_facts['env']['HOME'] }}/.ssh/id_ed25519"
       register: ssh_key_file
 
     - name: Generate SSH Key
       community.crypto.openssh_keypair:
-        path: "{{ ansible_env.HOME }}/.ssh/id_ed25519"
+        path: "{{ ansible_facts['env']['HOME'] }}/.ssh/id_ed25519"
         type: ed25519
-        passphrase: "{{ ansible_env.SSHPASS }}"
+        passphrase: "{{ ansible_facts['env']['SSHPASS'] }}"
         comment: "{{ git_user_email }}"
       when: not ssh_key_file.stat.exists
 
@@ -47,9 +47,9 @@
           changed_when: false
 
         - name: Add SSH key to the SSH authentication agent
-          command: sshpass -P passphrase -e ssh-add {{ ansible_env.HOME }}/.ssh/id_ed25519
+          command: sshpass -P passphrase -e ssh-add {{ ansible_facts['env']['HOME'] }}/.ssh/id_ed25519
           when: ssh_agent_keys.rc != 0
-      when: ansible_env.SSH_AUTH_SOCK is defined
+      when: ansible_facts['env']['SSH_AUTH_SOCK'] is defined
 
     - name: Ensure sourcing keychain on non-Termux systems
       ansible.builtin.blockinfile:
@@ -62,7 +62,7 @@
           if [[ $- == *i* ]]; then
               eval $(keychain --eval --agents ssh id_ed25519)
           fi
-      when: ansible_env.TERMUX_VERSION is not defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
     - name: Ensure SSH agent is enabled on Termux
       block:
@@ -87,15 +87,15 @@
               fi
         - name: Stat the ssh-agent down file
           ansible.builtin.stat:
-            path: "{{ ansible_env.PREFIX }}/var/service/ssh-agent/down"
+            path: "{{ ansible_facts['env']['PREFIX'] }}/var/service/ssh-agent/down"
           register: ssh_agent_down_file
         - name: Ensure ssh-agent service is enabled
           command: sv-enable ssh-agent
           when: ssh_agent_down_file.stat.exists
-      when: ansible_env.TERMUX_VERSION is defined
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Debug output of the SSH agent and key status (restart shell if fails)
       debug:
         msg:
-          - "SSH_AUTH_SOCK: {{ ansible_env.SSH_AUTH_SOCK }}"
+          - "SSH_AUTH_SOCK: {{ ansible_facts['env']['SSH_AUTH_SOCK'] }}"
           - "SSH key: {{ ssh_key_file.stat.path }}"
