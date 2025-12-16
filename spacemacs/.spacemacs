@@ -1803,6 +1803,7 @@ This function uses the 'magick identify' command to get the dimensions of the im
             gptel-api-key openai-key)
     (setopt chatgpt-shell-anthropic-key anthropic-api-key)
     (setopt chatgpt-shell-perplexity-key perplexity-api-key)
+    (setopt chatgpt-shell-show-model-icons (display-graphic-p))
 
     (setopt aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
     (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
