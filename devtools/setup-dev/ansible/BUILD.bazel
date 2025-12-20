@@ -70,6 +70,7 @@ sh_test(
         "copier.yml",
         "curl.yml",
         "delta.yml",
+        "direnv.yml",
         "e.yml",
         "emacs.yml",
         "fd.yml",
@@ -133,6 +134,7 @@ sh_test(
         "setup-cicd.yml",
         "setup-claude-privacy.yml",
         "setup-claude-sandbox.yml",
+        "setup-direnv.yml",
         "setup-emacs.yml",
         "setup-git.yml",
         "setup-gpg-agent.yml",
@@ -411,6 +413,17 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["delta.yml"],
     data = ["delta.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "direnv_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["direnv.yml"],
+    data = ["direnv.yml"],
     tags = [
         "ansible",
         "local",
@@ -1527,6 +1540,26 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-direnv_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-direnv.yml"],
+    data = [
+        "curl.yml",
+        "direnv.yml",
+        "rustc.yml",
+        "setup-direnv.yml",
+        "setup-shell-profile.yml",
+        "setup-starship.yml",
+        "setup-user-config-directory.yml",
+        "starship.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-docker-ce_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-docker-ce.yml"],
@@ -2278,6 +2311,7 @@ test_suite(
         ":curl_syntax_test",
         ":dart_syntax_test",
         ":delta_syntax_test",
+        ":direnv_syntax_test",
         ":docker_syntax_test",
         ":e_syntax_test",
         ":emacs-lsp-booster_syntax_test",
@@ -2357,6 +2391,7 @@ test_suite(
         ":setup-cicd_syntax_test",
         ":setup-claude-privacy_syntax_test",
         ":setup-claude-sandbox_syntax_test",
+        ":setup-direnv_syntax_test",
         ":setup-docker-ce_syntax_test",
         ":setup-docker-lima_syntax_test",
         ":setup-docker-wrapper-udocker_syntax_test",

@@ -1,0 +1,82 @@
+---
+- import_playbook: direnv.yml
+- import_playbook: setup-starship.yml
+- import_playbook: setup-shell-profile.yml
+- import_playbook: setup-user-config-directory.yml
+
+- name: Setup direnv shell hooks
+  hosts: all
+  tasks:
+    - name: Include guard for direnv setup playbook
+      block:
+        - name: Stop early if the direnv setup playbook is already included
+          meta: end_play
+          when: direnv_setup_playbook_imported is defined
+        - name: Ensure the direnv setup playbook is not included
+          set_fact:
+            direnv_setup_playbook_imported: true
+          when: direnv_setup_playbook_imported is not defined
+
+    - name: Check if direnv hook is already in bash profile
+      lineinfile:
+        path: ~/.bashrc
+        line: 'eval "$(direnv hook bash)"'
+        state: present
+      check_mode: yes
+      register: bash_direnv_check
+      when: user_shell.stdout is search('/bash$')
+
+    - name: Add direnv hook to bash profile (after starship)
+      lineinfile:
+        path: ~/.bashrc
+        line: 'eval "$(direnv hook bash)"'
+        insertafter: 'starship init bash'
+        create: yes
+      when: user_shell.stdout is search('/bash$') and bash_direnv_check is changed
+
+    - name: Check if direnv hook is already in zsh profile
+      lineinfile:
+        path: ~/.zshrc
+        line: 'eval "$(direnv hook zsh)"'
+        state: present
+      check_mode: yes
+      register: zsh_direnv_check
+      when: user_shell.stdout is search('/zsh$')
+
+    - name: Add direnv hook to zsh profile (after starship)
+      lineinfile:
+        path: ~/.zshrc
+        line: 'eval "$(direnv hook zsh)"'
+        insertafter: 'starship init zsh'
+        create: yes
+      when: user_shell.stdout is search('/zsh$') and zsh_direnv_check is changed
+
+    - name: Check if starship config exists
+      stat:
+        path: "{{ user_config_directory }}/starship.toml"
+      register: starship_config_stat
+
+    - name: Check if direnv module is already configured in starship
+      lineinfile:
+        path: "{{ user_config_directory }}/starship.toml"
+        regexp: '^\[direnv\]'
+        state: absent
+      check_mode: yes
+      register: starship_direnv_check
+      when: starship_config_stat.stat.exists
+
+    - name: Add direnv module to starship config
+      blockinfile:
+        path: "{{ user_config_directory }}/starship.toml"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - direnv module"
+        block: |
+          [direnv]
+          disabled = false
+          format = '[$symbol$loaded/$allowed]($style) '
+          symbol = '▶ '
+          allowed_msg = ''
+          not_allowed_msg = '!'
+          denied_msg = '✗'
+          loaded_msg = ''
+          unloaded_msg = ''
+      when: starship_config_stat.stat.exists and not starship_direnv_check.changed
