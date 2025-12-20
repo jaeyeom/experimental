@@ -19,6 +19,7 @@ node_modules/
 
 # Environment variables
 .env
+.envrc
 
 # Editor directories and files
 .idea
