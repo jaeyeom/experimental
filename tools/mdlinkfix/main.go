@@ -469,6 +469,9 @@ func ProcessContent(cfg Config, content, fileDir string) (string, int) {
 			newPath, changed := ResolveLink(cfg, linkPath, fileDir)
 			if changed {
 				changesCount++
+				if *verbose || *dryRun {
+					fmt.Printf("  %s -> %s\n", linkPath, newPath)
+				}
 				return fmt.Sprintf("[%s](%s)", text, newPath)
 			}
 
@@ -523,11 +526,6 @@ func ProcessFile(filePath string) ([]BrokenLink, error) {
 
 	if *dryRun {
 		fmt.Printf("%s: %d link(s) would be changed\n", filePath, changesCount)
-		if *verbose {
-			fmt.Println("--- New content ---")
-			fmt.Println(newContent)
-			fmt.Println("--- End ---")
-		}
 		return brokenLinks, nil
 	}
 
