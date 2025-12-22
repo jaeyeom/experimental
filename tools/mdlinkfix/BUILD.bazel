@@ -5,6 +5,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/tools/mdlinkfix",
     visibility = ["//visibility:private"],
+    deps = ["//text/markdown/linkfix:go_default_library"],
 )
 
 go_binary(
