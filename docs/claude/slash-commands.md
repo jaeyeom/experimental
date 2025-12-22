@@ -14,7 +14,7 @@
 | `/compact [instructions]` | Compact conversation with optional focus instructions                                                                       |
 | `/config`                 | Open the Settings interface (Config tab)                                                                                    |
 | `/context`                | Visualize current context usage as a colored grid                                                                           |
-| `/cost`                   | Show token usage statistics. See [cost tracking guide](/en/costs#using-the-cost-command) for subscription-specific details. |
+| `/cost`                   | Show token usage statistics. See [cost tracking guide](https://code.claude.com/docs/en/costs#using-the-cost-command) for subscription-specific details. |
 | `/doctor`                 | Checks the health of your Claude Code installation                                                                          |
 | `/exit`                   | Exit the REPL                                                                                                               |
 | `/export [filename]`      | Export the current conversation to a file or clipboard                                                                      |
@@ -29,7 +29,7 @@
 | `/memory`                 | Edit `CLAUDE.md` memory files                                                                                               |
 | `/model`                  | Select or change the AI model                                                                                               |
 | `/output-style [style]`   | Set the output style directly or from a selection menu                                                                      |
-| `/permissions`            | View or update [permissions](/en/iam#configuring-permissions)                                                               |
+| `/permissions`            | View or update [permissions](https://code.claude.com/docs/en/iam#configuring-permissions)                                                               |
 | `/plugin`                 | Manage Claude Code plugins                                                                                                  |
 | `/pr-comments`            | View pull request comments                                                                                                  |
 | `/privacy-settings`       | View and update your privacy settings                                                                                       |
@@ -172,7 +172,7 @@ Based on the above changes, create a single git commit.
 
 #### File references
 
-Include file contents in commands using the `@` prefix to [reference files](/en/common-workflows#reference-files-and-directories).
+Include file contents in commands using the `@` prefix to [reference files](https://code.claude.com/docs/en/common-workflows#reference-files-and-directories).
 
 For example:
 
@@ -188,7 +188,7 @@ Compare @src/old-version.js with @src/new-version.js
 
 #### Thinking mode
 
-Slash commands can trigger extended thinking by including [extended thinking keywords](/en/common-workflows#use-extended-thinking).
+Slash commands can trigger extended thinking by including [extended thinking keywords](https://code.claude.com/docs/en/common-workflows#use-extended-thinking).
 
 ### Frontmatter
 
@@ -229,7 +229,7 @@ Focus on security, performance, and code style.
 
 ## Plugin commands
 
-[Plugins](/en/plugins) can provide custom slash commands that integrate seamlessly with Claude Code. Plugin commands work exactly like user-defined commands but are distributed through [plugin marketplaces](/en/plugin-marketplaces).
+[Plugins](https://code.claude.com/docs/en/plugins) can provide custom slash commands that integrate seamlessly with Claude Code. Plugin commands work exactly like user-defined commands but are distributed through [plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces).
 
 ### How plugin commands work
 
@@ -343,11 +343,11 @@ To approve specific tools, list each one explicitly:
 * `mcp__github__get_issue`
 * `mcp__github__list_issues`
 
-See [MCP permission rules](/en/iam#tool-specific-permission-rules) for more details.
+See [MCP permission rules](https://code.claude.com/docs/en/iam#tool-specific-permission-rules) for more details.
 
 ## `SlashCommand` tool
 
-The `SlashCommand` tool allows Claude to execute [custom slash commands](/en/slash-commands#custom-slash-commands) programmatically
+The `SlashCommand` tool allows Claude to execute [custom slash commands](slash-commands.md#custom-slash-commands) programmatically
 during a conversation. This gives Claude the ability to invoke custom commands
 on your behalf when appropriate.
 
@@ -498,16 +498,16 @@ The Skill provides richer context, validation scripts, and organized reference m
 
 Both slash commands and Skills can coexist. Use the approach that fits your needs.
 
-Learn more about [Agent Skills](/en/skills).
+Learn more about [Agent Skills](skills.md).
 
 ## See also
 
-* [Plugins](/en/plugins) - Extend Claude Code with custom commands through plugins
-* [Identity and Access Management](/en/iam) - Complete guide to permissions, including MCP tool permissions
-* [Interactive mode](/en/interactive-mode) - Shortcuts, input modes, and interactive features
-* [CLI reference](/en/cli-reference) - Command-line flags and options
-* [Settings](/en/settings) - Configuration options
-* [Memory management](/en/memory) - Managing Claude's memory across sessions
+* [Plugins](https://code.claude.com/docs/en/plugins) - Extend Claude Code with custom commands through plugins
+* [Identity and Access Management](https://code.claude.com/docs/en/iam) - Complete guide to permissions, including MCP tool permissions
+* [Interactive mode](https://code.claude.com/docs/en/interactive-mode) - Shortcuts, input modes, and interactive features
+* [CLI reference](https://code.claude.com/docs/en/cli-reference) - Command-line flags and options
+* [Settings](https://code.claude.com/docs/en/settings) - Configuration options
+* [Memory management](https://code.claude.com/docs/en/memory) - Managing Claude's memory across sessions
 
 
 ---

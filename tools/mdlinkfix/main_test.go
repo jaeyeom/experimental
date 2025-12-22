@@ -434,7 +434,8 @@ Check out [Local Doc](/en/local-doc) and [Remote Doc](/en/remote-doc).
 	// Process the file
 	*dryRun = false
 	*verbose = false
-	if err := ProcessFile(inputFile); err != nil {
+	*validate = false
+	if _, err := ProcessFile(inputFile); err != nil {
 		t.Fatalf("ProcessFile() error = %v", err)
 	}
 
@@ -496,7 +497,8 @@ Check out [Local Doc](/en/local-doc) and [Remote Doc](/en/remote-doc).
 	// Process the file
 	*dryRun = false
 	*verbose = false
-	if err := ProcessFile(inputFile); err != nil {
+	*validate = false
+	if _, err := ProcessFile(inputFile); err != nil {
 		t.Fatalf("ProcessFile() error = %v", err)
 	}
 
@@ -562,6 +564,313 @@ func TestLinkPattern(t *testing.T) {
 						t.Errorf("match[%d][%d] = %q, want %q", i, j, got[i][j], tt.want[i][j])
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestTryURLToLocal(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "slash-commands.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		cfg         Config
+		linkPath    string
+		fileDir     string
+		wantPath    string
+		wantChanged bool
+	}{
+		{
+			name: "URL converts to local file",
+			cfg: Config{
+				BaseURL:     "https://code.claude.com/docs",
+				LocalPrefix: "/en",
+				SuffixAdd:   ".md",
+				envDir:      tmpDir,
+			},
+			linkPath:    "https://code.claude.com/docs/en/slash-commands",
+			fileDir:     tmpDir,
+			wantPath:    "slash-commands.md",
+			wantChanged: true,
+		},
+		{
+			name: "URL with anchor converts to local file",
+			cfg: Config{
+				BaseURL:     "https://code.claude.com/docs",
+				LocalPrefix: "/en",
+				SuffixAdd:   ".md",
+				envDir:      tmpDir,
+			},
+			linkPath:    "https://code.claude.com/docs/en/slash-commands#section",
+			fileDir:     tmpDir,
+			wantPath:    "slash-commands.md#section",
+			wantChanged: true,
+		},
+		{
+			name: "URL stays when local file does not exist",
+			cfg: Config{
+				BaseURL:     "https://code.claude.com/docs",
+				LocalPrefix: "/en",
+				SuffixAdd:   ".md",
+				envDir:      tmpDir,
+			},
+			linkPath:    "https://code.claude.com/docs/en/plugins",
+			fileDir:     tmpDir,
+			wantPath:    "https://code.claude.com/docs/en/plugins",
+			wantChanged: false,
+		},
+		{
+			name: "URL without local prefix stays unchanged",
+			cfg: Config{
+				BaseURL:     "https://code.claude.com/docs",
+				LocalPrefix: "/en",
+				SuffixAdd:   ".md",
+				envDir:      tmpDir,
+			},
+			linkPath:    "https://code.claude.com/docs/other/path",
+			fileDir:     tmpDir,
+			wantPath:    "https://code.claude.com/docs/other/path",
+			wantChanged: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPath, gotChanged := ResolveLink(tt.cfg, tt.linkPath, tt.fileDir)
+			if gotPath != tt.wantPath {
+				t.Errorf("ResolveLink() path = %q, want %q", gotPath, tt.wantPath)
+			}
+			if gotChanged != tt.wantChanged {
+				t.Errorf("ResolveLink() changed = %v, want %v", gotChanged, tt.wantChanged)
+			}
+		})
+	}
+}
+
+func TestValidateLocalLink(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "existing.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		cfg      Config
+		linkPath string
+		fileDir  string
+		want     bool
+	}{
+		{
+			name:     "anchor-only link is valid",
+			cfg:      Config{},
+			linkPath: "#section",
+			fileDir:  tmpDir,
+			want:     true,
+		},
+		{
+			name:     "mailto link is valid",
+			cfg:      Config{},
+			linkPath: "mailto:test@example.com",
+			fileDir:  tmpDir,
+			want:     true,
+		},
+		{
+			name:     "absolute URL is valid (not validated)",
+			cfg:      Config{},
+			linkPath: "https://example.com",
+			fileDir:  tmpDir,
+			want:     true,
+		},
+		{
+			name:     "existing relative file is valid",
+			cfg:      Config{},
+			linkPath: "existing.md",
+			fileDir:  tmpDir,
+			want:     true,
+		},
+		{
+			name:     "non-existing relative file is invalid",
+			cfg:      Config{},
+			linkPath: "nonexisting.md",
+			fileDir:  tmpDir,
+			want:     false,
+		},
+		{
+			name: "existing prefixed path is valid",
+			cfg: Config{
+				LocalPrefix: "/en",
+				SuffixAdd:   ".md",
+				envDir:      tmpDir,
+			},
+			linkPath: "/en/existing",
+			fileDir:  tmpDir,
+			want:     true,
+		},
+		{
+			name: "non-existing prefixed path is invalid",
+			cfg: Config{
+				LocalPrefix: "/en",
+				SuffixAdd:   ".md",
+				envDir:      tmpDir,
+			},
+			linkPath: "/en/nonexisting",
+			fileDir:  tmpDir,
+			want:     false,
+		},
+		{
+			name:     "link with anchor to existing file is valid",
+			cfg:      Config{},
+			linkPath: "existing.md#section",
+			fileDir:  tmpDir,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ValidateLocalLink(tt.cfg, tt.linkPath, tt.fileDir)
+			if got != tt.want {
+				t.Errorf("ValidateLocalLink() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFindBrokenLinks(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "existing.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		LocalPrefix: "/en",
+		SuffixAdd:   ".md",
+		envDir:      tmpDir,
+	}
+
+	tests := []struct {
+		name       string
+		content    string
+		wantBroken int
+		wantPaths  []string
+	}{
+		{
+			name:       "no broken links",
+			content:    "Check [existing](existing.md) file.",
+			wantBroken: 0,
+			wantPaths:  nil,
+		},
+		{
+			name:       "one broken link",
+			content:    "Check [nonexisting](nonexisting.md) file.",
+			wantBroken: 1,
+			wantPaths:  []string{"nonexisting.md"},
+		},
+		{
+			name:       "mixed valid and broken",
+			content:    "[Valid](existing.md) and [Invalid](broken.md)",
+			wantBroken: 1,
+			wantPaths:  []string{"broken.md"},
+		},
+		{
+			name:       "prefixed broken link",
+			content:    "[Missing](/en/missing) document.",
+			wantBroken: 1,
+			wantPaths:  []string{"/en/missing"},
+		},
+		{
+			name:       "absolute URLs are not broken",
+			content:    "[External](https://example.com) link.",
+			wantBroken: 0,
+			wantPaths:  nil,
+		},
+		{
+			name:       "anchor links are not broken",
+			content:    "[Section](#section) anchor.",
+			wantBroken: 0,
+			wantPaths:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			broken := FindBrokenLinks(cfg, tt.content, tmpDir, "test.md")
+			if len(broken) != tt.wantBroken {
+				t.Errorf("FindBrokenLinks() found %d broken links, want %d", len(broken), tt.wantBroken)
+			}
+			for i, bl := range broken {
+				if i < len(tt.wantPaths) && bl.Path != tt.wantPaths[i] {
+					t.Errorf("broken[%d].Path = %q, want %q", i, bl.Path, tt.wantPaths[i])
+				}
+			}
+		})
+	}
+}
+
+func TestProcessContentURLToLocal(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "slash-commands.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		BaseURL:     "https://code.claude.com/docs",
+		LocalPrefix: "/en",
+		SuffixAdd:   ".md",
+		envDir:      tmpDir,
+	}
+
+	tests := []struct {
+		name        string
+		content     string
+		wantContent string
+		wantChanges int
+	}{
+		{
+			name:        "URL converted to local file",
+			content:     "Check [Slash commands](https://code.claude.com/docs/en/slash-commands) for more info.",
+			wantContent: "Check [Slash commands](slash-commands.md) for more info.",
+			wantChanges: 1,
+		},
+		{
+			name:        "URL with anchor converted to local file",
+			content:     "See [Section](https://code.claude.com/docs/en/slash-commands#section) here.",
+			wantContent: "See [Section](slash-commands.md#section) here.",
+			wantChanges: 1,
+		},
+		{
+			name:        "URL stays when no local file exists",
+			content:     "Check [Plugins](https://code.claude.com/docs/en/plugins) for more info.",
+			wantContent: "Check [Plugins](https://code.claude.com/docs/en/plugins) for more info.",
+			wantChanges: 0,
+		},
+		{
+			name:        "other URLs unchanged",
+			content:     "Visit [Google](https://google.com) for search.",
+			wantContent: "Visit [Google](https://google.com) for search.",
+			wantChanges: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotContent, gotChanges := ProcessContent(cfg, tt.content, tmpDir)
+			if gotContent != tt.wantContent {
+				t.Errorf("ProcessContent() content = %q, want %q", gotContent, tt.wantContent)
+			}
+			if gotChanges != tt.wantChanges {
+				t.Errorf("ProcessContent() changes = %d, want %d", gotChanges, tt.wantChanges)
 			}
 		})
 	}
