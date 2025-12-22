@@ -1,21 +1,21 @@
 // Package main provides a tool to fix markdown links by resolving them to
 // local files or absolute URLs.
 //
-// The tool searches for a .envrc file (direnv format) in the directory of the
-// file being processed and parent directories. Environment variables override
-// .envrc values.
+// The tool reads configuration from environment variables, typically set by
+// direnv from a .envrc file.
 //
-// Configuration (via .envrc file or environment variables):
+// Configuration (via environment variables):
 //   - MDLINK_BASE_URL: Base URL for external links (e.g., "https://code.claude.com/docs")
 //   - MDLINK_LOCAL_PREFIX: Prefix in links that maps to the local directory (e.g., "/en")
 //   - MDLINK_SUFFIX_DROP: Suffix to remove from the link path (default: "")
 //   - MDLINK_SUFFIX_ADD: Suffix to add for local file check (default: ".md")
+//   - MDLINK_BASE_DIR: Base directory for local file lookup (default: file's directory)
 //
 // Usage:
 //
 //	mdlinkfix file.md
 //
-// Or with environment variables (override .env):
+// Or with environment variables:
 //
 //	MDLINK_BASE_URL="https://example.com" mdlinkfix file.md
 package main
@@ -35,31 +35,19 @@ var (
 	validate = flag.Bool("validate", false, "Validate local links and report broken ones")
 )
 
-// loadConfig loads configuration from .envrc file and environment variables.
-// Environment variables take precedence over .envrc file values.
-func loadConfig(startDir string) (linkfix.Config, string) {
-	// Load from .envrc file first
-	cfg, envPath := linkfix.LoadConfigFromEnvrc(startDir)
-
-	// Environment variables override .envrc file values
-	if v := os.Getenv("MDLINK_BASE_URL"); v != "" {
-		cfg.BaseURL = v
+// loadConfig loads configuration from environment variables.
+func loadConfig() linkfix.Config {
+	cfg := linkfix.Config{
+		BaseURL:     os.Getenv("MDLINK_BASE_URL"),
+		LocalPrefix: os.Getenv("MDLINK_LOCAL_PREFIX"),
+		SuffixDrop:  os.Getenv("MDLINK_SUFFIX_DROP"),
+		SuffixAdd:   os.Getenv("MDLINK_SUFFIX_ADD"),
+		BaseDir:     os.Getenv("MDLINK_BASE_DIR"),
 	}
-	if v := os.Getenv("MDLINK_LOCAL_PREFIX"); v != "" {
-		cfg.LocalPrefix = v
-	}
-	if v := os.Getenv("MDLINK_SUFFIX_DROP"); v != "" {
-		cfg.SuffixDrop = v
-	}
-	if v := os.Getenv("MDLINK_SUFFIX_ADD"); v != "" {
-		cfg.SuffixAdd = v
-	}
-
-	return cfg, envPath
+	return cfg
 }
 
 // ProcessFile processes a single markdown file.
-// It loads configuration from .envrc file in the file's directory tree.
 // Returns the list of broken links found (if validation is enabled).
 func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
 	// Get original file info to preserve permissions
@@ -75,16 +63,12 @@ func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
 
 	fileDir := filepath.Dir(filePath)
 
-	// Load config based on file's directory (searches up for .envrc)
-	cfg, envPath := loadConfig(fileDir)
-
-	if *verbose && envPath != "" {
-		fmt.Printf("Loading config from: %s\n", envPath)
-	}
+	// Load config from environment variables
+	cfg := loadConfig()
 
 	if *verbose {
-		fmt.Printf("Config: BaseURL=%q, LocalPrefix=%q, SuffixDrop=%q, SuffixAdd=%q\n",
-			cfg.BaseURL, cfg.LocalPrefix, cfg.SuffixDrop, cfg.SuffixAdd)
+		fmt.Printf("Config: BaseURL=%q, LocalPrefix=%q, SuffixDrop=%q, SuffixAdd=%q, BaseDir=%q\n",
+			cfg.BaseURL, cfg.LocalPrefix, cfg.SuffixDrop, cfg.SuffixAdd, cfg.BaseDir)
 	}
 
 	newContent, changes := linkfix.ProcessContent(cfg, string(content), fileDir)
@@ -128,13 +112,13 @@ func main() {
 
 	if flag.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: mdlinkfix [options] <file.md> [file2.md ...]")
-		fmt.Fprintln(os.Stderr, "\nConfiguration is loaded from .envrc file in the file's directory or parents.")
-		fmt.Fprintln(os.Stderr, "Environment variables override .envrc values.")
+		fmt.Fprintln(os.Stderr, "\nConfiguration is loaded from environment variables (use direnv with .envrc).")
 		fmt.Fprintln(os.Stderr, "\nConfiguration variables:")
 		fmt.Fprintln(os.Stderr, "  MDLINK_BASE_URL     Base URL for external links")
 		fmt.Fprintln(os.Stderr, "  MDLINK_LOCAL_PREFIX Prefix in links that maps to local directory")
 		fmt.Fprintln(os.Stderr, "  MDLINK_SUFFIX_DROP  Suffix to remove from link path")
 		fmt.Fprintln(os.Stderr, "  MDLINK_SUFFIX_ADD   Suffix to add for local file check (default: .md)")
+		fmt.Fprintln(os.Stderr, "  MDLINK_BASE_DIR     Base directory for local file lookup")
 		fmt.Fprintln(os.Stderr, "\nOptions:")
 		flag.PrintDefaults()
 		os.Exit(1)
