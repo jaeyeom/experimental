@@ -27,7 +27,6 @@ func TestResolveLink(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://example.com",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
 			},
 			linkPath:    "https://google.com",
 			fileDir:     tmpDir,
@@ -39,7 +38,6 @@ func TestResolveLink(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://example.com",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
 			},
 			linkPath:    "#section",
 			fileDir:     tmpDir,
@@ -51,7 +49,6 @@ func TestResolveLink(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://code.claude.com/docs",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
 			},
 			linkPath:    "/en/slash-commands",
 			fileDir:     tmpDir,
@@ -63,7 +60,6 @@ func TestResolveLink(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://code.claude.com/docs",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
 			},
 			linkPath:    "/en/plugins",
 			fileDir:     tmpDir,
@@ -75,7 +71,6 @@ func TestResolveLink(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://code.claude.com/docs",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
 			},
 			linkPath:    "/other/path",
 			fileDir:     tmpDir,
@@ -87,7 +82,6 @@ func TestResolveLink(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://example.com",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
 			},
 			linkPath:    "mailto:test@example.com",
 			fileDir:     tmpDir,
@@ -99,7 +93,6 @@ func TestResolveLink(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
 			},
 			linkPath:    "other-file.md",
 			fileDir:     tmpDir,
@@ -132,7 +125,6 @@ func TestProcessContent(t *testing.T) {
 	cfg := Config{
 		BaseURL:     "https://code.claude.com/docs",
 		LocalPrefix: "/en",
-		SuffixAdd:   ".md",
 	}
 
 	tests := []struct {
@@ -195,186 +187,6 @@ func TestProcessContent(t *testing.T) {
 				t.Errorf("ProcessContent() changes = %d, want %d", len(gotChanges), tt.wantChanges)
 			}
 		})
-	}
-}
-
-func TestParseEnvFile(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	tests := []struct {
-		name    string
-		content string
-		want    map[string]string
-	}{
-		{
-			name: "simple key-value",
-			content: `MDLINK_BASE_URL=https://example.com
-MDLINK_LOCAL_PREFIX=/en`,
-			want: map[string]string{
-				"MDLINK_BASE_URL":     "https://example.com",
-				"MDLINK_LOCAL_PREFIX": "/en",
-			},
-		},
-		{
-			name: "with comments and empty lines",
-			content: `# This is a comment
-MDLINK_BASE_URL=https://example.com
-
-# Another comment
-MDLINK_LOCAL_PREFIX=/en
-`,
-			want: map[string]string{
-				"MDLINK_BASE_URL":     "https://example.com",
-				"MDLINK_LOCAL_PREFIX": "/en",
-			},
-		},
-		{
-			name: "quoted values",
-			content: `MDLINK_BASE_URL="https://example.com"
-MDLINK_LOCAL_PREFIX='/en'`,
-			want: map[string]string{
-				"MDLINK_BASE_URL":     "https://example.com",
-				"MDLINK_LOCAL_PREFIX": "/en",
-			},
-		},
-		{
-			name: "with spaces around equals",
-			content: `MDLINK_BASE_URL = https://example.com
-MDLINK_LOCAL_PREFIX = /en`,
-			want: map[string]string{
-				"MDLINK_BASE_URL":     "https://example.com",
-				"MDLINK_LOCAL_PREFIX": "/en",
-			},
-		},
-		{
-			name: "direnv export format",
-			content: `export MDLINK_BASE_URL=https://example.com
-export MDLINK_LOCAL_PREFIX=/en`,
-			want: map[string]string{
-				"MDLINK_BASE_URL":     "https://example.com",
-				"MDLINK_LOCAL_PREFIX": "/en",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			envFile := filepath.Join(tmpDir, ".envrc")
-			if err := os.WriteFile(envFile, []byte(tt.content), 0o600); err != nil {
-				t.Fatal(err)
-			}
-
-			got, err := ParseEnvFile(envFile)
-			if err != nil {
-				t.Fatalf("ParseEnvFile() error = %v", err)
-			}
-
-			for k, v := range tt.want {
-				if got[k] != v {
-					t.Errorf("ParseEnvFile()[%q] = %q, want %q", k, got[k], v)
-				}
-			}
-		})
-	}
-}
-
-func TestFindEnvFile(t *testing.T) {
-	// Create directory structure: tmpDir/subdir/subsubdir
-	tmpDir := t.TempDir()
-	subdir := filepath.Join(tmpDir, "subdir")
-	subsubdir := filepath.Join(subdir, "subsubdir")
-	if err := os.MkdirAll(subsubdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create .envrc in tmpDir
-	envFile := filepath.Join(tmpDir, ".envrc")
-	if err := os.WriteFile(envFile, []byte("MDLINK_BASE_URL=https://example.com"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	tests := []struct {
-		name       string
-		startDir   string
-		wantPath   string
-		wantEnvDir string
-	}{
-		{
-			name:       "find in same directory",
-			startDir:   tmpDir,
-			wantPath:   envFile,
-			wantEnvDir: tmpDir,
-		},
-		{
-			name:       "find in parent directory",
-			startDir:   subdir,
-			wantPath:   envFile,
-			wantEnvDir: tmpDir,
-		},
-		{
-			name:       "find in grandparent directory",
-			startDir:   subsubdir,
-			wantPath:   envFile,
-			wantEnvDir: tmpDir,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotPath, gotEnvDir := FindEnvFile(tt.startDir)
-			if gotPath != tt.wantPath {
-				t.Errorf("FindEnvFile() path = %q, want %q", gotPath, tt.wantPath)
-			}
-			if gotEnvDir != tt.wantEnvDir {
-				t.Errorf("FindEnvFile() envDir = %q, want %q", gotEnvDir, tt.wantEnvDir)
-			}
-		})
-	}
-}
-
-func TestLoadConfigFromEnvrc(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create .envrc file
-	envContent := `MDLINK_BASE_URL=https://example.com/docs
-MDLINK_LOCAL_PREFIX=/en
-MDLINK_SUFFIX_ADD=.md
-`
-	envFile := filepath.Join(tmpDir, ".envrc")
-	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, gotEnvPath := LoadConfigFromEnvrc(tmpDir)
-
-	if cfg.BaseURL != "https://example.com/docs" {
-		t.Errorf("LoadConfigFromEnvrc() BaseURL = %q, want %q", cfg.BaseURL, "https://example.com/docs")
-	}
-	if cfg.LocalPrefix != "/en" {
-		t.Errorf("LoadConfigFromEnvrc() LocalPrefix = %q, want %q", cfg.LocalPrefix, "/en")
-	}
-	if cfg.SuffixAdd != ".md" {
-		t.Errorf("LoadConfigFromEnvrc() SuffixAdd = %q, want %q", cfg.SuffixAdd, ".md")
-	}
-	if cfg.EnvDir != tmpDir {
-		t.Errorf("LoadConfigFromEnvrc() EnvDir = %q, want %q", cfg.EnvDir, tmpDir)
-	}
-	if gotEnvPath != envFile {
-		t.Errorf("LoadConfigFromEnvrc() envPath = %q, want %q", gotEnvPath, envFile)
-	}
-}
-
-func TestLoadConfigFromEnvrcDefault(t *testing.T) {
-	// Test default value when no .envrc file exists
-	tmpDir := t.TempDir()
-
-	cfg, envPath := LoadConfigFromEnvrc(tmpDir)
-
-	if envPath != "" {
-		t.Errorf("LoadConfigFromEnvrc() envPath = %q, want empty", envPath)
-	}
-	if cfg.SuffixAdd != ".md" {
-		t.Errorf("LoadConfigFromEnvrc() SuffixAdd = %q, want %q (default)", cfg.SuffixAdd, ".md")
 	}
 }
 
@@ -450,8 +262,7 @@ func TestTryURLToLocal(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://code.claude.com/docs",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
-				EnvDir:      tmpDir,
+				BaseDir:     tmpDir,
 			},
 			linkPath:    "https://code.claude.com/docs/en/slash-commands",
 			fileDir:     tmpDir,
@@ -463,8 +274,7 @@ func TestTryURLToLocal(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://code.claude.com/docs",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
-				EnvDir:      tmpDir,
+				BaseDir:     tmpDir,
 			},
 			linkPath:    "https://code.claude.com/docs/en/slash-commands#section",
 			fileDir:     tmpDir,
@@ -476,8 +286,7 @@ func TestTryURLToLocal(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://code.claude.com/docs",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
-				EnvDir:      tmpDir,
+				BaseDir:     tmpDir,
 			},
 			linkPath:    "https://code.claude.com/docs/en/plugins",
 			fileDir:     tmpDir,
@@ -489,8 +298,7 @@ func TestTryURLToLocal(t *testing.T) {
 			cfg: Config{
 				BaseURL:     "https://code.claude.com/docs",
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
-				EnvDir:      tmpDir,
+				BaseDir:     tmpDir,
 			},
 			linkPath:    "https://code.claude.com/docs/other/path",
 			fileDir:     tmpDir,
@@ -566,8 +374,7 @@ func TestValidateLocalLink(t *testing.T) {
 			name: "existing prefixed path is valid",
 			cfg: Config{
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
-				EnvDir:      tmpDir,
+				BaseDir:     tmpDir,
 			},
 			linkPath: "/en/existing",
 			fileDir:  tmpDir,
@@ -577,8 +384,7 @@ func TestValidateLocalLink(t *testing.T) {
 			name: "non-existing prefixed path is invalid",
 			cfg: Config{
 				LocalPrefix: "/en",
-				SuffixAdd:   ".md",
-				EnvDir:      tmpDir,
+				BaseDir:     tmpDir,
 			},
 			linkPath: "/en/nonexisting",
 			fileDir:  tmpDir,
@@ -613,8 +419,7 @@ func TestFindBrokenLinks(t *testing.T) {
 
 	cfg := Config{
 		LocalPrefix: "/en",
-		SuffixAdd:   ".md",
-		EnvDir:      tmpDir,
+		BaseDir:     tmpDir,
 	}
 
 	tests := []struct {
@@ -686,8 +491,7 @@ func TestFindBrokenLinksSkipsCodeBlocks(t *testing.T) {
 
 	cfg := Config{
 		LocalPrefix: "/en",
-		SuffixAdd:   ".md",
-		EnvDir:      tmpDir,
+		BaseDir:     tmpDir,
 	}
 
 	tests := []struct {
@@ -793,7 +597,6 @@ func TestProcessContentSkipsCodeBlocks(t *testing.T) {
 	cfg := Config{
 		BaseURL:     "https://code.claude.com/docs",
 		LocalPrefix: "/en",
-		SuffixAdd:   ".md",
 	}
 
 	tests := []struct {
@@ -882,8 +685,7 @@ func TestProcessContentURLToLocal(t *testing.T) {
 	cfg := Config{
 		BaseURL:     "https://code.claude.com/docs",
 		LocalPrefix: "/en",
-		SuffixAdd:   ".md",
-		EnvDir:      tmpDir,
+		BaseDir:     tmpDir,
 	}
 
 	tests := []struct {
@@ -942,7 +744,6 @@ func TestLinkChange(t *testing.T) {
 	cfg := Config{
 		BaseURL:     "https://example.com/docs",
 		LocalPrefix: "/en",
-		SuffixAdd:   ".md",
 	}
 
 	content := `Line 1
@@ -976,5 +777,27 @@ Line 3
 	}
 	if changes[1].Line != 4 {
 		t.Errorf("changes[1].Line = %d, want %d", changes[1].Line, 4)
+	}
+}
+
+func TestSuffixAddDefault(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "doc.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Config without SuffixAdd should default to ".md"
+	cfg := Config{
+		LocalPrefix: "/en",
+	}
+
+	gotPath, gotChanged := ResolveLink(cfg, "/en/doc", tmpDir)
+	if gotPath != "doc.md" {
+		t.Errorf("ResolveLink() path = %q, want %q", gotPath, "doc.md")
+	}
+	if !gotChanged {
+		t.Errorf("ResolveLink() changed = %v, want %v", gotChanged, true)
 	}
 }

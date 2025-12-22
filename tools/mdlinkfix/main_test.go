@@ -7,18 +7,8 @@ import (
 )
 
 func TestProcessFileWithEnv(t *testing.T) {
-	// Create a temporary directory with .envrc and test files
+	// Create a temporary directory with test files
 	tmpDir := t.TempDir()
-
-	// Create .envrc file
-	envContent := `MDLINK_BASE_URL=https://example.com/docs
-MDLINK_LOCAL_PREFIX=/en
-MDLINK_SUFFIX_ADD=.md
-`
-	envFile := filepath.Join(tmpDir, ".envrc")
-	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
 	// Create a local file that should be found
 	localFile := filepath.Join(tmpDir, "local-doc.md")
@@ -36,11 +26,17 @@ Check out [Local Doc](/en/local-doc) and [Remote Doc](/en/remote-doc).
 		t.Fatal(err)
 	}
 
-	// Clear any existing env vars
-	os.Unsetenv("MDLINK_BASE_URL")
-	os.Unsetenv("MDLINK_LOCAL_PREFIX")
-	os.Unsetenv("MDLINK_SUFFIX_DROP")
-	os.Unsetenv("MDLINK_SUFFIX_ADD")
+	// Set environment variables
+	os.Setenv("MDLINK_BASE_URL", "https://example.com/docs")
+	os.Setenv("MDLINK_LOCAL_PREFIX", "/en")
+	os.Setenv("MDLINK_BASE_DIR", tmpDir)
+	defer func() {
+		os.Unsetenv("MDLINK_BASE_URL")
+		os.Unsetenv("MDLINK_LOCAL_PREFIX")
+		os.Unsetenv("MDLINK_BASE_DIR")
+		os.Unsetenv("MDLINK_SUFFIX_DROP")
+		os.Unsetenv("MDLINK_SUFFIX_ADD")
+	}()
 
 	// Process the file
 	*dryRun = false
@@ -65,83 +61,9 @@ Check out [Local Doc](local-doc.md) and [Remote Doc](https://example.com/docs/en
 	}
 }
 
-func TestProcessFileInSubdirectory(t *testing.T) {
-	// Create directory structure: tmpDir/.envrc, tmpDir/local.md, tmpDir/subdir/input.md
-	tmpDir := t.TempDir()
-	subdir := filepath.Join(tmpDir, "subdir")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create .envrc file in tmpDir
-	envContent := `MDLINK_BASE_URL=https://example.com/docs
-MDLINK_LOCAL_PREFIX=/en
-MDLINK_SUFFIX_ADD=.md
-`
-	envFile := filepath.Join(tmpDir, ".envrc")
-	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a local file in tmpDir that should be found
-	localFile := filepath.Join(tmpDir, "local-doc.md")
-	if err := os.WriteFile(localFile, []byte("# Local"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create the file to process in subdir
-	inputFile := filepath.Join(subdir, "input.md")
-	inputContent := `# Test Document
-
-Check out [Local Doc](/en/local-doc) and [Remote Doc](/en/remote-doc).
-`
-	if err := os.WriteFile(inputFile, []byte(inputContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Clear any existing env vars
-	os.Unsetenv("MDLINK_BASE_URL")
-	os.Unsetenv("MDLINK_LOCAL_PREFIX")
-	os.Unsetenv("MDLINK_SUFFIX_DROP")
-	os.Unsetenv("MDLINK_SUFFIX_ADD")
-
-	// Process the file
-	*dryRun = false
-	*verbose = false
-	*validate = false
-	if _, err := ProcessFile(inputFile); err != nil {
-		t.Fatalf("ProcessFile() error = %v", err)
-	}
-
-	// Read the result
-	result, err := os.ReadFile(inputFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// The link should be relative from subdir to tmpDir/local-doc.md
-	expected := `# Test Document
-
-Check out [Local Doc](../local-doc.md) and [Remote Doc](https://example.com/docs/en/remote-doc).
-`
-	if string(result) != expected {
-		t.Errorf("ProcessFile() result = %q, want %q", string(result), expected)
-	}
-}
-
 func TestProcessFileDryRun(t *testing.T) {
-	// Create a temporary directory with .envrc and test files
+	// Create a temporary directory with test files
 	tmpDir := t.TempDir()
-
-	// Create .envrc file
-	envContent := `MDLINK_BASE_URL=https://example.com/docs
-MDLINK_LOCAL_PREFIX=/en
-MDLINK_SUFFIX_ADD=.md
-`
-	envFile := filepath.Join(tmpDir, ".envrc")
-	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
 	// Create the file to process
 	inputFile := filepath.Join(tmpDir, "input.md")
@@ -153,11 +75,16 @@ Check out [Remote Doc](/en/remote-doc).
 		t.Fatal(err)
 	}
 
-	// Clear any existing env vars
-	os.Unsetenv("MDLINK_BASE_URL")
-	os.Unsetenv("MDLINK_LOCAL_PREFIX")
-	os.Unsetenv("MDLINK_SUFFIX_DROP")
-	os.Unsetenv("MDLINK_SUFFIX_ADD")
+	// Set environment variables
+	os.Setenv("MDLINK_BASE_URL", "https://example.com/docs")
+	os.Setenv("MDLINK_LOCAL_PREFIX", "/en")
+	defer func() {
+		os.Unsetenv("MDLINK_BASE_URL")
+		os.Unsetenv("MDLINK_LOCAL_PREFIX")
+		os.Unsetenv("MDLINK_BASE_DIR")
+		os.Unsetenv("MDLINK_SUFFIX_DROP")
+		os.Unsetenv("MDLINK_SUFFIX_ADD")
+	}()
 
 	// Process the file in dry-run mode
 	*dryRun = true
@@ -184,15 +111,6 @@ func TestProcessFileValidation(t *testing.T) {
 	// Create a temporary directory
 	tmpDir := t.TempDir()
 
-	// Create .envrc file
-	envContent := `MDLINK_LOCAL_PREFIX=/en
-MDLINK_SUFFIX_ADD=.md
-`
-	envFile := filepath.Join(tmpDir, ".envrc")
-	if err := os.WriteFile(envFile, []byte(envContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
 	// Create an existing file
 	existingFile := filepath.Join(tmpDir, "existing.md")
 	if err := os.WriteFile(existingFile, []byte("# Existing"), 0o600); err != nil {
@@ -209,11 +127,16 @@ Check out [Existing](existing.md) and [Broken](nonexisting.md).
 		t.Fatal(err)
 	}
 
-	// Clear any existing env vars
-	os.Unsetenv("MDLINK_BASE_URL")
-	os.Unsetenv("MDLINK_LOCAL_PREFIX")
-	os.Unsetenv("MDLINK_SUFFIX_DROP")
-	os.Unsetenv("MDLINK_SUFFIX_ADD")
+	// Set environment variables
+	os.Setenv("MDLINK_LOCAL_PREFIX", "/en")
+	os.Setenv("MDLINK_BASE_DIR", tmpDir)
+	defer func() {
+		os.Unsetenv("MDLINK_BASE_URL")
+		os.Unsetenv("MDLINK_LOCAL_PREFIX")
+		os.Unsetenv("MDLINK_BASE_DIR")
+		os.Unsetenv("MDLINK_SUFFIX_DROP")
+		os.Unsetenv("MDLINK_SUFFIX_ADD")
+	}()
 
 	// Process the file with validation
 	*dryRun = false

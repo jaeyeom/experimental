@@ -1,12 +1,10 @@
 // Package linkfix provides functionality for fixing markdown links by resolving
 // them to local files or absolute URLs.
 //
-// The package supports loading configuration from .envrc files (direnv format)
-// and can resolve links based on configurable prefixes and suffixes.
+// The package can resolve links based on configurable prefixes and suffixes.
 package linkfix
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,8 +35,8 @@ type Config struct {
 	BaseURL     string // Base URL for external links
 	LocalPrefix string // Prefix in links that maps to local directory
 	SuffixDrop  string // Suffix to remove from link path
-	SuffixAdd   string // Suffix to add for local file check
-	EnvDir      string // Directory where .envrc was found (for relative path resolution)
+	SuffixAdd   string // Suffix to add for local file check (default: ".md")
+	BaseDir     string // Base directory for local file lookup (if different from file's directory)
 }
 
 // LinkChange represents a change made to a link during processing.
@@ -48,103 +46,12 @@ type LinkChange struct {
 	Line    int    // Line number (1-indexed)
 }
 
-// FindEnvFile searches for a .envrc file (direnv format) starting from startDir
-// and walking up the directory tree. Returns the path to the .envrc file and
-// the directory containing it, or empty strings if not found.
-func FindEnvFile(startDir string) (envPath, envDir string) {
-	dir := startDir
-	for {
-		envPath := filepath.Join(dir, ".envrc")
-		if _, err := os.Stat(envPath); err == nil {
-			return envPath, dir
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached root
-			return "", ""
-		}
-		dir = parent
+// suffixAdd returns the suffix to add, defaulting to ".md" if empty.
+func suffixAdd(cfg Config) string {
+	if cfg.SuffixAdd == "" {
+		return ".md"
 	}
-}
-
-// ParseEnvFile reads a .envrc file and returns a map of key-value pairs.
-// It supports simple KEY=value format (and export KEY=value for direnv compat).
-// Lines starting with # are comments.
-// Values can be optionally quoted with single or double quotes.
-func ParseEnvFile(path string) (map[string]string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("opening env file: %w", err)
-	}
-	defer file.Close()
-
-	env := make(map[string]string)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Handle direnv's "export KEY=value" format
-		line = strings.TrimPrefix(line, "export ")
-
-		// Split on first =
-		idx := strings.Index(line, "=")
-		if idx == -1 {
-			continue
-		}
-
-		key := strings.TrimSpace(line[:idx])
-		value := strings.TrimSpace(line[idx+1:])
-
-		// Remove surrounding quotes if present
-		if len(value) >= 2 {
-			if (value[0] == '"' && value[len(value)-1] == '"') ||
-				(value[0] == '\'' && value[len(value)-1] == '\'') {
-				value = value[1 : len(value)-1]
-			}
-		}
-
-		env[key] = value
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scanning env file: %w", err)
-	}
-
-	return env, nil
-}
-
-// LoadConfigFromEnvrc loads configuration from a .envrc file (if found).
-// The startDir parameter specifies where to start searching for .envrc files.
-// Returns the config and the path to the .envrc file that was loaded (empty if none).
-// Note: This function does not read environment variables. Use the returned
-// Config struct and override fields as needed in the calling code.
-func LoadConfigFromEnvrc(startDir string) (Config, string) {
-	cfg := Config{
-		SuffixAdd: ".md", // Default value
-	}
-	var envPath string
-
-	// Try to find and load .envrc file
-	if foundPath, envDir := FindEnvFile(startDir); foundPath != "" {
-		envPath = foundPath
-		cfg.EnvDir = envDir
-		if envVars, err := ParseEnvFile(foundPath); err == nil {
-			cfg.BaseURL = envVars["MDLINK_BASE_URL"]
-			cfg.LocalPrefix = envVars["MDLINK_LOCAL_PREFIX"]
-			cfg.SuffixDrop = envVars["MDLINK_SUFFIX_DROP"]
-			if v := envVars["MDLINK_SUFFIX_ADD"]; v != "" {
-				cfg.SuffixAdd = v
-			}
-		}
-	}
-
-	return cfg, envPath
+	return cfg.SuffixAdd
 }
 
 // tryURLToLocal attempts to convert a full URL back to a local file path.
@@ -172,7 +79,7 @@ func tryURLToLocal(cfg Config, linkPath, fileDir, baseDir string) (string, bool)
 			relativePath = strings.TrimSuffix(relativePath, cfg.SuffixDrop)
 		}
 
-		localPath := relativePath + cfg.SuffixAdd
+		localPath := relativePath + suffixAdd(cfg)
 
 		// Check if the local file exists relative to baseDir
 		fullPath := filepath.Join(baseDir, localPath)
@@ -209,7 +116,7 @@ func tryLocalPrefixResolution(cfg Config, linkPath, fileDir, baseDir string) (st
 		relativePath = strings.TrimSuffix(relativePath, cfg.SuffixDrop)
 	}
 
-	localPath := relativePath + cfg.SuffixAdd
+	localPath := relativePath + suffixAdd(cfg)
 
 	// Check if the local file exists relative to baseDir
 	fullPath := filepath.Join(baseDir, localPath)
@@ -235,7 +142,7 @@ func tryLocalPrefixResolution(cfg Config, linkPath, fileDir, baseDir string) (st
 // ResolveLink resolves a link to either a local file path or an absolute URL.
 // It returns the resolved link and whether it was changed.
 // The fileDir parameter is the directory of the file being processed.
-// Local files are searched relative to cfg.EnvDir (if set) or fileDir.
+// Local files are searched relative to cfg.BaseDir (if set) or fileDir.
 func ResolveLink(cfg Config, linkPath, fileDir string) (string, bool) {
 	// Skip anchor-only links
 	if strings.HasPrefix(linkPath, "#") {
@@ -249,8 +156,8 @@ func ResolveLink(cfg Config, linkPath, fileDir string) (string, bool) {
 
 	// Determine the base directory for local file lookup
 	baseDir := fileDir
-	if cfg.EnvDir != "" {
-		baseDir = cfg.EnvDir
+	if cfg.BaseDir != "" {
+		baseDir = cfg.BaseDir
 	}
 
 	// Try to convert full URLs back to local links if they match the base URL
@@ -308,8 +215,8 @@ func ValidateLocalLink(cfg Config, linkPath, fileDir string) bool {
 
 	// Determine the base directory for local file lookup
 	baseDir := fileDir
-	if cfg.EnvDir != "" {
-		baseDir = cfg.EnvDir
+	if cfg.BaseDir != "" {
+		baseDir = cfg.BaseDir
 	}
 
 	// For paths starting with the local prefix, check if file exists
@@ -321,7 +228,7 @@ func ValidateLocalLink(cfg Config, linkPath, fileDir string) bool {
 			relativePath = strings.TrimSuffix(relativePath, cfg.SuffixDrop)
 		}
 
-		localPath := relativePath + cfg.SuffixAdd
+		localPath := relativePath + suffixAdd(cfg)
 		fullPath := filepath.Join(baseDir, localPath)
 		_, err := os.Stat(fullPath)
 		return err == nil
