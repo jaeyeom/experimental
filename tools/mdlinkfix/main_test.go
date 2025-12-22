@@ -816,6 +816,201 @@ func TestFindBrokenLinks(t *testing.T) {
 	}
 }
 
+func TestFindBrokenLinksSkipsCodeBlocks(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "existing.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		LocalPrefix: "/en",
+		SuffixAdd:   ".md",
+		envDir:      tmpDir,
+	}
+
+	tests := []struct {
+		name       string
+		content    string
+		wantBroken int
+		wantPaths  []string
+	}{
+		{
+			name: "link in fenced code block is skipped",
+			content: `Some text before.
+
+` + "```" + `
+[broken](nonexisting.md)
+` + "```" + `
+
+Some text after.`,
+			wantBroken: 0,
+			wantPaths:  nil,
+		},
+		{
+			name: "link in fenced code block with language is skipped",
+			content: `Some text before.
+
+` + "```markdown" + `
+[broken](nonexisting.md)
+` + "```" + `
+
+Some text after.`,
+			wantBroken: 0,
+			wantPaths:  nil,
+		},
+		{
+			name: "link outside code block is checked",
+			content: `[broken](nonexisting.md)
+
+` + "```" + `
+[also broken](another-nonexisting.md)
+` + "```" + `
+
+Some text after.`,
+			wantBroken: 1,
+			wantPaths:  []string{"nonexisting.md"},
+		},
+		{
+			name: "links in tilde fenced code block are skipped",
+			content: `Some text before.
+
+~~~
+[broken](nonexisting.md)
+~~~
+
+Some text after.`,
+			wantBroken: 0,
+			wantPaths:  nil,
+		},
+		{
+			name: "multiple code blocks",
+			content: `[valid outside](existing.md)
+
+` + "```" + `
+[broken inside](nonexisting.md)
+` + "```" + `
+
+[broken outside](broken.md)
+
+~~~
+[another broken inside](another.md)
+~~~
+
+[also valid](existing.md)`,
+			wantBroken: 1,
+			wantPaths:  []string{"broken.md"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			broken := FindBrokenLinks(cfg, tt.content, tmpDir, "test.md")
+			if len(broken) != tt.wantBroken {
+				t.Errorf("FindBrokenLinks() found %d broken links, want %d", len(broken), tt.wantBroken)
+				for _, bl := range broken {
+					t.Errorf("  broken link: %s at line %d", bl.Path, bl.Line)
+				}
+			}
+			for i, bl := range broken {
+				if i < len(tt.wantPaths) && bl.Path != tt.wantPaths[i] {
+					t.Errorf("broken[%d].Path = %q, want %q", i, bl.Path, tt.wantPaths[i])
+				}
+			}
+		})
+	}
+}
+
+func TestProcessContentSkipsCodeBlocks(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "slash-commands.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{
+		BaseURL:     "https://code.claude.com/docs",
+		LocalPrefix: "/en",
+		SuffixAdd:   ".md",
+	}
+
+	tests := []struct {
+		name        string
+		content     string
+		wantContent string
+		wantChanges int
+	}{
+		{
+			name: "link in code block not processed",
+			content: `Some text.
+
+` + "```" + `
+[Slash commands](/en/slash-commands)
+` + "```" + `
+
+End.`,
+			wantContent: `Some text.
+
+` + "```" + `
+[Slash commands](/en/slash-commands)
+` + "```" + `
+
+End.`,
+			wantChanges: 0,
+		},
+		{
+			name: "link outside code block is processed",
+			content: `[Slash commands](/en/slash-commands)
+
+` + "```" + `
+[Slash commands](/en/slash-commands)
+` + "```" + `
+
+End.`,
+			wantContent: `[Slash commands](slash-commands.md)
+
+` + "```" + `
+[Slash commands](/en/slash-commands)
+` + "```" + `
+
+End.`,
+			wantChanges: 1,
+		},
+		{
+			name: "tilde code block not processed",
+			content: `Some text.
+
+~~~
+[Slash commands](/en/slash-commands)
+~~~
+
+End.`,
+			wantContent: `Some text.
+
+~~~
+[Slash commands](/en/slash-commands)
+~~~
+
+End.`,
+			wantChanges: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotContent, gotChanges := ProcessContent(cfg, tt.content, tmpDir)
+			if gotContent != tt.wantContent {
+				t.Errorf("ProcessContent() content = %q, want %q", gotContent, tt.wantContent)
+			}
+			if gotChanges != tt.wantChanges {
+				t.Errorf("ProcessContent() changes = %d, want %d", gotChanges, tt.wantChanges)
+			}
+		})
+	}
+}
+
 func TestProcessContentURLToLocal(t *testing.T) {
 	// Create a temporary directory with test files
 	tmpDir := t.TempDir()

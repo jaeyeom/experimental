@@ -35,6 +35,10 @@ var (
 	// It captures the text, the URL, and any optional title.
 	linkPattern = regexp.MustCompile(`\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 
+	// codeBlockPattern matches fenced code block delimiters (``` or ~~~)
+	// with optional language identifier. Captures the fence characters.
+	codeBlockPattern = regexp.MustCompile("^\\s*(`{3,}|~{3,})")
+
 	dryRun   = flag.Bool("dry-run", false, "Print changes without modifying files")
 	verbose  = flag.Bool("verbose", false, "Print verbose output")
 	validate = flag.Bool("validate", false, "Validate local links and report broken ones")
@@ -362,12 +366,45 @@ func ValidateLocalLink(cfg Config, linkPath, fileDir string) bool {
 	return true
 }
 
+// isCodeBlockDelimiter checks if a line is a fenced code block delimiter.
+// Returns true and the fence type (` or ~) if it's a delimiter, false otherwise.
+func isCodeBlockDelimiter(line string) (bool, byte) {
+	match := codeBlockPattern.FindStringSubmatch(line)
+	if len(match) < 2 {
+		return false, 0
+	}
+	return true, match[1][0]
+}
+
 // FindBrokenLinks finds all broken local links in the content.
+// It skips links inside fenced code blocks (``` or ~~~).
 func FindBrokenLinks(cfg Config, content, fileDir, filePath string) []BrokenLink {
 	var broken []BrokenLink
 	lines := strings.Split(content, "\n")
 
+	inCodeBlock := false
+	var codeBlockFence byte
+
 	for lineNum, line := range lines {
+		// Check for code block delimiter
+		if isDelim, fenceChar := isCodeBlockDelimiter(line); isDelim {
+			if !inCodeBlock {
+				// Entering a code block
+				inCodeBlock = true
+				codeBlockFence = fenceChar
+			} else if fenceChar == codeBlockFence {
+				// Exiting the code block (same fence type)
+				inCodeBlock = false
+				codeBlockFence = 0
+			}
+			continue
+		}
+
+		// Skip lines inside code blocks
+		if inCodeBlock {
+			continue
+		}
+
 		matches := linkPattern.FindAllStringSubmatch(line, -1)
 		for _, match := range matches {
 			if len(match) < 3 {
@@ -391,28 +428,57 @@ func FindBrokenLinks(cfg Config, content, fileDir, filePath string) []BrokenLink
 }
 
 // ProcessContent processes markdown content and resolves all links.
+// It skips links inside fenced code blocks (``` or ~~~).
 func ProcessContent(cfg Config, content, fileDir string) (string, int) {
 	changesCount := 0
+	lines := strings.Split(content, "\n")
 
-	result := linkPattern.ReplaceAllStringFunc(content, func(match string) string {
-		submatches := linkPattern.FindStringSubmatch(match)
-		if len(submatches) < 3 {
+	inCodeBlock := false
+	var codeBlockFence byte
+
+	for i, line := range lines {
+		// Check for code block delimiter
+		if isDelim, fenceChar := isCodeBlockDelimiter(line); isDelim {
+			if !inCodeBlock {
+				// Entering a code block
+				inCodeBlock = true
+				codeBlockFence = fenceChar
+			} else if fenceChar == codeBlockFence {
+				// Exiting the code block (same fence type)
+				inCodeBlock = false
+				codeBlockFence = 0
+			}
+			continue
+		}
+
+		// Skip lines inside code blocks
+		if inCodeBlock {
+			continue
+		}
+
+		// Process links in this line
+		newLine := linkPattern.ReplaceAllStringFunc(line, func(match string) string {
+			submatches := linkPattern.FindStringSubmatch(match)
+			if len(submatches) < 3 {
+				return match
+			}
+
+			text := submatches[1]
+			linkPath := submatches[2]
+
+			newPath, changed := ResolveLink(cfg, linkPath, fileDir)
+			if changed {
+				changesCount++
+				return fmt.Sprintf("[%s](%s)", text, newPath)
+			}
+
 			return match
-		}
+		})
 
-		text := submatches[1]
-		linkPath := submatches[2]
+		lines[i] = newLine
+	}
 
-		newPath, changed := ResolveLink(cfg, linkPath, fileDir)
-		if changed {
-			changesCount++
-			return fmt.Sprintf("[%s](%s)", text, newPath)
-		}
-
-		return match
-	})
-
-	return result, changesCount
+	return strings.Join(lines, "\n"), changesCount
 }
 
 // ProcessFile processes a single markdown file.
