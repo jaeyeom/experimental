@@ -35,9 +35,18 @@ var (
 	// It captures the text, the URL, and any optional title.
 	linkPattern = regexp.MustCompile(`\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 
-	dryRun  = flag.Bool("dry-run", false, "Print changes without modifying files")
-	verbose = flag.Bool("verbose", false, "Print verbose output")
+	dryRun   = flag.Bool("dry-run", false, "Print changes without modifying files")
+	verbose  = flag.Bool("verbose", false, "Print verbose output")
+	validate = flag.Bool("validate", false, "Validate local links and report broken ones")
 )
+
+// BrokenLink represents a link that couldn't be resolved to an existing file.
+type BrokenLink struct {
+	Text     string // Link text
+	Path     string // Link path
+	Line     int    // Line number (1-indexed)
+	FilePath string // File containing the broken link
+}
 
 // Config holds the configuration for link resolution.
 type Config struct {
@@ -161,32 +170,24 @@ func LoadConfig(startDir string) Config {
 	return cfg
 }
 
-// ResolveLink resolves a link to either a local file path or an absolute URL.
-// It returns the resolved link and whether it was changed.
-// The fileDir parameter is the directory of the file being processed.
-// Local files are searched relative to cfg.envDir (if set) or fileDir.
-func ResolveLink(cfg Config, linkPath, fileDir string) (string, bool) {
-	// Skip absolute URLs (http://, https://, mailto:, etc.)
-	if strings.Contains(linkPath, "://") || strings.HasPrefix(linkPath, "mailto:") {
-		return linkPath, false
+// tryURLToLocal attempts to convert a full URL back to a local file path.
+// It strips the BaseURL prefix and checks if the resulting path exists locally.
+// If the local file exists, it returns the local path; otherwise, it returns the original URL.
+func tryURLToLocal(cfg Config, linkPath, fileDir, baseDir string) (string, bool) {
+	// Strip the base URL to get the path portion
+	urlPath := strings.TrimPrefix(linkPath, cfg.BaseURL)
+
+	// Handle anchor fragments in the URL
+	anchor := ""
+	if idx := strings.Index(urlPath, "#"); idx != -1 {
+		anchor = urlPath[idx:]
+		urlPath = urlPath[:idx]
 	}
 
-	// Skip anchor-only links
-	if strings.HasPrefix(linkPath, "#") {
-		return linkPath, false
-	}
-
-	// Determine the base directory for local file lookup
-	// Use envDir if available (supports subdirectories), otherwise use fileDir
-	baseDir := fileDir
-	if cfg.envDir != "" {
-		baseDir = cfg.envDir
-	}
-
-	// Check if this link starts with the local prefix
-	if cfg.LocalPrefix != "" && strings.HasPrefix(linkPath, cfg.LocalPrefix) {
+	// Check if the path has our local prefix
+	if cfg.LocalPrefix != "" && strings.HasPrefix(urlPath, cfg.LocalPrefix) {
 		// Remove the prefix to get the relative path
-		relativePath := strings.TrimPrefix(linkPath, cfg.LocalPrefix)
+		relativePath := strings.TrimPrefix(urlPath, cfg.LocalPrefix)
 		relativePath = strings.TrimPrefix(relativePath, "/")
 
 		// Apply suffix transformations
@@ -199,7 +200,7 @@ func ResolveLink(cfg Config, linkPath, fileDir string) (string, bool) {
 		// Check if the local file exists relative to baseDir
 		fullPath := filepath.Join(baseDir, localPath)
 		if _, err := os.Stat(fullPath); err == nil {
-			// Local file exists
+			// Local file exists - convert URL to local path
 			// Calculate relative path from fileDir to the local file
 			if fileDir != baseDir {
 				relPath, err := filepath.Rel(fileDir, fullPath)
@@ -207,14 +208,87 @@ func ResolveLink(cfg Config, linkPath, fileDir string) (string, bool) {
 					localPath = relPath
 				}
 			}
-			return localPath, linkPath != localPath
+			return localPath + anchor, true
 		}
+	}
 
-		// Local file doesn't exist, fall back to URL
-		if cfg.BaseURL != "" {
-			newURL := cfg.BaseURL + linkPath
-			return newURL, linkPath != newURL
+	// Local file doesn't exist, keep the original URL
+	return linkPath, false
+}
+
+// tryLocalPrefixResolution attempts to resolve a link that starts with the local prefix.
+// Returns the resolved path, whether it was changed, and whether resolution was attempted.
+func tryLocalPrefixResolution(cfg Config, linkPath, fileDir, baseDir string) (string, bool, bool) {
+	if cfg.LocalPrefix == "" || !strings.HasPrefix(linkPath, cfg.LocalPrefix) {
+		return "", false, false
+	}
+
+	// Remove the prefix to get the relative path
+	relativePath := strings.TrimPrefix(linkPath, cfg.LocalPrefix)
+	relativePath = strings.TrimPrefix(relativePath, "/")
+
+	// Apply suffix transformations
+	if cfg.SuffixDrop != "" && strings.HasSuffix(relativePath, cfg.SuffixDrop) {
+		relativePath = strings.TrimSuffix(relativePath, cfg.SuffixDrop)
+	}
+
+	localPath := relativePath + cfg.SuffixAdd
+
+	// Check if the local file exists relative to baseDir
+	fullPath := filepath.Join(baseDir, localPath)
+	if _, err := os.Stat(fullPath); err == nil {
+		// Local file exists - calculate relative path from fileDir
+		if fileDir != baseDir {
+			if relPath, err := filepath.Rel(fileDir, fullPath); err == nil {
+				localPath = relPath
+			}
 		}
+		return localPath, linkPath != localPath, true
+	}
+
+	// Local file doesn't exist, fall back to URL if base URL is set
+	if cfg.BaseURL != "" {
+		newURL := cfg.BaseURL + linkPath
+		return newURL, linkPath != newURL, true
+	}
+
+	return linkPath, false, true
+}
+
+// ResolveLink resolves a link to either a local file path or an absolute URL.
+// It returns the resolved link and whether it was changed.
+// The fileDir parameter is the directory of the file being processed.
+// Local files are searched relative to cfg.envDir (if set) or fileDir.
+func ResolveLink(cfg Config, linkPath, fileDir string) (string, bool) {
+	// Skip anchor-only links
+	if strings.HasPrefix(linkPath, "#") {
+		return linkPath, false
+	}
+
+	// Skip mailto links
+	if strings.HasPrefix(linkPath, "mailto:") {
+		return linkPath, false
+	}
+
+	// Determine the base directory for local file lookup
+	baseDir := fileDir
+	if cfg.envDir != "" {
+		baseDir = cfg.envDir
+	}
+
+	// Try to convert full URLs back to local links if they match the base URL
+	if cfg.BaseURL != "" && strings.HasPrefix(linkPath, cfg.BaseURL) {
+		return tryURLToLocal(cfg, linkPath, fileDir, baseDir)
+	}
+
+	// Skip other absolute URLs (http://, https://, etc.)
+	if strings.Contains(linkPath, "://") {
+		return linkPath, false
+	}
+
+	// Check if this link starts with the local prefix
+	if result, changed, handled := tryLocalPrefixResolution(cfg, linkPath, fileDir, baseDir); handled {
+		return result, changed
 	}
 
 	// If no local prefix match but we have a base URL for absolute paths
@@ -224,6 +298,96 @@ func ResolveLink(cfg Config, linkPath, fileDir string) (string, bool) {
 	}
 
 	return linkPath, false
+}
+
+// ValidateLocalLink checks if a local link (relative path) exists.
+// Returns true if the link is valid (file exists or it's not a local file link).
+func ValidateLocalLink(cfg Config, linkPath, fileDir string) bool {
+	// Skip anchor-only links (always valid)
+	if strings.HasPrefix(linkPath, "#") {
+		return true
+	}
+
+	// Skip mailto links (always valid)
+	if strings.HasPrefix(linkPath, "mailto:") {
+		return true
+	}
+
+	// Skip absolute URLs (not local links)
+	if strings.Contains(linkPath, "://") {
+		return true
+	}
+
+	// Handle anchor fragments
+	pathWithoutAnchor := linkPath
+	if idx := strings.Index(linkPath, "#"); idx != -1 {
+		pathWithoutAnchor = linkPath[:idx]
+	}
+
+	// Skip empty paths (anchor-only after stripping)
+	if pathWithoutAnchor == "" {
+		return true
+	}
+
+	// Determine the base directory for local file lookup
+	baseDir := fileDir
+	if cfg.envDir != "" {
+		baseDir = cfg.envDir
+	}
+
+	// For paths starting with the local prefix, check if file exists
+	if cfg.LocalPrefix != "" && strings.HasPrefix(pathWithoutAnchor, cfg.LocalPrefix) {
+		relativePath := strings.TrimPrefix(pathWithoutAnchor, cfg.LocalPrefix)
+		relativePath = strings.TrimPrefix(relativePath, "/")
+
+		if cfg.SuffixDrop != "" && strings.HasSuffix(relativePath, cfg.SuffixDrop) {
+			relativePath = strings.TrimSuffix(relativePath, cfg.SuffixDrop)
+		}
+
+		localPath := relativePath + cfg.SuffixAdd
+		fullPath := filepath.Join(baseDir, localPath)
+		_, err := os.Stat(fullPath)
+		return err == nil
+	}
+
+	// For relative paths (not starting with /), check relative to fileDir
+	if !strings.HasPrefix(pathWithoutAnchor, "/") {
+		fullPath := filepath.Join(fileDir, pathWithoutAnchor)
+		_, err := os.Stat(fullPath)
+		return err == nil
+	}
+
+	// For absolute paths starting with / but not matching local prefix,
+	// we can't validate them without more context
+	return true
+}
+
+// FindBrokenLinks finds all broken local links in the content.
+func FindBrokenLinks(cfg Config, content, fileDir, filePath string) []BrokenLink {
+	var broken []BrokenLink
+	lines := strings.Split(content, "\n")
+
+	for lineNum, line := range lines {
+		matches := linkPattern.FindAllStringSubmatch(line, -1)
+		for _, match := range matches {
+			if len(match) < 3 {
+				continue
+			}
+			text := match[1]
+			linkPath := match[2]
+
+			if !ValidateLocalLink(cfg, linkPath, fileDir) {
+				broken = append(broken, BrokenLink{
+					Text:     text,
+					Path:     linkPath,
+					Line:     lineNum + 1, // 1-indexed
+					FilePath: filePath,
+				})
+			}
+		}
+	}
+
+	return broken
 }
 
 // ProcessContent processes markdown content and resolves all links.
@@ -253,16 +417,17 @@ func ProcessContent(cfg Config, content, fileDir string) (string, int) {
 
 // ProcessFile processes a single markdown file.
 // It loads configuration from .env file in the file's directory tree.
-func ProcessFile(filePath string) error {
+// Returns the list of broken links found (if validation is enabled).
+func ProcessFile(filePath string) ([]BrokenLink, error) {
 	// Get original file info to preserve permissions
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
+		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("reading file: %w", err)
+		return nil, fmt.Errorf("reading file: %w", err)
 	}
 
 	fileDir := filepath.Dir(filePath)
@@ -277,11 +442,17 @@ func ProcessFile(filePath string) error {
 
 	newContent, changesCount := ProcessContent(cfg, string(content), fileDir)
 
+	// If validate mode, check for broken links after processing
+	var brokenLinks []BrokenLink
+	if *validate {
+		brokenLinks = FindBrokenLinks(cfg, newContent, fileDir, filePath)
+	}
+
 	if changesCount == 0 {
 		if *verbose {
 			fmt.Printf("%s: no changes\n", filePath)
 		}
-		return nil
+		return brokenLinks, nil
 	}
 
 	if *dryRun {
@@ -291,16 +462,16 @@ func ProcessFile(filePath string) error {
 			fmt.Println(newContent)
 			fmt.Println("--- End ---")
 		}
-		return nil
+		return brokenLinks, nil
 	}
 
 	// #nosec G306 -- preserve original file permissions for documentation files
 	if err := os.WriteFile(filePath, []byte(newContent), fileInfo.Mode().Perm()); err != nil {
-		return fmt.Errorf("writing file: %w", err)
+		return brokenLinks, fmt.Errorf("writing file: %w", err)
 	}
 
 	fmt.Printf("%s: %d link(s) changed\n", filePath, changesCount)
-	return nil
+	return brokenLinks, nil
 }
 
 func main() {
@@ -321,11 +492,25 @@ func main() {
 	}
 
 	exitCode := 0
+	var allBrokenLinks []BrokenLink
+
 	for _, filePath := range flag.Args() {
-		if err := ProcessFile(filePath); err != nil {
+		brokenLinks, err := ProcessFile(filePath)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", filePath, err)
 			exitCode = 1
 		}
+		allBrokenLinks = append(allBrokenLinks, brokenLinks...)
+	}
+
+	// Report broken links if validation is enabled
+	if *validate && len(allBrokenLinks) > 0 {
+		fmt.Fprintln(os.Stderr, "\nBroken links found:")
+		for _, bl := range allBrokenLinks {
+			fmt.Fprintf(os.Stderr, "  %s:%d: [%s](%s)\n", bl.FilePath, bl.Line, bl.Text, bl.Path)
+		}
+		fmt.Fprintf(os.Stderr, "\nTotal: %d broken link(s)\n", len(allBrokenLinks))
+		exitCode = 1
 	}
 
 	os.Exit(exitCode)
