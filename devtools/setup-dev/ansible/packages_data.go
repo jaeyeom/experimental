@@ -205,6 +205,23 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: []Import{{Playbook: "curl"}},
 	},
 	GoTool("org-lint", "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest", Import{Playbook: "emacs"}),
+	{
+		command: "pkl",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "pkl"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand:    `arch=$(uname -m) && os=$(uname -s | tr '[:upper:]' '[:lower:]') && if [ "$arch" = "x86_64" ]; then arch="amd64"; elif [ "$arch" = "arm64" ]; then arch="aarch64"; fi && curl -L -o ~/.local/bin/pkl "https://github.com/apple/pkl/releases/download/{{ pkl_latest_release.json.tag_name }}/pkl-${os}-${arch}" && chmod +x ~/.local/bin/pkl`,
+				VersionCommand:    "pkl --version",
+				VersionRegex:      "Pkl ([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/apple/pkl/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
+		},
+		Imports: []Import{
+			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
+			{Playbook: "curl", When: WhenDebianLike},
+		},
+	},
 	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
 	GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
