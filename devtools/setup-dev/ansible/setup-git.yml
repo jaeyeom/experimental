@@ -35,6 +35,12 @@
       ignore_errors: true
       changed_when: False
 
+    - name: Determine the default branch
+      shell: git config --global init.defaultBranch
+      register: get_git_default_branch
+      ignore_errors: true
+      changed_when: False
+
     - name: Asserts that user name and email are available
       ansible.builtin.assert:
         that:
@@ -54,6 +60,10 @@
     - name: Set global user name
       shell: git config --global github.user "{{ ansible_facts['env']['GITHUB_USERNAME'] }}"
       when: get_github_username.stdout == ""
+
+    - name: Set default branch to main
+      shell: git config --global init.defaultBranch main
+      when: get_git_default_branch.stdout == ""
 
     - name: Ensure git user name is set
       ansible.builtin.set_fact:
