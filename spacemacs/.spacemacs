@@ -2,6 +2,26 @@
 ;; This file is loaded by Spacemacs at startup.
 ;; It must be stored in your home directory.
 
+;; Platform detection functions and variables.
+;; These must be defined before `dotspacemacs/layers' uses them.
+(defun my/crostini-p ()
+  "Return non-nil if running on Chrome OS Crostini."
+  (file-exists-p "/dev/.cros_milestone"))
+(defvar my/crostini-p (my/crostini-p)
+  "Non-nil if running on Chrome OS Crostini.")
+
+(defun my/termux-p ()
+  "Return non-nil if running in Termux on Android."
+  (not (null (getenv "TERMUX_VERSION"))))
+(defvar my/termux-p (my/termux-p)
+  "Non-nil if running in Termux on Android.")
+
+(defun my/macos-p ()
+  "Return non-nil if running on macOS."
+  (eq system-type 'darwin))
+(defvar my/macos-p (my/macos-p)
+  "Non-nil if running on macOS.")
+
 (defun dotspacemacs/layers ()
   "Layer configuration:
 This function should only modify configuration layer settings."
@@ -698,21 +718,6 @@ This function is called immediately after `dotspacemacs/init', before layer
 configuration.
 It is mostly for variables that should be set before packages are loaded.
 If you are unsure, try setting them in `dotspacemacs/user-config' first."
-  (defun my/crostini-p ()
-    (file-exists-p "/dev/.cros_milestone"))
-
-  (defvar my/crostini-p (my/crostini-p))
-
-  (defun my/termux-p ()
-    (not (null (getenv "TERMUX_VERSION"))))
-
-  (defvar my/termux-p (my/termux-p))
-
-  (defun my/macos-p ()
-    (eq system-type 'darwin))
-
-  (defvar my/macos-p (my/macos-p))
-
   ;; Bug patch for Termux. `async-start' does not work properly in Termux. Let's
   ;; make the function synchronous.
   (if my/termux-p
