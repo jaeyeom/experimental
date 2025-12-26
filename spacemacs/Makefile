@@ -8,4 +8,4 @@ check: .spacemacs.elc
 	$(EMACS) -Q --batch -L . -f batch-byte-compile .spacemacs
 
 clean:
-	rm -f *.elc test/*.elc
+	rm -f .spacemacs.elc *.elc test/*.elc
