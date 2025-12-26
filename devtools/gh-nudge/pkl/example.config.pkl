@@ -1,0 +1,42 @@
+amends "Config.pkl"
+
+github {
+  owner = "organization-name"
+  repos {
+    "repo-name-1"
+    "repo-name-2"
+  }
+}
+
+slack {
+  token = read("env:SLACK_TOKEN")
+  default_channel = "#code-reviews"
+  user_id_mapping {
+    ["github-username-1"] = "U12345"
+    ["github-username-2"] = "U67890"
+  }
+  dm_channel_id_mapping {
+    ["github-username-1"] = "C12345"
+    ["github-username-2"] = "C67890"
+  }
+  channel_routing {
+    new {
+      pattern = "frontend/.*\\.js$"
+      channel = "#frontend"
+    }
+    new {
+      pattern = "backend/.*\\.go$"
+      channel = "#backend"
+    }
+    new {
+      pattern = "docs/.*"
+      channel = "#documentation"
+    }
+  }
+}
+
+settings {
+  reminder_threshold_hours = 24
+  working_hours_only = true
+  dm_by_default = true
+}

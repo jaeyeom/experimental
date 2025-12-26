@@ -1,0 +1,5 @@
+amends "pkl:Project"
+
+dependencies {
+  ["pkl-go"] { uri = "package://pkg.pkl-lang.org/pkl-go/pkl.golang@0.12.1" }
+}

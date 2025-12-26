@@ -1,0 +1,51 @@
+@go.Package { name = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl" }
+module gh_nudge.Config
+
+import "package://pkg.pkl-lang.org/pkl-go/pkl.golang@0.12.1#/go.pkl"
+
+/// GitHub-related configuration
+class GitHubConfig {
+  /// Repository owner (organization or user). Defaults to authenticated user.
+  owner: String?
+  /// List of repository names to monitor
+  repos: Listing<String>
+}
+
+/// Channel routing rule based on file patterns
+class ChannelRoutingConfig {
+  /// Regex pattern to match file paths
+  pattern: String
+  /// Slack channel to route matching PRs to
+  channel: String
+}
+
+/// Slack-related configuration
+class SlackConfig {
+  /// Slack Bot OAuth token (starts with xoxb-)
+  token: String
+  /// Fallback channel if no routing patterns match
+  default_channel: String
+  /// GitHub username to Slack user ID mapping (for @mentions)
+  user_id_mapping: Mapping<String, String>
+  /// GitHub username to Slack DM channel ID mapping
+  dm_channel_id_mapping: Mapping<String, String>
+  /// Channel routing rules based on file patterns
+  channel_routing: Listing<ChannelRoutingConfig>
+}
+
+/// General application settings
+class SettingsConfig {
+  /// Hours between reminder notifications for the same PR/reviewer
+  reminder_threshold_hours: Int(this > 0) = 24
+  /// Only send notifications during working hours
+  working_hours_only: Boolean = false
+  /// Template for reminder messages. Variables: {slack_id}, {title}, {hours}, {url}
+  message_template: String = "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours."
+  /// Send DMs to reviewers by default instead of channel messages
+  dm_by_default: Boolean = false
+}
+
+/// Root configuration
+github: GitHubConfig
+slack: SlackConfig
+settings: SettingsConfig = new {}
