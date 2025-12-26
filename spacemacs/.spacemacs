@@ -82,7 +82,8 @@ This function should only modify configuration layer settings."
                   js2-strict-missing-semi-warning nil)
       (llm-client :variables
                   llm-client-enable-gptel t)
-      lsp
+      (lsp :variables
+           lsp-format-buffer-on-save t)
       markdown
       multiple-cursors
       (notmuch :variables
@@ -191,6 +192,7 @@ This function should only modify configuration layer settings."
      ob-tmux
      org-tree-slide
      ox-clip
+     pkl-mode
      solarized-theme
      (tramp-gh :location (recipe :fetcher github :repo "jaeyeom/tramp-gh"))
      )
@@ -1756,7 +1758,6 @@ This function uses the 'magick identify' command to get the dimensions of the im
 
   (with-eval-after-load 'go-mode
     (defun my/go-mode-lsp-setup ()
-      (add-hook 'before-save-hook #'lsp-format-buffer t t)
       (add-hook 'before-save-hook #'lsp-organize-imports t t))
 
     ;; Termux does not work with gopls with formatting and organizing imports.
