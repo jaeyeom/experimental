@@ -41,6 +41,12 @@
       ignore_errors: true
       changed_when: False
 
+    - name: Determine the merge conflict style
+      shell: git config --global merge.conflictstyle
+      register: get_git_merge_conflictstyle
+      ignore_errors: true
+      changed_when: False
+
     - name: Asserts that user name and email are available
       ansible.builtin.assert:
         that:
@@ -64,6 +70,10 @@
     - name: Set default branch to main
       shell: git config --global init.defaultBranch main
       when: get_git_default_branch.stdout == ""
+
+    - name: Set merge conflict style to zdiff3
+      shell: git config --global merge.conflictstyle zdiff3
+      when: get_git_merge_conflictstyle.stdout == ""
 
     - name: Ensure git user name is set
       ansible.builtin.set_fact:
