@@ -275,8 +275,13 @@ func TestBazelShellExecution(t *testing.T) {
 
 	// Test bazel help command with shell execution
 	cfg := ToolConfig{
-		Command:        "bazel",
-		Args:           []string{"help"},
+		Command: "bazel",
+		Args: []string{
+			"help",
+			// Workaround for Termux: System network usage
+			// collection causes crash
+			"--noexperimental_collect_system_network_usage",
+		},
 		CommandBuilder: &ShellCommandBuilder{},
 	}
 
