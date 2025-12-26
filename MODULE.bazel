@@ -64,3 +64,13 @@ pip_ext.parse(
     requirements_lock = "//:requirements.txt",
 )
 use_repo(pip_ext, "main_pip_deps")  # Make @main_pip_deps available
+
+# Pkl for configuration
+bazel_dep(name = "rules_pkl", version = "0.13.1")
+
+pkl = use_extension("@rules_pkl//pkl:extensions.bzl", "pkl")
+pkl.project(
+    name = "pkl_project",
+    pkl_project = "//:PklProject",
+)
+use_repo(pkl, "pkl_project", "pkl_project_deps")
