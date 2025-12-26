@@ -12,6 +12,9 @@ Pkl using pkl-go with Bazel.
 Go code generation rules (only Java via `pkl_java_library`). Go code is generated
 using `pkl-gen-go` from the `pkl-go` project.
 
+**Tracking Progress:** When a phase is completed, mark it by appending
+"(Completed)" to the phase header (e.g., `## Phase 1: ... (Completed)`).
+
 ## Benefits of Pkl
 
 - **Type safety** - Errors caught at config load time
@@ -61,7 +64,7 @@ Run the following to generate the dependency lock file:
 pkl project resolve
 ```
 
-## Phase 3: Define Pkl Schema
+## Phase 3: Define Pkl Schema (Completed)
 
 Create the following file structure:
 
