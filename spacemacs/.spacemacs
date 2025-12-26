@@ -62,9 +62,11 @@ This function should only modify configuration layer settings."
            git-enable-magit-todos-plugin t)
       github-copilot
       (go :variables
-          go-backend 'lsp
+          go-backend (if my/termux-p 'go-mode 'lsp)
           go-use-golangci-lint t
-          lsp-go-use-gofumpt t)
+          lsp-go-use-gofumpt t
+          gofmt-command "goimports"
+          go-format-before-save my/termux-p)
       ;; (groovy :variables
       ;;         groovy-indent-offset 2)
       ;; (helm :variables
@@ -782,11 +784,12 @@ support, allowing other functions like `my/image-size' to work with the spec."
       ;; Add transform-smoothing based on transformations
       (when (or has-scale has-rotation)
         (unless (plist-member props :transform-smoothing)
-          (setq spec (append spec (list :transform-smoothing
-                                       (if has-rotation
-                                           nil
-                                         (if (and has-scale (not (eq scale-value 'default)))
-                                             t nil)))))))
+          (setq spec (append spec (list
+                                   :transform-smoothing
+                                   (if has-rotation
+                                       nil
+                                     (if (and has-scale (not (eq scale-value 'default)))
+                                         t nil)))))))
       spec))
 
   (defun my/image-size (spec &optional pixels frame)
@@ -1752,13 +1755,22 @@ This function uses the 'magick identify' command to get the dimensions of the im
     )
 
   (with-eval-after-load 'go-mode
-    (defun go-mode-setup ()
+    (defun my/go-mode-lsp-setup ()
       (add-hook 'before-save-hook #'lsp-format-buffer t t)
       (add-hook 'before-save-hook #'lsp-organize-imports t t))
 
-    ;; FIXME: Termux does not work with gopls somehow.
-    (unless my/termux-p
-      (add-hook 'go-mode-hook #'go-mode-setup)))
+    ;; Termux does not work with gopls with formatting and organizing imports.
+    ;; We use gofumpt instead. Goimports is already included in the layer
+    ;; variable `go-format-before-save'.
+    (defun my/go-mode-setup ()
+      (add-hook 'before-save-hook
+                (lambda ()
+                  (let ((gofmt-command "gofumpt"))
+                    (when (eq major-mode 'go-mode) (gofmt))))))
+
+    (if my/termux-p
+        (add-hook 'go-mode-hook #'my/go-mode-setup)
+      (add-hook 'go-mode-hook #'my/go-mode-lsp-setup)))
 
   ;;; Copilot
   (with-eval-after-load 'company
