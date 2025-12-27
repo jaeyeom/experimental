@@ -1166,7 +1166,7 @@ Fallback file lists are returned for specific directories."
     (let ((true-path (file-truename (buffer-file-name))))
       (find-alternate-file true-path)))
 
-  (defun my/compilation-find-file (orig-fun marker filename directory &rest args)
+  (defun my/compilation-find-file (orig-fun marker filename _directory &rest args)
     "Advice function to resolve true file paths in compilation mode."
     (let* ((true-filename (file-truename filename))
            (true-directory (file-name-directory true-filename)))
@@ -1274,7 +1274,7 @@ be used for predicate for `browse-url-default-handlers'.'"
                   ((string-match "^/r/\\([^/]+\\)/?$" path)
                    (list 'reddigg-view-sub (match-string 1 path)))))))
 
-    (defun reddigg-browse-url (url &rest args)
+    (defun reddigg-browse-url (url &rest _args)
       "Browse reddit URL using reddigg.
 If URL is comments page then use `reddigg-view-comments' to browse the URL.
 If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
@@ -1841,15 +1841,15 @@ to be `:text'.
           (eshell/output (string-to-number (caar indices)) format-type)
         (eshell/output 0 format-type)))
 
-    (defun ha-eshell-output-text (&optional indices &rest ignored)
+    (defun ha-eshell-output-text (&optional indices &rest _ignored)
       "A _text_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
       (ha-eshell-output "text" indices))
 
-    (defun ha-eshell-output-list (&optional indices &rest ignored)
+    (defun ha-eshell-output-list (&optional indices &rest _ignored)
       "A _list_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
       (ha-eshell-output "list" indices))
 
-    (defun ha-eshell-output-file (&optional indices &rest ignored)
+    (defun ha-eshell-output-file (&optional indices &rest _ignored)
       "A _file_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
       (ha-eshell-output "file" indices))
 
@@ -2181,8 +2181,8 @@ the email."
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       (let ((hook-type (plist-get message :type))
             (buffer-name (plist-get message :buffer-name))
-            (json-data (plist-get message :json-data))
-            (args (plist-get message :args)))
+            (_json-data (plist-get message :json-data))
+            (_args (plist-get message :args)))
         (cond
          ((eq hook-type 'notification)
           (alert (format "Claude is ready in %s!" buffer-name)
