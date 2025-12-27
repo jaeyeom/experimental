@@ -92,8 +92,84 @@ devtools/gh-nudge/
 
 ** Configuration
 
-Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~ with the
-following structure:
+GitHub Nudge supports two configuration formats: *Pkl* (recommended) and *YAML*.
+The configuration file should be placed at ~$HOME/.config/gh-nudge/~.
+
+*** Pkl Configuration (Recommended)
+
+[[https://pkl-lang.org/][Pkl]] is a configuration language that provides type safety, validation, and
+better IDE support. New users should prefer Pkl configuration.
+
+Create a configuration file at ~$HOME/.config/gh-nudge/config.pkl~:
+
+#+begin_src pkl
+amends "package://github.com/jaeyeom/experimental/devtools/gh-nudge/pkl/Config.pkl"
+
+github {
+  owner = "organization-name"  // Optional, defaults to authenticated user
+  repos {
+    "repo-name-1"
+    "repo-name-2"
+  }
+}
+
+slack {
+  // Read token from environment variable for security
+  token = read("env:SLACK_TOKEN")
+  default_channel = "#code-reviews"
+
+  // GitHub username to Slack user ID mapping (for @mentions)
+  // User IDs typically start with "U" (e.g., "U12345")
+  user_id_mapping {
+    ["github-username-1"] = "U12345"
+    ["github-username-2"] = "U67890"
+  }
+
+  // GitHub username to Slack DM channel ID mapping
+  // DM channel IDs typically start with "C" (e.g., "C12345")
+  dm_channel_id_mapping {
+    ["github-username-1"] = "C12345"
+    ["github-username-2"] = "C67890"
+  }
+
+  // Channel routing based on file patterns
+  channel_routing {
+    new {
+      pattern = "frontend/.*\\.js$"
+      channel = "#frontend"
+    }
+    new {
+      pattern = "backend/.*\\.go$"
+      channel = "#backend"
+    }
+    new {
+      pattern = "docs/.*"
+      channel = "#documentation"
+    }
+  }
+}
+
+settings {
+  reminder_threshold_hours = 24  // Hours between reminders for same PR/reviewer
+  working_hours_only = true
+  dm_by_default = true
+}
+#+end_src
+
+**** Benefits of Pkl
+
+- *Type Safety*: Configuration errors are caught at load time
+- *Validation*: Built-in constraints (e.g., ~reminder_threshold_hours~ must be > 0)
+- *IDE Support*: Autocompletion and inline documentation
+- *Environment Variables*: Securely read secrets with ~read("env:VAR_NAME")~
+- *Schema Documentation*: Self-documenting configuration structure
+
+*** YAML Configuration (Legacy)
+
+YAML configuration is still supported for backwards compatibility. If both
+~config.pkl~ and ~config.yaml~ exist, Pkl takes precedence.
+
+Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
 
 #+begin_src yaml
   github:
@@ -133,6 +209,9 @@ following structure:
     message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
     dm_by_default: true  # Send DMs to reviewers by default
 #+end_src
+
+*Note*: YAML support may be deprecated in a future release. Consider migrating
+to Pkl for new installations.
 
 ** Development
 

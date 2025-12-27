@@ -448,7 +448,7 @@ bazel build //devtools/gh-nudge/...
 bazel test //devtools/gh-nudge/...
 ```
 
-## Phase 8: Update Documentation
+## Phase 8: Update Documentation (Completed)
 
 Update `README.org` to document both configuration formats, recommending Pkl for
 new users while noting YAML remains supported for backwards compatibility.

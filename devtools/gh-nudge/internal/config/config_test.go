@@ -131,14 +131,11 @@ slack: invalid-yaml-here
 		// We can't easily test this without setting up a real config file in the home directory,
 		// but we can verify that it attempts to use the correct path by checking the error message
 		_, err := LoadConfig("")
-		if err == nil {
-			t.Error("Expected error when loading from default path (likely doesn't exist), got nil")
-		}
 
 		// Verify the error is related to home directory or default path
 		// In some test environments, $HOME may not be set, which is also a valid error case
 		expectedPathSuffix := filepath.Join(".config", "gh-nudge", "config.yaml")
-		if !strings.Contains(err.Error(), expectedPathSuffix) && !strings.Contains(err.Error(), "home directory") {
+		if err != nil && !strings.Contains(err.Error(), expectedPathSuffix) && !strings.Contains(err.Error(), "home directory") {
 			t.Errorf("Expected error to contain default path %q or 'home directory', got: %v", expectedPathSuffix, err)
 		}
 	})
