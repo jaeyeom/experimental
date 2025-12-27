@@ -22,6 +22,172 @@
 (defvar my/macos-p (my/macos-p)
   "Non-nil if running on macOS.")
 
+;; Function declarations to suppress byte-compile warnings.
+;; These functions are defined in external packages loaded later.
+
+;; Spacemacs Core Functions
+(declare-function spacemacs/set-default-font "core-fonts-support" t)
+(declare-function spacemacs/set-leader-keys "core-keybindings" t)
+(declare-function spacemacs/set-leader-keys-for-major-mode "core-keybindings" t)
+(declare-function spacemacs/toggle-maximize-frame "core-funcs" ())
+(declare-function spacemacs/load-spacemacs-env "core-env" ())
+
+;; Dirvish Functions
+(declare-function dirvish-override-dired-mode "dirvish" ())
+(declare-function dirvish-quit "dirvish" ())
+(declare-function dirvish-narrow "dirvish" ())
+(declare-function dirvish-subtree-toggle "dirvish" ())
+(declare-function dirvish-layout-toggle "dirvish" ())
+(declare-function dirvish-layout-switch "dirvish" ())
+(declare-function dirvish-dispatch "dirvish" ())
+(declare-function dirvish-ls-switches-menu "dirvish" ())
+(declare-function evilified-state-evilify-map "evil-evilified-state" (map &rest props))
+
+;; Dired Functions
+(declare-function dired-find-file "dired" ())
+(declare-function dired-find-file-other-window "dired" ())
+(declare-function dired-up-directory "dired" ())
+(declare-function dired-get-file-for-visit "dired" ())
+(declare-function dired-hide-subdir "dired" ())
+(declare-function dired-summary "dired" ())
+(declare-function dired-next-dirline "dired" (arg))
+(declare-function dired-prev-dirline "dired" (arg))
+(declare-function dired-view-file "dired" ())
+(declare-function dired-show-file-type "dired" (file))
+(declare-function dired-do-chgrp "dired-aux" ())
+
+;; Magit/Forge Functions
+(declare-function magit-diff-visit-worktree-file "magit-diff" ())
+(declare-function magit-display-buffer-same-window-except-diff-v1 "magit-mode" (buffer))
+(declare-function projectile-vc "projectile" ())
+(declare-function forge-insert-pullreqs "forge-list" t)
+(declare-function forge--clone-buffer-topics-spec "forge-topics" ())
+
+;; Code Review Functions
+(declare-function code-review-forge-pr-at-point "code-review" ())
+(declare-function code-review-db-get-pullreq "code-review-db" ())
+(declare-function code-review-pr-at-point "code-review" ())
+(declare-function code-review-reload "code-review" ())
+
+;; EIEIO Functions
+(declare-function oref "eieio" (obj slot))
+(declare-function oset "eieio" (obj slot value))
+
+;; ChatGPT/GPTel Functions
+(declare-function chatgpt-shell-send-to-buffer "chatgpt-shell" t)
+(declare-function chatgpt-shell-proofread-paragraph-or-region "chatgpt-shell" ())
+(declare-function chatgpt-shell-quick-insert "chatgpt-shell" ())
+(declare-function chatgpt-shell-prompt-compose "chatgpt-shell" t)
+(declare-function chatgpt-shell-eshell-summarize-last-command-output "chatgpt-shell" ())
+(declare-function chatgpt-shell-eshell-whats-wrong-with-last-command "chatgpt-shell" ())
+(declare-function ob-chatgpt-shell-setup "ob-chatgpt-shell" ())
+(declare-function gptel-make-anthropic "gptel" (name &rest args))
+(declare-function gptel-make-openai "gptel" (name &rest args))
+
+;; Copilot Functions
+(declare-function copilot-mode "copilot" ())
+
+;; Eshell Functions
+(declare-function eshell-fn-on-files "em-unix" t)
+(declare-function eshell-getopts "em-unix" (format &rest args))
+(declare-function eshell-command-not-found-mode "eshell-command-not-found" (&optional arg))
+
+;; Org Functions
+(declare-function org-html-export-to-html "ox-html" (&optional async subtreep visible-only body-only ext-plist))
+(declare-function org-combine-plists "org-compat" (&rest plists))
+(declare-function org-html-close-tag "ox-html" (tag attr info))
+(declare-function org-html--make-attribute-string "ox-html" (attributes))
+(declare-function org-export-define-derived-backend "ox" (child parent &rest body))
+(declare-function org-roam-db-autosync-mode "org-roam" ())
+(declare-function markdown-mode "markdown-mode" ())
+
+;; EWW Functions
+(declare-function eww-browse-with-external-browser "eww" (&optional url))
+
+;; Evil Functions
+(declare-function evil-define-key "evil-core" (state keymap key def &rest bindings))
+(declare-function yas-minor-mode "yasnippet" (&optional arg))
+
+;; Dash/S.el Functions (use t for thread-last compatibility)
+(declare-function -map "dash" t)
+(declare-function -flatten "dash" t)
+(declare-function --map "dash" t)
+(declare-function --filter "dash" t)
+(declare-function s-trim "s" t)
+(declare-function s-join "s" t)
+(declare-function s-starts-with? "s" t)
+
+;; Other Functions
+(declare-function prodigy-define-service "prodigy" (&rest args))
+(declare-function slack-register-team "slack" (&rest args))
+(declare-function slack-select-unread-rooms "slack" ())
+(declare-function alert "alert" (message &rest args))
+(declare-function alert-add-rule "alert" (&rest args))
+(declare-function ansi-color-apply-on-region "ansi-color" (begin end))
+(declare-function unfill-region "unfill" (start end))
+(declare-function ring-insert "ring" (ring item))
+(declare-function ring-ref "ring" (ring index))
+(declare-function f-file-p "f" (path))
+(declare-function thread-last "subr-x" (&rest args))
+(declare-function browse-url-interactive-arg "browse-url" (prompt))
+(declare-function url-host "url-parse" (url))
+(declare-function url-filename "url-parse" (url))
+(declare-function gofmt "go-mode" ())
+(declare-function lsp-organize-imports "lsp-mode" ())
+(declare-function ebbflow-mode "ebbflow" (&optional arg))
+
+;; Additional External Functions
+(declare-function auth-source-pass-entries "auth-source-pass" ())
+(declare-function auth-source-pass-parse-entry "auth-source-pass" (entry))
+(declare-function eat-eshell-mode "eat" ())
+(declare-function eat-eshell-visual-command-mode "eat" ())
+(declare-function bazel-buildifier "bazel" ())
+(declare-function hc-highlight-other-chars "highlight-chars" (&optional chars))
+(declare-function reddigg-find-browse-url-function "reddigg" t)
+(declare-function orderless-escapable-split-on-space "orderless" (s))
+(declare-function consult-gh--repo-browse-files-action "consult-gh" (cand))
+(declare-function consult-gh--code-view-action "consult-gh" (cand))
+(declare-function consult-gh--issue-view-action "consult-gh" (cand))
+(declare-function consult-gh--files-view-action "consult-gh" (cand))
+(declare-function consult-gh--notifications-action "consult-gh" (cand))
+
+;; Local functions (defined later in this file, need forward declarations)
+(declare-function my/directory-files-advice ".spacemacs" t)
+(declare-function my/minibuffer-up-directory ".spacemacs" t)
+(declare-function my/compilation-find-file ".spacemacs" t)
+(declare-function my/first-font-available ".spacemacs" t)
+(declare-function my/set-reading-font ".spacemacs" t)
+(declare-function my/nov-font-setup ".spacemacs" t)
+(declare-function my/reddigg-view-comments-no-query-string ".spacemacs" t)
+(declare-function my/skip-image-display-advice ".spacemacs" t)
+(declare-function my/browse-url-can-use-xdg-open-advice ".spacemacs" t)
+(declare-function eshell-flow-buffer-contents ".spacemacs" t)
+(declare-function ha-eshell-ebb-output ".spacemacs" t)
+(declare-function ha-eshell-ebb-string ".spacemacs" t)
+(declare-function ha-eshell-ebb-switch-to-buffer ".spacemacs" t)
+(declare-function ha-eshell-last-output ".spacemacs" t)
+(declare-function ha-eshell-store-file-output ".spacemacs" t)
+(declare-function eshell/output ".spacemacs" t)
+(declare-function ha-eshell-output ".spacemacs" t)
+(declare-function my/termux-eshell-script-interpreter ".spacemacs" t)
+(declare-function my/get-image-dimensions-imk ".spacemacs" t)
+(declare-function my/image-ascii-display ".spacemacs" t)
+(declare-function my/safe-eaf-call-sync ".spacemacs" t)
+(declare-function my/go-mode-setup ".spacemacs" t)
+(declare-function my/go-mode-lsp-setup ".spacemacs" t)
+(declare-function my/visible-buffer-text ".spacemacs" t)
+(declare-function my/chatgpt-shell-purpose-of-email ".spacemacs" t)
+(declare-function my/chatgpt-shell-reply-email ".spacemacs" t)
+(declare-function my/chatgpt-shell-insert-natural-english ".spacemacs" t)
+(declare-function my/claude-code-display-buffer-right ".spacemacs" t)
+(declare-function my/claude-hook-listener ".spacemacs" t)
+(declare-function my/evil-paste-fix-clipboard-advice ".spacemacs" t)
+(declare-function my/dired-find-file-smart ".spacemacs" t)
+(declare-function my/forge-insert-pullreqs-to-review ".spacemacs" t)
+(declare-function my/code-review-url-from-pullreq ".spacemacs" t)
+(declare-function my/code-review-browse-with-external-browser ".spacemacs" t)
+(declare-function my/projectile-project-root-ignore-remote ".spacemacs" t)
+
 (defun dotspacemacs/layers ()
   "Layer configuration:
 This function should only modify configuration layer settings."
