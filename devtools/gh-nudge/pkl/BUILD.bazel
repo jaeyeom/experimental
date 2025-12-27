@@ -1,4 +1,3 @@
-load("@rules_go//go:def.bzl", "go_library")
 load("@rules_pkl//pkl:defs.bzl", "pkl_library")
 
 pkl_library(
@@ -7,14 +6,5 @@ pkl_library(
     visibility = ["//visibility:public"],
 )
 
-# Go library with pre-generated code from pkl-gen-go
-# To regenerate: pkl-gen-go Config.pkl --output-path gen/ --base-path github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl
-go_library(
-    name = "config_go",
-    srcs = glob(["gen/*.go"]),
-    importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl",
-    visibility = ["//visibility:public"],
-    deps = [
-        "@com_github_apple_pkl_go//pkl",
-    ],
-)
+# Go code is generated using pkl-gen-go and placed in //devtools/gh-nudge/internal/config/pkl
+# To regenerate: cd devtools/gh-nudge/pkl && pkl-gen-go Config.pkl --output-path ../internal/config/pkl/

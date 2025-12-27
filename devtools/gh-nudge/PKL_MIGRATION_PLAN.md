@@ -268,7 +268,7 @@ Add pkl-go dependency:
 go get github.com/apple/pkl-go@latest
 ```
 
-## Phase 6: Update Config Package
+## Phase 6: Update Config Package (Completed)
 
 ### devtools/gh-nudge/internal/config/BUILD.bazel
 
