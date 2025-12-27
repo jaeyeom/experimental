@@ -2167,7 +2167,8 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (with-eval-after-load 'consult-gh
     (setopt
      consult-repo-action #'consult-gh--repo-browse-files-action
-     consult-gh-issue-action #'consult-gh--issue-view-actioonsult-gh--code-view-action
+     consult-gh-issue-action #'consult-gh--issue-view-action
+     consult-gh-code-action #'consult-gh--code-view-action
      consult-gh-file-action #'consult-gh--files-view-action
      consult-gh-notifications-action #'consult-gh--notifications-action
      consult-gh-dashboard-action #'message
