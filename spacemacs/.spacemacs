@@ -1514,7 +1514,7 @@ Call FUN2 on all the rest of the elements in ARGS."
         (let ((filenames (flatten-list args)))
           (funcall fun1 (car filenames))
           (when (cdr filenames)
-            (mapcar fun2 (cdr filenames))))
+            (mapc fun2 (cdr filenames))))
         ;; Return an empty string, as the return value from `fun1'
         ;; probably isn't helpful to display in the `eshell' window.
         ""))
@@ -1631,7 +1631,7 @@ The hashtable return would contain these entries:
       "Close the ebb-flow window and return to Eshell session."
       (interactive)
       (if (and (boundp 'ha-eshell-ebbflow-return-buffer)
-               (bufferp 'ha-eshell-ebbflow-return-buffer))
+               (bufferp ha-eshell-ebbflow-return-buffer))
           (pop-to-buffer ha-eshell-ebbflow-return-buffer)
         (bury-buffer)))
 
@@ -1771,7 +1771,7 @@ by SEPARATOR (which defaults to a space)."
       (let ((start  (save-excursion
                       (goto-char eshell-last-output-start)
                       (re-search-backward eshell-prompt-regexp)
-                      (next-line)
+                      (forward-line 1)
                       (line-beginning-position)))
             (end    eshell-last-output-start))
         (buffer-substring-no-properties start end)))
