@@ -4,6 +4,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,6 +143,10 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 }
 
 func loadYamlConfig(path string) (*Config, error) {
+	slog.Warn("YAML configuration is deprecated and will be removed in a future release; please migrate to Pkl format",
+		"config_path", path,
+		"migration_guide", "https://github.com/jaeyeom/experimental/blob/main/devtools/gh-nudge/PKL_MIGRATION_PLAN.md")
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
