@@ -453,10 +453,10 @@ bazel test //devtools/gh-nudge/...
 Update `README.org` to document both configuration formats, recommending Pkl for
 new users while noting YAML remains supported for backwards compatibility.
 
-## Phase 9: Deprecation Timeline
+## Phase 9: Deprecation Timeline (In Progress)
 
-1. **Initial release**: Support both YAML and Pkl (prefer Pkl)
-2. **Future release**: Log deprecation warning when YAML config is loaded
+1. **Initial release**: Support both YAML and Pkl (prefer Pkl) ✓
+2. **Future release**: Log deprecation warning when YAML config is loaded ✓
 3. **Final release**: Remove YAML support entirely
 
 ## References
