@@ -188,6 +188,76 @@
 (declare-function my/code-review-browse-with-external-browser ".spacemacs" t)
 (declare-function my/projectile-project-root-ignore-remote ".spacemacs" t)
 
+;; Variable declarations to suppress byte-compile warnings.
+;; These variables are defined in external packages loaded later.
+
+;; Vertico/Compleseus
+(defvar vertico-map)
+
+;; Eshell
+(defvar eshell-mode-map)
+(defvar eshell-command-not-found-command)
+(defvar eshell-visual-commands)
+(defvar eshell-predicate-alist)
+(defvar eshell-interpreter-alist)
+(defvar eshell-last-output-start)
+(defvar eshell-prompt-regexp)
+(defvar eshell-last-input-end)
+(defvar eshell-last-command-status)
+
+;; Browse URL
+(defvar browse-url-handlers)
+(defvar browse-url-secondary-browser-function)
+
+;; EWW
+(defvar eww-mode-map)
+
+;; SQLite
+(defvar sqlite-mode-map)
+
+;; Vterm
+(defvar vterm-mode-map)
+
+;; Copilot
+(defvar copilot-completion-map)
+(defvar company-frontends)
+
+;; OpenAI/GPTel
+(defvar openai-key)
+
+;; Highlight Chars
+(defvar hc-other-chars)
+
+;; Dired/Dirvish
+(defvar dirvish-mode-map)
+(defvar dired-mode)
+
+;; Magit/Forge
+(defvar magit-diff-section-map)
+(defvar forge-pullreq-mode-map)
+(defvar magit-status-sections-hook)
+(defvar code-review-mode-map)
+
+;; Code Review (oref variables)
+(defvar owner)
+(defvar repo)
+(defvar number)
+(defvar reviewer)
+(defvar github-username)
+
+;; Go Mode
+(defvar gofmt-command)
+
+;; ChatGPT Shell
+(defvar chatgpt-shell-prompt-query-response-style)
+
+;; Spacemacs
+(defvar dotspacemacs-default-font)
+
+;; Dash anaphoric variables
+(defvar it)
+(defvar arg)
+
 (defun dotspacemacs/layers ()
   "Layer configuration:
 This function should only modify configuration layer settings."
