@@ -1087,11 +1087,14 @@ to determine image dimensions for Emacs builds without image support."
       '(("/" . ("data"))
         ("/data/" . ("data"))
         ("/data/data/" . ("com.termux")))
-      "An alist mapping specific directories to fallback file lists which should have / at the end.")
+      "An alist mapping specific directories to fallback file lists.
+Each directory should have / at the end.")
 
     (defun my/directory-files-advice (orig-fun directory &optional full match nosort count)
-      "Safely list files in DIRECTORY, handling special cases defined in `my/directory-fallback-alist`.
-Replicates the behavior of `directory-files` with FULL, MATCH, NOSORT, and COUNT arguments.
+      "Safely list files in DIRECTORY, handling special cases.
+Special cases are defined in `my/directory-fallback-alist'.
+Replicates the behavior of `directory-files' with FULL, MATCH,
+NOSORT, and COUNT arguments.
 Fallback file lists are returned for specific directories."
 
       ;; Lookup fallback for the given directory
@@ -1382,7 +1385,8 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
     ;; Export Org mode with Pandoc to buffer.
     (defun my/org-export-to-gfm-markdown-buffer ()
-      "Export the current buffer to GFM Markdown format using Pandoc and switch to a new buffer with the result.
+      "Export the current buffer to GFM Markdown using Pandoc.
+Switch to a new buffer with the result.
 
 This function was written because the default GFM export in Org
 mode does not work with Roam links."
@@ -1621,7 +1625,7 @@ The hashtable return would contain these entries:
           retmap)))
 
     (defvar ha-eshell-ebbflow-buffername "*eshell-edit*"
-      "The name of the buffer that eshell can use to store temporary input/output.")
+      "The name of the buffer for eshell temporary input/output.")
 
     (defun ha-eshell-ebbflow-return ()
       "Close the ebb-flow window and return to Eshell session."
@@ -1692,7 +1696,8 @@ Usage: flow [OPTION] [BUFFER ...]
         (list (get-buffer ha-eshell-ebbflow-buffername))))
 
     (defun eshell/ebb (&rest args)
-      "Insert text content into *eshell-edit* buffer, or if not text is given, the output of last command.
+      "Insert text into *eshell-edit* buffer.
+If no text is given, insert the output of the last command.
 Usage: ebb [OPTION] [text content]
     -h, --help    show this usage screen
     -m, --mode    specify the major-mode for the *eshell-edit* buffer, e.g. json
@@ -1735,7 +1740,7 @@ Usage: ebb [OPTION] [text content]
       nil) ; Return `nil' so that it doesn't print anything in `eshell'.
 
     (defun ha-eshell-ebb-switch-to-buffer (insert-location)
-      "Switch to `ha-eshell-ebbflow-buffername' and get the buffer ready for new data."
+      "Switch to `ha-eshell-ebbflow-buffername' and prepare for new data."
       (let ((return-buffer (current-buffer)))
 
         (if-let ((ebbwindow (get-buffer-window ha-eshell-ebbflow-buffername)))
@@ -1824,7 +1829,7 @@ to be `:text'.
           "")))
 
     (defun ha-eshell-store-file-output (results)
-      "Writes the string, RESULTS, to a temporary file and returns that file name."
+      "Write RESULTS to a temporary file and return the file name."
       (let ((filename (make-temp-file "ha-eshell-")))
         (with-temp-file filename
           (insert results))
@@ -1836,21 +1841,21 @@ to be `:text'.
     (add-to-list 'eshell-variable-aliases-list '("OUTPUT" ha-eshell-output-file))
 
     (defun ha-eshell-output (format-type indices)
-      "Wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      "Wrapper around `eshell/output' for `eshell-variable-aliases-list'."
       (if indices
           (eshell/output (string-to-number (caar indices)) format-type)
         (eshell/output 0 format-type)))
 
     (defun ha-eshell-output-text (&optional indices &rest _ignored)
-      "A _text_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      "A _text_ wrapper around `eshell/output'."
       (ha-eshell-output "text" indices))
 
     (defun ha-eshell-output-list (&optional indices &rest _ignored)
-      "A _list_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      "A _list_ wrapper around `eshell/output'."
       (ha-eshell-output "list" indices))
 
     (defun ha-eshell-output-file (&optional indices &rest _ignored)
-      "A _file_ wrapper around `eshell/output' for the `eshell-variable-aliases-list'."
+      "A _file_ wrapper around `eshell/output'."
       (ha-eshell-output "file" indices))
 
     ;; Termux-specific eshell configuration for shebang handling

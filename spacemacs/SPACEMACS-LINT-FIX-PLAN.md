@@ -319,7 +319,7 @@ Also fix unused lexical variables:
 
 ---
 
-## Phase 5: Fix Docstrings
+## Phase 5: Fix Docstrings [COMPLETED]
 
 ### 5a: Docstrings Wider Than 80 Characters
 
