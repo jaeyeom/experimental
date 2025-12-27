@@ -1,0 +1,22 @@
+# ShellCheck configuration file
+# https://www.shellcheck.net/wiki/
+
+# Use bash as the default shell
+shell=bash
+
+# Exclude common style/info warnings that are too noisy for existing scripts:
+# SC1091: Not following sourced files
+# SC2016: Expressions don't expand in single quotes (intentional for echo)
+# SC2034: Variable appears unused
+# SC2046: Quote this to prevent word splitting
+# SC2064: Use single quotes for trap
+# SC2086: Double quote to prevent globbing and word splitting
+# SC2154: var is referenced but not assigned
+# SC2155: Declare and assign separately
+# SC2162: read without -r
+# SC2164: Use 'pushd ... || exit'
+# SC2248: Prefer double quoting
+# SC2250: Prefer braces around variable references
+# SC2292: Prefer [[ ]] over [ ]
+# SC2312: Consider invoking command separately
+disable=SC1091,SC2016,SC2034,SC2046,SC2064,SC2086,SC2154,SC2155,SC2162,SC2164,SC2248,SC2250,SC2292,SC2312

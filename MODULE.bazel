@@ -31,7 +31,7 @@ use_repo(
 )
 
 # Aspect rules for linting and formatting
-bazel_dep(name = "aspect_rules_lint", version = "1.4.4")
+bazel_dep(name = "aspect_rules_lint", version = "1.10.1")
 
 # Buildifier for Bazel file formatting
 bazel_dep(name = "buildifier_prebuilt", version = "8.0.3")

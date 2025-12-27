@@ -25,6 +25,11 @@ org_lint_tests([
     "macos.org",
 ])
 
+sh_binary(
+    name = "ensure",
+    srcs = ["ensure.sh"],
+)
+
 # GENERATED ANSIBLE TESTS - DO NOT EDIT BELOW THIS LINE
 # Individual syntax check test for each playbook (for better caching)
 

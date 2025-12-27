@@ -1,6 +1,6 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible generate-pkl verify-golangci-config check-bazel-go-files check-org-lint-tests check-spacemacs coverage coverage-report coverage-html clean-coverage
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff lint-shellcheck generate-ansible generate-pkl verify-golangci-config check-bazel-go-files check-org-lint-tests check-spacemacs coverage coverage-report coverage-html clean-coverage
 
-all: requirements.txt generate-ansible generate-pkl format test fix check-bazel-go-files check-org-lint-tests check-spacemacs
+all: requirements.txt generate-ansible generate-pkl format test fix check-bazel-go-files check-org-lint-tests
 
 generate-ansible:
 	$(MAKE) -C devtools/setup-dev/ansible
@@ -28,9 +28,9 @@ format-whitespace:
 test:
 	bazel test //...
 
-lint: lint-golangci lint-ruff check-spacemacs
+lint: lint-golangci lint-ruff lint-shellcheck check-spacemacs
 
-fix: fix-golangci fix-ruff
+fix: fix-golangci fix-ruff lint-shellcheck check-spacemacs
 
 lint-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run ./...
@@ -45,6 +45,9 @@ lint-ruff:
 
 fix-ruff:
 	ruff check --fix
+
+lint-shellcheck:
+	find . -name "*.sh" -not -path "./.git/*" -not -path "./bazel-*" -not -path "./.bazel-*" | xargs shellcheck
 
 requirements.txt: requirements.in
 	pip install pip-tools
