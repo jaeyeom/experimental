@@ -7,4 +7,4 @@ pkl_library(
 )
 
 # Go code is generated using pkl-gen-go and placed in //devtools/gh-nudge/internal/config/pkl
-# To regenerate: cd devtools/gh-nudge/pkl && pkl-gen-go Config.pkl --output-path ../internal/config/pkl/
+# To regenerate: cd devtools/gh-nudge && make generate-pkl

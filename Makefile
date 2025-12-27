@@ -1,9 +1,12 @@
-.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible verify-golangci-config check-bazel-go-files check-org-lint-tests check-spacemacs coverage coverage-report coverage-html clean-coverage
+.PHONY: check-format format format-whitespace test lint fix lint-golangci fix-golangci lint-ruff fix-ruff generate-ansible generate-pkl verify-golangci-config check-bazel-go-files check-org-lint-tests check-spacemacs coverage coverage-report coverage-html clean-coverage
 
-all: requirements.txt generate-ansible format test fix check-bazel-go-files check-org-lint-tests check-spacemacs
+all: requirements.txt generate-ansible generate-pkl format test fix check-bazel-go-files check-org-lint-tests check-spacemacs
 
 generate-ansible:
 	$(MAKE) -C devtools/setup-dev/ansible
+
+generate-pkl:
+	$(MAKE) -C devtools/gh-nudge generate-pkl
 
 check-org-lint-tests:
 	./tools/org-lint/check-org-lint-tests.sh

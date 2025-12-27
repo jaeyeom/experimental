@@ -411,7 +411,7 @@ func loadYamlConfig(path string) (*Config, error) {
 }
 ```
 
-## Phase 7: Build and Test
+## Phase 7: Build and Test (Completed)
 
 ### Option A: Using genrule (requires pkl-gen-go in PATH)
 
@@ -433,15 +433,15 @@ bazel test //devtools/gh-nudge/...
 
 ### Option B: Pre-generate and commit (recommended for CI)
 
-Generate the Go files once and commit them:
+Generate the Go files using Make and commit them:
 
 ```bash
 # Generate Go files
-cd devtools/gh-nudge/pkl
-pkl-gen-go Config.pkl -o gen/
+cd devtools/gh-nudge
+make generate-pkl
 
 # Verify generated files
-ls gen/
+ls internal/config/pkl/*.go
 
 # Build and test
 bazel build //devtools/gh-nudge/...
