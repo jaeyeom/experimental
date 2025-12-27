@@ -54,6 +54,7 @@ linters:
             - "!$test"
           allow:
             - $gostd
+            - github.com/apple/pkl-go
             - github.com/google/uuid
             - "github.com/jaeyeom/experimental"
             - "github.com/jaeyeom/sugo"
