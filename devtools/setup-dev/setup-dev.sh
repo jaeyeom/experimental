@@ -47,13 +47,13 @@ setup_git() {
     get git
     if [ -z "$(git config --global user.name)" ]; then
         echo -n "Your name: "
-        read
+        read -r
         cmd git config --global user.name "$REPLY"
     fi
 
     if [ -z "$(git config --global user.email)" ]; then
         echo -n "Your email: "
-        read
+        read -r
         cmd git config --global user.email "$REPLY"
     fi
 }
@@ -85,7 +85,7 @@ generate_ssh_key() {
 	      cat ~/.ssh/id_ed25519.pub
     fi
     echo -n "Paste the public key at https://github.com/settings/keys and press enter: "
-    read
+    read -r
 
     grep -q 'ssh-agent' ~/.bashrc || cat <<EOF >> ~/.bashrc
 
