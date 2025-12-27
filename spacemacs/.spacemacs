@@ -2175,6 +2175,11 @@ the email."
     ;; Set claude-code to use the custom display function
     (setopt claude-code-display-window-fn #'my/claude-code-display-buffer-right)
 
+    ;; Adjust initialization delay (default is 0.1 seconds)
+    ;; This helps prevent terminal layout issues if the buffer is displayed
+    ;; before Claude is fully ready.
+    (setopt claude-code-startup-delay 0.5)
+
     ;; Define hook listener using alert.el
     (defun my/claude-hook-listener (message)
       "Custom listener for Claude Code hooks using alert.el.
