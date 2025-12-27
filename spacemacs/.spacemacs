@@ -238,11 +238,7 @@
 (defvar magit-status-sections-hook)
 (defvar code-review-mode-map)
 
-;; Code Review (oref variables)
-(defvar owner)
-(defvar repo)
-(defvar number)
-(defvar reviewer)
+;; Code Review
 (defvar github-username)
 
 ;; Go Mode
@@ -2366,7 +2362,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
     (defun my/forge-insert-pullreqs-to-review ()
       "Insert a list of pull-requests to review."
       (let ((spec (forge--clone-buffer-topics-spec)))
-        (oset spec reviewer github-username)
+        (setf (slot-value spec 'reviewer) github-username)
         (forge-insert-pullreqs spec "Pull requests to review")))
 
     (add-to-list 'magit-status-sections-hook #'my/forge-insert-pullreqs-to-review t))
@@ -2382,9 +2378,9 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       "Return the URL of the pull request PR on the HOST."
       (let* ((pr (or pr (code-review-db-get-pullreq) (code-review-pr-at-point)))
              (host (or host "www.github.com"))
-             (owner (oref pr owner))
-             (repo (oref pr repo))
-             (number (oref pr number)))
+             (owner (slot-value pr 'owner))
+             (repo (slot-value pr 'repo))
+             (number (slot-value pr 'number)))
         (format "https://%s/%s/%s/pull/%s" host owner repo number)))
 
     (defun my/code-review-browse-with-external-browser (&optional url)
