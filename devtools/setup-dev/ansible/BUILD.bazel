@@ -155,6 +155,7 @@ sh_test(
         "setup-vibe-coding.yml",
         "setup-windsurf-rules.yml",
         "setup-z.yml",
+        "shellcheck.yml",
         "spacemacs.yml",
         "ssh.yml",
         "sshpass.yml",
@@ -1553,6 +1554,7 @@ sh_test(
         "setup-cicd.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+        "shellcheck.yml",
         "task.yml",
         "uv.yml",
     ],
@@ -2136,6 +2138,17 @@ sh_test(
 )
 
 sh_test(
+    name = "shellcheck_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["shellcheck.yml"],
+    data = ["shellcheck.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "spacemacs_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["spacemacs.yml"],
@@ -2474,6 +2487,7 @@ test_suite(
         ":setup-vibe-coding_syntax_test",
         ":setup-windsurf-rules_syntax_test",
         ":setup-z_syntax_test",
+        ":shellcheck_syntax_test",
         ":spacemacs_syntax_test",
         ":ssh_syntax_test",
         ":sshpass_syntax_test",

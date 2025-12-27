@@ -1,5 +1,6 @@
 ---
 - import_playbook: lcov.yml
+- import_playbook: shellcheck.yml
 - import_playbook: bazel-affected-tests.yml
 - import_playbook: org-lint.yml
 - import_playbook: task.yml
