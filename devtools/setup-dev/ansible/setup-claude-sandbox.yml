@@ -34,6 +34,9 @@
           - "Bash(git status:*)"
           - "Bash(golangci-lint run:*)"
           - "Bash(ruff:*)"
+        additionalFilesystemWritePaths:
+          - "/var/tmp"
+          - "/private/var/tmp"  # macOS symlink to /var/tmp
         deny:
           - "Bash(eval:*)"      # Shell eval
           - "Bash(find:*)"      # Glob tool is safer
