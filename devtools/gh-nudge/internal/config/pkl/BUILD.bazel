@@ -1,7 +1,7 @@
 load("@rules_go//go:def.bzl", "go_library")
 
 # Go library with pre-generated code from pkl-gen-go
-# To regenerate: cd devtools/gh-nudge/pkl && pkl-gen-go Config.pkl --output-path ../internal/config/pkl/
+# To regenerate: cd devtools/gh-nudge && make generate-pkl
 go_library(
     name = "go_default_library",
     srcs = glob(["*.go"]),
