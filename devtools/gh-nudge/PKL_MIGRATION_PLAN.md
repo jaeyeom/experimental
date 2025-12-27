@@ -179,7 +179,7 @@ settings {
 }
 ```
 
-## Phase 4: BUILD.bazel for Pkl
+## Phase 4: BUILD.bazel for Pkl (Completed)
 
 **Note:** `rules_pkl` does not provide Go code generation rules (only Java via
 `pkl_java_library`). We use `pkl-gen-go` with a `genrule` instead.
@@ -260,7 +260,7 @@ go_library(
 )
 ```
 
-## Phase 5: Update go.mod
+## Phase 5: Update go.mod (Completed)
 
 Add pkl-go dependency:
 
