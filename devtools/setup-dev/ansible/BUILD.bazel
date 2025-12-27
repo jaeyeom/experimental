@@ -1288,6 +1288,26 @@ sh_test(
 )
 
 sh_test(
+    name = "pkl-gen-go_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["pkl-gen-go.yml"],
+    data = [
+        "curl.yml",
+        "gather-facts.yml",
+        "go.yml",
+        "pkl.yml",
+        "pkl-gen-go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "poetry_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["poetry.yml"],
@@ -2405,6 +2425,7 @@ test_suite(
         ":pandoc_syntax_test",
         ":pass_syntax_test",
         ":perl_syntax_test",
+        ":pkl-gen-go_syntax_test",
         ":pkl_syntax_test",
         ":poetry_syntax_test",
         ":protoc-gen-go-grpc_syntax_test",
