@@ -2,3 +2,14 @@ exports_files([
     "test_org_lint.sh",
     "defs.bzl",
 ])
+
+sh_library(
+    name = "test_org_lint_lib",
+    srcs = ["test_org_lint.sh"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "check-org-lint-tests",
+    srcs = ["check-org-lint-tests.sh"],
+)

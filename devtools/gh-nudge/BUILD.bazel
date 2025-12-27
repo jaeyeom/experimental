@@ -9,3 +9,13 @@ org_lint_tests([
     "slack.org",
     "storage.org",
 ])
+
+sh_binary(
+    name = "copy-pr-comments",
+    srcs = ["copy-pr-comments.sh"],
+)
+
+sh_binary(
+    name = "cleanup-repo",
+    srcs = ["cleanup-repo.sh"],
+)

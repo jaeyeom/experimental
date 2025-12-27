@@ -145,7 +145,7 @@ get sed
 get grep
 
 get locate
-if [ command -v "sudo" ]; then
+if command -v "sudo" >/dev/null 2>&1; then
     sudo updatedb
 else
     updatedb
