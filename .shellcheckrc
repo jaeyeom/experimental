@@ -3,7 +3,3 @@
 
 # Use bash as the default shell
 shell=bash
-
-# Exclude common style/info warnings that are too noisy for existing scripts:
-# SC1091: Not following sourced files
-disable=SC1091
