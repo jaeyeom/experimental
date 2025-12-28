@@ -23,37 +23,38 @@ usage() {
 }
 
 # Get language-specific configuration
+# EXCLUDE_PATS is a space-separated list of patterns to exclude
 get_config() {
     local lang="$1"
     case "$lang" in
         go)
             EXT="*.go"
             RULE_PREFIX="go_"
-            EXCLUDE_PAT="test_*.go"
+            EXCLUDE_PATS="test_*.go"
             DISPLAY_NAME="Go"
             ;;
         py)
             EXT="*.py"
             RULE_PREFIX="py_"
-            EXCLUDE_PAT="test_*.py"
+            EXCLUDE_PATS="test_*.py *_pb2.py *_pb2_grpc.py"
             DISPLAY_NAME="Python"
             ;;
         java)
             EXT="*.java"
             RULE_PREFIX="java_"
-            EXCLUDE_PAT=""
+            EXCLUDE_PATS=""
             DISPLAY_NAME="Java"
             ;;
         cc)
             EXT="*.cc"
             RULE_PREFIX="cc_"
-            EXCLUDE_PAT=""
+            EXCLUDE_PATS=""
             DISPLAY_NAME="C++"
             ;;
         rust)
             EXT="*.rs"
             RULE_PREFIX="rust_"
-            EXCLUDE_PAT=""
+            EXCLUDE_PATS=""
             DISPLAY_NAME="Rust"
             ;;
         *)
@@ -89,26 +90,22 @@ BAZEL_FILES="$TEMP_DIR/bazel_files.txt"
 echo "🔍 Checking if all $DISPLAY_NAME files are included in Bazel targets..."
 echo
 
-# Build find command with optional exclusion pattern
+# Build find command with optional exclusion patterns
 echo "📂 Finding all $DISPLAY_NAME files in filesystem..."
-if [[ -n "$EXCLUDE_PAT" ]]; then
-    find . -name "$EXT" \
-        -not -path "./.git/*" \
-        -not -path "./bazel-*" \
-        -not -path "./.bazel-*" \
-        -not -path "./vendor/*" \
-        -not -path "./.cache/*" \
-        -not -name "$EXCLUDE_PAT" \
-        | sed 's|^\./||' | sort > "$FILESYSTEM_FILES"
-else
-    find . -name "$EXT" \
-        -not -path "./.git/*" \
-        -not -path "./bazel-*" \
-        -not -path "./.bazel-*" \
-        -not -path "./vendor/*" \
-        -not -path "./.cache/*" \
-        | sed 's|^\./||' | sort > "$FILESYSTEM_FILES"
-fi
+FIND_EXCLUDES=""
+for pat in $EXCLUDE_PATS; do
+    FIND_EXCLUDES="$FIND_EXCLUDES -not -name $pat"
+done
+
+# shellcheck disable=SC2086
+find . -name "$EXT" \
+    -not -path "./.git/*" \
+    -not -path "./bazel-*" \
+    -not -path "./.bazel-*" \
+    -not -path "./vendor/*" \
+    -not -path "./.cache/*" \
+    $FIND_EXCLUDES \
+    | sed 's|^\./||' | sort > "$FILESYSTEM_FILES"
 
 FILESYSTEM_COUNT=$(wc -l < "$FILESYSTEM_FILES")
 echo "Found $FILESYSTEM_COUNT $DISPLAY_NAME files in filesystem"
