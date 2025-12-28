@@ -139,6 +139,7 @@
 ;; EIEIO functions - require at compile time for slot-value setf expander
 (eval-when-compile (require 'eieio))
 (declare-function slot-value "eieio" (object slot))
+(declare-function eieio-oset "eieio" (object slot value))
 
 ;; Additional External Functions
 (declare-function auth-source-pass-entries "auth-source-pass" ())
@@ -2265,45 +2266,43 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
     (advice-add 'evil-paste-after :around #'my/evil-paste-fix-clipboard-advice)
     (advice-add 'evil-paste-before :around #'my/evil-paste-fix-clipboard-advice))
 
-  ;; Dirvish
-  (use-package dirvish
-    :defer t
-    :config
-    (defun my/dired-find-file-smart ()
-      "Open directory in same window, file in other window."
-      (interactive)
-      (let ((file (dired-get-file-for-visit)))
-        (if (file-directory-p file)
-            (dired-find-file)
-          (dired-find-file-other-window))))
-    (evilified-state-evilify-map dirvish-mode-map
-      :mode dired-mode
-      :bindings
-      "h" #'dired-up-directory
-      "l" #'my/dired-find-file-smart
-      "q" #'dirvish-quit
-      "/" #'dirvish-narrow
-      (kbd "<tab>") #'dirvish-subtree-toggle
-      (kbd "TAB") #'dirvish-subtree-toggle
-      "f" #'dirvish-layout-toggle
-      "gf" #'dirvish-layout-toggle
-      "gt" #'dirvish-layout-switch
-      "gd" #'dirvish-dispatch
-      "gl" #'dirvish-ls-switches-menu
-      "gr" #'revert-buffer
-      "g$" #'dired-hide-subdir
-      "g?" #'dired-summary
-      "gj" #'dired-next-dirline
-      "gk" #'dired-prev-dirline
-      "go" #'dired-view-file
-      "gy" #'dired-show-file-type
-      "gG" #'dired-do-chgrp
-      "gO" #'dired-find-file-other-window
-      (kbd "C-l") #'recenter-top-bottom
-      )
-    (add-hook 'dired-mode-hook 'dired-omit-mode)
-    (dirvish-override-dired-mode))
-  (require 'dirvish nil 'noerror)
+  ;; Dirvish - using with-eval-after-load to avoid byte-compile messages
+  (with-eval-after-load 'dired
+    (when (require 'dirvish nil t)
+      (defun my/dired-find-file-smart ()
+        "Open directory in same window, file in other window."
+        (interactive)
+        (let ((file (dired-get-file-for-visit)))
+          (if (file-directory-p file)
+              (dired-find-file)
+            (dired-find-file-other-window))))
+      (evilified-state-evilify-map dirvish-mode-map
+        :mode dired-mode
+        :bindings
+        "h" #'dired-up-directory
+        "l" #'my/dired-find-file-smart
+        "q" #'dirvish-quit
+        "/" #'dirvish-narrow
+        (kbd "<tab>") #'dirvish-subtree-toggle
+        (kbd "TAB") #'dirvish-subtree-toggle
+        "f" #'dirvish-layout-toggle
+        "gf" #'dirvish-layout-toggle
+        "gt" #'dirvish-layout-switch
+        "gd" #'dirvish-dispatch
+        "gl" #'dirvish-ls-switches-menu
+        "gr" #'revert-buffer
+        "g$" #'dired-hide-subdir
+        "g?" #'dired-summary
+        "gj" #'dired-next-dirline
+        "gk" #'dired-prev-dirline
+        "go" #'dired-view-file
+        "gy" #'dired-show-file-type
+        "gG" #'dired-do-chgrp
+        "gO" #'dired-find-file-other-window
+        (kbd "C-l") #'recenter-top-bottom
+        )
+      (add-hook 'dired-mode-hook 'dired-omit-mode)
+      (dirvish-override-dired-mode)))
 
   ;; Frame keybindings
   (when (or my/crostini-p my/macos-p)
@@ -2384,7 +2383,9 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
     (defun my/forge-insert-pullreqs-to-review ()
       "Insert a list of pull-requests to review."
       (let ((spec (forge--clone-buffer-topics-spec)))
-        (setf (slot-value spec 'reviewer) github-username)
+        (with-no-warnings
+          ;; Slot 'reviewer' is defined in forge package at runtime
+          (setf (slot-value spec 'reviewer) github-username))
         (forge-insert-pullreqs spec "Pull requests to review")))
 
     (add-to-list 'magit-status-sections-hook #'my/forge-insert-pullreqs-to-review t))
@@ -2399,11 +2400,13 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
     (defun my/code-review-url-from-pullreq (&optional pr host)
       "Return the URL of the pull request PR on the HOST."
       (let* ((pr (or pr (code-review-db-get-pullreq) (code-review-pr-at-point)))
-             (host (or host "www.github.com"))
-             (owner (slot-value pr 'owner))
-             (repo (slot-value pr 'repo))
-             (number (slot-value pr 'number)))
-        (format "https://%s/%s/%s/pull/%s" host owner repo number)))
+             (host (or host "www.github.com")))
+        (with-no-warnings
+          ;; Slots are defined in code-review package at runtime
+          (let ((owner (slot-value pr 'owner))
+                (repo (slot-value pr 'repo))
+                (number (slot-value pr 'number)))
+            (format "https://%s/%s/%s/pull/%s" host owner repo number)))))
 
     (defun my/code-review-browse-with-external-browser (&optional url)
       "Browse the current URL in the external browser."
