@@ -134,7 +134,11 @@
 (declare-function url-filename "url-parse" (url))
 (declare-function gofmt "go-mode" ())
 (declare-function lsp-organize-imports "lsp-mode" ())
-(declare-function ebbflow-mode "ebbflow" (&optional arg))
+;; ebbflow-mode is defined at toplevel in this file
+
+;; EIEIO functions - require at compile time for slot-value setf expander
+(eval-when-compile (require 'eieio))
+(declare-function slot-value "eieio" (object slot))
 
 ;; Additional External Functions
 (declare-function auth-source-pass-entries "auth-source-pass" ())
@@ -250,9 +254,21 @@
 ;; Spacemacs
 (defvar dotspacemacs-default-font)
 
-;; Dash anaphoric variables
-(defvar it)
-(defvar arg)
+;; Silence warnings for dash anaphoric variables used in --each, --filter, etc.
+;; These are dynamically bound by dash macros at runtime.
+;; The naming convention warning is expected since dash uses these names.
+(with-suppressed-warnings ((lexical it) (lexical acc))
+  (defvar it)
+  (defvar acc))
+
+;; Define ebbflow-mode at toplevel to avoid make-variable-buffer-local warning.
+;; This minor mode is used for editing eshell ebb/flow commands.
+(define-minor-mode ebbflow-mode
+  "Editing a flow from the Eshell ebb command, so flow can pull it back."
+  :lighter " ebb"
+  :keymap (let ((map (make-sparse-keymap)))
+            (define-key map (kbd "C-c C-q") 'ha-eshell-ebbflow-return)
+            map))
 
 (defun dotspacemacs/layers ()
   "Layer configuration:
@@ -1545,13 +1561,13 @@ Call FUN2 on all the rest of the elements in ARGS."
       "Return hash table of ARGS parsed against DEFARGS.
 Where DEFARGS is an argument definition, a list of plists.
 For instance:
-   '((:name number :short \"n\"                 :parameter integer :default 0)
+   \\='((:name number :short \"n\"                :parameter integer :default 0)
      (:name title  :short \"t\" :long \"title\" :parameter string)
      (:name debug  :short \"d\" :long \"debug\"))
 
 If ARGS, a list of _command line parameters_ is something like:
 
-    '(\"-d\" \"-n\" \"4\" \"--title\" \"How are that\" \"this\" \"is\" \"extra\")
+    \\='(\"-d\" \"-n\" \"4\" \"--title\" \"How are that\" \"this\" \"is\" \"extra\")
 
 The hashtable return would contain these entries:
 
@@ -1635,13 +1651,7 @@ The hashtable return would contain these entries:
           (pop-to-buffer ha-eshell-ebbflow-return-buffer)
         (bury-buffer)))
 
-    (define-minor-mode ebbflow-mode
-      "Editing a flow from the Eshell ebb command, so flow can pull it back."
-      :lighter " ebb"
-      :keymap (let ((map (make-sparse-keymap)))
-                (define-key map (kbd "C-c C-q") 'ha-eshell-ebbflow-return)
-                map))
-
+    ;; ebbflow-mode is defined at toplevel to avoid byte-compile warnings.
     (when (fboundp 'evil-define-key)
       (evil-define-key 'normal ebbflow-mode-map "Q" 'ha-eshell-ebbflow-return))
 
@@ -1689,7 +1699,7 @@ Usage: flow [OPTION] [BUFFER ...]
                   ((bufferp it) it)
                   ((stringp it) (get-buffer it))
                   (t            (error (format "Illegal argument of type %s: %s\n%s"
-                                               (type-of arg) it
+                                               (type-of it) it
                                                (documentation 'eshell/flow)))))
                  buffers)
         ;; No buffers given? Use the default buffer:
@@ -1945,7 +1955,8 @@ to be `:text'.
   (defun my/get-image-dimensions-imk (filepath)
     "Return the dimensions of the image at FILEPATH as a cons cell.
 
-This function uses the 'magick identify' command to get the dimensions of the image."
+This function uses the \\='magick identify\\=' command to get the
+dimensions of the image."
     (let* ((output (with-output-to-string
                      (call-process "magick" nil standard-output nil
                                    "identify" "-format" "%w %h" filepath)))
@@ -1954,7 +1965,8 @@ This function uses the 'magick identify' command to get the dimensions of the im
             (string-to-number (nth 1 dimensions)))))
 
   (defun my/image-ascii-display ()
-    "Display the current buffer's file as ASCII art using image2ascii with color support."
+    "Display the current buffer's file as ASCII art.
+Uses image2ascii with color support."
     (when buffer-file-name
       (let ((inhibit-read-only t)
             (ascii-image-ratio (/ (float (- (window-width) 1)) (car (my/get-image-dimensions-imk buffer-file-name)))))
