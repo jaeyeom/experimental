@@ -232,8 +232,8 @@ func TestNudgeReviewer(t *testing.T) {
 		client.SetDefaultChannel("#default")
 
 		destination, message, err := client.NudgeReviewer(pr, GitHubUsername("github-user"), 24, template, true)
-		if err != nil {
-			t.Errorf("Expected no error in dry run mode, got: %v", err)
+		if err != ErrDryRun {
+			t.Errorf("Expected ErrDryRun in dry run mode, got: %v", err)
 		}
 
 		// Should use DM channel ID when available
@@ -257,8 +257,8 @@ func TestNudgeReviewer(t *testing.T) {
 		client.SetDefaultChannel("#default")
 
 		destination, message, err := client.NudgeReviewer(pr, GitHubUsername("github-user"), 24, template, false)
-		if err != nil {
-			t.Errorf("Expected no error in dry run mode, got: %v", err)
+		if err != ErrDryRun {
+			t.Errorf("Expected ErrDryRun in dry run mode, got: %v", err)
 		}
 
 		// Should use default channel when DMByDefault is false
@@ -305,4 +305,61 @@ func TestNudgeReviewer(t *testing.T) {
 			t.Error("Expected an error when trying to send a message without a real Slack connection")
 		}
 	})
+}
+
+// TestDryRunDoesNotRecordNotification tests that dry-run mode returns ErrDryRun
+// so that callers can avoid recording notifications. This is a regression test
+// for a bug where NudgeReviewer converted ErrDryRun to nil, causing notifications
+// to be incorrectly recorded even in dry-run mode.
+func TestDryRunDoesNotRecordNotification(t *testing.T) {
+	userIDMapping := UserIDMapping{
+		GitHubUsername("github-user"): UserID("U12345"),
+	}
+	dmChannelIDMapping := DMChannelIDMapping{
+		GitHubUsername("github-user"): ChannelID("C12345"),
+	}
+
+	pr := models.PullRequest{
+		Title: "Test PR",
+		URL:   "https://github.com/org/repo/pull/1",
+	}
+
+	template := "Review PR: {title}"
+
+	// Create a dry-run client
+	client := NewClient(ClientConfig{
+		Token:              "test-token",
+		UserIDMapping:      userIDMapping,
+		DMChannelIDMapping: dmChannelIDMapping,
+		MessagePoster:      NewDryRunMessagePoster(),
+	})
+	client.SetDefaultChannel("#default")
+
+	// Simulate the logic from main.go processReviewer function
+	_, _, err := client.NudgeReviewer(pr, GitHubUsername("github-user"), 24, template, true)
+
+	// The key assertion: NudgeReviewer MUST return ErrDryRun in dry-run mode
+	// so that callers can detect dry-run and skip recording notifications.
+	// Previously, this returned nil which caused notifications to be recorded.
+	if err != ErrDryRun {
+		t.Errorf("NudgeReviewer must return ErrDryRun in dry-run mode so callers can skip recording notifications, got: %v", err)
+	}
+
+	// Demonstrate the caller pattern that depends on this behavior:
+	// (This mirrors the logic in cmd/gh-nudge/main.go processReviewer)
+	notificationRecorded := false
+	switch {
+	case err == ErrDryRun:
+		// Dry run - don't record notification (correct behavior)
+		t.Log("Dry run detected, skipping notification recording")
+	case err != nil:
+		t.Errorf("Unexpected error: %v", err)
+	default:
+		// err == nil means real message was sent, record notification
+		notificationRecorded = true
+	}
+
+	if notificationRecorded {
+		t.Error("Bug reproduced: notification would be recorded in dry-run mode because NudgeReviewer returned nil instead of ErrDryRun")
+	}
 }
