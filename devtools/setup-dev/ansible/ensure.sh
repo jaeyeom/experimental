@@ -171,8 +171,9 @@ for playbook in "$@"; do
         continue
     fi
     # Add .yml suffix only if it doesn't already exist
+    # shellcheck disable=SC2086  # Intentional word splitting for flags - quoted empty string causes errors
     case "$playbook" in
-        *.yml) ansible-playbook -i inventory.ini "$flags" "$playbook" ;;
-        *) ansible-playbook -i inventory.ini "$flags" "$playbook.yml" ;;
+        *.yml) ansible-playbook -i inventory.ini $flags "$playbook" ;;
+        *) ansible-playbook -i inventory.ini $flags "$playbook.yml" ;;
     esac
 done
