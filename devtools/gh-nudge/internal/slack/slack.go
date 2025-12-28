@@ -268,8 +268,9 @@ func (c *Client) NudgeReviewer(pr models.PullRequest, githubUsername GitHubUsern
 	}
 
 	// ErrDryRun is expected and indicates successful dry-run operation
+	// Return it to the caller so they can handle dry-run appropriately
 	if errors.Is(err, ErrDryRun) {
-		return destination, message, nil
+		return destination, message, ErrDryRun
 	}
 
 	return destination, message, err
