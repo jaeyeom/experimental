@@ -86,10 +86,12 @@ elif [ "$OS" = "Darwin" ]; then
         # Add Homebrew to PATH based on chip architecture
         if [ "$(uname -m)" = "arm64" ]; then
             # For Apple Silicon Macs
+            # shellcheck disable=SC2016  # Single quotes intentional - write literal string to .zprofile
             echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zprofile"
             eval "$(/opt/homebrew/bin/brew shellenv)"
         else
             # For Intel Macs
+            # shellcheck disable=SC2016  # Single quotes intentional - write literal string to .zprofile
             echo 'eval "$(/usr/local/bin/brew shellenv)"' >> "$HOME/.zprofile"
             eval "$(/usr/local/bin/brew shellenv)"
         fi
