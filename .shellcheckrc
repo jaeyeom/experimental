@@ -7,8 +7,7 @@ shell=bash
 # Exclude common style/info warnings that are too noisy for existing scripts:
 # SC1091: Not following sourced files
 # SC2016: Expressions don't expand in single quotes (intentional for echo)
-# SC2034: Variable appears unused
 # SC2046: Quote this to prevent word splitting
 # SC2086: Double quote to prevent globbing and word splitting
 # SC2154: var is referenced but not assigned
-disable=SC1091,SC2016,SC2034,SC2046,SC2086,SC2154
+disable=SC1091,SC2016,SC2046,SC2086,SC2154

@@ -16,9 +16,6 @@ for ORG_FILE in $ORG_FILES; do
     BASENAME=$(basename "$ORG_FILE")
     BUILD_FILE="$DIR/BUILD.bazel"
 
-    # Expected test name
-    TEST_NAME="${BASENAME%.org}_org_lint_test"
-
     # Check if BUILD.bazel exists
     if [ ! -f "$BUILD_FILE" ]; then
         echo "ERROR: $ORG_FILE - No BUILD.bazel file found in $DIR"
