@@ -40,7 +40,7 @@ verify-golangci-config:
 	fi
 
 check-bazel-go-files:
-	@./check-bazel-go-files.sh
+	@./check-bazel-src-files.sh go
 
 # Python targets
 .PHONY: lint-ruff fix-ruff

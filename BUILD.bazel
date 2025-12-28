@@ -40,8 +40,8 @@ exports_files(
 
 # Shell scripts for linting
 sh_binary(
-    name = "check-bazel-go-files",
-    srcs = ["check-bazel-go-files.sh"],
+    name = "check-bazel-src-files",
+    srcs = ["check-bazel-src-files.sh"],
 )
 
 sh_binary(

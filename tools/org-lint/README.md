@@ -9,7 +9,7 @@ Org-lint tests use a **Starlark macro** approach for maintainability. Instead of
 This approach:
 - ✅ Prevents conflicts with other BUILD file generators (like Gazelle)
 - ✅ Gives developers explicit control over BUILD files
-- ✅ Validates completeness automatically (like `check-bazel-go-files.sh`)
+- ✅ Validates completeness automatically (like `check-bazel-src-files.sh`)
 - ✅ Uses Bazel-native Starlark macros
 
 ## Files
@@ -88,7 +88,7 @@ sh_test(
 
 ### The validation check (check-org-lint-tests.sh)
 
-Similar to `check-bazel-go-files.sh`:
+Similar to `check-bazel-src-files.sh`:
 1. Finds all .org files in the repository
 2. Checks each has a corresponding entry in BUILD.bazel
 3. Verifies the BUILD file loads the macro
@@ -108,4 +108,4 @@ We considered auto-generating BUILD files (like ansible syntax tests do), but ch
 4. **Validation**: `check-org-lint-tests.sh` ensures nothing is forgotten
 5. **Simple**: Just add filenames to a list, no complex generation logic
 
-This follows the same pattern as `check-bazel-go-files.sh` which validates Go files are in BUILD files without auto-generating them.
+This follows the same pattern as `check-bazel-src-files.sh` which validates Go files are in BUILD files without auto-generating them.

@@ -2,7 +2,7 @@
 set -e
 
 # Check that all .org files have corresponding org-lint test targets
-# Similar to check-bazel-go-files.sh
+# Similar to check-bazel-src-files.sh
 
 echo "Checking that all .org files have org-lint test targets..."
 
