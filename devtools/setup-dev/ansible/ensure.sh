@@ -22,7 +22,7 @@ if [ -n "$TERMUX_VERSION" ]; then
     # Upgrading pkg is necessary to avoid issues on Termux. Instead of handling
     # that in Ansible, we do it here.
     # Only upgrade if not done in the last 24 hours
-    if [ ! -f $PKG_CACHE ] || [ $(find $PKG_CACHE -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+    if [ ! -f $PKG_CACHE ] || [ "$(find $PKG_CACHE -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
         pkg upgrade -y
         pkg install -y rust python-pip
         touch $PKG_CACHE
@@ -38,7 +38,7 @@ if [ -n "$TERMUX_VERSION" ]; then
     fi
 
     # Install necessary packages for Ansible and also install ansible.
-    if [ ! -f $PIP_CACHE ] || [ $(find $PIP_CACHE -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+    if [ ! -f $PIP_CACHE ] || [ "$(find $PIP_CACHE -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
         pip install -U ansible
     fi
 elif [ "$OS" = "Darwin" ]; then
@@ -97,7 +97,7 @@ elif [ "$OS" = "Darwin" ]; then
 
     # Update Homebrew
     # Only update if not done in the last 24 hours
-    if [ ! -f $BREW_CACHE ] || [ $(find $BREW_CACHE -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+    if [ ! -f $BREW_CACHE ] || [ "$(find $BREW_CACHE -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
         echo "Updating Homebrew..."
         brew update && brew upgrade
         touch $BREW_CACHE
@@ -126,7 +126,7 @@ else
 
         # Upgrade packages with nala
         # Only upgrade if not done in the last 24 hours
-        if [ ! -f $NALA_CACHE ] || [ $(find $NALA_CACHE -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+        if [ ! -f $NALA_CACHE ] || [ "$(find $NALA_CACHE -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
             echo "Upgrading packages with nala..."
             sudo nala upgrade -y
             touch $NALA_CACHE
@@ -154,7 +154,7 @@ else
 fi
 
 # Install community.general collection if not already installed
-if [ ! -f $ANSIBLE_GALAXY_CACHE ] || [ $(find $ANSIBLE_GALAXY_CACHE -mtime +1 2>/dev/null | wc -l) -gt 0 ]; then
+if [ ! -f $ANSIBLE_GALAXY_CACHE ] || [ "$(find $ANSIBLE_GALAXY_CACHE -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
     ansible-galaxy collection install community.general
     touch $ANSIBLE_GALAXY_CACHE
 fi
