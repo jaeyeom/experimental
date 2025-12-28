@@ -14,7 +14,7 @@ if [[ "${1:-}" == "--fix" ]]; then
 fi
 
 TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 FILESYSTEM_GO_FILES="$TEMP_DIR/filesystem_go_files.txt"
 BAZEL_GO_FILES="$TEMP_DIR/bazel_go_files.txt"

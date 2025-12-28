@@ -56,7 +56,7 @@ elif [ "$OS" = "Darwin" ]; then
 
         # Download the install script
         BREW_INSTALL_SCRIPT=$(mktemp)
-        trap "rm -f $BREW_INSTALL_SCRIPT" EXIT
+        trap 'rm -f "$BREW_INSTALL_SCRIPT"' EXIT
 
         echo ""
         echo "Downloading Homebrew install script..."
