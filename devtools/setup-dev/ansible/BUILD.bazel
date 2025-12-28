@@ -140,6 +140,7 @@ sh_test(
         "setup-cicd.yml",
         "setup-claude-privacy.yml",
         "setup-claude-sandbox.yml",
+        "setup-claude-termux-rg.yml",
         "setup-direnv.yml",
         "setup-emacs.yml",
         "setup-git.yml",
@@ -1589,7 +1590,23 @@ sh_test(
     args = ["setup-claude-sandbox.yml"],
     data = [
         "jq.yml",
+        "rg.yml",
         "setup-claude-sandbox.yml",
+        "setup-claude-termux-rg.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "setup-claude-termux-rg_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-claude-termux-rg.yml"],
+    data = [
+        "rg.yml",
+        "setup-claude-termux-rg.yml",
     ],
     tags = [
         "ansible",
@@ -2465,6 +2482,7 @@ test_suite(
         ":setup-cicd_syntax_test",
         ":setup-claude-privacy_syntax_test",
         ":setup-claude-sandbox_syntax_test",
+        ":setup-claude-termux-rg_syntax_test",
         ":setup-direnv_syntax_test",
         ":setup-docker-ce_syntax_test",
         ":setup-docker-lima_syntax_test",

@@ -1,5 +1,7 @@
 ---
 - import_playbook: jq.yml
+- import_playbook: setup-claude-termux-rg.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
 - name: Setup Claude Code sandbox configuration
   hosts: all
@@ -33,6 +35,7 @@
           - "Bash(git log:*)"
           - "Bash(git status:*)"
           - "Bash(golangci-lint run:*)"
+          - "Bash(rg:*)"           # Safe: read-only search tool, no exec capability
           - "Bash(ruff:*)"
         additionalFilesystemWritePaths:
           - "/var/tmp"
