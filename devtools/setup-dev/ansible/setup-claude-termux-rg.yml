@@ -1,0 +1,61 @@
+---
+# Fix Claude Code's Glob/Grep tools on Termux by copying system ripgrep
+# to the Claude Code vendor directory (which lacks arm64-android binaries)
+- import_playbook: rg.yml
+
+- name: Setup Claude Code ripgrep on Termux
+  hosts: all
+  vars:
+    claude_rg_vendor_dir: "{{ ansible_facts['env']['PREFIX'] }}/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-android"
+  tasks:
+    - name: Include guard for claude termux rg playbook
+      block:
+        - name: Stop early if the claude termux rg playbook is already included
+          meta: end_play
+          when: claude_termux_rg_playbook_imported is defined
+        - name: Ensure the claude termux rg playbook is not included
+          set_fact:
+            claude_termux_rg_playbook_imported: true
+          when: claude_termux_rg_playbook_imported is not defined
+
+    - name: Setup ripgrep for Claude Code on Termux
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+      block:
+        - name: Check if Claude Code is installed
+          shell: command -v claude
+          register: claude_installed
+          failed_when: false
+          changed_when: false
+
+        - name: Get system ripgrep path
+          shell: command -v rg
+          register: rg_path
+          failed_when: false
+          changed_when: false
+          when: claude_installed.rc == 0
+
+        - name: Create arm64-android vendor directory
+          file:
+            path: "{{ claude_rg_vendor_dir }}"
+            state: directory
+            mode: "0700"
+          when: claude_installed.rc == 0 and rg_path.rc == 0
+
+        - name: Copy system ripgrep to Claude Code vendor directory
+          copy:
+            src: "{{ rg_path.stdout }}"
+            dest: "{{ claude_rg_vendor_dir }}/rg"
+            mode: "0700"
+            remote_src: yes
+          when: claude_installed.rc == 0 and rg_path.rc == 0
+
+        - name: Verify ripgrep was copied
+          stat:
+            path: "{{ claude_rg_vendor_dir }}/rg"
+          register: rg_copied
+          when: claude_installed.rc == 0 and rg_path.rc == 0
+
+        - name: Display result
+          debug:
+            msg: "Claude Code ripgrep fix applied: {{ claude_rg_vendor_dir }}/rg"
+          when: claude_installed.rc == 0 and rg_path.rc == 0 and rg_copied.stat.exists

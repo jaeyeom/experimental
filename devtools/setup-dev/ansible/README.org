@@ -209,6 +209,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-cicd.yml
 - setup-claude-privacy.yml
 - setup-claude-sandbox.yml
+- setup-claude-termux-rg.yml
 - setup-direnv.yml
 - setup-docker-ce.yml
 - setup-docker-lima.yml
