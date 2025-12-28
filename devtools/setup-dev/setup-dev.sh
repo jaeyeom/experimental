@@ -114,7 +114,7 @@ fi
 if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
     echo "NOTE: Go to https://github.com/settings/tokens to generate a personal access token."
     mkdir -p ~/go/src/github.com/jaeyeom
-    pushd ~/go/src/github.com/jaeyeom
+    pushd ~/go/src/github.com/jaeyeom || exit
 
     cmd gh repo clone jaeyeom/experimental
     cmd gh repo clone jaeyeom/gogo
@@ -122,7 +122,7 @@ if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
     cmd gh repo clone jaeyeom/gofiletable
     cmd gh repo clone jaeyeom/gomemocache
     cmd gh repo clone jaeyeom/private
-    popd
+    popd || exit
 fi
 
 if [ ! -s ~/.spacemacs-upstream ]; then
