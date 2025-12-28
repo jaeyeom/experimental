@@ -15,9 +15,11 @@ update_env_key() {
     if pass "$pass_entry" >/dev/null 2>&1; then
         echo "Updating $key_name..."
         # Get the value from pass
-        local value=$(pass "$pass_entry")
+        local value
+        value=$(pass "$pass_entry")
         # Create a temporary file
-        local tmpfile=$(mktemp)
+        local tmpfile
+        tmpfile=$(mktemp)
         # Process the .env file line by line
         while IFS= read -r line; do
             if [[ "$line" =~ ^${key_name}= ]]; then

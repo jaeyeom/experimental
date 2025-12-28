@@ -100,7 +100,8 @@ setup_pass() {
 allow-emacs-pinentry
 allow-loopback-pinentry
 EOF
-    local uid=$(gpg --list-keys | grep 'uid' | head -n 1 | sed 's/.*<\(.*\)>.*/\1/')
+    local uid
+    uid=$(gpg --list-keys | grep 'uid' | head -n 1 | sed 's/.*<\(.*\)>.*/\1/')
     cmd pass init "$uid"
 }
 
