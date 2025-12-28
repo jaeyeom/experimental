@@ -127,7 +127,7 @@ if [ ! -f ~/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ]; then
 fi
 
 if [ ! -s ~/.spacemacs-upstream ]; then
-    ln -snfT $HOME/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs ~/.spacemacs-upstream
+    ln -snfT "$HOME/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs" ~/.spacemacs-upstream
 fi
 
 if [ ! -f ~/.spacemacs ]; then
@@ -174,10 +174,10 @@ if [ -d "\$(go env GOPATH)/bin" ] ; then
 fi
 EOF
 
-if [ ! -d $HOME/.local/bin ]; then
-    mkdir -p $HOME/.local/bin
+if [ ! -d "$HOME/.local/bin" ]; then
+    mkdir -p "$HOME/.local/bin"
 fi
-if [ ! -f $HOME/.local/bin/z.sh ]; then
+if [ ! -f "$HOME/.local/bin/z.sh" ]; then
     cmd curl -o ~/.local/bin/z.sh https://raw.githubusercontent.com/rupa/z/master/z.sh
     chmod +x ~/.local/bin/z.sh
 fi
@@ -190,12 +190,12 @@ if [ -f ~/.local/bin/z.sh ]; then
 fi
 EOF
 
-mkdir -p $HOME/Documents
-if [ ! -e $HOME/Documents/roam ]; then
-    ln -snfT $HOME/go/src/github.com/jaeyeom/private/roam
+mkdir -p "$HOME/Documents"
+if [ ! -e "$HOME/Documents/roam" ]; then
+    ln -snfT "$HOME/go/src/github.com/jaeyeom/private/roam" "$HOME/Documents/roam"
 fi
-if [ ! -e $HOME/Documents/projects ]; then
-    ln -snfT $HOME/go/src/github.com/jaeyeom/private/projects
+if [ ! -e "$HOME/Documents/projects" ]; then
+    ln -snfT "$HOME/go/src/github.com/jaeyeom/private/projects" "$HOME/Documents/projects"
 fi
 
 cmd emacs

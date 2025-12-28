@@ -7,5 +7,4 @@ shell=bash
 # Exclude common style/info warnings that are too noisy for existing scripts:
 # SC1091: Not following sourced files
 # SC2016: Expressions don't expand in single quotes (intentional for echo)
-# SC2086: Double quote to prevent globbing and word splitting
-disable=SC1091,SC2016,SC2086
+disable=SC1091,SC2016
