@@ -2033,6 +2033,7 @@ Uses image2ascii with color support."
     ;; disable inline previews
     (delq 'company-preview-if-just-one-frontend company-frontends))
 
+  (defvar copilot-disable-predicates)
   (with-eval-after-load 'copilot
     ;; The state nil works, but '(insert emacs hybrid) does not work. Why?
     (evil-define-key nil copilot-completion-map (kbd "<tab>") 'copilot-accept-completion)
@@ -2040,7 +2041,13 @@ Uses image2ascii with color support."
     (evil-define-key nil copilot-completion-map (kbd "C-TAB") 'copilot-accept-completion-by-word)
     (evil-define-key nil copilot-completion-map (kbd "C-<tab>") 'copilot-accept-completion-by-word)
     (evil-define-key nil copilot-completion-map (kbd "C-<next>") 'copilot-next-completion)
-    (evil-define-key nil copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion))
+    (evil-define-key nil copilot-completion-map (kbd "C-<prior>") 'copilot-previous-completion)
+    ;; Disable Copilot for sensitive files
+    (add-to-list 'copilot-disable-predicates
+                 (lambda ()
+                   (when buffer-file-name
+                     (string-match-p "\\.env\\(?:\\..*\\)?$\\|\\.envrc$"
+                                     (file-name-nondirectory buffer-file-name))))))
 
   (when (fboundp #'copilot-mode)
     (add-hook 'prog-mode-hook #'copilot-mode))
