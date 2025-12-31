@@ -2169,7 +2169,11 @@ the email."
     ;;
     ;; TODO: Consider using different notification styles for Termux and MacOS
     ;; conditionally.
-    (setopt alert-default-style 'message)
+    ;;
+    ;; NOTE: setq is used instead of setopt because the defcustom :type
+    ;; is built before alert-define-style registers the 'termux style.
+    (setq alert-default-style
+          (if my/termux-p 'termux 'message))
 
     ;; Always log alerts for persistent history
     (setopt alert-log-messages t)
