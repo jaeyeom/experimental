@@ -107,6 +107,12 @@
         content: |
           {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
 
+          # Allow Copier to use git commands without restrictions
+          if [[ "${COPIER_RUNNING:-}" == "1" ]]; then
+              REAL_GIT=$(which -a git | grep -v "$(realpath "$0")" | head -n 1)
+              exec "$REAL_GIT" "$@"
+          fi
+
           if [[ "$1" == "commit" ]]; then
               # Check if --no-verify is passed as a separate argument
               for arg in "$@"; do
