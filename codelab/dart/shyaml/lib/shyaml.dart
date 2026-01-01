@@ -3,6 +3,28 @@
 /// This parser is designed to parse YAML files that are formatted like a
 /// spreadsheet. The first column is the key and the second column is the value.
 
+/// Exception thrown when parsing fails.
+class ShyamlParseException implements Exception {
+  /// The error message describing what went wrong.
+  final String message;
+
+  /// The row index (0-based) where the error occurred.
+  final int row;
+
+  /// The column index (0-based) where the error occurred, if applicable.
+  final int? column;
+
+  ShyamlParseException(this.message, {required this.row, this.column});
+
+  @override
+  String toString() {
+    if (column != null) {
+      return 'ShyamlParseException: $message (row: ${row + 1}, column: ${column! + 1})';
+    }
+    return 'ShyamlParseException: $message (row: ${row + 1})';
+  }
+}
+
 /// Returns the indentation level of the given row.
 ///
 /// This function returns the index of the first non-empty cell in the row.
@@ -26,20 +48,37 @@ String getCell(List<String> row, int index) {
 /// Parses the rows starting from the given index with the given indent level.
 ///
 /// It returns key value pairs in a map.
+///
+/// Throws [ShyamlParseException] if the input is malformed.
 dynamic parseRows(List<List<String>> rows, {int index = 0, int indent = 0}) {
-  // print('rows: $rows, index: $index, indent: $indent');
   var result = <String, dynamic>{};
   var previousKey = '';
   // Loop through the rows with the index.
   for (var i = index; i < rows.length; i++) {
     var row = rows[i];
     var rowIndent = findRowIndent(row);
+
+    // Skip empty rows.
+    if (rowIndent == -1) {
+      continue;
+    }
+
     if (i > index && 0 <= rowIndent && rowIndent < indent) {
       break;
     }
     if (rowIndent > indent) {
       continue;
     }
+
+    // Validate row has enough cells for the indent level.
+    if (row.length <= indent) {
+      throw ShyamlParseException(
+        'Row has insufficient cells for indent level $indent',
+        row: i,
+        column: indent,
+      );
+    }
+
     if (row[indent] == '-') {
       if (result[previousKey] == null) {
         result[previousKey] = <dynamic>[];
@@ -50,6 +89,16 @@ dynamic parseRows(List<List<String>> rows, {int index = 0, int indent = 0}) {
     // Get key and value if the index is within the row length.
     var key = getCell(row, indent);
     var value = getCell(row, indent + 1);
+
+    // Validate that key is not empty when it should have content.
+    if (key == '' && rowIndent == indent) {
+      throw ShyamlParseException(
+        'Expected a key or array marker at indent level $indent',
+        row: i,
+        column: indent,
+      );
+    }
+
     if (value == '') {
       // Either a single value or an array.
       result[key] = [];
@@ -59,7 +108,6 @@ dynamic parseRows(List<List<String>> rows, {int index = 0, int indent = 0}) {
 
     result[key] = value;
   }
-  // print('result: $result');
   if (result.containsKey('')) {
     return result[''];
   }
