@@ -23,7 +23,7 @@
       rescue:
         - name: Install dart on MacOS
           community.general.homebrew:
-            name: dart
+            name: dart-sdk
             state: present
       when: ansible_facts['os_family'] == "Darwin"
 
