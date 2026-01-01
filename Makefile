@@ -1,7 +1,9 @@
 # Common targets
-.PHONY: all format format-whitespace check-format test lint fix
+.PHONY: all check format format-whitespace check-whitespace check-format test lint fix
 
 all: requirements.txt generate-ansible generate-pkl format test fix check-bazel-go-files check-org-lint-tests
+
+check: requirements.txt generate-ansible generate-pkl check-format test lint check-bazel-go-files check-org-lint-tests
 
 format: format-whitespace
 	goimports -w .
@@ -10,7 +12,11 @@ format: format-whitespace
 format-whitespace:
 	find . -name "*.md" -o -name "*.org" | xargs $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi) 's/[[:space:]]*$$//'
 
-check-format:
+check-whitespace:
+	@FILES=$$(find . \( -name "*.md" -o -name "*.org" \) -exec grep -l '[[:space:]]$$' {} + 2>/dev/null || true); \
+	if [ -n "$$FILES" ]; then echo "Trailing whitespace found in:"; echo "$$FILES"; exit 1; fi
+
+check-format: check-whitespace
 	goimports -l .
 	bazel test //tools/format:format_test
 
@@ -19,6 +25,8 @@ test:
 
 lint: lint-golangci lint-ruff lint-shellcheck check-spacemacs
 
+# Target fix is best-effort autofix for lint issues. If autofix is not
+# available, it still runs lint checks.
 fix: fix-golangci fix-ruff lint-shellcheck check-spacemacs
 
 # Go targets
