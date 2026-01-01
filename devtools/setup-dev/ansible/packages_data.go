@@ -161,6 +161,22 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	{
+		command: "gcloud",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "google-cloud-sdk"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "google-cloud-cli",
+				GPGKeyURL:      "https://packages.cloud.google.com/apt/doc/apt-key.gpg",
+				GPGKeyPath:     "/etc/apt/trusted.gpg.d/google-cloud.gpg",
+				RepoURL:        "https://packages.cloud.google.com/apt",
+				RepoComponents: "main",
+				Codename:       "cloud-sdk",
+			},
+			// Termux: Not officially supported by Google
+		},
+		Imports: nil,
+	},
 	GoTool("gh-codeowners", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest"),
 	GoTool("gh-merge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest"),
 	GoTool("gh-nudge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest"),
