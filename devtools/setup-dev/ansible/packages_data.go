@@ -7,7 +7,7 @@ var packages = []PackageData{
 	{command: "clang-format"},
 	{command: "cmake"},
 	{command: "curl"},
-	{command: "dart"},
+	{command: "dart", debianPkgName: "dart", termuxPkgName: "dart", brewPkgName: "dart-sdk"},
 	{command: "delta", brewPkgName: "git-delta", debianPkgName: "git-delta", termuxPkgName: "git-delta"},
 	{command: "direnv"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-native-comp", "with-dbus", "with-imagemagick"}},
