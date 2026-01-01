@@ -2163,6 +2163,7 @@ the email."
   (autoload 'my/chatgpt-shell-dwim "chatgpt-shell")
 
   ;;; Alert.el configuration for Claude Code notifications
+  (defvar alert-default-style)  ; Silence byte-compiler warning
   (with-eval-after-load 'alert
     ;; Use log style to keep notifications in *Alerts* buffer
     ;; Also show in minibuffer with message style
