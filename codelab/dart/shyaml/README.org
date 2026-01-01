@@ -5,8 +5,189 @@ A spreadsheet based configuration for quick demos.
 A sample command-line application with an entrypoint in =bin/=, library code in
 =lib/=, and unit test in =test/=.
 
-* Plan
-** Rows Parser
-*** DONE Minimum implementation
-CLOSED: [2024-09-30 Mon 10:40]
-*** DONE Parse error handling
+* Motivation
+
+When building quick demo applications, you often face a common challenge:
+
+- *Demo operators* (sales, product managers, etc.) need to modify configuration
+- *Developers* don't have time to build an admin UI
+- *JSON/YAML files* require finding a text editor, managing tedious indentation, etc.
+
+Shyaml bridges this gap by using *spreadsheets as configuration*:
+
+#+begin_example
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│   Spreadsheet   │      │     Shyaml      │      │   Demo App      │
+│   (Google       │  →   │   (Parser)      │  →   │   (Uses the     │
+│    Sheets/Excel)│      │                 │      │    config)      │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+     ↑
+     │
+  Demo operator
+  edits here
+  (no coding needed)
+#+end_example
+
+** Why Spreadsheets?
+
+| Traditional Config     | Shyaml Approach              |
+|------------------------+------------------------------|
+| Indentation-sensitive  | Tidy, cell-based structure   |
+| Need a web text editor | Built-in spreadsheet UI      |
+| Awkward on mobile      | Slightly easier mobile edits |
+| Need admin UI          | Spreadsheet IS the UI        |
+
+** Google Sheets CSV Export
+
+Google Sheets provides a direct CSV export URL. For non-sensitive data, you can
+grant public view access, allowing the app to fetch it without authentication:
+
+#+begin_example
+https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv
+#+end_example
+
+This enables a simple config pull workflow:
+
+#+begin_example
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│  Google Sheet   │      │   CSV Export    │      │   Demo App      │
+│  (Edit config)  │  →   │   (HTTP GET)    │  →   │   (Fetch &      │
+│                 │      │                 │      │    parse)       │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+#+end_example
+
+No deployment needed - demo operators edit the sheet, app fetches the latest config on startup or refresh.
+
+** Use Cases
+
+- Product demos with customizable data
+- Trade show applications with client-specific content
+- Prototypes where requirements change frequently
+- Any scenario where non-technical users need to update configuration quickly
+
+* Visual Examples
+
+** Simple Key-Value Pairs
+
+#+caption: Spreadsheet Input
+| key  | value  |
+| key2 | value2 |
+
+#+begin_src dart
+parseRows([
+  ['key', 'value'],
+  ['key2', 'value2'],
+])
+#+end_src
+
+#+caption: Output
+#+begin_src json
+{
+  "key": "value",
+  "key2": "value2"
+}
+#+end_src
+
+** Arrays with =-= Marker
+
+#+caption: Spreadsheet Input
+| arrayKey |    |
+| -        | v1 |
+| -        | v2 |
+
+#+begin_src dart
+parseRows([
+  ['arrayKey', ''],
+  ['-', 'v1'],
+  ['-', 'v2'],
+])
+#+end_src
+
+#+caption: Output
+#+begin_src json
+{
+  "arrayKey": ["v1", "v2"]
+}
+#+end_src
+
+** Array of Objects (Nested Structure)
+
+Empty cells in the first column indicate continuation of the previous array element.
+
+#+caption: Spreadsheet Input
+| arrayKey |      |       |
+| -        | name | Tom   |
+|          | age  | 10    |
+| -        | name | Jerry |
+|          | age  | 12    |
+
+#+begin_src dart
+parseRows([
+  ['arrayKey', '', ''],
+  ['-', 'name', 'Tom'],
+  ['', 'age', '10'],
+  ['-', 'name', 'Jerry'],
+  ['', 'age', '12'],
+])
+#+end_src
+
+#+caption: Output
+#+begin_src json
+{
+  "arrayKey": [
+    {"name": "Tom", "age": "10"},
+    {"name": "Jerry", "age": "12"}
+  ]
+}
+#+end_src
+
+** Top-Level Array
+
+When the structure starts with =-=, it becomes a list.
+
+#+caption: Spreadsheet Input
+| - | hello |
+| - | world |
+
+#+begin_src dart
+parseRows([
+  ['-', 'hello'],
+  ['-', 'world'],
+])
+#+end_src
+
+#+caption: Output
+#+begin_src json
+["hello", "world"]
+#+end_src
+
+* How It Works
+
+#+begin_example
+┌─────────────────────────────────────────────────────────┐
+│  Spreadsheet (2D Array)                                 │
+│  ┌───────────┬───────┬───────┐                          │
+│  │ key       │ value │       │  → key-value pair        │
+│  │ arrayKey  │       │       │  → empty = container     │
+│  │ -         │ item1 │       │  → array element         │
+│  │           │ sub   │ val   │  → nested (indented)     │
+│  └───────────┴───────┴───────┘                          │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│  Nested Map/List Structure                              │
+│  {                                                      │
+│    "key": "value",                                      │
+│    "arrayKey": [                                        │
+│      {"item1": {"sub": "val"}}                          │
+│    ]                                                    │
+│  }                                                      │
+└─────────────────────────────────────────────────────────┘
+#+end_example
+
+** Key Rules
+
+1. *Empty first column* (after content): indicates nested structure under previous key
+2. *=-= marker*: denotes an array element
+3. *Empty value cell*: key becomes a container for nested content
+4. *Indentation*: achieved via empty cells in leading columns
