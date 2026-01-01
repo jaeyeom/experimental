@@ -571,6 +571,17 @@ sh_test(
 )
 
 sh_test(
+    name = "gcloud_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gcloud.yml"],
+    data = ["gcloud.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "gemini_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["gemini.yml"],
@@ -2409,6 +2420,7 @@ test_suite(
         ":fillstruct_syntax_test",
         ":fzf_syntax_test",
         ":gather-facts_syntax_test",
+        ":gcloud_syntax_test",
         ":gemini_syntax_test",
         ":gh-codeowners_syntax_test",
         ":gh-merge_syntax_test",
