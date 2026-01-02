@@ -995,6 +995,11 @@ before packages are loaded."
   ;; Somehow Spacemacs sets the default tab width to 2. Let's revert it back.
   (setopt tab-width 8)
 
+  ;; Enable direnv mode globally
+  (require 'direnv)
+  (declare-function direnv-mode "direnv")
+  (direnv-mode)
+
   ;;; Get user full name and mail from git config
   (setopt user-full-name (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.name"))
           user-mail-address (replace-regexp-in-string "\n$" "" (shell-command-to-string "git config --get user.email")))
