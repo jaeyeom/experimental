@@ -42,7 +42,6 @@
           - "/private/var/tmp"  # macOS symlink to /var/tmp
         deny:
           - "Bash(eval:*)"      # Shell eval
-          - "Bash(find:*)"      # Glob tool is safer
           - "Bash(source:*)"    # Source scripts
           - "Bash(xargs:*)"     # Can execute arbitrary commands
           - "Read(.envrc)"
