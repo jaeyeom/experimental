@@ -1,6 +1,9 @@
 # Common targets
 .PHONY: all check format format-whitespace check-whitespace check-format test lint fix
 
+# Cross-platform sed in-place edit
+SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
+
 all: requirements.txt generate-ansible generate-pkl format test fix check-bazel-go-files check-org-lint-tests
 
 check: requirements.txt generate-ansible generate-pkl check-format test lint check-bazel-go-files check-org-lint-tests
@@ -10,10 +13,12 @@ format: format-whitespace
 	bazel run //:format
 
 format-whitespace:
-	find . -name "*.md" -o -name "*.org" | xargs $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi) 's/[[:space:]]*$$//'
+	@for f in $$(rg -l '\s$$' -g '*.md' -g '*.org' 2>/dev/null || true); do \
+		$(SED_INPLACE) 's/[[:space:]]*$$//' "$$f"; \
+	done
 
 check-whitespace:
-	@FILES=$$(find . \( -name "*.md" -o -name "*.org" \) -exec grep -l '[[:space:]]$$' {} + 2>/dev/null || true); \
+	@FILES=$$(rg -l '\s$$' -g '*.md' -g '*.org' 2>/dev/null || true); \
 	if [ -n "$$FILES" ]; then echo "Trailing whitespace found in:"; echo "$$FILES"; exit 1; fi
 
 check-format: check-whitespace
@@ -67,7 +72,7 @@ requirements.txt: requirements.in
 .PHONY: lint-shellcheck
 
 lint-shellcheck:
-	find . -name "*.sh" -not -path "./.git/*" -not -path "./bazel-*" -not -path "./.bazel-*" | xargs shellcheck
+	shellcheck -x $$(git ls-files "*.sh")
 
 # Emacs/Spacemacs targets
 .PHONY: check-spacemacs check-org-lint-tests
