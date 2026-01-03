@@ -1,0 +1,252 @@
+#+TITLE: gherun - Gherkin Test Runner with Perplexity Comet
+#+OPTIONS: toc:2
+
+* Overview
+
+~gherun~ is a CLI tool that orchestrates Gherkin-based feature tests using
+[[https://www.perplexity.ai/][Perplexity's Comet Browser]]. It bridges the gap between human-readable test
+specifications and AI-powered browser automation.
+
+* Motivation
+
+Traditional end-to-end testing requires significant investment in test
+infrastructure, browser drivers, and maintenance. As AI-powered browsers become
+more capable, we can leverage them to execute tests described in natural
+language.
+
+** Why Gherkin?
+
+Gherkin provides a structured yet human-readable format for describing software
+behavior. Its Given-When-Then syntax maps naturally to test instructions that an
+AI browser can understand and execute.
+
+** Why Perplexity Comet?
+
+Perplexity's Comet Browser can interpret natural language instructions and
+interact with web applications autonomously. By combining Gherkin specifications
+with Comet's capabilities, we can:
+
+- Write tests in plain English that both humans and AI can understand
+- Reduce the need for fragile CSS selectors and XPath expressions
+- Leverage AI's ability to adapt to UI changes
+- Get detailed failure reports with context
+
+* Comparison with Playwright
+
+[[https://playwright.dev/][Playwright]] is a powerful, widely-adopted browser automation framework. Here's
+how gherun compares:
+
+| Aspect                | Playwright                        | gherun + Comet                    |
+|-----------------------+-----------------------------------+-----------------------------------|
+| Test language         | JavaScript/TypeScript/Python      | Gherkin (natural language)        |
+| Element selection     | CSS selectors, XPath, test IDs    | Natural language descriptions     |
+| Setup complexity      | Moderate (install, config)        | Minimal (just write .feature)     |
+| Execution speed       | Fast (milliseconds per action)    | Slower (AI processing overhead)   |
+| Reliability           | Deterministic                     | Probabilistic (AI interpretation) |
+| UI change resilience  | Brittle (selectors break)         | Adaptive (AI understands intent)  |
+| Debugging             | Excellent (traces, screenshots)   | Limited (relies on AI reports)    |
+| CI/CD integration     | Native support                    | Requires browser environment      |
+| Cost                  | Free                              | Perplexity API/subscription       |
+| Maintenance           | High (selector updates)           | Low (natural language is stable)  |
+
+** When to Use Playwright
+
+Choose Playwright when you need:
+
+- *Fast, deterministic test execution* - CI/CD pipelines running hundreds of
+  tests where speed and reliability are critical
+- *Precise control* - Pixel-perfect assertions, network interception, or complex
+  multi-tab scenarios
+- *Headless execution* - Running tests in containers or CI environments without
+  a display
+- *Large test suites* - Thousands of tests that need to run in minutes
+- *Offline testing* - No external API dependencies
+
+** When to Use gherun
+
+Choose gherun when you need:
+
+- *Rapid prototyping* - Quickly validate user flows without writing code
+- *Exploratory testing* - Let AI discover edge cases humans might miss
+- *Non-technical stakeholders* - Business analysts or product managers can write
+  and understand tests
+- *Frequently changing UIs* - AI adapts to UI changes without selector updates
+- *Complex user journeys* - Multi-step flows that are tedious to script but easy
+  to describe
+- *Manual test automation* - Convert existing manual test cases to automated
+  tests with minimal effort
+- *Accessibility testing* - AI can interact with the page like a real user,
+  catching usability issues
+
+** Hybrid Approach
+
+Consider using both:
+
+1. *Playwright for critical paths* - Login, checkout, payment flows that must be
+   rock-solid and fast
+2. *gherun for regression testing* - Broad coverage of features where AI
+   adaptability reduces maintenance
+3. *gherun for smoke tests* - Quick validation that major features work after
+   deployments
+
+#+begin_example
+# CI Pipeline Example
+stages:
+  - playwright-critical    # Fast, deterministic critical path tests
+  - deploy-staging
+  - gherun-regression      # AI-powered broad regression testing
+  - deploy-production
+#+end_example
+
+* Installation
+
+** Using Bazel
+
+#+begin_src sh
+  bazel build //devtools/gherun/cmd/gherun
+#+end_src
+
+** Using Go
+
+#+begin_src sh
+  go install github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest
+#+end_src
+
+* Usage
+
+** Basic Usage
+
+#+begin_src sh
+  gherun features/*.feature
+#+end_src
+
+This will:
+1. Parse all ~.feature~ files
+2. Create a GitHub issue with checkboxes for each feature
+3. Open Perplexity Comet browser tabs with test prompts
+4. Poll the GitHub issue until all tests are marked complete
+5. Print a summary report
+
+** Command Line Options
+
+#+begin_example
+gherun [flags] <feature-files...>
+
+Flags:
+  --parallel=3          Maximum concurrent browser tabs (default: 3)
+  --poll-interval=90s   GitHub issue poll interval (default: 90s)
+  --title="Test Suite"  GitHub issue title (default: "Gherkin Test Suite")
+  --verbose             Enable verbose logging
+#+end_example
+
+** Examples
+
+Run a single feature:
+#+begin_src sh
+  gherun features/login.feature
+#+end_src
+
+Run multiple features with custom parallelism:
+#+begin_src sh
+  gherun --parallel=5 --title="Release 2.0 Tests" features/*.feature
+#+end_src
+
+Run with verbose output:
+#+begin_src sh
+  gherun --verbose features/checkout.feature features/payment.feature
+#+end_src
+
+* Workflow
+
+#+begin_example
+┌─────────────────┐
+│ .feature files  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Parse features │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Create GitHub   │──────────────────────┐
+│ Issue           │                      │
+└────────┬────────┘                      │
+         │                               │
+         ▼                               │
+┌─────────────────┐                      │
+│ Launch Comet    │                      │
+│ Browser Tabs    │                      │
+└────────┬────────┘                      │
+         │                               │
+         ▼                               ▼
+┌─────────────────┐              ┌───────────────┐
+│ Comet executes  │─────────────▶│ Updates issue │
+│ test scenarios  │              │ checkboxes    │
+└────────┬────────┘              └───────────────┘
+         │                               │
+         ▼                               │
+┌─────────────────┐                      │
+│ Poll GitHub     │◀─────────────────────┘
+│ for completion  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Print summary   │
+└─────────────────┘
+#+end_example
+
+* GitHub Issue Format
+
+The tool creates a GitHub issue with the following format:
+
+#+begin_example
+## Test Suite: My Tests
+
+- **login** - User Login
+    - [ ] PASSED
+    - [ ] FAILED
+- **checkout** - Shopping Checkout
+    - [ ] PASSED
+    - [ ] FAILED
+#+end_example
+
+Comet browser will check the appropriate checkbox after executing each test. If
+a test fails, it will also leave a comment describing the failure.
+
+* Prerequisites
+
+- [[https://cli.github.com/][GitHub CLI]] (~gh~) installed and authenticated
+- macOS (uses ~open~ command for launching browsers)
+- Access to Perplexity Comet Browser
+
+* Writing Feature Files
+
+See [[file:GHERKIN_GUIDE.org][GHERKIN_GUIDE.org]] for detailed guidance on writing feature files that work
+well with gherun and AI-powered browsers.
+
+* Exit Codes
+
+| Code | Meaning                    |
+|------+----------------------------|
+|    0 | All tests passed           |
+|    1 | One or more tests failed   |
+|    1 | Error during execution     |
+
+* Limitations
+
+- Currently only supports macOS (uses ~open~ command)
+- Requires manual Perplexity Comet browser setup
+- URL length limits may truncate very long feature files
+- No retry mechanism for flaky tests
+
+* Future Enhancements
+
+- [ ] Custom prompt templates via ~--prompt-file~
+- [ ] Support for Linux (~xdg-open~) and Windows (~start~)
+- [ ] Webhook notifications on completion
+- [ ] Test result history and trends
+- [ ] Retry mechanism for failed tests
+- [ ] Screenshot capture on failure

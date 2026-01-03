@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "launcher.go",
+        "prompt.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/gherun/internal/browser",
+    visibility = ["//devtools/gherun:__subpackages__"],
+    deps = [
+        "//devtools/gherun/internal/gherkin:go_default_library",
+        "//devtools/internal/executor:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["prompt_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/gherun/internal/gherkin:go_default_library"],
+)
