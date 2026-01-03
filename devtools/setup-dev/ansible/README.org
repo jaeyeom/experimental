@@ -216,6 +216,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-docker-wrapper-udocker.yml
 - setup-emacs.yml
 - setup-emacs-lsp-booster.yml
+- setup-find.yml
 - setup-git.yml
 - setup-gpg-agent.yml
 - setup-gpg-keygen.yml
