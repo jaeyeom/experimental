@@ -1,0 +1,379 @@
+#+TITLE: Writing Gherkin Files for gherun
+#+AUTHOR: Jae Yeom
+#+OPTIONS: toc:2
+
+* Introduction
+
+This guide explains how to write Gherkin feature files that work effectively
+with ~gherun~ and AI-powered browsers like Perplexity Comet. While standard
+Gherkin syntax applies, there are specific patterns that help AI browsers
+execute tests more reliably.
+
+* Gherkin Basics
+
+** File Structure
+
+A ~.feature~ file has this basic structure:
+
+#+begin_src gherkin
+  Feature: Feature Name
+    As a [role]
+    I want [goal]
+    So that [benefit]
+
+    Background:
+      Given some common precondition
+
+    Scenario: Scenario Name
+      Given some context
+      When some action
+      Then expected outcome
+#+end_src
+
+** Feature Naming
+
+The feature name is extracted and displayed in the GitHub issue. Choose
+descriptive names:
+
+#+begin_src gherkin
+  # Good
+  Feature: User Authentication
+
+  # Avoid
+  Feature: Auth
+  Feature: Test Login Stuff
+#+end_src
+
+** File Naming Convention
+
+~gherun~ extracts the feature ID from the filename:
+
+| Filename                      | Feature ID          |
+|-------------------------------+---------------------|
+| ~login.feature~               | login               |
+| ~user-authentication.feature~ | user-authentication |
+| ~shopping_cart.feature~       | shopping_cart       |
+
+Use descriptive, kebab-case or snake_case filenames.
+
+* Writing AI-Friendly Scenarios
+
+** Be Explicit About URLs
+
+Always specify the full URL or clear navigation path:
+
+#+begin_src gherkin
+  # Good
+  Scenario: Login to application
+    Given I navigate to "https://example.com/login"
+    When I enter "user@example.com" in the email field
+    And I enter "password123" in the password field
+    And I click the "Sign In" button
+    Then I should see the dashboard
+
+  # Avoid - ambiguous starting point
+  Scenario: Login to application
+    When I enter my credentials
+    Then I should be logged in
+#+end_src
+
+** Use Visible Text for Element Identification
+
+AI browsers work best with visible text rather than technical selectors:
+
+#+begin_src gherkin
+  # Good - uses visible text
+  When I click the "Add to Cart" button
+  When I click the link containing "View Details"
+  When I select "California" from the "State" dropdown
+
+  # Avoid - technical selectors
+  When I click the element with id "btn-cart-add"
+  When I click the first button in the product card
+#+end_src
+
+** Describe Expected Visual Outcomes
+
+Be specific about what should be visible:
+
+#+begin_src gherkin
+  # Good
+  Then I should see "Order confirmed" message
+  Then the cart icon should show "3" items
+  Then I should see a green success notification
+
+  # Avoid
+  Then it should work
+  Then the page should update
+#+end_src
+
+** Include Wait Conditions
+
+Specify when to wait for dynamic content:
+
+#+begin_src gherkin
+  # Good
+  When I click "Submit"
+  And I wait for the loading spinner to disappear
+  Then I should see "Success"
+
+  # Good - implicit wait
+  When I click "Submit"
+  Then I should see "Success" within 10 seconds
+#+end_src
+
+* Scenario Patterns
+
+** Login Scenario
+
+#+begin_src gherkin
+  Feature: User Login
+    As a registered user
+    I want to log in to my account
+    So that I can access my personalized content
+
+    Scenario: Successful login with valid credentials
+      Given I navigate to "https://example.com/login"
+      When I enter "testuser@example.com" in the "Email" field
+      And I enter "SecurePass123" in the "Password" field
+      And I click the "Sign In" button
+      Then I should be redirected to the dashboard
+      And I should see "Welcome, Test User" in the header
+
+    Scenario: Login fails with invalid password
+      Given I navigate to "https://example.com/login"
+      When I enter "testuser@example.com" in the "Email" field
+      And I enter "wrongpassword" in the "Password" field
+      And I click the "Sign In" button
+      Then I should see "Invalid email or password" error message
+      And I should remain on the login page
+#+end_src
+
+** Form Submission Scenario
+
+#+begin_src gherkin
+  Feature: Contact Form
+    As a visitor
+    I want to submit a contact form
+    So that I can get in touch with support
+
+    Scenario: Submit contact form successfully
+      Given I navigate to "https://example.com/contact"
+      When I enter "John Doe" in the "Name" field
+      And I enter "john@example.com" in the "Email" field
+      And I select "Sales Inquiry" from the "Subject" dropdown
+      And I enter the following in the "Message" field:
+        """
+        I'm interested in learning more about your enterprise plan.
+        Please contact me at your earliest convenience.
+        """
+      And I check the "I agree to the privacy policy" checkbox
+      And I click the "Send Message" button
+      Then I should see "Thank you for your message"
+      And I should receive a confirmation email
+#+end_src
+
+** E-commerce Checkout Scenario
+
+#+begin_src gherkin
+  Feature: Shopping Cart Checkout
+    As a customer
+    I want to complete my purchase
+    So that I can receive my ordered items
+
+    Background:
+      Given I am logged in as "customer@example.com"
+      And I have items in my shopping cart
+
+    Scenario: Complete checkout with credit card
+      Given I navigate to "https://example.com/cart"
+      When I click the "Proceed to Checkout" button
+      Then I should see the checkout page
+
+      When I enter "123 Main St" in the "Street Address" field
+      And I enter "San Francisco" in the "City" field
+      And I select "California" from the "State" dropdown
+      And I enter "94102" in the "ZIP Code" field
+      And I click "Continue to Payment"
+
+      When I enter "4111111111111111" in the "Card Number" field
+      And I enter "12/25" in the "Expiration" field
+      And I enter "123" in the "CVV" field
+      And I click "Place Order"
+
+      Then I should see "Order Confirmed"
+      And I should see an order number
+      And I should receive an order confirmation email
+#+end_src
+
+** Search and Filter Scenario
+
+#+begin_src gherkin
+  Feature: Product Search
+    As a shopper
+    I want to search and filter products
+    So that I can find what I'm looking for
+
+    Scenario: Search for products and apply filters
+      Given I navigate to "https://example.com/products"
+      When I enter "wireless headphones" in the search box
+      And I press Enter or click the search icon
+      Then I should see search results for "wireless headphones"
+
+      When I check the "Sony" checkbox under "Brand"
+      And I select "$50 - $100" under "Price Range"
+      And I select "4 stars & up" under "Rating"
+      Then the results should be filtered accordingly
+      And I should see only Sony headphones between $50 and $100
+
+      When I click "Sort by" dropdown
+      And I select "Price: Low to High"
+      Then products should be sorted by price ascending
+#+end_src
+
+* Best Practices
+
+** Keep Scenarios Focused
+
+Each scenario should test one specific behavior:
+
+#+begin_src gherkin
+  # Good - focused scenarios
+  Scenario: Add single item to cart
+    ...
+
+  Scenario: Update item quantity in cart
+    ...
+
+  Scenario: Remove item from cart
+    ...
+
+  # Avoid - too many things in one scenario
+  Scenario: Test all cart functionality
+    ...
+#+end_src
+
+** Use Background for Common Setup
+
+#+begin_src gherkin
+  Feature: User Profile Management
+
+    Background:
+      Given I am logged in as "user@example.com"
+      And I navigate to "https://example.com/profile"
+
+    Scenario: Update display name
+      When I click "Edit Profile"
+      And I change the "Display Name" to "New Name"
+      And I click "Save"
+      Then I should see "Profile updated"
+
+    Scenario: Change password
+      When I click "Security Settings"
+      And I enter my current password
+      And I enter a new password
+      And I click "Update Password"
+      Then I should see "Password changed"
+#+end_src
+
+** Provide Context for Failure Analysis
+
+Include enough detail for meaningful failure reports:
+
+#+begin_src gherkin
+  Scenario: Verify order total calculation
+    Given I have the following items in my cart:
+      | Product          | Price  | Quantity |
+      | Wireless Mouse   | $29.99 | 2        |
+      | USB-C Cable      | $12.99 | 1        |
+    When I view the cart summary
+    Then the subtotal should be "$72.97"
+    And the tax (8.5%) should be "$6.20"
+    And the total should be "$79.17"
+#+end_src
+
+** Handle Dynamic Content
+
+Account for content that may vary:
+
+#+begin_src gherkin
+  # Good - flexible matching
+  Then I should see a timestamp in the format "MMM DD, YYYY"
+  Then the order number should match pattern "ORD-[0-9]+"
+
+  # Good - partial matching
+  Then I should see text containing "items in your cart"
+  Then the page title should contain "Dashboard"
+#+end_src
+
+* What to Avoid
+
+** Avoid Technical Implementation Details
+
+#+begin_src gherkin
+  # Avoid
+  When I trigger the onClick handler for the submit button
+  When I wait for the AJAX request to complete
+  When the React component re-renders
+
+  # Better
+  When I click the "Submit" button
+  When the form submission completes
+  When the page updates
+#+end_src
+
+** Avoid Ambiguous References
+
+#+begin_src gherkin
+  # Avoid
+  When I click the button
+  When I fill in the field
+  When I select the option
+
+  # Better
+  When I click the "Add to Cart" button
+  When I fill in the "Email" field with "test@example.com"
+  When I select "Express Shipping" from the delivery options
+#+end_src
+
+** Avoid Time-Sensitive Assertions
+
+#+begin_src gherkin
+  # Avoid - fragile
+  Then the banner should display for exactly 3 seconds
+
+  # Better - flexible
+  Then the banner should appear
+  And after a moment, the banner should disappear
+#+end_src
+
+* Debugging Failed Tests
+
+When Comet reports a test failure, it will leave a comment on the GitHub issue.
+Common failure patterns:
+
+| Symptom                    | Possible Cause                    | Solution                          |
+|----------------------------+-----------------------------------+-----------------------------------|
+| Element not found          | Element has different text        | Use more flexible text matching   |
+| Timeout waiting            | Page loads slowly                 | Add explicit wait conditions      |
+| Wrong page                 | Navigation failed                 | Verify URL is correct             |
+| Unexpected content         | Dynamic content changed           | Use pattern matching              |
+
+* Feature File Checklist
+
+Before running your feature files with ~gherun~, verify:
+
+- [ ] Feature has a descriptive name
+- [ ] Filename is descriptive and uses kebab-case or snake_case
+- [ ] Each scenario has a clear, single purpose
+- [ ] URLs are explicit and complete
+- [ ] Element references use visible text
+- [ ] Expected outcomes are specific and verifiable
+- [ ] Wait conditions are included for dynamic content
+- [ ] No technical implementation details are exposed
+
+* References
+
+- [[https://cucumber.io/docs/gherkin/reference/][Official Gherkin Reference]]
+- [[https://cucumber.io/docs/bdd/][Behavior-Driven Development]]
+- [[https://www.perplexity.ai/][Perplexity AI]]

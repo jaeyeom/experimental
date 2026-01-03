@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//devtools/gherun/internal/browser:go_default_library",
+        "//devtools/gherun/internal/gherkin:go_default_library",
+        "//devtools/gherun/internal/github:go_default_library",
+        "//devtools/gherun/internal/runner:go_default_library",
+        "//devtools/internal/executor:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "gherun",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
