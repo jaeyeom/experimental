@@ -7,7 +7,8 @@
 - import_playbook: gh-storage.yml
 - import_playbook: repo-sync.yml
 - import_playbook: setup-perplexity-mcp.yml
-- import_playbook: setup-windsurf-rules.yml
+- import_playbook: setup-git.yml
+- import_playbook: setup-find.yml
 - import_playbook: claudelytics.yml
 
 - name: Setup vibe coding environment

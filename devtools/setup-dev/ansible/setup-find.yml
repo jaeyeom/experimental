@@ -1,0 +1,76 @@
+---
+- import_playbook: which.yml
+- import_playbook: setup-user-bin-directory.yml
+
+- name: Deploy secure find wrapper
+  hosts: all
+  tasks:
+    - name: Include guard for setup-find playbook
+      block:
+        - name: Stop early if the setup-find playbook is already included
+          meta: end_play
+          when: setup_find_playbook_imported is defined
+        - name: Ensure the setup-find playbook is not included
+          set_fact:
+            setup_find_playbook_imported: true
+          when: setup_find_playbook_imported is not defined
+
+    - name: Check if running in Termux
+      ansible.builtin.stat:
+        path: /data/data/com.termux
+      register: termux_check
+
+    - name: Deploy find wrapper script to ~/.local/bin/find
+      ansible.builtin.copy:
+        dest: "{{ user_bin_directory }}/find"
+        mode: '0755'
+        content: |
+          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
+
+          # Secure find wrapper - blocks dangerous options when AI assistants are detected
+          # Dangerous options: -exec, -execdir, -ok, -okdir, -delete, -fls, -fprint, -fprint0, -fprintf
+
+          # Only apply restrictions when AI coding assistants are running
+          # Detection based on environment variables set by each tool
+          is_ai_assistant_running() {
+              [[ "${CLAUDECODE:-}" == "1" ]] || \
+              [[ "${TERM_PROGRAM:-}" == "vscode" ]] || \
+              [[ -n "${VSCODE_PID:-}" ]]
+          }
+
+          # If no AI assistant detected, pass through directly
+          if ! is_ai_assistant_running; then
+              REAL_FIND=$(which -a find | grep -v "$(realpath "$0")" | head -n 1)
+              exec "$REAL_FIND" "$@"
+          fi
+
+          # Blocked options (case-sensitive, exact match)
+          BLOCKED_OPTIONS=(
+              "-exec"
+              "-execdir"
+              "-ok"
+              "-okdir"
+              "-delete"
+              "-fls"
+              "-fprint"
+              "-fprint0"
+              "-fprintf"
+          )
+
+          # Check all arguments for blocked options
+          for arg in "$@"; do
+              for blocked in "${BLOCKED_OPTIONS[@]}"; do
+                  if [[ "$arg" == "$blocked" ]]; then
+                      echo "Error: The '$blocked' option is not allowed when running under AI assistant."
+                      echo ""
+                      echo "Blocked options: -exec, -execdir, -ok, -okdir, -delete, -fls, -fprint, -fprint0, -fprintf"
+                      echo ""
+                      echo "These options can execute commands or modify files, which is restricted for safety."
+                      exit 1
+                  fi
+              done
+          done
+
+          # Run the real find command
+          REAL_FIND=$(which -a find | grep -v "$(realpath "$0")" | head -n 1)
+          exec "$REAL_FIND" "$@"
