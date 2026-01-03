@@ -12,7 +12,19 @@ import (
 // DefaultPromptTemplate is the standard prompt for Perplexity Comet Browser.
 const DefaultPromptTemplate = `Execute the following Gherkin test scenarios as a manual QA tester using browser automation:
 
+## Test Isolation
+
+Before starting the test:
+1. Check if you are currently logged in to the target site
+2. Only log out if the test scenario requires starting from a logged-out state AND you are currently logged in
+3. If the test needs a specific user account, verify you are logged in as that user (log out and re-login if needed)
+
 {{.Content}}
+
+After completing the test:
+- Leave the browser state as-is (the next test will handle its own preconditions)
+
+## Reporting Results
 
 After completing the test:
 1. Navigate to the GitHub issue: {{.IssueURL}}

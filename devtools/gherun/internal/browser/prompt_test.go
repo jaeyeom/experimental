@@ -62,6 +62,10 @@ func TestPromptBuilder_Build(t *testing.T) {
 		"https://github.com/owner/repo/issues/123",
 		"PASSED",
 		"FAILED",
+		// Test isolation instructions
+		"Test Isolation",
+		"Check if you are currently logged in",
+		"Leave the browser state as-is",
 	}
 
 	for _, expected := range expectedParts {

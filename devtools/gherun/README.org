@@ -198,6 +198,50 @@ Run with verbose output:
 └─────────────────┘
 #+end_example
 
+* Test Isolation
+
+Since Comet browser tabs share state (cookies, sessions), tests must declare
+their own preconditions. ~gherun~ instructs Comet to check and adapt to the
+current state rather than blindly resetting.
+
+** The Challenge
+
+- Comet's ~--incognito~ flag doesn't support automation
+- No command-line option to open Comet with specific profiles
+- Comet can only interact with website UI—it cannot clear cookies or storage
+- Tests running in parallel or sequentially may share browser state
+
+** The Solution: Check and Adapt
+
+~gherun~ includes test isolation instructions in every prompt sent to Comet:
+
+1. *Before test*: Check current login state
+2. *Adapt if needed*: Only log out if the test requires logged-out state
+3. *After test*: Leave state as-is (next test handles its own preconditions)
+
+This avoids unnecessary login/logout cycles that slow down tests and add failure
+points.
+
+** Best Practices for Test Authors
+
+Write tests that declare their preconditions explicitly:
+
+1. *State what you need* - "Given I am logged in as X" or "Given I am not logged in"
+2. *Let Comet adapt* - It will check current state and adjust only if needed
+3. *Don't force cleanup* - Leave state as-is; next test handles its own setup
+
+See [[file:GHERKIN_GUIDE.org::*Writing Stateless Tests][Writing Stateless Tests]] in the Gherkin Guide for detailed patterns and
+examples.
+
+#+begin_src gherkin
+  # Example: Test declares its precondition
+  Scenario: View user profile
+    Given I am logged in as "user@example.com"
+    When I navigate to my profile page
+    Then I should see my profile information
+    # No logout needed - next test handles its own state
+#+end_src
+
 * GitHub Issue Format
 
 The tool creates a GitHub issue with the following format:

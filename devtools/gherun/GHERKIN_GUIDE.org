@@ -306,6 +306,143 @@ Account for content that may vary:
   Then the page title should contain "Dashboard"
 #+end_src
 
+* Writing Stateless Tests
+
+Since Comet browser sessions may share state (cookies, sessions) between tests,
+write tests that declare and verify their own preconditions. The AI browser
+cannot clear cookies or storage programmatically—state changes happen via UI.
+
+** Why Stateless Tests Matter
+
+- Tests running in parallel or sequentially may share browser state
+- Comet's ~--incognito~ flag doesn't support automation
+- No command-line option exists to manage profiles
+- Each test should handle its own preconditions
+
+** The Smart Approach: Check and Adapt
+
+Rather than blindly logging out before every test, let each test:
+1. Check the current state
+2. Adapt only if needed (logout only if the test requires logged-out state)
+3. Leave state as-is after completing (next test handles its own preconditions)
+
+This avoids unnecessary login/logout cycles that slow down tests and add failure points.
+
+** Declare Preconditions Explicitly
+
+Start scenarios by stating what state they need:
+
+#+begin_src gherkin
+  # Test that needs logged-out state
+  Scenario: New user registration
+    Given I am on "https://example.com"
+    And I am not logged in
+    When I click "Sign Up"
+    ...
+
+  # Test that needs specific user logged in
+  Scenario: View order history
+    Given I am logged in as "customer@example.com"
+    When I navigate to "https://example.com/orders"
+    Then I should see my order history
+#+end_src
+
+** Use Background for Common Preconditions
+
+For features where all scenarios share the same precondition:
+
+#+begin_src gherkin
+  Feature: Guest Checkout
+
+    Background:
+      Given I am on "https://example.com"
+      And I am not logged in
+
+    Scenario: Add item to cart as guest
+      When I click "Add to Cart" on "Widget"
+      Then the cart should show 1 item
+
+    Scenario: Proceed to guest checkout
+      Given I have items in my cart
+      When I click "Checkout"
+      Then I should see "Continue as Guest" option
+#+end_src
+
+** When to Log Out
+
+Only log out when the test specifically requires a logged-out starting state:
+
+#+begin_src gherkin
+  # Good - logs out because registration requires it
+  Scenario: New user registration
+    Given I am on "https://example.com"
+    And if I am logged in, I log out
+    When I click "Sign Up"
+    And I fill in the registration form
+    Then I should see "Welcome, new user!"
+
+  # Good - reuses existing session if possible
+  Scenario: View dashboard
+    Given I am logged in as "user@example.com"
+    When I navigate to the dashboard
+    Then I should see my stats
+    # No logout needed - next test handles its own state
+#+end_src
+
+** Example Patterns
+
+*** Pattern 1: Conditional State Setup
+
+#+begin_src gherkin
+  Scenario: Purchase item as logged-in user
+    # Check and adapt
+    Given I am on "https://example.com"
+    And I am logged in as "buyer@example.com"
+
+    # Test flow
+    When I add "Widget" to my cart
+    And I complete checkout
+    Then I should see "Order Confirmed"
+    # Leave state as-is for next test
+#+end_src
+
+*** Pattern 2: Explicit Logged-Out Requirement
+
+#+begin_src gherkin
+  Feature: Authentication
+
+    Scenario: Login with valid credentials
+      Given I am on "https://example.com/login"
+      And I am not logged in
+      When I enter "user@example.com" and "password123"
+      And I click "Sign In"
+      Then I should see "Welcome back"
+
+    Scenario: Login shows error for invalid password
+      Given I am on "https://example.com/login"
+      And I am not logged in
+      When I enter "user@example.com" and "wrongpassword"
+      And I click "Sign In"
+      Then I should see "Invalid credentials"
+#+end_src
+
+*** Pattern 3: Mixed State Requirements
+
+#+begin_src gherkin
+  Feature: Shopping Cart
+
+    Scenario: Guest adds item to cart
+      Given I am on "https://example.com/products"
+      And I am not logged in
+      When I click "Add to Cart" on "Widget"
+      Then the cart should show 1 item
+
+    Scenario: Member sees personalized recommendations
+      Given I am logged in as "member@example.com"
+      When I navigate to "https://example.com/products"
+      Then I should see "Recommended for you"
+#+end_src
+
 * What to Avoid
 
 ** Avoid Technical Implementation Details
