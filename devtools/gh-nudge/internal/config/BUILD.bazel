@@ -8,7 +8,7 @@ go_library(
     deps = [
         "//devtools/gh-nudge/internal/config/pkl:go_default_library",
         "//devtools/gh-nudge/internal/slack:go_default_library",
-        "@com_github_apple_pkl_go//pkl",
+        "@com_github_apple_pkl_go//pkl:go_default_library",
         "@in_gopkg_yaml_v3//:go_default_library",
     ],
 )
