@@ -78,8 +78,12 @@ func TestDefaultParser_Parse(t *testing.T) {
 	if feature.Name != "User Login" {
 		t.Errorf("feature.Name = %q, want %q", feature.Name, "User Login")
 	}
-	if feature.Content != content {
-		t.Errorf("feature.Content mismatch")
+	// Check key content is preserved (comment stripping may affect trailing whitespace)
+	if !strings.Contains(feature.Content, "Feature: User Login") {
+		t.Error("Feature line should be preserved")
+	}
+	if !strings.Contains(feature.Content, "Given I am on the login page") {
+		t.Error("Steps should be preserved")
 	}
 }
 
@@ -234,7 +238,141 @@ func TestDefaultParser_Parse_NoVariablesInFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse() unexpected error for file without variables: %v", err)
 	}
-	if feature.Content != content {
-		t.Errorf("Content mismatch for file without variables")
+	// Check key content is preserved (comment stripping may affect whitespace)
+	if !strings.Contains(feature.Content, "Feature: Simple Test") {
+		t.Error("Feature line should be preserved")
+	}
+	if !strings.Contains(feature.Content, "Given I do something") {
+		t.Error("Steps should be preserved")
+	}
+}
+
+func TestStripComments(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name: "removes comment lines",
+			content: `Feature: Test
+# This is a comment
+  Scenario: Test scenario
+    # Another comment
+    Given I do something`,
+			want: `Feature: Test
+  Scenario: Test scenario
+    Given I do something`,
+		},
+		{
+			name: "preserves indented comment removal",
+			content: `Feature: Test
+  # Indented comment
+  Scenario: Test`,
+			want: `Feature: Test
+  Scenario: Test`,
+		},
+		{
+			name:    "no comments",
+			content: "Feature: Test\n  Scenario: Test",
+			want:    "Feature: Test\n  Scenario: Test",
+		},
+		{
+			name:    "only comments",
+			content: "# Comment 1\n# Comment 2",
+			want:    "",
+		},
+		{
+			name:    "empty content",
+			content: "",
+			want:    "",
+		},
+		{
+			name: "hash in middle of line preserved",
+			content: `Feature: Test
+  Scenario: Navigate to URL
+    Given I go to "https://example.com/#/path"`,
+			want: `Feature: Test
+  Scenario: Navigate to URL
+    Given I go to "https://example.com/#/path"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripComments(tt.content)
+			if got != tt.want {
+				t.Errorf("stripComments() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultParser_Parse_StripsComments(t *testing.T) {
+	content := `# This is a header comment
+Feature: User Login
+  # Description comment
+  Scenario: Successful login
+    Given I am on the login page
+    # Step comment
+    When I enter valid credentials
+    Then I should see my dashboard
+`
+
+	tmpDir := t.TempDir()
+	featureFile := filepath.Join(tmpDir, "login.feature")
+	if err := os.WriteFile(featureFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	parser := NewParser()
+	feature, err := parser.Parse(featureFile)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	// Verify comments are stripped
+	if strings.Contains(feature.Content, "# This is a header comment") {
+		t.Error("Header comment should be stripped")
+	}
+	if strings.Contains(feature.Content, "# Description comment") {
+		t.Error("Description comment should be stripped")
+	}
+	if strings.Contains(feature.Content, "# Step comment") {
+		t.Error("Step comment should be stripped")
+	}
+
+	// Verify feature content is preserved
+	if !strings.Contains(feature.Content, "Feature: User Login") {
+		t.Error("Feature line should be preserved")
+	}
+	if !strings.Contains(feature.Content, "Given I am on the login page") {
+		t.Error("Step should be preserved")
+	}
+}
+
+func TestDefaultParser_Parse_CommentedVariableIgnored(t *testing.T) {
+	// A variable in a comment line should not require a value
+	content := `Feature: Test
+  # This line has {{UNUSED_VAR}} but it's commented out
+  Scenario: Test scenario
+    Given I do something
+`
+
+	tmpDir := t.TempDir()
+	featureFile := filepath.Join(tmpDir, "test.feature")
+	if err := os.WriteFile(featureFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	parser := NewParser()
+	feature, err := parser.Parse(featureFile)
+	if err != nil {
+		t.Fatalf("Parse() should not fail for variable in comment: %v", err)
+	}
+
+	// Verify the comment line is stripped
+	if strings.Contains(feature.Content, "UNUSED_VAR") {
+		t.Error("Comment line with variable should be stripped")
 	}
 }
