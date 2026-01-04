@@ -3,7 +3,10 @@ package gherkin
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/gherun/internal/vars"
 )
 
 func TestExtractFeatureID(t *testing.T) {
@@ -144,5 +147,94 @@ func TestExtractFeatureName(t *testing.T) {
 				t.Errorf("extractFeatureName() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDefaultParser_Parse_FailsWithUnprovidedVariables(t *testing.T) {
+	// Create a feature file with variables
+	content := `Feature: User Login
+  Scenario: Successful login
+    Given I navigate to "{{BASE_URL}}/login"
+    When I enter "{{USER}}" in the email field
+    Then I should see the dashboard
+`
+
+	tmpDir := t.TempDir()
+	featureFile := filepath.Join(tmpDir, "login.feature")
+	if err := os.WriteFile(featureFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Test with no variables provided
+	t.Run("no vars provided", func(t *testing.T) {
+		parser := NewParser()
+		_, err := parser.Parse(featureFile)
+		if err == nil {
+			t.Error("Parse() expected error for feature with variables but no vars provided")
+		}
+		if !strings.Contains(err.Error(), "BASE_URL") || !strings.Contains(err.Error(), "USER") {
+			t.Errorf("Error should mention missing variables, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "--var") || !strings.Contains(err.Error(), "--env-file") {
+			t.Errorf("Error should mention --var or --env-file, got: %v", err)
+		}
+	})
+
+	// Test with only some variables provided
+	t.Run("partial vars provided", func(t *testing.T) {
+		parser := NewParserWithVars(vars.Vars{"BASE_URL": "https://example.com"})
+		_, err := parser.Parse(featureFile)
+		if err == nil {
+			t.Error("Parse() expected error when not all variables are provided")
+		}
+		if !strings.Contains(err.Error(), "USER") {
+			t.Errorf("Error should mention missing USER variable, got: %v", err)
+		}
+	})
+
+	// Test with all variables provided
+	t.Run("all vars provided", func(t *testing.T) {
+		parser := NewParserWithVars(vars.Vars{
+			"BASE_URL": "https://example.com",
+			"USER":     "testuser@example.com",
+		})
+		feature, err := parser.Parse(featureFile)
+		if err != nil {
+			t.Fatalf("Parse() unexpected error: %v", err)
+		}
+		if !strings.Contains(feature.Content, "https://example.com/login") {
+			t.Errorf("Content should have BASE_URL substituted, got: %s", feature.Content)
+		}
+		if !strings.Contains(feature.Content, "testuser@example.com") {
+			t.Errorf("Content should have USER substituted, got: %s", feature.Content)
+		}
+		// Verify no placeholders remain
+		if strings.Contains(feature.Content, "{{") {
+			t.Errorf("Content should not contain any placeholders, got: %s", feature.Content)
+		}
+	})
+}
+
+func TestDefaultParser_Parse_NoVariablesInFile(t *testing.T) {
+	// Feature file without variables should work with parser that has no vars
+	content := `Feature: Simple Test
+  Scenario: Basic scenario
+    Given I do something
+    Then I see the result
+`
+
+	tmpDir := t.TempDir()
+	featureFile := filepath.Join(tmpDir, "simple.feature")
+	if err := os.WriteFile(featureFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	parser := NewParser()
+	feature, err := parser.Parse(featureFile)
+	if err != nil {
+		t.Fatalf("Parse() unexpected error for file without variables: %v", err)
+	}
+	if feature.Content != content {
+		t.Errorf("Content mismatch for file without variables")
 	}
 }

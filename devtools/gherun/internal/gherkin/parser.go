@@ -65,6 +65,12 @@ func (p *DefaultParser) Parse(filePath string) (*Feature, error) {
 		}
 	}
 
+	// Always check for unreplaced variable placeholders
+	// This catches the case where variables are used but no --var or --env-file was provided
+	if unreplacedVars := vars.FindVariables(content); len(unreplacedVars) > 0 {
+		return nil, fmt.Errorf("feature file %s contains variables that were not provided: %v (use --var or --env-file to provide values)", filePath, unreplacedVars)
+	}
+
 	id := ExtractFeatureID(filePath)
 	name := extractFeatureName(content)
 
