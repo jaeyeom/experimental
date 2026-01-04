@@ -56,6 +56,112 @@ descriptive names:
 
 Use descriptive, kebab-case or snake_case filenames.
 
+* Template Variables
+
+~gherun~ supports template variables to make feature files reusable across
+different environments. Use the ~{{VAR_NAME}}~ syntax to reference variables.
+
+** Syntax
+
+Variables use double curly braces with alphanumeric names and underscores:
+
+#+begin_example
+{{BASE_URL}}
+{{TEST_USER}}
+{{API_KEY}}
+#+end_example
+
+** Providing Variables
+
+*** Via Command Line
+
+Use the ~--var~ flag to specify variables:
+
+#+begin_src sh
+  gherun --var BASE_URL=https://staging.example.com \
+         --var TEST_USER=testuser@example.com \
+         features/*.feature
+#+end_src
+
+*** Via Environment File
+
+Create a ~.gherun.env~ file and use ~--env-file~:
+
+#+begin_src sh
+  # .gherun.env
+  BASE_URL=https://staging.example.com
+  TEST_USER=testuser@example.com
+  PASSWORD=SecurePass123
+#+end_src
+
+#+begin_src sh
+  gherun --env-file .gherun.env features/*.feature
+#+end_src
+
+*** Combining Both
+
+Flag variables override env file values:
+
+#+begin_src sh
+  # Uses BASE_URL from flag, other vars from file
+  gherun --env-file .gherun.env \
+         --var BASE_URL=https://production.example.com \
+         features/*.feature
+#+end_src
+
+** Example Feature File
+
+#+begin_src gherkin
+  Feature: User Authentication
+    As a user
+    I want to log in
+    So that I can access my account
+
+    Scenario: Successful login
+      Given I navigate to "{{BASE_URL}}/login"
+      When I enter "{{TEST_USER}}" in the "Email" field
+      And I enter "{{PASSWORD}}" in the "Password" field
+      And I click the "Log In" button
+      Then I should be redirected to the dashboard
+#+end_src
+
+** Common Variables
+
+| Variable       | Description                           | Example                          |
+|----------------+---------------------------------------+----------------------------------|
+| ~BASE_URL~     | Application base URL                  | ~https://staging.example.com~    |
+| ~TEST_USER~    | Test user email                       | ~testuser@example.com~           |
+| ~PASSWORD~     | Test user password                    | ~SecurePass123~                  |
+| ~API_URL~      | API endpoint base URL                 | ~https://api.example.com~        |
+| ~ADMIN_USER~   | Admin user for privileged tests       | ~admin@example.com~              |
+
+** Error Handling
+
+If a variable is referenced but not defined, ~gherun~ will fail with an error:
+
+#+begin_example
+Error: substituting variables in login.feature: undefined variables: BASE_URL, PASSWORD
+#+end_example
+
+This ensures you don't accidentally run tests with missing configuration.
+
+** Best Practices
+
+1. *Use meaningful names* - ~BASE_URL~ is clearer than ~URL~
+2. *Document required variables* - Add a comment at the top of feature files
+3. *Use env files for secrets* - Keep passwords out of command history
+4. *Don't commit env files* - Add ~.gherun.env~ to ~.gitignore~
+
+#+begin_src gherkin
+  # Required variables:
+  #   BASE_URL - The application URL (e.g., https://staging.example.com)
+  #   TEST_USER - Email for test account
+  #   PASSWORD - Password for test account
+
+  Feature: User Authentication
+    ...
+#+end_src
+
 * Writing AI-Friendly Scenarios
 
 ** Be Explicit About URLs

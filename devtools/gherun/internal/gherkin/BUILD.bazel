@@ -5,6 +5,7 @@ go_library(
     srcs = ["parser.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/gherun/internal/gherkin",
     visibility = ["//devtools/gherun:__subpackages__"],
+    deps = ["//devtools/gherun/internal/vars:go_default_library"],
 )
 
 go_test(
