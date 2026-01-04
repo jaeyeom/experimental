@@ -39,7 +39,7 @@ func main() {
 		envFile      string
 	)
 
-	flag.IntVar(&parallel, "parallel", 3, "Maximum parallel browser tabs")
+	flag.IntVar(&parallel, "parallel", 1, "Maximum parallel browser tabs")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.DurationVar(&pollInterval, "poll-interval", 90*time.Second, "GitHub issue poll interval")
 	flag.StringVar(&issueTitle, "title", "Gherkin Test Suite", "GitHub issue title")

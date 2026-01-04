@@ -133,7 +133,7 @@ This will:
 gherun [flags] <feature-files...>
 
 Flags:
-  --parallel=3          Maximum concurrent browser tabs (default: 3)
+  --parallel=1          Maximum concurrent browser tabs (default: 1)
   --poll-interval=90s   GitHub issue poll interval (default: 90s)
   --title="Test Suite"  GitHub issue title (default: "Gherkin Test Suite")
   --verbose             Enable verbose logging
