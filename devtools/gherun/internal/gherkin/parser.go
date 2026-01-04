@@ -56,8 +56,10 @@ func (p *DefaultParser) Parse(filePath string) (*Feature, error) {
 		return nil, fmt.Errorf("getting absolute path for %s: %w", filePath, err)
 	}
 
+	// Strip comment lines (lines starting with #)
+	content := stripComments(string(rawContent))
+
 	// Apply variable substitution if vars are configured
-	content := string(rawContent)
 	if p.vars != nil {
 		content, err = p.vars.Substitute(content)
 		if err != nil {
@@ -114,4 +116,19 @@ func extractFeatureName(content string) string {
 		}
 	}
 	return ""
+}
+
+// stripComments removes comment lines (lines starting with #) from content.
+// In Gherkin, comments are lines where the first non-whitespace character is #.
+func stripComments(content string) string {
+	var result []string
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "#") {
+			result = append(result, line)
+		}
+	}
+	return strings.Join(result, "\n")
 }
