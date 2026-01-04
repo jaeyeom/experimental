@@ -137,6 +137,8 @@ Flags:
   --poll-interval=90s   GitHub issue poll interval (default: 90s)
   --title="Test Suite"  GitHub issue title (default: "Gherkin Test Suite")
   --verbose             Enable verbose logging
+  --var KEY=VALUE       Template variable (can be repeated)
+  --env-file=PATH       Load template variables from file
 #+end_example
 
 ** Examples
@@ -155,6 +157,30 @@ Run with verbose output:
 #+begin_src sh
   gherun --verbose features/checkout.feature features/payment.feature
 #+end_src
+
+Run with template variables:
+#+begin_src sh
+  gherun --var BASE_URL=https://staging.example.com \
+         --var TEST_USER=test@example.com \
+         features/*.feature
+#+end_src
+
+Run with environment file:
+#+begin_src sh
+  gherun --env-file .gherun.env features/*.feature
+#+end_src
+
+Combine both (flags override env file values):
+#+begin_src sh
+  # .gherun.env has BASE_URL=https://staging.example.com
+  # Flag overrides BASE_URL for this run
+  gherun --env-file .gherun.env \
+         --var BASE_URL=https://production.example.com \
+         features/*.feature
+#+end_src
+
+*Priority*: ~--var~ flags take precedence over ~--env-file~ values. This lets you
+keep common defaults in an env file while overriding specific values per run.
 
 * Workflow
 
@@ -288,6 +314,7 @@ well with gherun and AI-powered browsers.
 
 * Future Enhancements
 
+- [X] Template variables via ~--var~ and ~--env-file~
 - [ ] Custom prompt templates via ~--prompt-file~
 - [ ] Support for Linux (~xdg-open~) and Windows (~start~)
 - [ ] Webhook notifications on completion

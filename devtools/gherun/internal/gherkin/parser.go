@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jaeyeom/experimental/devtools/gherun/internal/vars"
 )
 
 // Feature represents a parsed Gherkin feature file.
@@ -24,7 +26,9 @@ type Parser interface {
 }
 
 // DefaultParser implements Parser using file reading.
-type DefaultParser struct{}
+type DefaultParser struct {
+	vars vars.Vars
+}
 
 // Compile-time check that DefaultParser implements Parser.
 var _ Parser = (*DefaultParser)(nil)
@@ -34,9 +38,15 @@ func NewParser() *DefaultParser {
 	return &DefaultParser{}
 }
 
+// NewParserWithVars creates a parser that substitutes template variables.
+func NewParserWithVars(v vars.Vars) *DefaultParser {
+	return &DefaultParser{vars: v}
+}
+
 // Parse reads a feature file and extracts metadata.
+// If variables are configured, they are substituted in the content.
 func (p *DefaultParser) Parse(filePath string) (*Feature, error) {
-	content, err := os.ReadFile(filePath)
+	rawContent, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("reading feature file %s: %w", filePath, err)
 	}
@@ -46,14 +56,23 @@ func (p *DefaultParser) Parse(filePath string) (*Feature, error) {
 		return nil, fmt.Errorf("getting absolute path for %s: %w", filePath, err)
 	}
 
+	// Apply variable substitution if vars are configured
+	content := string(rawContent)
+	if p.vars != nil {
+		content, err = p.vars.Substitute(content)
+		if err != nil {
+			return nil, fmt.Errorf("substituting variables in %s: %w", filePath, err)
+		}
+	}
+
 	id := ExtractFeatureID(filePath)
-	name := extractFeatureName(string(content))
+	name := extractFeatureName(content)
 
 	return &Feature{
 		ID:       id,
 		Name:     name,
 		FilePath: absPath,
-		Content:  string(content),
+		Content:  content,
 	}, nil
 }
 

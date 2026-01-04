@@ -13,8 +13,21 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gherun/internal/gherkin"
 	"github.com/jaeyeom/experimental/devtools/gherun/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gherun/internal/runner"
+	"github.com/jaeyeom/experimental/devtools/gherun/internal/vars"
 	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
+
+// stringSliceFlag allows a flag to be specified multiple times.
+type stringSliceFlag []string
+
+func (s *stringSliceFlag) String() string {
+	return fmt.Sprintf("%v", *s)
+}
+
+func (s *stringSliceFlag) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
 
 func main() {
 	var (
@@ -22,12 +35,16 @@ func main() {
 		verbose      bool
 		pollInterval time.Duration
 		issueTitle   string
+		varFlags     stringSliceFlag
+		envFile      string
 	)
 
 	flag.IntVar(&parallel, "parallel", 3, "Maximum parallel browser tabs")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.DurationVar(&pollInterval, "poll-interval", 90*time.Second, "GitHub issue poll interval")
 	flag.StringVar(&issueTitle, "title", "Gherkin Test Suite", "GitHub issue title")
+	flag.Var(&varFlags, "var", "Template variable in KEY=VALUE format (can be repeated)")
+	flag.StringVar(&envFile, "env-file", "", "Load template variables from file")
 	flag.Parse()
 
 	featureFiles := flag.Args()
@@ -35,6 +52,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Usage: gherun [flags] <feature-files...>")
 		fmt.Fprintln(os.Stderr, "\nFlags:")
 		flag.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "\nTemplate Variables:")
+		fmt.Fprintln(os.Stderr, "  Use {{VAR_NAME}} in .feature files to reference variables.")
+		fmt.Fprintln(os.Stderr, "  Example: gherun --var BASE_URL=https://example.com login.feature")
 		os.Exit(1)
 	}
 
@@ -54,11 +74,24 @@ func main() {
 		}
 	}
 
+	// Parse template variables
+	templateVars, err := parseTemplateVars(varFlags, envFile, logger)
+	if err != nil {
+		logger.Error("Failed to parse template variables", "error", err)
+		os.Exit(1)
+	}
+
 	// Create dependencies
 	ctx := context.Background()
 	exec := executor.NewBasicExecutor()
 
-	parser := gherkin.NewParser()
+	var parser gherkin.Parser
+	if len(templateVars) > 0 {
+		parser = gherkin.NewParserWithVars(templateVars)
+		logger.Debug("Using parser with template variables", "count", len(templateVars))
+	} else {
+		parser = gherkin.NewParser()
+	}
 	ghClient := github.NewClient(ctx, exec)
 	issueManager := github.NewIssueManager(ctx, ghClient)
 	launcher := browser.NewLauncher(exec)
@@ -106,4 +139,36 @@ func printSummary(summary *runner.Summary) {
 	} else {
 		fmt.Printf("%d test(s) failed.\n", summary.Failed)
 	}
+}
+
+// parseTemplateVars parses template variables from flags and env file.
+// Flag variables take precedence over env file variables.
+func parseTemplateVars(varFlags []string, envFile string, logger *slog.Logger) (vars.Vars, error) {
+	var result vars.Vars
+
+	// Load from env file first (if specified)
+	if envFile != "" {
+		fileVars, err := vars.LoadEnvFile(envFile)
+		if err != nil {
+			return nil, fmt.Errorf("loading env file %s: %w", envFile, err)
+		}
+		result = fileVars
+		logger.Debug("Loaded variables from env file", "file", envFile, "count", len(fileVars))
+	}
+
+	// Parse flag variables (override env file)
+	if len(varFlags) > 0 {
+		flagVars, err := vars.ParseFlags(varFlags)
+		if err != nil {
+			return nil, fmt.Errorf("parsing --var flags: %w", err)
+		}
+		if result == nil {
+			result = flagVars
+		} else {
+			result = vars.Merge(result, flagVars)
+		}
+		logger.Debug("Parsed flag variables", "count", len(flagVars))
+	}
+
+	return result, nil
 }
