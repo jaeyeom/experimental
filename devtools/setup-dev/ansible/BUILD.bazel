@@ -90,6 +90,7 @@ sh_test(
         "gh-pr-review.yml",
         "gh-slack.yml",
         "gh-storage.yml",
+        "gherun.yml",
         "git.yml",
         "gmi.yml",
         "go.yml",
@@ -695,6 +696,22 @@ sh_test(
     args = ["gh-storage.yml"],
     data = [
         "gh-storage.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "gherun_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gherun.yml"],
+    data = [
+        "gherun.yml",
         "go.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
@@ -2139,6 +2156,7 @@ sh_test(
         "gh-pr-review.yml",
         "gh-slack.yml",
         "gh-storage.yml",
+        "gherun.yml",
         "git.yml",
         "go.yml",
         "jq.yml",
@@ -2451,6 +2469,7 @@ test_suite(
         ":gh-slack_syntax_test",
         ":gh-storage_syntax_test",
         ":gh_syntax_test",
+        ":gherun_syntax_test",
         ":git_syntax_test",
         ":gmi_syntax_test",
         ":go_syntax_test",

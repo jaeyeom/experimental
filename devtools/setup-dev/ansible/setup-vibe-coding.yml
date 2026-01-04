@@ -5,6 +5,7 @@
 - import_playbook: gh-pr-review.yml
 - import_playbook: gh-slack.yml
 - import_playbook: gh-storage.yml
+- import_playbook: gherun.yml
 - import_playbook: repo-sync.yml
 - import_playbook: setup-perplexity-mcp.yml
 - import_playbook: setup-git.yml
@@ -26,4 +27,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, repo-sync, perplexity MCP, windsurf rules, claudelytics"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, gherun, repo-sync, perplexity MCP, windsurf rules, claudelytics"

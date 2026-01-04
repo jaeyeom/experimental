@@ -183,6 +183,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("gh-pr-review", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest"),
 	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest"),
 	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest"),
+	GoTool("gherun", "github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest"),
 	GoTool("godef", "github.com/rogpeppe/godef@latest"),
 	GoTool("godoc", "golang.org/x/tools/cmd/godoc@latest"),
 	GoTool("godoctor", "github.com/godoctor/godoctor@latest"),
