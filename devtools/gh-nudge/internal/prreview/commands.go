@@ -986,10 +986,10 @@ func (ch *CommandHandler) listComments(repository models.Repository, target mode
 			cwc := models.CommentWithLineContext{Comment: comment}
 
 			// Try to get line context
-			context, err := models.GetLineContextForComment(comment.Path, comment, contextLines)
-			if err != nil {
+			context, contextErr := models.GetLineContextForComment(comment.Path, comment, contextLines)
+			if contextErr != nil {
 				// If we can't get context (file not found, etc.), just skip it
-				fmt.Printf("Warning: Could not get context for %s:%v - %v\n", comment.Path, comment.Line, err)
+				fmt.Printf("Warning: Could not get context for %s:%v - %v\n", comment.Path, comment.Line, contextErr)
 			} else {
 				cwc.Context = context
 			}

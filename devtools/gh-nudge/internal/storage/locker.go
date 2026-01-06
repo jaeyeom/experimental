@@ -84,8 +84,8 @@ func (flm *FileLockManager) WithLockRetry(key string, config FileLockConfig, fn 
 		if err == nil {
 			// Lock acquired successfully, execute function
 			defer func() {
-				if err := flm.lockManager.ReleaseLock(lockPath); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to release lock %s: %v\n", lockPath, err)
+				if releaseErr := flm.lockManager.ReleaseLock(lockPath); releaseErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to release lock %s: %v\n", lockPath, releaseErr)
 				}
 			}()
 			return fn()

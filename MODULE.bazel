@@ -1,15 +1,29 @@
 # Go
 bazel_dep(name = "rules_go", version = "0.53.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.1")
+
+# TODO(bzlmod): Enable nogo-analyzer when it adds native bzlmod support
+# Currently disabled due to complex transitive dependency requirements.
+# See https://github.com/sluongng/nogo-analyzer for updates.
 
 # Configure Go version for Termux compatibility
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.download(version = "1.24.2")
+go_sdk.nogo(nogo = "//tools/lint:platform_nogo")
 use_repo(go_sdk, "go_default_sdk")
 
 bazel_dep(name = "gazelle", version = "0.42.0")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
+
+# Explicitly declare golang.org/x/tools for nogo ADDITIONAL_GOVET analyzers
+# This prevents bazel mod tidy from removing it as an "indirect" dependency
+go_deps.module(
+    path = "golang.org/x/tools",
+    sum = "h1:yLkxfA+Qnul4cs9QA3KnlFu0lVmd8JJfoq+E41uSutA=",
+    version = "v0.40.0",
+)
 
 # All Go dependencies referenced by BUILD files must be listed explicitly.
 # Note: This includes both direct and indirect dependencies from go.mod.
@@ -27,6 +41,7 @@ use_repo(
     "com_github_spf13_viper",
     "in_gopkg_yaml_v3",
     "org_golang_x_sys",
+    "org_golang_x_tools",
     "org_modernc_sqlite",
 )
 
@@ -69,9 +84,10 @@ use_repo(pip_ext, "main_pip_deps")  # Make @main_pip_deps available
 # Pkl for configuration
 bazel_dep(name = "rules_pkl", version = "0.13.1")
 
-pkl = use_extension("@rules_pkl//pkl:extensions.bzl", "pkl")
+pkl = use_extension("@rules_pkl//pkl/extensions:pkl.bzl", "pkl")
 pkl.project(
     name = "pkl_project",
     pkl_project = "//:PklProject",
+    pkl_project_deps = "//:PklProject.deps.json",
 )
-use_repo(pkl, "pkl_project", "pkl_project_deps")
+use_repo(pkl, "pkl-cli-linux-aarch64", "pkl-cli-linux-amd64", "pkl-cli-macos-aarch64", "pkl-cli-macos-amd64", "pkl_project")
