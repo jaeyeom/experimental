@@ -67,19 +67,6 @@ essential.
 I depend on the generator, but if I know more sophisticated features, it would
 be much easier.
 
-** Migrate from setup-dev.sh
-*** DONE Install searchers
-CLOSED: [2024-08-21 Wed 13:41]
-*** DONE Locate tool
-CLOSED: [2024-08-26 Mon 19:14]
-*** DONE gpg
-CLOSED: [2025-03-01 Sat 03:29]
-*** DONE pass
-CLOSED: [2025-03-08 Sat 14:42]
-*** TODO Remaining PATH settings
-*** DONE Additional spacemacs settings and symbolic links
-CLOSED: [2025-03-08 Sat 14:40]
-
 ** Migrate from Makefile
 *** DONE Pip packages
 CLOSED: [2025-03-01 Sat 03:55]
