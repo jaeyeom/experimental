@@ -51,8 +51,12 @@ bazel_dep(name = "aspect_rules_lint", version = "1.10.1")
 # Buildifier for Bazel file formatting
 bazel_dep(name = "buildifier_prebuilt", version = "8.0.3")
 
+# Stardoc for Bazel documentation (required by rules_buf)
+# repo_name provides the legacy @io_bazel_stardoc alias that rules_buf expects
+bazel_dep(name = "stardoc", version = "0.8.0", repo_name = "io_bazel_stardoc")
+
 # Buf rules for protocol buffer formatting
-bazel_dep(name = "rules_buf", version = "0.4.0")
+bazel_dep(name = "rules_buf", version = "0.5.2")
 
 # Configure Buf toolchain
 buf = use_extension("@rules_buf//buf:extensions.bzl", "buf")
