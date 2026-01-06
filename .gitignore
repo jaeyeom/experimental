@@ -1,9 +1,14 @@
 .aider*
+
+# Bazel Related
 .bazel_output
 bazel-bin
 bazel-experimental*
 bazel-out
 bazel-testlogs
+
+# User's .bazelrc
+.bazelrc.user
 
 # Added by Task Master AI
 # Logs
