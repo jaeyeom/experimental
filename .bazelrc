@@ -34,6 +34,11 @@ test --nobuild_tests_only
 build --jobs=auto
 test --jobs=auto
 
+# Termux configuration (Android)
+# Usage: bazel build --config=termux //...
+# Disables nogo analyzers which have issues with Termux's environment
+build:termux --//tools/lint:skip_nogo=true
+
 # Developer settings
 # build --sandbox_debug
 # test --test_verbose_timeout_warnings
