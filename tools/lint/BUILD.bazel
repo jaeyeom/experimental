@@ -1,9 +1,23 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@rules_go//go:def.bzl", "TOOLS_NOGO", "nogo")
 
 # TODO(bzlmod): Uncomment when nogo-analyzer adds native bzlmod support
 # load("@com_github_sluongng_nogo_analyzer//staticcheck:def.bzl", "staticcheck_analyzers")
 
 package(default_visibility = ["//:__subpackages__"])
+
+# Flag to skip nogo analyzers (for Termux/Android compatibility)
+# Usage: bazel build --//tools/lint:skip_nogo=true //...
+# Or use: bazel build --config=termux //...
+bool_flag(
+    name = "skip_nogo",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "skip_nogo_enabled",
+    flag_values = {":skip_nogo": "True"},
+)
 
 exports_files([
     "linters.bzl",
@@ -191,5 +205,9 @@ nogo(
     # TODO(bzlmod): Add staticcheck_analyzers(STATICCHECK_ANALYZERS) when
     # nogo-analyzer adds native bzlmod support. Currently disabled due to
     # complex transitive dependency requirements.
-    deps = TOOLS_NOGO + ADDITIONAL_GOVET,
+    # Use --//tools/lint:skip_nogo=true or --config=termux to skip analyzers
+    deps = select({
+        ":skip_nogo_enabled": [],
+        "//conditions:default": TOOLS_NOGO + ADDITIONAL_GOVET,
+    }),
 )
