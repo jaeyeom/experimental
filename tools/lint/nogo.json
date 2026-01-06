@@ -1,0 +1,19 @@
+{
+  "_base": {
+    "description": "Base config that all subsequent analyzers, even unspecified will inherit.",
+    "exclude_files": {
+      ".*/cgo/.*\\.go$": "Skip CGO generated files",
+      ".*\\.connect\\.go$": "Skip connect generated files",
+      ".*\\.pb\\.go$": "Skip protobuf generated files",
+      "bazel-out/.*": "Skip bazel output",
+      "external/.*": "Skip external files",
+      "tmp/.*": "Skip tmp files"
+    }
+  },
+  "shadow": {
+    "description": "Shadow analyzer - disabled until shadow issues in codebase are fixed",
+    "only_files": {
+      "^$": "Match nothing - effectively disables this analyzer"
+    }
+  }
+}

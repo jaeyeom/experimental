@@ -1,13 +1,16 @@
 load("@rules_go//go:def.bzl", "go_library")
 
-# Go library with pre-generated code from pkl-gen-go
-# To regenerate: cd devtools/gh-nudge && make generate-pkl
 go_library(
     name = "go_default_library",
-    srcs = glob(["*.go"]),  # keep
+    srcs = [
+        "ChannelRoutingConfig.pkl.go",
+        "Config.pkl.go",
+        "GitHubConfig.pkl.go",
+        "SettingsConfig.pkl.go",
+        "SlackConfig.pkl.go",
+        "init.pkl.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl",
     visibility = ["//devtools/gh-nudge:__subpackages__"],
-    deps = [
-        "@com_github_apple_pkl_go//pkl:go_default_library",
-    ],
+    deps = ["@com_github_apple_pkl_go//pkl:go_default_library"],
 )
