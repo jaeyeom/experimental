@@ -450,6 +450,7 @@ This function should only modify configuration layer settings."
      direnv
      dirvish
      eshell-command-not-found
+     gherkin-mode
      green-is-the-new-black-theme
      (highlight-chars :location (recipe :fetcher github
                                         :repo "emacsmirror/highlight-chars"
