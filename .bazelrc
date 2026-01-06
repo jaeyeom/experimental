@@ -42,3 +42,5 @@ build:termux --//tools/lint:skip_nogo=true
 # Developer settings
 # build --sandbox_debug
 # test --test_verbose_timeout_warnings
+
+try-import %workspace%/.bazelrc.user
