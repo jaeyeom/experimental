@@ -1,8 +1,3 @@
 load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 org_lint_tests(["README.org"])
-
-sh_binary(
-    name = "setup-dev",
-    srcs = ["setup-dev.sh"],
-)
