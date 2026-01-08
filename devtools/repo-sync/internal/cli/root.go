@@ -1,3 +1,4 @@
+// Package cli provides command-line interface for repo-sync.
 package cli
 
 import (

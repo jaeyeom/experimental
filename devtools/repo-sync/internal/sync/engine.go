@@ -1,3 +1,4 @@
+// Package sync provides synchronization engine for repo-sync.
 package sync
 
 import (

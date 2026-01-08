@@ -115,16 +115,9 @@ func (lm *LockManager) isStalelock(lockPath string) bool {
 // It uses the kill(pid, 0) technique which doesn't actually send a signal but
 // checks if the process exists and we have permission to send it a signal.
 func isProcessRunning(pid int) bool {
-	if err := unix.Kill(pid, 0); err != nil {
-		if err == unix.ESRCH {
-			// Process doesn't exist
-			return false
-		}
-		// Other error (like EPERM), assume process exists
-		return true
-	}
-	// No error means process exists
-	return true
+	// ESRCH means the process doesn't exist.
+	// No error or other errors (like EPERM) mean process exists.
+	return unix.Kill(pid, 0) != unix.ESRCH
 }
 
 // ReleaseLock releases the lock at the specified path by closing the file handle

@@ -1,3 +1,4 @@
+// Package query provides Bazel query operations for finding affected tests.
 package query
 
 import (

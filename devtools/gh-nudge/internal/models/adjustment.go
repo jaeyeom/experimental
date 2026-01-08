@@ -278,7 +278,7 @@ func ValidateAdjustmentAgainstDiff(comment Comment, adjustments []LineAdjustment
 	return nil
 }
 
-// FormatAdjustmentDescription creates a human-readable description of an adjustment.
+// FormatDescription creates a human-readable description of an adjustment.
 func (adj LineAdjustment) FormatDescription() string {
 	switch adj.Operation {
 	case OperationDelete:

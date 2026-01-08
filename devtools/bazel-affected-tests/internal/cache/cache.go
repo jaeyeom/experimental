@@ -1,3 +1,4 @@
+// Package cache manages caching of Bazel query results.
 package cache
 
 import (
