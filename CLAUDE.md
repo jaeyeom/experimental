@@ -11,7 +11,8 @@ This file guides Claude Code's behavior.
 -   **ALWAYS run `make check`** before requesting a commit.
     -   This runs formatters, linters, tests, and generators.
     -   If `make check` changes files, include them in the commit.
--   **Use `make` targets**: `make test`, `make lint`, `make fix`.
+-   **Use `make` targets**: `make test`, `make lint`, `make fix`, `make format`.
+-   **Use `make format`** instead of individual formatting tools (e.g., `gofmt`, `goimports`).
 
 ## Skills & Commands
 -   **Go**: See `.claude/skills/golang/SKILL.md` (Auto-discovered for Go tasks).
