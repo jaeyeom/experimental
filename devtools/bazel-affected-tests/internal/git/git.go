@@ -1,3 +1,4 @@
+// Package git provides Git operations for bazel-affected-tests.
 package git
 
 import (

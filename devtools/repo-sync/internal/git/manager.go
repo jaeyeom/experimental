@@ -1,3 +1,4 @@
+// Package git provides Git operations for repo-sync.
 package git
 
 import (

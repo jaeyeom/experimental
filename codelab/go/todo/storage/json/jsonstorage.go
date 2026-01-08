@@ -1,5 +1,5 @@
-// Package json provides a JSON file-based implementation of the storage.Storage
-// interface for persisting todo lists.
+// Package jsonstorage provides a JSON file-based implementation of the
+// storage.Storage interface for persisting todo lists.
 package jsonstorage
 
 import (

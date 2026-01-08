@@ -1,3 +1,4 @@
+// Package prreview provides PR review functionality for gh-nudge.
 package prreview
 
 import (

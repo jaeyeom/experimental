@@ -1,3 +1,4 @@
+// Package database provides database operations for repo-sync.
 package database
 
 import (

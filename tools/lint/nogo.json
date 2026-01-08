@@ -5,6 +5,7 @@
       ".*/cgo/.*\\.go$": "Skip CGO generated files",
       ".*\\.connect\\.go$": "Skip connect generated files",
       ".*\\.pb\\.go$": "Skip protobuf generated files",
+      ".*\\.pkl\\.go$": "Skip Pkl generated files",
       "bazel-out/.*": "Skip bazel output",
       "external/.*": "Skip external files",
       "tmp/.*": "Skip tmp files"

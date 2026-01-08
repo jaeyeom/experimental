@@ -1,3 +1,4 @@
+// Package storage provides storage implementations for gh-nudge.
 package storage
 
 import (

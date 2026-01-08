@@ -32,7 +32,7 @@ type Map struct {
 	m sync.Map
 }
 
-// LoadOrStore gets pre-cached value associated with the given key or calls
+// LoadOrCall gets pre-cached value associated with the given key or calls
 // getValue to get the value for the key. The function getValue is called only
 // once for the given key. Even if different getValue is given for the same key,
 // only one function is called. The key should be hashable.
