@@ -1,61 +1,62 @@
 ---
-# Fix Claude Code's Glob/Grep tools on Termux by copying system ripgrep
-# to the Claude Code vendor directory (which lacks arm64-android binaries)
+# This playbook configures Claude Code to work properly on Termux by:
+# 1. Setting TMPDIR environment variable (Termux cannot access /tmp)
+# 2. Creating a ripgrep symlink (Claude Code doesn't ship arm64-android binary)
+- import_playbook: claude.yml
 - import_playbook: rg.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
-- name: Setup Claude Code ripgrep on Termux
+- name: Configure Claude Code for Termux
   hosts: all
-  vars:
-    claude_rg_vendor_dir: "{{ ansible_facts['env']['PREFIX'] }}/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-android"
   tasks:
-    - name: Include guard for claude termux rg playbook
+    - name: Include guard for setup-claude-termux-rg playbook
       block:
-        - name: Stop early if the claude termux rg playbook is already included
+        - name: Stop early if the setup-claude-termux-rg playbook is already included
           meta: end_play
-          when: claude_termux_rg_playbook_imported is defined
-        - name: Ensure the claude termux rg playbook is not included
+          when: setup_claude_termux_rg_playbook_imported is defined
+        - name: Ensure the setup-claude-termux-rg playbook is not included
           set_fact:
-            claude_termux_rg_playbook_imported: true
-          when: claude_termux_rg_playbook_imported is not defined
+            setup_claude_termux_rg_playbook_imported: true
+          when: setup_claude_termux_rg_playbook_imported is not defined
 
-    - name: Setup ripgrep for Claude Code on Termux
-      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+    - name: Configure TMPDIR for Claude Code on Termux
       block:
-        - name: Check if Claude Code is installed
-          shell: command -v claude
-          register: claude_installed
+        - name: Check if TMPDIR export exists in .bashrc
+          shell: grep -q 'export TMPDIR=\$PREFIX/tmp' ~/.bashrc
+          register: tmpdir_exists
           failed_when: false
           changed_when: false
 
-        - name: Get system ripgrep path
-          shell: command -v rg
-          register: rg_path
-          failed_when: false
-          changed_when: false
-          when: claude_installed.rc == 0
+        - name: Add TMPDIR export to .bashrc
+          lineinfile:
+            path: ~/.bashrc
+            line: 'export TMPDIR=$PREFIX/tmp'
+            create: yes
+          when: tmpdir_exists.rc != 0
 
-        - name: Create arm64-android vendor directory
+        - name: Ensure PREFIX/tmp directory exists
           file:
-            path: "{{ claude_rg_vendor_dir }}"
+            path: "{{ ansible_facts['env']['PREFIX'] }}/tmp"
             state: directory
-            mode: "0700"
-          when: claude_installed.rc == 0 and rg_path.rc == 0
+            mode: '0700'
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
-        - name: Copy system ripgrep to Claude Code vendor directory
-          copy:
-            src: "{{ rg_path.stdout }}"
-            dest: "{{ claude_rg_vendor_dir }}/rg"
-            mode: "0700"
-            remote_src: yes
-          when: claude_installed.rc == 0 and rg_path.rc == 0
+    - name: Configure ripgrep symlink for Claude Code on Termux
+      block:
+        - name: Get Claude Code ripgrep vendor directory
+          shell: dirname $(npm root -g)/@anthropic-ai/claude-code/vendor/ripgrep/arm64-android
+          register: rg_vendor_dir
+          changed_when: false
 
-        - name: Verify ripgrep was copied
-          stat:
-            path: "{{ claude_rg_vendor_dir }}/rg"
-          register: rg_copied
-          when: claude_installed.rc == 0 and rg_path.rc == 0
+        - name: Ensure arm64-android directory exists
+          file:
+            path: "{{ rg_vendor_dir.stdout }}/arm64-android"
+            state: directory
+            mode: '0755'
 
-        - name: Display result
-          debug:
-            msg: "Claude Code ripgrep fix applied: {{ claude_rg_vendor_dir }}/rg"
-          when: claude_installed.rc == 0 and rg_path.rc == 0 and rg_copied.stat.exists
+        - name: Create ripgrep symlink for Claude Code
+          file:
+            src: "{{ ansible_facts['env']['PREFIX'] }}/bin/rg"
+            dest: "{{ rg_vendor_dir.stdout }}/arm64-android/rg"
+            state: link
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

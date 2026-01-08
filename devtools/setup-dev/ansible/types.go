@@ -117,6 +117,7 @@ type PlatformSpecificTool struct {
 	command   string
 	platforms map[PlatformName]InstallMethod
 	Imports   []Import
+	Suffix    string // Additional tasks to run after installation
 }
 
 func (p PlatformSpecificTool) Command() string {

@@ -185,5 +185,5 @@ var platformSpecificTemplate = `---
       when: ` + WhenDebianLike + ` and ` + WhenUbuntu + `
 {{- end }}
 {{- end }}
-{{- end }}
+{{- end }}{{.Suffix}}
 `
