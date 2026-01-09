@@ -15,6 +15,7 @@
         autoAllowBashIfSandboxed: true
         excludedCommands:
           - bazel
+          - bazelisk  # bazel is often a symlink to bazelisk
           - docker
           - git
           - make
@@ -37,9 +38,6 @@
           - "Bash(golangci-lint run:*)"
           - "Bash(rg:*)"           # Safe: read-only search tool, no exec capability
           - "Bash(ruff:*)"
-        additionalFilesystemWritePaths:
-          - "/var/tmp"
-          - "/private/var/tmp"  # macOS symlink to /var/tmp
         deny:
           - "Bash(eval:*)"      # Shell eval
           - "Bash(source:*)"    # Source scripts
