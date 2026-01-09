@@ -6,7 +6,7 @@ SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; els
 
 all: requirements.txt generate-ansible generate-pkl format test fix check-bazel-go-files check-org-lint-tests
 
-check: requirements.txt generate-ansible generate-pkl check-format test lint check-bazel-go-files check-org-lint-tests
+check: requirements.txt check-generated check-format test lint check-bazel-go-files check-org-lint-tests
 
 format: format-whitespace
 	goimports -w .
@@ -84,13 +84,23 @@ check-org-lint-tests:
 	./tools/org-lint/check-org-lint-tests.sh
 
 # Code generation targets
-.PHONY: generate-ansible generate-pkl
+.PHONY: generate-ansible generate-pkl check-generated
+
+# Paths where generators produce output
+GENERATED_PATHS := devtools/setup-dev/ansible devtools/gh-nudge/internal/config/pkl
 
 generate-ansible:
 	$(MAKE) -C devtools/setup-dev/ansible
 
 generate-pkl:
 	$(MAKE) -C devtools/gh-nudge generate-pkl
+
+check-generated: generate-ansible generate-pkl
+	@if git status --porcelain -- $(GENERATED_PATHS) | grep -q .; then \
+		echo "Error: Generated files are out of date. Run 'make all' and add the files to commit."; \
+		git status --porcelain -- $(GENERATED_PATHS); \
+		exit 1; \
+	fi
 
 # Coverage targets
 .PHONY: coverage coverage-report coverage-html clean-coverage
