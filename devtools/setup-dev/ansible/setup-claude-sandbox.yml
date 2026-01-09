@@ -29,6 +29,9 @@
           - "Bash(bazel build:*)"  # Medium risk (may run genrule)
           - "Bash(bazel query:*)"
           - "Bash(bazel test:*)"   # Medium risk (may run genrule)
+          - "Bash(gh issue close:*)"
+          - "Bash(gh issue reopen:*)"
+          - "Bash(gh issue view:*)"
           - "Bash(git add:*)"
           - "Bash(git branch:*)"
           - "Bash(git commit:*)"
