@@ -233,7 +233,7 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (g GoInstallMethod) RenderBlockInstallTask(command string) string {
-	return g.RenderInstallTask(command)
+	return indent(g.RenderInstallTask(command), 4)
 }
 
 // CargoInstallMethod handles installation via Rust cargo command.

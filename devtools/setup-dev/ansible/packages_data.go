@@ -72,6 +72,15 @@ var packages = []PackageData{
 }
 
 var platformSpecificTools = []PlatformSpecificTool{
+	{
+		command: "act",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "act"},
+			PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
+			PlatformTermux:     GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
+		},
+		Imports: nil,
+	},
 	GoTool("bazel-affected-tests", "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
 	GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
 	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
