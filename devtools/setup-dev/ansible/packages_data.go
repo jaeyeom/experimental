@@ -81,6 +81,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	{
+		command: "actionlint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "actionlint"},
+			PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/rhysd/actionlint/cmd/actionlint@latest"},
+			PlatformTermux:     GoInstallMethod{PkgPath: "github.com/rhysd/actionlint/cmd/actionlint@latest"},
+		},
+		Imports: nil,
+	},
 	GoTool("bazel-affected-tests", "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
 	GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
 	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
