@@ -11,6 +11,7 @@
 - import_playbook: man.yml
 - import_playbook: gh.yml
 - import_playbook: act.yml
+- import_playbook: actionlint.yml
 - import_playbook: jira.yml
 - import_playbook: tmux.yml
 - import_playbook: clang-format.yml
