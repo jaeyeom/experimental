@@ -50,7 +50,6 @@
           - "Read(~/.azure/**)"
           - "Read(~/.bash_history)"
           - "Read(~/.config/gcloud/**)"
-          - "Read(~/.config/gh/hosts.yml)"
           - "Read(~/.docker/config.json)"
           - "Read(~/.gnupg/**)"
           - "Read(~/.kube/config)"
