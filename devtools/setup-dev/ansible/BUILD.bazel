@@ -77,6 +77,7 @@ sh_test(
     args = ["all.yml"],
     data = [
         "7z.yml",
+        "act.yml",
         "all.yml",
         "bazel.yml",
         "bazel-affected-tests.yml",
