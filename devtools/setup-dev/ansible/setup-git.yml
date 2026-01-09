@@ -107,9 +107,15 @@
         content: |
           {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
 
+          # Find the real git (second in PATH, skipping this wrapper)
+          REAL_GIT=$(which -a git | sed -n '2p')
+          if [[ -z "$REAL_GIT" ]]; then
+              echo "Error: No real git found in PATH" >&2
+              exit 1
+          fi
+
           # Allow Copier to use git commands without restrictions
           if [[ "${COPIER_RUNNING:-}" == "1" ]]; then
-              REAL_GIT=$(which -a git | grep -v "$(realpath "$0")" | head -n 1)
               exec "$REAL_GIT" "$@"
           fi
 
@@ -137,5 +143,4 @@
           fi
 
           # Run the real git command
-          REAL_GIT=$(which -a git | grep -v "$(realpath "$0")" | head -n 1)
           exec "$REAL_GIT" "$@"
