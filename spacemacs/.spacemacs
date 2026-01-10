@@ -32,17 +32,6 @@
 (declare-function spacemacs/toggle-maximize-frame "core-funcs" ())
 (declare-function spacemacs/load-spacemacs-env "core-env" ())
 
-;; Dirvish Functions
-(declare-function dirvish-override-dired-mode "dirvish" ())
-(declare-function dirvish-quit "dirvish" ())
-(declare-function dirvish-narrow "dirvish" ())
-(declare-function dirvish-subtree-toggle "dirvish" ())
-(declare-function dirvish-layout-toggle "dirvish" ())
-(declare-function dirvish-layout-switch "dirvish" ())
-(declare-function dirvish-dispatch "dirvish" ())
-(declare-function dirvish-ls-switches-menu "dirvish" ())
-(declare-function evilified-state-evilify-map "evil-evilified-state" (map &rest props))
-
 ;; Dired Functions
 (declare-function dired-find-file "dired" ())
 (declare-function dired-find-file-other-window "dired" ())
@@ -233,10 +222,6 @@
 ;; Highlight Chars
 (defvar hc-other-chars)
 
-;; Dired/Dirvish
-(defvar dirvish-mode-map)
-(defvar dired-mode)
-
 ;; Magit/Forge
 (defvar magit-diff-section-map)
 (defvar forge-pullreq-mode-map)
@@ -322,6 +307,7 @@ This function should only modify configuration layer settings."
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
+      dirvish
       dtrt-indent
       emacs-lisp
       epub
@@ -448,7 +434,6 @@ This function should only modify configuration layer settings."
      copilot-chat
      cov
      direnv
-     dirvish
      eshell-command-not-found
      gherkin-mode
      green-is-the-new-black-theme
@@ -2283,44 +2268,6 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 
     (advice-add 'evil-paste-after :around #'my/evil-paste-fix-clipboard-advice)
     (advice-add 'evil-paste-before :around #'my/evil-paste-fix-clipboard-advice))
-
-  ;; Dirvish - using with-eval-after-load to avoid byte-compile messages
-  (with-eval-after-load 'dired
-    (when (require 'dirvish nil t)
-      (defun my/dired-find-file-smart ()
-        "Open directory in same window, file in other window."
-        (interactive)
-        (let ((file (dired-get-file-for-visit)))
-          (if (file-directory-p file)
-              (dired-find-file)
-            (dired-find-file-other-window))))
-      (evilified-state-evilify-map dirvish-mode-map
-        :mode dired-mode
-        :bindings
-        "h" #'dired-up-directory
-        "l" #'my/dired-find-file-smart
-        "q" #'dirvish-quit
-        "/" #'dirvish-narrow
-        (kbd "<tab>") #'dirvish-subtree-toggle
-        (kbd "TAB") #'dirvish-subtree-toggle
-        "f" #'dirvish-layout-toggle
-        "gf" #'dirvish-layout-toggle
-        "gt" #'dirvish-layout-switch
-        "gd" #'dirvish-dispatch
-        "gl" #'dirvish-ls-switches-menu
-        "gr" #'revert-buffer
-        "g$" #'dired-hide-subdir
-        "g?" #'dired-summary
-        "gj" #'dired-next-dirline
-        "gk" #'dired-prev-dirline
-        "go" #'dired-view-file
-        "gy" #'dired-show-file-type
-        "gG" #'dired-do-chgrp
-        "gO" #'dired-find-file-other-window
-        (kbd "C-l") #'recenter-top-bottom
-        )
-      (add-hook 'dired-mode-hook 'dired-omit-mode)
-      (dirvish-override-dired-mode)))
 
   ;; Frame keybindings
   (when (or my/crostini-p my/macos-p)
