@@ -1808,3 +1808,354 @@ Jane Smith| 30`
 		t.Error("expected double horizontal line in output")
 	}
 }
+
+func TestBlendOverlap(t *testing.T) {
+	tests := []struct {
+		name        string
+		existing    rune
+		new         rune
+		overlapChar rune
+		expected    rune
+	}{
+		{
+			name:        "both non-space",
+			existing:    'A',
+			new:         'B',
+			overlapChar: '#',
+			expected:    '#',
+		},
+		{
+			name:        "existing is space",
+			existing:    ' ',
+			new:         'B',
+			overlapChar: '#',
+			expected:    'B',
+		},
+		{
+			name:        "new is space",
+			existing:    'A',
+			new:         ' ',
+			overlapChar: '#',
+			expected:    'A',
+		},
+		{
+			name:        "both are space",
+			existing:    ' ',
+			new:         ' ',
+			overlapChar: '#',
+			expected:    ' ',
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blendFunc := BlendOverlap(tt.overlapChar)
+			result := blendFunc(tt.existing, tt.new)
+			if result != tt.expected {
+				t.Errorf("BlendOverlap(%q, %q) = %q, expected %q", tt.existing, tt.new, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBlendFirst(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing rune
+		new      rune
+		expected rune
+	}{
+		{
+			name:     "both non-space keeps first",
+			existing: 'A',
+			new:      'B',
+			expected: 'A',
+		},
+		{
+			name:     "existing is space uses new",
+			existing: ' ',
+			new:      'B',
+			expected: 'B',
+		},
+		{
+			name:     "new is space keeps existing",
+			existing: 'A',
+			new:      ' ',
+			expected: 'A',
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blendFunc := BlendFirst()
+			result := blendFunc(tt.existing, tt.new)
+			if result != tt.expected {
+				t.Errorf("BlendFirst(%q, %q) = %q, expected %q", tt.existing, tt.new, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBlendLast(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing rune
+		new      rune
+		expected rune
+	}{
+		{
+			name:     "both non-space uses new",
+			existing: 'A',
+			new:      'B',
+			expected: 'B',
+		},
+		{
+			name:     "existing is space uses new",
+			existing: ' ',
+			new:      'B',
+			expected: 'B',
+		},
+		{
+			name:     "new is space uses space",
+			existing: 'A',
+			new:      ' ',
+			expected: ' ',
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blendFunc := BlendLast()
+			result := blendFunc(tt.existing, tt.new)
+			if result != tt.expected {
+				t.Errorf("BlendLast(%q, %q) = %q, expected %q", tt.existing, tt.new, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBlendBoxDrawing(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing rune
+		new      rune
+		expected rune
+	}{
+		{
+			name:     "ASCII horizontal + vertical",
+			existing: '-',
+			new:      '|',
+			expected: '+',
+		},
+		{
+			name:     "ASCII vertical + horizontal",
+			existing: '|',
+			new:      '-',
+			expected: '+',
+		},
+		{
+			name:     "Unicode horizontal + vertical",
+			existing: '─',
+			new:      '│',
+			expected: '┼',
+		},
+		{
+			name:     "Same ASCII horizontal",
+			existing: '-',
+			new:      '-',
+			expected: '-',
+		},
+		{
+			name:     "Non-box characters fallback",
+			existing: 'A',
+			new:      'B',
+			expected: '#', // Default fallback
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blendFunc := BlendBoxDrawing(BlendOverlap('#'))
+			result := blendFunc(tt.existing, tt.new)
+			if result != tt.expected {
+				t.Errorf("BlendBoxDrawing(%q, %q) = %q, expected %q", tt.existing, tt.new, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRenderAllWithBlending(t *testing.T) {
+	collection := NewRenderableCollection()
+	collection.SetCollisionStrategy(StrategyBlend)
+	collection.SetBlendFunc(BlendOverlap('#'))
+
+	// Create two overlapping text blocks
+	// "Hello" at positions 0-4, "World" at positions 3-7
+	// Overlap at positions 3-4 results in '#' characters
+	block1 := TextBlock{
+		ID:       "block1",
+		Text:     "Hello",
+		Position: Position{X: 0, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	block2 := TextBlock{
+		ID:       "block2",
+		Text:     "World",
+		Position: Position{X: 3, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	collection.Add(block1)
+	collection.Add(block2)
+
+	canvas := New(15, 3)
+	collection.RenderAllWithBlending(canvas)
+	result := canvas.Render()
+
+	expected := "Hel##rld"
+	if result != expected {
+		t.Errorf("RenderAllWithBlending result = %q, expected %q", result, expected)
+	}
+}
+
+func TestRenderAllWithBlendingBoxDrawing(t *testing.T) {
+	collection := NewRenderableCollection()
+	collection.SetCollisionStrategy(StrategyBlend)
+	collection.SetBlendFunc(BlendBoxDrawing(BlendOverlap('#')))
+
+	// Create crossing lines
+	horizontalLine := Line{
+		ID:        "hline",
+		Start:     Position{X: 0, Y: 2},
+		Length:    7,
+		Direction: LineDirectionHorizontal,
+		Style:     LineStyleSingle,
+	}
+
+	verticalLine := Line{
+		ID:        "vline",
+		Start:     Position{X: 3, Y: 0},
+		Length:    5,
+		Direction: LineDirectionVertical,
+		Style:     LineStyleSingle,
+	}
+
+	collection.Add(horizontalLine)
+	collection.Add(verticalLine)
+
+	canvas := New(10, 5)
+	collection.RenderAllWithBlending(canvas)
+	result := canvas.Render()
+
+	// The intersection at (3, 2) should be '+'
+	lines := strings.Split(result, "\n")
+
+	// Check intersection character
+	if len(lines) > 2 && len([]rune(lines[2])) > 3 {
+		intersectionChar := []rune(lines[2])[3]
+		if intersectionChar != '+' {
+			t.Errorf("Expected intersection character '+', got %q", intersectionChar)
+		}
+	} else {
+		t.Errorf("Result doesn't contain expected intersection, got: %q", result)
+	}
+}
+
+func TestSetGetBlendFunc(t *testing.T) {
+	collection := NewRenderableCollection()
+
+	// Verify default blend function is set
+	if collection.GetBlendFunc() == nil {
+		t.Error("Expected default blend function to be set")
+	}
+
+	// Test custom blend function
+	customBlend := BlendOverlap('*')
+	collection.SetBlendFunc(customBlend)
+
+	// Verify the function produces expected results
+	result := collection.GetBlendFunc()('A', 'B')
+	if result != '*' {
+		t.Errorf("Custom blend function returned %q, expected '*'", result)
+	}
+}
+
+func TestRenderAllWithBlendingFirstStrategy(t *testing.T) {
+	collection := NewRenderableCollection()
+	collection.SetCollisionStrategy(StrategyBlend)
+	collection.SetBlendFunc(BlendFirst())
+
+	// "ABC" at 0-2, "XYZ" at 1-3
+	// BlendFirst keeps first character at overlap positions 1-2
+	block1 := TextBlock{
+		ID:       "block1",
+		Text:     "ABC",
+		Position: Position{X: 0, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	block2 := TextBlock{
+		ID:       "block2",
+		Text:     "XYZ",
+		Position: Position{X: 1, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	collection.Add(block1)
+	collection.Add(block2)
+
+	canvas := New(10, 3)
+	collection.RenderAllWithBlending(canvas)
+	result := canvas.Render()
+
+	expected := "ABCZ"
+	if result != expected {
+		t.Errorf("RenderAllWithBlending with BlendFirst = %q, expected %q", result, expected)
+	}
+}
+
+func TestBlendingPreservesNonOverlappingContent(t *testing.T) {
+	collection := NewRenderableCollection()
+	collection.SetCollisionStrategy(StrategyBlend)
+	collection.SetBlendFunc(BlendOverlap('#'))
+
+	// Non-overlapping blocks
+	block1 := TextBlock{
+		ID:       "block1",
+		Text:     "Hello",
+		Position: Position{X: 0, Y: 0},
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	block2 := TextBlock{
+		ID:       "block2",
+		Text:     "World",
+		Position: Position{X: 0, Y: 2}, // No overlap - different Y
+		Width:    10,
+		WrapMode: WrapBasic,
+	}
+
+	collection.Add(block1)
+	collection.Add(block2)
+
+	canvas := New(10, 4)
+	collection.RenderAllWithBlending(canvas)
+	result := canvas.Render()
+
+	// Should render both without modification
+	if !strings.Contains(result, "Hello") {
+		t.Error("Expected 'Hello' in output")
+	}
+	if !strings.Contains(result, "World") {
+		t.Error("Expected 'World' in output")
+	}
+	if strings.Contains(result, "#") {
+		t.Error("Expected no overlap characters for non-overlapping content")
+	}
+}
