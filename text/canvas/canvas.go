@@ -136,8 +136,120 @@ const (
 	// StrategyError returns an error when collisions are detected.
 	StrategyError
 	// StrategyBlend attempts to blend overlapping content (implementation specific).
+	// When this strategy is used, call RenderAllWithBlending instead of RenderAll
+	// to apply the configured blend function at collision points.
 	StrategyBlend
 )
+
+// BlendFunc defines a function type for blending two overlapping characters.
+// The first argument is the existing character, the second is the incoming character
+// being written, and the function returns the blended result.
+type BlendFunc func(existing, incoming rune) rune
+
+// BlendOverlap returns a BlendFunc that uses the specified character for all overlaps.
+// This is useful for visually indicating collision regions.
+func BlendOverlap(overlapChar rune) BlendFunc {
+	return func(existing, incoming rune) rune {
+		// Don't blend if one of them is a space (background)
+		if existing == ' ' {
+			return incoming
+		}
+		if incoming == ' ' {
+			return existing
+		}
+		return overlapChar
+	}
+}
+
+// BlendFirst returns a BlendFunc that keeps the first (existing) character.
+func BlendFirst() BlendFunc {
+	return func(existing, incoming rune) rune {
+		if existing == ' ' {
+			return incoming
+		}
+		return existing
+	}
+}
+
+// BlendLast returns a BlendFunc that keeps the last (incoming) character.
+// This is equivalent to the default overwrite behavior.
+func BlendLast() BlendFunc {
+	return func(_, incoming rune) rune {
+		return incoming
+	}
+}
+
+// boxDrawingMergeMap defines how box-drawing characters should be merged.
+// The key is a pair of characters (existing, new), and the value is the merged result.
+var boxDrawingMergeMap = map[[2]rune]rune{
+	// Horizontal + Vertical intersections
+	{'-', '|'}: '+',
+	{'|', '-'}: '+',
+	{'─', '│'}: '┼',
+	{'│', '─'}: '┼',
+
+	// Single line corners and intersections
+	{'─', '┌'}: '┬',
+	{'─', '┐'}: '┬',
+	{'─', '└'}: '┴',
+	{'─', '┘'}: '┴',
+	{'│', '┌'}: '├',
+	{'│', '┐'}: '┤',
+	{'│', '└'}: '├',
+	{'│', '┘'}: '┤',
+
+	// T-junctions to crosses
+	{'┬', '│'}: '┼',
+	{'┴', '│'}: '┼',
+	{'├', '─'}: '┼',
+	{'┤', '─'}: '┼',
+	{'│', '┬'}: '┼',
+	{'│', '┴'}: '┼',
+	{'─', '├'}: '┼',
+	{'─', '┤'}: '┼',
+}
+
+// isBoxDrawingChar returns true if the rune is a box-drawing character.
+func isBoxDrawingChar(r rune) bool {
+	// Box Drawing block: U+2500 to U+257F
+	return r >= 0x2500 && r <= 0x257F
+}
+
+// BlendBoxDrawing returns a BlendFunc that intelligently merges box-drawing characters.
+// For non-box-drawing characters, it uses the fallback BlendFunc.
+func BlendBoxDrawing(fallback BlendFunc) BlendFunc {
+	return func(existing, incoming rune) rune {
+		// Check if we have a predefined merge for this pair
+		if merged, ok := boxDrawingMergeMap[[2]rune{existing, incoming}]; ok {
+			return merged
+		}
+
+		// Handle simple ASCII line characters
+		isASCIILine := func(r rune) bool { return r == '-' || r == '|' }
+		if isASCIILine(existing) && isASCIILine(incoming) {
+			if existing != incoming {
+				return '+'
+			}
+			return existing
+		}
+
+		// If both are box-drawing characters but no specific merge rule,
+		// use the incoming character
+		if isBoxDrawingChar(existing) && isBoxDrawingChar(incoming) {
+			return incoming
+		}
+
+		// Fall back to the provided fallback function
+		if fallback != nil {
+			return fallback(existing, incoming)
+		}
+		return incoming
+	}
+}
+
+// DefaultBlendFunc is the default blend function used when StrategyBlend is selected.
+// It uses '#' to indicate overlapping regions.
+var DefaultBlendFunc = BlendOverlap('#')
 
 // Renderable defines an interface for objects that can be rendered to a CharSetter.
 // This allows different types of objects (text blocks, lines, bars, etc.) to be
@@ -419,6 +531,7 @@ type RenderableCollection struct {
 	objects           map[string]Renderable
 	insertionOrder    []string
 	collisionStrategy ResolutionStrategy
+	blendFunc         BlendFunc
 }
 
 // NewRenderableCollection creates a new empty collection of renderable objects.
@@ -427,6 +540,7 @@ func NewRenderableCollection() *RenderableCollection {
 		objects:           make(map[string]Renderable),
 		insertionOrder:    make([]string, 0),
 		collisionStrategy: StrategyOverwrite,
+		blendFunc:         DefaultBlendFunc,
 	}
 }
 
@@ -486,6 +600,46 @@ func (rc *RenderableCollection) RenderAll(cs CharSetter) {
 	}
 }
 
+// blendingCharSetter wraps a CharSetter to track written cells and apply blending.
+type blendingCharSetter struct {
+	target    CharSetter
+	written   map[[2]int]rune // tracks which cells have been written and their values
+	blendFunc BlendFunc
+}
+
+// newBlendingCharSetter creates a new blending wrapper for a CharSetter.
+func newBlendingCharSetter(target CharSetter, blendFunc BlendFunc) *blendingCharSetter {
+	return &blendingCharSetter{
+		target:    target,
+		written:   make(map[[2]int]rune),
+		blendFunc: blendFunc,
+	}
+}
+
+// SetChar implements CharSetter with blending support.
+func (bcs *blendingCharSetter) SetChar(x, y int, r rune) bool {
+	key := [2]int{x, y}
+	if existing, hasExisting := bcs.written[key]; hasExisting {
+		// Apply blend function when cell was already written
+		r = bcs.blendFunc(existing, r)
+	}
+	bcs.written[key] = r
+	return bcs.target.SetChar(x, y, r)
+}
+
+// RenderAllWithBlending renders all objects with blending support.
+// This method should be used when StrategyBlend is the collision strategy.
+// It tracks which cells have been written and applies the configured BlendFunc
+// when objects overlap.
+func (rc *RenderableCollection) RenderAllWithBlending(cs CharSetter) {
+	bcs := newBlendingCharSetter(cs, rc.blendFunc)
+	for _, id := range rc.insertionOrder {
+		if obj, exists := rc.objects[id]; exists {
+			obj.RenderTo(bcs)
+		}
+	}
+}
+
 // GetIDs returns a slice of all object IDs in the collection.
 func (rc *RenderableCollection) GetIDs() []string {
 	ids := make([]string, 0, len(rc.objects))
@@ -503,6 +657,17 @@ func (rc *RenderableCollection) SetCollisionStrategy(strategy ResolutionStrategy
 // GetCollisionStrategy returns the current collision resolution strategy.
 func (rc *RenderableCollection) GetCollisionStrategy() ResolutionStrategy {
 	return rc.collisionStrategy
+}
+
+// SetBlendFunc sets the blend function used when StrategyBlend is selected.
+// The blend function determines how overlapping characters are combined.
+func (rc *RenderableCollection) SetBlendFunc(fn BlendFunc) {
+	rc.blendFunc = fn
+}
+
+// GetBlendFunc returns the current blend function.
+func (rc *RenderableCollection) GetBlendFunc() BlendFunc {
+	return rc.blendFunc
 }
 
 // rectanglesOverlap checks if two rectangles overlap and returns the overlap region.
@@ -654,12 +819,10 @@ func (rc *RenderableCollection) ResolveCollisions() error {
 		// this
 
 	case StrategyBlend:
-		// TODO(#56): Implement proper blending strategy for collision
-		// resolution For now, blend is the same as overwrite In a more
-		// sophisticated implementation, this could modify the
-		// characters at collision points (e.g., use different
-		// characters, combine characters, or apply visual effects like
-		// underlining)
+		// Blending is handled during rendering via RenderAllWithBlending.
+		// This strategy keeps all objects and applies the configured BlendFunc
+		// at collision points during rendering. Use SetBlendFunc to customize
+		// how overlapping characters are combined.
 
 	default:
 		return fmt.Errorf("unknown collision resolution strategy: %d", rc.collisionStrategy)
