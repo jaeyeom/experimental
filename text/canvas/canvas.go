@@ -370,10 +370,11 @@ func (tb TextBlock) GetBounds() Rectangle {
 		}
 	}
 
-	// Use the configured width if no content or if content is shorter
-	width := tb.Width
-	if maxWidth > 0 && maxWidth < tb.Width {
-		width = maxWidth
+	// Determine width: use actual text width for auto-size (Width=0),
+	// otherwise use minimum of actual text width and configured width
+	width := maxWidth
+	if tb.Width > 0 && maxWidth > tb.Width {
+		width = tb.Width
 	}
 
 	return Rectangle{
