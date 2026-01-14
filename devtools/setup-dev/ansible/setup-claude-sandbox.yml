@@ -21,6 +21,8 @@
           - make
         allowUnsandboxedCommands: true
         network:
+          allowedHosts:
+            - api.github.com
           allowUnixSockets:
             - /var/run/docker.sock
           allowLocalBinding: true
