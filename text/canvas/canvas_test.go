@@ -1,6 +1,7 @@
 package canvas
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -2158,4 +2159,434 @@ func TestBlendingPreservesNonOverlappingContent(t *testing.T) {
 	if strings.Contains(result, "#") {
 		t.Error("Expected no overlap characters for non-overlapping content")
 	}
+}
+
+func TestResize(t *testing.T) {
+	tests := []struct {
+		name               string
+		initialW, initialH int
+		newW, newH         int
+		setup              func(*Canvas)
+		checkAfter         func(*Canvas) error
+	}{
+		{
+			name:     "grow both dimensions",
+			initialW: 5, initialH: 3,
+			newW: 10, newH: 6,
+			setup: func(c *Canvas) {
+				c.SetChar(2, 1, 'X')
+			},
+			checkAfter: func(c *Canvas) error {
+				if c.Width() != 10 || c.Height() != 6 {
+					return fmt.Errorf("expected size 10x6, got %dx%d", c.Width(), c.Height())
+				}
+				if c.GetChar(2, 1) != 'X' {
+					return fmt.Errorf("expected 'X' at (2,1), got %c", c.GetChar(2, 1))
+				}
+				return nil
+			},
+		},
+		{
+			name:     "shrink both dimensions",
+			initialW: 10, initialH: 10,
+			newW: 5, newH: 5,
+			setup: func(c *Canvas) {
+				c.SetChar(2, 2, 'A')
+				c.SetChar(8, 8, 'B') // Will be lost after resize
+			},
+			checkAfter: func(c *Canvas) error {
+				if c.Width() != 5 || c.Height() != 5 {
+					return fmt.Errorf("expected size 5x5, got %dx%d", c.Width(), c.Height())
+				}
+				if c.GetChar(2, 2) != 'A' {
+					return fmt.Errorf("expected 'A' at (2,2), got %c", c.GetChar(2, 2))
+				}
+				return nil
+			},
+		},
+		{
+			name:     "grow width shrink height",
+			initialW: 5, initialH: 10,
+			newW: 10, newH: 5,
+			setup: func(c *Canvas) {
+				c.SetChar(2, 2, 'X')
+			},
+			checkAfter: func(c *Canvas) error {
+				if c.Width() != 10 || c.Height() != 5 {
+					return fmt.Errorf("expected size 10x5, got %dx%d", c.Width(), c.Height())
+				}
+				if c.GetChar(2, 2) != 'X' {
+					return fmt.Errorf("expected 'X' at (2,2), got %c", c.GetChar(2, 2))
+				}
+				return nil
+			},
+		},
+		{
+			name:     "same size is no-op",
+			initialW: 5, initialH: 5,
+			newW: 5, newH: 5,
+			setup: func(c *Canvas) {
+				c.SetChar(2, 2, 'X')
+			},
+			checkAfter: func(c *Canvas) error {
+				if c.GetChar(2, 2) != 'X' {
+					return fmt.Errorf("expected 'X' at (2,2), got %c", c.GetChar(2, 2))
+				}
+				return nil
+			},
+		},
+		{
+			name:     "invalid dimensions clamped to 1",
+			initialW: 5, initialH: 5,
+			newW: 0, newH: -1,
+			setup: func(_ *Canvas) {},
+			checkAfter: func(c *Canvas) error {
+				if c.Width() != 1 || c.Height() != 1 {
+					return fmt.Errorf("expected size 1x1 for invalid dims, got %dx%d", c.Width(), c.Height())
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			canvas := New(tt.initialW, tt.initialH)
+			tt.setup(canvas)
+			canvas.Resize(tt.newW, tt.newH)
+			if err := tt.checkAfter(canvas); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+func TestClone(t *testing.T) {
+	original := New(10, 5)
+	original.SetChar(2, 2, 'X')
+	original.SetChar(5, 3, 'Y')
+
+	clone := original.Clone()
+
+	// Verify clone has same dimensions
+	if clone.Width() != original.Width() || clone.Height() != original.Height() {
+		t.Errorf("clone dimensions mismatch: got %dx%d, want %dx%d",
+			clone.Width(), clone.Height(), original.Width(), original.Height())
+	}
+
+	// Verify clone has same content
+	if clone.GetChar(2, 2) != 'X' {
+		t.Errorf("expected 'X' at (2,2) in clone, got %c", clone.GetChar(2, 2))
+	}
+	if clone.GetChar(5, 3) != 'Y' {
+		t.Errorf("expected 'Y' at (5,3) in clone, got %c", clone.GetChar(5, 3))
+	}
+
+	// Verify clone is independent (modifying clone doesn't affect original)
+	clone.SetChar(0, 0, 'Z')
+	if original.GetChar(0, 0) == 'Z' {
+		t.Error("modifying clone affected original - not a true clone")
+	}
+
+	// Verify modifying original doesn't affect clone
+	original.SetChar(1, 1, 'W')
+	if clone.GetChar(1, 1) == 'W' {
+		t.Error("modifying original affected clone - not a true clone")
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	canvas := New(10, 5)
+	canvas.SetChar(0, 0, 'A')
+	canvas.SetChar(5, 2, 'B')
+
+	// Update a region
+	updates := []struct {
+		x, y int
+		r    rune
+	}{
+		{1, 1, 'X'},
+		{2, 1, 'Y'},
+		{3, 1, 'Z'},
+	}
+
+	changed := canvas.Update(func(c *Canvas) {
+		for _, u := range updates {
+			c.SetChar(u.x, u.y, u.r)
+		}
+	})
+
+	// Verify updates were applied
+	if canvas.GetChar(1, 1) != 'X' || canvas.GetChar(2, 1) != 'Y' || canvas.GetChar(3, 1) != 'Z' {
+		t.Error("updates not applied correctly")
+	}
+
+	// Verify original content preserved
+	if canvas.GetChar(0, 0) != 'A' || canvas.GetChar(5, 2) != 'B' {
+		t.Error("original content was not preserved")
+	}
+
+	// Verify changed regions are returned
+	if len(changed) == 0 {
+		t.Error("expected changed regions to be returned")
+	}
+}
+
+func TestDiff(t *testing.T) {
+	canvas1 := New(5, 3)
+	canvas1.SetChar(0, 0, 'A')
+	canvas1.SetChar(1, 0, 'B')
+	canvas1.SetChar(2, 0, 'C')
+
+	canvas2 := New(5, 3)
+	canvas2.SetChar(0, 0, 'A') // Same
+	canvas2.SetChar(1, 0, 'X') // Different
+	canvas2.SetChar(2, 0, 'C') // Same
+	canvas2.SetChar(3, 0, 'D') // New (was space)
+
+	diffs := canvas1.Diff(canvas2)
+
+	// Should have 2 differences: (1,0) B->X and (3,0) space->D
+	if len(diffs) != 2 {
+		t.Errorf("expected 2 diffs, got %d", len(diffs))
+	}
+
+	// Verify diff contents
+	diffMap := make(map[Position]CellDiff)
+	for _, d := range diffs {
+		diffMap[d.Position] = d
+	}
+
+	if d, ok := diffMap[Position{X: 1, Y: 0}]; ok {
+		if d.Old != 'B' || d.New != 'X' {
+			t.Errorf("expected B->X at (1,0), got %c->%c", d.Old, d.New)
+		}
+	} else {
+		t.Error("expected diff at (1,0)")
+	}
+
+	if d, ok := diffMap[Position{X: 3, Y: 0}]; ok {
+		if d.Old != ' ' || d.New != 'D' {
+			t.Errorf("expected space->D at (3,0), got %c->%c", d.Old, d.New)
+		}
+	} else {
+		t.Error("expected diff at (3,0)")
+	}
+}
+
+func TestDiffDifferentSizes(t *testing.T) {
+	canvas1 := New(3, 3)
+	canvas2 := New(5, 5)
+
+	diffs := canvas1.Diff(canvas2)
+
+	// Should return nil or empty for different sizes
+	if diffs != nil {
+		t.Errorf("expected nil for different sized canvases, got %d diffs", len(diffs))
+	}
+}
+
+func TestDiffIdentical(t *testing.T) {
+	canvas1 := New(5, 3)
+	canvas1.SetChar(1, 1, 'X')
+
+	canvas2 := New(5, 3)
+	canvas2.SetChar(1, 1, 'X')
+
+	diffs := canvas1.Diff(canvas2)
+
+	if len(diffs) != 0 {
+		t.Errorf("expected 0 diffs for identical canvases, got %d", len(diffs))
+	}
+}
+
+// BenchmarkRenderOptimized measures render performance with varied content.
+func BenchmarkRenderOptimized(b *testing.B) {
+	canvas := New(80, 24)
+	// Fill with varied content
+	for y := 0; y < 24; y++ {
+		for x := 0; x < 80; x++ {
+			if (x+y)%3 == 0 {
+				canvas.SetChar(x, y, 'X')
+			}
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		canvas.Render()
+	}
+}
+
+func BenchmarkRenderLargeCanvas(b *testing.B) {
+	canvas := New(200, 100)
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 200; x++ {
+			canvas.SetChar(x, y, rune('A'+((x+y)%26)))
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		canvas.Render()
+	}
+}
+
+func BenchmarkClone(b *testing.B) {
+	canvas := New(80, 24)
+	for y := 0; y < 24; y++ {
+		for x := 0; x < 80; x++ {
+			canvas.SetChar(x, y, 'A')
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		canvas.Clone()
+	}
+}
+
+func BenchmarkResize(b *testing.B) {
+	b.Run("grow", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			canvas := New(40, 12)
+			canvas.Resize(80, 24)
+		}
+	})
+
+	b.Run("shrink", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			canvas := New(80, 24)
+			canvas.Resize(40, 12)
+		}
+	})
+}
+
+func BenchmarkDiff(b *testing.B) {
+	canvas1 := New(80, 24)
+	canvas2 := New(80, 24)
+
+	// Make them slightly different
+	for y := 0; y < 24; y++ {
+		for x := 0; x < 80; x++ {
+			canvas1.SetChar(x, y, 'A')
+			if x%10 == 0 {
+				canvas2.SetChar(x, y, 'B')
+			} else {
+				canvas2.SetChar(x, y, 'A')
+			}
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		canvas1.Diff(canvas2)
+	}
+}
+
+func TestCanvasPool(t *testing.T) {
+	pool := NewPool(80, 24)
+
+	// Test pool dimensions
+	if pool.Width() != 80 || pool.Height() != 24 {
+		t.Errorf("expected pool dimensions 80x24, got %dx%d", pool.Width(), pool.Height())
+	}
+
+	// Get a canvas from the pool
+	canvas := pool.Get()
+	if canvas == nil {
+		t.Fatal("expected non-nil canvas from pool")
+	}
+
+	if canvas.Width() != 80 || canvas.Height() != 24 {
+		t.Errorf("expected canvas dimensions 80x24, got %dx%d", canvas.Width(), canvas.Height())
+	}
+
+	// Verify canvas is cleared
+	for y := 0; y < canvas.Height(); y++ {
+		for x := 0; x < canvas.Width(); x++ {
+			if canvas.GetChar(x, y) != ' ' {
+				t.Errorf("expected cleared canvas, found %c at (%d,%d)", canvas.GetChar(x, y), x, y)
+			}
+		}
+	}
+
+	// Use the canvas
+	canvas.SetChar(10, 5, 'X')
+
+	// Return to pool
+	pool.Put(canvas)
+
+	// Get another canvas - should be cleared
+	canvas2 := pool.Get()
+	if canvas2.GetChar(10, 5) != ' ' {
+		t.Error("expected canvas from pool to be cleared")
+	}
+
+	pool.Put(canvas2)
+}
+
+func TestCanvasPoolInvalidDimensions(t *testing.T) {
+	pool := NewPool(0, -5)
+
+	// Should clamp to 1x1
+	if pool.Width() != 1 || pool.Height() != 1 {
+		t.Errorf("expected clamped dimensions 1x1, got %dx%d", pool.Width(), pool.Height())
+	}
+}
+
+func TestCanvasPoolWrongSize(t *testing.T) {
+	pool := NewPool(80, 24)
+
+	// Create a canvas with different size
+	wrongSizeCanvas := New(40, 12)
+
+	// Put should not panic, but should not accept it
+	pool.Put(wrongSizeCanvas)
+
+	// Get should still return correct size
+	canvas := pool.Get()
+	if canvas.Width() != 80 || canvas.Height() != 24 {
+		t.Errorf("expected 80x24, got %dx%d", canvas.Width(), canvas.Height())
+	}
+
+	pool.Put(canvas)
+}
+
+func TestCanvasPoolNilPut(_ *testing.T) {
+	pool := NewPool(80, 24)
+
+	// Should not panic
+	pool.Put(nil)
+}
+
+func BenchmarkCanvasPoolGetPut(b *testing.B) {
+	pool := NewPool(80, 24)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		canvas := pool.Get()
+		canvas.SetChar(10, 5, 'X')
+		pool.Put(canvas)
+	}
+}
+
+func BenchmarkCanvasPoolVsNew(b *testing.B) {
+	b.Run("pool", func(b *testing.B) {
+		pool := NewPool(80, 24)
+		for i := 0; i < b.N; i++ {
+			canvas := pool.Get()
+			canvas.SetChar(10, 5, 'X')
+			pool.Put(canvas)
+		}
+	})
+
+	b.Run("new", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			canvas := New(80, 24)
+			canvas.SetChar(10, 5, 'X')
+			// No put - canvas is GC'd
+			_ = canvas
+		}
+	})
 }
