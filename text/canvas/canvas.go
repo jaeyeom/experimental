@@ -91,6 +91,7 @@ package canvas
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/jaeyeom/experimental/text/wrap"
 )
@@ -494,21 +495,52 @@ func (c *Canvas) Clear() {
 // Each row is separated by a newline character.
 // Trailing spaces are trimmed from each line.
 func (c *Canvas) Render() string {
-	var lines []string
-
-	for y := 0; y < c.height; y++ {
-		line := string(c.cells[y])
-		// Trim trailing spaces for cleaner output
-		line = strings.TrimRight(line, " ")
-		lines = append(lines, line)
+	// Find the last non-empty row to avoid trailing newlines
+	lastNonEmptyRow := -1
+	for y := c.height - 1; y >= 0; y-- {
+		for x := c.width - 1; x >= 0; x-- {
+			if c.cells[y][x] != c.background {
+				lastNonEmptyRow = y
+				break
+			}
+		}
+		if lastNonEmptyRow >= 0 {
+			break
+		}
 	}
 
-	// Remove trailing empty lines
-	for len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+	// Empty canvas
+	if lastNonEmptyRow < 0 {
+		return ""
 	}
 
-	return strings.Join(lines, "\n")
+	// Pre-allocate builder with estimated capacity
+	// Estimate: (width + 1 for newline) * number of rows
+	var sb strings.Builder
+	sb.Grow((c.width + 1) * (lastNonEmptyRow + 1))
+
+	for y := 0; y <= lastNonEmptyRow; y++ {
+		// Find last non-space character in this row
+		lastNonSpace := -1
+		for x := c.width - 1; x >= 0; x-- {
+			if c.cells[y][x] != c.background {
+				lastNonSpace = x
+				break
+			}
+		}
+
+		// Write the row up to the last non-space character
+		for x := 0; x <= lastNonSpace; x++ {
+			sb.WriteRune(c.cells[y][x])
+		}
+
+		// Add newline if not the last row
+		if y < lastNonEmptyRow {
+			sb.WriteByte('\n')
+		}
+	}
+
+	return sb.String()
 }
 
 // Width returns the width of the canvas.
@@ -995,4 +1027,180 @@ func NewTextBlockWithWidth(id string, text string, position Position, width int)
 		WrapMode: WrapBasic,
 		Align:    AlignLeft,
 	}
+}
+
+// CellDiff represents a difference between two canvas cells at a specific position.
+type CellDiff struct {
+	Position Position
+	Old      rune
+	New      rune
+}
+
+// Resize changes the canvas dimensions while preserving existing content
+// that fits within the new bounds. Content outside the new bounds is lost.
+// Invalid dimensions (<=0) are clamped to 1.
+func (c *Canvas) Resize(width, height int) {
+	if width <= 0 {
+		width = 1
+	}
+	if height <= 0 {
+		height = 1
+	}
+
+	// No-op if size unchanged
+	if width == c.width && height == c.height {
+		return
+	}
+
+	// Create new cells
+	newCells := make([][]rune, height)
+	for y := 0; y < height; y++ {
+		newCells[y] = make([]rune, width)
+		for x := 0; x < width; x++ {
+			// Copy from old cells if within old bounds, otherwise use background
+			if y < c.height && x < c.width {
+				newCells[y][x] = c.cells[y][x]
+			} else {
+				newCells[y][x] = c.background
+			}
+		}
+	}
+
+	c.cells = newCells
+	c.width = width
+	c.height = height
+}
+
+// Clone creates a deep copy of the canvas.
+// The returned canvas is completely independent of the original.
+func (c *Canvas) Clone() *Canvas {
+	clone := &Canvas{
+		width:      c.width,
+		height:     c.height,
+		background: c.background,
+		cells:      make([][]rune, c.height),
+	}
+
+	for y := 0; y < c.height; y++ {
+		clone.cells[y] = make([]rune, c.width)
+		copy(clone.cells[y], c.cells[y])
+	}
+
+	return clone
+}
+
+// Update applies a batch of modifications to the canvas and returns
+// the list of cells that were changed. This is useful for tracking
+// which parts of the canvas need to be redrawn.
+//
+// The function takes a snapshot before applying changes, then computes
+// the diff after the function completes.
+func (c *Canvas) Update(fn func(*Canvas)) []CellDiff {
+	// Take snapshot before changes
+	snapshot := c.Clone()
+
+	// Apply the changes
+	fn(c)
+
+	// Compute and return the diff
+	return snapshot.Diff(c)
+}
+
+// Diff compares this canvas with another and returns a list of cell differences.
+// Returns nil if the canvases have different dimensions.
+// This is useful for implementing efficient terminal updates where only
+// changed cells need to be redrawn.
+func (c *Canvas) Diff(other *Canvas) []CellDiff {
+	if c.width != other.width || c.height != other.height {
+		return nil
+	}
+
+	var diffs []CellDiff
+
+	for y := 0; y < c.height; y++ {
+		for x := 0; x < c.width; x++ {
+			oldChar := c.cells[y][x]
+			newChar := other.cells[y][x]
+			if oldChar != newChar {
+				diffs = append(diffs, CellDiff{
+					Position: Position{X: x, Y: y},
+					Old:      oldChar,
+					New:      newChar,
+				})
+			}
+		}
+	}
+
+	return diffs
+}
+
+// Pool provides memory pooling for Canvas allocation and reuse.
+// This is useful for high-throughput scenarios where canvases are frequently
+// created and destroyed, reducing GC pressure.
+type Pool struct {
+	pool   sync.Pool
+	width  int
+	height int
+}
+
+// NewPool creates a new pool for canvases of the specified dimensions.
+// All canvases obtained from this pool will have the same width and height.
+func NewPool(width, height int) *Pool {
+	if width <= 0 {
+		width = 1
+	}
+	if height <= 0 {
+		height = 1
+	}
+
+	return &Pool{
+		width:  width,
+		height: height,
+		pool: sync.Pool{
+			New: func() interface{} {
+				return New(width, height)
+			},
+		},
+	}
+}
+
+// Get retrieves a canvas from the pool, or creates a new one if the pool is empty.
+// The returned canvas is cleared and ready for use.
+func (p *Pool) Get() *Canvas {
+	canvas := p.pool.Get().(*Canvas)
+
+	// Ensure dimensions match (in case pool was used with different sizes somehow)
+	if canvas.width != p.width || canvas.height != p.height {
+		canvas.Resize(p.width, p.height)
+	}
+
+	// Clear the canvas for fresh use
+	canvas.Clear()
+
+	return canvas
+}
+
+// Put returns a canvas to the pool for reuse.
+// The canvas should not be used after calling Put.
+func (p *Pool) Put(canvas *Canvas) {
+	if canvas == nil {
+		return
+	}
+
+	// Only accept canvases of the correct size
+	if canvas.width != p.width || canvas.height != p.height {
+		return
+	}
+
+	p.pool.Put(canvas)
+}
+
+// Width returns the width of canvases in this pool.
+func (p *Pool) Width() int {
+	return p.width
+}
+
+// Height returns the height of canvases in this pool.
+func (p *Pool) Height() int {
+	return p.height
 }
