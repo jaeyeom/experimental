@@ -52,3 +52,10 @@
       shell: starship preset catppuccin-powerline -o {{ user_config_directory }}/starship.toml
       args:
         creates: "{{ user_config_directory }}/starship.toml"
+
+    - name: Configure scan_timeout to avoid directory scanning timeout warnings
+      lineinfile:
+        path: "{{ user_config_directory }}/starship.toml"
+        regexp: '^scan_timeout\s*='
+        line: 'scan_timeout = 30'
+        insertafter: BOF
