@@ -2,7 +2,17 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["canvas.go"],
+    srcs = [
+        "border.go",
+        "borderlayout.go",
+        "boxchars.go",
+        "canvas.go",
+        "convenience.go",
+        "flowlayout.go",
+        "grid.go",
+        "layout.go",
+        "stack.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/text/canvas",
     visibility = ["//visibility:public"],
     deps = ["//text/wrap:go_default_library"],
@@ -13,7 +23,9 @@ go_test(
     size = "small",
     srcs = [
         "canvas_test.go",
+        "example_layouts_test.go",
         "example_table_integration_test.go",
+        "layout_test.go",
     ],
     embed = [":go_default_library"],
     deps = ["//text/table:go_default_library"],

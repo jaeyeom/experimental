@@ -12,4 +12,5 @@ go_test(
     name = "go_default_test",
     srcs = ["parser_test.go"],
     embed = [":go_default_library"],
+    deps = ["//devtools/gherun/internal/vars:go_default_library"],
 )
