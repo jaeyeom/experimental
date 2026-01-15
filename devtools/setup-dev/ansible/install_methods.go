@@ -543,7 +543,24 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
           uri:
             url: ` + s.LatestVersionURL + `
             return_content: yes
+            status_code: [200, 403]
           register: ` + commandID + `_latest_release
+          until: >-
+            ` + commandID + `_latest_release.status == 200 or
+            (` + commandID + `_latest_release.status == 403 and
+             (` + commandID + `_latest_release.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if ` + command + ` version fetch failed
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch ` + command + ` version from GitHub.
+              Status: {{ ` + commandID + `_latest_release.status }}.
+              {% if ` + commandID + `_latest_release.status == 403 and (` + commandID + `_latest_release.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or use a GitHub token.
+              {% endif %}
+          when: ` + commandID + `_latest_release.status != 200
 
         - name: Parse latest ` + command + ` version from GitHub response
           set_fact:

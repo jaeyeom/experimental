@@ -25,7 +25,24 @@
       ansible.builtin.uri:
         url: https://api.github.com/repos/golangci/golangci-lint/releases/latest
         return_content: yes
+        status_code: [200, 403]
       register: golangci_lint_release_info
+      until: >-
+        golangci_lint_release_info.status == 200 or
+        (golangci_lint_release_info.status == 403 and
+         (golangci_lint_release_info.x_ratelimit_remaining | default('1') | string) != '0')
+      retries: 3
+      delay: 120
+
+    - name: Fail if golangci-lint version fetch failed
+      ansible.builtin.fail:
+        msg: >-
+          Failed to fetch golangci-lint version from GitHub.
+          Status: {{ golangci_lint_release_info.status }}.
+          {% if golangci_lint_release_info.status == 403 and (golangci_lint_release_info.x_ratelimit_remaining | default('1') | string) == '0' %}
+          Rate limit exceeded after retries. Please try again later or use a GitHub token.
+          {% endif %}
+      when: golangci_lint_release_info.status != 200
 
     - name: Set the latest version of golangci-lint
       ansible.builtin.set_fact:
