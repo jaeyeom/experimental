@@ -1005,7 +1005,11 @@ before packages are loaded."
   (require 'auth-source-pass nil 'noerror)
 
   ;;; Text Mode
-  (add-hook 'text-mode-hook 'turn-on-auto-fill)
+  (defun my/turn-on-auto-fill-unless-scratch ()
+    "Turn on `auto-fill-mode' unless in the *scratch* buffer."
+    (unless (string= (buffer-name) "*scratch*")
+      (turn-on-auto-fill)))
+  (add-hook 'text-mode-hook 'my/turn-on-auto-fill-unless-scratch)
 
   ;;; Implement image functions for Emacs without image support (issue #37)
   (defun my/create-image (file-or-data &optional type data-p &rest props)
