@@ -46,7 +46,24 @@
           uri:
             url: https://api.github.com/repos/nvm-sh/nvm/releases/latest
             return_content: yes
+            status_code: [200, 403]
           register: nvm_latest_release
+          until: >-
+            nvm_latest_release.status == 200 or
+            (nvm_latest_release.status == 403 and
+             (nvm_latest_release.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if nvm version fetch failed
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch nvm version from GitHub.
+              Status: {{ nvm_latest_release.status }}.
+              {% if nvm_latest_release.status == 403 and (nvm_latest_release.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or use a GitHub token.
+              {% endif %}
+          when: nvm_latest_release.status != 200
 
         - name: Parse latest nvm version from GitHub response
           set_fact:
