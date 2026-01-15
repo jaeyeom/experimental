@@ -1450,6 +1450,12 @@ mode does not work with Roam links."
   (with-eval-after-load 'ob-chatgpt-shell
     (ob-chatgpt-shell-setup))
 
+  (with-eval-after-load 'ob-python
+    ;; Use ipython if available
+    (setopt org-babel-python-command
+            (or (executable-find "ipython")
+                "python3")))
+
   (with-eval-after-load 'ob-mermaid
     ;; Find the executable mmdc then fall back to local node_modules.
     (setopt ob-mermaid-cli-path
