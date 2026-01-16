@@ -14,6 +14,13 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # Detect OS
 OS="$(uname -s)"
 
+# Set GITHUB_TOKEN from gh CLI if not already set (for higher API rate limits)
+if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
+    if gh_token=$(gh auth token 2>/dev/null); then
+        export GITHUB_TOKEN="$gh_token"
+    fi
+fi
+
 if [ -n "$TERMUX_VERSION" ]; then
     # Ansible remote temp directory is messed up on Termux like
     # /data/.ansible/tmp, so we need to set it to a writable directory.
