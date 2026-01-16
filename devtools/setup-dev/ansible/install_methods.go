@@ -544,6 +544,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
             url: ` + s.LatestVersionURL + `
             return_content: yes
             status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
           register: ` + commandID + `_latest_release
           until: >-
             ` + commandID + `_latest_release.status == 200 or
@@ -558,7 +559,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
               Failed to fetch ` + command + ` version from GitHub.
               Status: {{ ` + commandID + `_latest_release.status }}.
               {% if ` + commandID + `_latest_release.status == 403 and (` + commandID + `_latest_release.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or use a GitHub token.
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
               {% endif %}
           when: ` + commandID + `_latest_release.status != 200
 
