@@ -137,6 +137,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "codex",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: NpmInstallMethod{Name: "@openai/codex"},
+		},
+		Imports: []Import{{Playbook: "setup-npm"}},
+	},
+	{
 		command: "copier",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "copier"},

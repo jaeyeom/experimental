@@ -418,6 +418,22 @@ sh_test(
 )
 
 sh_test(
+    name = "codex_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["codex.yml"],
+    data = [
+        "codex.yml",
+        "npm.yml",
+        "setup-npm.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "copier_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["copier.yml"],
@@ -2502,6 +2518,7 @@ test_suite(
         ":claudelytics_syntax_test",
         ":cleanup-repo_syntax_test",
         ":cmake_syntax_test",
+        ":codex_syntax_test",
         ":copier_syntax_test",
         ":curl_syntax_test",
         ":dart_syntax_test",
