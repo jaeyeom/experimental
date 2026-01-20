@@ -289,6 +289,9 @@ func (c *Chart) renderSeparator(width int) string {
 }
 
 // renderTask generates a single task row.
+// Cells are centered at integer time values: cell N represents time (N-0.5) to (N+0.5).
+// This means a task from 0s to 10s will show '<' at position 0 (right half filled),
+// '#' for positions 1-9 (fully filled), and '>' at position 10 (left half filled).
 func (c *Chart) renderTask(task Task, width int) string {
 	var sb strings.Builder
 
@@ -299,7 +302,8 @@ func (c *Chart) renderTask(task Task, width int) string {
 	}
 	fmt.Fprintf(&sb, "%-*s", c.labelWidth, label)
 
-	// Task bar
+	// Task bar with cell-centered model
+	// Cell i is centered at time i, spanning (i-0.5) to (i+0.5) in time units
 	startUnit := float64(task.Start) / float64(c.timeUnit)
 	endUnit := float64(task.End) / float64(c.timeUnit)
 
@@ -309,72 +313,61 @@ func (c *Chart) renderTask(task Task, width int) string {
 	}
 
 	for i := 0; i <= width; i++ {
-		// Check for interval marker
-		if c.showSeparator && i%intervalUnits == 0 {
+		// Cell i represents time (i-0.5) to (i+0.5)
+		cellStart := float64(i) - 0.5
+		cellEnd := float64(i) + 0.5
+
+		char := c.getCharForCell(cellStart, cellEnd, startUnit, endUnit)
+
+		// Show separator only if cell is empty (no task coverage)
+		if c.showSeparator && i%intervalUnits == 0 && char == c.chars.Empty {
 			sb.WriteRune('|')
-			continue
+		} else {
+			sb.WriteRune(char)
 		}
-
-		// Calculate fill for this unit
-		unitStart := float64(i)
-		unitEnd := float64(i + 1)
-
-		char := c.getCharForUnit(unitStart, unitEnd, startUnit, endUnit)
-		sb.WriteRune(char)
 	}
 
 	return sb.String()
 }
 
-// getCharForUnit determines the character to display for a time unit.
-func (c *Chart) getCharForUnit(unitStart, unitEnd, taskStart, taskEnd float64) rune {
+// getCharForCell determines the character to display for a cell-centered time unit.
+// Cell spans from cellStart to cellEnd (e.g., cell 5 spans 4.5 to 5.5).
+// Returns:
+//   - Empty if no overlap
+//   - Full if task covers the entire cell
+//   - LeftHalf ('>') if task only covers the left half (task ends at cell center)
+//   - RightHalf ('<') if task only covers the right half (task starts at cell center)
+func (c *Chart) getCharForCell(cellStart, cellEnd, taskStart, taskEnd float64) rune {
+	cellCenter := (cellStart + cellEnd) / 2.0
+
 	// No overlap
-	if taskEnd <= unitStart || taskStart >= unitEnd {
+	if taskEnd <= cellStart || taskStart >= cellEnd {
 		return c.chars.Empty
 	}
 
-	// Calculate overlap
-	overlapStart := max(unitStart, taskStart)
-	overlapEnd := min(unitEnd, taskEnd)
-	overlap := overlapEnd - overlapStart
-
-	// Full overlap
-	if overlap >= 0.99 {
+	// Check if task covers the full cell
+	if taskStart <= cellStart && taskEnd >= cellEnd {
 		return c.chars.Full
 	}
 
-	// Partial overlap - determine position
-	relStart := overlapStart - unitStart
-	relEnd := overlapEnd - unitStart
-
-	// Check for various partial fill cases
-	leftFilled := relStart < 0.25
-	rightFilled := relEnd > 0.75
-	centerFilled := relStart < 0.5 && relEnd > 0.5
-
-	if leftFilled && rightFilled {
-		if overlap < 0.5 {
+	// Task starts at or after cell center (right half only) - show '<'
+	// This means task starts here
+	if taskStart >= cellCenter-0.01 && taskStart < cellEnd {
+		// Task ends before cell end - very short task
+		if taskEnd <= cellCenter+0.01 {
 			return c.chars.BothEnds
 		}
-		return c.chars.Full
-	}
-	if leftFilled && centerFilled {
-		return c.chars.LeftHalf
-	}
-	if rightFilled && centerFilled {
-		return c.chars.RightHalf
-	}
-	if overlap >= 0.5 {
-		return c.chars.Full
-	}
-	if overlap >= 0.25 {
-		if relStart < 0.5 {
-			return c.chars.LeftHalf
-		}
-		return c.chars.RightHalf
+		return c.chars.RightHalf // '<' indicates task starts here
 	}
 
-	return c.chars.Empty
+	// Task ends at or before cell center (left half only) - show '>'
+	// This means task ends here
+	if taskEnd <= cellCenter+0.01 && taskEnd > cellStart {
+		return c.chars.LeftHalf // '>' indicates task ends here
+	}
+
+	// Task covers more than half the cell
+	return c.chars.Full
 }
 
 // formatDuration formats a duration for display in the time header.
