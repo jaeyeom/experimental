@@ -1,5 +1,6 @@
 ---
 - import_playbook: jq.yml
+- import_playbook: setup-shell-profile.yml
 - import_playbook: setup-claude-termux-rg.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
@@ -8,6 +9,9 @@
   vars:
     claude_settings_dir: "{{ ansible_facts['env']['HOME'] }}/.claude"
     claude_settings_file: "{{ claude_settings_dir }}/settings.json"
+    claude_tmpdir_base: "{{ ansible_facts['env']['TMPDIR'] | default('/tmp', true) }}"
+    claude_tmpdir: "{{ claude_tmpdir_base }}/claude"
+    claude_tmpdir_export_line: "export CLAUDE_CODE_TMPDIR=\"${TMPDIR:-/tmp}/claude\""
     sandbox_config:
       includeCoAuthoredBy: false
       sandbox:
@@ -79,6 +83,24 @@
         path: "{{ claude_settings_dir }}"
         state: directory
         mode: "0755"
+
+    - name: Create Claude temp directory
+      file:
+        path: "{{ claude_tmpdir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Set fallback shell profile path
+      set_fact:
+        user_profile_path: "~/.profile"
+      when: user_profile_path is not defined
+
+    - name: Set CLAUDE_CODE_TMPDIR in shell profile
+      lineinfile:
+        path: "{{ user_profile_path }}"
+        line: "{{ claude_tmpdir_export_line }}"
+        create: true
+        mode: "0644"
 
     - name: Check if settings.json exists
       stat:
