@@ -861,6 +861,17 @@ sh_test(
 )
 
 sh_test(
+    name = "godot_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["godot.yml"],
+    data = ["godot.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "gofumpt_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["gofumpt.yml"],
@@ -2565,6 +2576,7 @@ test_suite(
         ":godef_syntax_test",
         ":godoc_syntax_test",
         ":godoctor_syntax_test",
+        ":godot_syntax_test",
         ":gofumpt_syntax_test",
         ":goimports_syntax_test",
         ":golangci-lint_syntax_test",
