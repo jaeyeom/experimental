@@ -1,4 +1,4 @@
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load("//tools/org-lint:defs.bzl", "org_lint_tests")
 
 go_library(
@@ -18,6 +18,12 @@ go_binary(
     name = "generate_packages",
     embed = [":go_default_library"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["packages_data_test.go"],
+    embed = [":go_default_library"],
 )
 
 org_lint_tests([
@@ -627,6 +633,20 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["gcloud.yml"],
     data = ["gcloud.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "gdformat_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gdformat.yml"],
+    data = [
+        "gdformat.yml",
+        "uv.yml",
+    ],
     tags = [
         "ansible",
         "local",
@@ -2561,6 +2581,7 @@ test_suite(
         ":fzf_syntax_test",
         ":gather-facts_syntax_test",
         ":gcloud_syntax_test",
+        ":gdformat_syntax_test",
         ":gemini_syntax_test",
         ":gh-codeowners_syntax_test",
         ":gh-merge_syntax_test",

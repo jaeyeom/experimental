@@ -22,6 +22,9 @@ var packages = []PackageData{
 	{command: "htop"},
 	{command: "jq"},
 	{command: "keychain"},
+	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
+	{command: "libtool"},
+	{command: "libvterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
 	{
 		command:       "locate",
 		debianPkgName: "mlocate",
@@ -39,9 +42,6 @@ var packages = []PackageData{
         msg: "On macOS, run 'sudo /usr/libexec/locate.updatedb' manually to update the locate database"
       when: ` + WhenDarwin,
 	},
-	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
-	{command: "libtool"},
-	{command: "libvterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
 	{command: "make"},
 	{command: "man", brewPkgName: "man-db"},
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
@@ -178,15 +178,6 @@ var platformSpecificTools = []PlatformSpecificTool{
 	},
 	GoTool("fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
 	{
-		command: "gemini",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDebianLike: NpmInstallMethod{Name: "@google/gemini-cli"},
-			PlatformTermux:     NpmInstallMethod{Name: "@google/gemini-cli"},
-			PlatformDarwin:     BrewInstallMethod{Name: "gemini-cli"},
-		},
-		Imports: nil,
-	},
-	{
 		command: "gcloud",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewInstallMethod{Name: "google-cloud-sdk"},
@@ -199,6 +190,24 @@ var platformSpecificTools = []PlatformSpecificTool{
 				Codename:       "cloud-sdk",
 			},
 			// Termux: Not officially supported by Google
+		},
+		Imports: nil,
+	},
+	{
+		command: "gdformat",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     UvInstallMethod{Name: "gdtoolkit"},
+			PlatformTermux:     UvInstallMethod{Name: "gdtoolkit"},
+			PlatformDebianLike: UvInstallMethod{Name: "gdtoolkit"},
+		},
+		Imports: []Import{{Playbook: "uv"}},
+	},
+	{
+		command: "gemini",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDebianLike: NpmInstallMethod{Name: "@google/gemini-cli"},
+			PlatformTermux:     NpmInstallMethod{Name: "@google/gemini-cli"},
+			PlatformDarwin:     BrewInstallMethod{Name: "gemini-cli"},
 		},
 		Imports: nil,
 	},
@@ -255,6 +264,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: []Import{{Playbook: "curl"}},
 	},
 	GoTool("org-lint", "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest", Import{Playbook: "emacs"}),
+	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	{
 		command: "pkl",
 		platforms: map[PlatformName]InstallMethod{
@@ -272,7 +282,6 @@ var platformSpecificTools = []PlatformSpecificTool{
 			{Playbook: "curl", When: WhenDebianLike},
 		},
 	},
-	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	GoTool("pkl-gen-go", "github.com/apple/pkl-go/cmd/pkl-gen-go@latest", Import{Playbook: "pkl"}),
 	{
 		command: "pnpm",
