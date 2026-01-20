@@ -12,6 +12,9 @@
     claude_tmpdir_base: "{{ ansible_facts['env']['TMPDIR'] | default('/tmp', true) }}"
     claude_tmpdir: "{{ claude_tmpdir_base }}/claude"
     claude_tmpdir_export_line: "export CLAUDE_CODE_TMPDIR=\"${TMPDIR:-/tmp}/claude\""
+    # Go cache directories for sandbox compatibility (fixes golangci-lint hang)
+    gocache_export_line: "export GOCACHE=\"${TMPDIR:-/tmp}/claude/go-build\""
+    golangci_lint_cache_export_line: "export GOLANGCI_LINT_CACHE=\"${TMPDIR:-/tmp}/claude/golangci-lint\""
     sandbox_config:
       includeCoAuthoredBy: false
       sandbox:
@@ -99,6 +102,32 @@
       lineinfile:
         path: "{{ user_profile_path }}"
         line: "{{ claude_tmpdir_export_line }}"
+        create: true
+        mode: "0644"
+
+    - name: Create Go build cache directory for sandbox
+      file:
+        path: "{{ claude_tmpdir }}/go-build"
+        state: directory
+        mode: "0700"
+
+    - name: Create golangci-lint cache directory for sandbox
+      file:
+        path: "{{ claude_tmpdir }}/golangci-lint"
+        state: directory
+        mode: "0700"
+
+    - name: Set GOCACHE in shell profile
+      lineinfile:
+        path: "{{ user_profile_path }}"
+        line: "{{ gocache_export_line }}"
+        create: true
+        mode: "0644"
+
+    - name: Set GOLANGCI_LINT_CACHE in shell profile
+      lineinfile:
+        path: "{{ user_profile_path }}"
+        line: "{{ golangci_lint_cache_export_line }}"
         create: true
         mode: "0644"
 
