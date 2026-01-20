@@ -212,6 +212,13 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("godef", "github.com/rogpeppe/godef@latest"),
 	GoTool("godoc", "golang.org/x/tools/cmd/godoc@latest"),
 	GoTool("godoctor", "github.com/godoctor/godoctor@latest"),
+	{
+		command: "godot",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewCaskInstallMethod{Name: "godot"},
+		},
+		Imports: nil,
+	},
 	GoTool("gofumpt", "mvdan.cc/gofumpt@latest"),
 	GoTool("goimports", "golang.org/x/tools/cmd/goimports@latest"),
 	GoTool("gomodifytags", "github.com/fatih/gomodifytags@latest"),

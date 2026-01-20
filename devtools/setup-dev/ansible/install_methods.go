@@ -121,6 +121,40 @@ func (b BrewInstallMethod) RenderBlockInstallTask(command string) string {
 	return stripBlockAndIndent(b.RenderInstallTask(command), 0)
 }
 
+// BrewCaskInstallMethod handles installation via Homebrew cask on macOS.
+// Casks are used for GUI applications and larger software bundles.
+type BrewCaskInstallMethod struct {
+	Name string
+}
+
+func (b BrewCaskInstallMethod) GetMethodType() string {
+	return "brew-cask"
+}
+
+func (b BrewCaskInstallMethod) GetImports() []Import {
+	return nil
+}
+
+func (b BrewCaskInstallMethod) RenderSetupTasks(_ string) string {
+	return ""
+}
+
+func (b BrewCaskInstallMethod) RenderInstallTask(command string) string {
+	return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on MacOS via cask
+          community.general.homebrew_cask:
+            name: ` + b.Name + `
+            state: present`
+}
+
+func (b BrewCaskInstallMethod) RenderBlockInstallTask(command string) string {
+	return stripBlockAndIndent(b.RenderInstallTask(command), 0)
+}
+
 // TermuxPkgInstallMethod handles installation via the pkg command on Termux.
 type TermuxPkgInstallMethod struct {
 	Name string
