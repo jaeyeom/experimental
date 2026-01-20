@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "executor",
+    srcs = [
+        "command_builder.go",
+        "concurrent.go",
+        "executor.go",
+        "helpers.go",
+        "mock.go",
+        "result.go",
+        "types.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/pkg/executor",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "executor_test",
+    srcs = [
+        "executor_test.go",
+        "helpers_test.go",
+        "mock_test.go",
+    ],
+    embed = [":executor"],
+)
