@@ -133,7 +133,8 @@ func TestTaskBarRendering(t *testing.T) {
 		WithLabelWidth(8).
 		WithChars(DefaultChars)
 
-	// Task from 0s to 3s should render 3 full characters
+	// Task from 0s to 3s with cell-centered model:
+	// Cell 0: '<' (task starts), Cells 1-2: '##', Cell 3: '>' (task ends)
 	chart.AddTask("Task_A", 0, 3*time.Second)
 
 	output := chart.Render()
@@ -152,9 +153,9 @@ func TestTaskBarRendering(t *testing.T) {
 		t.Fatal("could not find Task_A line")
 	}
 
-	// Should have # characters for the filled portion
-	if !strings.Contains(taskLine, "###") {
-		t.Errorf("expected task bar with '###', got %q", taskLine)
+	// With cell-centered model, 0-3s renders as <##>
+	if !strings.Contains(taskLine, "<##>") {
+		t.Errorf("expected task bar with '<##>', got %q", taskLine)
 	}
 }
 
@@ -226,12 +227,15 @@ func TestCustomChars(t *testing.T) {
 			BothEnds:  'X',
 		})
 
+	// Task from 0s to 3s with cell-centered model:
+	// Cell 0: ']' (RightHalf, task starts), Cells 1-2: '**', Cell 3: '[' (LeftHalf, task ends)
 	chart.AddTask("Task_A", 0, 3*time.Second)
 
 	output := chart.Render()
 
-	if !strings.Contains(output, "***") {
-		t.Errorf("expected custom char '*' for full block, got %q", output)
+	// With cell-centered model, 0-3s renders as ]**[
+	if !strings.Contains(output, "]**[") {
+		t.Errorf("expected custom chars ']**[' for task bar, got %q", output)
 	}
 }
 
@@ -332,14 +336,16 @@ func ExampleChart_Render() {
 	chart.AddTask("Task_A", 0, 10*time.Second)
 	chart.AddTask("Task_B", 5*time.Second, 15*time.Second)
 	chart.AddTask("Task_C", 10*time.Second, 20*time.Second)
+	chart.AddTask("Task_D", 3*time.Second, 9*time.Second)
 
 	fmt.Println(chart.Render())
 	// Output:
 	// // Time:   0s   5s   10s  15s  20s
 	// //         |----|----|----|----|
-	// // Task_A  |####|####|    |    |
-	// // Task_B  |    |####|####|    |
-	// // Task_C  |    |    |####|####|
+	// // Task_A  <#########>    |    |
+	// // Task_B  |    <#########>    |
+	// // Task_C  |    |    <#########>
+	// // Task_D  |  <#####>|    |    |
 	// //         |----|----|----|----|
 }
 
@@ -361,6 +367,6 @@ func ExampleChart_Render_customChars() {
 
 	fmt.Println(chart.Render())
 	// Output:
-	// A     *****....
-	// B     ...*****.
+	// A     ]****[...
+	// B     ...]****[
 }
