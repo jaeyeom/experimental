@@ -267,6 +267,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 	},
 	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	GoTool("pkl-gen-go", "github.com/apple/pkl-go/cmd/pkl-gen-go@latest", Import{Playbook: "pkl"}),
+	{
+		command: "pnpm",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "pnpm"},
+			PlatformDebianLike: NpmInstallMethod{Name: "pnpm"},
+			PlatformTermux:     NpmInstallMethod{Name: "pnpm"},
+		},
+		Imports: nil,
+	},
 	GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
 	GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
 	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
