@@ -188,6 +188,7 @@ sh_test(
         "setup-git.yml",
         "setup-gpg-agent.yml",
         "setup-history.yml",
+        "setup-homebrew-env.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-perplexity-mcp.yml",
@@ -1963,6 +1964,20 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-homebrew-env_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-homebrew-env.yml"],
+    data = [
+        "setup-homebrew-env.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-kotex_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-kotex.yml"],
@@ -2698,6 +2713,7 @@ test_suite(
         ":setup-gpg-agent_syntax_test",
         ":setup-gpg-keygen_syntax_test",
         ":setup-history_syntax_test",
+        ":setup-homebrew-env_syntax_test",
         ":setup-kotex_syntax_test",
         ":setup-npm_syntax_test",
         ":setup-nvm_syntax_test",
