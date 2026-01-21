@@ -145,6 +145,9 @@ var platformSpecificTools = []PlatformSpecificTool{
 				InstallCommand: `
 # Dependencies (rust, git, make) are ensured by imported playbooks
 
+# Fail on any error
+set -e
+
 # Clone and build
 # Verified repository: https://github.com/openai/codex (contains codex-rs)
 git clone https://github.com/openai/codex $TMPDIR/codex
