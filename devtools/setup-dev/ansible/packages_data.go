@@ -115,6 +115,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "check-jsonschema",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "check-jsonschema"},
+			PlatformTermux:     UvInstallMethod{Name: "check-jsonschema"},
+			PlatformDebianLike: UvInstallMethod{Name: "check-jsonschema"},
+		},
+		Imports: []Import{{Playbook: "uv", When: WhenNotDarwin}},
+	},
+	{
 		command: "claude",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: ShellInstallMethod{
