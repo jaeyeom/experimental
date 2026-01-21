@@ -20,9 +20,27 @@
         path: /data/data/com.termux
       register: termux_check
 
-    - name: Deploy find wrapper script to ~/.local/bin/find
+    - name: Check if old find wrapper exists in ~/.local/bin
+      ansible.builtin.stat:
+        path: "{{ user_bin_directory }}/find"
+      register: old_find_wrapper
+
+    - name: Check if old find wrapper contains wrapper signature
+      ansible.builtin.shell: grep -q 'Secure find wrapper' "{{ user_bin_directory }}/find"
+      register: old_find_is_wrapper
+      ignore_errors: true
+      changed_when: false
+      when: old_find_wrapper.stat.exists
+
+    - name: Remove old find wrapper from ~/.local/bin to avoid infinite loops
+      ansible.builtin.file:
+        path: "{{ user_bin_directory }}/find"
+        state: absent
+      when: old_find_wrapper.stat.exists and old_find_is_wrapper.rc == 0
+
+    - name: Deploy find wrapper script to ~/.local/shims/bin/find
       ansible.builtin.copy:
-        dest: "{{ user_bin_directory }}/find"
+        dest: "{{ user_shims_bin_directory }}/find"
         mode: '0755'
         content: |
           {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
