@@ -1,0 +1,29 @@
+---
+- import_playbook: setup-shell-profile.yml
+
+- name: Setup Homebrew shell environment
+  hosts: all
+  tasks:
+    - name: Include guard for setup-homebrew-env playbook
+      block:
+        - name: Stop early if the setup-homebrew-env playbook is already included
+          meta: end_play
+          when: setup_homebrew_env_playbook_imported is defined
+        - name: Ensure the setup-homebrew-env playbook is not included
+          set_fact:
+            setup_homebrew_env_playbook_imported: true
+          when: setup_homebrew_env_playbook_imported is not defined
+
+    - name: Ensure Homebrew environment is set for non-login shells
+      blockinfile:
+        path: "{{ user_profile_path }}"
+        insertbefore: BOF
+        marker: "# {mark} Setup Homebrew"
+        block: |
+          if ! command -v brew &> /dev/null; then
+            if [ -x /opt/homebrew/bin/brew ]; then
+              eval "$(/opt/homebrew/bin/brew shellenv)"
+            elif [ -x /usr/local/bin/brew ]; then
+              eval "$(/usr/local/bin/brew shellenv)"
+            fi
+          fi
