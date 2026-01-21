@@ -100,9 +100,27 @@
         path: /data/data/com.termux
       register: termux_check
 
-    - name: Deploy git wrapper script to ~/.local/bin/git
+    - name: Check if old git wrapper exists in ~/.local/bin
+      ansible.builtin.stat:
+        path: "{{ user_bin_directory }}/git"
+      register: old_git_wrapper
+
+    - name: Check if old git wrapper contains wrapper signature
+      ansible.builtin.shell: grep -q 'Find the real git' "{{ user_bin_directory }}/git"
+      register: old_git_is_wrapper
+      ignore_errors: true
+      changed_when: false
+      when: old_git_wrapper.stat.exists
+
+    - name: Remove old git wrapper from ~/.local/bin to avoid infinite loops
+      ansible.builtin.file:
+        path: "{{ user_bin_directory }}/git"
+        state: absent
+      when: old_git_wrapper.stat.exists and old_git_is_wrapper.rc == 0
+
+    - name: Deploy git wrapper script to ~/.local/shims/bin/git
       ansible.builtin.copy:
-        dest: "{{ user_bin_directory }}/git"
+        dest: "{{ user_shims_bin_directory }}/git"
         mode: '0755'
         content: |
           {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
