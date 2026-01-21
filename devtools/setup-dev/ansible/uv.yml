@@ -47,6 +47,7 @@
           changed_when: False
 
         - name: Install uv
-          shell: curl -LsSf https://astral.sh/uv/install.sh | sh
+          shell: |
+            curl -LsSf https://astral.sh/uv/install.sh | sh
           when: uv_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
