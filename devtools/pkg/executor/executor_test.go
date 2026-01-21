@@ -227,6 +227,7 @@ func TestDirectCommandBuilder(t *testing.T) {
 			// Verify the command is created
 			if cmd == nil {
 				t.Fatal("Build() returned nil")
+				return
 			}
 
 			// Verify Path is set (resolved executable path)
