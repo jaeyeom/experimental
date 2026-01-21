@@ -602,7 +602,8 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
             ` + commandID + `_latest_version: "{{ ` + commandID + `_latest_release.json.` + s.LatestVersionPath + ` | regex_replace('^v', '') }}"
 
         - name: Install/update ` + command + ` if outdated
-          shell: ` + s.InstallCommand + `
+          shell: |
+` + indent(strings.Trim(s.InstallCommand, "\n"), 12) + `
           when: ` + commandID + `_installed_version != ` + commandID + `_latest_version`
 	}
 
@@ -615,7 +616,8 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
           changed_when: False
 
         - name: Install ` + command + `
-          shell: ` + s.InstallCommand + `
+          shell: |
+` + indent(strings.Trim(s.InstallCommand, "\n"), 12) + `
           when: ` + commandID + `_installed.rc != 0`
 }
 

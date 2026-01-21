@@ -32,7 +32,8 @@
           changed_when: False
 
         - name: Install claude
-          shell: curl -fsSL https://claude.ai/install.sh | bash
+          shell: |
+            curl -fsSL https://claude.ai/install.sh | bash
           when: claude_installed.rc != 0
       when: ansible_facts['os_family'] == "Darwin"
 
