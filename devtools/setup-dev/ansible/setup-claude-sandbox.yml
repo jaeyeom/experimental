@@ -1,6 +1,7 @@
 ---
 - import_playbook: jq.yml
-- import_playbook: setup-shell-profile.yml
+- import_playbook: setup-user-bin-directory.yml
+- import_playbook: which.yml
 - import_playbook: setup-claude-termux-rg.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
@@ -11,10 +12,6 @@
     claude_settings_file: "{{ claude_settings_dir }}/settings.json"
     claude_tmpdir_base: "{{ ansible_facts['env']['TMPDIR'] | default('/tmp', true) }}"
     claude_tmpdir: "{{ claude_tmpdir_base }}/claude"
-    claude_tmpdir_export_line: "export CLAUDE_CODE_TMPDIR=\"${TMPDIR:-/tmp}/claude\""
-    # Go cache directories for sandbox compatibility (fixes golangci-lint hang)
-    gocache_export_line: "export GOCACHE=\"${TMPDIR:-/tmp}/claude/go-build\""
-    golangci_lint_cache_export_line: "export GOLANGCI_LINT_CACHE=\"${TMPDIR:-/tmp}/claude/golangci-lint\""
     sandbox_config:
       includeCoAuthoredBy: false
       sandbox:
@@ -93,43 +90,35 @@
         state: directory
         mode: "0700"
 
-    - name: Set fallback shell profile path
-      set_fact:
-        user_profile_path: "~/.profile"
-      when: user_profile_path is not defined
+    - name: Check if running in Termux
+      ansible.builtin.stat:
+        path: /data/data/com.termux
+      register: termux_check
 
-    - name: Set CLAUDE_CODE_TMPDIR in shell profile
-      lineinfile:
-        path: "{{ user_profile_path }}"
-        line: "{{ claude_tmpdir_export_line }}"
-        create: true
-        mode: "0644"
+    - name: Create claude wrapper script in ~/.local/shims/bin
+      copy:
+        content: |
+          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
+          # Wrapper script for Claude Code to enforce sandbox environment variables
 
-    - name: Create Go build cache directory for sandbox
-      file:
-        path: "{{ claude_tmpdir }}/go-build"
-        state: directory
-        mode: "0700"
+          # Find the real claude (skipping this wrapper)
+          # which -a returns absolute paths. We take the second one because this wrapper
+          # is expected to be the first one in PATH.
+          REAL_CLAUDE=$(which -a claude | sed -n '2p')
 
-    - name: Create golangci-lint cache directory for sandbox
-      file:
-        path: "{{ claude_tmpdir }}/golangci-lint"
-        state: directory
-        mode: "0700"
+          if [[ -z "$REAL_CLAUDE" ]]; then
+              echo "Error: No real claude found in PATH" >&2
+              exit 1
+          fi
 
-    - name: Set GOCACHE in shell profile
-      lineinfile:
-        path: "{{ user_profile_path }}"
-        line: "{{ gocache_export_line }}"
-        create: true
-        mode: "0644"
+          export CLAUDE_CODE_TMPDIR="${TMPDIR:-/tmp}/claude"
+          export GOCACHE="${TMPDIR:-/tmp}/claude/go-build"
+          export GOLANGCI_LINT_CACHE="${TMPDIR:-/tmp}/claude/golangci-lint"
 
-    - name: Set GOLANGCI_LINT_CACHE in shell profile
-      lineinfile:
-        path: "{{ user_profile_path }}"
-        line: "{{ golangci_lint_cache_export_line }}"
-        create: true
-        mode: "0644"
+          # Execute the real claude
+          exec "$REAL_CLAUDE" "$@"
+        dest: "{{ user_shims_bin_directory }}/claude"
+        mode: "0755"
 
     - name: Check if settings.json exists
       stat:

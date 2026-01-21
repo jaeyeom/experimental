@@ -1737,6 +1737,8 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "which.yml",
     ],
     tags = [
         "ansible",

@@ -18,9 +18,19 @@
       ansible.builtin.set_fact:
         user_bin_directory: "{{ ansible_facts['env']['HOME'] + '/.local/bin' }}"
 
+    - name: Determine the user shims bin directory
+      ansible.builtin.set_fact:
+        user_shims_bin_directory: "{{ ansible_facts['env']['HOME'] + '/.local/shims/bin' }}"
+
     - name: Ensure the user bin directory exists
       ansible.builtin.file:
         path: "{{ user_bin_directory }}"
+        state: directory
+        mode: '0700'
+
+    - name: Ensure the user shims bin directory exists
+      ansible.builtin.file:
+        path: "{{ user_shims_bin_directory }}"
         state: directory
         mode: '0700'
 
@@ -38,4 +48,7 @@
         block: |
           if [ -d "$HOME/.local/bin" ]; then
               PATH="$HOME/.local/bin:$PATH"
+          fi
+          if [ -d "$HOME/.local/shims/bin" ]; then
+              PATH="$HOME/.local/shims/bin:$PATH"
           fi
