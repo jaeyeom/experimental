@@ -307,7 +307,6 @@ This function should only modify configuration layer settings."
       (dart :variables
             lsp-dart-sdk-dir "~/flutter/bin/cache/dart-sdk/"
             lsp-enable-on-type-formatting t)
-      dirvish
       dtrt-indent
       emacs-lisp
       epub
@@ -373,6 +372,8 @@ This function should only modify configuration layer settings."
       protobuf
       (python :variables
               python-format-on-save t)
+      (ranger :variables
+              ranger-override-dired 'dirvish)
       react
       reddit
       ;; renpy
