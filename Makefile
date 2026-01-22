@@ -96,9 +96,9 @@ generate-pkl:
 	$(MAKE) -C devtools/gh-nudge generate-pkl
 
 check-generated: generate-ansible generate-pkl
-	@if git status --porcelain -- $(GENERATED_PATHS) | grep -q .; then \
-		echo "Error: Generated files are out of date. Run 'make all' and add the files to commit."; \
-		git status --porcelain -- $(GENERATED_PATHS); \
+	@if ! git diff --quiet -- $(GENERATED_PATHS); then \
+		echo "Error: Generated files differ from staged. Run 'make all' and stage the files."; \
+		git diff --name-only -- $(GENERATED_PATHS); \
 		exit 1; \
 	fi
 
