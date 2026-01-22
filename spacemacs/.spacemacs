@@ -312,8 +312,7 @@ This function should only modify configuration layer settings."
       epub
       eww
       (git :variables
-           git-enable-magit-delta-plugin t
-           git-enable-magit-todos-plugin t)
+           git-enable-magit-delta-plugin t)
       github-copilot
       (go :variables
           go-backend (if my/termux-p 'go-mode 'lsp)
@@ -436,6 +435,7 @@ This function should only modify configuration layer settings."
      cov
      direnv
      eshell-command-not-found
+     gdscipt-mode
      gherkin-mode
      green-is-the-new-black-theme
      (highlight-chars :location (recipe :fetcher github
