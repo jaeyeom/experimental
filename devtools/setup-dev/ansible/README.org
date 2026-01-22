@@ -225,5 +225,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-user-go-bin-directory.yml
 - setup-vibe-coding.yml
 - setup-windsurf-rules.yml
+- setup-wrangler.yml
 - setup-z.yml
 - spacemacs.yml
