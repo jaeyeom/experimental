@@ -120,9 +120,16 @@
               exit 1
           fi
 
-          export CLAUDE_CODE_TMPDIR="${TMPDIR:-/tmp}/claude"
-          export GOCACHE="${TMPDIR:-/tmp}/claude/go-build"
-          export GOLANGCI_LINT_CACHE="${TMPDIR:-/tmp}/claude/golangci-lint"
+          # Set up Claude sandbox temp directory
+          # Must capture original TMPDIR before overwriting it
+          CLAUDE_TMPDIR_BASE="${TMPDIR:-/tmp}"
+          export CLAUDE_CODE_TMPDIR="${CLAUDE_TMPDIR_BASE}/claude"
+          export GOCACHE="${CLAUDE_TMPDIR_BASE}/claude/go-build"
+          export GOLANGCI_LINT_CACHE="${CLAUDE_TMPDIR_BASE}/claude/golangci-lint"
+
+          # Set TMPDIR to claude temp directory so heredocs work in sandbox
+          # Shells create temp files for heredocs using TMPDIR
+          export TMPDIR="${CLAUDE_TMPDIR_BASE}/claude"
 
           # Execute the real claude
           exec "$REAL_CLAUDE" "$@"
