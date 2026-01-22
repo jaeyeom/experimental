@@ -24,6 +24,15 @@
           - git
           - make
         allowUnsandboxedCommands: true
+        filesystem:
+          write:
+            allowOnly:
+              # macOS Go and golangci-lint cache paths
+              - "{{ ansible_facts['env']['HOME'] }}/Library/Caches/go-build"
+              - "{{ ansible_facts['env']['HOME'] }}/Library/Caches/golangci-lint"
+              # Linux Go and golangci-lint cache paths
+              - "{{ ansible_facts['env']['HOME'] }}/.cache/go-build"
+              - "{{ ansible_facts['env']['HOME'] }}/.cache/golangci-lint"
         network:
           allowedHosts:
             - api.github.com
