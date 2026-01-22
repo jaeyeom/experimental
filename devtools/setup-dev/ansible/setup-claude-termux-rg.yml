@@ -5,6 +5,7 @@
 - import_playbook: claude.yml
 - import_playbook: rg.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
+- import_playbook: setup-shell-profile.yml
 
 - name: Configure Claude Code for Termux
   hosts: all
@@ -21,18 +22,20 @@
 
     - name: Configure TMPDIR for Claude Code on Termux
       block:
-        - name: Check if TMPDIR export exists in .bashrc
-          shell: grep -q 'export TMPDIR=\$PREFIX/tmp' ~/.bashrc
-          register: tmpdir_exists
-          failed_when: false
-          changed_when: false
-
-        - name: Add TMPDIR export to .bashrc
+        - name: Check if TMPDIR export exists in shell profile
           lineinfile:
-            path: ~/.bashrc
+            path: "{{ user_profile_path }}"
+            line: 'export TMPDIR=$PREFIX/tmp'
+            state: present
+          check_mode: yes
+          register: tmpdir_check
+
+        - name: Add TMPDIR export to shell profile
+          lineinfile:
+            path: "{{ user_profile_path }}"
             line: 'export TMPDIR=$PREFIX/tmp'
             create: yes
-          when: tmpdir_exists.rc != 0
+          when: tmpdir_check is changed
 
         - name: Ensure PREFIX/tmp directory exists
           file:

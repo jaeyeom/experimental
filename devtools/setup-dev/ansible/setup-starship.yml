@@ -16,37 +16,20 @@
             starship_setup_playbook_imported: true
           when: starship_setup_playbook_imported is not defined
 
-    - name: Check if starship is already initialized in bash profile
+    - name: Check if starship is already initialized in shell profile
       lineinfile:
-        path: ~/.bashrc
-        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init bash)"'
+        path: "{{ user_profile_path }}"
+        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init {{ user_shell.stdout | basename }})"'
         state: present
       check_mode: yes
-      register: bash_starship_check
-      when: user_shell.stdout is search('/bash$')
+      register: starship_check
 
-    - name: Add starship initialization to bash profile
+    - name: Add starship initialization to shell profile
       lineinfile:
-        path: ~/.bashrc
-        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init bash)"'
+        path: "{{ user_profile_path }}"
+        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init {{ user_shell.stdout | basename }})"'
         create: yes
-      when: user_shell.stdout is search('/bash$') and bash_starship_check is changed
-
-    - name: Check if starship is already initialized in zsh profile
-      lineinfile:
-        path: ~/.zshrc
-        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init zsh)"'
-        state: present
-      check_mode: yes
-      register: zsh_starship_check
-      when: user_shell.stdout is search('/zsh$')
-
-    - name: Add starship initialization to zsh profile
-      lineinfile:
-        path: ~/.zshrc
-        line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init zsh)"'
-        create: yes
-      when: user_shell.stdout is search('/zsh$') and zsh_starship_check is changed
+      when: starship_check is changed
 
     - name: Apply starship catppuccin-powerline preset
       shell: starship preset catppuccin-powerline -o {{ user_config_directory }}/starship.toml

@@ -17,39 +17,21 @@
             direnv_setup_playbook_imported: true
           when: direnv_setup_playbook_imported is not defined
 
-    - name: Check if direnv hook is already in bash profile
+    - name: Check if direnv hook is already in shell profile
       lineinfile:
-        path: ~/.bashrc
-        line: 'eval "$(direnv hook bash)"'
+        path: "{{ user_profile_path }}"
+        line: 'eval "$(direnv hook {{ user_shell.stdout | basename }})"'
         state: present
       check_mode: yes
-      register: bash_direnv_check
-      when: user_shell.stdout is search('/bash$')
+      register: direnv_check
 
-    - name: Add direnv hook to bash profile (after starship)
+    - name: Add direnv hook to shell profile (after starship)
       lineinfile:
-        path: ~/.bashrc
-        line: 'eval "$(direnv hook bash)"'
-        insertafter: 'starship init bash'
+        path: "{{ user_profile_path }}"
+        line: 'eval "$(direnv hook {{ user_shell.stdout | basename }})"'
+        insertafter: 'starship init {{ user_shell.stdout | basename }}'
         create: yes
-      when: user_shell.stdout is search('/bash$') and bash_direnv_check is changed
-
-    - name: Check if direnv hook is already in zsh profile
-      lineinfile:
-        path: ~/.zshrc
-        line: 'eval "$(direnv hook zsh)"'
-        state: present
-      check_mode: yes
-      register: zsh_direnv_check
-      when: user_shell.stdout is search('/zsh$')
-
-    - name: Add direnv hook to zsh profile (after starship)
-      lineinfile:
-        path: ~/.zshrc
-        line: 'eval "$(direnv hook zsh)"'
-        insertafter: 'starship init zsh'
-        create: yes
-      when: user_shell.stdout is search('/zsh$') and zsh_direnv_check is changed
+      when: direnv_check is changed
 
     - name: Check if starship config exists
       stat:
