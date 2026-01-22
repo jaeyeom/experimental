@@ -1,0 +1,25 @@
+---
+- import_playbook: setup-shell-profile.yml
+
+- name: Configure Wrangler home directory
+  hosts: all
+  tasks:
+    - name: Include guard for setup-wrangler playbook
+      block:
+        - name: Stop early if the setup-wrangler playbook is already included
+          meta: end_play
+          when: setup_wrangler_playbook_imported is defined
+        - name: Ensure the setup-wrangler playbook is not included
+          set_fact:
+            setup_wrangler_playbook_imported: true
+          when: setup_wrangler_playbook_imported is not defined
+
+    - name: Set WRANGLER_HOME environment variable
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} Setup Wrangler home directory"
+        block: |
+          export WRANGLER_HOME="$HOME/.wrangler"
