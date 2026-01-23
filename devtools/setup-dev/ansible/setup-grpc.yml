@@ -1,0 +1,26 @@
+---
+- import_playbook: grpcui.yml
+- import_playbook: grpcio.yml
+- import_playbook: protoc.yml
+- import_playbook: protoc-gen-go.yml
+- import_playbook: protoc-gen-go-grpc.yml
+- import_playbook: protolint.yml
+- import_playbook: protovalidate.yml
+- import_playbook: buf.yml
+
+- name: Setup gRPC environment
+  hosts: all
+  tasks:
+    - name: Include guard for setup-grpc playbook
+      block:
+        - name: Stop early if the setup-grpc playbook is already included
+          meta: end_play
+          when: setup_grpc_playbook_imported is defined
+        - name: Ensure the setup-grpc playbook is not included
+          set_fact:
+            setup_grpc_playbook_imported: true
+          when: setup_grpc_playbook_imported is not defined
+
+    - name: gRPC environment setup completed
+      debug:
+        msg: "All gRPC tools have been installed: grpcui, grpcio, protoc, protoc-gen-go, protoc-gen-go-grpc, protolint, protovalidate, buf"

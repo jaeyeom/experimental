@@ -197,6 +197,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-claude-privacy.yml
 - setup-claude-sandbox.yml
 - setup-claude-termux-rg.yml
+- setup-devtools.yml
 - setup-direnv.yml
 - setup-docker-ce.yml
 - setup-docker-lima.yml
@@ -207,6 +208,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-git.yml
 - setup-gpg-agent.yml
 - setup-gpg-keygen.yml
+- setup-grpc.yml
 - setup-history.yml
 - setup-homebrew-env.yml
 - setup-kotex.yml
