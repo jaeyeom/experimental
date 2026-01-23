@@ -203,6 +203,15 @@ rm -rf $TMPDIR/codex
 		Imports: nil,
 	},
 	{
+		command: "eslint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "eslint"},
+			PlatformDebianLike: NpmInstallMethod{Name: "eslint"},
+			PlatformTermux:     NpmInstallMethod{Name: "eslint"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "fd",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDebianLike: CargoInstallMethod{Name: "fd-find"},
@@ -323,6 +332,15 @@ rm -rf $TMPDIR/codex
 			PlatformDarwin:     BrewInstallMethod{Name: "pnpm"},
 			PlatformDebianLike: NpmInstallMethod{Name: "pnpm"},
 			PlatformTermux:     NpmInstallMethod{Name: "pnpm"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "prettier",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "prettier"},
+			PlatformDebianLike: NpmInstallMethod{Name: "prettier"},
+			PlatformTermux:     NpmInstallMethod{Name: "prettier"},
 		},
 		Imports: nil,
 	},
