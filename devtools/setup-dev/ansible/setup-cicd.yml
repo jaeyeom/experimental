@@ -7,6 +7,8 @@
 - import_playbook: copier.yml
 - import_playbook: eslint.yml
 - import_playbook: prettier.yml
+- import_playbook: act.yml
+- import_playbook: actionlint.yml
 
 - name: Setup CI/CD environment
   hosts: all
@@ -23,4 +25,4 @@
 
     - name: CI/CD environment setup completed
       debug:
-        msg: "All CI/CD tools have been installed: lcov, shellcheck, bazel-affected-tests, org-lint, task, copier, eslint, prettier"
+        msg: "All CI/CD tools have been installed: lcov, shellcheck, bazel-affected-tests, org-lint, task, copier, eslint, prettier, act, actionlint"
