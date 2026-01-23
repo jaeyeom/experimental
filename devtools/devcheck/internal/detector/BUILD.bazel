@@ -7,10 +7,14 @@ go_library(
         "language.go",
         "patterns.go",
         "scanner.go",
+        "unnecessary_interface_assertion_linter.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/devcheck/internal/detector",
     visibility = ["//devtools/devcheck:__subpackages__"],
-    deps = ["//devtools/devcheck/internal/config:go_default_library"],
+    deps = [
+        "//devtools/devcheck/internal/config:go_default_library",
+        "@org_golang_x_tools//go/packages:go_default_library",
+    ],
 )
 
 go_test(
@@ -20,6 +24,7 @@ go_test(
         "language_test.go",
         "patterns_test.go",
         "scanner_test.go",
+        "unnecessary_interface_assertion_linter_test.go",
     ],
     embed = [":go_default_library"],
     deps = ["//devtools/devcheck/internal/config:go_default_library"],
