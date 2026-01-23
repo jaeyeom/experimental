@@ -65,6 +65,7 @@ linters:
             - github.com/spf13/viper
             - github.com/mattn/go-sqlite3
             - golang.org/x/sys
+            - golang.org/x/tools
             - github.com/google/renameio/v2
           deny:
             - pkg: "github.com/leanovate/gopter"

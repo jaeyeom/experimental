@@ -67,7 +67,7 @@ func (d *GoDetector) GetTools(_ string) map[config.ToolType][]string {
 	tools[config.ToolTypeFormat] = []string{"gofumpt", "gofmt"}
 
 	// Lint tools
-	tools[config.ToolTypeLint] = []string{"golangci-lint"}
+	tools[config.ToolTypeLint] = []string{"golangci-lint", "unnecessary-interface-assertion-linter"}
 
 	// Test tools
 	tools[config.ToolTypeTest] = []string{"go test"}
