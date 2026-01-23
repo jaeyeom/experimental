@@ -1,0 +1,1 @@
+For important context and instructions, please review the `CLAUDE.md` file before proceeding.
