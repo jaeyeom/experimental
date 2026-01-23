@@ -14,6 +14,15 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # Detect OS
 OS="$(uname -s)"
 
+# Pre-check for SSH key authentication
+if ! ssh-add -l >/dev/null 2>&1; then
+    if [ -z "$SSHPASS" ]; then
+        echo "Error: No SSH keys are added to the agent, and the SSHPASS environment variable is not set." >&2
+        echo "Please add your SSH keys using 'ssh-add' or set SSHPASS before running this script." >&2
+        exit 1
+    fi
+fi
+
 # Set GITHUB_TOKEN from gh CLI if not already set (for higher API rate limits)
 if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
     if gh_token=$(gh auth token 2>/dev/null); then
