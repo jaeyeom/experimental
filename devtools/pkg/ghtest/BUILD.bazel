@@ -1,7 +1,7 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "ghtest",
+    name = "go_default_library",
     srcs = [
         "fixtures.go",
         "mock.go",
@@ -10,14 +10,14 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/ghtest",
     visibility = ["//visibility:public"],
     deps = [
-        "//devtools/pkg/executor",
-        "//devtools/pkg/ghauth",
+        "//devtools/pkg/executor:go_default_library",
+        "//devtools/pkg/ghauth:go_default_library",
     ],
 )
 
 go_test(
-    name = "ghtest_test",
+    name = "go_default_test",
     srcs = ["mock_test.go"],
-    embed = [":ghtest"],
-    deps = ["//devtools/pkg/executor"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/pkg/executor:go_default_library"],
 )

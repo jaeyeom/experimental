@@ -1,7 +1,7 @@
 load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "ghauth",
+    name = "go_default_library",
     srcs = [
         "env.go",
         "ghcli.go",
@@ -9,16 +9,16 @@ go_library(
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/ghauth",
     visibility = ["//visibility:public"],
-    deps = ["//devtools/pkg/executor"],
+    deps = ["//devtools/pkg/executor:go_default_library"],
 )
 
 go_test(
-    name = "ghauth_test",
+    name = "go_default_test",
     srcs = [
         "env_test.go",
         "ghcli_test.go",
         "token_test.go",
     ],
-    embed = [":ghauth"],
-    deps = ["//devtools/pkg/executor"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/pkg/executor:go_default_library"],
 )
