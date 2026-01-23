@@ -1,5 +1,14 @@
 #!/bin/sh
 
+# Pre-check for SSH key authentication
+if ! ssh-add -l >/dev/null 2>&1; then
+    if [ -z "$SSHPASS" ]; then
+        echo "Error: No SSH keys are added to the agent, and the SSHPASS environment variable is not set." >&2
+        echo "Please add your SSH keys using 'ssh-add' or set SSHPASS before running this script." >&2
+        exit 1
+    fi
+fi
+
 # Script ensure.sh runs the provided playbooks with the provided arguments.
 
 CACHE_DIR="$HOME/.cache/last_upgrade"
