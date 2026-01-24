@@ -90,6 +90,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: []Import{{Playbook: "gh"}},
 	},
+	{
+		command: "biome",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "biome"},
+			PlatformDebianLike: NpmInstallMethod{Name: "@biomejs/biome"},
+			PlatformTermux:     NpmInstallMethod{Name: "@biomejs/biome"},
+		},
+		Imports: []Import{{Playbook: "setup-npm"}},
+	},
 	GoTool("bazel-affected-tests", "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
 	GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
 	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
