@@ -16,7 +16,16 @@
             protovalidate_playbook_imported: true
           when: protovalidate_playbook_imported is not defined
 
+    - name: Ensure protovalidate is present on MacOS
+      block:
+        - name: Ensure if protovalidate is installed
+          ansible.builtin.pip:
+            name: protovalidate
+            state: latest
+      when: ansible_facts['os_family'] == "Darwin"
+
     - name: Ensure if protovalidate is installed
       ansible.builtin.pip:
         name: protovalidate
         state: latest
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
