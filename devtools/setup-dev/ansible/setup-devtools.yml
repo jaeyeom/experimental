@@ -3,6 +3,9 @@
 - import_playbook: sed.yml
 - import_playbook: grep.yml
 - import_playbook: man.yml
+- import_playbook: eslint.yml
+- import_playbook: prettier.yml
+- import_playbook: biome.yml
 - import_playbook: gh.yml
 - import_playbook: jira.yml
 - import_playbook: tmux.yml
