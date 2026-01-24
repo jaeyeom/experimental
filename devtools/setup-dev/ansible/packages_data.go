@@ -383,6 +383,15 @@ rm -rf $TMPDIR/codex
 		Imports: nil,
 	},
 	{
+		command: "sqlfluff",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "sqlfluff"},
+			PlatformDebianLike: UvInstallMethod{Name: "sqlfluff"},
+			PlatformTermux:     PipInstallMethod{Name: "sqlfluff"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "starship",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewInstallMethod{Name: "starship"},
