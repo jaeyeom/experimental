@@ -1,0 +1,3 @@
+---
+# setup-sql-tools.yml - SQL development tools
+- import_playbook: sqlfluff.yml

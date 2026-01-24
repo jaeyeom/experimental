@@ -209,6 +209,7 @@ sh_test(
         "setup-spacemacs.yml",
         "setup-spacemacs-go.yml",
         "setup-spacemacs-python.yml",
+        "setup-sql-tools.yml",
         "setup-ssh-key.yml",
         "setup-starship.yml",
         "setup-user-bin-directory.yml",
@@ -220,6 +221,7 @@ sh_test(
         "setup-z.yml",
         "shellcheck.yml",
         "spacemacs.yml",
+        "sqlfluff.yml",
         "ssh.yml",
         "sshpass.yml",
         "starship.yml",
@@ -2344,6 +2346,21 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-sql-tools_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-sql-tools.yml"],
+    data = [
+        "setup-sql-tools.yml",
+        "sqlfluff.yml",
+        "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-ssh-key_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-ssh-key.yml"],
@@ -2533,6 +2550,20 @@ sh_test(
         "git.yml",
         "setup-user-config-directory.yml",
         "spacemacs.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "sqlfluff_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["sqlfluff.yml"],
+    data = [
+        "sqlfluff.yml",
+        "uv.yml",
     ],
     tags = [
         "ansible",
@@ -2871,6 +2902,7 @@ test_suite(
         ":setup-spacemacs-go_syntax_test",
         ":setup-spacemacs-python_syntax_test",
         ":setup-spacemacs_syntax_test",
+        ":setup-sql-tools_syntax_test",
         ":setup-ssh-key_syntax_test",
         ":setup-starship_syntax_test",
         ":setup-user-bin-directory_syntax_test",
@@ -2882,6 +2914,7 @@ test_suite(
         ":setup-z_syntax_test",
         ":shellcheck_syntax_test",
         ":spacemacs_syntax_test",
+        ":sqlfluff_syntax_test",
         ":ssh_syntax_test",
         ":sshpass_syntax_test",
         ":starship_syntax_test",
