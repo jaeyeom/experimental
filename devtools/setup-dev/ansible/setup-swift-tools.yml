@@ -1,0 +1,4 @@
+---
+# setup-swift-tools.yml - Swift development tools (macOS focused)
+- import_playbook: swiftformat.yml   # Formatter
+- import_playbook: swiftlint.yml     # Linter

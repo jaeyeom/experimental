@@ -222,6 +222,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-spacemacs-python.yml
 - setup-ssh-key.yml
 - setup-starship.yml
+- setup-swift-tools.yml
 - setup-user-bin-directory.yml
 - setup-user-config-directory.yml
 - setup-user-go-bin-directory.yml

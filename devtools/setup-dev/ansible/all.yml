@@ -14,4 +14,6 @@
 - import_playbook: setup-spacemacs-python.yml
 - import_playbook: setup-direnv.yml
 - import_playbook: setup-wrangler.yml
+- import_playbook: setup-swift-tools.yml
+  when: ansible_os_family == "Darwin"
 - import_playbook: setup-devtools.yml

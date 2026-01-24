@@ -211,6 +211,7 @@ sh_test(
         "setup-spacemacs-python.yml",
         "setup-ssh-key.yml",
         "setup-starship.yml",
+        "setup-swift-tools.yml",
         "setup-user-bin-directory.yml",
         "setup-user-config-directory.yml",
         "setup-user-go-bin-directory.yml",
@@ -223,6 +224,8 @@ sh_test(
         "ssh.yml",
         "sshpass.yml",
         "starship.yml",
+        "swiftformat.yml",
+        "swiftlint.yml",
         "task.yml",
         "tmux.yml",
         "uv.yml",
@@ -2384,6 +2387,21 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-swift-tools_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-swift-tools.yml"],
+    data = [
+        "setup-swift-tools.yml",
+        "swiftformat.yml",
+        "swiftlint.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-user-bin-directory_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-user-bin-directory.yml"],
@@ -2571,6 +2589,28 @@ sh_test(
         "rustc.yml",
         "starship.yml",
     ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "swiftformat_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["swiftformat.yml"],
+    data = ["swiftformat.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "swiftlint_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["swiftlint.yml"],
+    data = ["swiftlint.yml"],
     tags = [
         "ansible",
         "local",
@@ -2873,6 +2913,7 @@ test_suite(
         ":setup-spacemacs_syntax_test",
         ":setup-ssh-key_syntax_test",
         ":setup-starship_syntax_test",
+        ":setup-swift-tools_syntax_test",
         ":setup-user-bin-directory_syntax_test",
         ":setup-user-config-directory_syntax_test",
         ":setup-user-go-bin-directory_syntax_test",
@@ -2885,6 +2926,8 @@ test_suite(
         ":ssh_syntax_test",
         ":sshpass_syntax_test",
         ":starship_syntax_test",
+        ":swiftformat_syntax_test",
+        ":swiftlint_syntax_test",
         ":task_syntax_test",
         ":tlmgr_syntax_test",
         ":tmux_syntax_test",

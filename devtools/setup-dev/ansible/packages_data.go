@@ -397,6 +397,18 @@ rm -rf $TMPDIR/codex
 		},
 		Imports: []Import{{Playbook: "rustc"}, {Playbook: "curl"}},
 	},
+	{
+		command: "swiftformat",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "swiftformat"},
+		},
+	},
+	{
+		command: "swiftlint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "swiftlint"},
+		},
+	},
 	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
 		command: "ucm",
