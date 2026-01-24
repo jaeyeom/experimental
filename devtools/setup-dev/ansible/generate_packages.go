@@ -179,9 +179,7 @@ func getPlaybookImports(ymlFile string) ([]string, error) {
 			if len(parts) > 1 {
 				filename := strings.TrimSpace(parts[1])
 				filename = strings.TrimSuffix(filename, ".yml")
-				if filename != "" {
-					imports = append(imports, filename)
-				}
+				imports = append(imports, filename)
 			}
 		}
 	}
