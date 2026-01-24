@@ -167,6 +167,7 @@ sh_test(
         "libvterm.yml",
         "locate.yml",
         "man.yml",
+        "mypy.yml",
         "notmuch.yml",
         "npm.yml",
         "nvm.yml",
@@ -208,6 +209,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-perplexity-mcp.yml",
+        "setup-python-tools.yml",
         "setup-rust.yml",
         "setup-rust-tools.yml",
         "setup-shell-profile.yml",
@@ -1386,6 +1388,20 @@ sh_test(
 )
 
 sh_test(
+    name = "mypy_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["mypy.yml"],
+    data = [
+        "mypy.yml",
+        "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "notmuch_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["notmuch.yml"],
@@ -2267,6 +2283,23 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-python-tools_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-python-tools.yml"],
+    data = [
+        "mypy.yml",
+        "pylsp.yml",
+        "ruff.yml",
+        "setup-python-tools.yml",
+        "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-rust_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-rust.yml"],
@@ -2979,6 +3012,7 @@ test_suite(
         ":make_syntax_test",
         ":man_syntax_test",
         ":mono_syntax_test",
+        ":mypy_syntax_test",
         ":notmuch_syntax_test",
         ":npm_syntax_test",
         ":nvm_syntax_test",
@@ -3033,6 +3067,7 @@ test_suite(
         ":setup-nvm_syntax_test",
         ":setup-pass_syntax_test",
         ":setup-perplexity-mcp_syntax_test",
+        ":setup-python-tools_syntax_test",
         ":setup-rust-tools_syntax_test",
         ":setup-rust_syntax_test",
         ":setup-shell-profile_syntax_test",

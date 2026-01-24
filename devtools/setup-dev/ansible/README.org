@@ -223,6 +223,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-nvm.yml
 - setup-pass.yml
 - setup-perplexity-mcp.yml
+- setup-python-tools.yml
 - setup-rust.yml
 - setup-rust-tools.yml
 - setup-shell-profile.yml
