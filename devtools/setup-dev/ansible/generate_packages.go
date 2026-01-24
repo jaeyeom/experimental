@@ -171,8 +171,11 @@ func getPlaybookImports(ymlFile string) ([]string, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, "import_playbook:") {
+			// Remove comments before processing
+			lineBeforeComment, _, _ := strings.Cut(line, "#")
+
 			// Extract the filename from "- import_playbook: filename.yml"
-			parts := strings.Split(line, "import_playbook:")
+			parts := strings.Split(lineBeforeComment, "import_playbook:")
 			if len(parts) > 1 {
 				filename := strings.TrimSpace(parts[1])
 				filename = strings.TrimSuffix(filename, ".yml")
