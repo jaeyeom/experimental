@@ -1,0 +1,5 @@
+---
+# setup-python-tools.yml - Python development tools
+- import_playbook: ruff.yml        # Formatter + Linter (already exists)
+- import_playbook: pylsp.yml       # Language server (already exists)
+- import_playbook: mypy.yml        # Type checker (to be added)

@@ -312,6 +312,15 @@ rm -rf $TMPDIR/codex
 		Imports: nil,
 	},
 	{
+		command: "mypy",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "mypy"},
+			PlatformDebianLike: UvInstallMethod{Name: "mypy"},
+			PlatformTermux:     UvInstallMethod{Name: "mypy"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "nvm",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: ShellInstallMethod{
