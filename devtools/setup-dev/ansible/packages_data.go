@@ -359,7 +359,8 @@ rm -rf $TMPDIR/codex
 	{
 		command: "protovalidate",
 		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: PipInstallMethod{Name: "protovalidate"},
+			PlatformDarwin:     PipInstallMethod{Name: "protovalidate"},
+			PlatformDebianLike: PipInstallMethod{Name: "protovalidate"},
 		},
 		Imports: nil,
 	},
