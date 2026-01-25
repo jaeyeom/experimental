@@ -1,0 +1,4 @@
+---
+- import_playbook: rustfmt.yml
+- import_playbook: cargo-clippy.yml
+- import_playbook: rust-analyzer.yml

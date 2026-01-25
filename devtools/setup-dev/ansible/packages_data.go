@@ -110,6 +110,15 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "cargo-clippy",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "clippy"},
+			PlatformDebianLike: RustupComponentMethod{Name: "clippy"},
+			PlatformTermux:     RustupComponentMethod{Name: "clippy"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "cargo-install-update",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: CargoInstallMethod{Name: "cargo-update"},
@@ -380,6 +389,24 @@ rm -rf $TMPDIR/codex
 			PlatformTermux:     TermuxPkgInstallMethod{Name: "ruff"},
 			PlatformDarwin:     BrewInstallMethod{Name: "ruff"},
 			PlatformDebianLike: UvInstallMethod{Name: "ruff"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "rust-analyzer",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "rust-analyzer"},
+			PlatformDebianLike: RustupComponentMethod{Name: "rust-analyzer"},
+			PlatformTermux:     RustupComponentMethod{Name: "rust-analyzer"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "rustfmt",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "rustfmt"},
+			PlatformDebianLike: RustupComponentMethod{Name: "rustfmt"},
+			PlatformTermux:     RustupComponentMethod{Name: "rustfmt"},
 		},
 		Imports: nil,
 	},
