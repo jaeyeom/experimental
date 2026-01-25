@@ -16,5 +16,6 @@
 - import_playbook: setup-wrangler.yml
 - import_playbook: setup-swift-tools.yml
   when: ansible_facts['os_family'] == "Darwin"
-- import_playbook: setup-devtools.yml
+- import_playbook: setup-rust-tools.yml
 - import_playbook: setup-sql-tools.yml
+- import_playbook: setup-devtools.yml

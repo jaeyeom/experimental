@@ -270,6 +270,43 @@ func (g GoInstallMethod) RenderBlockInstallTask(command string) string {
 	return indent(g.RenderInstallTask(command), 4)
 }
 
+// RustupComponentMethod handles installation of Rust components via rustup.
+// Components like clippy, rustfmt, and rust-analyzer are installed this way.
+// Upgrades are handled by `rustup update` in ensure.sh, so this only checks
+// if the component is installed.
+type RustupComponentMethod struct {
+	Name string
+}
+
+func (r RustupComponentMethod) GetMethodType() string {
+	return "rustup-component"
+}
+
+func (r RustupComponentMethod) GetImports() []Import {
+	return []Import{{Playbook: "setup-rust"}}
+}
+
+func (r RustupComponentMethod) RenderSetupTasks(_ string) string {
+	return ""
+}
+
+func (r RustupComponentMethod) RenderInstallTask(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
+	return `    - name: Check if ` + command + ` is installed
+      shell: command -v ` + command + `
+      register: ` + commandID + `_installed
+      ignore_errors: yes
+      changed_when: False
+
+    - name: Install ` + r.Name + ` component via rustup
+      command: rustup component add ` + r.Name + `
+      when: ` + commandID + `_installed.rc != 0`
+}
+
+func (r RustupComponentMethod) RenderBlockInstallTask(command string) string {
+	return indent(r.RenderInstallTask(command), 4)
+}
+
 // CargoInstallMethod handles installation via Rust cargo command.
 // Includes update logic using cargo-install-update.
 type CargoInstallMethod struct {
