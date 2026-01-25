@@ -51,8 +51,15 @@ so it's usually a good idea to use it for Go projects. The generator includes
 automatic version checking and upgrade logic for Go packages.
 
 *** macOS
-Homebrew is the preferred package manager for macOS, with support for taps and
-installation options when needed.
+Homebrew is the most preferred installation method on macOS because it provides
+system-level packages, which is what this setup-dev/ansible setup generally
+aims for. Even when alternative installation methods exist (e.g., =rustup= for
+Rust tools, =cargo= for Rust packages), Homebrew is preferred when available
+because it integrates with the system package management and ensures consistent
+tooling across the development environment.
+
+Homebrew also supports taps and installation options when needed for specialized
+packages.
 
 To regenerate the playbooks, simply run:
 #+begin_src sh
@@ -216,6 +223,8 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-nvm.yml
 - setup-pass.yml
 - setup-perplexity-mcp.yml
+- setup-rust.yml
+- setup-rust-tools.yml
 - setup-shell-profile.yml
 - setup-spacemacs.yml
 - setup-spacemacs-go.yml

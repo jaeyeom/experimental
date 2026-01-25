@@ -9,6 +9,7 @@ PKG_CACHE="$CACHE_DIR/termux-pkg-upgrade"
 BREW_CACHE="$CACHE_DIR/brew-update"
 NALA_CACHE="$CACHE_DIR/nala-upgrade"
 PIP_CACHE="$CACHE_DIR/pip"
+RUSTUP_CACHE="$CACHE_DIR/rustup-update"
 ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 
 # Detect OS
@@ -168,6 +169,16 @@ else
             echo "Unable to install Ansible - unsupported package manager"
             exit 1
         fi
+    fi
+fi
+
+# Update rustup if installed (upgrades rust toolchain and all components)
+# Only update if not done in the last 24 hours
+if command -v rustup >/dev/null 2>&1; then
+    if [ ! -f "$RUSTUP_CACHE" ] || [ "$(find "$RUSTUP_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+        echo "Updating Rust toolchain via rustup..."
+        rustup update
+        touch "$RUSTUP_CACHE"
     fi
 fi
 
