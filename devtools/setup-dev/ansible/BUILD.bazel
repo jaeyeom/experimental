@@ -197,6 +197,7 @@ sh_test(
         "setup-claude-privacy.yml",
         "setup-claude-sandbox.yml",
         "setup-claude-termux-rg.yml",
+        "setup-css-tools.yml",
         "setup-devtools.yml",
         "setup-direnv.yml",
         "setup-emacs.yml",
@@ -231,6 +232,7 @@ sh_test(
         "ssh.yml",
         "sshpass.yml",
         "starship.yml",
+        "stylelint.yml",
         "swiftformat.yml",
         "swiftlint.yml",
         "task.yml",
@@ -1927,6 +1929,23 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-css-tools_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-css-tools.yml"],
+    data = [
+        "npm.yml",
+        "setup-css-tools.yml",
+        "setup-npm.yml",
+        "setup-shell-profile.yml",
+        "stylelint.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-devtools_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-devtools.yml"],
@@ -2675,6 +2694,22 @@ sh_test(
 )
 
 sh_test(
+    name = "stylelint_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["stylelint.yml"],
+    data = [
+        "npm.yml",
+        "setup-npm.yml",
+        "setup-shell-profile.yml",
+        "stylelint.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "swiftformat_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["swiftformat.yml"],
@@ -2972,6 +3007,7 @@ test_suite(
         ":setup-claude-privacy_syntax_test",
         ":setup-claude-sandbox_syntax_test",
         ":setup-claude-termux-rg_syntax_test",
+        ":setup-css-tools_syntax_test",
         ":setup-devtools_syntax_test",
         ":setup-direnv_syntax_test",
         ":setup-docker-ce_syntax_test",
@@ -3013,6 +3049,7 @@ test_suite(
         ":ssh_syntax_test",
         ":sshpass_syntax_test",
         ":starship_syntax_test",
+        ":stylelint_syntax_test",
         ":swiftformat_syntax_test",
         ":swiftlint_syntax_test",
         ":task_syntax_test",
