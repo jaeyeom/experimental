@@ -5,11 +5,11 @@
 
 ** Overview
 
-DevCheck is a command-line tool designed to automatically
-detect the current repository context and run all appropriate formatters,
-linters, and quality checks. The primary goal is to minimize the need for
-extensive rule documentation in =docs/windsurf/rules= by providing actionable
-output that AI coding agents can directly consume and act upon.
+DevCheck is a command-line tool designed to automatically detect the current
+repository context and run all appropriate formatters, linters, and quality
+checks. The primary goal is to minimize the need for extensive rule
+documentation in =CLAUDE.md= or =AGENTS.md= by providing actionable output that
+AI coding agents can directly consume and act upon.
 
 ** Problem Statement
 
@@ -185,7 +185,7 @@ Available for programmatic consumption but deprioritized.
 ** Success Metrics
 
 *** Primary Metrics
-- Reduction in =docs/windsurf/rules= documentation size by 70%
+- Reduction in =CLAUDE.md= or =AGENTS.md= documentation size by 70%
 - AI agents can successfully fix 90% of formatting/linting issues using tool output
 - Zero manual intervention required for standard development workflows
 

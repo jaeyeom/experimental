@@ -213,6 +213,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-emacs-lsp-booster.yml
 - setup-find.yml
 - setup-git.yml
+- setup-go-tools.yml
 - setup-gpg-agent.yml
 - setup-gpg-keygen.yml
 - setup-grpc.yml
@@ -228,8 +229,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-rust-tools.yml
 - setup-shell-profile.yml
 - setup-spacemacs.yml
-- setup-spacemacs-go.yml
-- setup-spacemacs-python.yml
 - setup-sql-tools.yml
 - setup-ssh-key.yml
 - setup-starship.yml
@@ -238,7 +237,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-user-config-directory.yml
 - setup-user-go-bin-directory.yml
 - setup-vibe-coding.yml
-- setup-windsurf-rules.yml
 - setup-wrangler.yml
 - setup-z.yml
 - spacemacs.yml
