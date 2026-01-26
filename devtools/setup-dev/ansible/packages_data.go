@@ -453,6 +453,15 @@ rm -rf $TMPDIR/codex
 		Imports: []Import{{Playbook: "rustc"}, {Playbook: "curl"}},
 	},
 	{
+		command: "stylelint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "stylelint"},
+			PlatformDebianLike: NpmInstallMethod{Name: "stylelint"},
+			PlatformTermux:     NpmInstallMethod{Name: "stylelint"},
+		},
+		Imports: []Import{{Playbook: "setup-npm"}},
+	},
+	{
 		command: "swiftformat",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewInstallMethod{Name: "swiftformat"},

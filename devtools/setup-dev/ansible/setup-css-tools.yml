@@ -1,0 +1,4 @@
+---
+# setup-css-tools.yml - CSS/SCSS development tools
+- import_playbook: stylelint.yml    # Linter
+# Note: prettier (already in playbooks) can also format CSS/SCSS
