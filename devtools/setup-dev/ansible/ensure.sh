@@ -1,6 +1,27 @@
-#!/bin/sh
+#!/bin/bash
 
 # Script ensure.sh runs the provided playbooks with the provided arguments.
+
+LOG_FILE="$HOME/.cache/ensure_sh.log"
+SESSION_ID=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16 ; echo '')
+
+echo "---" >> "$LOG_FILE"
+echo "Session ID: $SESSION_ID" >> "$LOG_FILE"
+echo "Start Time: $(date)" >> "$LOG_FILE"
+echo "Arguments: $@" >> "$LOG_FILE"
+
+finish() {
+    EXIT_CODE=$?
+    echo "Finish Time: $(date)" >> "$LOG_FILE"
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "Finish Reason: Success" >> "$LOG_FILE"
+    else
+        echo "Finish Reason: Failure (Exit Code: $EXIT_CODE)" >> "$LOG_FILE"
+    fi
+}
+trap finish EXIT
+
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 CACHE_DIR="$HOME/.cache/last_upgrade"
 mkdir -p "$CACHE_DIR"
