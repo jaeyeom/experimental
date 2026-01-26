@@ -44,9 +44,4 @@ sh_binary(
     srcs = ["check-bazel-src-files.sh"],
 )
 
-sh_binary(
-    name = "populate-windsurf-rules",
-    srcs = ["populate_windsurf_rules.sh"],
-)
-
 org_lint_tests(["README.org"])

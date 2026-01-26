@@ -1,5 +1,4 @@
 ---
-- import_playbook: setup-spacemacs.yml
 - import_playbook: gopls.yml
 - import_playbook: godoc.yml
 - import_playbook: goimports.yml
@@ -15,6 +14,3 @@
 - import_playbook: golangci-lint.yml
 - import_playbook: gofumpt.yml
 - import_playbook: oserrorsgodernize.yml
-
-- name: Ensure Spacemacs go layer is set up
-  hosts: all

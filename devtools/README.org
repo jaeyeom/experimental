@@ -418,7 +418,6 @@ Example GitHub Actions workflow:
 :CUSTOM_ID: related-docs
 :END:
 
-- [[file:../docs/windsurf/rules/][Windsurf Rules]] - Development workflow guidelines
 - [[file:../spacemacs/README.org][Spacemacs Configuration]] - Current Emacs setup
 - [[file:../CLAUDE.md][Claude AI Instructions]] - AI assistant guidelines
 
