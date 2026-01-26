@@ -438,15 +438,6 @@ rm -rf $TMPDIR/codex
 		Imports: nil,
 	},
 	{
-		command: "stylelint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "stylelint"},
-			PlatformDebianLike: NpmInstallMethod{Name: "stylelint"},
-			PlatformTermux:     NpmInstallMethod{Name: "stylelint"},
-		},
-		Imports: []Import{{Playbook: "setup-npm"}},
-	},
-	{
 		command: "starship",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewInstallMethod{Name: "starship"},
@@ -460,6 +451,15 @@ rm -rf $TMPDIR/codex
 			},
 		},
 		Imports: []Import{{Playbook: "rustc"}, {Playbook: "curl"}},
+	},
+	{
+		command: "stylelint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "stylelint"},
+			PlatformDebianLike: NpmInstallMethod{Name: "stylelint"},
+			PlatformTermux:     NpmInstallMethod{Name: "stylelint"},
+		},
+		Imports: []Import{{Playbook: "setup-npm"}},
 	},
 	{
 		command: "swiftformat",
