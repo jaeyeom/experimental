@@ -2,6 +2,45 @@
 
 # Script ensure.sh runs the provided playbooks with the provided arguments.
 
+LOG_FILE="$HOME/.cache/setup-dev/ensure_sh.log"
+LOG_DIR=$(dirname "$LOG_FILE")
+mkdir -p "$LOG_DIR"
+
+# Generate a simple session ID. Prefer /dev/urandom when available, fall back to time+pid.
+if [ -r /dev/urandom ]; then
+    SESSION_ID=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+else
+    SESSION_ID="$(date +%s)-$$"
+fi
+
+finish() {
+    exit_code=$?
+    finish_reason="Success"
+    if [ "$exit_code" -ne 0 ]; then
+        finish_reason="Failure (Exit Code: $exit_code)"
+    fi
+
+    # Clean up any temporary brew script we created.
+    if [ -n "${BREW_INSTALL_SCRIPT:-}" ] && [ -f "$BREW_INSTALL_SCRIPT" ]; then
+        rm -f "$BREW_INSTALL_SCRIPT"
+    fi
+
+    {
+        echo "---"
+        echo "Session ID: $SESSION_ID"
+        echo "Finish Time: $(date)"
+        echo "Finish Reason: $finish_reason"
+    } >>"$LOG_FILE"
+}
+trap 'finish' EXIT
+
+{
+    echo "---"
+    echo "Session ID: $SESSION_ID"
+    echo "Start Time: $(date)"
+    echo "Arguments: $*"
+} >>"$LOG_FILE"
+
 CACHE_DIR="$HOME/.cache/last_upgrade"
 mkdir -p "$CACHE_DIR"
 
@@ -73,7 +112,6 @@ elif [ "$OS" = "Darwin" ]; then
 
         # Download the install script
         BREW_INSTALL_SCRIPT=$(mktemp)
-        trap 'rm -f "$BREW_INSTALL_SCRIPT"' EXIT
 
         echo ""
         echo "Downloading Homebrew install script..."
