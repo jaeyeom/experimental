@@ -1,0 +1,6 @@
+---
+- name: Setup ktlint
+  import_playbook: ktlint.yml
+
+- name: Setup detekt
+  import_playbook: detekt.yml

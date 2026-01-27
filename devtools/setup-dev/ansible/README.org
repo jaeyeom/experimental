@@ -221,6 +221,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-history.yml
 - setup-homebrew-env.yml
 - setup-kotex.yml
+- setup-kotlin-tools.yml
 - setup-npm.yml
 - setup-nvm.yml
 - setup-pass.yml

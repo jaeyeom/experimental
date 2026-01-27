@@ -205,6 +205,33 @@ rm -rf $TMPDIR/codex
 		Imports: nil,
 	},
 	{
+		command: "detekt",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "detekt"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand: `
+version="{{ detekt_latest_release.json.tag_name | regex_replace('^v', '') }}"
+curl -sSLO "https://github.com/detekt/detekt/releases/download/v${version}/detekt-cli-${version}.zip"
+unzip -o "detekt-cli-${version}.zip"
+rm "detekt-cli-${version}.zip"
+rm -rf {{ user_bin_directory }}/../lib/detekt
+mkdir -p {{ user_bin_directory }}/../lib
+mv "detekt-cli-${version}" {{ user_bin_directory }}/../lib/detekt
+ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directory }}/detekt
+`,
+				VersionCommand:    "detekt --version",
+				VersionRegex:      "([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/detekt/detekt/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
+		},
+		Imports: []Import{
+			{Playbook: "curl", When: WhenDebianLike},
+			{Playbook: "unzip", When: WhenDebianLike},
+			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
+		},
+	},
+	{
 		command:   "docker",
 		platforms: nil, // No installation tasks - only conditional imports
 		Imports: []Import{
@@ -302,6 +329,30 @@ rm -rf $TMPDIR/codex
 	GoTool("image2ascii", "github.com/qeesung/image2ascii@latest"),
 	GoTool("impl", "github.com/josharian/impl@latest"),
 	GoTool("jira", "github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
+	{
+		command: "ktlint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "ktlint"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand:    `curl -sSL https://github.com/pinterest/ktlint/releases/download/{{ ktlint_latest_release.json.tag_name }}/ktlint -o {{ user_bin_directory }}/ktlint && chmod a+x {{ user_bin_directory }}/ktlint`,
+				VersionCommand:    "ktlint --version",
+				VersionRegex:      "([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/pinterest/ktlint/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
+			PlatformTermux: ShellInstallMethod{
+				InstallCommand:    `curl -sSL https://github.com/pinterest/ktlint/releases/download/{{ ktlint_latest_release.json.tag_name }}/ktlint -o {{ user_bin_directory }}/ktlint && chmod a+x {{ user_bin_directory }}/ktlint`,
+				VersionCommand:    "ktlint --version",
+				VersionRegex:      "([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/pinterest/ktlint/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
+		},
+		Imports: []Import{
+			{Playbook: "curl", When: WhenNotDarwin},
+			{Playbook: "setup-user-bin-directory", When: WhenNotDarwin},
+		},
+	},
 	{
 		command: "lcov",
 		platforms: map[PlatformName]InstallMethod{
