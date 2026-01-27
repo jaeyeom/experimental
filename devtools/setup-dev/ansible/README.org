@@ -50,13 +50,20 @@ Go installer (=go install=) is quite cross-platform and handles versioning well,
 so it's usually a good idea to use it for Go projects. The generator includes
 automatic version checking and upgrade logic for Go packages.
 
+*** Rust Packages
+The =rustup= installer is preferred for Rust tools because its default profile
+includes =rustc=, =cargo=, =rustfmt=, and =clippy= together. This is consistent
+across platforms and provides proper toolchain management. Additional components
+like =rust-analyzer= can be added via =rustup component add=.
+
+On Termux, =pkg install rust= provides the same bundled tools (rustc, cargo,
+rustfmt, clippy), and =rust-analyzer= is available as a separate package.
+
 *** macOS
-Homebrew is the most preferred installation method on macOS because it provides
-system-level packages, which is what this setup-dev/ansible setup generally
-aims for. Even when alternative installation methods exist (e.g., =rustup= for
-Rust tools, =cargo= for Rust packages), Homebrew is preferred when available
-because it integrates with the system package management and ensures consistent
-tooling across the development environment.
+Homebrew is generally the preferred installation method on macOS because it
+provides system-level packages. However, for Rust tools, =rustup= is preferred
+over Homebrew because it provides integrated toolchain management and bundles
+essential tools (rustfmt, clippy) in its default profile.
 
 Homebrew also supports taps and installation options when needed for specialized
 packages.
