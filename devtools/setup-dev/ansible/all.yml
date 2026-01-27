@@ -20,4 +20,4 @@
 - import_playbook: setup-kotlin-tools.yml
 - import_playbook: setup-python-tools.yml
 - import_playbook: setup-css-tools.yml
-- import_playbook: setup-devtools.yml
+- import_playbook: setup-devtools.yml  # Always put setup-devtools.yml last.
