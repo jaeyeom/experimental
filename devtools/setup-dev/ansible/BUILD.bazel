@@ -109,7 +109,6 @@ sh_test(
         "buf.yml",
         "buildifier.yml",
         "buildozer.yml",
-        "cargo-clippy.yml",
         "cargo-install-update.yml",
         "clang-format.yml",
         "claude.yml",
@@ -191,7 +190,6 @@ sh_test(
         "ruff.yml",
         "rust-analyzer.yml",
         "rustc.yml",
-        "rustfmt.yml",
         "sed.yml",
         "setup-bazel.yml",
         "setup-cargo.yml",
@@ -215,7 +213,6 @@ sh_test(
         "setup-nvm.yml",
         "setup-perplexity-mcp.yml",
         "setup-python-tools.yml",
-        "setup-rust.yml",
         "setup-rust-tools.yml",
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
@@ -353,20 +350,6 @@ sh_test(
         "rustc.yml",
         "setup-cargo.yml",
         "setup-shell-profile.yml",
-    ],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
-    name = "cargo-clippy_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["cargo-clippy.yml"],
-    data = [
-        "cargo-clippy.yml",
-        "setup-rust.yml",
     ],
     tags = [
         "ansible",
@@ -1779,8 +1762,11 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["rust-analyzer.yml"],
     data = [
+        "curl.yml",
         "rust-analyzer.yml",
-        "setup-rust.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
+        "setup-shell-profile.yml",
     ],
     tags = [
         "ansible",
@@ -1795,20 +1781,6 @@ sh_test(
     data = [
         "curl.yml",
         "rustc.yml",
-    ],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
-    name = "rustfmt_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["rustfmt.yml"],
-    data = [
-        "rustfmt.yml",
-        "setup-rust.yml",
     ],
     tags = [
         "ansible",
@@ -2409,26 +2381,16 @@ sh_test(
 )
 
 sh_test(
-    name = "setup-rust_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["setup-rust.yml"],
-    data = ["setup-rust.yml"],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
     name = "setup-rust-tools_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-rust-tools.yml"],
     data = [
-        "cargo-clippy.yml",
+        "curl.yml",
         "rust-analyzer.yml",
-        "rustfmt.yml",
-        "setup-rust.yml",
+        "rustc.yml",
+        "setup-cargo.yml",
         "setup-rust-tools.yml",
+        "setup-shell-profile.yml",
     ],
     tags = [
         "ansible",
@@ -2958,7 +2920,6 @@ test_suite(
         ":buildifier_syntax_test",
         ":buildozer_syntax_test",
         ":cargo-add_syntax_test",
-        ":cargo-clippy_syntax_test",
         ":cargo-install-update_syntax_test",
         ":cargo-outdated_syntax_test",
         ":check-jsonschema_syntax_test",
@@ -3059,7 +3020,6 @@ test_suite(
         ":ruff_syntax_test",
         ":rust-analyzer_syntax_test",
         ":rustc_syntax_test",
-        ":rustfmt_syntax_test",
         ":sed_syntax_test",
         ":semgrep_syntax_test",
         ":setup-bazel_syntax_test",
@@ -3092,7 +3052,6 @@ test_suite(
         ":setup-perplexity-mcp_syntax_test",
         ":setup-python-tools_syntax_test",
         ":setup-rust-tools_syntax_test",
-        ":setup-rust_syntax_test",
         ":setup-shell-profile_syntax_test",
         ":setup-spacemacs_syntax_test",
         ":setup-sql-tools_syntax_test",
