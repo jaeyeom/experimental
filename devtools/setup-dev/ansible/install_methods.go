@@ -283,7 +283,7 @@ func (r RustupComponentMethod) GetMethodType() string {
 }
 
 func (r RustupComponentMethod) GetImports() []Import {
-	return []Import{{Playbook: "setup-rust"}}
+	return []Import{{Playbook: "setup-cargo"}}
 }
 
 func (r RustupComponentMethod) RenderSetupTasks(_ string) string {

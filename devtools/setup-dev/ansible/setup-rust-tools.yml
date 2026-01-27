@@ -1,4 +1,6 @@
 ---
-- import_playbook: rustfmt.yml
-- import_playbook: cargo-clippy.yml
+# Installs Rust development tools:
+# - setup-cargo.yml provides: rustc, cargo, rustfmt, clippy + shell PATH setup
+# - rust-analyzer.yml provides: rust-analyzer (separate component/package)
+- import_playbook: setup-cargo.yml
 - import_playbook: rust-analyzer.yml

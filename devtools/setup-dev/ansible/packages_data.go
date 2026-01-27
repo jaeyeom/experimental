@@ -110,15 +110,6 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
-		command: "cargo-clippy",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "clippy"},
-			PlatformDebianLike: RustupComponentMethod{Name: "clippy"},
-			PlatformTermux:     RustupComponentMethod{Name: "clippy"},
-		},
-		Imports: nil,
-	},
-	{
 		command: "cargo-install-update",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: CargoInstallMethod{Name: "cargo-update"},
@@ -457,16 +448,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "rust-analyzer"},
 			PlatformDebianLike: RustupComponentMethod{Name: "rust-analyzer"},
-			PlatformTermux:     RustupComponentMethod{Name: "rust-analyzer"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "rustfmt",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "rustfmt"},
-			PlatformDebianLike: RustupComponentMethod{Name: "rustfmt"},
-			PlatformTermux:     RustupComponentMethod{Name: "rustfmt"},
+			PlatformTermux:     TermuxPkgInstallMethod{Name: "rust-analyzer"},
 		},
 		Imports: nil,
 	},
