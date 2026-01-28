@@ -16,7 +16,7 @@
 
     - block:
       - name: Ensure rustc is present on non-Termux systems
-        shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        shell: "{{ playbook_dir }}/verified-run exec https://sh.rustup.rs -- -y"
         register: rustup_result
         changed_when: "rustup_result.stdout is not search('unchanged')"
 
