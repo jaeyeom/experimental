@@ -1,0 +1,442 @@
+#!/bin/sh
+# verified-run: Hash-based verification for scripts downloaded from the internet.
+# Scripts must be reviewed and approved before they can execute.
+
+set -e
+
+CACHE_DIR="${HOME}/.cache/setup-dev/verified-scripts"
+INDEX_FILE="${CACHE_DIR}/index.txt"
+SCRIPTS_DIR="${CACHE_DIR}/scripts"
+
+# Ensure cache directory structure exists
+init_cache() {
+    mkdir -p "$SCRIPTS_DIR"
+    touch "$INDEX_FILE"
+}
+
+# Compute SHA256 hash of a file
+compute_hash() {
+    file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" | cut -d' ' -f1
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$file" | awk '{print $NF}'
+    else
+        echo "Error: No SHA256 tool available (sha256sum, shasum, or openssl)" >&2
+        exit 1
+    fi
+}
+
+# Get stored hash for a URL from index
+get_stored_hash() {
+    _url="$1"
+    if [ -f "$INDEX_FILE" ]; then
+        grep -F "	${_url}" "$INDEX_FILE" 2>/dev/null | cut -f1 || true
+    fi
+}
+
+# Get path to stored script by hash
+get_stored_script() {
+    _hash="$1"
+    echo "${SCRIPTS_DIR}/${_hash}.sh"
+}
+
+# Store approval: save script content and update index
+store_approval() {
+    _sa_url="$1"
+    _sa_new_hash="$2"
+    _sa_script_file="$3"
+
+    # Get old hash if exists
+    _sa_old_hash=$(get_stored_hash "$_sa_url")
+
+    # Copy script to storage
+    cp "$_sa_script_file" "$(get_stored_script "$_sa_new_hash")"
+
+    # Update index: remove old entry if exists, add new one
+    if [ -n "$_sa_old_hash" ]; then
+        # Remove old entry from index
+        grep -v -F "	${_sa_url}" "$INDEX_FILE" > "${INDEX_FILE}.tmp" 2>/dev/null || true
+        mv "${INDEX_FILE}.tmp" "$INDEX_FILE"
+        # Remove old script if hash changed
+        if [ "$_sa_old_hash" != "$_sa_new_hash" ]; then
+            rm -f "$(get_stored_script "$_sa_old_hash")"
+        fi
+    fi
+
+    # Add new entry
+    printf '%s\t%s\n' "$_sa_new_hash" "$_sa_url" >> "$INDEX_FILE"
+}
+
+# Remove URL from approved list
+remove_approval() {
+    _ra_url="$1"
+    _ra_old_hash=$(get_stored_hash "$_ra_url")
+
+    if [ -z "$_ra_old_hash" ]; then
+        echo "URL not found in approved list: $_ra_url"
+        return 1
+    fi
+
+    # Remove from index
+    grep -v -F "	${_ra_url}" "$INDEX_FILE" > "${INDEX_FILE}.tmp" 2>/dev/null || true
+    mv "${INDEX_FILE}.tmp" "$INDEX_FILE"
+
+    # Remove script file
+    rm -f "$(get_stored_script "$_ra_old_hash")"
+
+    echo "Removed: $_ra_url"
+}
+
+# Download script to temp file
+download_script() {
+    _ds_url="$1"
+    _ds_temp_file="$2"
+
+    if ! curl -fsSL "$_ds_url" -o "$_ds_temp_file" 2>/dev/null; then
+        echo "Error: Failed to download script from: $_ds_url" >&2
+        return 1
+    fi
+}
+
+# Show diff between old and new script
+show_diff() {
+    _sd_old_file="$1"
+    _sd_new_file="$2"
+
+    if command -v diff >/dev/null 2>&1; then
+        diff -u "$_sd_old_file" "$_sd_new_file" || true
+    else
+        echo "=== OLD VERSION ===" >&2
+        cat "$_sd_old_file" >&2
+        echo "" >&2
+        echo "=== NEW VERSION ===" >&2
+        cat "$_sd_new_file" >&2
+    fi
+}
+
+# Review command: download, show diff/content, prompt for approval
+cmd_review() {
+    _cr_url="$1"
+
+    if [ -z "$_cr_url" ]; then
+        echo "Usage: verified-run review <url>" >&2
+        exit 1
+    fi
+
+    init_cache
+
+    # Download script
+    _cr_temp_file=$(mktemp)
+    # shellcheck disable=SC2064  # Intentional: expand $_cr_temp_file now to capture current value
+    trap "rm -f '$_cr_temp_file'" EXIT
+
+    echo "Downloading script from: $_cr_url"
+    if ! download_script "$_cr_url" "$_cr_temp_file"; then
+        exit 1
+    fi
+
+    # Compute hash
+    _cr_new_hash=$(compute_hash "$_cr_temp_file")
+    _cr_stored_hash=$(get_stored_hash "$_cr_url")
+
+    if [ -n "$_cr_stored_hash" ] && [ "$_cr_stored_hash" = "$_cr_new_hash" ]; then
+        echo "Script already approved with matching hash."
+        echo "Hash: $_cr_new_hash"
+        return 0
+    fi
+
+    if [ -n "$_cr_stored_hash" ]; then
+        # Content changed - show diff
+        _cr_old_script=$(get_stored_script "$_cr_stored_hash")
+        echo ""
+        echo "Script content has changed since last approval."
+        echo "Old hash: $_cr_stored_hash"
+        echo "New hash: $_cr_new_hash"
+        echo ""
+        echo "=== DIFF (old -> new) ==="
+        show_diff "$_cr_old_script" "$_cr_temp_file"
+        echo "========================="
+    else
+        # First time - show full content
+        echo ""
+        echo "New script (not previously approved)."
+        echo "Hash: $_cr_new_hash"
+        echo ""
+        if [ -n "${PAGER:-}" ]; then
+            $PAGER "$_cr_temp_file"
+        elif command -v less >/dev/null 2>&1; then
+            less "$_cr_temp_file"
+        else
+            cat "$_cr_temp_file"
+        fi
+    fi
+
+    echo ""
+    printf "Approve this script? (y/N): "
+    read -r reply
+
+    case "$reply" in
+        [Yy]|[Yy][Ee][Ss])
+            store_approval "$_cr_url" "$_cr_new_hash" "$_cr_temp_file"
+            echo "Script approved and stored."
+            echo "Hash: $_cr_new_hash"
+            ;;
+        *)
+            echo "Script not approved."
+            return 1
+            ;;
+    esac
+}
+
+# Check command: exit 0 if approved with matching hash, 1 otherwise
+cmd_check() {
+    _cc_url="$1"
+
+    if [ -z "$_cc_url" ]; then
+        echo "Usage: verified-run check <url>" >&2
+        exit 1
+    fi
+
+    init_cache
+
+    _cc_stored_hash=$(get_stored_hash "$_cc_url")
+
+    if [ -z "$_cc_stored_hash" ]; then
+        return 1
+    fi
+
+    # Download and verify
+    _cc_temp_file=$(mktemp)
+    # shellcheck disable=SC2064  # Intentional: expand $_cc_temp_file now to capture current value
+    trap "rm -f '$_cc_temp_file'" EXIT
+
+    if ! download_script "$_cc_url" "$_cc_temp_file"; then
+        return 1
+    fi
+
+    _cc_current_hash=$(compute_hash "$_cc_temp_file")
+
+    if [ "$_cc_stored_hash" = "$_cc_current_hash" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Exec command: run script only if hash matches
+cmd_exec() {
+    _ce_interactive=false
+    _ce_url=""
+    _ce_args=""
+
+    # Parse options
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --interactive)
+                _ce_interactive=true
+                shift
+                ;;
+            --)
+                shift
+                _ce_args="$*"
+                break
+                ;;
+            -*)
+                echo "Unknown option: $1" >&2
+                exit 1
+                ;;
+            *)
+                if [ -z "$_ce_url" ]; then
+                    _ce_url="$1"
+                else
+                    echo "Unexpected argument: $1" >&2
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$_ce_url" ]; then
+        echo "Usage: verified-run exec [--interactive] <url> [-- args...]" >&2
+        exit 1
+    fi
+
+    init_cache
+
+    # Download script
+    _ce_temp_file=$(mktemp)
+    # shellcheck disable=SC2064  # Intentional: expand $_ce_temp_file now to capture current value
+    trap "rm -f '$_ce_temp_file'" EXIT
+
+    if ! download_script "$_ce_url" "$_ce_temp_file"; then
+        exit 1
+    fi
+
+    _ce_current_hash=$(compute_hash "$_ce_temp_file")
+    _ce_stored_hash=$(get_stored_hash "$_ce_url")
+
+    if [ -n "$_ce_stored_hash" ] && [ "$_ce_stored_hash" = "$_ce_current_hash" ]; then
+        # Approved and unchanged - execute
+        chmod +x "$_ce_temp_file"
+        # shellcheck disable=SC2086
+        exec /bin/sh "$_ce_temp_file" $_ce_args
+    fi
+
+    # Not approved or content changed
+    if [ "$_ce_interactive" = true ]; then
+        # Interactive mode: prompt for approval
+        if [ -n "$_ce_stored_hash" ]; then
+            _ce_old_script=$(get_stored_script "$_ce_stored_hash")
+            echo ""
+            echo "Script content has changed since last approval."
+            echo "URL: $_ce_url"
+            echo "Old hash: $_ce_stored_hash"
+            echo "New hash: $_ce_current_hash"
+            echo ""
+            echo "=== DIFF (old -> new) ==="
+            show_diff "$_ce_old_script" "$_ce_temp_file"
+            echo "========================="
+        else
+            echo ""
+            echo "Script not previously approved."
+            echo "URL: $_ce_url"
+            echo "Hash: $_ce_current_hash"
+            echo ""
+            if [ -n "${PAGER:-}" ]; then
+                $PAGER "$_ce_temp_file"
+            elif command -v less >/dev/null 2>&1; then
+                less "$_ce_temp_file"
+            else
+                cat "$_ce_temp_file"
+            fi
+        fi
+
+        echo ""
+        printf "Approve and execute this script? (y/N): "
+        read -r reply
+
+        case "$reply" in
+            [Yy]|[Yy][Ee][Ss])
+                store_approval "$_ce_url" "$_ce_current_hash" "$_ce_temp_file"
+                echo "Script approved."
+                chmod +x "$_ce_temp_file"
+                # shellcheck disable=SC2086
+                exec /bin/sh "$_ce_temp_file" $_ce_args
+                ;;
+            *)
+                echo "Script not approved. Aborting."
+                exit 1
+                ;;
+        esac
+    else
+        # Non-interactive mode: fail with instructions
+        echo ""
+        echo "Error: Script not approved or content has changed."
+        echo "URL: $_ce_url"
+        echo ""
+        echo "To approve, run:"
+        echo "  $(dirname "$0")/verified-run review '$_ce_url'"
+        echo ""
+        echo "Then re-run this command."
+        exit 1
+    fi
+}
+
+# List command: show all approved scripts
+cmd_list() {
+    init_cache
+
+    if [ ! -s "$INDEX_FILE" ]; then
+        echo "No approved scripts."
+        return 0
+    fi
+
+    echo "Approved scripts:"
+    echo ""
+    while IFS='	' read -r hash url; do
+        echo "  $url"
+        echo "    Hash: $hash"
+    done < "$INDEX_FILE"
+}
+
+# Remove command: remove URL from approved list
+cmd_remove() {
+    _crm_url="$1"
+
+    if [ -z "$_crm_url" ]; then
+        echo "Usage: verified-run remove <url>" >&2
+        exit 1
+    fi
+
+    init_cache
+    remove_approval "$_crm_url"
+}
+
+# Show usage
+usage() {
+    cat <<EOF
+Usage: verified-run <command> [options] <url> [-- args...]
+
+Commands:
+  review <url>    Download script, show diff (if changed) or full content, approve if confirmed
+  exec <url>      Run script only if hash matches; fail with instructions if not
+  check <url>     Exit 0 if approved with matching hash, 1 otherwise
+  list            Show all approved scripts
+  remove <url>    Remove a URL from approved list
+
+Options:
+  --interactive   Allow on-the-fly approval during exec
+
+Examples:
+  # Review and approve a script
+  verified-run review https://example.com/install.sh
+
+  # Execute an approved script
+  verified-run exec https://example.com/install.sh
+
+  # Execute with arguments
+  verified-run exec https://example.com/install.sh -- -y --prefix /usr/local
+
+  # Interactive execution (prompts for approval if needed)
+  verified-run exec --interactive https://example.com/install.sh
+EOF
+}
+
+# Main
+if [ $# -lt 1 ]; then
+    usage
+    exit 1
+fi
+
+command="$1"
+shift
+
+case "$command" in
+    review)
+        cmd_review "$@"
+        ;;
+    exec)
+        cmd_exec "$@"
+        ;;
+    check)
+        cmd_check "$@"
+        ;;
+    list)
+        cmd_list "$@"
+        ;;
+    remove)
+        cmd_remove "$@"
+        ;;
+    help|--help|-h)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $command" >&2
+        usage
+        exit 1
+        ;;
+esac
