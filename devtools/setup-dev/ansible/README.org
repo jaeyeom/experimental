@@ -4,6 +4,17 @@
 
 This directory includes Ansible playbooks and a generator of it.
 
+* Bootstrap (Fresh Machine)
+
+On a fresh machine without the repository cloned, run:
+
+#+begin_src sh
+curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh | sh
+#+end_src
+
+This installs git (if needed), clones the repository, and guides you through
+running =ensure.sh=.
+
 * How to Use
 
 Run the =ensure.sh= script with the proper rule name. Rule names are playbook

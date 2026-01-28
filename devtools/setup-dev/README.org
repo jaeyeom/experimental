@@ -4,7 +4,26 @@ Ansible playbooks for setting up development environments across macOS, Linux, a
 
 See [[file:ansible/README.org][ansible/README.org]] for documentation.
 
-* Quick Start
+* Bootstrap (Fresh Machine)
+
+On a fresh machine, run the bootstrap script to clone the repository and set up
+prerequisites:
+
+#+BEGIN_SRC bash
+curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh | sh
+#+END_SRC
+
+The bootstrap script will:
+1. Install git if not present
+2. Clone the repository to =~/go/src/github.com/jaeyeom/experimental=
+3. Guide you through running =ensure.sh=
+
+Note: The repository location is fixed because some ansible playbooks (e.g.,
+=setup-spacemacs.yml=) create symlinks that expect this path.
+
+* Quick Start (Existing Clone)
+
+If you already have the repository cloned:
 #+BEGIN_SRC bash
 cd ansible
 ./ensure.sh all
