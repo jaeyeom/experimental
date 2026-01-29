@@ -1,6 +1,7 @@
 # AI coders that I don't want to commit
 .aider*
 .cursor
+.omc/
 .roo
 .roomodes
 
