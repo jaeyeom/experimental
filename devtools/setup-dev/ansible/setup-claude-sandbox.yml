@@ -23,6 +23,8 @@
           - docker
           - git
           - make
+          - npm
+          - pnpm
         allowUnsandboxedCommands: true
         filesystem:
           write:
