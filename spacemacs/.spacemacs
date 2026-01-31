@@ -2345,7 +2345,10 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
     ;; But I prefer to open magit=status or the version-control (VC) buffer. It
     ;; gives me a chance to sync and handle VC related operations. I can still
     ;; do `projectile-find-file' after that if I really want to find a file.
-    (setopt projectile-switch-project-action #'projectile-vc))
+    (setopt projectile-switch-project-action #'projectile-vc)
+
+    ;; One compilation buffer per project
+    (setq projectile-per-project-compilation-buffer t))
 
   (add-hook 'git-commit-mode-hook
             (lambda ()
