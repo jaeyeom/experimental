@@ -313,14 +313,6 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	GoTool("gopls", "golang.org/x/tools/gopls@latest"),
 	GoTool("gorename", "golang.org/x/tools/cmd/gorename@latest"),
 	GoTool("gotests", "github.com/cweill/gotests/gotests@latest"),
-	{
-		command: "grpcio",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     PipInstallMethod{Name: "grpcio"},
-			PlatformDebianLike: PackageInstallMethod{Name: "python3-grpcio"},
-			PlatformTermux:     TermuxPkgInstallMethod{Name: "python-grpcio"},
-		},
-	},
 	GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
 	GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),
 	GoTool("hugo", "github.com/gohugoio/hugo@latest"),

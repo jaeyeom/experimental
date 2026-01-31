@@ -153,7 +153,6 @@ sh_test(
         "gpg.yml",
         "gpg-agent.yml",
         "grep.yml",
-        "grpcio.yml",
         "grpcui.yml",
         "guru.yml",
         "htop.yml",
@@ -1165,17 +1164,6 @@ sh_test(
 )
 
 sh_test(
-    name = "grpcio_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["grpcio.yml"],
-    data = ["grpcio.yml"],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
     name = "grpcui_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["grpcui.yml"],
@@ -1971,7 +1959,6 @@ sh_test(
         "gmi.yml",
         "go.yml",
         "grep.yml",
-        "grpcio.yml",
         "grpcui.yml",
         "htop.yml",
         "jira.yml",
@@ -2205,7 +2192,6 @@ sh_test(
     data = [
         "buf.yml",
         "go.yml",
-        "grpcio.yml",
         "grpcui.yml",
         "protoc.yml",
         "protoc-gen-go.yml",
@@ -2974,7 +2960,6 @@ test_suite(
         ":gpg-agent_syntax_test",
         ":gpg_syntax_test",
         ":grep_syntax_test",
-        ":grpcio_syntax_test",
         ":grpcui_syntax_test",
         ":guru_syntax_test",
         ":htop_syntax_test",
