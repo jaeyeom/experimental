@@ -48,7 +48,6 @@
             name: emacs-plus
             state: present
             install_options:
-              - with-native-comp
               - with-dbus
               - with-imagemagick
       when: ansible_facts['os_family'] == "Darwin"
