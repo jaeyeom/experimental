@@ -23,13 +23,19 @@
       register: cargo_add_installed
       ignore_errors: yes
       changed_when: False
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Install cargo-add using Cargo
       command: cargo install cargo-edit
       when: cargo_add_installed.rc != 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Update cargo-add to latest version
       command: cargo install-update cargo-edit
       register: cargo_add_update_result
       changed_when: "cargo_add_update_result.stdout is search('Overall updated [1-9]')"
       when: cargo_add_installed.rc == 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"

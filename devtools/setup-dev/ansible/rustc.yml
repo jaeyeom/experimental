@@ -14,15 +14,10 @@
             rustc_playbook_imported: true
           when: rustc_playbook_imported is not defined
 
-    - block:
-      - name: Ensure rustc is present on non-Termux systems
-        shell: "{{ playbook_dir }}/verified-run exec https://sh.rustup.rs -- -y"
-        register: rustup_result
-        changed_when: "rustup_result.stdout is not search('unchanged')"
-
-      - name: Set cargo environment variables for the current playbook
-        ansible.builtin.set_fact:
-          ansible_env: "{{ ansible_env | combine({'PATH': ansible_facts['env']['HOME'] + '/.cargo/bin:' + ansible_facts['env']['PATH']}) }}"
+    - name: Ensure rustc is present on non-Termux systems
+      shell: "{{ playbook_dir }}/verified-run exec https://sh.rustup.rs -- -y"
+      register: rustup_result
+      changed_when: "rustup_result.stdout is not search('unchanged')"
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
     - name: Ensure rustc is present on Termux

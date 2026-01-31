@@ -23,13 +23,19 @@
       register: cargo_outdated_installed
       ignore_errors: yes
       changed_when: False
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Install cargo-outdated using Cargo
       command: cargo install cargo-outdated
       when: cargo_outdated_installed.rc != 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Update cargo-outdated to latest version
       command: cargo install-update cargo-outdated
       register: cargo_outdated_update_result
       changed_when: "cargo_outdated_update_result.stdout is search('Overall updated [1-9]')"
       when: cargo_outdated_installed.rc == 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
