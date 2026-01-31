@@ -47,14 +47,20 @@
           register: fd_installed
           ignore_errors: yes
           changed_when: False
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
         - name: Install fd using Cargo
           command: cargo install fd-find
           when: fd_installed.rc != 0
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
         - name: Update fd to latest version
           command: cargo install-update fd-find
           register: fd_update_result
           changed_when: "fd_update_result.stdout is search('Overall updated [1-9]')"
           when: fd_installed.rc == 0
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

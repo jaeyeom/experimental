@@ -297,10 +297,14 @@ func (r RustupComponentMethod) RenderInstallTask(command string) string {
       register: ` + commandID + `_installed
       ignore_errors: yes
       changed_when: False
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Install ` + r.Name + ` component via rustup
       command: rustup component add ` + r.Name + `
-      when: ` + commandID + `_installed.rc != 0`
+      when: ` + commandID + `_installed.rc != 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"`
 }
 
 func (r RustupComponentMethod) RenderBlockInstallTask(command string) string {
@@ -335,16 +339,22 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
       register: ` + commandID + `_installed
       ignore_errors: yes
       changed_when: False
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Install ` + command + ` using Cargo
       command: cargo install ` + c.Name + `
       when: ` + commandID + `_installed.rc != 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Update ` + command + ` to latest version
       command: cargo install-update ` + c.Name + `
       register: ` + commandID + `_update_result
       changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
-      when: ` + commandID + `_installed.rc == 0`
+      when: ` + commandID + `_installed.rc == 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"`
 
 	return task
 }

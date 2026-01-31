@@ -23,13 +23,19 @@
       register: claudelytics_installed
       ignore_errors: yes
       changed_when: False
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Install claudelytics using Cargo
       command: cargo install claudelytics
       when: claudelytics_installed.rc != 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Update claudelytics to latest version
       command: cargo install-update claudelytics
       register: claudelytics_update_result
       changed_when: "claudelytics_update_result.stdout is search('Overall updated [1-9]')"
       when: claudelytics_installed.rc == 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
