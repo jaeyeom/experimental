@@ -416,14 +416,6 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
 	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
 	{
-		command: "protovalidate",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     PipInstallMethod{Name: "protovalidate"},
-			PlatformDebianLike: PipInstallMethod{Name: "protovalidate"},
-		},
-		Imports: nil,
-	},
-	{
 		command: "pylsp",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "python-lsp-server"},

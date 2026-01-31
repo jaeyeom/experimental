@@ -4,7 +4,6 @@
 - import_playbook: protoc-gen-go.yml
 - import_playbook: protoc-gen-go-grpc.yml
 - import_playbook: protolint.yml
-- import_playbook: protovalidate.yml
 - import_playbook: buf.yml
 
 - name: Setup gRPC environment
@@ -22,4 +21,4 @@
 
     - name: gRPC environment setup completed
       debug:
-        msg: "All gRPC tools have been installed: grpcui, protoc, protoc-gen-go, protoc-gen-go-grpc, protolint, protovalidate, buf"
+        msg: "All gRPC tools have been installed: grpcui, protoc, protoc-gen-go, protoc-gen-go-grpc, protolint, buf"

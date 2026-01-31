@@ -181,7 +181,6 @@ sh_test(
         "protoc-gen-go.yml",
         "protoc-gen-go-grpc.yml",
         "protolint.yml",
-        "protovalidate.yml",
         "pylsp.yml",
         "python3-notmuch2.yml",
         "repo-sync.yml",
@@ -1658,17 +1657,6 @@ sh_test(
 )
 
 sh_test(
-    name = "protovalidate_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["protovalidate.yml"],
-    data = ["protovalidate.yml"],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
     name = "psql_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["psql.yml"],
@@ -1969,7 +1957,6 @@ sh_test(
         "protoc-gen-go.yml",
         "protoc-gen-go-grpc.yml",
         "protolint.yml",
-        "protovalidate.yml",
         "python3-notmuch2.yml",
         "rustc.yml",
         "sed.yml",
@@ -2197,7 +2184,6 @@ sh_test(
         "protoc-gen-go.yml",
         "protoc-gen-go-grpc.yml",
         "protolint.yml",
-        "protovalidate.yml",
         "setup-grpc.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
@@ -2996,7 +2982,6 @@ test_suite(
         ":protoc-gen-go_syntax_test",
         ":protoc_syntax_test",
         ":protolint_syntax_test",
-        ":protovalidate_syntax_test",
         ":psql_syntax_test",
         ":pylsp_syntax_test",
         ":python3-notmuch2_syntax_test",
