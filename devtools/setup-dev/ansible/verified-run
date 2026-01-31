@@ -101,12 +101,15 @@ download_script() {
     fi
 }
 
-# Show diff between old and new script
+# Show diff between old and new script (or new script vs empty)
+# Uses delta for syntax highlighting if available
 show_diff() {
     _sd_old_file="$1"
     _sd_new_file="$2"
 
-    if command -v diff >/dev/null 2>&1; then
+    if command -v delta >/dev/null 2>&1; then
+        delta "$_sd_old_file" "$_sd_new_file"
+    elif command -v diff >/dev/null 2>&1; then
         diff -u "$_sd_old_file" "$_sd_new_file" || true
     else
         echo "=== OLD VERSION ===" >&2
@@ -156,22 +159,14 @@ cmd_review() {
         echo "Old hash: $_cr_stored_hash"
         echo "New hash: $_cr_new_hash"
         echo ""
-        echo "=== DIFF (old -> new) ==="
         show_diff "$_cr_old_script" "$_cr_temp_file"
-        echo "========================="
     else
-        # First time - show full content
+        # First time - show full content as diff from empty
         echo ""
         echo "New script (not previously approved)."
         echo "Hash: $_cr_new_hash"
         echo ""
-        if [ -n "${PAGER:-}" ]; then
-            $PAGER "$_cr_temp_file"
-        elif command -v less >/dev/null 2>&1; then
-            less "$_cr_temp_file"
-        else
-            cat "$_cr_temp_file"
-        fi
+        show_diff /dev/null "$_cr_temp_file"
     fi
 
     echo ""
@@ -297,22 +292,14 @@ cmd_exec() {
             echo "Old hash: $_ce_stored_hash"
             echo "New hash: $_ce_current_hash"
             echo ""
-            echo "=== DIFF (old -> new) ==="
             show_diff "$_ce_old_script" "$_ce_temp_file"
-            echo "========================="
         else
             echo ""
             echo "Script not previously approved."
             echo "URL: $_ce_url"
             echo "Hash: $_ce_current_hash"
             echo ""
-            if [ -n "${PAGER:-}" ]; then
-                $PAGER "$_ce_temp_file"
-            elif command -v less >/dev/null 2>&1; then
-                less "$_ce_temp_file"
-            else
-                cat "$_ce_temp_file"
-            fi
+            show_diff /dev/null "$_ce_temp_file"
         fi
 
         echo ""
