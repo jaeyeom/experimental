@@ -1,6 +1,22 @@
 #!/bin/sh
 # Bootstrap script for setting up development environment.
-# Usage: curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh | sh
+#
+# Quick start (less secure):
+#   curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh | sh
+#
+# Recommended (verify before running):
+#   # 1. Download the script
+#   curl -fsSL https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh -o /tmp/bootstrap.sh
+#
+#   # 2. Verify the checksum (compare with published hash)
+#   shasum -a 256 /tmp/bootstrap.sh
+#   # Or on Linux: sha256sum /tmp/bootstrap.sh
+#
+#   # 3. Compare with published hash at:
+#   #    https://raw.githubusercontent.com/jaeyeom/experimental/main/devtools/setup-dev/ansible/bootstrap.sh.sha256
+#
+#   # 4. If hash matches, run the script
+#   sh /tmp/bootstrap.sh
 #
 # This script:
 # 1. Ensures git is installed
