@@ -150,37 +150,22 @@
         mode: "0644"
       when: not settings_file_stat.stat.exists
 
-    - name: Create temp file for sandbox config
-      tempfile:
-        state: file
-        suffix: .json
-      register: sandbox_config_temp
+    - name: Read current settings.json
+      slurp:
+        src: "{{ claude_settings_file }}"
+      register: current_settings_raw
 
-    - name: Write sandbox config to temp file
+    - name: Parse current settings and compute merged result
+      set_fact:
+        current_settings: "{{ current_settings_raw.content | b64decode | from_json }}"
+        desired_settings: "{{ (current_settings_raw.content | b64decode | from_json) | combine(sandbox_config, recursive=True) }}"
+
+    - name: Update settings.json if sandbox config changed
       copy:
-        content: "{{ sandbox_config | to_nice_json }}"
-        dest: "{{ sandbox_config_temp.path }}"
+        content: "{{ desired_settings | to_nice_json }}"
+        dest: "{{ claude_settings_file }}"
         mode: "0644"
-
-    - name: Create temp file for merged config
-      tempfile:
-        state: file
-        suffix: .json
-      register: merged_config_temp
-
-    - name: Merge sandbox config into settings.json using jq
-      shell: |
-        jq -s '.[0] * .[1]' "{{ claude_settings_file }}" "{{ sandbox_config_temp.path }}" > "{{ merged_config_temp.path }}" && \
-        mv "{{ merged_config_temp.path }}" "{{ claude_settings_file }}"
-      args:
-        executable: /bin/bash
-      register: merge_result
-      changed_when: true
-
-    - name: Clean up temp file
-      file:
-        path: "{{ sandbox_config_temp.path }}"
-        state: absent
+      when: current_settings != desired_settings
 
     - name: Display current sandbox settings
       shell: jq '.sandbox' "{{ claude_settings_file }}"
