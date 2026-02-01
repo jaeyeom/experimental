@@ -126,7 +126,7 @@
           {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
 
           # Find the real git (second in PATH, skipping this wrapper)
-          REAL_GIT=$(which -a git | sed -n '2p')
+          REAL_GIT=$(which -a git | uniq | sed -n '2p')
           if [[ -z "$REAL_GIT" ]]; then
               echo "Error: No real git found in PATH" >&2
               exit 1

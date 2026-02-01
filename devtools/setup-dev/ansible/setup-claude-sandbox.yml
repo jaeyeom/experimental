@@ -115,7 +115,7 @@
           # Find the real claude (skipping this wrapper)
           # which -a returns absolute paths. We take the second one because this wrapper
           # is expected to be the first one in PATH.
-          REAL_CLAUDE=$(which -a claude | sed -n '2p')
+          REAL_CLAUDE=$(which -a claude | uniq | sed -n '2p')
 
           if [[ -z "$REAL_CLAUDE" ]]; then
               echo "Error: No real claude found in PATH" >&2
