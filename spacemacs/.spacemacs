@@ -435,7 +435,7 @@ This function should only modify configuration layer settings."
      cov
      direnv
      eshell-command-not-found
-     gdscipt-mode
+     gdscript-mode
      gherkin-mode
      green-is-the-new-black-theme
      (highlight-chars :location (recipe :fetcher github
@@ -2279,6 +2279,13 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 
     (advice-add 'evil-paste-after :around #'my/evil-paste-fix-clipboard-advice)
     (advice-add 'evil-paste-before :around #'my/evil-paste-fix-clipboard-advice))
+
+  (with-eval-after-load 'dired
+    (setopt dirvish-attributes '(git-msg file-size file-modes file-time subtree-state vc-state)
+            dirvish-mode-line-format '(:left
+                                       (sort file-time " " file-size " " file-modes " " file-link-number)
+                                       :right
+                                       (omit yank index))))
 
   ;; Frame keybindings
   (when (or my/crostini-p my/macos-p)
