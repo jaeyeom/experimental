@@ -109,8 +109,9 @@
     - name: Create claude wrapper script in ~/.local/shims/bin
       copy:
         content: |
-          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
-          # Wrapper script for Claude Code to enforce sandbox environment variables
+          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash
+          {% else %}#!/usr/bin/env bash
+          {% endif %}# Wrapper script for Claude Code to enforce sandbox environment variables
 
           # Find the real claude (skipping this wrapper)
           # which -a returns absolute paths. We take the second one because this wrapper
