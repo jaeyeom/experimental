@@ -50,15 +50,16 @@
           when: claude_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
-    - name: Install claude via nvm on Debian/Ubuntu
+    - name: Install claude via shell on Debian/Ubuntu
       block:
         - name: Check if claude is installed
           shell: command -v claude
           register: claude_installed
-          ignore_errors: yes
+          failed_when: false
           changed_when: False
 
-        - name: Install claude using npm through nvm
-          command: nvm exec default npm install -g @anthropic-ai/claude-code
+        - name: Install claude
+          shell: |
+            curl -fsSL https://claude.ai/install.sh | bash
           when: claude_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
