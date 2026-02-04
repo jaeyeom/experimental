@@ -137,8 +137,10 @@ var platformSpecificTools = []PlatformSpecificTool{
 			PlatformDarwin: ShellInstallMethod{
 				InstallCommand: "curl -fsSL https://claude.ai/install.sh | bash",
 			},
-			PlatformDebianLike: NvmInstallMethod{Name: "@anthropic-ai/claude-code"},
-			PlatformTermux:     NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand: "curl -fsSL https://claude.ai/install.sh | bash",
+			},
+			PlatformTermux: NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
 		},
 		Imports: []Import{
 			{Playbook: "curl", When: WhenDarwin},
