@@ -9,22 +9,23 @@ import (
 	"sort"
 
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/cache"
+	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/config"
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/git"
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/query"
 	"github.com/jaeyeom/experimental/devtools/internal/executor"
 )
 
 func main() {
-	config := parseFlags()
+	cfg := parseFlags()
 
-	if config.debug {
+	if cfg.debug {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
-	c := cache.NewCache(config.cacheDir, config.debug)
+	c := cache.NewCache(cfg.cacheDir, cfg.debug)
 
-	if config.clearCache {
-		handleCacheClear(c, config.debug)
+	if cfg.clearCache {
+		handleCacheClear(c, cfg.debug)
 		return
 	}
 
@@ -46,26 +47,40 @@ func main() {
 		os.Exit(0)
 	}
 
-	cacheKey := getCacheKey(c, config.noCache)
+	cacheKey := getCacheKey(c, cfg.noCache)
 
-	querier := query.NewBazelQuerier(config.debug)
-	allTests := collectAllTests(packages, querier, c, cacheKey, config.noCache)
+	querier := query.NewBazelQuerier(cfg.debug)
+	allTests := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
 
 	// Filter and output results
-	filter := query.NewFormatTestFilter(stagedFiles, config.debug)
+	filter := query.NewFormatTestFilter(stagedFiles, cfg.debug)
 	filteredTests := filter.Filter(allTests)
-	outputResults(filteredTests)
+
+	// Load config and add pattern-matched targets
+	repoCfg, err := config.LoadConfig()
+	if err != nil {
+		slog.Warn("Failed to load config", "error", err)
+	}
+
+	var configTargets []string
+	if repoCfg != nil {
+		configTargets = repoCfg.MatchTargets(stagedFiles)
+		slog.Debug("Config targets matched", "count", len(configTargets))
+	}
+
+	// Merge and output
+	outputResults(filteredTests, configTargets)
 }
 
-type config struct {
+type cliConfig struct {
 	debug      bool
 	cacheDir   string
 	clearCache bool
 	noCache    bool
 }
 
-func parseFlags() config {
-	var cfg config
+func parseFlags() cliConfig {
+	var cfg cliConfig
 	flag.BoolVar(&cfg.debug, "debug", false, "Enable debug output")
 	flag.StringVar(&cfg.cacheDir, "cache-dir", "", "Cache directory (default: $HOME/.cache/bazel-affected-tests)")
 	flag.BoolVar(&cfg.clearCache, "clear-cache", false, "Clear the cache and exit")
@@ -184,9 +199,24 @@ func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, ca
 	return tests
 }
 
-func outputResults(tests []string) {
-	sort.Strings(tests)
+func outputResults(tests []string, configTargets []string) {
+	// Merge and deduplicate
+	allTargets := make(map[string]bool)
 	for _, test := range tests {
-		fmt.Println(test)
+		allTargets[test] = true
+	}
+	for _, target := range configTargets {
+		allTargets[target] = true
+	}
+
+	// Convert to sorted slice
+	result := make([]string, 0, len(allTargets))
+	for target := range allTargets {
+		result = append(result, target)
+	}
+	sort.Strings(result)
+
+	for _, target := range result {
+		fmt.Println(target)
 	}
 }

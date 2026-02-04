@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "config.go",
+        "matcher.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/config",
+    visibility = ["//devtools/bazel-affected-tests:__subpackages__"],
+    deps = ["@in_gopkg_yaml_v3//:go_default_library"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "config_test.go",
+        "matcher_test.go",
+    ],
+    embed = [":go_default_library"],
+)

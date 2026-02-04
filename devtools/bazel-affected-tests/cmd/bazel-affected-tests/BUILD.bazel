@@ -7,6 +7,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/bazel-affected-tests/internal/cache:go_default_library",
+        "//devtools/bazel-affected-tests/internal/config:go_default_library",
         "//devtools/bazel-affected-tests/internal/git:go_default_library",
         "//devtools/bazel-affected-tests/internal/query:go_default_library",
         "//devtools/internal/executor:go_default_library",
