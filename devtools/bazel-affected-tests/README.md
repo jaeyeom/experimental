@@ -10,6 +10,7 @@ staging area.
 - **Smart Caching**: Caches results based on BUILD file content hashes
 - **Cross-platform**: Works on Linux, macOS, and Windows
 - **Format Test Filtering**: Only runs format tests for file types that changed
+- **Config File Support**: Add custom targets based on file patterns
 - **Debug Mode**: Detailed output for troubleshooting
 
 ## Installation
@@ -91,6 +92,7 @@ Make sure to run `go install` first to ensure the binary is in your PATH.
 
 - `cmd/bazel-affected-tests/`: Main CLI application
 - `internal/cache/`: Cache management with BUILD and `.bzl` file hashing
+- `internal/config/`: Configuration file loading and pattern matching
 - `internal/git/`: Git operations for staged files
 - `internal/query/`: Bazel query execution and package finding
 
@@ -144,3 +146,42 @@ The caching system stores results **per package** using a hash of all BUILD and 
 - MODULE and MODULE.bazel files (define external dependencies, not internal dependency graph)
 
 Since the tool queries only within `//...` (your repository) to find which of your tests depend on your packages, external dependency configurations in WORKSPACE/MODULE files don't affect the results. Excluding them avoids unnecessary cache invalidation when updating external dependencies.
+
+## Configuration File
+
+You can create a `.bazel-affected-tests.yaml` file in the repository root to specify additional targets that should be included when certain files change. This is useful for targets that cannot be discovered via `bazel query`, such as external tools.
+
+### Config File Format
+
+```yaml
+version: 1
+
+rules:
+  - patterns:
+      - "**/BUILD"
+      - "**/BUILD.bazel"
+      - "**/*.bzl"
+    targets:
+      - "//tools/format:format_test_Starlark_with_buildifier"
+```
+
+### Pattern Syntax
+
+The config file uses glob patterns to match files:
+
+- `**` matches any number of directories (e.g., `**/BUILD` matches `foo/bar/BUILD`)
+- `*` matches any characters within a single path component (e.g., `*.bzl` matches `defs.bzl`)
+- Exact names match only that specific file (e.g., `WORKSPACE` matches only `WORKSPACE`, not `foo/WORKSPACE`)
+
+### How It Works
+
+1. When staged files are detected, each file is checked against the patterns in the config
+2. If any pattern matches, the corresponding targets are added to the output
+3. Config targets are added **after** filtering, so they bypass the format test filter
+4. Targets are deduplicated, so the same target won't appear twice
+
+### Use Cases
+
+- **Buildifier**: Run buildifier checks when BUILD or .bzl files change
+- **External tools**: Include external tool targets that depend on specific file types
+- **Custom workflows**: Add any targets based on file patterns that can't be discovered via bazel query
