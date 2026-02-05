@@ -298,6 +298,20 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest", Import{Playbook: "gh"}),
 	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
 	GoTool("gherun", "github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest", Import{Playbook: "gh"}),
+	{
+		command: "githooks",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: ShellInstallMethod{
+				InstallCommand: `
+if git hooks --version >/dev/null 2>&1; then
+    echo "Githooks already installed, skipping."
+else
+    {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
+fi`,
+			},
+		},
+		Imports: []Import{{Playbook: "git"}, {Playbook: "curl"}},
+	},
 	GoTool("godef", "github.com/rogpeppe/godef@latest"),
 	GoTool("godoc", "golang.org/x/tools/cmd/godoc@latest"),
 	GoTool("godoctor", "github.com/godoctor/godoctor@latest"),
