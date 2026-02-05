@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+
+	// Generates plain-text prompts for browser automation, not HTML.
+	// nosemgrep: import-text-template
 	"text/template"
 
 	"github.com/jaeyeom/experimental/devtools/gherun/internal/gherkin"

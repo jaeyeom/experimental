@@ -223,6 +223,8 @@ func (cf *CLIFormatter) GetFormatted(key string, format string, pretty bool) err
 		fmt.Print(string(data))
 	case "json":
 		if pretty {
+			// Unmarshaling into interface{} for JSON pretty-printing only.
+			// nosemgrep: go-unsafe-deserialization-interface
 			var jsonData interface{}
 			if err := json.Unmarshal(data, &jsonData); err != nil {
 				return fmt.Errorf("failed to parse JSON: %w", err)
@@ -256,6 +258,8 @@ func (cf *CLIFormatter) SetFormatted(key string, value string, fromFile bool, is
 	}
 
 	if isJSON {
+		// Unmarshaling into interface{} for JSON re-formatting only.
+		// nosemgrep: go-unsafe-deserialization-interface
 		var jsonData interface{}
 		if err := json.Unmarshal(data, &jsonData); err != nil {
 			return fmt.Errorf("failed to parse JSON: %w", err)

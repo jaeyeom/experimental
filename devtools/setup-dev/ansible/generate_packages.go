@@ -20,6 +20,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	// Generates Ansible YAML playbooks, not HTML.
+	// nosemgrep: import-text-template
 	"text/template"
 )
 
