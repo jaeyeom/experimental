@@ -5,6 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+
+	// Used for game logic randomness, not cryptography.
+	// nosemgrep: math-random-used
 	"math/rand"
 	"reflect"
 	"sync"

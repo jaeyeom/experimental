@@ -732,6 +732,8 @@ func compactJSONFile(path string, originalSize int64) (int64, error) {
 	}
 
 	// Parse JSON
+	// Unmarshaling into interface{} for JSON compaction only.
+	// nosemgrep: go-unsafe-deserialization-interface
 	var parsed interface{}
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return 0, fmt.Errorf("failed to parse JSON: %w", err)
