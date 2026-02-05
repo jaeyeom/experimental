@@ -29,14 +29,6 @@
             state: present
       when: ansible_facts['os_family'] == "Darwin"
 
-    - name: Ensure semgrep is present on Termux
-      block:
-        - name: Ensure semgrep is installed with uv
-          shell: uv tool install semgrep
-          args:
-            creates: ~/.local/bin/semgrep
-      when: ansible_facts['env']['TERMUX_VERSION'] is defined
-
     - name: Ensure semgrep is installed with uv
       shell: uv tool install semgrep
       args:
