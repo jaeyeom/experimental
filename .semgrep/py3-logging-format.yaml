@@ -1,0 +1,63 @@
+rules:
+  - id: py3-logging-improper-formatting
+    pattern-either:
+      # .format() patterns
+      - pattern: $LOGGER.debug('...' .format(...))
+      - pattern: $LOGGER.debug("..." .format(...))
+      - pattern: $LOGGER.info('...' .format(...))
+      - pattern: $LOGGER.info("..." .format(...))
+      - pattern: $LOGGER.warning('...' .format(...))
+      - pattern: $LOGGER.warning("..." .format(...))
+      - pattern: $LOGGER.warn('...' .format(...))
+      - pattern: $LOGGER.warn("..." .format(...))
+      - pattern: $LOGGER.error('...' .format(...))
+      - pattern: $LOGGER.error("..." .format(...))
+      - pattern: $LOGGER.critical('...' .format(...))
+      - pattern: $LOGGER.critical("..." .format(...))
+      # f-string patterns
+      - pattern: $LOGGER.debug(f'...')
+      - pattern: $LOGGER.debug(f"...")
+      - pattern: $LOGGER.info(f'...')
+      - pattern: $LOGGER.info(f"...")
+      - pattern: $LOGGER.warning(f'...')
+      - pattern: $LOGGER.warning(f"...")
+      - pattern: $LOGGER.warn(f'...')
+      - pattern: $LOGGER.warn(f"...")
+      - pattern: $LOGGER.error(f'...')
+      - pattern: $LOGGER.error(f"...")
+      - pattern: $LOGGER.critical(f'...')
+      - pattern: $LOGGER.critical(f"...")
+      # % formatting patterns
+      - pattern: $LOGGER.debug('...' % $ARG)
+      - pattern: $LOGGER.debug("..." % $ARG)
+      - pattern: $LOGGER.info('...' % $ARG)
+      - pattern: $LOGGER.info("..." % $ARG)
+      - pattern: $LOGGER.warning('...' % $ARG)
+      - pattern: $LOGGER.warning("..." % $ARG)
+      - pattern: $LOGGER.warn('...' % $ARG)
+      - pattern: $LOGGER.warn("..." % $ARG)
+      - pattern: $LOGGER.error('...' % $ARG)
+      - pattern: $LOGGER.error("..." % $ARG)
+      - pattern: $LOGGER.critical('...' % $ARG)
+      - pattern: $LOGGER.critical("..." % $ARG)
+    message: |
+      Use logger's built-in formatting instead of .format(), f-strings, or % formatting.
+
+      Bad:  logger.info('value: {}'.format(x))
+      Bad:  logger.info('value: %s' % x)
+      Bad:  logger.info(f'value: {x}')
+
+      Good: logger.info('value: %s', x)
+
+      Benefits:
+      - Lazy evaluation: formatting only happens if log level is enabled
+      - Log aggregation: same message template with different parameters can be
+        grouped together by log analysis tools (e.g., all "value: %s" logs are
+        bundled regardless of the actual value)
+    languages: [python]
+    severity: WARNING
+    metadata:
+      category: best-practice
+      technology:
+        - python
+      confidence: HIGH
