@@ -4,9 +4,9 @@
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
 
-all: requirements.txt generate-ansible generate-pkl format test fix check-bazel-go-files check-org-lint-tests
+all: requirements.txt generate-ansible generate-pkl format test fix check-semgrep check-bazel-go-files check-org-lint-tests
 
-check: requirements.txt check-generated check-format test lint check-bazel-go-files check-org-lint-tests
+check: requirements.txt check-generated check-format test lint check-semgrep check-bazel-go-files check-org-lint-tests
 
 format: format-whitespace
 	goimports -w .
@@ -139,3 +139,13 @@ clean-coverage:
 	@echo "Cleaning coverage files..."
 	@rm -rf lcov.info coverage
 	@echo "Coverage files cleaned"
+
+# Semgrep targets
+# TODO: Add flags like --error after fixing all semgrep issues to enforce checks in CI
+.PHONY: check-semgrep
+check-semgrep:
+	@if command -v semgrep >/dev/null 2>&1; then \
+		semgrep scan --config auto --config .semgrep; \
+	else \
+		echo "Skipping semgrep: not installed"; \
+	fi

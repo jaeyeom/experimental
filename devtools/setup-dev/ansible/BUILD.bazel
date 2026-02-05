@@ -1779,7 +1779,10 @@ sh_test(
     name = "semgrep_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["semgrep.yml"],
-    data = ["semgrep.yml"],
+    data = [
+        "semgrep.yml",
+        "uv.yml",
+    ],
     tags = [
         "ansible",
         "local",

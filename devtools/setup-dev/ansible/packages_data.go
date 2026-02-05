@@ -449,8 +449,8 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 		command: "semgrep",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "semgrep"},
-			PlatformTermux:     PipInstallMethod{Name: "semgrep"},
-			PlatformDebianLike: PipInstallMethod{Name: "semgrep"},
+			PlatformDebianLike: UvInstallMethod{Name: "semgrep"},
+			// Termux can't install semgrep reliably.
 		},
 		Imports: nil,
 	},
