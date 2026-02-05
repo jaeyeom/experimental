@@ -1,0 +1,9 @@
+version: 1
+
+rules:
+  - patterns:
+      - "**/BUILD"
+      - "**/BUILD.bazel"
+      - "**/*.bzl"
+    targets:
+      - "//tools/format:format_test_Starlark_with_buildifier"
