@@ -278,7 +278,7 @@ cmd_exec() {
         # Approved and unchanged - execute
         chmod +x "$_ce_temp_file"
         # shellcheck disable=SC2086
-        exec /bin/sh "$_ce_temp_file" $_ce_args
+        exec "$_ce_temp_file" $_ce_args
     fi
 
     # Not approved or content changed
@@ -312,7 +312,7 @@ cmd_exec() {
                 echo "Script approved."
                 chmod +x "$_ce_temp_file"
                 # shellcheck disable=SC2086
-                exec /bin/sh "$_ce_temp_file" $_ce_args
+                exec "$_ce_temp_file" $_ce_args
                 ;;
             *)
                 echo "Script not approved. Aborting."
