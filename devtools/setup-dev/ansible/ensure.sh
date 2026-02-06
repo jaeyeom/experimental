@@ -8,7 +8,7 @@ mkdir -p "$LOG_DIR"
 
 # Generate a simple session ID. Prefer /dev/urandom when available, fall back to time+pid.
 if [ -r /dev/urandom ]; then
-    SESSION_ID=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+    SESSION_ID=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
 else
     SESSION_ID="$(date +%s)-$$"
 fi
