@@ -108,7 +108,7 @@ show_diff() {
     _sd_new_file="$2"
 
     if command -v delta >/dev/null 2>&1; then
-        delta "$_sd_old_file" "$_sd_new_file"
+        delta "$_sd_old_file" "$_sd_new_file" || true
     elif command -v diff >/dev/null 2>&1; then
         diff -u "$_sd_old_file" "$_sd_new_file" || true
     else
