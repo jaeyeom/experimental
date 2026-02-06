@@ -3,6 +3,7 @@
 # To make changes, modify generate_packages.go, install_methods.go, packages_data.go, or templates.go
 # and then run: make
 - import_playbook: setup-npm.yml
+- import_playbook: setup-nvm.yml
 
 - name: Ensure stylelint is present
   hosts: all
@@ -42,7 +43,7 @@
           when: stylelint_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
-    - name: Install stylelint via npm on Debian/Ubuntu
+    - name: Install stylelint via nvm on Debian/Ubuntu
       block:
         - name: Check if stylelint is installed
           shell: command -v stylelint
@@ -50,7 +51,7 @@
           ignore_errors: yes
           changed_when: False
 
-        - name: Install stylelint using npm
-          command: npm install -g stylelint
+        - name: Install stylelint using npm through nvm
+          command: nvm exec default npm install -g stylelint
           when: stylelint_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

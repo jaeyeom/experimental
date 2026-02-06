@@ -18,6 +18,18 @@ func TestPackagesSorted(t *testing.T) {
 	}
 }
 
+func TestNoNpmOnDebianLike(t *testing.T) {
+	for _, tool := range platformSpecificTools {
+		method, ok := tool.platforms[PlatformDebianLike]
+		if !ok {
+			continue
+		}
+		if _, isNpm := method.(NpmInstallMethod); isNpm {
+			t.Errorf("platform-specific tool %q uses NpmInstallMethod on PlatformDebianLike; use NvmInstallMethod instead", tool.command)
+		}
+	}
+}
+
 func TestPlatformSpecificToolsSorted(t *testing.T) {
 	if !sort.SliceIsSorted(platformSpecificTools, func(i, j int) bool {
 		return platformSpecificTools[i].command < platformSpecificTools[j].command

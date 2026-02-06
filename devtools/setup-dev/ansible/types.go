@@ -168,8 +168,12 @@ func (p PlatformSpecificTool) GetAllImports() []Import {
 		}
 	}
 
-	// Add imports from platform methods, maintaining their order
-	for _, method := range p.platforms {
+	// Add imports from platform methods in deterministic order
+	for _, platform := range AllPlatforms {
+		method, ok := p.platforms[platform]
+		if !ok {
+			continue
+		}
 		for _, imp := range method.GetImports() {
 			if !importsMap[imp.Playbook] && imp.Playbook != p.command {
 				importsMap[imp.Playbook] = true

@@ -13,6 +13,7 @@
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-user-bin-directory.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
+- import_playbook: setup-nvm.yml
 
 - name: Ensure codex is present
   hosts: all
@@ -65,7 +66,7 @@
           when: codex_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
-    - name: Install codex via npm on Debian/Ubuntu
+    - name: Install codex via nvm on Debian/Ubuntu
       block:
         - name: Check if codex is installed
           shell: command -v codex
@@ -73,7 +74,7 @@
           ignore_errors: yes
           changed_when: False
 
-        - name: Install codex using npm
-          command: npm install -g @openai/codex
+        - name: Install codex using npm through nvm
+          command: nvm exec default npm install -g @openai/codex
           when: codex_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
