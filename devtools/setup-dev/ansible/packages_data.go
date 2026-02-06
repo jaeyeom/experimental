@@ -94,7 +94,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		command: "biome",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "biome"},
-			PlatformDebianLike: NpmInstallMethod{Name: "@biomejs/biome"},
+			PlatformDebianLike: NvmInstallMethod{Name: "@biomejs/biome"},
 			PlatformTermux:     NpmInstallMethod{Name: "@biomejs/biome"},
 		},
 		Imports: []Import{{Playbook: "setup-npm"}},
@@ -159,7 +159,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		command: "codex",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     NpmInstallMethod{Name: "@openai/codex"},
-			PlatformDebianLike: NpmInstallMethod{Name: "@openai/codex"},
+			PlatformDebianLike: NvmInstallMethod{Name: "@openai/codex"},
 			PlatformTermux: ShellInstallMethod{
 				InstallCommand: `
 # Dependencies (rust, git, make) are ensured by imported playbooks
@@ -243,7 +243,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 		command: "eslint",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "eslint"},
-			PlatformDebianLike: NpmInstallMethod{Name: "eslint"},
+			PlatformDebianLike: NvmInstallMethod{Name: "eslint"},
 			PlatformTermux:     NpmInstallMethod{Name: "eslint"},
 		},
 		Imports: nil,
@@ -285,7 +285,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	{
 		command: "gemini",
 		platforms: map[PlatformName]InstallMethod{
-			PlatformDebianLike: NpmInstallMethod{Name: "@google/gemini-cli"},
+			PlatformDebianLike: NvmInstallMethod{Name: "@google/gemini-cli"},
 			PlatformTermux:     NpmInstallMethod{Name: "@google/gemini-cli"},
 			PlatformDarwin:     BrewInstallMethod{Name: "gemini-cli"},
 		},
@@ -414,7 +414,7 @@ fi`,
 		command: "pnpm",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "pnpm"},
-			PlatformDebianLike: NpmInstallMethod{Name: "pnpm"},
+			PlatformDebianLike: NvmInstallMethod{Name: "pnpm"},
 			PlatformTermux:     NpmInstallMethod{Name: "pnpm"},
 		},
 		Imports: nil,
@@ -423,7 +423,7 @@ fi`,
 		command: "prettier",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "prettier"},
-			PlatformDebianLike: NpmInstallMethod{Name: "prettier"},
+			PlatformDebianLike: NvmInstallMethod{Name: "prettier"},
 			PlatformTermux:     NpmInstallMethod{Name: "prettier"},
 		},
 		Imports: nil,
@@ -496,7 +496,7 @@ fi`,
 		command: "stylelint",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "stylelint"},
-			PlatformDebianLike: NpmInstallMethod{Name: "stylelint"},
+			PlatformDebianLike: NvmInstallMethod{Name: "stylelint"},
 			PlatformTermux:     NpmInstallMethod{Name: "stylelint"},
 		},
 		Imports: []Import{{Playbook: "setup-npm"}},
