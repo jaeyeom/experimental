@@ -468,6 +468,7 @@ fi`,
 		},
 		Imports: nil,
 	},
+	GoTool("shfmt", "mvdan.cc/sh/v3/cmd/shfmt@latest"),
 	{
 		command: "sqlfluff",
 		platforms: map[PlatformName]InstallMethod{
