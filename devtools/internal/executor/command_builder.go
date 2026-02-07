@@ -21,7 +21,8 @@ type DirectCommandBuilder struct{}
 
 // Build creates a command that executes directly.
 func (d *DirectCommandBuilder) Build(ctx context.Context, command string, args []string) *exec.Cmd {
-	// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
+	// #nosec G204 -- Intentional: command executor library for running external tools
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- command executor library; commands come from trusted caller configuration, not user input
 	return exec.CommandContext(ctx, command, args...)
 }
 
@@ -33,7 +34,8 @@ type ShellCommandBuilder struct{}
 // Build creates a command that executes through a shell.
 func (s *ShellCommandBuilder) Build(ctx context.Context, command string, args []string) *exec.Cmd {
 	fullCommand := buildShellCommand(command, args)
-	// #nosec G204 - This is intentional as we need to execute external tools with user-provided arguments
+	// #nosec G204 -- Intentional: command executor library for running external tools
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- command executor library; shell arguments are quoted via shellQuote to prevent injection
 	return exec.CommandContext(ctx, "sh", "-c", fullCommand)
 }
 

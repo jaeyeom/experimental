@@ -141,11 +141,10 @@ clean-coverage:
 	@echo "Coverage files cleaned"
 
 # Semgrep targets
-# TODO: Add flags like --error after fixing all semgrep issues to enforce checks in CI
 .PHONY: check-semgrep
 check-semgrep:
 	@if command -v semgrep >/dev/null 2>&1; then \
-		semgrep scan --config auto --config .semgrep; \
+		semgrep scan --error --config auto --config .semgrep; \
 	else \
 		echo "Skipping semgrep: not installed"; \
 	fi
