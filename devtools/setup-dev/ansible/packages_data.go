@@ -542,4 +542,5 @@ fi`,
 		},
 		Imports: nil,
 	},
+	GoTool("yamlfmt", "github.com/google/yamlfmt/cmd/yamlfmt@latest"),
 }
