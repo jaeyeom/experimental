@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"reflect"
 	"sort"
 	"testing"
 )
@@ -41,4 +43,194 @@ func TestPlatformSpecificToolsSorted(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestGetAllImports(t *testing.T) {
+	tests := []struct {
+		name string
+		tool PlatformSpecificTool
+		want []Import
+	}{
+		{
+			name: "all-platform method produces unconditional imports",
+			tool: PlatformSpecificTool{
+				command: "mytool",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformAll: GoInstallMethod{PkgPath: "example.com/mytool@latest"},
+				},
+			},
+			want: []Import{
+				{Playbook: "setup-user-go-bin-directory"},
+			},
+		},
+		{
+			name: "per-platform methods produce conditional imports",
+			tool: PlatformSpecificTool{
+				command: "prettier",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformDarwin:     BrewInstallMethod{Name: "prettier"},
+					PlatformTermux:     NpmInstallMethod{Name: "prettier"},
+					PlatformDebianLike: NvmInstallMethod{Name: "prettier"},
+				},
+			},
+			want: []Import{
+				{Playbook: "setup-npm", When: WhenTermux},
+				{Playbook: "setup-nvm", When: WhenDebianLike},
+			},
+		},
+		{
+			name: "explicit unconditional import stays unconditional",
+			tool: PlatformSpecificTool{
+				command: "biome",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformDarwin:     BrewInstallMethod{Name: "biome"},
+					PlatformTermux:     NpmInstallMethod{Name: "@biomejs/biome"},
+					PlatformDebianLike: NvmInstallMethod{Name: "@biomejs/biome"},
+				},
+				Imports: []Import{{Playbook: "setup-npm"}},
+			},
+			want: []Import{
+				{Playbook: "setup-npm"},
+				{Playbook: "setup-nvm", When: WhenDebianLike},
+			},
+		},
+		{
+			name: "explicit conditional imports preserved",
+			tool: PlatformSpecificTool{
+				command: "claude",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformDarwin:     ShellInstallMethod{InstallCommand: "curl | bash"},
+					PlatformTermux:     NpmInstallMethod{Name: "@anthropic-ai/claude-code"},
+					PlatformDebianLike: ShellInstallMethod{InstallCommand: "curl | bash"},
+				},
+				Imports: []Import{
+					{Playbook: "curl", When: WhenDarwin},
+					{Playbook: "setup-npm", When: WhenTermux},
+					{Playbook: "setup-nvm", When: WhenDebianLike},
+				},
+			},
+			want: []Import{
+				{Playbook: "curl", When: WhenDarwin},
+				{Playbook: "setup-npm", When: WhenTermux},
+				{Playbook: "setup-nvm", When: WhenDebianLike},
+			},
+		},
+		{
+			name: "same import from multiple platforms combines with or",
+			tool: PlatformSpecificTool{
+				command: "act",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformDarwin:     BrewInstallMethod{Name: "act"},
+					PlatformTermux:     GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
+					PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
+				},
+				Imports: []Import{{Playbook: "gh"}},
+			},
+			want: []Import{
+				{Playbook: "gh"},
+				{Playbook: "setup-user-go-bin-directory", When: "(" + WhenTermux + ") or (" + WhenDebianLike + ")"},
+			},
+		},
+		{
+			name: "explicit conditional import not widened by methods",
+			tool: PlatformSpecificTool{
+				command: "check-jsonschema",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformDarwin:     BrewInstallMethod{Name: "check-jsonschema"},
+					PlatformTermux:     UvInstallMethod{Name: "check-jsonschema"},
+					PlatformDebianLike: UvInstallMethod{Name: "check-jsonschema"},
+				},
+				Imports: []Import{{Playbook: "uv", When: WhenNotDarwin}},
+			},
+			want: []Import{
+				{Playbook: "uv", When: WhenNotDarwin},
+			},
+		},
+		{
+			name: "self-import is excluded",
+			tool: PlatformSpecificTool{
+				command: "setup-npm",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformAll: NpmInstallMethod{Name: "setup-npm"},
+				},
+			},
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.tool.GetAllImports()
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetAllImports() mismatch:\n  got:  %s\n  want: %s", formatImports(got), formatImports(tt.want))
+			}
+		})
+	}
+}
+
+func TestHasConditionalImports(t *testing.T) {
+	tests := []struct {
+		name string
+		tool PlatformSpecificTool
+		want bool
+	}{
+		{
+			name: "no imports",
+			tool: PlatformSpecificTool{
+				command: "mytool",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformDarwin: BrewInstallMethod{Name: "mytool"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "only unconditional imports",
+			tool: PlatformSpecificTool{
+				command: "mytool",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformAll: GoInstallMethod{PkgPath: "example.com/mytool@latest"},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "has conditional imports",
+			tool: PlatformSpecificTool{
+				command: "prettier",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformDarwin:     BrewInstallMethod{Name: "prettier"},
+					PlatformTermux:     NpmInstallMethod{Name: "prettier"},
+					PlatformDebianLike: NvmInstallMethod{Name: "prettier"},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.tool.HasConditionalImports(); got != tt.want {
+				t.Errorf("HasConditionalImports() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func formatImports(imports []Import) string {
+	if len(imports) == 0 {
+		return "nil"
+	}
+	s := "["
+	for i, imp := range imports {
+		if i > 0 {
+			s += ", "
+		}
+		if imp.When != "" {
+			s += fmt.Sprintf("{%q when: %q}", imp.Playbook, imp.When)
+		} else {
+			s += fmt.Sprintf("{%q}", imp.Playbook)
+		}
+	}
+	return s + "]"
 }

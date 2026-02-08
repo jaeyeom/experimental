@@ -156,33 +156,110 @@ func (p PlatformSpecificTool) HasDebianLike() bool { return p.HasPlatform(Platfo
 func (p PlatformSpecificTool) HasDebian() bool     { return p.HasPlatform(PlatformDebian) }
 func (p PlatformSpecificTool) HasUbuntu() bool     { return p.HasPlatform(PlatformUbuntu) }
 
-func (p PlatformSpecificTool) GetAllImports() []Import {
-	importsMap := make(map[string]bool)
-	var importsOrder []Import
+// platformWhen maps each platform to its Ansible when condition for use in
+// conditional imports. An empty string means unconditional (always runs).
+var platformWhen = map[PlatformName]string{
+	PlatformAll:        "",
+	PlatformDarwin:     WhenDarwin,
+	PlatformTermux:     WhenTermux,
+	PlatformDebianLike: WhenDebianLike,
+	PlatformDebian:     WhenDebianLike + ` and ansible_facts['distribution'] == "Debian"`,
+	PlatformUbuntu:     WhenDebianLike + ` and ` + WhenUbuntu,
+}
 
-	// Add explicit imports first, maintaining order
-	for _, imp := range p.Imports {
-		if !importsMap[imp.Playbook] && imp.Playbook != p.command {
-			importsMap[imp.Playbook] = true
-			importsOrder = append(importsOrder, imp)
+// combineWhenConditions deduplicates and joins multiple Ansible when
+// conditions with "or". A single condition is returned as-is.
+func combineWhenConditions(whens []string) string {
+	seen := make(map[string]bool)
+	var unique []string
+	for _, w := range whens {
+		if !seen[w] {
+			seen[w] = true
+			unique = append(unique, w)
+		}
+	}
+	if len(unique) == 1 {
+		return unique[0]
+	}
+	parts := make([]string, len(unique))
+	for i, w := range unique {
+		parts[i] = "(" + w + ")"
+	}
+	return strings.Join(parts, " or ")
+}
+
+func (p PlatformSpecificTool) GetAllImports() []Import {
+	type importEntry struct {
+		playbook      string
+		whens         []string
+		unconditional bool
+		explicit      bool // true if added from explicit Imports
+	}
+
+	entries := make(map[string]*importEntry)
+	var order []string
+
+	addImport := func(playbook, when string, explicit bool) {
+		if playbook == p.command {
+			return
+		}
+		entry, exists := entries[playbook]
+		if !exists {
+			entry = &importEntry{playbook: playbook, explicit: explicit}
+			entries[playbook] = entry
+			order = append(order, playbook)
+		} else if entry.explicit && !explicit {
+			// Explicit imports are authoritative; skip method-derived
+			// additions for the same playbook since the developer
+			// already chose the correct condition.
+			return
+		}
+		if when == "" {
+			entry.unconditional = true
+		} else if !entry.unconditional {
+			entry.whens = append(entry.whens, when)
 		}
 	}
 
-	// Add imports from platform methods in deterministic order
+	// Add explicit imports first, maintaining order
+	for _, imp := range p.Imports {
+		addImport(imp.Playbook, imp.When, true)
+	}
+
+	// Add imports from platform methods with platform-specific conditions
 	for _, platform := range AllPlatforms {
 		method, ok := p.platforms[platform]
 		if !ok {
 			continue
 		}
+		when := platformWhen[platform]
 		for _, imp := range method.GetImports() {
-			if !importsMap[imp.Playbook] && imp.Playbook != p.command {
-				importsMap[imp.Playbook] = true
-				importsOrder = append(importsOrder, imp)
-			}
+			addImport(imp.Playbook, when, false)
 		}
 	}
 
-	return importsOrder
+	// Build result with combined conditions
+	var result []Import
+	for _, playbook := range order {
+		entry := entries[playbook]
+		var when string
+		if !entry.unconditional && len(entry.whens) > 0 {
+			when = combineWhenConditions(entry.whens)
+		}
+		result = append(result, Import{Playbook: playbook, When: when})
+	}
+
+	return result
+}
+
+// HasConditionalImports returns true if any import has a When condition.
+func (p PlatformSpecificTool) HasConditionalImports() bool {
+	for _, imp := range p.GetAllImports() {
+		if imp.When != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // GoTool creates a PlatformSpecificTool for Go tools, allowing installation.
