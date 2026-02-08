@@ -16,3 +16,12 @@
           if [ -d "$(go env GOPATH)/bin" ] ; then
               PATH="$(go env GOPATH)/bin:$PATH"
           fi
+
+    - name: Determine GOPATH for current Ansible session
+      command: go env GOPATH
+      register: go_env_gopath
+      changed_when: false
+
+    - name: Add GOPATH/bin to current Ansible PATH
+      set_fact:
+        ansible_env: "{{ ansible_env | combine({'PATH': go_env_gopath.stdout + '/bin:' + ansible_env.PATH}) }}"
