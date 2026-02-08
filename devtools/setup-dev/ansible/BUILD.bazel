@@ -56,6 +56,7 @@ sh_test(
     args = ["act.yml"],
     data = [
         "act.yml",
+        "gather-facts.yml",
         "gh.yml",
         "go.yml",
         "setup-shell-profile.yml",
@@ -73,6 +74,7 @@ sh_test(
     args = ["actionlint.yml"],
     data = [
         "actionlint.yml",
+        "gather-facts.yml",
         "gh.yml",
         "go.yml",
         "setup-shell-profile.yml",
@@ -285,6 +287,7 @@ sh_test(
     data = [
         "biome.yml",
         "curl.yml",
+        "gather-facts.yml",
         "npm.yml",
         "nvm.yml",
         "setup-npm.yml",
@@ -517,6 +520,7 @@ sh_test(
     args = ["copier.yml"],
     data = [
         "copier.yml",
+        "gather-facts.yml",
         "uv.yml",
     ],
     tags = [
@@ -658,6 +662,7 @@ sh_test(
     data = [
         "curl.yml",
         "eslint.yml",
+        "gather-facts.yml",
         "npm.yml",
         "nvm.yml",
         "setup-npm.yml",
@@ -678,6 +683,7 @@ sh_test(
         "cargo-install-update.yml",
         "curl.yml",
         "fd.yml",
+        "gather-facts.yml",
         "rustc.yml",
         "setup-cargo.yml",
         "setup-shell-profile.yml",
@@ -768,6 +774,7 @@ sh_test(
     args = ["gemini.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "gemini.yml",
         "npm.yml",
         "nvm.yml",
@@ -1427,6 +1434,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["mypy.yml"],
     data = [
+        "gather-facts.yml",
         "mypy.yml",
         "uv.yml",
     ],
@@ -1584,6 +1592,7 @@ sh_test(
     args = ["pnpm.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "npm.yml",
         "nvm.yml",
         "pnpm.yml",
@@ -1614,6 +1623,7 @@ sh_test(
     args = ["prettier.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "npm.yml",
         "nvm.yml",
         "prettier.yml",
@@ -1704,6 +1714,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["pylsp.yml"],
     data = [
+        "gather-facts.yml",
         "pylsp.yml",
         "uv.yml",
     ],
@@ -1756,6 +1767,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["ruff.yml"],
     data = [
+        "gather-facts.yml",
         "ruff.yml",
         "uv.yml",
     ],
@@ -1771,6 +1783,7 @@ sh_test(
     args = ["rust-analyzer.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "rust-analyzer.yml",
         "rustc.yml",
         "setup-cargo.yml",
@@ -1812,6 +1825,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["semgrep.yml"],
     data = [
+        "gather-facts.yml",
         "semgrep.yml",
         "uv.yml",
     ],
@@ -1869,6 +1883,7 @@ sh_test(
         "curl.yml",
         "emacs.yml",
         "eslint.yml",
+        "gather-facts.yml",
         "gh.yml",
         "go.yml",
         "lcov.yml",
@@ -1959,6 +1974,7 @@ sh_test(
     args = ["setup-css-tools.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "npm.yml",
         "nvm.yml",
         "setup-css-tools.yml",
@@ -1984,6 +2000,7 @@ sh_test(
         "cleanup-repo.yml",
         "curl.yml",
         "fd.yml",
+        "gather-facts.yml",
         "gh.yml",
         "gmi.yml",
         "go.yml",
@@ -2381,6 +2398,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-python-tools.yml"],
     data = [
+        "gather-facts.yml",
         "mypy.yml",
         "pylsp.yml",
         "ruff.yml",
@@ -2399,6 +2417,7 @@ sh_test(
     args = ["setup-rust-tools.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "rust-analyzer.yml",
         "rustc.yml",
         "setup-cargo.yml",
@@ -2465,6 +2484,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-sql-tools.yml"],
     data = [
+        "gather-facts.yml",
         "setup-sql-tools.yml",
         "sqlfluff.yml",
         "uv.yml",
@@ -2697,6 +2717,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["sqlfluff.yml"],
     data = [
+        "gather-facts.yml",
         "sqlfluff.yml",
         "uv.yml",
     ],
@@ -2749,6 +2770,7 @@ sh_test(
     args = ["stylelint.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "npm.yml",
         "nvm.yml",
         "setup-npm.yml",

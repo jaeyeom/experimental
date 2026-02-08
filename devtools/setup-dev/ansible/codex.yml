@@ -14,6 +14,7 @@
 - import_playbook: setup-user-bin-directory.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-nvm.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
 - name: Ensure codex is present
   hosts: all

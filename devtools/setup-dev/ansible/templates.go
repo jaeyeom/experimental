@@ -99,7 +99,7 @@ var platformSpecificTemplate = `---
 # To make changes, modify generate_packages.go, install_methods.go, packages_data.go, or templates.go
 # and then run: make
 {{- $imports := .GetAllImports }}
-{{- if and (gt (len $imports) 0) (index $imports 0).When }}
+{{- if .HasConditionalImports }}
 - import_playbook: gather-facts.yml
 {{- end }}
 {{- range $imports }}
