@@ -49,6 +49,39 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # Detect OS
 OS="$(uname -s)"
 
+# Check if a playbook (or its transitive import_playbook deps) includes a
+# target playbook. Uses a global _pb_visited variable for cycle detection.
+# Usage: playbook_imports TARGET FILE
+_pb_visited=""
+playbook_imports() {
+    target="$1"; file="$2"
+    case "$file" in *.yml) ;; *) file="$file.yml" ;; esac
+    # Cycle detection
+    case " $_pb_visited " in *" $file "*) return 1 ;; esac
+    _pb_visited="$_pb_visited $file"
+    # Direct match
+    [ "$file" = "$target" ] && return 0
+    # Recurse into imports
+    [ -f "$file" ] || return 1
+    # shellcheck disable=SC2013  # Playbook filenames never contain spaces
+    for dep in $(sed -n 's/^- import_playbook: *//p' "$file"); do
+        playbook_imports "$target" "$dep" && return 0
+    done
+    return 1
+}
+
+# Check if any non-flag argument transitively imports a target playbook.
+# Usage: any_arg_imports TARGET "$@"
+any_arg_imports() {
+    target="$1"; shift
+    for pb in "$@"; do
+        case "$pb" in -*) continue ;; esac
+        _pb_visited=""
+        playbook_imports "$target" "$pb" && return 0
+    done
+    return 1
+}
+
 # Pre-check for SSH key authentication
 if ! ssh-add -l >/dev/null 2>&1; then
     if [ -z "$SSHPASS" ]; then
@@ -58,31 +91,49 @@ if ! ssh-add -l >/dev/null 2>&1; then
     fi
 fi
 
-# Pre-check for git identity variables when setup-git playbook is requested
-for playbook in "$@"; do
-    case "$playbook" in
-        setup-git|setup-git.yml)
-            git_check_failed=false
-            if [ -z "$GIT_AUTHOR_NAME" ] && [ -z "$(git config --global user.name 2>/dev/null)" ]; then
-                echo "Error: GIT_AUTHOR_NAME is not set and git config user.name is empty." >&2
-                git_check_failed=true
-            fi
-            if [ -z "$GIT_AUTHOR_EMAIL" ] && [ -z "$(git config --global user.email 2>/dev/null)" ]; then
-                echo "Error: GIT_AUTHOR_EMAIL is not set and git config user.email is empty." >&2
-                git_check_failed=true
-            fi
-            if [ -z "$GITHUB_USERNAME" ] && [ -z "$(git config --global github.user 2>/dev/null)" ]; then
-                echo "Error: GITHUB_USERNAME is not set and git config github.user is empty." >&2
-                git_check_failed=true
-            fi
-            if [ "$git_check_failed" = true ]; then
-                echo "Please set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, and GITHUB_USERNAME before running setup-git." >&2
-                exit 1
-            fi
-            break
-            ;;
-    esac
-done
+# Pre-check for git identity variables when setup-git is transitively needed
+if any_arg_imports setup-git.yml "$@"; then
+    git_check_failed=false
+    if [ -z "$GIT_AUTHOR_NAME" ] && [ -z "$(git config --global user.name 2>/dev/null)" ]; then
+        echo "Error: GIT_AUTHOR_NAME is not set and git config user.name is empty." >&2
+        git_check_failed=true
+    fi
+    if [ -z "$GIT_AUTHOR_EMAIL" ] && [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+        echo "Error: GIT_AUTHOR_EMAIL is not set and git config user.email is empty." >&2
+        git_check_failed=true
+    fi
+    if [ -z "$GITHUB_USERNAME" ] && [ -z "$(git config --global github.user 2>/dev/null)" ]; then
+        echo "Error: GITHUB_USERNAME is not set and git config github.user is empty." >&2
+        git_check_failed=true
+    fi
+    if [ "$git_check_failed" = true ]; then
+        echo "Please set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, and GITHUB_USERNAME before running setup-git." >&2
+        exit 1
+    fi
+fi
+
+# Interactive prompts for SSH key generation when setup-ssh-key is transitively needed
+if any_arg_imports setup-ssh-key.yml "$@"; then
+    if [ ! -f "$HOME/.ssh/id_ed25519" ] && [ ! -f "$HOME/.ssh/id_ed25519_sk" ] && [ ! -f "$HOME/.ssh/id_ecdsa_sk" ]; then
+        # Determine default email from git config or environment
+        default_email="${GIT_AUTHOR_EMAIL:-$(git config --global user.email 2>/dev/null)}"
+
+        printf "Enter your email address for the SSH key comment [%s]: " "$default_email"
+        read -r ssh_email_input
+        if [ -n "$ssh_email_input" ]; then
+            export SSH_KEY_COMMENT="$ssh_email_input"
+        elif [ -n "$default_email" ]; then
+            export SSH_KEY_COMMENT="$default_email"
+        fi
+
+        printf "Do you have a hardware security key (e.g., YubiKey)? (yes/no) [no]: "
+        read -r ssh_hw_input
+        case "$ssh_hw_input" in
+            [Yy]|[Yy][Ee][Ss]) export SSH_USE_HARDWARE_KEY=yes ;;
+            *) export SSH_USE_HARDWARE_KEY=no ;;
+        esac
+    fi
+fi
 
 # Set GITHUB_TOKEN from gh CLI if not already set (for higher API rate limits)
 if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
