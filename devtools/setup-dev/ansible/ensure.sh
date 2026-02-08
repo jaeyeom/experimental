@@ -58,6 +58,32 @@ if ! ssh-add -l >/dev/null 2>&1; then
     fi
 fi
 
+# Pre-check for git identity variables when setup-git playbook is requested
+for playbook in "$@"; do
+    case "$playbook" in
+        setup-git|setup-git.yml)
+            git_check_failed=false
+            if [ -z "$GIT_AUTHOR_NAME" ] && [ -z "$(git config --global user.name 2>/dev/null)" ]; then
+                echo "Error: GIT_AUTHOR_NAME is not set and git config user.name is empty." >&2
+                git_check_failed=true
+            fi
+            if [ -z "$GIT_AUTHOR_EMAIL" ] && [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+                echo "Error: GIT_AUTHOR_EMAIL is not set and git config user.email is empty." >&2
+                git_check_failed=true
+            fi
+            if [ -z "$GITHUB_USERNAME" ] && [ -z "$(git config --global github.user 2>/dev/null)" ]; then
+                echo "Error: GITHUB_USERNAME is not set and git config github.user is empty." >&2
+                git_check_failed=true
+            fi
+            if [ "$git_check_failed" = true ]; then
+                echo "Please set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, and GITHUB_USERNAME before running setup-git." >&2
+                exit 1
+            fi
+            break
+            ;;
+    esac
+done
+
 # Set GITHUB_TOKEN from gh CLI if not already set (for higher API rate limits)
 if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
     if gh_token=$(gh auth token 2>/dev/null); then
