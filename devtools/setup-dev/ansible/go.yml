@@ -95,6 +95,11 @@
 
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
+    - name: Add /usr/local/go/bin to current Ansible PATH
+      set_fact:
+        ansible_env: "{{ ansible_env | combine({'PATH': '/usr/local/go/bin:' + ansible_env.PATH}) }}"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+
     - name: Ensure go is present on Termux
       block:
         - name: Check if go is installed
