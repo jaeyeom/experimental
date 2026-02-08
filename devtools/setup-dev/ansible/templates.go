@@ -42,12 +42,12 @@ var packagesTemplate = `---
       when: ` + WhenDebianLike + ` and ` + WhenUbuntu + `
       become: yes
 
-    - name: Ensure bookworm-backports is added to sources.list.d
+    - name: Ensure backports is added to sources.list.d
       ansible.builtin.apt_repository:
-        repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
+        repo: "deb http://deb.debian.org/debian {{ "{{" }} ansible_facts['distribution_release'] {{ "}}" }}-backports main contrib non-free non-free-firmware"
         state: present
         update_cache: yes
-      when: ` + WhenDebianLike + ` and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      when: ` + WhenDebianLike + ` and ansible_facts['distribution'] == "Debian"
       become: yes
 {{ end }}{{ if .BrewTap }}
     - name: Tap {{.BrewTap}} for {{.Command}}

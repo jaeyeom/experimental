@@ -509,7 +509,7 @@ func (u UbuntuPkgInstallMethod) RenderBlockInstallTask(command string) string {
 }
 
 // DebianPkgInstallMethod handles Debian-specific package installation
-// with bookworm-backports repository support.
+// with backports repository support.
 type DebianPkgInstallMethod struct {
 	Name string
 }
@@ -523,12 +523,12 @@ func (d DebianPkgInstallMethod) GetImports() []Import {
 }
 
 func (d DebianPkgInstallMethod) RenderSetupTasks(_ string) string {
-	return `    - name: Ensure bookworm-backports is added to sources.list.d
+	return `    - name: Ensure backports is added to sources.list.d
       ansible.builtin.apt_repository:
-        repo: "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware"
+        repo: "deb http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib non-free non-free-firmware"
         state: present
         update_cache: yes
-      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian" and ansible_facts['distribution_major_version'] == "12"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian"
       become: yes
 
 `
