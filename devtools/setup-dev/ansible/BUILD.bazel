@@ -923,13 +923,13 @@ sh_test(
 )
 
 sh_test(
-    name = "githooks_syntax_test",
+    name = "githooks-cli_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
-    args = ["githooks.yml"],
+    args = ["githooks-cli.yml"],
     data = [
         "curl.yml",
         "git.yml",
-        "githooks.yml",
+        "githooks-cli.yml",
     ],
     tags = [
         "ansible",
@@ -3005,7 +3005,7 @@ test_suite(
         ":gh_syntax_test",
         ":gherun_syntax_test",
         ":git_syntax_test",
-        ":githooks_syntax_test",
+        ":githooks-cli_syntax_test",
         ":gmi_syntax_test",
         ":go_syntax_test",
         ":godef_syntax_test",

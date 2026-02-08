@@ -5,32 +5,32 @@
 - import_playbook: git.yml
 - import_playbook: curl.yml
 
-- name: Ensure githooks is present
+- name: Ensure githooks-cli is present
   hosts: all
   tasks:
-    - name: Include guard for githooks playbook
+    - name: Include guard for githooks-cli playbook
       block:
-        - name: Stop early if the githooks playbook is already included
+        - name: Stop early if the githooks-cli playbook is already included
           meta: end_play
-          when: githooks_playbook_imported is defined
-        - name: Ensure the githooks playbook is not included
+          when: githooks_cli_playbook_imported is defined
+        - name: Ensure the githooks-cli playbook is not included
           set_fact:
-            githooks_playbook_imported: true
-          when: githooks_playbook_imported is not defined
+            githooks_cli_playbook_imported: true
+          when: githooks_cli_playbook_imported is not defined
 
-    - name: Ensure githooks is present
+    - name: Ensure githooks-cli is present
       block:
-        - name: Check if githooks is installed
-          shell: command -v githooks
-          register: githooks_installed
+        - name: Check if githooks-cli is installed
+          shell: command -v githooks-cli
+          register: githooks_cli_installed
           failed_when: false
           changed_when: False
 
-        - name: Install githooks
+        - name: Install githooks-cli
           shell: |
             if git hooks --version >/dev/null 2>&1; then
                 echo "Githooks already installed, skipping."
             else
                 {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
             fi
-          when: githooks_installed.rc != 0
+          when: githooks_cli_installed.rc != 0

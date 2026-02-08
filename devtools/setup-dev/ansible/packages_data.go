@@ -299,7 +299,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
 	GoTool("gherun", "github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest", Import{Playbook: "gh"}),
 	{
-		command: "githooks",
+		command: "githooks-cli",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: ShellInstallMethod{
 				InstallCommand: `
