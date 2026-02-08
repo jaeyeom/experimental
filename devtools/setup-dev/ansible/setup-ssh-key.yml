@@ -25,18 +25,60 @@
         state: directory
         mode: '0700'
 
-    - name: Stat the key file
+    - name: Stat SSH key files to check existence
       ansible.builtin.stat:
-        path: "{{ ansible_facts['env']['HOME'] }}/.ssh/id_ed25519"
-      register: ssh_key_file
+        path: "{{ ansible_facts['env']['HOME'] }}/.ssh/{{ item }}"
+      register: ssh_key_check_results
+      loop:
+        - id_ed25519
+        - id_ed25519_sk
+        - id_ecdsa_sk
 
-    - name: Generate SSH Key
+    - name: Set fact for whether any SSH key exists
+      set_fact:
+        ssh_any_key_exists: "{{ ssh_key_check_results.results | selectattr('stat.exists') | list | length > 0 }}"
+
+    - name: Set SSH key comment from environment or git email
+      set_fact:
+        ssh_key_comment: "{{ ansible_facts['env']['SSH_KEY_COMMENT'] | default(git_user_email) }}"
+      when: not ssh_any_key_exists
+
+    - name: Set hardware key flag from environment
+      set_fact:
+        ssh_use_hardware_key: "{{ ansible_facts['env']['SSH_USE_HARDWARE_KEY'] | default('no') | lower in ['yes', 'y'] }}"
+      when: not ssh_any_key_exists
+
+    - name: Generate standard SSH key
       community.crypto.openssh_keypair:
         path: "{{ ansible_facts['env']['HOME'] }}/.ssh/id_ed25519"
         type: ed25519
         passphrase: "{{ ansible_facts['env']['SSHPASS'] }}"
-        comment: "{{ git_user_email }}"
-      when: not ssh_key_file.stat.exists
+        comment: "{{ ssh_key_comment }}"
+      when: not ssh_any_key_exists and not ssh_use_hardware_key
+
+    - name: Generate hardware security key (ed25519-sk)
+      block:
+        - name: Try generating ed25519-sk key
+          command: ssh-keygen -t ed25519-sk -C "{{ ssh_key_comment }}" -f "{{ ansible_facts['env']['HOME'] }}/.ssh/id_ed25519_sk" -N "{{ ansible_facts['env']['SSHPASS'] | default('') }}"
+          register: ssh_keygen_sk_result
+      rescue:
+        - name: Fall back to ecdsa-sk key
+          command: ssh-keygen -t ecdsa-sk -C "{{ ssh_key_comment }}" -f "{{ ansible_facts['env']['HOME'] }}/.ssh/id_ecdsa_sk" -N "{{ ansible_facts['env']['SSHPASS'] | default('') }}"
+      when: not ssh_any_key_exists and ssh_use_hardware_key
+
+    - name: Stat SSH key files for identity determination
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['env']['HOME'] }}/.ssh/{{ item }}"
+      register: ssh_key_stat_results
+      loop:
+        - id_ed25519_sk
+        - id_ecdsa_sk
+        - id_ed25519
+
+    - name: Determine which SSH key identity to use
+      set_fact:
+        ssh_key_identity: "{{ (ssh_key_stat_results.results | selectattr('stat.exists') | first).item }}"
+        ssh_key_path: "{{ ansible_facts['env']['HOME'] }}/.ssh/{{ (ssh_key_stat_results.results | selectattr('stat.exists') | first).item }}"
 
     - name: Add SSH key to the SSH authentication agent if not already added
       block:
@@ -47,7 +89,7 @@
           changed_when: false
 
         - name: Add SSH key to the SSH authentication agent
-          command: sshpass -P passphrase -e ssh-add {{ ansible_facts['env']['HOME'] }}/.ssh/id_ed25519
+          command: sshpass -P passphrase -e ssh-add {{ ssh_key_path }}
           when: ssh_agent_keys.rc != 0
       when: ansible_facts['env']['SSH_AUTH_SOCK'] is defined
 
@@ -60,7 +102,7 @@
         marker: "# {mark} running keychain"
         block: |
           if [[ $- == *i* ]]; then
-              eval $(keychain --eval --agents ssh id_ed25519)
+              eval $(keychain --eval --agents ssh {{ ssh_key_identity }})
           fi
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
@@ -98,4 +140,5 @@
       debug:
         msg:
           - "SSH_AUTH_SOCK: {{ ansible_facts['env']['SSH_AUTH_SOCK'] }}"
-          - "SSH key: {{ ssh_key_file.stat.path }}"
+          - "SSH key: {{ ssh_key_path }}"
+          - "SSH key identity: {{ ssh_key_identity }}"
