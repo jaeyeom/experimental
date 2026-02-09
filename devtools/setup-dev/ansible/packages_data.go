@@ -557,4 +557,12 @@ fi`,
 		Imports: nil,
 	},
 	GoTool("yamlfmt", "github.com/google/yamlfmt/cmd/yamlfmt@latest"),
+	{
+		command: "yamllint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "yamllint"},
+			PlatformDebianLike: PackageInstallMethod{Name: "yamllint"},
+			PlatformTermux:     PipInstallMethod{Name: "yamllint"},
+		},
+	},
 }

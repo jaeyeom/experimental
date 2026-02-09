@@ -52,5 +52,6 @@ unzip
 w3m
 wget
 which
+yamllint
 zip
 zoxide
