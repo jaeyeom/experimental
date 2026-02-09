@@ -103,6 +103,30 @@ batch installs:
 The playbook =all.yml= just imports variuos other playbooks that I think are
 essential.
 
+** Profiles (Qubes OS / Subset Installs)
+Profiles are curated subsets of tools defined in =profile-*.yml= files. Each
+profile follows the same =import_playbook= format as =all.yml= but includes
+only the playbooks needed for a specific use case.
+
+For each profile, the generator produces:
+- =apt-packages-{profile}.txt= -- sorted package names for that profile
+- =qubes-templatevm-{profile}.sh= -- self-contained TemplateVM bootstrap script
+  that adds PPAs, backports, custom apt repos, and installs all packages
+
+*** Qubes OS Workflow
+In Qubes OS, TemplateVMs and AppVMs serve different roles:
+1. *TemplateVM*: Run the generated =qubes-templatevm-{profile}.sh= to install
+   system-level apt packages and their sources.
+2. *AppVM*: Run =./ensure.sh profile-{profile}= to install home-directory tools
+   (Go, Cargo, npm, configs, etc.) that are not part of the system packages.
+
+*** Available Profiles
+- =profile-minimal.yml= -- Core CLI tools for any lightweight setup
+- =profile-emacs-daily.yml= -- Emacs with shell tools for daily use
+
+To create a new profile, add a =profile-{name}.yml= file and run =make= to
+regenerate outputs.
+
 * Remaining Works
 ** Learn Ansible Module and Galaxy
 I depend on the generator, but if I know more sophisticated features, it would
@@ -231,6 +255,8 @@ These files are playbooks not generated from =generate_packages.go=:
 - gmi.yml
 - go.yml
 - golangci-lint.yml
+- profile-emacs-daily.yml
+- profile-minimal.yml
 - rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
