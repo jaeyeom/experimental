@@ -172,6 +172,11 @@ var platformSpecificTemplate = `---
 {{- else }}
 {{- if .HasDebian }}
 {{- $method := .DebianMethod }}
+{{- $setupTasks := $method.RenderSetupTasks .Command }}
+{{- if $setupTasks }}
+
+{{$setupTasks}}
+{{- end }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Debian
 {{$method.RenderInstallTask .Command}}
@@ -179,6 +184,11 @@ var platformSpecificTemplate = `---
 {{- end }}
 {{- if .HasUbuntu }}
 {{- $method := .UbuntuMethod }}
+{{- $setupTasks := $method.RenderSetupTasks .Command }}
+{{- if $setupTasks }}
+
+{{$setupTasks}}
+{{- end }}
 
     - name: Install {{.Command}} via {{$method.GetMethodType}} on Ubuntu
 {{$method.RenderInstallTask .Command}}
