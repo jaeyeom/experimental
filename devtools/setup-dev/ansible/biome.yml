@@ -4,6 +4,7 @@
 # and then run: make
 - import_playbook: gather-facts.yml
 - import_playbook: setup-npm.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-nvm.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
