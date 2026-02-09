@@ -112,6 +112,7 @@ sh_test(
         "buildifier.yml",
         "buildozer.yml",
         "cargo-install-update.yml",
+        "check-jsonschema.yml",
         "claude.yml",
         "claudelytics.yml",
         "cleanup-repo.yml",
@@ -189,6 +190,7 @@ sh_test(
         "setup-claude-privacy.yml",
         "setup-claude-sandbox.yml",
         "setup-claude-termux-rg.yml",
+        "setup-config-tools.yml",
         "setup-css-tools.yml",
         "setup-devtools.yml",
         "setup-direnv.yml",
@@ -232,6 +234,8 @@ sh_test(
         "uv.yml",
         "vipsthumbnail.yml",
         "which.yml",
+        "yamlfmt.yml",
+        "yamllint.yml",
         "zoxide.yml",
     ],
     tags = [
@@ -2147,6 +2151,27 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-config-tools_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-config-tools.yml"],
+    data = [
+        "check-jsonschema.yml",
+        "gather-facts.yml",
+        "go.yml",
+        "setup-config-tools.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+        "uv.yml",
+        "yamlfmt.yml",
+        "yamllint.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-css-tools_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-css-tools.yml"],
@@ -3144,6 +3169,17 @@ sh_test(
 )
 
 sh_test(
+    name = "yamllint_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["yamllint.yml"],
+    data = ["yamllint.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "zip_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["zip.yml"],
@@ -3297,6 +3333,7 @@ test_suite(
         ":setup-claude-privacy_syntax_test",
         ":setup-claude-sandbox_syntax_test",
         ":setup-claude-termux-rg_syntax_test",
+        ":setup-config-tools_syntax_test",
         ":setup-css-tools_syntax_test",
         ":setup-devtools_syntax_test",
         ":setup-direnv_syntax_test",
@@ -3356,6 +3393,7 @@ test_suite(
         ":wget_syntax_test",
         ":which_syntax_test",
         ":yamlfmt_syntax_test",
+        ":yamllint_syntax_test",
         ":zip_syntax_test",
         ":zoxide_syntax_test",
     ],

@@ -1,0 +1,4 @@
+---
+- import_playbook: yamllint.yml
+- import_playbook: yamlfmt.yml
+- import_playbook: check-jsonschema.yml
