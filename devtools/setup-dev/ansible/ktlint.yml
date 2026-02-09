@@ -50,7 +50,7 @@
 
         - name: Parse installed ktlint version
           set_fact:
-            ktlint_installed_version: "{{ (ktlint_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
+            ktlint_installed_version: "{{ (ktlint_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0'], true) | first }}"
           when: ktlint_command_check.rc == 0
 
         - name: Set default version when ktlint is not installed
@@ -109,7 +109,7 @@
 
         - name: Parse installed ktlint version
           set_fact:
-            ktlint_installed_version: "{{ (ktlint_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
+            ktlint_installed_version: "{{ (ktlint_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0'], true) | first }}"
           when: ktlint_command_check.rc == 0
 
         - name: Set default version when ktlint is not installed

@@ -50,7 +50,7 @@
 
         - name: Parse installed pkl version
           set_fact:
-            pkl_installed_version: "{{ (pkl_version_output.stdout | regex_search('Pkl ([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
+            pkl_installed_version: "{{ (pkl_version_output.stdout | regex_search('Pkl ([0-9.]+)', '\\1')) | default(['0.0.0'], true) | first }}"
           when: pkl_command_check.rc == 0
 
         - name: Set default version when pkl is not installed

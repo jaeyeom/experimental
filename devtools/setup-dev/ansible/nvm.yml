@@ -34,7 +34,7 @@
 
         - name: Parse installed nvm version
           set_fact:
-            nvm_installed_version: "{{ (nvm_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
+            nvm_installed_version: "{{ (nvm_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0'], true) | first }}"
           when: nvm_command_check.rc == 0
 
         - name: Set default version when nvm is not installed

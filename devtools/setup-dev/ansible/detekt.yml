@@ -52,7 +52,7 @@
 
         - name: Parse installed detekt version
           set_fact:
-            detekt_installed_version: "{{ (detekt_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0']) | first }}"
+            detekt_installed_version: "{{ (detekt_version_output.stdout | regex_search('([0-9.]+)', '\\1')) | default(['0.0.0'], true) | first }}"
           when: detekt_command_check.rc == 0
 
         - name: Set default version when detekt is not installed

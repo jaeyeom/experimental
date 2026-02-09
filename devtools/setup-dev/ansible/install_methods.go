@@ -614,7 +614,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
 
         - name: Parse installed ` + command + ` version
           set_fact:
-            ` + commandID + `_installed_version: "{{ (` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1')) | default(['0.0.0']) | first }}"
+            ` + commandID + `_installed_version: "{{ (` + commandID + `_version_output.stdout | regex_search('` + s.VersionRegex + `', '\\1')) | default(['0.0.0'], true) | first }}"
           when: ` + commandID + `_command_check.rc == 0
 
         - name: Set default version when ` + command + ` is not installed
