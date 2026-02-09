@@ -259,6 +259,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
+- setup-cc-tools.yml
 - setup-cicd.yml
 - setup-claude-privacy.yml
 - setup-claude-sandbox.yml
@@ -283,6 +284,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-kotlin-tools.yml
 - setup-npm.yml
 - setup-nvm.yml
+- setup-office-tools.yml
 - setup-pass.yml
 - setup-perplexity-mcp.yml
 - setup-python-tools.yml

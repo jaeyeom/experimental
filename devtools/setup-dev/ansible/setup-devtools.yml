@@ -1,14 +1,14 @@
 ---
+- import_playbook: make.yml
 - import_playbook: htop.yml
 - import_playbook: sed.yml
 - import_playbook: grep.yml
 - import_playbook: man.yml
 - import_playbook: gh.yml
-- import_playbook: jira.yml
+- import_playbook: rg.yml
+- import_playbook: cleanup-repo.yml
+- import_playbook: jq.yml
 - import_playbook: tmux.yml
-- import_playbook: clang-format.yml
 - import_playbook: fd.yml
 - import_playbook: locate.yml
-- import_playbook: cleanup-repo.yml
-- import_playbook: setup-grpc.yml
-- import_playbook: gmi.yml  # Always put gmi.yml last.
+- import_playbook: setup-direnv.yml

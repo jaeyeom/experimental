@@ -1,0 +1,3 @@
+---
+- import_playbook: pandoc.yml
+- import_playbook: gmi.yml  # Always put gmi.yml last.

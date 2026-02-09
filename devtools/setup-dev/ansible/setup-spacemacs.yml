@@ -1,12 +1,11 @@
 ---
 - import_playbook: setup-emacs.yml
 - import_playbook: spacemacs.yml
-- import_playbook: cmake.yml
-- import_playbook: libtool.yml
+- import_playbook: cmake.yml     # Reguired for vterm
+- import_playbook: libtool.yml   # Required for vterm
 - import_playbook: perl.yml
-- import_playbook: libvterm.yml
+- import_playbook: libvterm.yml  # Required for vterm
 - import_playbook: rg.yml
-- import_playbook: pandoc.yml
 - import_playbook: pass.yml
 - import_playbook: 7z.yml
 - import_playbook: vipsthumbnail.yml

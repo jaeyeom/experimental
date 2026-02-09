@@ -1,4 +1,5 @@
 curl
+direnv
 fzf
 gh
 git
@@ -15,7 +16,9 @@ man
 openssh-client
 pkg-config
 plocate
+ripgrep
 sed
 sshpass
+tmux
 which
 zoxide

@@ -1,9 +1,6 @@
 ---
 # Emacs daily-driver profile: Emacs with shell tools for daily use (not full dev).
-- import_playbook: setup-history.yml
-- import_playbook: setup-ssh-key.yml
-- import_playbook: setup-gpg-agent.yml
+- import_playbook: profile-minimal.yml
 - import_playbook: setup-spacemacs.yml
 - import_playbook: setup-z.yml
-- import_playbook: setup-direnv.yml
-- import_playbook: setup-devtools.yml
+- import_playbook: setup-office-tools.yml
