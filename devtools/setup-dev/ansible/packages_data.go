@@ -7,7 +7,6 @@ var packages = []PackageData{
 	{command: "cmake"},
 	{command: "curl"},
 	{command: "dart", debianPkgName: "dart", termuxPkgName: "dart", brewPkgName: "dart-sdk"},
-	{command: "delta", brewPkgName: "git-delta", debianPkgName: "git-delta", termuxPkgName: "git-delta"},
 	{command: "direnv"},
 	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-dbus", "with-imagemagick"}},
 	{command: "ffmpegthumbnailer"},
@@ -200,6 +199,15 @@ rm -rf $TMPDIR/codex
 			PlatformDebianLike: UvInstallMethod{Name: "copier"},
 		},
 		Imports: nil,
+	},
+	{
+		command: "delta",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "git-delta"},
+			PlatformDebian: DebianPkgInstallMethod{Name: "git-delta"},
+			PlatformUbuntu: UbuntuPkgInstallMethod{Name: "git-delta"},
+			PlatformTermux: TermuxPkgInstallMethod{Name: "git-delta"},
+		},
 	},
 	{
 		command: "detekt",
