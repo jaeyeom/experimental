@@ -1,3 +1,6 @@
+# Githooks trust markers (per-user decision)
+.githooks/trust-all
+
 # AI coders that I don't want to commit
 .aider*
 .cursor
