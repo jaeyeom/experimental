@@ -27,6 +27,7 @@ apt-get install -y \
   gh \
   git \
   git-delta \
+  golang \
   gpg \
   gpg-agent \
   grep \

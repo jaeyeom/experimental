@@ -988,10 +988,7 @@ sh_test(
     name = "go_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["go.yml"],
-    data = [
-        "go.yml",
-        "setup-shell-profile.yml",
-    ],
+    data = ["go.yml"],
     tags = [
         "ansible",
         "local",
