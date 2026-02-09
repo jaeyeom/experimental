@@ -13,6 +13,7 @@ fi
 apt-get update
 apt-get install -y \
   curl \
+  direnv \
   fzf \
   gh \
   git \
@@ -29,7 +30,9 @@ apt-get install -y \
   openssh-client \
   pkg-config \
   plocate \
+  ripgrep \
   sed \
   sshpass \
+  tmux \
   which \
   zoxide

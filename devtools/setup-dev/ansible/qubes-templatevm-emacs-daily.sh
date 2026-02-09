@@ -17,7 +17,6 @@ fi
 
 apt-get update
 apt-get install -y \
-  clang-format \
   cmake \
   curl \
   direnv \
@@ -32,11 +31,13 @@ apt-get install -y \
   gpg-agent \
   grep \
   htop \
+  jq \
   keychain \
   libssl-dev \
   libtool \
   libvips-tools \
   libvterm-dev \
+  make \
   man \
   notmuch \
   openssh-client \
@@ -46,7 +47,6 @@ apt-get install -y \
   perl \
   pkg-config \
   plocate \
-  protobuf-compiler \
   python3-notmuch2 \
   ripgrep \
   sed \
