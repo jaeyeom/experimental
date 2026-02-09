@@ -16,10 +16,12 @@ apt-get install -y \
   htop \
   jq \
   keychain \
+  libssl-dev \
   make \
   man \
   mlocate \
   openssh-client \
+  pkg-config \
   sed \
   sshpass \
   which \

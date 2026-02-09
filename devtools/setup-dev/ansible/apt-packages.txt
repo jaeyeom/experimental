@@ -19,6 +19,7 @@ jq
 keychain
 kotlin
 lcov
+libssl-dev
 libtool
 libvips-tools
 libvterm-dev
@@ -33,6 +34,7 @@ p7zip-full
 pandoc
 pass
 perl
+pkg-config
 postgresql-client
 protobuf-compiler
 python3-notmuch2

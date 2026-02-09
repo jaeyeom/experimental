@@ -26,6 +26,7 @@ apt-get install -y \
   grep \
   htop \
   keychain \
+  libssl-dev \
   libtool \
   libvips-tools \
   libvterm-dev \
@@ -37,6 +38,7 @@ apt-get install -y \
   pandoc \
   pass \
   perl \
+  pkg-config \
   protobuf-compiler \
   python3-notmuch2 \
   ripgrep \

@@ -22,6 +22,7 @@ var packages = []PackageData{
 	{command: "jq"},
 	{command: "keychain"},
 	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
+	{command: "libssl-dev", termuxPkgName: "openssl", brewPkgName: "openssl"},
 	{command: "libtool"},
 	{command: "libvterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
 	{
@@ -49,6 +50,7 @@ var packages = []PackageData{
 	{command: "pandoc"},
 	{command: "pass"},
 	{command: "perl"},
+	{command: "pkg-config"},
 	{command: "poetry", debianPkgName: "python3-poetry", termuxPkgName: "python-poetry"},
 	{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf", brewPkgName: "protobuf"},
 	{command: "psql", debianPkgName: "postgresql-client", termuxPkgName: "postgresql", brewPkgName: "postgresql"},
@@ -113,7 +115,10 @@ var platformSpecificTools = []PlatformSpecificTool{
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: CargoInstallMethod{Name: "cargo-update"},
 		},
-		Imports: nil,
+		Imports: []Import{
+			{Playbook: "pkg-config", When: WhenNotDarwin},
+			{Playbook: "libssl-dev", When: WhenNotDarwin},
+		},
 	},
 	{
 		command: "cargo-outdated",
