@@ -10,7 +10,6 @@ fi
 
 apt-get update
 apt-get install -y \
-  buf \
   clang-format \
   cmake \
   curl \
