@@ -307,7 +307,12 @@ sh_test(
     name = "buf_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["buf.yml"],
-    data = ["buf.yml"],
+    data = [
+        "buf.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
     tags = [
         "ansible",
         "local",

@@ -3,7 +3,6 @@ package main
 var packages = []PackageData{
 	{command: "7z", debianPkgName: "p7zip-full", termuxPkgName: "p7zip", brewPkgName: "p7zip"},
 	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag", brewPkgName: "the_silver_searcher"},
-	{command: "buf"},
 	{command: "clang-format"},
 	{command: "cmake"},
 	{command: "curl"},
@@ -101,6 +100,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: nil,
 	},
+	GoTool("buf", "github.com/bufbuild/buf/cmd/buf@latest"),
 	GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
 	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
 	{
