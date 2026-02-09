@@ -425,7 +425,9 @@ func (n NvmInstallMethod) RenderInstallTask(command string) string {
       changed_when: False
 
     - name: Install ` + command + ` using npm through nvm
-      command: nvm exec default npm install -g ` + n.Name + `
+      shell: |
+        export NVM_DIR="{{ detected_nvm_dir }}"
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm exec default npm install -g ` + n.Name + `
       when: ` + commandID + `_installed.rc != 0`
 }
 

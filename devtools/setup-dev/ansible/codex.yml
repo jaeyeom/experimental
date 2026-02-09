@@ -76,6 +76,8 @@
           changed_when: False
 
         - name: Install codex using npm through nvm
-          command: nvm exec default npm install -g @openai/codex
+          shell: |
+            export NVM_DIR="{{ detected_nvm_dir }}"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm exec default npm install -g @openai/codex
           when: codex_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
