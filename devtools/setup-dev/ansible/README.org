@@ -253,7 +253,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - e.yml
 - gather-facts.yml
 - gmi.yml
-- go.yml
 - golangci-lint.yml
 - profile-emacs-daily.yml
 - profile-minimal.yml

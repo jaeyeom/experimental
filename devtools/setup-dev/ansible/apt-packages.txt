@@ -9,6 +9,7 @@ fzf
 gh
 git
 git-delta
+golang
 google-cloud-cli
 gpg
 gpg-agent
