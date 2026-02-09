@@ -412,6 +412,59 @@ func validatePlatformNames() error {
 	return nil
 }
 
+// getDebianAptPackages returns a sorted, deduplicated list of apt package
+// names that would be installed on Debian-like systems.
+func getDebianAptPackages() []string {
+	seen := make(map[string]bool)
+	var pkgs []string
+
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			pkgs = append(pkgs, name)
+		}
+	}
+
+	// All entries in the packages slice use the system package manager
+	// (apt) on Debian-like systems.
+	for _, pkg := range packages {
+		add(pkg.DebianPkgName())
+	}
+
+	// From platformSpecificTools, extract only apt-based install methods.
+	for _, tool := range platformSpecificTools {
+		for _, platform := range []PlatformName{PlatformDebianLike, PlatformDebian, PlatformUbuntu} {
+			method, ok := tool.platforms[platform]
+			if !ok {
+				continue
+			}
+			switch m := method.(type) {
+			case PackageInstallMethod:
+				add(m.Name)
+			case AptRepoInstallMethod:
+				add(m.Name)
+			case DebianPkgInstallMethod:
+				add(m.Name)
+			case UbuntuPkgInstallMethod:
+				add(m.Name)
+			}
+		}
+	}
+
+	sort.Strings(pkgs)
+	return pkgs
+}
+
+func generateAptPackagesList() error {
+	pkgs := getDebianAptPackages()
+	content := strings.Join(pkgs, "\n") + "\n"
+	err := os.WriteFile("apt-packages.txt", []byte(content), 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to write apt packages list: %w", err)
+	}
+	return nil
+}
+
 func main() {
 	// Validate platform names before generating packages
 	if err := validatePlatformNames(); err != nil {
@@ -431,6 +484,11 @@ func main() {
 	}
 
 	err = generateBuildBazel()
+	if err != nil {
+		panic(err)
+	}
+
+	err = generateAptPackagesList()
 	if err != nil {
 		panic(err)
 	}

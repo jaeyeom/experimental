@@ -217,6 +217,50 @@ func TestHasConditionalImports(t *testing.T) {
 	}
 }
 
+func TestGetDebianAptPackages(t *testing.T) {
+	pkgs := getDebianAptPackages()
+	if len(pkgs) == 0 {
+		t.Fatal("expected at least one apt package")
+	}
+	// Verify sorted.
+	if !sort.StringsAreSorted(pkgs) {
+		t.Error("packages should be sorted")
+	}
+	// Verify no duplicates.
+	for i := 1; i < len(pkgs); i++ {
+		if pkgs[i] == pkgs[i-1] {
+			t.Errorf("duplicate package: %s", pkgs[i])
+		}
+	}
+	// Spot-check known packages from the packages slice.
+	for _, name := range []string{"curl", "git", "jq", "ripgrep"} {
+		if !sliceContains(pkgs, name) {
+			t.Errorf("expected package %q not found", name)
+		}
+	}
+	// Spot-check known packages from platformSpecificTools (apt-based).
+	for _, name := range []string{"lcov"} {
+		if !sliceContains(pkgs, name) {
+			t.Errorf("expected platform-specific apt package %q not found", name)
+		}
+	}
+	// Verify non-apt tools are excluded (Go-installed tools should not appear).
+	for _, name := range []string{"gopls", "shfmt", "hugo"} {
+		if sliceContains(pkgs, name) {
+			t.Errorf("go-installed tool %q should not appear in apt packages", name)
+		}
+	}
+}
+
+func sliceContains(s []string, v string) bool {
+	for _, item := range s {
+		if item == v {
+			return true
+		}
+	}
+	return false
+}
+
 func formatImports(imports []Import) string {
 	if len(imports) == 0 {
 		return "nil"

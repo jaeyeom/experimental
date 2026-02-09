@@ -84,6 +84,22 @@ To regenerate the playbooks, simply run:
   make generate-ansible
 #+end_src
 
+** Generated Apt Packages List
+The generator also produces =apt-packages.txt=, a plain text file listing all
+Debian/Ubuntu apt package names (one per line) extracted from the package data.
+This includes:
+- All packages from the =packages= slice (using their =debianPkgName= or
+  =command= name as fallback)
+- Packages from =platformSpecificTools= that use apt-based install methods
+  (=PackageInstallMethod=, =AptRepoInstallMethod=, =DebianPkgInstallMethod=,
+  =UbuntuPkgInstallMethod=)
+
+The list is sorted and deduplicated. It can be used for Docker base images or
+batch installs:
+#+begin_src sh
+  xargs apt-get install -y < apt-packages.txt
+#+end_src
+
 The playbook =all.yml= just imports variuos other playbooks that I think are
 essential.
 
