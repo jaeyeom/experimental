@@ -19,7 +19,6 @@ libtool
 libvips-tools
 libvterm-dev
 man
-mlocate
 notmuch
 openssh-client
 p7zip-full
@@ -27,6 +26,7 @@ pandoc
 pass
 perl
 pkg-config
+plocate
 protobuf-compiler
 python3-notmuch2
 ripgrep

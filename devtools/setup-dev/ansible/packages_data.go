@@ -27,7 +27,7 @@ var packages = []PackageData{
 	{command: "libvterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
 	{
 		command:       "locate",
-		debianPkgName: "mlocate",
+		debianPkgName: "plocate",
 		termuxPkgName: "mlocate",
 		brewPkgName:   "findutils",
 		Suffix: `

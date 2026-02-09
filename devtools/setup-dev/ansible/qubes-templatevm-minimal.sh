@@ -19,9 +19,9 @@ apt-get install -y \
   libssl-dev \
   make \
   man \
-  mlocate \
   openssh-client \
   pkg-config \
+  plocate \
   sed \
   sshpass \
   which \

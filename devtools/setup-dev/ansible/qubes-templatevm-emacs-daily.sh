@@ -31,7 +31,6 @@ apt-get install -y \
   libvips-tools \
   libvterm-dev \
   man \
-  mlocate \
   notmuch \
   openssh-client \
   p7zip-full \
@@ -39,6 +38,7 @@ apt-get install -y \
   pass \
   perl \
   pkg-config \
+  plocate \
   protobuf-compiler \
   python3-notmuch2 \
   ripgrep \
