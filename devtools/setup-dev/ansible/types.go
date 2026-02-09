@@ -262,6 +262,30 @@ func (p PlatformSpecificTool) HasConditionalImports() bool {
 	return false
 }
 
+// AptSourceType classifies how an apt package's repository is configured.
+type AptSourceType int
+
+const (
+	// AptSourceNone means the package is available in the default apt repos.
+	AptSourceNone AptSourceType = iota
+	// AptSourcePPA means the package requires an Ubuntu PPA.
+	AptSourcePPA
+	// AptSourceBackports means the package requires Debian backports.
+	AptSourceBackports
+	// AptSourceAptRepo means the package requires a custom apt repository
+	// with GPG key configuration.
+	AptSourceAptRepo
+)
+
+// AptPackageInfo describes a Debian/Ubuntu apt package along with any
+// non-default source configuration needed to install it.
+type AptPackageInfo struct {
+	PackageName string
+	SourceType  AptSourceType
+	PPA         string                // Ubuntu PPA (e.g., "ppa:ubuntuhandbook1/emacs")
+	AptRepo     *AptRepoInstallMethod // Custom repo metadata (GPG key, URL, etc.)
+}
+
 // GoTool creates a PlatformSpecificTool for Go tools, allowing installation.
 func GoTool(command string, pkgPath string, imports ...Import) PlatformSpecificTool {
 	return PlatformSpecificTool{

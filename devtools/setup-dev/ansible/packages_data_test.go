@@ -252,6 +252,90 @@ func TestGetDebianAptPackages(t *testing.T) {
 	}
 }
 
+func TestBuildCommandAptInfo(t *testing.T) {
+	info := buildCommandAptInfo()
+	if len(info) == 0 {
+		t.Fatal("expected at least one entry in apt info map")
+	}
+
+	// Spot-check: "emacs" should have a PPA entry.
+	emacsInfo, ok := info["emacs"]
+	if !ok {
+		t.Fatal("expected 'emacs' in apt info map")
+	}
+	if emacsInfo.PackageName != "emacs" {
+		t.Errorf("emacs PackageName = %q, want %q", emacsInfo.PackageName, "emacs")
+	}
+	if emacsInfo.SourceType != AptSourcePPA {
+		t.Errorf("emacs SourceType = %d, want AptSourcePPA (%d)", emacsInfo.SourceType, AptSourcePPA)
+	}
+	if emacsInfo.PPA != "ppa:ubuntuhandbook1/emacs" {
+		t.Errorf("emacs PPA = %q, want %q", emacsInfo.PPA, "ppa:ubuntuhandbook1/emacs")
+	}
+
+	// Spot-check: "gcloud" should have an AptRepo entry.
+	gcloudInfo, ok := info["gcloud"]
+	if !ok {
+		t.Fatal("expected 'gcloud' in apt info map")
+	}
+	if gcloudInfo.SourceType != AptSourceAptRepo {
+		t.Errorf("gcloud SourceType = %d, want AptSourceAptRepo (%d)", gcloudInfo.SourceType, AptSourceAptRepo)
+	}
+	if gcloudInfo.AptRepo == nil {
+		t.Fatal("gcloud AptRepo should not be nil")
+	}
+
+	// Spot-check: "curl" should have SourceType None.
+	curlInfo, ok := info["curl"]
+	if !ok {
+		t.Fatal("expected 'curl' in apt info map")
+	}
+	if curlInfo.SourceType != AptSourceNone {
+		t.Errorf("curl SourceType = %d, want AptSourceNone (%d)", curlInfo.SourceType, AptSourceNone)
+	}
+
+	// Spot-check: Go-only tools should NOT appear.
+	for _, goTool := range []string{"gopls", "shfmt", "hugo"} {
+		if _, ok := info[goTool]; ok {
+			t.Errorf("go-installed tool %q should not appear in apt info map", goTool)
+		}
+	}
+
+	// Verify every entry has a non-empty PackageName.
+	for cmd, entry := range info {
+		if entry.PackageName == "" {
+			t.Errorf("entry for %q has empty PackageName", cmd)
+		}
+	}
+}
+
+func TestBuildCommandAptInfoConsistentWithGetDebianAptPackages(t *testing.T) {
+	// Verify the refactored getDebianAptPackages produces the same set
+	// of package names as iterating buildCommandAptInfo directly.
+	info := buildCommandAptInfo()
+	fromMap := make(map[string]bool)
+	for _, entry := range info {
+		fromMap[entry.PackageName] = true
+	}
+
+	pkgs := getDebianAptPackages()
+	fromFunc := make(map[string]bool)
+	for _, p := range pkgs {
+		fromFunc[p] = true
+	}
+
+	for name := range fromMap {
+		if !fromFunc[name] {
+			t.Errorf("package %q in buildCommandAptInfo but missing from getDebianAptPackages", name)
+		}
+	}
+	for name := range fromFunc {
+		if !fromMap[name] {
+			t.Errorf("package %q in getDebianAptPackages but missing from buildCommandAptInfo", name)
+		}
+	}
+}
+
 func sliceContains(s []string, v string) bool {
 	for _, item := range s {
 		if item == v {
@@ -259,6 +343,74 @@ func sliceContains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+func TestDiscoverProfiles(t *testing.T) {
+	profiles, err := discoverProfiles()
+	if err != nil {
+		t.Fatalf("discoverProfiles() error: %v", err)
+	}
+	if len(profiles) == 0 {
+		t.Fatal("expected at least one profile")
+	}
+	// Verify sorted.
+	if !sort.StringsAreSorted(profiles) {
+		t.Error("profiles should be sorted")
+	}
+	// Spot-check known profiles.
+	for _, name := range []string{"emacs-daily", "minimal"} {
+		if !sliceContains(profiles, name) {
+			t.Errorf("expected profile %q not found", name)
+		}
+	}
+}
+
+func TestGetProfileAptPackages(t *testing.T) {
+	pkgs, err := getProfileAptPackages("minimal")
+	if err != nil {
+		t.Fatalf("getProfileAptPackages(minimal) error: %v", err)
+	}
+	// Minimal profile should produce some packages (from setup-devtools, etc.).
+	if len(pkgs) == 0 {
+		t.Fatal("expected at least one package for minimal profile")
+	}
+	// Verify sorted by PackageName.
+	if !sort.SliceIsSorted(pkgs, func(i, j int) bool {
+		return pkgs[i].PackageName < pkgs[j].PackageName
+	}) {
+		t.Error("profile packages should be sorted by PackageName")
+	}
+	// Verify no duplicates.
+	for i := 1; i < len(pkgs); i++ {
+		if pkgs[i].PackageName == pkgs[i-1].PackageName {
+			t.Errorf("duplicate package: %s", pkgs[i].PackageName)
+		}
+	}
+}
+
+func TestProfileAptPackagesSubsetOfAll(t *testing.T) {
+	allPkgs := getDebianAptPackages()
+	allSet := make(map[string]bool)
+	for _, p := range allPkgs {
+		allSet[p] = true
+	}
+
+	profiles, err := discoverProfiles()
+	if err != nil {
+		t.Fatalf("discoverProfiles() error: %v", err)
+	}
+	for _, profile := range profiles {
+		pkgs, err := getProfileAptPackages(profile)
+		if err != nil {
+			t.Errorf("getProfileAptPackages(%q) error: %v", profile, err)
+			continue
+		}
+		for _, p := range pkgs {
+			if !allSet[p.PackageName] {
+				t.Errorf("profile %q package %q is not in the global apt packages list", profile, p.PackageName)
+			}
+		}
+	}
 }
 
 func formatImports(imports []Import) string {

@@ -1,0 +1,15 @@
+---
+# Minimal profile: core CLI tools for any Qubes AppVM or lightweight setup.
+- import_playbook: setup-history.yml
+- import_playbook: setup-ssh-key.yml
+- import_playbook: setup-gpg-agent.yml
+- import_playbook: setup-z.yml
+- import_playbook: make.yml
+- import_playbook: jq.yml
+- import_playbook: htop.yml
+- import_playbook: sed.yml
+- import_playbook: grep.yml
+- import_playbook: man.yml
+- import_playbook: gh.yml
+- import_playbook: fd.yml
+- import_playbook: locate.yml

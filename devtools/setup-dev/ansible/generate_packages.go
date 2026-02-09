@@ -412,23 +412,21 @@ func validatePlatformNames() error {
 	return nil
 }
 
-// getDebianAptPackages returns a sorted, deduplicated list of apt package
-// names that would be installed on Debian-like systems.
-func getDebianAptPackages() []string {
-	seen := make(map[string]bool)
-	var pkgs []string
-
-	add := func(name string) {
-		if !seen[name] {
-			seen[name] = true
-			pkgs = append(pkgs, name)
-		}
-	}
+// buildCommandAptInfo builds a map from command name to AptPackageInfo for
+// every tool that installs an apt package on Debian-like systems. Non-apt
+// install methods (Go, Cargo, npm, etc.) produce no entry.
+func buildCommandAptInfo() map[string]AptPackageInfo {
+	info := make(map[string]AptPackageInfo)
 
 	// All entries in the packages slice use the system package manager
 	// (apt) on Debian-like systems.
 	for _, pkg := range packages {
-		add(pkg.DebianPkgName())
+		entry := AptPackageInfo{PackageName: pkg.DebianPkgName()}
+		if pkg.UbuntuPPA != "" {
+			entry.SourceType = AptSourcePPA
+			entry.PPA = pkg.UbuntuPPA
+		}
+		info[pkg.Command()] = entry
 	}
 
 	// From platformSpecificTools, extract only apt-based install methods.
@@ -440,17 +438,52 @@ func getDebianAptPackages() []string {
 			}
 			switch m := method.(type) {
 			case PackageInstallMethod:
-				add(m.Name)
+				if _, exists := info[tool.Command()]; !exists {
+					info[tool.Command()] = AptPackageInfo{PackageName: m.Name}
+				}
 			case AptRepoInstallMethod:
-				add(m.Name)
+				if _, exists := info[tool.Command()]; !exists {
+					info[tool.Command()] = AptPackageInfo{
+						PackageName: m.Name,
+						SourceType:  AptSourceAptRepo,
+						AptRepo:     &m,
+					}
+				}
 			case DebianPkgInstallMethod:
-				add(m.Name)
+				if _, exists := info[tool.Command()]; !exists {
+					info[tool.Command()] = AptPackageInfo{
+						PackageName: m.Name,
+						SourceType:  AptSourceBackports,
+					}
+				}
 			case UbuntuPkgInstallMethod:
-				add(m.Name)
+				if _, exists := info[tool.Command()]; !exists {
+					entry := AptPackageInfo{PackageName: m.Name}
+					if m.PPA != "" {
+						entry.SourceType = AptSourcePPA
+						entry.PPA = m.PPA
+					}
+					info[tool.Command()] = entry
+				}
 			}
 		}
 	}
 
+	return info
+}
+
+// getDebianAptPackages returns a sorted, deduplicated list of apt package
+// names that would be installed on Debian-like systems.
+func getDebianAptPackages() []string {
+	info := buildCommandAptInfo()
+	seen := make(map[string]bool)
+	var pkgs []string
+	for _, entry := range info {
+		if !seen[entry.PackageName] {
+			seen[entry.PackageName] = true
+			pkgs = append(pkgs, entry.PackageName)
+		}
+	}
 	sort.Strings(pkgs)
 	return pkgs
 }
@@ -461,6 +494,173 @@ func generateAptPackagesList() error {
 	err := os.WriteFile("apt-packages.txt", []byte(content), 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to write apt packages list: %w", err)
+	}
+	return nil
+}
+
+// discoverProfiles scans for profile-*.yml files and returns profile names
+// (e.g., "minimal" from "profile-minimal.yml").
+func discoverProfiles() ([]string, error) {
+	matches, err := filepath.Glob("profile-*.yml")
+	if err != nil {
+		return nil, fmt.Errorf("glob profile files: %w", err)
+	}
+	var profiles []string
+	for _, m := range matches {
+		name := strings.TrimPrefix(m, "profile-")
+		name = strings.TrimSuffix(name, ".yml")
+		profiles = append(profiles, name)
+	}
+	sort.Strings(profiles)
+	return profiles, nil
+}
+
+// getProfileAptPackages returns sorted, deduplicated AptPackageInfo entries
+// for the given profile by tracing all transitive playbook dependencies and
+// looking up each in the command-to-apt-info map.
+func getProfileAptPackages(profileName string) ([]AptPackageInfo, error) {
+	visited := make(map[string]bool)
+	deps, err := getAllDependencies("profile-"+profileName, visited)
+	if err != nil {
+		return nil, fmt.Errorf("trace profile %q dependencies: %w", profileName, err)
+	}
+
+	aptInfo := buildCommandAptInfo()
+	seen := make(map[string]bool)
+	var result []AptPackageInfo
+	for _, dep := range deps {
+		info, ok := aptInfo[dep]
+		if !ok {
+			// Not an apt-installed command (e.g., Go tool, Cargo tool).
+			continue
+		}
+		if seen[info.PackageName] {
+			continue
+		}
+		seen[info.PackageName] = true
+		result = append(result, info)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].PackageName < result[j].PackageName
+	})
+	return result, nil
+}
+
+// generateProfileAptPackagesList writes apt-packages-{profile}.txt with
+// sorted package names for the given profile.
+func generateProfileAptPackagesList(profileName string, pkgs []AptPackageInfo) error {
+	var names []string
+	for _, p := range pkgs {
+		names = append(names, p.PackageName)
+	}
+	content := strings.Join(names, "\n") + "\n"
+	filename := "apt-packages-" + profileName + ".txt"
+	if err := os.WriteFile(filename, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", filename, err)
+	}
+	return nil
+}
+
+// generateQubesTemplatevmScript writes qubes-templatevm-{profile}.sh, a
+// self-contained script that configures apt sources and installs packages.
+func generateQubesTemplatevmScript(profileName string, pkgs []AptPackageInfo) error {
+	var sb strings.Builder
+	sb.WriteString("#!/bin/bash\n")
+	sb.WriteString("# Auto-generated TemplateVM bootstrap for profile: " + profileName + "\n")
+	sb.WriteString("# Install apt packages and configure their sources.\n")
+	sb.WriteString("set -euo pipefail\n\n")
+
+	// Collect sources by type.
+	var (
+		ppas     []AptPackageInfo
+		repos    []AptPackageInfo
+		backport bool
+		names    []string
+	)
+	for _, p := range pkgs {
+		names = append(names, p.PackageName)
+		switch p.SourceType {
+		case AptSourcePPA:
+			ppas = append(ppas, p)
+		case AptSourceBackports:
+			backport = true
+		case AptSourceAptRepo:
+			repos = append(repos, p)
+		}
+	}
+
+	if backport {
+		sb.WriteString("# Add Debian backports (no-op on Ubuntu).\n")
+		sb.WriteString("CODENAME=$(lsb_release -cs)\n")
+		sb.WriteString("if grep -q '^ID=debian' /etc/os-release 2>/dev/null; then\n")
+		sb.WriteString("  echo \"deb http://deb.debian.org/debian ${CODENAME}-backports main contrib non-free non-free-firmware\" \\\n")
+		sb.WriteString("    > /etc/apt/sources.list.d/backports.list\n")
+		sb.WriteString("fi\n\n")
+	}
+
+	if len(ppas) > 0 {
+		sb.WriteString("# Add Ubuntu PPAs (no-op on Debian).\n")
+		sb.WriteString("if command -v add-apt-repository >/dev/null 2>&1; then\n")
+		for _, p := range ppas {
+			sb.WriteString("  add-apt-repository -y " + p.PPA + "\n")
+		}
+		sb.WriteString("fi\n\n")
+	}
+
+	for _, r := range repos {
+		repo := r.AptRepo
+		sb.WriteString("# Add custom repo for " + r.PackageName + ".\n")
+		sb.WriteString("curl -fsSL " + repo.GPGKeyURL + " | gpg --dearmor -o " + repo.GPGKeyPath + "\n")
+		codename := repo.Codename
+		if codename == "" {
+			codename = "$(lsb_release -cs)"
+		}
+		archOption := ""
+		if repo.Arch != "" {
+			archOption = "arch=" + repo.Arch + " "
+		}
+		fmt.Fprintf(&sb, "echo \"deb [%ssigned-by=%s] %s %s %s\" > /etc/apt/sources.list.d/%s.list\n\n",
+			archOption, repo.GPGKeyPath, repo.RepoURL, codename, repo.RepoComponents, r.PackageName)
+	}
+
+	sb.WriteString("apt-get update\n")
+	sb.WriteString("apt-get install -y \\\n")
+	for i, n := range names {
+		if i < len(names)-1 {
+			sb.WriteString("  " + n + " \\\n")
+		} else {
+			sb.WriteString("  " + n + "\n")
+		}
+	}
+
+	filename := "qubes-templatevm-" + profileName + ".sh"
+	if err := os.WriteFile(filename, []byte(sb.String()), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", filename, err)
+	}
+	if err := os.Chmod(filename, 0o755); err != nil {
+		return fmt.Errorf("chmod %s: %w", filename, err)
+	}
+	return nil
+}
+
+// generateProfileOutputs generates per-profile apt package lists and
+// TemplateVM bootstrap scripts for all discovered profiles.
+func generateProfileOutputs() error {
+	profiles, err := discoverProfiles()
+	if err != nil {
+		return err
+	}
+	for _, profile := range profiles {
+		pkgs, err := getProfileAptPackages(profile)
+		if err != nil {
+			return fmt.Errorf("profile %q: %w", profile, err)
+		}
+		if err := generateProfileAptPackagesList(profile, pkgs); err != nil {
+			return err
+		}
+		if err := generateQubesTemplatevmScript(profile, pkgs); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -489,6 +689,11 @@ func main() {
 	}
 
 	err = generateAptPackagesList()
+	if err != nil {
+		panic(err)
+	}
+
+	err = generateProfileOutputs()
 	if err != nil {
 		panic(err)
 	}
