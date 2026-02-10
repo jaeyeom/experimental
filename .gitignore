@@ -10,6 +10,7 @@
 
 # Bazel Related
 .bazel_output
+bazel-app
 bazel-bin
 bazel-experimental*
 bazel-out
