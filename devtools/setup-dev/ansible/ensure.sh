@@ -49,37 +49,54 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # Detect OS
 OS="$(uname -s)"
 
-# Check if a playbook (or its transitive import_playbook deps) includes a
-# target playbook. Uses a global _pb_visited variable for cycle detection.
-# Usage: playbook_imports TARGET FILE
-_pb_visited=""
-playbook_imports() {
-    target="$1"; file="$2"
-    case "$file" in *.yml) ;; *) file="$file.yml" ;; esac
-    # Cycle detection
-    case " $_pb_visited " in *" $file "*) return 1 ;; esac
-    _pb_visited="$_pb_visited $file"
-    # Direct match
-    [ "$file" = "$target" ] && return 0
-    # Recurse into imports
-    [ -f "$file" ] || return 1
+# Collect all playbook files transitively from the given arguments.
+# Outputs one playbook path per line (deduplicated). Skips flags (args
+# starting with -) and appends .yml when missing.
+_cp_visited=""
+_collect_playbooks_recurse() {
+    _cpr_file="$1"
+    [ -f "$_cpr_file" ] || return 0
+    case " $_cp_visited " in *" $_cpr_file "*) return 0 ;; esac
+    _cp_visited="$_cp_visited $_cpr_file"
+    echo "$_cpr_file"
     # shellcheck disable=SC2013  # Playbook filenames never contain spaces
-    for dep in $(sed -n 's/^- import_playbook: *//p' "$file"); do
-        playbook_imports "$target" "$dep" && return 0
+    for _cpr_dep in $(sed -n 's/^- import_playbook: *//p' "$_cpr_file"); do
+        _collect_playbooks_recurse "$_cpr_dep"
     done
-    return 1
+}
+
+collect_playbooks() {
+    _cp_visited=""
+    for _cb_pb in "$@"; do
+        case "$_cb_pb" in -*) continue ;; esac
+        case "$_cb_pb" in *.yml) ;; *) _cb_pb="$_cb_pb.yml" ;; esac
+        _collect_playbooks_recurse "$_cb_pb"
+    done
 }
 
 # Check if any non-flag argument transitively imports a target playbook.
 # Usage: any_arg_imports TARGET "$@"
 any_arg_imports() {
-    target="$1"; shift
-    for pb in "$@"; do
-        case "$pb" in -*) continue ;; esac
-        _pb_visited=""
-        playbook_imports "$target" "$pb" && return 0
+    _ai_target="$1"; shift
+    collect_playbooks "$@" | grep -qx "$_ai_target"
+}
+
+# Pre-approve verified-run URLs found in the transitively-collected playbooks.
+# Runs before the Ansible playbook loop so that non-interactive verified-run
+# exec calls don't fail mid-run.
+pre_approve_urls() {
+    _pa_script_dir="$(dirname "$0")"
+    _pa_urls=$(collect_playbooks "$@" | while read -r _pa_f; do
+        grep 'verified-run exec' "$_pa_f" 2>/dev/null | grep -o 'https://[^ ]*'
+    done | sort -u)
+
+    # shellcheck disable=SC2086  # Intentional word splitting — URLs never contain spaces
+    for _pa_url in $_pa_urls; do
+        if ! "$_pa_script_dir/verified-run" check "$_pa_url" 2>/dev/null; then
+            echo "Script needs approval: $_pa_url"
+            "$_pa_script_dir/verified-run" review "$_pa_url"
+        fi
     done
-    return 1
 }
 
 # Pre-check for SSH key authentication
@@ -272,6 +289,10 @@ fi
 
 # Take all flags that starts with a hyphen.
 flags=$(echo " " "$@" | grep -o -- ' -[^ ]*')
+
+# Pre-approve any verified-run URLs before the Ansible run so that
+# non-interactive verified-run exec calls inside playbooks don't fail.
+pre_approve_urls "$@"
 
 # Run playbook with the provided args with the .yml suffix for each arg.
 
