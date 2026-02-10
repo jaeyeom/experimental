@@ -46,6 +46,7 @@ var packages = []PackageData{
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
 	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []Import{{Playbook: "python3-notmuch2"}}},
 	{command: "npm", debianPkgName: "npm", termuxPkgName: "nodejs", brewPkgName: "node"},
+	{command: "openssl", debianPkgName: "openssl", termuxPkgName: "openssl-tool", brewPkgName: "openssl"},
 	{command: "pandoc"},
 	{command: "pass"},
 	{command: "perl"},
@@ -545,6 +546,24 @@ fi`,
 	},
 	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
+		command: "tsc",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "typescript"},
+			PlatformDebianLike: NvmInstallMethod{Name: "typescript"},
+			PlatformTermux:     NpmInstallMethod{Name: "typescript"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "turbo",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "turbo"},
+			PlatformDebianLike: NvmInstallMethod{Name: "turbo"},
+			PlatformTermux:     NpmInstallMethod{Name: "turbo"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "ucm",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewInstallMethod{Name: "unison-language", Tap: "unisonweb/unison"},
@@ -568,6 +587,15 @@ fi`,
 			PlatformDebianLike: ShellInstallMethod{
 				InstallCommand: "curl -LsSf https://astral.sh/uv/install.sh | sh",
 			},
+		},
+		Imports: nil,
+	},
+	{
+		command: "wrangler",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     NpmInstallMethod{Name: "wrangler"},
+			PlatformDebianLike: NvmInstallMethod{Name: "wrangler"},
+			PlatformTermux:     NpmInstallMethod{Name: "wrangler"},
 		},
 		Imports: nil,
 	},

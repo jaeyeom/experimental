@@ -1,0 +1,13 @@
+---
+# Cloudflare Workers development profile: Node.js, TypeScript, and Cloudflare tooling.
+- import_playbook: profile-minimal.yml
+- import_playbook: setup-nvm.yml
+- import_playbook: setup-git.yml
+- import_playbook: openssl.yml
+- import_playbook: pnpm.yml
+- import_playbook: tsc.yml
+- import_playbook: turbo.yml
+- import_playbook: eslint.yml
+- import_playbook: prettier.yml
+- import_playbook: wrangler.yml
+- import_playbook: setup-wrangler.yml
