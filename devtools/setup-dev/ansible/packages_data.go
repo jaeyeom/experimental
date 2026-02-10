@@ -474,6 +474,21 @@ fi`,
 		Imports: nil,
 	},
 	{
+		command: "rustc",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "rust"},
+			PlatformDebianLike: PackageInstallMethod{Name: "rust-all"},
+			PlatformTermux:     TermuxPkgInstallMethod{Name: "rust"},
+		},
+	},
+	{
+		command: "rustup",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "rustup"},
+			PlatformDebianLike: PackageInstallMethod{Name: "rustup"},
+		},
+	},
+	{
 		command: "semgrep",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "semgrep"},
@@ -505,7 +520,7 @@ fi`,
 				LatestVersionPath: "tag_name",
 			},
 		},
-		Imports: []Import{{Playbook: "rustc"}, {Playbook: "curl"}},
+		Imports: []Import{{Playbook: "setup-rust"}, {Playbook: "curl"}},
 	},
 	{
 		command: "stylelint",

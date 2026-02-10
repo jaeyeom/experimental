@@ -1,5 +1,5 @@
 ---
-- import_playbook: rustc.yml
+- import_playbook: setup-rust.yml
 - import_playbook: setup-shell-profile.yml
 
 - name: Ensure rustc is properly set up
