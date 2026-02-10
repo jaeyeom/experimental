@@ -4,9 +4,17 @@
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
 
-all: requirements.txt generate-ansible generate-pkl format test fix check-semgrep check-bazel-go-files check-org-lint-tests
+# Phased targets for make -j safe parallel execution.
+# Each $(MAKE) line runs its targets in parallel; lines run sequentially.
+all:
+	$(MAKE) requirements.txt generate-ansible generate-pkl
+	$(MAKE) format
+	$(MAKE) fix
+	$(MAKE) test check-semgrep check-bazel-go-files check-org-lint-tests
 
-check: requirements.txt check-generated check-format test lint check-semgrep check-bazel-go-files check-org-lint-tests
+check:
+	$(MAKE) requirements.txt check-generated
+	$(MAKE) check-format test lint check-semgrep check-bazel-go-files check-org-lint-tests
 
 format: format-whitespace
 	goimports -w .
