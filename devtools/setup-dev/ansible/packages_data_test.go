@@ -217,41 +217,6 @@ func TestHasConditionalImports(t *testing.T) {
 	}
 }
 
-func TestGetDebianAptPackages(t *testing.T) {
-	pkgs := getDebianAptPackages()
-	if len(pkgs) == 0 {
-		t.Fatal("expected at least one apt package")
-	}
-	// Verify sorted.
-	if !sort.StringsAreSorted(pkgs) {
-		t.Error("packages should be sorted")
-	}
-	// Verify no duplicates.
-	for i := 1; i < len(pkgs); i++ {
-		if pkgs[i] == pkgs[i-1] {
-			t.Errorf("duplicate package: %s", pkgs[i])
-		}
-	}
-	// Spot-check known packages from the packages slice.
-	for _, name := range []string{"curl", "git", "jq", "ripgrep"} {
-		if !sliceContains(pkgs, name) {
-			t.Errorf("expected package %q not found", name)
-		}
-	}
-	// Spot-check known packages from platformSpecificTools (apt-based).
-	for _, name := range []string{"lcov"} {
-		if !sliceContains(pkgs, name) {
-			t.Errorf("expected platform-specific apt package %q not found", name)
-		}
-	}
-	// Verify non-apt tools are excluded (Go-installed tools should not appear).
-	for _, name := range []string{"gopls", "shfmt", "hugo"} {
-		if sliceContains(pkgs, name) {
-			t.Errorf("go-installed tool %q should not appear in apt packages", name)
-		}
-	}
-}
-
 func TestBuildCommandAptInfo(t *testing.T) {
 	info := buildCommandAptInfo()
 	if len(info) == 0 {
@@ -309,33 +274,6 @@ func TestBuildCommandAptInfo(t *testing.T) {
 	}
 }
 
-func TestBuildCommandAptInfoConsistentWithGetDebianAptPackages(t *testing.T) {
-	// Verify the refactored getDebianAptPackages produces the same set
-	// of package names as iterating buildCommandAptInfo directly.
-	info := buildCommandAptInfo()
-	fromMap := make(map[string]bool)
-	for _, entry := range info {
-		fromMap[entry.PackageName] = true
-	}
-
-	pkgs := getDebianAptPackages()
-	fromFunc := make(map[string]bool)
-	for _, p := range pkgs {
-		fromFunc[p] = true
-	}
-
-	for name := range fromMap {
-		if !fromFunc[name] {
-			t.Errorf("package %q in buildCommandAptInfo but missing from getDebianAptPackages", name)
-		}
-	}
-	for name := range fromFunc {
-		if !fromMap[name] {
-			t.Errorf("package %q in getDebianAptPackages but missing from buildCommandAptInfo", name)
-		}
-	}
-}
-
 func sliceContains(s []string, v string) bool {
 	for _, item := range s {
 		if item == v {
@@ -389,10 +327,10 @@ func TestGetProfileAptPackages(t *testing.T) {
 }
 
 func TestProfileAptPackagesSubsetOfAll(t *testing.T) {
-	allPkgs := getDebianAptPackages()
+	info := buildCommandAptInfo()
 	allSet := make(map[string]bool)
-	for _, p := range allPkgs {
-		allSet[p] = true
+	for _, entry := range info {
+		allSet[entry.PackageName] = true
 	}
 
 	profiles, err := discoverProfiles()

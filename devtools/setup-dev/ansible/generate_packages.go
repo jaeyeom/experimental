@@ -472,32 +472,6 @@ func buildCommandAptInfo() map[string]AptPackageInfo {
 	return info
 }
 
-// getDebianAptPackages returns a sorted, deduplicated list of apt package
-// names that would be installed on Debian-like systems.
-func getDebianAptPackages() []string {
-	info := buildCommandAptInfo()
-	seen := make(map[string]bool)
-	var pkgs []string
-	for _, entry := range info {
-		if !seen[entry.PackageName] {
-			seen[entry.PackageName] = true
-			pkgs = append(pkgs, entry.PackageName)
-		}
-	}
-	sort.Strings(pkgs)
-	return pkgs
-}
-
-func generateAptPackagesList() error {
-	pkgs := getDebianAptPackages()
-	content := strings.Join(pkgs, "\n") + "\n"
-	err := os.WriteFile("apt-packages.txt", []byte(content), 0o600)
-	if err != nil {
-		return fmt.Errorf("failed to write apt packages list: %w", err)
-	}
-	return nil
-}
-
 // discoverProfiles scans for profile-*.yml files and returns profile names
 // (e.g., "minimal" from "profile-minimal.yml").
 func discoverProfiles() ([]string, error) {
@@ -544,21 +518,6 @@ func getProfileAptPackages(profileName string) ([]AptPackageInfo, error) {
 		return result[i].PackageName < result[j].PackageName
 	})
 	return result, nil
-}
-
-// generateProfileAptPackagesList writes apt-packages-{profile}.txt with
-// sorted package names for the given profile.
-func generateProfileAptPackagesList(profileName string, pkgs []AptPackageInfo) error {
-	var names []string
-	for _, p := range pkgs {
-		names = append(names, p.PackageName)
-	}
-	content := strings.Join(names, "\n") + "\n"
-	filename := "apt-packages-" + profileName + ".txt"
-	if err := os.WriteFile(filename, []byte(content), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", filename, err)
-	}
-	return nil
 }
 
 // generateQubesTemplatevmScript writes qubes-templatevm-{profile}.sh, a
@@ -643,8 +602,8 @@ func generateQubesTemplatevmScript(profileName string, pkgs []AptPackageInfo) er
 	return nil
 }
 
-// generateProfileOutputs generates per-profile apt package lists and
-// TemplateVM bootstrap scripts for all discovered profiles.
+// generateProfileOutputs generates TemplateVM bootstrap scripts for all
+// discovered profiles.
 func generateProfileOutputs() error {
 	profiles, err := discoverProfiles()
 	if err != nil {
@@ -654,9 +613,6 @@ func generateProfileOutputs() error {
 		pkgs, err := getProfileAptPackages(profile)
 		if err != nil {
 			return fmt.Errorf("profile %q: %w", profile, err)
-		}
-		if err := generateProfileAptPackagesList(profile, pkgs); err != nil {
-			return err
 		}
 		if err := generateQubesTemplatevmScript(profile, pkgs); err != nil {
 			return err
@@ -684,11 +640,6 @@ func main() {
 	}
 
 	err = generateBuildBazel()
-	if err != nil {
-		panic(err)
-	}
-
-	err = generateAptPackagesList()
 	if err != nil {
 		panic(err)
 	}
