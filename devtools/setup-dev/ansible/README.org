@@ -239,7 +239,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - golangci-lint.yml
 - profile-emacs-daily.yml
 - profile-minimal.yml
-- rustc.yml
 - setup-bazel.yml
 - setup-cargo.yml
 - setup-cc-tools.yml
@@ -272,6 +271,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-pass.yml
 - setup-perplexity-mcp.yml
 - setup-python-tools.yml
+- setup-rust.yml
 - setup-rust-tools.yml
 - setup-shell-profile.yml
 - setup-spacemacs.yml

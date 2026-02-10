@@ -1,0 +1,44 @@
+---
+- import_playbook: rustc.yml
+- import_playbook: rustup.yml
+- import_playbook: setup-shell-profile.yml
+
+- name: Ensure Rust toolchain is properly set up
+  hosts: all
+  tasks:
+    - name: Include guard for setup-rust playbook
+      block:
+        - name: Stop early if the setup-rust playbook is already included
+          meta: end_play
+          when: setup_rust_playbook_imported is defined
+        - name: Ensure the setup-rust playbook is not included
+          set_fact:
+            setup_rust_playbook_imported: true
+          when: setup_rust_playbook_imported is not defined
+
+    - name: Get brew prefix for keg-only rustup on macOS
+      shell: brew --prefix rustup
+      register: rustup_brew_prefix
+      changed_when: false
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure rustup keg-only path is in shell profile on macOS
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} Setup rustup PATH (keg-only)"
+        block: |
+          if [ -d "{{ rustup_brew_prefix.stdout }}/bin" ]; then
+            export PATH="{{ rustup_brew_prefix.stdout }}/bin:$PATH"
+          fi
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Run rustup default stable
+      command: rustup default stable
+      register: rustup_default_result
+      changed_when: "'unchanged' not in rustup_default_result.stderr"
+      environment:
+        PATH: "{{ (rustup_brew_prefix.stdout + '/bin:') if ansible_facts['os_family'] == 'Darwin' else '' }}{{ ansible_facts['env']['PATH'] }}"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined
