@@ -237,6 +237,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - gather-facts.yml
 - gmi.yml
 - golangci-lint.yml
+- profile-cloudflare-dev.yml
 - profile-emacs-daily.yml
 - profile-minimal.yml
 - setup-bazel.yml
