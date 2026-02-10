@@ -1,3 +1,7 @@
+# Disable parallel execution: targets share the package manager lock (apt/dpkg),
+# modify shared files (~/.bashrc), and use interactive prompts.
+.NOTPARALLEL:
+
 default_gopath := $(HOME)/go
 
 ARCH := $(shell uname -m)

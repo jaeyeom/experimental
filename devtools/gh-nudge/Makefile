@@ -1,6 +1,9 @@
 .PHONY: format test lint install generate-pkl
 
-all: format test lint install
+# Phased for make -j: format first, then test/lint/install in parallel.
+all:
+	$(MAKE) format
+	$(MAKE) test lint install
 
 format:
 	gofumpt -w .
