@@ -78,7 +78,7 @@ collect_playbooks() {
 # Usage: any_arg_imports TARGET "$@"
 any_arg_imports() {
     _ai_target="$1"; shift
-    collect_playbooks "$@" | grep -qx "$_ai_target"
+    collect_playbooks "$@" 2>/dev/null | grep -qx "$_ai_target"
 }
 
 # Pre-approve verified-run URLs found in the transitively-collected playbooks.
