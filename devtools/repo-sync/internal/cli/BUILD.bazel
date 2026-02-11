@@ -16,7 +16,7 @@ go_library(
     deps = [
         "//devtools/repo-sync/internal/config:go_default_library",
         "//devtools/repo-sync/internal/database:go_default_library",
-        "//devtools/repo-sync/internal/sync:go_default_library",
+        "//devtools/repo-sync/internal/reposync:go_default_library",
         "@com_github_spf13_cobra//:go_default_library",
         "@com_github_spf13_viper//:go_default_library",
     ],

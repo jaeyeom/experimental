@@ -6,7 +6,7 @@ go_library(
         "engine.go",
         "rsync.go",
     ],
-    importpath = "github.com/jaeyeom/experimental/devtools/repo-sync/internal/sync",
+    importpath = "github.com/jaeyeom/experimental/devtools/repo-sync/internal/reposync",
     visibility = ["//devtools/repo-sync:__subpackages__"],
     deps = [
         "//devtools/repo-sync/internal/config:go_default_library",

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/config"
-	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/sync"
+	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/reposync"
 	"github.com/spf13/cobra"
 )
 
@@ -64,13 +64,13 @@ func runSync(projectName string, cmd *cobra.Command) error {
 	force, _ := cmd.Flags().GetBool("force")
 
 	// Create sync engine
-	engine, err := sync.NewEngine(project)
+	engine, err := reposync.NewEngine(project)
 	if err != nil {
 		return fmt.Errorf("failed to create sync engine: %w", err)
 	}
 
 	// Perform sync
-	result, err := engine.Sync(&sync.Options{
+	result, err := engine.Sync(&reposync.Options{
 		DryRun: dryRun,
 		Force:  force,
 	})
@@ -98,12 +98,12 @@ func runDownload(projectName string, cmd *cobra.Command) error {
 
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
-	engine, err := sync.NewEngine(project)
+	engine, err := reposync.NewEngine(project)
 	if err != nil {
 		return fmt.Errorf("failed to create sync engine: %w", err)
 	}
 
-	result, err := engine.Download(&sync.Options{
+	result, err := engine.Download(&reposync.Options{
 		DryRun: dryRun,
 	})
 	if err != nil {
@@ -127,12 +127,12 @@ func runUpload(projectName string, cmd *cobra.Command) error {
 
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
-	engine, err := sync.NewEngine(project)
+	engine, err := reposync.NewEngine(project)
 	if err != nil {
 		return fmt.Errorf("failed to create sync engine: %w", err)
 	}
 
-	result, err := engine.Upload(&sync.Options{
+	result, err := engine.Upload(&reposync.Options{
 		DryRun: dryRun,
 	})
 	if err != nil {

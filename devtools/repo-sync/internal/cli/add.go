@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/config"
-	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/sync"
+	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/reposync"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +31,7 @@ func runAdd(projectName, filePath string) error {
 	}
 
 	// Create sync engine
-	engine, err := sync.NewEngine(project)
+	engine, err := reposync.NewEngine(project)
 	if err != nil {
 		return fmt.Errorf("failed to create sync engine: %w", err)
 	}
