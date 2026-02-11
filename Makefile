@@ -31,10 +31,10 @@ check-whitespace:
 
 check-format: check-whitespace
 	goimports -l .
-	bazel test //tools/format:format_test
+	bazel test --test_summary=terse //tools/format:format_test
 
 test:
-	bazel test //...
+	bazel test --test_summary=terse //...
 
 lint: lint-golangci lint-ruff lint-shellcheck check-spacemacs
 
