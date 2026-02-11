@@ -1,5 +1,5 @@
-// Package sync provides synchronization engine for repo-sync.
-package sync
+// Package reposync provides synchronization engine for repo-sync.
+package reposync
 
 import (
 	"database/sql"
