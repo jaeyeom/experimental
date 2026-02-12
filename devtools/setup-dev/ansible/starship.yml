@@ -95,6 +95,6 @@
 
         - name: Install/update starship if outdated
           shell: |
-            curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir ~/.cargo/bin
+            {{ playbook_dir }}/verified-run exec https://starship.rs/install.sh -- -y --bin-dir ~/.cargo/bin
           when: starship_installed_version != starship_latest_version
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

@@ -543,7 +543,7 @@ fi`,
 			PlatformDarwin: BrewInstallMethod{Name: "starship"},
 			PlatformTermux: TermuxPkgInstallMethod{Name: "starship"},
 			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand:    "curl -sS https://starship.rs/install.sh | sh -s -- -y --bin-dir ~/.cargo/bin",
+				InstallCommand:    "{{ playbook_dir }}/verified-run exec https://starship.rs/install.sh -- -y --bin-dir ~/.cargo/bin",
 				VersionCommand:    "starship --version",
 				VersionRegex:      "starship ([0-9.]+)",
 				LatestVersionURL:  "https://api.github.com/repos/starship/starship/releases/latest",
