@@ -31,6 +31,7 @@ apt-get install -y \
   npm \
   openssh-client \
   openssl \
+  pass \
   pkg-config \
   plocate \
   ripgrep \
