@@ -62,19 +62,19 @@ so it's usually a good idea to use it for Go projects. The generator includes
 automatic version checking and upgrade logic for Go packages.
 
 *** Rust Packages
-The =rustup= installer is preferred for Rust tools because its default profile
-includes =rustc=, =cargo=, =rustfmt=, and =clippy= together. This is consistent
-across platforms and provides proper toolchain management. Additional components
-like =rust-analyzer= can be added via =rustup component add=.
+On macOS and Debian, =rustup= is the sole Rust toolchain provider. It is
+installed via Homebrew (macOS) or apt (Debian), and =rustup default stable=
+provides =rustc=, =cargo=, =rustfmt=, and =clippy=. Additional components like
+=rust-analyzer= are added via =rustup component add=.
 
-On Termux, =pkg install rust= provides the same bundled tools (rustc, cargo,
-rustfmt, clippy), and =rust-analyzer= is available as a separate package.
+On Termux, the system =rust= package (=pkg install rust=) provides the bundled
+tools (rustc, cargo, rustfmt, clippy), and =rust-analyzer= is available as a
+separate Termux package.
 
 *** macOS
 Homebrew is generally the preferred installation method on macOS because it
-provides system-level packages. However, for Rust tools, =rustup= is preferred
-over Homebrew because it provides integrated toolchain management and bundles
-essential tools (rustfmt, clippy) in its default profile.
+provides system-level packages. For the Rust toolchain itself, =rustup= is
+installed via Homebrew and manages all Rust components including =rust-analyzer=.
 
 Homebrew also supports taps and installation options when needed for specialized
 packages.

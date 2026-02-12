@@ -49,7 +49,6 @@ apt-get install -y \
   plocate \
   python3-notmuch2 \
   ripgrep \
-  rust-all \
   rustup \
   sed \
   sshpass \

@@ -4,7 +4,7 @@
 # and then run: make
 - import_playbook: gather-facts.yml
 - import_playbook: setup-cargo.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+  when: (ansible_facts['os_family'] == "Darwin") or (ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin")
 
 - name: Ensure rust-analyzer is present
   hosts: all
@@ -23,12 +23,17 @@
       block:
         - name: Check if rust-analyzer is installed
           shell: command -v rust-analyzer
+          register: rust_analyzer_installed
+          ignore_errors: yes
           changed_when: False
-      rescue:
-        - name: Install rust-analyzer on MacOS
-          community.general.homebrew:
-            name: rust-analyzer
-            state: present
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+
+        - name: Install rust-analyzer component via rustup
+          command: rustup component add rust-analyzer
+          when: rust_analyzer_installed.rc != 0
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Ensure rust-analyzer is present on Termux

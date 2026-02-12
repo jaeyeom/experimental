@@ -31,7 +31,6 @@ apt-get install -y \
   pkg-config \
   plocate \
   ripgrep \
-  rust-all \
   rustup \
   sed \
   sshpass \
