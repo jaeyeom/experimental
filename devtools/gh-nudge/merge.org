@@ -33,7 +33,7 @@ merge these PRs and optionally delete the source branch after merging.
   gh-merge --auto --dry-run
 
   # Use a custom config file
-  gh-merge --config /path/to/config.yaml
+  gh-merge --config /path/to/config.pkl
 #+end_src
 
 ** Configuration and Setup
@@ -41,15 +41,17 @@ merge these PRs and optionally delete the source branch after merging.
 Please see [[file:README.org][README.org]] file for the full configuration.
 
 ~gh-merge~ uses the same configuration file as ~gh-nudge~, typically located at
-~$HOME/.config/gh-nudge/config.yaml~. The relevant sections for GitHub
+~$HOME/.config/gh-nudge/config.pkl~. The relevant sections for GitHub
 integration are:
 
-#+begin_src yaml
-github:
-  owner: "your-github-org"
-  repos:
-    - "repo1"
-    - "repo2"
+#+begin_src pkl
+github {
+  owner = "your-github-org"
+  repos {
+    "repo1"
+    "repo2"
+  }
+}
 #+end_src
 
 ** Known Issues

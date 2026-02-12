@@ -19,7 +19,7 @@
 //	gh-merge merge --dry-run
 //
 //	# Use a custom config file
-//	gh-merge --config /path/to/config.yaml
+//	gh-merge --config /path/to/config.pkl
 package main
 
 import (
@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
@@ -68,26 +67,6 @@ func setupLogging() *slog.Logger {
 	}))
 	slog.SetDefault(logger)
 	return logger
-}
-
-// loadConfig loads the configuration from the specified path or default location.
-func loadConfig() (*config.Config, error) {
-	if configPath == "" {
-		// Try to use default config path
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		configPath = filepath.Join(home, ".config", "gh-nudge", "config.yaml")
-	}
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config from %s: %w", configPath, err)
-	}
-
-	slog.Info("Using configuration file", "path", configPath)
-	return cfg, nil
 }
 
 // listMergeablePRs lists all PRs that are ready to merge.
@@ -182,7 +161,7 @@ func main() {
 	setupLogging()
 
 	// Load configuration
-	cfg, err := loadConfig()
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		slog.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
