@@ -233,8 +233,21 @@ elif [ "$OS" = "Darwin" ]; then
         brew install python-packaging
     fi
 else
+    # Detect whether we can use sudo for system package operations
+    CAN_SUDO=false
+    if [ "$(id -u)" -eq 0 ]; then
+        CAN_SUDO=true
+    elif command -v sudo >/dev/null 2>&1; then
+        if sudo -v 2>/dev/null; then
+            CAN_SUDO=true
+        fi
+    fi
+    if [ "$CAN_SUDO" = false ]; then
+        echo "Warning: sudo is not available. System package operations will be skipped."
+    fi
+
     # Check if we're on a Debian/Ubuntu system and handle nala
-    if command -v apt >/dev/null 2>&1; then
+    if [ "$CAN_SUDO" = true ] && command -v apt >/dev/null 2>&1; then
         # Check if nala is installed, install if not
         if ! command -v nala >/dev/null 2>&1; then
             echo "Installing nala..."
@@ -254,18 +267,28 @@ else
     # Install Ansible if not already installed on Linux systems
     if ! command -v ansible >/dev/null 2>&1; then
         echo "Installing Ansible..."
-        if command -v nala >/dev/null 2>&1; then
-            sudo nala install -y ansible
-        elif command -v apt >/dev/null 2>&1; then
-            sudo apt update
-            sudo apt install -y ansible
-        elif command -v yum >/dev/null 2>&1; then
-            sudo yum install -y epel-release
-            sudo yum install -y ansible
-        elif command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y ansible
+        if [ "$CAN_SUDO" = true ]; then
+            if command -v nala >/dev/null 2>&1; then
+                sudo nala install -y ansible
+            elif command -v apt >/dev/null 2>&1; then
+                sudo apt update
+                sudo apt install -y ansible
+            elif command -v yum >/dev/null 2>&1; then
+                sudo yum install -y epel-release
+                sudo yum install -y ansible
+            elif command -v dnf >/dev/null 2>&1; then
+                sudo dnf install -y ansible
+            else
+                echo "Unable to install Ansible - unsupported package manager"
+                exit 1
+            fi
+        elif command -v pip >/dev/null 2>&1; then
+            pip install --user ansible
+        elif command -v pip3 >/dev/null 2>&1; then
+            pip3 install --user ansible
         else
-            echo "Unable to install Ansible - unsupported package manager"
+            echo "Error: Cannot install Ansible. No sudo access and no pip/pip3 available." >&2
+            echo "Please install Ansible manually (e.g., 'pip install --user ansible')." >&2
             exit 1
         fi
     fi
