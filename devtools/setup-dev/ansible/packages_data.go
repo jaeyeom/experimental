@@ -105,6 +105,12 @@ var platformSpecificTools = []PlatformSpecificTool{
 	GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
 	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
 	{
+		command: "cargo",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformTermux: TermuxPkgInstallMethod{Name: "rust"},
+		},
+	},
+	{
 		command: "cargo-add",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: CargoInstallMethod{Name: "cargo-edit"},
@@ -468,19 +474,11 @@ fi`,
 	{
 		command: "rust-analyzer",
 		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "rust-analyzer"},
+			PlatformDarwin:     RustupComponentMethod{Name: "rust-analyzer"},
 			PlatformDebianLike: RustupComponentMethod{Name: "rust-analyzer"},
 			PlatformTermux:     TermuxPkgInstallMethod{Name: "rust-analyzer"},
 		},
 		Imports: nil,
-	},
-	{
-		command: "rustc",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "rust"},
-			PlatformDebianLike: PackageInstallMethod{Name: "rust-all"},
-			PlatformTermux:     TermuxPkgInstallMethod{Name: "rust"},
-		},
 	},
 	{
 		command: "rustup",
