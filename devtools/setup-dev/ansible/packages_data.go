@@ -22,7 +22,7 @@ var packages = []PackageData{
 	{command: "keychain"},
 	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
 	{command: "libssl-dev", termuxPkgName: "openssl", brewPkgName: "openssl"},
-	{command: "libtool"},
+	{command: "libtool", debianPkgName: "libtool-bin"},
 	{command: "libvterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
 	{
 		command:       "locate",
