@@ -19,21 +19,24 @@
 //	gh-slack --to user1,user2,user3 --message "Group announcement"
 //
 //	# Send with a custom config file
-//	gh-slack --to githubuser --message "Test" --config /path/to/config.yaml
+//	gh-slack --to githubuser --message "Test" --config /path/to/config.pkl
 //
 // Configuration:
 //
 // gh-slack uses the same configuration file as gh-nudge, typically located at
-// $HOME/.config/gh-nudge/config.yaml. The relevant sections for Slack messaging are:
+// $HOME/.config/gh-nudge/config.pkl. The relevant sections for Slack messaging are:
 //
-//	slack:
-//	  token: "xoxb-your-slack-token"
-//	  user_id_mapping:
-//	    githubuser1: "U12345678"
-//	    githubuser2: "U87654321"
-//	  dm_channel_id_mapping:
-//	    githubuser1: "D12345678"
-//	    githubuser2: "D87654321"
+//	slack {
+//	  token = "xoxb-your-slack-token"
+//	  userIdMapping {
+//	    ["githubuser1"] = "U12345678"
+//	    ["githubuser2"] = "U87654321"
+//	  }
+//	  dmChannelIdMapping {
+//	    ["githubuser1"] = "D12345678"
+//	    ["githubuser2"] = "D87654321"
+//	  }
+//	}
 package main
 
 import (
