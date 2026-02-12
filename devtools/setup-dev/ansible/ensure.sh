@@ -161,23 +161,43 @@ elif [ "$ssh_add_exit" -eq 1 ]; then
     fi
 fi
 
-# Pre-check for git identity variables when setup-git is transitively needed
+# Pre-check for git identity variables when setup-git is transitively needed.
+#
+# The setup-git playbook needs your name, email, and GitHub username to
+# configure git.  It reads from environment variables first and falls back
+# to existing git config values.  Once git config is fully populated by
+# the playbook, you no longer need to export these variables on subsequent
+# runs.
 if any_arg_imports setup-git.yml "$@"; then
     git_check_failed=false
     if [ -z "$GIT_AUTHOR_NAME" ] && [ -z "$(git config --global user.name 2>/dev/null)" ]; then
-        echo "Error: GIT_AUTHOR_NAME is not set and git config user.name is empty." >&2
+        echo "Error: Git user name is not configured." >&2
+        echo "  Either set the environment variable for this run:" >&2
+        echo "    export GIT_AUTHOR_NAME=\"Your Name\"" >&2
+        echo "  Or configure git directly (permanent):" >&2
+        echo "    git config --global user.name \"Your Name\"" >&2
         git_check_failed=true
     fi
     if [ -z "$GIT_AUTHOR_EMAIL" ] && [ -z "$(git config --global user.email 2>/dev/null)" ]; then
-        echo "Error: GIT_AUTHOR_EMAIL is not set and git config user.email is empty." >&2
+        echo "Error: Git user email is not configured." >&2
+        echo "  Either set the environment variable for this run:" >&2
+        echo "    export GIT_AUTHOR_EMAIL=\"you@example.com\"" >&2
+        echo "  Or configure git directly (permanent):" >&2
+        echo "    git config --global user.email \"you@example.com\"" >&2
         git_check_failed=true
     fi
     if [ -z "$GITHUB_USERNAME" ] && [ -z "$(git config --global github.user 2>/dev/null)" ]; then
-        echo "Error: GITHUB_USERNAME is not set and git config github.user is empty." >&2
+        echo "Error: GitHub username is not configured." >&2
+        echo "  Either set the environment variable for this run:" >&2
+        echo "    export GITHUB_USERNAME=\"your-github-handle\"" >&2
+        echo "  Or configure git directly (permanent):" >&2
+        echo "    git config --global github.user \"your-github-handle\"" >&2
         git_check_failed=true
     fi
     if [ "$git_check_failed" = true ]; then
-        echo "Please set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, and GITHUB_USERNAME before running setup-git." >&2
+        echo "" >&2
+        echo "Note: The environment variables are only needed for the first run." >&2
+        echo "Once setup-git writes your git config, they are no longer required." >&2
         exit 1
     fi
 fi
