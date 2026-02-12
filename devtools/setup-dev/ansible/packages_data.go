@@ -34,6 +34,7 @@ var packages = []PackageData{
     - name: Ensure locate DB is up-to-date on non-macOS systems
       command: updatedb
       become: "{{ 'no' if ansible_facts['env']['TERMUX_VERSION'] is defined else 'yes' }}"
+      ignore_errors: true
       when: ` + WhenNotDarwin + `
 
     - name: Note about locate DB on macOS
