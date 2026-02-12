@@ -119,15 +119,21 @@ ssh_add_exit=0
 ssh-add -l >/dev/null 2>&1 || ssh_add_exit=$?
 if [ "$ssh_add_exit" -eq 2 ]; then
     # Exit code 2 means the agent is not running
-    echo "Error: SSH agent is not running." >&2
-    if [ -n "$TERMUX_VERSION" ]; then
+    if [ -n "$SSH_AGENT_PID" ]; then
+        echo "Error: SSH agent is running but has no keys loaded." >&2
+        echo "Add your key with:" >&2
+        echo "  ssh-add" >&2
+    elif [ -n "$TERMUX_VERSION" ]; then
+        echo "Error: SSH agent is not running." >&2
         echo "Enable the ssh-agent service with:" >&2
         echo "  sv-enable ssh-agent" >&2
         echo "Then restart your shell." >&2
     elif command -v keychain >/dev/null 2>&1; then
+        echo "Error: SSH agent is not running." >&2
         echo "Start the agent with keychain:" >&2
         echo "  eval \$(keychain --eval --agents ssh id_ed25519)" >&2
     else
+        echo "Error: SSH agent is not running." >&2
         echo "Install keychain and start the agent:" >&2
         if [ "$OS" = "Darwin" ]; then
             echo "  brew install keychain" >&2
