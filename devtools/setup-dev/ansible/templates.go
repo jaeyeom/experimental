@@ -61,7 +61,7 @@ var packagesTemplate = `---
     - name: Ensure {{.Command}} is present on MacOS
       block:
         - name: Check if {{.Command}} is installed
-          shell: command -v {{.Command}}
+          shell: {{.CheckCommand}}
           changed_when: False
       rescue:
         - name: Install {{.Command}} on MacOS
@@ -75,7 +75,7 @@ var packagesTemplate = `---
     - name: Ensure {{.Command}} is present on non-Termux, non-MacOS systems
       block:
         - name: Check if {{.Command}} is installed
-          shell: command -v {{.Command}}
+          shell: {{.CheckCommand}}
           changed_when: False
       rescue:
         - name: Install {{.Command}} on non-Termux, non-MacOS systems
@@ -88,7 +88,7 @@ var packagesTemplate = `---
     - name: Ensure {{.Command}} is present on Termux
       block:
         - name: Check if {{.Command}} is installed
-          shell: command -v {{.Command}}
+          shell: {{.CheckCommand}}
           changed_when: False
       rescue:
         - name: Install {{.Command}} on Termux

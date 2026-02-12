@@ -49,6 +49,7 @@ type Import struct {
 // requirements like PPAs, taps, and installation options.
 type PackageData struct {
 	command       string
+	checkCommand  string // Shell command to detect if installed (defaults to "command -v <command>")
 	debianPkgName string
 	UbuntuPPA     string
 	termuxPkgName string
@@ -61,6 +62,13 @@ type PackageData struct {
 
 func (p PackageData) Command() string {
 	return p.command
+}
+
+func (p PackageData) CheckCommand() string {
+	if p.checkCommand != "" {
+		return p.checkCommand
+	}
+	return "command -v " + p.command
 }
 
 func (p PackageData) CommandID() string {
