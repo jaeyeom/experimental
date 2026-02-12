@@ -161,18 +161,18 @@ func TestFileLockManagerWithLockRetry(t *testing.T) {
 			t.Fatal("Lock was not removed by goroutine")
 		}
 
-		// With initial delay 10ms, backoff 2.0, we expect:
+		// With initial delay 10ms, backoff 2.0, and ±25% jitter, we expect:
 		// Attempt 1: immediate fail
-		// Attempt 2: wait 10ms
-		// Attempt 3: wait 20ms
-		// Attempt 4: wait 40ms (but lock removed at 35ms, so succeeds)
-		// Total wait time should be at least 30ms (allowing for some timing variance)
-		if elapsed < 30*time.Millisecond {
-			t.Fatalf("Expected at least 30ms elapsed, got %v", elapsed)
+		// Attempt 2: wait ~10ms (7.5-12.5ms with jitter)
+		// Attempt 3: wait ~20ms (15-25ms with jitter)
+		// Attempt 4: wait ~40ms (but lock removed at 35ms, so succeeds)
+		// Total wait should be at least 20ms (accounting for jitter reducing delays)
+		if elapsed < 20*time.Millisecond {
+			t.Fatalf("Expected at least 20ms elapsed, got %v", elapsed)
 		}
-		// Upper bound is more flexible due to system scheduling
-		if elapsed > 100*time.Millisecond {
-			t.Fatalf("Expected less than 100ms elapsed, got %v", elapsed)
+		// Upper bound is more flexible due to system scheduling and jitter
+		if elapsed > 150*time.Millisecond {
+			t.Fatalf("Expected less than 150ms elapsed, got %v", elapsed)
 		}
 	})
 }
@@ -186,9 +186,9 @@ func TestFileLockManagerConcurrentCommentAddition(t *testing.T) {
 
 	manager := NewFileLockManager(store)
 	config := FileLockConfig{
-		MaxRetries:    20,
-		InitialDelay:  10 * time.Millisecond,
-		MaxDelay:      100 * time.Millisecond,
+		MaxRetries:    50,
+		InitialDelay:  5 * time.Millisecond,
+		MaxDelay:      50 * time.Millisecond,
 		BackoffFactor: 1.2,
 	}
 

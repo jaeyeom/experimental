@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"math/rand/v2" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
 	"os"
 	"path/filepath"
 	"strconv"
@@ -93,8 +94,11 @@ func (flm *FileLockManager) WithLockRetry(key string, config FileLockConfig, fn 
 
 		lastErr = err
 		if attempt < config.MaxRetries {
-			// Wait before retrying with exponential backoff
-			time.Sleep(delay)
+			// Wait before retrying with exponential backoff and jitter.
+			// Jitter of ±25% reduces convoy effects when multiple
+			// goroutines back off in lockstep.
+			jitter := 0.75 + rand.Float64()*0.5 //nolint:gosec // G404: jitter for retry backoff, not security-sensitive
+			time.Sleep(time.Duration(float64(delay) * jitter))
 			delay = time.Duration(float64(delay) * config.BackoffFactor)
 			if delay > config.MaxDelay {
 				delay = config.MaxDelay
