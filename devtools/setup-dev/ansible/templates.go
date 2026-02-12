@@ -49,6 +49,7 @@ var packagesTemplate = `---
         update_cache: yes
       when: ` + WhenDebianLike + ` and ansible_facts['distribution'] == "Debian"
       become: yes
+      ignore_errors: yes
 {{ end }}{{ if .BrewTap }}
     - name: Tap {{.BrewTap}} for {{.Command}}
       community.general.homebrew_tap:
