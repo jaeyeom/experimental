@@ -35,7 +35,7 @@ apt-get install -y \
   jq \
   keychain \
   libssl-dev \
-  libtool \
+  libtool-bin \
   libvips-tools \
   libvterm-dev \
   make \
