@@ -5,3 +5,4 @@
 - import_playbook: setup-gpg-agent.yml
 - import_playbook: setup-devtools.yml
 - import_playbook: setup-z.yml
+- import_playbook: go.yml
