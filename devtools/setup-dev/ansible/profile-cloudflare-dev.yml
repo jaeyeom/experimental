@@ -11,3 +11,4 @@
 - import_playbook: prettier.yml
 - import_playbook: wrangler.yml
 - import_playbook: setup-wrangler.yml
+- import_playbook: setup-vibe-coding.yml
