@@ -1,12 +1,13 @@
 package main
 
 const (
-	WhenDarwin     = `ansible_facts['os_family'] == "Darwin"`
-	WhenNotDarwin  = `ansible_facts['os_family'] != "Darwin"`
-	WhenTermux     = `ansible_facts['env']['TERMUX_VERSION'] is defined`
-	WhenNotTermux  = `ansible_facts['env']['TERMUX_VERSION'] is not defined`
-	WhenDebianLike = `ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"`
-	WhenUbuntu     = `ansible_facts['distribution'] == "Ubuntu"`
+	WhenDarwin        = `ansible_facts['os_family'] == "Darwin"`
+	WhenNotDarwin     = `ansible_facts['os_family'] != "Darwin"`
+	WhenTermux        = `ansible_facts['env']['TERMUX_VERSION'] is defined`
+	WhenNotTermux     = `ansible_facts['env']['TERMUX_VERSION'] is not defined`
+	WhenDebianLike    = `ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"`
+	WhenNotDebianLike = `ansible_facts['env']['TERMUX_VERSION'] is defined or ansible_facts['os_family'] == "Darwin"`
+	WhenUbuntu        = `ansible_facts['distribution'] == "Ubuntu"`
 )
 
 var packagesTemplate = `---
