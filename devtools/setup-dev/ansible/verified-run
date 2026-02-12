@@ -37,10 +37,26 @@ get_stored_hash() {
     fi
 }
 
-# Get path to stored script by hash
+# Extract file extension from URL (e.g., ".sh", ".py"), defaults to ".sh"
+url_extension() {
+    _ue_url="$1"
+    # Strip query string and fragment
+    _ue_path="${_ue_url%%\?*}"
+    _ue_path="${_ue_path%%#*}"
+    # Get basename
+    _ue_base="${_ue_path##*/}"
+    # Extract extension
+    case "$_ue_base" in
+        *.*) echo ".${_ue_base##*.}" ;;
+        *)   echo ".sh" ;;
+    esac
+}
+
+# Get path to stored script by hash and extension
 get_stored_script() {
     _hash="$1"
-    echo "${SCRIPTS_DIR}/${_hash}.sh"
+    _ext="${2:-.sh}"
+    echo "${SCRIPTS_DIR}/${_hash}${_ext}"
 }
 
 # Store approval: save script content and update index
@@ -48,12 +64,13 @@ store_approval() {
     _sa_url="$1"
     _sa_new_hash="$2"
     _sa_script_file="$3"
+    _sa_ext=$(url_extension "$_sa_url")
 
     # Get old hash if exists
     _sa_old_hash=$(get_stored_hash "$_sa_url")
 
     # Copy script to storage
-    cp "$_sa_script_file" "$(get_stored_script "$_sa_new_hash")"
+    cp "$_sa_script_file" "$(get_stored_script "$_sa_new_hash" "$_sa_ext")"
 
     # Update index: remove old entry if exists, add new one
     if [ -n "$_sa_old_hash" ]; then
@@ -62,7 +79,7 @@ store_approval() {
         mv "${INDEX_FILE}.tmp" "$INDEX_FILE"
         # Remove old script if hash changed
         if [ "$_sa_old_hash" != "$_sa_new_hash" ]; then
-            rm -f "$(get_stored_script "$_sa_old_hash")"
+            rm -f "$(get_stored_script "$_sa_old_hash" "$_sa_ext")"
         fi
     fi
 
@@ -74,6 +91,7 @@ store_approval() {
 remove_approval() {
     _ra_url="$1"
     _ra_old_hash=$(get_stored_hash "$_ra_url")
+    _ra_ext=$(url_extension "$_ra_url")
 
     if [ -z "$_ra_old_hash" ]; then
         echo "URL not found in approved list: $_ra_url"
@@ -84,8 +102,9 @@ remove_approval() {
     grep -v -F "	${_ra_url}" "$INDEX_FILE" > "${INDEX_FILE}.tmp" 2>/dev/null || true
     mv "${INDEX_FILE}.tmp" "$INDEX_FILE"
 
-    # Remove script file
-    rm -f "$(get_stored_script "$_ra_old_hash")"
+    # Remove script file (try URL-derived extension, then legacy .sh fallback)
+    rm -f "$(get_stored_script "$_ra_old_hash" "$_ra_ext")"
+    rm -f "$(get_stored_script "$_ra_old_hash" ".sh")"
 
     echo "Removed: $_ra_url"
 }
@@ -132,7 +151,10 @@ cmd_review() {
     init_cache
 
     # Download script
+    _cr_ext=$(url_extension "$_cr_url")
     _cr_temp_file=$(mktemp)
+    mv "$_cr_temp_file" "${_cr_temp_file}${_cr_ext}"
+    _cr_temp_file="${_cr_temp_file}${_cr_ext}"
     # shellcheck disable=SC2064  # Intentional: expand $_cr_temp_file now to capture current value
     trap "rm -f '$_cr_temp_file'" EXIT
 
@@ -153,7 +175,7 @@ cmd_review() {
 
     if [ -n "$_cr_stored_hash" ]; then
         # Content changed - show diff
-        _cr_old_script=$(get_stored_script "$_cr_stored_hash")
+        _cr_old_script=$(get_stored_script "$_cr_stored_hash" "$_cr_ext")
         echo ""
         echo "Script content has changed since last approval."
         echo "Old hash: $_cr_stored_hash"
@@ -204,7 +226,10 @@ cmd_check() {
     fi
 
     # Download and verify
+    _cc_ext=$(url_extension "$_cc_url")
     _cc_temp_file=$(mktemp)
+    mv "$_cc_temp_file" "${_cc_temp_file}${_cc_ext}"
+    _cc_temp_file="${_cc_temp_file}${_cc_ext}"
     # shellcheck disable=SC2064  # Intentional: expand $_cc_temp_file now to capture current value
     trap "rm -f '$_cc_temp_file'" EXIT
 
@@ -263,7 +288,10 @@ cmd_exec() {
     init_cache
 
     # Download script
+    _ce_ext=$(url_extension "$_ce_url")
     _ce_temp_file=$(mktemp)
+    mv "$_ce_temp_file" "${_ce_temp_file}${_ce_ext}"
+    _ce_temp_file="${_ce_temp_file}${_ce_ext}"
     # shellcheck disable=SC2064  # Intentional: expand $_ce_temp_file now to capture current value
     trap "rm -f '$_ce_temp_file'" EXIT
 
@@ -285,7 +313,7 @@ cmd_exec() {
     if [ "$_ce_interactive" = true ]; then
         # Interactive mode: prompt for approval
         if [ -n "$_ce_stored_hash" ]; then
-            _ce_old_script=$(get_stored_script "$_ce_stored_hash")
+            _ce_old_script=$(get_stored_script "$_ce_stored_hash" "$_ce_ext")
             echo ""
             echo "Script content has changed since last approval."
             echo "URL: $_ce_url"
