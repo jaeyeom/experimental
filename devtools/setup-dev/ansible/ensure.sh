@@ -100,10 +100,57 @@ pre_approve_urls() {
 }
 
 # Pre-check for SSH key authentication
-if ! ssh-add -l >/dev/null 2>&1; then
+ssh_key_exists=false
+for key_file in "$HOME/.ssh/id_ed25519" "$HOME/.ssh/id_ed25519_sk" "$HOME/.ssh/id_ecdsa_sk"; do
+    if [ -f "$key_file" ]; then
+        ssh_key_exists=true
+        break
+    fi
+done
+
+if [ "$ssh_key_exists" = false ]; then
+    echo "Error: No SSH key found." >&2
+    echo "Generate one with:" >&2
+    echo "  ssh-keygen -t ed25519 -C \"your_email@example.com\"" >&2
+    exit 1
+fi
+
+ssh_add_exit=0
+ssh-add -l >/dev/null 2>&1 || ssh_add_exit=$?
+if [ "$ssh_add_exit" -eq 2 ]; then
+    # Exit code 2 means the agent is not running
+    echo "Error: SSH agent is not running." >&2
+    if [ -n "$TERMUX_VERSION" ]; then
+        echo "Enable the ssh-agent service with:" >&2
+        echo "  sv-enable ssh-agent" >&2
+        echo "Then restart your shell." >&2
+    elif command -v keychain >/dev/null 2>&1; then
+        echo "Start the agent with keychain:" >&2
+        echo "  eval \$(keychain --eval --agents ssh id_ed25519)" >&2
+    else
+        echo "Install keychain and start the agent:" >&2
+        if [ "$OS" = "Darwin" ]; then
+            echo "  brew install keychain" >&2
+        else
+            echo "  sudo apt install keychain  # or your package manager" >&2
+        fi
+        echo "  eval \$(keychain --eval --agents ssh id_ed25519)" >&2
+    fi
+    exit 1
+elif [ "$ssh_add_exit" -eq 1 ]; then
+    # Exit code 1 means the agent is running but has no keys
     if [ -z "$SSHPASS" ]; then
         echo "Error: No SSH keys are added to the agent, and the SSHPASS environment variable is not set." >&2
-        echo "Please add your SSH keys using 'ssh-add' or set SSHPASS before running this script." >&2
+        if [ -n "$TERMUX_VERSION" ]; then
+            echo "Add your key with:" >&2
+            echo "  ssh-add ~/.ssh/id_ed25519" >&2
+        elif command -v keychain >/dev/null 2>&1; then
+            echo "Add your key via keychain:" >&2
+            echo "  eval \$(keychain --eval --agents ssh id_ed25519)" >&2
+        else
+            echo "Add your key with:" >&2
+            echo "  ssh-add ~/.ssh/id_ed25519" >&2
+        fi
         exit 1
     fi
 fi
