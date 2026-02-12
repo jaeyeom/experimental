@@ -5,12 +5,10 @@
 - import_playbook: gh-pr-review.yml
 - import_playbook: gh-slack.yml
 - import_playbook: gh-storage.yml
-- import_playbook: gherun.yml
-- import_playbook: repo-sync.yml
 - import_playbook: setup-perplexity-mcp.yml
 - import_playbook: setup-git.yml
 - import_playbook: setup-find.yml
-- import_playbook: setup-claude-sandbox.yml
+- import_playbook: claude.yml
 - import_playbook: setup-claude-privacy.yml
 - import_playbook: claudelytics.yml
 
