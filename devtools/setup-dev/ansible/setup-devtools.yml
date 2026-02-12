@@ -12,3 +12,4 @@
 - import_playbook: fd.yml
 - import_playbook: locate.yml
 - import_playbook: setup-direnv.yml
+- import_playbook: githooks-cli.yml
