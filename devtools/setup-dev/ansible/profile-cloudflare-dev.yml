@@ -9,5 +9,6 @@
 - import_playbook: turbo.yml
 - import_playbook: eslint.yml
 - import_playbook: prettier.yml
+- import_playbook: cloudflared.yml
 - import_playbook: wrangler.yml
 - import_playbook: setup-wrangler.yml

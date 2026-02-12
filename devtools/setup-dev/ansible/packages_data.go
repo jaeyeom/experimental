@@ -168,6 +168,20 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: nil,
 	},
 	{
+		command: "cloudflared",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "cloudflared"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "cloudflared",
+				GPGKeyURL:      "https://pkg.cloudflare.com/cloudflare-main.gpg",
+				GPGKeyPath:     "/usr/share/keyrings/cloudflare-main.gpg",
+				RepoURL:        "https://pkg.cloudflare.com/cloudflared",
+				RepoComponents: "main",
+				Codename:       "any",
+			},
+		},
+	},
+	{
 		command: "codex",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     NpmInstallMethod{Name: "@openai/codex"},
