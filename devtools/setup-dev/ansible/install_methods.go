@@ -532,6 +532,7 @@ func (d DebianPkgInstallMethod) RenderSetupTasks(_ string) string {
         update_cache: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian"
       become: yes
+      ignore_errors: yes
 
 `
 }
