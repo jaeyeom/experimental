@@ -20,6 +20,7 @@ apt-get install -y \
   cmake \
   curl \
   direnv \
+  e-wrapper \
   emacs \
   ffmpegthumbnailer \
   fzf \

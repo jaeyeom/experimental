@@ -233,7 +233,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - all.yml
 - bazel.yml
 - cleanup-repo.yml
-- e.yml
 - gather-facts.yml
 - gmi.yml
 - golangci-lint.yml

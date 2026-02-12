@@ -268,6 +268,22 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 		},
 	},
 	{
+		command: "e",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDebianLike: PackageInstallMethod{Name: "e-wrapper"},
+			PlatformDarwin: ShellInstallMethod{
+				InstallCommand: `curl -fsSL https://raw.githubusercontent.com/kilobyte/e/master/e -o {{ user_bin_directory }}/e && chmod 0700 {{ user_bin_directory }}/e`,
+			},
+			PlatformTermux: ShellInstallMethod{
+				InstallCommand: `curl -fsSL https://raw.githubusercontent.com/kilobyte/e/master/e -o {{ user_bin_directory }}/e && chmod 0700 {{ user_bin_directory }}/e`,
+			},
+		},
+		Imports: []Import{
+			{Playbook: "setup-user-bin-directory", When: WhenNotDebianLike},
+			{Playbook: "curl", When: WhenNotDebianLike},
+		},
+	},
+	{
 		command: "emacs-lsp-booster",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: CargoInstallMethod{Name: "emacs-lsp-booster"},

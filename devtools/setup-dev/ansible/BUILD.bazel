@@ -659,7 +659,9 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["e.yml"],
     data = [
+        "curl.yml",
         "e.yml",
+        "gather-facts.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
     ],
@@ -2422,8 +2424,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-emacs.yml"],
     data = [
+        "curl.yml",
         "e.yml",
         "emacs.yml",
+        "gather-facts.yml",
         "setup-emacs.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
@@ -2818,6 +2822,7 @@ sh_test(
         "e.yml",
         "emacs.yml",
         "ffmpegthumbnailer.yml",
+        "gather-facts.yml",
         "git.yml",
         "go.yml",
         "image2ascii.yml",
