@@ -56,7 +56,12 @@ func (p PackageInstallMethod) RenderSetupTasks(_ string) string {
 }
 
 func (p PackageInstallMethod) RenderInstallTask(command string) string {
-	return `        - name: Install ` + command + ` on non-Termux, non-MacOS systems
+	return `      block:
+        - name: Check if ` + command + ` is installed
+          shell: command -v ` + command + `
+          changed_when: False
+      rescue:
+        - name: Install ` + command + ` on non-Termux, non-MacOS systems
           package:
             name: ` + p.Name + `
             state: present
@@ -64,7 +69,7 @@ func (p PackageInstallMethod) RenderInstallTask(command string) string {
 }
 
 func (p PackageInstallMethod) RenderBlockInstallTask(command string) string {
-	return p.RenderInstallTask(command)
+	return stripBlockAndIndent(p.RenderInstallTask(command), 0)
 }
 
 // BrewInstallMethod handles installation via Homebrew on macOS.

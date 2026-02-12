@@ -30,6 +30,10 @@
 
     - name: Install lcov via package on Debian/Ubuntu
       block:
+        - name: Check if lcov is installed
+          shell: command -v lcov
+          changed_when: False
+      rescue:
         - name: Install lcov on non-Termux, non-MacOS systems
           package:
             name: lcov

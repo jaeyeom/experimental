@@ -30,6 +30,10 @@
 
     - name: Install rustup via package on Debian/Ubuntu
       block:
+        - name: Check if rustup is installed
+          shell: command -v rustup
+          changed_when: False
+      rescue:
         - name: Install rustup on non-Termux, non-MacOS systems
           package:
             name: rustup
