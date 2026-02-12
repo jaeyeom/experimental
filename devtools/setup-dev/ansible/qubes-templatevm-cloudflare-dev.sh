@@ -10,19 +10,15 @@ if grep -q '^ID=debian' /etc/os-release 2>/dev/null; then
     > /etc/apt/sources.list.d/backports.list
 fi
 
-# Add custom repo for cloudflared.
-curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
-echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
-
 apt-get update
 apt-get install -y \
-  cloudflared \
   curl \
   direnv \
   fzf \
   gh \
   git \
   git-delta \
+  golang \
   gpg \
   gpg-agent \
   grep \
