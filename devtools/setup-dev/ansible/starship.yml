@@ -47,6 +47,8 @@
           register: starship_command_check
           failed_when: false
           changed_when: False
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
         - name: Get installed starship version
           command: starship --version
@@ -54,6 +56,8 @@
           failed_when: false
           changed_when: False
           when: starship_command_check.rc == 0
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
         - name: Parse installed starship version
           set_fact:
@@ -97,4 +101,6 @@
           shell: |
             {{ playbook_dir }}/verified-run exec https://starship.rs/install.sh -- -y --bin-dir ~/.cargo/bin
           when: starship_installed_version != starship_latest_version
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

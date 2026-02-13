@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // indent adds the specified number of spaces to the beginning of each line
 // in the given string, useful for adjusting YAML indentation levels.
@@ -585,6 +588,11 @@ type ShellInstallMethod struct {
 	// Example: "tag_name" for GitHub releases (accesses .tag_name in the JSON response)
 	// Required if LatestVersionURL is specified.
 	LatestVersionPath string
+
+	// Environment is an optional set of environment variables to add to
+	// all generated tasks (command checks, version checks, install commands).
+	// When non-empty, an Ansible "environment:" block is rendered on each task.
+	Environment map[string]string
 }
 
 func (s ShellInstallMethod) GetMethodType() string {
@@ -599,6 +607,24 @@ func (s ShellInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
+// renderEnvironment returns a YAML environment block for tasks inside
+// a block: section (10-space indent). Returns "" if Environment is empty.
+func (s ShellInstallMethod) renderEnvironment() string {
+	if len(s.Environment) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(s.Environment))
+	for k := range s.Environment {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	result := "\n          environment:"
+	for _, k := range keys {
+		result += "\n            " + k + ": " + s.Environment[k]
+	}
+	return result
+}
+
 func (s ShellInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
 
@@ -609,14 +635,14 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
           shell: command -v ` + command + `
           register: ` + commandID + `_command_check
           failed_when: false
-          changed_when: False
+          changed_when: False` + s.renderEnvironment() + `
 
         - name: Get installed ` + command + ` version
           command: ` + s.VersionCommand + `
           register: ` + commandID + `_version_output
           failed_when: false
           changed_when: False
-          when: ` + commandID + `_command_check.rc == 0
+          when: ` + commandID + `_command_check.rc == 0` + s.renderEnvironment() + `
 
         - name: Parse installed ` + command + ` version
           set_fact:
@@ -659,7 +685,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
         - name: Install/update ` + command + ` if outdated
           shell: |
 ` + indent(strings.Trim(s.InstallCommand, "\n"), 12) + `
-          when: ` + commandID + `_installed_version != ` + commandID + `_latest_version`
+          when: ` + commandID + `_installed_version != ` + commandID + `_latest_version` + s.renderEnvironment()
 	}
 
 	return `    - name: Ensure ` + command + ` is present
@@ -668,12 +694,12 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
           shell: command -v ` + command + `
           register: ` + commandID + `_installed
           failed_when: false
-          changed_when: False
+          changed_when: False` + s.renderEnvironment() + `
 
         - name: Install ` + command + `
           shell: |
 ` + indent(strings.Trim(s.InstallCommand, "\n"), 12) + `
-          when: ` + commandID + `_installed.rc != 0`
+          when: ` + commandID + `_installed.rc != 0` + s.renderEnvironment()
 }
 
 func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {
