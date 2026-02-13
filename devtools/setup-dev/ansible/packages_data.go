@@ -550,7 +550,7 @@ fi`,
 				LatestVersionPath: "tag_name",
 			},
 		},
-		Imports: []Import{{Playbook: "setup-rust"}, {Playbook: "curl"}},
+		Imports: []Import{{Playbook: "setup-cargo"}, {Playbook: "curl"}},
 	},
 	{
 		command: "stylelint",

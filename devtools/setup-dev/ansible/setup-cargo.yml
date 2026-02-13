@@ -15,6 +15,12 @@
             setup_cargo_playbook_imported: true
           when: setup_cargo_playbook_imported is not defined
 
+    - name: Ensure ~/.cargo/bin directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin"
+        state: directory
+        mode: '0755'
+
     - name: Ensure cargo path is properly set in shell profile
       ansible.builtin.blockinfile:
         path: "{{ user_profile_path }}"
