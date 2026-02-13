@@ -383,23 +383,48 @@ if [ ! -f "$ANSIBLE_GALAXY_CACHE" ] || [ "$(find "$ANSIBLE_GALAXY_CACHE" -mtime 
     touch "$ANSIBLE_GALAXY_CACHE"
 fi
 
-# Take all flags that starts with a hyphen.
-flags=$(echo " " "$@" | grep -o -- ' -[^ ]*')
+# Parse arguments: separate Ansible flags from playbook targets.
+# Arguments starting with - are treated as Ansible flags; all others are
+# playbook targets.  Use -- to separate flags from playbooks when passing
+# flags that take a value argument:
+#   ./ensure.sh --tags setup -- profile-cloudflare-dev
+# Without --, a flag's value argument would be mistaken for a playbook name.
+flags=""
+playbooks=""
+_past_separator=false
+for _arg in "$@"; do
+    if [ "$_past_separator" = true ]; then
+        playbooks="$playbooks $_arg"
+    elif [ "$_arg" = "--" ]; then
+        _past_separator=true
+    else
+        case "$_arg" in
+            -*) flags="$flags $_arg" ;;
+            *) playbooks="$playbooks $_arg" ;;
+        esac
+    fi
+done
 
 # Pre-approve any verified-run URLs before the Ansible run so that
 # non-interactive verified-run exec calls inside playbooks don't fail.
 pre_approve_urls "$@"
 
-# Run playbook with the provided args with the .yml suffix for each arg.
-
-for playbook in "$@"; do
-    if [ "$(echo "$playbook" | head -c 1)" = "-" ]; then
-        continue
-    fi
+# Run each playbook target, tracking failures.
+any_failed=false
+# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+for playbook in $playbooks; do
     # Add .yml suffix only if it doesn't already exist
-    # shellcheck disable=SC2086  # Intentional word splitting for flags - quoted empty string causes errors
     case "$playbook" in
-        *.yml) ansible-playbook -i inventory.ini $flags "$playbook" ;;
-        *) ansible-playbook -i inventory.ini $flags "$playbook.yml" ;;
+        *.yml) ;;
+        *) playbook="$playbook.yml" ;;
     esac
+    # shellcheck disable=SC2086  # Intentional word splitting for flags
+    if ! ansible-playbook -i inventory.ini $flags "$playbook"; then
+        echo "Error: playbook $playbook failed." >&2
+        any_failed=true
+    fi
 done
+
+if [ "$any_failed" = true ]; then
+    exit 1
+fi
