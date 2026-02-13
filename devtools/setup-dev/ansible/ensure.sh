@@ -418,6 +418,7 @@ for playbook in $playbooks; do
         *.yml) ;;
         *) playbook="$playbook.yml" ;;
     esac
+    echo "==> Running playbook: $playbook"
     # shellcheck disable=SC2086  # Intentional word splitting for flags
     if ! ansible-playbook -i inventory.ini $flags "$playbook"; then
         echo "Error: playbook $playbook failed." >&2
