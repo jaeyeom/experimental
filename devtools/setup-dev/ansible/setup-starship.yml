@@ -35,6 +35,8 @@
       shell: starship preset catppuccin-powerline -o {{ user_config_directory }}/starship.toml
       args:
         creates: "{{ user_config_directory }}/starship.toml"
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
 
     - name: Configure scan_timeout to avoid directory scanning timeout warnings
       lineinfile:
