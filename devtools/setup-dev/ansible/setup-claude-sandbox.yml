@@ -35,6 +35,8 @@
               # Linux Go and golangci-lint cache paths
               - "{{ ansible_facts['env']['HOME'] }}/.cache/go-build"
               - "{{ ansible_facts['env']['HOME'] }}/.cache/golangci-lint"
+              # Bazel cache (needed for git pre-commit hooks running bazel test)
+              - "{{ ansible_facts['env']['HOME'] }}/.cache/bazel"
         network:
           allowedHosts:
             - api.github.com
