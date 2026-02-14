@@ -12,7 +12,7 @@ go_library(
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/gh-nudge/internal/prreview:go_default_library",
         "//devtools/gh-nudge/internal/storage:go_default_library",
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
 

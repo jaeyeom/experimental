@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // Issue represents a GitHub issue.

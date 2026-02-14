@@ -11,7 +11,7 @@ go_library(
         "//devtools/gherun/internal/github:go_default_library",
         "//devtools/gherun/internal/runner:go_default_library",
         "//devtools/gherun/internal/vars:go_default_library",
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
 

@@ -15,7 +15,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/notification"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/slack"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 var (

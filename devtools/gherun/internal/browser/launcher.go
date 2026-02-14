@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // allowedSchemes defines the URL schemes that are safe to open in a browser.

@@ -14,7 +14,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/detector"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func main() {

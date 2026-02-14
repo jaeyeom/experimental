@@ -10,7 +10,7 @@ go_library(
     visibility = ["//devtools/gh-nudge:__subpackages__"],
     deps = [
         "//devtools/gh-nudge/internal/models:go_default_library",
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
 
@@ -25,6 +25,6 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//devtools/gh-nudge/internal/models:go_default_library",
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )

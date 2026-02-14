@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
 	"github.com/jaeyeom/experimental/devtools/repo-sync/internal/config"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // Manager handles Git operations for repo-sync.
