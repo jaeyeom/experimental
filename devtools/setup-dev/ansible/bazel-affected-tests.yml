@@ -45,5 +45,5 @@
             bazel_affected_tests_module_version: ""
 
     - name: Upgrade bazel-affected-tests
-      command: go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest
+      command: go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest
       when: bazel_affected_tests_module_version is not defined or bazel_affected_tests_module_version == "" or bazel_affected_tests_module_version != bazel_affected_tests_latest.stdout

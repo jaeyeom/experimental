@@ -92,7 +92,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: []Import{{Playbook: "gh"}},
 	},
-	GoTool("bazel-affected-tests", "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
+	GoTool("bazel-affected-tests", "github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
 	{
 		command: "biome",
 		platforms: map[PlatformName]InstallMethod{
