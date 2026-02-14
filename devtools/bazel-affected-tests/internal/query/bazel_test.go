@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func TestNewBazelQuerier(t *testing.T) {

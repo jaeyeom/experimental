@@ -57,6 +57,7 @@ linters:
             - github.com/apple/pkl-go
             - github.com/google/uuid
             - "github.com/jaeyeom/experimental"
+            - "github.com/jaeyeom/go-cmdexec"
             - "github.com/jaeyeom/sugo"
             - github.com/slack-go/slack
             - gopkg.in/yaml.v3

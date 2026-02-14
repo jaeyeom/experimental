@@ -5,5 +5,5 @@ go_library(
     srcs = ["git.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/git",
     visibility = ["//devtools/bazel-affected-tests:__subpackages__"],
-    deps = ["//devtools/internal/executor:go_default_library"],
+    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )

@@ -10,7 +10,7 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/query",
     visibility = ["//devtools/bazel-affected-tests:__subpackages__"],
     deps = [
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
 
@@ -23,6 +23,6 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
