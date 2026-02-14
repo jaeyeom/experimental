@@ -49,8 +49,18 @@
           - "Bash(bazel query:*)"
           - "Bash(bazel test:*)"   # Medium risk (may run genrule)
           - "Bash(gh issue close:*)"
+          - "Bash(gh issue list:*)"
           - "Bash(gh issue reopen:*)"
+          - "Bash(gh issue status:*)"
           - "Bash(gh issue view:*)"
+          - "Bash(gh pr checks:*)"
+          - "Bash(gh pr diff:*)"
+          - "Bash(gh pr list:*)"
+          - "Bash(gh pr status:*)"
+          - "Bash(gh pr view:*)"
+          - "Bash(gh release list:*)"
+          - "Bash(gh release view:*)"
+          - "Bash(gh repo view:*)"
           - "Bash(git add:*)"
           - "Bash(git branch:*)"
           - "Bash(git commit:*)"
@@ -58,7 +68,7 @@
           - "Bash(git log:*)"
           - "Bash(git status:*)"
           - "Bash(golangci-lint run:*)"
-          - "Bash(rg:*)"           # Safe: read-only search tool, no exec capability
+          - "Bash(rg:*)"       # Safe: read-only search tool, no exec capability
           - "Bash(ruff:*)"
         deny:
           - "Bash(eval:*)"      # Shell eval
