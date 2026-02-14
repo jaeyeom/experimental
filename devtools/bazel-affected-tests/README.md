@@ -1,5 +1,15 @@
 # Bazel Affected Tests
 
+> **DEPRECATED**: This package has moved to
+> [github.com/jaeyeom/bazel-affected-tests](https://github.com/jaeyeom/bazel-affected-tests).
+> Please use the new module for all future installations and updates:
+>
+> ```bash
+> go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest
+> ```
+>
+> This copy will no longer receive updates.
+
 A fast Go implementation of the Bazel affected tests detection tool. This tool
 identifies which Bazel test targets might be affected by changes in your git
 staging area.
@@ -16,7 +26,7 @@ staging area.
 ## Installation
 
 ```bash
-go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest
+go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest
 ```
 
 ## Usage
