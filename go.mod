@@ -1,6 +1,6 @@
 module github.com/jaeyeom/experimental
 
-go 1.24.2
+go 1.24.4
 
 require (
 	github.com/jaeyeom/sugo v1.1.1
@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/apple/pkl-go v0.12.1
+	github.com/jaeyeom/go-cmdexec v0.1.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.19

@@ -7,7 +7,7 @@ bazel_dep(name = "nogo_analyzer_bzlmod", version = "0.1.0")
 
 # Configure Go version for Termux compatibility
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
-go_sdk.download(version = "1.24.2")
+go_sdk.download(version = "1.24.4")
 go_sdk.nogo(nogo = "//tools/lint:platform_nogo")
 use_repo(go_sdk, "go_default_sdk")
 
@@ -32,6 +32,7 @@ use_repo(
     "com_github_apple_pkl_go",
     "com_github_google_renameio_v2",
     "com_github_google_uuid",
+    "com_github_jaeyeom_go_cmdexec",
     "com_github_jaeyeom_sugo",
     "com_github_leanovate_gopter",
     "com_github_mattn_go_sqlite3",

@@ -12,7 +12,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/config"
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/git"
 	"github.com/jaeyeom/experimental/devtools/bazel-affected-tests/internal/query"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func main() {
