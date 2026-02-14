@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Script to update .env file with API keys from pass
+# Script to update .env file with API keys from pass for Taskmaster.
+# See .taskmaster/config.json for provider configuration.
 
 # Check if .env file exists
 if [ ! -f .env ]; then
@@ -29,7 +30,7 @@ update_env_key() {
                 # Keep the line as is
                 echo "$line"
             fi
-        done < .env > "$tmpfile"
+        done <.env >"$tmpfile"
         # Replace the original file
         mv "$tmpfile" .env
     fi
@@ -39,5 +40,6 @@ update_env_key() {
 update_env_key "ANTHROPIC_API_KEY" "api.anthropic.com"
 update_env_key "PERPLEXITY_API_KEY" "api.perplexity.ai"
 update_env_key "OPENAI_API_KEY" "platform.openai.com"
+update_env_key "EXA_API_KEY" "api.exa.com"
 
 echo "Done! API keys have been updated in .env"
