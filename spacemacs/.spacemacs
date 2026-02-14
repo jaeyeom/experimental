@@ -2066,7 +2066,8 @@ Uses image2ascii with color support."
                 openai-user (auth-source-pass-get "user" "platform.openai.com"))
 
   (let ((anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com"))
-        (perplexity-api-key (auth-source-pass-get 'secret "api.perplexity.ai")))
+        (perplexity-api-key (auth-source-pass-get 'secret "api.perplexity.ai"))
+        (exa-api-key (auth-source-pass-get 'secret "api.exa.com")))
 
     (with-eval-after-load 'gptel
       (setopt gptel-model 'gpt-4o-mini
