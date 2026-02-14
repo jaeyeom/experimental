@@ -1,3 +1,4 @@
+// Deprecated: Use github.com/jaeyeom/bazel-affected-tests instead.
 package main
 
 import (
@@ -16,6 +17,9 @@ import (
 )
 
 func main() {
+	fmt.Fprintln(os.Stderr, "WARNING: This version of bazel-affected-tests is deprecated.")
+	fmt.Fprintln(os.Stderr, "Please switch to: go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest")
+
 	cfg := parseFlags()
 
 	if cfg.debug {
