@@ -13,7 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/prreview"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/storage"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // createOutputFormatter creates the appropriate output formatter based on jsonOutput flag.

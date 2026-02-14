@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // CommandExecutor defines an interface for executing shell commands.

@@ -14,7 +14,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gherun/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gherun/internal/runner"
 	"github.com/jaeyeom/experimental/devtools/gherun/internal/vars"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // stringSliceFlag allows a flag to be specified multiple times.

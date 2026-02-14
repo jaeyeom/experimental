@@ -41,7 +41,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // Test data constants.

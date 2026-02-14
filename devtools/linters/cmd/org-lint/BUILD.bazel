@@ -11,5 +11,5 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/internal/executor:go_default_library"],
+    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )

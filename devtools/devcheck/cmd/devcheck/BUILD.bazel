@@ -8,7 +8,7 @@ go_library(
     deps = [
         "//devtools/devcheck/internal/config:go_default_library",
         "//devtools/devcheck/internal/detector:go_default_library",
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
 
@@ -24,6 +24,6 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//devtools/devcheck/internal/config:go_default_library",
-        "//devtools/internal/executor:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )

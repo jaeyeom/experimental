@@ -31,7 +31,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
-	"github.com/jaeyeom/experimental/devtools/internal/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 var (
