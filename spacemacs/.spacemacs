@@ -2093,6 +2093,7 @@ Uses image2ascii with color support."
 
     (setopt aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
     (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
+    (setenv "EXA_API_KEY" exa-api-key)
     (spacemacs/set-leader-keys "$ a m" 'aider-transient-menu)
     )
 
