@@ -46,6 +46,51 @@ Creates timeline visualizations for scheduling, task management, and temporal an
 - ~>~ - Left side only (0 to 0.5)
 - ~X~ - Both ends filled but not full (e.g. 0 to 0.2 and 0.8 to 1)
 
+** Box Renderer (~box-renderer~)
+
+Renders bordered ASCII art boxes with multiple sections connected by arrow
+connectors. Useful for visualizing layered concepts, workflows, and
+architectural stacks in code comments.
+
+*** Features
+- Multiple sections with configurable connectors between them
+- Border styles: single, double, rounded, ASCII
+- Configurable left/right padding
+- Explicit or auto-calculated width
+- Comment prefix support (~//~, ~#~, etc.)
+- Stdin mode for piped input (sections separated by ~---~)
+
+*** Example Output
+#+BEGIN_EXAMPLE
+┌─────────────────────────────────────────────────────────┐
+│  gabyx-githooks-setup                                   │
+│  Shared Git hooks run automatically on commit and push  │
+│                            │                            │
+│                            ▼                            │
+│  makefile-workflow                                      │
+│  Hooks call `make check` — format, lint, test, build    │
+│                            │                            │
+│                            ▼                            │
+│  *-dev (e.g. go-dev)                                    │
+│  Language-specific conventions the checks enforce       │
+└─────────────────────────────────────────────────────────┘
+#+END_EXAMPLE
+
+*** CLI Usage
+#+BEGIN_SRC bash
+# Flag mode (| separates lines within a section)
+box-renderer \
+  --section "gabyx-githooks-setup|Shared Git hooks run automatically on commit and push" \
+  --section "makefile-workflow|Hooks call \`make check\` — format, lint, test, build" \
+  --section "*-dev (e.g. go-dev)|Language-specific conventions the checks enforce"
+
+# With comment prefix
+box-renderer --prefix "// " --section "Hello, World!"
+
+# Stdin mode (sections separated by ---)
+echo -e "Title\nDescription\n---\nAnother section" | box-renderer
+#+END_SRC
+
 ** Graph Visualizer (~graph-viz~)
 
 Creates node and edge diagrams for data structures, algorithms, and system
@@ -73,6 +118,10 @@ architectures.
 #+BEGIN_EXAMPLE
 devtools/ascii-art/
 ├── cmd/
+│   ├── box-renderer/       # CLI for box rendering
+│   │   ├── BUILD.bazel
+│   │   ├── main.go
+│   │   └── main_test.go
 │   ├── gantt-chart/        # CLI for GANTT chart generation
 │   │   ├── BUILD.bazel
 │   │   └── main.go
@@ -97,6 +146,18 @@ devtools/ascii-art/
 #+END_EXAMPLE
 
 * Usage Examples
+
+** Box Renderer CLI
+#+BEGIN_SRC bash
+# Render a multi-section box
+box-renderer \
+  --section "Title|Description" \
+  --section "Another|Section"
+
+# With options
+box-renderer --border rounded --padding 3 --prefix "// " \
+  --section "Hello, World!"
+#+END_SRC
 
 ** GANTT Chart CLI
 #+BEGIN_SRC bash

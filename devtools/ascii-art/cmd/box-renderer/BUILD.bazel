@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/ascii-art/cmd/box-renderer",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//text/box:go_default_library",
+        "//text/canvas:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "box-renderer",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["main_test.go"],
+    embed = [":go_default_library"],
+)
