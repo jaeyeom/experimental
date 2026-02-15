@@ -178,20 +178,28 @@ cmd_review() {
         _cr_old_script=$(get_stored_script "$_cr_stored_hash" "$_cr_ext")
         echo ""
         echo "Script content has changed since last approval."
+        echo "URL:      $_cr_url"
         echo "Old hash: $_cr_stored_hash"
         echo "New hash: $_cr_new_hash"
+        printf "Press Enter to review the diff..."
+        read -r _
         echo ""
         show_diff "$_cr_old_script" "$_cr_temp_file"
     else
         # First time - show full content as diff from empty
         echo ""
         echo "New script (not previously approved)."
+        echo "URL:  $_cr_url"
         echo "Hash: $_cr_new_hash"
+        printf "Press Enter to review the script..."
+        read -r _
         echo ""
         show_diff /dev/null "$_cr_temp_file"
     fi
 
     echo ""
+    echo "URL:  $_cr_url"
+    echo "Hash: $_cr_new_hash"
     printf "Approve this script? (y/N): "
     read -r reply
 
@@ -316,21 +324,27 @@ cmd_exec() {
             _ce_old_script=$(get_stored_script "$_ce_stored_hash" "$_ce_ext")
             echo ""
             echo "Script content has changed since last approval."
-            echo "URL: $_ce_url"
+            echo "URL:      $_ce_url"
             echo "Old hash: $_ce_stored_hash"
             echo "New hash: $_ce_current_hash"
+            printf "Press Enter to review the diff..."
+            read -r _
             echo ""
             show_diff "$_ce_old_script" "$_ce_temp_file"
         else
             echo ""
             echo "Script not previously approved."
-            echo "URL: $_ce_url"
+            echo "URL:  $_ce_url"
             echo "Hash: $_ce_current_hash"
+            printf "Press Enter to review the script..."
+            read -r _
             echo ""
             show_diff /dev/null "$_ce_temp_file"
         fi
 
         echo ""
+        echo "URL:  $_ce_url"
+        echo "Hash: $_ce_current_hash"
         printf "Approve and execute this script? (y/N): "
         read -r reply
 
