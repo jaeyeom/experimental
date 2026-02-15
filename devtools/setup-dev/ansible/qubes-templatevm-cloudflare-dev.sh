@@ -10,10 +10,19 @@ if grep -q '^ID=debian' /etc/os-release 2>/dev/null; then
     > /etc/apt/sources.list.d/backports.list
 fi
 
+# Add Ubuntu PPAs (no-op on Debian).
+if command -v add-apt-repository >/dev/null 2>&1; then
+  add-apt-repository -y ppa:ubuntuhandbook1/emacs
+fi
+
 apt-get update
 apt-get install -y \
+  cmake \
   curl \
   direnv \
+  e-wrapper \
+  emacs \
+  ffmpegthumbnailer \
   fzf \
   gh \
   git \
@@ -26,12 +35,17 @@ apt-get install -y \
   jq \
   keychain \
   libssl-dev \
+  libtool-bin \
+  libvips-tools \
+  libvterm-dev \
   make \
   man \
   npm \
   openssh-client \
   openssl \
+  p7zip-full \
   pass \
+  perl \
   pkg-config \
   plocate \
   ripgrep \
@@ -39,5 +53,6 @@ apt-get install -y \
   sed \
   sshpass \
   tmux \
+  unzip \
   which \
   zoxide
