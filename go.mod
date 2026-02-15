@@ -9,9 +9,9 @@ require (
 
 require (
 	github.com/apple/pkl-go v0.12.1
-	github.com/jaeyeom/go-cmdexec v0.1.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/google/uuid v1.6.0
+	github.com/jaeyeom/go-cmdexec v0.2.0
 	github.com/mattn/go-sqlite3 v1.14.19
 	github.com/slack-go/slack v0.16.0
 	github.com/spf13/cobra v1.8.0
