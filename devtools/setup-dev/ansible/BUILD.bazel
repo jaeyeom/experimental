@@ -2491,6 +2491,22 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-fira-code-nerd-font_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-fira-code-nerd-font.yml"],
+    data = [
+        "curl.yml",
+        "gather-facts.yml",
+        "setup-fira-code-nerd-font.yml",
+        "unzip.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-git_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-git.yml"],
@@ -3578,6 +3594,7 @@ test_suite(
         ":setup-emacs-lsp-booster_syntax_test",
         ":setup-emacs_syntax_test",
         ":setup-find_syntax_test",
+        ":setup-fira-code-nerd-font_syntax_test",
         ":setup-git_syntax_test",
         ":setup-go-tools_syntax_test",
         ":setup-gpg-agent_syntax_test",

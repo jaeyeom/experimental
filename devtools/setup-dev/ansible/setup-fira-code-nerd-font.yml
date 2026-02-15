@@ -1,0 +1,125 @@
+---
+- import_playbook: gather-facts.yml
+- import_playbook: curl.yml
+  when: ansible_facts['os_family'] != "Darwin"
+- import_playbook: unzip.yml
+  when: ansible_facts['os_family'] != "Darwin"
+
+- name: Ensure Fira Code Nerd Font is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-fira-code-nerd-font playbook
+      block:
+        - name: Stop early if the setup-fira-code-nerd-font playbook is already included
+          meta: end_play
+          when: setup_fira_code_nerd_font_playbook_imported is defined
+        - name: Ensure the setup-fira-code-nerd-font playbook is not included
+          set_fact:
+            setup_fira_code_nerd_font_playbook_imported: true
+          when: setup_fira_code_nerd_font_playbook_imported is not defined
+
+    - name: Ensure Fira Code Nerd Font is present on macOS
+      block:
+        - name: Check if Fira Code Nerd Font is installed via Homebrew
+          shell: brew list --cask font-fira-code-nerd-font
+          changed_when: false
+      rescue:
+        - name: Install Fira Code Nerd Font on macOS
+          community.general.homebrew_cask:
+            name: font-fira-code-nerd-font
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Install Fira Code Nerd Font on Linux
+      block:
+        - name: Check if Fira Code Nerd Font is installed
+          shell: fc-list | grep -qi "FiraCode.*Nerd"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Get latest nerd-fonts release tag from GitHub
+          uri:
+            url: https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: nerd_fonts_release
+          until: >-
+            nerd_fonts_release.status == 200 or
+            (nerd_fonts_release.status == 403 and
+             (nerd_fonts_release.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if nerd-fonts release fetch failed
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch nerd-fonts release from GitHub.
+              Status: {{ nerd_fonts_release.status }}.
+              {% if nerd_fonts_release.status == 403 and (nerd_fonts_release.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: nerd_fonts_release.status != 200
+
+        - name: Download and install Fira Code Nerd Font
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            curl -fsSL -o "$tmpdir/FiraCode.zip" \
+              "https://github.com/ryanoasis/nerd-fonts/releases/download/{{ nerd_fonts_release.json.tag_name }}/FiraCode.zip"
+            unzip -o "$tmpdir/FiraCode.zip" -d "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCodeNerdFont"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Install Fira Code Nerd Font on Termux
+      block:
+        - name: Check if Fira Code Nerd Font is installed on Termux
+          shell: fc-list | grep -qi "FiraCode.*Nerd"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory on Termux
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Get latest nerd-fonts release tag from GitHub on Termux
+          uri:
+            url: https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: nerd_fonts_release_termux
+          until: >-
+            nerd_fonts_release_termux.status == 200 or
+            (nerd_fonts_release_termux.status == 403 and
+             (nerd_fonts_release_termux.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if nerd-fonts release fetch failed on Termux
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch nerd-fonts release from GitHub.
+              Status: {{ nerd_fonts_release_termux.status }}.
+              {% if nerd_fonts_release_termux.status == 403 and (nerd_fonts_release_termux.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: nerd_fonts_release_termux.status != 200
+
+        - name: Download and install Fira Code Nerd Font on Termux
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            curl -fsSL -o "$tmpdir/FiraCode.zip" \
+              "https://github.com/ryanoasis/nerd-fonts/releases/download/{{ nerd_fonts_release_termux.json.tag_name }}/FiraCode.zip"
+            unzip -o "$tmpdir/FiraCode.zip" -d "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCodeNerdFont"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
