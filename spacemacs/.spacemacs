@@ -632,7 +632,7 @@ It should only modify the values of Spacemacs settings."
                                ("DejaVu Sans Mono" :size 10.0 :weight normal :width normal))
 
    ;; Default icons font, it can be `all-the-icons' or `nerd-icons'.
-   dotspacemacs-default-icons-font 'all-the-icons
+   dotspacemacs-default-icons-font (if (display-graphic-p) 'all-the-icons 'nerd-icons)
 
    ;; The leader key (default "SPC")
    dotspacemacs-leader-key "SPC"
