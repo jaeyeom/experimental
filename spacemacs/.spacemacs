@@ -2364,7 +2364,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
     (setopt projectile-switch-project-action #'projectile-vc)
 
     ;; One compilation buffer per project
-    (setq projectile-per-project-compilation-buffer t))
+    (setopt projectile-per-project-compilation-buffer t))
 
   (add-hook 'git-commit-mode-hook
             (lambda ()
