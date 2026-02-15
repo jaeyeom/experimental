@@ -2,6 +2,7 @@
 - import_playbook: starship.yml
 - import_playbook: setup-shell-profile.yml
 - import_playbook: setup-user-config-directory.yml
+- import_playbook: setup-fira-code-nerd-font.yml
 
 - name: Setup starship prompt
   hosts: all

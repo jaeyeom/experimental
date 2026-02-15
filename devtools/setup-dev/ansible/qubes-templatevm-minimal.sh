@@ -36,5 +36,6 @@ apt-get install -y \
   sed \
   sshpass \
   tmux \
+  unzip \
   which \
   zoxide
