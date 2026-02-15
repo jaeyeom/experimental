@@ -78,6 +78,7 @@
           - "Read(~/.aws/**)"
           - "Read(~/.azure/**)"
           - "Read(~/.bash_history)"
+          - "Read(~/.cache/bazel/**)"
           - "Read(~/.config/gcloud/**)"
           - "Read(~/.docker/config.json)"
           - "Read(~/.gnupg/**)"
