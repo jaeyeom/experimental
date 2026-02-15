@@ -38,6 +38,12 @@
           fi
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
+    - name: Ensure ~/.gnupg directory exists with correct permissions
+      ansible.builtin.file:
+        path: "{{ ansible_facts['env']['HOME'] }}/.gnupg"
+        state: directory
+        mode: '0700'
+
     - name: Ensure gpg-agent has pinentry setup
       ansible.builtin.blockinfile:
         path: "{{ ansible_facts['env']['HOME'] }}/.gnupg/gpg-agent.conf"
