@@ -66,14 +66,18 @@
               {% endif %}
           when: fira_code_release.status != 200
 
+        - name: Extract Fira Code download URL
+          set_fact:
+            fira_code_download_url: "{{ (fira_code_release.json.assets | selectattr('name', 'match', '.*\\.zip$') | first).browser_download_url }}"
+
         - name: Download and install Fira Code font
           shell: |
             set -e
             tmpdir=$(mktemp -d)
             trap 'rm -rf "$tmpdir"' EXIT
-            curl -fsSL -o "$tmpdir/Fira_Code_{{ fira_code_release.json.tag_name }}.zip" \
-              "https://github.com/tonsky/FiraCode/releases/download/{{ fira_code_release.json.tag_name }}/Fira_Code_{{ fira_code_release.json.tag_name }}.zip"
-            unzip -o "$tmpdir/Fira_Code_{{ fira_code_release.json.tag_name }}.zip" -d "$tmpdir/FiraCode"
+            curl -fsSL -o "$tmpdir/FiraCode.zip" \
+              "{{ fira_code_download_url }}"
+            unzip -o "$tmpdir/FiraCode.zip" -d "$tmpdir/FiraCode"
             mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode"
             cp -f "$tmpdir/FiraCode/ttf/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode/"
             fc-cache -fv
@@ -115,14 +119,18 @@
               {% endif %}
           when: fira_code_release_termux.status != 200
 
+        - name: Extract Fira Code download URL on Termux
+          set_fact:
+            fira_code_download_url_termux: "{{ (fira_code_release_termux.json.assets | selectattr('name', 'match', '.*\\.zip$') | first).browser_download_url }}"
+
         - name: Download and install Fira Code font on Termux
           shell: |
             set -e
             tmpdir=$(mktemp -d)
             trap 'rm -rf "$tmpdir"' EXIT
-            curl -fsSL -o "$tmpdir/Fira_Code_{{ fira_code_release_termux.json.tag_name }}.zip" \
-              "https://github.com/tonsky/FiraCode/releases/download/{{ fira_code_release_termux.json.tag_name }}/Fira_Code_{{ fira_code_release_termux.json.tag_name }}.zip"
-            unzip -o "$tmpdir/Fira_Code_{{ fira_code_release_termux.json.tag_name }}.zip" -d "$tmpdir/FiraCode"
+            curl -fsSL -o "$tmpdir/FiraCode.zip" \
+              "{{ fira_code_download_url_termux }}"
+            unzip -o "$tmpdir/FiraCode.zip" -d "$tmpdir/FiraCode"
             mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode"
             cp -f "$tmpdir/FiraCode/ttf/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode/"
             fc-cache -fv
