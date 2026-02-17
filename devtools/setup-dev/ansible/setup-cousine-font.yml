@@ -58,7 +58,7 @@
     - name: Install Cousine font on Termux
       block:
         - name: Check if Cousine font is installed on Termux
-          shell: fc-list | grep -qi "Cousine"
+          shell: ls {{ ansible_facts['env']['HOME'] }}/.local/share/fonts/Cousine/*.ttf >/dev/null 2>&1
           changed_when: false
       rescue:
         - name: Create fonts directory on Termux
@@ -79,5 +79,4 @@
             done
             mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/Cousine"
             cp -f "$tmpdir/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/Cousine/"
-            fc-cache -fv
       when: ansible_facts['env']['TERMUX_VERSION'] is defined

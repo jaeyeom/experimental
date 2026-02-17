@@ -80,7 +80,7 @@
     - name: Install Fira Code Nerd Font on Termux
       block:
         - name: Check if Fira Code Nerd Font is installed on Termux
-          shell: fc-list | grep -qi "FiraCode.*Nerd"
+          shell: ls {{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCodeNerdFont/*.ttf >/dev/null 2>&1
           changed_when: false
       rescue:
         - name: Create fonts directory on Termux
@@ -121,5 +121,4 @@
             curl -fsSL -o "$tmpdir/FiraCode.zip" \
               "https://github.com/ryanoasis/nerd-fonts/releases/download/{{ nerd_fonts_release_termux.json.tag_name }}/FiraCode.zip"
             unzip -o "$tmpdir/FiraCode.zip" -d "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCodeNerdFont"
-            fc-cache -fv
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
