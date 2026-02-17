@@ -247,7 +247,9 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-claude-sandbox.yml
 - setup-claude-termux-rg.yml
 - setup-config-tools.yml
+- setup-cousine-font.yml
 - setup-css-tools.yml
+- setup-dejavu-sans-mono-font.yml
 - setup-devtools.yml
 - setup-direnv.yml
 - setup-docker-ce.yml
@@ -256,6 +258,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-emacs.yml
 - setup-emacs-lsp-booster.yml
 - setup-find.yml
+- setup-fira-code.yml
 - setup-fira-code-nerd-font.yml
 - setup-git.yml
 - setup-go-tools.yml
@@ -274,6 +277,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-python-tools.yml
 - setup-rust.yml
 - setup-rust-tools.yml
+- setup-sf-mono-font.yml
 - setup-shell-profile.yml
 - setup-spacemacs.yml
 - setup-sql-tools.yml

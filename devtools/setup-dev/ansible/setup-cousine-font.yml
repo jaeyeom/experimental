@@ -1,0 +1,83 @@
+---
+- import_playbook: gather-facts.yml
+- import_playbook: curl.yml
+  when: ansible_facts['os_family'] != "Darwin"
+
+- name: Ensure Cousine font is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-cousine-font playbook
+      block:
+        - name: Stop early if the setup-cousine-font playbook is already included
+          meta: end_play
+          when: setup_cousine_font_playbook_imported is defined
+        - name: Ensure the setup-cousine-font playbook is not included
+          set_fact:
+            setup_cousine_font_playbook_imported: true
+          when: setup_cousine_font_playbook_imported is not defined
+
+    - name: Ensure Cousine font is present on macOS
+      block:
+        - name: Check if Cousine font is installed via Homebrew
+          shell: brew list --cask font-cousine
+          changed_when: false
+      rescue:
+        - name: Install Cousine font on macOS
+          community.general.homebrew_cask:
+            name: font-cousine
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Install Cousine font on Linux
+      block:
+        - name: Check if Cousine font is installed
+          shell: fc-list | grep -qi "Cousine"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Download and install Cousine font
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            # Download all Cousine font variants
+            for variant in Cousine-Regular.ttf Cousine-Bold.ttf Cousine-Italic.ttf Cousine-BoldItalic.ttf; do
+              curl -fsSL -o "$tmpdir/$variant" \
+                "https://github.com/google/fonts/raw/main/apache/cousine/$variant"
+            done
+            mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/Cousine"
+            cp -f "$tmpdir/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/Cousine/"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Install Cousine font on Termux
+      block:
+        - name: Check if Cousine font is installed on Termux
+          shell: fc-list | grep -qi "Cousine"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory on Termux
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Download and install Cousine font on Termux
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            # Download all Cousine font variants
+            for variant in Cousine-Regular.ttf Cousine-Bold.ttf Cousine-Italic.ttf Cousine-BoldItalic.ttf; do
+              curl -fsSL -o "$tmpdir/$variant" \
+                "https://github.com/google/fonts/raw/main/apache/cousine/$variant"
+            done
+            mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/Cousine"
+            cp -f "$tmpdir/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/Cousine/"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

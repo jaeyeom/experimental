@@ -1,0 +1,62 @@
+---
+- import_playbook: gather-facts.yml
+
+- name: Ensure SF Mono font is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-sf-mono-font playbook
+      block:
+        - name: Stop early if the setup-sf-mono-font playbook is already included
+          meta: end_play
+          when: setup_sf_mono_font_playbook_imported is defined
+        - name: Ensure the setup-sf-mono-font playbook is not included
+          set_fact:
+            setup_sf_mono_font_playbook_imported: true
+          when: setup_sf_mono_font_playbook_imported is not defined
+
+    - name: Check if SF Mono font is already installed
+      block:
+        - name: Check if SF Mono font is present (macOS)
+          shell: fc-list | grep -qi "SF Mono" || ls "/System/Library/Fonts/SFNSMono.ttf" 2>/dev/null || ls "/Library/Fonts/SF-Mono"* 2>/dev/null
+          changed_when: false
+          when: ansible_facts['os_family'] == "Darwin"
+
+        - name: Check if SF Mono font is present (Linux)
+          shell: fc-list | grep -qi "SF Mono"
+          changed_when: false
+          when: ansible_facts['os_family'] != "Darwin"
+      rescue:
+        - name: Display SF Mono installation instructions for macOS
+          debug:
+            msg: |
+              SF Mono is Apple's proprietary font. On macOS, it can be installed via Xcode:
+              1. Install Xcode from the App Store
+              2. Open Terminal.app and run: cp -v /Applications/Xcode.app/Contents/SharedFrameworks/DVTKit.framework/Versions/A/Resources/Fonts/SFMono-* ~/Library/Fonts/
+              
+              Alternatively, you can install it via Homebrew:
+              - brew tap homebrew/cask-fonts
+              - brew install --cask font-sf-mono
+              
+              Or download from Apple's SF Fonts page (requires Apple Developer account):
+              https://developer.apple.com/fonts/
+          when: ansible_facts['os_family'] == "Darwin"
+
+        - name: Display SF Mono installation instructions for Linux
+          debug:
+            msg: |
+              SF Mono is Apple's proprietary font. For Linux, you have these options:
+              
+              1. If you have access to a Mac with Xcode installed, copy the fonts:
+                 - From Mac: /Applications/Xcode.app/Contents/SharedFrameworks/DVTKit.framework/Versions/A/Resources/Fonts/SFMono-*
+                 - To Linux: ~/.local/share/fonts/SFMono/
+              
+              2. Download from Apple (requires Apple Developer account):
+                 https://developer.apple.com/fonts/
+              
+              3. Use an open-source alternative like:
+                 - JetBrains Mono (similar aesthetic)
+                 - IBM Plex Mono
+                 - Monaco (also from Apple but may be easier to obtain)
+              
+              After obtaining the fonts, place them in ~/.local/share/fonts/ and run: fc-cache -fv
+          when: ansible_facts['os_family'] != "Darwin"

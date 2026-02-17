@@ -1,0 +1,129 @@
+---
+- import_playbook: gather-facts.yml
+- import_playbook: curl.yml
+  when: ansible_facts['os_family'] != "Darwin"
+- import_playbook: unzip.yml
+  when: ansible_facts['os_family'] != "Darwin"
+
+- name: Ensure Fira Code font is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-fira-code playbook
+      block:
+        - name: Stop early if the setup-fira-code playbook is already included
+          meta: end_play
+          when: setup_fira_code_playbook_imported is defined
+        - name: Ensure the setup-fira-code playbook is not included
+          set_fact:
+            setup_fira_code_playbook_imported: true
+          when: setup_fira_code_playbook_imported is not defined
+
+    - name: Ensure Fira Code font is present on macOS
+      block:
+        - name: Check if Fira Code font is installed via Homebrew
+          shell: brew list --cask font-fira-code
+          changed_when: false
+      rescue:
+        - name: Install Fira Code font on macOS
+          community.general.homebrew_cask:
+            name: font-fira-code
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Install Fira Code font on Linux
+      block:
+        - name: Check if Fira Code font is installed
+          shell: fc-list | grep -qi "Fira Code"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Get latest Fira Code release tag from GitHub
+          uri:
+            url: https://api.github.com/repos/tonsky/FiraCode/releases/latest
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: fira_code_release
+          until: >-
+            fira_code_release.status == 200 or
+            (fira_code_release.status == 403 and
+             (fira_code_release.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if Fira Code release fetch failed
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch Fira Code release from GitHub.
+              Status: {{ fira_code_release.status }}.
+              {% if fira_code_release.status == 403 and (fira_code_release.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: fira_code_release.status != 200
+
+        - name: Download and install Fira Code font
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            curl -fsSL -o "$tmpdir/Fira_Code_{{ fira_code_release.json.tag_name }}.zip" \
+              "https://github.com/tonsky/FiraCode/releases/download/{{ fira_code_release.json.tag_name }}/Fira_Code_{{ fira_code_release.json.tag_name }}.zip"
+            unzip -o "$tmpdir/Fira_Code_{{ fira_code_release.json.tag_name }}.zip" -d "$tmpdir/FiraCode"
+            mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode"
+            cp -f "$tmpdir/FiraCode/ttf/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode/"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Install Fira Code font on Termux
+      block:
+        - name: Check if Fira Code font is installed on Termux
+          shell: fc-list | grep -qi "Fira Code"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory on Termux
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Get latest Fira Code release tag from GitHub on Termux
+          uri:
+            url: https://api.github.com/repos/tonsky/FiraCode/releases/latest
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: fira_code_release_termux
+          until: >-
+            fira_code_release_termux.status == 200 or
+            (fira_code_release_termux.status == 403 and
+             (fira_code_release_termux.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if Fira Code release fetch failed on Termux
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch Fira Code release from GitHub.
+              Status: {{ fira_code_release_termux.status }}.
+              {% if fira_code_release_termux.status == 403 and (fira_code_release_termux.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: fira_code_release_termux.status != 200
+
+        - name: Download and install Fira Code font on Termux
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            curl -fsSL -o "$tmpdir/Fira_Code_{{ fira_code_release_termux.json.tag_name }}.zip" \
+              "https://github.com/tonsky/FiraCode/releases/download/{{ fira_code_release_termux.json.tag_name }}/Fira_Code_{{ fira_code_release_termux.json.tag_name }}.zip"
+            unzip -o "$tmpdir/Fira_Code_{{ fira_code_release_termux.json.tag_name }}.zip" -d "$tmpdir/FiraCode"
+            mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode"
+            cp -f "$tmpdir/FiraCode/ttf/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/FiraCode/"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
