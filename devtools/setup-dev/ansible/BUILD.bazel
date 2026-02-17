@@ -2368,8 +2368,10 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-dejavu-sans-mono-font.yml"],
     data = [
+        "curl.yml",
         "gather-facts.yml",
         "setup-dejavu-sans-mono-font.yml",
+        "unzip.yml",
     ],
     tags = [
         "ansible",
