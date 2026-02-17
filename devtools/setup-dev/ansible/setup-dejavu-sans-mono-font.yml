@@ -1,0 +1,67 @@
+---
+- import_playbook: gather-facts.yml
+
+- name: Ensure DejaVu Sans Mono font is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-dejavu-sans-mono-font playbook
+      block:
+        - name: Stop early if the setup-dejavu-sans-mono-font playbook is already included
+          meta: end_play
+          when: setup_dejavu_sans_mono_font_playbook_imported is defined
+        - name: Ensure the setup-dejavu-sans-mono-font playbook is not included
+          set_fact:
+            setup_dejavu_sans_mono_font_playbook_imported: true
+          when: setup_dejavu_sans_mono_font_playbook_imported is not defined
+
+    - name: Ensure DejaVu Sans Mono font is present on macOS
+      block:
+        - name: Check if DejaVu Sans Mono font is installed via Homebrew
+          shell: brew list --cask font-dejavu-sans-mono-nerd-font || brew list --cask font-dejavu
+          changed_when: false
+      rescue:
+        - name: Install DejaVu font on macOS
+          community.general.homebrew_cask:
+            name: font-dejavu
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Install DejaVu Sans Mono font on Linux via package manager
+      block:
+        - name: Check if DejaVu Sans Mono font is installed
+          shell: fc-list | grep -qi "DejaVu Sans Mono"
+          changed_when: false
+      rescue:
+        - name: Install DejaVu fonts on Debian/Ubuntu
+          ansible.builtin.package:
+            name: fonts-dejavu
+            state: present
+          become: true
+          when: ansible_facts['os_family'] == "Debian"
+
+        - name: Install DejaVu fonts on RedHat/Fedora
+          ansible.builtin.package:
+            name: dejavu-sans-mono-fonts
+            state: present
+          become: true
+          when: ansible_facts['os_family'] == "RedHat"
+
+        - name: Install DejaVu fonts on Arch Linux
+          ansible.builtin.package:
+            name: ttf-dejavu
+            state: present
+          become: true
+          when: ansible_facts['os_family'] == "Archlinux"
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Install DejaVu Sans Mono font on Termux
+      block:
+        - name: Check if DejaVu Sans Mono font is installed on Termux
+          shell: fc-list | grep -qi "DejaVu Sans Mono"
+          changed_when: false
+      rescue:
+        - name: Install DejaVu fonts on Termux
+          ansible.builtin.package:
+            name: dejavu
+            state: present
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
