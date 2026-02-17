@@ -1,5 +1,9 @@
 ---
 - import_playbook: gather-facts.yml
+- import_playbook: curl.yml
+  when: ansible_facts['os_family'] != "Darwin"
+- import_playbook: unzip.yml
+  when: ansible_facts['os_family'] != "Darwin"
 
 - name: Ensure DejaVu Sans Mono font is installed
   hosts: all
@@ -57,11 +61,47 @@
     - name: Install DejaVu Sans Mono font on Termux
       block:
         - name: Check if DejaVu Sans Mono font is installed on Termux
-          shell: fc-list | grep -qi "DejaVu Sans Mono"
+          shell: ls {{ ansible_facts['env']['HOME'] }}/.local/share/fonts/DejaVuSansMono/*.ttf >/dev/null 2>&1
           changed_when: false
       rescue:
-        - name: Install DejaVu fonts on Termux
-          ansible.builtin.package:
-            name: dejavu
-            state: present
+        - name: Create fonts directory on Termux
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Get latest dejavu-fonts release from GitHub on Termux
+          uri:
+            url: https://api.github.com/repos/dejavu-fonts/dejavu-fonts/releases/latest
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: dejavu_release_termux
+          until: >-
+            dejavu_release_termux.status == 200 or
+            (dejavu_release_termux.status == 403 and
+             (dejavu_release_termux.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if dejavu-fonts release fetch failed on Termux
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch dejavu-fonts release from GitHub.
+              Status: {{ dejavu_release_termux.status }}.
+              {% if dejavu_release_termux.status == 403 and (dejavu_release_termux.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: dejavu_release_termux.status != 200
+
+        - name: Download and install DejaVu Sans Mono font on Termux
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            asset_url="{{ (dejavu_release_termux.json.assets | selectattr('name', 'search', '\\.zip$') | first).browser_download_url }}"
+            curl -fsSL -o "$tmpdir/dejavu.zip" "$asset_url"
+            unzip -o "$tmpdir/dejavu.zip" '*/DejaVuSansMono*.ttf' -d "$tmpdir"
+            mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/DejaVuSansMono"
+            find "$tmpdir" -name "DejaVuSansMono*.ttf" -exec cp -f {} "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/DejaVuSansMono/" \;
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
