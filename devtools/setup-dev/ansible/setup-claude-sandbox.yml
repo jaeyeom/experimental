@@ -35,6 +35,8 @@
               # Linux Go and golangci-lint cache paths
               - "{{ ansible_facts['env']['HOME'] }}/.cache/go-build"
               - "{{ ansible_facts['env']['HOME'] }}/.cache/golangci-lint"
+              # Semgrep log/cache (needed for pre-commit hooks running semgrep)
+              - "{{ ansible_facts['env']['HOME'] }}/.semgrep"
               # Bazel cache (needed for git pre-commit hooks running bazel test)
               - "{{ ansible_facts['env']['HOME'] }}/.cache/bazel"
         network:
