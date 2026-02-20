@@ -311,8 +311,14 @@ else
     if [ "$(id -u)" -eq 0 ]; then
         CAN_SUDO=true
     elif command -v sudo >/dev/null 2>&1; then
-        if sudo -v 2>/dev/null; then
+        if sudo -n true 2>/dev/null; then
             CAN_SUDO=true
+        elif [ -t 0 ]; then
+            # Interactive terminal: prompt the user for password
+            echo "sudo access is needed for system package operations."
+            if sudo -v; then
+                CAN_SUDO=true
+            fi
         fi
     fi
     if [ "$CAN_SUDO" = false ]; then
