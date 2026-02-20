@@ -64,10 +64,10 @@ func (m *IssueManager) GetTestProgress(issueNumber int) (*TestProgress, error) {
 // BuildSuiteIssueBody generates the markdown body for a test suite issue.
 func BuildSuiteIssueBody(features []*gherkin.Feature, title string) string {
 	var body strings.Builder
-	body.WriteString(fmt.Sprintf("## Test Suite: %s\n\n", title))
+	fmt.Fprintf(&body, "## Test Suite: %s\n\n", title)
 
 	for _, f := range features {
-		body.WriteString(fmt.Sprintf("- **%s** - %s\n", f.ID, f.Name))
+		fmt.Fprintf(&body, "- **%s** - %s\n", f.ID, f.Name)
 		body.WriteString("    - [ ] PASSED\n")
 		body.WriteString("    - [ ] FAILED\n")
 	}

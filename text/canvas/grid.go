@@ -1,5 +1,7 @@
 package canvas
 
+import "strconv"
+
 // GridLayout provides a grid-based layout system.
 // Cells are arranged in rows and columns with configurable size and gap.
 type GridLayout struct {
@@ -58,7 +60,7 @@ func (g *GridLayout) SetCell(row, col int, content Renderable) *GridLayout {
 
 // SetCellText is a convenience for placing text in a cell.
 func (g *GridLayout) SetCellText(row, col int, text string) *GridLayout {
-	id := g.id + "-cell-" + string(rune('0'+row)) + "-" + string(rune('0'+col))
+	id := g.id + "-cell-" + strconv.Itoa(row) + "-" + strconv.Itoa(col)
 	block := NewTextBlockWithWidth(id, text, Position{X: 0, Y: 0}, g.cellWidth)
 	return g.SetCell(row, col, block)
 }

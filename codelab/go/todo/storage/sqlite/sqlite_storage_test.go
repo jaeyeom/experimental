@@ -270,7 +270,7 @@ func descendingUUID() string {
 	// Create a UUID with all bytes set to the current counter value
 	var id [16]byte
 	for i := range id {
-		id[i] = descendingUUIDCounter
+		id[i] = descendingUUIDCounter //nolint:gosec // G602 - index is within bounds from range over [16]byte
 	}
 
 	// Decrement the counter by 0x11 to get ff -> ee -> dd -> cc pattern

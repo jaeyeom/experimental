@@ -86,7 +86,7 @@ func FormatLineContext(context *LineContext, highlightLine int) string {
 		if lineNum == highlightLine {
 			prefix = "> "
 		}
-		result.WriteString(fmt.Sprintf("%s%4d | %s\n", prefix, lineNum, line))
+		fmt.Fprintf(&result, "%s%4d | %s\n", prefix, lineNum, line)
 	}
 	return result.String()
 }

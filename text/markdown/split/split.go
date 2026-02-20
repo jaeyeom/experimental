@@ -43,7 +43,7 @@ func toBase36(n int) string {
 	if n < 10 {
 		return fmt.Sprintf("%d", n)
 	}
-	return string('A' + rune(n-10))
+	return string('A' + rune(n-10)) //nolint:gosec // G115 - n is bounded [10,35] by caller
 }
 
 // generateFilename creates a filename based on section level and counters.
