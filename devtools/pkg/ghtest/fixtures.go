@@ -1,5 +1,7 @@
 package ghtest
 
+import "strconv"
+
 // Common test fixtures for GitHub API responses.
 
 // SampleIssue returns a sample GitHub issue JSON response.
@@ -9,7 +11,7 @@ func SampleIssue(number int, title, body string) map[string]any {
 		"title":  title,
 		"body":   body,
 		"state":  "open",
-		"url":    "https://github.com/owner/repo/issues/" + string(rune('0'+number)),
+		"url":    "https://github.com/owner/repo/issues/" + strconv.Itoa(number),
 	}
 }
 
@@ -21,7 +23,7 @@ func SamplePR(number int, title string) map[string]any {
 		"state":       "open",
 		"mergeable":   "MERGEABLE",
 		"headRefName": "feature-branch",
-		"url":         "https://github.com/owner/repo/pull/" + string(rune('0'+number)),
+		"url":         "https://github.com/owner/repo/pull/" + strconv.Itoa(number),
 		"head": map[string]any{
 			"sha": "abc123",
 		},

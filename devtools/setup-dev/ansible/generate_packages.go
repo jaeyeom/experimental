@@ -370,7 +370,7 @@ test_suite(
 `)
 
 	for _, testName := range testNames {
-		sb.WriteString(fmt.Sprintf("        \":%s\",\n", testName))
+		fmt.Fprintf(&sb, "        \":%s\",\n", testName)
 	}
 
 	sb.WriteString(`    ],
