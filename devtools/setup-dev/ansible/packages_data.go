@@ -353,7 +353,15 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	{
 		command: "githooks-cli",
 		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: ShellInstallMethod{
+			PlatformDarwin: ShellInstallMethod{
+				InstallCommand: `
+if git hooks --version >/dev/null 2>&1; then
+    echo "Githooks already installed, skipping."
+else
+    {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
+fi`,
+			},
+			PlatformDebianLike: ShellInstallMethod{
 				InstallCommand: `
 if git hooks --version >/dev/null 2>&1; then
     echo "Githooks already installed, skipping."
