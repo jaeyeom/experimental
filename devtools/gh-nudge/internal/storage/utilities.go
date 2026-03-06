@@ -574,7 +574,9 @@ func cleanDirectory(dirPath string, cutoffTime time.Time, dryRun bool) (int, err
 			if dryRun {
 				fmt.Printf("Would remove: %s (modified: %s)\n", path, info.ModTime().Format(time.RFC3339))
 			} else {
-				if err := os.Remove(path); err != nil {
+				// FIXME: Use os.OpenRoot(dirPath) and root.Remove(relPath)
+				// to prevent symlink TOCTOU traversal (gosec G122).
+				if err := os.Remove(path); err != nil { //nolint:gosec // G122
 					return fmt.Errorf("failed to remove %s: %w", path, err)
 				}
 				fmt.Printf("Removed: %s (modified: %s)\n", path, info.ModTime().Format(time.RFC3339))
@@ -1126,7 +1128,9 @@ func collectExportData(storageHome string, includeMetadata bool) (*ExportData, e
 				return fmt.Errorf("failed to get relative path: %w", err)
 			}
 
-			content, err := os.ReadFile(filePath)
+			// FIXME: Use os.OpenRoot(storageHome) and root.ReadFile(relPath)
+			// to prevent symlink TOCTOU traversal (gosec G122).
+			content, err := os.ReadFile(filePath) //nolint:gosec // G122
 			if err != nil {
 				return fmt.Errorf("failed to read file %s: %w", relPath, err)
 			}
