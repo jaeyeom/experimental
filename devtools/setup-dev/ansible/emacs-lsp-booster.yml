@@ -31,6 +31,7 @@
       when: emacs_lsp_booster_installed.rc != 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
 
     - name: Update emacs-lsp-booster to latest version
       command: cargo install-update emacs-lsp-booster
@@ -39,3 +40,4 @@
       when: emacs_lsp_booster_installed.rc == 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"

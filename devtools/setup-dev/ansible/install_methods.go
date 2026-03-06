@@ -355,6 +355,7 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
       when: ` + commandID + `_installed.rc != 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
 
     - name: Update ` + command + ` to latest version
       command: cargo install-update ` + c.Name + `
@@ -362,7 +363,8 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
       changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
       when: ` + commandID + `_installed.rc == 0
       environment:
-        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"`
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"`
 
 	return task
 }
