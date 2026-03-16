@@ -104,11 +104,19 @@ generate-pkl:
 	$(MAKE) -C devtools/gh-nudge generate-pkl
 
 check-generated: generate-ansible generate-pkl
-	@if ! git diff --quiet -- $(GENERATED_PATHS); then \
-		echo "Error: Generated files differ from staged. Run 'make all' and stage the files."; \
+	@STATUS=0; \
+	if ! git diff --quiet -- $(GENERATED_PATHS); then \
+		echo "Error: Generated files have unstaged modifications. Run 'make all' and stage the files."; \
 		git diff --name-only -- $(GENERATED_PATHS); \
-		exit 1; \
-	fi
+		STATUS=1; \
+	fi; \
+	UNTRACKED=$$(git ls-files --others --exclude-standard -- $(GENERATED_PATHS)); \
+	if [ -n "$$UNTRACKED" ]; then \
+		echo "Error: Untracked generated files found. Stage them with 'git add' or stash if unexpected:"; \
+		echo "$$UNTRACKED"; \
+		STATUS=1; \
+	fi; \
+	exit $$STATUS
 
 # Coverage targets
 .PHONY: coverage coverage-report coverage-html clean-coverage
