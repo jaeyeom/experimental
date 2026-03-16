@@ -231,6 +231,15 @@ func lintOrgFile(filename string) error {
 	    (princ (format "  %s\n" path)))
 	  (princ "\n")))
 
+    ;; Shim for org-src-get-lang-mode-if-bound (added in newer org-mode).
+    ;; Older versions only have org-src-get-lang-mode; provide a safe fallback.
+    (unless (fboundp 'org-src-get-lang-mode-if-bound)
+      (defun org-src-get-lang-mode (lang)
+        "Return the major mode for LANG, or nil if not available."
+        (let ((mode (intern (concat (or lang "") "-mode"))))
+          (if (fboundp mode) mode nil)))
+      (defalias 'org-src-get-lang-mode-if-bound 'org-src-get-lang-mode))
+
     ;; Load all ob-* packages for org-babel source block support
     (dolist (path load-path)
       (when (file-directory-p path)
