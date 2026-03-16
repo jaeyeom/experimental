@@ -520,6 +520,19 @@ func getProfileAptPackages(profileName string) ([]AptPackageInfo, error) {
 	return result, nil
 }
 
+// writeGPGKeySetup writes the GPG key installation command for a Qubes
+// TemplateVM script. When GPGKeyBase64 is set, the key is embedded inline
+// as a base64 heredoc; otherwise it is downloaded with curl.
+func writeGPGKeySetup(sb *strings.Builder, repo *AptRepoInstallMethod) {
+	if repo.GPGKeyBase64 != "" {
+		sb.WriteString("base64 -d << 'GPGKEY' | gpg --dearmor -o " + repo.GPGKeyPath + "\n")
+		sb.WriteString(repo.GPGKeyBase64 + "\n")
+		sb.WriteString("GPGKEY\n")
+	} else {
+		sb.WriteString("curl -fsSL " + repo.GPGKeyURL + " | gpg --dearmor -o " + repo.GPGKeyPath + "\n")
+	}
+}
+
 // generateQubesTemplatevmScript writes qubes-templatevm-{profile}.sh, a
 // self-contained script that configures apt sources and installs packages.
 func generateQubesTemplatevmScript(profileName string, pkgs []AptPackageInfo) error {
@@ -569,7 +582,7 @@ func generateQubesTemplatevmScript(profileName string, pkgs []AptPackageInfo) er
 	for _, r := range repos {
 		repo := r.AptRepo
 		sb.WriteString("# Add custom repo for " + r.PackageName + ".\n")
-		sb.WriteString("curl -fsSL " + repo.GPGKeyURL + " | gpg --dearmor -o " + repo.GPGKeyPath + "\n")
+		writeGPGKeySetup(&sb, repo)
 		codename := repo.Codename
 		if codename == "" {
 			codename = "$(lsb_release -cs)"

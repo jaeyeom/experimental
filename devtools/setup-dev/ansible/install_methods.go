@@ -738,6 +738,11 @@ type AptRepoInstallMethod struct {
 
 	// Arch is the architecture constraint (e.g., "amd64"). Leave empty for no constraint.
 	Arch string
+
+	// GPGKeyBase64 is the base64-encoded GPG public key for the repository.
+	// When set, Qubes TemplateVM scripts embed the key directly instead of
+	// downloading it with curl, which is useful for air-gapped environments.
+	GPGKeyBase64 string
 }
 
 func (a AptRepoInstallMethod) GetMethodType() string {
