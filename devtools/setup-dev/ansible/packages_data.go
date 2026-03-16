@@ -92,6 +92,21 @@ var platformSpecificTools = []PlatformSpecificTool{
 		},
 		Imports: []Import{{Playbook: "gh"}},
 	},
+	{
+		command: "antigravity",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewCaskInstallMethod{Name: "antigravity"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "antigravity",
+				GPGKeyURL:      "https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg",
+				GPGKeyPath:     "/etc/apt/keyrings/antigravity-repo-key.gpg",
+				RepoURL:        "https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/",
+				RepoComponents: "main",
+				Codename:       "antigravity-debian",
+				GPGKeyBase64:   "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tCgp4c0JOQkdDUnQ3TUJDQURrWUpISFFRb0w2dEtyVy9MYm1mUjlsano3aWIyYVdubzRKTzNWS1F2THdqeVVNUHBxCi9TWFhNT254OGpYd2dXaXpwUHhRWURSSjBTUVhTOVVMSjFoWFJML09nTW5aQVl2WURlVjJqQm5Lc0FJRWRpRy8KZTFxbThQNFc5cXBXSmMraE5xN0ZPVDEzUnpHV1J4NTdTZExXU1hvMEtlWTM4cjlsdmpqT21UL2N1T2NtandsRApUOVhZZi9SU08reUovQXN5TWRBcitaYkRlUVVkOUhZSmlQZEkwNGxHYUdNMDJNakRNbngrbW9uYyt5NTR0K1orCnJ5MVd0UWR6b1F0OWRIbElQbFYxdFIreFY1REhIc2VqQ1p4dTlUV3p6U2xMNXdmQkJlRXo3Ui9PSXppdkdKcFcKUWRKemQrMlFEWFNSZzlxMlhZV1A1WlZ0U2dqVlZKak5sYjZaQUJFQkFBSE5WRUZ5ZEdsbVlXTjBJRkpsWjJsegpkSEo1SUZKbGNHOXphWFJ2Y25rZ1UybG5ibVZ5SUR4aGNuUnBabUZqZEMxeVpXZHBjM1J5ZVMxeVpYQnZjMmwwCmIzSjVMWE5wWjI1bGNrQm5iMjluYkdVdVkyOXRQc0xBamdRVEFRb0FPQlloQkRXNm9MTStuck9XOVp5b09NQzYKWE9iY1l4V2pCUUpna2JlekFoc0RCUXNKQ0FjQ0JoVUtDUWdMQWdRV0FnTUJBaDRCQWhlQUFBb0pFTUM2WE9iYwpZeFdqK2lnSUFNRmg2RHJBWU1lcTlzYloxWkc2b0FNcmluVWhlR1FiRXFlNzZuSURRTnNabmhEd1oyd1dxZ1ZDCjdEZ09NcWxoUW1PbXptN002TnptcTJkdlB3cTN4QzJPZUk5ZlF5empUNzJkZUJUekxQN1BKb2s5UEpGT01kTGYKSUxTc1VubU1zaGVRdDREVU8wallBWDJLVXVXT0lYWEphWjMxOVF5b1JOQlBZYTVxejdxWFM3d0hMT1k4OUlEcQpmSHQ2QXVkOEVSNXpoeU95aHl0Y1lNZWFHQzFnMUlLV21nZXduaEVxMDJGYW50TUpHbG1tRmkyZUEwRVBEMDJHCkMzNzQyUUdxUnhMd2pXc201L1RweXVVMjRFWUtSR0NSbTdRZFZJbzN1Z0ZTZXRLcm4wYnlPeFdHQnZ0dTRmSDgKWFd2WmtSVCt1K3l6SDFzNXlGWUJxYzJKVHJySnZSVT0KPVFudk4KLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQo=",
+			},
+		},
+	},
 	GoTool("bazel-affected-tests", "github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
 	{
 		command: "biome",

@@ -1,0 +1,4 @@
+---
+# Antigravity profile: Google's AI agentic IDE on a minimal base.
+- import_playbook: profile-minimal.yml
+- import_playbook: antigravity.yml
