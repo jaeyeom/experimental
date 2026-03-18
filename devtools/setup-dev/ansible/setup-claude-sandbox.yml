@@ -39,6 +39,8 @@
               - "{{ ansible_facts['env']['HOME'] }}/.semgrep"
               # Bazel cache (needed for git pre-commit hooks running bazel test)
               - "{{ ansible_facts['env']['HOME'] }}/.cache/bazel"
+              # Githooks release clone (needed for update checks via git fetch)
+              - "{{ ansible_facts['env']['HOME'] }}/.githooks/release/.git"
         network:
           allowedHosts:
             - api.github.com
