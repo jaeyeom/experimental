@@ -29,6 +29,7 @@ go_test(
 
 org_lint_tests([
     "README.org",
+    "TODO.org",
     "macos.org",
 ])
 
