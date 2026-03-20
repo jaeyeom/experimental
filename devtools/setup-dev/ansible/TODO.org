@@ -1,0 +1,121 @@
+#+TITLE: Ansible Setup Dev - TODO & Changelog
+#+TODO: TODO DOING | DONE
+#+CATEGORY: SetupDev
+
+* Remaining Works
+** Learn Ansible Module and Galaxy
+I depend on the generator, but if I know more sophisticated features, it would
+be much easier.
+
+** Migrate from Makefile
+*** DONE Pip packages
+CLOSED: [2025-03-01 Sat 03:55]
+*** TODO Python Development environment
+*** DONE Emacs-vterm directory tracking
+CLOSED: [2024-08-26 Mon 19:37]
+
+** New Features
+*** DONE Include guards for playbooks
+*** TODO Spacemacs packages keeping up-to-date
+I can run the following command to keep Spacemacs up-to-date. It only deletes
+outdated packages, making Emacs unusable without internet connection. The follow
+up Emacs run will download, compile and install the missing packages.
+#+begin_src sh
+  emacs --batch -l ~/.config/emacs/init.el --eval='(configuration-layer/update-packages t)'
+#+end_src
+
+Conditions:
+- It should not run it when there is an active Emacs process. On MacOS, the
+  process name is a little different like it contains capitalized like Emacs.
+- After the batch command ran successfully, it should run the batch command
+  again without --eval option, so that it downloads, compiles and installs all
+  the packages.
+
+Here are the caveats:
+- I'm not sure if it is okay to run the above command when there is an active
+  Emacs session.
+- I don't want Emacs to be in a state where it can't run offline. I may need to
+  run Emacs one more time to make sure it downloads all the missing or
+  to-be-upgraded packages.
+- Even if the above conditions meet, it may still silently fail and some
+  packages are malfunctioning and it may needs reinstallation of some packages.
+
+*** DONE gh
+CLOSED: [2024-08-21 Wed 13:27]
+*** DONE Add command-line flags to ensure.sh
+CLOSED: [2024-08-26 Mon 19:16]
+*** DONE Support MacOS Brew
+Added support for Homebrew taps and options in the package generator. The
+`PackageData` struct now includes:
+- `brewPkgName`: Specify a different package name for Homebrew
+- `brewTap`: Specify a tap to install the package from
+- `brewOptions`: Specify installation options as string array
+
+Example:
+#+begin_src go
+  {
+  	command: "emacs",
+  	brewPkgName: "emacs-plus",
+  	brewTap: "d12frosted/emacs-plus",
+  	brewOptions: []string{"with-native-comp", "with-modern-icon"},
+  }
+#+end_src
+*** TODO C++ Development environment
+*** DONE Docker Setup
+CLOSED: [2025-01-06 Mon]
+Added Docker installation support with platform-specific implementations:
+- macOS: Uses Lima for Docker virtualization (setup-docker-lima.yml)
+- Linux: Installs Docker CE from official repositories using modern security practices (setup-docker-ce.yml)
+- Termux: Uses udocker with Docker compatibility wrapper (setup-docker-wrapper-udocker.yml)
+
+The docker.yml playbook now uses conditional imports to provide seamless Docker
+command availability across all platforms, including Termux where Docker is not
+natively supported.
+*** TODO Docker Testing
+*** DONE Cargo installer
+CLOSED: [2025-03-02 Sun 00:03]
+Added cargo installation support with platform-specific implementation using the
+unified =PlatformSpecificTool= system.
+*** DONE emacs-lsp-booster
+CLOSED: [2025-03-07 Fri 17:20]
+*** Fonts
+These are some fonts that I want to ensure that they are installed.
+**** TODO Fira Code
+**** TODO Sarasa Mono
+**** TODO Jetbrains Mono
+**** TODO SF Mono
+**** TODO D2Coding
+**** TODO Noto
+*** DONE NPM
+CLOSED: [2025-06-22 Sat]
+Added NPM package installation support with platform-specific implementation.
+*** DONE Nala
+CLOSED: [2025-11-03 Mon 14:08]
+*** DONE cargo-update
+CLOSED: [2025-03-02 Sun 00:03]
+*** TODO yadm
+
+** Remove or simplify playbook generator
+*** DONE Unify install method types into platform-specific system
+CLOSED: [2025-06-22 Sat]
+Unified all install types (GoInstall, PipInstall, CargoInstall, NpmInstall) into
+a single =PlatformSpecificTool= system with consistent =InstallMethod=
+implementations. Eliminated 4 duplicate templates and conversion logic, reducing
+code duplication by 67%.
+*** TODO Ansible module to handle package mapping
+*** TODO Ansible module to handle go installs instead of generated files
+
+** Bleeding Edge
+*** DONE Bleeding Edge Go
+*** DONE Bleeding Edge Emacs
+CLOSED: [2025-03-01 Sat 03:54]
+
+** Other Issues
+*** TODO Fix python3-notmuch2 on Termux
+*** TODO Fix trusted GPG for PPA
+Fix the following error message on Ubuntu.
+
+#+begin_example
+W: http://ppa.launchpad.net/ubuntuhandbook1/emacs/ubuntu/dists/noble/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+E: Can't select candidate version from package libqt5core5a as it has no candidate
+#+end_example
