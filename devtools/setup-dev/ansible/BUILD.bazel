@@ -1490,6 +1490,17 @@ sh_test(
 )
 
 sh_test(
+    name = "mediainfo_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["mediainfo.yml"],
+    data = ["mediainfo.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "mono_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["mono.yml"],
@@ -3710,6 +3721,7 @@ test_suite(
         ":locate_syntax_test",
         ":make_syntax_test",
         ":man_syntax_test",
+        ":mediainfo_syntax_test",
         ":mono_syntax_test",
         ":mypy_syntax_test",
         ":notmuch_syntax_test",

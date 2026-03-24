@@ -44,6 +44,7 @@ var packages = []PackageData{
 	},
 	{command: "make"},
 	{command: "man", brewPkgName: "man-db"},
+	{command: "mediainfo"},
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
 	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []Import{{Playbook: "python3-notmuch2"}}},
 	{command: "npm", debianPkgName: "npm", termuxPkgName: "nodejs", brewPkgName: "node"},
