@@ -3467,6 +3467,21 @@ sh_test(
 )
 
 sh_test(
+    name = "tuir_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["tuir.yml"],
+    data = [
+        "gather-facts.yml",
+        "tuir.yml",
+        "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "turbo_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["turbo.yml"],
@@ -3841,6 +3856,7 @@ test_suite(
         ":tlmgr_syntax_test",
         ":tmux_syntax_test",
         ":tsc_syntax_test",
+        ":tuir_syntax_test",
         ":turbo_syntax_test",
         ":ucm_syntax_test",
         ":udocker_syntax_test",

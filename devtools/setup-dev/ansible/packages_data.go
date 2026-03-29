@@ -619,6 +619,15 @@ fi`,
 		Imports: nil,
 	},
 	{
+		command: "tuir",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     UvInstallMethod{Name: "tuir-continued"},
+			PlatformTermux:     PipInstallMethod{Name: "tuir-continued"},
+			PlatformDebianLike: UvInstallMethod{Name: "tuir-continued"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "turbo",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "turbo"},

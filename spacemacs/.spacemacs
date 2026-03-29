@@ -1498,6 +1498,7 @@ mode does not work with Roam links."
 
     ;; Make watch open a new buffer.
     (add-to-list 'eshell-visual-commands "watch")
+    (add-to-list 'eshell-visual-commands "tuir")
 
     ;; We don't need a pager.
     (setenv "PAGER" "cat")
