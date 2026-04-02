@@ -88,6 +88,43 @@
           fi
       when: user_shell.stdout is search('/zsh$')
 
+    - name: Ensure eat directory tracking for bash
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} eat directory tracking"
+        block: |
+          if [[ "$INSIDE_EMACS" = *"eat"* ]]; then
+              # Emit OSC 7 directory tracking escape sequence for Emacs EAT.
+              # This runs after each command so EAT knows the current directory.
+              function eat_emacs_directory_tracking() {
+                  printf "\e]7;file://%s%s\e\\" "$(hostname)" "$(pwd)"
+              }
+              PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND};}eat_emacs_directory_tracking"
+          fi
+      when: user_shell.stdout is search('/bash$')
+
+    - name: Ensure eat directory tracking for zsh
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} eat directory tracking"
+        block: |
+          if [[ "$INSIDE_EMACS" = *"eat"* ]]; then
+              # Emit OSC 7 directory tracking escape sequence for Emacs EAT.
+              # This runs before each prompt so EAT knows the current directory.
+              function eat_emacs_directory_tracking() {
+                  printf "\e]7;file://%s%s\e\\" "$(hostname)" "$(pwd)"
+              }
+              autoload -U add-zsh-hook
+              add-zsh-hook precmd eat_emacs_directory_tracking
+          fi
+      when: user_shell.stdout is search('/zsh$')
+
     - name: Ensure .spacemacs-upstream symlink
       ansible.builtin.file:
         src: "{{ ansible_facts['env']['HOME'] }}/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs"
