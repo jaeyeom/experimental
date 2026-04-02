@@ -2,6 +2,42 @@
 ;; This file is loaded by Spacemacs at startup.
 ;; It must be stored in your home directory.
 
+;;; Table of Contents
+;; dotspacemacs/layers ............ Layer configuration
+;; dotspacemacs/init .............. Spacemacs settings
+;; dotspacemacs/user-env .......... Environment variables
+;; dotspacemacs/user-init ......... Pre-package initialization
+;; dotspacemacs/user-config ....... User configuration
+;;   Attention queue .............. Cross-perspective notification system
+;;   Basic ....................... General settings
+;;   Get user full name .......... Name and mail from git config
+;;   Authentication .............. EPG, auth-source-pass
+;;   Text Mode ................... Auto-fill, fonts
+;;   Image functions ............. Emacs without image support (#37)
+;;   Termux ...................... Permission denied solution
+;;   Helm ....................... Helm configuration
+;;   Compleseus .................. Vertico, consult, etc.
+;;   Eat ........................ Emacs Eat terminal
+;;   Set up buildifier ........... Bazel formatting
+;;   Font Settings ............... Font configuration
+;;   Reddit ..................... TUIR / md4rd
+;;   Org Mode ................... Capture, agenda, babel
+;;   Gmail with gmi .............. Gmail integration
+;;   Eshell ..................... Shell config, aliases
+;;   Vterm ...................... Vterm configuration
+;;   Slack ...................... Slack integration
+;;   ASCII Image ................. ASCII art rendering
+;;   EAF ....................... Emacs Application Framework
+;;   Copilot .................... GitHub Copilot
+;;   ChatGPT .................... ChatGPT integration
+;;   Alert.el ................... Claude Code notifications
+;;   Claude Code ................. claude-code.el integration
+;;   Convenient functions ........ Utility functions
+;;   Services ................... Background services
+;;   Git and Project ............. Magit, project management
+;;   Git Forge .................. Forge configuration
+;;   Code Review ................. Code review tools
+
 ;; Platform detection functions and variables.
 ;; These must be defined before `dotspacemacs/layers' uses them.
 (defun my/crostini-p ()
@@ -983,6 +1019,17 @@ This function is called at the very end of Spacemacs startup, after layer
 configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
+
+  ;;; Attention queue (cross-perspective notification system)
+  (add-to-list 'load-path "~/.config/emacs/private/local/")
+  (require 'my-attention nil 'noerror)
+  (when (fboundp 'my-attention-mode)
+    (my-attention-mode 1)
+    (spacemacs/set-leader-keys
+      "o n" 'my-attention-next
+      "o p" 'my-attention-previous
+      "o l" 'my-attention-list
+      "o c" 'my-attention-clear-all))
 
   ;;; Basic
 
@@ -2222,9 +2269,9 @@ the email."
     ;; before Claude is fully ready.
     (setopt claude-code-startup-delay 0.5)
 
-    ;; Define hook listener using alert.el
+    ;; Define hook listener using alert.el and my-attention
     (defun my/claude-hook-listener (message)
-      "Custom listener for Claude Code hooks using alert.el.
+      "Custom listener for Claude Code hooks using alert.el and my-attention.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       (let ((hook-type (plist-get message :type))
             (buffer-name (plist-get message :buffer-name))
@@ -2236,13 +2283,23 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                  :title "Claude Code"
                  :category "claude-code"
                  :severity 'normal
-                 :buffer buffer-name))
+                 :buffer buffer-name)
+          (when (and (fboundp 'my-attention-add)
+                     (get-buffer buffer-name))
+            (my-attention-add (get-buffer buffer-name)
+                              (format "Claude waiting in %s" buffer-name)
+                              'info)))
          ((eq hook-type 'stop)
           (alert (format "Claude finished in %s!" buffer-name)
                  :title "Claude Code"
                  :category "claude-code"
                  :severity 'normal
-                 :buffer buffer-name))
+                 :buffer buffer-name)
+          (when (and (fboundp 'my-attention-add)
+                     (get-buffer buffer-name))
+            (my-attention-add (get-buffer buffer-name)
+                              (format "Claude finished in %s" buffer-name)
+                              'warning)))
          (t
           (alert (format "Hook: %s" hook-type)
                  :title "Claude Code"
