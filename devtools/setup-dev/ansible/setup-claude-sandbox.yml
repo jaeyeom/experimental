@@ -45,7 +45,28 @@
               - "{{ ansible_facts['env']['HOME'] }}/.githooks/release/.git"
         network:
           allowedHosts:
+            # GitHub
             - api.github.com
+            # Go modules and downloads
+            - proxy.golang.org
+            - sum.golang.org
+            - go.dev
+            - dl.google.com
+            # NPM registry
+            - registry.npmjs.org
+            # PyPI (Python packages)
+            - pypi.org
+            - files.pythonhosted.org
+            # Cargo / crates.io (Rust packages)
+            - crates.io
+            - index.crates.io
+            - static.crates.io
+            # Homebrew
+            - formulae.brew.sh
+            - ghcr.io
+            - objects.githubusercontent.com
+            # Node.js downloads
+            - nodejs.org
           allowUnixSockets:
             - /var/run/docker.sock
           allowLocalBinding: true
@@ -84,6 +105,7 @@
           - "Bash(golangci-lint run:*)"
           - "Bash(rg:*)"       # Safe: read-only search tool, no exec capability
           - "Bash(ruff:*)"
+          - "WebSearch"    # Read-only web search, low risk
         deny:
           - "Bash(eval:*)"      # Shell eval
           - "Bash(source:*)"    # Source scripts
