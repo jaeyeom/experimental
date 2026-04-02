@@ -15,7 +15,7 @@ This file guides Claude Code's behavior.
 -   **Use `make format`** instead of individual formatting tools (e.g., `gofmt`, `goimports`).
 
 ## Skills & Commands
--   **Go**: See `.claude/skills/golang/SKILL.md` (Auto-discovered for Go tasks).
+-   **Go**: Use the `go-dev` plugin skill (Auto-discovered for Go tasks).
 -   **Code Review**: See `.claude/skills/code-review/SKILL.md` (Auto-discovered for reviews).
 -   **Slash Commands**:
     -   `/review`: Review code (references `code-review` skill).
