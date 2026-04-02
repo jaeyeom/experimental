@@ -18,6 +18,10 @@ The configuration uses these variables for platform-specific behavior:
 - `my/termux-p` - Non-nil if running in Termux on Android
 - `my/macos-p` - Non-nil if running on macOS
 
+## Table of Contents
+
+The file begins with a commented Table of Contents listing all top-level `defun` sections and all subsections within `dotspacemacs/user-config`. When adding or renaming a `;;; Section` header in `.spacemacs`, update the TOC at the top of the file to match.
+
 ## Local Validation
 
 Run `make` to byte-compile and check for warnings:
