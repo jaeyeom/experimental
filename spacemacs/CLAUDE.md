@@ -56,7 +56,13 @@ Additional packages go in `dotspacemacs-additional-packages` inside `dotspacemac
 
 ### Custom Elisp Files
 
-Standalone elisp packages (e.g., `my-attention.el`) live at `~/.config/emacs/private/local/`. To use them from `.spacemacs`:
+Standalone elisp packages (e.g., `my-attention.el`) are tracked in `spacemacs/private/local/` and deployed to `~/.config/emacs/private/local/` via symlink:
+
+```bash
+ln -sfn /path/to/repo/spacemacs/private/local ~/.config/emacs/private/local
+```
+
+To use them from `.spacemacs`:
 
 ```elisp
 (add-to-list 'load-path "~/.config/emacs/private/local/")
