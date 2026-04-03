@@ -14,6 +14,22 @@
     claude_tmpdir: "{{ claude_tmpdir_base }}/claude"
     sandbox_config:
       includeCoAuthoredBy: false
+      hooks:
+        PostToolUse:
+          - matcher: "Edit|Write"
+            hooks:
+              - type: command
+                command: >-
+                  jq -r '.tool_input.file_path // empty' |
+                  while read -r f; do
+                    [[ -z "$f" || ! -f "$f" ]] && continue;
+                    case "$f" in
+                      *.go) command -v gofmt &>/dev/null && gofmt -w "$f";;
+                      *.py) command -v ruff &>/dev/null && ruff format -q "$f";;
+                      *.js|*.ts|*.tsx|*.jsx|*.css) command -v prettier &>/dev/null && prettier --write --log-level silent "$f";;
+                      *.sh|*.bash) command -v shfmt &>/dev/null && shfmt -w "$f";;
+                    esac;
+                  done; true
       sandbox:
         enabled: true
         autoAllowBashIfSandboxed: true
