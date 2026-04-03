@@ -106,13 +106,21 @@ generate-pkl:
 check-generated: generate-ansible generate-pkl
 	@STATUS=0; \
 	if ! git diff --quiet -- $(GENERATED_PATHS); then \
-		echo "Error: Generated files have unstaged modifications. Run 'make all' and stage the files."; \
-		git diff --name-only -- $(GENERATED_PATHS); \
-		STATUS=1; \
+		STALE=$$(git diff --cached --name-only -- $(GENERATED_PATHS)); \
+		if [ -n "$$STALE" ]; then \
+			echo "Error: Staged generated files are out of date. Regenerated output differs from staged content."; \
+			echo "Run 'make all' and re-stage the generated files:"; \
+			git diff --name-only -- $(GENERATED_PATHS); \
+			STATUS=1; \
+		else \
+			echo "Warning: Generated files differ from index but none are staged for this commit."; \
+			echo "If your commit includes source changes that affect code generation, stage the generated files:"; \
+			git diff --name-only -- $(GENERATED_PATHS); \
+		fi; \
 	fi; \
 	UNTRACKED=$$(git ls-files --others --exclude-standard -- $(GENERATED_PATHS)); \
 	if [ -n "$$UNTRACKED" ]; then \
-		echo "Error: Untracked generated files found. Stage them with 'git add' or stash if unexpected:"; \
+		echo "Error: Untracked generated files found. Stage or remove them:"; \
 		echo "$$UNTRACKED"; \
 		STATUS=1; \
 	fi; \
