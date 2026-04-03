@@ -14,6 +14,11 @@ This file guides Claude Code's behavior.
 -   **Use `make` targets**: `make test`, `make lint`, `make fix`, `make format`.
 -   **Use `make format`** instead of individual formatting tools (e.g., `gofmt`, `goimports`).
 
+## Git Workflow
+-   **Keep main branch history flat** (no merge commits).
+-   **Use rebase** to integrate upstream changes (`git pull --rebase`).
+-   **Use fast-forward merges** to main (`git merge --ff-only`).
+
 ## Skills & Commands
 -   **Go**: Use the `go-dev` plugin skill (Auto-discovered for Go tasks).
 -   **Code Review**: See `.claude/skills/code-review/SKILL.md` (Auto-discovered for reviews).
