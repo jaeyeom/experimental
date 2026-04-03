@@ -92,6 +92,7 @@
           - "Bash(bazel query:*)"
           - "Bash(bazel test:*)"   # Medium risk (may run genrule)
           - "Bash(gh issue close:*)"
+          - "Bash(gh issue edit * --remove-label *)"
           - "Bash(gh issue list:*)"
           - "Bash(gh issue reopen:*)"
           - "Bash(gh issue status:*)"
