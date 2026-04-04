@@ -219,6 +219,46 @@
         dest: "{{ user_shims_bin_directory }}/gh"
         mode: "0755"
 
+    - name: Create jira wrapper script in ~/.local/shims/bin
+      copy:
+        content: |
+          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash
+          {% else %}#!/usr/bin/env bash
+          {% endif %}# Wrapper for jira CLI that detects sandbox-related TLS failures on macOS
+          # and prints a diagnostic warning before execution.
+
+          # Find the real jira binary (skip this shim)
+          REAL_JIRA=$(which -a jira | uniq | sed -n '2p')
+
+          if [[ -z "$REAL_JIRA" ]]; then
+              echo "Error: No real jira found in PATH" >&2
+              exit 1
+          fi
+
+          # On macOS, the Claude Code sandbox blocks the Security framework Mach
+          # service that Go's crypto/x509 (cgo) uses for TLS cert verification.
+          if [[ "$(uname -s)" == "Darwin" && "${SANDBOX_RUNTIME:-}" == "1" ]]; then
+              case "${1:-}" in
+                  help|completion)
+                      ;; # skip warning
+                  *)
+                      echo "" >&2
+                      echo "╭─ jira-shim: sandbox issue detected ──────────────────────╮" >&2
+                      echo "│ Claude Code sandbox is active on macOS. Go binaries like │" >&2
+                      echo "│ jira can't verify TLS certs (Security framework blocked).│" >&2
+                      echo "│                                                          │" >&2
+                      echo "│ Workarounds:                                             │" >&2
+                      echo "│   1. Retry with dangerouslyDisableSandbox: true          │" >&2
+                      echo "│   2. Use /sandbox to manage sandbox restrictions         │" >&2
+                      echo "╰──────────────────────────────────────────────────────────╯" >&2
+                      ;;
+              esac
+          fi
+
+          exec "$REAL_JIRA" "$@"
+        dest: "{{ user_shims_bin_directory }}/jira"
+        mode: "0755"
+
     - name: Create claude wrapper script in ~/.local/shims/bin
       copy:
         content: |
