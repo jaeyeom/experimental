@@ -31,6 +31,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -39,6 +40,7 @@ var (
 	dryRun       bool
 	deleteBranch bool
 	verbose      bool
+	force        bool
 )
 
 func init() {
@@ -46,6 +48,7 @@ func init() {
 	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode (don't actually merge)")
 	flag.BoolVar(&deleteBranch, "d", false, "Delete branch after merge")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
+	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
@@ -69,6 +72,25 @@ func setupLogging() *slog.Logger {
 	return logger
 }
 
+// printCIStatus prints CI check status details for a pull request.
+func printCIStatus(pr *models.PullRequest) {
+	switch pr.ChecksStatus() {
+	case models.ChecksPass:
+		fmt.Printf("         CI: PASS (%d/%d checks passed)\n", len(pr.StatusCheckRollup), len(pr.StatusCheckRollup))
+	case models.ChecksFail:
+		failed := pr.FailedChecks()
+		fmt.Printf("         CI: FAIL (%d failed)\n", len(failed))
+		for _, check := range failed {
+			fmt.Printf("           - %q %s\n", check.Name, check.Conclusion)
+		}
+	case models.ChecksPending:
+		pending := pr.PendingChecks()
+		fmt.Printf("         CI: PENDING (%d checks still running)\n", len(pending))
+	case models.ChecksNone:
+		fmt.Printf("         CI: NONE (no checks configured)\n")
+	}
+}
+
 // listMergeablePRs lists all PRs that are ready to merge.
 func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
 	_ = cfg // TODO: use config for filtering/display options
@@ -86,14 +108,70 @@ func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
 
 	fmt.Printf("Found %d PRs with no review requests:\n\n", len(prs))
 
-	for _, pr := range prs {
+	for i := range prs {
+		pr := &prs[i]
 		fmt.Printf("  %s\n", pr.Title)
 		fmt.Printf("         URL: %s\n", pr.URL)
 		fmt.Printf("         Branch: %s\n", pr.HeadRefName)
+		printCIStatus(pr)
 		fmt.Println()
 	}
 
 	return nil
+}
+
+// mergeResult tracks the outcome of attempting to merge a single PR.
+type mergeResult int
+
+const (
+	mergeResultMerged mergeResult = iota
+	mergeResultSkippedFail
+	mergeResultSkippedPending
+	mergeResultDryRun
+	mergeResultError
+)
+
+// tryMergePR attempts to merge a single PR, checking CI status first.
+// It prints status and returns the outcome.
+func tryMergePR(githubClient *github.Client, pr *models.PullRequest) mergeResult {
+	fmt.Printf("  %s\n", pr.Title)
+	fmt.Printf("         URL: %s\n", pr.URL)
+	fmt.Printf("         Branch: %s\n", pr.HeadRefName)
+	printCIStatus(pr)
+
+	ciStatus := pr.ChecksStatus()
+	if ciStatus == models.ChecksFail && !force {
+		fmt.Printf("         Skipping: CI checks failed — blocking merge (use --force to override)\n\n")
+		return mergeResultSkippedFail
+	}
+	if ciStatus == models.ChecksPending && !force {
+		fmt.Printf("         Skipping: CI checks still in progress\n\n")
+		return mergeResultSkippedPending
+	}
+	if force && (ciStatus == models.ChecksFail || ciStatus == models.ChecksPending) {
+		fmt.Printf("         Warning: merging despite CI status %s (--force)\n", ciStatus)
+	}
+
+	if dryRun {
+		branchAction := "keep"
+		if deleteBranch {
+			branchAction = "delete"
+		}
+		fmt.Printf("         Would merge PR and %s branch\n", branchAction)
+		return mergeResultDryRun
+	}
+
+	if err := githubClient.MergePullRequest(pr.URL, deleteBranch); err != nil {
+		fmt.Printf("         Error merging: %v\n", err)
+		return mergeResultError
+	}
+
+	successMsg := "Successfully added to the merge queue"
+	if deleteBranch {
+		successMsg += " and deleted branch"
+	}
+	fmt.Printf("         %s\n\n", successMsg)
+	return mergeResultMerged
 }
 
 // mergePRs merges all eligible PRs.
@@ -101,7 +179,8 @@ func mergePRs(githubClient *github.Client, cfg *config.Config) error {
 	_ = cfg // TODO: use config for merge strategies/rules
 	slog.Info("Finding and merging PRs with no review requests",
 		"dry_run", dryRun,
-		"delete_branch", deleteBranch)
+		"delete_branch", deleteBranch,
+		"force", force)
 
 	prs, err := githubClient.GetMergeablePullRequests()
 	if err != nil {
@@ -115,40 +194,25 @@ func mergePRs(githubClient *github.Client, cfg *config.Config) error {
 
 	fmt.Printf("Found %d PRs with no review requests:\n\n", len(prs))
 
-	mergedPRs := 0
-	for _, pr := range prs {
-		fmt.Printf("  %s\n", pr.Title)
-		fmt.Printf("         URL: %s\n", pr.URL)
-		fmt.Printf("         Branch: %s\n", pr.HeadRefName)
-
-		if dryRun {
-			branchAction := "keep"
-			if deleteBranch {
-				branchAction = "delete"
-			}
-			fmt.Printf("         Would merge PR and %s branch\n", branchAction)
-			continue
+	var merged, skippedFail, skippedPending int
+	for i := range prs {
+		switch tryMergePR(githubClient, &prs[i]) {
+		case mergeResultMerged:
+			merged++
+		case mergeResultSkippedFail:
+			skippedFail++
+		case mergeResultSkippedPending:
+			skippedPending++
 		}
-
-		err := githubClient.MergePullRequest(pr.URL, deleteBranch)
-		if err != nil {
-			fmt.Printf("         Error merging: %v\n", err)
-			continue
-		}
-
-		successMsg := "Successfully added to the merge queue"
-		if deleteBranch {
-			successMsg += " and deleted branch"
-		}
-		fmt.Printf("         %s\n", successMsg)
-		mergedPRs++
-		fmt.Println()
 	}
 
 	if dryRun {
 		fmt.Printf("Found %d PRs with no review requests (dry run, no changes made).\n", len(prs))
 	} else {
-		fmt.Printf("Successfully added to the merge queue %d of %d PRs.\n", mergedPRs, len(prs))
+		fmt.Printf("Successfully added to the merge queue %d of %d PRs.\n", merged, len(prs))
+	}
+	if skippedFail > 0 || skippedPending > 0 {
+		fmt.Printf("Skipped: %d due to CI failure, %d due to pending CI.\n", skippedFail, skippedPending)
 	}
 
 	return nil

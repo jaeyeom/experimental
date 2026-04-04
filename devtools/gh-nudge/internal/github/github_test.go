@@ -197,6 +197,85 @@ func TestGetPendingPullRequests(t *testing.T) {
 		}
 	})
 
+	t.Run("parses PR with statusCheckRollup", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "PR with checks",
+				"url": "https://github.com/org/repo/pull/100",
+				"files": [],
+				"reviewRequests": [],
+				"mergeable": "MERGEABLE",
+				"statusCheckRollup": [
+					{
+						"name": "build",
+						"status": "COMPLETED",
+						"conclusion": "SUCCESS"
+					},
+					{
+						"name": "test",
+						"status": "COMPLETED",
+						"conclusion": "FAILURE"
+					},
+					{
+						"name": "lint",
+						"status": "IN_PROGRESS",
+						"conclusion": ""
+					}
+				]
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+
+		pr := prs[0]
+		if len(pr.StatusCheckRollup) != 3 {
+			t.Fatalf("expected 3 status checks, got %d", len(pr.StatusCheckRollup))
+		}
+
+		if pr.StatusCheckRollup[0].Name != "build" || pr.StatusCheckRollup[0].Conclusion != "SUCCESS" {
+			t.Errorf("unexpected first check: %+v", pr.StatusCheckRollup[0])
+		}
+		if pr.StatusCheckRollup[1].Name != "test" || pr.StatusCheckRollup[1].Conclusion != "FAILURE" {
+			t.Errorf("unexpected second check: %+v", pr.StatusCheckRollup[1])
+		}
+		if pr.StatusCheckRollup[2].Name != "lint" || pr.StatusCheckRollup[2].Status != "IN_PROGRESS" {
+			t.Errorf("unexpected third check: %+v", pr.StatusCheckRollup[2])
+		}
+	})
+
+	t.Run("parses PR without statusCheckRollup field", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "Old PR",
+				"url": "https://github.com/org/repo/pull/50",
+				"files": [],
+				"reviewRequests": []
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+
+		if len(prs[0].StatusCheckRollup) != 0 {
+			t.Errorf("expected empty StatusCheckRollup, got %d entries", len(prs[0].StatusCheckRollup))
+		}
+	})
+
 	t.Run("parses PR with multiple files", func(t *testing.T) {
 		sampleJSON := `[
 			{
