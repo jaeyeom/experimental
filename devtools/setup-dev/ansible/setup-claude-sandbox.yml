@@ -37,6 +37,7 @@
           - bazel
           - bazelisk  # bazel is often a symlink to bazelisk
           - docker
+          - gh  # needs macOS keychain access for auth tokens
           - git
           - make
           - npm
@@ -199,6 +200,15 @@
           # Set TMPDIR to claude temp directory so heredocs work in sandbox
           # Shells create temp files for heredocs using TMPDIR
           export TMPDIR="${CLAUDE_TMPDIR_BASE}/claude"
+
+          # Export GH_TOKEN so gh CLI works inside the sandbox without keychain access.
+          # The wrapper runs unsandboxed, so `gh auth token` can read the keychain here.
+          if [[ -z "$GH_TOKEN" ]] && command -v gh &>/dev/null; then
+              token=$(gh auth token 2>/dev/null)
+              if [[ -n "$token" ]]; then
+                  export GH_TOKEN="$token"
+              fi
+          fi
 
           # Execute the real claude
           exec "$REAL_CLAUDE" "$@"
