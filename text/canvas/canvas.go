@@ -844,12 +844,8 @@ func (rc *RenderableCollection) ResolveCollisions() error {
 		}
 
 	case StrategyOverwrite:
-		// TODO(#57): Fix non-deterministic overwrite order due to map
-		// iteration Currently RenderAll iterates over map in undefined
-		// order, making "later objects overwrite earlier ones" behavior
-		// unpredictable Default behavior - later objects overwrite
-		// earlier ones No action needed as RenderAll already handles
-		// this
+		// Default behavior - later objects overwrite earlier ones.
+		// RenderAll iterates in insertion order, so this is deterministic.
 
 	case StrategyBlend:
 		// Blending is handled during rendering via RenderAllWithBlending.
