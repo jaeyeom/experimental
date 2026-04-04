@@ -173,6 +173,52 @@
         path: /data/data/com.termux
       register: termux_check
 
+    - name: Create gh wrapper script in ~/.local/shims/bin
+      copy:
+        content: |
+          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash
+          {% else %}#!/usr/bin/env bash
+          {% endif %}# Wrapper for gh CLI that detects sandbox-related TLS/auth failures on macOS
+          # and prints a diagnostic warning before execution.
+
+          # Find the real gh binary (skip this shim)
+          REAL_GH=$(which -a gh | uniq | sed -n '2p')
+
+          if [[ -z "$REAL_GH" ]]; then
+              echo "Error: No real gh found in PATH" >&2
+              exit 1
+          fi
+
+          # On macOS, the Claude Code sandbox blocks the Security framework Mach
+          # service that Go's crypto/x509 (cgo) uses for TLS cert verification.
+          # Detect this and warn before running gh, so the user sees the cause
+          # instead of a cryptic x509 OSStatus error.
+          if [[ "$(uname -s)" == "Darwin" && "${SANDBOX_RUNTIME:-}" == "1" ]]; then
+              # Subcommands that don't need network access
+              case "${1:-}" in
+                  help|completion|alias)
+                      ;; # skip warning
+                  *)
+                      echo "" >&2
+                      echo "╭─ gh-shim: sandbox issue detected ─────────────────────────╮" >&2
+                      echo "│ Claude Code sandbox is active on macOS. Go binaries like  │" >&2
+                      echo "│ gh cannot verify TLS certs (Security framework blocked).  │" >&2
+                      echo "│                                                           │" >&2
+                      echo "│ Workarounds:                                              │" >&2
+                      echo "│   1. Retry with dangerouslyDisableSandbox: true           │" >&2
+                      echo "│   2. Use /sandbox to manage sandbox restrictions          │" >&2
+                      echo "│   3. Use curl with \$GH_TOKEN as a fallback:               │" >&2
+                      echo "│      curl -sH \"Authorization: bearer \$GH_TOKEN\" \\         │" >&2
+                      echo "│        https://api.github.com/...                         │" >&2
+                      echo "╰───────────────────────────────────────────────────────────╯" >&2
+                      ;;
+              esac
+          fi
+
+          exec "$REAL_GH" "$@"
+        dest: "{{ user_shims_bin_directory }}/gh"
+        mode: "0755"
+
     - name: Create claude wrapper script in ~/.local/shims/bin
       copy:
         content: |
