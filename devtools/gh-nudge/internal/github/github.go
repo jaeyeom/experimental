@@ -60,7 +60,7 @@ func NewClientWithExecutor(executor CommandExecutor) *Client {
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	// Construct the gh command to get PR information
 	// This command fetches PRs with their title, URL, review requests, and files
-	output, err := c.executor.Execute("gh", "pr", "status", "--json", "url,title,reviewRequests,files,mergeable,headRefName", "-q", ".createdBy")
+	output, err := c.executor.Execute("gh", "pr", "status", "--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup", "-q", ".createdBy")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gh command: %w", err)
 	}
