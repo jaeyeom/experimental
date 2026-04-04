@@ -67,9 +67,6 @@ func (e *BasicExecutor) Execute(ctx context.Context, cfg ToolConfig) (*Execution
 
 func (e *BasicExecutor) createExecutionContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if timeout > 0 {
-		// FIXME: Return a no-op cancel (func(){}) for the timeout<=0
-		// path so the caller can unconditionally defer cancel(),
-		// which would also satisfy gosec G118.
 		return context.WithTimeout(ctx, timeout) //nolint:gosec // G118: cancel is returned to and deferred by the caller
 	}
 	return ctx, nil
