@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# magit — Open magit-status in a running Emacs via emacsclient.
+#
+# Usage: magit [directory]
+#
+# If no directory is given, uses the current working directory.
+#
+# Behavior:
+#   - If no Emacs server is running, prints an error and exits.
+#   - If a magit buffer for the directory already exists in a perspective,
+#     switches to that perspective and raises the frame.
+#   - Otherwise, switches to perspective #1, runs magit-status, and raises
+#     the frame.
+
+set -euo pipefail
+
+dir="${1:-$PWD}"
+dir="$(cd "$dir" && pwd)"
+
+# Check if Emacs server is running.
+if ! emacsclient -e '(+ 1 1)' >/dev/null 2>&1; then
+  echo "Error: No Emacs server running. Start Emacs first." >&2
+  exit 1
+fi
+
+# Send elisp to Emacs to open magit-status with persp-mode awareness.
+emacsclient --eval "
+(let* ((dir (expand-file-name \"$dir\"))
+       (buf-name (format \"magit: %s\" (file-name-nondirectory (directory-file-name dir))))
+       (target-persp
+        (and (fboundp 'persp-names)
+             (seq-find
+              (lambda (name)
+                (let ((persp (persp-get-by-name name)))
+                  (and persp (memq (get-buffer buf-name) (persp-buffers persp)))))
+              (persp-names)))))
+  (if target-persp
+      (persp-switch target-persp)
+    (when (fboundp 'persp-switch-by-number)
+      (persp-switch-by-number 1)))
+  (magit-status dir)
+  (select-frame-set-input-focus (selected-frame)))
+" >/dev/null
