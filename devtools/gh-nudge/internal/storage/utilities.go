@@ -557,9 +557,15 @@ func Clean(storageHome string, olderThan time.Duration, cleanType string, dryRun
 
 // cleanDirectory recursively removes files older than cutoffTime from the given directory.
 func cleanDirectory(dirPath string, cutoffTime time.Time, dryRun bool) (int, error) {
+	root, err := os.OpenRoot(dirPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open root directory: %w", err)
+	}
+	defer root.Close()
+
 	removed := 0
 
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -571,12 +577,14 @@ func cleanDirectory(dirPath string, cutoffTime time.Time, dryRun bool) (int, err
 
 		// Only process files, not directories
 		if !info.IsDir() && info.ModTime().Before(cutoffTime) {
+			relPath, err := filepath.Rel(dirPath, path)
+			if err != nil {
+				return fmt.Errorf("failed to get relative path: %w", err)
+			}
 			if dryRun {
 				fmt.Printf("Would remove: %s (modified: %s)\n", path, info.ModTime().Format(time.RFC3339))
 			} else {
-				// FIXME: Use os.OpenRoot(dirPath) and root.Remove(relPath)
-				// to prevent symlink TOCTOU traversal (gosec G122).
-				if err := os.Remove(path); err != nil { //nolint:gosec // G122
+				if err := root.Remove(relPath); err != nil {
 					return fmt.Errorf("failed to remove %s: %w", path, err)
 				}
 				fmt.Printf("Removed: %s (modified: %s)\n", path, info.ModTime().Format(time.RFC3339))
@@ -1115,7 +1123,13 @@ func collectExportData(storageHome string, includeMetadata bool) (*ExportData, e
 	// Collect all files from repos directory (the main data)
 	reposPath := filepath.Join(storageHome, "repos")
 	if directoryExists(reposPath) {
-		err := filepath.Walk(reposPath, func(filePath string, info os.FileInfo, err error) error {
+		root, err := os.OpenRoot(storageHome)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open root directory: %w", err)
+		}
+		defer root.Close()
+
+		err = filepath.Walk(reposPath, func(filePath string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -1128,9 +1142,12 @@ func collectExportData(storageHome string, includeMetadata bool) (*ExportData, e
 				return fmt.Errorf("failed to get relative path: %w", err)
 			}
 
-			// FIXME: Use os.OpenRoot(storageHome) and root.ReadFile(relPath)
-			// to prevent symlink TOCTOU traversal (gosec G122).
-			content, err := os.ReadFile(filePath) //nolint:gosec // G122
+			f, err := root.Open(relPath)
+			if err != nil {
+				return fmt.Errorf("failed to open file %s: %w", relPath, err)
+			}
+			content, err := io.ReadAll(f)
+			f.Close()
 			if err != nil {
 				return fmt.Errorf("failed to read file %s: %w", relPath, err)
 			}
