@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // MockResponse represents a mock response for a gh command.

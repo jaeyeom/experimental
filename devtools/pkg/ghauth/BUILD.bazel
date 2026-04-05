@@ -9,7 +9,7 @@ go_library(
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/ghauth",
     visibility = ["//visibility:public"],
-    deps = ["//devtools/pkg/executor:go_default_library"],
+    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )
 
 go_test(
@@ -20,5 +20,5 @@ go_test(
         "token_test.go",
     ],
     embed = [":go_default_library"],
-    deps = ["//devtools/pkg/executor:go_default_library"],
+    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )

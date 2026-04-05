@@ -12,16 +12,6 @@ Make the gh runner infrastructure in this repo usable as a backbone for ghx-cli
 ```
 devtools/
 ├── pkg/                         # Public packages (importable) ✓
-│   ├── executor/                # Command execution framework ✓
-│   │   ├── executor.go          # BasicExecutor, Executor interface
-│   │   ├── types.go             # ToolConfig, error types
-│   │   ├── result.go            # ExecutionResult
-│   │   ├── helpers.go           # Output, OutputJSON, Run, CombinedOutput
-│   │   ├── command_builder.go   # CommandBuilder, DirectCommandBuilder, ShellCommandBuilder
-│   │   ├── concurrent.go        # ConcurrentExecutor
-│   │   ├── mock.go              # MockExecutor for testing
-│   │   └── *_test.go            # Comprehensive tests
-│   │
 │   ├── ghauth/                  # GitHub authentication ✓
 │   │   ├── token.go             # TokenSource interface, ChainTokenSource
 │   │   ├── ghcli.go             # GHCLITokenSource (gh auth token)
@@ -37,6 +27,9 @@ devtools/
 ├── internal/
 │   └── executor/                # Original package (for existing code)
 ```
+
+Note: The executor package has been extracted to `github.com/jaeyeom/go-cmdexec`.
+All packages now import from `go-cmdexec` instead of the former `devtools/pkg/executor`.
 
 ## Implementation Phases
 
@@ -73,23 +66,18 @@ devtools/
 - [x] Add tests (6 tests passing)
 - [x] Create BUILD.bazel
 
-### Phase 4: Migration Strategy (Ongoing)
-- [x] Keep internal/executor for existing code (backward compatible)
-- [ ] New code should import from pkg/executor
-- [ ] Gradually migrate internal code as needed
-- [ ] Eventually deprecate internal/executor
-
-Note: We keep both packages separate rather than re-exporting because:
-1. Re-export causes duplicate declaration errors
-2. Allows gradual migration
-3. Internal package has extra features (signal_executor, signal_handler) not in pkg
+### Phase 4: Migration to go-cmdexec ✓
+- [x] Extract executor to external package `github.com/jaeyeom/go-cmdexec`
+- [x] Migrate all consumers to use `go-cmdexec`
+- [x] Migrate `pkg/ghauth` and `pkg/ghtest` to use `go-cmdexec`
+- [x] Delete `devtools/pkg/executor` package entirely
 
 ## Usage Examples
 
-### Using pkg/executor
+### Using go-cmdexec (executor)
 
 ```go
-import "github.com/jaeyeom/experimental/devtools/pkg/executor"
+import executor "github.com/jaeyeom/go-cmdexec"
 
 // Create executor
 exec := executor.NewBasicExecutor()
@@ -111,7 +99,10 @@ mock.ExpectCommand("gh").WillSucceed(`{"name":"test"}`, 0).Build()
 ### Using pkg/ghauth
 
 ```go
-import "github.com/jaeyeom/experimental/devtools/pkg/ghauth"
+import (
+    executor "github.com/jaeyeom/go-cmdexec"
+    "github.com/jaeyeom/experimental/devtools/pkg/ghauth"
+)
 
 // Get token from gh CLI
 exec := executor.NewBasicExecutor()
@@ -151,14 +142,14 @@ All 35 tests pass:
 
 ## Next Steps for ghx-cli Integration
 
-1. Add this repo as a dependency in ghx-cli's go.mod:
+1. Add dependencies in ghx-cli's go.mod:
    ```
-   go get github.com/jaeyeom/experimental/devtools/pkg/executor
+   go get github.com/jaeyeom/go-cmdexec
    go get github.com/jaeyeom/experimental/devtools/pkg/ghauth
    go get github.com/jaeyeom/experimental/devtools/pkg/ghtest
    ```
 
-2. Use executor for any shell command execution needs
+2. Use go-cmdexec for any shell command execution needs
 
 3. Use ghauth for token management (can replace current auth/manager.go)
 
