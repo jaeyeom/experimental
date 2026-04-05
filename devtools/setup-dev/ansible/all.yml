@@ -12,7 +12,7 @@
 - import_playbook: setup-vibe-coding.yml
 - import_playbook: setup-z.yml
 - import_playbook: setup-spacemacs.yml
-- import_playbook: setup-magit-cli.yml
+- import_playbook: magit.yml
 - import_playbook: setup-direnv.yml
 - import_playbook: setup-wrangler.yml
 - import_playbook: setup-swift-tools.yml

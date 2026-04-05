@@ -168,6 +168,7 @@ sh_test(
         "libtool.yml",
         "libvterm.yml",
         "locate.yml",
+        "magit.yml",
         "make.yml",
         "man.yml",
         "markdownlint.yml",
@@ -205,7 +206,6 @@ sh_test(
         "setup-history.yml",
         "setup-homebrew-env.yml",
         "setup-kotlin-tools.yml",
-        "setup-magit-cli.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-perplexity-mcp.yml",
@@ -1481,6 +1481,26 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["locate.yml"],
     data = ["locate.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "magit_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["magit.yml"],
+    data = [
+        "curl.yml",
+        "e.yml",
+        "emacs.yml",
+        "gather-facts.yml",
+        "magit.yml",
+        "setup-emacs.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
     tags = [
         "ansible",
         "local",
@@ -2883,26 +2903,6 @@ sh_test(
 )
 
 sh_test(
-    name = "setup-magit-cli_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["setup-magit-cli.yml"],
-    data = [
-        "curl.yml",
-        "e.yml",
-        "emacs.yml",
-        "gather-facts.yml",
-        "setup-emacs.yml",
-        "setup-magit-cli.yml",
-        "setup-shell-profile.yml",
-        "setup-user-bin-directory.yml",
-    ],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
     name = "setup-npm_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-npm.yml"],
@@ -3801,6 +3801,7 @@ test_suite(
         ":libtool_syntax_test",
         ":libvterm_syntax_test",
         ":locate_syntax_test",
+        ":magit_syntax_test",
         ":make_syntax_test",
         ":man_syntax_test",
         ":markdownlint_syntax_test",
@@ -3870,7 +3871,6 @@ test_suite(
         ":setup-homebrew-env_syntax_test",
         ":setup-kotex_syntax_test",
         ":setup-kotlin-tools_syntax_test",
-        ":setup-magit-cli_syntax_test",
         ":setup-npm_syntax_test",
         ":setup-nvm_syntax_test",
         ":setup-office-tools_syntax_test",

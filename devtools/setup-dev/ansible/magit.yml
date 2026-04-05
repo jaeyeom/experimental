@@ -5,15 +5,15 @@
 - name: Ensure magit CLI command is installed
   hosts: all
   tasks:
-    - name: Include guard for setup-magit-cli playbook
+    - name: Include guard for magit playbook
       block:
-        - name: Stop early if the setup-magit-cli playbook is already included
+        - name: Stop early if the magit playbook is already included
           meta: end_play
-          when: setup_magit_cli_playbook_imported is defined
-        - name: Ensure the setup-magit-cli playbook is not included
+          when: magit_playbook_imported is defined
+        - name: Ensure the magit playbook is not included
           set_fact:
-            setup_magit_cli_playbook_imported: true
-          when: setup_magit_cli_playbook_imported is not defined
+            magit_playbook_imported: true
+          when: magit_playbook_imported is not defined
 
     - name: Symlink magit CLI to user bin directory
       ansible.builtin.file:
