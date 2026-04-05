@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/executor"
 	"github.com/jaeyeom/experimental/devtools/pkg/ghauth"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // SkipWithoutGH skips the test if the gh CLI is not available in PATH.

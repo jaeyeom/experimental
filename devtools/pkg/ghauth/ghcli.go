@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 // GHCLITokenSource retrieves GitHub tokens from the gh CLI.

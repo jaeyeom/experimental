@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func TestGHCLITokenSource(t *testing.T) {
