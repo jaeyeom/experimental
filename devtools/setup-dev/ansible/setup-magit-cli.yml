@@ -1,0 +1,23 @@
+---
+- import_playbook: setup-user-bin-directory.yml
+- import_playbook: setup-emacs.yml
+
+- name: Ensure magit CLI command is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-magit-cli playbook
+      block:
+        - name: Stop early if the setup-magit-cli playbook is already included
+          meta: end_play
+          when: setup_magit_cli_playbook_imported is defined
+        - name: Ensure the setup-magit-cli playbook is not included
+          set_fact:
+            setup_magit_cli_playbook_imported: true
+          when: setup_magit_cli_playbook_imported is not defined
+
+    - name: Symlink magit CLI to user bin directory
+      ansible.builtin.file:
+        src: "{{ ansible_facts['env']['HOME'] }}/go/src/github.com/jaeyeom/experimental/devtools/magit/magit"
+        dest: "{{ user_bin_directory }}/magit"
+        state: link
+        force: yes
