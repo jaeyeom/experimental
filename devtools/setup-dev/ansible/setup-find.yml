@@ -15,80 +15,14 @@
             setup_find_playbook_imported: true
           when: setup_find_playbook_imported is not defined
 
-    - name: Check if running in Termux
-      ansible.builtin.stat:
-        path: /data/data/com.termux
-      register: termux_check
+    - name: Install git-guardrails plugin (covers find guardrails)
+      command: claude plugin install jaeyeom/claude-toolbox --plugin git-guardrails
+      changed_when: true
 
-    - name: Check if old find wrapper exists in ~/.local/bin
-      ansible.builtin.stat:
-        path: "{{ user_bin_directory }}/find"
-      register: old_find_wrapper
-
-    - name: Check if old find wrapper contains wrapper signature
-      ansible.builtin.shell: grep -q 'Secure find wrapper' "{{ user_bin_directory }}/find"
-      register: old_find_is_wrapper
-      ignore_errors: true
-      changed_when: false
-      when: old_find_wrapper.stat.exists
-
-    - name: Remove old find wrapper from ~/.local/bin to avoid infinite loops
+    - name: Remove shims replaced by git-guardrails plugin
       ansible.builtin.file:
-        path: "{{ user_bin_directory }}/find"
+        path: "{{ item }}"
         state: absent
-      when: old_find_wrapper.stat.exists and old_find_is_wrapper.rc == 0
-
-    - name: Deploy find wrapper script to ~/.local/shims/bin/find
-      ansible.builtin.copy:
-        dest: "{{ user_shims_bin_directory }}/find"
-        mode: '0755'
-        content: |
-          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
-
-          # Secure find wrapper - blocks dangerous options when AI assistants are detected
-          # Dangerous options: -exec, -execdir, -ok, -okdir, -delete, -fls, -fprint, -fprint0, -fprintf
-
-          # Only apply restrictions when AI coding assistants are running
-          # Detection based on environment variables set by each tool
-          is_ai_assistant_running() {
-              [[ "${CLAUDECODE:-}" == "1" ]] || \
-              [[ "${TERM_PROGRAM:-}" == "vscode" ]] || \
-              [[ -n "${VSCODE_PID:-}" ]]
-          }
-
-          # If no AI assistant detected, pass through directly
-          if ! is_ai_assistant_running; then
-              REAL_FIND=$(which -a find | grep -v "$(realpath "$0")" | head -n 1)
-              exec "$REAL_FIND" "$@"
-          fi
-
-          # Blocked options (case-sensitive, exact match)
-          BLOCKED_OPTIONS=(
-              "-exec"
-              "-execdir"
-              "-ok"
-              "-okdir"
-              "-delete"
-              "-fls"
-              "-fprint"
-              "-fprint0"
-              "-fprintf"
-          )
-
-          # Check all arguments for blocked options
-          for arg in "$@"; do
-              for blocked in "${BLOCKED_OPTIONS[@]}"; do
-                  if [[ "$arg" == "$blocked" ]]; then
-                      echo "Error: The '$blocked' option is not allowed when running under AI assistant."
-                      echo ""
-                      echo "Blocked options: -exec, -execdir, -ok, -okdir, -delete, -fls, -fprint, -fprint0, -fprintf"
-                      echo ""
-                      echo "These options can execute commands or modify files, which is restricted for safety."
-                      exit 1
-                  fi
-              done
-          done
-
-          # Run the real find command
-          REAL_FIND=$(which -a find | grep -v "$(realpath "$0")" | head -n 1)
-          exec "$REAL_FIND" "$@"
+      loop:
+        - "{{ user_shims_bin_directory }}/find"
+        - "{{ user_bin_directory }}/find"

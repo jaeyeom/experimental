@@ -114,70 +114,14 @@
         }; f'
       when: get_git_alias_statuslog.rc != 0
 
-    - name: Check if running in Termux
-      ansible.builtin.stat:
-        path: /data/data/com.termux
-      register: termux_check
+    - name: Install git-guardrails plugin
+      command: claude plugin install jaeyeom/claude-toolbox --plugin git-guardrails
+      changed_when: true
 
-    - name: Check if old git wrapper exists in ~/.local/bin
-      ansible.builtin.stat:
-        path: "{{ user_bin_directory }}/git"
-      register: old_git_wrapper
-
-    - name: Check if old git wrapper contains wrapper signature
-      ansible.builtin.shell: grep -q 'Find the real git' "{{ user_bin_directory }}/git"
-      register: old_git_is_wrapper
-      ignore_errors: true
-      changed_when: false
-      when: old_git_wrapper.stat.exists
-
-    - name: Remove old git wrapper from ~/.local/bin to avoid infinite loops
+    - name: Remove shims replaced by git-guardrails plugin
       ansible.builtin.file:
-        path: "{{ user_bin_directory }}/git"
+        path: "{{ item }}"
         state: absent
-      when: old_git_wrapper.stat.exists and old_git_is_wrapper.rc == 0
-
-    - name: Deploy git wrapper script to ~/.local/shims/bin/git
-      ansible.builtin.copy:
-        dest: "{{ user_shims_bin_directory }}/git"
-        mode: '0755'
-        content: |
-          {% if termux_check.stat.exists %}#!/data/data/com.termux/files/usr/bin/bash{% else %}#!/usr/bin/env bash{% endif %}
-
-          # Find the real git (second in PATH, skipping this wrapper)
-          REAL_GIT=$(which -a git | uniq | sed -n '2p')
-          if [[ -z "$REAL_GIT" ]]; then
-              echo "Error: No real git found in PATH" >&2
-              exit 1
-          fi
-
-          # Allow Copier to use git commands without restrictions
-          if [[ "${COPIER_RUNNING:-}" == "1" ]]; then
-              exec "$REAL_GIT" "$@"
-          fi
-
-          if [[ "$1" == "commit" ]]; then
-              # Check if --no-verify is passed as a separate argument
-              for arg in "$@"; do
-                  if [[ "$arg" == "--no-verify" ]]; then
-                      echo "Error: The --no-verify flag is not allowed."
-                      echo "Please run git commit without --no-verify to ensure hooks are executed."
-                      echo "There is an absolte reason for this."
-                      exit 1
-                  fi
-              done
-          fi
-
-          if [[ "$1" == "add" && ("$2" == "." || "$2" == "-A" || "$2" == "--all") ]]; then
-              echo "Error: 'git add .', 'git add -A', and 'git add --all' are dangerous as they may stage unrelated files."
-              echo "Please manually specify the files you want to add:"
-              echo "  git add file1.txt file2.txt"
-              echo "  git add src/"
-              echo "  git add *.py"
-              echo ""
-              echo "To see what files would be added, use: git status"
-              exit 1
-          fi
-
-          # Run the real git command
-          exec "$REAL_GIT" "$@"
+      loop:
+        - "{{ user_shims_bin_directory }}/git"
+        - "{{ user_bin_directory }}/git"
