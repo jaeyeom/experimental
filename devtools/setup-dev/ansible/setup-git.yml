@@ -95,6 +95,25 @@
       ansible.builtin.debug:
         msg: "The git user email is {{ git_user_email }}"
 
+    - name: Determine the git statuslog alias
+      shell: git config --global alias.statuslog
+      register: get_git_alias_statuslog
+      ignore_errors: true
+      changed_when: false
+
+    - name: Set git statuslog alias
+      shell: >-
+        git config --global alias.statuslog
+        '!f() {
+        git fetch origin >/dev/null 2>&1;
+        echo "### WORKTREE vs HEAD"; echo;
+        git -c color.ui=always diff;
+        echo;
+        echo "### COMMITS main vs origin/main"; echo;
+        git -c color.ui=always log -p origin/main..main --color=always;
+        }; f'
+      when: get_git_alias_statuslog.rc != 0
+
     - name: Check if running in Termux
       ansible.builtin.stat:
         path: /data/data/com.termux
