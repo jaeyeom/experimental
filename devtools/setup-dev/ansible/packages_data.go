@@ -453,6 +453,14 @@ fi`,
 		Imports: nil,
 	},
 	{
+		command: "markdownlint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "markdownlint-cli"},
+			PlatformDebianLike: NvmInstallMethod{Name: "markdownlint-cli"},
+			PlatformTermux:     NpmInstallMethod{Name: "markdownlint-cli"},
+		},
+	},
+	{
 		command: "mypy",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "mypy"},
