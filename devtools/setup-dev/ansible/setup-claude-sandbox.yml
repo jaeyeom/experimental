@@ -60,6 +60,13 @@
               - "{{ ansible_facts['env']['HOME'] }}/.cache/bazel"
               # Githooks release clone (needed for update checks via git fetch)
               - "{{ ansible_facts['env']['HOME'] }}/.githooks/release/.git"
+              # Shared Claude temp directory (needed for cross-sandbox TMPDIR
+              # consistency — see issue #148). The sandbox overrides $TMPDIR to
+              # a session-scoped path, so files written via $TMPDIR in sandbox
+              # mode are invisible to non-sandboxed calls. Adding the real
+              # TMPDIR here lets sandboxed code write to $CLAUDE_CODE_TMPDIR,
+              # which stays consistent across both modes.
+              - "{{ claude_tmpdir }}"
         network:
           allowedHosts:
             # GitHub
@@ -287,6 +294,14 @@
           # Set TMPDIR to claude temp directory so heredocs work in sandbox
           # Shells create temp files for heredocs using TMPDIR
           export TMPDIR="${CLAUDE_TMPDIR_BASE}/claude"
+
+          # TMPDIR consistency caveat (issue #148):
+          # The sandbox overrides $TMPDIR to a session-scoped path, so files
+          # written via $TMPDIR in sandboxed Bash calls are invisible to
+          # non-sandboxed (dangerouslyDisableSandbox) calls and vice versa.
+          # Use $CLAUDE_CODE_TMPDIR instead of $TMPDIR when sharing temp files
+          # across sandbox modes. This path is added to the sandbox write
+          # allowlist so it is writable in both modes.
 
           # Export GH_TOKEN so gh CLI works inside the sandbox without keychain access.
           # The wrapper runs unsandboxed, so `gh auth token` can read the keychain here.
