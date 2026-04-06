@@ -56,5 +56,15 @@ elisp="
   (select-frame-set-input-focus (selected-frame)))
 "
 
-# shellcheck disable=SC2086
-emacsclient $frame_opt --eval "$elisp" >/dev/null
+if [[ "$frame_opt" == "-t" ]]; then
+  # Terminal mode needs the tty; do not redirect output.
+  # Ghostty's terminfo is not always available; fall back to xterm-256color.
+  if [[ "$TERM" == "xterm-ghostty" ]]; then
+    TERM=xterm-256color emacsclient -t --eval "$elisp"
+  else
+    emacsclient -t --eval "$elisp"
+  fi
+else
+  # shellcheck disable=SC2086
+  emacsclient $frame_opt --eval "$elisp" >/dev/null
+fi
