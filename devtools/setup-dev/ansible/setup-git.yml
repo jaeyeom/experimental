@@ -106,8 +106,14 @@
         git config --global alias.statuslog
         '!f() {
         git fetch origin >/dev/null 2>&1;
-        echo "### WORKTREE vs HEAD"; echo;
+        echo "### UNTRACKED"; echo;
+        git ls-files --others --exclude-standard;
+        echo;
+        echo "### UNSTAGED"; echo;
         git -c color.ui=always diff;
+        echo;
+        echo "### STAGED"; echo;
+        git -c color.ui=always diff --cached;
         echo;
         echo "### COMMITS main vs origin/main"; echo;
         git -c color.ui=always log -p origin/main..main --color=always;
