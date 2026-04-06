@@ -1,18 +1,33 @@
 #!/usr/bin/env bash
 # magit — Open magit-status in a running Emacs via emacsclient.
 #
-# Usage: magit [directory]
+# Usage: magit [-c] [-t] [directory]
+#
+# Options:
+#   -c    Create a new graphical frame
+#   -t    Open in terminal mode (text-only frame in the current terminal)
 #
 # If no directory is given, uses the current working directory.
 #
 # Behavior:
 #   - If no Emacs server is running, prints an error and exits.
+#   - With -c or -t, creates a new frame and opens magit-status there.
 #   - If a magit buffer for the directory already exists in a perspective,
 #     switches to that perspective and raises the frame.
 #   - Otherwise, switches to perspective #1, runs magit-status, and raises
 #     the frame.
 
 set -euo pipefail
+
+frame_opt=""
+while getopts "ct" opt; do
+  case "$opt" in
+    c) frame_opt="-c" ;;
+    t) frame_opt="-t" ;;
+    *) echo "Usage: magit [-c] [-t] [directory]" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
 
 dir="${1:-$PWD}"
 dir="$(cd "$dir" && pwd)"
@@ -23,8 +38,7 @@ if ! emacsclient -e '(+ 1 1)' >/dev/null 2>&1; then
   exit 1
 fi
 
-# Send elisp to Emacs to open magit-status with persp-mode awareness.
-emacsclient --eval "
+elisp="
 (let* ((dir (expand-file-name \"$dir\"))
        (buf-name (format \"magit: %s\" (file-name-nondirectory (directory-file-name dir))))
        (target-persp
@@ -40,4 +54,7 @@ emacsclient --eval "
       (persp-switch-by-number 1)))
   (magit-status dir)
   (select-frame-set-input-focus (selected-frame)))
-" >/dev/null
+"
+
+# shellcheck disable=SC2086
+emacsclient $frame_opt --eval "$elisp" >/dev/null
