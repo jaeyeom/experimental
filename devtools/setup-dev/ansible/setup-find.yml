@@ -16,7 +16,7 @@
           when: setup_find_playbook_imported is not defined
 
     - name: Install git-guardrails plugin (covers find guardrails)
-      command: claude plugin install jaeyeom/claude-toolbox --plugin git-guardrails
+      command: claude plugin install git-guardrails@claude-toolbox
       changed_when: true
 
     - name: Remove shims replaced by git-guardrails plugin

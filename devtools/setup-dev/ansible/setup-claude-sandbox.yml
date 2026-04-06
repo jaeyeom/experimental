@@ -182,7 +182,7 @@
       register: termux_check
 
     - name: Install sandbox-helpers plugin
-      command: claude plugin install jaeyeom/claude-toolbox --plugin sandbox-helpers
+      command: claude plugin install sandbox-helpers@claude-toolbox
       changed_when: true
 
     - name: Remove shims replaced by sandbox-helpers plugin
