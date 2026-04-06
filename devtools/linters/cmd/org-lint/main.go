@@ -109,6 +109,7 @@ func checkEmacsAvailable(skipIfNoEmacs bool) {
 
 func lintFiles(files []string) bool {
 	hasIssues := false
+	var validFiles []string
 
 	for _, filename := range files {
 		// Debug: print each file being processed
@@ -123,7 +124,11 @@ func lintFiles(files []string) bool {
 			continue
 		}
 
-		if err := lintOrgFile(filename); err != nil {
+		validFiles = append(validFiles, filename)
+	}
+
+	if len(validFiles) > 0 {
+		if err := lintOrgFiles(validFiles); err != nil {
 			hasIssues = true
 		}
 	}
@@ -194,15 +199,18 @@ For more information, visit: https://github.com/jaeyeom/experimental/tree/main/d
 `)
 }
 
-func lintOrgFile(filename string) error {
+func lintOrgFiles(files []string) error {
 	emacsCode := `
 (progn
   (setq debug-on-error nil)
   (setq message-log-max nil)
 
   (let* ((inhibit-message t)
-         (filename (getenv "FILENAME"))
-         (buf (find-file-noselect filename)))
+         (files command-line-args-left)
+         (has-issues nil))
+    ;; Prevent Emacs from processing remaining args as files to visit.
+    (setq command-line-args-left nil)
+
     ;; Add package directories to load-path using user-emacs-directory
     (let ((elpa-dir (expand-file-name "elpa/" user-emacs-directory))
           (current-version (format "%d.%d" emacs-major-version emacs-minor-version)))
@@ -257,23 +265,30 @@ func lintOrgFile(filename string) error {
                 (require feature nil t)
               (error nil))))))
 
-    (with-current-buffer buf
-      (let ((issues (org-lint)))
-        (dolist (issue issues)
-          (let* ((vec (cadr issue))
-                (line (string-to-number (aref vec 0)))
-                (trust (aref vec 1))
-                (description (aref vec 2)))
-            (princ (format "%s:%d: (%s) %s\n" filename line trust description))))
-        (kill-emacs (if issues 1 0))))))`
+    ;; Process each file in the single Emacs session
+    (dolist (filename files)
+      (let ((buf (find-file-noselect filename)))
+        (with-current-buffer buf
+          (let ((issues (org-lint)))
+            (dolist (issue issues)
+              (let* ((vec (cadr issue))
+                     (line (string-to-number (aref vec 0)))
+                     (trust (aref vec 1))
+                     (description (aref vec 2)))
+                (princ (format "%s:%d: (%s) %s\n" filename line trust description))))
+            (when issues
+              (setq has-issues t))))
+        (kill-buffer buf)))
+    (kill-emacs (if has-issues 1 0))))`
 
 	ctx := context.Background()
 	exec := executor.NewBasicExecutor()
 
+	args := append([]string{"-Q", "--batch", "-l", "org", "--eval", emacsCode}, files...)
+
 	result, err := exec.Execute(ctx, executor.ToolConfig{
 		Command: "emacs",
-		Args:    []string{"-Q", "--batch", "-l", "org", "--eval", emacsCode},
-		Env:     map[string]string{"FILENAME": filename},
+		Args:    args,
 	})
 
 	// Print output
