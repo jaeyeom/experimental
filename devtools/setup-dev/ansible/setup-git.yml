@@ -121,7 +121,7 @@
       when: get_git_alias_statuslog.rc != 0
 
     - name: Install git-guardrails plugin
-      command: claude plugin install jaeyeom/claude-toolbox --plugin git-guardrails
+      command: claude plugin install git-guardrails@claude-toolbox
       changed_when: true
 
     - name: Remove shims replaced by git-guardrails plugin
