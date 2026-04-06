@@ -3,26 +3,26 @@
 set -euo pipefail
 
 fail() {
-    printf 'FAIL: %s\n' "$*" >&2
-    exit 1
+	printf 'FAIL: %s\n' "$*" >&2
+	exit 1
 }
 
 assert_contains() {
-    local needle="$1"
-    local haystack="$2"
+	local needle="$1"
+	local haystack="$2"
 
-    if [[ "$haystack" != *"$needle"* ]]; then
-        fail "expected output to contain '$needle'"
-    fi
+	if [[ "$haystack" != *"$needle"* ]]; then
+		fail "expected output to contain '$needle'"
+	fi
 }
 
 assert_equals() {
-    local expected="$1"
-    local actual="$2"
+	local expected="$1"
+	local actual="$2"
 
-    if [ "$expected" != "$actual" ]; then
-        fail "expected '$expected', got '$actual'"
-    fi
+	if [ "$expected" != "$actual" ]; then
+		fail "expected '$expected', got '$actual'"
+	fi
 }
 
 workspace_root="${TEST_SRCDIR}/${TEST_WORKSPACE}"
@@ -142,11 +142,12 @@ esac
 EOF
 chmod +x "$codex_stub"
 
+# shellcheck disable=SC2120
 run_script() {
-    TEST_STATE_DIR="$state_dir" \
-    GIT_BIN="$git_stub" \
-    CODEX_BIN="$codex_stub" \
-    "$script_path" --repo "$repo_dir" "$@"
+	TEST_STATE_DIR="$state_dir" \
+		GIT_BIN="$git_stub" \
+		CODEX_BIN="$codex_stub" \
+		"$script_path" --repo "$repo_dir" "$@"
 }
 
 printf '2' >"$state_dir/ahead_count"
