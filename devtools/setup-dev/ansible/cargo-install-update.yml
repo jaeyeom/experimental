@@ -33,15 +33,21 @@
     - name: Install cargo-install-update using Cargo
       command: cargo install cargo-update
       when: cargo_install_update_installed.rc != 0
-      environment:
-        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
-        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
+      vars:
+        cargo_base_env:
+          PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        cargo_termux_env:
+          CARGO_BUILD_JOBS: "1"
+      environment: "{{ cargo_base_env | combine(cargo_termux_env if ansible_facts['env']['TERMUX_VERSION'] is defined else {}) }}"
 
     - name: Update cargo-install-update to latest version
       command: cargo install-update cargo-update
       register: cargo_install_update_update_result
       changed_when: "cargo_install_update_update_result.stdout is search('Overall updated [1-9]')"
       when: cargo_install_update_installed.rc == 0
-      environment:
-        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
-        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
+      vars:
+        cargo_base_env:
+          PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        cargo_termux_env:
+          CARGO_BUILD_JOBS: "1"
+      environment: "{{ cargo_base_env | combine(cargo_termux_env if ansible_facts['env']['TERMUX_VERSION'] is defined else {}) }}"

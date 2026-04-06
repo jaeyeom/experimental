@@ -353,18 +353,24 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
     - name: Install ` + command + ` using Cargo
       command: cargo install ` + c.Name + `
       when: ` + commandID + `_installed.rc != 0
-      environment:
-        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
-        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
+      vars:
+        cargo_base_env:
+          PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        cargo_termux_env:
+          CARGO_BUILD_JOBS: "1"
+      environment: "{{ cargo_base_env | combine(cargo_termux_env if ansible_facts['env']['TERMUX_VERSION'] is defined else {}) }}"
 
     - name: Update ` + command + ` to latest version
       command: cargo install-update ` + c.Name + `
       register: ` + commandID + `_update_result
       changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
       when: ` + commandID + `_installed.rc == 0
-      environment:
-        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
-        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"`
+      vars:
+        cargo_base_env:
+          PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        cargo_termux_env:
+          CARGO_BUILD_JOBS: "1"
+      environment: "{{ cargo_base_env | combine(cargo_termux_env if ansible_facts['env']['TERMUX_VERSION'] is defined else {}) }}"`
 
 	return task
 }
