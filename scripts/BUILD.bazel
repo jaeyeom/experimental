@@ -2,3 +2,14 @@ sh_binary(
     name = "update-env-keys",
     srcs = ["update-env-keys.sh"],
 )
+
+sh_binary(
+    name = "review-and-push-loop",
+    srcs = ["review-and-push-loop.sh"],
+)
+
+sh_test(
+    name = "review_and_push_loop_test",
+    srcs = ["review-and-push-loop_test.sh"],
+    data = ["review-and-push-loop.sh"],
+)
