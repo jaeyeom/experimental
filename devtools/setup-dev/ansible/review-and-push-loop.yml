@@ -46,5 +46,5 @@
             review_and_push_loop_module_version: ""
 
     - name: Upgrade review-and-push-loop
-      command: go install github.com/jaeyeom/experimental/scripts/reviewpush/cmd/review-and-push-loop@latest
+      command: go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest
       when: review_and_push_loop_module_version is not defined or review_and_push_loop_module_version == "" or review_and_push_loop_module_version != review_and_push_loop_latest.stdout

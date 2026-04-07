@@ -533,7 +533,7 @@ fi`,
 		Imports: nil,
 	},
 	GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
-	GoTool("review-and-push-loop", "github.com/jaeyeom/experimental/scripts/reviewpush/cmd/review-and-push-loop@latest", Import{Playbook: "codex"}),
+	GoTool("review-and-push-loop", "github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest", Import{Playbook: "codex"}),
 	{
 		command: "ruff",
 		platforms: map[PlatformName]InstallMethod{

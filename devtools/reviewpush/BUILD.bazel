@@ -6,7 +6,7 @@ go_library(
         "codex.go",
         "reviewpush.go",
     ],
-    importpath = "github.com/jaeyeom/experimental/scripts/reviewpush",
+    importpath = "github.com/jaeyeom/experimental/devtools/reviewpush",
     visibility = ["//visibility:public"],
     deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )

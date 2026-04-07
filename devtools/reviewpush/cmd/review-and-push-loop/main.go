@@ -10,7 +10,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/jaeyeom/experimental/scripts/reviewpush"
+	"github.com/jaeyeom/experimental/devtools/reviewpush"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
