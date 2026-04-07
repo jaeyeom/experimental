@@ -5,6 +5,7 @@
 - import_playbook: gh-pr-review.yml
 - import_playbook: gh-slack.yml
 - import_playbook: gh-storage.yml
+- import_playbook: review-and-push-loop.yml
 - import_playbook: setup-perplexity-mcp.yml
 - import_playbook: setup-git.yml
 - import_playbook: setup-find.yml
