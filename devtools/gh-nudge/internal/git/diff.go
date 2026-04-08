@@ -506,7 +506,6 @@ func (gc *Client) groupConsecutiveChanges(changes []models.LineChange) []ChangeG
 		return []ChangeGroup{}
 	}
 
-	// TODO: Simplify the logic. I think it's possible with the prevChange variable (changes[i-1]).
 	var groups []ChangeGroup
 	currentGroup := ChangeGroup{
 		Line:    models.LineRange{StartLine: changes[0].OriginalLine},
@@ -515,16 +514,14 @@ func (gc *Client) groupConsecutiveChanges(changes []models.LineChange) []ChangeG
 
 	for i := 1; i < len(changes); i++ {
 		change := changes[i]
+		prevLine := changes[i-1].OriginalLine
 
-		// Calculate current group's end line based on existing changes
-		currentEndLine := currentGroup.Line.StartLine + len(currentGroup.Changes) - 1
-
-		// If this change is consecutive or close to the previous group, add to current group
-		if change.OriginalLine <= currentEndLine+2 {
+		// If this change is consecutive or close to the previous change, add to current group
+		if change.OriginalLine <= prevLine+2 {
 			currentGroup.Changes = append(currentGroup.Changes, change)
 		} else {
 			// Finalize current group and start new one
-			currentGroup.Line.EndLine = currentEndLine
+			currentGroup.Line.EndLine = prevLine
 			currentGroup.NetOffset = gc.calculateNetOffset(currentGroup.Changes)
 			groups = append(groups, currentGroup)
 
@@ -536,7 +533,7 @@ func (gc *Client) groupConsecutiveChanges(changes []models.LineChange) []ChangeG
 	}
 
 	// Finalize the last group
-	currentGroup.Line.EndLine = currentGroup.Line.StartLine + len(currentGroup.Changes) - 1
+	currentGroup.Line.EndLine = changes[len(changes)-1].OriginalLine
 	currentGroup.NetOffset = gc.calculateNetOffset(currentGroup.Changes)
 	groups = append(groups, currentGroup)
 
