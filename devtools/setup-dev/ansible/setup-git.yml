@@ -95,6 +95,24 @@
       ansible.builtin.debug:
         msg: "The git user email is {{ git_user_email }}"
 
+    - name: Define desired git statuslog alias
+      ansible.builtin.set_fact:
+        git_statuslog_alias_desired: >-
+          !f() {
+          git fetch origin >/dev/null 2>&1;
+          echo "### UNTRACKED"; echo;
+          git ls-files --others --exclude-standard;
+          echo;
+          echo "### UNSTAGED"; echo;
+          git -c color.ui=always diff;
+          echo;
+          echo "### STAGED"; echo;
+          git -c color.ui=always diff --cached;
+          echo;
+          echo "### COMMITS main vs origin/main"; echo;
+          git -c color.ui=always log -p origin/main..main --color=always;
+          }; f
+
     - name: Determine the git statuslog alias
       shell: git config --global alias.statuslog
       register: get_git_alias_statuslog
@@ -104,21 +122,8 @@
     - name: Set git statuslog alias
       shell: >-
         git config --global alias.statuslog
-        '!f() {
-        git fetch origin >/dev/null 2>&1;
-        echo "### UNTRACKED"; echo;
-        git ls-files --others --exclude-standard;
-        echo;
-        echo "### UNSTAGED"; echo;
-        git -c color.ui=always diff;
-        echo;
-        echo "### STAGED"; echo;
-        git -c color.ui=always diff --cached;
-        echo;
-        echo "### COMMITS main vs origin/main"; echo;
-        git -c color.ui=always log -p origin/main..main --color=always;
-        }; f'
-      when: get_git_alias_statuslog.rc != 0
+        '{{ git_statuslog_alias_desired }}'
+      when: get_git_alias_statuslog.stdout | default('') != git_statuslog_alias_desired
 
     - name: Install git-guardrails plugin
       command: claude plugin install git-guardrails@claude-toolbox
