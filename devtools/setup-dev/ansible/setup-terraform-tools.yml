@@ -1,0 +1,9 @@
+---
+- name: Setup terraform
+  import_playbook: terraform.yml
+
+- name: Setup tflint
+  import_playbook: tflint.yml
+
+- name: Setup terraform-ls
+  import_playbook: terraform-ls.yml

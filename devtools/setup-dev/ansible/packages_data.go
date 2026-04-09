@@ -619,6 +619,42 @@ fi`,
 	},
 	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
+		command: "terraform",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform", Tap: "hashicorp/tap"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "terraform",
+				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
+				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+				RepoURL:        "https://apt.releases.hashicorp.com",
+				RepoComponents: "main",
+			},
+		},
+	},
+	{
+		command: "terraform-ls",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform-ls", Tap: "hashicorp/tap"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "terraform-ls",
+				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
+				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+				RepoURL:        "https://apt.releases.hashicorp.com",
+				RepoComponents: "main",
+			},
+		},
+	},
+	{
+		command: "tflint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "tflint"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand: "curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash",
+			},
+		},
+		Imports: []Import{{Playbook: "curl", When: WhenDebianLike}},
+	},
+	{
 		command: "tsc",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "typescript"},

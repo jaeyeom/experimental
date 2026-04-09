@@ -754,6 +754,7 @@ func (a AptRepoInstallMethod) GetImports() []Import {
 }
 
 func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
 	codename := a.Codename
 	if codename == "" {
 		codename = "{{ ansible_facts['distribution_release'] }}"
@@ -767,7 +768,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
 	return `    - name: Check if GPG key for ` + command + ` exists
       ansible.builtin.stat:
         path: ` + a.GPGKeyPath + `
-      register: ` + command + `_gpg_key
+      register: ` + commandID + `_gpg_key
       when: ` + WhenDebianLike + `
 
     - name: Download GPG key for ` + command + `
@@ -776,7 +777,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
         dest: /tmp/` + command + `-repo.gpg
         mode: '0644'
       become: yes
-      when: ` + WhenDebianLike + ` and not ` + command + `_gpg_key.stat.exists
+      when: ` + WhenDebianLike + ` and not ` + commandID + `_gpg_key.stat.exists
 
     - name: Dearmor and install GPG key for ` + command + `
       ansible.builtin.shell: |
@@ -784,7 +785,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
       args:
         creates: ` + a.GPGKeyPath + `
       become: yes
-      when: ` + WhenDebianLike + ` and not ` + command + `_gpg_key.stat.exists
+      when: ` + WhenDebianLike + ` and not ` + commandID + `_gpg_key.stat.exists
 
     - name: Add apt repository for ` + command + `
       ansible.builtin.apt_repository:
