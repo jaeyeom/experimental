@@ -109,8 +109,9 @@
           echo "### STAGED"; echo;
           git -c color.ui=always diff --cached;
           echo;
-          echo "### COMMITS main vs origin/main"; echo;
-          git -c color.ui=always log -p origin/main..main --color=always;
+          BASE=$(git rev-parse --abbrev-ref "@{upstream}" 2>/dev/null || git rev-parse --abbrev-ref origin/HEAD 2>/dev/null || echo "origin/main");
+          echo "### COMMITS $BASE..HEAD"; echo;
+          git -c color.ui=always log -p "$BASE..HEAD" --color=always;
           }; f
 
     - name: Determine the git statuslog alias
