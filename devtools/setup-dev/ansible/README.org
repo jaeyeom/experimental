@@ -156,6 +156,8 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-grpc.yml
 - setup-history.yml
 - setup-homebrew-env.yml
+- setup-java.yml
+- setup-java-tools.yml
 - setup-kotex.yml
 - setup-kotlin-tools.yml
 - setup-npm.yml

@@ -161,6 +161,14 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: []Import{{Playbook: "uv", When: WhenNotDarwin}},
 	},
 	{
+		command: "checkstyle",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "checkstyle"},
+			PlatformDebianLike: PackageInstallMethod{Name: "checkstyle"},
+		},
+		Imports: []Import{{Playbook: "setup-java"}},
+	},
+	{
 		command: "claude",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: ShellInstallMethod{
@@ -401,6 +409,31 @@ fi`,
 	GoTool("gofumpt", "mvdan.cc/gofumpt@latest"),
 	GoTool("goimports", "golang.org/x/tools/cmd/goimports@latest"),
 	GoTool("gomodifytags", "github.com/fatih/gomodifytags@latest"),
+	{
+		command: "google-java-format",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "google-java-format"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand: `
+version="{{ google_java_format_latest_release.json.tag_name | regex_replace('^v', '') }}"
+curl -sSL -o {{ user_bin_directory }}/google-java-format-all-deps.jar "https://github.com/google/google-java-format/releases/download/v${version}/google-java-format-${version}-all-deps.jar"
+cat > {{ user_bin_directory }}/google-java-format << 'WRAPPER'
+#!/bin/bash
+exec java -jar "$(dirname "$0")/google-java-format-all-deps.jar" "$@"
+WRAPPER
+chmod +x {{ user_bin_directory }}/google-java-format`,
+				VersionCommand:    "google-java-format --version",
+				VersionRegex:      "([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/google/google-java-format/releases/latest",
+				LatestVersionPath: "tag_name",
+			},
+		},
+		Imports: []Import{
+			{Playbook: "setup-java"},
+			{Playbook: "curl", When: WhenDebianLike},
+			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
+		},
+	},
 	GoTool("gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"),
 	GoTool("gopls", "golang.org/x/tools/gopls@latest"),
 	GoTool("gorename", "golang.org/x/tools/cmd/gorename@latest"),

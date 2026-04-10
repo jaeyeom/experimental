@@ -1,0 +1,26 @@
+---
+- name: Ensure JDK is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-java playbook
+      block:
+        - name: Stop early if the setup-java playbook is already included
+          meta: end_play
+          when: setup_java_playbook_imported is defined
+        - name: Ensure the setup-java playbook is not included
+          set_fact:
+            setup_java_playbook_imported: true
+          when: setup_java_playbook_imported is not defined
+
+    - name: Install JDK on macOS
+      community.general.homebrew:
+        name: openjdk
+        state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Install JDK on Debian/Ubuntu
+      apt:
+        name: default-jdk
+        state: present
+      become: yes
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
