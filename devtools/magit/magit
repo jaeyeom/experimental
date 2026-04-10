@@ -38,15 +38,29 @@ if ! emacsclient -e '(+ 1 1)' >/dev/null 2>&1; then
   exit 1
 fi
 
+# Escape backslashes and double-quotes so $dir is safe inside an Elisp
+# string literal passed to emacsclient --eval.
+escaped_dir="${dir//\\/\\\\}"
+escaped_dir="${escaped_dir//\"/\\\"}"
+
 elisp="
-(let* ((dir (expand-file-name \"$dir\"))
-       (buf-name (format \"magit: %s\" (file-name-nondirectory (directory-file-name dir))))
+(let* ((dir (expand-file-name \"$escaped_dir\"))
+       (canonical-dir (file-truename (directory-file-name dir)))
+       (target-buf
+        (seq-find
+         (lambda (buf)
+           (with-current-buffer buf
+             (and (derived-mode-p 'magit-status-mode)
+                  (string= (file-truename (directory-file-name default-directory))
+                           canonical-dir))))
+         (buffer-list)))
        (target-persp
-        (and (fboundp 'persp-names)
+        (and target-buf
+             (fboundp 'persp-names)
              (seq-find
               (lambda (name)
                 (let ((persp (persp-get-by-name name)))
-                  (and persp (memq (get-buffer buf-name) (persp-buffers persp)))))
+                  (and persp (memq target-buf (persp-buffers persp)))))
               (persp-names)))))
   (if target-persp
       (persp-switch target-persp)
