@@ -120,7 +120,7 @@ func (q *BazelQuerier) query(queryStr string) ([]string, error) {
 
 	result, err := q.executor.Execute(ctx, executor.ToolConfig{
 		Command:        "bazel",
-		Args:           []string{"query", "--noblock_for_lock", queryStr},
+		Args:           []string{"query", queryStr},
 		Timeout:        30 * time.Second,
 		CommandBuilder: &executor.ShellCommandBuilder{},
 	})
