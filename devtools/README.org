@@ -23,30 +23,6 @@ tasks, enforce code standards, and streamline collaboration.
 :CUSTOM_ID: build-testing
 :END:
 
-*** bazel-affected-tests                                       :experimental:
-
-Fast Go implementation for detecting which Bazel test targets are affected by
-changes in your git staging area. Features intelligent caching, format test
-filtering, and cross-platform support.
-
-*Key Features:*
-- 10-100x faster than shell implementations with smart caching
-- Automatic cache invalidation when BUILD files change
-- Cross-platform (Linux, macOS, Windows)
-- Format test filtering by file type
-
-*Installation:*
-#+BEGIN_SRC bash
-  go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest
-#+END_SRC
-
-*Usage:*
-#+BEGIN_SRC bash
-  bazel-affected-tests | xargs bazel test
-#+END_SRC
-
-[[file:bazel-affected-tests/README.md][→ Full Documentation]]
-
 ** Code Quality Tools
 :PROPERTIES:
 :CUSTOM_ID: code-quality
@@ -278,7 +254,6 @@ bazel build //devtools/<tool-name>/...
 
 #+BEGIN_SRC bash
 # Install individual Go-based tools
-go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/...@latest
 go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/...@latest
 go install github.com/jaeyeom/experimental/devtools/rename-jira-keys/cmd/...@latest
 
@@ -404,7 +379,7 @@ Example GitHub Actions workflow:
 - name: Install devtools
   run: |
     go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/devcheck@latest
-    go install github.com/jaeyeom/experimental/devtools/bazel-affected-tests/cmd/bazel-affected-tests@latest
+    go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest
 
 - name: Run quality checks
   run: devcheck
