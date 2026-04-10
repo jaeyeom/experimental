@@ -125,8 +125,15 @@
         '{{ git_statuslog_alias_desired }}'
       when: get_git_alias_statuslog.stdout | default('') != git_statuslog_alias_desired
 
+    - name: Check if claude is installed
+      shell: command -v claude
+      register: claude_check
+      failed_when: false
+      changed_when: false
+
     - name: Install git-guardrails plugin
       command: claude plugin install git-guardrails@claude-toolbox
+      when: claude_check.rc == 0
       changed_when: true
 
     - name: Remove shims replaced by git-guardrails plugin
@@ -136,3 +143,4 @@
       loop:
         - "{{ user_shims_bin_directory }}/git"
         - "{{ user_bin_directory }}/git"
+      when: claude_check.rc == 0
