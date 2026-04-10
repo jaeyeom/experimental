@@ -132,6 +132,11 @@
       failed_when: false
       changed_when: false
 
+    - name: Update claude-toolbox marketplace
+      command: claude plugin marketplace update claude-toolbox
+      when: claude_check.rc == 0
+      changed_when: false
+
     - name: Install git-guardrails plugin
       command: claude plugin install git-guardrails@claude-toolbox
       when: claude_check.rc == 0
