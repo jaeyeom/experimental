@@ -10,8 +10,8 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/ghtest",
     visibility = ["//visibility:public"],
     deps = [
-        "//devtools/pkg/executor:go_default_library",
         "//devtools/pkg/ghauth:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
 
@@ -19,5 +19,5 @@ go_test(
     name = "go_default_test",
     srcs = ["mock_test.go"],
     embed = [":go_default_library"],
-    deps = ["//devtools/pkg/executor:go_default_library"],
+    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )

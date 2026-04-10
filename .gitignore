@@ -56,3 +56,6 @@ tasks/
 # Coverage reports
 lcov.info
 coverage/
+
+# Project-local temp directory (sandbox-safe)
+.tmp/

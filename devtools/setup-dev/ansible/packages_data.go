@@ -44,6 +44,7 @@ var packages = []PackageData{
 	},
 	{command: "make"},
 	{command: "man", brewPkgName: "man-db"},
+	{command: "mediainfo"},
 	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
 	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []Import{{Playbook: "python3-notmuch2"}}},
 	{command: "npm", debianPkgName: "npm", termuxPkgName: "nodejs", brewPkgName: "node"},
@@ -91,6 +92,21 @@ var platformSpecificTools = []PlatformSpecificTool{
 			PlatformTermux:     GoInstallMethod{PkgPath: "github.com/rhysd/actionlint/cmd/actionlint@latest"},
 		},
 		Imports: []Import{{Playbook: "gh"}},
+	},
+	{
+		command: "antigravity",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewCaskInstallMethod{Name: "antigravity"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "antigravity",
+				GPGKeyURL:      "https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg",
+				GPGKeyPath:     "/etc/apt/keyrings/antigravity-repo-key.gpg",
+				RepoURL:        "https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/",
+				RepoComponents: "main",
+				Codename:       "antigravity-debian",
+				GPGKeyBase64:   "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tCgp4c0JOQkdDUnQ3TUJDQURrWUpISFFRb0w2dEtyVy9MYm1mUjlsano3aWIyYVdubzRKTzNWS1F2THdqeVVNUHBxCi9TWFhNT254OGpYd2dXaXpwUHhRWURSSjBTUVhTOVVMSjFoWFJML09nTW5aQVl2WURlVjJqQm5Lc0FJRWRpRy8KZTFxbThQNFc5cXBXSmMraE5xN0ZPVDEzUnpHV1J4NTdTZExXU1hvMEtlWTM4cjlsdmpqT21UL2N1T2NtandsRApUOVhZZi9SU08reUovQXN5TWRBcitaYkRlUVVkOUhZSmlQZEkwNGxHYUdNMDJNakRNbngrbW9uYyt5NTR0K1orCnJ5MVd0UWR6b1F0OWRIbElQbFYxdFIreFY1REhIc2VqQ1p4dTlUV3p6U2xMNXdmQkJlRXo3Ui9PSXppdkdKcFcKUWRKemQrMlFEWFNSZzlxMlhZV1A1WlZ0U2dqVlZKak5sYjZaQUJFQkFBSE5WRUZ5ZEdsbVlXTjBJRkpsWjJsegpkSEo1SUZKbGNHOXphWFJ2Y25rZ1UybG5ibVZ5SUR4aGNuUnBabUZqZEMxeVpXZHBjM1J5ZVMxeVpYQnZjMmwwCmIzSjVMWE5wWjI1bGNrQm5iMjluYkdVdVkyOXRQc0xBamdRVEFRb0FPQlloQkRXNm9MTStuck9XOVp5b09NQzYKWE9iY1l4V2pCUUpna2JlekFoc0RCUXNKQ0FjQ0JoVUtDUWdMQWdRV0FnTUJBaDRCQWhlQUFBb0pFTUM2WE9iYwpZeFdqK2lnSUFNRmg2RHJBWU1lcTlzYloxWkc2b0FNcmluVWhlR1FiRXFlNzZuSURRTnNabmhEd1oyd1dxZ1ZDCjdEZ09NcWxoUW1PbXptN002TnptcTJkdlB3cTN4QzJPZUk5ZlF5empUNzJkZUJUekxQN1BKb2s5UEpGT01kTGYKSUxTc1VubU1zaGVRdDREVU8wallBWDJLVXVXT0lYWEphWjMxOVF5b1JOQlBZYTVxejdxWFM3d0hMT1k4OUlEcQpmSHQ2QXVkOEVSNXpoeU95aHl0Y1lNZWFHQzFnMUlLV21nZXduaEVxMDJGYW50TUpHbG1tRmkyZUEwRVBEMDJHCkMzNzQyUUdxUnhMd2pXc201L1RweXVVMjRFWUtSR0NSbTdRZFZJbzN1Z0ZTZXRLcm4wYnlPeFdHQnZ0dTRmSDgKWFd2WmtSVCt1K3l6SDFzNXlGWUJxYzJKVHJySnZSVT0KPVFudk4KLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQo=",
+			},
+		},
 	},
 	GoTool("bazel-affected-tests", "github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
 	{
@@ -353,7 +369,15 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	{
 		command: "githooks-cli",
 		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: ShellInstallMethod{
+			PlatformDarwin: ShellInstallMethod{
+				InstallCommand: `
+if git hooks --version >/dev/null 2>&1; then
+    echo "Githooks already installed, skipping."
+else
+    {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
+fi`,
+			},
+			PlatformDebianLike: ShellInstallMethod{
 				InstallCommand: `
 if git hooks --version >/dev/null 2>&1; then
     echo "Githooks already installed, skipping."
@@ -383,6 +407,14 @@ fi`,
 	GoTool("gotests", "github.com/cweill/gotests/gotests@latest"),
 	GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
 	GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),
+	{
+		command: "gws",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "googleworkspace-cli"},
+			PlatformDebianLike: NvmInstallMethod{Name: "@googleworkspace/cli"},
+		},
+		Imports: nil,
+	},
 	GoTool("hugo", "github.com/gohugoio/hugo@latest"),
 	GoTool("image2ascii", "github.com/qeesung/image2ascii@latest"),
 	GoTool("impl", "github.com/josharian/impl@latest"),
@@ -419,6 +451,14 @@ fi`,
 			// termux: Skipped due to GNU Make 4.4.1 bugs with lcov's Makefile
 		},
 		Imports: nil,
+	},
+	{
+		command: "markdownlint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "markdownlint-cli"},
+			PlatformDebianLike: NvmInstallMethod{Name: "markdownlint-cli"},
+			PlatformTermux:     NpmInstallMethod{Name: "markdownlint-cli"},
+		},
 	},
 	{
 		command: "mypy",
@@ -493,6 +533,7 @@ fi`,
 		Imports: nil,
 	},
 	GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
+	GoTool("review-and-push-loop", "github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest", Import{Playbook: "codex"}),
 	{
 		command: "ruff",
 		platforms: map[PlatformName]InstallMethod{
@@ -578,11 +619,56 @@ fi`,
 	},
 	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
 	{
+		command: "terraform",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform", Tap: "hashicorp/tap"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "terraform",
+				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
+				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+				RepoURL:        "https://apt.releases.hashicorp.com",
+				RepoComponents: "main",
+			},
+		},
+	},
+	{
+		command: "terraform-ls",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform-ls", Tap: "hashicorp/tap"},
+			PlatformDebianLike: AptRepoInstallMethod{
+				Name:           "terraform-ls",
+				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
+				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+				RepoURL:        "https://apt.releases.hashicorp.com",
+				RepoComponents: "main",
+			},
+		},
+	},
+	{
+		command: "tflint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "tflint"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand: "curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash",
+			},
+		},
+		Imports: []Import{{Playbook: "curl", When: WhenDebianLike}},
+	},
+	{
 		command: "tsc",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "typescript"},
 			PlatformDebianLike: NvmInstallMethod{Name: "typescript"},
 			PlatformTermux:     NpmInstallMethod{Name: "typescript"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "tuir",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     UvInstallMethod{Name: "tuir-continued"},
+			PlatformTermux:     PipInstallMethod{Name: "tuir-continued"},
+			PlatformDebianLike: UvInstallMethod{Name: "tuir-continued"},
 		},
 		Imports: nil,
 	},

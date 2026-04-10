@@ -242,7 +242,7 @@ if [ -n "$TERMUX_VERSION" ]; then
     # Only upgrade if not done in the last 24 hours
     if [ ! -f "$PKG_CACHE" ] || [ "$(find "$PKG_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
         pkg upgrade -y
-        pkg install -y rust python-pip
+        pkg install -y rust python-pip python-cryptography
         touch "$PKG_CACHE"
     fi
 
@@ -253,6 +253,219 @@ if [ -n "$TERMUX_VERSION" ]; then
     if ! command -v pip >/dev/null 2>&1; then
         echo "Installing pip..."
         pkg install -y python-pip
+    fi
+    if ! python -c "import cryptography" >/dev/null 2>&1; then
+        echo "Installing python-cryptography..."
+        pkg install -y python-cryptography
+    fi
+
+    # Termux's CPython is built without the grp C extension because
+    # Android's Bionic libc lacks the POSIX group database API.  Ansible
+    # imports grp unconditionally, so provide a minimal stub.
+    if ! python -c "import grp" >/dev/null 2>&1; then
+        echo "Creating grp stub module for Termux..."
+        _site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"
+        cat > "$_site_packages/grp.py" <<'STUBEOF'
+"""Minimal grp stub for Termux where the C extension is unavailable."""
+
+class struct_group(tuple):
+    __slots__ = ()
+    gr_name = property(lambda s: s[0])
+    gr_passwd = property(lambda s: s[1])
+    gr_gid = property(lambda s: s[2])
+    gr_mem = property(lambda s: s[3])
+    def __new__(cls, name, passwd, gid, mem):
+        return tuple.__new__(cls, (name, passwd, gid, mem))
+    def __repr__(self):
+        return ("grp.struct_group(gr_name=%r, gr_passwd=%r, "
+                "gr_gid=%r, gr_mem=%r)" % self)
+
+def getgrgid(gid):
+    return struct_group(str(gid), "x", gid, [])
+
+def getgrnam(name):
+    return struct_group(name, "x", 0, [])
+
+def getgrall():
+    return []
+STUBEOF
+    fi
+
+    # Termux's CPython is also built without the _multiprocessing C
+    # extension (semaphore-based locks).  Ansible needs it for its task
+    # queue.  Provide a ctypes wrapper around libandroid-posix-semaphore.
+    if ! python -c "import _multiprocessing" >/dev/null 2>&1; then
+        echo "Creating _multiprocessing stub module for Termux..."
+        _site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')"
+        cat > "$_site_packages/_multiprocessing.py" <<'STUBEOF'
+"""ctypes-based _multiprocessing for Termux (missing C extension).
+
+Wraps libandroid-posix-semaphore to provide SemLock, which the stdlib
+multiprocessing.synchronize module requires.
+"""
+
+import ctypes
+import errno
+import os
+import threading
+import time
+
+_libsem = ctypes.CDLL("libandroid-posix-semaphore.so", use_errno=True)
+
+_libsem.sem_open.restype = ctypes.c_void_p
+_libsem.sem_open.argtypes = [ctypes.c_char_p, ctypes.c_int,
+                              ctypes.c_uint, ctypes.c_uint]
+_libsem.sem_close.restype = ctypes.c_int
+_libsem.sem_close.argtypes = [ctypes.c_void_p]
+_libsem.sem_unlink.restype = ctypes.c_int
+_libsem.sem_unlink.argtypes = [ctypes.c_char_p]
+_libsem.sem_wait.restype = ctypes.c_int
+_libsem.sem_wait.argtypes = [ctypes.c_void_p]
+_libsem.sem_trywait.restype = ctypes.c_int
+_libsem.sem_trywait.argtypes = [ctypes.c_void_p]
+_libsem.sem_post.restype = ctypes.c_int
+_libsem.sem_post.argtypes = [ctypes.c_void_p]
+_libsem.sem_getvalue.restype = ctypes.c_int
+_libsem.sem_getvalue.argtypes = [ctypes.c_void_p,
+                                  ctypes.POINTER(ctypes.c_int)]
+
+
+class _timespec(ctypes.Structure):
+    _fields_ = [("tv_sec", ctypes.c_long), ("tv_nsec", ctypes.c_long)]
+
+
+_libsem.sem_timedwait.restype = ctypes.c_int
+_libsem.sem_timedwait.argtypes = [ctypes.c_void_p,
+                                   ctypes.POINTER(_timespec)]
+
+_SEM_FAILED = ctypes.c_void_p(-1).value
+
+
+def sem_unlink(name):
+    if isinstance(name, str):
+        name = name.encode("utf-8")
+    if _libsem.sem_unlink(name) < 0:
+        err = ctypes.get_errno()
+        if err != errno.ENOENT:
+            raise OSError(err, os.strerror(err))
+
+
+class SemLock:
+    # libandroid-posix-semaphore crashes with values above ~1 billion.
+    SEM_VALUE_MAX = 100000000
+
+    def __init__(self, kind, value, maxvalue, name, unlink_now=True):
+        self.kind = kind
+        self.maxvalue = maxvalue
+        self.name = name if not unlink_now else None
+        bname = name.encode("utf-8") if isinstance(name, str) else name
+        handle = _libsem.sem_open(
+            bname, os.O_CREAT | os.O_EXCL, 0o600, value)
+        if handle == _SEM_FAILED:
+            err = ctypes.get_errno()
+            if err == errno.EEXIST:
+                raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST))
+            raise OSError(err, os.strerror(err))
+        self.handle = handle
+        self._bname = bname
+        if unlink_now:
+            _libsem.sem_unlink(bname)
+        self._owner_tid = None
+        self._count_val = 0
+        self._lock = threading.Lock()
+
+    def acquire(self, block=True, timeout=None):
+        if not block:
+            rc = _libsem.sem_trywait(self.handle)
+            if rc < 0:
+                err = ctypes.get_errno()
+                if err == errno.EAGAIN:
+                    return False
+                raise OSError(err, os.strerror(err))
+        elif timeout is not None:
+            deadline = time.time() + timeout
+            ts = _timespec()
+            ts.tv_sec = int(deadline)
+            ts.tv_nsec = int((deadline - int(deadline)) * 1e9)
+            rc = _libsem.sem_timedwait(self.handle, ctypes.byref(ts))
+            if rc < 0:
+                err = ctypes.get_errno()
+                if err == errno.ETIMEDOUT:
+                    return False
+                raise OSError(err, os.strerror(err))
+        else:
+            rc = _libsem.sem_wait(self.handle)
+            if rc < 0:
+                err = ctypes.get_errno()
+                raise OSError(err, os.strerror(err))
+        tid = threading.get_ident()
+        with self._lock:
+            self._owner_tid = tid
+            self._count_val += 1
+        return True
+
+    def release(self):
+        with self._lock:
+            if self._count_val > 0:
+                self._count_val -= 1
+            if self._count_val == 0:
+                self._owner_tid = None
+        if _libsem.sem_post(self.handle) < 0:
+            err = ctypes.get_errno()
+            raise OSError(err, os.strerror(err))
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
+    def _count(self):
+        with self._lock:
+            if self._owner_tid == threading.get_ident():
+                return self._count_val
+            return 0
+
+    def _is_mine(self):
+        with self._lock:
+            return self._owner_tid == threading.get_ident()
+
+    def _get_value(self):
+        val = ctypes.c_int()
+        if _libsem.sem_getvalue(self.handle, ctypes.byref(val)) < 0:
+            err = ctypes.get_errno()
+            raise OSError(err, os.strerror(err))
+        return val.value
+
+    def _is_zero(self):
+        return self._get_value() == 0
+
+    def _after_fork(self):
+        self._owner_tid = None
+        self._count_val = 0
+        self._lock = threading.Lock()
+
+    @classmethod
+    def _rebuild(cls, handle, kind, maxvalue, name):
+        self = cls.__new__(cls)
+        self.handle = handle
+        self.kind = kind
+        self.maxvalue = maxvalue
+        self.name = name
+        self._bname = (name.encode("utf-8")
+                       if isinstance(name, str) else name)
+        self._owner_tid = None
+        self._count_val = 0
+        self._lock = threading.Lock()
+        return self
+
+    def __del__(self):
+        try:
+            _libsem.sem_close(self.handle)
+        except Exception:
+            pass
+STUBEOF
     fi
 
     # Install necessary packages for Ansible and also install ansible.

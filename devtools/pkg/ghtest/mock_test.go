@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/pkg/executor"
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func TestGHMockExecutor(t *testing.T) {

@@ -18,7 +18,7 @@
             githooks_cli_playbook_imported: true
           when: githooks_cli_playbook_imported is not defined
 
-    - name: Ensure githooks-cli is present
+    - name: Ensure githooks-cli is present on MacOS
       block:
         - name: Check if githooks-cli is installed
           shell: command -v githooks-cli
@@ -34,3 +34,22 @@
                 {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
             fi
           when: githooks_cli_installed.rc != 0
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Install githooks-cli via shell on Debian/Ubuntu
+      block:
+        - name: Check if githooks-cli is installed
+          shell: command -v githooks-cli
+          register: githooks_cli_installed
+          failed_when: false
+          changed_when: False
+
+        - name: Install githooks-cli
+          shell: |
+            if git hooks --version >/dev/null 2>&1; then
+                echo "Githooks already installed, skipping."
+            else
+                {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
+            fi
+          when: githooks_cli_installed.rc != 0
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

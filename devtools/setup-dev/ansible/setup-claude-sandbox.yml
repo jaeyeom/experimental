@@ -14,6 +14,22 @@
     claude_tmpdir: "{{ claude_tmpdir_base }}/claude"
     sandbox_config:
       includeCoAuthoredBy: false
+      hooks:
+        PostToolUse:
+          - matcher: "Edit|Write"
+            hooks:
+              - type: command
+                command: >-
+                  jq -r '.tool_input.file_path // empty' |
+                  while read -r f; do
+                    [[ -z "$f" || ! -f "$f" ]] && continue;
+                    case "$f" in
+                      *.go) command -v gofmt &>/dev/null && gofmt -w "$f";;
+                      *.py) command -v ruff &>/dev/null && ruff format -q "$f";;
+                      *.js|*.ts|*.tsx|*.jsx|*.css) command -v prettier &>/dev/null && prettier --write --log-level silent "$f";;
+                      *.sh|*.bash) command -v shfmt &>/dev/null && shfmt -w "$f";;
+                    esac;
+                  done; true
       sandbox:
         enabled: true
         autoAllowBashIfSandboxed: true
@@ -21,6 +37,7 @@
           - bazel
           - bazelisk  # bazel is often a symlink to bazelisk
           - docker
+          - gh  # needs macOS keychain access for auth tokens
           - git
           - make
           - npm
@@ -35,13 +52,45 @@
               # Linux Go and golangci-lint cache paths
               - "{{ ansible_facts['env']['HOME'] }}/.cache/go-build"
               - "{{ ansible_facts['env']['HOME'] }}/.cache/golangci-lint"
+              # Go module cache (needed for go get)
+              - "{{ ansible_facts['env']['HOME'] }}/go/pkg/mod"
               # Semgrep log/cache (needed for pre-commit hooks running semgrep)
               - "{{ ansible_facts['env']['HOME'] }}/.semgrep"
               # Bazel cache (needed for git pre-commit hooks running bazel test)
               - "{{ ansible_facts['env']['HOME'] }}/.cache/bazel"
+              # Githooks release clone (needed for update checks via git fetch)
+              - "{{ ansible_facts['env']['HOME'] }}/.githooks/release/.git"
+              # Shared Claude temp directory (needed for cross-sandbox TMPDIR
+              # consistency — see issue #148). The sandbox overrides $TMPDIR to
+              # a session-scoped path, so files written via $TMPDIR in sandbox
+              # mode are invisible to non-sandboxed calls. Adding the real
+              # TMPDIR here lets sandboxed code write to $CLAUDE_CODE_TMPDIR,
+              # which stays consistent across both modes.
+              - "{{ claude_tmpdir }}"
         network:
           allowedHosts:
+            # GitHub
             - api.github.com
+            # Go modules and downloads
+            - proxy.golang.org
+            - sum.golang.org
+            - go.dev
+            - dl.google.com
+            # NPM registry
+            - registry.npmjs.org
+            # PyPI (Python packages)
+            - pypi.org
+            - files.pythonhosted.org
+            # Cargo / crates.io (Rust packages)
+            - crates.io
+            - index.crates.io
+            - static.crates.io
+            # Homebrew
+            - formulae.brew.sh
+            - ghcr.io
+            - objects.githubusercontent.com
+            # Node.js downloads
+            - nodejs.org
           allowUnixSockets:
             - /var/run/docker.sock
           allowLocalBinding: true
@@ -51,6 +100,8 @@
           - "Bash(bazel query:*)"
           - "Bash(bazel test:*)"   # Medium risk (may run genrule)
           - "Bash(gh issue close:*)"
+          - "Bash(gh issue edit * --add-assignee @me)"
+          - "Bash(gh issue edit * --remove-label *)"
           - "Bash(gh issue list:*)"
           - "Bash(gh issue reopen:*)"
           - "Bash(gh issue status:*)"
@@ -63,6 +114,14 @@
           - "Bash(gh release list:*)"
           - "Bash(gh release view:*)"
           - "Bash(gh repo view:*)"
+          - "Bash(go build:*)"
+          - "Bash(go fix:*)"
+          - "Bash(go fmt:*)"
+          - "Bash(go get:*)"
+          - "Bash(go mod:*)"
+          - "Bash(go test:*)"
+          - "Bash(go version:*)"
+          - "Bash(go vet:*)"
           - "Bash(git add:*)"
           - "Bash(git branch:*)"
           - "Bash(git commit:*)"
@@ -72,6 +131,7 @@
           - "Bash(golangci-lint run:*)"
           - "Bash(rg:*)"       # Safe: read-only search tool, no exec capability
           - "Bash(ruff:*)"
+          - "WebSearch"    # Read-only web search, low risk
         deny:
           - "Bash(eval:*)"      # Shell eval
           - "Bash(source:*)"    # Source scripts
@@ -121,6 +181,26 @@
         path: /data/data/com.termux
       register: termux_check
 
+    - name: Check if claude is installed
+      shell: command -v claude
+      register: claude_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install sandbox-helpers plugin
+      command: claude plugin install sandbox-helpers@claude-toolbox
+      when: claude_check.rc == 0
+      changed_when: true
+
+    - name: Remove shims replaced by sandbox-helpers plugin
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ user_shims_bin_directory }}/gh"
+        - "{{ user_shims_bin_directory }}/jira"
+      when: claude_check.rc == 0
+
     - name: Create claude wrapper script in ~/.local/shims/bin
       copy:
         content: |
@@ -131,7 +211,7 @@
           # Find the real claude (skipping this wrapper)
           # which -a returns absolute paths. We take the second one because this wrapper
           # is expected to be the first one in PATH.
-          REAL_CLAUDE=$(which -a claude | uniq | sed -n '2p')
+          REAL_CLAUDE=$(which -a claude | uniq | grep -v '/Applications/cmux.app/Contents/Resources/bin' | sed -n '2p')
 
           if [[ -z "$REAL_CLAUDE" ]]; then
               echo "Error: No real claude found in PATH" >&2
@@ -148,6 +228,23 @@
           # Set TMPDIR to claude temp directory so heredocs work in sandbox
           # Shells create temp files for heredocs using TMPDIR
           export TMPDIR="${CLAUDE_TMPDIR_BASE}/claude"
+
+          # TMPDIR consistency caveat (issue #148):
+          # The sandbox overrides $TMPDIR to a session-scoped path, so files
+          # written via $TMPDIR in sandboxed Bash calls are invisible to
+          # non-sandboxed (dangerouslyDisableSandbox) calls and vice versa.
+          # Use $CLAUDE_CODE_TMPDIR instead of $TMPDIR when sharing temp files
+          # across sandbox modes. This path is added to the sandbox write
+          # allowlist so it is writable in both modes.
+
+          # Export GH_TOKEN so gh CLI works inside the sandbox without keychain access.
+          # The wrapper runs unsandboxed, so `gh auth token` can read the keychain here.
+          if [[ -z "$GH_TOKEN" ]] && command -v gh &>/dev/null; then
+              token=$(gh auth token 2>/dev/null)
+              if [[ -n "$token" ]]; then
+                  export GH_TOKEN="$token"
+              fi
+          fi
 
           # Execute the real claude
           exec "$REAL_CLAUDE" "$@"

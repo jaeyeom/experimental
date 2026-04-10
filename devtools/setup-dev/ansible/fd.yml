@@ -58,6 +58,7 @@
           when: fd_installed.rc != 0
           environment:
             PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+            CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
 
         - name: Update fd to latest version
           command: cargo install-update fd-find
@@ -66,4 +67,5 @@
           when: fd_installed.rc == 0
           environment:
             PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+            CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

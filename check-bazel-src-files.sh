@@ -30,7 +30,7 @@ get_config() {
         go)
             EXT="*.go"
             RULE_PREFIX="go_"
-            EXCLUDE_PATS="test_*.go"
+            EXCLUDE_PATS="test_*.go node_modules"
             DISPLAY_NAME="Go"
             ;;
         py)
@@ -104,6 +104,7 @@ find . -name "$EXT" \
     -not -path "./.bazel-*" \
     -not -path "./vendor/*" \
     -not -path "./.cache/*" \
+    -not -path "*/node_modules/*" \
     $FIND_EXCLUDES \
     | sed 's|^\./||' | sort > "$FILESYSTEM_FILES"
 

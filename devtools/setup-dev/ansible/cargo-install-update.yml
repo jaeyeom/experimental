@@ -35,6 +35,7 @@
       when: cargo_install_update_installed.rc != 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
 
     - name: Update cargo-install-update to latest version
       command: cargo install-update cargo-update
@@ -43,3 +44,4 @@
       when: cargo_install_update_installed.rc == 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"

@@ -31,6 +31,7 @@
       when: cargo_outdated_installed.rc != 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
 
     - name: Update cargo-outdated to latest version
       command: cargo install-update cargo-outdated
@@ -39,3 +40,4 @@
       when: cargo_outdated_installed.rc == 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"

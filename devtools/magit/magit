@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# magit — Open magit-status in a running Emacs via emacsclient.
+#
+# Usage: magit [-c] [-t] [directory]
+#
+# Options:
+#   -c    Create a new graphical frame
+#   -t    Open in terminal mode (text-only frame in the current terminal)
+#
+# If no directory is given, uses the current working directory.
+#
+# Behavior:
+#   - If no Emacs server is running, prints an error and exits.
+#   - With -c or -t, creates a new frame and opens magit-status there.
+#   - If a magit buffer for the directory already exists in a perspective,
+#     switches to that perspective and raises the frame.
+#   - Otherwise, switches to perspective #1, runs magit-status, and raises
+#     the frame.
+
+set -euo pipefail
+
+frame_opt=""
+while getopts "ct" opt; do
+  case "$opt" in
+    c) frame_opt="-c" ;;
+    t) frame_opt="-t" ;;
+    *) echo "Usage: magit [-c] [-t] [directory]" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+dir="${1:-$PWD}"
+dir="$(cd "$dir" && pwd)"
+
+# Check if Emacs server is running.
+if ! emacsclient -e '(+ 1 1)' >/dev/null 2>&1; then
+  echo "Error: No Emacs server running. Start Emacs first." >&2
+  exit 1
+fi
+
+elisp="
+(let* ((dir (expand-file-name \"$dir\"))
+       (buf-name (format \"magit: %s\" (file-name-nondirectory (directory-file-name dir))))
+       (target-persp
+        (and (fboundp 'persp-names)
+             (seq-find
+              (lambda (name)
+                (let ((persp (persp-get-by-name name)))
+                  (and persp (memq (get-buffer buf-name) (persp-buffers persp)))))
+              (persp-names)))))
+  (if target-persp
+      (persp-switch target-persp)
+    (when (fboundp 'persp-switch-by-number)
+      (persp-switch-by-number 1)))
+  (magit-status dir)
+  (select-frame-set-input-focus (selected-frame)))
+"
+
+if [[ "$frame_opt" == "-t" ]]; then
+  # Terminal mode needs the tty; do not redirect output.
+  # Ghostty's terminfo is not always available; fall back to xterm-256color.
+  if [[ "$TERM" == "xterm-ghostty" ]]; then
+    TERM=xterm-256color emacsclient -t --eval "$elisp"
+  else
+    emacsclient -t --eval "$elisp"
+  fi
+else
+  # shellcheck disable=SC2086
+  emacsclient $frame_opt --eval "$elisp" >/dev/null
+fi

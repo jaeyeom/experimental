@@ -355,6 +355,7 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
       when: ` + commandID + `_installed.rc != 0
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"
 
     - name: Update ` + command + ` to latest version
       command: cargo install-update ` + c.Name + `
@@ -362,7 +363,8 @@ func (c CargoInstallMethod) RenderInstallTask(command string) string {
       changed_when: "` + commandID + `_update_result.stdout is search('Overall updated [1-9]')"
       when: ` + commandID + `_installed.rc == 0
       environment:
-        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"`
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"
+        CARGO_BUILD_JOBS: "{{ '1' if ansible_facts['env']['TERMUX_VERSION'] is defined else omit }}"`
 
 	return task
 }
@@ -736,6 +738,11 @@ type AptRepoInstallMethod struct {
 
 	// Arch is the architecture constraint (e.g., "amd64"). Leave empty for no constraint.
 	Arch string
+
+	// GPGKeyBase64 is the base64-encoded GPG public key for the repository.
+	// When set, Qubes TemplateVM scripts embed the key directly instead of
+	// downloading it with curl, which is useful for air-gapped environments.
+	GPGKeyBase64 string
 }
 
 func (a AptRepoInstallMethod) GetMethodType() string {
@@ -747,6 +754,7 @@ func (a AptRepoInstallMethod) GetImports() []Import {
 }
 
 func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
 	codename := a.Codename
 	if codename == "" {
 		codename = "{{ ansible_facts['distribution_release'] }}"
@@ -760,7 +768,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
 	return `    - name: Check if GPG key for ` + command + ` exists
       ansible.builtin.stat:
         path: ` + a.GPGKeyPath + `
-      register: ` + command + `_gpg_key
+      register: ` + commandID + `_gpg_key
       when: ` + WhenDebianLike + `
 
     - name: Download GPG key for ` + command + `
@@ -769,7 +777,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
         dest: /tmp/` + command + `-repo.gpg
         mode: '0644'
       become: yes
-      when: ` + WhenDebianLike + ` and not ` + command + `_gpg_key.stat.exists
+      when: ` + WhenDebianLike + ` and not ` + commandID + `_gpg_key.stat.exists
 
     - name: Dearmor and install GPG key for ` + command + `
       ansible.builtin.shell: |
@@ -777,7 +785,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
       args:
         creates: ` + a.GPGKeyPath + `
       become: yes
-      when: ` + WhenDebianLike + ` and not ` + command + `_gpg_key.stat.exists
+      when: ` + WhenDebianLike + ` and not ` + commandID + `_gpg_key.stat.exists
 
     - name: Add apt repository for ` + command + `
       ansible.builtin.apt_repository:

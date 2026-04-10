@@ -12,6 +12,7 @@
 - import_playbook: setup-vibe-coding.yml
 - import_playbook: setup-z.yml
 - import_playbook: setup-spacemacs.yml
+- import_playbook: magit.yml
 - import_playbook: setup-direnv.yml
 - import_playbook: setup-wrangler.yml
 - import_playbook: setup-swift-tools.yml
@@ -22,4 +23,5 @@
 - import_playbook: setup-kotlin-tools.yml
 - import_playbook: setup-python-tools.yml
 - import_playbook: setup-css-tools.yml
+- import_playbook: setup-terraform-tools.yml
 - import_playbook: setup-claude-sandbox.yml
