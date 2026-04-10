@@ -15,8 +15,15 @@
             setup_find_playbook_imported: true
           when: setup_find_playbook_imported is not defined
 
+    - name: Check if claude is installed
+      shell: command -v claude
+      register: claude_check
+      failed_when: false
+      changed_when: false
+
     - name: Install git-guardrails plugin (covers find guardrails)
       command: claude plugin install git-guardrails@claude-toolbox
+      when: claude_check.rc == 0
       changed_when: true
 
     - name: Remove shims replaced by git-guardrails plugin
@@ -26,3 +33,4 @@
       loop:
         - "{{ user_shims_bin_directory }}/find"
         - "{{ user_bin_directory }}/find"
+      when: claude_check.rc == 0
