@@ -115,6 +115,7 @@ sh_test(
         "cargo.yml",
         "cargo-install-update.yml",
         "check-jsonschema.yml",
+        "checkstyle.yml",
         "claude.yml",
         "claudelytics.yml",
         "cleanup-repo.yml",
@@ -150,6 +151,7 @@ sh_test(
         "goimports.yml",
         "golangci-lint.yml",
         "gomodifytags.yml",
+        "google-java-format.yml",
         "gopkgs.yml",
         "gopls.yml",
         "gorename.yml",
@@ -207,6 +209,8 @@ sh_test(
         "setup-gpg-agent.yml",
         "setup-history.yml",
         "setup-homebrew-env.yml",
+        "setup-java.yml",
+        "setup-java-tools.yml",
         "setup-kotlin-tools.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
@@ -449,6 +453,20 @@ sh_test(
         "check-jsonschema.yml",
         "gather-facts.yml",
         "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "checkstyle_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["checkstyle.yml"],
+    data = [
+        "checkstyle.yml",
+        "setup-java.yml",
     ],
     tags = [
         "ansible",
@@ -1156,6 +1174,24 @@ sh_test(
         "gomodifytags.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "google-java-format_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["google-java-format.yml"],
+    data = [
+        "curl.yml",
+        "gather-facts.yml",
+        "google-java-format.yml",
+        "setup-java.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -2910,6 +2946,37 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-java_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-java.yml"],
+    data = ["setup-java.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "setup-java-tools_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-java-tools.yml"],
+    data = [
+        "checkstyle.yml",
+        "curl.yml",
+        "gather-facts.yml",
+        "google-java-format.yml",
+        "setup-java.yml",
+        "setup-java-tools.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-kotex_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-kotex.yml"],
@@ -3830,6 +3897,7 @@ test_suite(
         ":cargo-outdated_syntax_test",
         ":cargo_syntax_test",
         ":check-jsonschema_syntax_test",
+        ":checkstyle_syntax_test",
         ":clang-format_syntax_test",
         ":claude_syntax_test",
         ":claudelytics_syntax_test",
@@ -3876,6 +3944,7 @@ test_suite(
         ":goimports_syntax_test",
         ":golangci-lint_syntax_test",
         ":gomodifytags_syntax_test",
+        ":google-java-format_syntax_test",
         ":gopkgs_syntax_test",
         ":gopls_syntax_test",
         ":gorename_syntax_test",
@@ -3969,6 +4038,8 @@ test_suite(
         ":setup-grpc_syntax_test",
         ":setup-history_syntax_test",
         ":setup-homebrew-env_syntax_test",
+        ":setup-java-tools_syntax_test",
+        ":setup-java_syntax_test",
         ":setup-kotex_syntax_test",
         ":setup-kotlin-tools_syntax_test",
         ":setup-npm_syntax_test",

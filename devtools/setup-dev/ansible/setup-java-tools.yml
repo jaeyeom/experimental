@@ -1,0 +1,6 @@
+---
+- name: Setup checkstyle
+  import_playbook: checkstyle.yml
+
+- name: Setup google-java-format
+  import_playbook: google-java-format.yml
