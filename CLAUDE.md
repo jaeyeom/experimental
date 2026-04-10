@@ -19,6 +19,21 @@ This file guides Claude Code's behavior.
 -   **Use rebase** to integrate upstream changes (`git pull --rebase`).
 -   **Use fast-forward merges** to main (`git merge --ff-only`).
 
+## Temp File Handling
+-   **`$TMPDIR` differs between sandbox and unsandbox modes.** Sandbox uses
+    `/tmp/claude`, unsandbox uses `/var/folders/.../T//claude`. Files created
+    in one mode are invisible via `$TMPDIR` in the other.
+-   **For multi-step workflows**: use the project-local `.tmp/` directory
+    (gitignored) instead of `$TMPDIR` when a temp file must be referenced
+    across multiple Bash calls that might switch sandbox modes.
+    ```sh
+    mkdir -p .tmp
+    echo "data" > .tmp/myfile
+    # Safe to reference .tmp/myfile in any subsequent command
+    ```
+-   **If you must use `$TMPDIR`**: capture the resolved absolute path on first
+    use and pass the literal path (not `$TMPDIR`) to subsequent commands.
+
 ## Skills & Commands
 -   **Go**: Use the `go-dev` plugin skill (Auto-discovered for Go tasks).
 -   **Code Review**: See `.claude/skills/code-review/SKILL.md` (Auto-discovered for reviews).
