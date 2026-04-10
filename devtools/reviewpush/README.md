@@ -6,6 +6,8 @@ It is built for a very specific workflow: let Codex review commits, but do not l
 
 > "I finally found the proper usage of codex! Review but don't work on the code. It shows its super power when I tell it that the code is written by Claude Code!"
 
+![reviewpush overview](overview.jpg)
+
 ## What it does
 
 `review-and-push-loop` repeatedly:
