@@ -233,6 +233,9 @@ func TestBlockedMode(t *testing.T) {
 	if !strings.Contains(buf.String(), "BLOCKED: review-and-push stopped on commit-1.") {
 		t.Errorf("expected BLOCKED message, got: %s", buf.String())
 	}
+	if !strings.Contains(buf.String(), "Reason: hard blocker") {
+		t.Errorf("expected blocked reason in output, got: %s", buf.String())
+	}
 	if codex.calls != 1 {
 		t.Errorf("expected 1 codex call, got %d", codex.calls)
 	}
