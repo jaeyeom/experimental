@@ -167,7 +167,7 @@ func (r *Runner) PrintCommitBanner(ctx context.Context, commit string) {
 
 // handlePush validates and pushes commits based on the Codex result.
 // Returns an error message on failure, empty string on success.
-func (r *Runner) handlePush(ctx context.Context, result *CodexResult, targetCommit, remoteRef, baseBranch string, ahead int) string {
+func (r *Runner) handlePush(ctx context.Context, result *CodexResult, targetCommit, remoteRef, baseBranch string) string {
 	pushTarget := targetCommit
 	if result.MultiCommits && result.PushTarget != nil {
 		pushTarget = *result.PushTarget
@@ -182,14 +182,7 @@ func (r *Runner) handlePush(ctx context.Context, result *CodexResult, targetComm
 		return fmt.Sprintf("BLOCKED: push failed for %s.", pushTarget)
 	}
 
-	aheadAfter, err := r.AheadCount(ctx, remoteRef)
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
-	}
-	if aheadAfter >= ahead {
-		return fmt.Sprintf("BLOCKED: push to %s completed, but the ahead count did not decrease.", pushTarget)
-	}
-	r.log("Pushed through %s. Remaining ahead count: %d.", pushTarget, aheadAfter)
+	r.log("Pushed through %s.", pushTarget)
 	return ""
 }
 
@@ -244,7 +237,7 @@ func (r *Runner) Run(ctx context.Context) int {
 
 		switch result.Status {
 		case "PUSH":
-			if msg := r.handlePush(ctx, result, targetCommit, remoteRef, baseBranch, ahead); msg != "" {
+			if msg := r.handlePush(ctx, result, targetCommit, remoteRef, baseBranch); msg != "" {
 				r.log("%s", msg)
 				return 2
 			}
