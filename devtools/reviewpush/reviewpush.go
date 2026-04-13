@@ -250,6 +250,9 @@ func (r *Runner) Run(ctx context.Context) int {
 			}
 		case "BLOCKED":
 			r.log("BLOCKED: review-and-push stopped on %s.", targetCommit)
+			if result.BlockedReason != nil {
+				r.log("Reason: %s", *result.BlockedReason)
+			}
 			return 2
 		default:
 			r.log("BLOCKED: unexpected Codex status '%s' for %s.", result.Status, targetCommit)
