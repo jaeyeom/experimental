@@ -8,7 +8,8 @@
       ".*\\.pkl\\.go$": "Skip Pkl generated files",
       "bazel-out/.*": "Skip bazel output",
       "external/.*": "Skip external files",
-      "tmp/.*": "Skip tmp files"
+      "tmp/.*": "Skip tmp files",
+      ".*/node_modules/.*": "Skip node_modules vendored files"
     }
   },
   "shadow": {
