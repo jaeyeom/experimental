@@ -13,4 +13,5 @@ go_test(
     size = "small",
     srcs = ["box_test.go"],
     embed = [":go_default_library"],
+    deps = ["//text/canvas:go_default_library"],
 )
