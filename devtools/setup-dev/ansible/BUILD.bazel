@@ -957,6 +957,20 @@ sh_test(
 )
 
 sh_test(
+    name = "gh-repox_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gh-repox.yml"],
+    data = [
+        "gh.yml",
+        "gh-repox.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "gh-slack_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["gh-slack.yml"],
@@ -3945,6 +3959,7 @@ test_suite(
         ":gh-merge_syntax_test",
         ":gh-nudge_syntax_test",
         ":gh-pr-review_syntax_test",
+        ":gh-repox_syntax_test",
         ":gh-slack_syntax_test",
         ":gh-storage_syntax_test",
         ":gh_syntax_test",

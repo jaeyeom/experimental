@@ -714,6 +714,52 @@ func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {
 	return stripBlockAndIndent(s.RenderInstallTask(command), 0)
 }
 
+// GhExtensionInstallMethod handles installation of GitHub CLI extensions.
+// Extensions are installed via 'gh extension install' and upgraded via
+// 'gh extension upgrade' to ensure they stay up-to-date.
+type GhExtensionInstallMethod struct {
+	Repo string // Full GitHub repository (e.g., "jaeyeom/gh-repox")
+}
+
+func (g GhExtensionInstallMethod) GetMethodType() string {
+	return "gh-extension"
+}
+
+func (g GhExtensionInstallMethod) GetImports() []Import {
+	return []Import{{Playbook: "gh"}}
+}
+
+func (g GhExtensionInstallMethod) RenderSetupTasks(_ string) string {
+	return ""
+}
+
+func (g GhExtensionInstallMethod) extensionName() string {
+	parts := strings.Split(g.Repo, "/")
+	return parts[len(parts)-1]
+}
+
+func (g GhExtensionInstallMethod) RenderInstallTask(command string) string {
+	commandID := strings.ReplaceAll(command, "-", "_")
+	extName := g.extensionName()
+	return `    - name: Check if ` + command + ` extension is installed
+      shell: gh extension list | grep -q '` + extName + `'
+      register: ` + commandID + `_installed
+      failed_when: false
+      changed_when: False
+
+    - name: Install ` + command + ` extension
+      command: gh extension install ` + g.Repo + `
+      when: ` + commandID + `_installed.rc != 0
+
+    - name: Upgrade ` + command + ` extension
+      command: gh extension upgrade ` + extName + `
+      when: ` + commandID + `_installed.rc == 0`
+}
+
+func (g GhExtensionInstallMethod) RenderBlockInstallTask(command string) string {
+	return indent(g.RenderInstallTask(command), 4)
+}
+
 // AptRepoInstallMethod handles installation via external apt repositories
 // with GPG key support. This is useful for third-party packages that provide
 // their own Debian/Ubuntu repositories.
