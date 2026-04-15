@@ -304,3 +304,14 @@ func GoTool(command string, pkgPath string, imports ...Import) PlatformSpecificT
 		Imports: imports,
 	}
 }
+
+// GhExtension creates a PlatformSpecificTool for GitHub CLI extensions.
+// Extensions are installed and kept up-to-date via gh extension install/upgrade.
+func GhExtension(command string, repo string) PlatformSpecificTool {
+	return PlatformSpecificTool{
+		command: command,
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: GhExtensionInstallMethod{Repo: repo},
+		},
+	}
+}

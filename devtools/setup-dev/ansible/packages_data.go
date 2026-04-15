@@ -371,6 +371,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	GoTool("gh-merge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest", Import{Playbook: "gh"}),
 	GoTool("gh-nudge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest", Import{Playbook: "gh"}),
 	GoTool("gh-pr-review", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest", Import{Playbook: "gh"}),
+	GhExtension("gh-repox", "jaeyeom/gh-repox"),
 	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest", Import{Playbook: "gh"}),
 	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
 	GoTool("gherun", "github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest", Import{Playbook: "gh"}),
