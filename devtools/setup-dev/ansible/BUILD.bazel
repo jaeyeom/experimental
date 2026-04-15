@@ -3770,6 +3770,28 @@ sh_test(
 )
 
 sh_test(
+    name = "viddy_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["viddy.yml"],
+    data = [
+        "cargo.yml",
+        "cargo-install-update.yml",
+        "gather-facts.yml",
+        "libssl-dev.yml",
+        "pkg-config.yml",
+        "rustup.yml",
+        "setup-cargo.yml",
+        "setup-rust.yml",
+        "setup-shell-profile.yml",
+        "viddy.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "vipsthumbnail_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["vipsthumbnail.yml"],
@@ -4099,6 +4121,7 @@ test_suite(
         ":udocker_syntax_test",
         ":unzip_syntax_test",
         ":uv_syntax_test",
+        ":viddy_syntax_test",
         ":vipsthumbnail_syntax_test",
         ":w3m_syntax_test",
         ":wget_syntax_test",

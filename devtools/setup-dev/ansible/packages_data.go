@@ -729,6 +729,14 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 		Imports: nil,
 	},
 	{
+		command: "viddy",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "viddy"},
+			PlatformDebianLike: CargoInstallMethod{Name: "viddy"},
+			PlatformTermux:     CargoInstallMethod{Name: "viddy"},
+		},
+	},
+	{
 		command: "wrangler",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     NpmInstallMethod{Name: "wrangler"},
