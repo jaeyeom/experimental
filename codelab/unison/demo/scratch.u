@@ -1,0 +1,40 @@
+helloWorld : '{IO, Exception} ()
+helloWorld = do printLine "Hello World!"
+
+-- Calculates the score for a bowling game.
+-- Takes a list of pins knocked down per roll and returns the total score.
+-- Handles strikes (10 pins on first roll) and spares (10 pins in two rolls).
+score : [Nat] -> Nat
+score = cases
+  10 +: [a, a2] ++ rest -> 10 + a + a2 + score ([a, a2] ++ rest)
+  10 +: _ -> 0
+  [a, a2, a3] ++ rest -> a + a2 + (if a + a2 === 10 then a3 else 0) + score (a3 +: rest)
+  [a, a2] ++ rest -> a + a2 + score rest
+  _ -> 0
+
+-- All ones = 20
+test> score.allOnes = check (score [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] === 20)
+
+-- Perfect game (all strikes) = 300
+test> score.perfectGame = check (score [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10] === 300)
+
+-- All spares with 5s = 150
+test> score.allSpares = check (score [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5] === 150)
+
+-- Gutter game (all zeros) = 0
+test> score.gutterGame = check (score [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] === 0)
+
+-- All nines (9 + miss each frame) = 90
+test> score.allNines = check (score [9, 0, 9, 0, 9, 0, 9, 0, 9, 0, 9, 0, 9, 0, 9, 0, 9, 0, 9, 0] === 90)
+
+-- Single strike then all ones = 12 + 18 = 30
+test> score.singleStrike = check (score [10, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] === 30)
+
+-- Single spare then all ones = 11 + 18 = 29
+test> score.singleSpare = check (score [5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] === 29)
+
+-- Alternating strikes and spares = 195
+test> score.alternating = check (score [10, 5, 5, 10, 5, 5, 10, 5, 5, 10, 5, 5, 10, 5, 5, 5] === 195)
+
+-- Dutch 200 (alternating strikes and spares) = 200
+test> score.dutch200 = check (score [10, 5, 5, 10, 5, 5, 10, 5, 5, 10, 5, 5, 10, 5, 5, 10] === 200)
