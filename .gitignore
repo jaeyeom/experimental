@@ -51,7 +51,7 @@ node_modules/
 # Task files
 tasks.json
 tasks/
-.unisonhistory
+.unisonHistory
 
 # Coverage reports
 lcov.info
