@@ -4,15 +4,6 @@
 # and then run: make
 - import_playbook: gather-facts.yml
 - import_playbook: setup-npm.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
-- import_playbook: setup-cargo.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is defined
-- import_playbook: setup-git.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is defined
-- import_playbook: make.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is defined
-- import_playbook: setup-user-bin-directory.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-nvm.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
@@ -41,31 +32,6 @@
           command: npm install -g @openai/codex
           when: codex_installed.rc != 0
       when: ansible_facts['os_family'] == "Darwin"
-
-    - name: Ensure codex is present on Termux
-      block:
-        - name: Check if codex is installed
-          shell: command -v codex
-          register: codex_installed
-          failed_when: false
-          changed_when: False
-
-        - name: Install codex
-          shell: |
-            # Dependencies (rust, git, make) are ensured by imported playbooks
-
-            # Fail on any error
-            set -e
-
-            # Clone and build
-            # Verified repository: https://github.com/openai/codex (contains codex-rs)
-            git clone https://github.com/openai/codex $TMPDIR/codex
-            cd $TMPDIR/codex/codex-rs
-            cargo build --release
-            cp target/release/codex {{ user_bin_directory }}/
-            rm -rf $TMPDIR/codex
-          when: codex_installed.rc != 0
-      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install codex via nvm on Debian/Ubuntu
       block:
