@@ -481,6 +481,15 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 		},
 	},
 	{
+		command: "mkdocs",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "mkdocs-material"},
+			PlatformDebianLike: UvInstallMethod{Name: "mkdocs-material"},
+			PlatformTermux:     UvInstallMethod{Name: "mkdocs-material"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "mypy",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     BrewInstallMethod{Name: "mypy"},
