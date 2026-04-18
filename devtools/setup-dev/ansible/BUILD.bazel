@@ -1624,6 +1624,21 @@ sh_test(
 )
 
 sh_test(
+    name = "mkdocs_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["mkdocs.yml"],
+    data = [
+        "gather-facts.yml",
+        "mkdocs.yml",
+        "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "mono_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["mono.yml"],
@@ -4008,6 +4023,7 @@ test_suite(
         ":man_syntax_test",
         ":markdownlint_syntax_test",
         ":mediainfo_syntax_test",
+        ":mkdocs_syntax_test",
         ":mono_syntax_test",
         ":mypy_syntax_test",
         ":notmuch_syntax_test",
