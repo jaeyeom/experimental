@@ -211,31 +211,9 @@ var platformSpecificTools = []PlatformSpecificTool{
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     NpmInstallMethod{Name: "@openai/codex"},
 			PlatformDebianLike: NvmInstallMethod{Name: "@openai/codex"},
-			PlatformTermux: ShellInstallMethod{
-				InstallCommand: `
-# Dependencies (rust, git, make) are ensured by imported playbooks
-
-# Fail on any error
-set -e
-
-# Clone and build
-# Verified repository: https://github.com/openai/codex (contains codex-rs)
-git clone https://github.com/openai/codex $TMPDIR/codex
-cd $TMPDIR/codex/codex-rs
-cargo build --release
-cp target/release/codex {{ user_bin_directory }}/
-rm -rf $TMPDIR/codex
-`,
-				VersionCommand: "codex --version",
-				VersionRegex:   "([0-9.]+)",
-			},
 		},
 		Imports: []Import{
-			{Playbook: "setup-npm", When: WhenNotTermux},
-			{Playbook: "setup-cargo", When: WhenTermux},
-			{Playbook: "setup-git", When: WhenTermux},
-			{Playbook: "make", When: WhenTermux},
-			{Playbook: "setup-user-bin-directory", When: WhenTermux},
+			{Playbook: "setup-npm"},
 		},
 	},
 	{
