@@ -47,4 +47,8 @@
 
     - name: Upgrade gh-codeowners
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest
+      register: gh_codeowners_upgrade
+      until: gh_codeowners_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gh_codeowners_module_version is not defined or gh_codeowners_module_version == "" or gh_codeowners_module_version != gh_codeowners_latest.stdout

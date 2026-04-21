@@ -63,6 +63,10 @@
 
         - name: Upgrade actionlint
           command: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          register: actionlint_upgrade
+          until: actionlint_upgrade is succeeded
+          retries: 3
+          delay: 30
           when: actionlint_module_version is not defined or actionlint_module_version == "" or actionlint_module_version != actionlint_latest.stdout
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
@@ -97,5 +101,9 @@
 
         - name: Upgrade actionlint
           command: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          register: actionlint_upgrade
+          until: actionlint_upgrade is succeeded
+          retries: 3
+          delay: 30
           when: actionlint_module_version is not defined or actionlint_module_version == "" or actionlint_module_version != actionlint_latest.stdout
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

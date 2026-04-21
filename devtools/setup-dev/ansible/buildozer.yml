@@ -46,4 +46,8 @@
 
     - name: Upgrade buildozer
       command: go install github.com/bazelbuild/buildtools/buildozer@latest
+      register: buildozer_upgrade
+      until: buildozer_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: buildozer_module_version is not defined or buildozer_module_version == "" or buildozer_module_version != buildozer_latest.stdout

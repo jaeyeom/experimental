@@ -271,6 +271,10 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
 
     - name: Upgrade ` + command + `
       command: go install ` + g.PkgPath + `
+      register: ` + commandID + `_upgrade
+      until: ` + commandID + `_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: ` + commandID + `_module_version is not defined or ` + commandID + `_module_version == "" or ` + commandID + `_module_version != ` + commandID + `_latest.stdout`
 }
 

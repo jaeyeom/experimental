@@ -46,4 +46,8 @@
 
     - name: Upgrade gofumpt
       command: go install mvdan.cc/gofumpt@latest
+      register: gofumpt_upgrade
+      until: gofumpt_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gofumpt_module_version is not defined or gofumpt_module_version == "" or gofumpt_module_version != gofumpt_latest.stdout

@@ -47,4 +47,8 @@
 
     - name: Upgrade org-lint
       command: go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest
+      register: org_lint_upgrade
+      until: org_lint_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: org_lint_module_version is not defined or org_lint_module_version == "" or org_lint_module_version != org_lint_latest.stdout

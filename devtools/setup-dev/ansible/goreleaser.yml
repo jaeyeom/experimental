@@ -62,6 +62,10 @@
 
         - name: Upgrade goreleaser
           command: go install github.com/goreleaser/goreleaser/v2@latest
+          register: goreleaser_upgrade
+          until: goreleaser_upgrade is succeeded
+          retries: 3
+          delay: 30
           when: goreleaser_module_version is not defined or goreleaser_module_version == "" or goreleaser_module_version != goreleaser_latest.stdout
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
@@ -96,5 +100,9 @@
 
         - name: Upgrade goreleaser
           command: go install github.com/goreleaser/goreleaser/v2@latest
+          register: goreleaser_upgrade
+          until: goreleaser_upgrade is succeeded
+          retries: 3
+          delay: 30
           when: goreleaser_module_version is not defined or goreleaser_module_version == "" or goreleaser_module_version != goreleaser_latest.stdout
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

@@ -47,4 +47,8 @@
 
     - name: Upgrade protoc-gen-go-grpc
       command: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+      register: protoc_gen_go_grpc_upgrade
+      until: protoc_gen_go_grpc_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: protoc_gen_go_grpc_module_version is not defined or protoc_gen_go_grpc_module_version == "" or protoc_gen_go_grpc_module_version != protoc_gen_go_grpc_latest.stdout

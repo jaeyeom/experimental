@@ -47,4 +47,8 @@
 
     - name: Upgrade gherun
       command: go install github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest
+      register: gherun_upgrade
+      until: gherun_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gherun_module_version is not defined or gherun_module_version == "" or gherun_module_version != gherun_latest.stdout

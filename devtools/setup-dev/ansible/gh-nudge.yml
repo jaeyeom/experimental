@@ -47,4 +47,8 @@
 
     - name: Upgrade gh-nudge
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest
+      register: gh_nudge_upgrade
+      until: gh_nudge_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gh_nudge_module_version is not defined or gh_nudge_module_version == "" or gh_nudge_module_version != gh_nudge_latest.stdout

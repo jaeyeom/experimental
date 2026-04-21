@@ -46,4 +46,8 @@
 
     - name: Upgrade protolint
       command: go install github.com/yoheimuta/protolint/cmd/protolint@latest
+      register: protolint_upgrade
+      until: protolint_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: protolint_module_version is not defined or protolint_module_version == "" or protolint_module_version != protolint_latest.stdout

@@ -46,4 +46,8 @@
 
     - name: Upgrade godoc
       command: go install golang.org/x/tools/cmd/godoc@latest
+      register: godoc_upgrade
+      until: godoc_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: godoc_module_version is not defined or godoc_module_version == "" or godoc_module_version != godoc_latest.stdout

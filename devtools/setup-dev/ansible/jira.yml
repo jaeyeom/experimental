@@ -46,4 +46,8 @@
 
     - name: Upgrade jira
       command: go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest
+      register: jira_upgrade
+      until: jira_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: jira_module_version is not defined or jira_module_version == "" or jira_module_version != jira_latest.stdout

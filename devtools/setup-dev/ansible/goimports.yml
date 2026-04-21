@@ -46,4 +46,8 @@
 
     - name: Upgrade goimports
       command: go install golang.org/x/tools/cmd/goimports@latest
+      register: goimports_upgrade
+      until: goimports_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: goimports_module_version is not defined or goimports_module_version == "" or goimports_module_version != goimports_latest.stdout

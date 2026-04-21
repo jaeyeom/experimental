@@ -46,4 +46,8 @@
 
     - name: Upgrade godef
       command: go install github.com/rogpeppe/godef@latest
+      register: godef_upgrade
+      until: godef_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: godef_module_version is not defined or godef_module_version == "" or godef_module_version != godef_latest.stdout
