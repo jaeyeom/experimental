@@ -47,4 +47,8 @@
 
     - name: Upgrade pkl-gen-go
       command: go install github.com/apple/pkl-go/cmd/pkl-gen-go@latest
+      register: pkl_gen_go_upgrade
+      until: pkl_gen_go_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: pkl_gen_go_module_version is not defined or pkl_gen_go_module_version == "" or pkl_gen_go_module_version != pkl_gen_go_latest.stdout

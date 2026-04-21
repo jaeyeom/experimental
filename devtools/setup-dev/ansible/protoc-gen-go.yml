@@ -47,4 +47,8 @@
 
     - name: Upgrade protoc-gen-go
       command: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      register: protoc_gen_go_upgrade
+      until: protoc_gen_go_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: protoc_gen_go_module_version is not defined or protoc_gen_go_module_version == "" or protoc_gen_go_module_version != protoc_gen_go_latest.stdout

@@ -46,4 +46,8 @@
 
     - name: Upgrade yamlfmt
       command: go install github.com/google/yamlfmt/cmd/yamlfmt@latest
+      register: yamlfmt_upgrade
+      until: yamlfmt_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: yamlfmt_module_version is not defined or yamlfmt_module_version == "" or yamlfmt_module_version != yamlfmt_latest.stdout

@@ -47,4 +47,8 @@
 
     - name: Upgrade gh-merge
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest
+      register: gh_merge_upgrade
+      until: gh_merge_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gh_merge_module_version is not defined or gh_merge_module_version == "" or gh_merge_module_version != gh_merge_latest.stdout

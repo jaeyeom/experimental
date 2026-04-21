@@ -46,4 +46,8 @@
 
     - name: Upgrade gomodifytags
       command: go install github.com/fatih/gomodifytags@latest
+      register: gomodifytags_upgrade
+      until: gomodifytags_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gomodifytags_module_version is not defined or gomodifytags_module_version == "" or gomodifytags_module_version != gomodifytags_latest.stdout

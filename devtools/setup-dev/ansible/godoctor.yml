@@ -46,4 +46,8 @@
 
     - name: Upgrade godoctor
       command: go install github.com/godoctor/godoctor@latest
+      register: godoctor_upgrade
+      until: godoctor_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: godoctor_module_version is not defined or godoctor_module_version == "" or godoctor_module_version != godoctor_latest.stdout

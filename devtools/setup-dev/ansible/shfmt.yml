@@ -46,4 +46,8 @@
 
     - name: Upgrade shfmt
       command: go install mvdan.cc/sh/v3/cmd/shfmt@latest
+      register: shfmt_upgrade
+      until: shfmt_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: shfmt_module_version is not defined or shfmt_module_version == "" or shfmt_module_version != shfmt_latest.stdout

@@ -46,4 +46,8 @@
 
     - name: Upgrade gopkgs
       command: go install github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
+      register: gopkgs_upgrade
+      until: gopkgs_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gopkgs_module_version is not defined or gopkgs_module_version == "" or gopkgs_module_version != gopkgs_latest.stdout

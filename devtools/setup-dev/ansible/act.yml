@@ -63,6 +63,10 @@
 
         - name: Upgrade act
           command: go install github.com/nektos/act@latest
+          register: act_upgrade
+          until: act_upgrade is succeeded
+          retries: 3
+          delay: 30
           when: act_module_version is not defined or act_module_version == "" or act_module_version != act_latest.stdout
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
@@ -97,5 +101,9 @@
 
         - name: Upgrade act
           command: go install github.com/nektos/act@latest
+          register: act_upgrade
+          until: act_upgrade is succeeded
+          retries: 3
+          delay: 30
           when: act_module_version is not defined or act_module_version == "" or act_module_version != act_latest.stdout
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

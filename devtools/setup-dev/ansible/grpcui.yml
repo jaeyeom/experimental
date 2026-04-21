@@ -46,4 +46,8 @@
 
     - name: Upgrade grpcui
       command: go install github.com/fullstorydev/grpcui/cmd/grpcui@latest
+      register: grpcui_upgrade
+      until: grpcui_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: grpcui_module_version is not defined or grpcui_module_version == "" or grpcui_module_version != grpcui_latest.stdout

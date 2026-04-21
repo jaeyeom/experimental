@@ -46,4 +46,8 @@
 
     - name: Upgrade image2ascii
       command: go install github.com/qeesung/image2ascii@latest
+      register: image2ascii_upgrade
+      until: image2ascii_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: image2ascii_module_version is not defined or image2ascii_module_version == "" or image2ascii_module_version != image2ascii_latest.stdout

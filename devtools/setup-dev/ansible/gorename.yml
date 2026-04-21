@@ -46,4 +46,8 @@
 
     - name: Upgrade gorename
       command: go install golang.org/x/tools/cmd/gorename@latest
+      register: gorename_upgrade
+      until: gorename_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gorename_module_version is not defined or gorename_module_version == "" or gorename_module_version != gorename_latest.stdout

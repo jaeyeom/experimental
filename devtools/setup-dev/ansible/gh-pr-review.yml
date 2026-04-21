@@ -47,4 +47,8 @@
 
     - name: Upgrade gh-pr-review
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest
+      register: gh_pr_review_upgrade
+      until: gh_pr_review_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gh_pr_review_module_version is not defined or gh_pr_review_module_version == "" or gh_pr_review_module_version != gh_pr_review_latest.stdout

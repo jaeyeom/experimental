@@ -46,4 +46,8 @@
 
     - name: Upgrade hugo
       command: go install github.com/gohugoio/hugo@latest
+      register: hugo_upgrade
+      until: hugo_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: hugo_module_version is not defined or hugo_module_version == "" or hugo_module_version != hugo_latest.stdout

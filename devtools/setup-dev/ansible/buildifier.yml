@@ -46,4 +46,8 @@
 
     - name: Upgrade buildifier
       command: go install github.com/bazelbuild/buildtools/buildifier@latest
+      register: buildifier_upgrade
+      until: buildifier_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: buildifier_module_version is not defined or buildifier_module_version == "" or buildifier_module_version != buildifier_latest.stdout

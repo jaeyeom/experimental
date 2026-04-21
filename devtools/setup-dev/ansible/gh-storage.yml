@@ -47,4 +47,8 @@
 
     - name: Upgrade gh-storage
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest
+      register: gh_storage_upgrade
+      until: gh_storage_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gh_storage_module_version is not defined or gh_storage_module_version == "" or gh_storage_module_version != gh_storage_latest.stdout

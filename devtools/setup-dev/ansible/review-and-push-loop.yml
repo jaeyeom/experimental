@@ -47,4 +47,8 @@
 
     - name: Upgrade review-and-push-loop
       command: go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest
+      register: review_and_push_loop_upgrade
+      until: review_and_push_loop_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: review_and_push_loop_module_version is not defined or review_and_push_loop_module_version == "" or review_and_push_loop_module_version != review_and_push_loop_latest.stdout

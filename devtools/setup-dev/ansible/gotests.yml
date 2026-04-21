@@ -46,4 +46,8 @@
 
     - name: Upgrade gotests
       command: go install github.com/cweill/gotests/gotests@latest
+      register: gotests_upgrade
+      until: gotests_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gotests_module_version is not defined or gotests_module_version == "" or gotests_module_version != gotests_latest.stdout

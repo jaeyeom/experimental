@@ -46,4 +46,8 @@
 
     - name: Upgrade task
       command: go install github.com/go-task/task/v3/cmd/task@latest
+      register: task_upgrade
+      until: task_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: task_module_version is not defined or task_module_version == "" or task_module_version != task_latest.stdout

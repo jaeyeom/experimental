@@ -47,4 +47,8 @@
 
     - name: Upgrade gh-slack
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest
+      register: gh_slack_upgrade
+      until: gh_slack_upgrade is succeeded
+      retries: 3
+      delay: 30
       when: gh_slack_module_version is not defined or gh_slack_module_version == "" or gh_slack_module_version != gh_slack_latest.stdout
