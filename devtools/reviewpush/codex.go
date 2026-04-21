@@ -38,6 +38,10 @@ const OutputSchema = `{
 
 // BuildPrompt constructs the Codex review prompt for a given pass.
 func BuildPrompt(input *CodexPassInput) string {
+	remoteState := input.RemoteRef
+	if !input.RemoteRefExists {
+		remoteState = fmt.Sprintf("%s (unborn: remote branch does not exist yet; do not assume %s is a valid Git object)", input.RemoteRef, input.RemoteRef)
+	}
 	return fmt.Sprintf(`You are running one isolated pass of the review-and-push workflow.
 
 Repository: %s
@@ -61,7 +65,7 @@ Instructions:
 - Use status BLOCKED if a hard blocker or execution failure stopped progress.
 - Always include push_target. Use null when status is BLOCKED.
 - Always include blocked_reason. Use null when status is PUSH.`,
-		input.RepoDir, input.BaseBranch, input.RemoteRef,
+		input.RepoDir, input.BaseBranch, remoteState,
 		input.Iteration, input.AheadCount, input.TargetCommit,
 		input.TargetCommit)
 }
