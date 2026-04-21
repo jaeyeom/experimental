@@ -19,10 +19,12 @@ type mockCodexRunner struct {
 	mode       string
 	calls      int
 	aheadState *int
+	lastInput  *CodexPassInput
 }
 
 func (m *mockCodexRunner) RunPass(_ context.Context, input *CodexPassInput) (*CodexResult, error) {
 	m.calls++
+	m.lastInput = input
 	switch m.mode {
 	case "loop":
 		pt := input.TargetCommit
@@ -77,6 +79,14 @@ type testGitState struct {
 	aheadCount int
 	pushLog    []string
 	fetchCount int
+	// remoteBaseExists controls whether show-ref and symbolic-ref report an
+	// existing remote base ref. When false, the remote base is treated as
+	// unborn and a push to refs/heads/<base> flips this to true to simulate
+	// the branch becoming real after the first push.
+	remoteBaseExists bool
+	// currentBranch is returned by `rev-parse --abbrev-ref HEAD` when the
+	// runner falls back to the current branch for an unborn remote.
+	currentBranch string
 }
 
 // testGitExecutor implements executor.Executor for testing.
@@ -114,6 +124,9 @@ func (e *testGitExecutor) Execute(_ context.Context, cfg executor.ToolConfig) (*
 		default:
 			return nil, fmt.Errorf("unexpected push target: %s", commit)
 		}
+		// A push to an unborn remote ref creates it, so subsequent
+		// fetches will observe the ref as existing.
+		e.state.remoteBaseExists = true
 		return &executor.ExecutionResult{ExitCode: 0}, nil
 
 	case "rev-parse":
@@ -123,6 +136,12 @@ func (e *testGitExecutor) Execute(_ context.Context, cfg executor.ToolConfig) (*
 			case "commit-1", "commit-2", "commit-3":
 				return &executor.ExecutionResult{Output: candidate, ExitCode: 0}, nil
 			}
+		}
+		if len(args) >= 3 && args[1] == "--abbrev-ref" && args[2] == "HEAD" {
+			if e.state.currentBranch != "" {
+				return &executor.ExecutionResult{Output: e.state.currentBranch, ExitCode: 0}, nil
+			}
+			return nil, fmt.Errorf("no current branch")
 		}
 		return nil, fmt.Errorf("rev-parse failed")
 
@@ -140,6 +159,7 @@ func (e *testGitExecutor) Execute(_ context.Context, cfg executor.ToolConfig) (*
 		}
 		valid := map[string]bool{
 			"origin/main:commit-1": true, "origin/main:commit-2": true, "origin/main:commit-3": true,
+			"origin/develop:commit-1": true, "origin/develop:commit-2": true, "origin/develop:commit-3": true,
 			"commit-1:commit-1": true, "commit-1:commit-2": true, "commit-1:commit-3": true,
 			"commit-2:commit-2": true, "commit-2:commit-3": true,
 			"commit-3:commit-3": true,
@@ -150,10 +170,16 @@ func (e *testGitExecutor) Execute(_ context.Context, cfg executor.ToolConfig) (*
 		return nil, fmt.Errorf("not ancestor")
 
 	case "symbolic-ref":
+		if !e.state.remoteBaseExists {
+			return nil, fmt.Errorf("ref refs/remotes/origin/HEAD is not a symbolic ref")
+		}
 		return &executor.ExecutionResult{Output: "origin/main", ExitCode: 0}, nil
 
 	case "show-ref":
-		return nil, fmt.Errorf("show-ref failed")
+		if !e.state.remoteBaseExists {
+			return nil, fmt.Errorf("show-ref failed")
+		}
+		return &executor.ExecutionResult{ExitCode: 0}, nil
 
 	case "rev-list":
 		if len(args) >= 2 && args[1] == "--count" {
@@ -202,7 +228,7 @@ func newTestRunner(t *testing.T, state *testGitState, codexMode string) (*Runner
 }
 
 func TestLoopMode(t *testing.T) {
-	state := &testGitState{aheadCount: 2}
+	state := &testGitState{aheadCount: 2, remoteBaseExists: true}
 	runner, codex, buf := newTestRunner(t, state, "loop")
 
 	exitCode := runner.Run(context.Background())
@@ -222,7 +248,7 @@ func TestLoopMode(t *testing.T) {
 }
 
 func TestBlockedMode(t *testing.T) {
-	state := &testGitState{aheadCount: 1}
+	state := &testGitState{aheadCount: 1, remoteBaseExists: true}
 	runner, codex, buf := newTestRunner(t, state, "blocked")
 
 	exitCode := runner.Run(context.Background())
@@ -245,7 +271,7 @@ func TestBlockedMode(t *testing.T) {
 }
 
 func TestNoProgressMode(t *testing.T) {
-	state := &testGitState{aheadCount: 1}
+	state := &testGitState{aheadCount: 1, remoteBaseExists: true}
 	runner, _, buf := newTestRunner(t, state, "no-progress")
 
 	exitCode := runner.Run(context.Background())
@@ -259,7 +285,7 @@ func TestNoProgressMode(t *testing.T) {
 }
 
 func TestPushAllMode(t *testing.T) {
-	state := &testGitState{aheadCount: 2}
+	state := &testGitState{aheadCount: 2, remoteBaseExists: true}
 	runner, codex, buf := newTestRunner(t, state, "push-all")
 
 	exitCode := runner.Run(context.Background())
@@ -282,7 +308,7 @@ func TestPushAllMode(t *testing.T) {
 }
 
 func TestMultiCommitsCrossCheck(t *testing.T) {
-	state := &testGitState{aheadCount: 2}
+	state := &testGitState{aheadCount: 2, remoteBaseExists: true}
 	runner, _, buf := newTestRunner(t, state, "multi-commits-false-ignores-push-target")
 
 	exitCode := runner.Run(context.Background())
@@ -297,7 +323,7 @@ func TestMultiCommitsCrossCheck(t *testing.T) {
 }
 
 func TestTimeoutMode(t *testing.T) {
-	state := &testGitState{aheadCount: 1}
+	state := &testGitState{aheadCount: 1, remoteBaseExists: true}
 	runner, _, buf := newTestRunner(t, state, "timeout")
 
 	exitCode := runner.Run(context.Background())
@@ -311,7 +337,7 @@ func TestTimeoutMode(t *testing.T) {
 }
 
 func TestCommitBanner(t *testing.T) {
-	state := &testGitState{aheadCount: 1}
+	state := &testGitState{aheadCount: 1, remoteBaseExists: true}
 	runner, _, buf := newTestRunner(t, state, "loop")
 
 	runner.Run(context.Background())
@@ -326,7 +352,7 @@ func TestCommitBanner(t *testing.T) {
 }
 
 func TestMaxIterations(t *testing.T) {
-	state := &testGitState{aheadCount: 3}
+	state := &testGitState{aheadCount: 3, remoteBaseExists: true}
 	runner, _, buf := newTestRunner(t, state, "loop")
 	runner.Cfg.MaxIterations = 1
 
@@ -341,7 +367,7 @@ func TestMaxIterations(t *testing.T) {
 }
 
 func TestBaseBranchOverride(t *testing.T) {
-	state := &testGitState{aheadCount: 0}
+	state := &testGitState{aheadCount: 0, remoteBaseExists: true}
 	runner, _, buf := newTestRunner(t, state, "loop")
 	runner.Cfg.BaseBranchOverride = "develop"
 
@@ -352,6 +378,152 @@ func TestBaseBranchOverride(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "DONE: HEAD is not ahead of origin/develop.") {
 		t.Errorf("expected develop branch ref, got: %s", buf.String())
+	}
+}
+
+// TestUnbornRemoteWithBaseOverride exercises the first-push path: an empty
+// remote has no origin/main ref, the user passes --base main, and the loop
+// reviews and pushes commits until the remote base becomes established.
+func TestUnbornRemoteWithBaseOverride(t *testing.T) {
+	state := &testGitState{aheadCount: 2, remoteBaseExists: false}
+	runner, codex, buf := newTestRunner(t, state, "loop")
+	runner.Cfg.BaseBranchOverride = "main"
+
+	// Capture the remote state observed by Codex on each call. The first
+	// call happens before any push, when the remote base is still unborn;
+	// later calls see the remote ref as existing after the bootstrap push.
+	var seenRemoteStates []bool
+	runner.Codex = &capturingCodex{inner: codex, seen: &seenRemoteStates}
+
+	exitCode := runner.Run(context.Background())
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d: %s", exitCode, buf.String())
+	}
+	if !strings.Contains(buf.String(), "DONE: HEAD is not ahead of origin/main.") {
+		t.Errorf("expected DONE message, got: %s", buf.String())
+	}
+	if len(state.pushLog) < 1 {
+		t.Fatalf("expected at least one push, got %v", state.pushLog)
+	}
+	// The very first push must write to refs/heads/main to bootstrap the
+	// remote branch.
+	if !strings.Contains(state.pushLog[0], ":refs/heads/main") {
+		t.Errorf("expected bootstrap push to refs/heads/main, got %v", state.pushLog)
+	}
+	if state.aheadCount != 0 {
+		t.Errorf("expected ahead count 0 after loop, got %d", state.aheadCount)
+	}
+	if len(seenRemoteStates) < 2 {
+		t.Fatalf("expected at least 2 codex calls, got %v", seenRemoteStates)
+	}
+	if seenRemoteStates[0] != false {
+		t.Errorf("expected first Codex call to see RemoteRefExists=false, got %v", seenRemoteStates[0])
+	}
+	if seenRemoteStates[len(seenRemoteStates)-1] != true {
+		t.Errorf("expected final Codex call to see RemoteRefExists=true after bootstrap push, got %v", seenRemoteStates[len(seenRemoteStates)-1])
+	}
+}
+
+// capturingCodex wraps a CodexRunner and records RemoteRefExists values seen
+// on each pass, so tests can assert how the remote-base state evolves across
+// iterations.
+type capturingCodex struct {
+	inner CodexRunner
+	seen  *[]bool
+}
+
+func (c *capturingCodex) RunPass(ctx context.Context, input *CodexPassInput) (*CodexResult, error) {
+	*c.seen = append(*c.seen, input.RemoteRefExists)
+	result, err := c.inner.RunPass(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("inner codex pass: %w", err)
+	}
+	return result, nil
+}
+
+// TestUnbornRemoteFallsBackToCurrentBranch verifies that when neither
+// origin/HEAD nor any well-known branch ref exists and --base is not set,
+// ResolveRemoteBase falls back to the current local branch name with an
+// unborn remote, allowing the first push to bootstrap the remote branch.
+func TestUnbornRemoteFallsBackToCurrentBranch(t *testing.T) {
+	state := &testGitState{
+		aheadCount:       1,
+		remoteBaseExists: false,
+		currentBranch:    "main",
+	}
+	runner, _, buf := newTestRunner(t, state, "loop")
+
+	exitCode := runner.Run(context.Background())
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d: %s", exitCode, buf.String())
+	}
+	if !strings.Contains(buf.String(), "origin/main") {
+		t.Errorf("expected loop to use origin/main as remote ref, got: %s", buf.String())
+	}
+	if len(state.pushLog) != 1 || !strings.Contains(state.pushLog[0], "commit-1:refs/heads/main") {
+		t.Errorf("expected a single push bootstrapping main, got %v", state.pushLog)
+	}
+}
+
+// TestUnbornRemoteNoCurrentBranchFails verifies that when the remote is
+// empty, no --base override is set, and HEAD is detached, ResolveRemoteBase
+// returns a clear configuration error instead of silently proceeding.
+func TestUnbornRemoteNoCurrentBranchFails(t *testing.T) {
+	state := &testGitState{
+		aheadCount:       1,
+		remoteBaseExists: false,
+		currentBranch:    "",
+	}
+	runner, _, buf := newTestRunner(t, state, "loop")
+
+	exitCode := runner.Run(context.Background())
+
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1 (config error), got %d: %s", exitCode, buf.String())
+	}
+	if !strings.Contains(buf.String(), "could not determine remote base branch") {
+		t.Errorf("expected config error message, got: %s", buf.String())
+	}
+}
+
+// TestUnbornRemoteValidatesPushTarget ensures the push target validation
+// still rejects invalid commits when the remote base is unborn, even though
+// the remote-ancestor check is skipped.
+func TestUnbornRemoteValidatesPushTarget(t *testing.T) {
+	state := &testGitState{aheadCount: 1, remoteBaseExists: false}
+	runner, _, buf := newTestRunner(t, state, "no-progress")
+	runner.Cfg.BaseBranchOverride = "main"
+
+	exitCode := runner.Run(context.Background())
+
+	if exitCode != 2 {
+		t.Fatalf("expected exit code 2, got %d: %s", exitCode, buf.String())
+	}
+	if !strings.Contains(buf.String(), "proposed invalid push target") {
+		t.Errorf("expected invalid push target message, got: %s", buf.String())
+	}
+	if len(state.pushLog) != 0 {
+		t.Errorf("expected no pushes for invalid target, got %v", state.pushLog)
+	}
+}
+
+func TestBuildPromptMarksUnbornRemote(t *testing.T) {
+	existing := BuildPrompt(&CodexPassInput{
+		RepoDir: "/repo", BaseBranch: "main", RemoteRef: "origin/main",
+		RemoteRefExists: true, Iteration: 1, AheadCount: 1, TargetCommit: "abc",
+	})
+	if strings.Contains(existing, "unborn") {
+		t.Errorf("expected no unborn marker for existing remote, got: %s", existing)
+	}
+
+	unborn := BuildPrompt(&CodexPassInput{
+		RepoDir: "/repo", BaseBranch: "main", RemoteRef: "origin/main",
+		RemoteRefExists: false, Iteration: 1, AheadCount: 1, TargetCommit: "abc",
+	})
+	if !strings.Contains(unborn, "unborn") {
+		t.Errorf("expected unborn marker in prompt for missing remote, got: %s", unborn)
 	}
 }
 
