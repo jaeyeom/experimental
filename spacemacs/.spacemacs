@@ -1105,10 +1105,11 @@ size in canonical character units.
 FRAME is the frame on which the image will be displayed. FRAME nil
 or omitted means use the selected frame.
 
-When built-in `image-size' is bound, delegate to it.  Otherwise, use
-ImageMagick\='s `magick identify' command to determine image dimensions
-for Emacs builds without image support."
-    (if (fboundp 'image-size)
+When built-in `image-size' is bound and the target frame can display
+images, delegate to it.  Otherwise, use ImageMagick\='s `magick identify'
+command to determine image dimensions for Emacs builds without image
+support or for non-graphical (terminal/batch) frames."
+    (if (and (fboundp 'image-size) (display-images-p frame))
         (funcall 'image-size spec pixels frame)
       (progn
         (unless (and (consp spec) (eq (car spec) 'image))
