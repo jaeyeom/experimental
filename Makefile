@@ -80,7 +80,10 @@ requirements.txt: requirements.in
 .PHONY: lint-shellcheck
 
 lint-shellcheck:
-	shellcheck -x $$(git ls-files "*.sh")
+	@FILES=$$(git ls-files "*.sh"); \
+	if [ -n "$$FILES" ]; then \
+		shellcheck -x $$FILES; \
+	fi
 
 # Emacs/Spacemacs targets
 .PHONY: check-spacemacs check-org-lint-tests
