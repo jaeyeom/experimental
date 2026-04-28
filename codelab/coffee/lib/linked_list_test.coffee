@@ -3,8 +3,8 @@
 # Description:
 #   Unittest for linked_list module.
 
-linked_list = require 'linked_list'
-unittest = require 'unittest'
+linked_list = require './linked_list'
+unittest = require './unittest'
 
 LinkedList = linked_list.LinkedList
 

@@ -3,7 +3,7 @@
 # Description:
 #   Unittest of Unittest framework
 
-unittest = require 'unittest'
+unittest = require './unittest'
 
 class UnittestTest extends unittest.TestCase
   name: 'UnittestTest'
