@@ -13,6 +13,13 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
+const (
+	// OutputModeHuman preserves the existing interactive terminal output.
+	OutputModeHuman = "human"
+	// OutputModeCompact minimizes output for agent-driven workflows.
+	OutputModeCompact = "compact"
+)
+
 // CodexResult represents the JSON response from a Codex review pass.
 type CodexResult struct {
 	Status        string  `json:"status"`
@@ -43,6 +50,7 @@ type Config struct {
 	RepoDir            string
 	BaseBranchOverride string
 	MaxIterations      int
+	OutputMode         string
 	GitBin             string
 	CodexBin           string
 	CodexTimeoutSecs   int
@@ -80,6 +88,17 @@ func NewRunner(cfg Config, exec executor.Executor, codex CodexRunner) *Runner {
 
 func (r *Runner) log(format string, args ...any) {
 	fmt.Fprintf(r.Stdout, format+"\n", args...)
+}
+
+func (r *Runner) isCompactOutput() bool {
+	return r.Cfg.OutputMode == OutputModeCompact
+}
+
+func shortCommit(commit string) string {
+	if len(commit) <= 12 {
+		return commit
+	}
+	return commit[:12]
 }
 
 func (r *Runner) gitOutput(ctx context.Context, args ...string) (string, error) {
@@ -218,25 +237,116 @@ func (r *Runner) PrintCommitBanner(ctx context.Context, commit string) {
 	fmt.Fprintf(r.Stdout, "%s\nTARGET COMMIT\n%s\n%s\n%s\n", sep, sep, output, sep)
 }
 
+func (r *Runner) logCompactIteration(iteration, ahead int, targetCommit string, status string, detail string) {
+	msg := fmt.Sprintf(
+		"ITERATION %d target=%s ahead=%d status=%s",
+		iteration,
+		shortCommit(targetCommit),
+		ahead,
+		status,
+	)
+	if detail != "" {
+		msg += " " + detail
+	}
+	r.log(msg)
+}
+
+func (r *Runner) logDone(base *RemoteBase) {
+	if r.isCompactOutput() {
+		r.log("DONE base=%s", base.Ref)
+		return
+	}
+	r.log("DONE: HEAD is not ahead of %s.", base.Ref)
+}
+
 // handlePush validates and pushes commits based on the Codex result.
-// Returns an error message on failure, empty string on success.
-func (r *Runner) handlePush(ctx context.Context, result *CodexResult, targetCommit string, base *RemoteBase) string {
+// Returns the commit that was pushed and an error message on failure.
+func (r *Runner) handlePush(ctx context.Context, result *CodexResult, targetCommit string, base *RemoteBase) (string, string) {
 	pushTarget := targetCommit
 	if result.MultiCommits && result.PushTarget != nil {
 		pushTarget = *result.PushTarget
 	}
 
 	if !r.ValidatePushTarget(ctx, pushTarget, base, targetCommit) {
-		return fmt.Sprintf("BLOCKED: Codex proposed invalid push target '%s' for oldest commit %s.", pushTarget, targetCommit)
+		return "", fmt.Sprintf("BLOCKED: Codex proposed invalid push target '%s' for oldest commit %s.", pushTarget, targetCommit)
 	}
 
 	refspec := pushTarget + ":refs/heads/" + base.Branch
 	if err := r.gitRun(ctx, "push", "origin", refspec); err != nil {
-		return fmt.Sprintf("BLOCKED: push failed for %s.", pushTarget)
+		return "", fmt.Sprintf("BLOCKED: push failed for %s.", pushTarget)
 	}
 
-	r.log("Pushed through %s.", pushTarget)
-	return ""
+	if !r.isCompactOutput() {
+		r.log("Pushed through %s.", pushTarget)
+	}
+	return pushTarget, ""
+}
+
+func (r *Runner) runCodexPass(ctx context.Context, base *RemoteBase, iteration, ahead int, targetCommit string) (*CodexResult, bool) {
+	if !r.isCompactOutput() {
+		r.log("Iteration %d: reviewing and pushing %s (%d commit(s) ahead of %s).", iteration, targetCommit, ahead, base.Ref)
+		r.PrintCommitBanner(ctx, targetCommit)
+	}
+
+	result, err := r.Codex.RunPass(ctx, &CodexPassInput{
+		RepoDir:         r.Cfg.RepoDir,
+		BaseBranch:      base.Branch,
+		RemoteRef:       base.Ref,
+		RemoteRefExists: base.Exists,
+		Iteration:       iteration,
+		AheadCount:      ahead,
+		TargetCommit:    targetCommit,
+	})
+	if err != nil {
+		if r.isCompactOutput() {
+			r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", "reason=codex_execution_failed")
+			return nil, true
+		}
+		r.log("BLOCKED: Codex execution failed during iteration %d.", iteration)
+		return nil, true
+	}
+
+	return result, false
+}
+
+func (r *Runner) handlePassResult(ctx context.Context, result *CodexResult, base *RemoteBase, iteration, ahead int, targetCommit string) bool {
+	switch result.Status {
+	case "PUSH":
+		pushTarget, msg := r.handlePush(ctx, result, targetCommit, base)
+		if msg != "" {
+			if r.isCompactOutput() {
+				r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", "reason=invalid_push_target")
+				return true
+			}
+			r.log("%s", msg)
+			return true
+		}
+		if r.isCompactOutput() {
+			r.logCompactIteration(iteration, ahead, targetCommit, "PUSH", fmt.Sprintf("push_target=%s", shortCommit(pushTarget)))
+		}
+		return false
+	case "BLOCKED":
+		reason := "blocked"
+		if result.BlockedReason != nil {
+			reason = *result.BlockedReason
+		}
+		if r.isCompactOutput() {
+			r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", fmt.Sprintf("reason=%q", reason))
+			return true
+		}
+		r.log("BLOCKED: review-and-push stopped on %s.", targetCommit)
+		if result.BlockedReason != nil {
+			r.log("Reason: %s", *result.BlockedReason)
+		}
+		return true
+	default:
+		if r.isCompactOutput() {
+			r.logCompactIteration(iteration, ahead, targetCommit, "BLOCKED", "reason=unexpected_status")
+			return true
+		}
+		r.log("BLOCKED: unexpected Codex status '%s' for %s.", result.Status, targetCommit)
+		return true
+	}
 }
 
 // Run executes the review-and-push loop. Returns 0 on success (all commits
@@ -249,7 +359,9 @@ func (r *Runner) Run(ctx context.Context) int {
 	}
 
 	for iteration := 1; iteration <= r.Cfg.MaxIterations; iteration++ {
-		r.log("Fetching %s before iteration %d...", base.Ref, iteration)
+		if !r.isCompactOutput() {
+			r.log("Fetching %s before iteration %d...", base.Ref, iteration)
+		}
 		if err := r.gitRun(ctx, "fetch", "origin"); err != nil {
 			fmt.Fprintf(r.Stderr, "Error: fetch failed: %v\n", err)
 			return 2
@@ -264,7 +376,7 @@ func (r *Runner) Run(ctx context.Context) int {
 			return 2
 		}
 		if ahead == 0 {
-			r.log("DONE: HEAD is not ahead of %s.", base.Ref)
+			r.logDone(base)
 			return 0
 		}
 
@@ -273,38 +385,11 @@ func (r *Runner) Run(ctx context.Context) int {
 			fmt.Fprintf(r.Stderr, "Error: %v\n", err)
 			return 2
 		}
-
-		r.log("Iteration %d: reviewing and pushing %s (%d commit(s) ahead of %s).", iteration, targetCommit, ahead, base.Ref)
-		r.PrintCommitBanner(ctx, targetCommit)
-
-		result, err := r.Codex.RunPass(ctx, &CodexPassInput{
-			RepoDir:         r.Cfg.RepoDir,
-			BaseBranch:      base.Branch,
-			RemoteRef:       base.Ref,
-			RemoteRefExists: base.Exists,
-			Iteration:       iteration,
-			AheadCount:      ahead,
-			TargetCommit:    targetCommit,
-		})
-		if err != nil {
-			r.log("BLOCKED: Codex execution failed during iteration %d.", iteration)
+		result, blocked := r.runCodexPass(ctx, base, iteration, ahead, targetCommit)
+		if blocked {
 			return 2
 		}
-
-		switch result.Status {
-		case "PUSH":
-			if msg := r.handlePush(ctx, result, targetCommit, base); msg != "" {
-				r.log("%s", msg)
-				return 2
-			}
-		case "BLOCKED":
-			r.log("BLOCKED: review-and-push stopped on %s.", targetCommit)
-			if result.BlockedReason != nil {
-				r.log("Reason: %s", *result.BlockedReason)
-			}
-			return 2
-		default:
-			r.log("BLOCKED: unexpected Codex status '%s' for %s.", result.Status, targetCommit)
+		if r.handlePassResult(ctx, result, base, iteration, ahead, targetCommit) {
 			return 2
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -216,6 +218,7 @@ func newTestRunner(t *testing.T, state *testGitState, codexMode string) (*Runner
 		Cfg: Config{
 			RepoDir:       "/tmp/test-repo",
 			MaxIterations: 100,
+			OutputMode:    OutputModeHuman,
 			GitBin:        "git",
 			CodexBin:      "codex",
 		},
@@ -348,6 +351,47 @@ func TestCommitBanner(t *testing.T) {
 	}
 	if !strings.Contains(output, "TARGET COMMIT") {
 		t.Errorf("expected TARGET COMMIT header, got: %s", output)
+	}
+}
+
+func TestCompactOutputMode(t *testing.T) {
+	state := &testGitState{aheadCount: 2, remoteBaseExists: true}
+	runner, _, buf := newTestRunner(t, state, "push-all")
+	runner.Cfg.OutputMode = OutputModeCompact
+
+	exitCode := runner.Run(context.Background())
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d: %s", exitCode, buf.String())
+	}
+	output := buf.String()
+	if strings.Contains(output, "TARGET COMMIT") {
+		t.Errorf("did not expect commit banner in compact mode, got: %s", output)
+	}
+	if strings.Contains(output, "Pushed through") {
+		t.Errorf("did not expect verbose push log in compact mode, got: %s", output)
+	}
+	if !strings.Contains(output, "ITERATION 1 target=commit-1 ahead=2 status=PUSH push_target=commit-2") {
+		t.Errorf("expected compact iteration summary, got: %s", output)
+	}
+	if !strings.Contains(output, "DONE base=origin/main") {
+		t.Errorf("expected compact DONE summary, got: %s", output)
+	}
+}
+
+func TestCompactBlockedOutputMode(t *testing.T) {
+	state := &testGitState{aheadCount: 1, remoteBaseExists: true}
+	runner, _, buf := newTestRunner(t, state, "blocked")
+	runner.Cfg.OutputMode = OutputModeCompact
+
+	exitCode := runner.Run(context.Background())
+
+	if exitCode != 2 {
+		t.Fatalf("expected exit code 2, got %d: %s", exitCode, buf.String())
+	}
+	output := buf.String()
+	if !strings.Contains(output, `ITERATION 1 target=commit-1 ahead=1 status=BLOCKED reason="hard blocker"`) {
+		t.Errorf("expected compact blocked summary, got: %s", output)
 	}
 }
 
@@ -587,4 +631,93 @@ func TestCodexResultJSONParsing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRealCodexRunnerSuppressesStderrOnSuccess(t *testing.T) {
+	codexBin := writeTestCodexScript(t, `#!/bin/sh
+if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then
+  printf '%s\n' '--output-schema --output-last-message'
+  exit 0
+fi
+if [ "$1" = "exec" ]; then
+  prev=''
+  output_file=''
+  for arg in "$@"; do
+    if [ "$prev" = "--output-last-message" ]; then
+      output_file="$arg"
+    fi
+    prev="$arg"
+  done
+  echo 'transient stderr noise' >&2
+  printf '%s' '{"status":"PUSH","summary":"ok","multi_commits":false,"push_target":"commit-1","blocked_reason":null}' > "$output_file"
+  exit 0
+fi
+exit 1
+`)
+	var stderr bytes.Buffer
+	runner := &RealCodexRunner{
+		CodexBin:     codexBin,
+		TimeoutSecs:  1,
+		Stderr:       &stderr,
+		StreamStderr: false,
+	}
+
+	result, err := runner.RunPass(context.Background(), &CodexPassInput{
+		RepoDir: "/tmp/test-repo", BaseBranch: "main", RemoteRef: "origin/main",
+		RemoteRefExists: true, Iteration: 1, AheadCount: 1, TargetCommit: "commit-1",
+	})
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if result.Status != "PUSH" {
+		t.Fatalf("expected PUSH result, got %+v", result)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected stderr to stay quiet on success, got: %q", stderr.String())
+	}
+}
+
+func TestRealCodexRunnerEmitsCapturedStderrOnFailure(t *testing.T) {
+	codexBin := writeTestCodexScript(t, `#!/bin/sh
+if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then
+  printf '%s\n' '--output-schema --output-last-message'
+  exit 0
+fi
+if [ "$1" = "exec" ]; then
+  echo 'important codex failure details' >&2
+  exit 2
+fi
+exit 1
+`)
+	var stderr bytes.Buffer
+	runner := &RealCodexRunner{
+		CodexBin:     codexBin,
+		TimeoutSecs:  1,
+		Stderr:       &stderr,
+		StreamStderr: false,
+	}
+
+	_, err := runner.RunPass(context.Background(), &CodexPassInput{
+		RepoDir: "/tmp/test-repo", BaseBranch: "main", RemoteRef: "origin/main",
+		RemoteRefExists: true, Iteration: 1, AheadCount: 1, TargetCommit: "commit-1",
+	})
+
+	if err == nil {
+		t.Fatal("expected codex failure")
+	}
+	if !strings.Contains(stderr.String(), "important codex failure details") {
+		t.Fatalf("expected captured stderr on failure, got: %q", stderr.String())
+	}
+}
+
+func writeTestCodexScript(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-codex.sh")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write fake codex script: %v", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("chmod fake codex script: %v", err)
+	}
+	return path
 }

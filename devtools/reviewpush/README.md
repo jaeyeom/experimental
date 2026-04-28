@@ -151,6 +151,12 @@ Limit the loop:
 review-and-push-loop --max-iterations 10
 ```
 
+Use compact output for agent-driven wrappers:
+
+```bash
+review-and-push-loop --output compact
+```
+
 If you build with Bazel, the binary target is `//devtools/reviewpush/cmd/review-and-push-loop`.
 
 ## Flags
@@ -158,6 +164,7 @@ If you build with Bazel, the binary target is `//devtools/reviewpush/cmd/review-
 - `--repo`: repository directory, default `.`
 - `--base`: override automatic base branch detection
 - `--max-iterations`: maximum number of review/push cycles, default `100`
+- `--output`: output mode, `human` (default) or `compact`
 
 ## Environment variables
 
@@ -200,5 +207,6 @@ Or, when blocked:
 ## Notes
 
 - The tool tolerates a dirty working tree and tells Codex to ignore unrelated local changes unless they directly affect the review.
-- It prints a commit banner using `git log --stat --format=fuller -1 <commit>` before each pass so the target is obvious.
+- In the default `human` mode, it prints a commit banner using `git log --stat --format=fuller -1 <commit>` before each pass so the target is obvious.
+- In `compact` mode, it suppresses the commit banner and live Codex stderr on successful passes, then emits one concise summary line per iteration.
 - It probes `codex exec --help` and only uses flags supported by the installed Codex binary, such as `--ask-for-approval`, `--sandbox`, `--ephemeral`, `--output-schema`, and `--output-last-message`.
