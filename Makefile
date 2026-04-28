@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check format format-whitespace check-whitespace check-format test lint fix
+.PHONY: all check format format-whitespace check-whitespace check-format test lint fix check-requirements
 
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
@@ -13,7 +13,7 @@ all:
 	$(MAKE) test check-semgrep check-bazel-go-files check-org-lint-tests
 
 check:
-	$(MAKE) requirements.txt check-generated
+	$(MAKE) check-requirements check-generated
 	$(MAKE) check-format test lint check-semgrep check-bazel-go-files check-org-lint-tests
 
 format: format-whitespace
@@ -44,6 +44,7 @@ fix: fix-golangci fix-ruff lint-shellcheck check-spacemacs
 
 # Go targets
 .PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files
+GOLANGCI_CONFIG_HASH_FILE := .tmp/golangci.yml.hash
 
 lint-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run ./...
@@ -55,9 +56,10 @@ fix-golangci: verify-golangci-config
 
 verify-golangci-config:
 	@CURRENT_HASH=$$(shasum -a 256 .golangci.yml | cut -d' ' -f1); \
-	if [ ! -f .golangci.yml.hash ] || [ "$$(cat .golangci.yml.hash)" != "$$CURRENT_HASH" ]; then \
+	mkdir -p .tmp; \
+	if [ ! -f $(GOLANGCI_CONFIG_HASH_FILE) ] || [ "$$(cat $(GOLANGCI_CONFIG_HASH_FILE))" != "$$CURRENT_HASH" ]; then \
 		echo "Verifying golangci-lint config..."; \
-		golangci-lint config verify && echo "$$CURRENT_HASH" > .golangci.yml.hash; \
+		golangci-lint config verify && echo "$$CURRENT_HASH" > $(GOLANGCI_CONFIG_HASH_FILE); \
 	fi
 
 check-bazel-go-files:
@@ -72,8 +74,18 @@ lint-ruff:
 fix-ruff:
 	ruff check --fix
 
+check-requirements: requirements.in requirements.txt
+	@if [ requirements.in -nt requirements.txt ]; then \
+		echo "Error: requirements.txt is older than requirements.in. Run 'make requirements.txt'."; \
+		exit 1; \
+	fi
+
 requirements.txt: requirements.in
-	pip install pip-tools
+	@if ! command -v pip-compile >/dev/null 2>&1; then \
+		echo "Error: pip-compile is required to generate requirements.txt"; \
+		echo "Install pip-tools first."; \
+		exit 1; \
+	fi
 	pip-compile --upgrade --output-file=requirements.txt requirements.in
 
 # Shell targets

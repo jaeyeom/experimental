@@ -3,8 +3,8 @@
 # Description:
 #   Unittest for merge sort algorithm.
 
-merge_sort = require('merge_sort')
-unittest = require('unittest')
+merge_sort = require('./merge_sort')
+unittest = require('./unittest')
 
 mergeSort = merge_sort.mergeSort
 
