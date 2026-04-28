@@ -1,9 +1,11 @@
 package reviewpush
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -72,10 +74,12 @@ Instructions:
 
 // RealCodexRunner runs the real codex binary via os/exec.
 type RealCodexRunner struct {
-	CodexBin    string
-	TimeoutSecs int
-	helpCache   string
-	helpCached  bool
+	CodexBin     string
+	TimeoutSecs  int
+	Stderr       io.Writer
+	StreamStderr bool
+	helpCache    string
+	helpCached   bool
 }
 
 func (r *RealCodexRunner) getHelp() string {
@@ -158,9 +162,21 @@ func (r *RealCodexRunner) RunPass(ctx context.Context, input *CodexPassInput) (*
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.CommandContext(runCtx, r.CodexBin, args...) //nolint:gosec // CodexBin is user-configured
 	cmd.Stdin = strings.NewReader(prompt)
-	cmd.Stderr = os.Stderr
+	stderr := r.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+	var stderrBuf bytes.Buffer
+	if r.StreamStderr {
+		cmd.Stderr = stderr
+	} else {
+		cmd.Stderr = &stderrBuf
+	}
 
 	if err := cmd.Run(); err != nil {
+		if !r.StreamStderr && stderrBuf.Len() > 0 {
+			fmt.Fprint(stderr, stderrBuf.String())
+		}
 		if runCtx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("codex execution timed out after %ds", r.TimeoutSecs)
 		}

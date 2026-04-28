@@ -20,10 +20,15 @@ func main() {
 	flag.StringVar(&cfg.RepoDir, "repo", ".", "Repository directory")
 	flag.StringVar(&cfg.BaseBranchOverride, "base", "", "Override base branch detection")
 	flag.IntVar(&cfg.MaxIterations, "max-iterations", 100, "Maximum loop iterations")
+	flag.StringVar(&cfg.OutputMode, "output", reviewpush.OutputModeHuman, "Output mode: human or compact")
 	flag.Parse()
 
 	if cfg.MaxIterations <= 0 {
 		fmt.Fprintf(os.Stderr, "Error: --max-iterations must be greater than zero\n")
+		os.Exit(1)
+	}
+	if cfg.OutputMode != reviewpush.OutputModeHuman && cfg.OutputMode != reviewpush.OutputModeCompact {
+		fmt.Fprintf(os.Stderr, "Error: --output must be %q or %q\n", reviewpush.OutputModeHuman, reviewpush.OutputModeCompact)
 		os.Exit(1)
 	}
 
@@ -40,8 +45,10 @@ func main() {
 
 	exec := executor.NewBasicExecutor()
 	codex := &reviewpush.RealCodexRunner{
-		CodexBin:    cfg.CodexBin,
-		TimeoutSecs: cfg.CodexTimeoutSecs,
+		CodexBin:     cfg.CodexBin,
+		TimeoutSecs:  cfg.CodexTimeoutSecs,
+		Stderr:       os.Stderr,
+		StreamStderr: cfg.OutputMode != reviewpush.OutputModeCompact,
 	}
 
 	runner := reviewpush.NewRunner(cfg, exec, codex)
