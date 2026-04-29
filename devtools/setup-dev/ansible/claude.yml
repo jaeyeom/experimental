@@ -46,7 +46,7 @@
           changed_when: False
 
         - name: Install claude using npm
-          command: npm install -g @anthropic-ai/claude-code
+          command: npm install -g @anthropic-ai/claude-code@2.1.112 --ignore-scripts
           when: claude_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
