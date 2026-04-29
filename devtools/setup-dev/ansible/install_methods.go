@@ -385,7 +385,8 @@ func (c CargoInstallMethod) RenderBlockInstallTask(command string) string {
 
 // NpmInstallMethod handles installation via Node.js npm command.
 type NpmInstallMethod struct {
-	Name string
+	Name        string
+	InstallArgs []string
 }
 
 func (n NpmInstallMethod) GetMethodType() string {
@@ -402,6 +403,10 @@ func (n NpmInstallMethod) RenderSetupTasks(_ string) string {
 
 func (n NpmInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
+	installArgs := ""
+	if len(n.InstallArgs) > 0 {
+		installArgs = " " + strings.Join(n.InstallArgs, " ")
+	}
 	return `    - name: Check if ` + command + ` is installed
       shell: command -v ` + command + `
       register: ` + commandID + `_installed
@@ -409,7 +414,7 @@ func (n NpmInstallMethod) RenderInstallTask(command string) string {
       changed_when: False
 
     - name: Install ` + command + ` using npm
-      command: npm install -g ` + n.Name + `
+      command: npm install -g ` + n.Name + installArgs + `
       when: ` + commandID + `_installed.rc != 0`
 }
 
