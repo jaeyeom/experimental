@@ -502,6 +502,36 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 		Imports: nil,
 	},
 	{
+		command: "nix",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: ShellInstallMethod{
+				InstallCommand: "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm",
+			},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand: "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm",
+			},
+			// Termux/Qubes: out of scope per issue #170.
+		},
+		Imports: []Import{{Playbook: "curl"}},
+		Suffix: `
+
+    - name: Ensure ~/.config/nix directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_facts['env']['HOME'] }}/.config/nix"
+        state: directory
+        mode: '0755'
+      when: ` + WhenNotTermux + `
+
+    - name: Enable flakes and nix-command in user nix.conf
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_facts['env']['HOME'] }}/.config/nix/nix.conf"
+        line: "experimental-features = nix-command flakes"
+        regexp: "^experimental-features"
+        create: yes
+        mode: '0644'
+      when: ` + WhenNotTermux,
+	},
+	{
 		command: "nvm",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformAll: ShellInstallMethod{
