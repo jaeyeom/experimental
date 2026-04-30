@@ -17,6 +17,29 @@ import (
 func main() {
 	var cfg reviewpush.Config
 
+	flag.Usage = func() {
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, `Usage of %s:
+  review-and-push-loop reviews local commits ahead of the remote base branch
+  and pushes them one at a time after a read-only Codex review pass.
+
+  The loop fetches origin, finds the oldest unpushed local commit, asks Codex
+  to report PUSH or BLOCKED as JSON, validates the proposed push target, then
+  performs the git push itself. Codex is instructed not to edit files or push.
+
+  Base branch detection uses origin/HEAD, then main/master/trunk. Use -base
+  when working against a different branch or bootstrapping an empty remote.
+
+Environment:
+  GIT_BIN                 git executable to run (default "git")
+  CODEX_BIN               codex executable to run (default "codex")
+  CODEX_TIMEOUT_SECONDS   per-review timeout in seconds (default "300")
+
+Flags:
+`, os.Args[0])
+		flag.PrintDefaults()
+	}
+
 	flag.StringVar(&cfg.RepoDir, "repo", ".", "Repository directory")
 	flag.StringVar(&cfg.BaseBranchOverride, "base", "", "Override base branch detection")
 	flag.IntVar(&cfg.MaxIterations, "max-iterations", 100, "Maximum loop iterations")
