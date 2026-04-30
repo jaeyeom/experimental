@@ -44,29 +44,28 @@
           - pnpm
         allowUnsandboxedCommands: true
         filesystem:
-          write:
-            allowOnly:
-              # macOS Go and golangci-lint cache paths
-              - "{{ ansible_facts['env']['HOME'] }}/Library/Caches/go-build"
-              - "{{ ansible_facts['env']['HOME'] }}/Library/Caches/golangci-lint"
-              # Linux Go and golangci-lint cache paths
-              - "{{ ansible_facts['env']['HOME'] }}/.cache/go-build"
-              - "{{ ansible_facts['env']['HOME'] }}/.cache/golangci-lint"
-              # Go module cache (needed for go get)
-              - "{{ ansible_facts['env']['HOME'] }}/go/pkg/mod"
-              # Semgrep log/cache (needed for pre-commit hooks running semgrep)
-              - "{{ ansible_facts['env']['HOME'] }}/.semgrep"
-              # Bazel cache (needed for git pre-commit hooks running bazel test)
-              - "{{ ansible_facts['env']['HOME'] }}/.cache/bazel"
-              # Githooks release clone (needed for update checks via git fetch)
-              - "{{ ansible_facts['env']['HOME'] }}/.githooks/release/.git"
-              # Shared Claude temp directory (needed for cross-sandbox TMPDIR
-              # consistency — see issue #148). The sandbox overrides $TMPDIR to
-              # a session-scoped path, so files written via $TMPDIR in sandbox
-              # mode are invisible to non-sandboxed calls. Adding the real
-              # TMPDIR here lets sandboxed code write to $CLAUDE_CODE_TMPDIR,
-              # which stays consistent across both modes.
-              - "{{ claude_tmpdir }}"
+          allowWrite:
+            # macOS Go and golangci-lint cache paths
+            - "{{ ansible_facts['env']['HOME'] }}/Library/Caches/go-build"
+            - "{{ ansible_facts['env']['HOME'] }}/Library/Caches/golangci-lint"
+            # Linux Go and golangci-lint cache paths
+            - "{{ ansible_facts['env']['HOME'] }}/.cache/go-build"
+            - "{{ ansible_facts['env']['HOME'] }}/.cache/golangci-lint"
+            # Go module cache (needed for go get)
+            - "{{ ansible_facts['env']['HOME'] }}/go/pkg/mod"
+            # Semgrep log/cache (needed for pre-commit hooks running semgrep)
+            - "{{ ansible_facts['env']['HOME'] }}/.semgrep"
+            # Bazel cache (needed for git pre-commit hooks running bazel test)
+            - "{{ ansible_facts['env']['HOME'] }}/.cache/bazel"
+            # Githooks release clone (needed for update checks via git fetch)
+            - "{{ ansible_facts['env']['HOME'] }}/.githooks/release/.git"
+            # Shared Claude temp directory (needed for cross-sandbox TMPDIR
+            # consistency — see issue #148). The sandbox overrides $TMPDIR to
+            # a session-scoped path, so files written via $TMPDIR in sandbox
+            # mode are invisible to non-sandboxed calls. Adding the real
+            # TMPDIR here lets sandboxed code write to $CLAUDE_CODE_TMPDIR,
+            # which stays consistent across both modes.
+            - "{{ claude_tmpdir }}"
         network:
           allowedHosts:
             # GitHub
