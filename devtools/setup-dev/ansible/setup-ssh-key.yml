@@ -102,7 +102,7 @@
         marker: "# {mark} running keychain"
         block: |
           if [[ $- == *i* ]]; then
-              eval $(keychain --eval --agents ssh {{ ssh_key_identity }})
+              eval $(keychain --eval {{ ssh_key_identity }})
           fi
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
