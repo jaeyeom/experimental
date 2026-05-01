@@ -27,8 +27,10 @@
 
         - name: Install nix
           shell: |
+            if test -d /nix; then exit 0; fi
             curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm
           when: nix_installed.rc != 0
+          become: yes
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Install nix via shell on Debian/Ubuntu
@@ -41,8 +43,10 @@
 
         - name: Install nix
           shell: |
+            if test -d /nix; then exit 0; fi
             curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm
           when: nix_installed.rc != 0
+          become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
     - name: Ensure ~/.config/nix directory exists

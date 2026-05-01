@@ -610,6 +610,13 @@ type ShellInstallMethod struct {
 	// all generated tasks (command checks, version checks, install commands).
 	// When non-empty, an Ansible "environment:" block is rendered on each task.
 	Environment map[string]string
+
+	// Become, when true, runs the install task with privilege escalation
+	// (`become: yes`). Use this for installers that internally invoke sudo
+	// (e.g., the Determinate Nix installer), which cannot prompt for a
+	// password from Ansible's non-interactive shell. The check task still
+	// runs as the regular user.
+	Become bool
 }
 
 func (s ShellInstallMethod) GetMethodType() string {
@@ -622,6 +629,15 @@ func (s ShellInstallMethod) GetImports() []Import {
 
 func (s ShellInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
+}
+
+// renderBecome returns "\n          become: yes" when Become is true, or "".
+// The 10-space indent matches keys at task scope inside the block.
+func (s ShellInstallMethod) renderBecome() string {
+	if !s.Become {
+		return ""
+	}
+	return "\n          become: yes"
 }
 
 // renderEnvironment returns a YAML environment block for tasks inside
@@ -702,7 +718,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
         - name: Install/update ` + command + ` if outdated
           shell: |
 ` + indent(strings.Trim(s.InstallCommand, "\n"), 12) + `
-          when: ` + commandID + `_installed_version != ` + commandID + `_latest_version` + s.renderEnvironment()
+          when: ` + commandID + `_installed_version != ` + commandID + `_latest_version` + s.renderBecome() + s.renderEnvironment()
 	}
 
 	return `    - name: Ensure ` + command + ` is present
@@ -716,7 +732,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
         - name: Install ` + command + `
           shell: |
 ` + indent(strings.Trim(s.InstallCommand, "\n"), 12) + `
-          when: ` + commandID + `_installed.rc != 0` + s.renderEnvironment()
+          when: ` + commandID + `_installed.rc != 0` + s.renderBecome() + s.renderEnvironment()
 }
 
 func (s ShellInstallMethod) RenderBlockInstallTask(command string) string {

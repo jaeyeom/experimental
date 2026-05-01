@@ -504,11 +504,20 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 	{
 		command: "nix",
 		platforms: map[PlatformName]InstallMethod{
+			// The Determinate installer needs root and re-invokes itself via
+			// sudo when run as a regular user, which fails under Ansible's
+			// non-interactive shell. Become: true elevates upfront so the
+			// installer sees it is already root. The inline /nix guard makes
+			// re-runs idempotent even when nix is not yet on the user's PATH.
 			PlatformDarwin: ShellInstallMethod{
-				InstallCommand: "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm",
+				InstallCommand: `if test -d /nix; then exit 0; fi
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm`,
+				Become: true,
 			},
 			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm",
+				InstallCommand: `if test -d /nix; then exit 0; fi
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm`,
+				Become: true,
 			},
 			// Termux/Qubes: out of scope per issue #170.
 		},
