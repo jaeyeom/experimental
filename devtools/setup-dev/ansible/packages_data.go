@@ -215,9 +215,7 @@ var platformSpecificTools = []PlatformSpecificTool{
 			PlatformDarwin:     NpmInstallMethod{Name: "@openai/codex"},
 			PlatformDebianLike: NvmInstallMethod{Name: "@openai/codex"},
 		},
-		Imports: []Import{
-			{Playbook: "setup-npm"},
-		},
+		Imports: nil,
 	},
 	{
 		command: "copier",
