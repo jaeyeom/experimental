@@ -58,6 +58,8 @@
         - name: Install wrangler using npm through nvm
           shell: |
             export NVM_DIR="{{ detected_nvm_dir }}"
-            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm exec default npm install -g wrangler
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" \
+              && nvm use --delete-prefix default --silent \
+              && npm install -g wrangler
           when: wrangler_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
