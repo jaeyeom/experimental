@@ -158,6 +158,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-homebrew-env.yml
 - setup-java.yml
 - setup-java-tools.yml
+- setup-jetbrains-mono-font.yml
 - setup-kotex.yml
 - setup-kotlin-tools.yml
 - setup-npm.yml
