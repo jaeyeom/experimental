@@ -82,7 +82,8 @@ CLOSED: [2025-03-07 Fri 17:20]
 These are some fonts that I want to ensure that they are installed.
 **** TODO Fira Code
 **** TODO Sarasa Mono
-**** TODO Jetbrains Mono
+**** DONE Jetbrains Mono
+CLOSED: [2026-05-01 Fri]
 **** TODO SF Mono
 **** TODO D2Coding
 **** TODO Noto

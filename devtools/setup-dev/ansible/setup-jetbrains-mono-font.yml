@@ -1,0 +1,137 @@
+---
+- import_playbook: gather-facts.yml
+- import_playbook: curl.yml
+  when: ansible_facts['os_family'] != "Darwin"
+- import_playbook: unzip.yml
+  when: ansible_facts['os_family'] != "Darwin"
+
+- name: Ensure JetBrains Mono font is installed
+  hosts: all
+  tasks:
+    - name: Include guard for setup-jetbrains-mono-font playbook
+      block:
+        - name: Stop early if the setup-jetbrains-mono-font playbook is already included
+          meta: end_play
+          when: setup_jetbrains_mono_font_playbook_imported is defined
+        - name: Ensure the setup-jetbrains-mono-font playbook is not included
+          set_fact:
+            setup_jetbrains_mono_font_playbook_imported: true
+          when: setup_jetbrains_mono_font_playbook_imported is not defined
+
+    - name: Ensure JetBrains Mono font is present on macOS
+      block:
+        - name: Check if JetBrains Mono font is installed via Homebrew
+          shell: brew list --cask font-jetbrains-mono
+          changed_when: false
+      rescue:
+        - name: Install JetBrains Mono font on macOS
+          community.general.homebrew_cask:
+            name: font-jetbrains-mono
+            state: present
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Install JetBrains Mono font on Linux
+      block:
+        - name: Check if JetBrains Mono font is installed
+          shell: fc-list | grep -qi "JetBrains Mono"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Get latest JetBrains Mono release tag from GitHub
+          uri:
+            url: https://api.github.com/repos/JetBrains/JetBrainsMono/releases/latest
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: jetbrains_mono_release
+          until: >-
+            jetbrains_mono_release.status == 200 or
+            (jetbrains_mono_release.status == 403 and
+             (jetbrains_mono_release.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if JetBrains Mono release fetch failed
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch JetBrains Mono release from GitHub.
+              Status: {{ jetbrains_mono_release.status }}.
+              {% if jetbrains_mono_release.status == 403 and (jetbrains_mono_release.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: jetbrains_mono_release.status != 200
+
+        - name: Extract JetBrains Mono download URL
+          set_fact:
+            jetbrains_mono_download_url: "{{ (jetbrains_mono_release.json.assets | selectattr('name', 'match', '^JetBrainsMono-[0-9.]+\\.zip$') | first).browser_download_url }}"
+
+        - name: Download and install JetBrains Mono font
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            curl -fsSL -o "$tmpdir/JetBrainsMono.zip" \
+              "{{ jetbrains_mono_download_url }}"
+            unzip -o "$tmpdir/JetBrainsMono.zip" -d "$tmpdir/JetBrainsMono"
+            mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/JetBrainsMono"
+            cp -f "$tmpdir/JetBrainsMono/fonts/ttf/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/JetBrainsMono/"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Install JetBrains Mono font on Termux
+      block:
+        - name: Check if JetBrains Mono font is installed on Termux
+          shell: fc-list | grep -qi "JetBrains Mono"
+          changed_when: false
+      rescue:
+        - name: Create fonts directory on Termux
+          ansible.builtin.file:
+            path: "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts"
+            state: directory
+            mode: '0755'
+
+        - name: Get latest JetBrains Mono release tag from GitHub on Termux
+          uri:
+            url: https://api.github.com/repos/JetBrains/JetBrainsMono/releases/latest
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: jetbrains_mono_release_termux
+          until: >-
+            jetbrains_mono_release_termux.status == 200 or
+            (jetbrains_mono_release_termux.status == 403 and
+             (jetbrains_mono_release_termux.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if JetBrains Mono release fetch failed on Termux
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch JetBrains Mono release from GitHub.
+              Status: {{ jetbrains_mono_release_termux.status }}.
+              {% if jetbrains_mono_release_termux.status == 403 and (jetbrains_mono_release_termux.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: jetbrains_mono_release_termux.status != 200
+
+        - name: Extract JetBrains Mono download URL on Termux
+          set_fact:
+            jetbrains_mono_download_url_termux: "{{ (jetbrains_mono_release_termux.json.assets | selectattr('name', 'match', '^JetBrainsMono-[0-9.]+\\.zip$') | first).browser_download_url }}"
+
+        - name: Download and install JetBrains Mono font on Termux
+          shell: |
+            set -e
+            tmpdir=$(mktemp -d)
+            trap 'rm -rf "$tmpdir"' EXIT
+            curl -fsSL -o "$tmpdir/JetBrainsMono.zip" \
+              "{{ jetbrains_mono_download_url_termux }}"
+            unzip -o "$tmpdir/JetBrainsMono.zip" -d "$tmpdir/JetBrainsMono"
+            mkdir -p "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/JetBrainsMono"
+            cp -f "$tmpdir/JetBrainsMono/fonts/ttf/"*.ttf "{{ ansible_facts['env']['HOME'] }}/.local/share/fonts/JetBrainsMono/"
+            fc-cache -fv
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
