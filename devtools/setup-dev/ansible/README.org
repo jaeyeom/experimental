@@ -135,6 +135,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-claude-privacy.yml
 - setup-claude-sandbox.yml
 - setup-claude-termux-rg.yml
+- setup-codex-termux.yml
 - setup-config-tools.yml
 - setup-cousine-font.yml
 - setup-css-tools.yml

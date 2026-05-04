@@ -3,6 +3,8 @@
 # To make changes, modify generate_packages.go, install_methods.go, packages_data.go, or templates.go
 # and then run: make
 - import_playbook: gather-facts.yml
+- import_playbook: setup-codex-termux.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
 - import_playbook: setup-npm.yml
   when: (ansible_facts['os_family'] == "Darwin") or (ansible_facts['env']['TERMUX_VERSION'] is defined)
 - import_playbook: setup-nvm.yml
