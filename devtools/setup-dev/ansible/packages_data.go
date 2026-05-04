@@ -219,7 +219,9 @@ var platformSpecificTools = []PlatformSpecificTool{
 				InstallArgs: []string{"--os=linux", "--cpu=arm64"},
 			},
 		},
-		Imports: nil,
+		Imports: []Import{
+			{Playbook: "setup-codex-termux", When: WhenTermux},
+		},
 	},
 	{
 		command: "copier",

@@ -1,0 +1,50 @@
+---
+# This playbook configures Codex to work properly on Termux by:
+# 1. Binding /etc/resolv.conf (Android has none, musl DNS fails without it)
+# 2. Setting SSL_CERT_FILE (musl cannot find Android CA roots)
+# 3. Disabling bubblewrap sandbox (Android forbids user namespaces)
+# All tasks are gated on Termux only.
+- import_playbook: setup-user-bin-directory.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+- name: Configure Codex wrapper for Termux
+  hosts: all
+  tasks:
+    - name: Include guard for setup-codex-termux playbook
+      block:
+        - name: Stop early if the setup-codex-termux playbook is already included
+          meta: end_play
+          when: setup_codex_termux_playbook_imported is defined
+        - name: Ensure the setup-codex-termux playbook is not included
+          set_fact:
+            setup_codex_termux_playbook_imported: true
+          when: setup_codex_termux_playbook_imported is not defined
+
+    - name: Ensure proot is available on Termux
+      ansible.builtin.command: pkg install -y proot
+      args:
+        creates: /data/data/com.termux/files/usr/bin/proot
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Install Codex Termux wrapper script
+      ansible.builtin.copy:
+        content: |
+          #!/data/data/com.termux/files/usr/bin/sh
+          # Wrapper for Codex on Termux. The static musl Linux/aarch64 binary cannot
+          # resolve DNS on Android (no /etc/resolv.conf) and does not find native CA
+          # roots at standard Linux paths. Bubblewrap cannot create user namespaces
+          # on Android, so the codex sandbox must be disabled.
+
+          # Find the real codex (this wrapper is at ~/.local/shims/bin which precedes
+          # $PREFIX/bin in PATH; the second `which -a` hit is the npm-installed binary).
+          REAL_CODEX=$(which -a codex 2>/dev/null | sed -n '2p')
+          if [ -z "$REAL_CODEX" ] || [ "$REAL_CODEX" = "$0" ]; then
+              REAL_CODEX=/data/data/com.termux/files/usr/bin/codex
+          fi
+
+          export SSL_CERT_FILE="${SSL_CERT_FILE:-/data/data/com.termux/files/usr/etc/tls/cert.pem}"
+          exec proot -b /data/data/com.termux/files/usr/etc/resolv.conf:/etc/resolv.conf \
+              "$REAL_CODEX" -c 'sandbox_mode="danger-full-access"' "$@"
+        dest: "{{ user_shims_bin_directory }}/codex"
+        mode: "0755"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined

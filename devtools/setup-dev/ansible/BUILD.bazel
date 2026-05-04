@@ -197,6 +197,7 @@ sh_test(
         "setup-claude-privacy.yml",
         "setup-claude-sandbox.yml",
         "setup-claude-termux-rg.yml",
+        "setup-codex-termux.yml",
         "setup-config-tools.yml",
         "setup-css-tools.yml",
         "setup-devtools.yml",
@@ -574,9 +575,11 @@ sh_test(
         "gather-facts.yml",
         "npm.yml",
         "nvm.yml",
+        "setup-codex-termux.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -2018,6 +2021,7 @@ sh_test(
         "sed.yml",
         "setup-cargo.yml",
         "setup-claude-privacy.yml",
+        "setup-codex-termux.yml",
         "setup-devtools.yml",
         "setup-direnv.yml",
         "setup-emacs.yml",
@@ -2328,9 +2332,11 @@ sh_test(
         "npm.yml",
         "nvm.yml",
         "review-and-push-loop.yml",
+        "setup-codex-termux.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
         "setup-user-go-bin-directory.yml",
     ],
     tags = [
@@ -2562,6 +2568,21 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "setup-codex-termux_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-codex-termux.yml"],
+    data = [
+        "setup-codex-termux.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -3451,6 +3472,7 @@ sh_test(
         "rustup.yml",
         "setup-cargo.yml",
         "setup-claude-privacy.yml",
+        "setup-codex-termux.yml",
         "setup-find.yml",
         "setup-git.yml",
         "setup-npm.yml",
@@ -4098,6 +4120,7 @@ test_suite(
         ":setup-claude-privacy_syntax_test",
         ":setup-claude-sandbox_syntax_test",
         ":setup-claude-termux-rg_syntax_test",
+        ":setup-codex-termux_syntax_test",
         ":setup-config-tools_syntax_test",
         ":setup-cousine-font_syntax_test",
         ":setup-css-tools_syntax_test",
