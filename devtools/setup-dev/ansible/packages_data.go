@@ -214,6 +214,10 @@ var platformSpecificTools = []PlatformSpecificTool{
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin:     NpmInstallMethod{Name: "@openai/codex"},
 			PlatformDebianLike: NvmInstallMethod{Name: "@openai/codex"},
+			PlatformTermux: NpmInstallMethod{
+				Name:        "@openai/codex",
+				InstallArgs: []string{"--os=linux", "--cpu=arm64"},
+			},
 		},
 		Imports: nil,
 	},
