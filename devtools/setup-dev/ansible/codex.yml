@@ -4,7 +4,7 @@
 # and then run: make
 - import_playbook: gather-facts.yml
 - import_playbook: setup-npm.yml
-  when: ansible_facts['os_family'] == "Darwin"
+  when: (ansible_facts['os_family'] == "Darwin") or (ansible_facts['env']['TERMUX_VERSION'] is defined)
 - import_playbook: setup-nvm.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
@@ -33,6 +33,19 @@
           command: npm install -g @openai/codex
           when: codex_installed.rc != 0
       when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Ensure codex is present on Termux
+      block:
+        - name: Check if codex is installed
+          shell: command -v codex
+          register: codex_installed
+          ignore_errors: yes
+          changed_when: False
+
+        - name: Install codex using npm
+          command: npm install -g @openai/codex --os=linux --cpu=arm64
+          when: codex_installed.rc != 0
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install codex via nvm on Debian/Ubuntu
       block:
