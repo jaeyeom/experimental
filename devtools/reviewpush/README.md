@@ -2,7 +2,7 @@
 
 `reviewpush` is the library and CLI wrapper behind `review-and-push-loop`.
 
-It is built for a very specific workflow: let Codex review commits, but do not let Codex edit code or push directly. The wrapper keeps the review pass read-only, validates the result, and performs the push itself.
+It is built for a very specific workflow: let [Codex](https://github.com/openai/codex) (OpenAI's CLI, distinct from Claude Code) review commits, but do not let Codex edit code or push directly. The wrapper keeps the review pass read-only, validates the result, and performs the push itself.
 
 > "I finally found the proper usage of codex! Review but don't work on the code. It shows its super power when I tell it that the code is written by Claude Code!"
 
