@@ -108,7 +108,11 @@ func (r *RealCodexRunner) buildArgs(input *CodexPassInput, schemaFile, outputFil
 	}
 
 	if r.supportsFlag("--sandbox") {
-		args = append(args, "--sandbox", "workspace-write")
+		sandboxMode := "workspace-write"
+		if os.Getenv("TERMUX_VERSION") != "" {
+			sandboxMode = "danger-full-access"
+		}
+		args = append(args, "--sandbox", sandboxMode)
 	}
 	if r.supportsFlag("--ephemeral") {
 		args = append(args, "--ephemeral")
