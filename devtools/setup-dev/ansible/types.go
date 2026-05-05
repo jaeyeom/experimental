@@ -39,8 +39,9 @@ var AllPlatforms = []PlatformName{
 
 // Import represents a playbook import with optional conditional logic.
 type Import struct {
-	Playbook string // Name of the playbook to import
-	When     string // Optional Ansible when clause for conditional imports
+	Playbook    string // Name of the playbook to import
+	When        string // Optional Ansible when clause for conditional imports
+	PostInstall bool   // If true, emit this import after the install play rather than before it
 }
 
 // PackageData represents a traditional system package that can be installed
@@ -229,8 +230,13 @@ func (p PlatformSpecificTool) GetAllImports() []Import {
 		}
 	}
 
-	// Add explicit imports first, maintaining order
+	// Add explicit pre-install imports first, maintaining order.
+	// PostInstall imports are emitted after the install play and are
+	// excluded here; see GetPostImports.
 	for _, imp := range p.Imports {
+		if imp.PostInstall {
+			continue
+		}
 		addImport(imp.Playbook, imp.When, true)
 	}
 
@@ -260,7 +266,7 @@ func (p PlatformSpecificTool) GetAllImports() []Import {
 	return result
 }
 
-// HasConditionalImports returns true if any import has a When condition.
+// HasConditionalImports returns true if any pre-install import has a When condition.
 func (p PlatformSpecificTool) HasConditionalImports() bool {
 	for _, imp := range p.GetAllImports() {
 		if imp.When != "" {
@@ -268,6 +274,19 @@ func (p PlatformSpecificTool) HasConditionalImports() bool {
 		}
 	}
 	return false
+}
+
+// GetPostImports returns the imports that should be emitted after the install
+// play (i.e. those marked PostInstall: true). The When field is preserved as-is
+// from the explicit Imports slice; only explicit imports can be post-install.
+func (p PlatformSpecificTool) GetPostImports() []Import {
+	var result []Import
+	for _, imp := range p.Imports {
+		if imp.PostInstall {
+			result = append(result, Import{Playbook: imp.Playbook, When: imp.When})
+		}
+	}
+	return result
 }
 
 // AptSourceType classifies how an apt package's repository is configured.

@@ -198,4 +198,8 @@ var platformSpecificTemplate = `---
 {{- end }}
 {{- end }}
 {{- end }}{{.Suffix}}
+{{- range .GetPostImports}}
+- import_playbook: {{.Playbook}}.yml{{if .When}}
+  when: {{.When}}{{end}}
+{{- end}}
 `

@@ -351,6 +351,58 @@ func TestProfileAptPackagesSubsetOfAll(t *testing.T) {
 	}
 }
 
+func TestGetPostImports(t *testing.T) {
+	tests := []struct {
+		name     string
+		tool     PlatformSpecificTool
+		wantPre  []Import
+		wantPost []Import
+	}{
+		{
+			name: "post-install import excluded from GetAllImports",
+			tool: PlatformSpecificTool{
+				command: "mytool",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformTermux: NpmInstallMethod{Name: "mytool"},
+				},
+				Imports: []Import{
+					{Playbook: "setup-npm", When: WhenTermux},
+					{Playbook: "setup-mytool-wrapper", When: WhenTermux, PostInstall: true},
+				},
+			},
+			wantPre:  []Import{{Playbook: "setup-npm", When: WhenTermux}},
+			wantPost: []Import{{Playbook: "setup-mytool-wrapper", When: WhenTermux}},
+		},
+		{
+			name: "no post-install imports returns nil",
+			tool: PlatformSpecificTool{
+				command: "bar",
+				platforms: map[PlatformName]InstallMethod{
+					PlatformAll: GoInstallMethod{PkgPath: "example.com/bar@latest"},
+				},
+				Imports: []Import{
+					{Playbook: "dep"},
+				},
+			},
+			wantPre:  []Import{{Playbook: "dep"}, {Playbook: "setup-user-go-bin-directory"}},
+			wantPost: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPre := tt.tool.GetAllImports()
+			if !reflect.DeepEqual(gotPre, tt.wantPre) {
+				t.Errorf("GetAllImports() mismatch:\n  got:  %s\n  want: %s", formatImports(gotPre), formatImports(tt.wantPre))
+			}
+			gotPost := tt.tool.GetPostImports()
+			if !reflect.DeepEqual(gotPost, tt.wantPost) {
+				t.Errorf("GetPostImports() mismatch:\n  got:  %s\n  want: %s", formatImports(gotPost), formatImports(tt.wantPost))
+			}
+		})
+	}
+}
+
 func formatImports(imports []Import) string {
 	if len(imports) == 0 {
 		return "nil"
