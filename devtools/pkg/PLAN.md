@@ -11,21 +11,18 @@ Make the gh runner infrastructure in this repo usable as a backbone for ghx-cli
 
 ```
 devtools/
-├── pkg/                         # Public packages (importable) ✓
-│   ├── ghauth/                  # GitHub authentication ✓
-│   │   ├── token.go             # TokenSource interface, ChainTokenSource
-│   │   ├── ghcli.go             # GHCLITokenSource (gh auth token)
-│   │   ├── env.go               # EnvTokenSource, MultiEnvTokenSource
-│   │   └── *_test.go            # Tests
-│   │
-│   └── ghtest/                  # Test utilities ✓
-│       ├── mock.go              # GHMockExecutor with gh-specific helpers
-│       ├── skip.go              # SkipWithoutGH, RequireGHAuth
-│       ├── fixtures.go          # SampleIssue, SamplePR, SampleRepo, etc.
-│       └── *_test.go            # Tests
-│
-├── internal/
-│   └── executor/                # Original package (for existing code)
+└── pkg/                         # Public packages (importable) ✓
+    ├── ghauth/                  # GitHub authentication ✓
+    │   ├── token.go             # TokenSource interface, ChainTokenSource
+    │   ├── ghcli.go             # GHCLITokenSource (gh auth token)
+    │   ├── env.go               # EnvTokenSource, MultiEnvTokenSource
+    │   └── *_test.go            # Tests
+    │
+    └── ghtest/                  # Test utilities ✓
+        ├── mock.go              # GHMockExecutor with gh-specific helpers
+        ├── skip.go              # SkipWithoutGH, RequireGHAuth
+        ├── fixtures.go          # SampleIssue, SamplePR, SampleRepo, etc.
+        └── *_test.go            # Tests
 ```
 
 Note: The executor package has been extracted to `github.com/jaeyeom/go-cmdexec`.
