@@ -13,7 +13,10 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["reviewpush_test.go"],
+    srcs = [
+        "codex_test.go",
+        "reviewpush_test.go",
+    ],
     embed = [":go_default_library"],
     deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
 )
