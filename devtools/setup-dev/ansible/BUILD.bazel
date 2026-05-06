@@ -1313,6 +1313,20 @@ sh_test(
 )
 
 sh_test(
+    name = "graphify_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["graphify.yml"],
+    data = [
+        "graphify.yml",
+        "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "grep_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["grep.yml"],
@@ -4052,6 +4066,7 @@ test_suite(
         ":gotests_syntax_test",
         ":gpg-agent_syntax_test",
         ":gpg_syntax_test",
+        ":graphify_syntax_test",
         ":grep_syntax_test",
         ":grpcui_syntax_test",
         ":guru_syntax_test",

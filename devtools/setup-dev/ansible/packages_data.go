@@ -432,6 +432,13 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 	},
 	GoTool("gorename", "golang.org/x/tools/cmd/gorename@latest"),
 	GoTool("gotests", "github.com/cweill/gotests/gotests@latest"),
+	{
+		command: "graphify",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: UvInstallMethod{Name: "graphifyy"},
+		},
+		Imports: nil,
+	},
 	GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
 	GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),
 	{
