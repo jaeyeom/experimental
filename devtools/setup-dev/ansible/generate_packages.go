@@ -431,7 +431,7 @@ func buildCommandAptInfo() map[string]AptPackageInfo {
 
 	// From platformSpecificTools, extract only apt-based install methods.
 	for _, tool := range platformSpecificTools {
-		for _, platform := range []PlatformName{PlatformDebianLike, PlatformDebian, PlatformUbuntu} {
+		for _, platform := range []PlatformName{PlatformDebianLike, PlatformUbuntu, PlatformDebian} {
 			method, ok := tool.platforms[platform]
 			if !ok {
 				continue
@@ -529,7 +529,7 @@ func writeGPGKeySetup(sb *strings.Builder, repo *AptRepoInstallMethod) {
 		sb.WriteString(repo.GPGKeyBase64 + "\n")
 		sb.WriteString("GPGKEY\n")
 	} else {
-		sb.WriteString("curl -fsSL " + repo.GPGKeyURL + " | gpg --dearmor -o " + repo.GPGKeyPath + "\n")
+		sb.WriteString("curl -fsSL '" + repo.GPGKeyURL + "' | gpg --dearmor -o " + repo.GPGKeyPath + "\n")
 	}
 }
 

@@ -47,6 +47,18 @@
             state: present
             update_cache: yes
 
+        - name: Check if legacy trusted.gpg exists
+          ansible.builtin.stat:
+            path: /etc/apt/trusted.gpg
+          register: docker_legacy_trusted_gpg
+
+        - name: Remove legacy Docker GPG key from trusted.gpg
+          ansible.builtin.shell: |
+            gpg --no-default-keyring --keyring /etc/apt/trusted.gpg --batch --yes --delete-keys 9DC858229FC7DD38854AE2D88D81803C0EBFCD88 2>/dev/null || true
+          when: docker_legacy_trusted_gpg.stat.exists
+          changed_when: false
+          failed_when: false
+
         - name: Ensure keyrings directory exists
           file:
             path: /etc/apt/keyrings

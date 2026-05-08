@@ -223,7 +223,7 @@ func TestBuildCommandAptInfo(t *testing.T) {
 		t.Fatal("expected at least one entry in apt info map")
 	}
 
-	// Spot-check: "emacs" should have a PPA entry.
+	// Spot-check: "emacs" should have an AptRepo entry (Ubuntu PPA with modern GPG key).
 	emacsInfo, ok := info["emacs"]
 	if !ok {
 		t.Fatal("expected 'emacs' in apt info map")
@@ -231,11 +231,11 @@ func TestBuildCommandAptInfo(t *testing.T) {
 	if emacsInfo.PackageName != "emacs" {
 		t.Errorf("emacs PackageName = %q, want %q", emacsInfo.PackageName, "emacs")
 	}
-	if emacsInfo.SourceType != AptSourcePPA {
-		t.Errorf("emacs SourceType = %d, want AptSourcePPA (%d)", emacsInfo.SourceType, AptSourcePPA)
+	if emacsInfo.SourceType != AptSourceAptRepo {
+		t.Errorf("emacs SourceType = %d, want AptSourceAptRepo (%d)", emacsInfo.SourceType, AptSourceAptRepo)
 	}
-	if emacsInfo.PPA != "ppa:ubuntuhandbook1/emacs" {
-		t.Errorf("emacs PPA = %q, want %q", emacsInfo.PPA, "ppa:ubuntuhandbook1/emacs")
+	if emacsInfo.AptRepo == nil {
+		t.Fatal("emacs AptRepo should not be nil")
 	}
 
 	// Spot-check: "gcloud" should have an AptRepo entry.

@@ -8,7 +8,6 @@ var packages = []PackageData{
 	{command: "curl"},
 	{command: "dart", debianPkgName: "dart", termuxPkgName: "dart", brewPkgName: "dart-sdk"},
 	{command: "direnv"},
-	{command: "emacs", UbuntuPPA: "ppa:ubuntuhandbook1/emacs", brewPkgName: "emacs-plus", brewTap: "d12frosted/emacs-plus", brewOptions: []string{"with-dbus", "with-imagemagick"}},
 	{command: "ffmpegthumbnailer"},
 	{command: "fzf"},
 	{command: "gh"},
@@ -291,6 +290,22 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 		Imports: []Import{
 			{Playbook: "setup-user-bin-directory", When: WhenNotDebianLike},
 			{Playbook: "curl", When: WhenNotDebianLike},
+		},
+	},
+	{
+		command: "emacs",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "emacs-plus", Tap: "d12frosted/emacs-plus", Options: []string{"with-dbus", "with-imagemagick"}},
+			PlatformUbuntu: AptRepoInstallMethod{
+				Name:           "emacs",
+				GPGKeyURL:      "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF4E48910A020E77056748B745738AE8480447DDF&options=mr",
+				GPGKeyPath:     "/etc/apt/keyrings/ubuntuhandbook1-emacs-ppa.gpg",
+				RepoURL:        "https://ppa.launchpadcontent.net/ubuntuhandbook1/emacs/ubuntu",
+				RepoComponents: "main",
+				When:           WhenDebianLike + " and " + WhenUbuntu,
+			},
+			PlatformDebian: DebianPkgInstallMethod{Name: "emacs"},
+			PlatformTermux: TermuxPkgInstallMethod{Name: "emacs"},
 		},
 	},
 	{
