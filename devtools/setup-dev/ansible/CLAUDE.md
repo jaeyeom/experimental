@@ -31,26 +31,36 @@ bazel test //devtools/setup-dev/ansible:ansible_syntax_tests
 ## Claude Code Permission Rules
 
 When editing the `permissions.allow` / `permissions.deny` lists in
-`setup-claude-sandbox.yml` (and any `.claude/settings*.json`), use the
-tool-wrapped syntax that Claude Code's `/doctor` validator accepts. Two forms
-are valid; everything else is rejected.
+`setup-claude-sandbox.yml` (and any `.claude/settings*.json`), every Bash
+entry must be wrapped in `Bash(...)`. The unwrapped colon-only form (e.g.
+`git log:*` without the `Bash(...)` wrapper) is the legacy syntax and is no
+longer accepted.
 
-| Pattern | Example | Status |
-|---------|---------|--------|
-| Prefix match (colon-star) | `Bash(go test:*)`, `Bash(gh issue view:*)` | Use this |
-| Exact match | `Bash(go version)`, `Bash(npm install express)` | Use this |
-| Wildcard-only `*` | `Bash(go test*)`, `Bash(go test *)` | Invalid |
-| Middle / trailing `*` | `Bash(gh issue edit * --add-assignee @me)` | Invalid |
-| Unwrapped (legacy) | `git log:*`, `gh issue:*` | Invalid |
+Inside `Bash(...)`, the official docs (code.claude.com/docs/en/permissions)
+specify:
 
-Rules:
-- Every Bash entry must be wrapped: `Bash(<command pattern>)`.
-- Use `:*` (colon then star) for prefix matching after a subcommand
-  (`Bash(go test:*)`). Plain `*` is not a valid wildcard.
-- For finer constraints than a prefix allows, list exact commands instead of
-  using mid-pattern wildcards.
-- Non-Bash tools keep their own wrappers: `Read(...)`, `WebFetch(domain:...)`,
-  `WebSearch`, `mcp__<server>__<tool>`.
+| Pattern | Example | Notes |
+|---------|---------|-------|
+| Exact match | `Bash(go version)` | Matches that exact command only |
+| Prefix with word boundary | `Bash(npm run *)` | Preferred — what `/permissions` writes |
+| Prefix alias | `Bash(npm run:*)` | Equivalent to `Bash(npm run *)`, trailing only |
+| Middle wildcard | `Bash(git * main)` | Supported anywhere in the pattern |
+| Suffix wildcard | `Bash(* --help *)` | Supported |
+| Match-all | `Bash` or `Bash(*)` | Matches every Bash command |
 
-Verify a settings file with `claude doctor` (or `/doctor` inside a session)
-after edits — it flags any unsupported pattern.
+Notes:
+- **Prefer the space form `Bash(<prefix> *)`** for prefix matching — this is
+  the canonical form the permission dialog writes when you accept "Yes,
+  don't ask again". `Bash(<prefix>:*)` is an equivalent alias accepted only
+  at the end of a pattern.
+- The space before `*` enforces a word boundary: `Bash(ls *)` matches
+  `ls -la` but not `lsof`. Without the space (`Bash(ls*)`), both match.
+- A single `*` matches across spaces, so it can span multiple arguments.
+- The `:*` form is recognized only as a trailing suffix. In the middle of a
+  pattern (e.g. `Bash(git:* push)`), the colon is treated as a literal.
+- Non-Bash tools keep their own wrappers: `Read(...)`, `Edit(...)`,
+  `WebFetch(domain:...)`, `WebSearch`, `mcp__<server>__<tool>`,
+  `Agent(<name>)`.
+
+Both styles co-exist in this repo's playbook; new entries should default to
+the space form to match the dialog output.
