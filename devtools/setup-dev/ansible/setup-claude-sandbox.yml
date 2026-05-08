@@ -148,6 +148,7 @@
           - "Bash(ruff *)"
           - "Bash(sort *)"     # Read-only filter
           - "Bash(tail *)"     # Read-only filter
+          - "Bash(tee *)"      # Logging passthrough; sandbox bounds writes
           - "Bash(uniq *)"     # Read-only filter
           - "Bash(wc *)"       # Read-only counter
           - "WebSearch"    # Read-only web search, low risk
