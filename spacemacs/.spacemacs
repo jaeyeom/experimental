@@ -2278,20 +2278,20 @@ the email."
     (defun my/claude-hook-listener (message)
       "Custom listener for Claude Code hooks using alert.el and my-attention.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
-      (let ((hook-type (plist-get message :type))
-            (buffer-name (plist-get message :buffer-name))
-            (_json-data (plist-get message :json-data))
-            (_args (plist-get message :args)))
+      (let* ((hook-type (plist-get message :type))
+             (buffer-name (plist-get message :buffer-name))
+             (buf (get-buffer buffer-name))
+             (_json-data (plist-get message :json-data))
+             (_args (plist-get message :args)))
         (cond
          ((eq hook-type 'notification)
           (alert (format "Claude is ready in %s!" buffer-name)
                  :title "Claude Code"
                  :category "claude-code"
                  :severity 'normal
-                 :buffer buffer-name)
-          (when (and (fboundp 'my-attention-add)
-                     (get-buffer buffer-name))
-            (my-attention-add (get-buffer buffer-name)
+                 :buffer buf)
+          (when (and (fboundp 'my-attention-add) buf)
+            (my-attention-add buf
                               (format "Claude waiting in %s" buffer-name)
                               'info)))
          ((eq hook-type 'stop)
@@ -2299,10 +2299,9 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                  :title "Claude Code"
                  :category "claude-code"
                  :severity 'normal
-                 :buffer buffer-name)
-          (when (and (fboundp 'my-attention-add)
-                     (get-buffer buffer-name))
-            (my-attention-add (get-buffer buffer-name)
+                 :buffer buf)
+          (when (and (fboundp 'my-attention-add) buf)
+            (my-attention-add buf
                               (format "Claude finished in %s" buffer-name)
                               'warning)))
          (t
@@ -2310,7 +2309,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                  :title "Claude Code"
                  :category "claude-code"
                  :severity 'trivial
-                 :buffer buffer-name)))))
+                 :buffer buf)))))
 
     ;; Add the hook listener using standard Emacs hook functions
     (add-hook 'claude-code-event-hook #'my/claude-hook-listener)

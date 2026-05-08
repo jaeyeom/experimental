@@ -3,17 +3,9 @@
 # Install apt packages and configure their sources.
 set -euo pipefail
 
-# Add Debian backports (no-op on Ubuntu).
-CODENAME=$(lsb_release -cs)
-if grep -q '^ID=debian' /etc/os-release 2>/dev/null; then
-  echo "deb http://deb.debian.org/debian ${CODENAME}-backports main contrib non-free non-free-firmware" \
-    > /etc/apt/sources.list.d/backports.list
-fi
-
-# Add Ubuntu PPAs (no-op on Debian).
-if command -v add-apt-repository >/dev/null 2>&1; then
-  add-apt-repository -y ppa:ubuntuhandbook1/emacs
-fi
+# Add custom repo for emacs.
+curl -fsSL 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF4E48910A020E77056748B745738AE8480447DDF&options=mr' | gpg --dearmor -o /etc/apt/keyrings/ubuntuhandbook1-emacs-ppa.gpg
+echo "deb [signed-by=/etc/apt/keyrings/ubuntuhandbook1-emacs-ppa.gpg] https://ppa.launchpadcontent.net/ubuntuhandbook1/emacs/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/emacs.list
 
 apt-get update
 apt-get install -y \

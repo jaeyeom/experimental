@@ -822,6 +822,11 @@ type AptRepoInstallMethod struct {
 	// When set, Qubes TemplateVM scripts embed the key directly instead of
 	// downloading it with curl, which is useful for air-gapped environments.
 	GPGKeyBase64 string
+
+	// When is an optional Ansible when condition that overrides the default
+	// WhenDebianLike condition. Use this for platform-specific repositories
+	// such as Ubuntu-only PPAs.
+	When string
 }
 
 func (a AptRepoInstallMethod) GetMethodType() string {
@@ -844,11 +849,16 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
 		archOption = "arch=" + a.Arch + " "
 	}
 
+	when := WhenDebianLike
+	if a.When != "" {
+		when = a.When
+	}
+
 	return `    - name: Check if GPG key for ` + command + ` exists
       ansible.builtin.stat:
         path: ` + a.GPGKeyPath + `
       register: ` + commandID + `_gpg_key
-      when: ` + WhenDebianLike + `
+      when: ` + when + `
 
     - name: Download GPG key for ` + command + `
       ansible.builtin.get_url:
@@ -856,7 +866,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
         dest: /tmp/` + command + `-repo.gpg
         mode: '0644'
       become: yes
-      when: ` + WhenDebianLike + ` and not ` + commandID + `_gpg_key.stat.exists
+      when: ` + when + ` and not ` + commandID + `_gpg_key.stat.exists
 
     - name: Dearmor and install GPG key for ` + command + `
       ansible.builtin.shell: |
@@ -864,7 +874,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
       args:
         creates: ` + a.GPGKeyPath + `
       become: yes
-      when: ` + WhenDebianLike + ` and not ` + commandID + `_gpg_key.stat.exists
+      when: ` + when + ` and not ` + commandID + `_gpg_key.stat.exists
 
     - name: Add apt repository for ` + command + `
       ansible.builtin.apt_repository:
@@ -873,7 +883,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
         filename: ` + command + `
         update_cache: yes
       become: yes
-      when: ` + WhenDebianLike + `
+      when: ` + when + `
 
 `
 }
