@@ -31,19 +31,26 @@ bazel test //devtools/setup-dev/ansible:ansible_syntax_tests
 ## Claude Code Permission Rules
 
 When editing the `permissions.allow` / `permissions.deny` lists in
-`setup-claude-sandbox.yml` (and any `.claude/settings*.json`), always use the
-modern tool-wrapped syntax. The legacy colon-only form is no longer accepted.
+`setup-claude-sandbox.yml` (and any `.claude/settings*.json`), use the
+tool-wrapped syntax that Claude Code's `/doctor` validator accepts. Two forms
+are valid; everything else is rejected.
 
-| Form | Example | Status |
-|------|---------|--------|
-| Modern | `Bash(git log:*)`, `Bash(gh issue edit * --add-assignee @me)` | Use this |
-| Legacy | `git log:*`, `gh issue edit:*` | Do not use |
+| Pattern | Example | Status |
+|---------|---------|--------|
+| Prefix match (colon-star) | `Bash(go test:*)`, `Bash(gh issue view:*)` | Use this |
+| Exact match | `Bash(go version)`, `Bash(npm install express)` | Use this |
+| Wildcard-only `*` | `Bash(go test*)`, `Bash(go test *)` | Invalid |
+| Middle / trailing `*` | `Bash(gh issue edit * --add-assignee @me)` | Invalid |
+| Unwrapped (legacy) | `git log:*`, `gh issue:*` | Invalid |
 
 Rules:
 - Every Bash entry must be wrapped: `Bash(<command pattern>)`.
-- Use `:*` after a subcommand to allow any trailing arguments
-  (`Bash(go test:*)`).
-- Use shell-glob `*` inside the parentheses to constrain specific argument
-  positions (`Bash(gh issue edit * --add-assignee @me)`).
+- Use `:*` (colon then star) for prefix matching after a subcommand
+  (`Bash(go test:*)`). Plain `*` is not a valid wildcard.
+- For finer constraints than a prefix allows, list exact commands instead of
+  using mid-pattern wildcards.
 - Non-Bash tools keep their own wrappers: `Read(...)`, `WebFetch(domain:...)`,
   `WebSearch`, `mcp__<server>__<tool>`.
+
+Verify a settings file with `claude doctor` (or `/doctor` inside a session)
+after edits — it flags any unsupported pattern.
