@@ -95,52 +95,61 @@
           allowLocalBinding: true
       permissions:
         allow:
-          - "Bash(bazel build:*)"  # Medium risk (may run genrule)
-          - "Bash(bazel query:*)"
-          - "Bash(bazel test:*)"   # Medium risk (may run genrule)
-          - "Bash(gh issue close:*)"
+          - "Bash(bazel build *)"  # Medium risk (may run genrule)
+          - "Bash(bazel query *)"
+          - "Bash(bazel test *)"   # Medium risk (may run genrule)
+          - "Bash(column *)"   # Read-only formatter
+          - "Bash(cut *)"      # Read-only filter
+          - "Bash(gh issue close *)"
           - "Bash(gh issue edit * --add-assignee @me)"
           - "Bash(gh issue edit * --remove-label *)"
-          - "Bash(gh issue list:*)"
-          - "Bash(gh issue reopen:*)"
-          - "Bash(gh issue status:*)"
-          - "Bash(gh issue view:*)"
-          - "Bash(gh pr checks:*)"
-          - "Bash(gh pr diff:*)"
-          - "Bash(gh pr list:*)"
-          - "Bash(gh pr status:*)"
-          - "Bash(gh pr view:*)"
-          - "Bash(gh release list:*)"
-          - "Bash(gh release view:*)"
-          - "Bash(gh repo view:*)"
-          - "Bash(go build:*)"
-          - "Bash(go fix:*)"
-          - "Bash(go fmt:*)"
-          - "Bash(go get:*)"
-          - "Bash(go mod:*)"
-          - "Bash(go test:*)"
-          - "Bash(go version:*)"
-          - "Bash(go vet:*)"
-          - "Bash(git add:*)"
-          - "Bash(git * add:*)"      # git -C <path> add ...  (worktrees)
-          - "Bash(git branch:*)"
-          - "Bash(git * branch:*)"
-          - "Bash(git commit:*)"
-          - "Bash(git * commit:*)"
-          - "Bash(git diff:*)"
-          - "Bash(git * diff:*)"
-          - "Bash(git log:*)"
-          - "Bash(git * log:*)"
-          - "Bash(git status:*)"
-          - "Bash(git * status:*)"
-          - "Bash(golangci-lint run:*)"
-          - "Bash(rg:*)"       # Safe: read-only search tool, no exec capability
-          - "Bash(ruff:*)"
+          - "Bash(gh issue list *)"
+          - "Bash(gh issue reopen *)"
+          - "Bash(gh issue status *)"
+          - "Bash(gh issue view *)"
+          - "Bash(gh pr checks *)"
+          - "Bash(gh pr diff *)"
+          - "Bash(gh pr list *)"
+          - "Bash(gh pr status *)"
+          - "Bash(gh pr view *)"
+          - "Bash(gh release list *)"
+          - "Bash(gh release view *)"
+          - "Bash(gh repo view *)"
+          - "Bash(go build *)"
+          - "Bash(go fix *)"
+          - "Bash(go fmt *)"
+          - "Bash(go get *)"
+          - "Bash(go mod *)"
+          - "Bash(go test *)"
+          - "Bash(go version *)"
+          - "Bash(go vet *)"
+          - "Bash(git add *)"
+          - "Bash(git * add *)"      # git -C <path> add ...  (worktrees)
+          - "Bash(git branch *)"
+          - "Bash(git * branch *)"
+          - "Bash(git commit *)"
+          - "Bash(git * commit *)"
+          - "Bash(git diff *)"
+          - "Bash(git * diff *)"
+          - "Bash(git log *)"
+          - "Bash(git * log *)"
+          - "Bash(git status *)"
+          - "Bash(git * status *)"
+          - "Bash(golangci-lint run *)"
+          - "Bash(grep *)"     # Read-only search
+          - "Bash(head *)"     # Read-only filter
+          - "Bash(jq *)"       # Read-only JSON processor
+          - "Bash(rg *)"       # Safe: read-only search tool, no exec capability
+          - "Bash(ruff *)"
+          - "Bash(sort *)"     # Read-only filter
+          - "Bash(tail *)"     # Read-only filter
+          - "Bash(uniq *)"     # Read-only filter
+          - "Bash(wc *)"       # Read-only counter
           - "WebSearch"    # Read-only web search, low risk
         deny:
-          - "Bash(eval:*)"      # Shell eval
-          - "Bash(source:*)"    # Source scripts
-          - "Bash(xargs:*)"     # Can execute arbitrary commands
+          - "Bash(eval *)"      # Shell eval
+          - "Bash(source *)"    # Source scripts
+          - "Bash(xargs *)"     # Can execute arbitrary commands
           - "Read(.envrc)"
           - "Read(~/.aws/**)"
           - "Read(~/.azure/**)"
