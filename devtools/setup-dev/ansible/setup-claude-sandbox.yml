@@ -122,11 +122,17 @@
           - "Bash(go version:*)"
           - "Bash(go vet:*)"
           - "Bash(git add:*)"
+          - "Bash(git * add:*)"      # git -C <path> add ...  (worktrees)
           - "Bash(git branch:*)"
+          - "Bash(git * branch:*)"
           - "Bash(git commit:*)"
+          - "Bash(git * commit:*)"
           - "Bash(git diff:*)"
+          - "Bash(git * diff:*)"
           - "Bash(git log:*)"
+          - "Bash(git * log:*)"
           - "Bash(git status:*)"
+          - "Bash(git * status:*)"
           - "Bash(golangci-lint run:*)"
           - "Bash(rg:*)"       # Safe: read-only search tool, no exec capability
           - "Bash(ruff:*)"
