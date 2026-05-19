@@ -143,6 +143,7 @@
           - "Bash(grep *)"     # Read-only search
           - "Bash(head *)"     # Read-only filter
           - "Bash(jq *)"       # Read-only JSON processor
+          - "Bash(npm test *)"
           - "Bash(pwd *)"      # Read-only: prints working directory
           - "Bash(rg *)"       # Safe: read-only search tool, no exec capability
           - "Bash(ruff *)"
