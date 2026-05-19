@@ -242,6 +242,7 @@ sh_test(
         "swiftformat.yml",
         "swiftlint.yml",
         "task.yml",
+        "tasks/github-release-info.yml",
         "terraform.yml",
         "terraform-ls.yml",
         "tflint.yml",
@@ -279,6 +280,7 @@ sh_test(
         "bazel.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -315,6 +317,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -499,6 +502,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -580,6 +584,7 @@ sh_test(
         "setup-nvm.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -645,6 +650,7 @@ sh_test(
         "gather-facts.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [
@@ -747,6 +753,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -863,6 +870,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1165,6 +1173,7 @@ sh_test(
         "curl.yml",
         "git.yml",
         "golangci-lint.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1199,6 +1208,7 @@ sh_test(
         "setup-java.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1380,6 +1390,7 @@ sh_test(
         "nvm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1505,6 +1516,7 @@ sh_test(
         "ktlint.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1622,6 +1634,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1727,6 +1740,7 @@ sh_test(
     data = [
         "curl.yml",
         "nvm.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1832,6 +1846,7 @@ sh_test(
         "pkl.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1852,6 +1867,7 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
         "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1872,6 +1888,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1903,6 +1920,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -1962,6 +1980,7 @@ sh_test(
         "ssh.yml",
         "sshpass.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "tmux.yml",
         "unzip.yml",
         "which.yml",
@@ -2062,6 +2081,7 @@ sh_test(
         "ssh.yml",
         "sshpass.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "tmux.yml",
         "tsc.yml",
         "turbo.yml",
@@ -2147,6 +2167,7 @@ sh_test(
         "ssh.yml",
         "sshpass.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "tmux.yml",
         "unzip.yml",
         "vipsthumbnail.yml",
@@ -2209,6 +2230,7 @@ sh_test(
         "ssh.yml",
         "sshpass.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "tmux.yml",
         "unzip.yml",
         "which.yml",
@@ -2352,6 +2374,7 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
         "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -2454,6 +2477,7 @@ sh_test(
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
         "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -2519,6 +2543,7 @@ sh_test(
         "setup-user-go-bin-directory.yml",
         "shellcheck.yml",
         "task.yml",
+        "tasks/github-release-info.yml",
         "uv.yml",
     ],
     tags = [
@@ -2559,6 +2584,7 @@ sh_test(
         "setup-nvm.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
         "which.yml",
     ],
     tags = [
@@ -2582,6 +2608,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -2621,6 +2648,7 @@ sh_test(
         "setup-nvm.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
         "uv.yml",
         "yamlfmt.yml",
         "yamllint.yml",
@@ -2660,6 +2688,7 @@ sh_test(
         "setup-nvm.yml",
         "setup-shell-profile.yml",
         "stylelint.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -2719,6 +2748,7 @@ sh_test(
         "setup-user-bin-directory.yml",
         "setup-user-config-directory.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "tmux.yml",
         "unzip.yml",
     ],
@@ -2746,6 +2776,7 @@ sh_test(
         "setup-starship.yml",
         "setup-user-config-directory.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [
@@ -2926,6 +2957,7 @@ sh_test(
         "setup-go-tools.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3044,6 +3076,7 @@ sh_test(
         "setup-java-tools.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3093,6 +3126,7 @@ sh_test(
         "setup-kotlin-tools.yml",
         "setup-shell-profile.yml",
         "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [
@@ -3125,6 +3159,7 @@ sh_test(
         "nvm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3190,6 +3225,7 @@ sh_test(
         "setup-perplexity-mcp.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3310,6 +3346,7 @@ sh_test(
         "setup-user-go-bin-directory.yml",
         "spacemacs.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
         "vipsthumbnail.yml",
     ],
@@ -3373,6 +3410,7 @@ sh_test(
         "setup-starship.yml",
         "setup-user-config-directory.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
         "unzip.yml",
     ],
     tags = [
@@ -3497,6 +3535,7 @@ sh_test(
         "setup-user-bin-directory.yml",
         "setup-user-go-bin-directory.yml",
         "setup-vibe-coding.yml",
+        "tasks/github-release-info.yml",
         "which.yml",
     ],
     tags = [
@@ -3627,6 +3666,7 @@ sh_test(
         "setup-rust.yml",
         "setup-shell-profile.yml",
         "starship.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3647,6 +3687,7 @@ sh_test(
         "setup-nvm.yml",
         "setup-shell-profile.yml",
         "stylelint.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3763,6 +3804,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
         "tsc.yml",
     ],
     tags = [
@@ -3798,6 +3840,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
         "turbo.yml",
     ],
     tags = [
@@ -3928,6 +3971,7 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
         "wrangler.yml",
     ],
     tags = [

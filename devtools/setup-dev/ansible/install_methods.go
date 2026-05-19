@@ -660,6 +660,57 @@ func (s ShellInstallMethod) renderEnvironment() string {
 	return result
 }
 
+func githubReleaseCacheKey(releaseURL string) string {
+	const prefix = "https://api.github.com/repos/"
+	path, ok := strings.CutPrefix(releaseURL, prefix)
+	if !ok {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 || parts[2] != "releases" || parts[3] != "latest" {
+		return ""
+	}
+	return parts[0] + "__" + parts[1]
+}
+
+func renderGitHubReleaseInfoTasks(commandName, releaseURL, registerVar string) string {
+	cacheKey := githubReleaseCacheKey(releaseURL)
+	if cacheKey == "" {
+		return `        - name: Get latest available ` + commandName + ` version from GitHub
+          uri:
+            url: ` + releaseURL + `
+            return_content: yes
+            status_code: [200, 403]
+            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+          register: ` + registerVar + `
+          until: >-
+            ` + registerVar + `.status == 200 or
+            (` + registerVar + `.status == 403 and
+             (` + registerVar + `.x_ratelimit_remaining | default('1') | string) != '0')
+          retries: 3
+          delay: 120
+
+        - name: Fail if ` + commandName + ` version fetch failed
+          ansible.builtin.fail:
+            msg: >-
+              Failed to fetch ` + commandName + ` version from GitHub.
+              Status: {{ ` + registerVar + `.status }}.
+              {% if ` + registerVar + `.status == 403 and (` + registerVar + `.x_ratelimit_remaining | default('1') | string) == '0' %}
+              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+              {% endif %}
+          when: ` + registerVar + `.status != 200`
+	}
+	owner, repo, _ := strings.Cut(cacheKey, "__")
+
+	return `        - name: Get latest available ` + commandName + ` version from GitHub
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: ` + commandName + `
+            github_release_owner: ` + owner + `
+            github_release_repo: ` + repo + `
+            github_release_register: ` + registerVar
+}
+
 func (s ShellInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
 
@@ -689,29 +740,7 @@ func (s ShellInstallMethod) RenderInstallTask(command string) string {
             ` + commandID + `_installed_version: "0.0.0"
           when: ` + commandID + `_command_check.rc != 0
 
-        - name: Get latest available ` + command + ` version from GitHub
-          uri:
-            url: ` + s.LatestVersionURL + `
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: ` + commandID + `_latest_release
-          until: >-
-            ` + commandID + `_latest_release.status == 200 or
-            (` + commandID + `_latest_release.status == 403 and
-             (` + commandID + `_latest_release.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if ` + command + ` version fetch failed
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch ` + command + ` version from GitHub.
-              Status: {{ ` + commandID + `_latest_release.status }}.
-              {% if ` + commandID + `_latest_release.status == 403 and (` + commandID + `_latest_release.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: ` + commandID + `_latest_release.status != 200
+` + renderGitHubReleaseInfoTasks(command, s.LatestVersionURL, commandID+`_latest_release`) + `
 
         - name: Parse latest ` + command + ` version from GitHub response
           set_fact:

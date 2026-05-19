@@ -59,28 +59,12 @@
           when: ktlint_command_check.rc != 0
 
         - name: Get latest available ktlint version from GitHub
-          uri:
-            url: https://api.github.com/repos/pinterest/ktlint/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: ktlint_latest_release
-          until: >-
-            ktlint_latest_release.status == 200 or
-            (ktlint_latest_release.status == 403 and
-             (ktlint_latest_release.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if ktlint version fetch failed
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch ktlint version from GitHub.
-              Status: {{ ktlint_latest_release.status }}.
-              {% if ktlint_latest_release.status == 403 and (ktlint_latest_release.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: ktlint_latest_release.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: ktlint
+            github_release_owner: pinterest
+            github_release_repo: ktlint
+            github_release_register: ktlint_latest_release
 
         - name: Parse latest ktlint version from GitHub response
           set_fact:
@@ -118,28 +102,12 @@
           when: ktlint_command_check.rc != 0
 
         - name: Get latest available ktlint version from GitHub
-          uri:
-            url: https://api.github.com/repos/pinterest/ktlint/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: ktlint_latest_release
-          until: >-
-            ktlint_latest_release.status == 200 or
-            (ktlint_latest_release.status == 403 and
-             (ktlint_latest_release.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if ktlint version fetch failed
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch ktlint version from GitHub.
-              Status: {{ ktlint_latest_release.status }}.
-              {% if ktlint_latest_release.status == 403 and (ktlint_latest_release.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: ktlint_latest_release.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: ktlint
+            github_release_owner: pinterest
+            github_release_repo: ktlint
+            github_release_register: ktlint_latest_release
 
         - name: Parse latest ktlint version from GitHub response
           set_fact:

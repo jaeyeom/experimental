@@ -32,6 +32,38 @@ func TestNoNpmOnDebianLike(t *testing.T) {
 	}
 }
 
+func TestGitHubReleaseCacheKey(t *testing.T) {
+	tests := []struct {
+		name       string
+		releaseURL string
+		want       string
+	}{
+		{
+			name:       "GitHub latest release URL",
+			releaseURL: "https://api.github.com/repos/owner/repo/releases/latest",
+			want:       "owner__repo",
+		},
+		{
+			name:       "non-GitHub URL",
+			releaseURL: "https://example.com/repos/owner/repo/releases/latest",
+			want:       "",
+		},
+		{
+			name:       "GitHub non-latest release URL",
+			releaseURL: "https://api.github.com/repos/owner/repo/releases/tags/v1.0.0",
+			want:       "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := githubReleaseCacheKey(tt.releaseURL); got != tt.want {
+				t.Errorf("githubReleaseCacheKey(%q) = %q, want %q", tt.releaseURL, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPlatformSpecificToolsSorted(t *testing.T) {
 	if !sort.SliceIsSorted(platformSpecificTools, func(i, j int) bool {
 		return platformSpecificTools[i].command < platformSpecificTools[j].command

@@ -1,0 +1,77 @@
+---
+- name: Configure {{ github_release_name }} GitHub release cache
+  ansible.builtin.set_fact:
+    github_release_cache_ttl_hours: "{{ lookup('env', 'SETUP_DEV_GITHUB_CACHE_TTL') | default('24', true) | int }}"
+    github_release_cache_file: "{{ ansible_facts['env']['HOME'] }}/.cache/setup-dev/github-release/{{ github_release_owner }}__{{ github_release_repo }}.json"
+    github_release_result: null
+    github_release_cache: {}
+    github_release_fetch: {}
+
+- name: Check cached {{ github_release_name }} GitHub release response
+  ansible.builtin.stat:
+    path: "{{ github_release_cache_file }}"
+  register: github_release_cache_stat
+  when: github_release_cache_ttl_hours | int > 0
+
+- name: Read cached {{ github_release_name }} GitHub release response
+  ansible.builtin.slurp:
+    src: "{{ github_release_cache_file }}"
+  register: github_release_cache
+  when: >-
+    github_release_cache_ttl_hours | int > 0 and
+    github_release_cache_stat.stat.exists | default(false) and
+    ((ansible_date_time.epoch | int) - (github_release_cache_stat.stat.mtime | int)) <
+    (github_release_cache_ttl_hours | int * 3600)
+
+- name: Use cached {{ github_release_name }} GitHub release response
+  ansible.builtin.set_fact:
+    github_release_result: "{{ {'status': 200, 'json': (github_release_cache.content | b64decode | from_json)} }}"
+  when: github_release_cache.content is defined
+
+- name: Fetch latest {{ github_release_name }} release from GitHub
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/{{ github_release_owner }}/{{ github_release_repo }}/releases/latest"
+    return_content: yes
+    status_code: [200, 403]
+    headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
+  register: github_release_fetch
+  until: >-
+    github_release_fetch.status == 200 or
+    (github_release_fetch.status == 403 and
+     (github_release_fetch.x_ratelimit_remaining | default('1') | string) != '0')
+  retries: 3
+  delay: 120
+  when: github_release_result is none
+
+- name: Use fetched {{ github_release_name }} GitHub release response
+  ansible.builtin.set_fact:
+    github_release_result: "{{ github_release_fetch }}"
+  when: github_release_fetch.status is defined
+
+- name: Fail if {{ github_release_name }} version fetch failed
+  ansible.builtin.fail:
+    msg: >-
+      Failed to fetch {{ github_release_name }} version from GitHub.
+      Status: {{ github_release_result.status | default('unknown') }}.
+      {% if github_release_result.status | default(0) == 403 and (github_release_result.x_ratelimit_remaining | default('1') | string) == '0' %}
+      Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
+      {% endif %}
+  when: github_release_result.status | default(0) != 200
+
+- name: Ensure {{ github_release_name }} GitHub release cache directory exists
+  ansible.builtin.file:
+    path: "{{ github_release_cache_file | dirname }}"
+    state: directory
+    mode: '0755'
+  when: github_release_fetch.content is defined and github_release_cache_ttl_hours | int > 0
+
+- name: Cache {{ github_release_name }} GitHub release response
+  ansible.builtin.copy:
+    content: "{{ github_release_fetch.content }}"
+    dest: "{{ github_release_cache_file }}"
+    mode: '0644'
+  when: github_release_fetch.content is defined and github_release_cache_ttl_hours | int > 0
+
+- name: Register {{ github_release_name }} GitHub release response
+  ansible.builtin.set_fact:
+    "{{ github_release_register }}": "{{ github_release_result }}"

@@ -60,28 +60,12 @@
           when: google_java_format_command_check.rc != 0
 
         - name: Get latest available google-java-format version from GitHub
-          uri:
-            url: https://api.github.com/repos/google/google-java-format/releases/latest
-            return_content: yes
-            status_code: [200, 403]
-            headers: "{{ {'Authorization': 'token ' + lookup('env', 'GITHUB_TOKEN')} if lookup('env', 'GITHUB_TOKEN') else {} }}"
-          register: google_java_format_latest_release
-          until: >-
-            google_java_format_latest_release.status == 200 or
-            (google_java_format_latest_release.status == 403 and
-             (google_java_format_latest_release.x_ratelimit_remaining | default('1') | string) != '0')
-          retries: 3
-          delay: 120
-
-        - name: Fail if google-java-format version fetch failed
-          ansible.builtin.fail:
-            msg: >-
-              Failed to fetch google-java-format version from GitHub.
-              Status: {{ google_java_format_latest_release.status }}.
-              {% if google_java_format_latest_release.status == 403 and (google_java_format_latest_release.x_ratelimit_remaining | default('1') | string) == '0' %}
-              Rate limit exceeded after retries. Please try again later or set GITHUB_TOKEN environment variable.
-              {% endif %}
-          when: google_java_format_latest_release.status != 200
+          ansible.builtin.include_tasks: tasks/github-release-info.yml
+          vars:
+            github_release_name: google-java-format
+            github_release_owner: google
+            github_release_repo: google-java-format
+            github_release_register: google_java_format_latest_release
 
         - name: Parse latest google-java-format version from GitHub response
           set_fact:
