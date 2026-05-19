@@ -194,6 +194,32 @@ func getPlaybookImports(ymlFile string) ([]string, error) {
 	return imports, nil
 }
 
+func getPlaybookTaskIncludes(ymlPath string) ([]string, error) {
+	file, err := os.Open(ymlPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s: %w", ymlPath, err)
+	}
+	defer file.Close()
+
+	var includes []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "include_tasks:") {
+			continue
+		}
+		lineBeforeComment, _, _ := strings.Cut(line, "#")
+		parts := strings.Split(lineBeforeComment, "include_tasks:")
+		if len(parts) > 1 {
+			includes = append(includes, strings.TrimSpace(parts[1]))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading %s: %w", ymlPath, err)
+	}
+	return includes, nil
+}
+
 // getAllDependencies recursively collects all transitive dependencies of a playbook.
 func getAllDependencies(ymlFile string, visited map[string]bool) ([]string, error) {
 	if visited[ymlFile] {
@@ -294,16 +320,30 @@ func generateTestRule(yml string) (string, error) {
 	for _, dep := range allDeps {
 		depMap[dep] = true
 	}
-	var dataFiles []string
+	dataPathMap := make(map[string]bool)
 	for dep := range depMap {
+		dataPath := dep + ".yml"
+		dataPathMap[dataPath] = true
+		includes, err := getPlaybookTaskIncludes(dataPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to get task includes for %s: %w", dataPath, err)
+		}
+		for _, include := range includes {
+			dataPathMap[include] = true
+		}
+	}
+	var dataFiles []string
+	for dep := range dataPathMap {
 		dataFiles = append(dataFiles, dep)
 	}
-	sort.Strings(dataFiles)
+	sort.Slice(dataFiles, func(i, j int) bool {
+		return strings.TrimSuffix(dataFiles[i], ".yml") < strings.TrimSuffix(dataFiles[j], ".yml")
+	})
 
 	// Format for Bazel
 	var quotedFiles []string
 	for _, f := range dataFiles {
-		quotedFiles = append(quotedFiles, fmt.Sprintf("\"%s.yml\"", f))
+		quotedFiles = append(quotedFiles, fmt.Sprintf("\"%s\"", f))
 	}
 
 	var dataStr string
