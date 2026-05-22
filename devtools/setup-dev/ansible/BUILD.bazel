@@ -1353,7 +1353,6 @@ sh_test(
     args = ["grok.yml"],
     data = [
         "curl.yml",
-        "gather-facts.yml",
         "grok.yml",
     ],
     tags = [
