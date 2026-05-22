@@ -454,6 +454,20 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 		},
 		Imports: nil,
 	},
+	{
+		command: "grok",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: ShellInstallMethod{
+				InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
+			},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
+			},
+		},
+		Imports: []Import{
+			{Playbook: "curl", When: WhenDarwin},
+		},
+	},
 	GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
 	GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),
 	{
