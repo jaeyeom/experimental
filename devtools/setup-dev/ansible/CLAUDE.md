@@ -28,6 +28,29 @@ bazel test //devtools/setup-dev/ansible:ansible_syntax_tests
 - `generate_packages.go` - Main generator
 - `README.org` - Full documentation
 
+## Shell Installer Verification
+
+Any `ShellInstallMethod` whose `InstallCommand` downloads and executes an
+arbitrary remote script (e.g. `curl ... | bash`, `wget ... | sh`, or
+piping any HTTP(S) URL into a shell) **must** route the download through
+the local `verified-run` helper:
+
+```go
+InstallCommand: "{{ playbook_dir }}/verified-run exec https://example.com/install.sh -- <args>",
+```
+
+`verified-run` pins the script by SHA-256 and refuses to execute if the
+upstream content changes, forcing a manual review before re-approval.
+This guards against supply-chain compromise of third-party install
+scripts.
+
+- Use `verified-run exec <url>` for scripts with no args.
+- Use `verified-run exec <url> -- <args>` to pass arguments to the
+  script (everything after `--` is forwarded).
+- Reference examples: `starship`, `githooks-cli`, `grok`.
+- Raw `curl ... | bash` without `verified-run` is **not** acceptable for
+  new entries, even if older entries (e.g. `claude`) still use it.
+
 ## Claude Code Permission Rules
 
 When editing the `permissions.allow` / `permissions.deny` lists in

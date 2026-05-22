@@ -1348,6 +1348,21 @@ sh_test(
 )
 
 sh_test(
+    name = "grok_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["grok.yml"],
+    data = [
+        "curl.yml",
+        "gather-facts.yml",
+        "grok.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "grpcui_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["grpcui.yml"],
@@ -4112,6 +4127,7 @@ test_suite(
         ":gpg_syntax_test",
         ":graphify_syntax_test",
         ":grep_syntax_test",
+        ":grok_syntax_test",
         ":grpcui_syntax_test",
         ":guru_syntax_test",
         ":gws_syntax_test",
