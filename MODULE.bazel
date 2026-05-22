@@ -1,13 +1,13 @@
 # Go
-bazel_dep(name = "rules_go", version = "0.53.0")
+bazel_dep(name = "rules_go", version = "0.60.0")
 bazel_dep(name = "bazel_skylib", version = "1.8.1")
 
 # Staticcheck analyzers for nogo (bzlmod-compatible)
 bazel_dep(name = "nogo_analyzer_bzlmod", version = "0.1.0")
 
-# Configure Go version for Termux compatibility
+# Configure Go version to match go.mod toolchain requirement.
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
-go_sdk.download(version = "1.24.4")
+go_sdk.download(version = "1.25.10")
 go_sdk.nogo(nogo = "//tools/lint:platform_nogo")
 use_repo(go_sdk, "go_default_sdk")
 

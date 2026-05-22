@@ -26,14 +26,10 @@ alias(
     actual = "@rules_buf_toolchains//:buf",
 )
 
-# These are the additional govet analyzers that were missing in TOOLS_NOGO.
+# Extra govet analyzers not bundled in TOOLS_NOGO.
 # TODO: Add shadow analyzer once all shadow issues in codebase are fixed:
 #   "@org_golang_x_tools//go/analysis/passes/shadow:go_default_library",
 ADDITIONAL_GOVET = [
-    "@org_golang_x_tools//go/analysis/passes/appends:go_default_library",
-    "@org_golang_x_tools//go/analysis/passes/defers:go_default_library",
-    "@org_golang_x_tools//go/analysis/passes/slog:go_default_library",
-    "@org_golang_x_tools//go/analysis/passes/timeformat:go_default_library",
     "@org_golang_x_tools//go/analysis/passes/unusedwrite:go_default_library",
 ]
 
