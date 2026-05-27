@@ -1,13 +1,81 @@
 #+TITLE: Experimental Mono Repo
+
 This repository contains everything. It started as an experimental repository
 where I could put random pieces of code. Later, I wanted to have a monorepo for
 my code, and I realized that this repository could be the best option if I
 cleaned it up a bit.
 
+The result is a polyglot monorepo (Go, Python, TypeScript, Protobuf, Elisp,
+Ansible) that holds reusable libraries, command-line tools, language
+experiments, and my development environment configuration, all built and tested
+through a single Make + Bazel workflow.
+
+* Repository Layout
+| Directory        | What's inside                                                                |
+|------------------+------------------------------------------------------------------------------|
+| =baseball/=      | Bulls and Cows ("number baseball") solver in Go.                             |
+| =codelab/=       | Educational experiments: Go generics, gRPC/Protobuf, and other prototypes.   |
+| =devtools/=      | Developer tools and workflow utilities. See [[file:devtools/README.org][devtools/README.org]].             |
+| =docs/=          | Documentation, including Claude Code integration guides.                     |
+| =memocache/=     | Small in-memory caching library in Go.                                       |
+| =my-ts-project/= | TypeScript learning project with a Mocha test suite.                         |
+| =spacemacs/=     | Emacs/Spacemacs configuration and setup playbooks. See [[file:spacemacs/README.org][spacemacs/README.org]]. |
+| =text/=          | Text rendering and TUI layout libraries (canvas, table, gantt, box, wrap).   |
+| =tools/=         | Build, lint, and format tooling (org-lint, format driver, nogo linters).     |
+| =v3/=            | Bazel module/cache proto definitions (generated metadata, not source).       |
+
+The most actively developed area is =devtools/=, which includes =gh-nudge=
+(GitHub PR reminders with Slack integration) and =setup-dev= (cross-platform
+Ansible playbooks for development environments). Each major directory carries
+its own README with details.
+
+* Getting Started
+The Go module path is =github.com/jaeyeom/experimental=. You will need:
+
+- [[https://bazel.build/install/bazelisk][Bazelisk]] (pinned via =.bazeliskrc=) — primary build and test driver.
+- =goimports= — Go formatting.
+- =golangci-lint=, =ruff=, =shellcheck=, =semgrep= — linters (run by =make lint= / =make check=).
+
+Clone the repo and run the test suite to verify your setup:
+
+#+begin_src sh
+git clone https://github.com/jaeyeom/experimental
+cd experimental
+make test
+#+end_src
+
 * Build System
+This repository is driven by GNU Make as the orchestration layer, with Bazel
+underneath for hermetic, reproducible builds.
+
 ** GNU Make
-Please refer to =Makefile= for build rules.
+=Makefile= exposes the common entry points:
+
+| Command              | Purpose                                                              |
+|----------------------+----------------------------------------------------------------------|
+| =make check=         | Run all pre-commit checks: format, tests, lint, semgrep, generators. |
+| =make test=          | Run all Bazel tests (=bazel test //...=).                            |
+| =make format=        | Format code (=goimports= + Bazel =buildifier=).                      |
+| =make lint=          | Run golangci-lint, ruff, shellcheck, and Spacemacs checks.           |
+| =make fix=           | Best-effort autofix for lint issues.                                 |
+| =make all=           | Regenerate, format, fix, then test and lint.                         |
+| =make coverage-html= | Generate an HTML coverage report under =coverage/html/=.             |
 
 ** Bazel
 This repository is experimenting with Bazel and the goal is to make it fully
-hermetic, working both on Linux and Termux.
+hermetic, working both on Linux and Termux. =MODULE.bazel= wires up the Go SDK
+(with =nogo= static analysis via custom linters in =//tools/lint=), Gazelle for
+BUILD file generation, rules_python, the Buf protobuf toolchain, and Pkl for
+configuration code generation.
+
+* Development Workflow
+- Run =make check= before requesting a commit. If it changes files (formatters
+  or generators), include those changes in the commit.
+- Keep the =main= branch history flat — integrate upstream with =git pull
+  --rebase= and merge with =git merge --ff-only=.
+
+See [[file:CLAUDE.md][CLAUDE.md]] and [[file:AGENTS.md][AGENTS.md]] for the conventions followed by AI assistants and
+automated workflows in this repository.
+
+* Security
+Please see [[file:SECURITY.md][SECURITY.md]] for how to report security issues.
