@@ -1,5 +1,14 @@
 # Repo-Sync Implementation Plan
 
+> **Implementation status (as of 2026-05-27):** Phases 1–2 (foundation and core
+> synchronization) are implemented. The shipped layout under `internal/` is
+> `config/`, `database/`, `git/`, `reposync/` (sync engine + rsync), and `cli/`
+> (commands: `add`, `remove`, `sync`, `init`, `config`, `status`). Phases 3–4
+> (conflict resolution and production-readiness) are **not yet implemented** —
+> there are no `internal/conflicts/` or `internal/errors/` packages. The
+> directory tree and "Success Criteria" below describe the original target
+> design, not the current code; see the per-item status markers.
+
 ## Project Overview
 
 Repo-Sync is a Go-based utility for synchronizing project-specific files across
@@ -359,11 +368,11 @@ devtools/repo-sync/
 ## Success Criteria
 
 ### Functional Requirements
-- ✅ Selective file synchronization across machines
-- ✅ Automated Git workflow integration
-- ✅ Intelligent conflict resolution
-- ✅ Multi-machine coordination
-- ✅ Robust error handling and recovery
+- ✅ Selective file synchronization across machines (`internal/reposync`)
+- ✅ Automated Git workflow integration (`internal/git`)
+- ⬜ Intelligent conflict resolution (not implemented)
+- ⬜ Multi-machine coordination (not implemented)
+- ⬜ Robust error handling and recovery (not implemented)
 
 ### Non-Functional Requirements
 - **Performance**: Sync operations complete within 30 seconds for typical
