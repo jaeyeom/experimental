@@ -13,15 +13,13 @@ trigger: always_on
 8. Organization: "Keep files concise, under 200-300 lines; refactor as needed."
 9. Principles: "Follow SOLID principles (e.g., single responsibility, dependency inversion) where applicable."
 10. Guardrails: "Never use mock data in dev or prod—restrict it to tests."
-11. Context Check: "Begin every response with a random emoji (e.g., 🐙) to confirm context retention."
-12. Efficiency: "Optimize outputs to minimize token usage without sacrificing clarity."
-13. Before working on the project, read `README`, `README.md` or `README.org` file in the same directory to understand the background of the project.
+11. Efficiency: "Optimize outputs to minimize token usage without sacrificing clarity."
+12. Before working on the project, read `README`, `README.md` or `README.org` file in the same directory to understand the background of the project.
 
 ## API and Configuration Best Practices
-1. Always verify API documentation and configuration details using Perplexity AI or another real-time search-enabled AI before generating code.
-2. Integrate the Perplexity API in your workflow to ensure access to the most current information.
-3. If you encounter ambiguous or outdated documentation, prompt the user for confirmation or use Perplexity AI to clarify.
-4. Prefer APIs and configurations that are explicitly supported by up-to-date, publicly available documentation.
+1. Verify API documentation and configuration details against authoritative, up-to-date sources before generating code. A real-time search-enabled tool (e.g. Perplexity AI) is one way to do this when the answer is uncertain.
+2. If you encounter ambiguous or outdated documentation, prompt the user for confirmation or consult a real-time search tool to clarify.
+3. Prefer APIs and configurations that are explicitly supported by up-to-date, publicly available documentation.
 
 ## Git Specific Rules
 1. Check commit log template with `git config commit.template` before writing a commit log.

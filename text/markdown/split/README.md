@@ -17,28 +17,27 @@ documentation that needs to be processed by LLM models.
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/split-markdown.git
-cd split-markdown
+go install github.com/jaeyeom/experimental/text/markdown/split/cmd/split@latest
+```
 
-# Build the binary
-go build
+Or build from a checkout of this repository:
+
+```bash
+go build -o split ./text/markdown/split/cmd/split
 ```
 
 ## Usage
 
-```bash
-# Basic usage with default output directory (split_output)
-./split-markdown input_file.md
+Both flags are required; there is no default output directory.
 
-# Specify custom output directory
-./split-markdown -output-dir=output_directory input_file.md
+```bash
+split -input=input_file.md -output=output_directory
 ```
 
 ### Arguments
 
-- `input_file.md`: The markdown file you want to split
-- `-output-dir`: Output directory for split files (default: split_output)
+- `-input`: The markdown file you want to split (required)
+- `-output`: Output directory for split files (required)
 
 ## Output Structure
 
@@ -53,8 +52,10 @@ This naming scheme allows for up to 36 sections per level (using 0-9 and A-Z).
 
 ## Running Tests
 
+From this directory:
+
 ```bash
-go test -v
+go test ./...
 ```
 
 ## Contributing

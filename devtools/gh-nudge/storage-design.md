@@ -1,5 +1,20 @@
 # Unified Storage System Design
 
+> **Implementation status (as of 2026-05-27):** Most of this design shipped.
+> The `gh-storage` CLI (`cmd/gh-storage`) implements every command listed below
+> except `migrate`: `init`, `info`, `ls`, `get`, `set`, `delete`, `backup`,
+> `restore`, `clean`, `vacuum`, `lock`, `export`, `import`, `verify`. The
+> hierarchical `storage/repos/owner/repo/pull/N/` layout is implemented via
+> `GitHubStorage` (`internal/storage/github.go`).
+>
+> Two parts of this design were **not** implemented and the interface section
+> below was superseded:
+> - The single monolithic `Storage` interface was replaced by four segregated
+>   interfaces in `internal/storage/interfaces.go`: `Store`, `Locker`,
+>   `Lister`, and `MetadataManager`.
+> - `Transaction`/`WithTransaction` and the `CacheStorage` TTL type were never
+>   built.
+
 ## Overview
 
 A unified storage system for all gh-nudge tools that provides:
@@ -40,59 +55,42 @@ A unified storage system for all gh-nudge tools that provides:
 
 ## Storage Interface
 
-### Core Storage Operations
+The original design proposed a single monolithic `Storage` interface. The
+implemented code (`internal/storage/interfaces.go`) instead splits it into four
+focused interfaces so consumers depend only on what they use:
 
 ```go
-// Storage interface for all data operations
-type Storage interface {
-    // Basic operations
+// Store is the minimal CRUD interface most consumers need.
+type Store interface {
     Get(key string, dest interface{}) error
     Set(key string, data interface{}) error
     Delete(key string) error
     Exists(key string) bool
+}
 
-    // Atomic operations
+// Locker provides exclusive locking for storage operations.
+type Locker interface {
     WithLock(key string, fn func() error) error
-    WithTransaction(fn func(tx Transaction) error) error
+}
 
-    // Hierarchical operations
+// Lister provides directory and listing operations.
+type Lister interface {
     List(prefix string) ([]string, error)
     GetChildren(path string) ([]string, error)
+}
 
-    // Metadata operations
+// MetadataManager handles metadata for stored items.
+type MetadataManager interface {
     GetMetadata(key string) (*Metadata, error)
     SetMetadata(key string, metadata *Metadata) error
-
-    // Backup operations
-    Backup(key string) error
-    Restore(key string, timestamp time.Time) error
-
-    // Cleanup operations
-    Cleanup() error
-    Vacuum() error
-}
-
-// Transaction interface for atomic operations
-type Transaction interface {
-    Get(key string, dest interface{}) error
-    Set(key string, data interface{}) error
-    Delete(key string) error
-    Rollback() error
-    Commit() error
 }
 ```
 
-### Specialized Storage Types
+Backup, restore, clean, and vacuum are exposed through the `gh-storage` CLI and
+the helpers in `internal/storage/utilities.go` rather than as interface methods.
 
-```go
-// Cache storage
-type CacheStorage interface {
-    Storage
-    SetWithTTL(key string, data interface{}, ttl time.Duration) error
-    GetWithTTL(key string, dest interface{}) (bool, error)
-    InvalidatePrefix(prefix string) error
-}
-```
+Transactions (`Transaction`/`WithTransaction`) and a TTL-based `CacheStorage`
+type were part of the original design but were **not** implemented.
 
 ## Storage Manager CLI
 

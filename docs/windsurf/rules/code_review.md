@@ -23,7 +23,7 @@ gh pr diff <PR_NUMBER>
 
 ## Creating Reviews
 ```bash
-# Draft review via API
+# Draft review via API ({owner}/{repo} auto-resolves to the current repo)
 gh api repos/{owner}/{repo}/pulls/<PR_NUMBER>/reviews \
   --method POST \
   --input review.json
