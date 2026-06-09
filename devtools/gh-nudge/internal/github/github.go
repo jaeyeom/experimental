@@ -55,12 +55,23 @@ func NewClientWithExecutor(executor CommandExecutor) *Client {
 	return &Client{executor: executor}
 }
 
+// pullRequestListLimit caps how many pull requests are fetched. The gh CLI's
+// `pr list` defaults to 30; we raise it well past that so users with many open
+// PRs are not silently truncated (the previous `pr status` command was capped
+// at 10 with no way to override).
+const pullRequestListLimit = 100
+
 // GetPendingPullRequests fetches pending pull requests using the gh CLI.
-// It fetches PRs created by the current user.
+// It fetches open PRs created by the current user.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
-	// Construct the gh command to get PR information
-	// This command fetches PRs with their title, URL, review requests, and files
-	output, err := c.executor.Execute("gh", "pr", "status", "--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup", "-q", ".createdBy")
+	// Construct the gh command to get PR information.
+	// This fetches open PRs authored by the current user with their title, URL,
+	// review requests, and files. We use `pr list --author @me` instead of
+	// `pr status` because `pr status` is hardcoded to return at most 10 PRs.
+	output, err := c.executor.Execute("gh", "pr", "list",
+		"--author", "@me",
+		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
+		"--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gh command: %w", err)
 	}
