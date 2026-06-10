@@ -94,6 +94,7 @@
             - /var/run/docker.sock
           allowLocalBinding: true
       permissions:
+        defaultMode: "auto"  # Auto-approve safe actions; prompt only for risky ones
         allow:
           - "Bash(bazel build *)"  # Medium risk (may run genrule)
           - "Bash(bazel query *)"
