@@ -18,6 +18,7 @@ type PullRequest struct {
 	Mergeable         string          `json:"mergeable,omitempty"`
 	HeadRefName       string          `json:"headRefName,omitempty"`
 	StatusCheckRollup []StatusCheck   `json:"statusCheckRollup,omitempty"`
+	IsDraft           bool            `json:"isDraft,omitempty"`
 }
 
 // StatusCheck represents a single CI check or status from GitHub's statusCheckRollup.

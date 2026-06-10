@@ -276,6 +276,62 @@ func TestGetPendingPullRequests(t *testing.T) {
 		}
 	})
 
+	t.Run("skips draft PRs", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "Draft PR",
+				"url": "https://github.com/org/repo/pull/1",
+				"files": [],
+				"reviewRequests": [{"__typename": "User", "login": "reviewer"}],
+				"isDraft": true
+			},
+			{
+				"title": "Ready PR",
+				"url": "https://github.com/org/repo/pull/2",
+				"files": [],
+				"reviewRequests": [{"__typename": "User", "login": "reviewer"}],
+				"isDraft": false
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 non-draft PR, got %d", len(prs))
+		}
+		if prs[0].Title != "Ready PR" {
+			t.Errorf("expected non-draft PR to be returned, got %q", prs[0].Title)
+		}
+	})
+
+	t.Run("treats PRs without isDraft field as non-draft", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "PR without isDraft",
+				"url": "https://github.com/org/repo/pull/1",
+				"files": [],
+				"reviewRequests": []
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+		if prs[0].IsDraft {
+			t.Error("expected PR without isDraft field to default to non-draft")
+		}
+	})
+
 	t.Run("parses PR with multiple files", func(t *testing.T) {
 		sampleJSON := `[
 			{
