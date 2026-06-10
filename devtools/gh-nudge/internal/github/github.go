@@ -62,7 +62,7 @@ func NewClientWithExecutor(executor CommandExecutor) *Client {
 const pullRequestListLimit = 100
 
 // GetPendingPullRequests fetches pending pull requests using the gh CLI.
-// It fetches open PRs created by the current user.
+// It fetches open PRs created by the current user, excluding drafts.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	// Construct the gh command to get PR information.
 	// This fetches open PRs authored by the current user with their title, URL,
@@ -71,7 +71,7 @@ func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	output, err := c.executor.Execute("gh", "pr", "list",
 		"--author", "@me",
 		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
-		"--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup")
+		"--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup,isDraft")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gh command: %w", err)
 	}
@@ -82,7 +82,17 @@ func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 		return nil, fmt.Errorf("failed to parse gh command output: %w", err)
 	}
 
-	return prs, nil
+	// Skip draft PRs: reviewers are not expected to act on them yet, so
+	// nudging about them would be noise.
+	pending := make([]models.PullRequest, 0, len(prs))
+	for _, pr := range prs {
+		if pr.IsDraft {
+			continue
+		}
+		pending = append(pending, pr)
+	}
+
+	return pending, nil
 }
 
 // GetMergeablePullRequests fetches pull requests with no review requests.
