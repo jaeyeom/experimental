@@ -163,7 +163,8 @@ func (prc *PRReviewClient) SubmitReview(repository models.Repository, prNumber i
 		string(payloadBytes),
 		"gh", "api", "-X", "POST",
 		fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber),
-		"--input", "-")
+		"--input", "-",
+	)
 	if err != nil {
 		return fmt.Errorf("failed to submit review: %w (output: %s)", err, output)
 	}
