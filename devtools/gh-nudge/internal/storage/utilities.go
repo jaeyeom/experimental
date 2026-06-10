@@ -475,7 +475,8 @@ func ListBackups(backupDir string) error {
 		if len(desc) > 25 {
 			desc = desc[:22] + "..."
 		}
-		fmt.Printf("%-20s %-20s %-10d %-12s %s\n",
+		fmt.Printf(
+			"%-20s %-20s %-10d %-12s %s\n",
 			b.ID,
 			b.CreatedAt.Format("2006-01-02 15:04:05"),
 			len(b.Files),
