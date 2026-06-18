@@ -463,6 +463,12 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 			PlatformDebianLike: ShellInstallMethod{
 				InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
 			},
+			PlatformTermux: ShellInstallMethod{
+				InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
+				Environment: map[string]string{
+					"PATH": `"{{ ansible_facts['env']['HOME'] }}/.grok/bin:{{ ansible_facts['env']['PATH'] }}"`,
+				},
+			},
 		},
 		Imports: []Import{{Playbook: "curl"}},
 	},
