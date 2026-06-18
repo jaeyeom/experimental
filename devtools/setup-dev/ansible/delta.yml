@@ -39,10 +39,18 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Ensure backports is added to sources.list.d
-      ansible.builtin.apt_repository:
-        repo: "deb http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib non-free non-free-firmware"
+      ansible.builtin.deb822_repository:
+        name: backports
+        types: deb
+        uris: http://deb.debian.org/debian
+        suites: "{{ ansible_facts['distribution_release'] }}-backports"
+        components:
+          - main
+          - contrib
+          - non-free
+          - non-free-firmware
+        enabled: true
         state: present
-        update_cache: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian"
       become: yes
       ignore_errors: yes

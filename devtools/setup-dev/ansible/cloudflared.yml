@@ -51,11 +51,16 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and not cloudflared_gpg_key.stat.exists
 
     - name: Add apt repository for cloudflared
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main"
+      ansible.builtin.deb822_repository:
+        name: cloudflared
+        types: deb
+        uris: "https://pkg.cloudflare.com/cloudflared"
+        suites: "any"
+        components:
+          - main
+        signed_by: /usr/share/keyrings/cloudflare-main.gpg
+        enabled: true
         state: present
-        filename: cloudflared
-        update_cache: yes
       become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
