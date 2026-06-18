@@ -50,10 +50,18 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Ensure backports is added to sources.list.d
-      ansible.builtin.apt_repository:
-        repo: "deb http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib non-free non-free-firmware"
+      ansible.builtin.deb822_repository:
+        name: backports
+        types: deb
+        uris: http://deb.debian.org/debian
+        suites: "{{ ansible_facts['distribution_release'] }}-backports"
+        components:
+          - main
+          - contrib
+          - non-free
+          - non-free-firmware
+        enabled: true
         state: present
-        update_cache: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian"
       become: yes
       ignore_errors: yes
@@ -96,11 +104,16 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu" and not emacs_gpg_key.stat.exists
 
     - name: Add apt repository for emacs
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/ubuntuhandbook1-emacs-ppa.gpg] https://ppa.launchpadcontent.net/ubuntuhandbook1/emacs/ubuntu {{ ansible_facts['distribution_release'] }} main"
+      ansible.builtin.deb822_repository:
+        name: emacs
+        types: deb
+        uris: "https://ppa.launchpadcontent.net/ubuntuhandbook1/emacs/ubuntu"
+        suites: "{{ ansible_facts['distribution_release'] }}"
+        components:
+          - main
+        signed_by: /etc/apt/keyrings/ubuntuhandbook1-emacs-ppa.gpg
+        enabled: true
         state: present
-        filename: emacs
-        update_cache: yes
       become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
 

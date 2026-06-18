@@ -59,11 +59,17 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and not ucm_gpg_key.stat.exists
 
     - name: Add apt repository for ucm
-      ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/unison-computing.gpg] https://debian.unison-lang.org/ trixie main"
+      ansible.builtin.deb822_repository:
+        name: ucm
+        types: deb
+        uris: "https://debian.unison-lang.org/"
+        suites: "trixie"
+        components:
+          - main
+        signed_by: /etc/apt/trusted.gpg.d/unison-computing.gpg
+        architectures: amd64
+        enabled: true
         state: present
-        filename: ucm
-        update_cache: yes
       become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 

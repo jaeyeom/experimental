@@ -51,11 +51,16 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and not gcloud_gpg_key.stat.exists
 
     - name: Add apt repository for gcloud
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/trusted.gpg.d/google-cloud.gpg] https://packages.cloud.google.com/apt cloud-sdk main"
+      ansible.builtin.deb822_repository:
+        name: gcloud
+        types: deb
+        uris: "https://packages.cloud.google.com/apt"
+        suites: "cloud-sdk"
+        components:
+          - main
+        signed_by: /etc/apt/trusted.gpg.d/google-cloud.gpg
+        enabled: true
         state: present
-        filename: gcloud
-        update_cache: yes
       become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 

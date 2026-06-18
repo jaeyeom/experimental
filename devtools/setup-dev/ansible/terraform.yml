@@ -59,11 +59,16 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and not terraform_gpg_key.stat.exists
 
     - name: Add apt repository for terraform
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_facts['distribution_release'] }} main"
+      ansible.builtin.deb822_repository:
+        name: terraform
+        types: deb
+        uris: "https://apt.releases.hashicorp.com"
+        suites: "{{ ansible_facts['distribution_release'] }}"
+        components:
+          - main
+        signed_by: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        enabled: true
         state: present
-        filename: terraform
-        update_cache: yes
       become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 

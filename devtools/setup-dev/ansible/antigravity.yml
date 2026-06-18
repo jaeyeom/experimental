@@ -51,11 +51,16 @@
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and not antigravity_gpg_key.stat.exists
 
     - name: Add apt repository for antigravity
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/antigravity-repo-key.gpg] https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/ antigravity-debian main"
+      ansible.builtin.deb822_repository:
+        name: antigravity
+        types: deb
+        uris: "https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/"
+        suites: "antigravity-debian"
+        components:
+          - main
+        signed_by: /etc/apt/keyrings/antigravity-repo-key.gpg
+        enabled: true
         state: present
-        filename: antigravity
-        update_cache: yes
       become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 

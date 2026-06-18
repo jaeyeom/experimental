@@ -553,10 +553,18 @@ func (d DebianPkgInstallMethod) GetImports() []Import {
 
 func (d DebianPkgInstallMethod) RenderSetupTasks(_ string) string {
 	return `    - name: Ensure backports is added to sources.list.d
-      ansible.builtin.apt_repository:
-        repo: "deb http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib non-free non-free-firmware"
+      ansible.builtin.deb822_repository:
+        name: backports
+        types: deb
+        uris: http://deb.debian.org/debian
+        suites: "{{ ansible_facts['distribution_release'] }}-backports"
+        components:
+          - main
+          - contrib
+          - non-free
+          - non-free-firmware
+        enabled: true
         state: present
-        update_cache: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Debian"
       become: yes
       ignore_errors: yes
@@ -873,9 +881,14 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
 		codename = "{{ ansible_facts['distribution_release'] }}"
 	}
 
-	archOption := ""
+	archLine := ""
 	if a.Arch != "" {
-		archOption = "arch=" + a.Arch + " "
+		archLine = "\n        architectures: " + a.Arch
+	}
+
+	components := ""
+	for _, c := range strings.Fields(a.RepoComponents) {
+		components += "\n          - " + c
 	}
 
 	when := WhenDebianLike
@@ -906,11 +919,15 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
       when: ` + when + ` and not ` + commandID + `_gpg_key.stat.exists
 
     - name: Add apt repository for ` + command + `
-      ansible.builtin.apt_repository:
-        repo: "deb [` + archOption + `signed-by=` + a.GPGKeyPath + `] ` + a.RepoURL + ` ` + codename + ` ` + a.RepoComponents + `"
+      ansible.builtin.deb822_repository:
+        name: ` + command + `
+        types: deb
+        uris: "` + a.RepoURL + `"
+        suites: "` + codename + `"
+        components:` + components + `
+        signed_by: ` + a.GPGKeyPath + archLine + `
+        enabled: true
         state: present
-        filename: ` + command + `
-        update_cache: yes
       become: yes
       when: ` + when + `
 
