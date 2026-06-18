@@ -31,6 +31,24 @@
           when: grok_installed.rc != 0
       when: ansible_facts['os_family'] == "Darwin"
 
+    - name: Ensure grok is present on Termux
+      block:
+        - name: Check if grok is installed
+          shell: command -v grok
+          register: grok_installed
+          failed_when: false
+          changed_when: False
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.grok/bin:{{ ansible_facts['env']['PATH'] }}"
+
+        - name: Install grok
+          shell: |
+            {{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh
+          when: grok_installed.rc != 0
+          environment:
+            PATH: "{{ ansible_facts['env']['HOME'] }}/.grok/bin:{{ ansible_facts['env']['PATH'] }}"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
     - name: Install grok via shell on Debian/Ubuntu
       block:
         - name: Check if grok is installed
