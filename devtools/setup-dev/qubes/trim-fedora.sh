@@ -1,4 +1,5 @@
 #!/bin/sh
+# Trim fedora-43-xfce into the fedora-43-xfce-default template.
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -14,8 +15,7 @@ dnf remove -y \
     keepassxc \
     pidgin \
     thunderbird \
-    xfburn \
-    xterm
+    xfburn
 
 cat >/etc/pki/rpm-gpg/mullvad-keyring.asc <<'EOF'
 -----BEGIN PGP PUBLIC KEY BLOCK-----
