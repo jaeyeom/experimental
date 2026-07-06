@@ -1,0 +1,71 @@
+---
+- import_playbook: spacemacs.yml
+
+- name: Ensure Emacs org/dart packages for org-lint are present
+  hosts: all
+  tasks:
+    - name: Include guard for setup-org-lint-emacs playbook
+      block:
+        - name: Stop early if the setup-org-lint-emacs playbook is already included
+          meta: end_play
+          when: setup_org_lint_emacs_playbook_imported is defined
+        - name: Ensure the setup-org-lint-emacs playbook is not included
+          set_fact:
+            setup_org_lint_emacs_playbook_imported: true
+          when: setup_org_lint_emacs_playbook_imported is not defined
+
+    - name: Ensure .spacemacs-upstream symlink
+      ansible.builtin.file:
+        src: "{{ ansible_facts['env']['HOME'] }}/go/src/github.com/jaeyeom/experimental/spacemacs/.spacemacs"
+        dest: "{{ ansible_facts['env']['HOME'] }}/.spacemacs-upstream"
+        state: link
+        force: yes
+
+    - name: Check if ~/.spacemacs exists
+      ansible.builtin.stat:
+        path: "{{ ansible_facts['env']['HOME'] }}/.spacemacs"
+      register: spacemacs_file
+
+    - name: Copy .spacemacs-upstream content to ~/.spacemacs if it doesn't exist
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['env']['HOME'] }}/.spacemacs-upstream"
+        dest: "{{ ansible_facts['env']['HOME'] }}/.spacemacs"
+        remote_src: yes
+        force: no
+      when: not spacemacs_file.stat.exists
+
+    - name: Check org-lint Emacs prerequisites
+      ansible.builtin.shell: |
+        set -euo pipefail
+        emacs --batch -l "{{ ansible_facts['env']['HOME'] }}/.config/emacs/init.el" --eval \
+          "(progn
+             (require 'org)
+             (require 'ob-shell nil t)
+             (unless (locate-library \"dart-mode\") (error \"dart-mode missing\"))
+             (message \"ok\"))" 2>&1 | tail -1
+      register: org_lint_emacs_prereqs
+      changed_when: false
+      failed_when: false
+
+    - name: Install Emacs packages required by org-lint (org, org-contrib, dart-mode)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        emacs --batch -l "{{ ansible_facts['env']['HOME'] }}/.config/emacs/init.el" --eval \
+          "(progn (configuration-layer//install-packages '(org org-contrib dart-mode)) (message \"ok\"))" \
+          2>&1 | tail -1
+      register: org_lint_emacs_install
+      changed_when: org_lint_emacs_install.stdout == 'ok'
+      when: org_lint_emacs_prereqs.stdout != 'ok'
+
+    - name: Verify org-lint Emacs prerequisites after install
+      ansible.builtin.shell: |
+        set -euo pipefail
+        emacs --batch -l "{{ ansible_facts['env']['HOME'] }}/.config/emacs/init.el" --eval \
+          "(progn
+             (require 'org)
+             (require 'ob-shell nil t)
+             (unless (locate-library \"dart-mode\") (error \"dart-mode missing\"))
+             (message \"ok\"))" 2>&1 | tail -1
+      register: org_lint_emacs_verify
+      changed_when: false
+      failed_when: org_lint_emacs_verify.stdout != 'ok'

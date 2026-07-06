@@ -597,7 +597,15 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 		},
 		Imports: []Import{{Playbook: "curl"}},
 	},
-	GoTool("org-lint", "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest", Import{Playbook: "emacs"}),
+	{
+		command: "org-lint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: GoInstallMethod{
+				PkgPath: "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest",
+			},
+		},
+		Imports: []Import{{Playbook: "setup-org-lint-emacs"}},
+	},
 	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	{
 		command: "pkl",

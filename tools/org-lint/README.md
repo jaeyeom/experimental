@@ -94,6 +94,26 @@ Similar to `check-bazel-src-files.sh`:
 3. Verifies the BUILD file loads the macro
 4. Exits with error if any .org files are missing
 
+## Local Emacs setup
+
+Org-lint Bazel tests require Emacs with org-mode (ELPA `org`, `org-contrib`) and
+`dart-mode` installed. The Spacemacs `org` and `dart` layers declare these
+packages, but they must be synced before org-lint tests pass locally.
+
+Install everything (Emacs, Spacemacs, Go `org-lint` tool, and required Emacs
+packages) via Ansible:
+
+```bash
+cd devtools/setup-dev/ansible
+./ensure.sh org-lint
+```
+
+Or run the Emacs package playbook directly:
+
+```bash
+ansible-playbook setup-org-lint-emacs.yml
+```
+
 ## CI Integration
 
 These tests run automatically in CI via Bazel. The tests gracefully skip with exit code 0 when emacs is not installed (using `--skip-if-no-emacs`), allowing CI to pass without requiring emacs installation.

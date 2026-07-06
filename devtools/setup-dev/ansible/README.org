@@ -165,6 +165,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-npm.yml
 - setup-nvm.yml
 - setup-office-tools.yml
+- setup-org-lint-emacs.yml
 - setup-pass.yml
 - setup-perplexity-mcp.yml
 - setup-python-tools.yml
