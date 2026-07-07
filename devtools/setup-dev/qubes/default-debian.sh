@@ -1,22 +1,14 @@
 #!/bin/sh
-# Turn a debian-*-minimum Qubes TemplateVM into a debian-*-default template.
+# Turn a trimmed debian-*-xfce Qubes TemplateVM into debian-*-xfce-default.
 #
-# Assumes the template was created from a minimum template (e.g. debian-??-minimum).
-# Run after trim-debian.sh if trimming is needed, or directly on a minimum template.
-#
-# Warning: This script does not yet install all packages missing from the minimum
-# template that are present in the official default template. It is a partial
-# bootstrap; see follow-up issues for full coverage.
+# Source: debian-*-xfce after trim-debian.sh (clone stock xfce, then trim).
+# Target: debian-*-xfce-default (verified on debian-13-xfce-default).
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Error: This script must be run as root (or with sudo)." >&2
     exit 1
 fi
-
-echo "Warning: This script does not yet install all packages missing from the" >&2
-echo "minimum template that are present in the official default template. It is a" >&2
-echo "partial bootstrap; see follow-up issues for full coverage." >&2
 
 cat > /usr/share/keyrings/mullvad-keyring.asc <<'EOF'
 -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -110,4 +102,4 @@ echo "deb [signed-by=/usr/share/keyrings/mullvad-keyring.asc arch=$( dpkg --prin
 
 apt update
 
-apt install mullvad-browser
+apt install -y mullvad-browser

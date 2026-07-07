@@ -1,8 +1,8 @@
 #!/bin/sh
 # Remove desktop bloat from a Debian Qubes TemplateVM.
 #
-# Assumes a template derived from debian-*-minimum or debian-*-default.
-# Run default-debian.sh afterward to add packages for a default template.
+# Source: debian-*-xfce (stock Qubes template).
+# Target: trimmed xfce — run default-debian.sh next to reach debian-*-xfce-default.
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
