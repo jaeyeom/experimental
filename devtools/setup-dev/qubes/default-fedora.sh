@@ -1,12 +1,8 @@
 #!/bin/sh
-# Turn a fedora-*-minimum Qubes TemplateVM into a fedora-*-default template.
+# Turn a trimmed fedora-*-xfce Qubes TemplateVM into fedora-*-xfce-default.
 #
-# Assumes the template was created from a minimum template (e.g. fedora-??-minimum).
-# Run after trim-fedora.sh if trimming is needed, or directly on a minimum template.
-#
-# Warning: This script does not yet install all packages missing from the minimum
-# template that are present in the official default template. It is a partial
-# bootstrap; see follow-up issues for full coverage.
+# Source: fedora-*-xfce after trim-fedora.sh (clone stock xfce, then trim).
+# Target: fedora-*-xfce-default (matches fedora-42-xfce-default on FC42).
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -14,9 +10,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-echo "Warning: This script does not yet install all packages missing from the" >&2
-echo "minimum template that are present in the official default template. It is a" >&2
-echo "partial bootstrap; see follow-up issues for full coverage." >&2
+FEDORA_VER="$(rpm -E %fedora)"
 
 cat >/etc/pki/rpm-gpg/mullvad-keyring.asc <<'EOF'
 -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -116,4 +110,10 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/mullvad-keyring.asc
 EOF
 
-dnf install -y mullvad-browser
+dnf install -y \
+    "f${FEDORA_VER}-backgrounds-base" \
+    fcitx5-hangul \
+    mullvad-browser \
+    NetworkManager-pptp-gnome \
+    pipewire-jack-audio-connection-kit \
+    qt6-qtwayland

@@ -1,8 +1,11 @@
 #!/bin/sh
 # Remove desktop bloat from a Fedora Qubes TemplateVM.
 #
-# Assumes a template derived from fedora-*-minimum or fedora-*-default.
-# Run default-fedora.sh afterward to add packages for a default template.
+# Source: fedora-*-xfce (stock Qubes template).
+# Target: trimmed xfce — run default-fedora.sh next to reach fedora-*-xfce-default.
+#
+# Do not remove xterm on Fedora 43+: dnf cascades other removals that break sudo.
+# xterm was safe to drop on Fedora 42 only.
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
