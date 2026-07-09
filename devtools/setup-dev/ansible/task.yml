@@ -44,10 +44,20 @@
             task_module_path: ""
             task_module_version: ""
 
+    - name: Get task build Go version
+      shell: go version -m $(command -v task) 2>/dev/null | head -1 | awk '{print $2}'
+      register: task_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade task
       command: go install github.com/go-task/task/v3/cmd/task@latest
       register: task_upgrade
       until: task_upgrade is succeeded
       retries: 3
       delay: 30
-      when: task_module_version is not defined or task_module_version == "" or task_module_version != task_latest.stdout
+      when: >
+        task_module_version is not defined or
+        task_module_version == "" or
+        task_module_version != task_latest.stdout or
+        task_build_go.stdout | default('') != go_toolchain_version

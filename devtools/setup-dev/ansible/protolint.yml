@@ -44,10 +44,20 @@
             protolint_module_path: ""
             protolint_module_version: ""
 
+    - name: Get protolint build Go version
+      shell: go version -m $(command -v protolint) 2>/dev/null | head -1 | awk '{print $2}'
+      register: protolint_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade protolint
       command: go install github.com/yoheimuta/protolint/cmd/protolint@latest
       register: protolint_upgrade
       until: protolint_upgrade is succeeded
       retries: 3
       delay: 30
-      when: protolint_module_version is not defined or protolint_module_version == "" or protolint_module_version != protolint_latest.stdout
+      when: >
+        protolint_module_version is not defined or
+        protolint_module_version == "" or
+        protolint_module_version != protolint_latest.stdout or
+        protolint_build_go.stdout | default('') != go_toolchain_version

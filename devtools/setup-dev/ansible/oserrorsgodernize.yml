@@ -44,10 +44,20 @@
             oserrorsgodernize_module_path: ""
             oserrorsgodernize_module_version: ""
 
+    - name: Get oserrorsgodernize build Go version
+      shell: go version -m $(command -v oserrorsgodernize) 2>/dev/null | head -1 | awk '{print $2}'
+      register: oserrorsgodernize_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade oserrorsgodernize
       command: go install github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest
       register: oserrorsgodernize_upgrade
       until: oserrorsgodernize_upgrade is succeeded
       retries: 3
       delay: 30
-      when: oserrorsgodernize_module_version is not defined or oserrorsgodernize_module_version == "" or oserrorsgodernize_module_version != oserrorsgodernize_latest.stdout
+      when: >
+        oserrorsgodernize_module_version is not defined or
+        oserrorsgodernize_module_version == "" or
+        oserrorsgodernize_module_version != oserrorsgodernize_latest.stdout or
+        oserrorsgodernize_build_go.stdout | default('') != go_toolchain_version

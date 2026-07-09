@@ -44,10 +44,20 @@
             jira_module_path: ""
             jira_module_version: ""
 
+    - name: Get jira build Go version
+      shell: go version -m $(command -v jira) 2>/dev/null | head -1 | awk '{print $2}'
+      register: jira_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade jira
       command: go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest
       register: jira_upgrade
       until: jira_upgrade is succeeded
       retries: 3
       delay: 30
-      when: jira_module_version is not defined or jira_module_version == "" or jira_module_version != jira_latest.stdout
+      when: >
+        jira_module_version is not defined or
+        jira_module_version == "" or
+        jira_module_version != jira_latest.stdout or
+        jira_build_go.stdout | default('') != go_toolchain_version

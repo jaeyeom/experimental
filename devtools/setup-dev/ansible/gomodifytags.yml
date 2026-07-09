@@ -44,10 +44,20 @@
             gomodifytags_module_path: ""
             gomodifytags_module_version: ""
 
+    - name: Get gomodifytags build Go version
+      shell: go version -m $(command -v gomodifytags) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gomodifytags_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gomodifytags
       command: go install github.com/fatih/gomodifytags@latest
       register: gomodifytags_upgrade
       until: gomodifytags_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gomodifytags_module_version is not defined or gomodifytags_module_version == "" or gomodifytags_module_version != gomodifytags_latest.stdout
+      when: >
+        gomodifytags_module_version is not defined or
+        gomodifytags_module_version == "" or
+        gomodifytags_module_version != gomodifytags_latest.stdout or
+        gomodifytags_build_go.stdout | default('') != go_toolchain_version

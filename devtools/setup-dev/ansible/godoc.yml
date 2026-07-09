@@ -44,10 +44,20 @@
             godoc_module_path: ""
             godoc_module_version: ""
 
+    - name: Get godoc build Go version
+      shell: go version -m $(command -v godoc) 2>/dev/null | head -1 | awk '{print $2}'
+      register: godoc_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade godoc
       command: go install golang.org/x/tools/cmd/godoc@latest
       register: godoc_upgrade
       until: godoc_upgrade is succeeded
       retries: 3
       delay: 30
-      when: godoc_module_version is not defined or godoc_module_version == "" or godoc_module_version != godoc_latest.stdout
+      when: >
+        godoc_module_version is not defined or
+        godoc_module_version == "" or
+        godoc_module_version != godoc_latest.stdout or
+        godoc_build_go.stdout | default('') != go_toolchain_version

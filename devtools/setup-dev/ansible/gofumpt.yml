@@ -44,10 +44,20 @@
             gofumpt_module_path: ""
             gofumpt_module_version: ""
 
+    - name: Get gofumpt build Go version
+      shell: go version -m $(command -v gofumpt) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gofumpt_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gofumpt
       command: go install mvdan.cc/gofumpt@latest
       register: gofumpt_upgrade
       until: gofumpt_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gofumpt_module_version is not defined or gofumpt_module_version == "" or gofumpt_module_version != gofumpt_latest.stdout
+      when: >
+        gofumpt_module_version is not defined or
+        gofumpt_module_version == "" or
+        gofumpt_module_version != gofumpt_latest.stdout or
+        gofumpt_build_go.stdout | default('') != go_toolchain_version

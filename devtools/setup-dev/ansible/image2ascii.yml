@@ -44,10 +44,20 @@
             image2ascii_module_path: ""
             image2ascii_module_version: ""
 
+    - name: Get image2ascii build Go version
+      shell: go version -m $(command -v image2ascii) 2>/dev/null | head -1 | awk '{print $2}'
+      register: image2ascii_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade image2ascii
       command: go install github.com/qeesung/image2ascii@latest
       register: image2ascii_upgrade
       until: image2ascii_upgrade is succeeded
       retries: 3
       delay: 30
-      when: image2ascii_module_version is not defined or image2ascii_module_version == "" or image2ascii_module_version != image2ascii_latest.stdout
+      when: >
+        image2ascii_module_version is not defined or
+        image2ascii_module_version == "" or
+        image2ascii_module_version != image2ascii_latest.stdout or
+        image2ascii_build_go.stdout | default('') != go_toolchain_version

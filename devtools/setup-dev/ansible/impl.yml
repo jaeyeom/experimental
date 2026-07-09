@@ -44,10 +44,20 @@
             impl_module_path: ""
             impl_module_version: ""
 
+    - name: Get impl build Go version
+      shell: go version -m $(command -v impl) 2>/dev/null | head -1 | awk '{print $2}'
+      register: impl_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade impl
       command: go install github.com/josharian/impl@latest
       register: impl_upgrade
       until: impl_upgrade is succeeded
       retries: 3
       delay: 30
-      when: impl_module_version is not defined or impl_module_version == "" or impl_module_version != impl_latest.stdout
+      when: >
+        impl_module_version is not defined or
+        impl_module_version == "" or
+        impl_module_version != impl_latest.stdout or
+        impl_build_go.stdout | default('') != go_toolchain_version

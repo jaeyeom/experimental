@@ -45,10 +45,20 @@
             gh_slack_module_path: ""
             gh_slack_module_version: ""
 
+    - name: Get gh-slack build Go version
+      shell: go version -m $(command -v gh-slack) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gh_slack_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gh-slack
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest
       register: gh_slack_upgrade
       until: gh_slack_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gh_slack_module_version is not defined or gh_slack_module_version == "" or gh_slack_module_version != gh_slack_latest.stdout
+      when: >
+        gh_slack_module_version is not defined or
+        gh_slack_module_version == "" or
+        gh_slack_module_version != gh_slack_latest.stdout or
+        gh_slack_build_go.stdout | default('') != go_toolchain_version

@@ -61,13 +61,23 @@
                 actionlint_module_path: ""
                 actionlint_module_version: ""
 
+        - name: Get actionlint build Go version
+          shell: go version -m $(command -v actionlint) 2>/dev/null | head -1 | awk '{print $2}'
+          register: actionlint_build_go
+          ignore_errors: yes
+          changed_when: false
+
         - name: Upgrade actionlint
           command: go install github.com/rhysd/actionlint/cmd/actionlint@latest
           register: actionlint_upgrade
           until: actionlint_upgrade is succeeded
           retries: 3
           delay: 30
-          when: actionlint_module_version is not defined or actionlint_module_version == "" or actionlint_module_version != actionlint_latest.stdout
+          when: >
+            actionlint_module_version is not defined or
+            actionlint_module_version == "" or
+            actionlint_module_version != actionlint_latest.stdout or
+            actionlint_build_go.stdout | default('') != go_toolchain_version
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install actionlint via go on Debian/Ubuntu
@@ -99,11 +109,21 @@
                 actionlint_module_path: ""
                 actionlint_module_version: ""
 
+        - name: Get actionlint build Go version
+          shell: go version -m $(command -v actionlint) 2>/dev/null | head -1 | awk '{print $2}'
+          register: actionlint_build_go
+          ignore_errors: yes
+          changed_when: false
+
         - name: Upgrade actionlint
           command: go install github.com/rhysd/actionlint/cmd/actionlint@latest
           register: actionlint_upgrade
           until: actionlint_upgrade is succeeded
           retries: 3
           delay: 30
-          when: actionlint_module_version is not defined or actionlint_module_version == "" or actionlint_module_version != actionlint_latest.stdout
+          when: >
+            actionlint_module_version is not defined or
+            actionlint_module_version == "" or
+            actionlint_module_version != actionlint_latest.stdout or
+            actionlint_build_go.stdout | default('') != go_toolchain_version
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

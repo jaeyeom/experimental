@@ -44,10 +44,20 @@
             fillstruct_module_path: ""
             fillstruct_module_version: ""
 
+    - name: Get fillstruct build Go version
+      shell: go version -m $(command -v fillstruct) 2>/dev/null | head -1 | awk '{print $2}'
+      register: fillstruct_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade fillstruct
       command: go install github.com/davidrjenni/reftools/cmd/fillstruct@latest
       register: fillstruct_upgrade
       until: fillstruct_upgrade is succeeded
       retries: 3
       delay: 30
-      when: fillstruct_module_version is not defined or fillstruct_module_version == "" or fillstruct_module_version != fillstruct_latest.stdout
+      when: >
+        fillstruct_module_version is not defined or
+        fillstruct_module_version == "" or
+        fillstruct_module_version != fillstruct_latest.stdout or
+        fillstruct_build_go.stdout | default('') != go_toolchain_version

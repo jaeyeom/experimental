@@ -44,10 +44,20 @@
             godef_module_path: ""
             godef_module_version: ""
 
+    - name: Get godef build Go version
+      shell: go version -m $(command -v godef) 2>/dev/null | head -1 | awk '{print $2}'
+      register: godef_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade godef
       command: go install github.com/rogpeppe/godef@latest
       register: godef_upgrade
       until: godef_upgrade is succeeded
       retries: 3
       delay: 30
-      when: godef_module_version is not defined or godef_module_version == "" or godef_module_version != godef_latest.stdout
+      when: >
+        godef_module_version is not defined or
+        godef_module_version == "" or
+        godef_module_version != godef_latest.stdout or
+        godef_build_go.stdout | default('') != go_toolchain_version

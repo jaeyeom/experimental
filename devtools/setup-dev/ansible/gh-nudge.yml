@@ -45,10 +45,20 @@
             gh_nudge_module_path: ""
             gh_nudge_module_version: ""
 
+    - name: Get gh-nudge build Go version
+      shell: go version -m $(command -v gh-nudge) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gh_nudge_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gh-nudge
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest
       register: gh_nudge_upgrade
       until: gh_nudge_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gh_nudge_module_version is not defined or gh_nudge_module_version == "" or gh_nudge_module_version != gh_nudge_latest.stdout
+      when: >
+        gh_nudge_module_version is not defined or
+        gh_nudge_module_version == "" or
+        gh_nudge_module_version != gh_nudge_latest.stdout or
+        gh_nudge_build_go.stdout | default('') != go_toolchain_version

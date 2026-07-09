@@ -45,10 +45,20 @@
             org_lint_module_path: ""
             org_lint_module_version: ""
 
+    - name: Get org-lint build Go version
+      shell: go version -m $(command -v org-lint) 2>/dev/null | head -1 | awk '{print $2}'
+      register: org_lint_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade org-lint
       command: go install github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest
       register: org_lint_upgrade
       until: org_lint_upgrade is succeeded
       retries: 3
       delay: 30
-      when: org_lint_module_version is not defined or org_lint_module_version == "" or org_lint_module_version != org_lint_latest.stdout
+      when: >
+        org_lint_module_version is not defined or
+        org_lint_module_version == "" or
+        org_lint_module_version != org_lint_latest.stdout or
+        org_lint_build_go.stdout | default('') != go_toolchain_version

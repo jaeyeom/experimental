@@ -45,10 +45,20 @@
             pkl_gen_go_module_path: ""
             pkl_gen_go_module_version: ""
 
+    - name: Get pkl-gen-go build Go version
+      shell: go version -m $(command -v pkl-gen-go) 2>/dev/null | head -1 | awk '{print $2}'
+      register: pkl_gen_go_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade pkl-gen-go
       command: go install github.com/apple/pkl-go/cmd/pkl-gen-go@latest
       register: pkl_gen_go_upgrade
       until: pkl_gen_go_upgrade is succeeded
       retries: 3
       delay: 30
-      when: pkl_gen_go_module_version is not defined or pkl_gen_go_module_version == "" or pkl_gen_go_module_version != pkl_gen_go_latest.stdout
+      when: >
+        pkl_gen_go_module_version is not defined or
+        pkl_gen_go_module_version == "" or
+        pkl_gen_go_module_version != pkl_gen_go_latest.stdout or
+        pkl_gen_go_build_go.stdout | default('') != go_toolchain_version

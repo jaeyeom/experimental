@@ -44,10 +44,20 @@
             guru_module_path: ""
             guru_module_version: ""
 
+    - name: Get guru build Go version
+      shell: go version -m $(command -v guru) 2>/dev/null | head -1 | awk '{print $2}'
+      register: guru_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade guru
       command: go install golang.org/x/tools/cmd/guru@latest
       register: guru_upgrade
       until: guru_upgrade is succeeded
       retries: 3
       delay: 30
-      when: guru_module_version is not defined or guru_module_version == "" or guru_module_version != guru_latest.stdout
+      when: >
+        guru_module_version is not defined or
+        guru_module_version == "" or
+        guru_module_version != guru_latest.stdout or
+        guru_build_go.stdout | default('') != go_toolchain_version

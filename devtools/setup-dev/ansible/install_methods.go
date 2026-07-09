@@ -269,13 +269,23 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
             ` + commandID + `_module_path: ""
             ` + commandID + `_module_version: ""
 
+    - name: Get ` + command + ` build Go version
+      shell: go version -m $(command -v ` + command + `) 2>/dev/null | head -1 | awk '{print $2}'
+      register: ` + commandID + `_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade ` + command + `
       command: go install ` + g.PkgPath + `
       register: ` + commandID + `_upgrade
       until: ` + commandID + `_upgrade is succeeded
       retries: 3
       delay: 30
-      when: ` + commandID + `_module_version is not defined or ` + commandID + `_module_version == "" or ` + commandID + `_module_version != ` + commandID + `_latest.stdout`
+      when: >
+        ` + commandID + `_module_version is not defined or
+        ` + commandID + `_module_version == "" or
+        ` + commandID + `_module_version != ` + commandID + `_latest.stdout or
+        ` + commandID + `_build_go.stdout | default('') != go_toolchain_version`
 }
 
 func (g GoInstallMethod) RenderBlockInstallTask(command string) string {

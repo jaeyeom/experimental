@@ -44,10 +44,20 @@
             buildifier_module_path: ""
             buildifier_module_version: ""
 
+    - name: Get buildifier build Go version
+      shell: go version -m $(command -v buildifier) 2>/dev/null | head -1 | awk '{print $2}'
+      register: buildifier_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade buildifier
       command: go install github.com/bazelbuild/buildtools/buildifier@latest
       register: buildifier_upgrade
       until: buildifier_upgrade is succeeded
       retries: 3
       delay: 30
-      when: buildifier_module_version is not defined or buildifier_module_version == "" or buildifier_module_version != buildifier_latest.stdout
+      when: >
+        buildifier_module_version is not defined or
+        buildifier_module_version == "" or
+        buildifier_module_version != buildifier_latest.stdout or
+        buildifier_build_go.stdout | default('') != go_toolchain_version
