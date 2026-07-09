@@ -45,10 +45,20 @@
             gherun_module_path: ""
             gherun_module_version: ""
 
+    - name: Get gherun build Go version
+      shell: go version -m $(command -v gherun) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gherun_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gherun
       command: go install github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest
       register: gherun_upgrade
       until: gherun_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gherun_module_version is not defined or gherun_module_version == "" or gherun_module_version != gherun_latest.stdout
+      when: >
+        gherun_module_version is not defined or
+        gherun_module_version == "" or
+        gherun_module_version != gherun_latest.stdout or
+        gherun_build_go.stdout | default('') != go_toolchain_version

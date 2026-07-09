@@ -25,3 +25,12 @@
     - name: Add GOPATH/bin to current Ansible PATH
       set_fact:
         ansible_env: "{{ ansible_env | combine({'PATH': go_env_gopath.stdout + '/bin:' + ansible_env.PATH}) }}"
+
+    - name: Determine current Go toolchain version
+      command: go env GOVERSION
+      register: go_toolchain_version_cmd
+      changed_when: false
+
+    - name: Set Go toolchain version fact
+      set_fact:
+        go_toolchain_version: "{{ go_toolchain_version_cmd.stdout }}"

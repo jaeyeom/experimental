@@ -45,10 +45,20 @@
             review_and_push_loop_module_path: ""
             review_and_push_loop_module_version: ""
 
+    - name: Get review-and-push-loop build Go version
+      shell: go version -m $(command -v review-and-push-loop) 2>/dev/null | head -1 | awk '{print $2}'
+      register: review_and_push_loop_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade review-and-push-loop
       command: go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest
       register: review_and_push_loop_upgrade
       until: review_and_push_loop_upgrade is succeeded
       retries: 3
       delay: 30
-      when: review_and_push_loop_module_version is not defined or review_and_push_loop_module_version == "" or review_and_push_loop_module_version != review_and_push_loop_latest.stdout
+      when: >
+        review_and_push_loop_module_version is not defined or
+        review_and_push_loop_module_version == "" or
+        review_and_push_loop_module_version != review_and_push_loop_latest.stdout or
+        review_and_push_loop_build_go.stdout | default('') != go_toolchain_version

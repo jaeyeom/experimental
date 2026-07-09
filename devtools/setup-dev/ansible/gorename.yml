@@ -44,10 +44,20 @@
             gorename_module_path: ""
             gorename_module_version: ""
 
+    - name: Get gorename build Go version
+      shell: go version -m $(command -v gorename) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gorename_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gorename
       command: go install golang.org/x/tools/cmd/gorename@latest
       register: gorename_upgrade
       until: gorename_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gorename_module_version is not defined or gorename_module_version == "" or gorename_module_version != gorename_latest.stdout
+      when: >
+        gorename_module_version is not defined or
+        gorename_module_version == "" or
+        gorename_module_version != gorename_latest.stdout or
+        gorename_build_go.stdout | default('') != go_toolchain_version

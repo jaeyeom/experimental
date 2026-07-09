@@ -45,10 +45,20 @@
             gh_merge_module_path: ""
             gh_merge_module_version: ""
 
+    - name: Get gh-merge build Go version
+      shell: go version -m $(command -v gh-merge) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gh_merge_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gh-merge
       command: go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest
       register: gh_merge_upgrade
       until: gh_merge_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gh_merge_module_version is not defined or gh_merge_module_version == "" or gh_merge_module_version != gh_merge_latest.stdout
+      when: >
+        gh_merge_module_version is not defined or
+        gh_merge_module_version == "" or
+        gh_merge_module_version != gh_merge_latest.stdout or
+        gh_merge_build_go.stdout | default('') != go_toolchain_version

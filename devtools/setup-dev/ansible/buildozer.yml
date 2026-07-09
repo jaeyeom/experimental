@@ -44,10 +44,20 @@
             buildozer_module_path: ""
             buildozer_module_version: ""
 
+    - name: Get buildozer build Go version
+      shell: go version -m $(command -v buildozer) 2>/dev/null | head -1 | awk '{print $2}'
+      register: buildozer_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade buildozer
       command: go install github.com/bazelbuild/buildtools/buildozer@latest
       register: buildozer_upgrade
       until: buildozer_upgrade is succeeded
       retries: 3
       delay: 30
-      when: buildozer_module_version is not defined or buildozer_module_version == "" or buildozer_module_version != buildozer_latest.stdout
+      when: >
+        buildozer_module_version is not defined or
+        buildozer_module_version == "" or
+        buildozer_module_version != buildozer_latest.stdout or
+        buildozer_build_go.stdout | default('') != go_toolchain_version

@@ -61,13 +61,23 @@
                 act_module_path: ""
                 act_module_version: ""
 
+        - name: Get act build Go version
+          shell: go version -m $(command -v act) 2>/dev/null | head -1 | awk '{print $2}'
+          register: act_build_go
+          ignore_errors: yes
+          changed_when: false
+
         - name: Upgrade act
           command: go install github.com/nektos/act@latest
           register: act_upgrade
           until: act_upgrade is succeeded
           retries: 3
           delay: 30
-          when: act_module_version is not defined or act_module_version == "" or act_module_version != act_latest.stdout
+          when: >
+            act_module_version is not defined or
+            act_module_version == "" or
+            act_module_version != act_latest.stdout or
+            act_build_go.stdout | default('') != go_toolchain_version
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install act via go on Debian/Ubuntu
@@ -99,11 +109,21 @@
                 act_module_path: ""
                 act_module_version: ""
 
+        - name: Get act build Go version
+          shell: go version -m $(command -v act) 2>/dev/null | head -1 | awk '{print $2}'
+          register: act_build_go
+          ignore_errors: yes
+          changed_when: false
+
         - name: Upgrade act
           command: go install github.com/nektos/act@latest
           register: act_upgrade
           until: act_upgrade is succeeded
           retries: 3
           delay: 30
-          when: act_module_version is not defined or act_module_version == "" or act_module_version != act_latest.stdout
+          when: >
+            act_module_version is not defined or
+            act_module_version == "" or
+            act_module_version != act_latest.stdout or
+            act_build_go.stdout | default('') != go_toolchain_version
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

@@ -45,10 +45,20 @@
             protoc_gen_go_module_path: ""
             protoc_gen_go_module_version: ""
 
+    - name: Get protoc-gen-go build Go version
+      shell: go version -m $(command -v protoc-gen-go) 2>/dev/null | head -1 | awk '{print $2}'
+      register: protoc_gen_go_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade protoc-gen-go
       command: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
       register: protoc_gen_go_upgrade
       until: protoc_gen_go_upgrade is succeeded
       retries: 3
       delay: 30
-      when: protoc_gen_go_module_version is not defined or protoc_gen_go_module_version == "" or protoc_gen_go_module_version != protoc_gen_go_latest.stdout
+      when: >
+        protoc_gen_go_module_version is not defined or
+        protoc_gen_go_module_version == "" or
+        protoc_gen_go_module_version != protoc_gen_go_latest.stdout or
+        protoc_gen_go_build_go.stdout | default('') != go_toolchain_version

@@ -60,13 +60,23 @@
                 goreleaser_module_path: ""
                 goreleaser_module_version: ""
 
+        - name: Get goreleaser build Go version
+          shell: go version -m $(command -v goreleaser) 2>/dev/null | head -1 | awk '{print $2}'
+          register: goreleaser_build_go
+          ignore_errors: yes
+          changed_when: false
+
         - name: Upgrade goreleaser
           command: go install github.com/goreleaser/goreleaser/v2@latest
           register: goreleaser_upgrade
           until: goreleaser_upgrade is succeeded
           retries: 3
           delay: 30
-          when: goreleaser_module_version is not defined or goreleaser_module_version == "" or goreleaser_module_version != goreleaser_latest.stdout
+          when: >
+            goreleaser_module_version is not defined or
+            goreleaser_module_version == "" or
+            goreleaser_module_version != goreleaser_latest.stdout or
+            goreleaser_build_go.stdout | default('') != go_toolchain_version
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
     - name: Install goreleaser via go on Debian/Ubuntu
@@ -98,11 +108,21 @@
                 goreleaser_module_path: ""
                 goreleaser_module_version: ""
 
+        - name: Get goreleaser build Go version
+          shell: go version -m $(command -v goreleaser) 2>/dev/null | head -1 | awk '{print $2}'
+          register: goreleaser_build_go
+          ignore_errors: yes
+          changed_when: false
+
         - name: Upgrade goreleaser
           command: go install github.com/goreleaser/goreleaser/v2@latest
           register: goreleaser_upgrade
           until: goreleaser_upgrade is succeeded
           retries: 3
           delay: 30
-          when: goreleaser_module_version is not defined or goreleaser_module_version == "" or goreleaser_module_version != goreleaser_latest.stdout
+          when: >
+            goreleaser_module_version is not defined or
+            goreleaser_module_version == "" or
+            goreleaser_module_version != goreleaser_latest.stdout or
+            goreleaser_build_go.stdout | default('') != go_toolchain_version
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

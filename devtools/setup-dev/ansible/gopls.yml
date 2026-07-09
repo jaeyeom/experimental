@@ -44,10 +44,20 @@
             gopls_module_path: ""
             gopls_module_version: ""
 
+    - name: Get gopls build Go version
+      shell: go version -m $(command -v gopls) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gopls_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gopls
       command: go install golang.org/x/tools/gopls@latest
       register: gopls_upgrade
       until: gopls_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gopls_module_version is not defined or gopls_module_version == "" or gopls_module_version != gopls_latest.stdout
+      when: >
+        gopls_module_version is not defined or
+        gopls_module_version == "" or
+        gopls_module_version != gopls_latest.stdout or
+        gopls_build_go.stdout | default('') != go_toolchain_version

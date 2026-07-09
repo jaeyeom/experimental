@@ -44,10 +44,20 @@
             repo_sync_module_path: ""
             repo_sync_module_version: ""
 
+    - name: Get repo-sync build Go version
+      shell: go version -m $(command -v repo-sync) 2>/dev/null | head -1 | awk '{print $2}'
+      register: repo_sync_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade repo-sync
       command: go install github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest
       register: repo_sync_upgrade
       until: repo_sync_upgrade is succeeded
       retries: 3
       delay: 30
-      when: repo_sync_module_version is not defined or repo_sync_module_version == "" or repo_sync_module_version != repo_sync_latest.stdout
+      when: >
+        repo_sync_module_version is not defined or
+        repo_sync_module_version == "" or
+        repo_sync_module_version != repo_sync_latest.stdout or
+        repo_sync_build_go.stdout | default('') != go_toolchain_version

@@ -44,10 +44,20 @@
             shfmt_module_path: ""
             shfmt_module_version: ""
 
+    - name: Get shfmt build Go version
+      shell: go version -m $(command -v shfmt) 2>/dev/null | head -1 | awk '{print $2}'
+      register: shfmt_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade shfmt
       command: go install mvdan.cc/sh/v3/cmd/shfmt@latest
       register: shfmt_upgrade
       until: shfmt_upgrade is succeeded
       retries: 3
       delay: 30
-      when: shfmt_module_version is not defined or shfmt_module_version == "" or shfmt_module_version != shfmt_latest.stdout
+      when: >
+        shfmt_module_version is not defined or
+        shfmt_module_version == "" or
+        shfmt_module_version != shfmt_latest.stdout or
+        shfmt_build_go.stdout | default('') != go_toolchain_version

@@ -44,10 +44,20 @@
             gopkgs_module_path: ""
             gopkgs_module_version: ""
 
+    - name: Get gopkgs build Go version
+      shell: go version -m $(command -v gopkgs) 2>/dev/null | head -1 | awk '{print $2}'
+      register: gopkgs_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade gopkgs
       command: go install github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
       register: gopkgs_upgrade
       until: gopkgs_upgrade is succeeded
       retries: 3
       delay: 30
-      when: gopkgs_module_version is not defined or gopkgs_module_version == "" or gopkgs_module_version != gopkgs_latest.stdout
+      when: >
+        gopkgs_module_version is not defined or
+        gopkgs_module_version == "" or
+        gopkgs_module_version != gopkgs_latest.stdout or
+        gopkgs_build_go.stdout | default('') != go_toolchain_version

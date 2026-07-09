@@ -44,10 +44,20 @@
             bazel_affected_tests_module_path: ""
             bazel_affected_tests_module_version: ""
 
+    - name: Get bazel-affected-tests build Go version
+      shell: go version -m $(command -v bazel-affected-tests) 2>/dev/null | head -1 | awk '{print $2}'
+      register: bazel_affected_tests_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade bazel-affected-tests
       command: go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest
       register: bazel_affected_tests_upgrade
       until: bazel_affected_tests_upgrade is succeeded
       retries: 3
       delay: 30
-      when: bazel_affected_tests_module_version is not defined or bazel_affected_tests_module_version == "" or bazel_affected_tests_module_version != bazel_affected_tests_latest.stdout
+      when: >
+        bazel_affected_tests_module_version is not defined or
+        bazel_affected_tests_module_version == "" or
+        bazel_affected_tests_module_version != bazel_affected_tests_latest.stdout or
+        bazel_affected_tests_build_go.stdout | default('') != go_toolchain_version

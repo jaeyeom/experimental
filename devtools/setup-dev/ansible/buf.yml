@@ -44,10 +44,20 @@
             buf_module_path: ""
             buf_module_version: ""
 
+    - name: Get buf build Go version
+      shell: go version -m $(command -v buf) 2>/dev/null | head -1 | awk '{print $2}'
+      register: buf_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade buf
       command: go install github.com/bufbuild/buf/cmd/buf@latest
       register: buf_upgrade
       until: buf_upgrade is succeeded
       retries: 3
       delay: 30
-      when: buf_module_version is not defined or buf_module_version == "" or buf_module_version != buf_latest.stdout
+      when: >
+        buf_module_version is not defined or
+        buf_module_version == "" or
+        buf_module_version != buf_latest.stdout or
+        buf_build_go.stdout | default('') != go_toolchain_version

@@ -44,10 +44,20 @@
             grpcui_module_path: ""
             grpcui_module_version: ""
 
+    - name: Get grpcui build Go version
+      shell: go version -m $(command -v grpcui) 2>/dev/null | head -1 | awk '{print $2}'
+      register: grpcui_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade grpcui
       command: go install github.com/fullstorydev/grpcui/cmd/grpcui@latest
       register: grpcui_upgrade
       until: grpcui_upgrade is succeeded
       retries: 3
       delay: 30
-      when: grpcui_module_version is not defined or grpcui_module_version == "" or grpcui_module_version != grpcui_latest.stdout
+      when: >
+        grpcui_module_version is not defined or
+        grpcui_module_version == "" or
+        grpcui_module_version != grpcui_latest.stdout or
+        grpcui_build_go.stdout | default('') != go_toolchain_version

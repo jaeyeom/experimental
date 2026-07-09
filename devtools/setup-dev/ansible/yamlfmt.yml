@@ -44,10 +44,20 @@
             yamlfmt_module_path: ""
             yamlfmt_module_version: ""
 
+    - name: Get yamlfmt build Go version
+      shell: go version -m $(command -v yamlfmt) 2>/dev/null | head -1 | awk '{print $2}'
+      register: yamlfmt_build_go
+      ignore_errors: yes
+      changed_when: false
+
     - name: Upgrade yamlfmt
       command: go install github.com/google/yamlfmt/cmd/yamlfmt@latest
       register: yamlfmt_upgrade
       until: yamlfmt_upgrade is succeeded
       retries: 3
       delay: 30
-      when: yamlfmt_module_version is not defined or yamlfmt_module_version == "" or yamlfmt_module_version != yamlfmt_latest.stdout
+      when: >
+        yamlfmt_module_version is not defined or
+        yamlfmt_module_version == "" or
+        yamlfmt_module_version != yamlfmt_latest.stdout or
+        yamlfmt_build_go.stdout | default('') != go_toolchain_version
