@@ -608,6 +608,24 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 	},
 	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
 	{
+		command: "oxfmt",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "oxfmt"},
+			PlatformDebianLike: NvmInstallMethod{Name: "oxfmt"},
+			PlatformTermux:     NpmInstallMethod{Name: "oxfmt"},
+		},
+		Imports: nil,
+	},
+	{
+		command: "oxlint",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "oxlint"},
+			PlatformDebianLike: NvmInstallMethod{Name: "oxlint"},
+			PlatformTermux:     NpmInstallMethod{Name: "oxlint"},
+		},
+		Imports: nil,
+	},
+	{
 		command: "pkl",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewInstallMethod{Name: "pkl"},
