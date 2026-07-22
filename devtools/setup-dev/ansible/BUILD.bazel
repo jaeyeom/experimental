@@ -23,8 +23,10 @@ go_binary(
 go_test(
     name = "go_default_test",
     srcs = [
+        "generate_packages_test.go",
         "install_methods_test.go",
         "packages_data_test.go",
+        "types_test.go",
     ],
     data = glob(["*.yml"]),
     embed = [":go_default_library"],
