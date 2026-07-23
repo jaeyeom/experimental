@@ -1,0 +1,61 @@
+#+TITLE: claude-usage
+#+DATE: 2026-07-23
+
+* Overview
+
+~claude-usage~ prints the current Claude Code *5-hour* and *7-day* usage
+windows (plan name, utilization percent, reset time).
+
+This is the versioned port of the local helper ~claude-usage~ (see GitHub
+issues #199–#203).
+
+* Status
+
+MVP scaffold (#200): CLI contract, formatting, and a *temporary* bridge to
+claude-hud's ~usage-api.js~. Standalone Keychain credentials and the Anthropic
+usage HTTP client are tracked in #201 and #202.
+
+* Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/claude-usage/cmd/claude-usage@latest
+#+END_SRC
+
+Or with Bazel from this repo:
+
+#+BEGIN_SRC bash
+bazel run //devtools/claude-usage/cmd/claude-usage
+#+END_SRC
+
+* Usage
+
+#+BEGIN_SRC bash
+claude-usage          # human-readable table
+claude-usage --json   # stable JSON
+#+END_SRC
+
+Example human output:
+
+#+BEGIN_EXAMPLE
+plan: Team
+  5-hour    2%   resets 2026-07-24 03:29 UTC
+  7-day    12%   resets 2026-07-27 22:59 UTC
+#+END_EXAMPLE
+
+* Exit codes
+
+| Code | Meaning |
+|------+---------|
+|    0 | Success |
+|    1 | Unexpected error (missing bridge deps, invalid args, …) |
+|    2 | No usage data (API-key user, expired creds, API unavailable) |
+
+* Prerequisites (MVP bridge)
+
+Until #201/#202 land, the binary needs:
+
+- Node.js on ~PATH~
+- Claude Code OAuth login (not pure API-key)
+- claude-hud plugin under ~$CLAUDE_CONFIG_DIR/plugins/cache/*/claude-hud/<version>/~
+
+The OAuth token stays inside the HUD module and is never printed.
