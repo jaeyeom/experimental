@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "format.go",
+        "usage.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/claude-usage/internal/usage",
+    visibility = ["//devtools/claude-usage:__subpackages__"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "format_test.go",
+        "usage_test.go",
+    ],
+    embed = [":go_default_library"],
+)
