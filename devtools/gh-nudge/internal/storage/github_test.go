@@ -5,7 +5,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
@@ -425,5 +427,358 @@ func TestUnifiedStorageWithBothTargetTypes(t *testing.T) {
 	}
 	if _, err := os.Stat(branchPath); errors.Is(err, fs.ErrNotExist) {
 		t.Error("Branch comments file doesn't exist")
+	}
+}
+
+func setupGitHubStorage(t *testing.T) (*GitHubStorage, models.Repository) {
+	t.Helper()
+
+	tmpDir, err := os.MkdirTemp("", "gh-storage-archive-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+
+	storage, err := NewGitHubStorage(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+
+	return storage, models.NewRepository("owner", "repo")
+}
+
+func addTestComment(t *testing.T, storage *GitHubStorage, repo models.Repository, target models.ReviewTarget, path string, line int, body string) {
+	t.Helper()
+
+	err := storage.AddComment(repo, target, models.Comment{
+		Path: path,
+		Line: models.NewSingleLine(line),
+		Body: body,
+		Side: models.SideRight,
+	})
+	if err != nil {
+		t.Fatalf("AddComment() error = %v", err)
+	}
+}
+
+func TestArchiveComments_HappyPathPR(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(123)
+
+	addTestComment(t, storage, repo, target, "main.go", 10, "first comment")
+	addTestComment(t, storage, repo, target, "main.go", 20, "second comment")
+
+	archived, err := storage.ArchiveComments(repo, target, "LGTM", "APPROVE")
+	if err != nil {
+		t.Fatalf("ArchiveComments() error = %v", err)
+	}
+
+	if archived == nil {
+		t.Fatal("ArchiveComments() returned nil submission")
+		return
+	}
+	if archived.SubmissionID == "" {
+		t.Error("SubmissionID is empty")
+	}
+	if archived.PRNumber != 123 {
+		t.Errorf("PRNumber = %d, want 123", archived.PRNumber)
+	}
+	if archived.Owner != "owner" || archived.Repo != "repo" {
+		t.Errorf("Owner/Repo = %s/%s, want owner/repo", archived.Owner, archived.Repo)
+	}
+	if archived.ReviewBody != "LGTM" {
+		t.Errorf("ReviewBody = %q, want %q", archived.ReviewBody, "LGTM")
+	}
+	if archived.ReviewEvent != "APPROVE" {
+		t.Errorf("ReviewEvent = %q, want %q", archived.ReviewEvent, "APPROVE")
+	}
+	if archived.CommentCount != 2 {
+		t.Errorf("CommentCount = %d, want 2", archived.CommentCount)
+	}
+	if len(archived.Comments) != 2 {
+		t.Errorf("len(Comments) = %d, want 2", len(archived.Comments))
+	}
+	if archived.ArchivedAt.IsZero() || archived.SubmittedAt.IsZero() {
+		t.Error("ArchivedAt/SubmittedAt should be set")
+	}
+
+	// Active comments should be cleared.
+	comments, err := storage.GetComments(repo, target)
+	if err != nil {
+		t.Fatalf("GetComments() error = %v", err)
+	}
+	if len(comments.Comments) != 0 {
+		t.Errorf("Expected 0 active comments after archive, got %d", len(comments.Comments))
+	}
+
+	// Archive file should exist on disk via GetArchivedSubmission.
+	got, err := storage.GetArchivedSubmission(repo, target, archived.SubmissionID)
+	if err != nil {
+		t.Fatalf("GetArchivedSubmission() error = %v", err)
+	}
+	if got.SubmissionID != archived.SubmissionID {
+		t.Errorf("GetArchivedSubmission ID = %q, want %q", got.SubmissionID, archived.SubmissionID)
+	}
+	if got.CommentCount != 2 {
+		t.Errorf("GetArchivedSubmission CommentCount = %d, want 2", got.CommentCount)
+	}
+}
+
+func TestArchiveComments_NoComments(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(456)
+
+	_, err := storage.ArchiveComments(repo, target, "body", "COMMENT")
+	if err == nil {
+		t.Fatal("ArchiveComments() with no comments expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "no comments to archive") {
+		t.Errorf("ArchiveComments() error = %q, want it to mention no comments", err.Error())
+	}
+}
+
+func TestListArchivedSubmissions_Empty(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(789)
+
+	metadata, err := storage.ListArchivedSubmissions(repo, target)
+	if err != nil {
+		t.Fatalf("ListArchivedSubmissions() error = %v", err)
+	}
+	if metadata.PRNumber != 789 {
+		t.Errorf("PRNumber = %d, want 789", metadata.PRNumber)
+	}
+	if metadata.Owner != "owner" || metadata.Repo != "repo" {
+		t.Errorf("Owner/Repo = %s/%s, want owner/repo", metadata.Owner, metadata.Repo)
+	}
+	if metadata.TotalArchives != 0 {
+		t.Errorf("TotalArchives = %d, want 0", metadata.TotalArchives)
+	}
+	if len(metadata.Archives) != 0 {
+		t.Errorf("len(Archives) = %d, want 0", len(metadata.Archives))
+	}
+}
+
+func TestListArchivedSubmissions_AfterArchive(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(100)
+
+	addTestComment(t, storage, repo, target, "a.go", 1, "comment one")
+	first, err := storage.ArchiveComments(repo, target, "first review", "COMMENT")
+	if err != nil {
+		t.Fatalf("ArchiveComments(first) error = %v", err)
+	}
+
+	addTestComment(t, storage, repo, target, "b.go", 2, "comment two")
+	second, err := storage.ArchiveComments(repo, target, "second review", "APPROVE")
+	if err != nil {
+		t.Fatalf("ArchiveComments(second) error = %v", err)
+	}
+
+	if first.SubmissionID == second.SubmissionID {
+		t.Error("Expected unique submission IDs for separate archives")
+	}
+
+	metadata, err := storage.ListArchivedSubmissions(repo, target)
+	if err != nil {
+		t.Fatalf("ListArchivedSubmissions() error = %v", err)
+	}
+	if metadata.TotalArchives != 2 {
+		t.Errorf("TotalArchives = %d, want 2", metadata.TotalArchives)
+	}
+	if len(metadata.Archives) != 2 {
+		t.Fatalf("len(Archives) = %d, want 2", len(metadata.Archives))
+	}
+
+	ids := map[string]bool{
+		metadata.Archives[0].SubmissionID: true,
+		metadata.Archives[1].SubmissionID: true,
+	}
+	if !ids[first.SubmissionID] || !ids[second.SubmissionID] {
+		t.Errorf("List archives IDs = %v, want both %q and %q", ids, first.SubmissionID, second.SubmissionID)
+	}
+}
+
+func TestGetArchivedSubmission(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(200)
+
+	addTestComment(t, storage, repo, target, "file.go", 5, "to archive")
+	archived, err := storage.ArchiveComments(repo, target, "review body", "REQUEST_CHANGES")
+	if err != nil {
+		t.Fatalf("ArchiveComments() error = %v", err)
+	}
+
+	t.Run("found", func(t *testing.T) {
+		got, err := storage.GetArchivedSubmission(repo, target, archived.SubmissionID)
+		if err != nil {
+			t.Fatalf("GetArchivedSubmission() error = %v", err)
+		}
+		if got.ReviewEvent != "REQUEST_CHANGES" {
+			t.Errorf("ReviewEvent = %q, want REQUEST_CHANGES", got.ReviewEvent)
+		}
+		if got.CommentCount != 1 {
+			t.Errorf("CommentCount = %d, want 1", got.CommentCount)
+		}
+		if len(got.Comments) != 1 || got.Comments[0].Body != "to archive" {
+			t.Errorf("Comments = %+v, want body %q", got.Comments, "to archive")
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		_, err := storage.GetArchivedSubmission(repo, target, "does-not-exist")
+		if err == nil {
+			t.Fatal("GetArchivedSubmission() expected error for unknown ID, got nil")
+		}
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("GetArchivedSubmission() error = %q, want not found", err.Error())
+		}
+	})
+}
+
+func TestCleanupOldArchives(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(300)
+
+	// Seed two archives with controlled ArchivedAt timestamps via the store.
+	archivePath := storage.buildArchivePath(repo, target)
+	metadataPath := filepath.Join(archivePath, "metadata.json")
+
+	oldTime := time.Now().Add(-48 * time.Hour)
+	recentTime := time.Now().Add(-30 * time.Minute)
+
+	oldSubmission := models.ArchivedSubmission{
+		SubmissionID: "oldsub01",
+		ArchivedAt:   oldTime,
+		SubmittedAt:  oldTime,
+		PRNumber:     300,
+		Owner:        "owner",
+		Repo:         "repo",
+		ReviewBody:   "old",
+		ReviewEvent:  "COMMENT",
+		Comments: []models.Comment{{
+			Path: "old.go",
+			Line: models.NewSingleLine(1),
+			Body: "old comment",
+			Side: models.SideRight,
+		}},
+		CommentCount: 1,
+		Metadata:     map[string]interface{}{},
+	}
+	recentSubmission := models.ArchivedSubmission{
+		SubmissionID: "newsub02",
+		ArchivedAt:   recentTime,
+		SubmittedAt:  recentTime,
+		PRNumber:     300,
+		Owner:        "owner",
+		Repo:         "repo",
+		ReviewBody:   "new",
+		ReviewEvent:  "APPROVE",
+		Comments: []models.Comment{{
+			Path: "new.go",
+			Line: models.NewSingleLine(2),
+			Body: "new comment",
+			Side: models.SideRight,
+		}},
+		CommentCount: 1,
+		Metadata:     map[string]interface{}{},
+	}
+
+	if err := storage.store.Set(filepath.Join(archivePath, "oldsub01.json"), oldSubmission); err != nil {
+		t.Fatalf("seed old archive: %v", err)
+	}
+	if err := storage.store.Set(filepath.Join(archivePath, "newsub02.json"), recentSubmission); err != nil {
+		t.Fatalf("seed recent archive: %v", err)
+	}
+	metadata := models.ArchiveMetadata{
+		PRNumber:      300,
+		Owner:         "owner",
+		Repo:          "repo",
+		Archives:      []models.ArchivedSubmission{oldSubmission, recentSubmission},
+		TotalArchives: 2,
+		LastUpdated:   time.Now(),
+	}
+	if err := storage.store.Set(metadataPath, metadata); err != nil {
+		t.Fatalf("seed archive metadata: %v", err)
+	}
+
+	// Keep archives newer than 24h; old (48h) should be removed.
+	if err := storage.CleanupOldArchives(repo, target, 24*time.Hour); err != nil {
+		t.Fatalf("CleanupOldArchives() error = %v", err)
+	}
+
+	listed, err := storage.ListArchivedSubmissions(repo, target)
+	if err != nil {
+		t.Fatalf("ListArchivedSubmissions() error = %v", err)
+	}
+	if listed.TotalArchives != 1 {
+		t.Errorf("TotalArchives = %d, want 1 after cleanup", listed.TotalArchives)
+	}
+	if len(listed.Archives) != 1 || listed.Archives[0].SubmissionID != "newsub02" {
+		t.Errorf("remaining archives = %+v, want only newsub02", listed.Archives)
+	}
+
+	if _, err := storage.GetArchivedSubmission(repo, target, "oldsub01"); err == nil {
+		t.Error("expected old archive file to be deleted")
+	}
+	if _, err := storage.GetArchivedSubmission(repo, target, "newsub02"); err != nil {
+		t.Errorf("expected recent archive to remain: %v", err)
+	}
+}
+
+func TestCleanupOldArchives_NoArchives(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(301)
+
+	if err := storage.CleanupOldArchives(repo, target, time.Hour); err != nil {
+		t.Errorf("CleanupOldArchives() with no archives error = %v, want nil", err)
+	}
+}
+
+func TestArchiveComments_BranchTarget(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewBranchTarget("feature/archive-test")
+
+	addTestComment(t, storage, repo, target, "branch.go", 7, "branch comment")
+
+	archived, err := storage.ArchiveComments(repo, target, "branch review", "COMMENT")
+	if err != nil {
+		t.Fatalf("ArchiveComments(branch) error = %v", err)
+	}
+
+	// Branch targets use PRNumber 0 as a placeholder.
+	if archived.PRNumber != 0 {
+		t.Errorf("PRNumber = %d, want 0 for branch target", archived.PRNumber)
+	}
+	if archived.CommentCount != 1 {
+		t.Errorf("CommentCount = %d, want 1", archived.CommentCount)
+	}
+
+	comments, err := storage.GetComments(repo, target)
+	if err != nil {
+		t.Fatalf("GetComments() error = %v", err)
+	}
+	if len(comments.Comments) != 0 {
+		t.Errorf("Expected active comments cleared, got %d", len(comments.Comments))
+	}
+
+	metadata, err := storage.ListArchivedSubmissions(repo, target)
+	if err != nil {
+		t.Fatalf("ListArchivedSubmissions() error = %v", err)
+	}
+	if metadata.TotalArchives != 1 {
+		t.Errorf("TotalArchives = %d, want 1", metadata.TotalArchives)
+	}
+	if metadata.PRNumber != 0 {
+		t.Errorf("metadata.PRNumber = %d, want 0 for branch target", metadata.PRNumber)
+	}
+
+	// Path should sanitize slashes in branch name (feature/archive-test -> feature_archive-test).
+	got, err := storage.GetArchivedSubmission(repo, target, archived.SubmissionID)
+	if err != nil {
+		t.Fatalf("GetArchivedSubmission(branch) error = %v", err)
+	}
+	if got.SubmissionID != archived.SubmissionID {
+		t.Errorf("SubmissionID = %q, want %q", got.SubmissionID, archived.SubmissionID)
 	}
 }

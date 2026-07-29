@@ -239,7 +239,8 @@ func (gs *GitHubStorage) buildArchivePath(repository models.Repository, target m
 }
 
 // ArchiveComments moves comments to archive storage and clears active comments.
-// Note: Currently only supports PR targets. Branch archiving will return an error.
+// Works for both PR and branch targets. Branch archives use PRNumber 0 as a placeholder
+// for backwards compatibility with ArchivedSubmission/ArchiveMetadata.
 func (gs *GitHubStorage) ArchiveComments(repository models.Repository, target models.ReviewTarget, reviewBody, reviewEvent string) (*models.ArchivedSubmission, error) {
 	targetPath := target.BuildPath(repository)
 	commentsPath := filepath.Join(targetPath, "comments.json")
