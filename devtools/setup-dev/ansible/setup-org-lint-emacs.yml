@@ -34,6 +34,8 @@
         force: no
       when: not spacemacs_file.stat.exists
 
+    # Use bash (not /bin/sh): pipefail is a bashism; Termux's sh is dash.
+    # Same approach as setup-bazel.yml, which runs pipefail only under bash -s.
     - name: Check org-lint Emacs prerequisites
       ansible.builtin.shell: |
         set -euo pipefail
@@ -43,6 +45,8 @@
              (require 'ob-shell nil t)
              (unless (locate-library \"dart-mode\") (error \"dart-mode missing\"))
              (message \"ok\"))" 2>&1 | tail -1
+      args:
+        executable: bash
       register: org_lint_emacs_prereqs
       changed_when: false
       failed_when: false
@@ -53,6 +57,8 @@
         emacs --batch -l "{{ ansible_facts['env']['HOME'] }}/.config/emacs/init.el" --eval \
           "(progn (configuration-layer//install-packages '(org org-contrib dart-mode)) (message \"ok\"))" \
           2>&1 | tail -1
+      args:
+        executable: bash
       register: org_lint_emacs_install
       changed_when: org_lint_emacs_install.stdout == 'ok'
       when: org_lint_emacs_prereqs.stdout != 'ok'
@@ -66,6 +72,8 @@
              (require 'ob-shell nil t)
              (unless (locate-library \"dart-mode\") (error \"dart-mode missing\"))
              (message \"ok\"))" 2>&1 | tail -1
+      args:
+        executable: bash
       register: org_lint_emacs_verify
       changed_when: false
       failed_when: org_lint_emacs_verify.stdout != 'ok'
