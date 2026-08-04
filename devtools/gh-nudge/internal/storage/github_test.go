@@ -228,6 +228,129 @@ func TestClearComments(t *testing.T) {
 	}
 }
 
+func TestUpdateComments(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(123)
+
+	// Seed an initial comment so we can verify full replacement.
+	addTestComment(t, storage, repo, target, "old.go", 1, "old comment")
+
+	before := time.Now().Add(-time.Second)
+	replacement := &models.ReviewComments{
+		Target:     target.String(),
+		Repository: repo,
+		Comments: []models.Comment{
+			{
+				ID:   "new-id-1",
+				Path: "new.go",
+				Line: models.NewSingleLine(5),
+				Body: "replaced comment",
+				Side: models.SideRight,
+			},
+			{
+				ID:   "new-id-2",
+				Path: "other.go",
+				Line: models.NewSingleLine(10),
+				Body: "second replaced",
+				Side: models.SideLeft,
+			},
+		},
+	}
+
+	if err := storage.UpdateComments(repo, target, replacement); err != nil {
+		t.Fatalf("UpdateComments() error = %v", err)
+	}
+
+	got, err := storage.GetComments(repo, target)
+	if err != nil {
+		t.Fatalf("GetComments() error = %v", err)
+	}
+
+	if len(got.Comments) != 2 {
+		t.Fatalf("len(Comments) = %d, want 2", len(got.Comments))
+	}
+	if got.Comments[0].Body != "replaced comment" || got.Comments[0].Path != "new.go" {
+		t.Errorf("first comment = %+v, want body %q path %q", got.Comments[0], "replaced comment", "new.go")
+	}
+	if got.Comments[1].Body != "second replaced" {
+		t.Errorf("second comment body = %q, want %q", got.Comments[1].Body, "second replaced")
+	}
+	// Old comment must not remain after full list replacement.
+	for _, c := range got.Comments {
+		if c.Path == "old.go" || c.Body == "old comment" {
+			t.Errorf("old comment still present after UpdateComments: %+v", c)
+		}
+	}
+	if got.UpdatedAt.Before(before) || got.UpdatedAt.IsZero() {
+		t.Errorf("UpdatedAt = %v, want set to around now (after %v)", got.UpdatedAt, before)
+	}
+}
+
+func TestClearCommentsForFile(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(456)
+
+	addTestComment(t, storage, repo, target, "keep.go", 1, "keep me")
+	addTestComment(t, storage, repo, target, "remove.go", 2, "remove me")
+	addTestComment(t, storage, repo, target, "remove.go", 3, "remove me too")
+	addTestComment(t, storage, repo, target, "other.go", 4, "also keep")
+
+	before := time.Now().Add(-time.Second)
+	if err := storage.ClearCommentsForFile(repo, target, "remove.go"); err != nil {
+		t.Fatalf("ClearCommentsForFile() error = %v", err)
+	}
+
+	got, err := storage.GetComments(repo, target)
+	if err != nil {
+		t.Fatalf("GetComments() error = %v", err)
+	}
+
+	if len(got.Comments) != 2 {
+		t.Fatalf("len(Comments) = %d, want 2 (only non-remove.go)", len(got.Comments))
+	}
+	for _, c := range got.Comments {
+		if c.Path == "remove.go" {
+			t.Errorf("comment for remove.go still present: %+v", c)
+		}
+	}
+	bodies := map[string]bool{}
+	for _, c := range got.Comments {
+		bodies[c.Body] = true
+	}
+	if !bodies["keep me"] || !bodies["also keep"] {
+		t.Errorf("retained bodies = %v, want keep me and also keep", bodies)
+	}
+	if got.UpdatedAt.Before(before) || got.UpdatedAt.IsZero() {
+		t.Errorf("UpdatedAt = %v, want set after clear", got.UpdatedAt)
+	}
+}
+
+func TestClearComments_WithFileFilter(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	target := models.NewPRTarget(789)
+
+	addTestComment(t, storage, repo, target, "a.go", 1, "file a")
+	addTestComment(t, storage, repo, target, "b.go", 2, "file b")
+
+	// ClearComments with File set should delegate to ClearCommentsForFile.
+	filter := &models.CommentFilter{File: "a.go"}
+	if err := storage.ClearComments(repo, target, filter); err != nil {
+		t.Fatalf("ClearComments(file filter) error = %v", err)
+	}
+
+	got, err := storage.GetComments(repo, target)
+	if err != nil {
+		t.Fatalf("GetComments() error = %v", err)
+	}
+
+	if len(got.Comments) != 1 {
+		t.Fatalf("len(Comments) = %d, want 1", len(got.Comments))
+	}
+	if got.Comments[0].Path != "b.go" || got.Comments[0].Body != "file b" {
+		t.Errorf("remaining comment = %+v, want path b.go body %q", got.Comments[0], "file b")
+	}
+}
+
 func TestDiffHunksUnified(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "gh-storage-test-*")
 	if err != nil {
@@ -350,6 +473,45 @@ func TestValidateCommentAgainstDiff(t *testing.T) {
 	err = storage.ValidateCommentAgainstDiff(repo, target, invalidComment)
 	if err == nil {
 		t.Error("Expected error for invalid comment, got nil")
+	}
+
+	// SHA mismatch when comment SHA is set and differs from hunk SHA.
+	shaMismatch := models.Comment{
+		Path: "test.go",
+		Line: models.NewSingleLine(5),
+		Body: "SHA mismatch",
+		Side: models.SideRight,
+		SHA:  "wrong-sha",
+	}
+	err = storage.ValidateCommentAgainstDiff(repo, target, shaMismatch)
+	if err == nil {
+		t.Error("Expected error for SHA mismatch, got nil")
+	} else if !strings.Contains(err.Error(), "SHA mismatch") {
+		t.Errorf("ValidateCommentAgainstDiff() error = %q, want SHA mismatch", err.Error())
+	}
+
+	// Matching SHA should still validate.
+	shaMatch := models.Comment{
+		Path: "test.go",
+		Line: models.NewSingleLine(5),
+		Body: "SHA match",
+		Side: models.SideRight,
+		SHA:  "abc123",
+	}
+	if err := storage.ValidateCommentAgainstDiff(repo, target, shaMatch); err != nil {
+		t.Errorf("ValidateCommentAgainstDiff() for matching SHA error = %v", err)
+	}
+
+	// No overlapping hunk for path/side combination.
+	wrongFile := models.Comment{
+		Path: "other.go",
+		Line: models.NewSingleLine(5),
+		Body: "wrong file",
+		Side: models.SideRight,
+	}
+	err = storage.ValidateCommentAgainstDiff(repo, target, wrongFile)
+	if err == nil {
+		t.Error("Expected error for comment on file with no hunks, got nil")
 	}
 }
 
