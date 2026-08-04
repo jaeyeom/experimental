@@ -1053,3 +1053,74 @@ func TestCleanupOldNotifications_NotImplemented(t *testing.T) {
 		t.Errorf("CleanupOldNotifications() error = %q, want containing %q", err.Error(), "not implemented")
 	}
 }
+
+func TestParseRepoAndPR(t *testing.T) {
+	tests := []struct {
+		name      string
+		repoSpec  string
+		want      models.Repository
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:     "valid owner/repo",
+			repoSpec: "owner/repo",
+			want:     models.NewRepository("owner", "repo"),
+		},
+		{
+			name:     "valid with hyphens and dots",
+			repoSpec: "my-org/my.repo",
+			want:     models.NewRepository("my-org", "my.repo"),
+		},
+		{
+			name:      "missing slash",
+			repoSpec:  "owner",
+			wantErr:   true,
+			errSubstr: "invalid repository format",
+		},
+		{
+			name:      "too many parts",
+			repoSpec:  "owner/repo/extra",
+			wantErr:   true,
+			errSubstr: "invalid repository format",
+		},
+		{
+			name:      "empty string",
+			repoSpec:  "",
+			wantErr:   true,
+			errSubstr: "invalid repository format",
+		},
+		{
+			// Split yields ["", "repo"] — two parts, so parsing succeeds.
+			// The resulting Repository is not IsValid() (empty owner).
+			name:     "leading slash only",
+			repoSpec: "/repo",
+			want:     models.NewRepository("", "repo"),
+		},
+		{
+			// Split yields ["owner", ""] — two parts, so parsing succeeds.
+			// The resulting Repository is not IsValid() (empty name).
+			name:     "trailing slash only",
+			repoSpec: "owner/",
+			want:     models.NewRepository("owner", ""),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseRepoAndPR(tt.repoSpec)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseRepoAndPR(%q) error = %v, wantErr %v", tt.repoSpec, err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("ParseRepoAndPR(%q) error = %q, want containing %q", tt.repoSpec, err.Error(), tt.errSubstr)
+				}
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseRepoAndPR(%q) = %+v, want %+v", tt.repoSpec, got, tt.want)
+			}
+		})
+	}
+}
