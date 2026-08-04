@@ -782,3 +782,274 @@ func TestArchiveComments_BranchTarget(t *testing.T) {
 		t.Errorf("SubmissionID = %q, want %q", got.SubmissionID, archived.SubmissionID)
 	}
 }
+
+func TestBuildPRPath(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+
+	got := storage.buildPRPath(repo, 42)
+	want := filepath.Join("repos", "owner", "repo", "pull", "42")
+	if got != want {
+		t.Errorf("buildPRPath() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildBranchPath(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+
+	tests := []struct {
+		name       string
+		branchName string
+		want       string
+	}{
+		{
+			name:       "simple branch",
+			branchName: "main",
+			want:       filepath.Join("repos", "owner", "repo", "branch", "main"),
+		},
+		{
+			name:       "sanitizes slashes",
+			branchName: "feature/foo",
+			want:       filepath.Join("repos", "owner", "repo", "branch", "feature_foo"),
+		},
+		{
+			name:       "sanitizes nested slashes",
+			branchName: "feature/bar/baz",
+			want:       filepath.Join("repos", "owner", "repo", "branch", "feature_bar_baz"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := storage.buildBranchPath(repo, tt.branchName)
+			if got != tt.want {
+				t.Errorf("buildBranchPath(%q) = %q, want %q", tt.branchName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetGetPRMetadata(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	prNumber := 101
+
+	// Missing metadata returns empty map, no error.
+	got, err := storage.GetPRMetadata(repo, prNumber)
+	if err != nil {
+		t.Fatalf("GetPRMetadata() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("GetPRMetadata() missing = %v, want empty map", got)
+	}
+
+	// Round-trip metadata values.
+	// JSON numbers decode as float64.
+	metadata := map[string]interface{}{
+		"title":  "Add feature",
+		"author": "alice",
+		"draft":  true,
+		"count":  float64(3),
+	}
+	if err := storage.SetPRMetadata(repo, prNumber, metadata); err != nil {
+		t.Fatalf("SetPRMetadata() error = %v", err)
+	}
+
+	got, err = storage.GetPRMetadata(repo, prNumber)
+	if err != nil {
+		t.Fatalf("GetPRMetadata() after set error = %v", err)
+	}
+	if got["title"] != "Add feature" {
+		t.Errorf("title = %v, want %q", got["title"], "Add feature")
+	}
+	if got["author"] != "alice" {
+		t.Errorf("author = %v, want %q", got["author"], "alice")
+	}
+	if got["draft"] != true {
+		t.Errorf("draft = %v, want true", got["draft"])
+	}
+	if got["count"] != float64(3) {
+		t.Errorf("count = %v, want 3", got["count"])
+	}
+
+	// Update overwrites previous metadata.
+	updated := map[string]interface{}{"title": "Updated title"}
+	if err := storage.SetPRMetadata(repo, prNumber, updated); err != nil {
+		t.Fatalf("SetPRMetadata() update error = %v", err)
+	}
+	got, err = storage.GetPRMetadata(repo, prNumber)
+	if err != nil {
+		t.Fatalf("GetPRMetadata() after update error = %v", err)
+	}
+	if got["title"] != "Updated title" {
+		t.Errorf("title after update = %v, want %q", got["title"], "Updated title")
+	}
+	if _, exists := got["author"]; exists {
+		t.Errorf("author should be gone after overwrite, got %v", got["author"])
+	}
+}
+
+func TestSetGetBranchMetadata(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	branchName := "feature/foo"
+
+	// Missing metadata returns empty map, no error.
+	got, err := storage.GetBranchMetadata(repo, branchName)
+	if err != nil {
+		t.Fatalf("GetBranchMetadata() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("GetBranchMetadata() missing = %v, want empty map", got)
+	}
+
+	metadata := map[string]interface{}{
+		"head_sha":  "abc123",
+		"protected": true,
+	}
+	if err := storage.SetBranchMetadata(repo, branchName, metadata); err != nil {
+		t.Fatalf("SetBranchMetadata() error = %v", err)
+	}
+
+	got, err = storage.GetBranchMetadata(repo, branchName)
+	if err != nil {
+		t.Fatalf("GetBranchMetadata() after set error = %v", err)
+	}
+	if got["head_sha"] != "abc123" {
+		t.Errorf("head_sha = %v, want %q", got["head_sha"], "abc123")
+	}
+	if got["protected"] != true {
+		t.Errorf("protected = %v, want true", got["protected"])
+	}
+
+	// Storage path should use sanitized branch name (feature/foo -> feature_foo).
+	wantPath := filepath.Join(storage.store.GetRootPath(), "repos", "owner", "repo", "branch", "feature_foo", "metadata.json")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("expected metadata at sanitized path %s: %v", wantPath, err)
+	}
+}
+
+func TestRecordGetLastNotification(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+	prNumber := 202
+
+	// Missing notifications file returns nil, no error.
+	got, err := storage.GetLastNotification(repo, prNumber, "alice")
+	if err != nil {
+		t.Fatalf("GetLastNotification() missing file error = %v", err)
+	}
+	if got != nil {
+		t.Errorf("GetLastNotification() missing file = %v, want nil", got)
+	}
+
+	ts := time.Date(2026, 3, 15, 12, 30, 0, 0, time.UTC)
+	if err := storage.RecordNotification(repo, prNumber, "alice", ts); err != nil {
+		t.Fatalf("RecordNotification() error = %v", err)
+	}
+
+	got, err = storage.GetLastNotification(repo, prNumber, "alice")
+	if err != nil {
+		t.Fatalf("GetLastNotification() after record error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetLastNotification() returned nil for recorded reviewer")
+	} else if !got.Equal(ts) {
+		t.Errorf("GetLastNotification() = %v, want %v", got, ts)
+	}
+
+	// Missing reviewer returns nil when notifications file exists for others.
+	got, err = storage.GetLastNotification(repo, prNumber, "bob")
+	if err != nil {
+		t.Fatalf("GetLastNotification() missing reviewer error = %v", err)
+	}
+	if got != nil {
+		t.Errorf("GetLastNotification() missing reviewer = %v, want nil", got)
+	}
+
+	// Recording another reviewer preserves existing entries.
+	tsBob := time.Date(2026, 3, 16, 9, 0, 0, 0, time.UTC)
+	if err := storage.RecordNotification(repo, prNumber, "bob", tsBob); err != nil {
+		t.Fatalf("RecordNotification(bob) error = %v", err)
+	}
+	gotAlice, err := storage.GetLastNotification(repo, prNumber, "alice")
+	if err != nil {
+		t.Fatalf("GetLastNotification(alice) error = %v", err)
+	}
+	if gotAlice == nil || !gotAlice.Equal(ts) {
+		t.Errorf("alice timestamp = %v, want %v", gotAlice, ts)
+	}
+	gotBob, err := storage.GetLastNotification(repo, prNumber, "bob")
+	if err != nil {
+		t.Fatalf("GetLastNotification(bob) error = %v", err)
+	}
+	if gotBob == nil || !gotBob.Equal(tsBob) {
+		t.Errorf("bob timestamp = %v, want %v", gotBob, tsBob)
+	}
+
+	// Re-recording updates the timestamp for that reviewer.
+	tsAlice2 := time.Date(2026, 3, 17, 18, 0, 0, 0, time.UTC)
+	if err := storage.RecordNotification(repo, prNumber, "alice", tsAlice2); err != nil {
+		t.Fatalf("RecordNotification(alice update) error = %v", err)
+	}
+	gotAlice, err = storage.GetLastNotification(repo, prNumber, "alice")
+	if err != nil {
+		t.Fatalf("GetLastNotification(alice after update) error = %v", err)
+	}
+	if gotAlice == nil || !gotAlice.Equal(tsAlice2) {
+		t.Errorf("alice updated timestamp = %v, want %v", gotAlice, tsAlice2)
+	}
+}
+
+func TestListPRs(t *testing.T) {
+	storage, repo := setupGitHubStorage(t)
+
+	// Empty repo (no pull directory) returns empty slice, no error.
+	prs, err := storage.ListPRs(repo)
+	if err != nil {
+		t.Fatalf("ListPRs() empty error = %v", err)
+	}
+	if len(prs) != 0 {
+		t.Errorf("ListPRs() empty = %v, want empty", prs)
+	}
+
+	// Creating PR storage dirs via SetPRMetadata should make them listable.
+	for _, n := range []int{10, 20, 3} {
+		if err := storage.SetPRMetadata(repo, n, map[string]interface{}{"n": float64(n)}); err != nil {
+			t.Fatalf("SetPRMetadata(%d) error = %v", n, err)
+		}
+	}
+
+	// Non-numeric children under pull/ must be ignored.
+	nonNumeric := filepath.Join(storage.store.GetRootPath(), "repos", "owner", "repo", "pull", "not-a-pr")
+	if err := os.MkdirAll(nonNumeric, 0o755); err != nil {
+		t.Fatalf("MkdirAll non-numeric: %v", err)
+	}
+
+	prs, err = storage.ListPRs(repo)
+	if err != nil {
+		t.Fatalf("ListPRs() after create error = %v", err)
+	}
+
+	want := map[int]bool{10: true, 20: true, 3: true}
+	if len(prs) != len(want) {
+		t.Fatalf("ListPRs() = %v, want %d numeric PRs", prs, len(want))
+	}
+	for _, n := range prs {
+		if !want[n] {
+			t.Errorf("ListPRs() unexpected PR number %d", n)
+		}
+		delete(want, n)
+	}
+	if len(want) != 0 {
+		t.Errorf("ListPRs() missing PR numbers: %v", want)
+	}
+}
+
+func TestCleanupOldNotifications_NotImplemented(t *testing.T) {
+	storage, _ := setupGitHubStorage(t)
+
+	err := storage.CleanupOldNotifications(24 * time.Hour)
+	if err == nil {
+		t.Fatal("CleanupOldNotifications() error = nil, want not implemented")
+	}
+	if !strings.Contains(err.Error(), "not implemented") {
+		t.Errorf("CleanupOldNotifications() error = %q, want containing %q", err.Error(), "not implemented")
+	}
+}
