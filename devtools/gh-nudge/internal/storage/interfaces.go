@@ -20,16 +20,9 @@ type Lister interface {
 	GetChildren(path string) ([]string, error)
 }
 
-// MetadataManager handles metadata operations for stored items.
-type MetadataManager interface {
-	GetMetadata(key string) (*Metadata, error)
-	SetMetadata(key string, metadata *Metadata) error
-}
-
 // Interface compliance checks.
 var (
-	_ Store           = (*FileSystemStore)(nil)
-	_ Locker          = (*FileLockManager)(nil)
-	_ Lister          = (*FileSystemLister)(nil)
-	_ MetadataManager = (*FileSystemMetadataManager)(nil)
+	_ Store  = (*FileSystemStore)(nil)
+	_ Locker = (*FileLockManager)(nil)
+	_ Lister = (*FileSystemLister)(nil)
 )

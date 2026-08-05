@@ -10,7 +10,6 @@ go_library(
         "lister.go",
         "lock.go",
         "locker.go",
-        "metadata.go",
         "store.go",
         "utilities.go",
     ],
