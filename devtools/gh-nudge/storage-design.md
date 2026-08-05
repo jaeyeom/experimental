@@ -9,9 +9,10 @@
 >
 > Two parts of this design were **not** implemented and the interface section
 > below was superseded:
-> - The single monolithic `Storage` interface was replaced by four segregated
->   interfaces in `internal/storage/interfaces.go`: `Store`, `Locker`,
->   `Lister`, and `MetadataManager`.
+> - The single monolithic `Storage` interface was replaced by three segregated
+>   interfaces in `internal/storage/interfaces.go`: `Store`, `Locker`, and
+>   `Lister`. (`MetadataManager` / `FileSystemMetadataManager` were designed
+>   but never wired into product code and were removed; see #197.)
 > - `Transaction`/`WithTransaction` and the `CacheStorage` TTL type were never
 >   built.
 
@@ -56,7 +57,7 @@ A unified storage system for all gh-nudge tools that provides:
 ## Storage Interface
 
 The original design proposed a single monolithic `Storage` interface. The
-implemented code (`internal/storage/interfaces.go`) instead splits it into four
+implemented code (`internal/storage/interfaces.go`) instead splits it into three
 focused interfaces so consumers depend only on what they use:
 
 ```go
@@ -78,17 +79,13 @@ type Lister interface {
     List(prefix string) ([]string, error)
     GetChildren(path string) ([]string, error)
 }
-
-// MetadataManager handles metadata for stored items.
-type MetadataManager interface {
-    GetMetadata(key string) (*Metadata, error)
-    SetMetadata(key string, metadata *Metadata) error
-}
 ```
 
 Backup, restore, clean, and vacuum are exposed through the `gh-storage` CLI and
 the helpers in `internal/storage/utilities.go` rather than as interface methods.
 
+A `MetadataManager` interface and `FileSystemMetadataManager` implementation
+existed briefly but had no production callers and were removed (#197).
 Transactions (`Transaction`/`WithTransaction`) and a TTL-based `CacheStorage`
 type were part of the original design but were **not** implemented.
 
