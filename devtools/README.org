@@ -162,6 +162,30 @@ moved or renumbered.
 
 [[file:rename-jira-keys/README.org][→ Full Documentation]]
 
+*** claude-usage                                               :experimental:
+
+CLI for Claude Code *5-hour* and *7-day* rate-limit usage windows. Resolves
+OAuth credentials from the macOS Keychain (or legacy credentials file) and
+queries Anthropic's OAuth usage API. No claude-hud plugin install required.
+
+*Key Features:*
+- Human table and stable ~--json~ output
+- Standalone credential resolution (Keychain + file fallback)
+- Token never printed; read-only use of existing Claude Code login
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/claude-usage/cmd/claude-usage@latest
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  claude-usage          # human-readable table
+  claude-usage --json   # stable JSON
+#+END_SRC
+
+[[file:claude-usage/README.org][→ Full Documentation]]
+
 ** Configuration & Setup
 :PROPERTIES:
 :CUSTOM_ID: configuration

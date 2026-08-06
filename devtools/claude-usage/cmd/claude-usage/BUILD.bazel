@@ -5,10 +5,7 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/claude-usage/cmd/claude-usage",
     visibility = ["//visibility:private"],
-    deps = [
-        "//devtools/claude-usage/internal/claudehud:go_default_library",
-        "//devtools/claude-usage/internal/usage:go_default_library",
-    ],
+    deps = ["//devtools/claude-usage/internal/usage:go_default_library"],
 )
 
 go_binary(

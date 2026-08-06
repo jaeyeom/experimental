@@ -141,3 +141,35 @@ func TestRunUnexpectedArgs(t *testing.T) {
 		t.Fatalf("exit = %d, want %d", code, exitError)
 	}
 }
+
+func TestRunCustomEndpoint(t *testing.T) {
+	t.Parallel()
+
+	fetcher := usage.FetcherFunc(func(context.Context) (*usage.Data, error) {
+		return nil, usage.ErrCustomEndpoint
+	})
+	var stdout, stderr bytes.Buffer
+	code := run(nil, &stdout, &stderr, fetcher)
+	if code != exitNoData {
+		t.Fatalf("exit = %d, want %d; stderr=%q", code, exitNoData, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ANTHROPIC_BASE_URL") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	fetcher := usage.FetcherFunc(func(context.Context) (*usage.Data, error) {
+		return nil, usage.ErrUnauthorized
+	})
+	var stdout, stderr bytes.Buffer
+	code := run(nil, &stdout, &stderr, fetcher)
+	if code != exitNoData {
+		t.Fatalf("exit = %d, want %d; stderr=%q", code, exitNoData, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "re-login") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
