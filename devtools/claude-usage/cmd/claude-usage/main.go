@@ -8,8 +8,8 @@
 // Exit codes:
 //
 //	0  success
-//	1  unexpected error (missing plugin bridge, network, invalid flags, …)
-//	2  no usage data (API-key user, expired creds, or API returned nothing)
+//	1  unexpected error (network, invalid flags, keychain failure, …)
+//	2  no usage data (API-key user, expired creds, custom base URL, or empty API result)
 package main
 
 import (
@@ -20,7 +20,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/jaeyeom/experimental/devtools/claude-usage/internal/claudehud"
 	"github.com/jaeyeom/experimental/devtools/claude-usage/internal/usage"
 )
 
@@ -35,8 +34,7 @@ func main() {
 }
 
 func defaultFetcher() usage.Fetcher {
-	// TEMPORARY bridge — replace with standalone client when #201 and #202 land.
-	return &claudehud.Fetcher{}
+	return usage.DefaultClient()
 }
 
 func run(args []string, stdout, stderr io.Writer, fetcher usage.Fetcher) int {
@@ -61,8 +59,17 @@ func run(args []string, stdout, stderr io.Writer, fetcher usage.Fetcher) int {
 	if err == nil {
 		return exitOK
 	}
-	if errors.Is(err, usage.ErrNoData) {
-		fmt.Fprintf(stderr, "no usage data (API-key user, expired creds, or API unavailable)\n")
+	if errors.Is(err, usage.ErrNoData) || errors.Is(err, usage.ErrCustomEndpoint) {
+		switch {
+		case errors.Is(err, usage.ErrCustomEndpoint):
+			fmt.Fprintf(stderr, "no usage data (custom ANTHROPIC_BASE_URL; oauth usage api not applicable)\n")
+		default:
+			fmt.Fprintf(stderr, "no usage data (API-key user, expired creds, or API unavailable)\n")
+		}
+		return exitNoData
+	}
+	if errors.Is(err, usage.ErrUnauthorized) {
+		fmt.Fprintf(stderr, "no usage data (oauth token rejected; re-login with Claude Code)\n")
 		return exitNoData
 	}
 	fmt.Fprintf(stderr, "error: %v\n", err)
