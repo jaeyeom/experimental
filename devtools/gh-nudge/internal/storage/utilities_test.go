@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1401,6 +1402,92 @@ func TestExport(t *testing.T) {
 		}
 	})
 
+	t.Run("exports to YAML format", func(t *testing.T) {
+		storageDir := t.TempDir()
+		outputPath := filepath.Join(t.TempDir(), "export.yaml")
+
+		if err := Initialize(storageDir, true); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		testFile := filepath.Join(storageDir, "repos", "test.json")
+		testContent := `{"key": "value"}`
+		if err := os.WriteFile(testFile, []byte(testContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		err := Export(storageDir, outputPath, "yaml", false, false)
+		if err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		data, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("Failed to read export file: %v", err)
+		}
+
+		content := string(data)
+		if !strings.Contains(content, "version: 1.0.0") {
+			t.Errorf("Expected version line in YAML export, got:\n%s", content)
+		}
+		if !strings.Contains(content, "files:") {
+			t.Errorf("Expected files section in YAML export, got:\n%s", content)
+		}
+		if !strings.Contains(content, "repos/test.json: |") {
+			t.Errorf("Expected file path entry in YAML export, got:\n%s", content)
+		}
+		if !strings.Contains(content, testContent) {
+			t.Errorf("Expected file content in YAML export, got:\n%s", content)
+		}
+	})
+
+	t.Run("exports to YAML with metadata", func(t *testing.T) {
+		storageDir := t.TempDir()
+		outputPath := filepath.Join(t.TempDir(), "export.yaml")
+
+		if err := Initialize(storageDir, true); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		err := Export(storageDir, outputPath, "yaml", false, true)
+		if err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		data, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("Failed to read export file: %v", err)
+		}
+
+		content := string(data)
+		if !strings.Contains(content, "metadata:") {
+			t.Errorf("Expected metadata section in YAML export, got:\n%s", content)
+		}
+	})
+
+	t.Run("exports compressed YAML", func(t *testing.T) {
+		storageDir := t.TempDir()
+		outputPath := filepath.Join(t.TempDir(), "export.yaml.gz")
+
+		if err := Initialize(storageDir, true); err != nil {
+			t.Fatalf("Failed to initialize storage: %v", err)
+		}
+
+		err := Export(storageDir, outputPath, "yaml", true, false)
+		if err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		data, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("Failed to read export file: %v", err)
+		}
+
+		if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+			t.Error("Expected gzip compressed file")
+		}
+	})
+
 	t.Run("fails for non-existent storage", func(t *testing.T) {
 		outputPath := filepath.Join(t.TempDir(), "export.json")
 		err := Export("/nonexistent/path", outputPath, "json", false, false)
@@ -1609,6 +1696,62 @@ func TestImport(t *testing.T) {
 		}
 	})
 
+	t.Run("imports from YAML format", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.yaml")
+
+		yamlContent := "version: 1.0.0\nfiles:\n  repos/imported.json: |\n    {\"imported\": true}\n"
+		if err := os.WriteFile(importFile, []byte(yamlContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		err := Import(storageDir, importFile, "yaml", false, false)
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		importedPath := filepath.Join(storageDir, "repos", "imported.json")
+		content, err := os.ReadFile(importedPath)
+		if err != nil {
+			t.Fatalf("Failed to read imported file: %v", err)
+		}
+
+		if string(content) != `{"imported": true}` {
+			t.Errorf("Imported content mismatch: got %q", string(content))
+		}
+	})
+
+	t.Run("imports compressed YAML", func(t *testing.T) {
+		storageDir := t.TempDir()
+		importFile := filepath.Join(t.TempDir(), "import.yaml.gz")
+
+		yamlContent := "version: 1.0.0\nfiles:\n  repos/compressed.yaml.json: |\n    {\"compressed\": true}\n"
+
+		file, err := os.Create(importFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gw := gzip.NewWriter(file)
+		if _, err := gw.Write([]byte(yamlContent)); err != nil {
+			t.Fatal(err)
+		}
+		gw.Close()
+		file.Close()
+
+		err = Import(storageDir, importFile, "yaml", false, false)
+		if err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(storageDir, "repos", "compressed.yaml.json"))
+		if err != nil {
+			t.Fatalf("Failed to read imported file: %v", err)
+		}
+		if string(content) != `{"compressed": true}` {
+			t.Errorf("Imported content mismatch: got %q", string(content))
+		}
+	})
+
 	t.Run("fails for non-existent input file", func(t *testing.T) {
 		storageDir := t.TempDir()
 		err := Import(storageDir, "/nonexistent/file.json", "json", false, false)
@@ -1709,6 +1852,123 @@ func TestExportImportRoundTrip(t *testing.T) {
 		}
 
 		// Verify file was preserved
+		content, err := os.ReadFile(filepath.Join(destDir, "repos", "test.json"))
+		if err != nil {
+			t.Fatalf("Failed to read imported file: %v", err)
+		}
+		if string(content) != testContent {
+			t.Errorf("Content mismatch: got %q, want %q", string(content), testContent)
+		}
+	})
+
+	t.Run("YAML round trip preserves data", func(t *testing.T) {
+		sourceDir := t.TempDir()
+		destDir := t.TempDir()
+		exportFile := filepath.Join(t.TempDir(), "export.yaml")
+
+		if err := Initialize(sourceDir, true); err != nil {
+			t.Fatal(err)
+		}
+
+		testFiles := map[string]string{
+			"repos/owner/repo/pr/123.json": `{"number": 123}`,
+			"repos/owner/repo/pr/456.json": `{"number": 456}`,
+		}
+		for relPath, content := range testFiles {
+			fullPath := filepath.Join(sourceDir, relPath)
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if err := Export(sourceDir, exportFile, "yaml", false, false); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		if err := Import(destDir, exportFile, "yaml", false, false); err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		for relPath, expectedContent := range testFiles {
+			fullPath := filepath.Join(destDir, relPath)
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				t.Errorf("Failed to read %s: %v", relPath, err)
+				continue
+			}
+			if string(content) != expectedContent {
+				t.Errorf("Content mismatch for %s: got %q, want %q", relPath, string(content), expectedContent)
+			}
+		}
+	})
+
+	t.Run("compressed YAML round trip preserves data", func(t *testing.T) {
+		sourceDir := t.TempDir()
+		destDir := t.TempDir()
+		exportFile := filepath.Join(t.TempDir(), "export.yaml.gz")
+
+		if err := Initialize(sourceDir, true); err != nil {
+			t.Fatal(err)
+		}
+
+		testContent := `{"data": "gzipped-yaml"}`
+		testFile := filepath.Join(sourceDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(testContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := Export(sourceDir, exportFile, "yaml", true, false); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		if err := Import(destDir, exportFile, "yaml", false, false); err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(destDir, "repos", "test.json"))
+		if err != nil {
+			t.Fatalf("Failed to read imported file: %v", err)
+		}
+		if string(content) != testContent {
+			t.Errorf("Content mismatch: got %q, want %q", string(content), testContent)
+		}
+	})
+
+	t.Run("compressed tar round trip preserves data", func(t *testing.T) {
+		sourceDir := t.TempDir()
+		destDir := t.TempDir()
+		exportFile := filepath.Join(t.TempDir(), "export.tar.gz")
+
+		if err := Initialize(sourceDir, true); err != nil {
+			t.Fatal(err)
+		}
+
+		testContent := `{"data": "gzipped-tar"}`
+		testFile := filepath.Join(sourceDir, "repos", "test.json")
+		if err := os.WriteFile(testFile, []byte(testContent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := Export(sourceDir, exportFile, "tar", true, false); err != nil {
+			t.Fatalf("Export failed: %v", err)
+		}
+
+		// Verify gzip magic bytes (covers openTarReader compressed path).
+		raw, err := os.ReadFile(exportFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(raw) < 2 || raw[0] != 0x1f || raw[1] != 0x8b {
+			t.Error("Expected gzip compressed tar export")
+		}
+
+		if err := Import(destDir, exportFile, "tar", false, false); err != nil {
+			t.Fatalf("Import failed: %v", err)
+		}
+
 		content, err := os.ReadFile(filepath.Join(destDir, "repos", "test.json"))
 		if err != nil {
 			t.Fatalf("Failed to read imported file: %v", err)

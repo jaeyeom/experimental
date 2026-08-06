@@ -422,9 +422,83 @@ func TestCLIInfoDisplayer_ShowInfo_JSONFormat(t *testing.T) {
 	}
 }
 
+func TestCLIInfoDisplayer_ShowInfo_DetailedDirectory(t *testing.T) {
+	tmpDir := setupTestDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	displayer, err := NewCLIInfoDisplayer(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create CLIInfoDisplayer: %v", err)
+	}
+
+	// dir1 has subfile1.txt (11 bytes) and subdir1/deepfile.txt (11 bytes).
+	const wantFiles int64 = 2
+	const wantSize int64 = 22
+
+	t.Run("table format includes dir stats", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := displayer.ShowInfo("dir1", true, "table")
+		if err != nil {
+			t.Fatalf("ShowInfo failed: %v", err)
+		}
+
+		w.Close()
+		os.Stdout = oldStdout
+
+		out, _ := io.ReadAll(r)
+		output := string(out)
+
+		if !strings.Contains(output, "Total files: 2") {
+			t.Errorf("Expected total files in output, got:\n%s", output)
+		}
+		if !strings.Contains(output, "Total size: 22 bytes") {
+			t.Errorf("Expected total size in output, got:\n%s", output)
+		}
+	})
+
+	t.Run("json format includes dir stats", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := displayer.ShowInfo("dir1", true, "json")
+		if err != nil {
+			t.Fatalf("ShowInfo failed: %v", err)
+		}
+
+		w.Close()
+		os.Stdout = oldStdout
+
+		out, _ := io.ReadAll(r)
+		var info map[string]interface{}
+		if err := json.Unmarshal(out, &info); err != nil {
+			t.Fatalf("Output is not valid JSON: %v\nOutput: %s", err, string(out))
+		}
+
+		// JSON numbers decode as float64.
+		if got, ok := info["total_files"].(float64); !ok || int64(got) != wantFiles {
+			t.Errorf("total_files = %v, want %d", info["total_files"], wantFiles)
+		}
+		if got, ok := info["total_size"].(float64); !ok || int64(got) != wantSize {
+			t.Errorf("total_size = %v, want %d", info["total_size"], wantSize)
+		}
+	})
+}
+
 func TestCLIFormatter_GetFormatted(t *testing.T) {
 	tmpDir := setupTestDir(t)
 	defer os.RemoveAll(tmpDir)
+
+	// Valid compact JSON for pretty-print branch.
+	if err := os.WriteFile(filepath.Join(tmpDir, "data.json"), []byte(`{"a":1,"b":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "invalid.json"), []byte(`not-json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	store, err := NewFileSystemStore(tmpDir)
 	if err != nil {
@@ -433,25 +507,99 @@ func TestCLIFormatter_GetFormatted(t *testing.T) {
 
 	formatter := NewCLIFormatter(store)
 
-	// Capture stdout
-	oldStdout := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+	t.Run("raw format", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
 
-	err = formatter.GetFormatted("file1.txt", "raw", false)
-	if err != nil {
-		t.Fatalf("GetFormatted failed: %v", err)
-	}
+		err := formatter.GetFormatted("file1.txt", "raw", false)
+		if err != nil {
+			t.Fatalf("GetFormatted failed: %v", err)
+		}
 
-	w.Close()
-	os.Stdout = oldStdout
+		w.Close()
+		os.Stdout = oldStdout
 
-	out, _ := io.ReadAll(r)
-	output := string(out)
+		out, _ := io.ReadAll(r)
+		if string(out) != "content1" {
+			t.Errorf("Expected 'content1', got '%s'", string(out))
+		}
+	})
 
-	if output != "content1" {
-		t.Errorf("Expected 'content1', got '%s'", output)
-	}
+	t.Run("json pretty print", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := formatter.GetFormatted("data.json", "json", true)
+		if err != nil {
+			t.Fatalf("GetFormatted failed: %v", err)
+		}
+
+		w.Close()
+		os.Stdout = oldStdout
+
+		out, _ := io.ReadAll(r)
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatalf("pretty output is not valid JSON: %v\nOutput: %s", err, string(out))
+		}
+		if !strings.Contains(string(out), "\n") {
+			t.Errorf("Expected indented pretty JSON, got: %q", string(out))
+		}
+	})
+
+	t.Run("json without pretty prints raw", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := formatter.GetFormatted("data.json", "json", false)
+		if err != nil {
+			t.Fatalf("GetFormatted failed: %v", err)
+		}
+
+		w.Close()
+		os.Stdout = oldStdout
+
+		out, _ := io.ReadAll(r)
+		if string(out) != `{"a":1,"b":2}` {
+			t.Errorf("Expected compact JSON, got %q", string(out))
+		}
+	})
+
+	t.Run("json pretty with invalid input", func(t *testing.T) {
+		err := formatter.GetFormatted("invalid.json", "json", true)
+		if err == nil {
+			t.Error("Expected error for invalid JSON with pretty=true")
+		}
+	})
+
+	t.Run("default format prints content", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+
+		err := formatter.GetFormatted("file1.txt", "unknown", false)
+		if err != nil {
+			t.Fatalf("GetFormatted failed: %v", err)
+		}
+
+		w.Close()
+		os.Stdout = oldStdout
+
+		out, _ := io.ReadAll(r)
+		if string(out) != "content1" {
+			t.Errorf("Expected 'content1', got '%s'", string(out))
+		}
+	})
+
+	t.Run("missing key returns error", func(t *testing.T) {
+		err := formatter.GetFormatted("does-not-exist.txt", "raw", false)
+		if err == nil {
+			t.Error("Expected error for missing key")
+		}
+	})
 }
 
 func TestCLIFormatter_SetFormatted(t *testing.T) {
@@ -465,18 +613,73 @@ func TestCLIFormatter_SetFormatted(t *testing.T) {
 
 	formatter := NewCLIFormatter(store)
 
-	err = formatter.SetFormatted("newfile.txt", "newcontent", false, false, false)
-	if err != nil {
-		t.Fatalf("SetFormatted failed: %v", err)
-	}
+	t.Run("plain value", func(t *testing.T) {
+		err := formatter.SetFormatted("newfile.txt", "newcontent", false, false, false)
+		if err != nil {
+			t.Fatalf("SetFormatted failed: %v", err)
+		}
 
-	// Verify file was created
-	content, err := os.ReadFile(filepath.Join(tmpDir, "newfile.txt"))
-	if err != nil {
-		t.Fatalf("Failed to read created file: %v", err)
-	}
+		content, err := os.ReadFile(filepath.Join(tmpDir, "newfile.txt"))
+		if err != nil {
+			t.Fatalf("Failed to read created file: %v", err)
+		}
 
-	if string(content) != "newcontent" {
-		t.Errorf("Expected 'newcontent', got '%s'", string(content))
-	}
+		if string(content) != "newcontent" {
+			t.Errorf("Expected 'newcontent', got '%s'", string(content))
+		}
+	})
+
+	t.Run("json value is pretty-printed", func(t *testing.T) {
+		err := formatter.SetFormatted("pretty.json", `{"x":1}`, false, true, false)
+		if err != nil {
+			t.Fatalf("SetFormatted failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, "pretty.json"))
+		if err != nil {
+			t.Fatalf("Failed to read created file: %v", err)
+		}
+
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(content, &parsed); err != nil {
+			t.Fatalf("written file is not valid JSON: %v", err)
+		}
+		if !strings.Contains(string(content), "\n") {
+			t.Errorf("Expected pretty-printed JSON, got %q", string(content))
+		}
+	})
+
+	t.Run("invalid json returns error", func(t *testing.T) {
+		err := formatter.SetFormatted("bad.json", `not-json`, false, true, false)
+		if err == nil {
+			t.Error("Expected error for invalid JSON")
+		}
+	})
+
+	t.Run("from file", func(t *testing.T) {
+		src := filepath.Join(tmpDir, "source.txt")
+		if err := os.WriteFile(src, []byte("from-file-content"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		err := formatter.SetFormatted("copied.txt", src, true, false, false)
+		if err != nil {
+			t.Fatalf("SetFormatted failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(tmpDir, "copied.txt"))
+		if err != nil {
+			t.Fatalf("Failed to read created file: %v", err)
+		}
+		if string(content) != "from-file-content" {
+			t.Errorf("Expected 'from-file-content', got %q", string(content))
+		}
+	})
+
+	t.Run("from missing file returns error", func(t *testing.T) {
+		err := formatter.SetFormatted("dest.txt", filepath.Join(tmpDir, "missing-src.txt"), true, false, false)
+		if err == nil {
+			t.Error("Expected error for missing source file")
+		}
+	})
 }
