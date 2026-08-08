@@ -171,6 +171,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-python-tools.yml
 - setup-rust.yml
 - setup-rust-tools.yml
+- setup-safe-aliases.yml
 - setup-sf-mono-font.yml
 - setup-shell-profile.yml
 - setup-spacemacs.yml

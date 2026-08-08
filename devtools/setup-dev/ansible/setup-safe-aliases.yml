@@ -1,0 +1,28 @@
+---
+- import_playbook: setup-shell-profile.yml
+
+- name: Ensure interactive safety aliases for cp, mv, and rm
+  hosts: all
+  tasks:
+    - name: Include guard for setup-safe-aliases playbook
+      block:
+        - name: Stop early if the setup-safe-aliases playbook is already included
+          meta: end_play
+          when: setup_safe_aliases_playbook_imported is defined
+        - name: Ensure the setup-safe-aliases playbook is not included
+          set_fact:
+            setup_safe_aliases_playbook_imported: true
+          when: setup_safe_aliases_playbook_imported is not defined
+
+    # Prompt before overwrite (cp/mv) or remove (rm) to avoid accidental data loss.
+    - name: Ensure interactive safety aliases for file operations
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} interactive safety aliases"
+        block: |
+          alias cp='cp -i'
+          alias mv='mv -i'
+          alias rm='rm -i'
