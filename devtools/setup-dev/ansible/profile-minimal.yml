@@ -1,6 +1,7 @@
 ---
 # Minimal profile: core CLI tools for any Qubes AppVM or lightweight setup.
 - import_playbook: setup-history.yml
+- import_playbook: setup-safe-aliases.yml
 - import_playbook: setup-ssh-key.yml
 - import_playbook: setup-gpg-agent.yml
 - import_playbook: setup-devtools.yml

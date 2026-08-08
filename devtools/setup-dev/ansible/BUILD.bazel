@@ -226,6 +226,7 @@ sh_test(
         "setup-python-tools.yml",
         "setup-rust.yml",
         "setup-rust-tools.yml",
+        "setup-safe-aliases.yml",
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
         "setup-sql-tools.yml",
@@ -2039,6 +2040,7 @@ sh_test(
         "setup-gpg-agent.yml",
         "setup-history.yml",
         "setup-rust.yml",
+        "setup-safe-aliases.yml",
         "setup-shell-profile.yml",
         "setup-ssh-key.yml",
         "setup-starship.yml",
@@ -2137,6 +2139,7 @@ sh_test(
         "setup-nvm.yml",
         "setup-perplexity-mcp.yml",
         "setup-rust.yml",
+        "setup-safe-aliases.yml",
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
         "setup-ssh-key.yml",
@@ -2226,6 +2229,7 @@ sh_test(
         "setup-history.yml",
         "setup-office-tools.yml",
         "setup-rust.yml",
+        "setup-safe-aliases.yml",
         "setup-shell-profile.yml",
         "setup-spacemacs.yml",
         "setup-ssh-key.yml",
@@ -2293,6 +2297,7 @@ sh_test(
         "setup-gpg-agent.yml",
         "setup-history.yml",
         "setup-rust.yml",
+        "setup-safe-aliases.yml",
         "setup-shell-profile.yml",
         "setup-ssh-key.yml",
         "setup-starship.yml",
@@ -3383,6 +3388,20 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-safe-aliases_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-safe-aliases.yml"],
+    data = [
+        "setup-safe-aliases.yml",
+        "setup-shell-profile.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-sf-mono-font_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-sf-mono-font.yml"],
@@ -4328,6 +4347,7 @@ test_suite(
         ":setup-python-tools_syntax_test",
         ":setup-rust-tools_syntax_test",
         ":setup-rust_syntax_test",
+        ":setup-safe-aliases_syntax_test",
         ":setup-sf-mono-font_syntax_test",
         ":setup-shell-profile_syntax_test",
         ":setup-spacemacs_syntax_test",

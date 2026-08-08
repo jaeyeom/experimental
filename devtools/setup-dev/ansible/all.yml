@@ -1,5 +1,6 @@
 ---
 - import_playbook: setup-history.yml
+- import_playbook: setup-safe-aliases.yml
 - import_playbook: setup-homebrew-env.yml
   when: ansible_facts['os_family'] == "Darwin"
 - import_playbook: setup-ssh-key.yml
