@@ -179,6 +179,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-starship.yml
 - setup-swift-tools.yml
 - setup-terraform-tools.yml
+- setup-tmux.yml
 - setup-user-bin-directory.yml
 - setup-user-config-directory.yml
 - setup-user-go-bin-directory.yml
