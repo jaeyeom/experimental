@@ -8,7 +8,7 @@
 - import_playbook: rg.yml
 - import_playbook: cleanup-repo.yml
 - import_playbook: jq.yml
-- import_playbook: tmux.yml
+- import_playbook: setup-tmux.yml
 - import_playbook: fd.yml
 - import_playbook: locate.yml
 - import_playbook: setup-direnv.yml

@@ -1,0 +1,35 @@
+---
+- import_playbook: tmux.yml
+
+- name: Ensure tmux is configured
+  hosts: all
+  tasks:
+    - name: Include guard for setup-tmux playbook
+      block:
+        - name: Stop early if the setup-tmux playbook is already included
+          meta: end_play
+          when: setup_tmux_playbook_imported is defined
+        - name: Ensure the setup-tmux playbook is not included
+          set_fact:
+            setup_tmux_playbook_imported: true
+          when: setup_tmux_playbook_imported is not defined
+
+    - name: Ensure tmux uses C-] as the prefix key
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_facts['env']['HOME'] }}/.tmux.conf"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} tmux prefix setup"
+        block: |
+          # Prefix key: C-] (0x1d) instead of the default C-b.
+          # Deliberately NOT C-[ -- that byte is 0x1b, which IS Escape, and
+          # rebinding it breaks Esc in vim, arrow keys, and every ANSI escape
+          # sequence.
+          unbind C-b
+          set -g prefix C-]
+          # Press C-] twice to send a literal C-] to the inner program.
+          bind C-] send-prefix
+
+          # Reload this file with <prefix> r.
+          bind r source-file ~/.tmux.conf \; display "tmux.conf reloaded"
