@@ -642,7 +642,6 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 			{Playbook: "curl", When: WhenDebianLike},
 		},
 	},
-	GoTool("pkl-gen-go", "github.com/apple/pkl-go/cmd/pkl-gen-go@latest", Import{Playbook: "pkl"}),
 	{
 		command: "pnpm",
 		platforms: map[PlatformName]InstallMethod{
