@@ -155,6 +155,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-gpg-agent.yml
 - setup-gpg-keygen.yml
 - setup-grpc.yml
+- setup-herdr.yml
 - setup-history.yml
 - setup-homebrew-env.yml
 - setup-java.yml

@@ -13,6 +13,7 @@
 - import_playbook: setup-claude-privacy.yml
 - import_playbook: claudelytics.yml
 - import_playbook: grok.yml
+- import_playbook: setup-herdr.yml
 
 - name: Setup vibe coding environment
   hosts: all
@@ -29,4 +30,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, gherun, repo-sync, perplexity MCP, claudelytics, grok"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, gherun, repo-sync, perplexity MCP, claudelytics, grok, herdr"

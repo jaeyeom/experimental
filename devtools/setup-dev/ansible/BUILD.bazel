@@ -166,6 +166,7 @@ sh_test(
         "grep.yml",
         "grok.yml",
         "guru.yml",
+        "herdr.yml",
         "htop.yml",
         "image2ascii.yml",
         "impl.yml",
@@ -214,6 +215,7 @@ sh_test(
         "setup-git.yml",
         "setup-go-tools.yml",
         "setup-gpg-agent.yml",
+        "setup-herdr.yml",
         "setup-history.yml",
         "setup-homebrew-env.yml",
         "setup-java.yml",
@@ -1422,6 +1424,21 @@ sh_test(
 )
 
 sh_test(
+    name = "herdr_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["herdr.yml"],
+    data = [
+        "curl.yml",
+        "herdr.yml",
+        "tasks/github-release-info.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "htop_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["htop.yml"],
@@ -2079,6 +2096,7 @@ sh_test(
         "gpg-agent.yml",
         "grep.yml",
         "grok.yml",
+        "herdr.yml",
         "htop.yml",
         "image2ascii.yml",
         "jq.yml",
@@ -2113,6 +2131,7 @@ sh_test(
         "setup-fira-code-nerd-font.yml",
         "setup-git.yml",
         "setup-gpg-agent.yml",
+        "setup-herdr.yml",
         "setup-history.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
@@ -3087,6 +3106,22 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-herdr_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-herdr.yml"],
+    data = [
+        "curl.yml",
+        "herdr.yml",
+        "setup-herdr.yml",
+        "tasks/github-release-info.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-history_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-history.yml"],
@@ -3622,6 +3657,7 @@ sh_test(
         "git.yml",
         "go.yml",
         "grok.yml",
+        "herdr.yml",
         "jq.yml",
         "libssl-dev.yml",
         "npm.yml",
@@ -3635,6 +3671,7 @@ sh_test(
         "setup-codex-termux.yml",
         "setup-find.yml",
         "setup-git.yml",
+        "setup-herdr.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-perplexity-mcp.yml",
@@ -4224,6 +4261,7 @@ test_suite(
         ":grpcui_syntax_test",
         ":guru_syntax_test",
         ":gws_syntax_test",
+        ":herdr_syntax_test",
         ":htop_syntax_test",
         ":hugo_syntax_test",
         ":image2ascii_syntax_test",
@@ -4309,6 +4347,7 @@ test_suite(
         ":setup-gpg-agent_syntax_test",
         ":setup-gpg-keygen_syntax_test",
         ":setup-grpc_syntax_test",
+        ":setup-herdr_syntax_test",
         ":setup-history_syntax_test",
         ":setup-homebrew-env_syntax_test",
         ":setup-java-tools_syntax_test",
