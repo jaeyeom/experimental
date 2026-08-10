@@ -7,7 +7,12 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"time"
 )
+
+// defaultKeychainTimeout bounds Keychain lookups so a stuck security(1)
+// cannot hang the CLI indefinitely.
+const defaultKeychainTimeout = 3 * time.Second
 
 // defaultKeychainLoader reads a generic password via /usr/bin/security.
 // The secret is returned only to the caller and must not be logged.
