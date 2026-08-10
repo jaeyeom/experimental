@@ -482,6 +482,26 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 		},
 		Imports: nil,
 	},
+	{
+		// herdr is a terminal workspace manager for AI coding agents.
+		// Upstream ships Linux/macOS builds only (no Termux target), so
+		// Termux is deliberately omitted here.
+		command: "herdr",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "herdr"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand:    "{{ playbook_dir }}/verified-run exec https://herdr.dev/install.sh",
+				VersionCommand:    "herdr --version",
+				VersionRegex:      "herdr ([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/herdrdev/herdr/releases/latest",
+				LatestVersionPath: "tag_name",
+				Environment: map[string]string{
+					"PATH": `"{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"`,
+				},
+			},
+		},
+		Imports: []Import{{Playbook: "curl"}},
+	},
 	GoTool("hugo", "github.com/gohugoio/hugo@latest"),
 	GoTool("image2ascii", "github.com/qeesung/image2ascii@latest"),
 	GoTool("impl", "github.com/josharian/impl@latest"),

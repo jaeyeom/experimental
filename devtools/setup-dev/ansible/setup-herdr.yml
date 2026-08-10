@@ -1,0 +1,69 @@
+---
+- import_playbook: herdr.yml
+
+- name: Ensure herdr is configured
+  hosts: all
+  vars:
+    # herdr resolves its config through XDG on every platform (including
+    # macOS), so a single path works everywhere.
+    herdr_config_dir: >-
+      {{ ansible_facts['env']['XDG_CONFIG_HOME']
+         | default(ansible_facts['env']['HOME'] ~ '/.config', true) }}/herdr
+  tasks:
+    - name: Include guard for setup-herdr playbook
+      block:
+        - name: Stop early if the setup-herdr playbook is already included
+          meta: end_play
+          when: setup_herdr_playbook_imported is defined
+        - name: Ensure the setup-herdr playbook is not included
+          set_fact:
+            setup_herdr_playbook_imported: true
+          when: setup_herdr_playbook_imported is not defined
+
+    - name: Ensure the herdr config directory exists
+      ansible.builtin.file:
+        path: "{{ herdr_config_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Ensure herdr uses ctrl+] as the prefix key
+      ansible.builtin.blockinfile:
+        path: "{{ herdr_config_dir }}/config.toml"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        mode: '0644'
+        marker: "# {mark} herdr prefix setup"
+        block: |
+          # Prefix key: ctrl+] instead of the default ctrl+b, matching the
+          # tmux prefix set by setup-tmux.yml.
+          # Deliberately NOT ctrl+[ -- that byte is 0x1b, which IS Escape, and
+          # rebinding it breaks Esc, arrow keys, and every ANSI escape
+          # sequence.
+          # Action bindings are symbolic ("prefix+c", "prefix+v", ...), so they
+          # follow this key automatically and need no changes.
+          [keys]
+          prefix = "ctrl+]"
+      register: herdr_prefix_config
+
+    # blockinfile appends the managed block verbatim, so a hand-written [keys]
+    # table elsewhere in config.toml would become a duplicate table and herdr
+    # would silently fall back to its defaults. Fail loudly instead.
+    - name: Validate the herdr configuration
+      ansible.builtin.command: herdr config check
+      register: herdr_config_check
+      changed_when: false
+      failed_when: herdr_config_check.rc != 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
+
+    # Applies the new prefix to an already-running session. A missing server is
+    # the normal case on a fresh machine, so failures here are not fatal.
+    - name: Reload the configuration in a running herdr server
+      ansible.builtin.command: herdr server reload-config
+      register: herdr_reload
+      changed_when: false
+      failed_when: false
+      when: herdr_prefix_config is changed
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
