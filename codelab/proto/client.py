@@ -3,8 +3,7 @@
 import grpc
 import protovalidate
 
-from gen import contacts_pb2
-from gen import contacts_pb2_grpc
+from gen import contacts_pb2, contacts_pb2_grpc
 
 
 class ContactsClient:
