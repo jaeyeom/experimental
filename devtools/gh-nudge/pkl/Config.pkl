@@ -1,7 +1,7 @@
 @go.Package { name = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl" }
 module gh_nudge.Config
 
-import "package://pkg.pkl-lang.org/pkl-go/pkl.golang@0.12.1#/go.pkl"
+import "package://pkg.pkl-lang.org/pkl-go/pkl.golang@0.14.0#/go.pkl"
 
 /// GitHub-related configuration
 class GitHubConfig {

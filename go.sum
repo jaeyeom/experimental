@@ -1,5 +1,7 @@
 github.com/apple/pkl-go v0.12.1 h1:4G8vAAx7eMVOdUuzyCesbHcYBMbzDyRfS00+wA/LOM0=
 github.com/apple/pkl-go v0.12.1/go.mod h1:EDQmYVtFBok/eLI+9rT0EoBBXNtMM1THwR+rwBcAH3I=
+github.com/apple/pkl-go v0.14.0 h1:+Gd59y2aU/60TpYMiEG4Zn7JWXkU5FtNk+OvcPNfDPg=
+github.com/apple/pkl-go v0.14.0/go.mod h1:Ko3AgXOKd/vVYtsRZgoCZhymymz9RxqCIcfdZhOX85I=
 github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
