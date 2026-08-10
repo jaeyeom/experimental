@@ -23,14 +23,8 @@ import (
 	"time"
 )
 
-const (
-	// LegacyKeychainService is the Keychain service name for the default ~/.claude config dir.
-	LegacyKeychainService = "Claude Code-credentials"
-
-	// defaultKeychainTimeout bounds Keychain lookups so a stuck security(1)
-	// cannot hang the CLI indefinitely.
-	defaultKeychainTimeout = 3 * time.Second
-)
+// LegacyKeychainService is the Keychain service name for the default ~/.claude config dir.
+const LegacyKeychainService = "Claude Code-credentials"
 
 // Sentinel errors for credential resolution failures.
 var (
