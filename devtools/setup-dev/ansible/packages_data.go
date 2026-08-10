@@ -374,7 +374,6 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	GhExtension("gh-repox", "jaeyeom/gh-repox"),
 	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest", Import{Playbook: "gh"}),
 	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
-	GoTool("gherun", "github.com/jaeyeom/experimental/devtools/gherun/cmd/gherun@latest", Import{Playbook: "gh"}),
 	{
 		command: "githooks-cli",
 		platforms: map[PlatformName]InstallMethod{
