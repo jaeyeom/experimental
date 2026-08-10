@@ -30,4 +30,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, gherun, repo-sync, perplexity MCP, claudelytics, grok, herdr"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, repo-sync, perplexity MCP, claudelytics, grok, herdr"

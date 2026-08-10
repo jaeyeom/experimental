@@ -1017,23 +1017,6 @@ sh_test(
 )
 
 sh_test(
-    name = "gherun_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["gherun.yml"],
-    data = [
-        "gh.yml",
-        "gherun.yml",
-        "go.yml",
-        "setup-shell-profile.yml",
-        "setup-user-go-bin-directory.yml",
-    ],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
     name = "git_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["git.yml"],
@@ -4234,7 +4217,6 @@ test_suite(
         ":gh-slack_syntax_test",
         ":gh-storage_syntax_test",
         ":gh_syntax_test",
-        ":gherun_syntax_test",
         ":git_syntax_test",
         ":githooks-cli_syntax_test",
         ":gmi_syntax_test",
