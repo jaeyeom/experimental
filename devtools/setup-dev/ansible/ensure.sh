@@ -235,7 +235,7 @@ fi
 if [ -n "$TERMUX_VERSION" ]; then
     # Ansible remote temp directory is messed up on Termux like
     # /data/.ansible/tmp, so we need to set it to a writable directory.
-    export ANSIBLE_REMOTE_TEMP=$HOME/.ansible/tmp
+    export ANSIBLE_REMOTE_TEMP="$HOME/.ansible/tmp"
 
     # Upgrading pkg is necessary to avoid issues on Termux. Instead of handling
     # that in Ansible, we do it here.
@@ -584,6 +584,109 @@ else
             exit 1
         fi
     fi
+
+    # python3-debian is required by ansible.builtin.deb822_repository at
+    # runtime (the module probes /usr/bin/python3 for the debian library).
+    if command -v apt >/dev/null 2>&1; then
+        if ! dpkg -s python3-debian >/dev/null 2>&1; then
+            if [ "$CAN_SUDO" = true ]; then
+                echo "Installing python3-debian (required by deb822_repository)..."
+                if command -v nala >/dev/null 2>&1; then
+                    sudo nala install -y python3-debian
+                else
+                    sudo apt install -y python3-debian
+                fi
+            else
+                echo "Warning: python3-debian is not installed and sudo is unavailable."
+                echo "  Playbooks using deb822_repository may fail until it is installed."
+            fi
+        fi
+    fi
+fi
+
+# Prefer a user-local Ansible install (e.g. pip --user) when present so upgrades
+# take effect even if an older distro package remains on PATH.
+if [ -x "$HOME/.local/bin/ansible" ]; then
+    PATH="$HOME/.local/bin:$PATH"
+    export PATH
+fi
+
+# ansible.builtin.deb822_repository requires ansible-core >= 2.15. Distro
+# packages (especially Ubuntu LTS) are often older; module resolution happens
+# at parse time, so even Debian-only tasks fail on Ubuntu with an old Ansible.
+# Returns 0 when ansible is missing or older than 2.15.
+ansible_core_too_old() {
+    if ! command -v ansible >/dev/null 2>&1; then
+        return 0
+    fi
+    # First line examples:
+    #   ansible [core 2.14.3]
+    #   ansible 2.9.27   (pre-core branding; too old)
+    _ver_line=$(ansible --version 2>/dev/null | head -n 1)
+    _core_maj=$(printf '%s\n' "$_ver_line" | sed -n 's/.*\[core \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1/p')
+    _core_min=$(printf '%s\n' "$_ver_line" | sed -n 's/.*\[core \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\2/p')
+    if [ -z "$_core_maj" ] || [ -z "$_core_min" ]; then
+        return 0
+    fi
+    if [ "$_core_maj" -lt 2 ]; then
+        return 0
+    fi
+    if [ "$_core_maj" -eq 2 ] && [ "$_core_min" -lt 15 ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Install/upgrade ansible-core via pip into the user site. Tries plain
+# --user first; on PEP 668 externally-managed systems (Ubuntu 23.04+),
+# retries with --break-system-packages for the user install only.
+# python-debian is included so deb822_repository works when Ansible's
+# interpreter is the same one pip targets (common with pip --user).
+pip_install_ansible_user() {
+    _pip_cmd="$1"
+    if "$_pip_cmd" install --user --upgrade 'ansible-core>=2.15' 'ansible>=8' 'python-debian'; then
+        return 0
+    fi
+    echo "  Retrying pip install with --break-system-packages (PEP 668)..."
+    "$_pip_cmd" install --user --upgrade --break-system-packages \
+        'ansible-core>=2.15' 'ansible>=8' 'python-debian'
+}
+
+ANSIBLE_WAS_UPGRADED=false
+if ansible_core_too_old; then
+    _cur=$(ansible --version 2>/dev/null | head -n 1 || echo "not installed")
+    echo "Ansible is too old for this project (need ansible-core >= 2.15)."
+    echo "  Current: $_cur"
+    echo "Upgrading Ansible via pip (user install)..."
+    _upgrade_ok=false
+    if command -v pip3 >/dev/null 2>&1; then
+        if pip_install_ansible_user pip3; then
+            _upgrade_ok=true
+        fi
+    elif command -v pip >/dev/null 2>&1; then
+        if pip_install_ansible_user pip; then
+            _upgrade_ok=true
+        fi
+    fi
+    if [ "$_upgrade_ok" = false ]; then
+        echo "Error: Cannot upgrade Ansible automatically." >&2
+        echo "Install a recent Ansible (core >= 2.15), e.g.:" >&2
+        echo "  pip3 install --user --break-system-packages 'ansible>=8'" >&2
+        echo "  # or on Ubuntu:" >&2
+        echo "  sudo add-apt-repository --yes --update ppa:ansible/ansible" >&2
+        echo "  sudo apt install -y ansible" >&2
+        exit 1
+    fi
+    PATH="$HOME/.local/bin:$PATH"
+    export PATH
+    if ansible_core_too_old; then
+        echo "Error: Ansible is still too old after upgrade." >&2
+        echo "  PATH=$PATH" >&2
+        ansible --version 2>&1 | head -n 3 >&2 || true
+        exit 1
+    fi
+    echo "  Upgraded to: $(ansible --version | head -n 1)"
+    ANSIBLE_WAS_UPGRADED=true
 fi
 
 # Update rustup if installed (upgrades rust toolchain and all components)
@@ -596,9 +699,14 @@ if command -v rustup >/dev/null 2>&1; then
     fi
 fi
 
-# Install community.general collection if not already installed
-if [ ! -f "$ANSIBLE_GALAXY_CACHE" ] || [ "$(find "$ANSIBLE_GALAXY_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
-    ansible-galaxy collection install community.general
+# Install community.general collection if not already installed.
+# Force-reinstall after an ansible-core upgrade so collection metadata matches.
+if [ "$ANSIBLE_WAS_UPGRADED" = true ] || [ ! -f "$ANSIBLE_GALAXY_CACHE" ] || [ "$(find "$ANSIBLE_GALAXY_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+    if [ "$ANSIBLE_WAS_UPGRADED" = true ]; then
+        ansible-galaxy collection install community.general --force
+    else
+        ansible-galaxy collection install community.general
+    fi
     touch "$ANSIBLE_GALAXY_CACHE"
 fi
 

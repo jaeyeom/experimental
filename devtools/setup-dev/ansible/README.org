@@ -24,6 +24,18 @@ filenames.
   ./ensure.sh [rule]...
 #+end_src
 
+** Ansible version requirement
+
+Playbooks use =ansible.builtin.deb822_repository= (ansible-core >= 2.15).
+Ubuntu LTS apt packages are often older than that; =ensure.sh= detects this and
+upgrades Ansible via =pip --user= so module resolution succeeds. Ansible
+resolves modules at parse time, so even Debian-only tasks fail on Ubuntu when
+the installed Ansible is too old.
+
+On Debian/Ubuntu, =ensure.sh= also installs =python3-debian= (the runtime
+library =deb822_repository= imports). After an Ansible upgrade it force-refreshes
+the =community.general= collection so collection metadata matches the new core.
+
 * Design
 The purpose of this Ansible Setup Dev is to set up my development environment
 mostly identical in any environment. I made Ansible Playbooks import other
