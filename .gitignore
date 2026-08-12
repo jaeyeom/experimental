@@ -7,6 +7,7 @@
 .omc/
 .roo
 .roomodes
+.saved-claude-sessions
 
 # Bazel Related
 .bazel_output
