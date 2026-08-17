@@ -1,0 +1,6 @@
+#+TITLE: prsync
+
+* Overview
+
+prsync surveys open GitHub pull requests and matches them to running herdr
+agent tabs.

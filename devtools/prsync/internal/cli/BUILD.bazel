@@ -1,0 +1,28 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "exit.go",
+        "root.go",
+        "version.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/cli",
+    visibility = ["//devtools/prsync:__subpackages__"],
+    deps = [
+        "//devtools/prsync/internal/config:go_default_library",
+        "//devtools/prsync/internal/version:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+        "@com_github_spf13_cobra//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["cli_test.go"],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/prsync/internal/config:go_default_library",
+        "//devtools/prsync/internal/version:go_default_library",
+    ],
+)
