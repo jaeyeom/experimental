@@ -14,11 +14,20 @@ Ansible does support MacOS Homebrew through the =community.general.homebrew= mod
 - Upgrade all packages
 - Install packages with specific options
 
-The module is part of the community.general collection and can be installed with:
+The module is part of the community.general collection. On macOS (and Termux),
+=ensure.sh= installs the latest collection from Galaxy (rolling ansible),
+using =--force= after an ansible-core upgrade:
 
 #+begin_src sh
 ansible-galaxy collection install community.general
 #+end_src
+
+On Debian/Ubuntu, =ensure.sh= prefers the =community.general= shipped with the
+*active* ansible python tree (not a leftover apt path). That avoids an
+unpinned Galaxy install shadowing apt =ansible-core=. If no bundled
+collection is present, or after a pip =--user= core upgrade, it pins Galaxy
+to a range compatible with the installed =ansible-core= (2.15–2.18). A
+failed Galaxy install aborts and does not refresh the daily cache.
 
 * Implementation Plan
 
