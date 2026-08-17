@@ -1,0 +1,12 @@
+{
+  "result": {
+    "agents": [
+      {
+        "pane_id": "w2:pC",
+        "tab_id": "w2:tC",
+        "agent": "codex",
+        "agent_status": "idle"
+      }
+    ]
+  }
+}

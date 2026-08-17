@@ -1,0 +1,13 @@
+{
+  "result": {
+    "tabs": [
+      {
+        "tab_id": "w2:tC",
+        "workspace_id": "w2",
+        "label": "PROJ-123",
+        "agent_status": "idle",
+        "pane_count": 1
+      }
+    ]
+  }
+}
