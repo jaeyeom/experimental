@@ -1,0 +1,3 @@
+load("//tools/org-lint:defs.bzl", "org_lint_tests")
+
+org_lint_tests(["README.org"])
