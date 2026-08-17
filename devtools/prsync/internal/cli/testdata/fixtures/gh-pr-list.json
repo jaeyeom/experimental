@@ -1,0 +1,39 @@
+[
+  {
+    "number": 123,
+    "title": "[PROJ-123] Fix the widget",
+    "url": "https://github.com/acme/widgets/pull/123",
+    "baseRefName": "main",
+    "headRefName": "fix-widget",
+    "mergeable": "MERGEABLE",
+    "isDraft": false,
+    "reviewDecision": "APPROVED",
+    "reviewRequests": [
+      {
+        "__typename": "User",
+        "login": "reviewer-login"
+      },
+      {
+        "__typename": "Team",
+        "name": "Platform Reviewers",
+        "slug": "platform-reviewers"
+      }
+    ],
+    "latestReviews": [
+      {
+        "author": {
+          "login": "reviewer-login"
+        },
+        "state": "APPROVED",
+        "submittedAt": "2026-01-01T09:00:00Z"
+      }
+    ],
+    "statusCheckRollup": [
+      {
+        "name": "ci",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS"
+      }
+    ]
+  }
+]
