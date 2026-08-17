@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["version.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/version",
+    visibility = ["//devtools/prsync:__subpackages__"],
+)

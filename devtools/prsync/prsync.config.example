@@ -1,0 +1,38 @@
+# prsync example configuration (KEY=VALUE).
+# Copy to ./prsync.config or ~/.config/prsync/prsync.config.
+# Unknown keys are ignored. Inline comments are not supported.
+
+# Space-separated owner/repo list. Empty = auto-discover from open PRs.
+# repos=
+
+# GitHub login. Empty = `gh api user --jq .login`.
+# author=
+
+# First match in the PR title is the identifier used to match a herdr tab.
+# title_id_pattern=[A-Z]+-[0-9]+
+
+# Herdr tab label after substituting {id}. Compared exactly, case-sensitive.
+# tab_label_template={id}
+
+# herdr_bin=herdr
+# gh_bin=gh
+
+# Gate busy-set: any | managed
+# concurrency_wait_on=any
+
+# Milliseconds. Parsed as n * time.Millisecond (2000 = 2s, not 2µs).
+# gate_poll_ms=2000
+# gate_timeout_ms=1800000
+# dispatch_timeout_ms=1800000
+
+# Inline prompt, or @/path/to/file (tilde is expanded).
+# dispatch_prompt_template=
+
+# true / false / 1 / 0
+# dispatch_include_drafts=false
+# dry_run=true
+
+# Whitespace-separated herdr --until tokens (each becomes its own flag).
+# dispatch_wait_until=idle done
+
+# state_file=~/.config/prsync/state.json
