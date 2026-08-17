@@ -33,8 +33,21 @@ resolves modules at parse time, so even Debian-only tasks fail on Ubuntu when
 the installed Ansible is too old.
 
 On Debian/Ubuntu, =ensure.sh= also installs =python3-debian= (the runtime
-library =deb822_repository= imports). After an Ansible upgrade it force-refreshes
-the =community.general= collection so collection metadata matches the new core.
+library =deb822_repository= imports).
+
+=ensure.sh= installs =community.general= so a Galaxy copy cannot shadow a
+compatible bundled collection:
+
+- On Debian/Ubuntu it prefers the collection shipped with the *active*
+  ansible (the python module tree, not a leftover apt path). If that
+  bundled collection is missing, it installs a Galaxy version pinned to
+  the installed ansible-core (2.15–2.18).
+- After a pip =--user= ansible-core upgrade it ignores leftover apt
+  collections and force-installs a pin for the new core.
+- On macOS and Termux it installs the latest collection from Galaxy
+  (=--force= after an upgrade).
+- A failed =ansible-galaxy= install aborts the run and does not refresh
+  the daily cache.
 
 * Design
 The purpose of this Ansible Setup Dev is to set up my development environment

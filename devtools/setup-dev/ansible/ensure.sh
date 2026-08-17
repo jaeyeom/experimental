@@ -699,14 +699,72 @@ if command -v rustup >/dev/null 2>&1; then
     fi
 fi
 
-# Install community.general collection if not already installed.
-# Force-reinstall after an ansible-core upgrade so collection metadata matches.
-if [ "$ANSIBLE_WAS_UPGRADED" = true ] || [ ! -f "$ANSIBLE_GALAXY_CACHE" ] || [ "$(find "$ANSIBLE_GALAXY_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
-    if [ "$ANSIBLE_WAS_UPGRADED" = true ]; then
-        ansible-galaxy collection install community.general --force
-    else
-        ansible-galaxy collection install community.general
-    fi
+# community.general collection install policy (see community_general.sh).
+# - macOS / Termux: latest from Galaxy; --force after an ansible-core upgrade.
+# - Debian/Ubuntu: prefer the collection shipped with the *active* ansible so
+#   Galaxy cannot shadow apt ansible-core. After a pip upgrade, or if no
+#   bundled collection exists, install a Galaxy version pinned to this core.
+# - Other Linux: latest from Galaxy; --force after an upgrade.
+# Re-check at most once per day, but always repair a shadowing user install
+# and always refresh after an ansible-core upgrade.
+# shellcheck disable=SC1091  # Sourced from the same directory as this script
+. "$(dirname "$0")/community_general.sh"
+
+USER_COMMUNITY_GENERAL="${HOME}/.ansible/collections/ansible_collections/community/general"
+USER_LIBRARY_FILTERING="${HOME}/.ansible/collections/ansible_collections/community/library_inventory_filtering_v1"
+
+_cg_py_mod_loc=$(ansible --version 2>/dev/null | sed -n 's/^ *ansible python module location = //p' | head -n 1)
+_cg_core=$(ansible --version 2>/dev/null | sed -n 's/^ansible \[core \([0-9.]*\)\].*/\1/p' | head -n 1)
+_cg_has_bundled=0
+if community_general_has_bundled "$_cg_py_mod_loc"; then
+    _cg_has_bundled=1
+fi
+_cg_has_apt=0
+if command -v apt >/dev/null 2>&1; then
+    _cg_has_apt=1
+fi
+_cg_termux=0
+if [ -n "$TERMUX_VERSION" ]; then
+    _cg_termux=1
+fi
+_cg_upgraded=0
+if [ "$ANSIBLE_WAS_UPGRADED" = true ]; then
+    _cg_upgraded=1
+fi
+_cg_has_user_galaxy=0
+if [ -d "$USER_COMMUNITY_GENERAL" ]; then
+    _cg_has_user_galaxy=1
+fi
+
+if community_general_needs_repair "$_cg_has_apt" "$_cg_termux" "$OS" \
+    "$_cg_has_bundled" "$_cg_has_user_galaxy" "$_cg_upgraded" ||
+    [ "$ANSIBLE_WAS_UPGRADED" = true ] ||
+    [ ! -f "$ANSIBLE_GALAXY_CACHE" ] ||
+    [ "$(find "$ANSIBLE_GALAXY_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+    _cg_plan=$(community_general_plan "$OS" "$_cg_termux" "$_cg_upgraded" \
+        "$_cg_has_apt" "$_cg_has_bundled" "$_cg_core")
+    case "$_cg_plan" in
+        use_bundled)
+            echo "Using bundled community.general (compatible with this ansible-core)."
+            if [ -d "$USER_COMMUNITY_GENERAL" ] || [ -d "$USER_LIBRARY_FILTERING" ]; then
+                echo "Removing user Galaxy community.general (avoids shadowing bundled collection)..."
+                rm -rf "$USER_COMMUNITY_GENERAL" "$USER_LIBRARY_FILTERING"
+            fi
+            ;;
+        install\ *)
+            _cg_install_args=${_cg_plan#install }
+            echo "Installing $_cg_install_args..."
+            # shellcheck disable=SC2086  # Intentional word splitting — spec and --force
+            if ! ansible-galaxy collection install $_cg_install_args; then
+                echo "Error: failed to install community.general collection." >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Error: unknown community.general plan: $_cg_plan" >&2
+            exit 1
+            ;;
+    esac
     touch "$ANSIBLE_GALAXY_CACHE"
 fi
 
