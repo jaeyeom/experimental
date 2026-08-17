@@ -20,6 +20,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = ["cli_test.go"],
+    data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
         "//devtools/prsync/internal/config:go_default_library",

@@ -1,0 +1,34 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": [
+            {
+              "id": "PRRT_widget",
+              "isResolved": false,
+              "comments": {
+                "nodes": [
+                  {
+                    "id": "PRRC_widget",
+                    "author": {
+                      "login": "reviewer-login"
+                    },
+                    "path": "src/widget.go",
+                    "line": 42,
+                    "url": "https://github.com/acme/widgets/pull/123#discussion_r1",
+                    "body": "This should handle the nil case."
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

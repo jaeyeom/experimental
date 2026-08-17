@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "timeout",
+    "message": "wait exceeded timeout_ms"
+  }
+}

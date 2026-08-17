@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "agent_prompt_stalled",
+    "message": "agent did not change state within 5s"
+  }
+}
