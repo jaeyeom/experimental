@@ -11,15 +11,14 @@ import (
 
 // Execute runs the prsync CLI with injected IO and returns an exit code.
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer, exec executor.Executor) int {
-	_ = exec
-	root := newRoot(stdout)
+	root := newRoot(stdout, exec)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	return report(stderr, root.ExecuteContext(ctx))
 }
 
-func newRoot(stdout io.Writer) *cobra.Command {
+func newRoot(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "prsync",
 		Short:         "Survey open GitHub PRs and match them to herdr agent tabs",
@@ -29,5 +28,6 @@ func newRoot(stdout io.Writer) *cobra.Command {
 		},
 	}
 	root.AddCommand(newVersionCmd(stdout))
+	root.AddCommand(newScanCmd(stdout, exec))
 	return root
 }
