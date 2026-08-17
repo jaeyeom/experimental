@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "author": "alice",
+  "repos": [
+    "acme/widgets"
+  ],
+  "prs": [
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "title": "[PROJ-123] Fix the widget",
+      "url": "https://github.com/acme/widgets/pull/123",
+      "identifier": "PROJ-123",
+      "base": "main",
+      "head": "fix-widget",
+      "is_draft": false,
+      "review_decision": "APPROVED",
+      "review_requests": [
+        "User:reviewer-login",
+        "Team:platform-reviewers"
+      ],
+      "ci_state": "green",
+      "bucket": "needs_you",
+      "unaddressed": true,
+      "blocking_comments": [
+        {
+          "thread_id": "PRRT_widget",
+          "comment_id": "PRRC_widget",
+          "author": "reviewer-login",
+          "path": "src/widget.go",
+          "line": 42,
+          "url": "https://github.com/acme/widgets/pull/123#discussion_r1",
+          "body": "This should handle the nil case."
+        }
+      ],
+      "tab": {
+        "tab_id": "w2:tC",
+        "pane_id": "w2:pC",
+        "workspace_id": "w2",
+        "label": "PROJ-123",
+        "agent_status": "idle"
+      }
+    }
+  ],
+  "inaccessible_repos": [],
+  "warnings": []
+}

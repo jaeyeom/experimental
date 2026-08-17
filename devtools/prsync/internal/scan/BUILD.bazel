@@ -3,36 +3,37 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
-        "exit.go",
-        "root.go",
+        "bucket.go",
+        "ci.go",
+        "identifier.go",
+        "match.go",
         "scan.go",
-        "version.go",
+        "types.go",
     ],
-    importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/cli",
+    importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/scan",
     visibility = ["//devtools/prsync:__subpackages__"],
     deps = [
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/gh:go_default_library",
         "//devtools/prsync/internal/herdr:go_default_library",
-        "//devtools/prsync/internal/scan:go_default_library",
-        "//devtools/prsync/internal/version:go_default_library",
-        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
-        "@com_github_spf13_cobra//:go_default_library",
     ],
 )
 
 go_test(
     name = "go_default_test",
     srcs = [
-        "cli_scan_test.go",
-        "cli_test.go",
+        "bucket_test.go",
+        "ci_test.go",
+        "identifier_test.go",
+        "match_test.go",
+        "scan_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
         "//devtools/prsync/internal/config:go_default_library",
-        "//devtools/prsync/internal/scan:go_default_library",
-        "//devtools/prsync/internal/version:go_default_library",
+        "//devtools/prsync/internal/gh:go_default_library",
+        "//devtools/prsync/internal/herdr:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )

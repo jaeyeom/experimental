@@ -45,10 +45,10 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestNoCommandsBeyondVersion(t *testing.T) {
+func TestNoCommandsBeyondVersionAndScan(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"scan", "dispatch", "gate"} {
+	for _, name := range []string{"dispatch", "gate"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			var stdout, stderr bytes.Buffer
