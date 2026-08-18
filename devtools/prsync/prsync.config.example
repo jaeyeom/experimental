@@ -49,15 +49,15 @@
 
 # Whitespace-separated herdr --until tokens. Each token becomes its own
 # `herdr agent prompt --until <token>` flag. At least one token required.
-# Default `idle done blocked` treats a settled unfocused agent as
-# ready-for-input and treats a user-blocked agent as a terminal
-# settlement (dispatched_blocked; the batch stops so the next agent
-# does not start). Live dispatch then runs:
-# --wait --until idle --until done --until blocked
+# Default `idle done` waits until the agent truly finishes (after the
+# user answers a question in that tab). Live dispatch then runs:
+# --wait --until idle --until done
 # Set `idle` only to wait until herdr reports idle (can take ~30 min if
-# the agent settles to done instead).
-# dispatch_wait_until=idle done blocked
+# the agent settles to done instead). Include `blocked` only if you want
+# the per-send wait to return while the agent is awaiting the user
+# (dispatched_blocked; the batch stops, but dedupe state is not written).
+# dispatch_wait_until=idle done
 
-# Written only on live send (dispatched / dispatched_timeout /
-# dispatched_blocked).
+# Written only on live send (dispatched / dispatched_timeout). Never
+# written on a transient blocked settlement.
 # state_file=~/.config/prsync/state.json
