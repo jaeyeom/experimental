@@ -27,13 +27,14 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		all        bool
 		goLive     bool
 		rebase     bool
+		readStdin  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
 		Short: "Send unmatched review comments to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase)
+			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase, readStdin)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -41,10 +42,11 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
 	cmd.Flags().BoolVar(&goLive, "go", false, "send prompts (default is dry-run)")
 	cmd.Flags().BoolVar(&rebase, "rebase", false, "dispatch a rebase-in-place prompt (skips the unaddressed-comment gate)")
+	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan)")
 	return cmd
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase bool) error {
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, readStdin bool) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -60,7 +62,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	if goLive {
 		cfg.DryRun = false
 	}
-	doc, err := loadScanDoc(ctx, cfg, exec)
+	doc, err := loadScanDoc(ctx, cfg, exec, readStdin)
 	if err != nil {
 		return err
 	}
@@ -80,8 +82,8 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	return nil
 }
 
-func loadScanDoc(ctx context.Context, cfg config.Config, exec executor.Executor) (scan.Document, error) {
-	doc, fromStdin, err := readStdinScan(os.Stdin)
+func loadScanDoc(ctx context.Context, cfg config.Config, exec executor.Executor, readStdin bool) (scan.Document, error) {
+	doc, fromStdin, err := readStdinScan(os.Stdin, readStdin)
 	if err != nil {
 		return scan.Document{}, &ExitError{Code: ExitUsage, Err: fmt.Errorf("stdin scan JSON: %w", err)}
 	}
@@ -102,19 +104,26 @@ func loadScanDoc(ctx context.Context, cfg config.Config, exec executor.Executor)
 	return doc, nil
 }
 
-func readStdinScan(f *os.File) (scan.Document, bool, error) {
-	if stdinIsTTY(f) {
+func readStdinScan(f *os.File, wantStdin bool) (scan.Document, bool, error) {
+	if !wantStdin || !stdinIsScanSource(f) {
 		return scan.Document{}, false, nil
 	}
 	return peekScanJSON(f)
 }
 
-func stdinIsTTY(f *os.File) bool {
+// stdinIsScanSource reports whether f is a FIFO or regular file. Sockets,
+// TTYs, and other char devices are excluded so a blocking first-byte peek
+// cannot hang.
+func stdinIsScanSource(f *os.File) bool {
 	if f == nil {
-		return true
+		return false
 	}
 	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	if err != nil {
+		return false
+	}
+	m := fi.Mode()
+	return m.IsRegular() || m&os.ModeNamedPipe != 0
 }
 
 func peekScanJSON(r io.Reader) (scan.Document, bool, error) {
