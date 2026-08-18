@@ -14,7 +14,16 @@ case "${cmd} ${sub}" in
     exit 0
     ;;
   "search prs")
-    cat "${DIR}/gh-search-prs.json"
+    # scan passes flags first (`search prs --author ...`); the orphan report
+    # passes a ticket positional (`search prs PROJ-123 --author ...`).
+    case "${3-}" in
+      --*|"")
+        cat "${DIR}/gh-search-prs.json"
+        ;;
+      *)
+        cat "${DIR}/gh-search-authored-prs.json"
+        ;;
+    esac
     exit 0
     ;;
   "pr list")

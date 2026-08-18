@@ -15,6 +15,7 @@ const (
 	defaultCallTimeout   = 60 * time.Second
 	maxReviewThreadPages = 50
 	prListJSONFields     = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	prSearchJSONFields   = "number,title,url,state,isDraft,closedAt,repository"
 	reviewThreadsQuery   = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
 )
 
@@ -83,6 +84,26 @@ func (c *Client) SearchOpenPRRepos(ctx context.Context, author string) (repos []
 		repos = append(repos, name)
 	}
 	return repos, len(items) == 1000, nil
+}
+
+// SearchAuthoredPRs runs `gh search prs <query>` for the author across all
+// states (open, merged, closed). It is the reverse of ListOpenPRs: given a
+// ticket, find every PR whose text matches, so a tab can be correlated back to
+// a merged or abandoned PR.
+func (c *Client) SearchAuthoredPRs(ctx context.Context, author, query string) ([]PRSearchItem, error) {
+	result, err := c.requireOK(ctx, defaultCallTimeout,
+		"search", "prs", query, "--author", author, "--limit", "100", "--json", prSearchJSONFields)
+	if err != nil {
+		return nil, err
+	}
+	var items []PRSearchItem
+	if err := json.Unmarshal([]byte(result.Output), &items); err != nil {
+		return nil, fmt.Errorf("decode search prs: %w", err)
+	}
+	if items == nil {
+		items = []PRSearchItem{}
+	}
+	return items, nil
 }
 
 // ListOpenPRs runs `gh pr list` for one repo. 404/archived become ErrInaccessible.

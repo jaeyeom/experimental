@@ -1,0 +1,13 @@
+[
+  {
+    "number": 777,
+    "title": "[PROJ-123] Fix the widget",
+    "url": "https://github.com/acme/widgets/pull/777",
+    "state": "merged",
+    "isDraft": false,
+    "closedAt": "2026-08-18T22:19:28Z",
+    "repository": {
+      "nameWithOwner": "acme/widgets"
+    }
+  }
+]
