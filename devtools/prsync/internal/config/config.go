@@ -19,8 +19,15 @@ const defaultPromptTemplate = `Address the unresolved review comments on PR #{nu
 Unaddressed threads:
 {comments}
 
-For each thread: understand the reviewer's ask, make the change (or reply if you
-disagree, with reasoning), resolve the thread, and push. Do not touch other PRs.`
+Triage each thread before acting:
+- Mechanical / unambiguous (typo, nil check, rename, obvious bug): make the
+  change, resolve the thread, and continue.
+- Design decision, tradeoff, or disagreement: pause and ask the user how to
+  proceed, with a recommended option. Do not edit, resolve, or push for that
+  thread until they answer.
+
+Push after the mechanical threads are done (and after the user answers any
+questions). Do not touch other PRs.`
 
 const defaultRebasePromptTemplate = `Rebase PR #{number} ({url}) onto origin/{base} in this working directory. Do not create a new worktree.
 
