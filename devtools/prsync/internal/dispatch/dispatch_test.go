@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,43 @@ func TestRunDryRunGolden(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("golden mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRunDryRunRebaseRendersRebaseTemplate(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	prompt := got.Results[0].RenderedPrompt
+	if !strings.Contains(prompt, "Check out fix-widget") {
+		t.Fatalf("missing checkout of head: %q", prompt)
+	}
+	if !strings.Contains(prompt, "origin/main") {
+		t.Fatalf("missing origin/base: %q", prompt)
+	}
+	if !strings.Contains(prompt, "--force-with-lease") {
+		t.Fatalf("missing force-with-lease: %q", prompt)
+	}
+	if !strings.Contains(strings.ToLower(prompt), "do not create a new worktree") {
+		t.Fatalf("missing no-worktree: %q", prompt)
+	}
+	if strings.Contains(prompt, "unresolved review comments") {
+		t.Fatalf("used comment template: %q", prompt)
 	}
 }
 
@@ -209,6 +247,109 @@ func TestRunLiveDispatchedWritesState(t *testing.T) {
 	}
 	if h.promptN != 1 {
 		t.Fatalf("Prompt calls after dedupe = %d, want 1", h.promptN)
+	}
+}
+
+func TestRunLiveRebaseWritesHeadSHA(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.HeadSHA = "abc123def456"
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "Check out fix-widget") {
+		t.Fatalf("live rebase used wrong template: %q", got.Results[0].RenderedPrompt)
+	}
+	st, err := LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if !st.DedupedHead("acme/widgets#123", "abc123def456") {
+		t.Fatalf("state after rebase = %#v", st)
+	}
+	if st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
+		t.Fatalf("rebase must not record comment ids: %#v", st)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped", got2.Results)
+	}
+	if h.promptN != 1 {
+		t.Fatalf("Prompt calls after SHA dedupe = %d, want 1", h.promptN)
+	}
+
+	pr.HeadSHA = "fff000aaa111"
+	got3, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("third Run() unexpected error: %v", err)
+	}
+	if len(got3.Results) != 1 || got3.Results[0].Action != ActionDispatched {
+		t.Fatalf("changed SHA results = %+v, want dispatched", got3.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls after SHA change = %d, want 2", h.promptN)
+	}
+}
+
+func TestRunLiveRebaseBlockedStopsAdvancing(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	pr1 := fixtureEligiblePR()
+	pr1.Unaddressed = false
+	pr1.BlockingComments = nil
+	pr2 := fixtureEligiblePR()
+	pr2.Number = 124
+	pr2.Unaddressed = false
+	pr2.BlockingComments = nil
+	pr2.HeadSHA = "bbb222"
+	h := &scriptHerdr{
+		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts: []herdr.PromptOutcome{{
+			Status: herdr.PromptMatched,
+			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "blocked"},
+		}},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr1, pr2}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(got.Results))
+	}
+	if got.Results[0].Action != ActionDispatchedBlocked || got.Results[0].Number != 123 {
+		t.Fatalf("first = %+v, want dispatched_blocked #123", got.Results[0])
+	}
+	if got.Results[1].Action != ActionQueued || got.Results[1].Number != 124 {
+		t.Fatalf("second = %+v, want queued #124", got.Results[1])
+	}
+	if h.promptN != 1 {
+		t.Fatalf("Prompt calls = %d, want 1 (gate/serial unchanged)", h.promptN)
 	}
 }
 

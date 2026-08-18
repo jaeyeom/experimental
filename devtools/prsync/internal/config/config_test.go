@@ -278,7 +278,9 @@ func TestLoadSearchOrder(t *testing.T) {
 func TestLoadAppliesKnownKeys(t *testing.T) {
 	dir := t.TempDir()
 	promptFile := filepath.Join(dir, "prompt.txt")
+	rebaseFile := filepath.Join(dir, "rebase.txt")
 	mustWrite(t, promptFile, "from-file")
+	mustWrite(t, rebaseFile, "rebase-from-file")
 	cfgPath := filepath.Join(dir, "prsync.config")
 	mustWrite(t, cfgPath, strings.Join([]string{
 		"repos=acme/widgets other/repo",
@@ -291,6 +293,7 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 		"gate_poll_ms=5",
 		"gate_timeout_ms=50",
 		"dispatch_prompt_template=@" + promptFile,
+		"rebase_prompt_template=@" + rebaseFile,
 		"dispatch_include_drafts=1",
 		"dispatch_wait_until=idle done",
 		"dispatch_timeout_ms=100",
@@ -326,6 +329,9 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 	}
 	if got.PromptTemplate != "from-file" {
 		t.Fatalf("PromptTemplate = %q", got.PromptTemplate)
+	}
+	if got.RebasePromptTemplate != "rebase-from-file" {
+		t.Fatalf("RebasePromptTemplate = %q", got.RebasePromptTemplate)
 	}
 	if !got.IncludeDrafts {
 		t.Fatal("IncludeDrafts = false")
@@ -397,6 +403,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad bool", body: "dry_run=yes\n", key: "dry_run"},
 		{name: "empty wait until", body: "dispatch_wait_until=\n", key: "dispatch_wait_until"},
 		{name: "missing prompt file", body: "dispatch_prompt_template=@/no/such/prompt\n", key: "dispatch_prompt_template"},
+		{name: "missing rebase prompt file", body: "rebase_prompt_template=@/no/such/rebase\n", key: "rebase_prompt_template"},
 		{name: "empty state file", body: "state_file=\n", key: "state_file"},
 	}
 	for _, tc := range tests {
@@ -467,6 +474,18 @@ func TestDefaults(t *testing.T) {
 	}
 	if !regexp.MustCompile(`Address the unresolved review comments`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing built-in text: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`Check out \{head\}`).MatchString(got.RebasePromptTemplate) {
+		t.Fatalf("RebasePromptTemplate missing checkout: %q", got.RebasePromptTemplate)
+	}
+	if !regexp.MustCompile(`origin/\{base\}`).MatchString(got.RebasePromptTemplate) {
+		t.Fatalf("RebasePromptTemplate missing origin/{base}: %q", got.RebasePromptTemplate)
+	}
+	if !regexp.MustCompile(`--force-with-lease`).MatchString(got.RebasePromptTemplate) {
+		t.Fatalf("RebasePromptTemplate missing --force-with-lease: %q", got.RebasePromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)do not create a new worktree`).MatchString(got.RebasePromptTemplate) {
+		t.Fatalf("RebasePromptTemplate missing no-worktree: %q", got.RebasePromptTemplate)
 	}
 	if got.SourcePath != "" {
 		t.Fatalf("SourcePath = %q", got.SourcePath)

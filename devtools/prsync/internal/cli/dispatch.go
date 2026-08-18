@@ -26,23 +26,25 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		prs        []string
 		all        bool
 		goLive     bool
+		rebase     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
 		Short: "Send unmatched review comments to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive)
+			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringArrayVar(&prs, "pr", nil, "limit to owner/repo#N (repeatable)")
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
 	cmd.Flags().BoolVar(&goLive, "go", false, "send prompts (default is dry-run)")
+	cmd.Flags().BoolVar(&rebase, "rebase", false, "dispatch a rebase-in-place prompt (skips the unaddressed-comment gate)")
 	return cmd
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive bool) error {
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase bool) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -67,6 +69,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		Doc:        doc,
 		PRs:        prs,
 		RunnerPane: h.RunnerPane(ctx),
+		Rebase:     rebase,
 	}, time.Now())
 	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
 		return writeErr

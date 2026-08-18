@@ -39,6 +39,7 @@ type PRListItem struct {
 	URL               string         `json:"url"`
 	BaseRefName       string         `json:"baseRefName"`
 	HeadRefName       string         `json:"headRefName"`
+	HeadRefOid        string         `json:"headRefOid"`
 	Mergeable         string         `json:"mergeable"`
 	IsDraft           bool           `json:"isDraft"`
 	ReviewDecision    string         `json:"reviewDecision"`
