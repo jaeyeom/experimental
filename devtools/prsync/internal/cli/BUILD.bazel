@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "dispatch.go",
         "exit.go",
         "gate.go",
         "root.go",
@@ -26,6 +27,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "cli_dispatch_test.go",
         "cli_gate_test.go",
         "cli_scan_test.go",
         "cli_test.go",

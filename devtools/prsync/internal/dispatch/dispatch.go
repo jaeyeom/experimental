@@ -1,0 +1,195 @@
+package dispatch
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
+)
+
+var prFlagPattern = regexp.MustCompile(`^([^/#]+/[^/#]+)#(\d+)$`)
+
+// StateStore loads dedupe state. Dry-run loads but never writes.
+type StateStore interface {
+	Load() (State, error)
+}
+
+// Request is the candidate-set input to Run.
+type Request struct {
+	Doc        scan.Document
+	PRs        []string
+	RunnerPane string
+}
+
+// Candidate is one PR considered for dispatch.
+type Candidate struct {
+	Repo   string
+	Number int
+	PR     *scan.PR
+}
+
+// ParsePR parses an owner/repo#N flag value.
+func ParsePR(s string) (string, int, error) {
+	m := prFlagPattern.FindStringSubmatch(s)
+	if m == nil {
+		return "", 0, fmt.Errorf("invalid --pr %q", s)
+	}
+	n, err := strconv.Atoi(m[2])
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid --pr %q: %w", s, err)
+	}
+	return m[1], n, nil
+}
+
+// Candidates builds the sorted candidate set from a scan document and --pr flags.
+// An empty PRs list means every PR in the document. A --pr absent from the
+// document is still returned (PR == nil) so it is never silently dropped.
+func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
+	byKey := make(map[string]scan.PR, len(doc.PRs))
+	for _, pr := range doc.PRs {
+		byKey[prKey(pr.Repo, pr.Number)] = pr
+	}
+	var out []Candidate
+	if len(prs) == 0 {
+		out = make([]Candidate, 0, len(doc.PRs))
+		for i := range doc.PRs {
+			pr := doc.PRs[i]
+			out = append(out, Candidate{Repo: pr.Repo, Number: pr.Number, PR: &pr})
+		}
+	} else {
+		out = make([]Candidate, 0, len(prs))
+		for _, raw := range prs {
+			repo, n, err := ParsePR(raw)
+			if err != nil {
+				return nil, err
+			}
+			c := Candidate{Repo: repo, Number: n}
+			if pr, ok := byKey[prKey(repo, n)]; ok {
+				p := pr
+				c.PR = &p
+			}
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Repo != out[j].Repo {
+			return out[i].Repo < out[j].Repo
+		}
+		return out[i].Number < out[j].Number
+	})
+	return out, nil
+}
+
+// Evaluate returns the skip action for a candidate, or a zero Action if eligible.
+func Evaluate(c Candidate, cfg config.Config, st State) Item {
+	r := Item{Repo: c.Repo, Number: c.Number}
+	if c.PR == nil {
+		r.Action = ActionSkippedNotFound
+		return r
+	}
+	pr := *c.PR
+	switch {
+	case !pr.Unaddressed:
+		r.Action = ActionSkippedAddressed
+	case pr.IsDraft && !cfg.IncludeDrafts:
+		r.Action = ActionSkippedDraft
+	case pr.Tab == nil:
+		r.Action = ActionSkippedNoTab
+	case pr.Tab.PaneID == nil:
+		r.Action = ActionSkippedNoAgent
+	case !readyStatus(pr.Tab.AgentStatus):
+		r.Action = ActionSkippedBusy
+	case st.Deduped(prKey(c.Repo, c.Number), commentIDs(pr)):
+		r.Action = ActionSkippedDeduped
+	}
+	return r
+}
+
+// Run evaluates the candidate set. The dry-run path does a one-shot gate.Check,
+// never polls, never emits queued, and never writes state.
+func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time) (Document, error) {
+	doc := Document{
+		GeneratedAt: now.UTC().Format(time.RFC3339),
+		DryRun:      true,
+		Results:     []Item{},
+	}
+	cands, err := Candidates(req.Doc, req.PRs)
+	if err != nil {
+		return doc, err
+	}
+	st, err := loadState(store)
+	if err != nil {
+		return doc, err
+	}
+	for _, c := range cands {
+		doc.Results = append(doc.Results, evaluateDry(c, cfg, st))
+	}
+	if err := annotateGate(ctx, h, cfg, req, &doc); err != nil {
+		return doc, err
+	}
+	return doc, nil
+}
+
+func evaluateDry(c Candidate, cfg config.Config, st State) Item {
+	r := Evaluate(c, cfg, st)
+	if r.Action != "" {
+		return r
+	}
+	pr := *c.PR
+	r.Action = ActionWouldDispatch
+	r.PaneID = *pr.Tab.PaneID
+	r.RenderedPrompt = Render(cfg.PromptTemplate, pr)
+	return r
+}
+
+func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, doc *Document) error {
+	res, err := Check(ctx, h, cfg.ConcurrencyWaitOn, req.RunnerPane, MatchedTabs(req.Doc))
+	if err != nil {
+		return fmt.Errorf("gate: %w", err)
+	}
+	if res.Safe || len(res.Busy) == 0 {
+		return nil
+	}
+	detail := fmt.Sprintf("gate currently busy: pane %s working", res.Busy[0].PaneID)
+	for i := range doc.Results {
+		if doc.Results[i].Action == ActionWouldDispatch {
+			doc.Results[i].Detail = detail
+		}
+	}
+	return nil
+}
+
+func loadState(store StateStore) (State, error) {
+	if store == nil {
+		return State{}, nil
+	}
+	st, err := store.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load state: %w", err)
+	}
+	if st == nil {
+		st = State{}
+	}
+	return st, nil
+}
+
+func readyStatus(status string) bool {
+	return status == "idle" || status == "done"
+}
+
+func commentIDs(pr scan.PR) []string {
+	ids := make([]string, 0, len(pr.BlockingComments))
+	for _, c := range pr.BlockingComments {
+		ids = append(ids, c.CommentID)
+	}
+	return ids
+}
+
+func prKey(repo string, number int) string {
+	return fmt.Sprintf("%s#%d", repo, number)
+}

@@ -1,4 +1,4 @@
-// Package dispatch implements the prsync concurrency gate.
+// Package dispatch implements eligibility, dry-run dispatch, and the concurrency gate.
 package dispatch
 
 import (

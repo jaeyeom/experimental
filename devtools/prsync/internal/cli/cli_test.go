@@ -45,19 +45,6 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestNoDispatchCommand(t *testing.T) {
-	t.Parallel()
-
-	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch"}, &stdout, &stderr, nil)
-	if code != ExitUsage {
-		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "unknown command") {
-		t.Fatalf("stderr = %q", stderr.String())
-	}
-}
-
 func TestReportKeyError(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "dry_run": true,
+  "results": [
+    {
+      "repo": "acme/gizmos",
+      "number": 50,
+      "action": "skipped_addressed"
+    },
+    {
+      "repo": "acme/missing",
+      "number": 9,
+      "action": "skipped_not_found"
+    },
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "action": "would_dispatch",
+      "pane_id": "w2:pC",
+      "rendered_prompt": "Address the unresolved review comments on PR #123 (https://github.com/acme/widgets/pull/123).\n\nUnaddressed threads:\n- src/widget.go:42 — reviewer-login: This should handle the nil case. (https://github.com/acme/widgets/pull/123#discussion_r1)\n\nFor each thread: understand the reviewer's ask, make the change (or reply if you\ndisagree, with reasoning), resolve the thread, and push. Do not touch other PRs."
+    },
+    {
+      "repo": "acme/widgets",
+      "number": 200,
+      "action": "skipped_draft"
+    },
+    {
+      "repo": "acme/widgets",
+      "number": 201,
+      "action": "skipped_no_tab"
+    },
+    {
+      "repo": "acme/widgets",
+      "number": 202,
+      "action": "skipped_no_agent"
+    },
+    {
+      "repo": "acme/widgets",
+      "number": 203,
+      "action": "skipped_busy"
+    },
+    {
+      "repo": "acme/widgets",
+      "number": 204,
+      "action": "skipped_deduped"
+    }
+  ]
+}
