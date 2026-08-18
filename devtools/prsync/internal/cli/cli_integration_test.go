@@ -23,7 +23,7 @@ func TestDispatchGoThenDeduped(t *testing.T) {
 
 	restore := swapStdin(t, string(raw))
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	restore()
 	if code != ExitOK {
 		t.Fatalf("first --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
@@ -42,7 +42,7 @@ func TestDispatchGoThenDeduped(t *testing.T) {
 	restore = swapStdin(t, string(raw))
 	stdout.Reset()
 	stderr.Reset()
-	code = Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code = Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	restore()
 	if code != ExitOK {
 		t.Fatalf("second --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
@@ -63,7 +63,7 @@ func TestDispatchGoStallDoesNotWriteState(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -93,7 +93,7 @@ func TestDispatchGoDoneSettlementIsDispatched(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -122,7 +122,7 @@ func TestDispatchGoBlockedStopsBatch(t *testing.T) {
 	restore := swapStdin(t, string(raw))
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	restore()
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
@@ -144,7 +144,7 @@ func TestDispatchGoBlockedStopsBatch(t *testing.T) {
 	restore = swapStdin(t, string(raw))
 	stdout.Reset()
 	stderr.Reset()
-	code = Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code = Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	restore()
 	if code != ExitOK {
 		t.Fatalf("second --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
@@ -171,7 +171,7 @@ func TestDispatchGoHerdrTimeoutWritesState(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -196,7 +196,7 @@ func TestDispatchGoMidLoopFatalPartialJSON(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitPrecondition {
 		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitPrecondition, stderr.String(), stdout.String())
 	}
@@ -229,7 +229,7 @@ func TestDispatchGoGateTimeoutExit4(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitGateTimeout {
 		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitGateTimeout, stderr.String(), stdout.String())
 	}
