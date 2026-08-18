@@ -118,7 +118,7 @@ func TestRunDryRunDoesNotPoll(t *testing.T) {
 	if got.Results[0].Action != ActionWouldDispatch {
 		t.Fatalf("action = %q, want would_dispatch (never queued)", got.Results[0].Action)
 	}
-	if got.Results[0].Detail != "gate currently busy: pane w2:pX working" {
+	if got.Results[0].Detail != "gate currently busy: pane w2:pX" {
 		t.Fatalf("detail = %q", got.Results[0].Detail)
 	}
 }
@@ -186,8 +186,8 @@ func TestRunLiveDispatchedWritesState(t *testing.T) {
 	if h.promptN != 1 {
 		t.Fatalf("Prompt calls = %d, want 1", h.promptN)
 	}
-	if !slices.Equal(h.sawUntil, []string{"idle", "done"}) {
-		t.Fatalf("until = %v, want [idle done]", h.sawUntil)
+	if !slices.Equal(h.sawUntil, []string{"idle", "done", "blocked"}) {
+		t.Fatalf("until = %v, want [idle done blocked]", h.sawUntil)
 	}
 
 	st, err := LoadFile(store.Path)
@@ -318,6 +318,85 @@ func TestRunLiveDoneSettlementIsDispatched(t *testing.T) {
 	}
 	if got.Results[0].Action == ActionDispatchedTimeout {
 		t.Fatal("done settlement must not be dispatched_timeout")
+	}
+}
+
+func TestRunLiveBlockedSettlementIsDispatchedBlocked(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{
+		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts: []herdr.PromptOutcome{{
+			Status: herdr.PromptMatched,
+			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "blocked"},
+		}},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedBlocked {
+		t.Fatalf("results = %+v, want dispatched_blocked", got.Results)
+	}
+	if got.Results[0].Action == ActionDispatched {
+		t.Fatal("blocked settlement must not be recorded as plain dispatched")
+	}
+	if got.Results[0].PaneID == "" || got.Results[0].RenderedPrompt == "" {
+		t.Fatalf("blocked item missing pane/prompt: %+v", got.Results[0])
+	}
+	st, err := LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if !st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
+		t.Fatalf("state after blocked send = %#v", st)
+	}
+}
+
+func TestRunLiveBlockedStopsAdvancing(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	pr2 := fixtureEligiblePR()
+	pr2.Number = 124
+	pr2.BlockingComments = []scan.Comment{{CommentID: "PRRC_second"}}
+	h := &scriptHerdr{
+		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts: []herdr.PromptOutcome{{
+			Status: herdr.PromptMatched,
+			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "blocked"},
+		}},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR(), pr2}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(got.Results))
+	}
+	if got.Results[0].Action != ActionDispatchedBlocked || got.Results[0].Number != 123 {
+		t.Fatalf("first = %+v, want dispatched_blocked #123", got.Results[0])
+	}
+	if got.Results[1].Action != ActionQueued || got.Results[1].Number != 124 {
+		t.Fatalf("second = %+v, want queued #124", got.Results[1])
+	}
+	if h.promptN != 1 {
+		t.Fatalf("Prompt calls = %d, want 1 (do not start the next agent)", h.promptN)
+	}
+	st, err := LoadFile(store.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
+		t.Fatalf("state missing first PR: %#v", st)
+	}
+	if _, ok := st["acme/widgets#124"]; ok {
+		t.Fatalf("state has second PR: %#v", st)
 	}
 }
 

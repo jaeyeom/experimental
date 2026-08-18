@@ -89,6 +89,10 @@ case "${1-} ${2-}" in
         cat "${DIR}/herdr-agent-prompt-done.json"
         exit 0
         ;;
+      blocked)
+        cat "${DIR}/herdr-agent-prompt-blocked.json"
+        exit 0
+        ;;
       success)
         cat "${DIR}/herdr-agent-prompt.json"
         exit 0
