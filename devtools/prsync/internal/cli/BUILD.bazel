@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "exit.go",
+        "gate.go",
         "root.go",
         "scan.go",
         "version.go",
@@ -12,6 +13,7 @@ go_library(
     visibility = ["//devtools/prsync:__subpackages__"],
     deps = [
         "//devtools/prsync/internal/config:go_default_library",
+        "//devtools/prsync/internal/dispatch:go_default_library",
         "//devtools/prsync/internal/gh:go_default_library",
         "//devtools/prsync/internal/herdr:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
@@ -24,6 +26,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "cli_gate_test.go",
         "cli_scan_test.go",
         "cli_test.go",
     ],
@@ -31,6 +34,7 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//devtools/prsync/internal/config:go_default_library",
+        "//devtools/prsync/internal/dispatch:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
         "//devtools/prsync/internal/version:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
