@@ -29,6 +29,7 @@ go_test(
     srcs = [
         "cli_dispatch_test.go",
         "cli_gate_test.go",
+        "cli_integration_test.go",
         "cli_scan_test.go",
         "cli_test.go",
     ],

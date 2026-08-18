@@ -5,15 +5,42 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math/rand/v2" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/renameio/v2"
+	"golang.org/x/sys/unix"
 )
 
 // ErrCorruptState is returned when state_file exists but is not valid JSON.
 var ErrCorruptState = errors.New("corrupt state file")
+
+// ErrLock is returned when the state_file lock cannot be acquired.
+var ErrLock = errors.New("state file lock not acquired")
+
+type lockRetryConfig struct {
+	MaxRetries    int
+	InitialDelay  time.Duration
+	MaxDelay      time.Duration
+	BackoffFactor float64
+}
+
+func defaultLockRetry() lockRetryConfig {
+	return lockRetryConfig{
+		MaxRetries:    10,
+		InitialDelay:  50 * time.Millisecond,
+		MaxDelay:      2 * time.Second,
+		BackoffFactor: 1.5,
+	}
+}
+
+// heldLocks tracks lock files owned by this process (re-homed LockManager).
+var heldLocks sync.Map
 
 // State is the on-disk dedupe map keyed by owner/repo#N.
 type State map[string]Entry
@@ -32,6 +59,111 @@ type FileStore struct {
 // Load implements StateStore.
 func (s FileStore) Load() (State, error) {
 	return LoadFile(s.Path)
+}
+
+// Save implements StateStore.
+func (s FileStore) Save(st State) error {
+	return SaveFile(s.Path, st)
+}
+
+// AcquireLock creates state_file.lock with O_EXCL + PID. The returned function
+// closes the file and removes the lock. Retry shape matches gh-nudge's
+// DefaultFileLockConfig (~5s). A live holder returns ErrLock.
+func (s FileStore) AcquireLock() (func(), error) {
+	return acquireLockRetry(s.Path+".lock", defaultLockRetry())
+}
+
+// WithLock runs fn while holding the exclusive state lock.
+func (s FileStore) WithLock(fn func() error) error {
+	unlock, err := s.AcquireLock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
+}
+
+func acquireLockRetry(lockPath string, cfg lockRetryConfig) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return nil, fmt.Errorf("%w: create lock dir: %v", ErrLock, err)
+	}
+	var lastErr error
+	delay := cfg.InitialDelay
+	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
+		unlock, err := tryAcquireLock(lockPath)
+		if err == nil {
+			return unlock, nil
+		}
+		lastErr = err
+		if alreadyHeld(err) {
+			return nil, fmt.Errorf("%w: %v", ErrLock, err)
+		}
+		if isStaleLock(lockPath) {
+			_ = os.Remove(lockPath)
+			unlock, err := tryAcquireLock(lockPath)
+			if err == nil {
+				return unlock, nil
+			}
+			lastErr = err
+		}
+		if attempt < cfg.MaxRetries {
+			jitter := 0.75 + rand.Float64()*0.5 //nolint:gosec // G404: lock retry jitter
+			time.Sleep(time.Duration(float64(delay) * jitter))
+			delay = time.Duration(float64(delay) * cfg.BackoffFactor)
+			if delay > cfg.MaxDelay {
+				delay = cfg.MaxDelay
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: %v", ErrLock, lastErr)
+}
+
+func tryAcquireLock(lockPath string) (func(), error) {
+	if _, loaded := heldLocks.LoadOrStore(lockPath, struct{}{}); loaded {
+		return nil, fmt.Errorf("lock already held for path: %s", lockPath)
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) //nolint:gosec // lock metadata is not secret
+	if err != nil {
+		heldLocks.Delete(lockPath)
+		return nil, fmt.Errorf("create lock file: %w", err)
+	}
+	lockInfo := fmt.Sprintf("locked_at: %s\npid: %d\n", time.Now().Format(time.RFC3339), os.Getpid())
+	if _, err := fmt.Fprintf(file, "%s", lockInfo); err != nil {
+		_ = file.Close()
+		_ = os.Remove(lockPath)
+		heldLocks.Delete(lockPath)
+		return nil, fmt.Errorf("write lock file: %w", err)
+	}
+	return func() {
+		_ = file.Close()
+		_ = os.Remove(lockPath)
+		heldLocks.Delete(lockPath)
+	}, nil
+}
+
+func alreadyHeld(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "lock already held")
+}
+
+func isStaleLock(lockPath string) bool {
+	content, err := os.ReadFile(lockPath) //nolint:gosec // lock path is state_file + ".lock"
+	if err != nil {
+		return false
+	}
+	var pid int
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.HasPrefix(line, "pid: ") {
+			parsed, convErr := strconv.Atoi(strings.TrimPrefix(line, "pid: "))
+			if convErr == nil {
+				pid = parsed
+				break
+			}
+		}
+	}
+	if pid == 0 {
+		return false
+	}
+	return unix.Kill(pid, 0) == unix.ESRCH
 }
 
 // Deduped reports whether current comment IDs are a subset of the stored set.

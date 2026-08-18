@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -9,15 +10,25 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
 var prFlagPattern = regexp.MustCompile(`^([^/#]+/[^/#]+)#(\d+)$`)
 
-// StateStore loads dedupe state. Dry-run loads but never writes.
+// StateStore loads and saves dedupe state. Dry-run loads but never writes.
 type StateStore interface {
 	Load() (State, error)
+	Save(State) error
 }
+
+// locker is implemented by FileStore for exclusive live-path writes.
+type locker interface {
+	WithLock(func() error) error
+}
+
+// ErrFailed is returned when a live prompt is PromptError (exit 3).
+var ErrFailed = errors.New("dispatch failed")
 
 // Request is the candidate-set input to Run.
 type Request struct {
@@ -110,18 +121,27 @@ func Evaluate(c Candidate, cfg config.Config, st State) Item {
 	return r
 }
 
-// Run evaluates the candidate set. The dry-run path does a one-shot gate.Check,
-// never polls, never emits queued, and never writes state.
+// Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
+// polls, never emits queued, and never writes state. Live send polls the gate
+// one PR at a time, writes state on dispatched / dispatched_timeout, and
+// returns ErrTimeout or ErrFailed after emitting partial results.
 func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time) (Document, error) {
 	doc := Document{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
-		DryRun:      true,
+		DryRun:      cfg.DryRun,
 		Results:     []Item{},
 	}
 	cands, err := Candidates(req.Doc, req.PRs)
 	if err != nil {
 		return doc, err
 	}
+	if cfg.DryRun {
+		return runDry(ctx, h, store, cfg, req, cands, doc)
+	}
+	return runLive(ctx, h, store, cfg, req, now, cands, doc)
+}
+
+func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, cands []Candidate, doc Document) (Document, error) {
 	st, err := loadState(store)
 	if err != nil {
 		return doc, err
@@ -133,6 +153,139 @@ func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req 
 		return doc, err
 	}
 	return doc, nil
+}
+
+func runLive(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time, cands []Candidate, doc Document) (Document, error) {
+	if l, ok := store.(locker); ok {
+		var liveErr error
+		lockErr := l.WithLock(func() error {
+			doc, liveErr = dispatchLive(ctx, h, store, cfg, req, now, cands, doc)
+			return nil
+		})
+		if lockErr != nil {
+			return doc, fmt.Errorf("lock state: %w", lockErr)
+		}
+		return doc, liveErr
+	}
+	return dispatchLive(ctx, h, store, cfg, req, now, cands, doc)
+}
+
+func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time, cands []Candidate, doc Document) (Document, error) {
+	st, err := loadState(store)
+	if err != nil {
+		return doc, err
+	}
+	matched := MatchedTabs(req.Doc)
+	clock := Clock(realClock{})
+	sleeper := Sleeper(realSleeper{})
+	for i, c := range cands {
+		if err := ctx.Err(); err != nil {
+			doc.Results = append(doc.Results, failItem(c, err))
+			return doc, fmt.Errorf("dispatch: %w", err)
+		}
+		item := Evaluate(c, cfg, st)
+		if item.Action != "" {
+			doc.Results = append(doc.Results, item)
+			continue
+		}
+		_, err := Wait(ctx, h, cfg, req.RunnerPane, matched, clock, sleeper)
+		if errors.Is(err, ErrTimeout) {
+			queueRest(&doc, cands, i)
+			return doc, err
+		}
+		if err != nil {
+			doc.Results = append(doc.Results, failItem(c, err))
+			return doc, err
+		}
+		item = sendPrompt(ctx, h, cfg, c)
+		doc.Results = append(doc.Results, item)
+		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
+			st.Record(prKey(c.Repo, c.Number), commentIDs(*c.PR), now)
+			if err := saveState(store, st); err != nil {
+				return doc, err
+			}
+		}
+		if item.Action == ActionFailed {
+			if err := ctx.Err(); err != nil {
+				return doc, fmt.Errorf("dispatch: %w", err)
+			}
+			return doc, fmt.Errorf("%w: %s", ErrFailed, item.Detail)
+		}
+	}
+	return doc, nil
+}
+
+func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate) Item {
+	pr := *c.PR
+	pane := *pr.Tab.PaneID
+	rendered := Render(cfg.PromptTemplate, pr)
+	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
+	item := Item{Repo: c.Repo, Number: c.Number}
+	switch out.Status {
+	case herdr.PromptMatched:
+		item.Action = ActionDispatched
+		item.PaneID = pane
+		item.RenderedPrompt = rendered
+	case herdr.PromptStalled:
+		item.Action = ActionSkippedStalled
+	case herdr.PromptTimeout:
+		item.Action = ActionDispatchedTimeout
+		item.PaneID = pane
+		item.RenderedPrompt = rendered
+	default:
+		item.Action = ActionFailed
+		if out.Err != nil {
+			item.Detail = out.Err.Error()
+		} else {
+			item.Detail = "herdr prompt failed"
+		}
+	}
+	return item
+}
+
+func queueRest(doc *Document, cands []Candidate, from int) {
+	for _, c := range cands[from:] {
+		doc.Results = append(doc.Results, Item{
+			Repo:   c.Repo,
+			Number: c.Number,
+			Action: ActionQueued,
+		})
+	}
+}
+
+func failItem(c Candidate, err error) Item {
+	item := Item{Repo: c.Repo, Number: c.Number, Action: ActionFailed}
+	if err != nil {
+		item.Detail = err.Error()
+	}
+	return item
+}
+
+type realClock struct{}
+
+func (realClock) Now() time.Time { return time.Now() }
+
+type realSleeper struct{}
+
+func (realSleeper) Sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("sleep: %w", ctx.Err())
+	case <-timer.C:
+		return nil
+	}
+}
+
+func saveState(store StateStore, st State) error {
+	if store == nil {
+		return errors.New("save state: nil store")
+	}
+	if err := store.Save(st); err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+	return nil
 }
 
 func evaluateDry(c Candidate, cfg config.Config, st State) Item {
