@@ -37,6 +37,9 @@ case "${1-} ${2-}" in
     exit 0
     ;;
   "agent prompt")
+    if [ -n "${HERDR_FAKE_PROMPT_SENTINEL-}" ]; then
+      printf '%s\n' "called" > "$HERDR_FAKE_PROMPT_SENTINEL"
+    fi
     cat "${DIR}/herdr-agent-prompt.json"
     exit 0
     ;;
