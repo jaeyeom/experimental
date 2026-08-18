@@ -435,6 +435,35 @@ func TestGetPostImports(t *testing.T) {
 	}
 }
 
+func TestPrsyncGoTool(t *testing.T) {
+	var (
+		tool  PlatformSpecificTool
+		found bool
+	)
+	for _, candidate := range platformSpecificTools {
+		if candidate.command == "prsync" {
+			tool = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("prsync is not registered in platformSpecificTools")
+	}
+	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+	if !ok {
+		t.Fatalf("prsync PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
+	}
+	wantPath := "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest"
+	if method.PkgPath != wantPath {
+		t.Errorf("prsync PkgPath = %q, want %q", method.PkgPath, wantPath)
+	}
+	wantImports := []Import{{Playbook: "gh"}, {Playbook: "herdr"}}
+	if !reflect.DeepEqual(tool.Imports, wantImports) {
+		t.Errorf("prsync Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
+	}
+}
+
 func formatImports(imports []Import) string {
 	if len(imports) == 0 {
 		return "nil"
