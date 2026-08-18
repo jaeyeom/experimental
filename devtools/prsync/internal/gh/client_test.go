@@ -126,7 +126,7 @@ func TestSearchOpenPRRepos(t *testing.T) {
 func TestListOpenPRs(t *testing.T) {
 	t.Parallel()
 
-	const jsonFields = "number,title,url,baseRefName,headRefName,mergeable,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
 
 	t.Run("parses list", func(t *testing.T) {
 		t.Parallel()
@@ -136,6 +136,7 @@ func TestListOpenPRs(t *testing.T) {
 			"url":"https://github.com/acme/widgets/pull/123",
 			"baseRefName":"main",
 			"headRefName":"fix-widget",
+			"headRefOid":"abc123def456",
 			"mergeable":"MERGEABLE",
 			"isDraft":false,
 			"reviewDecision":"APPROVED",
@@ -157,6 +158,9 @@ func TestListOpenPRs(t *testing.T) {
 		}
 		if got[0].ReviewDecision != "APPROVED" || len(got[0].ReviewRequests) != 1 {
 			t.Fatalf("reviews = %+v", got[0])
+		}
+		if got[0].HeadRefOid != "abc123def456" {
+			t.Fatalf("HeadRefOid = %q, want abc123def456", got[0].HeadRefOid)
 		}
 	})
 

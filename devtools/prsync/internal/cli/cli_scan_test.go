@@ -70,6 +70,9 @@ func TestScanFixtureHappyPath(t *testing.T) {
 	if doc.PRs[0].Bucket != "needs_you" {
 		t.Fatalf("bucket = %q, want needs_you", doc.PRs[0].Bucket)
 	}
+	if doc.PRs[0].HeadSHA != "abc123def456" {
+		t.Fatalf("head_sha = %q, want abc123def456", doc.PRs[0].HeadSHA)
+	}
 	if doc.PRs[0].Tab == nil || doc.PRs[0].Tab.TabID != "w2:tC" {
 		t.Fatalf("tab = %+v, want w2:tC", doc.PRs[0].Tab)
 	}

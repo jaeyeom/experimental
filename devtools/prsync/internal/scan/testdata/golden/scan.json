@@ -13,6 +13,7 @@
       "identifier": "PROJ-123",
       "base": "main",
       "head": "fix-widget",
+      "head_sha": "abc123def456",
       "is_draft": false,
       "review_decision": "APPROVED",
       "review_requests": [

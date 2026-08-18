@@ -112,6 +112,25 @@ func TestRenderNilIdentifier(t *testing.T) {
 	}
 }
 
+func TestRenderDefaultRebaseTemplate(t *testing.T) {
+	t.Parallel()
+
+	pr := fixtureEligiblePR()
+	got := Render(config.Defaults().RebasePromptTemplate, pr)
+	if !strings.Contains(got, "PR #123 (https://github.com/acme/widgets/pull/123)") {
+		t.Fatalf("missing number/url: %q", got)
+	}
+	if !strings.Contains(got, "Check out fix-widget") {
+		t.Fatalf("missing checkout: %q", got)
+	}
+	if !strings.Contains(got, "origin/main") {
+		t.Fatalf("missing origin/base: %q", got)
+	}
+	if strings.Contains(got, "{") {
+		t.Fatalf("unreplaced placeholder: %q", got)
+	}
+}
+
 func TestRenderHeadAndBase(t *testing.T) {
 	t.Parallel()
 

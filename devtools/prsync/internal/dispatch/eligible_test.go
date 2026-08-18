@@ -12,11 +12,12 @@ func TestEligibleSkipReasons(t *testing.T) {
 
 	cfg := config.Defaults()
 	tests := []struct {
-		name string
-		c    Candidate
-		cfg  config.Config
-		st   State
-		want string
+		name   string
+		c      Candidate
+		cfg    config.Config
+		st     State
+		rebase bool
+		want   string
 	}{
 		{
 			name: "not found",
@@ -29,6 +30,50 @@ func TestEligibleSkipReasons(t *testing.T) {
 			c:    Candidate{Repo: "acme/widgets", Number: 1, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.BlockingComments = nil })},
 			cfg:  cfg,
 			want: ActionSkippedAddressed,
+		},
+		{
+			name:   "rebase skips addressed gate",
+			c:      Candidate{Repo: "acme/widgets", Number: 1, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.BlockingComments = nil })},
+			cfg:    cfg,
+			rebase: true,
+			want:   "",
+		},
+		{
+			name:   "rebase still skips no tab",
+			c:      Candidate{Repo: "acme/widgets", Number: 1, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.Tab = nil })},
+			cfg:    cfg,
+			rebase: true,
+			want:   ActionSkippedNoTab,
+		},
+		{
+			name:   "rebase still skips draft",
+			c:      Candidate{Repo: "acme/widgets", Number: 1, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.IsDraft = true })},
+			cfg:    cfg,
+			rebase: true,
+			want:   ActionSkippedDraft,
+		},
+		{
+			name:   "rebase not deduped by comment ids",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedCommentIDs: []string{"PRRC_widget"}}},
+			rebase: true,
+			want:   "",
+		},
+		{
+			name:   "rebase deduped by head SHA",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			want:   ActionSkippedDeduped,
+		},
+		{
+			name: "comment mode not deduped by head SHA",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.HeadSHA = "abc123" })},
+			cfg:  cfg,
+			st:   State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			want: "",
 		},
 		{
 			name: "draft",
@@ -89,7 +134,7 @@ func TestEligibleSkipReasons(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := Evaluate(tc.c, tc.cfg, tc.st)
+			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase)
 			if got.Action != tc.want {
 				t.Fatalf("action = %q, want %q", got.Action, tc.want)
 			}
@@ -186,6 +231,9 @@ func fixtureEligiblePR() scan.PR {
 		Title:       "[PROJ-123] Fix the widget",
 		URL:         "https://github.com/acme/widgets/pull/123",
 		Identifier:  &id,
+		Head:        "fix-widget",
+		Base:        "main",
+		HeadSHA:     "abc123def456",
 		Unaddressed: true,
 		BlockingComments: []scan.Comment{{
 			ThreadID:  "PRRT_widget",

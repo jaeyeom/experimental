@@ -19,6 +19,7 @@ type PR struct {
 	Identifier       *string   `json:"identifier"`
 	Base             string    `json:"base"`
 	Head             string    `json:"head"`
+	HeadSHA          string    `json:"head_sha"`        //nolint:tagliatelle // brief outbound contract
 	IsDraft          bool      `json:"is_draft"`        //nolint:tagliatelle // brief outbound contract
 	ReviewDecision   string    `json:"review_decision"` //nolint:tagliatelle // brief outbound contract
 	ReviewRequests   []string  `json:"review_requests"` //nolint:tagliatelle // brief outbound contract

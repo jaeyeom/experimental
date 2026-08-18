@@ -35,6 +35,7 @@ type Request struct {
 	Doc        scan.Document
 	PRs        []string
 	RunnerPane string
+	Rebase     bool
 }
 
 // Candidate is one PR considered for dispatch.
@@ -97,7 +98,8 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 }
 
 // Evaluate returns the skip action for a candidate, or a zero Action if eligible.
-func Evaluate(c Candidate, cfg config.Config, st State) Item {
+// Rebase mode skips the unaddressed-comment gate and dedupes on head SHA.
+func Evaluate(c Candidate, cfg config.Config, st State, rebase bool) Item {
 	r := Item{Repo: c.Repo, Number: c.Number}
 	if c.PR == nil {
 		r.Action = ActionSkippedNotFound
@@ -105,7 +107,7 @@ func Evaluate(c Candidate, cfg config.Config, st State) Item {
 	}
 	pr := *c.PR
 	switch {
-	case !pr.Unaddressed:
+	case !rebase && !pr.Unaddressed:
 		r.Action = ActionSkippedAddressed
 	case pr.IsDraft && !cfg.IncludeDrafts:
 		r.Action = ActionSkippedDraft
@@ -115,7 +117,9 @@ func Evaluate(c Candidate, cfg config.Config, st State) Item {
 		r.Action = ActionSkippedNoAgent
 	case !readyStatus(pr.Tab.AgentStatus):
 		r.Action = ActionSkippedBusy
-	case st.Deduped(prKey(c.Repo, c.Number), commentIDs(pr)):
+	case rebase && st.DedupedHead(prKey(c.Repo, c.Number), pr.HeadSHA):
+		r.Action = ActionSkippedDeduped
+	case !rebase && st.Deduped(prKey(c.Repo, c.Number), commentIDs(pr)):
 		r.Action = ActionSkippedDeduped
 	}
 	return r
@@ -149,7 +153,7 @@ func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, r
 		return doc, err
 	}
 	for _, c := range cands {
-		doc.Results = append(doc.Results, evaluateDry(c, cfg, st))
+		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req.Rebase))
 	}
 	if err := annotateGate(ctx, h, cfg, req, &doc); err != nil {
 		return doc, err
@@ -185,7 +189,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, failItem(c, err))
 			return doc, fmt.Errorf("dispatch: %w", err)
 		}
-		item := Evaluate(c, cfg, st)
+		item := Evaluate(c, cfg, st, req.Rebase)
 		if item.Action != "" {
 			doc.Results = append(doc.Results, item)
 			continue
@@ -199,10 +203,14 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, failItem(c, err))
 			return doc, err
 		}
-		item = sendPrompt(ctx, h, cfg, c)
+		item = sendPrompt(ctx, h, cfg, c, req.Rebase)
 		doc.Results = append(doc.Results, item)
 		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout || item.Action == ActionDispatchedBlocked {
-			st.Record(prKey(c.Repo, c.Number), commentIDs(*c.PR), now)
+			if req.Rebase {
+				st.RecordHead(prKey(c.Repo, c.Number), c.PR.HeadSHA, now)
+			} else {
+				st.Record(prKey(c.Repo, c.Number), commentIDs(*c.PR), now)
+			}
 			if err := saveState(store, st); err != nil {
 				return doc, err
 			}
@@ -221,10 +229,10 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 	return doc, nil
 }
 
-func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate) Item {
+func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, rebase bool) Item {
 	pr := *c.PR
 	pane := *pr.Tab.PaneID
-	rendered := Render(cfg.PromptTemplate, pr)
+	rendered := Render(promptTemplate(cfg, rebase), pr)
 	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
 	item := Item{Repo: c.Repo, Number: c.Number}
 	switch out.Status {
@@ -297,16 +305,23 @@ func saveState(store StateStore, st State) error {
 	return nil
 }
 
-func evaluateDry(c Candidate, cfg config.Config, st State) Item {
-	r := Evaluate(c, cfg, st)
+func evaluateDry(c Candidate, cfg config.Config, st State, rebase bool) Item {
+	r := Evaluate(c, cfg, st, rebase)
 	if r.Action != "" {
 		return r
 	}
 	pr := *c.PR
 	r.Action = ActionWouldDispatch
 	r.PaneID = *pr.Tab.PaneID
-	r.RenderedPrompt = Render(cfg.PromptTemplate, pr)
+	r.RenderedPrompt = Render(promptTemplate(cfg, rebase), pr)
 	return r
+}
+
+func promptTemplate(cfg config.Config, rebase bool) string {
+	if rebase {
+		return cfg.RebasePromptTemplate
+	}
+	return cfg.PromptTemplate
 }
 
 func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, doc *Document) error {

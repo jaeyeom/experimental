@@ -6,7 +6,8 @@
 ~prsync~ surveys the author's open GitHub pull requests, classifies which
 ones still need attention, matches each PR to a running
 [[https://herdr.dev/][herdr]] agent tab, and — on explicit request — sends
-that agent a prompt to address unresolved review comments.
+that agent a prompt to address unresolved review comments — or, with
+~--rebase~, a rebase-in-place prompt even when there are no open comments.
 
 The tool is read-only on GitHub and write-only on herdr (prompt injection).
 It shells out to the already-authenticated ~gh~ CLI and to herdr ≥ 0.8. It
@@ -45,7 +46,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase]
 prsync gate     [--config PATH]
 prsync version
 #+END_EXAMPLE
@@ -58,6 +59,7 @@ prsync version
 | ~--pr owner/repo#N~ | dispatch | Repeatable; limit candidates |
 | ~--all~ | dispatch | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch | Live send (default is dry-run) |
+| ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
 
 ~--pr~ and ~--all~ together is an error (exit 2). ~--go~ always sends.
 ~dry_run=false~ in the config also sends without ~--go~ (for cron).
@@ -103,6 +105,7 @@ variables are not expanded.
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
 | ~dispatch_timeout_ms~ | ~1800000~ | Passed to ~herdr agent prompt --timeout~. |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. |
+| ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
 | ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. |
 | ~dispatch_wait_until~ | ~idle done blocked~ | Whitespace-separated tokens. Each becomes its own ~--until~ flag on ~herdr agent prompt~. At least one token required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live send. |
@@ -158,6 +161,7 @@ prsync scan --config ./prsync.config
       "identifier": "PROJ-123",
       "base": "main",
       "head": "fix-widget",
+      "head_sha": "abc123def456",
       "is_draft": false,
       "review_decision": "APPROVED",
       "review_requests": [
@@ -231,6 +235,20 @@ prsync dispatch --config ./prsync.config --go
 
 A second live run against the same unaddressed comment ids is
 ~skipped_deduped~.
+
+Rebase mode (a PR that only needs a rebase, including
+~skipped_addressed~ in comment mode). Dedupes on ~head_sha~ so an
+unchanged tip is not re-rebased:
+
+#+BEGIN_SRC bash
+prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123
+prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
+#+END_SRC
+
+The prompt is sent to the PR's existing herdr tab (no new worktree).
+Gate / serial / wait are unchanged. ~--rebase --all~ sends the rebase
+prompt to every PR that has a ready tab; auto-picking behind/conflicting
+PRs is a follow-up.
 
 ** gate
 

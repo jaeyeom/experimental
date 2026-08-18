@@ -184,6 +184,64 @@ func TestDispatchStdinDecodeError(t *testing.T) {
 	}
 }
 
+func TestDispatchRebaseAddressedWouldDispatch(t *testing.T) {
+	_, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+	doc := stdinEligibleDoc()
+	doc.PRs[0].Unaddressed = false
+	doc.PRs[0].BlockingComments = nil
+	doc.PRs[0].Head = "fix-widget"
+	doc.PRs[0].Base = "main"
+	raw := mustScanJSON(t, doc)
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--rebase", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "Check out fix-widget") {
+		t.Fatalf("rendered_prompt = %q", got.Results[0].RenderedPrompt)
+	}
+	if strings.Contains(got.Results[0].RenderedPrompt, "unresolved review comments") {
+		t.Fatalf("used comment template: %q", got.Results[0].RenderedPrompt)
+	}
+}
+
+func TestDispatchAddressedWithoutRebaseIsSkipped(t *testing.T) {
+	_, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+	doc := stdinEligibleDoc()
+	doc.PRs[0].Unaddressed = false
+	doc.PRs[0].BlockingComments = nil
+	raw := mustScanJSON(t, doc)
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedAddressed {
+		t.Fatalf("results = %+v, want skipped_addressed", got.Results)
+	}
+}
+
 func TestDispatchNotFoundPR(t *testing.T) {
 	_, herdrBin := fixtureBins(t)
 	cfgPath := writeScanConfig(t, strings.Join([]string{
