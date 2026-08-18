@@ -57,6 +57,74 @@ func TestDedupeReplaceNotUnion(t *testing.T) {
 	}
 }
 
+func TestDedupeHeadEmptyState(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	if st.DedupedHead("acme/widgets#123", "abc123") {
+		t.Fatal("empty state must not be SHA-deduped")
+	}
+}
+
+func TestDedupeHeadSameSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}}
+	if !st.DedupedHead("acme/widgets#123", "abc123") {
+		t.Fatal("same head SHA must be deduped")
+	}
+}
+
+func TestDedupeHeadChangedSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}}
+	if st.DedupedHead("acme/widgets#123", "def456") {
+		t.Fatal("changed head SHA must not be deduped")
+	}
+}
+
+func TestDedupeHeadEmptySHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}}
+	if st.DedupedHead("acme/widgets#123", "") {
+		t.Fatal("empty current SHA must not be deduped")
+	}
+}
+
+func TestRecordHeadPreservesCommentIDs(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	got := st["acme/widgets#123"]
+	if !reflect.DeepEqual(got.DispatchedCommentIDs, []string{"PRRC_a"}) {
+		t.Fatalf("comment ids = %v, want preserved", got.DispatchedCommentIDs)
+	}
+	if got.DispatchedHeadSHA != "abc123" {
+		t.Fatalf("head SHA = %q, want abc123", got.DispatchedHeadSHA)
+	}
+}
+
+func TestRecordPreservesHeadSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	got := st["acme/widgets#123"]
+	if got.DispatchedHeadSHA != "abc123" {
+		t.Fatalf("head SHA = %q, want preserved", got.DispatchedHeadSHA)
+	}
+	if !reflect.DeepEqual(got.DispatchedCommentIDs, []string{"PRRC_a"}) {
+		t.Fatalf("comment ids = %v", got.DispatchedCommentIDs)
+	}
+}
+
 func TestLoadFileMissingIsEmpty(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@
     "url": "https://github.com/acme/widgets/pull/123",
     "baseRefName": "main",
     "headRefName": "fix-widget",
+    "headRefOid": "abc123def456",
     "mergeable": "MERGEABLE",
     "isDraft": false,
     "reviewDecision": "APPROVED",

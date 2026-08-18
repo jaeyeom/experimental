@@ -35,6 +35,11 @@
 # into the prompt as text.
 # dispatch_prompt_template=
 
+# Used only by `prsync dispatch --rebase`. Same placeholders as
+# dispatch_prompt_template. Default: checkout {head}, fetch, rebase onto
+# origin/{base}, resolve conflicts, --force-with-lease, no new worktree.
+# rebase_prompt_template=
+
 # true / false / 1 / 0
 # dispatch_include_drafts=false
 # dry_run=true

@@ -22,25 +22,36 @@ Unaddressed threads:
 For each thread: understand the reviewer's ask, make the change (or reply if you
 disagree, with reasoning), resolve the thread, and push. Do not touch other PRs.`
 
+const defaultRebasePromptTemplate = `Rebase PR #{number} ({url}) onto origin/{base} in this working directory. Do not create a new worktree.
+
+1. Check out {head}.
+2. Fetch origin.
+3. Rebase onto origin/{base}.
+4. Resolve any conflicts.
+5. Push with --force-with-lease.
+
+Do not touch other PRs.`
+
 var repoPattern = regexp.MustCompile(`^[^/\s]+/[^/\s]+$`)
 
 // Config is the resolved prsync configuration.
 type Config struct {
-	Repos             []string
-	Author            string
-	TitleIDPattern    *regexp.Regexp
-	TabLabelTemplate  string
-	HerdrBin          string
-	GHBin             string
-	ConcurrencyWaitOn string
-	GatePoll          time.Duration
-	GateTimeout       time.Duration
-	PromptTemplate    string
-	IncludeDrafts     bool
-	WaitUntil         []string
-	DispatchTimeout   time.Duration
-	StateFile         string
-	DryRun            bool
+	Repos                []string
+	Author               string
+	TitleIDPattern       *regexp.Regexp
+	TabLabelTemplate     string
+	HerdrBin             string
+	GHBin                string
+	ConcurrencyWaitOn    string
+	GatePoll             time.Duration
+	GateTimeout          time.Duration
+	PromptTemplate       string
+	RebasePromptTemplate string
+	IncludeDrafts        bool
+	WaitUntil            []string
+	DispatchTimeout      time.Duration
+	StateFile            string
+	DryRun               bool
 
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
@@ -69,18 +80,19 @@ func (e *KeyError) Error() string {
 // Defaults returns the built-in configuration.
 func Defaults() Config {
 	return Config{
-		TitleIDPattern:    regexp.MustCompile(`[A-Z]+-[0-9]+`),
-		TabLabelTemplate:  "{id}",
-		HerdrBin:          "herdr",
-		GHBin:             "gh",
-		ConcurrencyWaitOn: "any",
-		GatePoll:          2000 * time.Millisecond,
-		GateTimeout:       1800000 * time.Millisecond,
-		PromptTemplate:    defaultPromptTemplate,
-		WaitUntil:         []string{"idle", "done", "blocked"},
-		DispatchTimeout:   1800000 * time.Millisecond,
-		StateFile:         "~/.config/prsync/state.json",
-		DryRun:            true,
+		TitleIDPattern:       regexp.MustCompile(`[A-Z]+-[0-9]+`),
+		TabLabelTemplate:     "{id}",
+		HerdrBin:             "herdr",
+		GHBin:                "gh",
+		ConcurrencyWaitOn:    "any",
+		GatePoll:             2000 * time.Millisecond,
+		GateTimeout:          1800000 * time.Millisecond,
+		PromptTemplate:       defaultPromptTemplate,
+		RebasePromptTemplate: defaultRebasePromptTemplate,
+		WaitUntil:            []string{"idle", "done", "blocked"},
+		DispatchTimeout:      1800000 * time.Millisecond,
+		StateFile:            "~/.config/prsync/state.json",
+		DryRun:               true,
 	}
 }
 
@@ -231,7 +243,9 @@ func applyKey(cfg *Config, key, val string) error {
 	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms":
 		return applyMillis(cfg, key, val)
 	case "dispatch_prompt_template":
-		return applyPrompt(cfg, val)
+		return applyPrompt(cfg, "dispatch_prompt_template", val)
+	case "rebase_prompt_template":
+		return applyPrompt(cfg, "rebase_prompt_template", val)
 	case "dispatch_include_drafts":
 		return applyIncludeDrafts(cfg, val)
 	case "dispatch_wait_until":
@@ -280,12 +294,17 @@ func applyMillis(cfg *Config, key, val string) error {
 	return nil
 }
 
-func applyPrompt(cfg *Config, val string) error {
-	text, err := resolvePrompt(val)
+func applyPrompt(cfg *Config, key, val string) error {
+	text, err := resolvePrompt(key, val)
 	if err != nil {
 		return err
 	}
-	cfg.PromptTemplate = text
+	switch key {
+	case "rebase_prompt_template":
+		cfg.RebasePromptTemplate = text
+	default:
+		cfg.PromptTemplate = text
+	}
 	return nil
 }
 
@@ -316,14 +335,14 @@ func applyDryRun(cfg *Config, val string) error {
 	return nil
 }
 
-func resolvePrompt(val string) (string, error) {
+func resolvePrompt(key, val string) (string, error) {
 	if !strings.HasPrefix(val, "@") {
 		return val, nil
 	}
 	path := expandTilde(val[1:])
 	data, err := os.ReadFile(path) //nolint:gosec // path is an operator-supplied prompt file
 	if err != nil {
-		return "", &KeyError{Key: "dispatch_prompt_template", Reason: fmt.Sprintf("read %s: %v", path, err)}
+		return "", &KeyError{Key: key, Reason: fmt.Sprintf("read %s: %v", path, err)}
 	}
 	return string(data), nil
 }

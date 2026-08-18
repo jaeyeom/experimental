@@ -430,6 +430,7 @@ func fixturePRs() []gh.PRListItem {
 		URL:            "https://github.com/acme/widgets/pull/123",
 		BaseRefName:    "main",
 		HeadRefName:    "fix-widget",
+		HeadRefOid:     "abc123def456",
 		Mergeable:      "MERGEABLE",
 		IsDraft:        false,
 		ReviewDecision: "APPROVED",
