@@ -104,7 +104,7 @@ variables are not expanded.
 | ~gate_poll_ms~ | ~2000~ | Gate poll interval (milliseconds). |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
 | ~dispatch_timeout_ms~ | ~1800000~ | Passed to ~herdr agent prompt --timeout~. |
-| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. |
+| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. Default: apply mechanical / unambiguous fixes; for a design decision, tradeoff, or disagreement, pause and ask the user (with a recommended option) before editing / resolving / pushing. |
 | ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
 | ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. |
 | ~dispatch_wait_until~ | ~idle done blocked~ | Whitespace-separated tokens. Each becomes its own ~--until~ flag on ~herdr agent prompt~. At least one token required. |
@@ -220,7 +220,7 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
       "number": 123,
       "action": "would_dispatch",
       "pane_id": "w2:pC",
-      "rendered_prompt": "Address the unresolved review comments on PR #123 (https://github.com/acme/widgets/pull/123).\n\nUnaddressed threads:\n- src/widget.go:42 — reviewer-login: This should handle the nil case. (https://github.com/acme/widgets/pull/123#discussion_r1)\n\nFor each thread: understand the reviewer's ask, make the change (or reply if you\ndisagree, with reasoning), resolve the thread, and push. Do not touch other PRs."
+      "rendered_prompt": "Address the unresolved review comments on PR #123 (https://github.com/acme/widgets/pull/123).\n\nUnaddressed threads:\n- src/widget.go:42 — reviewer-login: This should handle the nil case. (https://github.com/acme/widgets/pull/123#discussion_r1)\n\nTriage each thread before acting:\n- Mechanical / unambiguous (typo, nil check, rename, obvious bug): make the\n  change, resolve the thread, and continue.\n- Design decision, tradeoff, or disagreement: pause and ask the user how to\n  proceed, with a recommended option. Do not edit, resolve, or push for that\n  thread until they answer.\n\nPush after the mechanical threads are done (and after the user answers any\nquestions). Do not touch other PRs."
     }
   ]
 }
