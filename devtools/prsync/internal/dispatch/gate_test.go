@@ -246,9 +246,23 @@ type scriptHerdr struct {
 	lists    [][]herdr.Agent
 	listErrs []error
 	n        int
+	prompts  []herdr.PromptOutcome
+	promptN  int
+	sawUntil []string
 }
 
 func (s *scriptHerdr) RequireMin(context.Context, string) error { return s.minErr }
+
+func (s *scriptHerdr) Prompt(_ context.Context, _, _ string, until []string, _ time.Duration) herdr.PromptOutcome {
+	s.sawUntil = append([]string(nil), until...)
+	if s.promptN < len(s.prompts) {
+		out := s.prompts[s.promptN]
+		s.promptN++
+		return out
+	}
+	s.promptN++
+	return herdr.PromptOutcome{Status: herdr.PromptMatched}
+}
 
 func (s *scriptHerdr) AgentList(context.Context) ([]herdr.Agent, error) {
 	i := s.n

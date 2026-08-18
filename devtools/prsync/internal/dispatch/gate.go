@@ -1,4 +1,4 @@
-// Package dispatch implements eligibility, dry-run dispatch, and the concurrency gate.
+// Package dispatch implements eligibility, dry-run and live dispatch, and the concurrency gate.
 package dispatch
 
 import (
@@ -27,10 +27,11 @@ type Sleeper interface {
 	Sleep(ctx context.Context, d time.Duration) error
 }
 
-// Herdr is the herdr surface the gate uses.
+// Herdr is the herdr surface the gate and live dispatch use.
 type Herdr interface {
 	RequireMin(ctx context.Context, minimum string) error
 	AgentList(ctx context.Context) ([]herdr.Agent, error)
+	Prompt(ctx context.Context, paneID, text string, until []string, timeout time.Duration) herdr.PromptOutcome
 }
 
 // Result is the outbound gate JSON document.

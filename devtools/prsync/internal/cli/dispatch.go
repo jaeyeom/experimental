@@ -25,23 +25,24 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		configPath string
 		prs        []string
 		all        bool
+		goLive     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
 		Short: "Send unmatched review comments to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all)
+			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringArrayVar(&prs, "pr", nil, "limit to owner/repo#N (repeatable)")
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
-	cmd.Flags().Bool("go", false, "send prompts (default is dry-run)")
+	cmd.Flags().BoolVar(&goLive, "go", false, "send prompts (default is dry-run)")
 	return cmd
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all bool) error {
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive bool) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -53,6 +54,9 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if goLive {
+		cfg.DryRun = false
 	}
 	doc, err := loadScanDoc(ctx, cfg, exec)
 	if err != nil {
@@ -155,6 +159,12 @@ func writeDispatchJSON(w io.Writer, doc dispatch.Document) error {
 func dispatchExit(err error, cfg config.Config) error {
 	if errors.Is(err, dispatch.ErrCorruptState) {
 		return &ExitError{Code: ExitUsage, Err: err}
+	}
+	if errors.Is(err, dispatch.ErrTimeout) {
+		return &ExitError{Code: ExitGateTimeout, Err: err}
+	}
+	if errors.Is(err, dispatch.ErrLock) {
+		return &ExitError{Code: ExitPrecondition, Err: err}
 	}
 	if errors.Is(err, herdr.ErrNotInstalled) {
 		return &ExitError{Code: ExitPrecondition, Err: fmt.Errorf("herdr binary not found (herdr_bin=%q)", cfg.HerdrBin)}

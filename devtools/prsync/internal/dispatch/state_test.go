@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -107,6 +108,66 @@ func TestSaveFileRoundTrip(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("perm = %o, want 0600", info.Mode().Perm())
 	}
+}
+
+func TestWithLockExclusive(t *testing.T) {
+	t.Parallel()
+
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	unlock, err := store.AcquireLock()
+	if err != nil {
+		t.Fatalf("AcquireLock() error = %v", err)
+	}
+	defer unlock()
+
+	if _, err := os.Stat(store.Path + ".lock"); err != nil {
+		t.Fatalf("lock file missing: %v", err)
+	}
+	data, err := os.ReadFile(store.Path + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "pid:") || !strings.Contains(string(data), "locked_at:") {
+		t.Fatalf("lock contents = %q", data)
+	}
+
+	_, err = store.AcquireLock()
+	if !errors.Is(err, ErrLock) {
+		t.Fatalf("second AcquireLock() error = %v, want ErrLock", err)
+	}
+}
+
+func TestWithLockReapsStale(t *testing.T) {
+	t.Parallel()
+
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	if err := os.WriteFile(store.Path+".lock", []byte("locked_at: 2020-01-01T00:00:00Z\npid: 999999\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := store.AcquireLock()
+	if err != nil {
+		t.Fatalf("AcquireLock() stale error = %v", err)
+	}
+	unlock()
+}
+
+func TestWithLockReleases(t *testing.T) {
+	t.Parallel()
+
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	unlock, err := store.AcquireLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	if _, err := os.Stat(store.Path + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("lock file still present after release")
+	}
+	unlock2, err := store.AcquireLock()
+	if err != nil {
+		t.Fatalf("re-acquire after release: %v", err)
+	}
+	unlock2()
 }
 
 func TestFileStoreLoad(t *testing.T) {
