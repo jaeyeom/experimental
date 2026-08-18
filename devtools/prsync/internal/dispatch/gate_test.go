@@ -104,10 +104,53 @@ func TestCheckManagedBusyWhenMatched(t *testing.T) {
 	}
 }
 
+func TestCheckBlockedIsBusy(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pC", "w2:tC")}}}
+	got, err := Check(context.Background(), h, "any", "", nil)
+	if err != nil {
+		t.Fatalf("Check() unexpected error: %v", err)
+	}
+	if got.Safe {
+		t.Fatal("safe = true, want false while an agent is blocked awaiting the user")
+	}
+	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
+		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
+	}
+}
+
+func TestCheckBlockedSelfExclusion(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pC", "w2:tC")}}}
+	got, err := Check(context.Background(), h, "any", "w2:pC", nil)
+	if err != nil {
+		t.Fatalf("Check() unexpected error: %v", err)
+	}
+	if !got.Safe {
+		t.Fatalf("safe = false, want true after excluding runner pane; busy=%+v", got.Busy)
+	}
+}
+
+func TestCheckManagedBusyWhenMatchedBlocked(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pC", "w2:tC")}}}
+	matched := map[string]struct{}{"w2:tC": {}}
+	got, err := Check(context.Background(), h, "managed", "", matched)
+	if err != nil {
+		t.Fatalf("Check() unexpected error: %v", err)
+	}
+	if got.Safe {
+		t.Fatal("safe = true, want false when a matched tab is blocked")
+	}
+}
+
 func TestCheckNonWorkingStatusesAreSafe(t *testing.T) {
 	t.Parallel()
 
-	for _, status := range []string{"idle", "done", "blocked", "unknown", "none"} {
+	for _, status := range []string{"idle", "done", "unknown", "none"} {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 			h := &scriptHerdr{lists: [][]herdr.Agent{{{
@@ -199,6 +242,34 @@ func TestWaitFlipsWorkingToIdle(t *testing.T) {
 	}
 	if h.n != 2 {
 		t.Fatalf("AgentList calls = %d, want 2 (busy then idle)", h.n)
+	}
+	if sleeper.n != 1 {
+		t.Fatalf("Sleep calls = %d, want 1", sleeper.n)
+	}
+}
+
+func TestWaitFlipsBlockedToIdle(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{
+		{blockedAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+	}}
+	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
+	sleeper := &fakeSleeper{clock: clock}
+	cfg := config.Defaults()
+	cfg.GatePoll = time.Millisecond
+	cfg.GateTimeout = 50 * time.Millisecond
+
+	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
+	if err != nil {
+		t.Fatalf("Wait() unexpected error: %v", err)
+	}
+	if !got.Safe {
+		t.Fatalf("safe = false after flip, busy=%+v", got.Busy)
+	}
+	if h.n != 2 {
+		t.Fatalf("AgentList calls = %d, want 2 (blocked then idle)", h.n)
 	}
 	if sleeper.n != 1 {
 		t.Fatalf("Sleep calls = %d, want 1", sleeper.n)
@@ -309,6 +380,10 @@ func workingAgent(paneID, tabID string) herdr.Agent {
 
 func idleAgent(paneID, tabID string) herdr.Agent {
 	return herdr.Agent{PaneID: paneID, TabID: tabID, Agent: "codex", AgentStatus: "idle"}
+}
+
+func blockedAgent(paneID, tabID string) herdr.Agent {
+	return herdr.Agent{PaneID: paneID, TabID: tabID, Agent: "codex", AgentStatus: "blocked"}
 }
 
 func strPtr(s string) *string { return &s }

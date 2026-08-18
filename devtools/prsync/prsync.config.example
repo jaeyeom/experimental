@@ -20,8 +20,8 @@
 # herdr_bin=herdr
 # gh_bin=gh
 
-# Gate busy-set: any (every working agent) | managed (only tabs matched
-# to PRs in the current scan; managed runs a scan).
+# Gate busy-set: any (every working or blocked agent) | managed (only
+# tabs matched to PRs in the current scan; managed runs a scan).
 # concurrency_wait_on=any
 
 # Milliseconds. Parsed as n * time.Millisecond (2000 = 2s, not 2µs).
@@ -41,11 +41,15 @@
 
 # Whitespace-separated herdr --until tokens. Each token becomes its own
 # `herdr agent prompt --until <token>` flag. At least one token required.
-# Default `idle done` treats a settled unfocused agent as ready-for-input.
-# Live dispatch then runs: --wait --until idle --until done
+# Default `idle done blocked` treats a settled unfocused agent as
+# ready-for-input and treats a user-blocked agent as a terminal
+# settlement (dispatched_blocked; the batch stops so the next agent
+# does not start). Live dispatch then runs:
+# --wait --until idle --until done --until blocked
 # Set `idle` only to wait until herdr reports idle (can take ~30 min if
 # the agent settles to done instead).
-# dispatch_wait_until=idle done
+# dispatch_wait_until=idle done blocked
 
-# Written only on live send (dispatched / dispatched_timeout).
+# Written only on live send (dispatched / dispatched_timeout /
+# dispatched_blocked).
 # state_file=~/.config/prsync/state.json

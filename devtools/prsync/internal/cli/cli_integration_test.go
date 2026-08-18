@@ -113,6 +113,42 @@ func TestDispatchGoDoneSettlementIsDispatched(t *testing.T) {
 	}
 }
 
+func TestDispatchGoBlockedStopsBatch(t *testing.T) {
+	t.Setenv("HERDR_FAKE_PROMPT", "blocked")
+	ghBin, herdrBin := fixtureBins(t)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	raw := mustScanJSON(t, stdinTwoEligibleDoc())
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 2 {
+		t.Fatalf("len(results) = %d, want 2\n%s", len(got.Results), stdout.String())
+	}
+	if got.Results[0].Action != dispatch.ActionDispatchedBlocked || got.Results[0].Number != 123 {
+		t.Fatalf("first = %+v, want dispatched_blocked #123", got.Results[0])
+	}
+	if got.Results[1].Action != dispatch.ActionQueued || got.Results[1].Number != 124 {
+		t.Fatalf("second = %+v, want queued #124", got.Results[1])
+	}
+	st, err := dispatch.LoadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
+		t.Fatalf("state missing first PR: %#v", st)
+	}
+	if _, ok := st["acme/widgets#124"]; ok {
+		t.Fatalf("state has second PR: %#v", st)
+	}
+}
+
 func TestDispatchGoHerdrTimeoutWritesState(t *testing.T) {
 	t.Setenv("HERDR_FAKE_PROMPT", "timeout")
 	ghBin, herdrBin := fixtureBins(t)

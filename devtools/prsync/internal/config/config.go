@@ -77,7 +77,7 @@ func Defaults() Config {
 		GatePoll:          2000 * time.Millisecond,
 		GateTimeout:       1800000 * time.Millisecond,
 		PromptTemplate:    defaultPromptTemplate,
-		WaitUntil:         []string{"idle", "done"},
+		WaitUntil:         []string{"idle", "done", "blocked"},
 		DispatchTimeout:   1800000 * time.Millisecond,
 		StateFile:         "~/.config/prsync/state.json",
 		DryRun:            true,

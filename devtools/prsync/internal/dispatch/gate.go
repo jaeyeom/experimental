@@ -40,7 +40,7 @@ type Result struct {
 	Busy []Busy `json:"busy"`
 }
 
-// Busy is one working agent in the busy set.
+// Busy is one working or blocked agent in the busy set.
 type Busy struct {
 	PaneID string `json:"pane_id"` //nolint:tagliatelle // brief outbound contract
 	TabID  string `json:"tab_id"`  //nolint:tagliatelle // brief outbound contract
@@ -109,7 +109,7 @@ func busySet(agents []herdr.Agent, waitOn, runnerPane string, matchedTabs map[st
 }
 
 func isBusy(agent herdr.Agent, waitOn, runnerPane string, matchedTabs map[string]struct{}) bool {
-	if agent.AgentStatus != "working" {
+	if !holdsGate(agent.AgentStatus) {
 		return false
 	}
 	if runnerPane != "" && agent.PaneID == runnerPane {
@@ -120,4 +120,8 @@ func isBusy(agent herdr.Agent, waitOn, runnerPane string, matchedTabs map[string
 		return ok
 	}
 	return true
+}
+
+func holdsGate(status string) bool {
+	return status == "working" || status == "blocked"
 }

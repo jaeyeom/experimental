@@ -33,6 +33,25 @@ func TestGateSafeWhenIdle(t *testing.T) {
 	}
 }
 
+func TestGateBusyWhenBlocked(t *testing.T) {
+	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
+	ghBin, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitUnsafe {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitUnsafe, stderr.String(), stdout.String())
+	}
+	got := decodeGate(t, stdout.Bytes())
+	if got.Safe {
+		t.Fatal("safe = true, want false while an agent is blocked")
+	}
+	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
+		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
+	}
+}
+
 func TestGateBusyWhenWorking(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "working")
 	ghBin, herdrBin := fixtureBins(t)

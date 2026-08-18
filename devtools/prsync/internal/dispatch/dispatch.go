@@ -123,8 +123,10 @@ func Evaluate(c Candidate, cfg config.Config, st State) Item {
 
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
 // polls, never emits queued, and never writes state. Live send polls the gate
-// one PR at a time, writes state on dispatched / dispatched_timeout, and
-// returns ErrTimeout or ErrFailed after emitting partial results.
+// one PR at a time, writes state on dispatched / dispatched_timeout /
+// dispatched_blocked, and returns ErrTimeout or ErrFailed after emitting
+// partial results. A blocked settlement stops the batch so the user can
+// answer before the next agent starts.
 func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time) (Document, error) {
 	doc := Document{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
@@ -199,11 +201,15 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 		}
 		item = sendPrompt(ctx, h, cfg, c)
 		doc.Results = append(doc.Results, item)
-		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
+		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout || item.Action == ActionDispatchedBlocked {
 			st.Record(prKey(c.Repo, c.Number), commentIDs(*c.PR), now)
 			if err := saveState(store, st); err != nil {
 				return doc, err
 			}
+		}
+		if item.Action == ActionDispatchedBlocked {
+			queueRest(&doc, cands, i+1)
+			return doc, nil
 		}
 		if item.Action == ActionFailed {
 			if err := ctx.Err(); err != nil {
@@ -224,6 +230,9 @@ func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate) It
 	switch out.Status {
 	case herdr.PromptMatched:
 		item.Action = ActionDispatched
+		if out.Agent.AgentStatus == "blocked" {
+			item.Action = ActionDispatchedBlocked
+		}
 		item.PaneID = pane
 		item.RenderedPrompt = rendered
 	case herdr.PromptStalled:
@@ -308,7 +317,7 @@ func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, 
 	if res.Safe || len(res.Busy) == 0 {
 		return nil
 	}
-	detail := fmt.Sprintf("gate currently busy: pane %s working", res.Busy[0].PaneID)
+	detail := fmt.Sprintf("gate currently busy: pane %s", res.Busy[0].PaneID)
 	for i := range doc.Results {
 		if doc.Results[i].Action == ActionWouldDispatch {
 			doc.Results[i].Detail = detail
