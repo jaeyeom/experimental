@@ -14,7 +14,13 @@ import (
 	"time"
 )
 
-const defaultPromptTemplate = `Address the unresolved review comments on PR #{number} ({url}).
+const defaultPromptTemplate = `Get onto this PR's branch before editing:
+1. If the working tree has uncommitted changes, stash or commit them first.
+2. Check out {head} (if absent locally, run ` + "`gh pr checkout {number}`" + `).
+3. Fetch origin and bring {head} up to date with origin/{base} as needed.
+Do not start editing until you are on {head} at its latest tip.
+
+Address the unresolved review comments on PR #{number} ({url}).
 
 Unaddressed threads:
 {comments}
