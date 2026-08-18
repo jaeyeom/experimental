@@ -1,6 +1,9 @@
 # prsync example configuration (KEY=VALUE).
 # Copy to ./prsync.config or ~/.config/prsync/prsync.config.
+# Search order: --config PATH, then ./prsync.config, then
+# ~/.config/prsync/prsync.config. Missing file uses built-in defaults.
 # Unknown keys are ignored. Inline comments are not supported.
+# Do not source this file in a shell; prsync parses it.
 
 # Space-separated owner/repo list. Empty = auto-discover from open PRs.
 # repos=
@@ -17,7 +20,8 @@
 # herdr_bin=herdr
 # gh_bin=gh
 
-# Gate busy-set: any | managed
+# Gate busy-set: any (every working agent) | managed (only tabs matched
+# to PRs in the current scan; managed runs a scan).
 # concurrency_wait_on=any
 
 # Milliseconds. Parsed as n * time.Millisecond (2000 = 2s, not 2µs).
@@ -26,13 +30,20 @@
 # dispatch_timeout_ms=1800000
 
 # Inline prompt, or @/path/to/file (tilde is expanded).
+# Review comment bodies are interpolated into the prompt as text.
 # dispatch_prompt_template=
 
 # true / false / 1 / 0
 # dispatch_include_drafts=false
 # dry_run=true
 
-# Whitespace-separated herdr --until tokens (each becomes its own flag).
+# Whitespace-separated herdr --until tokens. Each token becomes its own
+# `herdr agent prompt --until <token>` flag. At least one token required.
+# Default `idle done` treats a settled unfocused agent as ready-for-input.
+# Live dispatch then runs: --wait --until idle --until done
+# Set `idle` only to wait until herdr reports idle (can take ~30 min if
+# the agent settles to done instead).
 # dispatch_wait_until=idle done
 
+# Written only on live send (dispatched / dispatched_timeout).
 # state_file=~/.config/prsync/state.json

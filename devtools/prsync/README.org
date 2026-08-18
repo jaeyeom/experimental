@@ -1,6 +1,316 @@
 #+TITLE: prsync
+#+DATE: 2026-08-17
 
 * Overview
 
-prsync surveys open GitHub pull requests and matches them to running herdr
-agent tabs.
+~prsync~ surveys the author's open GitHub pull requests, classifies which
+ones still need attention, matches each PR to a running
+[[https://herdr.dev/][herdr]] agent tab, and — on explicit request — sends
+that agent a prompt to address unresolved review comments.
+
+The tool is read-only on GitHub and write-only on herdr (prompt injection).
+It shells out to the already-authenticated ~gh~ CLI and to herdr ≥ 0.8. It
+never embeds a GitHub token. Dispatch is serialized (one agent at a time)
+and dry-run by default. All commands emit JSON on stdout.
+
+Related tracker: [[https://github.com/jaeyeom/experimental/issues/211][#211]].
+
+* Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest
+#+END_SRC
+
+Or with Bazel from this repo:
+
+#+BEGIN_SRC bash
+bazel run //devtools/prsync/cmd/prsync -- version
+#+END_SRC
+
+After ~go install~, put ~$GOPATH/bin~ / ~$GOBIN~ on ~PATH~.
+
+* Prerequisites
+
+- ~gh~ authenticated (~gh auth login~). ~prsync~ never calls ~gh auth token~.
+- herdr ≥ 0.8 on ~PATH~ for matching and dispatch. Missing herdr: ~scan~
+  degrades (tabs are unset); ~dispatch~ and ~gate~ exit 3. Present but older
+  than 0.8, or unparseable ~herdr --version~: every command that would talk
+  to herdr (including ~scan~) exits 3.
+- Linux or macOS. No Windows requirement.
+
+Optional: copy [[file:prsync.config.example][prsync.config.example]] to
+~./prsync.config~ or =$HOME/.config/prsync/prsync.config= and edit.
+
+* Commands
+
+#+BEGIN_EXAMPLE
+prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go]
+prsync gate     [--config PATH]
+prsync version
+#+END_EXAMPLE
+
+| Flag | Commands | Effect |
+|------+----------+--------|
+| ~--config PATH~ | scan, dispatch, gate | Use this file (must exist) |
+| ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
+| ~--json~ | scan | Accepted no-op (stdout is always JSON) |
+| ~--pr owner/repo#N~ | dispatch | Repeatable; limit candidates |
+| ~--all~ | dispatch | Every PR in the scan document (default when no ~--pr~) |
+| ~--go~ | dispatch | Live send (default is dry-run) |
+
+~--pr~ and ~--all~ together is an error (exit 2). ~--go~ always sends.
+~dry_run=false~ in the config also sends without ~--go~ (for cron).
+
+~dispatch~ reads a scan document from stdin when stdin is not a TTY and
+the first non-whitespace byte is ~{~. Decode errors are fatal.
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config | prsync dispatch --config ./prsync.config
+#+END_SRC
+
+* Configuration
+
+Search order (first existing file wins):
+
+1. ~--config PATH~ (missing file → exit 2)
+2. ~./prsync.config~ (cwd; honors ~BUILD_WORKING_DIRECTORY~ under ~bazel run~)
+3. =$HOME/.config/prsync/prsync.config=
+
+If none exist, built-in defaults are used. That is not an error.
+
+The file is ~KEY=VALUE~, one assignment per line. Blank lines and ~#~
+comment lines are ignored. Inline comments (~key=value # comment~) are not
+supported. Unknown keys are ignored. The parser does not ~source~ the file.
+
+~*_ms~ keys are integers in milliseconds (~2000~ is 2s, not 2µs). ~true~ /
+~false~ / ~1~ / ~0~ are accepted for booleans. ~state_file~, ~gh_bin~,
+~herdr_bin~, and ~@/path~ prompt files expand a leading tilde. Environment
+variables are not expanded.
+
+** Keys
+
+| Key | Default | Notes |
+|-----+---------+-------|
+| ~repos~ | empty | Space-separated ~owner/repo~. Empty = auto-discover from open PRs. |
+| ~author~ | empty | GitHub login. Empty = ~gh api user --jq .login~. |
+| ~title_id_pattern~ | ~[A-Z]+-[0-9]+~ | First match in the PR title is the identifier. |
+| ~tab_label_template~ | ~{id}~ | Herdr tab label after substituting ~{id}~. Exact, case-sensitive. |
+| ~herdr_bin~ | ~herdr~ | herdr executable. |
+| ~gh_bin~ | ~gh~ | gh executable. |
+| ~concurrency_wait_on~ | ~any~ | ~any~ (every working agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. |
+| ~gate_poll_ms~ | ~2000~ | Gate poll interval (milliseconds). |
+| ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
+| ~dispatch_timeout_ms~ | ~1800000~ | Passed to ~herdr agent prompt --timeout~. |
+| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{number}~, ~{url}~, ~{comments}~ are substituted. |
+| ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. |
+| ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated tokens. Each becomes its own ~--until~ flag on ~herdr agent prompt~. At least one token required. |
+| ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live send. |
+| ~dry_run~ | ~true~ | ~true~ / ~false~ / ~1~ / ~0~. ~--go~ overrides to live. |
+
+~dispatch_wait_until=idle done~ (the default) treats a settled unfocused
+agent as ready-for-input. Live dispatch therefore runs:
+
+#+BEGIN_EXAMPLE
+herdr agent prompt <pane_id> <prompt> --wait --until idle --until done --timeout …
+#+END_EXAMPLE
+
+Set ~dispatch_wait_until=idle~ only if you want to wait until herdr reports
+~idle~ (can take about 30 minutes if the agent settles to ~done~ instead).
+
+See [[file:prsync.config.example][prsync.config.example]] for a commented copy of every key.
+
+* Worked examples
+
+** version
+
+#+BEGIN_SRC bash
+prsync version
+#+END_SRC
+
+#+BEGIN_SRC json
+{"version":"0.1.0"}
+#+END_SRC
+
+** scan
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "author": "alice",
+  "repos": [
+    "acme/widgets"
+  ],
+  "prs": [
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "title": "[PROJ-123] Fix the widget",
+      "url": "https://github.com/acme/widgets/pull/123",
+      "identifier": "PROJ-123",
+      "base": "main",
+      "head": "fix-widget",
+      "is_draft": false,
+      "review_decision": "APPROVED",
+      "review_requests": [
+        "User:reviewer-login",
+        "Team:platform-reviewers"
+      ],
+      "ci_state": "green",
+      "bucket": "needs_you",
+      "unaddressed": true,
+      "blocking_comments": [
+        {
+          "thread_id": "PRRT_widget",
+          "comment_id": "PRRC_widget",
+          "author": "reviewer-login",
+          "path": "src/widget.go",
+          "line": 42,
+          "url": "https://github.com/acme/widgets/pull/123#discussion_r1",
+          "body": "This should handle the nil case."
+        }
+      ],
+      "tab": {
+        "tab_id": "w2:tC",
+        "pane_id": "w2:pC",
+        "workspace_id": "w2",
+        "label": "PROJ-123",
+        "agent_status": "idle"
+      }
+    }
+  ],
+  "inaccessible_repos": [],
+  "warnings": []
+}
+#+END_SRC
+
+~bucket~ is ~needs_you~ | ~ready~ | ~waiting~ | ~draft~. ~APPROVED~ with
+leftover ~review_requests~ is ~needs_you~, not ready to merge. ~tab~ is
+~null~ when no unique herdr tab matches.
+
+** dispatch
+
+Dry-run (default). Review ~rendered_prompt~ and confirm ~pane_id~ is a pane
+(~w2:pC~), not a tab id (~w2:tC~):
+
+#+BEGIN_SRC bash
+prsync dispatch --config ./prsync.config
+prsync dispatch --config ./prsync.config --pr acme/widgets#123
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "dry_run": true,
+  "results": [
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "action": "would_dispatch",
+      "pane_id": "w2:pC",
+      "rendered_prompt": "Address the unresolved review comments on PR #123 (https://github.com/acme/widgets/pull/123).\n\nUnaddressed threads:\n- src/widget.go:42 — reviewer-login: This should handle the nil case. (https://github.com/acme/widgets/pull/123#discussion_r1)\n\nFor each thread: understand the reviewer's ask, make the change (or reply if you\ndisagree, with reasoning), resolve the thread, and push. Do not touch other PRs."
+    }
+  ]
+}
+#+END_SRC
+
+Live send (writes ~state_file~ on ~dispatched~ / ~dispatched_timeout~):
+
+#+BEGIN_SRC bash
+prsync dispatch --config ./prsync.config --go
+#+END_SRC
+
+A second live run against the same unaddressed comment ids is
+~skipped_deduped~.
+
+** gate
+
+#+BEGIN_SRC bash
+prsync gate --config ./prsync.config
+#+END_SRC
+
+Safe:
+
+#+BEGIN_SRC json
+{
+  "safe": true,
+  "busy": []
+}
+#+END_SRC
+
+Unsafe (exit 1) when a working agent is in the busy set:
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "pane_id": "w2:pC",
+      "tab_id": "w2:tC"
+    }
+  ]
+}
+#+END_SRC
+
+Self-exclusion uses ~HERDR_PANE_ID~ only. If that env var is empty, ~gate~
+does not call ~herdr pane current~ (that would drop the focused pane under
+cron).
+
+* Manual smoke test
+
+Against a real herdr ≥ 0.8 and an authenticated ~gh~:
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config
+prsync dispatch --config ./prsync.config          # review rendered_prompt
+prsync dispatch --config ./prsync.config --go     # pane_id + --wait --until idle --until done
+prsync gate --config ./prsync.config
+#+END_SRC
+
+Confirm:
+
+- ~agent prompt~ targets a ~pane_id~ (~w2:pC~, not a tab id).
+- Default wait is ~--wait --until idle --until done~ (from
+  ~dispatch_wait_until~).
+- ~--wait --until idle --until done~ returns after the agent settles.
+
+This procedure is README-only; CI uses fixture binaries, not live herdr.
+
+* Security
+
+- ~prsync~ never calls ~gh auth token~ and never prints the environment.
+  Auth is the operator's existing ~gh~ login plus the local herdr socket.
+- Review comment bodies are interpolated into the dispatch prompt as text.
+  ~prsync~ does not execute them. The *agent* may follow malicious review
+  text — this is inherent to the product. Do not treat the prompt as
+  sanitized English.
+- The config parser does not ~source~ the file, so values cannot execute
+  as shell.
+- JSON on stdout can contain review bodies and logins. That is the
+  operator's responsibility.
+- Concurrent ~prsync dispatch --go~ across machines sharing ~state_file~
+  over NFS is unsupported.
+
+* Exit codes
+
+| Code | Meaning |
+|------+---------|
+|    0 | Success |
+|    1 | ~gate~ only: busy set is non-empty |
+|    2 | Usage, config, or flag error |
+|    3 | Missing tool, auth failure, herdr too old, or mid-loop dispatch failure |
+|    4 | Live dispatch timed out waiting on the gate |
+
+* Development
+
+#+BEGIN_SRC bash
+go test ./devtools/prsync/...
+bazel test //devtools/prsync/...
+#+END_SRC
+
+~org_lint_tests~ on this file lives in [[file:BUILD.bazel][BUILD.bazel]].
+Run ~make check~ from the repo root before sending a change.
