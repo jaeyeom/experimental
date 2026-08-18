@@ -48,6 +48,24 @@ type PRListItem struct {
 	StatusCheckRollup []StatusCheck  `json:"statusCheckRollup"`
 }
 
+// PRSearchItem is one row from `gh search prs`. State is "open", "merged", or
+// "closed"; ClosedAt is the RFC3339 close time (the merge time for merged PRs)
+// and is a zero time for open PRs.
+type PRSearchItem struct {
+	Number     int              `json:"number"`
+	Title      string           `json:"title"`
+	URL        string           `json:"url"`
+	State      string           `json:"state"`
+	IsDraft    bool             `json:"isDraft"`  //nolint:tagliatelle // gh JSON
+	ClosedAt   string           `json:"closedAt"` //nolint:tagliatelle // gh JSON
+	Repository SearchRepository `json:"repository"`
+}
+
+// SearchRepository is the repository object on a search result.
+type SearchRepository struct {
+	NameWithOwner string `json:"nameWithOwner"` //nolint:tagliatelle // gh JSON
+}
+
 // ReviewReq is a requested reviewer (user or team) from gh JSON.
 type ReviewReq struct {
 	Type  string `json:"__typename"` //nolint:tagliatelle // gh JSON

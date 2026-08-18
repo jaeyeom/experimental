@@ -8,6 +8,9 @@ ones still need attention, matches each PR to a running
 [[https://herdr.dev/][herdr]] agent tab, and — on explicit request — sends
 that agent a prompt to address unresolved review comments — or, with
 ~--rebase~, a rebase-in-place prompt even when there are no open comments.
+It can also run the join in reverse (~tabs --orphans~) to flag live-agent
+tabs whose PR already merged, so their worktrees and gate slots can be
+reclaimed.
 
 The tool is read-only on GitHub and write-only on herdr (prompt injection).
 It shells out to the already-authenticated ~gh~ CLI and to herdr ≥ 0.8. It
@@ -46,6 +49,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
+prsync tabs     --orphans [--config PATH] [--json] [--stdin]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--stdin]
 prsync gate     [--config PATH]
 prsync version
@@ -53,9 +57,11 @@ prsync version
 
 | Flag | Commands | Effect |
 |------+----------+--------|
-| ~--config PATH~ | scan, dispatch, gate | Use this file (must exist) |
+| ~--config PATH~ | scan, tabs, dispatch, gate | Use this file (must exist) |
 | ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
-| ~--json~ | scan | Accepted no-op (stdout is always JSON) |
+| ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
+| ~--orphans~ | tabs | Required; report live-agent tabs with no open/draft PR |
+| ~--stdin~ | tabs | Reuse open-PR↔tab matches from a scan document on stdin (else self-resolve) |
 | ~--pr owner/repo#N~ | dispatch | Repeatable; limit candidates |
 | ~--all~ | dispatch | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch | Live send (default is dry-run) |
@@ -206,6 +212,81 @@ prsync scan --config ./prsync.config
 ~bucket~ is ~needs_you~ | ~ready~ | ~waiting~ | ~draft~. ~APPROVED~ with
 leftover ~review_requests~ is ~needs_you~, not ready to merge. ~tab~ is
 ~null~ when no unique herdr tab matches.
+
+** tabs --orphans
+
+The inverse of ~scan~'s PR→tab join: walk *this machine's* herdr tabs and
+flag the ones that still have a *live agent* (~agent_status~ ∈
+~working~ / ~idle~ / ~blocked~ — an agent session actually exists) but no
+open or draft PR. These are almost always tabs whose PR already merged (or
+was abandoned): the agent is done and the tab, its worktree, and its slot
+against the concurrency gate can be reclaimed.
+
+For each live-agent tab whose label yields a ticket via ~title_id_pattern~,
+~prsync~ resolves the ticket to the author's PRs (across all states, in one
+~gh search prs~) and buckets the tab:
+
+- ~merged~ — the ticket's PR is merged (or closed) → *safe to close*;
+  ~pr~ carries the number, repo, ~state~, and ~merged_at~ (null for a
+  closed-but-unmerged PR).
+- ~no_pr~ — no PR found at all → *verify before closing* (may be
+  unpushed local WIP).
+
+Tabs with an open/draft PR are not orphans and are omitted. Agent-less
+scratch tabs and unparseable / non-ticket labels are skipped.
+
+#+BEGIN_SRC bash
+prsync tabs --orphans --config ./prsync.config
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "author": "alice",
+  "orphan_tabs": [
+    {
+      "tab_id": "w2:tA",
+      "workspace_id": "w2",
+      "label": "AP-1306",
+      "ticket": "AP-1306",
+      "agent_status": "idle",
+      "bucket": "merged",
+      "pr": {
+        "repo": "acme/widgets",
+        "number": 32347,
+        "url": "https://github.com/acme/widgets/pull/32347",
+        "state": "merged",
+        "merged_at": "2026-08-18T22:19:28Z"
+      }
+    },
+    {
+      "tab_id": "w2:tB",
+      "workspace_id": "w2",
+      "label": "AP-1287",
+      "ticket": "AP-1287",
+      "agent_status": "working",
+      "bucket": "no_pr",
+      "pr": null
+    }
+  ],
+  "warnings": []
+}
+#+END_SRC
+
+Report-only, like ~scan~: closing a tab (~herdr tab close~) stays a
+separate, explicitly-confirmed step — never automatic. The report sees
+only the local herdr socket, so a ticket whose tab lives on another
+machine is never mislabeled here.
+
+Piping a ~scan~ document in with ~--stdin~ reuses its open-PR↔tab matches,
+so tabs that already have an open PR are skipped without a ~gh search~:
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config | prsync tabs --orphans --stdin --config ./prsync.config
+#+END_SRC
+
+Missing / unreachable / too-old herdr is a precondition failure (exit 3),
+since tabs are the whole input — unlike ~scan~, which degrades.
 
 ** dispatch
 
