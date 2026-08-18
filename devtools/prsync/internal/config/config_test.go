@@ -453,7 +453,7 @@ func TestDefaults(t *testing.T) {
 	if got.DispatchTimeout != 1800000*time.Millisecond {
 		t.Fatalf("DispatchTimeout = %s", got.DispatchTimeout)
 	}
-	if !slices.Equal(got.WaitUntil, []string{"idle", "done"}) {
+	if !slices.Equal(got.WaitUntil, []string{"idle", "done", "blocked"}) {
 		t.Fatalf("WaitUntil = %#v", got.WaitUntil)
 	}
 	if !got.DryRun {

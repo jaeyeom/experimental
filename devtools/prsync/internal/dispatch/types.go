@@ -5,6 +5,7 @@ const (
 	ActionWouldDispatch     = "would_dispatch"
 	ActionDispatched        = "dispatched"
 	ActionDispatchedTimeout = "dispatched_timeout"
+	ActionDispatchedBlocked = "dispatched_blocked"
 	ActionSkippedNoTab      = "skipped_no_tab"
 	ActionSkippedNoAgent    = "skipped_no_agent"
 	ActionSkippedBusy       = "skipped_busy"
