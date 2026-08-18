@@ -30,7 +30,9 @@
 # dispatch_timeout_ms=1800000
 
 # Inline prompt, or @/path/to/file (tilde is expanded).
-# Review comment bodies are interpolated into the prompt as text.
+# Substituted: {identifier} {number} {title} {repo} {url} {head} {base} {comments}.
+# Unknown placeholders are left literal. Review comment bodies are interpolated
+# into the prompt as text.
 # dispatch_prompt_template=
 
 # true / false / 1 / 0
