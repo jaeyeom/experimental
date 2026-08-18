@@ -41,5 +41,6 @@ go_test(
         "//devtools/prsync/internal/scan:go_default_library",
         "//devtools/prsync/internal/version:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )

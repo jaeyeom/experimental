@@ -46,7 +46,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--stdin]
 prsync gate     [--config PATH]
 prsync version
 #+END_EXAMPLE
@@ -60,15 +60,19 @@ prsync version
 | ~--all~ | dispatch | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch | Live send (default is dry-run) |
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
+| ~--stdin~ | dispatch | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
 
 ~--pr~ and ~--all~ together is an error (exit 2). ~--go~ always sends.
 ~dry_run=false~ in the config also sends without ~--go~ (for cron).
 
-~dispatch~ reads a scan document from stdin when stdin is not a TTY and
-the first non-whitespace byte is ~{~. Decode errors are fatal.
+~dispatch~ reads a scan document from stdin only when ~--stdin~ is set
+and stdin is a FIFO or regular file (a pipe or redirected file). Sockets,
+TTYs, and other non-file stdin are ignored so dispatch cannot hang on a
+blocking peek. Decode errors are fatal. Without ~--stdin~, dispatch
+always self-scans.
 
 #+BEGIN_SRC bash
-prsync scan --config ./prsync.config | prsync dispatch --config ./prsync.config
+prsync scan --config ./prsync.config | prsync dispatch --stdin --config ./prsync.config
 #+END_SRC
 
 * Configuration

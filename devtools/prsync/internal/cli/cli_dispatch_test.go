@@ -5,16 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
+	"golang.org/x/sys/unix"
 )
 
 func TestPeekScanJSONLeadingWhitespace(t *testing.T) {
@@ -79,7 +82,7 @@ func TestPeekScanJSONEmpty(t *testing.T) {
 	}
 }
 
-func TestStdinIsTTY(t *testing.T) {
+func TestStdinIsScanSource(t *testing.T) {
 	t.Parallel()
 
 	r, w, err := os.Pipe()
@@ -90,11 +93,68 @@ func TestStdinIsTTY(t *testing.T) {
 		r.Close()
 		w.Close()
 	})
-	if stdinIsTTY(r) {
-		t.Fatal("pipe must not be a TTY")
+	if !stdinIsScanSource(r) {
+		t.Fatal("pipe must be a scan source")
 	}
-	if !stdinIsTTY(nil) {
-		t.Fatal("nil stdin treated as TTY (internal scan)")
+	regular, err := os.CreateTemp(t.TempDir(), "scan-*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { regular.Close() })
+	if !stdinIsScanSource(regular) {
+		t.Fatal("regular file must be a scan source")
+	}
+	if stdinIsScanSource(nil) {
+		t.Fatal("nil stdin must not be a scan source")
+	}
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { devNull.Close() })
+	if stdinIsScanSource(devNull) {
+		t.Fatal("/dev/null must not be a scan source")
+	}
+}
+
+func TestReadStdinScanDoesNotBlockOnSocket(t *testing.T) {
+	t.Parallel()
+
+	for _, wantStdin := range []bool{false, true} {
+		t.Run(fmt.Sprintf("wantStdin=%v", wantStdin), func(t *testing.T) {
+			t.Parallel()
+			fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := os.NewFile(uintptr(fds[0]), "stdin-socket")
+			peer := os.NewFile(uintptr(fds[1]), "stdin-socket-peer")
+			t.Cleanup(func() {
+				f.Close()
+				peer.Close()
+			})
+
+			type result struct {
+				fromStdin bool
+				err       error
+			}
+			ch := make(chan result, 1)
+			go func() {
+				_, fromStdin, err := readStdinScan(f, wantStdin)
+				ch <- result{fromStdin: fromStdin, err: err}
+			}()
+			select {
+			case got := <-ch:
+				if got.err != nil {
+					t.Fatalf("error = %v", got.err)
+				}
+				if got.fromStdin {
+					t.Fatal("socket stdin treated as scan document")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("readStdinScan blocked on idle socket stdin")
+			}
+		})
 	}
 }
 
@@ -127,6 +187,33 @@ func TestDispatchPRAndAll(t *testing.T) {
 	}
 }
 
+func TestDispatchWithoutStdinFlagIgnoresPipedJSON(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+
+	piped := stdinEligibleDoc()
+	piped.PRs[0].Repo = "other/repo"
+	piped.PRs[0].Number = 999
+	restore := swapStdin(t, string(mustScanJSON(t, piped)))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Repo != "acme/widgets" || got.Results[0].Number != 123 {
+		t.Fatalf("used piped stdin without --stdin: %+v", got.Results)
+	}
+}
+
 func TestDispatchStdinJSONDryRun(t *testing.T) {
 	ghBin, herdrBin := fixtureBins(t)
 	statePath := filepath.Join(t.TempDir(), "state.json")
@@ -145,7 +232,7 @@ func TestDispatchStdinJSONDryRun(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -175,7 +262,7 @@ func TestDispatchStdinDecodeError(t *testing.T) {
 	defer restore()
 	cfgPath := writeScanConfig(t, "author=alice\nrepos=acme/widgets\nstate_file="+filepath.Join(t.TempDir(), "s.json")+"\n")
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
 	}
@@ -201,7 +288,7 @@ func TestDispatchRebaseAddressedWouldDispatch(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--rebase", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--rebase", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -232,7 +319,7 @@ func TestDispatchAddressedWithoutRebaseIsSkipped(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -255,7 +342,7 @@ func TestDispatchNotFoundPR(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{
-		"dispatch", "--config", cfgPath,
+		"dispatch", "--stdin", "--config", cfgPath,
 		"--pr", "acme/widgets#123",
 		"--pr", "acme/missing#9",
 	}, &stdout, &stderr, executor.NewBasicExecutor())
@@ -317,7 +404,7 @@ func TestDispatchHerdrMissing(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitPrecondition {
 		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitPrecondition, stderr.String(), stdout.String())
 	}
@@ -342,7 +429,7 @@ func TestDispatchCorruptState(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitUsage, stderr.String(), stdout.String())
 	}
