@@ -198,6 +198,7 @@ sh_test(
         "perl.yml",
         "pkg-config.yml",
         "prettier.yml",
+        "prsync.yml",
         "pylsp.yml",
         "review-and-push-loop.yml",
         "rg.yml",
@@ -2107,6 +2108,7 @@ sh_test(
         "prettier.yml",
         "profile-cloudflare-dev.yml",
         "profile-minimal.yml",
+        "prsync.yml",
         "review-and-push-loop.yml",
         "rg.yml",
         "rustup.yml",
@@ -2362,6 +2364,26 @@ sh_test(
         "protolint.yml",
         "setup-shell-profile.yml",
         "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "prsync_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["prsync.yml"],
+    data = [
+        "curl.yml",
+        "gh.yml",
+        "go.yml",
+        "herdr.yml",
+        "prsync.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -3654,6 +3676,7 @@ sh_test(
         "nvm.yml",
         "pass.yml",
         "pkg-config.yml",
+        "prsync.yml",
         "review-and-push-loop.yml",
         "rustup.yml",
         "setup-cargo.yml",
@@ -4298,6 +4321,7 @@ test_suite(
         ":protoc-gen-go_syntax_test",
         ":protoc_syntax_test",
         ":protolint_syntax_test",
+        ":prsync_syntax_test",
         ":psql_syntax_test",
         ":pylsp_syntax_test",
         ":python3-notmuch2_syntax_test",
