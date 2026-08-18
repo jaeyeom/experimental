@@ -475,6 +475,21 @@ func TestDefaults(t *testing.T) {
 	if !regexp.MustCompile(`Address the unresolved review comments`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing built-in text: %q", got.PromptTemplate)
 	}
+	if !regexp.MustCompile(`(?s)Check out \{head\}.*Address the unresolved review comments`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing branch-switch preamble before comment body: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`stash or commit`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing stash/commit: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`gh pr checkout \{number\}`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing gh pr checkout: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`origin/\{base\}`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing origin/{base}: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`on \{head\} at its latest tip`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing latest-tip guard: %q", got.PromptTemplate)
+	}
 	if !regexp.MustCompile(`(?i)mechanical`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing mechanical-triage: %q", got.PromptTemplate)
 	}
