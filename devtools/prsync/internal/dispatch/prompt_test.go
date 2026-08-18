@@ -90,6 +90,15 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	if strings.Contains(got, "{") {
 		t.Fatalf("unreplaced placeholder: %q", got)
 	}
+	if !strings.Contains(strings.ToLower(got), "ask the user") {
+		t.Fatalf("missing ask-the-user: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "recommend") {
+		t.Fatalf("missing recommended option: %q", got)
+	}
+	if strings.Contains(got, "understand the reviewer's ask, make the change") {
+		t.Fatalf("still autonomous resolve: %q", got)
+	}
 }
 
 func TestRenderLongestKeyFirst(t *testing.T) {

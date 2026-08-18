@@ -475,6 +475,18 @@ func TestDefaults(t *testing.T) {
 	if !regexp.MustCompile(`Address the unresolved review comments`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing built-in text: %q", got.PromptTemplate)
 	}
+	if !regexp.MustCompile(`(?i)mechanical`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing mechanical-triage: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)ask the user`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing ask-the-user: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)recommend`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing recommended option: %q", got.PromptTemplate)
+	}
+	if regexp.MustCompile(`make the change \(or reply if you`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate still instructs autonomous resolve: %q", got.PromptTemplate)
+	}
 	if !regexp.MustCompile(`Check out \{head\}`).MatchString(got.RebasePromptTemplate) {
 		t.Fatalf("RebasePromptTemplate missing checkout: %q", got.RebasePromptTemplate)
 	}
