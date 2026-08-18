@@ -224,8 +224,8 @@ func TestRunLiveDispatchedWritesState(t *testing.T) {
 	if h.promptN != 1 {
 		t.Fatalf("Prompt calls = %d, want 1", h.promptN)
 	}
-	if !slices.Equal(h.sawUntil, []string{"idle", "done", "blocked"}) {
-		t.Fatalf("until = %v, want [idle done blocked]", h.sawUntil)
+	if !slices.Equal(h.sawUntil, []string{"idle", "done"}) {
+		t.Fatalf("until = %v, want [idle done]", h.sawUntil)
 	}
 
 	st, err := LoadFile(store.Path)
@@ -350,6 +350,9 @@ func TestRunLiveRebaseBlockedStopsAdvancing(t *testing.T) {
 	}
 	if h.promptN != 1 {
 		t.Fatalf("Prompt calls = %d, want 1 (gate/serial unchanged)", h.promptN)
+	}
+	if _, err := os.Stat(store.Path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("state file written on blocked rebase")
 	}
 }
 
@@ -488,12 +491,8 @@ func TestRunLiveBlockedSettlementIsDispatchedBlocked(t *testing.T) {
 	if got.Results[0].PaneID == "" || got.Results[0].RenderedPrompt == "" {
 		t.Fatalf("blocked item missing pane/prompt: %+v", got.Results[0])
 	}
-	st, err := LoadFile(store.Path)
-	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
-	}
-	if !st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
-		t.Fatalf("state after blocked send = %#v", st)
+	if _, err := os.Stat(store.Path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("state file written on transient blocked settlement")
 	}
 }
 
@@ -529,15 +528,57 @@ func TestRunLiveBlockedStopsAdvancing(t *testing.T) {
 	if h.promptN != 1 {
 		t.Fatalf("Prompt calls = %d, want 1 (do not start the next agent)", h.promptN)
 	}
+	if _, err := os.Stat(store.Path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("state file written on blocked send")
+	}
+}
+
+func TestRunLiveBlockedDoesNotDedupeOnRerun(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	pr := fixtureEligiblePR()
+	h := &scriptHerdr{
+		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts: []herdr.PromptOutcome{
+			{
+				Status: herdr.PromptMatched,
+				Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "blocked"},
+			},
+			{
+				Status: herdr.PromptMatched,
+				Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "idle"},
+			},
+		},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{pr}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("first Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedBlocked {
+		t.Fatalf("first = %+v, want dispatched_blocked", got.Results)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{pr}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionDispatched {
+		t.Fatalf("second = %+v, want dispatched (blocked must not skip as deduped)", got2.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls = %d, want 2", h.promptN)
+	}
 	st, err := LoadFile(store.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
-		t.Fatalf("state missing first PR: %#v", st)
-	}
-	if _, ok := st["acme/widgets#124"]; ok {
-		t.Fatalf("state has second PR: %#v", st)
+		t.Fatalf("state after real completion = %#v", st)
 	}
 }
 

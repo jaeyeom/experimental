@@ -96,7 +96,7 @@ func Defaults() Config {
 		GateTimeout:          1800000 * time.Millisecond,
 		PromptTemplate:       defaultPromptTemplate,
 		RebasePromptTemplate: defaultRebasePromptTemplate,
-		WaitUntil:            []string{"idle", "done", "blocked"},
+		WaitUntil:            []string{"idle", "done"},
 		DispatchTimeout:      1800000 * time.Millisecond,
 		StateFile:            "~/.config/prsync/state.json",
 		DryRun:               true,

@@ -127,10 +127,10 @@ func Evaluate(c Candidate, cfg config.Config, st State, rebase bool) Item {
 
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
 // polls, never emits queued, and never writes state. Live send polls the gate
-// one PR at a time, writes state on dispatched / dispatched_timeout /
-// dispatched_blocked, and returns ErrTimeout or ErrFailed after emitting
-// partial results. A blocked settlement stops the batch so the user can
-// answer before the next agent starts.
+// one PR at a time, writes state on dispatched / dispatched_timeout, and
+// returns ErrTimeout or ErrFailed after emitting partial results. A blocked
+// settlement does not write dedupe state and stops the batch so a re-run can
+// retry the same comment after the user answers.
 func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time) (Document, error) {
 	doc := Document{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
@@ -205,7 +205,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 		}
 		item = sendPrompt(ctx, h, cfg, c, req.Rebase)
 		doc.Results = append(doc.Results, item)
-		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout || item.Action == ActionDispatchedBlocked {
+		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
 			if req.Rebase {
 				st.RecordHead(prKey(c.Repo, c.Number), c.PR.HeadSHA, now)
 			} else {
