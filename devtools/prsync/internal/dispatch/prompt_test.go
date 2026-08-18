@@ -84,6 +84,23 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	if !strings.Contains(got, "PR #123 (https://github.com/acme/widgets/pull/123)") {
 		t.Fatalf("missing number/url: %q", got)
 	}
+	if !strings.Contains(got, "Check out fix-widget") {
+		t.Fatalf("missing checkout of head: %q", got)
+	}
+	if !strings.Contains(got, "gh pr checkout 123") {
+		t.Fatalf("missing gh pr checkout: %q", got)
+	}
+	if !strings.Contains(got, "origin/main") {
+		t.Fatalf("missing origin/base: %q", got)
+	}
+	if !strings.Contains(got, "on fix-widget at its latest tip") {
+		t.Fatalf("missing latest-tip guard: %q", got)
+	}
+	idxCheckout := strings.Index(got, "Check out fix-widget")
+	idxAddress := strings.Index(got, "Address the unresolved review comments")
+	if idxCheckout < 0 || idxAddress < 0 || idxCheckout > idxAddress {
+		t.Fatalf("branch-switch preamble not before comment body: %q", got)
+	}
 	if !strings.Contains(got, "- src/widget.go:42 — reviewer-login: This should handle the nil case. (https://github.com/acme/widgets/pull/123#discussion_r1)") {
 		t.Fatalf("missing comments: %q", got)
 	}
