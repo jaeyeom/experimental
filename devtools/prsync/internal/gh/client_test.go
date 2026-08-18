@@ -220,6 +220,59 @@ func TestListOpenPRs(t *testing.T) {
 	})
 }
 
+func TestSearchAuthoredPRs(t *testing.T) {
+	t.Parallel()
+
+	const jsonFields = "number,title,url,state,isDraft,closedAt,repository"
+
+	t.Run("parses states and repository", func(t *testing.T) {
+		t.Parallel()
+		body := `[
+			{"number":32347,"title":"[AP-1306] Fix","url":"https://github.com/acme/x/pull/32347",
+			 "state":"merged","isDraft":false,"closedAt":"2026-08-18T22:19:28Z",
+			 "repository":{"nameWithOwner":"acme/x"}},
+			{"number":100,"title":"[AP-1306] Draft","url":"https://github.com/acme/x/pull/100",
+			 "state":"open","isDraft":true,"closedAt":"0001-01-01T00:00:00Z",
+			 "repository":{"nameWithOwner":"acme/x"}}
+		]`
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "search", "prs", "AP-1306",
+			"--author", "alice", "--limit", "100", "--json", jsonFields).
+			WillSucceed(body, 0).Build()
+		got, err := NewClient(mock, testGHBin).SearchAuthoredPRs(context.Background(), "alice", "AP-1306")
+		if err != nil {
+			t.Fatalf("SearchAuthoredPRs() unexpected error: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2", len(got))
+		}
+		if got[0].Number != 32347 || got[0].State != "merged" || got[0].ClosedAt != "2026-08-18T22:19:28Z" {
+			t.Fatalf("item0 = %+v", got[0])
+		}
+		if got[0].Repository.NameWithOwner != "acme/x" {
+			t.Fatalf("repo = %q, want acme/x", got[0].Repository.NameWithOwner)
+		}
+		if got[1].State != "open" || !got[1].IsDraft {
+			t.Fatalf("item1 = %+v", got[1])
+		}
+	})
+
+	t.Run("empty result is non-nil", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "search", "prs", "AP-9999",
+			"--author", "alice", "--limit", "100", "--json", jsonFields).
+			WillSucceed("[]", 0).Build()
+		got, err := NewClient(mock, testGHBin).SearchAuthoredPRs(context.Background(), "alice", "AP-9999")
+		if err != nil {
+			t.Fatalf("SearchAuthoredPRs() unexpected error: %v", err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("got = %v, want empty non-nil", got)
+		}
+	})
+}
+
 func TestReviewThreads(t *testing.T) {
 	t.Parallel()
 
