@@ -29,5 +29,6 @@ func newRoot(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	}
 	root.AddCommand(newVersionCmd(stdout))
 	root.AddCommand(newScanCmd(stdout, exec))
+	root.AddCommand(newGateCmd(stdout, exec))
 	return root
 }

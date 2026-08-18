@@ -5,7 +5,7 @@ DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 
 case "${1-}" in
   --version)
-    printf '%s\n' "herdr 0.8.1"
+    printf '%s\n' "${HERDR_FAKE_VERSION:-herdr 0.8.1}"
     exit 0
     ;;
 esac
@@ -16,10 +16,23 @@ case "${1-} ${2-}" in
     exit 0
     ;;
   "agent list")
+    if [ -n "${HERDR_FAKE_STATUS_FILE-}" ] || [ -n "${HERDR_FAKE_AGENT_STATUS-}" ] || [ -n "${HERDR_FAKE_TAB_ID-}" ] || [ -n "${HERDR_FAKE_PANE_ID-}" ]; then
+      status=${HERDR_FAKE_AGENT_STATUS:-idle}
+      if [ -n "${HERDR_FAKE_STATUS_FILE-}" ] && [ -f "$HERDR_FAKE_STATUS_FILE" ]; then
+        status=$(cat "$HERDR_FAKE_STATUS_FILE")
+      fi
+      tab_id=${HERDR_FAKE_TAB_ID:-w2:tC}
+      pane_id=${HERDR_FAKE_PANE_ID:-w2:pC}
+      printf '%s\n' "{\"result\":{\"agents\":[{\"pane_id\":\"${pane_id}\",\"tab_id\":\"${tab_id}\",\"agent\":\"codex\",\"agent_status\":\"${status}\"}]}}"
+      exit 0
+    fi
     cat "${DIR}/herdr-agent-list.json"
     exit 0
     ;;
   "pane current")
+    if [ -n "${HERDR_FAKE_PANE_CURRENT_SENTINEL-}" ]; then
+      printf '%s\n' "called" > "$HERDR_FAKE_PANE_CURRENT_SENTINEL"
+    fi
     cat "${DIR}/herdr-pane-current.json"
     exit 0
     ;;

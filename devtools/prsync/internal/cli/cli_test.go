@@ -45,21 +45,16 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestNoCommandsBeyondVersionAndScan(t *testing.T) {
+func TestNoDispatchCommand(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"dispatch", "gate"} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			var stdout, stderr bytes.Buffer
-			code := Execute(context.Background(), []string{name}, &stdout, &stderr, nil)
-			if code != ExitUsage {
-				t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
-			}
-			if !strings.Contains(stderr.String(), "unknown command") {
-				t.Fatalf("stderr = %q", stderr.String())
-			}
-		})
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch"}, &stdout, &stderr, nil)
+	if code != ExitUsage {
+		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
