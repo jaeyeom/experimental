@@ -26,6 +26,8 @@ func Render(tmpl string, pr scan.PR) string {
 		{"{title}", pr.Title},
 		{"{repo}", pr.Repo},
 		{"{url}", pr.URL},
+		{"{head}", pr.Head},
+		{"{base}", pr.Base},
 	}
 	sort.Slice(vars, func(i, j int) bool {
 		return len(vars[i].key) > len(vars[j].key)

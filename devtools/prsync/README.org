@@ -102,7 +102,7 @@ variables are not expanded.
 | ~gate_poll_ms~ | ~2000~ | Gate poll interval (milliseconds). |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
 | ~dispatch_timeout_ms~ | ~1800000~ | Passed to ~herdr agent prompt --timeout~. |
-| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{number}~, ~{url}~, ~{comments}~ are substituted. |
+| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. |
 | ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. |
 | ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated tokens. Each becomes its own ~--until~ flag on ~herdr agent prompt~. At least one token required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live send. |

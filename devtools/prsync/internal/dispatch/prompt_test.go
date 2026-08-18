@@ -111,3 +111,24 @@ func TestRenderNilIdentifier(t *testing.T) {
 		t.Fatalf("Render() = %q, want %q", got, "id=.")
 	}
 }
+
+func TestRenderHeadAndBase(t *testing.T) {
+	t.Parallel()
+
+	pr := scan.PR{Head: "fix-widget", Base: "main"}
+	got := Render("git switch {head}; rebase onto {base}", pr)
+	want := "git switch fix-widget; rebase onto main"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderUnknownPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	got := Render("keep {foo} literal", scan.PR{Head: "fix-widget"})
+	want := "keep {foo} literal"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
