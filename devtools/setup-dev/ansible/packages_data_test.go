@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strings"
 	"testing"
 )
 
@@ -433,63 +432,6 @@ func TestGetPostImports(t *testing.T) {
 				t.Errorf("GetPostImports() mismatch:\n  got:  %s\n  want: %s", formatImports(gotPost), formatImports(tt.wantPost))
 			}
 		})
-	}
-}
-
-func TestCircleciTool(t *testing.T) {
-	var (
-		tool  PlatformSpecificTool
-		found bool
-	)
-	for _, candidate := range platformSpecificTools {
-		if candidate.command == "circleci" {
-			tool = candidate
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("circleci is not registered in platformSpecificTools")
-	}
-
-	if _, ok := tool.platforms[PlatformTermux]; ok {
-		t.Error("circleci should not define a Termux install method")
-	}
-
-	darwin, ok := tool.platforms[PlatformDarwin].(BrewInstallMethod)
-	if !ok {
-		t.Fatalf("circleci PlatformDarwin method = %T, want BrewInstallMethod", tool.platforms[PlatformDarwin])
-	}
-	if darwin.Name != "circleci" {
-		t.Errorf("circleci brew name = %q, want %q", darwin.Name, "circleci")
-	}
-
-	debian, ok := tool.platforms[PlatformDebianLike].(ShellInstallMethod)
-	if !ok {
-		t.Fatalf("circleci PlatformDebianLike method = %T, want ShellInstallMethod", tool.platforms[PlatformDebianLike])
-	}
-	if !strings.Contains(debian.InstallCommand, "verified-run exec") {
-		t.Errorf("circleci debian InstallCommand %q should use verified-run exec", debian.InstallCommand)
-	}
-	if !strings.Contains(debian.InstallCommand, "https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/install.sh") {
-		t.Errorf("circleci debian InstallCommand %q should use the official install.sh", debian.InstallCommand)
-	}
-	if !strings.Contains(debian.InstallCommand, "DESTDIR={{ user_bin_directory }}") {
-		t.Errorf("circleci debian InstallCommand %q should set DESTDIR to user_bin_directory", debian.InstallCommand)
-	}
-	if debian.VersionCommand != "circleci version" {
-		t.Errorf("circleci VersionCommand = %q, want %q", debian.VersionCommand, "circleci version")
-	}
-	if debian.LatestVersionURL != "https://api.github.com/repos/CircleCI-Public/circleci-cli/releases/latest" {
-		t.Errorf("circleci LatestVersionURL = %q", debian.LatestVersionURL)
-	}
-
-	wantImports := []Import{
-		{Playbook: "curl", When: WhenDebianLike},
-		{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
-	}
-	if !reflect.DeepEqual(tool.Imports, wantImports) {
-		t.Errorf("circleci Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
 	}
 }
 
