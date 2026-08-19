@@ -168,6 +168,28 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: []Import{{Playbook: "setup-java"}},
 	},
 	{
+		// circleci is the official CircleCI CLI. Termux is omitted: there is
+		// no official package, and the installer targets Linux/macOS only.
+		command: "circleci",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewInstallMethod{Name: "circleci"},
+			PlatformDebianLike: ShellInstallMethod{
+				InstallCommand:    "DESTDIR={{ user_bin_directory }} {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/install.sh",
+				VersionCommand:    "circleci version",
+				VersionRegex:      "([0-9.]+)",
+				LatestVersionURL:  "https://api.github.com/repos/CircleCI-Public/circleci-cli/releases/latest",
+				LatestVersionPath: "tag_name",
+				Environment: map[string]string{
+					"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+				},
+			},
+		},
+		Imports: []Import{
+			{Playbook: "curl", When: WhenDebianLike},
+			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
+		},
+	},
+	{
 		command: "claude",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: ShellInstallMethod{
