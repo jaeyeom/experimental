@@ -128,6 +128,7 @@ sh_test(
         "cargo-install-update.yml",
         "check-jsonschema.yml",
         "checkstyle.yml",
+        "circleci.yml",
         "claude.yml",
         "claudelytics.yml",
         "cleanup-repo.yml",
@@ -490,6 +491,24 @@ sh_test(
     data = [
         "checkstyle.yml",
         "setup-java.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "circleci_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["circleci.yml"],
+    data = [
+        "circleci.yml",
+        "curl.yml",
+        "gather-facts.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+        "tasks/github-release-info.yml",
     ],
     tags = [
         "ansible",
@@ -2612,6 +2631,7 @@ sh_test(
         "act.yml",
         "actionlint.yml",
         "bazel-affected-tests.yml",
+        "circleci.yml",
         "copier.yml",
         "curl.yml",
         "emacs.yml",
@@ -2630,6 +2650,7 @@ sh_test(
         "setup-nvm.yml",
         "setup-org-lint-emacs.yml",
         "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
         "setup-user-config-directory.yml",
         "setup-user-go-bin-directory.yml",
         "shellcheck.yml",
@@ -4213,6 +4234,7 @@ test_suite(
         ":cargo_syntax_test",
         ":check-jsonschema_syntax_test",
         ":checkstyle_syntax_test",
+        ":circleci_syntax_test",
         ":clang-format_syntax_test",
         ":claude_syntax_test",
         ":claudelytics_syntax_test",
