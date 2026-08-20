@@ -116,6 +116,23 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	if strings.Contains(got, "understand the reviewer's ask, make the change") {
 		t.Fatalf("still autonomous resolve: %q", got)
 	}
+	if !strings.Contains(got, "gh pr edit 123 --add-reviewer") {
+		t.Fatalf("missing re-request reviewer: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "skip bots") {
+		t.Fatalf("missing skip-bots: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "do not dismiss") {
+		t.Fatalf("missing do-not-dismiss: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "unanswered threads") {
+		t.Fatalf("missing unanswered-threads guard: %q", got)
+	}
+	idxPush := strings.Index(got, "Push after the mechanical threads")
+	idxRerequest := strings.Index(got, "gh pr edit 123 --add-reviewer")
+	if idxPush < 0 || idxRerequest < 0 || idxPush > idxRerequest {
+		t.Fatalf("re-request not after push: %q", got)
+	}
 }
 
 func TestRenderLongestKeyFirst(t *testing.T) {
@@ -154,6 +171,9 @@ func TestRenderDefaultRebaseTemplate(t *testing.T) {
 	}
 	if strings.Contains(got, "{") {
 		t.Fatalf("unreplaced placeholder: %q", got)
+	}
+	if strings.Contains(got, "add-reviewer") {
+		t.Fatalf("rebase template re-requests reviewer: %q", got)
 	}
 }
 

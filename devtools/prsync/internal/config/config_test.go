@@ -502,6 +502,24 @@ func TestDefaults(t *testing.T) {
 	if regexp.MustCompile(`make the change \(or reply if you`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate still instructs autonomous resolve: %q", got.PromptTemplate)
 	}
+	if !regexp.MustCompile(`gh pr edit \{number\} --add-reviewer`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing re-request reviewer: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)skip bots`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing skip-bots: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)do not dismiss`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing do-not-dismiss: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)unanswered threads`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing unanswered-threads guard: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?s)Push after the mechanical threads.*gh pr edit \{number\} --add-reviewer`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate re-request not after push: %q", got.PromptTemplate)
+	}
+	if regexp.MustCompile(`add-reviewer`).MatchString(got.RebasePromptTemplate) {
+		t.Fatalf("RebasePromptTemplate re-requests reviewer: %q", got.RebasePromptTemplate)
+	}
 	if !regexp.MustCompile(`Check out \{head\}`).MatchString(got.RebasePromptTemplate) {
 		t.Fatalf("RebasePromptTemplate missing checkout: %q", got.RebasePromptTemplate)
 	}

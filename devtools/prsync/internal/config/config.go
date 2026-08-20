@@ -33,7 +33,15 @@ Triage each thread before acting:
   thread until they answer.
 
 Push after the mechanical threads are done (and after the user answers any
-questions). Do not touch other PRs.`
+questions).
+
+After those threads are handled and pushed, re-request each human reviewer
+whose listed comments are all addressed:
+  gh pr edit {number} --add-reviewer <login>
+Skip bots and anyone already pending. Do not dismiss reviews. Do not
+re-request a reviewer who still has unanswered threads.
+
+Do not touch other PRs.`
 
 const defaultRebasePromptTemplate = `Rebase PR #{number} ({url}) onto origin/{base} in this working directory. Do not create a new worktree.
 
