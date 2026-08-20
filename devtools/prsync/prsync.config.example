@@ -37,7 +37,10 @@
 # bring it up to date with origin/{base}, then apply mechanical /
 # unambiguous fixes; for a design decision, tradeoff, or disagreement,
 # pause and ask the user (with a recommended option) before editing /
-# resolving / pushing.
+# resolving / pushing. After the addressed threads are pushed,
+# re-request each human reviewer whose listed comments are all done
+# (`gh pr edit {number} --add-reviewer <login>`). Skip bots, skip
+# already-pending reviewers, and do not dismiss reviews.
 # dispatch_prompt_template=
 
 # Used only by `prsync dispatch --rebase`. Same placeholders as
