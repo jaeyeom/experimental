@@ -313,6 +313,65 @@ func TestRunDeletedAuthorIsBlocking(t *testing.T) {
 	}
 }
 
+func TestRunOmitsDraftsByDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Author = "alice"
+	g := &scriptGH{
+		list: map[string]listResult{
+			"acme/widgets": {prs: append(fixturePRs(), fixtureDraftPR())},
+		},
+		threads: map[int][]gh.Thread{
+			123: fixtureThreads(),
+			200: fixtureThreads(),
+		},
+	}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(doc.PRs) != 1 {
+		t.Fatalf("len(prs) = %d, want 1 (draft omitted)", len(doc.PRs))
+	}
+	if doc.PRs[0].Number != 123 || doc.PRs[0].IsDraft {
+		t.Fatalf("pr = #%d is_draft=%v, want #123 non-draft", doc.PRs[0].Number, doc.PRs[0].IsDraft)
+	}
+	if g.threadCalls[200] != 0 {
+		t.Fatalf("ReviewThreads(#200) calls = %d, want 0 for omitted draft", g.threadCalls[200])
+	}
+}
+
+func TestRunIncludesDraftsWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Author = "alice"
+	cfg.IncludeDrafts = true
+	g := &scriptGH{
+		list: map[string]listResult{
+			"acme/widgets": {prs: append(fixturePRs(), fixtureDraftPR())},
+		},
+		threads: map[int][]gh.Thread{
+			123: fixtureThreads(),
+			200: fixtureThreads(),
+		},
+	}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(doc.PRs) != 2 {
+		t.Fatalf("len(prs) = %d, want 2 (draft included)", len(doc.PRs))
+	}
+	if doc.PRs[1].Number != 200 || !doc.PRs[1].IsDraft {
+		t.Fatalf("second pr = #%d is_draft=%v, want #200 draft", doc.PRs[1].Number, doc.PRs[1].IsDraft)
+	}
+	if g.threadCalls[200] != 1 {
+		t.Fatalf("ReviewThreads(#200) calls = %d, want 1", g.threadCalls[200])
+	}
+}
+
 type fixtureGH struct{}
 
 func (fixtureGH) AuthStatus(context.Context) error { return nil }
@@ -388,6 +447,7 @@ type scriptGH struct {
 	list         map[string]listResult
 	threads      map[int][]gh.Thread
 	threadErr    error
+	threadCalls  map[int]int
 }
 
 func (g *scriptGH) AuthStatus(context.Context) error { return g.authErr }
@@ -415,6 +475,10 @@ func (g *scriptGH) ListOpenPRs(_ context.Context, repo, _ string) ([]gh.PRListIt
 }
 
 func (g *scriptGH) ReviewThreads(_ context.Context, _, _ string, number int) ([]gh.Thread, error) {
+	if g.threadCalls == nil {
+		g.threadCalls = map[int]int{}
+	}
+	g.threadCalls[number]++
 	if g.threadErr != nil {
 		return nil, g.threadErr
 	}
@@ -445,6 +509,16 @@ func fixturePRs() []gh.PRListItem {
 			{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"},
 		},
 	}}
+}
+
+func fixtureDraftPR() gh.PRListItem {
+	item := fixturePRs()[0]
+	item.Number = 200
+	item.Title = "[PROJ-200] WIP the widget"
+	item.URL = "https://github.com/acme/widgets/pull/200"
+	item.HeadRefName = "wip-widget"
+	item.IsDraft = true
+	return item
 }
 
 func fixtureThreads() []gh.Thread {
