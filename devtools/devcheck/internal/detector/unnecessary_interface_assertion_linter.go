@@ -45,7 +45,7 @@ func (l *UnnecessaryInterfaceAssertionLinter) Lint(paths []string) ([]string, er
 func (l *UnnecessaryInterfaceAssertionLinter) loadPackages(paths []string) ([]*packages.Package, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedTypes | packages.NeedTypesSizes |
+			packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedTypesSizes |
 			packages.NeedSyntax | packages.NeedTypesInfo,
 		Dir: l.Dir,
 	}
