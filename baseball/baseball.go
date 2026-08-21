@@ -1,18 +1,25 @@
 package main
 
 import (
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-
-	// Used for game logic randomness, not cryptography.
-	// nosemgrep: math-random-used
-	"math/rand"
+	"math/big"
 	"reflect"
 	"sync"
 	"sync/atomic"
 )
+
+// randN returns a cryptographically secure uniform value in [0, n).
+func randN(n int) int {
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		panic(err)
+	}
+	return int(v.Int64())
+}
 
 // containsInt returns true if i is in ints.
 func containsInt(ints []int, i int) bool {
@@ -231,10 +238,7 @@ func NewRandomPicker(c Config) *RandomPicker {
 // It accepts additional training data to further filter candidates.
 func (p *RandomPicker) Pick(additional ...Training) []int {
 	candidates := p.candidates.AppendTrainings(additional...)
-	numCandidates := len(candidates)
-	// #nosec G404
-	n := rand.Intn(numCandidates)
-	return candidates[n]
+	return candidates[randN(len(candidates))]
 }
 
 // Picker is an interface for strategies that pick the next trial based on training data.
