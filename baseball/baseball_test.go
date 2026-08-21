@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"reflect"
 	"strings"
@@ -15,8 +14,32 @@ import (
 	"github.com/leanovate/gopter/prop"
 )
 
+func shuffle[T any](s []T) {
+	for i := len(s) - 1; i > 0; i-- {
+		j := randN(i + 1)
+		s[i], s[j] = s[j], s[i]
+	}
+}
+
 func nonEmpty(v interface{}) bool {
 	return reflect.ValueOf(v).Len() > 0
+}
+
+func Test_randN(t *testing.T) {
+	const n = 7
+	seen := make([]bool, n)
+	for i := 0; i < 1000; i++ {
+		v := randN(n)
+		if v < 0 || v >= n {
+			t.Fatalf("randN(%d) = %d, want in [0, %d)", n, v, n)
+		}
+		seen[v] = true
+	}
+	for i, ok := range seen {
+		if !ok {
+			t.Errorf("randN(%d) never produced %d in 1000 trials", n, i)
+		}
+	}
 }
 
 func Test_containsInt(t *testing.T) {
@@ -38,8 +61,7 @@ func Test_containsInt(t *testing.T) {
 
 	properties.Property("any list with the element", prop.ForAll(
 		func(vs []int) bool {
-			// #nosec: G404
-			return containsInt(vs, vs[rand.Intn(len(vs))])
+			return containsInt(vs, vs[randN(len(vs))])
 		},
 		gen.SliceOf(gen.Int()).SuchThat(nonEmpty),
 	))
@@ -167,8 +189,7 @@ func Test_computeResult(t *testing.T) {
 	properties.Property("shuffle no out", prop.ForAll(
 		func(a []int) bool {
 			b := append([]int(nil), a...)
-			// #nosec G404
-			rand.Shuffle(len(b), func(i, j int) { b[i], b[j] = b[j], b[i] })
+			shuffle(b)
 			r := computeResult(a, b)
 			return r.Out == 0
 		},
@@ -182,13 +203,11 @@ func TestConfig_validNumRepeats(t *testing.T) {
 	properties := gopter.NewProperties(nil)
 
 	properties.Property("unique trials are always valid", prop.ForAll(
-		func(charset []rune, maxRepeat int, seed int) bool {
+		func(charset []rune, maxRepeat int) bool {
 			// Generate a unique trial by creating a permutation
 			// This avoids the high discard rate of SuchThat(unique)
 			arr := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
-			// #nosec: G404
-			rnd := rand.New(rand.NewSource(int64(seed)))
-			rnd.Shuffle(len(arr), func(i, j int) { arr[i], arr[j] = arr[j], arr[i] })
+			shuffle(arr)
 			trial := arr[:5]
 
 			c := Config{
@@ -200,7 +219,6 @@ func TestConfig_validNumRepeats(t *testing.T) {
 		},
 		gen.SliceOfN(10, gen.Rune()).SuchThat(unique),
 		gen.IntRange(0, 3),
-		gen.IntRange(0, 10000),
 	))
 
 	properties.Property("always valid for big enough numRepeats", prop.ForAll(
