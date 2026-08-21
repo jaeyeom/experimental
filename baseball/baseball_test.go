@@ -167,6 +167,7 @@ func Test_computeResult(t *testing.T) {
 	properties.Property("shuffle no out", prop.ForAll(
 		func(a []int) bool {
 			b := append([]int(nil), a...)
+			// #nosec G404
 			rand.Shuffle(len(b), func(i, j int) { b[i], b[j] = b[j], b[i] })
 			r := computeResult(a, b)
 			return r.Out == 0
