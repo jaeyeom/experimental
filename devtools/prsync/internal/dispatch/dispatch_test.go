@@ -313,6 +313,90 @@ func TestRunLiveRebaseWritesHeadSHA(t *testing.T) {
 	}
 }
 
+func TestRunLiveRebaseRetriesWhenStillBehind(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.HeadSHA = "abc123def456"
+	pr.MergeStateStatus = "BEHIND"
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionDispatched {
+		t.Fatalf("second results = %+v, want dispatched (still behind)", got2.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls after behind retry = %d, want 2", h.promptN)
+	}
+}
+
+func TestRunLiveRebaseForceRedispatches(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.HeadSHA = "abc123def456"
+	pr.MergeStateStatus = "CLEAN"
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped", got2.Results)
+	}
+
+	got3, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:    scan.Document{PRs: []scan.PR{pr}},
+		Rebase: true,
+		Force:  true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("force Run() unexpected error: %v", err)
+	}
+	if len(got3.Results) != 1 || got3.Results[0].Action != ActionDispatched {
+		t.Fatalf("force results = %+v, want dispatched", got3.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls after force = %d, want 2", h.promptN)
+	}
+}
+
 func TestRunLiveRebaseBlockedStopsAdvancing(t *testing.T) {
 	t.Parallel()
 

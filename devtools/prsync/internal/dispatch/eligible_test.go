@@ -17,6 +17,7 @@ func TestEligibleSkipReasons(t *testing.T) {
 		cfg    config.Config
 		st     State
 		rebase bool
+		force  bool
 		want   string
 	}{
 		{
@@ -67,6 +68,55 @@ func TestEligibleSkipReasons(t *testing.T) {
 			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
 			rebase: true,
 			want:   ActionSkippedDeduped,
+		},
+		{
+			name:   "rebase retries when still behind",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.MergeStateStatus = "BEHIND" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			want:   "",
+		},
+		{
+			name:   "rebase retries when still dirty",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.MergeStateStatus = "DIRTY" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			want:   "",
+		},
+		{
+			name:   "rebase still deduped when clean",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.MergeStateStatus = "CLEAN" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			want:   ActionSkippedDeduped,
+		},
+		{
+			name:   "rebase completed with new sha still deduped when clean",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "fff000"; p.MergeStateStatus = "CLEAN" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			want:   ActionSkippedDeduped,
+		},
+		{
+			name:   "rebase force redispatches same head",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.MergeStateStatus = "CLEAN" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			force:  true,
+			want:   "",
+		},
+		{
+			name:  "comment force redispatches same comments",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(nil)},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCommentIDs: []string{"PRRC_widget"}}},
+			force: true,
+			want:  "",
 		},
 		{
 			name: "comment mode not deduped by head SHA",
@@ -134,7 +184,7 @@ func TestEligibleSkipReasons(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase)
+			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase, tc.force)
 			if got.Action != tc.want {
 				t.Fatalf("action = %q, want %q", got.Action, tc.want)
 			}

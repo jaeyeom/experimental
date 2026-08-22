@@ -51,6 +51,110 @@ func TestDispatchGoThenDeduped(t *testing.T) {
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
 		t.Fatalf("second results = %+v, want skipped_deduped", got.Results)
 	}
+
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go", "--force"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("--force exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got = decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("--force results = %+v, want dispatched", got.Results)
+	}
+}
+
+func TestDispatchRebaseRetriesWhenStillBehind(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	doc := stdinEligibleDoc()
+	doc.PRs[0].Unaddressed = false
+	doc.PRs[0].BlockingComments = nil
+	doc.PRs[0].Head = "fix-widget"
+	doc.PRs[0].Base = "main"
+	doc.PRs[0].HeadSHA = "abc123def456"
+	doc.PRs[0].MergeStateStatus = "BEHIND"
+	raw := mustScanJSON(t, doc)
+
+	restore := swapStdin(t, string(raw))
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--rebase", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("first --rebase --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("first results = %+v, want dispatched", got.Results)
+	}
+
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"dispatch", "--stdin", "--rebase", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("second --rebase --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got = decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("second results = %+v, want dispatched (still behind)", got.Results)
+	}
+}
+
+func TestDispatchRebaseForceRedispatches(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	doc := stdinEligibleDoc()
+	doc.PRs[0].Unaddressed = false
+	doc.PRs[0].BlockingComments = nil
+	doc.PRs[0].Head = "fix-widget"
+	doc.PRs[0].Base = "main"
+	doc.PRs[0].HeadSHA = "abc123def456"
+	doc.PRs[0].MergeStateStatus = "CLEAN"
+	raw := mustScanJSON(t, doc)
+
+	restore := swapStdin(t, string(raw))
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--rebase", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("first --rebase --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("first results = %+v, want dispatched", got.Results)
+	}
+
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"dispatch", "--stdin", "--rebase", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("second --rebase --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got = decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped", got.Results)
+	}
+
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"dispatch", "--stdin", "--rebase", "--config", cfgPath, "--go", "--force"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("--force --rebase exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got = decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("--force results = %+v, want dispatched", got.Results)
+	}
 }
 
 func TestDispatchGoStallDoesNotWriteState(t *testing.T) {
