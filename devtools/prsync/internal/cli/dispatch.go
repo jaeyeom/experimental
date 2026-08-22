@@ -27,6 +27,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		all        bool
 		goLive     bool
 		rebase     bool
+		force      bool
 		readStdin  bool
 	)
 	cmd := &cobra.Command{
@@ -34,7 +35,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		Short: "Send unmatched review comments to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase, readStdin)
+			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase, force, readStdin)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -42,11 +43,12 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
 	cmd.Flags().BoolVar(&goLive, "go", false, "send prompts (default is dry-run)")
 	cmd.Flags().BoolVar(&rebase, "rebase", false, "dispatch a rebase-in-place prompt (skips the unaddressed-comment gate)")
+	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan)")
 	return cmd
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, readStdin bool) error {
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, force, readStdin bool) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -72,6 +74,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		PRs:        prs,
 		RunnerPane: h.RunnerPane(ctx),
 		Rebase:     rebase,
+		Force:      force,
 	}, time.Now())
 	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
 		return writeErr

@@ -73,6 +73,9 @@ func TestScanFixtureHappyPath(t *testing.T) {
 	if doc.PRs[0].HeadSHA != "abc123def456" {
 		t.Fatalf("head_sha = %q, want abc123def456", doc.PRs[0].HeadSHA)
 	}
+	if doc.PRs[0].MergeStateStatus != "CLEAN" {
+		t.Fatalf("merge_state_status = %q, want CLEAN", doc.PRs[0].MergeStateStatus)
+	}
 	if doc.PRs[0].Tab == nil || doc.PRs[0].Tab.TabID != "w2:tC" {
 		t.Fatalf("tab = %+v, want w2:tC", doc.PRs[0].Tab)
 	}

@@ -489,15 +489,16 @@ func depsWith(g GH, h Herdr) Deps { return Deps{GH: g, Herdr: h} }
 
 func fixturePRs() []gh.PRListItem {
 	return []gh.PRListItem{{
-		Number:         123,
-		Title:          "[PROJ-123] Fix the widget",
-		URL:            "https://github.com/acme/widgets/pull/123",
-		BaseRefName:    "main",
-		HeadRefName:    "fix-widget",
-		HeadRefOid:     "abc123def456",
-		Mergeable:      "MERGEABLE",
-		IsDraft:        false,
-		ReviewDecision: "APPROVED",
+		Number:           123,
+		Title:            "[PROJ-123] Fix the widget",
+		URL:              "https://github.com/acme/widgets/pull/123",
+		BaseRefName:      "main",
+		HeadRefName:      "fix-widget",
+		HeadRefOid:       "abc123def456",
+		Mergeable:        "MERGEABLE",
+		MergeStateStatus: "CLEAN",
+		IsDraft:          false,
+		ReviewDecision:   "APPROVED",
 		ReviewRequests: []gh.ReviewReq{
 			{Type: "User", Login: "reviewer-login"},
 			{Type: "Team", Name: "Platform Reviewers", Slug: "platform-reviewers"},

@@ -19,11 +19,12 @@ type PR struct {
 	Identifier       *string   `json:"identifier"`
 	Base             string    `json:"base"`
 	Head             string    `json:"head"`
-	HeadSHA          string    `json:"head_sha"`        //nolint:tagliatelle // brief outbound contract
-	IsDraft          bool      `json:"is_draft"`        //nolint:tagliatelle // brief outbound contract
-	ReviewDecision   string    `json:"review_decision"` //nolint:tagliatelle // brief outbound contract
-	ReviewRequests   []string  `json:"review_requests"` //nolint:tagliatelle // brief outbound contract
-	CIState          string    `json:"ci_state"`        //nolint:tagliatelle // brief outbound contract
+	HeadSHA          string    `json:"head_sha"`           //nolint:tagliatelle // brief outbound contract
+	MergeStateStatus string    `json:"merge_state_status"` //nolint:tagliatelle // brief outbound contract
+	IsDraft          bool      `json:"is_draft"`           //nolint:tagliatelle // brief outbound contract
+	ReviewDecision   string    `json:"review_decision"`    //nolint:tagliatelle // brief outbound contract
+	ReviewRequests   []string  `json:"review_requests"`    //nolint:tagliatelle // brief outbound contract
+	CIState          string    `json:"ci_state"`           //nolint:tagliatelle // brief outbound contract
 	Bucket           string    `json:"bucket"`
 	Unaddressed      bool      `json:"unaddressed"`
 	BlockingComments []Comment `json:"blocking_comments"` //nolint:tagliatelle // brief outbound contract

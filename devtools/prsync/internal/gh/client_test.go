@@ -126,7 +126,7 @@ func TestSearchOpenPRRepos(t *testing.T) {
 func TestListOpenPRs(t *testing.T) {
 	t.Parallel()
 
-	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
 
 	t.Run("parses list", func(t *testing.T) {
 		t.Parallel()
@@ -138,6 +138,7 @@ func TestListOpenPRs(t *testing.T) {
 			"headRefName":"fix-widget",
 			"headRefOid":"abc123def456",
 			"mergeable":"MERGEABLE",
+			"mergeStateStatus":"BEHIND",
 			"isDraft":false,
 			"reviewDecision":"APPROVED",
 			"reviewRequests":[{"__typename":"User","login":"reviewer"}],
@@ -161,6 +162,9 @@ func TestListOpenPRs(t *testing.T) {
 		}
 		if got[0].HeadRefOid != "abc123def456" {
 			t.Fatalf("HeadRefOid = %q, want abc123def456", got[0].HeadRefOid)
+		}
+		if got[0].MergeStateStatus != "BEHIND" {
+			t.Fatalf("MergeStateStatus = %q, want BEHIND", got[0].MergeStateStatus)
 		}
 	})
 

@@ -7,6 +7,7 @@
     "headRefName": "fix-widget",
     "headRefOid": "abc123def456",
     "mergeable": "MERGEABLE",
+    "mergeStateStatus": "CLEAN",
     "isDraft": false,
     "reviewDecision": "APPROVED",
     "reviewRequests": [

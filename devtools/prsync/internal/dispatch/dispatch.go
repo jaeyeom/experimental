@@ -36,6 +36,7 @@ type Request struct {
 	PRs        []string
 	RunnerPane string
 	Rebase     bool
+	Force      bool
 }
 
 // Candidate is one PR considered for dispatch.
@@ -98,8 +99,11 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 }
 
 // Evaluate returns the skip action for a candidate, or a zero Action if eligible.
-// Rebase mode skips the unaddressed-comment gate and dedupes on head SHA.
-func Evaluate(c Candidate, cfg config.Config, st State, rebase bool) Item {
+// Rebase mode skips the unaddressed-comment gate. A rebase dispatch is
+// satisfied only when the PR is no longer behind or conflicting; a matching
+// head SHA is not enough, so a failed rebase can be retried. force skips
+// both comment and rebase dedupe.
+func Evaluate(c Candidate, cfg config.Config, st State, rebase, force bool) Item {
 	r := Item{Repo: c.Repo, Number: c.Number}
 	if c.PR == nil {
 		r.Action = ActionSkippedNotFound
@@ -117,12 +121,39 @@ func Evaluate(c Candidate, cfg config.Config, st State, rebase bool) Item {
 		r.Action = ActionSkippedNoAgent
 	case !readyStatus(pr.Tab.AgentStatus):
 		r.Action = ActionSkippedBusy
-	case rebase && st.DedupedHead(prKey(c.Repo, c.Number), pr.HeadSHA):
+	case !force && rebase && rebaseDeduped(st, prKey(c.Repo, c.Number), pr):
 		r.Action = ActionSkippedDeduped
-	case !rebase && st.Deduped(prKey(c.Repo, c.Number), commentIDs(pr)):
+	case !force && !rebase && st.Deduped(prKey(c.Repo, c.Number), commentIDs(pr)):
 		r.Action = ActionSkippedDeduped
 	}
 	return r
+}
+
+// rebaseDeduped reports whether a prior rebase dispatch is already satisfied.
+// BEHIND and DIRTY always retry. A recorded rebase plus a known up-to-date
+// merge state (CLEAN and similar) is satisfied even if the head SHA moved.
+// Empty merge state falls back to head-SHA equality so older scan documents
+// keep the previous behavior.
+func rebaseDeduped(st State, key string, pr scan.PR) bool {
+	if rebaseIncomplete(pr.MergeStateStatus) {
+		return false
+	}
+	if pr.MergeStateStatus != "" && rebaseRecorded(st, key) {
+		return true
+	}
+	return st.DedupedHead(key, pr.HeadSHA)
+}
+
+func rebaseIncomplete(status string) bool {
+	return status == "BEHIND" || status == "DIRTY"
+}
+
+func rebaseRecorded(st State, key string) bool {
+	if st == nil {
+		return false
+	}
+	entry, ok := st[key]
+	return ok && entry.DispatchedHeadSHA != ""
 }
 
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
@@ -153,7 +184,7 @@ func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, r
 		return doc, err
 	}
 	for _, c := range cands {
-		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req.Rebase))
+		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req.Rebase, req.Force))
 	}
 	if err := annotateGate(ctx, h, cfg, req, &doc); err != nil {
 		return doc, err
@@ -189,7 +220,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, failItem(c, err))
 			return doc, fmt.Errorf("dispatch: %w", err)
 		}
-		item := Evaluate(c, cfg, st, req.Rebase)
+		item := Evaluate(c, cfg, st, req.Rebase, req.Force)
 		if item.Action != "" {
 			doc.Results = append(doc.Results, item)
 			continue
@@ -305,8 +336,8 @@ func saveState(store StateStore, st State) error {
 	return nil
 }
 
-func evaluateDry(c Candidate, cfg config.Config, st State, rebase bool) Item {
-	r := Evaluate(c, cfg, st, rebase)
+func evaluateDry(c Candidate, cfg config.Config, st State, rebase, force bool) Item {
+	r := Evaluate(c, cfg, st, rebase, force)
 	if r.Action != "" {
 		return r
 	}
