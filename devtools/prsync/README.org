@@ -51,7 +51,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--stdin]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--force] [--stdin]
 prsync gate     [--config PATH]
 prsync version
 #+END_EXAMPLE
@@ -67,6 +67,7 @@ prsync version
 | ~--all~ | dispatch | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch | Live send (default is dry-run) |
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
+| ~--force~ | dispatch | Re-dispatch even if dedupe state would skip |
 | ~--stdin~ | dispatch | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
 
 ~--pr~ and ~--all~ together is an error (exit 2). ~--go~ always sends.
@@ -176,6 +177,7 @@ prsync scan --config ./prsync.config
       "base": "main",
       "head": "fix-widget",
       "head_sha": "abc123def456",
+      "merge_state_status": "CLEAN",
       "is_draft": false,
       "review_decision": "APPROVED",
       "review_requests": [
@@ -326,18 +328,23 @@ A second live run against the same unaddressed comment ids is
 ~skipped_deduped~.
 
 Rebase mode (a PR that only needs a rebase, including
-~skipped_addressed~ in comment mode). Dedupes on ~head_sha~ so an
-unchanged tip is not re-rebased:
+~skipped_addressed~ in comment mode). A rebase dispatch is satisfied
+only when the PR is no longer ~BEHIND~ or ~DIRTY~
+(~merge_state_status~). The same ~head_sha~ does not block a retry of a
+failed or ignored rebase. A completed rebase (up to date, with a
+recorded dispatch) is ~skipped_deduped~. ~--force~ re-dispatches anyway.
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123
 prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
+prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go --force
 #+END_SRC
 
 The prompt is sent to the PR's existing herdr tab (no new worktree).
 Gate / serial / wait are unchanged. ~--rebase --all~ sends the rebase
 prompt to every PR that has a ready tab; auto-picking behind/conflicting
-PRs is a follow-up.
+PRs is a follow-up. Scan documents without ~merge_state_status~ keep
+head-SHA dedupe (use ~--force~ to retry a stuck entry).
 
 ** gate
 

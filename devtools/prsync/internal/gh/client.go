@@ -14,7 +14,7 @@ import (
 const (
 	defaultCallTimeout   = 60 * time.Second
 	maxReviewThreadPages = 50
-	prListJSONFields     = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	prListJSONFields     = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
 	prSearchJSONFields   = "number,title,url,state,isDraft,closedAt,repository"
 	reviewThreadsQuery   = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
 )
