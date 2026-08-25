@@ -74,9 +74,11 @@ func OrphansStarted(doc OrphanDocument) bool {
 }
 
 // Orphans walks live-agent herdr tabs and reports the ones with no open or
-// draft PR. openTabs is the set of tab ids a caller-supplied scan already
-// matched to an open PR; those are skipped without a GitHub search. A non-nil
-// error is fatal after the caller emits the document when OrphansStarted.
+// draft PR. A no_pr tab whose agent is still working is omitted (in-progress,
+// not reclaimable). openTabs is the set of tab ids a caller-supplied scan
+// already matched to an open PR; those are skipped without a GitHub search.
+// A non-nil error is fatal after the caller emits the document when
+// OrphansStarted.
 func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs map[string]struct{}, now time.Time) (OrphanDocument, error) {
 	doc := OrphanDocument{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
@@ -179,6 +181,10 @@ func classifyTab(ctx context.Context, client OrphanGH, cfg config.Config, author
 	}
 	resolving := pickResolving(candidates)
 	if resolving == nil {
+		if status == "working" {
+			// Active work that has not opened a PR yet is not an orphan.
+			return OrphanTab{}, false, nil
+		}
 		orphan.Bucket = BucketNoPR
 		return orphan, true, nil
 	}
