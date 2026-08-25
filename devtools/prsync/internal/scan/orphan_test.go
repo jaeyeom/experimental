@@ -63,7 +63,7 @@ func TestOrphansNoPRBucket(t *testing.T) {
 	g := &orphanGH{search: map[string][]gh.PRSearchItem{"AP-1287": {}}}
 	h := stubHerdr{
 		tabs:   []herdr.Tab{liveTab("w2:tB", "w2", "AP-1287")},
-		agents: []herdr.Agent{liveAgent("w2:pB", "w2:tB", "working")},
+		agents: []herdr.Agent{liveAgent("w2:pB", "w2:tB", "idle")},
 	}
 	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
@@ -73,7 +73,72 @@ func TestOrphansNoPRBucket(t *testing.T) {
 		t.Fatalf("orphan_tabs = %+v, want 1", doc.OrphanTabs)
 	}
 	got := doc.OrphanTabs[0]
-	if got.Bucket != BucketNoPR || got.PR != nil || got.AgentStatus != "working" {
+	if got.Bucket != BucketNoPR || got.PR != nil || got.AgentStatus != "idle" {
+		t.Fatalf("orphan = %+v", got)
+	}
+}
+
+func TestOrphansOmitsNoPRWhenAgentWorking(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{"AP-1287": {}}}
+	h := stubHerdr{
+		tabs:   []herdr.Tab{liveTab("w2:tB", "w2", "AP-1287")},
+		agents: []herdr.Agent{liveAgent("w2:pB", "w2:tB", "working")},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.OrphanTabs) != 0 {
+		t.Fatalf("orphan_tabs = %+v, want empty (working agent is in-progress, not an orphan)", doc.OrphanTabs)
+	}
+}
+
+func TestOrphansNoPRBlockedStillSurfaced(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{"AP-1288": {}}}
+	h := stubHerdr{
+		tabs:   []herdr.Tab{liveTab("w2:tH", "w2", "AP-1288")},
+		agents: []herdr.Agent{liveAgent("w2:pH", "w2:tH", "blocked")},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.OrphanTabs) != 1 {
+		t.Fatalf("orphan_tabs = %+v, want 1", doc.OrphanTabs)
+	}
+	got := doc.OrphanTabs[0]
+	if got.Bucket != BucketNoPR || got.PR != nil || got.AgentStatus != "blocked" {
+		t.Fatalf("orphan = %+v", got)
+	}
+}
+
+func TestOrphansMergedWorkingUnaffected(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{
+		"AP-1306": {{
+			Number: 32347, Title: "[AP-1306] Fix", URL: "https://gh/acme/x/pull/32347",
+			State: "merged", ClosedAt: "2026-08-18T22:19:28Z",
+			Repository: gh.SearchRepository{NameWithOwner: "acme/x"},
+		}},
+	}}
+	h := stubHerdr{
+		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "AP-1306")},
+		agents: []herdr.Agent{liveAgent("w2:pA", "w2:tA", "working")},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.OrphanTabs) != 1 {
+		t.Fatalf("orphan_tabs = %+v, want 1", doc.OrphanTabs)
+	}
+	got := doc.OrphanTabs[0]
+	if got.Bucket != BucketMerged || got.AgentStatus != "working" {
 		t.Fatalf("orphan = %+v", got)
 	}
 }
