@@ -18,7 +18,7 @@ func TestCommentBadPR(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--pr", "not-a-pr", "--ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--pr", "not-a-pr", "--body", "please retry"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
 	}
@@ -34,7 +34,7 @@ func TestCommentPRAndAll(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--pr", "acme/widgets#1", "--all", "--ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--pr", "acme/widgets#1", "--all", "--body", "please retry"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
 	}
@@ -43,7 +43,7 @@ func TestCommentPRAndAll(t *testing.T) {
 	}
 }
 
-func TestCommentRequiresBodyOrCI(t *testing.T) {
+func TestCommentRequiresBody(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
@@ -51,25 +51,38 @@ func TestCommentRequiresBodyOrCI(t *testing.T) {
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "--body") && !strings.Contains(stderr.String(), "--ci") {
-		t.Fatalf("stderr = %q, want --body/--ci requirement", stderr.String())
+	if !strings.Contains(stderr.String(), "--body") {
+		t.Fatalf("stderr = %q, want --body requirement", stderr.String())
 	}
 }
 
-func TestCommentCIAndBodyConflict(t *testing.T) {
+func TestCommentEmptyBody(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--ci", "--body", "other"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--body", "  "}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "cannot combine --ci and --body") {
+	if !strings.Contains(stderr.String(), "--body must not be empty") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 
-func TestCommentStdinJSONDryRunCI(t *testing.T) {
+func TestCommentRejectsCIFlag(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"comment", "--ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitUsage {
+		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "unknown flag") || !strings.Contains(stderr.String(), "--ci") {
+		t.Fatalf("stderr = %q, want unknown flag --ci", stderr.String())
+	}
+}
+
+func TestCommentStdinJSONDryRun(t *testing.T) {
 	ghBin, herdrBin := fixtureBins(t)
 	sentinel := filepath.Join(t.TempDir(), "comment")
 	t.Setenv("GH_FAKE_COMMENT_SENTINEL", sentinel)
@@ -86,7 +99,7 @@ func TestCommentStdinJSONDryRunCI(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--pr", "acme/widgets#123", "--ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--pr", "acme/widgets#123", "--body", "please retry"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -100,8 +113,8 @@ func TestCommentStdinJSONDryRunCI(t *testing.T) {
 	if got.Results[0].Action != dispatch.ActionWouldDispatch {
 		t.Fatalf("action = %q, want would_dispatch", got.Results[0].Action)
 	}
-	if got.Results[0].RenderedPrompt != "/ci" {
-		t.Fatalf("rendered_prompt = %q, want /ci", got.Results[0].RenderedPrompt)
+	if got.Results[0].RenderedPrompt != "please retry" {
+		t.Fatalf("rendered_prompt = %q, want please retry", got.Results[0].RenderedPrompt)
 	}
 	if got.Results[0].PaneID != "" {
 		t.Fatalf("pane_id = %q, want empty", got.Results[0].PaneID)
@@ -158,7 +171,7 @@ func TestCommentGoPostsViaGH(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--ci", "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "please retry", "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -169,15 +182,15 @@ func TestCommentGoPostsViaGH(t *testing.T) {
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
 		t.Fatalf("results = %+v, want dispatched", got.Results)
 	}
-	if got.Results[0].RenderedPrompt != "/ci" {
-		t.Fatalf("rendered_prompt = %q, want /ci", got.Results[0].RenderedPrompt)
+	if got.Results[0].RenderedPrompt != "please retry" {
+		t.Fatalf("rendered_prompt = %q, want please retry", got.Results[0].RenderedPrompt)
 	}
 	body, err := os.ReadFile(sentinel) //nolint:gosec // test sentinel
 	if err != nil {
 		t.Fatalf("gh pr comment was not invoked: %v", err)
 	}
 	gotArgs := strings.TrimSpace(string(body))
-	if !strings.Contains(gotArgs, "comment 123") || !strings.Contains(gotArgs, "--repo acme/widgets") || !strings.Contains(gotArgs, "--body /ci") {
+	if !strings.Contains(gotArgs, "comment 123") || !strings.Contains(gotArgs, "--repo acme/widgets") || !strings.Contains(gotArgs, "--body please retry") {
 		t.Fatalf("gh args = %q", gotArgs)
 	}
 	if _, err := os.Stat(promptSentinel); !errors.Is(err, fs.ErrNotExist) {
@@ -198,7 +211,7 @@ func TestCommentDoesNotNeedHerdr(t *testing.T) {
 	defer restore()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "please retry"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -257,7 +270,7 @@ func TestCommentInternalScanDryRun(t *testing.T) {
 	}, "\n")+"\n")
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--config", cfgPath, "--ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--config", cfgPath, "--body", "please retry"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -289,7 +302,7 @@ func TestCommentNotFoundPR(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{
-		"comment", "--stdin", "--config", cfgPath, "--ci",
+		"comment", "--stdin", "--config", cfgPath, "--body", "please retry",
 		"--pr", "acme/widgets#123",
 		"--pr", "acme/missing#9",
 	}, &stdout, &stderr, executor.NewBasicExecutor())

@@ -24,14 +24,13 @@ func newCommentCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		goLive     bool
 		readStdin  bool
 		body       string
-		ci         bool
 	)
 	cmd := &cobra.Command{
 		Use:   "comment",
 		Short: "Post a PR comment via gh (no herdr tab)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			resolved, err := resolveCommentBody(body, cmd.Flags().Changed("body"), ci)
+			resolved, err := resolveCommentBody(body, cmd.Flags().Changed("body"))
 			if err != nil {
 				return &ExitError{Code: ExitUsage, Err: err}
 			}
@@ -44,7 +43,6 @@ func newCommentCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&goLive, "go", false, "post comments (default is dry-run)")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan)")
 	cmd.Flags().StringVar(&body, "body", "", "comment body text")
-	cmd.Flags().BoolVar(&ci, "ci", false, "alias for --body /ci")
 	return cmd
 }
 
@@ -82,15 +80,9 @@ func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, c
 	return nil
 }
 
-func resolveCommentBody(body string, bodySet, ci bool) (string, error) {
-	if ci && bodySet {
-		return "", errors.New("cannot combine --ci and --body")
-	}
-	if !ci && !bodySet {
-		return "", errors.New("require --body or --ci")
-	}
-	if ci {
-		body = "/ci"
+func resolveCommentBody(body string, bodySet bool) (string, error) {
+	if !bodySet {
+		return "", errors.New("require --body")
 	}
 	if strings.TrimSpace(body) == "" {
 		return "", errors.New("--body must not be empty")

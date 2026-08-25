@@ -20,7 +20,7 @@ func TestRunDryRunWouldDispatch(t *testing.T) {
 	g := &fakeGH{}
 	got, err := Run(context.Background(), g, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, false)}},
-		Body: "/ci",
+		Body: "please retry",
 	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
@@ -41,8 +41,8 @@ func TestRunDryRunWouldDispatch(t *testing.T) {
 	if item.Action != dispatch.ActionWouldDispatch {
 		t.Fatalf("action = %q, want would_dispatch", item.Action)
 	}
-	if item.RenderedPrompt != "/ci" {
-		t.Fatalf("rendered_prompt = %q, want /ci", item.RenderedPrompt)
+	if item.RenderedPrompt != "please retry" {
+		t.Fatalf("rendered_prompt = %q, want please retry", item.RenderedPrompt)
 	}
 	if item.PaneID != "" {
 		t.Fatalf("pane_id = %q, want empty (not tab-bound)", item.PaneID)
@@ -57,7 +57,7 @@ func TestRunDryRunCommentsOffMachinePR(t *testing.T) {
 
 	got, err := Run(context.Background(), &fakeGH{}, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, true)}},
-		Body: "please /ci",
+		Body: "please retry",
 	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
@@ -73,7 +73,7 @@ func TestRunSkippedNotFound(t *testing.T) {
 	got, err := Run(context.Background(), &fakeGH{}, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, false)}},
 		PRs:  []string{"acme/widgets#123", "acme/missing#9"},
-		Body: "/ci",
+		Body: "please retry",
 	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
@@ -101,7 +101,7 @@ func TestRunLivePostsComment(t *testing.T) {
 	g := &fakeGH{}
 	got, err := Run(context.Background(), g, cfg, Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, true), pr("acme/gizmos", 50, false)}},
-		Body: "/ci",
+		Body: "please retry",
 	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
@@ -118,12 +118,12 @@ func TestRunLivePostsComment(t *testing.T) {
 	if got.Results[1].Repo != "acme/widgets" || got.Results[1].Action != dispatch.ActionDispatched {
 		t.Fatalf("second = %+v, want dispatched acme/widgets#123", got.Results[1])
 	}
-	if got.Results[0].RenderedPrompt != "/ci" || got.Results[1].RenderedPrompt != "/ci" {
+	if got.Results[0].RenderedPrompt != "please retry" || got.Results[1].RenderedPrompt != "please retry" {
 		t.Fatalf("missing comment body on results: %+v", got.Results)
 	}
 	want := []commentCall{
-		{repo: "acme/gizmos", number: 50, body: "/ci"},
-		{repo: "acme/widgets", number: 123, body: "/ci"},
+		{repo: "acme/gizmos", number: 50, body: "please retry"},
+		{repo: "acme/widgets", number: 123, body: "please retry"},
 	}
 	if len(g.calls) != len(want) {
 		t.Fatalf("calls = %+v, want %+v", g.calls, want)
@@ -143,7 +143,7 @@ func TestRunLiveFailureStopsBatch(t *testing.T) {
 	g := &fakeGH{err: errors.New("boom")}
 	got, err := Run(context.Background(), g, cfg, Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/gizmos", 50, false), pr("acme/widgets", 123, false)}},
-		Body: "/ci",
+		Body: "please retry",
 	}, fixtureNow)
 	if !errors.Is(err, dispatch.ErrFailed) {
 		t.Fatalf("error = %v, want ErrFailed", err)
@@ -164,7 +164,7 @@ func TestRunInvalidPRFlag(t *testing.T) {
 
 	_, err := Run(context.Background(), &fakeGH{}, config.Defaults(), Request{
 		PRs:  []string{"not-a-pr"},
-		Body: "/ci",
+		Body: "please retry",
 	}, fixtureNow)
 	if err == nil {
 		t.Fatal("error = nil, want invalid --pr")

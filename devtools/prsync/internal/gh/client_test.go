@@ -366,9 +366,9 @@ func TestCommentPR(t *testing.T) {
 		t.Parallel()
 		mock := newGHMock()
 		mock.ExpectCommandWithArgs(testGHBin, "pr", "comment", "123",
-			"--repo", "acme/widgets", "--body", "/ci").
+			"--repo", "acme/widgets", "--body", "please retry").
 			WillSucceed("", 0).Build()
-		if err := NewClient(mock, testGHBin).CommentPR(context.Background(), "acme/widgets", 123, "/ci"); err != nil {
+		if err := NewClient(mock, testGHBin).CommentPR(context.Background(), "acme/widgets", 123, "please retry"); err != nil {
 			t.Fatalf("CommentPR() unexpected error: %v", err)
 		}
 		if err := mock.AssertExpectationsMet(); err != nil {

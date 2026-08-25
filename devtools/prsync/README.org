@@ -11,8 +11,8 @@ that agent a prompt to address unresolved review comments — or, with
 ~--rebase~, a rebase-in-place prompt even when there are no open comments.
 It can also run the join in reverse (~tabs --orphans~) to flag live-agent
 tabs whose PR already merged, so their worktrees and gate slots can be
-reclaimed. ~comment~ posts a conversation-level PR comment (for example
-~/ci~) through ~gh~ with no herdr tab and no concurrency gate.
+reclaimed. ~comment~ posts a conversation-level PR comment through ~gh~
+with no herdr tab and no concurrency gate.
 
 ~scan~ and ~tabs~ are read-only on GitHub. ~comment~ writes a PR comment
 via ~gh~. ~dispatch~ is write-only on herdr (prompt injection). The tool
@@ -56,7 +56,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--force] [--stdin]
-prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] (--body TEXT | --ci)
+prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] --body TEXT
 prsync gate     [--config PATH]
 prsync version
 #+END_EXAMPLE
@@ -74,12 +74,10 @@ prsync version
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
 | ~--force~ | dispatch | Re-dispatch even if dedupe state would skip |
 | ~--stdin~ | dispatch, comment | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
-| ~--body TEXT~ | comment | Comment body to post |
-| ~--ci~ | comment | Alias for ~--body "/ci"~ |
+| ~--body TEXT~ | comment | Comment body to post (required) |
 
-~--pr~ and ~--all~ together is an error (exit 2). ~--ci~ and ~--body~
-together is an error (exit 2). ~--go~ always sends. ~dry_run=false~ in
-the config also sends without ~--go~ (for cron).
+~--pr~ and ~--all~ together is an error (exit 2). ~--go~ always sends.
+~dry_run=false~ in the config also sends without ~--go~ (for cron).
 
 ~dispatch~ and ~comment~ read a scan document from stdin only when
 ~--stdin~ is set and stdin is a FIFO or regular file (a pipe or
@@ -89,7 +87,7 @@ they cannot hang on a blocking peek. Decode errors are fatal. Without
 
 #+BEGIN_SRC bash
 prsync scan --config ./prsync.config | prsync dispatch --stdin --config ./prsync.config
-prsync scan --config ./prsync.config | prsync comment --stdin --ci --config ./prsync.config
+prsync scan --config ./prsync.config | prsync comment --stdin --body "please retry" --config ./prsync.config
 #+END_SRC
 
 * Configuration
@@ -361,14 +359,15 @@ head-SHA dedupe (use ~--force~ to retry a stuck entry).
 Posts a PR comment through ~gh pr comment~. No herdr tab, no agent, and
 no concurrency gate — this is a GitHub API call, so it works for
 off-machine PRs (a ~tab~ of ~null~ is not a skip). Dry-run by default.
-~--ci~ is ~--body "/ci"~. JSON matches the ~dispatch~ result shape:
+The body is caller-supplied (~--body~); the tool does not special-case
+any comment text. JSON matches the ~dispatch~ result shape:
 ~would_dispatch~ / ~dispatched~ / ~skipped_not_found~, with the comment
 body in ~rendered_prompt~.
 
 #+BEGIN_SRC bash
-prsync comment --config ./prsync.config --pr acme/widgets#123 --ci
-prsync comment --config ./prsync.config --pr acme/widgets#123 --body "/ci" --go
-prsync comment --config ./prsync.config --all --ci
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry"
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go
+prsync comment --config ./prsync.config --all --body "please retry"
 #+END_SRC
 
 #+BEGIN_SRC json
@@ -380,7 +379,7 @@ prsync comment --config ./prsync.config --all --ci
       "repo": "acme/widgets",
       "number": 123,
       "action": "would_dispatch",
-      "rendered_prompt": "/ci"
+      "rendered_prompt": "please retry"
     }
   ]
 }
@@ -427,8 +426,8 @@ Against a real herdr ≥ 0.8 and an authenticated ~gh~:
 prsync scan --config ./prsync.config
 prsync dispatch --config ./prsync.config          # review rendered_prompt
 prsync dispatch --config ./prsync.config --go     # pane_id + --wait --until idle --until done
-prsync comment --config ./prsync.config --ci      # review rendered_prompt
-prsync comment --config ./prsync.config --ci --go
+prsync comment --config ./prsync.config --body "please retry"      # review rendered_prompt
+prsync comment --config ./prsync.config --body "please retry" --go
 prsync gate --config ./prsync.config
 #+END_SRC
 
