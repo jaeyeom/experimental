@@ -233,8 +233,9 @@ For each live-agent tab whose label yields a ticket via ~title_id_pattern~,
 - ~merged~ — the ticket's PR is merged (or closed) → *safe to close*;
   ~pr~ carries the number, repo, ~state~, and ~merged_at~ (null for a
   closed-but-unmerged PR).
-- ~no_pr~ — no PR found at all → *verify before closing* (may be
-  unpushed local WIP).
+- ~no_pr~ — no PR found at all, and the agent is ~idle~ or ~blocked~
+  → *verify before closing* (may be unpushed local WIP). A ~working~
+  agent with no PR is in-progress work, not an orphan, and is omitted.
 
 Tabs with an open/draft PR are not orphans and are omitted. Agent-less
 scratch tabs and unparseable / non-ticket labels are skipped.
@@ -268,7 +269,7 @@ prsync tabs --orphans --config ./prsync.config
       "workspace_id": "w2",
       "label": "AP-1287",
       "ticket": "AP-1287",
-      "agent_status": "working",
+      "agent_status": "idle",
       "bucket": "no_pr",
       "pr": null
     }
