@@ -30,6 +30,16 @@ case "${cmd} ${sub}" in
     cat "${DIR}/gh-pr-list.json"
     exit 0
     ;;
+  "pr comment")
+    if [ -n "${GH_FAKE_COMMENT_SENTINEL-}" ]; then
+      printf '%s\n' "$*" > "$GH_FAKE_COMMENT_SENTINEL"
+    fi
+    if [ -n "${GH_FAKE_COMMENT_FAIL-}" ]; then
+      printf '%s\n' "gh-fake: comment failed" >&2
+      exit 1
+    fi
+    exit 0
+    ;;
   "api graphql")
     cat "${DIR}/gh-review-threads.json"
     exit 0

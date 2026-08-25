@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "comment.go",
         "dispatch.go",
         "exit.go",
         "gate.go",
@@ -14,6 +15,7 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/cli",
     visibility = ["//devtools/prsync:__subpackages__"],
     deps = [
+        "//devtools/prsync/internal/comment:go_default_library",
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/dispatch:go_default_library",
         "//devtools/prsync/internal/gh:go_default_library",
@@ -28,6 +30,7 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "cli_comment_test.go",
         "cli_dispatch_test.go",
         "cli_gate_test.go",
         "cli_integration_test.go",
