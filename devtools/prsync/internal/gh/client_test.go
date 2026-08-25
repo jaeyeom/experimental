@@ -359,6 +359,40 @@ func TestReviewThreads(t *testing.T) {
 	})
 }
 
+func TestCommentPR(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ok", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "comment", "123",
+			"--repo", "acme/widgets", "--body", "please retry").
+			WillSucceed("", 0).Build()
+		if err := NewClient(mock, testGHBin).CommentPR(context.Background(), "acme/widgets", 123, "please retry"); err != nil {
+			t.Fatalf("CommentPR() unexpected error: %v", err)
+		}
+		if err := mock.AssertExpectationsMet(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("nonzero exit", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "comment", "9",
+			"--repo", "acme/widgets", "--body", "hello").
+			WillFail("GraphQL: Could not resolve to a PullRequest", 1).Build()
+		err := NewClient(mock, testGHBin).CommentPR(context.Background(), "acme/widgets", 9, "hello")
+		if err == nil {
+			t.Fatal("CommentPR() error = nil, want failure")
+		}
+		var proc *ProcError
+		if !errors.As(err, &proc) {
+			t.Fatalf("CommentPR() error = %v, want ProcError", err)
+		}
+	})
+}
+
 func newGHMock() *executor.MockExecutor {
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand(testGHBin, true)
