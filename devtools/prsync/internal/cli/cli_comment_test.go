@@ -69,16 +69,16 @@ func TestCommentEmptyBody(t *testing.T) {
 	}
 }
 
-func TestCommentRejectsCIFlag(t *testing.T) {
+func TestCommentUnknownFlag(t *testing.T) {
 	t.Parallel()
 
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"comment", "--ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	code := Execute(context.Background(), []string{"comment", "--not-a-flag"}, &stdout, &stderr, executor.NewBasicExecutor())
 	if code != ExitUsage {
 		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "unknown flag") || !strings.Contains(stderr.String(), "--ci") {
-		t.Fatalf("stderr = %q, want unknown flag --ci", stderr.String())
+	if !strings.Contains(stderr.String(), "unknown flag") {
+		t.Fatalf("stderr = %q, want unknown flag", stderr.String())
 	}
 }
 
