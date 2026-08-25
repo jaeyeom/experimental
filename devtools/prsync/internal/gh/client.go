@@ -130,6 +130,13 @@ func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRList
 	return prs, nil
 }
 
+// CommentPR runs `gh pr comment <number> --repo <repo> --body <body>`.
+func (c *Client) CommentPR(ctx context.Context, repo string, number int, body string) error {
+	_, err := c.requireOK(ctx, defaultCallTimeout,
+		"pr", "comment", strconv.Itoa(number), "--repo", repo, "--body", body)
+	return err
+}
+
 // ReviewThreads paginates GraphQL review threads. Hitting 50 pages is an error.
 func (c *Client) ReviewThreads(ctx context.Context, owner, repo string, number int) ([]Thread, error) {
 	var threads []Thread

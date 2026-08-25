@@ -11,12 +11,15 @@ that agent a prompt to address unresolved review comments — or, with
 ~--rebase~, a rebase-in-place prompt even when there are no open comments.
 It can also run the join in reverse (~tabs --orphans~) to flag live-agent
 tabs whose PR already merged, so their worktrees and gate slots can be
-reclaimed.
+reclaimed. ~comment~ posts a conversation-level PR comment (for example
+~/ci~) through ~gh~ with no herdr tab and no concurrency gate.
 
-The tool is read-only on GitHub and write-only on herdr (prompt injection).
-It shells out to the already-authenticated ~gh~ CLI and to herdr ≥ 0.8. It
+~scan~ and ~tabs~ are read-only on GitHub. ~comment~ writes a PR comment
+via ~gh~. ~dispatch~ is write-only on herdr (prompt injection). The tool
+shells out to the already-authenticated ~gh~ CLI and to herdr ≥ 0.8. It
 never embeds a GitHub token. Dispatch is serialized (one agent at a time)
-and dry-run by default. All commands emit JSON on stdout.
+and dry-run by default; ~comment~ is also dry-run by default. All commands
+emit JSON on stdout.
 
 Related tracker: [[https://github.com/jaeyeom/experimental/issues/211][#211]].
 
@@ -38,9 +41,10 @@ After ~go install~, put ~$GOPATH/bin~ / ~$GOBIN~ on ~PATH~.
 
 - ~gh~ authenticated (~gh auth login~). ~prsync~ never calls ~gh auth token~.
 - herdr ≥ 0.8 on ~PATH~ for matching and dispatch. Missing herdr: ~scan~
-  degrades (tabs are unset); ~dispatch~ and ~gate~ exit 3. Present but older
-  than 0.8, or unparseable ~herdr --version~: every command that would talk
-  to herdr (including ~scan~) exits 3.
+  degrades (tabs are unset); ~dispatch~ and ~gate~ exit 3; ~comment~ still
+  runs (it does not need a tab). Present but older than 0.8, or unparseable
+  ~herdr --version~: every command that would talk to herdr (including
+  ~scan~) exits 3. ~comment --stdin~ never talks to herdr.
 - Linux or macOS. No Windows requirement.
 
 Optional: copy [[file:prsync.config.example][prsync.config.example]] to
@@ -52,35 +56,40 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--force] [--stdin]
+prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] (--body TEXT | --ci)
 prsync gate     [--config PATH]
 prsync version
 #+END_EXAMPLE
 
 | Flag | Commands | Effect |
 |------+----------+--------|
-| ~--config PATH~ | scan, tabs, dispatch, gate | Use this file (must exist) |
+| ~--config PATH~ | scan, tabs, dispatch, comment, gate | Use this file (must exist) |
 | ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
 | ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
 | ~--orphans~ | tabs | Required; report live-agent tabs with no open/draft PR |
 | ~--stdin~ | tabs | Reuse open-PR↔tab matches from a scan document on stdin (else self-resolve) |
-| ~--pr owner/repo#N~ | dispatch | Repeatable; limit candidates |
-| ~--all~ | dispatch | Every PR in the scan document (default when no ~--pr~) |
-| ~--go~ | dispatch | Live send (default is dry-run) |
+| ~--pr owner/repo#N~ | dispatch, comment | Repeatable; limit candidates |
+| ~--all~ | dispatch, comment | Every PR in the scan document (default when no ~--pr~) |
+| ~--go~ | dispatch, comment | Live send (default is dry-run) |
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
 | ~--force~ | dispatch | Re-dispatch even if dedupe state would skip |
-| ~--stdin~ | dispatch | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
+| ~--stdin~ | dispatch, comment | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
+| ~--body TEXT~ | comment | Comment body to post |
+| ~--ci~ | comment | Alias for ~--body "/ci"~ |
 
-~--pr~ and ~--all~ together is an error (exit 2). ~--go~ always sends.
-~dry_run=false~ in the config also sends without ~--go~ (for cron).
+~--pr~ and ~--all~ together is an error (exit 2). ~--ci~ and ~--body~
+together is an error (exit 2). ~--go~ always sends. ~dry_run=false~ in
+the config also sends without ~--go~ (for cron).
 
-~dispatch~ reads a scan document from stdin only when ~--stdin~ is set
-and stdin is a FIFO or regular file (a pipe or redirected file). Sockets,
-TTYs, and other non-file stdin are ignored so dispatch cannot hang on a
-blocking peek. Decode errors are fatal. Without ~--stdin~, dispatch
-always self-scans.
+~dispatch~ and ~comment~ read a scan document from stdin only when
+~--stdin~ is set and stdin is a FIFO or regular file (a pipe or
+redirected file). Sockets, TTYs, and other non-file stdin are ignored so
+they cannot hang on a blocking peek. Decode errors are fatal. Without
+~--stdin~, they always self-scan.
 
 #+BEGIN_SRC bash
 prsync scan --config ./prsync.config | prsync dispatch --stdin --config ./prsync.config
+prsync scan --config ./prsync.config | prsync comment --stdin --ci --config ./prsync.config
 #+END_SRC
 
 * Configuration
@@ -347,6 +356,36 @@ prompt to every PR that has a ready tab; auto-picking behind/conflicting
 PRs is a follow-up. Scan documents without ~merge_state_status~ keep
 head-SHA dedupe (use ~--force~ to retry a stuck entry).
 
+** comment
+
+Posts a PR comment through ~gh pr comment~. No herdr tab, no agent, and
+no concurrency gate — this is a GitHub API call, so it works for
+off-machine PRs (a ~tab~ of ~null~ is not a skip). Dry-run by default.
+~--ci~ is ~--body "/ci"~. JSON matches the ~dispatch~ result shape:
+~would_dispatch~ / ~dispatched~ / ~skipped_not_found~, with the comment
+body in ~rendered_prompt~.
+
+#+BEGIN_SRC bash
+prsync comment --config ./prsync.config --pr acme/widgets#123 --ci
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "/ci" --go
+prsync comment --config ./prsync.config --all --ci
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "dry_run": true,
+  "results": [
+    {
+      "repo": "acme/widgets",
+      "number": 123,
+      "action": "would_dispatch",
+      "rendered_prompt": "/ci"
+    }
+  ]
+}
+#+END_SRC
+
 ** gate
 
 #+BEGIN_SRC bash
@@ -388,6 +427,8 @@ Against a real herdr ≥ 0.8 and an authenticated ~gh~:
 prsync scan --config ./prsync.config
 prsync dispatch --config ./prsync.config          # review rendered_prompt
 prsync dispatch --config ./prsync.config --go     # pane_id + --wait --until idle --until done
+prsync comment --config ./prsync.config --ci      # review rendered_prompt
+prsync comment --config ./prsync.config --ci --go
 prsync gate --config ./prsync.config
 #+END_SRC
 
@@ -405,6 +446,8 @@ This procedure is README-only; CI uses fixture binaries, not live herdr.
 
 - ~prsync~ never calls ~gh auth token~ and never prints the environment.
   Auth is the operator's existing ~gh~ login plus the local herdr socket.
+- ~comment --go~ posts the given body as a GitHub PR comment. Dry-run
+  first; there is no extra confirmation beyond ~--go~.
 - Review comment bodies are interpolated into the dispatch prompt as text.
   ~prsync~ does not execute them. The *agent* may follow malicious review
   text — this is inherent to the product. Do not treat the prompt as
