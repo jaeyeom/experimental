@@ -79,6 +79,11 @@ Notes:
 - The space before `*` enforces a word boundary: `Bash(ls *)` matches
   `ls -la` but not `lsof`. Without the space (`Bash(ls*)`), both match.
 - A single `*` matches across spaces, so it can span multiple arguments.
+- Do not put `*` before a git subcommand in allow rules (e.g.
+  `Bash(git * add *)`). Git global options such as `-c` and `--exec-path`
+  can run arbitrary commands, and Claude Code warns on those patterns at
+  startup. `git -C <path> ...` will prompt; `cd <path> && git add ...`
+  still matches `Bash(git add *)`.
 - The `:*` form is recognized only as a trailing suffix. In the middle of a
   pattern (e.g. `Bash(git:* push)`), the colon is treated as a literal.
 - Non-Bash tools keep their own wrappers: `Read(...)`, `Edit(...)`,
