@@ -24,6 +24,12 @@ filenames.
   ./ensure.sh [rule]...
 #+end_src
 
+=ensure.sh= refreshes system package managers (=nala= on Debian/Ubuntu,
+=brew= on macOS, =pkg= on Termux) and a few toolchains (=rustup=, Termux
+=pip=, =ansible-galaxy=) at most once every 24 hours. Stamp files live in
+=$HOME/.cache/last_upgrade/=; delete one to force that refresh on the
+next run.
+
 ** Ansible version requirement
 
 Playbooks use =ansible.builtin.deb822_repository= (ansible-core >= 2.15).
