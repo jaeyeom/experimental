@@ -41,7 +41,16 @@ org_lint_tests([
 sh_binary(
     name = "ensure",
     srcs = ["ensure.sh"],
-    data = ["community_general.sh"],
+    data = [
+        "cache_expired.sh",
+        "community_general.sh",
+    ],
+)
+
+sh_test(
+    name = "cache_expired_test",
+    srcs = ["cache_expired_test.sh"],
+    data = ["cache_expired.sh"],
 )
 
 sh_test(
