@@ -46,6 +46,10 @@ PIP_CACHE="$CACHE_DIR/pip"
 RUSTUP_CACHE="$CACHE_DIR/rustup-update"
 ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 
+# Portable 24-hour cache TTL (see cache_expired.sh). Do not use find -mtime +1.
+# shellcheck disable=SC1091  # Sourced from the same directory as this script
+. "$(dirname "$0")/cache_expired.sh"
+
 # Detect OS
 OS="$(uname -s)"
 
@@ -240,7 +244,7 @@ if [ -n "$TERMUX_VERSION" ]; then
     # Upgrading pkg is necessary to avoid issues on Termux. Instead of handling
     # that in Ansible, we do it here.
     # Only upgrade if not done in the last 24 hours
-    if [ ! -f "$PKG_CACHE" ] || [ "$(find "$PKG_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+    if cache_expired "$PKG_CACHE"; then
         pkg upgrade -y
         pkg install -y rust python-pip python-cryptography
         touch "$PKG_CACHE"
@@ -469,7 +473,7 @@ STUBEOF
     fi
 
     # Install necessary packages for Ansible and also install ansible.
-    if [ ! -f "$PIP_CACHE" ] || [ "$(find "$PIP_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+    if cache_expired "$PIP_CACHE"; then
         pip install -U ansible
     fi
 elif [ "$OS" = "Darwin" ]; then
@@ -501,7 +505,7 @@ elif [ "$OS" = "Darwin" ]; then
 
     # Update Homebrew
     # Only update if not done in the last 24 hours
-    if [ ! -f "$BREW_CACHE" ] || [ "$(find "$BREW_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+    if cache_expired "$BREW_CACHE"; then
         echo "Updating Homebrew..."
         brew update && brew upgrade
         touch "$BREW_CACHE"
@@ -549,7 +553,7 @@ else
 
         # Upgrade packages with nala
         # Only upgrade if not done in the last 24 hours
-        if [ ! -f "$NALA_CACHE" ] || [ "$(find "$NALA_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+        if cache_expired "$NALA_CACHE"; then
             echo "Upgrading packages with nala..."
             sudo nala upgrade -y
             touch "$NALA_CACHE"
@@ -692,7 +696,7 @@ fi
 # Update rustup if installed (upgrades rust toolchain and all components)
 # Only update if not done in the last 24 hours
 if command -v rustup >/dev/null 2>&1; then
-    if [ ! -f "$RUSTUP_CACHE" ] || [ "$(find "$RUSTUP_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+    if cache_expired "$RUSTUP_CACHE"; then
         echo "Updating Rust toolchain via rustup..."
         rustup update
         touch "$RUSTUP_CACHE"
@@ -739,8 +743,7 @@ fi
 if community_general_needs_repair "$_cg_has_apt" "$_cg_termux" "$OS" \
     "$_cg_has_bundled" "$_cg_has_user_galaxy" "$_cg_upgraded" ||
     [ "$ANSIBLE_WAS_UPGRADED" = true ] ||
-    [ ! -f "$ANSIBLE_GALAXY_CACHE" ] ||
-    [ "$(find "$ANSIBLE_GALAXY_CACHE" -mtime +1 2>/dev/null | wc -l)" -gt 0 ]; then
+    cache_expired "$ANSIBLE_GALAXY_CACHE"; then
     _cg_plan=$(community_general_plan "$OS" "$_cg_termux" "$_cg_upgraded" \
         "$_cg_has_apt" "$_cg_has_bundled" "$_cg_core")
     case "$_cg_plan" in
