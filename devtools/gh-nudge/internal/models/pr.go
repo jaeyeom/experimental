@@ -19,6 +19,12 @@ type PullRequest struct {
 	HeadRefName       string          `json:"headRefName,omitempty"`
 	StatusCheckRollup []StatusCheck   `json:"statusCheckRollup,omitempty"`
 	IsDraft           bool            `json:"isDraft,omitempty"`
+	Labels            []Label         `json:"labels,omitempty"`
+}
+
+// Label represents a GitHub label attached to a pull request.
+type Label struct {
+	Name string `json:"name"`
 }
 
 // StatusCheck represents a single CI check or status from GitHub's statusCheckRollup.
@@ -73,6 +79,33 @@ func (pr *PullRequest) PendingChecks() []StatusCheck {
 		}
 	}
 	return pending
+}
+
+// HasLabel reports whether the pull request has a label with the given name.
+func (pr *PullRequest) HasLabel(name string) bool {
+	for _, label := range pr.Labels {
+		if label.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowsNudge reports whether a nudge should be sent for this pull request
+// given the configured label filters. Empty slices mean no constraint.
+// requireLabels must all be present; skipLabels must all be absent.
+func (pr *PullRequest) AllowsNudge(requireLabels, skipLabels []string) bool {
+	for _, required := range requireLabels {
+		if !pr.HasLabel(required) {
+			return false
+		}
+	}
+	for _, skip := range skipLabels {
+		if pr.HasLabel(skip) {
+			return false
+		}
+	}
+	return true
 }
 
 // File represents a file changed in a pull request.

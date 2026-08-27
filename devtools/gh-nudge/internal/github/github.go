@@ -71,7 +71,7 @@ func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	output, err := c.executor.Execute("gh", "pr", "list",
 		"--author", "@me",
 		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
-		"--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup,isDraft")
+		"--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup,isDraft,labels")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gh command: %w", err)
 	}

@@ -332,6 +332,91 @@ func TestGetPendingPullRequests(t *testing.T) {
 		}
 	})
 
+	t.Run("parses PR labels", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "Labeled PR",
+				"url": "https://github.com/org/repo/pull/1",
+				"files": [],
+				"reviewRequests": [],
+				"labels": [
+					{"name": "ready-for-review"},
+					{"name": "backend"}
+				]
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+		if len(prs[0].Labels) != 2 {
+			t.Fatalf("expected 2 labels, got %d", len(prs[0].Labels))
+		}
+		if prs[0].Labels[0].Name != "ready-for-review" {
+			t.Errorf("expected first label 'ready-for-review', got %q", prs[0].Labels[0].Name)
+		}
+		if prs[0].Labels[1].Name != "backend" {
+			t.Errorf("expected second label 'backend', got %q", prs[0].Labels[1].Name)
+		}
+	})
+
+	t.Run("treats PRs without labels field as unlabeled", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "Unlabeled PR",
+				"url": "https://github.com/org/repo/pull/1",
+				"files": [],
+				"reviewRequests": []
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+		if len(prs[0].Labels) != 0 {
+			t.Errorf("expected no labels, got %d", len(prs[0].Labels))
+		}
+	})
+
+	t.Run("requests labels in gh pr list JSON fields", func(t *testing.T) {
+		executor := &mockExecutor{captureArgs: true, output: "[]"}
+		client := NewClientWithExecutor(executor)
+
+		if _, err := client.GetPendingPullRequests(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !executor.wasCalled {
+			t.Fatal("expected executor to be called")
+		}
+
+		jsonFields := ""
+		for i, arg := range executor.lastArgs {
+			if arg == "--json" && i+1 < len(executor.lastArgs) {
+				jsonFields = executor.lastArgs[i+1]
+				break
+			}
+		}
+		if jsonFields == "" {
+			t.Fatal("expected --json argument")
+		}
+		if !strings.Contains(jsonFields, "labels") {
+			t.Errorf("expected --json fields to include labels, got %q", jsonFields)
+		}
+	})
+
 	t.Run("parses PR with multiple files", func(t *testing.T) {
 		sampleJSON := `[
 			{

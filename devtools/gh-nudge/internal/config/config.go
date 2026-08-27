@@ -46,10 +46,12 @@ type ChannelRoutingConfig struct {
 
 // SettingsConfig contains general application settings.
 type SettingsConfig struct {
-	ReminderThresholdHours int    `yaml:"reminder_threshold_hours"`
-	WorkingHoursOnly       bool   `yaml:"working_hours_only"`
-	MessageTemplate        string `yaml:"message_template"`
-	DMByDefault            bool   `yaml:"dm_by_default"`
+	ReminderThresholdHours int      `yaml:"reminder_threshold_hours"`
+	WorkingHoursOnly       bool     `yaml:"working_hours_only"`
+	MessageTemplate        string   `yaml:"message_template"`
+	DMByDefault            bool     `yaml:"dm_by_default"`
+	RequireLabels          []string `yaml:"require_labels"`
+	SkipLabels             []string `yaml:"skip_labels"`
 }
 
 // LoadConfig loads the configuration from the specified file path.
@@ -125,6 +127,8 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			WorkingHoursOnly:       pklCfg.Settings.WorkingHoursOnly,
 			MessageTemplate:        pklCfg.Settings.MessageTemplate,
 			DMByDefault:            pklCfg.Settings.DmByDefault,
+			RequireLabels:          pklCfg.Settings.RequireLabels,
+			SkipLabels:             pklCfg.Settings.SkipLabels,
 		},
 	}
 

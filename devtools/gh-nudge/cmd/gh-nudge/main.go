@@ -165,6 +165,16 @@ func processPullRequest(
 ) {
 	slog.Debug("Processing pull request", "title", pr.Title, "url", pr.URL)
 
+	if !pr.AllowsNudge(cfg.Settings.RequireLabels, cfg.Settings.SkipLabels) {
+		slog.Info("Skipping pull request due to label filter",
+			"pr", pr.Title,
+			"url", pr.URL,
+			"labels", pr.Labels,
+			"require_labels", cfg.Settings.RequireLabels,
+			"skip_labels", cfg.Settings.SkipLabels)
+		return
+	}
+
 	// Process each reviewer
 	for _, reviewer := range pr.ReviewRequests {
 		err := processReviewer(pr, reviewer, slackClient, notificationTracker, cfg)
