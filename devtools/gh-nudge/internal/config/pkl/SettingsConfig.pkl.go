@@ -14,4 +14,10 @@ type SettingsConfig struct {
 
 	// Send DMs to reviewers by default instead of channel messages
 	DmByDefault bool `pkl:"dm_by_default"`
+
+	// Skip nudging unless the PR has all of these labels. Empty means no requirement.
+	RequireLabels []string `pkl:"require_labels"`
+
+	// Skip nudging if the PR has any of these labels. Empty means no skip filter.
+	SkipLabels []string `pkl:"skip_labels"`
 }

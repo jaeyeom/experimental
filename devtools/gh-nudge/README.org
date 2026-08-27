@@ -153,6 +153,15 @@ settings {
   reminder_threshold_hours = 24  // Hours between reminders for same PR/reviewer
   working_hours_only = true
   dm_by_default = true
+  // Skip nudging unless the PR has all of these labels. Empty means no requirement.
+  require_labels {
+    "ready-for-review"
+  }
+  // Skip nudging if the PR has any of these labels. Empty means no skip filter.
+  skip_labels {
+    "wip"
+    "do-not-nudge"
+  }
 }
 #+end_src
 
@@ -208,6 +217,11 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
     working_hours_only: true
     message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
     dm_by_default: true  # Send DMs to reviewers by default
+    require_labels:  # Skip unless the PR has all of these labels
+      - "ready-for-review"
+    skip_labels:  # Skip if the PR has any of these labels
+      - "wip"
+      - "do-not-nudge"
 #+end_src
 
 *Note*: YAML support may be deprecated in a future release. Consider migrating

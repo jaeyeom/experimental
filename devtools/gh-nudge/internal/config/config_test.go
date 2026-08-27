@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	pklconfig "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config/pkl"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -404,4 +406,95 @@ slack:
 			t.Errorf("Expected second channel '#js-reviews', got %q", cfg.Slack.ChannelRouting[1].Channel)
 		}
 	})
+
+	t.Run("should load label filter settings", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+
+slack:
+  token: "xoxb-test-token"
+
+settings:
+  require_labels:
+    - "ready-for-review"
+  skip_labels:
+    - "wip"
+    - "do-not-nudge"
+`
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
+		if err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		if len(cfg.Settings.RequireLabels) != 1 || cfg.Settings.RequireLabels[0] != "ready-for-review" {
+			t.Errorf("Expected require_labels [ready-for-review], got %v", cfg.Settings.RequireLabels)
+		}
+		if len(cfg.Settings.SkipLabels) != 2 {
+			t.Fatalf("Expected 2 skip_labels, got %d", len(cfg.Settings.SkipLabels))
+		}
+		if cfg.Settings.SkipLabels[0] != "wip" || cfg.Settings.SkipLabels[1] != "do-not-nudge" {
+			t.Errorf("Expected skip_labels [wip do-not-nudge], got %v", cfg.Settings.SkipLabels)
+		}
+	})
+
+	t.Run("should default label filters to empty", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+
+slack:
+  token: "xoxb-test-token"
+`
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
+		if err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		if len(cfg.Settings.RequireLabels) != 0 {
+			t.Errorf("Expected empty require_labels, got %v", cfg.Settings.RequireLabels)
+		}
+		if len(cfg.Settings.SkipLabels) != 0 {
+			t.Errorf("Expected empty skip_labels, got %v", cfg.Settings.SkipLabels)
+		}
+	})
+}
+
+func TestConvertPklConfigLabelFilters(t *testing.T) {
+	pklCfg := &pklconfig.Config{
+		Settings: pklconfig.SettingsConfig{
+			ReminderThresholdHours: 24,
+			RequireLabels:          []string{"ready-for-review"},
+			SkipLabels:             []string{"wip", "do-not-nudge"},
+		},
+	}
+
+	cfg := convertPklConfig(pklCfg)
+
+	if len(cfg.Settings.RequireLabels) != 1 || cfg.Settings.RequireLabels[0] != "ready-for-review" {
+		t.Errorf("Expected require_labels [ready-for-review], got %v", cfg.Settings.RequireLabels)
+	}
+	if len(cfg.Settings.SkipLabels) != 2 || cfg.Settings.SkipLabels[0] != "wip" || cfg.Settings.SkipLabels[1] != "do-not-nudge" {
+		t.Errorf("Expected skip_labels [wip do-not-nudge], got %v", cfg.Settings.SkipLabels)
+	}
 }
