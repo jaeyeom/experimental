@@ -43,6 +43,10 @@ class SettingsConfig {
   message_template: String = "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours."
   /// Send DMs to reviewers by default instead of channel messages
   dm_by_default: Boolean = false
+  /// Skip nudging unless the PR has all of these labels. Empty means no requirement.
+  require_labels: Listing<String> = new {}
+  /// Skip nudging if the PR has any of these labels. Empty means no skip filter.
+  skip_labels: Listing<String> = new {}
 }
 
 /// Root configuration

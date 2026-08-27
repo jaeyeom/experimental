@@ -39,4 +39,13 @@ settings {
   reminder_threshold_hours = 24
   working_hours_only = true
   dm_by_default = true
+  // Skip nudging unless the PR has all of these labels.
+  require_labels {
+    "ready-for-review"
+  }
+  // Skip nudging if the PR has any of these labels.
+  skip_labels {
+    "wip"
+    "do-not-nudge"
+  }
 }
