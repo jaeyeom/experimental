@@ -145,6 +145,30 @@ func TestPlan_EnhancesParserFriendlyArgs(t *testing.T) {
 	}
 }
 
+func TestPlan_EnhancesIfaceAssertJSON(t *testing.T) {
+	project := &config.ProjectConfig{
+		RootPath: "/repo",
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeLint: {tool("unnecessary-interface-assertion-linter")},
+		},
+	}
+	exec := availableExec(t, "unnecessary-interface-assertion-linter")
+
+	planned, err := Plan(project, Options{}, exec)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(planned) != 1 {
+		t.Fatalf("planned = %d, want 1", len(planned))
+	}
+	if planned[0].Config.Command != "unnecessary-interface-assertion-linter" {
+		t.Errorf("command = %q", planned[0].Config.Command)
+	}
+	if !hasArg(planned[0].Config.Args, "--json") {
+		t.Errorf("args = %v, want --json", planned[0].Config.Args)
+	}
+}
+
 func TestPlan_EnhancesRuffCheckJSON(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",

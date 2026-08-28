@@ -59,12 +59,12 @@ project scaffolding and configuration management.
 
 *** linters                                                    :experimental:
 
-Collection of linting tools for various file formats, starting with org-lint
-for Org-mode files. Provides command-line linting with Emacs org-lint
-functionality.
+Collection of linting tools for various file formats, including org-lint
+for Org-mode files and a Go linter for unnecessary interface assertions.
 
 *Available Linters:*
 - *org-lint*: Go wrapper around Emacs org-lint for Org-mode files
+- *unnecessary-interface-assertion-linter*: flags `var _ Iface = (*T)(nil)` when the interface is otherwise unused
 
 *Installation:*
 #+BEGIN_SRC bash
