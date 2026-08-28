@@ -1,15 +1,14 @@
 """Server implements the gRPC server for the contacts service."""
 
-from collections.abc import Callable, MutableMapping
-from concurrent import futures
 import logging
 import uuid
+from collections.abc import Callable, MutableMapping
+from concurrent import futures
 
 import grpc
 import protovalidate
 
-from gen import contacts_pb2
-from gen import contacts_pb2_grpc
+from gen import contacts_pb2, contacts_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,8 @@ class Database:
         )
 
     def list_contacts(
-        self, query: str = '',
+        self,
+        query: str = '',
     ) -> list[contacts_pb2.Contact]:
         """List contacts whose name, email, or phone contains query."""
         decoded = (
@@ -53,7 +53,8 @@ class Database:
         ]
 
     def upsert_contact(
-        self, contact: contacts_pb2.Contact,
+        self,
+        contact: contacts_pb2.Contact,
     ) -> contacts_pb2.Contact:
         """Insert or update a contact, assigning uuid when missing."""
         if not contact.uuid:
@@ -64,7 +65,8 @@ class Database:
         )
 
     def delete_contact(
-        self, contact_uuid: str,
+        self,
+        contact_uuid: str,
     ) -> contacts_pb2.Contact:
         """Delete a contact by uuid.
 
@@ -128,18 +130,16 @@ class ValidationInterceptor(grpc.ServerInterceptor):
             validate: Request validator. Defaults to protovalidate.validate.
         """
         self._validate = (
-            validate
-            if validate is not None
-            else protovalidate.validate
+            validate if validate is not None else protovalidate.validate
         )
 
     def intercept_service(
         self,
         continuation: Callable[
-            [grpc.HandlerCallDetails],
+            [object],
             grpc.RpcMethodHandler | None,
         ],
-        handler_call_details: grpc.HandlerCallDetails,
+        handler_call_details: object,
     ) -> grpc.RpcMethodHandler | None:
         """Wrap unary handlers with request validation."""
         handler = continuation(handler_call_details)

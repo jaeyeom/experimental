@@ -36,11 +36,11 @@ check-format: check-whitespace
 test:
 	bazel test --test_summary=terse //...
 
-lint: lint-golangci lint-ruff lint-shellcheck check-spacemacs
+lint: lint-golangci lint-ruff lint-mypy lint-shellcheck check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
-fix: fix-golangci fix-ruff lint-shellcheck check-spacemacs
+fix: fix-golangci fix-ruff lint-mypy lint-shellcheck check-spacemacs
 
 # Go targets
 .PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files
@@ -66,13 +66,16 @@ check-bazel-go-files:
 	@./check-bazel-src-files.sh go
 
 # Python targets
-.PHONY: lint-ruff fix-ruff check-uv-lock
+.PHONY: lint-ruff fix-ruff lint-mypy check-uv-lock
 
 lint-ruff:
 	ruff check
 
 fix-ruff:
 	ruff check --fix
+
+lint-mypy:
+	mypy
 
 check-uv-lock: pyproject.toml uv.lock
 	@if ! command -v uv >/dev/null 2>&1; then \

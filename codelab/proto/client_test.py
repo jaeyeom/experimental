@@ -1,50 +1,60 @@
 """Tests for ContactsClient."""
 
 import sys
+from typing import Any
 
-import pytest
+import client as contacts_client
 import protovalidate
+import pytest
 
 from gen import contacts_pb2
-import client as contacts_client
 
 
 class FakeStub:
     """Records RPC calls and returns canned responses."""
 
     def __init__(self) -> None:
-        self.calls: list[object] = []
+        """Initialize canned RPC responses."""
+        self.calls: list[Any] = []
         self.list_response = contacts_pb2.ContactListResponse()
         self.upsert_response = contacts_pb2.UpsertContactResponse()
         self.delete_response = contacts_pb2.DeleteContactResponse()
 
     def ListContacts(
-        self, request: contacts_pb2.ContactListRequest,
+        self,
+        request: contacts_pb2.ContactListRequest,
     ) -> contacts_pb2.ContactListResponse:
+        """Record ListContacts and return the canned list response."""
         self.calls.append(request)
         return self.list_response
 
     def UpsertContact(
-        self, request: contacts_pb2.UpsertContactRequest,
+        self,
+        request: contacts_pb2.UpsertContactRequest,
     ) -> contacts_pb2.UpsertContactResponse:
+        """Record UpsertContact and return the canned upsert response."""
         self.calls.append(request)
         return self.upsert_response
 
     def DeleteContact(
-        self, request: contacts_pb2.DeleteContactRequest,
+        self,
+        request: contacts_pb2.DeleteContactRequest,
     ) -> contacts_pb2.DeleteContactResponse:
+        """Record DeleteContact and return the canned delete response."""
         self.calls.append(request)
         return self.delete_response
 
 
 def test_list_contacts_calls_stub_when_valid() -> None:
+    """Client lists contacts via the stub when validation succeeds."""
     stub = FakeStub()
     alice = contacts_pb2.Contact(uuid='a', name='Alice')
     stub.list_response = contacts_pb2.ContactListResponse(
         contacts=[alice],
     )
     svc = contacts_client.ContactsClient(
-        stub=stub, validate=lambda _req: None,
+        stub=stub,
+        validate=lambda _req: None,
     )
     got = svc.list_contacts(query='Ali')
     assert list(got) == [alice]
@@ -52,6 +62,7 @@ def test_list_contacts_calls_stub_when_valid() -> None:
 
 
 def test_list_contacts_skips_stub_when_invalid() -> None:
+    """Client raises and skips the stub when validation fails."""
     stub = FakeStub()
 
     def fail(_request: object) -> None:
@@ -64,13 +75,15 @@ def test_list_contacts_skips_stub_when_invalid() -> None:
 
 
 def test_upsert_contact_calls_stub_when_valid() -> None:
+    """Client upserts a contact via the stub when validation succeeds."""
     stub = FakeStub()
     stored = contacts_pb2.Contact(uuid='a', name='Alice')
     stub.upsert_response = contacts_pb2.UpsertContactResponse(
         contact=stored,
     )
     svc = contacts_client.ContactsClient(
-        stub=stub, validate=lambda _req: None,
+        stub=stub,
+        validate=lambda _req: None,
     )
     got = svc.upsert_contact(contacts_pb2.Contact(name='Alice'))
     assert got == stored
@@ -78,13 +91,15 @@ def test_upsert_contact_calls_stub_when_valid() -> None:
 
 
 def test_delete_contact_calls_stub_when_valid() -> None:
+    """Client deletes a contact via the stub when validation succeeds."""
     stub = FakeStub()
     stored = contacts_pb2.Contact(uuid='a', name='Alice')
     stub.delete_response = contacts_pb2.DeleteContactResponse(
         contact=stored,
     )
     svc = contacts_client.ContactsClient(
-        stub=stub, validate=lambda _req: None,
+        stub=stub,
+        validate=lambda _req: None,
     )
     got = svc.delete_contact('a')
     assert got == stored

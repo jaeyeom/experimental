@@ -5,9 +5,9 @@ import sys
 import grpc
 import protovalidate
 import pytest
+import server
 
 from gen import contacts_pb2
-import server
 
 
 def _contact(
@@ -18,7 +18,10 @@ def _contact(
     phone: str = '',
 ) -> contacts_pb2.Contact:
     return contacts_pb2.Contact(
-        uuid=uuid, name=name, email=email, phone=phone,
+        uuid=uuid,
+        name=name,
+        email=email,
+        phone=phone,
     )
 
 
@@ -37,8 +40,10 @@ def _store(*contacts: contacts_pb2.Contact) -> dict[str, bytes]:
     ],
 )
 def test_list_contacts_filters_by_query(
-    query: str, want_names: list[str],
+    query: str,
+    want_names: list[str],
 ) -> None:
+    """ListContacts filters by substring on name, email, or phone."""
     db = server.Database(
         _store(
             _contact(uuid='a', name='Alice', email='alice@example.com'),
@@ -50,6 +55,7 @@ def test_list_contacts_filters_by_query(
 
 
 def test_upsert_assigns_id_when_missing() -> None:
+    """Upsert assigns new_id when the contact has no uuid."""
     db = server.Database({}, new_id=lambda: 'fixed-id')
     got = db.upsert_contact(_contact(name='Carol'))
     assert got.uuid == 'fixed-id'
@@ -57,12 +63,14 @@ def test_upsert_assigns_id_when_missing() -> None:
 
 
 def test_upsert_keeps_existing_id() -> None:
+    """Upsert keeps an existing contact uuid."""
     db = server.Database({}, new_id=lambda: 'should-not-run')
     got = db.upsert_contact(_contact(uuid='kept-id', name='Dave'))
     assert got.uuid == 'kept-id'
 
 
 def test_delete_returns_contact() -> None:
+    """Delete returns the stored contact and removes it."""
     stored = _contact(uuid='a', name='Alice')
     db = server.Database(_store(stored))
     got = db.delete_contact('a')
@@ -71,6 +79,7 @@ def test_delete_returns_contact() -> None:
 
 
 def test_delete_missing_uuid_raises_key_error() -> None:
+    """Delete of a missing uuid raises KeyError."""
     db = server.Database({})
     with pytest.raises(KeyError):
         db.delete_contact('missing')
@@ -96,6 +105,8 @@ class _FakeHandler:
 
 
 def test_interceptor_aborts_on_validation_error() -> None:
+    """Interceptor aborts INVALID_ARGUMENT and skips the inner handler."""
+
     def fail(_request: object) -> None:
         raise protovalidate.ValidationError('invalid', [])
 
@@ -110,6 +121,8 @@ def test_interceptor_aborts_on_validation_error() -> None:
         lambda _details: _FakeHandler(inner),
         handler_call_details=None,
     )
+    assert handler is not None
+    assert handler.unary_unary is not None
     context = _FakeContext()
     with pytest.raises(_AbortError) as caught:
         handler.unary_unary(object(), context)
@@ -118,15 +131,19 @@ def test_interceptor_aborts_on_validation_error() -> None:
 
 
 def test_interceptor_delegates_when_valid() -> None:
+    """Interceptor delegates to the inner unary handler when valid."""
     interceptor = server.ValidationInterceptor(validate=lambda _r: None)
     handler = interceptor.intercept_service(
         lambda _details: _FakeHandler(lambda _req, _ctx: 'ok'),
         handler_call_details=None,
     )
+    assert handler is not None
+    assert handler.unary_unary is not None
     assert handler.unary_unary(object(), _FakeContext()) == 'ok'
 
 
 def test_interceptor_passes_through_non_unary() -> None:
+    """Non-unary handlers are returned unchanged."""
     original = _FakeHandler(unary_unary=None)
     interceptor = server.ValidationInterceptor(validate=lambda _r: None)
     got = interceptor.intercept_service(

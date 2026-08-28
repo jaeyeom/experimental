@@ -1,15 +1,13 @@
 """Client for the contacts gRPC service."""
 
+import logging
 from collections.abc import Callable
 from typing import Protocol
-import logging
-import sys
 
 import grpc
 import protovalidate
 
-from gen import contacts_pb2
-from gen import contacts_pb2_grpc
+from gen import contacts_pb2, contacts_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +16,25 @@ class ContactsStub(Protocol):
     """gRPC stub surface used by ContactsClient."""
 
     def ListContacts(
-        self, request: contacts_pb2.ContactListRequest,
-    ) -> contacts_pb2.ContactListResponse: ...
+        self,
+        request: contacts_pb2.ContactListRequest,
+    ) -> contacts_pb2.ContactListResponse:
+        """Call ListContacts."""
+        ...
 
     def UpsertContact(
-        self, request: contacts_pb2.UpsertContactRequest,
-    ) -> contacts_pb2.UpsertContactResponse: ...
+        self,
+        request: contacts_pb2.UpsertContactRequest,
+    ) -> contacts_pb2.UpsertContactResponse:
+        """Call UpsertContact."""
+        ...
 
     def DeleteContact(
-        self, request: contacts_pb2.DeleteContactRequest,
-    ) -> contacts_pb2.DeleteContactResponse: ...
+        self,
+        request: contacts_pb2.DeleteContactRequest,
+    ) -> contacts_pb2.DeleteContactResponse:
+        """Call DeleteContact."""
+        ...
 
 
 class ContactsClient:
@@ -57,13 +64,12 @@ class ContactsClient:
         else:
             raise ValueError('channel or stub is required')
         self._validate = (
-            validate
-            if validate is not None
-            else protovalidate.validate
+            validate if validate is not None else protovalidate.validate
         )
 
     def list_contacts(
-        self, query: str = '',
+        self,
+        query: str = '',
     ) -> list[contacts_pb2.Contact]:
         """List contacts matching query."""
         request = contacts_pb2.ContactListRequest(query=query)
@@ -71,7 +77,8 @@ class ContactsClient:
         return list(self.stub.ListContacts(request).contacts)
 
     def upsert_contact(
-        self, contact: contacts_pb2.Contact,
+        self,
+        contact: contacts_pb2.Contact,
     ) -> contacts_pb2.Contact:
         """Insert or update a contact."""
         request = contacts_pb2.UpsertContactRequest(contact=contact)
@@ -79,7 +86,8 @@ class ContactsClient:
         return self.stub.UpsertContact(request).contact
 
     def delete_contact(
-        self, contact_uuid: str,
+        self,
+        contact_uuid: str,
     ) -> contacts_pb2.Contact:
         """Delete a contact by uuid."""
         request = contacts_pb2.DeleteContactRequest(uuid=contact_uuid)
