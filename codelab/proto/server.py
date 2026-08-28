@@ -103,20 +103,57 @@ class ContactsService(contacts_pb2_grpc.ContactsServiceServicer):
 
 
 class ValidationInterceptor(grpc.ServerInterceptor):
-    """Validation interceptor that calls protovalidate.validate."""
+    """Validate unary requests with protovalidate before the handler."""
 
-    def intercept_service(self, continuation, handler_call_details):
-        """Intercept the service."""
-        request = continuation(handler_call_details)
-        print('ValidationInterceptor:', request, handler_call_details)
-        try:
-            protovalidate.validate(request)
-        except protovalidate.ValidationError as e:
-            raise grpc.RpcError(
-                grpc.StatusCode.INVALID_ARGUMENT,
-                str(e.violations),
-            )
-        return request
+    def __init__(
+        self,
+        *,
+        validate: Callable[[object], None] | None = None,
+    ) -> None:
+        """Initialize the interceptor.
+
+        Args:
+            validate: Request validator. Defaults to protovalidate.validate.
+        """
+        self._validate = (
+            validate
+            if validate is not None
+            else protovalidate.validate
+        )
+
+    def intercept_service(
+        self,
+        continuation: Callable[
+            [grpc.HandlerCallDetails],
+            grpc.RpcMethodHandler | None,
+        ],
+        handler_call_details: grpc.HandlerCallDetails,
+    ) -> grpc.RpcMethodHandler | None:
+        """Wrap unary handlers with request validation."""
+        handler = continuation(handler_call_details)
+        if handler is None or handler.unary_unary is None:
+            return handler
+
+        inner = handler.unary_unary
+
+        def unary_unary(
+            request: object,
+            context: grpc.ServicerContext,
+        ) -> object:
+            try:
+                self._validate(request)
+            except protovalidate.ValidationError as err:
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    str(err.violations),
+                )
+            return inner(request, context)
+
+        return grpc.unary_unary_rpc_method_handler(
+            unary_unary,
+            request_deserializer=handler.request_deserializer,
+            response_serializer=handler.response_serializer,
+        )
 
 
 def main():

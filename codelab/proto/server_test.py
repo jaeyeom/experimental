@@ -2,6 +2,8 @@
 
 import sys
 
+import grpc
+import protovalidate
 import pytest
 
 from gen import contacts_pb2
@@ -72,6 +74,66 @@ def test_delete_missing_uuid_raises_key_error() -> None:
     db = server.Database({})
     with pytest.raises(KeyError):
         db.delete_contact('missing')
+
+
+class _AbortError(Exception):
+    def __init__(self, code: grpc.StatusCode, details: str) -> None:
+        super().__init__(details)
+        self.code = code
+        self.details = details
+
+
+class _FakeContext:
+    def abort(self, code: grpc.StatusCode, details: str) -> None:
+        raise _AbortError(code, details)
+
+
+class _FakeHandler:
+    def __init__(self, unary_unary: object | None) -> None:
+        self.unary_unary = unary_unary
+        self.request_deserializer = None
+        self.response_serializer = None
+
+
+def test_interceptor_aborts_on_validation_error() -> None:
+    def fail(_request: object) -> None:
+        raise protovalidate.ValidationError('invalid', [])
+
+    interceptor = server.ValidationInterceptor(validate=fail)
+    inner_called = []
+
+    def inner(request: object, context: object) -> str:
+        inner_called.append(request)
+        return 'ok'
+
+    handler = interceptor.intercept_service(
+        lambda _details: _FakeHandler(inner),
+        handler_call_details=None,
+    )
+    context = _FakeContext()
+    with pytest.raises(_AbortError) as caught:
+        handler.unary_unary(object(), context)
+    assert caught.value.code == grpc.StatusCode.INVALID_ARGUMENT
+    assert inner_called == []
+
+
+def test_interceptor_delegates_when_valid() -> None:
+    interceptor = server.ValidationInterceptor(validate=lambda _r: None)
+    handler = interceptor.intercept_service(
+        lambda _details: _FakeHandler(lambda _req, _ctx: 'ok'),
+        handler_call_details=None,
+    )
+    assert handler.unary_unary(object(), _FakeContext()) == 'ok'
+
+
+def test_interceptor_passes_through_non_unary() -> None:
+    original = _FakeHandler(unary_unary=None)
+    interceptor = server.ValidationInterceptor(validate=lambda _r: None)
+    got = interceptor.intercept_service(
+        lambda _details: original,
+        handler_call_details=None,
+    )
+    assert got is original
 
 
 if __name__ == '__main__':
