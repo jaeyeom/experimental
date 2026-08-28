@@ -3,6 +3,7 @@ package detector
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
@@ -411,31 +412,170 @@ func TestProjectDetector_DetectTSOnlyTreeDoesNotListJavaScript(t *testing.T) {
 	}
 }
 
-func TestBazelDetector_GetToolsOnlyListsExistingTargets(t *testing.T) {
+func TestBazelToolsOnlyListsExistingTargets(t *testing.T) {
 	withBinsOnPath(t, "bazel")
 	dir := t.TempDir()
 	writeTree(t, dir, map[string]string{
 		"BUILD.bazel": "alias(name = \"format\", actual = \":fmt\")\n",
 	})
 
-	tools := NewBazelDetector().GetTools(dir)
+	tools := bazelTools(dir)
 	assertContainsTool(t, tools[config.ToolTypeFormat], "bazel run //:format")
 	assertNotContainsTool(t, tools[config.ToolTypeFormat], "bazel run //tools:format")
 	assertNotContainsTool(t, tools[config.ToolTypeLint], "bazel run //tools:lint")
 	assertNotContainsTool(t, tools[config.ToolTypeLint], "bazel run //:lint")
 }
 
-func TestMakeDetector_GetToolsOnlyListsExistingTargets(t *testing.T) {
+func TestMakeToolsOnlyListsExistingTargets(t *testing.T) {
 	withBinsOnPath(t, "make")
 	dir := t.TempDir()
 	writeTree(t, dir, map[string]string{
 		"Makefile": "format:\ntest:\n",
 	})
 
-	tools := NewMakeDetector().GetTools(dir)
+	tools := makeTools(dir)
 	assertContainsTool(t, tools[config.ToolTypeFormat], "make format")
 	assertContainsTool(t, tools[config.ToolTypeTest], "make test")
 	assertNotContainsTool(t, tools[config.ToolTypeLint], "make lint")
+}
+
+func TestProjectDetector_DetectScansOnce(t *testing.T) {
+	dir := t.TempDir()
+	fake := &countingScanner{
+		result: &ScanResult{
+			Root: dir,
+			Files: []string{
+				"go.mod",
+				"main.go",
+				".golangci.yml",
+				"pyproject.toml",
+				"main.py",
+				"tsconfig.json",
+				"package.json",
+				"src/main.ts",
+				"src/app.js",
+			},
+		},
+	}
+	detector := NewProjectDetector()
+	detector.scanner = fake
+
+	result, err := detector.Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if fake.n != 1 {
+		t.Errorf("Scan called %d times, want 1", fake.n)
+	}
+	got, ok := result.ConfigFiles["golangci-lint"]
+	if !ok {
+		t.Fatalf("ConfigFiles = %v, want golangci-lint from the single scan result", result.ConfigFiles)
+	}
+	if got != ".golangci.yml" {
+		t.Errorf("ConfigFiles[golangci-lint] = %q, want .golangci.yml", got)
+	}
+	if result.ConfigFiles["typescript"] != "tsconfig.json" {
+		t.Errorf("ConfigFiles[typescript] = %q, want tsconfig.json from the scan result", result.ConfigFiles["typescript"])
+	}
+}
+
+func TestProjectDetector_DetectReturnsStructuredBuildSystemTools(t *testing.T) {
+	withBinsOnPath(t, "make", "bazel")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"go.mod":            "module example",
+		"main.go":           "package main",
+		"MODULE.bazel":      "module(name = \"example\")",
+		"Makefile":          "format:\nlint:\ntest:\n",
+		"tools/BUILD.bazel": "sh_binary(name = \"format\", srcs = [\"format.sh\"])\nsh_binary(name = \"lint\", srcs = [\"lint.sh\"])\n",
+	})
+
+	result, err := NewProjectDetector().Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	assertStructuredTool(t, result, config.ToolTypeFormat, "bazel", []string{"run", "//tools:format"})
+	assertStructuredTool(t, result, config.ToolTypeLint, "bazel", []string{"run", "//tools:lint"})
+	assertStructuredTool(t, result, config.ToolTypeTest, "bazel", []string{"test", "//..."})
+}
+
+func TestProjectDetector_DetectFailsOnScanErrors(t *testing.T) {
+	dir := t.TempDir()
+	detector := NewProjectDetector()
+	detector.scanner = &countingScanner{
+		result: &ScanResult{
+			Root:   dir,
+			Files:  []string{"go.mod", "main.go"},
+			Errors: []error{os.ErrPermission},
+		},
+	}
+
+	_, err := detector.Detect(dir)
+	if err == nil {
+		t.Fatal("Detect() error = nil, want scan error")
+	}
+	if !strings.Contains(err.Error(), "scan errors") {
+		t.Errorf("error %q, want scan errors", err)
+	}
+}
+
+func TestProjectDetector_DetectFailsOnScanFailure(t *testing.T) {
+	dir := t.TempDir()
+	detector := NewProjectDetector()
+	detector.scanner = &countingScanner{err: os.ErrNotExist}
+
+	_, err := detector.Detect(dir)
+	if err == nil {
+		t.Fatal("Detect() error = nil, want scan failure")
+	}
+}
+
+func TestProjectDetector_DetectValidatesConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"go.mod":  "module example",
+		"main.go": "package main",
+	})
+
+	result, err := NewProjectDetector().Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("Detect() returned config that fails Validate(): %v", err)
+	}
+}
+
+func TestProjectDetector_DetectFailsOnInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"go.mod":  "module example",
+		"main.go": "package main",
+	})
+	detector := NewProjectDetector()
+	detector.patternMatcher.AddLanguagePattern("cobol", FilePattern{Pattern: "go.mod", Required: true})
+
+	_, err := detector.Detect(dir)
+	if err == nil {
+		t.Fatal("Detect() error = nil, want invalid project config")
+	}
+	if !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("error %q, want invalid project config", err)
+	}
+}
+
+type countingScanner struct {
+	n      int
+	result *ScanResult
+	err    error
+}
+
+func (c *countingScanner) Scan(_ string) (*ScanResult, error) {
+	c.n++
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c.result, nil
 }
 
 func withBinsOnPath(t *testing.T, names ...string) {
@@ -463,27 +603,56 @@ func writeTree(t *testing.T, dir string, files map[string]string) {
 func assertFirstTool(t *testing.T, result *config.ProjectConfig, toolType config.ToolType, want string) {
 	t.Helper()
 	got := result.Tools[toolType]
-	if len(got) == 0 || got[0] != want {
+	if len(got) == 0 || got[0].String() != want {
 		t.Errorf("Tools[%s] first = %v, want %q", toolType, got, want)
 	}
 }
 
-func assertContainsTool(t *testing.T, tools []string, want string) {
+func assertStructuredTool(t *testing.T, result *config.ProjectConfig, toolType config.ToolType, command string, args []string) {
+	t.Helper()
+	got := result.Tools[toolType]
+	if len(got) == 0 {
+		t.Fatalf("Tools[%s] is empty", toolType)
+	}
+	if got[0].Command != command {
+		t.Errorf("Tools[%s] Command = %q, want %q", toolType, got[0].Command, command)
+	}
+	if strings.Contains(got[0].Command, " ") {
+		t.Errorf("Tools[%s] Command = %q, want command and args separately", toolType, got[0].Command)
+	}
+	if !equalToolArgs(got[0].Args, args) {
+		t.Errorf("Tools[%s] Args = %v, want %v", toolType, got[0].Args, args)
+	}
+}
+
+func assertContainsTool(t *testing.T, tools []config.Tool, want string) {
 	t.Helper()
 	for _, tool := range tools {
-		if tool == want {
+		if tool.String() == want {
 			return
 		}
 	}
 	t.Errorf("tools %v, want to contain %q", tools, want)
 }
 
-func assertNotContainsTool(t *testing.T, tools []string, want string) {
+func assertNotContainsTool(t *testing.T, tools []config.Tool, want string) {
 	t.Helper()
 	for _, tool := range tools {
-		if tool == want {
+		if tool.String() == want {
 			t.Errorf("tools %v, want not to contain %q", tools, want)
 			return
 		}
 	}
+}
+
+func equalToolArgs(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -43,6 +43,26 @@ func TestPatternMatcher_MatchLanguages(t *testing.T) {
 			expected: []config.Language{config.LanguageGo},
 		},
 		{
+			name:     "go files without go.mod",
+			files:    []string{"main.go", "utils.go"},
+			expected: []config.Language{},
+		},
+		{
+			name:     "python files only",
+			files:    []string{"main.py", "utils.py"},
+			expected: []config.Language{config.LanguagePython},
+		},
+		{
+			name:     "python project with requirements.txt",
+			files:    []string{"requirements.txt", "script.py"},
+			expected: []config.Language{config.LanguagePython},
+		},
+		{
+			name:     "typescript files without tsconfig",
+			files:    []string{"main.ts", "utils.ts"},
+			expected: []config.Language{},
+		},
+		{
 			name:     "python project",
 			files:    []string{"pyproject.toml", "main.py", "requirements.txt"},
 			expected: []config.Language{config.LanguagePython},

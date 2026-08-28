@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,20 @@ const (
 	LanguageTypeScript Language = "typescript"
 	LanguageJavaScript Language = "javascript"
 )
+
+// Tool is a detected command the executor can run without re-parsing a shell string.
+type Tool struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
+}
+
+// String returns the command line as command plus args.
+func (t Tool) String() string {
+	if len(t.Args) == 0 {
+		return t.Command
+	}
+	return t.Command + " " + strings.Join(t.Args, " ")
+}
 
 // ToolType represents the type of development tool.
 type ToolType string
@@ -57,7 +72,7 @@ type ProjectConfig struct {
 	Languages []Language `json:"languages"`
 
 	// Tools maps tool types to their detected commands
-	Tools map[ToolType][]string `json:"tools"`
+	Tools map[ToolType][]Tool `json:"tools"`
 
 	// ConfigFiles maps languages/tools to their configuration files
 	ConfigFiles map[string]string `json:"configFiles"`

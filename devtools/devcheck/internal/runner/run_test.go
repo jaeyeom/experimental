@@ -47,9 +47,9 @@ func TestRun_DryRunDoesNotExecute(t *testing.T) {
 func TestRun_RecordsSuccessAndFailure(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"gofumpt"},
-			config.ToolTypeLint:   {"golangci-lint"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("gofumpt")},
+			config.ToolTypeLint:   {tool("golangci-lint")},
 		},
 	}
 	mock := executor.NewMockExecutor()
@@ -87,8 +87,8 @@ func TestRun_ChangedOnlyRequiresGit(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
 		HasGit:   false,
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"gofumpt"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("gofumpt")},
 		},
 	}
 	mock := availableExec(t, "gofumpt").(*executor.MockExecutor)
@@ -106,8 +106,8 @@ func TestRun_ChangedOnlyAppendsMatchingFiles(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
 		HasGit:   true,
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"gofumpt"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("gofumpt")},
 		},
 	}
 	mock := executor.NewMockExecutor()
@@ -146,8 +146,8 @@ func TestRun_ChangedOnlyAppendsMatchingFiles(t *testing.T) {
 func TestRun_AttachesRawOutputWhenUnparsed(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeLint: {"make lint"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeLint: {tool("make", "lint")},
 		},
 	}
 	mock := executor.NewMockExecutor()
@@ -173,8 +173,8 @@ func TestRun_AttachesRawOutputWhenUnparsed(t *testing.T) {
 func TestRun_ExecutionErrorFailsReport(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"gofumpt"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("gofumpt")},
 		},
 	}
 	mock := executor.NewMockExecutor()

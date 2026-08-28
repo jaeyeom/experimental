@@ -13,10 +13,10 @@ func TestPlan_MapsDetectedToolsToStructuredConfigs(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath:    "/repo",
 		BuildSystem: config.BuildSystemBazel,
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"bazel run //tools:format", "gofumpt"},
-			config.ToolTypeLint:   {"bazel run //tools:lint", "golangci-lint"},
-			config.ToolTypeTest:   {"bazel test //...", "go test"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("bazel", "run", "//tools:format"), tool("gofumpt")},
+			config.ToolTypeLint:   {tool("bazel", "run", "//tools:lint"), tool("golangci-lint")},
+			config.ToolTypeTest:   {tool("bazel", "test", "//..."), tool("go", "test")},
 		},
 	}
 	exec := availableExec(t, "bazel")
@@ -50,9 +50,9 @@ func TestPlan_ForceFallbackSkipsBuildSystemTools(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath:    "/repo",
 		BuildSystem: config.BuildSystemMake,
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"make format", "gofumpt", "gofmt"},
-			config.ToolTypeLint:   {"make lint", "golangci-lint"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("make", "format"), tool("gofumpt"), tool("gofmt")},
+			config.ToolTypeLint:   {tool("make", "lint"), tool("golangci-lint")},
 		},
 	}
 	exec := availableExec(t, "make", "gofumpt", "gofmt", "golangci-lint")
@@ -105,8 +105,8 @@ func TestPlan_FallsBackWhenPreferredBinaryMissing(t *testing.T) {
 func TestPlan_MissingRequiredTool(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeLint: {"golangci-lint"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeLint: {tool("golangci-lint")},
 		},
 	}
 	exec := availableExec(t)
@@ -123,8 +123,8 @@ func TestPlan_MissingRequiredTool(t *testing.T) {
 func TestPlan_EnhancesParserFriendlyArgs(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeLint: {"golangci-lint", "ruff check"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeLint: {tool("golangci-lint"), tool("ruff", "check")},
 		},
 	}
 	exec := availableExec(t, "golangci-lint")
@@ -148,8 +148,8 @@ func TestPlan_EnhancesParserFriendlyArgs(t *testing.T) {
 func TestPlan_EnhancesRuffCheckJSON(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeLint: {"ruff check"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeLint: {tool("ruff", "check")},
 		},
 	}
 	exec := availableExec(t, "ruff")
@@ -167,9 +167,9 @@ func TestPlan_EnhancesRuffCheckJSON(t *testing.T) {
 func TestPlan_ChangedOnlySkipsToolsWithoutMatchingFiles(t *testing.T) {
 	project := &config.ProjectConfig{
 		RootPath: "/repo",
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"gofumpt"},
-			config.ToolTypeLint:   {"ruff check"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("gofumpt")},
+			config.ToolTypeLint:   {tool("ruff", "check")},
 		},
 	}
 	exec := availableExec(t, "gofumpt", "ruff")
@@ -210,12 +210,16 @@ func bazelGoProject() *config.ProjectConfig {
 	return &config.ProjectConfig{
 		RootPath:    "/repo",
 		BuildSystem: config.BuildSystemBazel,
-		Tools: map[config.ToolType][]string{
-			config.ToolTypeFormat: {"bazel run //tools:format", "gofumpt", "gofmt"},
-			config.ToolTypeLint:   {"bazel run //tools:lint", "golangci-lint"},
-			config.ToolTypeTest:   {"bazel test //...", "go test"},
+		Tools: map[config.ToolType][]config.Tool{
+			config.ToolTypeFormat: {tool("bazel", "run", "//tools:format"), tool("gofumpt"), tool("gofmt")},
+			config.ToolTypeLint:   {tool("bazel", "run", "//tools:lint"), tool("golangci-lint")},
+			config.ToolTypeTest:   {tool("bazel", "test", "//..."), tool("go", "test")},
 		},
 	}
+}
+
+func tool(command string, args ...string) config.Tool {
+	return config.Tool{Command: command, Args: args}
 }
 
 func availableExec(t *testing.T, commands ...string) executor.Executor {
