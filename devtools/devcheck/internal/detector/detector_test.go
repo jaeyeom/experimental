@@ -46,7 +46,7 @@ func TestProjectDetector_Detect(t *testing.T) {
 		{
 			name:              "typescript project",
 			files:             []string{"tsconfig.json", "package.json", "src/main.ts"},
-			expectedLanguages: []config.Language{config.LanguageTypeScript, config.LanguageJavaScript},
+			expectedLanguages: []config.Language{config.LanguageTypeScript},
 			expectedBuild:     config.BuildSystemNone,
 			expectedHasGit:    false,
 		},
@@ -282,14 +282,14 @@ func TestProjectDetector_DetectWithLocationPriority(t *testing.T) {
 			description: "Should detect Make when Makefile is in root despite MODULE.bazel in subdirectory",
 		},
 		{
-			name: "both_in_subdirectories_bazel_priority",
+			name: "both_in_subdirectories_prefers_make_without_bazel_tools",
 			files: []string{
 				"main.go",
 				"src/MODULE.bazel",
 				"test/Makefile",
 			},
-			expected:    config.BuildSystemBazel,
-			description: "Should use priority order (Bazel > Make) when both are at same depth",
+			expected:    config.BuildSystemMake,
+			description: "Should prefer Make when Bazel and Make are at the same depth but Bazel format/lint targets are missing",
 		},
 		{
 			name: "make_shallow_bazel_deep",
@@ -341,5 +341,149 @@ func TestProjectDetector_DetectWithLocationPriority(t *testing.T) {
 					tt.description, tt.expected, result.BuildSystem)
 			}
 		})
+	}
+}
+
+func TestProjectDetector_DetectPrefersMakeWhenBazelFormatLintMissing(t *testing.T) {
+	withBinsOnPath(t, "make", "bazel")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"go.mod":       "module example",
+		"main.go":      "package main",
+		"MODULE.bazel": "module(name = \"example\")",
+		"BUILD.bazel":  "alias(name = \"format\", actual = \"//tools/format:format\")\n",
+		"Makefile":     "format:\nlint:\ntest:\n",
+	})
+
+	result, err := NewProjectDetector().Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if result.BuildSystem != config.BuildSystemMake {
+		t.Errorf("BuildSystem = %v, want make when //tools:format and //tools:lint are missing", result.BuildSystem)
+	}
+	assertFirstTool(t, result, config.ToolTypeFormat, "make format")
+	assertFirstTool(t, result, config.ToolTypeLint, "make lint")
+	assertFirstTool(t, result, config.ToolTypeTest, "make test")
+}
+
+func TestProjectDetector_DetectUsesBazelWhenFormatAndLintTargetsExist(t *testing.T) {
+	withBinsOnPath(t, "make", "bazel")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"go.mod":            "module example",
+		"main.go":           "package main",
+		"MODULE.bazel":      "module(name = \"example\")",
+		"Makefile":          "format:\nlint:\ntest:\n",
+		"tools/BUILD.bazel": "sh_binary(name = \"format\", srcs = [\"format.sh\"])\nsh_binary(name = \"lint\", srcs = [\"lint.sh\"])\n",
+	})
+
+	result, err := NewProjectDetector().Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if result.BuildSystem != config.BuildSystemBazel {
+		t.Errorf("BuildSystem = %v, want bazel when //tools:format and //tools:lint exist", result.BuildSystem)
+	}
+	assertFirstTool(t, result, config.ToolTypeFormat, "bazel run //tools:format")
+	assertFirstTool(t, result, config.ToolTypeLint, "bazel run //tools:lint")
+}
+
+func TestProjectDetector_DetectTSOnlyTreeDoesNotListJavaScript(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"tsconfig.json": `{"compilerOptions":{}}`,
+		"src/main.ts":   "export const x = 1;",
+		"package.json":  `{"name":"app","scripts":{"test":"jest"}}`,
+	})
+
+	result, err := NewProjectDetector().Detect(dir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	for _, lang := range result.Languages {
+		if lang == config.LanguageJavaScript {
+			t.Fatalf("Languages = %v, want no javascript for a TS-only tree", result.Languages)
+		}
+	}
+	if !hasLanguage(result.Languages, config.LanguageTypeScript) {
+		t.Errorf("Languages = %v, want typescript", result.Languages)
+	}
+}
+
+func TestBazelDetector_GetToolsOnlyListsExistingTargets(t *testing.T) {
+	withBinsOnPath(t, "bazel")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"BUILD.bazel": "alias(name = \"format\", actual = \":fmt\")\n",
+	})
+
+	tools := NewBazelDetector().GetTools(dir)
+	assertContainsTool(t, tools[config.ToolTypeFormat], "bazel run //:format")
+	assertNotContainsTool(t, tools[config.ToolTypeFormat], "bazel run //tools:format")
+	assertNotContainsTool(t, tools[config.ToolTypeLint], "bazel run //tools:lint")
+	assertNotContainsTool(t, tools[config.ToolTypeLint], "bazel run //:lint")
+}
+
+func TestMakeDetector_GetToolsOnlyListsExistingTargets(t *testing.T) {
+	withBinsOnPath(t, "make")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"Makefile": "format:\ntest:\n",
+	})
+
+	tools := NewMakeDetector().GetTools(dir)
+	assertContainsTool(t, tools[config.ToolTypeFormat], "make format")
+	assertContainsTool(t, tools[config.ToolTypeTest], "make test")
+	assertNotContainsTool(t, tools[config.ToolTypeLint], "make lint")
+}
+
+func withBinsOnPath(t *testing.T, names ...string) {
+	t.Helper()
+	binDir := t.TempDir()
+	for _, name := range names {
+		writeExecutable(t, filepath.Join(binDir, name))
+	}
+	t.Setenv("PATH", binDir)
+}
+
+func writeTree(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func assertFirstTool(t *testing.T, result *config.ProjectConfig, toolType config.ToolType, want string) {
+	t.Helper()
+	got := result.Tools[toolType]
+	if len(got) == 0 || got[0] != want {
+		t.Errorf("Tools[%s] first = %v, want %q", toolType, got, want)
+	}
+}
+
+func assertContainsTool(t *testing.T, tools []string, want string) {
+	t.Helper()
+	for _, tool := range tools {
+		if tool == want {
+			return
+		}
+	}
+	t.Errorf("tools %v, want to contain %q", tools, want)
+}
+
+func assertNotContainsTool(t *testing.T, tools []string, want string) {
+	t.Helper()
+	for _, tool := range tools {
+		if tool == want {
+			t.Errorf("tools %v, want not to contain %q", tools, want)
+			return
+		}
 	}
 }

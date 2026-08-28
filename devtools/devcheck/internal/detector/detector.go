@@ -86,7 +86,7 @@ func (d *ProjectDetector) Detect(rootPath string) (*config.ProjectConfig, error)
 	}
 
 	languages := d.patternMatcher.MatchLanguages(scanResult.Files)
-	buildSystem := d.patternMatcher.MatchBuildSystemWithLocation(scanResult.Files)
+	buildSystem := selectBuildSystem(absPath, d.patternMatcher.MatchBuildSystemsAtChosenDepth(scanResult.Files))
 	hasGit := d.detectGitRepository(absPath)
 
 	tools := d.aggregateTools(languages, buildSystem, absPath)
@@ -209,14 +209,22 @@ func (d *BazelDetector) GetBuildSystem() config.BuildSystem {
 }
 
 // GetTools returns the available tools for Bazel.
-func (d *BazelDetector) GetTools(_ string) map[config.ToolType][]string {
+func (d *BazelDetector) GetTools(rootPath string) map[config.ToolType][]string {
 	tools := make(map[config.ToolType][]string)
-
-	// Bazel provides unified commands for all operations
-	tools[config.ToolTypeFormat] = []string{"bazel run //tools:format", "bazel run //:format"}
-	tools[config.ToolTypeLint] = []string{"bazel run //tools:lint", "bazel run //:lint"}
-	tools[config.ToolTypeTest] = []string{"bazel test //..."}
-
+	var format, lint []string
+	for _, label := range bazelFormatLabels {
+		if bazelLabelExists(rootPath, label) {
+			format = append(format, "bazel run "+label)
+		}
+	}
+	for _, label := range bazelLintLabels {
+		if bazelLabelExists(rootPath, label) {
+			lint = append(lint, "bazel run "+label)
+		}
+	}
+	tools[config.ToolTypeFormat] = availableCommands(format...)
+	tools[config.ToolTypeLint] = availableCommands(lint...)
+	tools[config.ToolTypeTest] = availableCommands("bazel test //...")
 	return tools
 }
 
@@ -250,13 +258,20 @@ func (d *MakeDetector) GetBuildSystem() config.BuildSystem {
 }
 
 // GetTools returns the available tools for Make.
-func (d *MakeDetector) GetTools(_ string) map[config.ToolType][]string {
+func (d *MakeDetector) GetTools(rootPath string) map[config.ToolType][]string {
 	tools := make(map[config.ToolType][]string)
-
-	// Make provides targets for different operations
-	tools[config.ToolTypeFormat] = []string{"make format"}
-	tools[config.ToolTypeLint] = []string{"make lint"}
-	tools[config.ToolTypeTest] = []string{"make test"}
-
+	targets := []struct {
+		toolType config.ToolType
+		target   string
+	}{
+		{config.ToolTypeFormat, "format"},
+		{config.ToolTypeLint, "lint"},
+		{config.ToolTypeTest, "test"},
+	}
+	for _, item := range targets {
+		if makefileHasTarget(rootPath, item.target) {
+			tools[item.toolType] = availableCommands("make " + item.target)
+		}
+	}
 	return tools
 }

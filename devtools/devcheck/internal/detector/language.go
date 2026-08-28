@@ -61,18 +61,11 @@ func (d *GoDetector) GetConfigFiles(rootPath string) map[string]string {
 
 // GetTools returns the available tools for Go development.
 func (d *GoDetector) GetTools(_ string) map[config.ToolType][]string {
-	tools := make(map[config.ToolType][]string)
-
-	// Format tools
-	tools[config.ToolTypeFormat] = []string{"gofumpt", "gofmt"}
-
-	// Lint tools
-	tools[config.ToolTypeLint] = []string{"golangci-lint", "unnecessary-interface-assertion-linter"}
-
-	// Test tools
-	tools[config.ToolTypeTest] = []string{"go test"}
-
-	return tools
+	return map[config.ToolType][]string{
+		config.ToolTypeFormat: availableCommands("gofumpt", "gofmt"),
+		config.ToolTypeLint:   availableCommands("golangci-lint", "unnecessary-interface-assertion-linter"),
+		config.ToolTypeTest:   availableCommands("go test"),
+	}
 }
 
 // PythonDetector implements language detection for Python projects.
@@ -131,18 +124,11 @@ func (d *PythonDetector) GetConfigFiles(rootPath string) map[string]string {
 
 // GetTools returns the available tools for Python development.
 func (d *PythonDetector) GetTools(_ string) map[config.ToolType][]string {
-	tools := make(map[config.ToolType][]string)
-
-	// Format tools
-	tools[config.ToolTypeFormat] = []string{"ruff format", "black"}
-
-	// Lint tools
-	tools[config.ToolTypeLint] = []string{"ruff check", "flake8"}
-
-	// Test tools
-	tools[config.ToolTypeTest] = []string{"pytest", "python -m unittest"}
-
-	return tools
+	return map[config.ToolType][]string{
+		config.ToolTypeFormat: availableCommands("ruff format", "black"),
+		config.ToolTypeLint:   availableCommands("ruff check", "flake8"),
+		config.ToolTypeTest:   availableCommands("pytest", "python -m unittest"),
+	}
 }
 
 // TypeScriptDetector implements language detection for TypeScript projects.
@@ -206,24 +192,27 @@ func (d *TypeScriptDetector) GetConfigFiles(rootPath string) map[string]string {
 
 // GetTools returns the available tools for TypeScript development.
 func (d *TypeScriptDetector) GetTools(rootPath string) map[config.ToolType][]string {
-	tools := make(map[config.ToolType][]string)
-
-	// Check if package.json exists to determine npm vs other tools
-	scanner := NewScanner(DefaultScanOptions())
-	result, err := scanner.Scan(rootPath)
-	if err == nil && result.HasFile("package.json") {
-		// Use npm scripts if package.json exists
-		tools[config.ToolTypeFormat] = []string{"npm run format", "prettier"}
-		tools[config.ToolTypeLint] = []string{"npm run lint", "eslint"}
-		tools[config.ToolTypeTest] = []string{"npm test", "npm run test"}
-	} else {
-		// Fallback to direct tool usage
-		tools[config.ToolTypeFormat] = []string{"prettier"}
-		tools[config.ToolTypeLint] = []string{"eslint"}
-		tools[config.ToolTypeTest] = []string{"jest", "mocha"}
+	var format, lint, test []string
+	scripts := loadNpmScripts(rootPath)
+	if _, ok := scripts["format"]; ok {
+		format = append(format, "npm run format")
 	}
-
-	return tools
+	if _, ok := scripts["lint"]; ok {
+		lint = append(lint, "npm run lint")
+	}
+	if _, ok := scripts["test"]; ok {
+		test = append(test, "npm test")
+	}
+	format = append(format, "prettier")
+	lint = append(lint, "eslint")
+	if _, ok := scripts["test"]; !ok {
+		test = append(test, "jest", "mocha")
+	}
+	return map[config.ToolType][]string{
+		config.ToolTypeFormat: availableCommands(format...),
+		config.ToolTypeLint:   availableCommands(lint...),
+		config.ToolTypeTest:   availableCommands(test...),
+	}
 }
 
 // JavaScriptDetector implements language detection for JavaScript projects.

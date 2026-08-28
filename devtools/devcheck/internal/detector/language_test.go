@@ -8,6 +8,101 @@ import (
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
+func TestTypeScriptDetector_GetToolsOmitsMissingNpmScripts(t *testing.T) {
+	withBinsOnPath(t, "npm", "prettier", "eslint", "jest")
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{
+		"package.json": `{"name":"app","scripts":{"test":"jest","format":"prettier --write ."}}`,
+		"src/main.ts":  "export const x = 1;",
+	})
+
+	tools := NewTypeScriptDetector().GetTools(dir)
+	assertContainsTool(t, tools[config.ToolTypeFormat], "npm run format")
+	assertContainsTool(t, tools[config.ToolTypeTest], "npm test")
+	assertNotContainsTool(t, tools[config.ToolTypeLint], "npm run lint")
+}
+
+func TestJavaScriptDetector_DetectLanguage(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    map[string]string
+		expected bool
+	}{
+		{
+			name:     "javascript files",
+			files:    map[string]string{"src/app.js": "console.log(1);"},
+			expected: true,
+		},
+		{
+			name: "package.json without typescript",
+			files: map[string]string{
+				"package.json": `{"name":"app"}`,
+			},
+			expected: true,
+		},
+		{
+			name: "typescript-only tree",
+			files: map[string]string{
+				"tsconfig.json": `{"compilerOptions":{}}`,
+				"src/main.ts":   "export const x = 1;",
+				"package.json":  `{"name":"app"}`,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTree(t, dir, tt.files)
+
+			got, err := NewJavaScriptDetector().DetectLanguage(dir)
+			if err != nil {
+				t.Fatalf("DetectLanguage() error = %v", err)
+			}
+			if got != tt.expected {
+				t.Errorf("DetectLanguage() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGoDetector_GetToolsOmitsMissingBinaries(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, filepath.Join(binDir, "gofmt"))
+	writeExecutable(t, filepath.Join(binDir, "go"))
+	t.Setenv("PATH", binDir)
+
+	tools := NewGoDetector().GetTools(t.TempDir())
+	assertContainsTool(t, tools[config.ToolTypeFormat], "gofmt")
+	assertNotContainsTool(t, tools[config.ToolTypeFormat], "gofumpt")
+	assertNotContainsTool(t, tools[config.ToolTypeLint], "golangci-lint")
+	assertContainsTool(t, tools[config.ToolTypeTest], "go test")
+}
+
+func TestPythonDetector_GetToolsOmitsMissingBinaries(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, filepath.Join(binDir, "black"))
+	writeExecutable(t, filepath.Join(binDir, "pytest"))
+	t.Setenv("PATH", binDir)
+
+	tools := NewPythonDetector().GetTools(t.TempDir())
+	assertContainsTool(t, tools[config.ToolTypeFormat], "black")
+	assertNotContainsTool(t, tools[config.ToolTypeFormat], "ruff format")
+	assertNotContainsTool(t, tools[config.ToolTypeLint], "ruff check")
+	assertContainsTool(t, tools[config.ToolTypeTest], "pytest")
+}
+
+func writeExecutable(t *testing.T, path string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGoDetector_DetectLanguage(t *testing.T) {
 	// Create temporary directory for test
 	tempDir, err := os.MkdirTemp("", "go_detector_test")
@@ -71,6 +166,7 @@ func TestGoDetector_DetectLanguage(t *testing.T) {
 }
 
 func TestGoDetector_GetTools(t *testing.T) {
+	withBinsOnPath(t, "gofumpt", "gofmt", "golangci-lint", "go")
 	detector := NewGoDetector()
 
 	// Create temporary directory for test

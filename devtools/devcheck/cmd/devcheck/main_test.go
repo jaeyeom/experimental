@@ -34,9 +34,13 @@ func TestHelpListsDocumentedFlags(t *testing.T) {
 }
 
 func TestDryRunPrintsCommandsAndExitsZero(t *testing.T) {
-	dir := fixtureDir(t, "go.mod", "main.go", "MODULE.bazel")
+	withBinsOnPath(t, "make")
+	dir := fixtureDir(t, "go.mod", "main.go", "MODULE.bazel", "Makefile")
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte("format:\nlint:\ntest:\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	mock := executor.NewMockExecutor()
-	mock.SetAvailableCommand("bazel", true)
+	mock.SetAvailableCommand("make", true)
 
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"-n", dir}, &stdout, &stderr, mock)
@@ -45,6 +49,45 @@ func TestDryRunPrintsCommandsAndExitsZero(t *testing.T) {
 	}
 	if len(mock.CallHistory) != 0 {
 		t.Fatalf("dry-run executed %d commands", len(mock.CallHistory))
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"make format",
+		"make lint",
+		"make test",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry-run missing %q\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{
+		"bazel run //tools:format",
+		"bazel run //tools:lint",
+	} {
+		if strings.Contains(out, notWant) {
+			t.Errorf("dry-run unexpectedly listed %q\n%s", notWant, out)
+		}
+	}
+}
+
+func TestDryRunUsesBazelWhenFormatAndLintTargetsExist(t *testing.T) {
+	withBinsOnPath(t, "bazel", "make")
+	dir := fixtureDir(t, "go.mod", "main.go", "MODULE.bazel", "Makefile", "tools/BUILD.bazel")
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte("format:\nlint:\ntest:\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tools/BUILD.bazel"), []byte(
+		"sh_binary(name = \"format\", srcs = [\"format.sh\"])\nsh_binary(name = \"lint\", srcs = [\"lint.sh\"])\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("bazel", true)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-n", dir}, &stdout, &stderr, mock)
+	if code != 0 {
+		t.Fatalf("dry-run exit = %d, stderr=%s", code, stderr.String())
 	}
 	out := stdout.String()
 	for _, want := range []string{
@@ -59,6 +102,7 @@ func TestDryRunPrintsCommandsAndExitsZero(t *testing.T) {
 }
 
 func TestFilterFormatRunsOnlyFormatters(t *testing.T) {
+	withBinsOnPath(t, "gofumpt", "golangci-lint", "go")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("gofumpt", true)
@@ -81,6 +125,7 @@ func TestFilterFormatRunsOnlyFormatters(t *testing.T) {
 }
 
 func TestFormatJSONIsValidAndIncludesToolsAndIssues(t *testing.T) {
+	withBinsOnPath(t, "golangci-lint")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("golangci-lint", true)
@@ -111,6 +156,7 @@ func TestFormatJSONIsValidAndIncludesToolsAndIssues(t *testing.T) {
 }
 
 func TestLintFixtureExitsNonZeroAndNamesFile(t *testing.T) {
+	withBinsOnPath(t, "golangci-lint")
 	dir := fixtureDir(t, "go.mod", "broken.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("golangci-lint", true)
@@ -131,6 +177,7 @@ func TestLintFixtureExitsNonZeroAndNamesFile(t *testing.T) {
 }
 
 func TestChangedOnlyWithoutGitErrors(t *testing.T) {
+	withBinsOnPath(t, "gofumpt")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("gofumpt", true)
@@ -162,6 +209,7 @@ func TestInvalidFormat(t *testing.T) {
 }
 
 func TestFilterRepeatableAndCommaSeparated(t *testing.T) {
+	withBinsOnPath(t, "gofumpt", "golangci-lint")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("gofumpt", true)
@@ -208,6 +256,21 @@ const golangciLintJSON = `{
     }
   ]
 }`
+
+func withBinsOnPath(t *testing.T, names ...string) {
+	t.Helper()
+	binDir := t.TempDir()
+	for _, name := range names {
+		path := filepath.Join(binDir, name)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDir)
+}
 
 func fixtureDir(t *testing.T, files ...string) string {
 	t.Helper()

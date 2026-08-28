@@ -6,6 +6,7 @@ go_library(
         "detector.go",
         "language.go",
         "patterns.go",
+        "probe.go",
         "scanner.go",
         "unnecessary_interface_assertion_linter.go",
     ],
