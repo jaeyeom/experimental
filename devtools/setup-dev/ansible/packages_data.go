@@ -52,7 +52,6 @@ var packages = []PackageData{
 	{command: "pass"},
 	{command: "perl"},
 	{command: "pkg-config"},
-	{command: "poetry", debianPkgName: "python3-poetry", termuxPkgName: "python-poetry"},
 	{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf", brewPkgName: "protobuf"},
 	{command: "psql", debianPkgName: "postgresql-client", termuxPkgName: "postgresql", brewPkgName: "postgresql"},
 	{command: "python3-notmuch2", checkCommand: "python3 -c \"import notmuch2\"", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch", brewPkgName: "notmuch"},
