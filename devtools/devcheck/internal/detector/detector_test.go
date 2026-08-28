@@ -196,6 +196,58 @@ func TestProjectDetector_SupportedBuildSystems(t *testing.T) {
 	}
 }
 
+func TestProjectDetector_DetectRecordsGolangciConfig(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "golangci_config_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	for _, file := range []string{"go.mod", "main.go", ".golangci.yml"} {
+		if err := os.WriteFile(filepath.Join(tempDir, file), []byte("test content"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := NewProjectDetector().Detect(tempDir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+
+	got, ok := result.ConfigFiles["golangci-lint"]
+	if !ok {
+		t.Fatalf("Detect() ConfigFiles = %v, want golangci-lint config recorded", result.ConfigFiles)
+	}
+	if got != ".golangci.yml" {
+		t.Errorf("Detect() ConfigFiles[golangci-lint] = %q, want %q", got, ".golangci.yml")
+	}
+}
+
+func TestProjectDetector_DetectGitWorktreeFile(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "git_worktree_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	for _, file := range []string{"go.mod", "main.go"} {
+		if err := os.WriteFile(filepath.Join(tempDir, file), []byte("test content"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, ".git"), []byte("gitdir: /path/to/main/.git/worktrees/feature"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewProjectDetector().Detect(tempDir)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if !result.HasGit {
+		t.Error("Detect() HasGit = false, want true for a .git worktree file")
+	}
+}
+
 func TestProjectDetector_DetectWithLocationPriority(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "location_priority_test")
 	if err != nil {

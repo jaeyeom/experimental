@@ -3,6 +3,7 @@ package detector
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -108,44 +109,8 @@ func (d *ProjectDetector) performInitialScan(absPath string) (*ScanResult, error
 }
 
 func (d *ProjectDetector) detectGitRepository(absPath string) bool {
-	gitScanOptions := d.createGitScanOptions()
-	gitScanner := NewScanner(gitScanOptions)
-	gitScanResult, _ := gitScanner.Scan(absPath)
-
-	if gitScanResult == nil {
-		return false
-	}
-
-	return d.checkForGitIndicators(gitScanResult)
-}
-
-func (d *ProjectDetector) createGitScanOptions() ScanOptions {
-	gitScanOptions := DefaultScanOptions()
-	gitScanOptions.IncludeHidden = true
-	gitScanOptions.MaxDepth = 2
-
-	// Remove .git from ignore patterns
-	newIgnorePatterns := make([]string, 0, len(gitScanOptions.IgnorePatterns))
-	for _, pattern := range gitScanOptions.IgnorePatterns {
-		if pattern != ".git" {
-			newIgnorePatterns = append(newIgnorePatterns, pattern)
-		}
-	}
-	gitScanOptions.IgnorePatterns = newIgnorePatterns
-
-	return gitScanOptions
-}
-
-func (d *ProjectDetector) checkForGitIndicators(gitScanResult *ScanResult) bool {
-	// Check for .git directory
-	for _, dir := range gitScanResult.Directories {
-		if dir == ".git" {
-			return true
-		}
-	}
-
-	// Check for .git files (worktrees)
-	return gitScanResult.HasPattern(".git/*") || gitScanResult.HasFile(".git")
+	_, err := os.Stat(filepath.Join(absPath, ".git"))
+	return err == nil
 }
 
 func (d *ProjectDetector) aggregateTools(languages []config.Language, buildSystem config.BuildSystem, absPath string) map[config.ToolType][]string {

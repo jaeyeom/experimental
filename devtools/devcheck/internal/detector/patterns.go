@@ -155,11 +155,15 @@ func (pm *PatternMatcher) MatchBuildSystemWithLocation(files []string) config.Bu
 	// Group files by directory depth
 	filesByDepth := make(map[int][]string)
 	minDepth := -1
+	maxDepth := -1
 
 	for _, file := range files {
 		depth := strings.Count(file, string(filepath.Separator))
 		if minDepth == -1 || depth < minDepth {
 			minDepth = depth
+		}
+		if depth > maxDepth {
+			maxDepth = depth
 		}
 		filesByDepth[depth] = append(filesByDepth[depth], file)
 	}
@@ -170,7 +174,7 @@ func (pm *PatternMatcher) MatchBuildSystemWithLocation(files []string) config.Bu
 	}
 
 	// Check each depth level, starting from the shallowest (root)
-	for depth := minDepth; depth <= len(filesByDepth)+minDepth; depth++ {
+	for depth := minDepth; depth <= maxDepth; depth++ {
 		filesAtDepth, exists := filesByDepth[depth]
 		if !exists {
 			continue
