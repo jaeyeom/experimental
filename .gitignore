@@ -8,6 +8,7 @@
 .roo
 .roomodes
 .saved-claude-sessions
+docs/superpowers/
 
 # Bazel Related
 .bazel_output
