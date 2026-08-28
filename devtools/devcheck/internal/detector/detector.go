@@ -2,7 +2,9 @@
 package detector
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -10,67 +12,30 @@ import (
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
-// languageDetector defines the interface for language-specific detection.
-type languageDetector interface {
-	// DetectLanguage checks if the given path contains the specific language
-	DetectLanguage(rootPath string) (bool, error)
-
-	// GetLanguage returns the language this detector handles
-	GetLanguage() config.Language
-
-	// GetConfigFiles returns the configuration files for this language
-	GetConfigFiles(rootPath string) map[string]string
-
-	// GetTools returns the available tools for this language
-	GetTools(rootPath string) map[config.ToolType][]string
-}
-
-// buildSystemDetector defines the interface for build system detection.
-type buildSystemDetector interface {
-	// DetectBuildSystem checks if the given path uses this build system
-	DetectBuildSystem(rootPath string) (bool, error)
-
-	// GetBuildSystem returns the build system this detector handles
-	GetBuildSystem() config.BuildSystem
-
-	// GetTools returns the available tools for this build system
-	GetTools(rootPath string) map[config.ToolType][]string
+// directoryScanner walks a project tree once per Detect call.
+type directoryScanner interface {
+	Scan(rootPath string) (*ScanResult, error)
 }
 
 // ProjectDetector implements the main project detection logic.
 type ProjectDetector struct {
-	patternMatcher       *PatternMatcher
-	languageDetectors    map[config.Language]languageDetector
-	buildSystemDetectors map[config.BuildSystem]buildSystemDetector
+	scanner        directoryScanner
+	patternMatcher *PatternMatcher
+	languages      []languageProfile
+	buildTools     map[config.BuildSystem]func(string) map[config.ToolType][]config.Tool
 }
 
-// NewProjectDetector creates a new project detector with all language and build system detectors.
+// NewProjectDetector creates a project detector with the default language table and scanners.
 func NewProjectDetector() *ProjectDetector {
-	detector := &ProjectDetector{
-		patternMatcher:       NewPatternMatcher(),
-		languageDetectors:    make(map[config.Language]languageDetector),
-		buildSystemDetectors: make(map[config.BuildSystem]buildSystemDetector),
+	return &ProjectDetector{
+		scanner:        NewScanner(DefaultScanOptions()),
+		patternMatcher: NewPatternMatcher(),
+		languages:      languageProfiles,
+		buildTools: map[config.BuildSystem]func(string) map[config.ToolType][]config.Tool{
+			config.BuildSystemBazel: bazelTools,
+			config.BuildSystemMake:  makeTools,
+		},
 	}
-
-	// Register language detectors
-	goDetector := NewGoDetector()
-	pythonDetector := NewPythonDetector()
-	tsDetector := NewTypeScriptDetector()
-	jsDetector := NewJavaScriptDetector()
-
-	detector.languageDetectors[config.LanguageGo] = goDetector
-	detector.languageDetectors[config.LanguagePython] = pythonDetector
-	detector.languageDetectors[config.LanguageTypeScript] = tsDetector
-	detector.languageDetectors[config.LanguageJavaScript] = jsDetector
-
-	// Register build system detectors
-	bazelDetector := NewBazelDetector()
-	makeDetector := NewMakeDetector()
-
-	detector.buildSystemDetectors[config.BuildSystemBazel] = bazelDetector
-	detector.buildSystemDetectors[config.BuildSystemMake] = makeDetector
-
-	return detector
 }
 
 // Detect analyzes the given path and returns project configuration.
@@ -80,186 +45,140 @@ func (d *ProjectDetector) Detect(rootPath string) (*config.ProjectConfig, error)
 		return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
 
-	scanResult, err := d.performInitialScan(absPath)
+	scanResult, err := d.scanner.Scan(absPath)
 	if err != nil {
+		return nil, fmt.Errorf("scan project: %w", err)
+	}
+	if err := scanErrors(scanResult); err != nil {
 		return nil, err
 	}
 
 	languages := d.patternMatcher.MatchLanguages(scanResult.Files)
 	buildSystem := selectBuildSystem(absPath, d.patternMatcher.MatchBuildSystemsAtChosenDepth(scanResult.Files))
-	hasGit := d.detectGitRepository(absPath)
+	hasGit, err := detectGitRepository(absPath)
+	if err != nil {
+		return nil, err
+	}
 
-	tools := d.aggregateTools(languages, buildSystem, absPath)
-	configFiles := d.collectConfigFiles(languages, absPath)
-
-	return &config.ProjectConfig{
+	cfg := &config.ProjectConfig{
 		RootPath:      absPath,
 		BuildSystem:   buildSystem,
 		Languages:     languages,
-		Tools:         tools,
-		ConfigFiles:   configFiles,
+		Tools:         d.aggregateTools(languages, buildSystem, absPath, scanResult),
+		ConfigFiles:   d.collectConfigFiles(languages, scanResult),
 		HasGit:        hasGit,
 		DetectionTime: time.Now(),
-	}, nil
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid project config: %w", err)
+	}
+	return cfg, nil
 }
 
-func (d *ProjectDetector) performInitialScan(absPath string) (*ScanResult, error) {
-	scanner := NewScanner(DefaultScanOptions())
-	return scanner.Scan(absPath)
+func scanErrors(result *ScanResult) error {
+	if result == nil || len(result.Errors) == 0 {
+		return nil
+	}
+	return fmt.Errorf("scan errors: %w", errors.Join(result.Errors...))
 }
 
-func (d *ProjectDetector) detectGitRepository(absPath string) bool {
+func detectGitRepository(absPath string) (bool, error) {
 	_, err := os.Stat(filepath.Join(absPath, ".git"))
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect git metadata: %w", err)
 }
 
-func (d *ProjectDetector) aggregateTools(languages []config.Language, buildSystem config.BuildSystem, absPath string) map[config.ToolType][]string {
-	tools := make(map[config.ToolType][]string)
-
-	// Add language-specific tools
-	d.addLanguageTools(tools, languages, absPath)
-
-	// Add build system tools (with priority)
+func (d *ProjectDetector) aggregateTools(languages []config.Language, buildSystem config.BuildSystem, absPath string, scan *ScanResult) map[config.ToolType][]config.Tool {
+	tools := make(map[config.ToolType][]config.Tool)
+	d.addLanguageTools(tools, languages, absPath, scan)
 	d.addBuildSystemTools(tools, buildSystem, absPath)
-
 	return tools
 }
 
-func (d *ProjectDetector) addLanguageTools(tools map[config.ToolType][]string, languages []config.Language, absPath string) {
-	for _, lang := range languages {
-		if detector, exists := d.languageDetectors[lang]; exists {
-			langTools := detector.GetTools(absPath)
-			for toolType, toolList := range langTools {
-				tools[toolType] = append(tools[toolType], toolList...)
-			}
+func (d *ProjectDetector) addLanguageTools(tools map[config.ToolType][]config.Tool, languages []config.Language, absPath string, scan *ScanResult) {
+	for _, profile := range d.languages {
+		if !hasLanguage(languages, profile.language) {
+			continue
+		}
+		for toolType, toolList := range profile.tools(absPath, scan) {
+			tools[toolType] = append(tools[toolType], toolList...)
 		}
 	}
 }
 
-func (d *ProjectDetector) addBuildSystemTools(tools map[config.ToolType][]string, buildSystem config.BuildSystem, absPath string) {
-	if detector, exists := d.buildSystemDetectors[buildSystem]; exists {
-		buildTools := detector.GetTools(absPath)
-		for toolType, toolList := range buildTools {
-			// Prepend build system tools to give them priority
-			tools[toolType] = append(toolList, tools[toolType]...)
-		}
+func (d *ProjectDetector) addBuildSystemTools(tools map[config.ToolType][]config.Tool, buildSystem config.BuildSystem, absPath string) {
+	lookup, exists := d.buildTools[buildSystem]
+	if !exists {
+		return
+	}
+	for toolType, toolList := range lookup(absPath) {
+		tools[toolType] = append(toolList, tools[toolType]...)
 	}
 }
 
-func (d *ProjectDetector) collectConfigFiles(languages []config.Language, absPath string) map[string]string {
+func (d *ProjectDetector) collectConfigFiles(languages []config.Language, scan *ScanResult) map[string]string {
 	configFiles := make(map[string]string)
-
-	for _, lang := range languages {
-		if detector, exists := d.languageDetectors[lang]; exists {
-			langConfigs := detector.GetConfigFiles(absPath)
-			for tool, file := range langConfigs {
-				configFiles[tool] = file
+	for _, profile := range d.languages {
+		if !hasLanguage(languages, profile.language) {
+			continue
+		}
+		for _, key := range profile.configKeys {
+			matches := d.patternMatcher.MatchConfigFiles(scan.Files, key)
+			if len(matches) > 0 {
+				configFiles[key] = matches[0]
 			}
 		}
+		if profile.extraConfig != nil {
+			profile.extraConfig(scan, configFiles)
+		}
 	}
-
 	return configFiles
 }
 
 // SupportedLanguages returns the list of languages this detector supports.
 func (d *ProjectDetector) SupportedLanguages() []config.Language {
-	languages := make([]config.Language, 0, len(d.languageDetectors))
-	for lang := range d.languageDetectors {
-		languages = append(languages, lang)
+	languages := make([]config.Language, 0, len(d.languages))
+	for _, profile := range d.languages {
+		languages = append(languages, profile.language)
 	}
 	return languages
 }
 
 // SupportedBuildSystems returns the list of build systems this detector supports.
 func (d *ProjectDetector) SupportedBuildSystems() []config.BuildSystem {
-	buildSystems := make([]config.BuildSystem, 0, len(d.buildSystemDetectors))
-	for bs := range d.buildSystemDetectors {
+	buildSystems := make([]config.BuildSystem, 0, len(d.buildTools))
+	for bs := range d.buildTools {
 		buildSystems = append(buildSystems, bs)
 	}
 	return buildSystems
 }
 
-// BazelDetector implements build system detection for Bazel.
-type BazelDetector struct {
-	patternMatcher *PatternMatcher
-}
-
-// NewBazelDetector creates a new Bazel build system detector.
-func NewBazelDetector() *BazelDetector {
-	return &BazelDetector{
-		patternMatcher: NewPatternMatcher(),
-	}
-}
-
-// DetectBuildSystem checks if the given path uses Bazel.
-func (d *BazelDetector) DetectBuildSystem(rootPath string) (bool, error) {
-	scanner := NewScanner(DefaultScanOptions())
-	result, err := scanner.Scan(rootPath)
-	if err != nil {
-		return false, err
-	}
-
-	buildSystem := d.patternMatcher.MatchBuildSystem(result.Files)
-	return buildSystem == config.BuildSystemBazel, nil
-}
-
-// GetBuildSystem returns the build system this detector handles.
-func (d *BazelDetector) GetBuildSystem() config.BuildSystem {
-	return config.BuildSystemBazel
-}
-
-// GetTools returns the available tools for Bazel.
-func (d *BazelDetector) GetTools(rootPath string) map[config.ToolType][]string {
-	tools := make(map[config.ToolType][]string)
-	var format, lint []string
+func bazelTools(rootPath string) map[config.ToolType][]config.Tool {
+	var format, lint []config.Tool
 	for _, label := range bazelFormatLabels {
 		if bazelLabelExists(rootPath, label) {
-			format = append(format, "bazel run "+label)
+			format = append(format, config.Tool{Command: "bazel", Args: []string{"run", label}})
 		}
 	}
 	for _, label := range bazelLintLabels {
 		if bazelLabelExists(rootPath, label) {
-			lint = append(lint, "bazel run "+label)
+			lint = append(lint, config.Tool{Command: "bazel", Args: []string{"run", label}})
 		}
 	}
-	tools[config.ToolTypeFormat] = availableCommands(format...)
-	tools[config.ToolTypeLint] = availableCommands(lint...)
-	tools[config.ToolTypeTest] = availableCommands("bazel test //...")
-	return tools
-}
-
-// MakeDetector implements build system detection for Make.
-type MakeDetector struct {
-	patternMatcher *PatternMatcher
-}
-
-// NewMakeDetector creates a new Make build system detector.
-func NewMakeDetector() *MakeDetector {
-	return &MakeDetector{
-		patternMatcher: NewPatternMatcher(),
+	return map[config.ToolType][]config.Tool{
+		config.ToolTypeFormat: availableTools(format...),
+		config.ToolTypeLint:   availableTools(lint...),
+		config.ToolTypeTest:   availableTools(config.Tool{Command: "bazel", Args: []string{"test", "//..."}}),
 	}
 }
 
-// DetectBuildSystem checks if the given path uses Make.
-func (d *MakeDetector) DetectBuildSystem(rootPath string) (bool, error) {
-	scanner := NewScanner(DefaultScanOptions())
-	result, err := scanner.Scan(rootPath)
-	if err != nil {
-		return false, err
-	}
-
-	buildSystem := d.patternMatcher.MatchBuildSystem(result.Files)
-	return buildSystem == config.BuildSystemMake, nil
-}
-
-// GetBuildSystem returns the build system this detector handles.
-func (d *MakeDetector) GetBuildSystem() config.BuildSystem {
-	return config.BuildSystemMake
-}
-
-// GetTools returns the available tools for Make.
-func (d *MakeDetector) GetTools(rootPath string) map[config.ToolType][]string {
-	tools := make(map[config.ToolType][]string)
+func makeTools(rootPath string) map[config.ToolType][]config.Tool {
+	tools := make(map[config.ToolType][]config.Tool)
 	targets := []struct {
 		toolType config.ToolType
 		target   string
@@ -270,7 +189,7 @@ func (d *MakeDetector) GetTools(rootPath string) map[config.ToolType][]string {
 	}
 	for _, item := range targets {
 		if makefileHasTarget(rootPath, item.target) {
-			tools[item.toolType] = availableCommands("make " + item.target)
+			tools[item.toolType] = availableTools(config.Tool{Command: "make", Args: []string{item.target}})
 		}
 	}
 	return tools

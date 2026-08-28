@@ -99,26 +99,28 @@ func selectTool(project *config.ProjectConfig, toolType config.ToolType, opts Op
 	var tried []string
 	skippedForFiles := false
 	for _, spec := range candidates {
-		command, args := splitSpec(spec)
-		if opts.ForceFallback && isBuildSystemCommand(command) {
+		if opts.ForceFallback && isBuildSystemCommand(spec.Command) {
 			continue
 		}
-		tried = append(tried, spec)
-		if exec != nil && !exec.IsAvailable(command) {
+		tried = append(tried, spec.String())
+		if exec != nil && !exec.IsAvailable(spec.Command) {
 			continue
 		}
-		if skipForChangedFiles(command, opts) {
+		if skipForChangedFiles(spec.Command, opts) {
 			skippedForFiles = true
 			continue
 		}
-		cfg := buildConfig(command, args, toolType, project.RootPath, opts.ChangedFiles)
+		args := append([]string(nil), spec.Args...)
+		cfg := buildConfig(spec.Command, args, toolType, project.RootPath, opts.ChangedFiles)
 		return PlannedTool{Type: toolType, Config: cfg}, nil
 	}
 	if skippedForFiles {
 		return PlannedTool{}, errNoMatchingFiles
 	}
 	if len(tried) == 0 {
-		tried = candidates
+		for _, spec := range candidates {
+			tried = append(tried, spec.String())
+		}
 	}
 	return PlannedTool{}, fmt.Errorf("missing required %s tool (tried: %s)", toolType, strings.Join(tried, ", "))
 }
@@ -128,14 +130,6 @@ func skipForChangedFiles(command string, opts Options) bool {
 		return false
 	}
 	return len(filterFilesForCommand(command, opts.ChangedFiles)) == 0
-}
-
-func splitSpec(spec string) (string, []string) {
-	fields := strings.Fields(spec)
-	if len(fields) == 0 {
-		return spec, nil
-	}
-	return fields[0], append([]string(nil), fields[1:]...)
 }
 
 func isBuildSystemCommand(command string) bool {
