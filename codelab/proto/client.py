@@ -1,98 +1,154 @@
-"""Client implements the gRPC server for the contacts service."""
+"""Client for the contacts gRPC service."""
+
+from collections.abc import Callable
+from typing import Protocol
+import logging
+import sys
 
 import grpc
 import protovalidate
 
-from gen import contacts_pb2, contacts_pb2_grpc
+from gen import contacts_pb2
+from gen import contacts_pb2_grpc
+
+logger = logging.getLogger(__name__)
+
+
+class ContactsStub(Protocol):
+    """gRPC stub surface used by ContactsClient."""
+
+    def ListContacts(
+        self, request: contacts_pb2.ContactListRequest,
+    ) -> contacts_pb2.ContactListResponse: ...
+
+    def UpsertContact(
+        self, request: contacts_pb2.UpsertContactRequest,
+    ) -> contacts_pb2.UpsertContactResponse: ...
+
+    def DeleteContact(
+        self, request: contacts_pb2.DeleteContactRequest,
+    ) -> contacts_pb2.DeleteContactResponse: ...
 
 
 class ContactsClient:
     """Contacts client."""
 
-    def __init__(self, channel):
-        """Initialize the client."""
-        self.stub = contacts_pb2_grpc.ContactsServiceStub(channel)
+    def __init__(
+        self,
+        channel: grpc.Channel | None = None,
+        *,
+        stub: ContactsStub | None = None,
+        validate: Callable[[object], None] | None = None,
+    ) -> None:
+        """Initialize the client.
 
-    def list_contacts(self, query=''):
-        """List contacts."""
+        Args:
+            channel: Used to build a stub when stub is omitted.
+            stub: Prebuilt stub for tests.
+            validate: Request validator. Defaults to protovalidate.validate.
+
+        Raises:
+            ValueError: If neither channel nor stub is provided.
+        """
+        if stub is not None:
+            self.stub = stub
+        elif channel is not None:
+            self.stub = contacts_pb2_grpc.ContactsServiceStub(channel)
+        else:
+            raise ValueError('channel or stub is required')
+        self._validate = (
+            validate
+            if validate is not None
+            else protovalidate.validate
+        )
+
+    def list_contacts(
+        self, query: str = '',
+    ) -> list[contacts_pb2.Contact]:
+        """List contacts matching query."""
         request = contacts_pb2.ContactListRequest(query=query)
-        try:
-            protovalidate.validate(request)
-        except protovalidate.ValidationError as e:
-            print(e.violations)
-            return
-        response = self.stub.ListContacts(request)
-        return response.contacts
+        self._validate(request)
+        return list(self.stub.ListContacts(request).contacts)
 
-    def upsert_contact(self, contact):
-        """Upsert contact."""
+    def upsert_contact(
+        self, contact: contacts_pb2.Contact,
+    ) -> contacts_pb2.Contact:
+        """Insert or update a contact."""
         request = contacts_pb2.UpsertContactRequest(contact=contact)
-        try:
-            protovalidate.validate(request)
-        except protovalidate.ValidationError as e:
-            print(e.violations)
-            return
-        response = self.stub.UpsertContact(request)
-        return response.contact
+        self._validate(request)
+        return self.stub.UpsertContact(request).contact
 
-    def delete_contact(self, uuid):
-        """Delete contact."""
-        request = contacts_pb2.DeleteContactRequest(uuid=uuid)
-        try:
-            protovalidate.validate(request)
-        except protovalidate.ValidationError as e:
-            print(e.violations)
-            return
-        response = self.stub.DeleteContact(request)
-        return response.contact
+    def delete_contact(
+        self, contact_uuid: str,
+    ) -> contacts_pb2.Contact:
+        """Delete a contact by uuid."""
+        request = contacts_pb2.DeleteContactRequest(uuid=contact_uuid)
+        self._validate(request)
+        return self.stub.DeleteContact(request).contact
 
 
-def main():
-    """Main function."""
+def main() -> None:
+    """Run a demo client against localhost:50051."""
     channel = grpc.insecure_channel('localhost:50051')
-    client = ContactsClient(channel)
+    svc = ContactsClient(channel)
     print('Upsert contacts:')
-    alice_contact = contacts_pb2.Contact(
-        name='Alice',
-        email='alice@example.com',
-        phone='123-456-7890',
-    )
-    alice_contact = client.upsert_contact(alice_contact)
-    print(alice_contact)
-    bob_contact = contacts_pb2.Contact(
-        name='Bob',
-        email='',
-        phone='222-333-4444',
-    )
-    bob_contact = client.upsert_contact(bob_contact)
-    print(bob_contact)
+    try:
+        alice_contact = svc.upsert_contact(
+            contacts_pb2.Contact(
+                name='Alice',
+                email='alice@example.com',
+                phone='123-456-7890',
+            ),
+        )
+        print(alice_contact)
+    except protovalidate.ValidationError as err:
+        logger.error('upsert Alice failed: %s', err.violations)
+        print(err.violations)
+        alice_contact = None
+
+    try:
+        bob_contact = svc.upsert_contact(
+            contacts_pb2.Contact(
+                name='Bob',
+                email='',
+                phone='222-333-4444',
+            ),
+        )
+        print(bob_contact)
+    except protovalidate.ValidationError as err:
+        logger.error('upsert Bob failed: %s', err.violations)
+        print(err.violations)
+        bob_contact = None
+
     # Wrong email fails validation
-    wrong_contact = contacts_pb2.Contact(
-        name='Wrong',
-        email='wrong',
-        phone='555-666-7777',
-    )
-    wrong_contact = client.upsert_contact(wrong_contact)
-    print(wrong_contact)
+    try:
+        wrong_contact = svc.upsert_contact(
+            contacts_pb2.Contact(
+                name='Wrong',
+                email='wrong',
+                phone='555-666-7777',
+            ),
+        )
+        print(wrong_contact)
+    except protovalidate.ValidationError as err:
+        print(err.violations)
+
     print('List contacts:')
-    contacts = client.list_contacts()
-    print(contacts)
+    print(svc.list_contacts())
     print('List contacts with query:')
-    contacts = client.list_contacts(query='Alice')
-    print(contacts)
-    print('Delete contacts:')
-    alice_contact = client.delete_contact(alice_contact.uuid)
-    print(alice_contact)
+    print(svc.list_contacts(query='Alice'))
+    if alice_contact is not None:
+        print('Delete contacts:')
+        print(svc.delete_contact(alice_contact.uuid))
     print('List contacts:')
-    contacts = client.list_contacts()
-    print(contacts)
-    print('Delete contacts:')
-    bob_contact = client.delete_contact(bob_contact.uuid)
-    print(bob_contact)
+    print(svc.list_contacts())
+    if bob_contact is not None:
+        print('Delete contacts:')
+        print(svc.delete_contact(bob_contact.uuid))
     print('List contacts:')
-    contacts = client.list_contacts()
-    print(contacts)
+    print(svc.list_contacts())
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     main()

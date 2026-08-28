@@ -79,23 +79,35 @@ class Database:
 class ContactsService(contacts_pb2_grpc.ContactsServiceServicer):
     """Contacts service implementation."""
 
-    def __init__(self, db):
+    def __init__(self, db: Database) -> None:
         """Initialize the service."""
         self.db = db
 
-    def ListContacts(self, request, context):
+    def ListContacts(
+        self,
+        request: contacts_pb2.ContactListRequest,
+        context: grpc.ServicerContext,
+    ) -> contacts_pb2.ContactListResponse:
         """List contacts."""
         return contacts_pb2.ContactListResponse(
             contacts=self.db.list_contacts(request.query),
         )
 
-    def UpsertContact(self, request, context):
+    def UpsertContact(
+        self,
+        request: contacts_pb2.UpsertContactRequest,
+        context: grpc.ServicerContext,
+    ) -> contacts_pb2.UpsertContactResponse:
         """Upsert contact."""
         return contacts_pb2.UpsertContactResponse(
             contact=self.db.upsert_contact(request.contact),
         )
 
-    def DeleteContact(self, request, context):
+    def DeleteContact(
+        self,
+        request: contacts_pb2.DeleteContactRequest,
+        context: grpc.ServicerContext,
+    ) -> contacts_pb2.DeleteContactResponse:
         """Delete contact."""
         return contacts_pb2.DeleteContactResponse(
             contact=self.db.delete_contact(request.uuid),
@@ -156,18 +168,22 @@ class ValidationInterceptor(grpc.ServerInterceptor):
         )
 
 
-def main():
-    """Main function."""
+def main() -> None:
+    """Start the contacts gRPC server on port 50051."""
     db = Database({})
-    server = grpc.server(futures.ThreadPoolExecutor())
+    grpc_server = grpc.server(
+        futures.ThreadPoolExecutor(),
+        interceptors=[ValidationInterceptor()],
+    )
     contacts_pb2_grpc.add_ContactsServiceServicer_to_server(
         ContactsService(db),
-        server,
+        grpc_server,
     )
-    server.add_insecure_port('[::]:50051')
-    server.start()
-    server.wait_for_termination()
+    grpc_server.add_insecure_port('[::]:50051')
+    grpc_server.start()
+    grpc_server.wait_for_termination()
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     main()
