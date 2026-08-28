@@ -1,0 +1,32 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "format.go",
+        "parse.go",
+        "plan.go",
+        "run.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/devcheck/internal/runner",
+    visibility = ["//devtools/devcheck:__subpackages__"],
+    deps = [
+        "//devtools/devcheck/internal/config:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "format_test.go",
+        "parse_test.go",
+        "plan_test.go",
+        "run_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//devtools/devcheck/internal/config:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+    ],
+)
