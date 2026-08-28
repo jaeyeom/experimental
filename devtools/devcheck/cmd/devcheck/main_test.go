@@ -250,30 +250,55 @@ func TestCreateGitConfig(t *testing.T) {
 }
 
 func TestAddGoTools(t *testing.T) {
+	detectedGoTools := map[config.ToolType][]string{
+		config.ToolTypeLint: {"golangci-lint"},
+		config.ToolTypeTest: {"go test"},
+	}
 	tests := []struct {
 		name              string
+		tools             map[config.ToolType][]string
 		availableCommands map[string]bool
 		expectedCommands  []string
+		expectedArgs      [][]string
 	}{
 		{
-			name: "all go tools available",
+			name:  "all go tools available",
+			tools: detectedGoTools,
 			availableCommands: map[string]bool{
 				"go":            true,
 				"golangci-lint": true,
 			},
 			expectedCommands: []string{"go", "golangci-lint"},
+			expectedArgs: [][]string{
+				{"list", "./..."},
+				{"run", "--timeout=30s", "./..."},
+			},
 		},
 		{
-			name: "only go available",
+			name:  "only go available",
+			tools: detectedGoTools,
 			availableCommands: map[string]bool{
 				"go": true,
 			},
 			expectedCommands: []string{"go"},
+			expectedArgs:     [][]string{{"list", "./..."}},
 		},
 		{
 			name:              "no go tools available",
+			tools:             detectedGoTools,
 			availableCommands: map[string]bool{},
 			expectedCommands:  []string{},
+		},
+		{
+			name: "available binaries not in detected tools",
+			tools: map[config.ToolType][]string{
+				config.ToolTypeFormat: {"gofumpt"},
+			},
+			availableCommands: map[string]bool{
+				"go":            true,
+				"golangci-lint": true,
+			},
+			expectedCommands: []string{},
 		},
 	}
 
@@ -284,7 +309,11 @@ func TestAddGoTools(t *testing.T) {
 				mockExec.SetAvailableCommand(cmd, available)
 			}
 
-			configs := addGoTools("/test/dir", mockExec)
+			projectConfig := &config.ProjectConfig{
+				Languages: []config.Language{config.LanguageGo},
+				Tools:     tt.tools,
+			}
+			configs := addGoTools(projectConfig, "/test/dir", mockExec)
 
 			if len(configs) != len(tt.expectedCommands) {
 				t.Fatalf("Expected %d configs, got %d", len(tt.expectedCommands), len(configs))
@@ -294,9 +323,41 @@ func TestAddGoTools(t *testing.T) {
 				if configs[i].Command != expectedCmd {
 					t.Errorf("Expected command[%d] = %q, got %q", i, expectedCmd, configs[i].Command)
 				}
+				if configs[i].WorkingDir != "/test/dir" {
+					t.Errorf("Expected WorkingDir '/test/dir', got %q", configs[i].WorkingDir)
+				}
 			}
+			assertGoPackagePath(t, configs, tt.expectedArgs)
 		})
 	}
+}
+
+func assertGoPackagePath(t *testing.T, configs []executor.ToolConfig, expectedArgs [][]string) {
+	t.Helper()
+	for i, cfg := range configs {
+		for _, arg := range cfg.Args {
+			if strings.Contains(arg, "devtools/devcheck") {
+				t.Errorf("command %s arg %q is hardcoded to this repository", cfg.Command, arg)
+			}
+		}
+		if i < len(expectedArgs) {
+			if !equalStrings(cfg.Args, expectedArgs[i]) {
+				t.Errorf("command %s args = %q, want %q", cfg.Command, cfg.Args, expectedArgs[i])
+			}
+		}
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestAddPythonTools(t *testing.T) {
@@ -312,11 +373,26 @@ func TestAddPythonTools(t *testing.T) {
 				ConfigFiles: map[string]string{
 					"ruff": "pyproject.toml",
 				},
+				Tools: map[config.ToolType][]string{
+					config.ToolTypeLint: {"ruff check"},
+				},
 			},
 			availableCommands: map[string]bool{
 				"ruff": true,
 			},
 			expectedCommands: []string{"ruff"},
+		},
+		{
+			name: "ruff available with config but not in detected tools",
+			projectConfig: &config.ProjectConfig{
+				ConfigFiles: map[string]string{
+					"ruff": "pyproject.toml",
+				},
+			},
+			availableCommands: map[string]bool{
+				"ruff": true,
+			},
+			expectedCommands: []string{},
 		},
 		{
 			name: "ruff available but no config",
@@ -405,6 +481,9 @@ func TestAddLanguageSpecificTools(t *testing.T) {
 			projectConfig := &config.ProjectConfig{
 				Languages:   tt.languages,
 				ConfigFiles: map[string]string{},
+				Tools: map[config.ToolType][]string{
+					config.ToolTypeTest: {"go test"},
+				},
 			}
 
 			configs := addLanguageSpecificTools(projectConfig, "/test/dir", mockExec)
@@ -448,6 +527,9 @@ func TestPrepareDemoConfigs(t *testing.T) {
 				BuildSystem: "none",
 				HasGit:      true,
 				Languages:   []config.Language{config.LanguageGo},
+				Tools: map[config.ToolType][]string{
+					config.ToolTypeTest: {"go test"},
+				},
 			},
 			availableCommands: map[string]bool{
 				"go":  true,
@@ -461,6 +543,9 @@ func TestPrepareDemoConfigs(t *testing.T) {
 				BuildSystem: "none",
 				HasGit:      false,
 				Languages:   []config.Language{config.LanguageGo},
+				Tools: map[config.ToolType][]string{
+					config.ToolTypeTest: {"go test"},
+				},
 			},
 			availableCommands: map[string]bool{
 				"go": true,
@@ -473,36 +558,72 @@ func TestPrepareDemoConfigs(t *testing.T) {
 				BuildSystem: "bazel",
 				HasGit:      true,
 				Languages:   []config.Language{config.LanguageGo},
+				Tools: map[config.ToolType][]string{
+					config.ToolTypeTest: {"go test"},
+				},
 			},
 			availableCommands: map[string]bool{},
 			expectedCommands:  []string{},
+		},
+		{
+			name: "detected go tools omitted when binaries missing",
+			projectConfig: &config.ProjectConfig{
+				BuildSystem: "none",
+				HasGit:      false,
+				Languages:   []config.Language{config.LanguageGo},
+				Tools: map[config.ToolType][]string{
+					config.ToolTypeLint: {"golangci-lint"},
+					config.ToolTypeTest: {"go test"},
+				},
+			},
+			availableCommands: map[string]bool{
+				"git": true,
+			},
+			expectedCommands: []string{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save original BasicExecutor creation and restore after test
-			// For this test, we'll rely on the actual behavior that checks system commands
-			// In production, the function creates its own BasicExecutor, so we can only
-			// test the integration behavior based on actual command availability
+			mockExec := executor.NewMockExecutor()
+			for cmd, available := range tt.availableCommands {
+				mockExec.SetAvailableCommand(cmd, available)
+			}
 
-			configs, err := prepareDemoConfigs(tt.projectConfig, "/test/dir")
+			configs, err := prepareDemoConfigs(tt.projectConfig, "/test/dir", mockExec)
 			if err != nil {
 				t.Fatalf("prepareDemoConfigs failed: %v", err)
 			}
 
-			// Verify structure and types - don't verify exact count
-			// since it depends on system-installed tools
-			for _, cfg := range configs {
-				if cfg.Command == "" {
-					t.Error("Config should have a command")
+			if len(configs) != len(tt.expectedCommands) {
+				t.Fatalf("Expected %d configs, got %d (%v)", len(tt.expectedCommands), len(configs), commandNames(configs))
+			}
+
+			for i, expectedCmd := range tt.expectedCommands {
+				if configs[i].Command != expectedCmd {
+					t.Errorf("Expected command[%d] = %q, got %q", i, expectedCmd, configs[i].Command)
 				}
-				if cfg.WorkingDir != "/test/dir" {
-					t.Errorf("Expected WorkingDir '/test/dir', got %q", cfg.WorkingDir)
+				if configs[i].WorkingDir != "/test/dir" {
+					t.Errorf("Expected WorkingDir '/test/dir', got %q", configs[i].WorkingDir)
+				}
+			}
+			for _, cfg := range configs {
+				for _, arg := range cfg.Args {
+					if strings.Contains(arg, "devtools/devcheck") {
+						t.Errorf("command %s arg %q is hardcoded to this repository", cfg.Command, arg)
+					}
 				}
 			}
 		})
 	}
+}
+
+func commandNames(configs []executor.ToolConfig) []string {
+	names := make([]string, len(configs))
+	for i, cfg := range configs {
+		names[i] = cfg.Command
+	}
+	return names
 }
 
 // Test sequential demo execution.
@@ -513,6 +634,7 @@ func TestRunSequentialDemo(t *testing.T) {
 		mockResults     []*executor.ExecutionResult
 		mockErrors      []error
 		expectedSuccess int
+		wantErr         bool
 		expectedOutput  []string
 	}{
 		{
@@ -541,6 +663,7 @@ func TestRunSequentialDemo(t *testing.T) {
 			},
 			mockErrors:      []error{nil, nil},
 			expectedSuccess: 1,
+			wantErr:         true,
 			expectedOutput:  []string{"SUCCESS", "FAILED", "exit code 1", "1/2"},
 		},
 		{
@@ -553,6 +676,7 @@ func TestRunSequentialDemo(t *testing.T) {
 			},
 			mockErrors:      []error{fmt.Errorf("execution failed")},
 			expectedSuccess: 0,
+			wantErr:         true,
 			expectedOutput:  []string{"ERROR", "execution failed", "0/1"},
 		},
 		{
@@ -569,6 +693,7 @@ func TestRunSequentialDemo(t *testing.T) {
 			},
 			mockErrors:      []error{nil, fmt.Errorf("error"), nil},
 			expectedSuccess: 1,
+			wantErr:         true,
 			expectedOutput:  []string{"SUCCESS", "ERROR", "FAILED", "1/3"},
 		},
 	}
@@ -589,8 +714,12 @@ func TestRunSequentialDemo(t *testing.T) {
 			ctx := context.Background()
 
 			err := runSequentialDemo(ctx, &buf, mockExec, tt.configs)
-			if err != nil {
-				t.Fatalf("runSequentialDemo failed: %v", err)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("runSequentialDemo() error = nil, want failure")
+				}
+			} else if err != nil {
+				t.Fatalf("runSequentialDemo() unexpected error: %v", err)
 			}
 
 			output := buf.String()
@@ -614,6 +743,7 @@ func TestRunConcurrentDemo(t *testing.T) {
 		mockErrors      []error
 		maxWorkers      int
 		expectedSuccess int
+		wantErr         bool
 		expectedOutput  []string
 	}{
 		{
@@ -644,6 +774,7 @@ func TestRunConcurrentDemo(t *testing.T) {
 			mockErrors:      []error{nil, nil},
 			maxWorkers:      2,
 			expectedSuccess: 1,
+			wantErr:         true,
 			expectedOutput:  []string{"PASS", "FAIL", "1/2"},
 		},
 		{
@@ -657,6 +788,7 @@ func TestRunConcurrentDemo(t *testing.T) {
 			mockErrors:      []error{fmt.Errorf("execution failed")},
 			maxWorkers:      1,
 			expectedSuccess: 0,
+			wantErr:         true,
 			expectedOutput:  []string{"ERROR", "execution failed", "0/1"},
 		},
 		{
@@ -718,8 +850,12 @@ func TestRunConcurrentDemo(t *testing.T) {
 			ctx := context.Background()
 
 			err := runConcurrentDemo(ctx, &buf, mockExec, tt.configs, tt.maxWorkers)
-			if err != nil {
-				t.Fatalf("runConcurrentDemo failed: %v", err)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("runConcurrentDemo() error = nil, want failure")
+				}
+			} else if err != nil {
+				t.Fatalf("runConcurrentDemo() unexpected error: %v", err)
 			}
 
 			output := buf.String()
