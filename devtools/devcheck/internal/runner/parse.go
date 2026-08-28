@@ -46,6 +46,8 @@ func ParseIssues(command, stdout, stderr string) []config.Issue {
 		return parseGolangci(payload)
 	case "ruff":
 		return parseRuff(payload)
+	case "unnecessary-interface-assertion-linter":
+		return parseIssueJSON(payload)
 	default:
 		return nil
 	}
@@ -89,6 +91,14 @@ func parseRuff(payload string) []config.Issue {
 			Code:      item.Code,
 			ToolName:  "ruff",
 		})
+	}
+	return issues
+}
+
+func parseIssueJSON(payload string) []config.Issue {
+	var issues []config.Issue
+	if err := json.Unmarshal([]byte(payload), &issues); err != nil {
+		return nil
 	}
 	return issues
 }

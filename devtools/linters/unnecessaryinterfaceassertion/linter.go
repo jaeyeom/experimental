@@ -1,5 +1,7 @@
-// Package detector provides the main project detection functionality.
-package detector
+// Package unnecessaryinterfaceassertion flags compile-time interface
+// assertions that are unnecessary because the interface has a single
+// implementation and is not used elsewhere.
+package unnecessaryinterfaceassertion
 
 import (
 	"fmt"
@@ -10,28 +12,40 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// UnnecessaryInterfaceAssertionLinter lints for unnecessary interface assertions.
-type UnnecessaryInterfaceAssertionLinter struct {
+// ToolName is the command name reported on each issue.
+const ToolName = "unnecessary-interface-assertion-linter"
+
+// Issue is a finding in config.Issue JSON shape so devcheck can unmarshal it.
+type Issue struct {
+	FilePath string `json:"filePath"`
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	ToolName string `json:"toolName"`
+}
+
+// Linter flags unnecessary compile-time interface assertions.
+type Linter struct {
 	// Dir is the directory to use for loading packages. If empty, uses current directory.
 	Dir string
 }
 
-// NewUnnecessaryInterfaceAssertionLinter creates a new UnnecessaryInterfaceAssertionLinter.
-func NewUnnecessaryInterfaceAssertionLinter() *UnnecessaryInterfaceAssertionLinter {
-	return &UnnecessaryInterfaceAssertionLinter{}
+// New creates a Linter.
+func New() *Linter {
+	return &Linter{}
 }
 
 // Lint runs the linter on the given paths.
-func (l *UnnecessaryInterfaceAssertionLinter) Lint(paths []string) ([]string, error) {
+func (l *Linter) Lint(paths []string) ([]Issue, error) {
 	pkgs, err := l.loadPackages(paths)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check for package errors.
 	for _, pkg := range pkgs {
-		for _, err := range pkg.Errors {
-			return nil, fmt.Errorf("package %s has error: %v", pkg.PkgPath, err)
+		for _, pkgErr := range pkg.Errors {
+			return nil, fmt.Errorf("package %s has error: %w", pkg.PkgPath, pkgErr)
 		}
 	}
 
@@ -42,7 +56,7 @@ func (l *UnnecessaryInterfaceAssertionLinter) Lint(paths []string) ([]string, er
 	return findUnnecessaryAssertions(pkgs, implementations, usages), nil
 }
 
-func (l *UnnecessaryInterfaceAssertionLinter) loadPackages(paths []string) ([]*packages.Package, error) {
+func (l *Linter) loadPackages(paths []string) ([]*packages.Package, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedTypesSizes |
@@ -89,7 +103,6 @@ func findImplementations(interfaces []*types.TypeName, allNamedTypes []*types.Na
 
 	for _, typ := range allNamedTypes {
 		for _, ifaceTypeName := range interfaces {
-			// Skip if this is the interface type itself.
 			if typ.Obj() == ifaceTypeName {
 				continue
 			}
@@ -140,8 +153,8 @@ func collectInterfaceUsages(pkgs []*packages.Package) map[types.Object][]token.P
 	return usages
 }
 
-func findUnnecessaryAssertions(pkgs []*packages.Package, implementations map[*types.TypeName][]types.Type, usages map[types.Object][]token.Pos) []string {
-	var issues []string
+func findUnnecessaryAssertions(pkgs []*packages.Package, implementations map[*types.TypeName][]types.Type, usages map[types.Object][]token.Pos) []Issue {
+	var issues []Issue
 	for _, pkg := range pkgs {
 		info := pkg.TypesInfo
 		if info == nil {
@@ -154,16 +167,16 @@ func findUnnecessaryAssertions(pkgs []*packages.Package, implementations map[*ty
 	return issues
 }
 
-func findAssertionsInFile(pkg *packages.Package, file *ast.File, info *types.Info, implementations map[*types.TypeName][]types.Type, usages map[types.Object][]token.Pos) []string {
-	var issues []string
+func findAssertionsInFile(pkg *packages.Package, file *ast.File, info *types.Info, implementations map[*types.TypeName][]types.Type, usages map[types.Object][]token.Pos) []Issue {
+	var issues []Issue
 	ast.Inspect(file, func(n ast.Node) bool {
 		decl, ok := n.(*ast.GenDecl)
 		if !ok || decl.Tok != token.VAR {
 			return true
 		}
 		for _, spec := range decl.Specs {
-			if issue := checkVarSpec(pkg, spec, info, implementations, usages, n); issue != "" {
-				issues = append(issues, issue)
+			if issue := checkVarSpec(pkg, spec, info, implementations, usages, n); issue != nil {
+				issues = append(issues, *issue)
 			}
 		}
 		return true
@@ -171,38 +184,46 @@ func findAssertionsInFile(pkg *packages.Package, file *ast.File, info *types.Inf
 	return issues
 }
 
-func checkVarSpec(pkg *packages.Package, spec ast.Spec, info *types.Info, implementations map[*types.TypeName][]types.Type, usages map[types.Object][]token.Pos, n ast.Node) string {
+func checkVarSpec(pkg *packages.Package, spec ast.Spec, info *types.Info, implementations map[*types.TypeName][]types.Type, usages map[types.Object][]token.Pos, n ast.Node) *Issue {
 	valueSpec, ok := spec.(*ast.ValueSpec)
 	if !ok {
-		return ""
+		return nil
 	}
 	if !isBlankIdentifier(valueSpec) {
-		return ""
+		return nil
 	}
 	if valueSpec.Type == nil {
-		return ""
+		return nil
 	}
 
 	typeName := getTypeName(info, valueSpec.Type)
 	if typeName == nil {
-		return ""
+		return nil
 	}
 
 	// Heuristic 1: The interface has only one implementation.
 	if len(implementations[typeName]) != 1 {
-		return ""
+		return nil
 	}
 
 	// Heuristic 2: The interface is only used in this assertion.
 	typeObj := getTypeObject(info, valueSpec.Type)
 	if typeObj == nil {
-		return ""
+		return nil
 	}
 	if len(usages[typeObj]) > 1 {
-		return ""
+		return nil
 	}
 
-	return fmt.Sprintf("Unnecessary interface assertion at %s", pkg.Fset.Position(n.Pos()))
+	pos := pkg.Fset.Position(n.Pos())
+	return &Issue{
+		FilePath: pos.Filename,
+		Line:     pos.Line,
+		Column:   pos.Column,
+		Severity: "warning",
+		Message:  "Unnecessary interface assertion",
+		ToolName: ToolName,
+	}
 }
 
 func isBlankIdentifier(valueSpec *ast.ValueSpec) bool {
