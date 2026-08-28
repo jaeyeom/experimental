@@ -11,15 +11,17 @@ that agent a prompt to address unresolved review comments — or, with
 ~--rebase~, a rebase-in-place prompt even when there are no open comments.
 It can also run the join in reverse (~tabs --orphans~) to flag live-agent
 tabs whose PR already merged, so their worktrees and gate slots can be
-reclaimed. ~comment~ posts a conversation-level PR comment through ~gh~
+reclaimed — and, with ~--close-merged --go~, close those merged-bucket
+tabs itself. ~comment~ posts a conversation-level PR comment through ~gh~
 with no herdr tab and no concurrency gate.
 
-~scan~ and ~tabs~ are read-only on GitHub. ~comment~ writes a PR comment
-via ~gh~. ~dispatch~ is write-only on herdr (prompt injection). The tool
-shells out to the already-authenticated ~gh~ CLI and to herdr ≥ 0.8. It
-never embeds a GitHub token. Dispatch is serialized (one agent at a time)
-and dry-run by default; ~comment~ is also dry-run by default. All commands
-emit JSON on stdout.
+~scan~ and ~tabs --orphans~ are read-only on GitHub. ~comment~ writes a PR
+comment via ~gh~. ~dispatch~ is write-only on herdr (prompt injection).
+~tabs --orphans --close-merged --go~ is write-only on herdr (tab close).
+The tool shells out to the already-authenticated ~gh~ CLI and to herdr ≥
+0.8. It never embeds a GitHub token. Dispatch is serialized (one agent at
+a time) and dry-run by default; ~comment~ and ~tabs --close-merged~ are
+also dry-run by default. All commands emit JSON on stdout.
 
 Related tracker: [[https://github.com/jaeyeom/experimental/issues/211][#211]].
 
@@ -54,7 +56,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
-prsync tabs     --orphans [--config PATH] [--json] [--stdin]
+prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--force] [--stdin]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] --body TEXT
 prsync gate     [--config PATH]
@@ -67,17 +69,21 @@ prsync version
 | ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
 | ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
 | ~--orphans~ | tabs | Required; report live-agent tabs with no open/draft PR |
+| ~--close-merged~ | tabs | Close ~merged~-bucket orphan tabs (default is dry-run) |
 | ~--stdin~ | tabs | Reuse open-PR↔tab matches from a scan document on stdin (else self-resolve) |
 | ~--pr owner/repo#N~ | dispatch, comment | Repeatable; limit candidates |
 | ~--all~ | dispatch, comment | Every PR in the scan document (default when no ~--pr~) |
-| ~--go~ | dispatch, comment | Live send (default is dry-run) |
+| ~--go~ | dispatch, comment, tabs | Live send / close (default is dry-run) |
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
 | ~--force~ | dispatch | Re-dispatch even if dedupe state would skip |
 | ~--stdin~ | dispatch, comment | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
 | ~--body TEXT~ | comment | Comment body to post (required) |
 
-~--pr~ and ~--all~ together is an error (exit 2). ~--go~ always sends.
-~dry_run=false~ in the config also sends without ~--go~ (for cron).
+~--pr~ and ~--all~ together is an error (exit 2). ~--go~ on ~tabs~
+requires ~--close-merged~ (exit 2 otherwise). ~--go~ always sends (or,
+with ~--close-merged~, closes). ~dry_run=false~ in the config also
+sends / closes without ~--go~ (for cron); ~tabs~ still needs
+~--close-merged~ to close anything.
 
 ~dispatch~ and ~comment~ read a scan document from stdin only when
 ~--stdin~ is set and stdin is a FIFO or regular file (a pipe or
@@ -285,10 +291,45 @@ prsync tabs --orphans --config ./prsync.config
 }
 #+END_SRC
 
-Report-only, like ~scan~: closing a tab (~herdr tab close~) stays a
-separate, explicitly-confirmed step — never automatic. The report sees
-only the local herdr socket, so a ticket whose tab lives on another
-machine is never mislabeled here.
+~--close-merged~ closes only the ~merged~ bucket, driven by ~prsync~'s
+own classification rather than a hand-copied ~tab_id~. Dry-run by
+default (same as ~dispatch~ / ~comment~); ~--go~ actually closes.
+~no_pr~ tabs are never touched — they may hold unpushed work. At close
+time each candidate is re-verified (its PR is still merged or closed)
+so a race cannot close a tab that grew a new open PR. The report and
+the close both see only the local herdr socket, so a ticket whose tab
+lives on another machine is never mislabeled or closed here.
+
+#+BEGIN_SRC bash
+prsync tabs --orphans --close-merged --config ./prsync.config
+prsync tabs --orphans --close-merged --go --config ./prsync.config
+#+END_SRC
+
+#+BEGIN_SRC json
+{
+  "generated_at": "2026-01-01T09:00:00Z",
+  "dry_run": true,
+  "results": [
+    {
+      "tab_id": "w2:tA",
+      "workspace_id": "w2",
+      "ticket": "AP-1306",
+      "action": "would_close",
+      "pr": {
+        "repo": "acme/widgets",
+        "number": 32347,
+        "url": "https://github.com/acme/widgets/pull/32347",
+        "state": "merged",
+        "merged_at": "2026-08-18T22:19:28Z"
+      }
+    }
+  ]
+}
+#+END_SRC
+
+Live ~action~ values: ~closed~, ~skipped_not_merged~,
+~skipped_not_found~. Dry-run emits ~would_close~ for each merged-bucket
+tab it would close.
 
 Piping a ~scan~ document in with ~--stdin~ reuses its open-PR↔tab matches,
 so tabs that already have an open PR are skipped without a ~gh search~:
@@ -428,6 +469,8 @@ prsync dispatch --config ./prsync.config          # review rendered_prompt
 prsync dispatch --config ./prsync.config --go     # pane_id + --wait --until idle --until done
 prsync comment --config ./prsync.config --body "please retry"      # review rendered_prompt
 prsync comment --config ./prsync.config --body "please retry" --go
+prsync tabs --orphans --close-merged --config ./prsync.config      # review would_close
+prsync tabs --orphans --close-merged --go --config ./prsync.config
 prsync gate --config ./prsync.config
 #+END_SRC
 
@@ -447,6 +490,9 @@ This procedure is README-only; CI uses fixture binaries, not live herdr.
   Auth is the operator's existing ~gh~ login plus the local herdr socket.
 - ~comment --go~ posts the given body as a GitHub PR comment. Dry-run
   first; there is no extra confirmation beyond ~--go~.
+- ~tabs --orphans --close-merged --go~ runs ~herdr tab close~ on each
+  tab still in the ~merged~ bucket. Dry-run first; ~no_pr~ and
+  ~has_open_pr~ tabs are never candidates.
 - Review comment bodies are interpolated into the dispatch prompt as text.
   ~prsync~ does not execute them. The *agent* may follow malicious review
   text — this is inherent to the product. Do not treat the prompt as
