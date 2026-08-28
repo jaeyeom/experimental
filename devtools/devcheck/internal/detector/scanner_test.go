@@ -32,11 +32,11 @@ func TestScanner_Scan(t *testing.T) {
 			expectError:   false,
 		},
 		{
-			name:          "hidden files excluded by default",
-			files:         []string{"main.go", ".gitignore", ".hidden/secret.txt"},
-			directories:   []string{".hidden"},
+			name:          "hidden files included except ignored dirs",
+			files:         []string{"main.go", ".golangci.yml", ".gitignore", ".git/HEAD", ".idea/workspace.xml"},
+			directories:   []string{".git", ".idea"},
 			options:       DefaultScanOptions(),
-			expectedFiles: []string{"main.go"},
+			expectedFiles: []string{"main.go", ".golangci.yml", ".gitignore"},
 			expectedDirs:  []string{},
 			expectError:   false,
 		},
@@ -443,8 +443,8 @@ func TestDefaultScanOptions(t *testing.T) {
 		t.Error("Expected FollowSymlinks to be false")
 	}
 
-	if options.IncludeHidden {
-		t.Error("Expected IncludeHidden to be false")
+	if !options.IncludeHidden {
+		t.Error("Expected IncludeHidden to be true")
 	}
 
 	// Check that common ignore patterns are included
@@ -460,6 +460,43 @@ func TestDefaultScanOptions(t *testing.T) {
 		if !found {
 			t.Errorf("Expected ignore pattern %s not found", pattern)
 		}
+	}
+}
+
+func TestScanner_isValidSymlinkTarget_rejectsPrefixSibling(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symlink_prefix_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	absRoot, err := filepath.Abs(filepath.Join(tempDir, "proj"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evilDir := absRoot + "evil"
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(evilDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(evilDir, "secret.txt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(absRoot, "link")
+	if err := os.Symlink(evilDir, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	scanner := NewScanner(ScanOptions{
+		MaxDepth:       5,
+		FollowSymlinks: true,
+	})
+	result := &ScanResult{}
+	if scanner.isValidSymlinkTarget(linkPath, absRoot, result) {
+		t.Errorf("isValidSymlinkTarget(%q, %q) = true, want false for target %q", linkPath, absRoot, evilDir)
 	}
 }
 

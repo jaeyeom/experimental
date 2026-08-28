@@ -197,6 +197,11 @@ func TestPatternMatcher_MatchBuildSystemWithLocation(t *testing.T) {
 			files:    []string{"examples/MODULE.bazel", "tests/Makefile", "main.go"},
 			expected: config.BuildSystemBazel,
 		},
+		{
+			name:     "sparse tree with makefile at depth 10",
+			files:    []string{"README.md", "a/b/c/d/e/f/g/h/i/j/Makefile"},
+			expected: config.BuildSystemMake,
+		},
 	}
 
 	for _, tt := range tests {

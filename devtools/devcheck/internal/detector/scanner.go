@@ -42,7 +42,7 @@ func DefaultScanOptions() ScanOptions {
 			"*.tmp",
 			"*.temp",
 		},
-		IncludeHidden: false,
+		IncludeHidden: true,
 	}
 }
 
@@ -189,7 +189,11 @@ func (s *Scanner) isValidSymlinkTarget(entryAbsPath, absRoot string, result *Sca
 		return false
 	}
 
-	return strings.HasPrefix(cleanTarget, absRoot)
+	rel, err := filepath.Rel(absRoot, cleanTarget)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (s *Scanner) processEntry(entry os.DirEntry, entryRelPath, absRoot string, depth int, result *ScanResult) {
