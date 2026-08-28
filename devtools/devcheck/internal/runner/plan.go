@@ -154,6 +154,8 @@ func enhanceArgs(command string, args []string, toolType config.ToolType, change
 	switch command {
 	case "golangci-lint":
 		args = ensureGolangciArgs(args)
+	case "unnecessary-interface-assertion-linter":
+		args = ensureIfaceAssertArgs(args)
 	case "ruff":
 		args = ensureRuffArgs(args)
 	case "gofumpt", "gofmt":
@@ -179,6 +181,13 @@ func ensureGolangciArgs(args []string) []string {
 	}
 	if !hasArgPrefix(args, "--output.json.path") {
 		args = append(args, "--output.json.path=stdout")
+	}
+	return args
+}
+
+func ensureIfaceAssertArgs(args []string) []string {
+	if !hasArg(args, "--json") {
+		args = append(args, "--json")
 	}
 	return args
 }
@@ -244,7 +253,7 @@ func replaceDotPath(args, files []string) []string {
 
 func acceptsFileArgs(command string) bool {
 	switch command {
-	case "gofumpt", "gofmt", "golangci-lint", "ruff", "black", "flake8", "prettier", "eslint", "pytest":
+	case "gofumpt", "gofmt", "golangci-lint", "unnecessary-interface-assertion-linter", "ruff", "black", "flake8", "prettier", "eslint", "pytest":
 		return true
 	default:
 		return false
@@ -263,7 +272,7 @@ func filterFilesForCommand(command string, files []string) []string {
 
 func fileMatchesCommand(command, file string) bool {
 	switch command {
-	case "gofumpt", "gofmt", "golangci-lint":
+	case "gofumpt", "gofmt", "golangci-lint", "unnecessary-interface-assertion-linter":
 		return strings.HasSuffix(file, ".go")
 	case "ruff", "black", "flake8", "pytest":
 		return strings.HasSuffix(file, ".py")

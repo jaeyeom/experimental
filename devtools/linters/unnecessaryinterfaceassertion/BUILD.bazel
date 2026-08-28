@@ -1,0 +1,44 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# gazelle:exclude testdata
+
+go_library(
+    name = "go_default_library",
+    srcs = ["linter.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/unnecessaryinterfaceassertion",
+    visibility = ["//devtools/linters:__subpackages__"],
+    deps = ["@org_golang_x_tools//go/packages:go_default_library"],
+)
+
+# Fixture libraries exist so check-bazel-src-files sees the testdata .go files.
+# They are not compiled as part of the linter; the test loads them via go/packages.
+go_library(
+    name = "unnecessary_fixture",
+    srcs = ["testdata/unnecessary/unnecessary.go"],  # keep
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/unnecessaryinterfaceassertion/testdata/unnecessary",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
+
+go_library(
+    name = "necessary_fixture",
+    srcs = ["testdata/necessary/necessary.go"],  # keep
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/unnecessaryinterfaceassertion/testdata/necessary",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
+
+go_library(
+    name = "multiple_fixture",
+    srcs = ["testdata/multiple/multiple.go"],  # keep
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/unnecessaryinterfaceassertion/testdata/multiple",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["linter_test.go"],
+    data = glob(["testdata/**"]),
+    deps = [":go_default_library"],
+)

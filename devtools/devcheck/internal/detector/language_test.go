@@ -33,6 +33,7 @@ func TestGoToolsOmitsMissingBinaries(t *testing.T) {
 	assertContainsTool(t, tools[config.ToolTypeFormat], "gofmt")
 	assertNotContainsTool(t, tools[config.ToolTypeFormat], "gofumpt")
 	assertNotContainsTool(t, tools[config.ToolTypeLint], "golangci-lint")
+	assertNotContainsTool(t, tools[config.ToolTypeLint], "unnecessary-interface-assertion-linter")
 	assertContainsTool(t, tools[config.ToolTypeTest], "go test")
 }
 
@@ -70,6 +71,14 @@ func TestGoToolsListsFormatters(t *testing.T) {
 		t.Error("Expected lint tools for Go")
 	}
 	assertContainsTool(t, tools[config.ToolTypeFormat], "gofumpt")
+}
+
+func TestGoToolsListsIfaceAssertLinterWhenPresent(t *testing.T) {
+	withBinsOnPath(t, "golangci-lint", "unnecessary-interface-assertion-linter", "go")
+
+	tools := goTools("", nil)
+	assertContainsTool(t, tools[config.ToolTypeLint], "golangci-lint")
+	assertContainsTool(t, tools[config.ToolTypeLint], "unnecessary-interface-assertion-linter")
 }
 
 func mustScan(t *testing.T, dir string) *ScanResult {

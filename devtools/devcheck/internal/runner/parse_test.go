@@ -81,6 +81,40 @@ func TestParseIssues_RuffJSON(t *testing.T) {
 	}
 }
 
+const ifaceAssertFixture = `[
+  {
+    "filePath": "unnecessary/unnecessary.go",
+    "line": 11,
+    "column": 1,
+    "severity": "warning",
+    "message": "Unnecessary interface assertion",
+    "toolName": "unnecessary-interface-assertion-linter"
+  }
+]`
+
+func TestParseIssues_IfaceAssertJSON(t *testing.T) {
+	issues := ParseIssues("unnecessary-interface-assertion-linter", ifaceAssertFixture, "")
+	if len(issues) != 1 {
+		t.Fatalf("issues = %d, want 1", len(issues))
+	}
+	got := issues[0]
+	if got.FilePath != "unnecessary/unnecessary.go" {
+		t.Errorf("FilePath = %q, want unnecessary/unnecessary.go", got.FilePath)
+	}
+	if got.Line != 11 || got.Column != 1 {
+		t.Errorf("pos = %d:%d, want 11:1", got.Line, got.Column)
+	}
+	if got.Message != "Unnecessary interface assertion" {
+		t.Errorf("Message = %q", got.Message)
+	}
+	if got.ToolName != "unnecessary-interface-assertion-linter" {
+		t.Errorf("ToolName = %q", got.ToolName)
+	}
+	if got.Severity != config.SeverityWarning {
+		t.Errorf("Severity = %q, want warning", got.Severity)
+	}
+}
+
 func TestParseIssues_UnknownToolReturnsNone(t *testing.T) {
 	issues := ParseIssues("make", "some raw lint output\nfile.go:1: boom\n", "stderr")
 	if len(issues) != 0 {

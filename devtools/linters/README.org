@@ -3,7 +3,7 @@
 
 * Overview
 
-This directory contains linting tools for various file formats, starting with org-lint for Org-mode files.
+This directory contains linting tools for various file formats, including org-lint for Org-mode files and a Go linter for unnecessary interface assertions.
 
 * Tools
 
@@ -162,4 +162,34 @@ go install ./cmd/org-lint
 
 #+BEGIN_SRC bash
 bazel build //devtools/linters/cmd/org-lint:org-lint
+#+END_SRC
+
+** unnecessary-interface-assertion-linter
+
+Flags compile-time interface assertions of the form ~var _ Iface = (*T)(nil)~
+when the interface has a single implementation and is not used elsewhere.
+
+*** Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/linters/cmd/unnecessary-interface-assertion-linter@latest
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+# Lint the current module
+unnecessary-interface-assertion-linter ./...
+
+# JSON output (used by devcheck)
+unnecessary-interface-assertion-linter --json ./...
+
+# Load packages from a specific directory
+unnecessary-interface-assertion-linter --dir path/to/module ./...
+#+END_SRC
+
+Exit code 1 if issues are found, 0 if clean.
+
+#+BEGIN_SRC bash
+bazel build //devtools/linters/cmd/unnecessary-interface-assertion-linter
 #+END_SRC
