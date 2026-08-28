@@ -15,7 +15,11 @@ py_library(
         ["gen/**/*.py"],
         exclude = ["**/__pycache__/**"],
     ),
-    imports = ["."],
+    # "." for `from gen import ...`; "gen" for generated `from buf.validate import ...`.
+    imports = [
+        ".",
+        "gen",
+    ],
     target_compatible_with = _PY_COMPATIBLE,
 )
 
@@ -61,4 +65,15 @@ py_binary(
     main = "client.py",
     target_compatible_with = _PY_COMPATIBLE,
     deps = [":client"],
+)
+
+py_test(
+    name = "server_test",
+    srcs = ["server_test.py"],
+    imports = ["."],
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = [
+        ":server",
+        "@pypi//pytest",
+    ],
 )
