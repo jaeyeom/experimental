@@ -15,13 +15,7 @@ func TestLintFlagsUnnecessaryInterfaceAssertionFixture(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not available")
 	}
-	t.Setenv("GOPACKAGESDRIVER", "off")
-	if os.Getenv("GOCACHE") == "" {
-		t.Setenv("GOCACHE", t.TempDir())
-	}
-	if os.Getenv("HOME") == "" {
-		t.Setenv("HOME", t.TempDir())
-	}
+	setupGoPackagesEnv(t)
 
 	linter := unnecessaryinterfaceassertion.New()
 	linter.Dir = testdataDir(t)
@@ -45,6 +39,45 @@ func TestLintFlagsUnnecessaryInterfaceAssertionFixture(t *testing.T) {
 	}
 	if got.Line <= 0 {
 		t.Errorf("Line = %d, want a positive line number", got.Line)
+	}
+}
+
+// setupGoPackagesEnv makes packages.Load work in the Bazel sandbox without
+// downloading a toolchain into t.TempDir() (those files are not writable, so
+// cleanup fails on GitHub Actions coverage runs).
+func setupGoPackagesEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("GOPACKAGESDRIVER", "off")
+	t.Setenv("GOTOOLCHAIN", "local")
+	t.Setenv("GOCACHE", writableTempDir(t))
+	gopath := writableTempDir(t)
+	t.Setenv("GOPATH", gopath)
+	t.Setenv("GOMODCACHE", filepath.Join(gopath, "pkg", "mod"))
+}
+
+func writableTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Cleanup(func() { chmodRecursively(dir) })
+	return dir
+}
+
+func chmodRecursively(dir string) {
+	_ = os.Chmod(dir, 0o755)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		if e.IsDir() {
+			chmodRecursively(path)
+			continue
+		}
+		_ = os.Chmod(path, 0o644)
 	}
 }
 
