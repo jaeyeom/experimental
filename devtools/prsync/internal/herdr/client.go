@@ -82,6 +82,21 @@ func (c *Client) TabList(ctx context.Context) ([]Tab, error) {
 	return *env.Result.Tabs, nil
 }
 
+// TabClose runs `herdr tab close <tabID>`. A missing tab is ErrTabNotFound.
+func (c *Client) TabClose(ctx context.Context, tabID string) error {
+	_, err := c.output(ctx, defaultCallTimeout, "tab", "close", tabID)
+	if err == nil {
+		return nil
+	}
+	var proc *ProcError
+	if errors.As(err, &proc) {
+		if code := promptErrorCode(proc.Stderr, proc.Stdout); code == "tab_not_found" {
+			return fmt.Errorf("%w: %s", ErrTabNotFound, proc.Error())
+		}
+	}
+	return err
+}
+
 // AgentList runs `herdr agent list` and returns .result.agents.
 func (c *Client) AgentList(ctx context.Context) ([]Agent, error) {
 	raw, err := c.output(ctx, defaultCallTimeout, "agent", "list")

@@ -20,10 +20,12 @@ import (
 
 func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	var (
-		configPath string
-		orphans    bool
-		jsonFlag   bool
-		readStdin  bool
+		configPath  string
+		orphans     bool
+		jsonFlag    bool
+		readStdin   bool
+		closeMerged bool
+		goLive      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "tabs",
@@ -34,37 +36,59 @@ func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if !orphans {
 				return &ExitError{Code: ExitUsage, Err: errors.New("tabs requires --orphans")}
 			}
-			return runTabsOrphans(cmd.Context(), stdout, exec, configPath, readStdin)
+			if goLive && !closeMerged {
+				return &ExitError{Code: ExitUsage, Err: errors.New("--go requires --close-merged")}
+			}
+			return runTabsOrphans(cmd.Context(), stdout, exec, configPath, readStdin, closeMerged, goLive)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().BoolVar(&orphans, "orphans", false, "report live-agent tabs with no open/draft PR")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "accepted, no-op (stdout is always JSON)")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "reuse open-PR matches from a scan document on stdin")
+	cmd.Flags().BoolVar(&closeMerged, "close-merged", false, "close merged-bucket orphan tabs (default is dry-run)")
+	cmd.Flags().BoolVar(&goLive, "go", false, "actually close tabs (default is dry-run)")
 	return cmd
 }
 
-func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, readStdin bool) error {
+func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, readStdin, closeMerged, goLive bool) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if goLive {
+		cfg.DryRun = false
 	}
 	openTabs, err := openTabsFromStdin(readStdin)
 	if err != nil {
 		return err
 	}
+	client := herdr.NewClient(exec, cfg.HerdrBin)
 	deps := scan.OrphanDeps{
 		GH:    gh.NewClient(exec, cfg.GHBin),
-		Herdr: herdr.NewClient(exec, cfg.HerdrBin),
+		Herdr: client,
 	}
 	doc, err := scan.Orphans(ctx, deps, cfg, openTabs, time.Now())
-	if scan.OrphansStarted(doc) {
-		if werr := writeOrphanJSON(stdout, doc); werr != nil {
-			return werr
-		}
-	}
 	if err != nil {
+		if scan.OrphansStarted(doc) {
+			if werr := writeOrphanJSON(stdout, doc); werr != nil {
+				return werr
+			}
+		}
 		return gateError(err, cfg)
+	}
+	if !closeMerged {
+		return writeOrphanJSON(stdout, doc)
+	}
+	out, closeErr := scan.CloseMerged(ctx, scan.CloseDeps{
+		GH:    deps.GH,
+		Herdr: client,
+	}, cfg, doc.Author, doc.OrphanTabs, time.Now())
+	if werr := writeCloseJSON(stdout, out); werr != nil {
+		return werr
+	}
+	if closeErr != nil {
+		return gateError(closeErr, cfg)
 	}
 	return nil
 }
@@ -84,6 +108,17 @@ func openTabsFromStdin(readStdin bool) (map[string]struct{}, error) {
 }
 
 func writeOrphanJSON(w io.Writer, doc scan.OrphanDocument) error {
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode tabs: %w", err)
+	}
+	if _, err := fmt.Fprintf(w, "%s\n", out); err != nil {
+		return fmt.Errorf("write tabs: %w", err)
+	}
+	return nil
+}
+
+func writeCloseJSON(w io.Writer, doc scan.CloseDocument) error {
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode tabs: %w", err)

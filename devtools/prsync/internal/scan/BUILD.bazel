@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "bucket.go",
         "ci.go",
+        "close.go",
         "identifier.go",
         "match.go",
         "orphan.go",
@@ -25,6 +26,7 @@ go_test(
     srcs = [
         "bucket_test.go",
         "ci_test.go",
+        "close_test.go",
         "identifier_test.go",
         "match_test.go",
         "orphan_test.go",

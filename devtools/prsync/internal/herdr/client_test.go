@@ -153,6 +153,50 @@ func TestTabList(t *testing.T) {
 	})
 }
 
+func TestTabClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		mock.ExpectCommandWithArgs(testHerdrBin, "tab", "close", "w2:tC").
+			WillSucceed(`{"result":{"closed":true}}`, 0).Build()
+		if err := NewClient(mock, testHerdrBin).TabClose(context.Background(), "w2:tC"); err != nil {
+			t.Fatalf("TabClose() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("tab_not_found", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		mock.ExpectCommandWithArgs(testHerdrBin, "tab", "close", "w2:tMissing").WillReturn(&executor.ExecutionResult{
+			Output:   `{"error":{"code":"tab_not_found","message":"tab w2:tMissing not found"},"id":"cli:tab:close"}`,
+			ExitCode: 1,
+		}, nil).Build()
+		err := NewClient(mock, testHerdrBin).TabClose(context.Background(), "w2:tMissing")
+		if !errors.Is(err, ErrTabNotFound) {
+			t.Fatalf("TabClose() error = %v, want ErrTabNotFound", err)
+		}
+	})
+
+	t.Run("other error", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		mock.ExpectCommandWithArgs(testHerdrBin, "tab", "close", "w2:tC").WillReturn(&executor.ExecutionResult{
+			Stderr:   "herdr: boom",
+			ExitCode: 1,
+		}, nil).Build()
+		err := NewClient(mock, testHerdrBin).TabClose(context.Background(), "w2:tC")
+		var proc *ProcError
+		if !errors.As(err, &proc) {
+			t.Fatalf("TabClose() error = %v, want ProcError", err)
+		}
+		if proc.ExitCode != 1 {
+			t.Fatalf("exit = %d, want 1", proc.ExitCode)
+		}
+	})
+}
+
 func TestAgentList(t *testing.T) {
 	t.Parallel()
 
