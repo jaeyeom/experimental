@@ -1,0 +1,123 @@
+#+TITLE: magit CLI
+#+DATE: 2026-08-27
+
+* Overview
+
+~magit~ opens ~magit-status~ in an already-running Emacs via ~emacsclient~.
+It is a small shell wrapper for terminal-first Git work: stay in the repo
+directory and jump to Magit without hunting for the right Emacs frame or
+perspective.
+
+The command does *not* start Emacs. If no Emacs server is running, it
+prints an error and exits.
+
+Related issues: [[https://github.com/jaeyeom/experimental/issues/150][#150]],
+[[https://github.com/jaeyeom/experimental/issues/156][#156]].
+
+* Prerequisites
+
+- *Emacs* running as a server so ~emacsclient~ can connect. Start Emacs
+  first (Spacemacs / emacs daemon / ~(server-start)~).
+- *Magit* loaded in that Emacs.
+- *~emacsclient~* on ~PATH~ (comes with Emacs).
+- Optional: *persp-mode*. When available, the wrapper reuses the
+  perspective that already shows Magit for this repository, or switches
+  to perspective ~1~ for a new session. Without persp-mode it still
+  opens ~magit-status~.
+
+* Installation
+
+** Ansible (recommended with setup-dev)
+
+The ~devtools/setup-dev/ansible/magit.yml~ playbook (imported by ~all.yml~)
+symlinks this script to ~$HOME/.local/bin/magit~. It also pulls in Emacs
+setup.
+
+The symlink source is hard-coded to the clone path used by
+~setup-dev~:
+
+#+BEGIN_EXAMPLE
+$HOME/go/src/github.com/jaeyeom/experimental/devtools/magit/magit
+#+END_EXAMPLE
+
+#+BEGIN_SRC bash
+cd ~/go/src/github.com/jaeyeom/experimental/devtools/setup-dev/ansible
+./ensure.sh magit
+# or, as part of the full environment:
+./ensure.sh all
+#+END_SRC
+
+Put ~$HOME/.local/bin~ on ~PATH~ (the user-bin playbook does this in
+the shell profile).
+
+** Manual symlink
+
+From a clone of this repository:
+
+#+BEGIN_SRC bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/devtools/magit/magit" ~/.local/bin/magit
+chmod +x devtools/magit/magit
+#+END_SRC
+
+Or run the script by path without installing it:
+
+#+BEGIN_SRC bash
+./devtools/magit/magit
+#+END_SRC
+
+* Usage
+
+#+BEGIN_SRC bash
+magit                 # magit-status for $PWD in the current Emacs frame
+magit -c              # same, in a new graphical frame
+magit -t              # same, in a terminal frame in this tty
+magit /path/to/repo   # magit-status for that directory
+magit -c ~/src/foo    # new graphical frame for ~/src/foo
+#+END_SRC
+
+** Options
+
+| Option      | Meaning |
+|-------------+---------|
+| ~-c~        | Create a new graphical Emacs frame (~emacsclient -c~) |
+| ~-t~        | Open a text-only frame in the current terminal (~emacsclient -t~) |
+| ~directory~ | Repository directory (default: current working directory) |
+
+~-c~ and ~-t~ should not be combined. If both are given, the last one
+wins.
+
+Unknown flags print usage to stderr and exit 1.
+
+* Behavior
+
+1. Resolve the target directory to an absolute path. A missing or
+   unreadable directory fails before Emacs is contacted.
+2. Probe the Emacs server with ~emacsclient -e '(+ 1 1)'~. If that
+   fails: ~Error: No Emacs server running. Start Emacs first.~ (exit 1).
+3. Escape ~\~ and ~"~ in the path so it is safe inside the Elisp string
+   passed to ~emacsclient --eval~.
+4. In Emacs, find an existing ~magit-status-mode~ buffer whose
+   canonical ~default-directory~ matches the target (symlink-aware).
+   Matching is by full path, not the directory basename, so two repos
+   named ~service~ do not collide.
+5. If that buffer lives in a persp-mode perspective, switch to it.
+   Otherwise, if ~persp-switch-by-number~ is bound, switch to
+   perspective ~1~.
+6. Run ~(magit-status dir)~ and raise the selected frame with
+   ~select-frame-set-input-focus~.
+
+* Terminal notes
+
+~-t~ must keep stdout attached to the tty; the wrapper does not
+redirect it in that mode.
+
+If ~TERM~ is ~xterm-ghostty~, the wrapper sets ~TERM=xterm-256color~
+for the ~emacsclient -t~ call. Ghostty's terminfo is not always
+installed where Emacs can see it.
+
+* Related
+
+- Script: ~devtools/magit/magit~
+- Ansible install: ~devtools/setup-dev/ansible/magit.yml~
+- Emacs / Spacemacs setup: ~spacemacs/README.org~
