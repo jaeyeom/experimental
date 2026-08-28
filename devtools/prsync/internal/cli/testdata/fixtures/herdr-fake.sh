@@ -15,6 +15,23 @@ case "${1-} ${2-}" in
     cat "${DIR}/herdr-tab-list.json"
     exit 0
     ;;
+  "tab close")
+    if [ -n "${HERDR_FAKE_TAB_CLOSE_SENTINEL-}" ]; then
+      printf '%s\n' "$*" > "$HERDR_FAKE_TAB_CLOSE_SENTINEL"
+    fi
+    case "${HERDR_FAKE_TAB_CLOSE-}" in
+      not_found)
+        printf '%s\n' "{\"error\":{\"code\":\"tab_not_found\",\"message\":\"tab ${3-} not found\"},\"id\":\"cli:tab:close\"}"
+        exit 1
+        ;;
+      fail)
+        printf '%s\n' "herdr-fake: tab close failed" >&2
+        exit 1
+        ;;
+    esac
+    printf '%s\n' '{"result":{"closed":true}}'
+    exit 0
+    ;;
   "agent list")
     if [ -n "${HERDR_FAKE_STATUS_FILE-}" ] || [ -n "${HERDR_FAKE_AGENT_STATUS-}" ] || [ -n "${HERDR_FAKE_TAB_ID-}" ] || [ -n "${HERDR_FAKE_PANE_ID-}" ]; then
       status=${HERDR_FAKE_AGENT_STATUS:-idle}

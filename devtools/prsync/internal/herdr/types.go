@@ -15,6 +15,9 @@ var ErrUnsupported = errors.New("herdr version unsupported")
 // ErrDegraded is returned when a herdr success envelope is missing an expected field.
 var ErrDegraded = errors.New("herdr response missing expected fields")
 
+// ErrTabNotFound is returned when `herdr tab close` reports the tab is gone.
+var ErrTabNotFound = errors.New("herdr tab not found")
+
 // ProcError is a non-zero process exit from herdr.
 type ProcError struct {
 	ExitCode int
