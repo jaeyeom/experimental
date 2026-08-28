@@ -186,6 +186,35 @@ queries Anthropic's OAuth usage API. No claude-hud plugin install required.
 
 [[file:claude-usage/README.org][→ Full Documentation]]
 
+*** magit                                                            :active:
+
+Shell wrapper that opens ~magit-status~ in a running Emacs via
+~emacsclient~. Reuses an existing Magit buffer/perspective for the
+repository when one exists; otherwise opens Magit (perspective ~1~
+when persp-mode is available). Does not start Emacs.
+
+*Key Features:*
+- Open Magit for ~$PWD~ or an explicit directory from any terminal
+- ~-c~ new graphical frame; ~-t~ terminal frame in the current tty
+- Perspective-aware reuse of an existing Magit session
+- Canonical-path matching so repos that share a leaf name do not collide
+
+*Installation:*
+#+BEGIN_SRC bash
+  cd devtools/setup-dev/ansible
+  ./ensure.sh magit
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  magit                 # magit-status for $PWD
+  magit -c              # new graphical frame
+  magit -t              # terminal frame in this tty
+  magit /path/to/repo   # magit-status for that directory
+#+END_SRC
+
+[[file:magit/README.org][→ Full Documentation]]
+
 ** Configuration & Setup
 :PROPERTIES:
 :CUSTOM_ID: configuration
@@ -253,7 +282,7 @@ repo-sync sync myproject
 
 *** Optional (tool-specific)
 - *Bazel* - For tools with Bazel build configuration
-- *Emacs* - For org-lint and other Emacs-related tools
+- *Emacs* - For org-lint, the magit CLI, and other Emacs-related tools
 - *GitHub CLI (gh)* - For gh-nudge utilities
 - *Ansible* - For setup-dev automation
 - *rsync* - For repo-sync file synchronization
