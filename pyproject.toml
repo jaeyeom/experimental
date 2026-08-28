@@ -1,23 +1,21 @@
-[tool.poetry]
+[project]
 name = "experimental"
 version = "0.1.0"
 description = "Monorepo"
-authors = ["Jaehyun Yeom <jae.yeom@gmail.com>"]
 readme = "README.org"
+requires-python = ">=3.11"
+authors = [{ name = "Jaehyun Yeom", email = "jae.yeom@gmail.com" }]
+dependencies = [
+    "grpcio",
+    "protobuf",
+    "protovalidate",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-beautifulsoup4 = "^4.12.3"
-cssutils = "^2.11.1"
-soupsieve = ">=2.8.4"
-buf = {version = "*", markers = "sys_platform == 'linux-android'"}
-protovalidate = "^0.6.0"
-grpcio = {version = "*", markers = "sys_platform == 'linux-android'"}
-requests = ">=2.33.0"
+[dependency-groups]
+dev = ["pytest"]
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.uv]
+package = false
 
 [tool.ruff]
 extend-exclude = [

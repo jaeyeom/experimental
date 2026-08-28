@@ -1,5 +1,0 @@
-# Base dependencies for html_convert
-beautifulsoup4
-cssutils
-# Floor for GHSA-2wc2-fm75-p42x / GHSA-836r-79rf-4m37 (CVE-2026-49476, CVE-2026-49477)
-soupsieve>=2.8.4

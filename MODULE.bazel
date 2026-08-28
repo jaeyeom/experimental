@@ -69,19 +69,25 @@ buf.toolchains(
 use_repo(buf, "rules_buf_toolchains")
 
 # Python
-bazel_dep(name = "rules_python", version = "1.0.0")
+bazel_dep(name = "rules_python", version = "2.3.2")
 
-# Pip dependencies
-pip_ext = use_extension(
-    "@rules_python//python/extensions:pip.bzl",
-    "pip",
+python = use_extension(
+    "@rules_python//python/extensions:python.bzl",
+    "python",
 )
-pip_ext.parse(
-    hub_name = "main_pip_deps",  # Changed to avoid conflict
+python.toolchain(
+    is_default = True,
     python_version = "3.11",
-    requirements_lock = "//:requirements.txt",
 )
-use_repo(pip_ext, "main_pip_deps")  # Make @main_pip_deps available
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pypi",
+    pyproject_toml = "//:pyproject.toml",
+    python_version = "3.11",
+    uv_lock = "//:uv.lock",
+)
+use_repo(pip, "pypi")
 
 # Pkl for configuration
 bazel_dep(name = "rules_pkl", version = "0.13.1")

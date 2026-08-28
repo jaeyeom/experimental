@@ -34,6 +34,7 @@ The Go module path is =github.com/jaeyeom/experimental=. You will need:
 - [[https://bazel.build/install/bazelisk][Bazelisk]] (pinned via =.bazeliskrc=) — primary build and test driver.
 - =goimports= — Go formatting.
 - =golangci-lint=, =ruff=, =shellcheck=, =semgrep= — linters (run by =make lint= / =make check=).
+- =uv= — Python lockfile tool (`uv.lock`; checked by =make check=).
 
 Clone the repo and run the test suite to verify your setup:
 
