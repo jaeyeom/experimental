@@ -157,7 +157,7 @@ func runExecutorDemo(dir string, w io.Writer, concurrent bool, maxWorkers int) e
 		return err
 	}
 
-	demoConfigs, err := prepareDemoConfigs(projectConfig, dir)
+	demoConfigs, err := prepareDemoConfigs(projectConfig, dir, executor.NewBasicExecutor())
 	if err != nil {
 		return err
 	}
@@ -200,21 +200,19 @@ func showDetectedTools(w io.Writer, projectConfig *config.ProjectConfig) {
 	}
 }
 
-func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string) ([]executor.ToolConfig, error) {
+func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string, exec executor.Executor) ([]executor.ToolConfig, error) {
 	var demoConfigs []executor.ToolConfig
-	basicExec := executor.NewBasicExecutor()
 
 	// Add Bazel support
-	if projectConfig.BuildSystem == "bazel" && basicExec.IsAvailable("bazel") {
+	if projectConfig.BuildSystem == "bazel" && exec.IsAvailable("bazel") {
 		demoConfigs = append(demoConfigs, createBazelConfig(dir))
 	}
 
-	// Add language-specific tools
-	langConfigs := addLanguageSpecificTools(projectConfig, dir, basicExec)
+	langConfigs := addLanguageSpecificTools(projectConfig, dir, exec)
 	demoConfigs = append(demoConfigs, langConfigs...)
 
 	// Add git status
-	if projectConfig.HasGit && basicExec.IsAvailable("git") {
+	if projectConfig.HasGit && exec.IsAvailable("git") {
 		demoConfigs = append(demoConfigs, createGitConfig(dir))
 	}
 
@@ -245,7 +243,7 @@ func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, b
 	for _, lang := range projectConfig.Languages {
 		switch lang {
 		case config.LanguageGo:
-			configs = append(configs, addGoTools(dir, basicExec)...)
+			configs = append(configs, addGoTools(projectConfig, dir, basicExec)...)
 		case config.LanguagePython:
 			configs = append(configs, addPythonTools(projectConfig, dir, basicExec)...)
 		}
@@ -254,21 +252,21 @@ func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, b
 	return configs
 }
 
-func addGoTools(dir string, basicExec executor.Executor) []executor.ToolConfig {
+func addGoTools(projectConfig *config.ProjectConfig, dir string, basicExec executor.Executor) []executor.ToolConfig {
 	var configs []executor.ToolConfig
 
-	if basicExec.IsAvailable("go") {
+	if basicExec.IsAvailable("go") && hasDetectedTool(projectConfig, "go") {
 		configs = append(configs, executor.ToolConfig{
 			Command:    "go",
-			Args:       []string{"list", "./devtools/devcheck/..."},
+			Args:       []string{"list", "./..."},
 			WorkingDir: dir,
 		})
 	}
 
-	if basicExec.IsAvailable("golangci-lint") {
+	if basicExec.IsAvailable("golangci-lint") && hasDetectedTool(projectConfig, "golangci-lint") {
 		configs = append(configs, executor.ToolConfig{
 			Command:    "golangci-lint",
-			Args:       []string{"run", "--timeout=30s", "./devtools/devcheck/..."},
+			Args:       []string{"run", "--timeout=30s", "./..."},
 			WorkingDir: dir,
 			Timeout:    45 * time.Second,
 		})
@@ -277,10 +275,25 @@ func addGoTools(dir string, basicExec executor.Executor) []executor.ToolConfig {
 	return configs
 }
 
+func hasDetectedTool(projectConfig *config.ProjectConfig, command string) bool {
+	if projectConfig == nil {
+		return false
+	}
+	for _, tools := range projectConfig.Tools {
+		for _, tool := range tools {
+			fields := strings.Fields(tool)
+			if len(fields) > 0 && fields[0] == command {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec executor.Executor) []executor.ToolConfig {
 	var configs []executor.ToolConfig
 
-	if basicExec.IsAvailable("ruff") && projectConfig.ConfigFiles["ruff"] != "" {
+	if basicExec.IsAvailable("ruff") && hasDetectedTool(projectConfig, "ruff") && projectConfig.ConfigFiles["ruff"] != "" {
 		configs = append(configs, executor.ToolConfig{
 			Command:    "ruff",
 			Args:       []string{"check", "--statistics"},
@@ -343,7 +356,7 @@ func runSequentialDemo(ctx context.Context, w io.Writer, exec executor.Executor,
 	fmt.Fprintf(w, "Summary: %d/%d tools passed (total time: %v)\n",
 		successCount, len(configs), totalDuration.Round(time.Millisecond))
 
-	return nil
+	return demoResultError(successCount, len(configs))
 }
 
 // runConcurrentDemo runs tools concurrently.
@@ -412,5 +425,12 @@ func runConcurrentDemo(ctx context.Context, w io.Writer, exec executor.Executor,
 	fmt.Fprintf(w, "\nSummary: %d/%d tools passed (total time: %v with concurrency)\n",
 		successCount, len(configs), totalDuration.Round(time.Millisecond))
 
+	return demoResultError(successCount, len(configs))
+}
+
+func demoResultError(successCount, total int) error {
+	if successCount < total {
+		return fmt.Errorf("%d/%d tools failed", total-successCount, total)
+	}
 	return nil
 }
