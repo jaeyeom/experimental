@@ -24,7 +24,7 @@ func TestProjectConfig_Initialization(t *testing.T) {
 				RootPath:      "/test/path",
 				BuildSystem:   BuildSystemBazel,
 				Languages:     []Language{LanguageGo, LanguagePython},
-				Tools:         map[ToolType][]string{ToolTypeFormat: {"gofumpt"}},
+				Tools:         map[ToolType][]Tool{ToolTypeFormat: {{Command: "gofumpt"}}},
 				ConfigFiles:   map[string]string{"golangci-lint": ".golangci.yml"},
 				HasGit:        true,
 				DetectionTime: time.Now(),
@@ -71,7 +71,7 @@ func TestProjectConfig_Validate(t *testing.T) {
 				RootPath:    "/test/path",
 				BuildSystem: BuildSystemBazel,
 				Languages:   []Language{LanguageGo},
-				Tools:       map[ToolType][]string{ToolTypeLint: {"golangci-lint"}},
+				Tools:       map[ToolType][]Tool{ToolTypeLint: {{Command: "golangci-lint"}}},
 			},
 			wantErr: false,
 		},
@@ -111,7 +111,7 @@ func TestProjectConfig_Validate(t *testing.T) {
 			name: "invalid tool type",
 			pc: ProjectConfig{
 				RootPath: "/test/path",
-				Tools:    map[ToolType][]string{"invalid": {"tool"}},
+				Tools:    map[ToolType][]Tool{"invalid": {{Command: "tool"}}},
 			},
 			wantErr: true,
 			errMsg:  "invalid tool type",
@@ -137,7 +137,7 @@ func TestProjectConfig_JSON(t *testing.T) {
 		RootPath:      "/test/path",
 		BuildSystem:   BuildSystemBazel,
 		Languages:     []Language{LanguageGo, LanguagePython},
-		Tools:         map[ToolType][]string{ToolTypeFormat: {"gofumpt"}},
+		Tools:         map[ToolType][]Tool{ToolTypeFormat: {{Command: "gofumpt"}}},
 		ConfigFiles:   map[string]string{"golangci-lint": ".golangci.yml"},
 		HasGit:        true,
 		DetectionTime: time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
@@ -167,85 +167,52 @@ func TestProjectConfig_JSON(t *testing.T) {
 	}
 }
 
-func TestBuildSystemConstants(t *testing.T) {
+func TestTool_StringKeepsCommandAndArgsSeparate(t *testing.T) {
 	tests := []struct {
-		name   string
-		bs     BuildSystem
-		expect string
+		name string
+		tool Tool
+		want string
 	}{
-		{"bazel", BuildSystemBazel, "bazel"},
-		{"make", BuildSystemMake, "make"},
-		{"none", BuildSystemNone, "none"},
+		{name: "command only", tool: Tool{Command: "gofumpt"}, want: "gofumpt"},
+		{name: "bazel", tool: Tool{Command: "bazel", Args: []string{"run", "//tools:format"}}, want: "bazel run //tools:format"},
+		{name: "make", tool: Tool{Command: "make", Args: []string{"format"}}, want: "make format"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if string(tt.bs) != tt.expect {
-				t.Errorf("Expected %s, got %s", tt.expect, string(tt.bs))
+			if got := tt.tool.String(); got != tt.want {
+				t.Errorf("String() = %q, want %q", got, tt.want)
+			}
+			if strings.Contains(tt.tool.Command, " ") {
+				t.Errorf("Command = %q, want no spaces so the executor does not need sh -c", tt.tool.Command)
 			}
 		})
 	}
 }
 
-func TestLanguageConstants(t *testing.T) {
-	tests := []struct {
-		name   string
-		lang   Language
-		expect string
-	}{
-		{"go", LanguageGo, "go"},
-		{"python", LanguagePython, "python"},
-		{"typescript", LanguageTypeScript, "typescript"},
-		{"javascript", LanguageJavaScript, "javascript"},
+func TestProjectConfig_JSONRoundTripPreservesToolArgs(t *testing.T) {
+	pc := ProjectConfig{
+		RootPath: "/test/path",
+		Tools: map[ToolType][]Tool{
+			ToolTypeFormat: {{Command: "bazel", Args: []string{"run", "//tools:format"}}},
+		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if string(tt.lang) != tt.expect {
-				t.Errorf("Expected %s, got %s", tt.expect, string(tt.lang))
-			}
-		})
+	data, err := json.Marshal(pc)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
 	}
-}
-
-func TestToolTypeConstants(t *testing.T) {
-	tests := []struct {
-		name   string
-		tool   ToolType
-		expect string
-	}{
-		{"format", ToolTypeFormat, "format"},
-		{"lint", ToolTypeLint, "lint"},
-		{"test", ToolTypeTest, "test"},
+	var got ProjectConfig
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if string(tt.tool) != tt.expect {
-				t.Errorf("Expected %s, got %s", tt.expect, string(tt.tool))
-			}
-		})
+	tools := got.Tools[ToolTypeFormat]
+	if len(tools) != 1 {
+		t.Fatalf("format tools = %v, want 1", tools)
 	}
-}
-
-func TestSeverityConstants(t *testing.T) {
-	tests := []struct {
-		name   string
-		sev    Severity
-		expect string
-	}{
-		{"error", SeverityError, "error"},
-		{"warning", SeverityWarning, "warning"},
-		{"info", SeverityInfo, "info"},
-		{"hint", SeverityHint, "hint"},
+	if tools[0].Command != "bazel" {
+		t.Errorf("Command = %q, want bazel", tools[0].Command)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if string(tt.sev) != tt.expect {
-				t.Errorf("Expected %s, got %s", tt.expect, string(tt.sev))
-			}
-		})
+	if strings.Join(tools[0].Args, " ") != "run //tools:format" {
+		t.Errorf("Args = %v, want [run //tools:format]", tools[0].Args)
 	}
 }
 

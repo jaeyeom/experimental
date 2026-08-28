@@ -117,22 +117,21 @@ func makefileContentHasTarget(path, target string) bool {
 	return false
 }
 
-func availableCommands(specs ...string) []string {
-	var out []string
+func availableTools(specs ...config.Tool) []config.Tool {
+	var out []config.Tool
 	for _, spec := range specs {
-		if commandAvailable(spec) {
+		if commandAvailable(spec.Command) {
 			out = append(out, spec)
 		}
 	}
 	return out
 }
 
-func commandAvailable(spec string) bool {
-	fields := strings.Fields(spec)
-	if len(fields) == 0 {
+func commandAvailable(command string) bool {
+	if command == "" {
 		return false
 	}
-	_, err := exec.LookPath(fields[0])
+	_, err := exec.LookPath(command)
 	return err == nil
 }
 
@@ -140,8 +139,8 @@ type npmPackage struct {
 	Scripts map[string]string `json:"scripts"`
 }
 
-func loadNpmScripts(rootPath string) map[string]string {
-	path, ok := findPackageJSON(rootPath)
+func loadNpmScripts(rootPath string, scan *ScanResult) map[string]string {
+	path, ok := findPackageJSON(rootPath, scan)
 	if !ok {
 		return nil
 	}
@@ -156,19 +155,13 @@ func loadNpmScripts(rootPath string) map[string]string {
 	return pkg.Scripts
 }
 
-func findPackageJSON(rootPath string) (string, bool) {
-	rootFile := filepath.Join(rootPath, "package.json")
-	if _, err := os.Stat(rootFile); err == nil {
-		return rootFile, true
-	}
-	scanner := NewScanner(DefaultScanOptions())
-	result, err := scanner.Scan(rootPath)
-	if err != nil {
+func findPackageJSON(rootPath string, scan *ScanResult) (string, bool) {
+	if scan == nil {
 		return "", false
 	}
 	best := ""
 	bestDepth := -1
-	for _, file := range result.Files {
+	for _, file := range scan.Files {
 		if filepath.Base(file) != "package.json" {
 			continue
 		}
