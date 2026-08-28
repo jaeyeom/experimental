@@ -14,9 +14,9 @@ $(PY_PROTOS) $(PY_GRPCS) &: $(PROTOS) buf.lock
 generate: $(PY_PROTOS) $(PY_GRPCS)
 
 run-server: generate
-	PYTHONPATH=./gen python3 -m server
+	PYTHONPATH=. python3 -m server
 
 run-client: generate
-	PYTHONPATH=./gen python3 -m client
+	PYTHONPATH=. python3 -m client
 
 .PHONY: generate run-server run-client

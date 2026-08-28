@@ -1,0 +1,64 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+package(default_visibility = ["//visibility:private"])
+
+# grpcio wheels are not expected on Termux/Android.
+_PY_COMPATIBLE = select({
+    "@platforms//os:linux": [],
+    "@platforms//os:osx": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
+py_library(
+    name = "gen",
+    srcs = glob(
+        ["gen/**/*.py"],
+        exclude = ["**/__pycache__/**"],
+    ),
+    imports = ["."],
+    target_compatible_with = _PY_COMPATIBLE,
+)
+
+py_library(
+    name = "server",
+    srcs = ["server.py"],
+    imports = ["."],
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = [
+        ":gen",
+        "@pypi//grpcio",
+        "@pypi//protobuf",
+        "@pypi//protovalidate",
+    ],
+)
+
+py_library(
+    name = "client",
+    srcs = ["client.py"],
+    imports = ["."],
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = [
+        ":gen",
+        "@pypi//grpcio",
+        "@pypi//protobuf",
+        "@pypi//protovalidate",
+    ],
+)
+
+py_binary(
+    name = "server_bin",
+    srcs = ["server.py"],
+    imports = ["."],
+    main = "server.py",
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = [":server"],
+)
+
+py_binary(
+    name = "client_bin",
+    srcs = ["client.py"],
+    imports = ["."],
+    main = "client.py",
+    target_compatible_with = _PY_COMPATIBLE,
+    deps = [":client"],
+)
