@@ -16,7 +16,6 @@ through a single Make + Bazel workflow.
 | =baseball/=      | Bulls and Cows ("number baseball") solver in Go.                             |
 | =codelab/=       | Educational experiments: Go generics, gRPC/Protobuf, and other prototypes.   |
 | =devtools/=      | Developer tools and workflow utilities. See [[file:devtools/README.org][devtools/README.org]].             |
-| =docs/=          | Documentation, including Claude Code integration guides.                     |
 | =memocache/=     | Small in-memory caching library in Go.                                       |
 | =my-ts-project/= | TypeScript learning project with a Mocha test suite.                         |
 | =spacemacs/=     | Emacs/Spacemacs configuration and setup playbooks. See [[file:spacemacs/README.org][spacemacs/README.org]]. |
