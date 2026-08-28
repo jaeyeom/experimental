@@ -28,20 +28,18 @@ tasks, enforce code standards, and streamline collaboration.
 :CUSTOM_ID: code-quality
 :END:
 
-*** devcheck                                                       :inactive:
+*** devcheck                                                   :experimental:
 
 Automated formatter and linter runner that detects repository context and runs
-appropriate quality checks. Prioritizes universal build systems (Bazel, Make)
-over language-specific tools and provides LLM-friendly output.
-
-*Note:* Currently exploring copier templates as an alternative solution for
-project scaffolding and configuration management.
+appropriate quality checks. Prioritizes Bazel or Make when those targets exist,
+otherwise language-specific tools, and prints LLM-friendly output.
 
 *Key Features:*
 - Automatic detection of project type and build system
 - Unified interface for formatters, linters, and tests
 - Human-readable output optimized for AI agent consumption
 - Zero-configuration operation for standard layouts
+- ~--dry-run~, ~--filter~, ~--format~, ~--changed-only~, ~--force-fallback~
 
 *Installation:*
 #+BEGIN_SRC bash
@@ -50,7 +48,7 @@ project scaffolding and configuration management.
 
 *Usage:*
 #+BEGIN_SRC bash
-  devcheck                    # Run all applicable tools
+  devcheck                    # Run format, lint, and test
   devcheck --filter=format    # Run only formatters
   devcheck --dry-run          # Preview what would be executed
 #+END_SRC
@@ -417,7 +415,7 @@ Many tools can be integrated into Git pre-commit hooks:
 # Run affected tests
 bazel-affected-tests | xargs bazel test
 
-# Run quality checks
+# Run detected format, lint, and test tools
 devcheck
 
 # Lint org files
@@ -434,7 +432,7 @@ Example GitHub Actions workflow:
     go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/devcheck@latest
     go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest
 
-- name: Run quality checks
+- name: Run format, lint, and test
   run: devcheck
 
 - name: Run affected tests

@@ -1,245 +1,136 @@
 #+TITLE: DevCheck
-#+DATE: 2025-06-09
+#+DATE: 2026-08-28
 
-* Product Requirements Document (PRD)
+* Overview
 
-** Overview
+~devcheck~ detects the repository context and runs the matching format, lint,
+and test tools. It prefers Bazel or Make when those actually expose the
+relevant targets, then falls back to language-specific tools. Default output is
+an LLM-oriented report that humans can read too.
 
-DevCheck is a command-line tool designed to automatically detect the current
-repository context and run all appropriate formatters, linters, and quality
-checks. The primary goal is to minimize the need for extensive rule
-documentation in =CLAUDE.md= or =AGENTS.md= by providing actionable output that
-AI coding agents can directly consume and act upon.
+Remaining product work lives on GitHub issue #259. This file is user
+documentation for the binary, not a PRD.
 
-** Problem Statement
+* Installation
 
-Currently, AI coding agents require extensive rule documentation to understand
-how to properly format, lint, and test code in different project contexts. This
-leads to:
-- Maintenance overhead of keeping rules up-to-date
-- Inconsistent application of formatting and linting across different parts of the codebase
-- Manual intervention required to run appropriate tools for different file types
-- Cognitive load on developers to remember which tools to run in which contexts
-
-** Solution
-
-A unified command-line tool that:
-1. Prioritizes universal build systems (Bazel, Make) over language-specific tools
-2. Automatically detects and runs appropriate formatters, linters, and quality checks
-3. Provides human-readable output that doubles as clear prompts for LLM consumption
-4. Eliminates the need for extensive rule documentation
-
-** Target Users
-
-- AI coding agents (primary)
-- Developers working on the codebase (secondary)
-- CI/CD pipelines (future consideration)
-
-** Core Requirements
-
-*** Functional Requirements
-
-**** FR-1: Repository Detection
-- Detect presence of Go modules (=go.mod=)
-- Detect Python projects (=pyproject.toml=, =requirements.txt=)
-- Detect TypeScript/JavaScript projects (=package.json=, =tsconfig.json=)
-- Detect Bazel projects (=BUILD.bazel=, =MODULE.bazel=)
-- Detect Makefile-based projects
-
-**** FR-2: Automatic Tool Execution (Priority Order)
-1. *Bazel projects*: Run =bazel run //tools:format=, =bazel run //tools:lint=, =bazel test //...=
-2. *Make projects*: Run =make format=, =make lint=, =make test=
-3. *Fallback to language-specific tools*:
-   - Run =gofumpt= and =golangci-lint= for Go projects
-   - Run =ruff format= and =ruff check= for Python projects
-   - Run =npm run lint= and =npm run format= for TypeScript projects
-
-**** FR-3: LLM-Friendly Output
-- Provide human-readable output that serves as clear prompts for AI agents
-- Include specific error messages and file locations in natural language
-- Include actionable suggestions for fixes
-- Summarize results in a format that guides next steps
-- Optional structured output for programmatic consumption (low priority)
-
-**** FR-4: Smart Execution
-- Only run tools relevant to changed files (when possible)
-- Skip tools that are not applicable to current context
-- Handle missing tools gracefully with informative messages
-- Respect existing configuration files (=.golangci.yml=, =pyproject.toml=, etc.)
-
-*** Non-Functional Requirements
-
-**** NFR-1: Performance
-- Complete execution within 30 seconds for typical repository sizes
-- Provide progress indicators for long-running operations
-- Support parallel execution of independent tools
-
-**** NFR-2: Reliability
-- Handle missing dependencies gracefully
-- Provide clear error messages for configuration issues
-- Exit with appropriate status codes for CI/CD integration
-
-**** NFR-3: Usability
-- Zero-configuration operation for standard project layouts
-- Support dry-run mode for preview without making changes
-- Provide verbose mode for debugging
-
-** Detailed Design
-
-*** Command Line Interface
-
-#+BEGIN_SRC shell
-devcheck [OPTIONS] [PATH]
-
-OPTIONS:
-  --dry-run, -n        Show what would be done without executing
-  --verbose, -v        Verbose output for debugging
-  --format=TYPE        Output format (prompt, summary, json)
-  --filter=TYPE        Run only specific tool types (format, lint, test)
-  --changed-only       Run only on changed files (requires git)
-  --force-fallback     Skip Bazel/Make and use language-specific tools
-
-EXAMPLES:
-  devcheck                    # Run all applicable tools in current directory
-  devcheck --dry-run          # Preview what would be executed
-  devcheck --filter=format    # Run only formatters
-  devcheck --changed-only     # Process only git-changed files
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/devcheck@latest
 #+END_SRC
 
-*** Output Format
+From this repository:
 
-**** LLM Prompt Format (Default)
-#+BEGIN_SRC text
+#+BEGIN_SRC bash
+go install ./devtools/devcheck/cmd/devcheck
+# or
+bazel run //devtools/devcheck/cmd/devcheck -- [OPTIONS] [PATH]
+#+END_SRC
+
+~bazel run~ uses the directory you invoked from (~BUILD_WORKING_DIRECTORY~).
+
+* Usage
+
+#+BEGIN_SRC bash
+devcheck [OPTIONS] [PATH]
+#+END_SRC
+
+~PATH~ is optional and defaults to the current directory.
+
+| Flag              | Meaning |
+|-------------------+---------|
+| ~--dry-run~, ~-n~ | Print the selected commands without running them |
+| ~--verbose~, ~-v~ | Include raw tool output when there are no parsed issues |
+| ~--format~        | Report format: ~prompt~ (default), ~summary~, or ~json~ |
+| ~--filter~        | Restrict to ~format~, ~lint~, and/or ~test~ (repeatable or comma-separated) |
+| ~--changed-only~  | Limit file-aware tools to git changes (requires git) |
+| ~--force-fallback~ | Skip Bazel/Make and use language-specific tools |
+
+#+BEGIN_SRC bash
+devcheck                         # run format, lint, and test
+devcheck --dry-run               # preview commands
+devcheck --filter=format         # formatters only
+devcheck --filter=lint,test      # lint and test
+devcheck --format=summary        # short human summary
+devcheck --format=json           # machine-readable JSON
+devcheck --changed-only          # git-changed / untracked files
+devcheck --force-fallback -n     # preview language tools
+devcheck --dry-run ./path        # detect a specific directory
+#+END_SRC
+
+Example (~devcheck --dry-run~ on this repository):
+
+#+BEGIN_EXAMPLE
 🔧 DevCheck Report
 
 Repository Analysis:
-- Build System: Makefile detected (universal formatting/linting available)
-- Languages: Go, Python, TypeScript detected
-- Strategy: Using make-based tools for consistency
+- Build System: make
+- Languages: go, python, typescript
+- Strategy: Dry-run; commands were not executed
 
-Tools Executed:
-✅ make format - Successfully formatted 15 files
-❌ make lint - Found 1 issue requiring attention
-⏳ make test - Skipped (use --filter=test to include)
+Tools that would run:
+⏳ make format - would run
+⏳ make lint - would run
+⏳ make test - would run
 
 Issues Found:
-📍 main.go:42:10 - gosec error: Potential file inclusion via variable
-   Suggestion: Use filepath.Join or validate input before file operations
-   Fix: Replace direct file path concatenation with proper validation
-
+none
 Next Steps for AI Agent:
-1. Fix the gosec issue in main.go:42 by adding input validation
-2. Run 'make test' after fixing to ensure no regressions
-3. Commit changes with message: "fix: add input validation for file operations"
+1. Re-run without --dry-run to execute the selected tools
 
-Status: 🚨 Requires attention (1 linting issue)
-#+END_SRC
+Status: dry-run (commands were not executed)
+#+END_EXAMPLE
 
-**** JSON Output (Optional, --format=json)
-Available for programmatic consumption but deprioritized.
+~--format=summary~ for the same run:
 
-*** Tool Detection Logic
+#+BEGIN_EXAMPLE
+DevCheck: 3 passed, 0 failed
+  dry-run make format
+  dry-run make lint
+  dry-run make test
+#+END_EXAMPLE
 
-**** Detection Priority Order
-#+BEGIN_SRC text
-1. BUILD.bazel or MODULE.bazel found → Use Bazel (bazel run //tools:format, //tools:lint)
-2. Makefile found → Use Make (make format, make lint, make test)
-3. Language-specific fallback:
-   - go.mod found → Go tools (gofumpt, golangci-lint)
-   - pyproject.toml found → Python tools (ruff)
-   - package.json found → Node.js tools (npm run lint/format)
-#+END_SRC
+* Detection
 
-**** Smart Filtering
-- Check if tools are actually installed before attempting to run
-- Parse configuration files to understand available npm scripts
-- Respect .gitignore and similar ignore files
-- Support project-specific configuration via =.ai-dev-assistant.yaml=
+DevCheck scans the tree once, then chooses tools in this order:
 
-** Implementation Plan
+1. *Languages* from files and config: Go (~go.mod~, ~*.go~), Python
+   (~pyproject.toml~, ~requirements.txt~, ~*.py~), TypeScript (~tsconfig.json~,
+   ~*.ts~), JavaScript (~*.js~ / ~*.jsx~, or a ~package.json~ that is not a
+   TypeScript-only tree).
+2. *Build system* at the chosen directory depth: Bazel (~MODULE.bazel~,
+   ~BUILD.bazel~, ~WORKSPACE~) or Make (~Makefile~). If both are present, Bazel
+   wins only when format *and* lint targets exist (~//tools:format~ or
+   ~//:format~, and ~//tools:lint~ or ~//:lint~); otherwise Make is used. That
+   is why this repository reports Make: it has a Makefile with those targets
+   and no ~//tools:format~ / ~//tools:lint~.
+3. *Probe* before listing a command: the binary must be on ~PATH~, Make targets
+   must appear in the Makefile, Bazel labels must exist in a ~BUILD~ file, and
+   ~npm run *~ is listed only when ~package.json~ defines that script.
 
-*** Phase 1: Core Detection and Execution (Week 1)
-- [ ] Project structure detection
-- [ ] Basic tool execution framework
-- [ ] Simple text output format
-- [ ] Go and Python tool support
+For each requested type (format, lint, test) DevCheck runs *one* available
+command, preferring the build-system tool. ~--force-fallback~ skips ~bazel~
+and ~make~ and takes the first language tool instead (Go, then Python, then
+JavaScript/TypeScript).
 
-*** Phase 2: Enhanced Output and Configuration (Week 2)
-- [ ] JSON output format implementation
-- [ ] TypeScript/JavaScript support
-- [ ] Makefile integration
-- [ ] Configuration file support
+Language fallbacks when the binary exists:
 
-*** Phase 3: Advanced Features (Week 3)
-- [ ] Changed-files-only mode
-- [ ] Parallel execution
-- [ ] AI-optimized recommendations
-- [ ] Integration testing
+| Language | Format | Lint | Test |
+|----------+--------+------+------|
+| Go | ~gofumpt~, then ~gofmt~ | ~golangci-lint~, then ~unnecessary-interface-assertion-linter~ | ~go test~ |
+| Python | ~ruff format~, then ~black~ | ~ruff check~, then ~flake8~ | ~pytest~, then ~python -m unittest~ |
+| JS/TS | ~npm run format~ if present, then ~prettier~ | ~npm run lint~ if present, then ~eslint~ | ~npm test~ if present, else ~jest~ / ~mocha~ |
 
-*** Phase 4: Polish and Documentation (Week 4)
-- [ ] Error handling improvements
-- [ ] Performance optimization
-- [ ] User documentation
-- [ ] CI/CD integration examples
+~--changed-only~ lists files from ~git diff --name-only HEAD~ plus untracked
+files. Tools that accept path arguments (~gofumpt~, ~golangci-lint~, ~ruff~,
+~prettier~, …) receive the matching subset. Bazel and Make still run their
+full targets. A type is skipped when no changed files match that tool.
 
-** Success Metrics
+* Exit codes
 
-*** Primary Metrics
-- Reduction in =CLAUDE.md= or =AGENTS.md= documentation size by 70%
-- AI agents can successfully fix 90% of formatting/linting issues using tool output
-- Zero manual intervention required for standard development workflows
+| Code | Meaning |
+|------+---------|
+|    0 | Help, dry-run, or every executed tool succeeded |
+|    1 | Detection/execution error, or at least one tool failed |
+|    2 | Invalid flags or extra arguments |
 
-*** Secondary Metrics
-- Tool execution time under 30 seconds for typical repositories
-- 95% accuracy in project type detection
-- Positive developer feedback on tool usability
-
-** Technical Considerations
-
-*** Dependencies
-- Go 1.21+ for implementation
-- External tools: =gofumpt=, =golangci-lint=, =ruff=, =npm=
-- Optional: =git= for changed-file detection
-
-*** Configuration
-- Support for =.ai-dev-assistant.yaml= configuration file
-- Environment variable overrides
-- Respect existing tool configurations
-
-*** Error Handling
-- Graceful degradation when tools are missing
-- Clear error messages with installation instructions
-- Proper exit codes for automation
-
-** Risk Mitigation
-
-*** Technical Risks
-- *Tool compatibility*: Test with multiple versions of external tools
-- *Performance*: Implement timeout mechanisms and parallel execution
-- *Configuration conflicts*: Respect existing tool configurations
-
-*** Adoption Risks
-- *Learning curve*: Provide clear examples and documentation
-- *Integration complexity*: Start with simple use cases and expand
-
-** Future Enhancements
-
-*** Planned Features
-- Support for additional languages (Rust, Java, C++)
-- Integration with IDE extensions
-- Automatic dependency installation
-- Custom rule definition support
-
-*** Integration Opportunities
-- GitHub Actions workflow templates
-- VS Code extension
-- Integration with existing CI/CD pipelines
-- Slack/Discord notifications for team workflows
-
-** Conclusion
-
-DevCheck will significantly reduce the complexity of maintaining development
-workflow rules while providing AI agents with the structured information they
-need to effectively assist in code quality maintenance. By automating the
-detection and execution of appropriate tools, we can focus on writing great code
-rather than managing tooling complexity.
+Dry-run always exits 0 after a successful detect/plan, even if the commands
+would fail when run.
