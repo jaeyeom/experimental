@@ -34,6 +34,7 @@ func TestHelpListsDocumentedFlags(t *testing.T) {
 }
 
 func TestDryRunPrintsCommandsAndExitsZero(t *testing.T) {
+	withBinsOnPath(t, "make")
 	dir := fixtureDir(t, "go.mod", "main.go", "MODULE.bazel", "Makefile")
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte("format:\nlint:\ntest:\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -70,6 +71,7 @@ func TestDryRunPrintsCommandsAndExitsZero(t *testing.T) {
 }
 
 func TestDryRunUsesBazelWhenFormatAndLintTargetsExist(t *testing.T) {
+	withBinsOnPath(t, "bazel", "make")
 	dir := fixtureDir(t, "go.mod", "main.go", "MODULE.bazel", "Makefile", "tools/BUILD.bazel")
 	if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte("format:\nlint:\ntest:\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -100,6 +102,7 @@ func TestDryRunUsesBazelWhenFormatAndLintTargetsExist(t *testing.T) {
 }
 
 func TestFilterFormatRunsOnlyFormatters(t *testing.T) {
+	withBinsOnPath(t, "gofumpt", "golangci-lint", "go")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("gofumpt", true)
@@ -122,6 +125,7 @@ func TestFilterFormatRunsOnlyFormatters(t *testing.T) {
 }
 
 func TestFormatJSONIsValidAndIncludesToolsAndIssues(t *testing.T) {
+	withBinsOnPath(t, "golangci-lint")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("golangci-lint", true)
@@ -152,6 +156,7 @@ func TestFormatJSONIsValidAndIncludesToolsAndIssues(t *testing.T) {
 }
 
 func TestLintFixtureExitsNonZeroAndNamesFile(t *testing.T) {
+	withBinsOnPath(t, "golangci-lint")
 	dir := fixtureDir(t, "go.mod", "broken.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("golangci-lint", true)
@@ -172,6 +177,7 @@ func TestLintFixtureExitsNonZeroAndNamesFile(t *testing.T) {
 }
 
 func TestChangedOnlyWithoutGitErrors(t *testing.T) {
+	withBinsOnPath(t, "gofumpt")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("gofumpt", true)
@@ -203,6 +209,7 @@ func TestInvalidFormat(t *testing.T) {
 }
 
 func TestFilterRepeatableAndCommaSeparated(t *testing.T) {
+	withBinsOnPath(t, "gofumpt", "golangci-lint")
 	dir := fixtureDir(t, "go.mod", "main.go")
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand("gofumpt", true)
@@ -249,6 +256,21 @@ const golangciLintJSON = `{
     }
   ]
 }`
+
+func withBinsOnPath(t *testing.T, names ...string) {
+	t.Helper()
+	binDir := t.TempDir()
+	for _, name := range names {
+		path := filepath.Join(binDir, name)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDir)
+}
 
 func fixtureDir(t *testing.T, files ...string) string {
 	t.Helper()

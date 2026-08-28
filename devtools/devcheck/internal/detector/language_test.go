@@ -166,6 +166,7 @@ func TestGoDetector_DetectLanguage(t *testing.T) {
 }
 
 func TestGoDetector_GetTools(t *testing.T) {
+	withBinsOnPath(t, "gofumpt", "gofmt", "golangci-lint", "go")
 	detector := NewGoDetector()
 
 	// Create temporary directory for test
