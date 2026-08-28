@@ -1,436 +1,184 @@
-// Package main provides a CLI tool for DevCheck project detection and tool execution demo.
+// Command devcheck detects repository context, runs format/lint/test tools, and
+// reports results for humans and AI agents.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/detector"
+	"github.com/jaeyeom/experimental/devtools/devcheck/internal/runner"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func main() {
-	var (
-		dir        string
-		demoMode   bool
-		concurrent bool
-		maxWorkers int
-	)
+	os.Exit(realMain())
+}
 
-	// Parse command line flags
-	flag.BoolVar(&demoMode, "demo", false, "Run tool executor demo")
-	flag.BoolVar(&concurrent, "concurrent", true, "Use concurrent execution in demo mode")
-	flag.IntVar(&maxWorkers, "max-workers", 3, "Maximum concurrent workers in demo mode")
-	flag.Parse()
-
-	// Get the directory to analyze
-	if flag.NArg() > 0 {
-		dir = flag.Arg(0)
-	} else {
-		// Use the original working directory when invoked with bazel run
-		if wd := os.Getenv("BUILD_WORKING_DIRECTORY"); wd != "" {
-			dir = wd
-		} else {
-			// Fallback to current directory
-			var err error
-			dir, err = os.Getwd()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting current directory: %v\n", err)
-				os.Exit(1)
-			}
-		}
-	}
-
-	// Run appropriate mode
-	var err error
-	if demoMode {
-		err = runExecutorDemo(dir, os.Stdout, concurrent, maxWorkers)
-	} else {
-		err = detectAndPrint(dir, os.Stdout)
-	}
-
+func realMain() int {
+	signalExec := executor.NewWithSignalHandling()
+	ctx, err := signalExec.Start()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
+	}
+	defer signalExec.Stop()
+	return run(ctx, os.Args[1:], os.Stdout, os.Stderr, signalExec)
+}
+
+func run(ctx context.Context, args []string, stdout, stderr io.Writer, exec executor.Executor) int {
+	opts, err := parseArgs(args, stderr)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	dir, err := resolveDir(opts.path)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	project, err := detector.NewProjectDetector().Detect(dir)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: failed to detect project configuration: %v\n", err)
+		return 1
+	}
+
+	report, err := runner.Run(ctx, project, opts.options, exec)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	if err := runner.Write(stdout, opts.options.OutputFormat, report); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	if report.Failed() {
+		return 1
+	}
+	return 0
+}
+
+type cliOptions struct {
+	options runner.Options
+	path    string
+}
+
+func parseArgs(args []string, stderr io.Writer) (cliOptions, error) {
+	fs := flag.NewFlagSet("devcheck", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "Usage: devcheck [OPTIONS] [PATH]\n\n")
+		fmt.Fprintf(stderr, "Detect the repository context and run format, lint, and test tools.\n\n")
+		fmt.Fprintf(stderr, "Options:\n")
+		fs.PrintDefaults()
+	}
+
+	var opts cliOptions
+	var format string
+	var filters filterFlag
+	fs.BoolVar(&opts.options.DryRun, "dry-run", false, "Show what would be done without executing")
+	fs.BoolVar(&opts.options.DryRun, "n", false, "Show what would be done without executing")
+	fs.BoolVar(&opts.options.Verbose, "verbose", false, "Verbose output for debugging")
+	fs.BoolVar(&opts.options.Verbose, "v", false, "Verbose output for debugging")
+	fs.StringVar(&format, "format", string(runner.FormatPrompt), "Output format (prompt, summary, json)")
+	fs.Var(&filters, "filter", "Run only specific tool types (format, lint, test); repeatable or comma-separated")
+	fs.BoolVar(&opts.options.ChangedOnly, "changed-only", false, "Run only on changed files (requires git)")
+	fs.BoolVar(&opts.options.ForceFallback, "force-fallback", false, "Skip Bazel/Make and use language-specific tools")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return cliOptions{}, flag.ErrHelp
+		}
+		return cliOptions{}, fmt.Errorf("parse flags: %w", err)
+	}
+
+	outputFormat, err := parseOutputFormat(format)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return cliOptions{}, err
+	}
+	opts.options.OutputFormat = outputFormat
+	opts.options.Filters = []config.ToolType(filters)
+	if fs.NArg() > 1 {
+		err := fmt.Errorf("unexpected extra arguments: %s", strings.Join(fs.Args()[1:], " "))
+		fmt.Fprintln(stderr, err)
+		return cliOptions{}, err
+	}
+	if fs.NArg() == 1 {
+		opts.path = fs.Arg(0)
+	}
+	return opts, nil
+}
+
+func parseOutputFormat(raw string) (runner.OutputFormat, error) {
+	switch runner.OutputFormat(raw) {
+	case runner.FormatPrompt, runner.FormatSummary, runner.FormatJSON:
+		return runner.OutputFormat(raw), nil
+	default:
+		return "", fmt.Errorf("invalid format %q (want prompt, summary, or json)", raw)
 	}
 }
 
-// detectAndPrint runs project detection on the given directory and prints results to the writer.
-func detectAndPrint(dir string, w io.Writer) error {
-	// Create project detector
-	projectDetector := detector.NewProjectDetector()
-
-	// Run detection
-	projectConfig, err := projectDetector.Detect(dir)
-	if err != nil {
-		return fmt.Errorf("failed to detect project configuration: %w", err)
-	}
-
-	// Print results
-	fmt.Fprintf(w, "🔍 DevCheck Project Detection Results\n")
-	fmt.Fprintf(w, "=====================================\n\n")
-
-	// Path information
-	absPath, _ := filepath.Abs(dir)
-	fmt.Fprintf(w, "Path: %s\n", absPath)
-
-	// Languages
-	if len(projectConfig.Languages) > 0 {
-		var languages []string
-		for _, lang := range projectConfig.Languages {
-			languages = append(languages, string(lang))
-		}
-		sort.Strings(languages)
-		fmt.Fprintf(w, "Languages: %s\n", strings.Join(languages, ", "))
-	} else {
-		fmt.Fprintf(w, "Languages: none detected\n")
-	}
-
-	// Build system
-	fmt.Fprintf(w, "Build System: %s\n", projectConfig.BuildSystem)
-
-	// Git repository
-	if projectConfig.HasGit {
-		fmt.Fprintf(w, "Git Repository: yes\n")
-	} else {
-		fmt.Fprintf(w, "Git Repository: no\n")
-	}
-
-	// Tools
-	if len(projectConfig.Tools) > 0 {
-		fmt.Fprintf(w, "\nTools:\n")
-
-		// Sort tool types for consistent output
-		var toolTypes []string
-		for toolType := range projectConfig.Tools {
-			toolTypes = append(toolTypes, string(toolType))
-		}
-		sort.Strings(toolTypes)
-
-		for _, toolTypeStr := range toolTypes {
-			tools := projectConfig.Tools[config.ToolType(toolTypeStr)]
-			if len(tools) > 0 {
-				// Show only the first (highest priority) tool for simplicity
-				fmt.Fprintf(w, "  %s: %s\n", toolTypeStr, tools[0])
+func resolveDir(path string) (string, error) {
+	if path == "" {
+		if wd := os.Getenv("BUILD_WORKING_DIRECTORY"); wd != "" {
+			path = wd
+		} else {
+			wd, err := os.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("get current directory: %w", err)
 			}
-		}
-	} else {
-		fmt.Fprintf(w, "\nTools: none detected\n")
-	}
-
-	// Configuration files
-	if len(projectConfig.ConfigFiles) > 0 {
-		fmt.Fprintf(w, "\nConfiguration Files:\n")
-
-		// Sort config files for consistent output
-		var tools []string
-		for tool := range projectConfig.ConfigFiles {
-			tools = append(tools, tool)
-		}
-		sort.Strings(tools)
-
-		for _, tool := range tools {
-			fmt.Fprintf(w, "  %s: %s\n", tool, projectConfig.ConfigFiles[tool])
+			path = wd
 		}
 	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	return abs, nil
+}
 
-	// Detection time
-	fmt.Fprintf(w, "\nDetection completed at: %s\n", projectConfig.DetectionTime.Format("2006-01-02 15:04:05"))
+type filterFlag []config.ToolType
 
+func (f *filterFlag) String() string {
+	parts := make([]string, len(*f))
+	for i, toolType := range *f {
+		parts[i] = string(toolType)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (f *filterFlag) Set(value string) error {
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		toolType, err := parseToolType(part)
+		if err != nil {
+			return err
+		}
+		*f = append(*f, toolType)
+	}
 	return nil
 }
 
-// runExecutorDemo demonstrates the tool executor framework capabilities.
-func runExecutorDemo(dir string, w io.Writer, concurrent bool, maxWorkers int) error {
-	printDemoHeader(w)
-
-	projectConfig, err := detectProject(dir, w)
-	if err != nil {
-		return err
+func parseToolType(raw string) (config.ToolType, error) {
+	switch config.ToolType(raw) {
+	case config.ToolTypeFormat, config.ToolTypeLint, config.ToolTypeTest:
+		return config.ToolType(raw), nil
+	default:
+		return "", fmt.Errorf("invalid filter %q (want format, lint, or test)", raw)
 	}
-
-	demoConfigs, err := prepareDemoConfigs(projectConfig, dir, executor.NewBasicExecutor())
-	if err != nil {
-		return err
-	}
-
-	if len(demoConfigs) == 0 {
-		fmt.Fprintf(w, "\nNo demo tools available to run.\n")
-		return nil
-	}
-
-	return executeDemoConfigs(demoConfigs, w, concurrent, maxWorkers)
-}
-
-func printDemoHeader(w io.Writer) {
-	fmt.Fprintf(w, "🚀 DevCheck Tool Executor Demo\n")
-	fmt.Fprintf(w, "==============================\n\n")
-}
-
-func detectProject(dir string, w io.Writer) (*config.ProjectConfig, error) {
-	projectDetector := detector.NewProjectDetector()
-	projectConfig, err := projectDetector.Detect(dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to detect project: %w", err)
-	}
-
-	absPath, _ := filepath.Abs(dir)
-	fmt.Fprintf(w, "Path: %s\n", absPath)
-
-	showDetectedTools(w, projectConfig)
-	return projectConfig, nil
-}
-
-func showDetectedTools(w io.Writer, projectConfig *config.ProjectConfig) {
-	fmt.Fprintf(w, "\nDetected Tools:\n")
-	if len(projectConfig.Tools) > 0 {
-		for toolType, tools := range projectConfig.Tools {
-			if len(tools) > 0 {
-				fmt.Fprintf(w, "  %s: %s\n", toolType, tools[0])
-			}
-		}
-	}
-}
-
-func prepareDemoConfigs(projectConfig *config.ProjectConfig, dir string, exec executor.Executor) ([]executor.ToolConfig, error) {
-	var demoConfigs []executor.ToolConfig
-
-	// Add Bazel support
-	if projectConfig.BuildSystem == "bazel" && exec.IsAvailable("bazel") {
-		demoConfigs = append(demoConfigs, createBazelConfig(dir))
-	}
-
-	langConfigs := addLanguageSpecificTools(projectConfig, dir, exec)
-	demoConfigs = append(demoConfigs, langConfigs...)
-
-	// Add git status
-	if projectConfig.HasGit && exec.IsAvailable("git") {
-		demoConfigs = append(demoConfigs, createGitConfig(dir))
-	}
-
-	return demoConfigs, nil
-}
-
-func createBazelConfig(dir string) executor.ToolConfig {
-	return executor.ToolConfig{
-		Command:        "bazel",
-		Args:           []string{"info", "workspace"},
-		WorkingDir:     dir,
-		Timeout:        15 * time.Second,
-		CommandBuilder: &executor.ShellCommandBuilder{},
-	}
-}
-
-func createGitConfig(dir string) executor.ToolConfig {
-	return executor.ToolConfig{
-		Command:    "git",
-		Args:       []string{"status", "--short"},
-		WorkingDir: dir,
-	}
-}
-
-func addLanguageSpecificTools(projectConfig *config.ProjectConfig, dir string, basicExec executor.Executor) []executor.ToolConfig {
-	var configs []executor.ToolConfig
-
-	for _, lang := range projectConfig.Languages {
-		switch lang {
-		case config.LanguageGo:
-			configs = append(configs, addGoTools(projectConfig, dir, basicExec)...)
-		case config.LanguagePython:
-			configs = append(configs, addPythonTools(projectConfig, dir, basicExec)...)
-		}
-	}
-
-	return configs
-}
-
-func addGoTools(projectConfig *config.ProjectConfig, dir string, basicExec executor.Executor) []executor.ToolConfig {
-	var configs []executor.ToolConfig
-
-	if basicExec.IsAvailable("go") && hasDetectedTool(projectConfig, "go") {
-		configs = append(configs, executor.ToolConfig{
-			Command:    "go",
-			Args:       []string{"list", "./..."},
-			WorkingDir: dir,
-		})
-	}
-
-	if basicExec.IsAvailable("golangci-lint") && hasDetectedTool(projectConfig, "golangci-lint") {
-		configs = append(configs, executor.ToolConfig{
-			Command:    "golangci-lint",
-			Args:       []string{"run", "--timeout=30s", "./..."},
-			WorkingDir: dir,
-			Timeout:    45 * time.Second,
-		})
-	}
-
-	return configs
-}
-
-func hasDetectedTool(projectConfig *config.ProjectConfig, command string) bool {
-	if projectConfig == nil {
-		return false
-	}
-	for _, tools := range projectConfig.Tools {
-		for _, tool := range tools {
-			fields := strings.Fields(tool)
-			if len(fields) > 0 && fields[0] == command {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func addPythonTools(projectConfig *config.ProjectConfig, dir string, basicExec executor.Executor) []executor.ToolConfig {
-	var configs []executor.ToolConfig
-
-	if basicExec.IsAvailable("ruff") && hasDetectedTool(projectConfig, "ruff") && projectConfig.ConfigFiles["ruff"] != "" {
-		configs = append(configs, executor.ToolConfig{
-			Command:    "ruff",
-			Args:       []string{"check", "--statistics"},
-			WorkingDir: dir,
-			Timeout:    10 * time.Second,
-		})
-	}
-
-	return configs
-}
-
-func executeDemoConfigs(demoConfigs []executor.ToolConfig, w io.Writer, concurrent bool, maxWorkers int) error {
-	signalExecutor := executor.NewWithSignalHandling()
-	ctx, err := signalExecutor.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start signal handler: %w", err)
-	}
-	defer signalExecutor.Stop()
-
-	if concurrent {
-		fmt.Fprintf(w, "\nRunning %d tools concurrently (max %d workers)...\n\n", len(demoConfigs), maxWorkers)
-		return runConcurrentDemo(ctx, w, signalExecutor, demoConfigs, maxWorkers)
-	}
-
-	fmt.Fprintf(w, "\nRunning %d tools sequentially...\n\n", len(demoConfigs))
-	return runSequentialDemo(ctx, w, signalExecutor, demoConfigs)
-}
-
-// runSequentialDemo runs tools one by one.
-func runSequentialDemo(ctx context.Context, w io.Writer, exec executor.Executor, configs []executor.ToolConfig) error {
-	startTime := time.Now()
-	successCount := 0
-
-	for i, cfg := range configs {
-		fmt.Fprintf(w, "[%d/%d] Running: %s %s\n", i+1, len(configs), cfg.Command, strings.Join(cfg.Args, " "))
-
-		cmdStart := time.Now()
-		result, err := exec.Execute(ctx, cfg)
-		duration := time.Since(cmdStart)
-
-		switch {
-		case err != nil:
-			fmt.Fprintf(w, "  ❌ ERROR: %v\n", err)
-		case result.ExitCode != 0:
-			fmt.Fprintf(w, "  ❌ FAILED (exit code %d)\n", result.ExitCode)
-			if result.Stderr != "" {
-				fmt.Fprintf(w, "  stderr: %s\n", strings.TrimSpace(result.Stderr))
-			}
-		default:
-			successCount++
-			fmt.Fprintf(w, "  ✅ SUCCESS (%v)\n", duration.Round(time.Millisecond))
-			if result.Output != "" {
-				fmt.Fprintf(w, "  output: %s\n", strings.TrimSpace(result.Output))
-			}
-		}
-		fmt.Fprintln(w)
-	}
-
-	totalDuration := time.Since(startTime)
-	fmt.Fprintf(w, "Summary: %d/%d tools passed (total time: %v)\n",
-		successCount, len(configs), totalDuration.Round(time.Millisecond))
-
-	return demoResultError(successCount, len(configs))
-}
-
-// runConcurrentDemo runs tools concurrently.
-func runConcurrentDemo(ctx context.Context, w io.Writer, exec executor.Executor, configs []executor.ToolConfig, maxWorkers int) error {
-	startTime := time.Now()
-
-	// Create concurrent executor
-	concurrentExec := executor.NewConcurrentExecutor(exec)
-	concurrentExec.SetMaxConcurrency(maxWorkers)
-
-	// Execute all tools concurrently
-	results, err := concurrentExec.ExecuteAll(ctx, configs)
-	if err != nil {
-		return fmt.Errorf("concurrent execution failed: %w", err)
-	}
-
-	// Process and display results
-	successCount := 0
-	fmt.Fprintf(w, "┌─────────────────────────────────┬─────────┬──────────┬───────────┐\n")
-	fmt.Fprintf(w, "│ Tool                            │ Status  │ Duration │ Exit Code │\n")
-	fmt.Fprintf(w, "├─────────────────────────────────┼─────────┼──────────┼───────────┤\n")
-
-	for _, res := range results {
-		cmd := res.Config.Command
-		if len(res.Config.Args) > 0 {
-			cmd = fmt.Sprintf("%s %s", cmd, strings.Join(res.Config.Args, " "))
-		}
-		if len(cmd) > 32 {
-			cmd = cmd[:29] + "..."
-		}
-
-		status := "✅ PASS"
-		exitCode := "0"
-		duration := "N/A"
-
-		if res.Error != nil {
-			status = "❌ ERROR"
-			exitCode = "N/A"
-		} else if res.Result != nil {
-			duration = res.Result.Duration().Round(time.Millisecond).String()
-			if res.Result.ExitCode != 0 {
-				status = "❌ FAIL"
-				exitCode = fmt.Sprintf("%d", res.Result.ExitCode)
-			} else {
-				successCount++
-			}
-		}
-
-		fmt.Fprintf(w, "│ %-31s │ %-7s │ %-8s │ %-9s │\n", cmd, status, duration, exitCode)
-	}
-
-	fmt.Fprintf(w, "└─────────────────────────────────┴─────────┴──────────┴───────────┘\n")
-
-	// Show error details for failed commands
-	for _, res := range results {
-		if res.Error != nil {
-			cmd := res.Config.Command
-			if len(res.Config.Args) > 0 {
-				cmd = fmt.Sprintf("%s %s", cmd, strings.Join(res.Config.Args, " "))
-			}
-			fmt.Fprintf(w, "\n❌ %s failed: %v\n", cmd, res.Error)
-		}
-	}
-
-	totalDuration := time.Since(startTime)
-	fmt.Fprintf(w, "\nSummary: %d/%d tools passed (total time: %v with concurrency)\n",
-		successCount, len(configs), totalDuration.Round(time.Millisecond))
-
-	return demoResultError(successCount, len(configs))
-}
-
-func demoResultError(successCount, total int) error {
-	if successCount < total {
-		return fmt.Errorf("%d/%d tools failed", total-successCount, total)
-	}
-	return nil
 }

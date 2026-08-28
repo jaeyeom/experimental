@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,858 +14,229 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
-func TestDetectAndPrint(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "devcheck_cli_test")
-	if err != nil {
-		t.Fatal(err)
+func TestHelpListsDocumentedFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-h"}, &stdout, &stderr, executor.NewMockExecutor())
+	if code != 0 {
+		t.Fatalf("help exit = %d, want 0", code)
 	}
-	defer os.RemoveAll(tempDir)
-
-	tests := []struct {
-		name           string
-		files          []string
-		expectedOutput []string
-	}{
-		{
-			name:  "go project with bazel",
-			files: []string{"go.mod", "main.go", "MODULE.bazel"},
-			expectedOutput: []string{
-				"Languages: go",
-				"Build System: bazel",
-				"Tools:",
-				"  format: bazel run",
-				"  lint: bazel run",
-				"  test: bazel test",
-			},
-		},
-		{
-			name:  "python project",
-			files: []string{"pyproject.toml", "main.py", "requirements.txt"},
-			expectedOutput: []string{
-				"Languages: python",
-				"Build System: none",
-				"Tools:",
-				"  format: ruff format",
-				"  lint: ruff check",
-			},
-		},
-		{
-			name:  "mixed project with make",
-			files: []string{"go.mod", "main.go", "requirements.txt", "main.py", "Makefile"},
-			expectedOutput: []string{
-				"Languages: go, python",
-				"Build System: make",
-				"Tools:",
-				"  format: make format",
-				"  lint: make lint",
-				"  test: make test",
-			},
-		},
+	out := stdout.String() + stderr.String()
+	for _, name := range []string{
+		"-dry-run", "-n", "-verbose", "-v", "-filter", "-format", "-changed-only", "-force-fallback",
+	} {
+		if !strings.Contains(out, name) {
+			t.Errorf("help missing %s\n%s", name, out)
+		}
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create test directory
-			testDir := filepath.Join(tempDir, tt.name)
-			err := os.MkdirAll(testDir, 0o755)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			// Create test files
-			for _, file := range tt.files {
-				filePath := filepath.Join(testDir, file)
-				err := os.WriteFile(filePath, []byte("test content"), 0o600)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-
-			// Capture output
-			var buf bytes.Buffer
-			err = detectAndPrint(testDir, &buf)
-			if err != nil {
-				t.Errorf("detectAndPrint() error = %v", err)
-				return
-			}
-
-			output := buf.String()
-
-			// Check that expected strings are in the output
-			for _, expected := range tt.expectedOutput {
-				if !strings.Contains(output, expected) {
-					t.Errorf("Expected output to contain %q, but got:\n%s", expected, output)
-				}
-			}
-		})
+	if strings.Contains(out, "-demo") {
+		t.Errorf("help still advertises -demo\n%s", out)
 	}
 }
 
-func TestDetectAndPrintInvalidPath(t *testing.T) {
-	var buf bytes.Buffer
-	err := detectAndPrint("/path/that/does/not/exist", &buf)
-	if err == nil {
-		t.Error("Expected error for non-existent path")
+func TestDryRunPrintsCommandsAndExitsZero(t *testing.T) {
+	dir := fixtureDir(t, "go.mod", "main.go", "MODULE.bazel")
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("bazel", true)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-n", dir}, &stdout, &stderr, mock)
+	if code != 0 {
+		t.Fatalf("dry-run exit = %d, stderr=%s", code, stderr.String())
 	}
-}
-
-func TestDetectAndPrintCurrentDirectory(t *testing.T) {
-	// Test that we can run detection on current directory without error
-	// Get current working directory for testing
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
+	if len(mock.CallHistory) != 0 {
+		t.Fatalf("dry-run executed %d commands", len(mock.CallHistory))
 	}
-
-	var buf bytes.Buffer
-	err = detectAndPrint(wd, &buf)
-	if err != nil {
-		t.Errorf("detectAndPrint() on current directory error = %v", err)
-	}
-
-	output := buf.String()
-	if output == "" {
-		t.Error("Expected some output for current directory")
-	}
-
-	// Should contain basic structure
-	if !strings.Contains(output, "Path:") {
-		t.Error("Expected output to contain 'Path:'")
-	}
-}
-
-// Test output formatting functions.
-func TestPrintDemoHeader(t *testing.T) {
-	var buf bytes.Buffer
-	printDemoHeader(&buf)
-	output := buf.String()
-
-	expectedStrings := []string{
-		"DevCheck Tool Executor Demo",
-		"==============================",
-	}
-
-	for _, expected := range expectedStrings {
-		if !strings.Contains(output, expected) {
-			t.Errorf("Expected output to contain %q, got:\n%s", expected, output)
+	out := stdout.String()
+	for _, want := range []string{
+		"bazel run //tools:format",
+		"bazel run //tools:lint",
+		"bazel test //...",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry-run missing %q\n%s", want, out)
 		}
 	}
 }
 
-func TestShowDetectedTools(t *testing.T) {
-	tests := []struct {
-		name           string
-		projectConfig  *config.ProjectConfig
-		expectedOutput []string
-	}{
-		{
-			name: "project with tools",
-			projectConfig: &config.ProjectConfig{
-				Tools: map[config.ToolType][]string{
-					config.ToolTypeFormat: {"gofmt"},
-					config.ToolTypeLint:   {"golangci-lint"},
-				},
-			},
-			expectedOutput: []string{
-				"Detected Tools:",
-				"format: gofmt",
-				"lint: golangci-lint",
-			},
-		},
-		{
-			name: "project with no tools",
-			projectConfig: &config.ProjectConfig{
-				Tools: map[config.ToolType][]string{},
-			},
-			expectedOutput: []string{
-				"Detected Tools:",
-			},
-		},
+func TestFilterFormatRunsOnlyFormatters(t *testing.T) {
+	dir := fixtureDir(t, "go.mod", "main.go")
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("gofumpt", true)
+	mock.SetAvailableCommand("golangci-lint", true)
+	mock.SetAvailableCommand("go", true)
+	mock.ExpectCommand("gofumpt").
+		WillReturn(&executor.ExecutionResult{
+			Command: "gofumpt", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-filter=format", dir}, &stdout, &stderr, mock)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var buf bytes.Buffer
-			showDetectedTools(&buf, tt.projectConfig)
-			output := buf.String()
-
-			for _, expected := range tt.expectedOutput {
-				if !strings.Contains(output, expected) {
-					t.Errorf("Expected output to contain %q, got:\n%s", expected, output)
-				}
-			}
-		})
+	commands := executedCommands(mock)
+	if len(commands) != 1 || commands[0] != "gofumpt" {
+		t.Fatalf("executed %v, want [gofumpt]", commands)
 	}
 }
 
-// Test configuration builder functions.
-func TestCreateBazelConfig(t *testing.T) {
-	dir := "/test/dir"
-	cfg := createBazelConfig(dir)
+func TestFormatJSONIsValidAndIncludesToolsAndIssues(t *testing.T) {
+	dir := fixtureDir(t, "go.mod", "main.go")
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("golangci-lint", true)
+	mock.ExpectCommand("golangci-lint").
+		WillReturn(&executor.ExecutionResult{
+			Command: "golangci-lint", ExitCode: 1, Output: golangciLintJSON,
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
 
-	if cfg.Command != "bazel" {
-		t.Errorf("Expected command 'bazel', got %q", cfg.Command)
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-filter=lint", "-format=json", dir}, &stdout, &stderr, mock)
+	if code == 0 {
+		t.Fatal("lint failure exit = 0, want non-zero")
 	}
-
-	expectedArgs := []string{"info", "workspace"}
-	if len(cfg.Args) != len(expectedArgs) {
-		t.Fatalf("Expected %d args, got %d", len(expectedArgs), len(cfg.Args))
+	var payload struct {
+		Tools  []map[string]any `json:"tools"`
+		Issues []config.Issue   `json:"issues"`
 	}
-	for i, arg := range expectedArgs {
-		if cfg.Args[i] != arg {
-			t.Errorf("Expected arg[%d] = %q, got %q", i, arg, cfg.Args[i])
-		}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
 	}
-
-	if cfg.WorkingDir != dir {
-		t.Errorf("Expected WorkingDir %q, got %q", dir, cfg.WorkingDir)
+	if len(payload.Tools) == 0 {
+		t.Fatal("JSON tools is empty")
 	}
-
-	if cfg.Timeout != 15*time.Second {
-		t.Errorf("Expected timeout 15s, got %v", cfg.Timeout)
-	}
-}
-
-func TestCreateGitConfig(t *testing.T) {
-	dir := "/test/dir"
-	cfg := createGitConfig(dir)
-
-	if cfg.Command != "git" {
-		t.Errorf("Expected command 'git', got %q", cfg.Command)
-	}
-
-	expectedArgs := []string{"status", "--short"}
-	if len(cfg.Args) != len(expectedArgs) {
-		t.Fatalf("Expected %d args, got %d", len(expectedArgs), len(cfg.Args))
-	}
-	for i, arg := range expectedArgs {
-		if cfg.Args[i] != arg {
-			t.Errorf("Expected arg[%d] = %q, got %q", i, arg, cfg.Args[i])
-		}
-	}
-
-	if cfg.WorkingDir != dir {
-		t.Errorf("Expected WorkingDir %q, got %q", dir, cfg.WorkingDir)
+	if len(payload.Issues) != 1 || payload.Issues[0].FilePath != "broken.go" {
+		t.Fatalf("JSON issues = %+v, want broken.go", payload.Issues)
 	}
 }
 
-func TestAddGoTools(t *testing.T) {
-	detectedGoTools := map[config.ToolType][]string{
-		config.ToolTypeLint: {"golangci-lint"},
-		config.ToolTypeTest: {"go test"},
+func TestLintFixtureExitsNonZeroAndNamesFile(t *testing.T) {
+	dir := fixtureDir(t, "go.mod", "broken.go")
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("golangci-lint", true)
+	mock.ExpectCommand("golangci-lint").
+		WillReturn(&executor.ExecutionResult{
+			Command: "golangci-lint", ExitCode: 1, Output: golangciLintJSON,
+			StartTime: time.Now(), EndTime: time.Now(),
+		}, nil).Once().Build()
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-filter=lint", dir}, &stdout, &stderr, mock)
+	if code == 0 {
+		t.Fatal("lint fixture exit = 0, want non-zero")
 	}
-	tests := []struct {
-		name              string
-		tools             map[config.ToolType][]string
-		availableCommands map[string]bool
-		expectedCommands  []string
-		expectedArgs      [][]string
-	}{
-		{
-			name:  "all go tools available",
-			tools: detectedGoTools,
-			availableCommands: map[string]bool{
-				"go":            true,
-				"golangci-lint": true,
-			},
-			expectedCommands: []string{"go", "golangci-lint"},
-			expectedArgs: [][]string{
-				{"list", "./..."},
-				{"run", "--timeout=30s", "./..."},
-			},
-		},
-		{
-			name:  "only go available",
-			tools: detectedGoTools,
-			availableCommands: map[string]bool{
-				"go": true,
-			},
-			expectedCommands: []string{"go"},
-			expectedArgs:     [][]string{{"list", "./..."}},
-		},
-		{
-			name:              "no go tools available",
-			tools:             detectedGoTools,
-			availableCommands: map[string]bool{},
-			expectedCommands:  []string{},
-		},
-		{
-			name: "available binaries not in detected tools",
-			tools: map[config.ToolType][]string{
-				config.ToolTypeFormat: {"gofumpt"},
-			},
-			availableCommands: map[string]bool{
-				"go":            true,
-				"golangci-lint": true,
-			},
-			expectedCommands: []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockExec := executor.NewMockExecutor()
-			for cmd, available := range tt.availableCommands {
-				mockExec.SetAvailableCommand(cmd, available)
-			}
-
-			projectConfig := &config.ProjectConfig{
-				Languages: []config.Language{config.LanguageGo},
-				Tools:     tt.tools,
-			}
-			configs := addGoTools(projectConfig, "/test/dir", mockExec)
-
-			if len(configs) != len(tt.expectedCommands) {
-				t.Fatalf("Expected %d configs, got %d", len(tt.expectedCommands), len(configs))
-			}
-
-			for i, expectedCmd := range tt.expectedCommands {
-				if configs[i].Command != expectedCmd {
-					t.Errorf("Expected command[%d] = %q, got %q", i, expectedCmd, configs[i].Command)
-				}
-				if configs[i].WorkingDir != "/test/dir" {
-					t.Errorf("Expected WorkingDir '/test/dir', got %q", configs[i].WorkingDir)
-				}
-			}
-			assertGoPackagePath(t, configs, tt.expectedArgs)
-		})
+	if !strings.Contains(stdout.String(), "broken.go") {
+		t.Errorf("prompt missing broken.go\n%s", stdout.String())
 	}
 }
 
-func assertGoPackagePath(t *testing.T, configs []executor.ToolConfig, expectedArgs [][]string) {
+func TestChangedOnlyWithoutGitErrors(t *testing.T) {
+	dir := fixtureDir(t, "go.mod", "main.go")
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("gofumpt", true)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-changed-only", "-filter=format", dir}, &stdout, &stderr, mock)
+	if code == 0 {
+		t.Fatal("exit = 0, want non-zero without git")
+	}
+	if !strings.Contains(strings.ToLower(stderr.String()+stdout.String()), "git") {
+		t.Errorf("error should mention git: %s%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestInvalidFilter(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-filter=docs"}, &stdout, &stderr, executor.NewMockExecutor())
+	if code == 0 {
+		t.Fatal("invalid filter exit = 0")
+	}
+}
+
+func TestInvalidFormat(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-format=xml"}, &stdout, &stderr, executor.NewMockExecutor())
+	if code == 0 {
+		t.Fatal("invalid format exit = 0")
+	}
+}
+
+func TestFilterRepeatableAndCommaSeparated(t *testing.T) {
+	dir := fixtureDir(t, "go.mod", "main.go")
+	mock := executor.NewMockExecutor()
+	mock.SetAvailableCommand("gofumpt", true)
+	mock.SetAvailableCommand("golangci-lint", true)
+	mock.SetDefaultBehavior(&executor.ExecutionResult{
+		Command: "ok", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now(),
+	}, nil)
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-filter=format,lint", dir}, &stdout, &stderr, mock)
+	if code != 0 {
+		t.Fatalf("comma filter exit = %d, stderr=%s", code, stderr.String())
+	}
+	got := executedCommands(mock)
+	if !contains(got, "gofumpt") || !contains(got, "golangci-lint") || contains(got, "go") {
+		t.Errorf("executed %v, want gofumpt and golangci-lint only", got)
+	}
+
+	mock2 := executor.NewMockExecutor()
+	mock2.SetAvailableCommand("gofumpt", true)
+	mock2.SetAvailableCommand("golangci-lint", true)
+	mock2.SetDefaultBehavior(&executor.ExecutionResult{
+		Command: "ok", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now(),
+	}, nil)
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"-filter=format", "-filter=lint", dir}, &stdout, &stderr, mock2)
+	if code != 0 {
+		t.Fatalf("repeatable filter exit = %d, stderr=%s", code, stderr.String())
+	}
+	got = executedCommands(mock2)
+	if !contains(got, "gofumpt") || !contains(got, "golangci-lint") {
+		t.Errorf("repeatable executed %v", got)
+	}
+}
+
+const golangciLintJSON = `{
+  "Issues": [
+    {
+      "FromLinter": "gosec",
+      "Text": "Potential file inclusion via variable",
+      "Severity": "error",
+      "Pos": {"Filename": "broken.go", "Line": 3, "Column": 10}
+    }
+  ]
+}`
+
+func fixtureDir(t *testing.T, files ...string) string {
 	t.Helper()
-	for i, cfg := range configs {
-		for _, arg := range cfg.Args {
-			if strings.Contains(arg, "devtools/devcheck") {
-				t.Errorf("command %s arg %q is hardcoded to this repository", cfg.Command, arg)
-			}
+	dir := t.TempDir()
+	for _, file := range files {
+		path := filepath.Join(dir, file)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
 		}
-		if i < len(expectedArgs) {
-			if !equalStrings(cfg.Args, expectedArgs[i]) {
-				t.Errorf("command %s args = %q, want %q", cfg.Command, cfg.Args, expectedArgs[i])
-			}
+		if err := os.WriteFile(path, []byte("module fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
+	return dir
 }
 
-func equalStrings(got, want []string) bool {
-	if len(got) != len(want) {
-		return false
+func executedCommands(mock *executor.MockExecutor) []string {
+	var commands []string
+	for _, call := range mock.GetCallHistory() {
+		commands = append(commands, call.Config.Command)
 	}
-	for i := range got {
-		if got[i] != want[i] {
-			return false
+	return commands
+}
+
+func contains(got []string, want string) bool {
+	for _, g := range got {
+		if g == want {
+			return true
 		}
 	}
-	return true
-}
-
-func TestAddPythonTools(t *testing.T) {
-	tests := []struct {
-		name              string
-		projectConfig     *config.ProjectConfig
-		availableCommands map[string]bool
-		expectedCommands  []string
-	}{
-		{
-			name: "ruff available with config",
-			projectConfig: &config.ProjectConfig{
-				ConfigFiles: map[string]string{
-					"ruff": "pyproject.toml",
-				},
-				Tools: map[config.ToolType][]string{
-					config.ToolTypeLint: {"ruff check"},
-				},
-			},
-			availableCommands: map[string]bool{
-				"ruff": true,
-			},
-			expectedCommands: []string{"ruff"},
-		},
-		{
-			name: "ruff available with config but not in detected tools",
-			projectConfig: &config.ProjectConfig{
-				ConfigFiles: map[string]string{
-					"ruff": "pyproject.toml",
-				},
-			},
-			availableCommands: map[string]bool{
-				"ruff": true,
-			},
-			expectedCommands: []string{},
-		},
-		{
-			name: "ruff available but no config",
-			projectConfig: &config.ProjectConfig{
-				ConfigFiles: map[string]string{},
-			},
-			availableCommands: map[string]bool{
-				"ruff": true,
-			},
-			expectedCommands: []string{},
-		},
-		{
-			name: "ruff not available",
-			projectConfig: &config.ProjectConfig{
-				ConfigFiles: map[string]string{
-					"ruff": "pyproject.toml",
-				},
-			},
-			availableCommands: map[string]bool{},
-			expectedCommands:  []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockExec := executor.NewMockExecutor()
-			for cmd, available := range tt.availableCommands {
-				mockExec.SetAvailableCommand(cmd, available)
-			}
-
-			configs := addPythonTools(tt.projectConfig, "/test/dir", mockExec)
-
-			if len(configs) != len(tt.expectedCommands) {
-				t.Fatalf("Expected %d configs, got %d", len(tt.expectedCommands), len(configs))
-			}
-
-			for i, expectedCmd := range tt.expectedCommands {
-				if configs[i].Command != expectedCmd {
-					t.Errorf("Expected command[%d] = %q, got %q", i, expectedCmd, configs[i].Command)
-				}
-			}
-		})
-	}
-}
-
-func TestAddLanguageSpecificTools(t *testing.T) {
-	tests := []struct {
-		name              string
-		languages         []config.Language
-		availableCommands map[string]bool
-		expectedCommands  []string
-	}{
-		{
-			name:      "go project",
-			languages: []config.Language{config.LanguageGo},
-			availableCommands: map[string]bool{
-				"go": true,
-			},
-			expectedCommands: []string{"go"},
-		},
-		{
-			name:      "python project",
-			languages: []config.Language{config.LanguagePython},
-			availableCommands: map[string]bool{
-				"ruff": true,
-			},
-			expectedCommands: []string{},
-		},
-		{
-			name:      "multi-language project",
-			languages: []config.Language{config.LanguageGo, config.LanguagePython},
-			availableCommands: map[string]bool{
-				"go": true,
-			},
-			expectedCommands: []string{"go"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockExec := executor.NewMockExecutor()
-			for cmd, available := range tt.availableCommands {
-				mockExec.SetAvailableCommand(cmd, available)
-			}
-
-			projectConfig := &config.ProjectConfig{
-				Languages:   tt.languages,
-				ConfigFiles: map[string]string{},
-				Tools: map[config.ToolType][]string{
-					config.ToolTypeTest: {"go test"},
-				},
-			}
-
-			configs := addLanguageSpecificTools(projectConfig, "/test/dir", mockExec)
-
-			if len(configs) != len(tt.expectedCommands) {
-				t.Fatalf("Expected %d configs, got %d", len(tt.expectedCommands), len(configs))
-			}
-
-			for i, expectedCmd := range tt.expectedCommands {
-				if configs[i].Command != expectedCmd {
-					t.Errorf("Expected command[%d] = %q, got %q", i, expectedCmd, configs[i].Command)
-				}
-			}
-		})
-	}
-}
-
-func TestPrepareDemoConfigs(t *testing.T) {
-	tests := []struct {
-		name              string
-		projectConfig     *config.ProjectConfig
-		availableCommands map[string]bool
-		expectedCommands  []string
-	}{
-		{
-			name: "bazel project with git",
-			projectConfig: &config.ProjectConfig{
-				BuildSystem: "bazel",
-				HasGit:      true,
-				Languages:   []config.Language{},
-			},
-			availableCommands: map[string]bool{
-				"bazel": true,
-				"git":   true,
-			},
-			expectedCommands: []string{"bazel", "git"},
-		},
-		{
-			name: "go project with git",
-			projectConfig: &config.ProjectConfig{
-				BuildSystem: "none",
-				HasGit:      true,
-				Languages:   []config.Language{config.LanguageGo},
-				Tools: map[config.ToolType][]string{
-					config.ToolTypeTest: {"go test"},
-				},
-			},
-			availableCommands: map[string]bool{
-				"go":  true,
-				"git": true,
-			},
-			expectedCommands: []string{"go", "git"},
-		},
-		{
-			name: "project without git",
-			projectConfig: &config.ProjectConfig{
-				BuildSystem: "none",
-				HasGit:      false,
-				Languages:   []config.Language{config.LanguageGo},
-				Tools: map[config.ToolType][]string{
-					config.ToolTypeTest: {"go test"},
-				},
-			},
-			availableCommands: map[string]bool{
-				"go": true,
-			},
-			expectedCommands: []string{"go"},
-		},
-		{
-			name: "no available tools",
-			projectConfig: &config.ProjectConfig{
-				BuildSystem: "bazel",
-				HasGit:      true,
-				Languages:   []config.Language{config.LanguageGo},
-				Tools: map[config.ToolType][]string{
-					config.ToolTypeTest: {"go test"},
-				},
-			},
-			availableCommands: map[string]bool{},
-			expectedCommands:  []string{},
-		},
-		{
-			name: "detected go tools omitted when binaries missing",
-			projectConfig: &config.ProjectConfig{
-				BuildSystem: "none",
-				HasGit:      false,
-				Languages:   []config.Language{config.LanguageGo},
-				Tools: map[config.ToolType][]string{
-					config.ToolTypeLint: {"golangci-lint"},
-					config.ToolTypeTest: {"go test"},
-				},
-			},
-			availableCommands: map[string]bool{
-				"git": true,
-			},
-			expectedCommands: []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockExec := executor.NewMockExecutor()
-			for cmd, available := range tt.availableCommands {
-				mockExec.SetAvailableCommand(cmd, available)
-			}
-
-			configs, err := prepareDemoConfigs(tt.projectConfig, "/test/dir", mockExec)
-			if err != nil {
-				t.Fatalf("prepareDemoConfigs failed: %v", err)
-			}
-
-			if len(configs) != len(tt.expectedCommands) {
-				t.Fatalf("Expected %d configs, got %d (%v)", len(tt.expectedCommands), len(configs), commandNames(configs))
-			}
-
-			for i, expectedCmd := range tt.expectedCommands {
-				if configs[i].Command != expectedCmd {
-					t.Errorf("Expected command[%d] = %q, got %q", i, expectedCmd, configs[i].Command)
-				}
-				if configs[i].WorkingDir != "/test/dir" {
-					t.Errorf("Expected WorkingDir '/test/dir', got %q", configs[i].WorkingDir)
-				}
-			}
-			for _, cfg := range configs {
-				for _, arg := range cfg.Args {
-					if strings.Contains(arg, "devtools/devcheck") {
-						t.Errorf("command %s arg %q is hardcoded to this repository", cfg.Command, arg)
-					}
-				}
-			}
-		})
-	}
-}
-
-func commandNames(configs []executor.ToolConfig) []string {
-	names := make([]string, len(configs))
-	for i, cfg := range configs {
-		names[i] = cfg.Command
-	}
-	return names
-}
-
-// Test sequential demo execution.
-func TestRunSequentialDemo(t *testing.T) {
-	tests := []struct {
-		name            string
-		configs         []executor.ToolConfig
-		mockResults     []*executor.ExecutionResult
-		mockErrors      []error
-		expectedSuccess int
-		wantErr         bool
-		expectedOutput  []string
-	}{
-		{
-			name: "all tools succeed",
-			configs: []executor.ToolConfig{
-				{Command: "tool1", Args: []string{"arg1"}},
-				{Command: "tool2", Args: []string{"arg2"}},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "tool1", ExitCode: 0, Output: "success1", StartTime: time.Now(), EndTime: time.Now()},
-				{Command: "tool2", ExitCode: 0, Output: "success2", StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil, nil},
-			expectedSuccess: 2,
-			expectedOutput:  []string{"SUCCESS", "tool1", "tool2", "2/2"},
-		},
-		{
-			name: "one tool fails",
-			configs: []executor.ToolConfig{
-				{Command: "tool1"},
-				{Command: "tool2"},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "tool1", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
-				{Command: "tool2", ExitCode: 1, Stderr: "error message", StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil, nil},
-			expectedSuccess: 1,
-			wantErr:         true,
-			expectedOutput:  []string{"SUCCESS", "FAILED", "exit code 1", "1/2"},
-		},
-		{
-			name: "execution error",
-			configs: []executor.ToolConfig{
-				{Command: "tool1"},
-			},
-			mockResults: []*executor.ExecutionResult{
-				nil,
-			},
-			mockErrors:      []error{fmt.Errorf("execution failed")},
-			expectedSuccess: 0,
-			wantErr:         true,
-			expectedOutput:  []string{"ERROR", "execution failed", "0/1"},
-		},
-		{
-			name: "mixed results",
-			configs: []executor.ToolConfig{
-				{Command: "tool1"},
-				{Command: "tool2"},
-				{Command: "tool3"},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "tool1", ExitCode: 0, Output: "ok", StartTime: time.Now(), EndTime: time.Now()},
-				nil,
-				{Command: "tool3", ExitCode: 1, Stderr: "failed", StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil, fmt.Errorf("error"), nil},
-			expectedSuccess: 1,
-			wantErr:         true,
-			expectedOutput:  []string{"SUCCESS", "ERROR", "FAILED", "1/3"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockExec := executor.NewMockExecutor()
-
-			// Set up expectations
-			for i, cfg := range tt.configs {
-				mockExec.ExpectCommand(cfg.Command).
-					WillReturn(tt.mockResults[i], tt.mockErrors[i]).
-					Once().
-					Build()
-			}
-
-			var buf bytes.Buffer
-			ctx := context.Background()
-
-			err := runSequentialDemo(ctx, &buf, mockExec, tt.configs)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("runSequentialDemo() error = nil, want failure")
-				}
-			} else if err != nil {
-				t.Fatalf("runSequentialDemo() unexpected error: %v", err)
-			}
-
-			output := buf.String()
-
-			// Verify expected outputs
-			for _, expected := range tt.expectedOutput {
-				if !strings.Contains(output, expected) {
-					t.Errorf("Expected output to contain %q, got:\n%s", expected, output)
-				}
-			}
-		})
-	}
-}
-
-// Test concurrent demo execution.
-func TestRunConcurrentDemo(t *testing.T) {
-	tests := []struct {
-		name            string
-		configs         []executor.ToolConfig
-		mockResults     []*executor.ExecutionResult
-		mockErrors      []error
-		maxWorkers      int
-		expectedSuccess int
-		wantErr         bool
-		expectedOutput  []string
-	}{
-		{
-			name: "all tools succeed",
-			configs: []executor.ToolConfig{
-				{Command: "tool1", Args: []string{"arg1"}},
-				{Command: "tool2", Args: []string{"arg2"}},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "tool1", ExitCode: 0, Output: "success1", StartTime: time.Now(), EndTime: time.Now()},
-				{Command: "tool2", ExitCode: 0, Output: "success2", StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil, nil},
-			maxWorkers:      2,
-			expectedSuccess: 2,
-			expectedOutput:  []string{"PASS", "tool1", "tool2", "2/2"},
-		},
-		{
-			name: "one tool fails",
-			configs: []executor.ToolConfig{
-				{Command: "tool1"},
-				{Command: "tool2"},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "tool1", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
-				{Command: "tool2", ExitCode: 1, Stderr: "error", StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil, nil},
-			maxWorkers:      2,
-			expectedSuccess: 1,
-			wantErr:         true,
-			expectedOutput:  []string{"PASS", "FAIL", "1/2"},
-		},
-		{
-			name: "execution error",
-			configs: []executor.ToolConfig{
-				{Command: "tool1"},
-			},
-			mockResults: []*executor.ExecutionResult{
-				nil,
-			},
-			mockErrors:      []error{fmt.Errorf("execution failed")},
-			maxWorkers:      1,
-			expectedSuccess: 0,
-			wantErr:         true,
-			expectedOutput:  []string{"ERROR", "execution failed", "0/1"},
-		},
-		{
-			name: "command at 31 chars not truncated",
-			configs: []executor.ToolConfig{
-				{Command: "cmd", Args: []string{"with", "args", "exactly", "31"}},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "cmd", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil},
-			maxWorkers:      1,
-			expectedSuccess: 1,
-			expectedOutput:  []string{"PASS", "cmd with args exactly 31", "1/1"},
-		},
-		{
-			name: "command at 32 chars overflows column",
-			configs: []executor.ToolConfig{
-				// This command is exactly 32 chars: "cmd with args exactly thirtytwo"
-				{Command: "cmd", Args: []string{"with", "args", "exactly", "thirtytwo"}},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "cmd", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil},
-			maxWorkers:      1,
-			expectedSuccess: 1,
-			// Note: This will overflow the 31-char column width (bug in implementation)
-			expectedOutput: []string{"PASS", "cmd with args exactly thirtytwo", "1/1"},
-		},
-		{
-			name: "command over 32 chars gets truncated",
-			configs: []executor.ToolConfig{
-				{Command: "very-long-command-name-that-exceeds", Args: []string{"the", "thirty-two", "character", "limit"}},
-			},
-			mockResults: []*executor.ExecutionResult{
-				{Command: "very-long-command-name-that-exceeds", ExitCode: 0, StartTime: time.Now(), EndTime: time.Now()},
-			},
-			mockErrors:      []error{nil},
-			maxWorkers:      1,
-			expectedSuccess: 1,
-			expectedOutput:  []string{"PASS", "very-long-command-name-that-e...", "1/1"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockExec := executor.NewMockExecutor()
-
-			// Set up expectations
-			for i, cfg := range tt.configs {
-				mockExec.ExpectCommand(cfg.Command).
-					WillReturn(tt.mockResults[i], tt.mockErrors[i]).
-					Once().
-					Build()
-			}
-
-			var buf bytes.Buffer
-			ctx := context.Background()
-
-			err := runConcurrentDemo(ctx, &buf, mockExec, tt.configs, tt.maxWorkers)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("runConcurrentDemo() error = nil, want failure")
-				}
-			} else if err != nil {
-				t.Fatalf("runConcurrentDemo() unexpected error: %v", err)
-			}
-
-			output := buf.String()
-
-			// Verify expected outputs
-			for _, expected := range tt.expectedOutput {
-				if !strings.Contains(output, expected) {
-					t.Errorf("Expected output to contain %q, got:\n%s", expected, output)
-				}
-			}
-		})
-	}
+	return false
 }
