@@ -50,7 +50,22 @@ func TestPatternMatcher_MatchLanguages(t *testing.T) {
 		{
 			name:     "typescript project",
 			files:    []string{"tsconfig.json", "src/main.ts", "package.json"},
-			expected: []config.Language{config.LanguageTypeScript, config.LanguageJavaScript},
+			expected: []config.Language{config.LanguageTypeScript},
+		},
+		{
+			name:     "javascript from js files",
+			files:    []string{"src/main.js", "src/app.jsx"},
+			expected: []config.Language{config.LanguageJavaScript},
+		},
+		{
+			name:     "javascript from package.json without typescript",
+			files:    []string{"package.json", "README.md"},
+			expected: []config.Language{config.LanguageJavaScript},
+		},
+		{
+			name:     "typescript-only tree is not javascript",
+			files:    []string{"tsconfig.json", "src/main.ts"},
+			expected: []config.Language{config.LanguageTypeScript},
 		},
 		{
 			name:     "mixed project",

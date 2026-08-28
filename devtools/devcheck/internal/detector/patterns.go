@@ -67,7 +67,6 @@ func (pm *PatternMatcher) initializeDefaultPatterns() {
 	}
 
 	pm.languagePatterns[config.LanguageJavaScript] = []FilePattern{
-		{Pattern: "package.json", Language: config.LanguageJavaScript, Required: false},
 		{Pattern: "*.js", Language: config.LanguageJavaScript, Required: false},
 		{Pattern: "*.jsx", Language: config.LanguageJavaScript, Required: false},
 	}
@@ -121,7 +120,31 @@ func (pm *PatternMatcher) MatchLanguages(files []string) []config.Language {
 		}
 	}
 
+	if !hasLanguage(detected, config.LanguageJavaScript) &&
+		!hasLanguage(detected, config.LanguageTypeScript) &&
+		pm.hasBasename(files, "package.json") {
+		detected = append(detected, config.LanguageJavaScript)
+	}
+
 	return detected
+}
+
+func hasLanguage(languages []config.Language, want config.Language) bool {
+	for _, language := range languages {
+		if language == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (pm *PatternMatcher) hasBasename(files []string, name string) bool {
+	for _, file := range files {
+		if filepath.Base(file) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // MatchBuildSystem detects the primary build system from the given files.
@@ -146,13 +169,17 @@ func (pm *PatternMatcher) MatchBuildSystem(files []string) config.BuildSystem {
 // MatchBuildSystemWithLocation detects the primary build system considering file locations.
 // It prioritizes build files in the root directory over those in subdirectories.
 func (pm *PatternMatcher) MatchBuildSystemWithLocation(files []string) config.BuildSystem {
-	// Priority order for build systems
-	buildSystemPriority := []config.BuildSystem{
-		config.BuildSystemBazel,
-		config.BuildSystemMake,
+	systems := pm.MatchBuildSystemsAtChosenDepth(files)
+	if len(systems) == 0 {
+		return config.BuildSystemNone
 	}
+	return systems[0]
+}
 
-	// Group files by directory depth
+// MatchBuildSystemsAtChosenDepth returns every build system present at the
+// shallowest directory depth that contains a build system. Bazel is listed
+// before Make when both exist at that depth.
+func (pm *PatternMatcher) MatchBuildSystemsAtChosenDepth(files []string) []config.BuildSystem {
 	filesByDepth := make(map[int][]string)
 	minDepth := -1
 	maxDepth := -1
@@ -168,29 +195,32 @@ func (pm *PatternMatcher) MatchBuildSystemWithLocation(files []string) config.Bu
 		filesByDepth[depth] = append(filesByDepth[depth], file)
 	}
 
-	// If no files found, return none
 	if minDepth == -1 {
-		return config.BuildSystemNone
+		return nil
 	}
 
-	// Check each depth level, starting from the shallowest (root)
+	order := []config.BuildSystem{
+		config.BuildSystemBazel,
+		config.BuildSystemMake,
+	}
 	for depth := minDepth; depth <= maxDepth; depth++ {
 		filesAtDepth, exists := filesByDepth[depth]
 		if !exists {
 			continue
 		}
-
-		// Check build systems in priority order at this depth
-		for _, buildSystem := range buildSystemPriority {
-			if patterns, exists := pm.buildSystemPatterns[buildSystem]; exists {
-				if pm.matchPatterns(filesAtDepth, patterns) {
-					return buildSystem
-				}
+		var matched []config.BuildSystem
+		for _, buildSystem := range order {
+			patterns, ok := pm.buildSystemPatterns[buildSystem]
+			if ok && pm.matchPatterns(filesAtDepth, patterns) {
+				matched = append(matched, buildSystem)
 			}
+		}
+		if len(matched) > 0 {
+			return matched
 		}
 	}
 
-	return config.BuildSystemNone
+	return nil
 }
 
 // MatchConfigFiles finds configuration files for the given tool.
