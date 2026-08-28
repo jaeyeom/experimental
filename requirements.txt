@@ -10,7 +10,9 @@ cssutils==2.11.1
     # via -r requirements.in
 more-itertools==10.6.0
     # via cssutils
-soupsieve==2.6
-    # via beautifulsoup4
+soupsieve==2.9.2
+    # via
+    #   -r requirements.in
+    #   beautifulsoup4
 typing-extensions==4.13.2
     # via beautifulsoup4
