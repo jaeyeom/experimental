@@ -1,0 +1,36 @@
+# docsync example mapping.
+# Copy to ./docsync.yml at the tree you want to treat as the mapping root
+# (usually the repo root). check and validate walk up from cwd looking for
+# that filename; --config PATH overrides discovery and that file's directory
+# becomes the root.
+#
+# version must be 1. Unknown YAML keys are a hard error.
+# Each rule needs a non-empty match list and a non-empty docs list.
+# match globs and docs[].path are relative to this file's directory.
+# An exact path is just a glob with no wildcards. A leading / is stripped.
+# Bare ** must be a complete path segment (src/**.go is invalid; use
+# src/**/*.go or **/*.go).
+
+version: 1
+rules:
+  # One or more globs. ** is root-anchored: this does not match
+  # vendor/internal/auth/token.go unless you write **/internal/auth/**/*.go.
+  - match: ["internal/auth/**/*.go"]
+    docs:
+      - path: docs/api-reference.md
+        section: "## Authentication"   # optional
+        why: "token TTL + claim shape" # optional
+
+  # Exact path: a glob with no metacharacters. Matches only this file,
+  # not src/config/schema.go.
+  - match: ["config/schema.go"]
+    docs:
+      - path: docs/configuration.md
+        why: "documented option list"
+
+  # Multiple globs share one docs list. {a,b} braces expand.
+  - match: ["migrations/*.sql", "db/{models,queries}.go"]
+    docs:
+      - path: docs/data-model.md
+        section: "## Schema"
+        why: "table/column reference"
