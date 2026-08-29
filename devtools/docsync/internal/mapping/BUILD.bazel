@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["mapping.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/docsync/internal/mapping",
+    visibility = ["//devtools/docsync:__subpackages__"],
+    deps = [
+        "@com_github_bmatcuk_doublestar_v4//:go_default_library",
+        "@in_gopkg_yaml_v3//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["mapping_test.go"],
+    embed = [":go_default_library"],
+)
