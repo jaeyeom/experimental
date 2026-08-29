@@ -14,10 +14,9 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest"]
 
-# Newly published grpcio would be excluded by a 7-day cooldown.
-# nosemgrep: uv-missing-dependency-cooldown
 [tool.uv]
 package = false
+exclude-newer = "7 days"
 
 [tool.ruff]
 extend-exclude = [
