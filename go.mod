@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/apple/pkl-go v0.14.0
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/google/renameio/v2 v2.0.0
 	github.com/jaeyeom/go-cmdexec v0.2.0
 	github.com/mattn/go-sqlite3 v1.14.19

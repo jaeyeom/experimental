@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "exit.go",
+        "root.go",
+        "version.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/docsync/internal/cli",
+    visibility = ["//devtools/docsync:__subpackages__"],
+    deps = [
+        "//devtools/docsync/internal/version:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+        "@com_github_spf13_cobra//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["cli_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/docsync/internal/version:go_default_library"],
+)
