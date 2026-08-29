@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "check.go",
         "exit.go",
         "root.go",
         "version.go",
@@ -10,6 +11,9 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/docsync/internal/cli",
     visibility = ["//devtools/docsync:__subpackages__"],
     deps = [
+        "//devtools/docsync/internal/gitchanges:go_default_library",
+        "//devtools/docsync/internal/mapping:go_default_library",
+        "//devtools/docsync/internal/matcher:go_default_library",
         "//devtools/docsync/internal/version:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
         "@com_github_spf13_cobra//:go_default_library",
@@ -18,7 +22,15 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["cli_test.go"],
+    srcs = [
+        "check_test.go",
+        "cli_test.go",
+    ],
+    data = glob(["testdata/**"]),
     embed = [":go_default_library"],
-    deps = ["//devtools/docsync/internal/version:go_default_library"],
+    deps = [
+        "//devtools/docsync/internal/matcher:go_default_library",
+        "//devtools/docsync/internal/version:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+    ],
 )
