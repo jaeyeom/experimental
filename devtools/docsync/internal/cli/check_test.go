@@ -57,12 +57,13 @@ func TestCheckBaseAndFilesMutuallyExclusive(t *testing.T) {
 func TestCheckJSONAffected(t *testing.T) {
 	t.Parallel()
 	cfg := writeDocsync(t, mappingYAML)
+	root := filepath.Dir(cfg)
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{
 		"check", "--config", cfg, "--json",
-		"--files", "internal/auth/token.go",
-		"--files", "config/schema.go",
-		"--files", "README.md",
+		"--files", filepath.Join(root, "internal/auth/token.go"),
+		"--files", filepath.Join(root, "config/schema.go"),
+		"--files", filepath.Join(root, "README.md"),
 	}, &stdout, &stderr, nil)
 	if code != ExitDocsAffected {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
@@ -77,8 +78,9 @@ func TestCheckJSONAffected(t *testing.T) {
 func TestCheckJSONClear(t *testing.T) {
 	t.Parallel()
 	cfg := writeDocsync(t, mappingYAML)
+	root := filepath.Dir(cfg)
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"check", "--config", cfg, "--json", "--files", "README.md"}, &stdout, &stderr, nil)
+	code := Execute(context.Background(), []string{"check", "--config", cfg, "--json", "--files", filepath.Join(root, "README.md")}, &stdout, &stderr, nil)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -92,11 +94,12 @@ func TestCheckJSONClear(t *testing.T) {
 func TestCheckTextAffected(t *testing.T) {
 	t.Parallel()
 	cfg := writeDocsync(t, mappingYAML)
+	root := filepath.Dir(cfg)
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{
 		"check", "--config", cfg,
-		"--files", "internal/auth/token.go",
-		"--files", "config/schema.go",
+		"--files", filepath.Join(root, "internal/auth/token.go"),
+		"--files", filepath.Join(root, "config/schema.go"),
 	}, &stdout, &stderr, nil)
 	if code != ExitDocsAffected {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
@@ -119,8 +122,9 @@ func TestCheckTextAffected(t *testing.T) {
 func TestCheckTextClear(t *testing.T) {
 	t.Parallel()
 	cfg := writeDocsync(t, mappingYAML)
+	root := filepath.Dir(cfg)
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"check", "--config", cfg, "--files", "README.md"}, &stdout, &stderr, nil)
+	code := Execute(context.Background(), []string{"check", "--config", cfg, "--files", filepath.Join(root, "README.md")}, &stdout, &stderr, nil)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -132,8 +136,9 @@ func TestCheckTextClear(t *testing.T) {
 func TestCheckExitZero(t *testing.T) {
 	t.Parallel()
 	cfg := writeDocsync(t, mappingYAML)
+	root := filepath.Dir(cfg)
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"check", "--config", cfg, "--exit-zero", "--files", "config/schema.go"}, &stdout, &stderr, nil)
+	code := Execute(context.Background(), []string{"check", "--config", cfg, "--exit-zero", "--files", filepath.Join(root, "config/schema.go")}, &stdout, &stderr, nil)
 	if code != ExitOK {
 		t.Fatalf("exit = %d, want 0, stderr=%q", code, stderr.String())
 	}
@@ -141,8 +146,9 @@ func TestCheckExitZero(t *testing.T) {
 
 func TestCheckConfigNotFoundDiscovery(t *testing.T) {
 	dir := t.TempDir()
-	t.Chdir(dir)
-	t.Setenv("BUILD_WORKING_DIRECTORY", "")
+	orig := startDirFn
+	startDirFn = func() string { return dir }
+	t.Cleanup(func() { startDirFn = orig })
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"check", "--files", "a.go"}, &stdout, &stderr, nil)
 	if code != ExitPrecondition {
@@ -198,12 +204,45 @@ func TestCheckGitMissing(t *testing.T) {
 
 func TestCheckStdinDash(t *testing.T) {
 	cfg := writeDocsync(t, mappingYAML)
-	restore := swapStdin(t, "config/schema.go\n")
+	root := filepath.Dir(cfg)
+	restore := swapStdin(t, filepath.Join(root, "config/schema.go")+"\n")
 	defer restore()
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"check", "--config", cfg, "-"}, &stdout, &stderr, nil)
 	if code != ExitDocsAffected {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+}
+
+func TestRelativizeUserPath(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	outside := t.TempDir()
+	insideCwd := filepath.Join(root, "internal")
+	absInside := filepath.Join(root, "internal", "auth", "token.go")
+	absOutside := filepath.Join(outside, "internal", "auth", "token.go")
+
+	tests := []struct {
+		name string
+		cwd  string
+		p    string
+		want string
+		ok   bool
+	}{
+		{name: "abs inside root", cwd: outside, p: absInside, want: "internal/auth/token.go", ok: true},
+		{name: "abs outside root", cwd: outside, p: absOutside, ok: false},
+		{name: "rel cwd-inside root", cwd: insideCwd, p: "auth/token.go", want: "internal/auth/token.go", ok: true},
+		{name: "rel mapping-root-style from outside cwd dropped", cwd: outside, p: "internal/auth/token.go", ok: false},
+		{name: "empty path", cwd: outside, p: "", ok: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := relativizeUserPath(root, tc.cwd, tc.p)
+			if ok != tc.ok || got != tc.want {
+				t.Fatalf("relativizeUserPath(...) = %q, %v; want %q, %v", got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 

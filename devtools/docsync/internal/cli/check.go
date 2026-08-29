@@ -95,7 +95,9 @@ func checkExit(result matcher.Result, exitZero bool) error {
 	return &ExitError{Code: ExitDocsAffected}
 }
 
-func startDir() string {
+var startDirFn = defaultStartDir
+
+func defaultStartDir() string {
 	if wd := os.Getenv("BUILD_WORKING_DIRECTORY"); wd != "" {
 		return wd
 	}
@@ -104,6 +106,10 @@ func startDir() string {
 		return ""
 	}
 	return wd
+}
+
+func startDir() string {
+	return startDirFn()
 }
 
 func resolveMapping(configPath string) (mapping.Mapping, error) {
@@ -234,11 +240,7 @@ func relativizeUserPath(root, cwd, p string) (string, bool) {
 		return mapping.Relativize(root, filepath.Clean(p))
 	}
 	fromCwd := filepath.Clean(filepath.Join(cwd, filepath.FromSlash(p)))
-	if rel, ok := mapping.Relativize(root, fromCwd); ok {
-		return rel, true
-	}
-	fromRoot := filepath.Clean(filepath.Join(root, filepath.FromSlash(p)))
-	return mapping.Relativize(root, fromRoot)
+	return mapping.Relativize(root, fromCwd)
 }
 
 func mapGitErr(err error) error {
