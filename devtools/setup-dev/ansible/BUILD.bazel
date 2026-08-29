@@ -1981,17 +1981,6 @@ sh_test(
 )
 
 sh_test(
-    name = "poetry_syntax_test",
-    srcs = ["test_ansible_syntax.sh"],
-    args = ["poetry.yml"],
-    data = ["poetry.yml"],
-    tags = [
-        "ansible",
-        "local",
-    ],
-)
-
-sh_test(
     name = "prettier_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["prettier.yml"],
@@ -4342,7 +4331,6 @@ test_suite(
         ":pkg-config_syntax_test",
         ":pkl_syntax_test",
         ":pnpm_syntax_test",
-        ":poetry_syntax_test",
         ":prettier_syntax_test",
         ":profile-antigravity_syntax_test",
         ":profile-cloudflare-dev_syntax_test",

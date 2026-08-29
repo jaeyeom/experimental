@@ -1,23 +1,22 @@
-[tool.poetry]
+[project]
 name = "experimental"
 version = "0.1.0"
 description = "Monorepo"
-authors = ["Jaehyun Yeom <jae.yeom@gmail.com>"]
 readme = "README.org"
+requires-python = ">=3.11"
+authors = [{ name = "Jaehyun Yeom", email = "jae.yeom@gmail.com" }]
+dependencies = [
+    "grpcio",
+    "protobuf",
+    "protovalidate",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-beautifulsoup4 = "^4.12.3"
-cssutils = "^2.11.1"
-soupsieve = ">=2.8.4"
-buf = {version = "*", markers = "sys_platform == 'linux-android'"}
-protovalidate = "^0.6.0"
-grpcio = {version = "*", markers = "sys_platform == 'linux-android'"}
-requests = ">=2.33.0"
+[dependency-groups]
+dev = ["pytest"]
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.uv]
+package = false
+exclude-newer = "7 days"
 
 [tool.ruff]
 extend-exclude = [
@@ -74,3 +73,29 @@ docstring-code-line-length = "dynamic"
 # My default choice is Google style because the docstring is concise yet
 # visually easy to understand.
 convention = "google"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "codelab/proto"
+files = [
+    "codelab/proto/client.py",
+    "codelab/proto/server.py",
+    "codelab/proto/client_test.py",
+    "codelab/proto/server_test.py",
+]
+exclude = [
+    "(^|/)gen/",
+    ".*_pb2\\.py$",
+    ".*_pb2_grpc\\.py$",
+    "^bazel-",
+]
+# Host mypy is an isolated uv tool; grpcio/pytest/protovalidate are not
+# installed next to it. Generated pb2 modules build messages dynamically.
+ignore_missing_imports = true
+disallow_subclassing_any = false
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = ["gen", "gen.*"]
+follow_imports = "skip"

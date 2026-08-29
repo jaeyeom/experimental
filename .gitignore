@@ -8,6 +8,7 @@
 .roo
 .roomodes
 .saved-claude-sessions
+docs/superpowers/
 
 # Bazel Related
 .bazel_output
@@ -60,3 +61,8 @@ coverage/
 
 # Project-local temp directory (sandbox-safe)
 .tmp/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]

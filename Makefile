@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check format format-whitespace check-whitespace check-format test lint fix check-requirements
+.PHONY: all check format format-whitespace check-whitespace check-format test lint fix check-uv-lock
 
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
@@ -7,13 +7,13 @@ SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; els
 # Phased targets for make -j safe parallel execution.
 # Each $(MAKE) line runs its targets in parallel; lines run sequentially.
 all:
-	$(MAKE) requirements.txt generate-ansible generate-pkl
+	$(MAKE) generate-ansible generate-pkl
 	$(MAKE) format
 	$(MAKE) fix
 	$(MAKE) test check-semgrep check-bazel-go-files check-org-lint-tests
 
 check:
-	$(MAKE) check-requirements check-generated
+	$(MAKE) check-uv-lock check-generated
 	$(MAKE) check-format test lint check-semgrep check-bazel-go-files check-org-lint-tests
 
 format: format-whitespace
@@ -36,11 +36,11 @@ check-format: check-whitespace
 test:
 	bazel test --test_summary=terse //...
 
-lint: lint-golangci lint-ruff lint-shellcheck check-spacemacs
+lint: lint-golangci lint-ruff lint-mypy lint-shellcheck check-spacemacs
 
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
-fix: fix-golangci fix-ruff lint-shellcheck check-spacemacs
+fix: fix-golangci fix-ruff lint-mypy lint-shellcheck check-spacemacs
 
 # Go targets
 .PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files
@@ -66,7 +66,7 @@ check-bazel-go-files:
 	@./check-bazel-src-files.sh go
 
 # Python targets
-.PHONY: lint-ruff fix-ruff
+.PHONY: lint-ruff fix-ruff lint-mypy check-uv-lock
 
 lint-ruff:
 	ruff check
@@ -74,19 +74,15 @@ lint-ruff:
 fix-ruff:
 	ruff check --fix
 
-check-requirements: requirements.in requirements.txt
-	@if [ requirements.in -nt requirements.txt ]; then \
-		echo "Error: requirements.txt is older than requirements.in. Run 'make requirements.txt'."; \
-		exit 1; \
-	fi
+lint-mypy:
+	mypy
 
-requirements.txt: requirements.in
-	@if ! command -v pip-compile >/dev/null 2>&1; then \
-		echo "Error: pip-compile is required to generate requirements.txt"; \
-		echo "Install pip-tools first."; \
+check-uv-lock: pyproject.toml uv.lock
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "Error: uv is required to check uv.lock"; \
 		exit 1; \
 	fi
-	pip-compile --upgrade --output-file=requirements.txt requirements.in
+	uv lock --check
 
 # Shell targets
 .PHONY: lint-shellcheck

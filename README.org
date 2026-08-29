@@ -33,7 +33,8 @@ The Go module path is =github.com/jaeyeom/experimental=. You will need:
 
 - [[https://bazel.build/install/bazelisk][Bazelisk]] (pinned via =.bazeliskrc=) — primary build and test driver.
 - =goimports= — Go formatting.
-- =golangci-lint=, =ruff=, =shellcheck=, =semgrep= — linters (run by =make lint= / =make check=).
+- =golangci-lint=, =ruff=, =mypy=, =shellcheck=, =semgrep= — linters (run by =make lint= / =make check=).
+- =uv= — Python lockfile tool (`uv.lock`; checked by =make check=).
 
 Clone the repo and run the test suite to verify your setup:
 
@@ -55,7 +56,7 @@ underneath for hermetic, reproducible builds.
 | =make check=         | Run all pre-commit checks: format, tests, lint, semgrep, generators. |
 | =make test=          | Run all Bazel tests (=bazel test //...=).                            |
 | =make format=        | Format code (=goimports= + Bazel =buildifier=).                      |
-| =make lint=          | Run golangci-lint, ruff, shellcheck, and Spacemacs checks.           |
+| =make lint=          | Run golangci-lint, ruff, mypy, shellcheck, and Spacemacs checks.     |
 | =make fix=           | Best-effort autofix for lint issues.                                 |
 | =make all=           | Regenerate, format, fix, then test and lint.                         |
 | =make coverage-html= | Generate an HTML coverage report under =coverage/html/=.             |
