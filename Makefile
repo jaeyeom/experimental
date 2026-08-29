@@ -43,16 +43,21 @@ lint: lint-golangci lint-ruff lint-mypy lint-shellcheck check-spacemacs
 fix: fix-golangci fix-ruff lint-mypy lint-shellcheck check-spacemacs
 
 # Go targets
-.PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files
+.PHONY: lint-golangci fix-golangci verify-golangci-config verify-oserrorsgodernize check-bazel-go-files
 GOLANGCI_CONFIG_HASH_FILE := .tmp/golangci.yml.hash
 
-lint-golangci: verify-golangci-config
+# oserrorsgodernize must be built against golang.org/x/tools >= v0.49.0
+# (Go 1.27 "package without types" crash; see #283).
+lint-golangci: verify-golangci-config verify-oserrorsgodernize
 	GOPACKAGESDRIVER= golangci-lint run ./...
 	oserrorsgodernize ./...
 
-fix-golangci: verify-golangci-config
+fix-golangci: verify-golangci-config verify-oserrorsgodernize
 	GOPACKAGESDRIVER= golangci-lint run --fix ./...
 	oserrorsgodernize --fix ./...
+
+verify-oserrorsgodernize:
+	@./check-oserrorsgodernize.sh
 
 verify-golangci-config:
 	@CURRENT_HASH=$$(shasum -a 256 .golangci.yml | cut -d' ' -f1); \

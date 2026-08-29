@@ -46,4 +46,9 @@ sh_binary(
     srcs = ["check-bazel-src-files.sh"],
 )
 
+sh_binary(
+    name = "check-oserrorsgodernize",
+    srcs = ["check-oserrorsgodernize.sh"],
+)
+
 org_lint_tests(["README.org"])
