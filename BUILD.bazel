@@ -35,6 +35,8 @@ exports_files(
     [
         "MODULE.bazel",
         ".shellcheckrc",
+        "pyproject.toml",
+        "uv.lock",
     ],
 )
 
