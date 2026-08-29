@@ -107,25 +107,36 @@ func startDir() string {
 }
 
 func resolveMapping(configPath string) (mapping.Mapping, error) {
-	path := configPath
-	if path == "" {
-		found, err := mapping.Find(startDir())
-		if err != nil {
-			if errors.Is(err, mapping.ErrNotFound) {
-				return mapping.Mapping{}, &ExitError{Code: ExitPrecondition, Err: err}
-			}
-			return mapping.Mapping{}, fmt.Errorf("find mapping: %w", err)
-		}
-		path = found
+	path, err := resolveMappingPath(configPath)
+	if err != nil {
+		return mapping.Mapping{}, err
 	}
 	m, err := mapping.Load(path)
 	if err != nil {
-		if configPath != "" && errors.Is(err, fs.ErrNotExist) {
-			return mapping.Mapping{}, &ExitError{Code: ExitUsage, Err: fmt.Errorf("config file not found: %s", configPath)}
-		}
-		return mapping.Mapping{}, fmt.Errorf("load mapping: %w", err)
+		return mapping.Mapping{}, wrapMappingOpenErr(configPath, err)
 	}
 	return m, nil
+}
+
+func resolveMappingPath(configPath string) (string, error) {
+	if configPath != "" {
+		return configPath, nil
+	}
+	found, err := mapping.Find(startDir())
+	if err != nil {
+		if errors.Is(err, mapping.ErrNotFound) {
+			return "", &ExitError{Code: ExitPrecondition, Err: err}
+		}
+		return "", fmt.Errorf("find mapping: %w", err)
+	}
+	return found, nil
+}
+
+func wrapMappingOpenErr(configPath string, err error) error {
+	if configPath != "" && errors.Is(err, fs.ErrNotExist) {
+		return &ExitError{Code: ExitUsage, Err: fmt.Errorf("config file not found: %s", configPath)}
+	}
+	return fmt.Errorf("load mapping: %w", err)
 }
 
 func changedFiles(ctx context.Context, exec executor.Executor, m mapping.Mapping, opts checkOpts) ([]string, error) {

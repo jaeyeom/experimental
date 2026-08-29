@@ -29,5 +29,6 @@ func newRoot(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	}
 	root.AddCommand(newVersionCmd(stdout))
 	root.AddCommand(newCheckCmd(stdout, exec))
+	root.AddCommand(newValidateCmd(stdout))
 	return root
 }

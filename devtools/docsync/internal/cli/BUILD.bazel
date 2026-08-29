@@ -6,6 +6,7 @@ go_library(
         "check.go",
         "exit.go",
         "root.go",
+        "validate.go",
         "version.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/docsync/internal/cli",
@@ -25,6 +26,7 @@ go_test(
     srcs = [
         "check_test.go",
         "cli_test.go",
+        "validate_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
