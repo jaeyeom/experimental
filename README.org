@@ -56,7 +56,7 @@ underneath for hermetic, reproducible builds.
 | =make check=         | Run all pre-commit checks: format, tests, lint, semgrep, generators. |
 | =make test=          | Run all Bazel tests (=bazel test //...=).                            |
 | =make format=        | Format code (=goimports= + Bazel =buildifier=).                      |
-| =make lint=          | Run golangci-lint, ruff, mypy, shellcheck, and Spacemacs checks. |
+| =make lint=          | Run golangci-lint, ruff, mypy, shellcheck, and Spacemacs checks.     |
 | =make fix=           | Best-effort autofix for lint issues.                                 |
 | =make all=           | Regenerate, format, fix, then test and lint.                         |
 | =make coverage-html= | Generate an HTML coverage report under =coverage/html/=.             |
