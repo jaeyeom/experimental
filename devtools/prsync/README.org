@@ -239,9 +239,10 @@ open or draft PR. These are almost always tabs whose PR already merged (or
 was abandoned): the agent is done and the tab, its worktree, and its slot
 against the concurrency gate can be reclaimed.
 
-For each live-agent tab whose label yields a ticket via ~title_id_pattern~,
-~prsync~ resolves the ticket to the author's PRs (across all states, in one
-~gh search prs~) and buckets the tab:
+For live-agent tabs whose labels yield tickets via ~title_id_pattern~,
+~prsync~ resolves those tickets to the author's PRs (across all states) in
+one batched ~gh search prs~ — chunked if GitHub's five-OR / 256-character
+query limits require it — and buckets each tab:
 
 - ~merged~ — the ticket's PR is merged (or closed) → *safe to close*;
   ~pr~ carries the number, repo, ~state~, and ~merged_at~ (null for a
