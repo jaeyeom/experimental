@@ -18,6 +18,13 @@ const (
 	BucketNoPR   = "no_pr"
 )
 
+// GitHub search rejects queries with more than five AND/OR/NOT operators
+// or more than 256 characters.
+const (
+	maxSearchORTerms  = 6
+	maxSearchQueryLen = 256
+)
+
 // liveAgentStatuses are the herdr statuses that mean an agent session exists.
 var liveAgentStatuses = map[string]struct{}{
 	"working": {},
@@ -77,6 +84,8 @@ func OrphansStarted(doc OrphanDocument) bool {
 // draft PR. A no_pr tab whose agent is still working is omitted (in-progress,
 // not reclaimable). openTabs is the set of tab ids a caller-supplied scan
 // already matched to an open PR; those are skipped without a GitHub search.
+// Remaining tickets are searched in OR-batched GitHub queries so a handful of
+// orphan tabs cannot trip the search secondary rate limit.
 // A non-nil error is fatal after the caller emits the document when
 // OrphansStarted.
 func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs map[string]struct{}, now time.Time) (OrphanDocument, error) {
@@ -107,14 +116,34 @@ func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs m
 	}
 
 	live := liveAgentsByTab(agents)
+	var pending []orphanCandidate
+	ticketSeen := make(map[string]struct{})
+	var tickets []string
 	for _, tab := range tabs {
 		if err := ctx.Err(); err != nil {
 			return doc, fmt.Errorf("orphans: %w", err)
 		}
-		orphan, ok, err := classifyTab(ctx, deps.GH, cfg, author, tab, live, openTabs)
-		if err != nil {
-			return doc, err
+		c, ok := candidateFromTab(tab, live, openTabs, cfg.TitleIDPattern)
+		if !ok {
+			continue
 		}
+		pending = append(pending, c)
+		if _, seen := ticketSeen[c.ticket]; seen {
+			continue
+		}
+		ticketSeen[c.ticket] = struct{}{}
+		tickets = append(tickets, c.ticket)
+	}
+
+	items, err := searchAuthoredTickets(ctx, deps.GH, author, tickets)
+	if err != nil {
+		return doc, err
+	}
+	for _, c := range pending {
+		if err := ctx.Err(); err != nil {
+			return doc, fmt.Errorf("orphans: %w", err)
+		}
+		orphan, ok := classifyCandidate(cfg, c, items)
 		if ok {
 			doc.OrphanTabs = append(doc.OrphanTabs, orphan)
 		}
@@ -149,48 +178,97 @@ func liveAgentsByTab(agents []herdr.Agent) map[string]string {
 	return out
 }
 
-func classifyTab(ctx context.Context, client OrphanGH, cfg config.Config, author string, tab herdr.Tab, live map[string]string, openTabs map[string]struct{}) (OrphanTab, bool, error) {
+type orphanCandidate struct {
+	tab    herdr.Tab
+	ticket string
+	status string
+}
+
+func candidateFromTab(tab herdr.Tab, live map[string]string, openTabs map[string]struct{}, re *regexp.Regexp) (orphanCandidate, bool) {
 	status, ok := live[tab.TabID]
 	if !ok {
-		return OrphanTab{}, false, nil
+		return orphanCandidate{}, false
 	}
-	ticketPtr := ExtractID(tab.Label, cfg.TitleIDPattern)
+	ticketPtr := ExtractID(tab.Label, re)
 	if ticketPtr == nil {
-		return OrphanTab{}, false, nil
+		return orphanCandidate{}, false
 	}
-	ticket := *ticketPtr
 	if _, matched := openTabs[tab.TabID]; matched {
-		return OrphanTab{}, false, nil
+		return orphanCandidate{}, false
 	}
+	return orphanCandidate{tab: tab, ticket: *ticketPtr, status: status}, true
+}
 
-	items, err := client.SearchAuthoredPRs(ctx, author, ticket)
-	if err != nil {
-		return OrphanTab{}, false, fmt.Errorf("search prs %s: %w", ticket, err)
+// ticketSearchQueries splits tickets into GitHub search queries under the
+// five-OR and 256-character limits. A single ticket is passed through as-is.
+func ticketSearchQueries(tickets []string) []string {
+	if len(tickets) == 0 {
+		return nil
 	}
-	candidates := filterByTicket(items, ticket, cfg.TitleIDPattern)
-	if hasOpenPR(candidates) {
-		return OrphanTab{}, false, nil
+	var queries []string
+	var chunk []string
+	for _, ticket := range tickets {
+		trial := searchQuery(append(append([]string{}, chunk...), ticket))
+		if len(chunk) > 0 && (len(chunk)+1 > maxSearchORTerms || len(trial) > maxSearchQueryLen) {
+			queries = append(queries, searchQuery(chunk))
+			chunk = []string{ticket}
+			continue
+		}
+		chunk = append(chunk, ticket)
+	}
+	return append(queries, searchQuery(chunk))
+}
+
+func searchQuery(tickets []string) string {
+	if len(tickets) == 1 {
+		return tickets[0]
+	}
+	return "(" + strings.Join(tickets, " OR ") + ")"
+}
+
+func searchAuthoredTickets(ctx context.Context, client OrphanGH, author string, tickets []string) ([]gh.PRSearchItem, error) {
+	var all []gh.PRSearchItem
+	for _, query := range ticketSearchQueries(tickets) {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("search prs: %w", err)
+		}
+		items, err := client.SearchAuthoredPRs(ctx, author, query)
+		if err != nil {
+			return nil, fmt.Errorf("search prs %s: %w", query, err)
+		}
+		all = append(all, items...)
+	}
+	if all == nil {
+		all = []gh.PRSearchItem{}
+	}
+	return all, nil
+}
+
+func classifyCandidate(cfg config.Config, c orphanCandidate, items []gh.PRSearchItem) (OrphanTab, bool) {
+	prs := filterByTicket(items, c.ticket, cfg.TitleIDPattern)
+	if hasOpenPR(prs) {
+		return OrphanTab{}, false
 	}
 
 	orphan := OrphanTab{
-		TabID:       tab.TabID,
-		WorkspaceID: tab.WorkspaceID,
-		Label:       tab.Label,
-		Ticket:      ticket,
-		AgentStatus: status,
+		TabID:       c.tab.TabID,
+		WorkspaceID: c.tab.WorkspaceID,
+		Label:       c.tab.Label,
+		Ticket:      c.ticket,
+		AgentStatus: c.status,
 	}
-	resolving := pickResolving(candidates)
+	resolving := pickResolving(prs)
 	if resolving == nil {
-		if status == "working" {
+		if c.status == "working" {
 			// Active work that has not opened a PR yet is not an orphan.
-			return OrphanTab{}, false, nil
+			return OrphanTab{}, false
 		}
 		orphan.Bucket = BucketNoPR
-		return orphan, true, nil
+		return orphan, true
 	}
 	orphan.Bucket = BucketMerged
 	orphan.PR = toOrphanPR(*resolving)
-	return orphan, true, nil
+	return orphan, true
 }
 
 // filterByTicket keeps only PRs whose title yields exactly this ticket via

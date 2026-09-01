@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
@@ -315,6 +316,177 @@ func TestOrphansResolvesAuthorWhenUnset(t *testing.T) {
 	}
 }
 
+func TestTicketSearchQueries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tickets []string
+		want    []string
+	}{
+		{name: "empty", tickets: nil, want: nil},
+		{name: "one passes through", tickets: []string{"AP-1"}, want: []string{"AP-1"}},
+		{
+			name:    "two joined with OR",
+			tickets: []string{"AP-1", "AP-2"},
+			want:    []string{"(AP-1 OR AP-2)"},
+		},
+		{
+			name:    "six is one query of five ORs",
+			tickets: []string{"A-1", "A-2", "A-3", "A-4", "A-5", "A-6"},
+			want:    []string{"(A-1 OR A-2 OR A-3 OR A-4 OR A-5 OR A-6)"},
+		},
+		{
+			name:    "seven splits after five ORs",
+			tickets: []string{"A-1", "A-2", "A-3", "A-4", "A-5", "A-6", "A-7"},
+			want:    []string{"(A-1 OR A-2 OR A-3 OR A-4 OR A-5 OR A-6)", "A-7"},
+		},
+		{
+			name: "splits before exceeding 256-char query",
+			tickets: []string{
+				"TICKET-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+				"TICKET-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+				"TICKET-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+				"TICKET-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+				"TICKET-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+			},
+			want: []string{
+				"(TICKET-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA OR TICKET-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB OR TICKET-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC OR TICKET-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD)",
+				"TICKET-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := ticketSearchQueries(tc.tickets)
+			if len(got) != len(tc.want) {
+				t.Fatalf("queries = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("queries[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+				if len(got[i]) > maxSearchQueryLen && len(tc.tickets) > 1 {
+					t.Fatalf("queries[%d] length %d exceeds %d", i, len(got[i]), maxSearchQueryLen)
+				}
+			}
+		})
+	}
+}
+
+func TestOrphansBatchesMultipleTicketsIntoOneSearch(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{
+		"AP-1306": {{
+			Number: 32347, Title: "[AP-1306] Fix", URL: "https://gh/acme/x/pull/32347",
+			State: "merged", ClosedAt: "2026-08-18T22:19:28Z",
+			Repository: gh.SearchRepository{NameWithOwner: "acme/x"},
+		}},
+		"AP-1287": {},
+		"AP-1400": {{
+			Number: 500, Title: "[AP-1400] WIP", State: "open",
+			Repository: gh.SearchRepository{NameWithOwner: "acme/x"},
+		}},
+	}}
+	h := stubHerdr{
+		tabs: []herdr.Tab{
+			liveTab("w2:tA", "w2", "AP-1306"),
+			liveTab("w2:tB", "w2", "AP-1287"),
+			liveTab("w2:tC", "w2", "AP-1400"),
+		},
+		agents: []herdr.Agent{
+			liveAgent("w2:pA", "w2:tA", "idle"),
+			liveAgent("w2:pB", "w2:tB", "idle"),
+			liveAgent("w2:pC", "w2:tC", "idle"),
+		},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(g.queried) != 1 || g.queried[0] != "(AP-1306 OR AP-1287 OR AP-1400)" {
+		t.Fatalf("queried = %v, want one batched OR query", g.queried)
+	}
+	if len(doc.OrphanTabs) != 2 {
+		t.Fatalf("orphan_tabs = %+v, want 2 (merged + no_pr; open omitted)", doc.OrphanTabs)
+	}
+	if doc.OrphanTabs[0].Ticket != "AP-1306" || doc.OrphanTabs[0].Bucket != BucketMerged {
+		t.Fatalf("orphan[0] = %+v, want AP-1306 merged", doc.OrphanTabs[0])
+	}
+	if doc.OrphanTabs[1].Ticket != "AP-1287" || doc.OrphanTabs[1].Bucket != BucketNoPR {
+		t.Fatalf("orphan[1] = %+v, want AP-1287 no_pr", doc.OrphanTabs[1])
+	}
+}
+
+func TestOrphansChunksWhenOverFiveOROperators(t *testing.T) {
+	t.Parallel()
+
+	tickets := []string{"AP-1", "AP-2", "AP-3", "AP-4", "AP-5", "AP-6", "AP-7"}
+	search := make(map[string][]gh.PRSearchItem, len(tickets))
+	tabs := make([]herdr.Tab, 0, len(tickets))
+	agents := make([]herdr.Agent, 0, len(tickets))
+	for _, ticket := range tickets {
+		search[ticket] = nil
+		id := "w2:t" + ticket
+		tabs = append(tabs, liveTab(id, "w2", ticket))
+		agents = append(agents, liveAgent("w2:p"+ticket, id, "idle"))
+	}
+	g := &orphanGH{search: search}
+	h := stubHerdr{tabs: tabs, agents: agents}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	want := []string{
+		"(AP-1 OR AP-2 OR AP-3 OR AP-4 OR AP-5 OR AP-6)",
+		"AP-7",
+	}
+	if len(g.queried) != len(want) {
+		t.Fatalf("queried = %v, want %v", g.queried, want)
+	}
+	for i := range want {
+		if g.queried[i] != want[i] {
+			t.Fatalf("queried[%d] = %q, want %q", i, g.queried[i], want[i])
+		}
+	}
+	if len(doc.OrphanTabs) != 7 {
+		t.Fatalf("len(orphan_tabs) = %d, want 7", len(doc.OrphanTabs))
+	}
+}
+
+func TestOrphansDuplicateTicketSharesSearch(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{
+		"AP-1306": {{
+			Number: 32347, Title: "[AP-1306] Fix", State: "merged",
+			ClosedAt: "2026-08-18T22:19:28Z", Repository: gh.SearchRepository{NameWithOwner: "acme/x"},
+		}},
+	}}
+	h := stubHerdr{
+		tabs: []herdr.Tab{
+			liveTab("w2:tA", "w2", "AP-1306"),
+			liveTab("w2:tB", "w2", "AP-1306"),
+		},
+		agents: []herdr.Agent{
+			liveAgent("w2:pA", "w2:tA", "idle"),
+			liveAgent("w2:pB", "w2:tB", "idle"),
+		},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(g.queried) != 1 || g.queried[0] != "AP-1306" {
+		t.Fatalf("queried = %v, want one AP-1306 search", g.queried)
+	}
+	if len(doc.OrphanTabs) != 2 {
+		t.Fatalf("orphan_tabs = %+v, want both tabs", doc.OrphanTabs)
+	}
+}
+
 type orphanGH struct {
 	authErr        error
 	login          string
@@ -335,5 +507,23 @@ func (g *orphanGH) UserLogin(context.Context) (string, error) {
 func (g *orphanGH) SearchAuthoredPRs(_ context.Context, author, query string) ([]gh.PRSearchItem, error) {
 	g.queried = append(g.queried, query)
 	g.searchedAuthor = author
-	return g.search[query], nil
+	if items, ok := g.search[query]; ok {
+		return items, nil
+	}
+	var out []gh.PRSearchItem
+	for _, ticket := range ticketsInSearchQuery(query) {
+		out = append(out, g.search[ticket]...)
+	}
+	if out == nil {
+		out = []gh.PRSearchItem{}
+	}
+	return out, nil
+}
+
+func ticketsInSearchQuery(query string) []string {
+	q := strings.TrimSuffix(strings.TrimPrefix(query, "("), ")")
+	if q == "" {
+		return nil
+	}
+	return strings.Split(q, " OR ")
 }
