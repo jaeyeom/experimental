@@ -34,6 +34,8 @@ jobs:
       - name: Strip HTML comments from PR body
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # path: checkouts leave GITHUB_WORKSPACE without .git; gh needs this.
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
