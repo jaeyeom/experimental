@@ -239,6 +239,41 @@ when persp-mode is available). Does not start Emacs.
 
 [[file:magit/README.org][→ Full Documentation]]
 
+*** prsync                                                       :experimental:
+
+Surveys the author's open GitHub PRs, matches them to running herdr agent
+tabs, and on request dispatches a prompt to address review comments or
+rebase. ~tabs --orphans~ finds live-agent tabs whose PR already merged.
+
+*Key Features:*
+- JSON CLI: ~scan~, ~tabs --orphans~, ~dispatch~, ~comment~, ~gate~, ~version~
+- Dry-run by default; ~--go~ sends or closes
+- Shells out to authenticated ~gh~ and herdr ≥ 0.8; never embeds a token
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest
+#+END_SRC
+
+[[file:prsync/README.org][→ Full Documentation]]
+
+*** reviewpush                                                   :experimental:
+
+Codex reviews local commits read-only; the wrapper validates the result and
+performs ~git push~. Codex never edits code or pushes.
+
+*Key Features:*
+- Oldest-ahead commit loop until HEAD matches the remote base
+- PUSH vs BLOCKED Codex contract; wrapper performs ~git push~
+- ~--repo~, ~--base~, ~--max-iterations~, ~--output~
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest
+#+END_SRC
+
+[[file:reviewpush/README.md][→ Full Documentation]]
+
 ** Configuration & Setup
 :PROPERTIES:
 :CUSTOM_ID: configuration
