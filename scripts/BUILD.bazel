@@ -1,4 +1,31 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
 sh_binary(
     name = "update-env-keys",
     srcs = ["update-env-keys.sh"],
+)
+
+py_library(
+    name = "strip_pr_html_comments_lib",
+    srcs = ["strip_pr_html_comments.py"],
+    imports = ["."],
+)
+
+py_binary(
+    name = "strip_pr_html_comments",
+    srcs = ["strip_pr_html_comments.py"],
+    imports = ["."],
+    main = "strip_pr_html_comments.py",
+    deps = [":strip_pr_html_comments_lib"],
+)
+
+py_test(
+    name = "strip_pr_html_comments_test",
+    srcs = ["strip_pr_html_comments_test.py"],
+    data = ["//.github:pull_request_template.md"],
+    imports = ["."],
+    deps = [
+        ":strip_pr_html_comments_lib",
+        "@pypi//pytest",
+    ],
 )

@@ -19,6 +19,19 @@ This file guides Claude Code's behavior.
 -   **Use rebase** to integrate upstream changes (`git pull --rebase`).
 -   **Use fast-forward merges** to main (`git merge --ff-only`).
 
+## Pull requests
+This repository squash-merges with the pull request title and description
+as the commit message. HTML comments (`<!-- ... -->`) in the PR body are
+copied into `git log` even though GitHub hides them in the rendered
+description.
+
+When creating or updating a PR:
+- Do not copy `<!-- ... -->` hints from `.github/pull_request_template.md`
+  into the submitted body. They are compose-time hints only.
+- Delete unused optional sections instead of leaving them empty.
+
+A workflow strips leftover comments from the stored body as a backstop.
+
 ## Temp File Handling
 -   **`$TMPDIR` differs between sandbox and unsandbox modes.** Sandbox uses
     `/tmp/claude`, unsandbox uses `/var/folders/.../T//claude`. Files created

@@ -83,6 +83,8 @@ files = [
     "codelab/proto/server.py",
     "codelab/proto/client_test.py",
     "codelab/proto/server_test.py",
+    "scripts/strip_pr_html_comments.py",
+    "scripts/strip_pr_html_comments_test.py",
 ]
 exclude = [
     "(^|/)gen/",
