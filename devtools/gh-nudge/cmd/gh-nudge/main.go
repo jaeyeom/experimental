@@ -125,8 +125,13 @@ func processReviewer(
 		return fmt.Errorf("no Slack user ID mapping for GitHub user: %s", reviewer.Login)
 	}
 
-	// Check if we should notify based on threshold hours
-	shouldNotify := notificationTracker.ShouldNotify(pr.URL, reviewer.Login, cfg.Settings.ReminderThresholdHours)
+	// Check if we should notify based on threshold hours and request cycle.
+	shouldNotify := notificationTracker.ShouldNotifyReviewer(
+		pr.URL,
+		reviewer.Login,
+		cfg.Settings.ReminderThresholdHours,
+		pr.LatestReviewSubmittedAt(reviewer.Login),
+	)
 	if !shouldNotify {
 		slog.Info("Skipping notification within threshold period",
 			"pr", pr.Title,

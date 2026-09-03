@@ -173,3 +173,196 @@ func TestPersistence(t *testing.T) {
 		}
 	})
 }
+
+func TestShouldNotifyReviewerNewRequestCycle(t *testing.T) {
+	originalTimeNow := timeNow
+	defer func() { timeNow = originalTimeNow }()
+
+	pingTime := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time { return pingTime }
+
+	tracker := NewTracker()
+	prURL := "https://github.com/org/repo/pull/1"
+	reviewer := "alice"
+
+	if err := tracker.RecordNotification(prURL, reviewer); err != nil {
+		t.Fatalf("Failed to record notification: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		reviewer       string
+		latestReviewAt time.Time
+		elapsed        time.Duration
+		thresholdHours int
+		want           bool
+	}{
+		{
+			name:           "review after ping starts a new cycle within threshold",
+			reviewer:       reviewer,
+			latestReviewAt: pingTime.Add(2 * time.Hour),
+			thresholdHours: 24,
+			want:           true,
+		},
+		{
+			name:           "no review within threshold does not notify",
+			reviewer:       reviewer,
+			thresholdHours: 24,
+			want:           false,
+		},
+		{
+			name:           "review before ping within threshold does not notify",
+			reviewer:       reviewer,
+			latestReviewAt: pingTime.Add(-time.Hour),
+			thresholdHours: 24,
+			want:           false,
+		},
+		{
+			name:           "review at exact ping time does not start a new cycle",
+			reviewer:       reviewer,
+			latestReviewAt: pingTime,
+			thresholdHours: 24,
+			want:           false,
+		},
+		{
+			name:           "no review after threshold still notifies",
+			reviewer:       reviewer,
+			elapsed:        25 * time.Hour,
+			thresholdHours: 24,
+			want:           true,
+		},
+		{
+			name:           "review before ping after threshold still notifies",
+			reviewer:       reviewer,
+			latestReviewAt: pingTime.Add(-time.Hour),
+			elapsed:        25 * time.Hour,
+			thresholdHours: 24,
+			want:           true,
+		},
+		{
+			name:           "reviewer with no notification history is notified",
+			reviewer:       "bob",
+			latestReviewAt: pingTime.Add(2 * time.Hour),
+			thresholdHours: 24,
+			want:           true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			timeNow = func() time.Time { return pingTime.Add(tc.elapsed) }
+			got := tracker.ShouldNotifyReviewer(prURL, tc.reviewer, tc.thresholdHours, tc.latestReviewAt)
+			if got != tc.want {
+				t.Errorf("ShouldNotifyReviewer() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRecordNotificationAtUsesGivenTime(t *testing.T) {
+	originalTimeNow := timeNow
+	defer func() { timeNow = originalTimeNow }()
+
+	now := time.Date(2026, 3, 1, 15, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time { return now }
+
+	tracker := NewTracker()
+	prURL := "https://github.com/org/repo/pull/1"
+	reviewer := "alice"
+	recordedAt := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	if err := tracker.RecordNotificationAt(prURL, reviewer, recordedAt); err != nil {
+		t.Fatalf("RecordNotificationAt() error = %v", err)
+	}
+
+	if tracker.ShouldNotifyReviewer(prURL, reviewer, 24, time.Time{}) {
+		t.Error("Expected recorded timestamp to be within the threshold")
+	}
+
+	reviewBetween := recordedAt.Add(time.Hour)
+	if !tracker.ShouldNotifyReviewer(prURL, reviewer, 24, reviewBetween) {
+		t.Error("Expected a review after the recorded timestamp to start a new cycle")
+	}
+}
+
+func TestShouldNotifyReviewerFirstPingIgnoresOldReview(t *testing.T) {
+	tracker := NewTracker()
+	prURL := "https://github.com/org/repo/pull/1"
+	reviewer := "alice"
+	oldReview := time.Date(2026, 2, 1, 12, 0, 0, 0, time.UTC)
+
+	if !tracker.ShouldNotifyReviewer(prURL, reviewer, 24, oldReview) {
+		t.Error("Expected to notify when no previous notification exists, even if the reviewer has an older review")
+	}
+}
+
+func TestShouldNotifyReviewerCooldownAfterNewCyclePing(t *testing.T) {
+	originalTimeNow := timeNow
+	defer func() { timeNow = originalTimeNow }()
+
+	firstPing := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	reviewAt := firstPing.Add(2 * time.Hour)
+	secondPing := firstPing.Add(3 * time.Hour)
+
+	timeNow = func() time.Time { return firstPing }
+	tracker := NewTracker()
+	prURL := "https://github.com/org/repo/pull/1"
+	reviewer := "alice"
+
+	if err := tracker.RecordNotification(prURL, reviewer); err != nil {
+		t.Fatalf("Failed to record first notification: %v", err)
+	}
+
+	timeNow = func() time.Time { return secondPing }
+	if !tracker.ShouldNotifyReviewer(prURL, reviewer, 24, reviewAt) {
+		t.Fatal("Expected to notify after a review submitted after the last ping")
+	}
+
+	if err := tracker.RecordNotification(prURL, reviewer); err != nil {
+		t.Fatalf("Failed to record second notification: %v", err)
+	}
+
+	if tracker.ShouldNotifyReviewer(prURL, reviewer, 24, reviewAt) {
+		t.Error("Expected not to notify again within the threshold after pinging the new request cycle")
+	}
+
+	laterReview := secondPing.Add(time.Hour)
+	if !tracker.ShouldNotifyReviewer(prURL, reviewer, 24, laterReview) {
+		t.Error("Expected to notify again after a subsequent review starts another request cycle")
+	}
+}
+
+func TestShouldNotifyReviewerPersistsAcrossLoad(t *testing.T) {
+	tempDir := t.TempDir()
+	persistPath := filepath.Join(tempDir, "notifications.json")
+
+	originalTimeNow := timeNow
+	defer func() { timeNow = originalTimeNow }()
+
+	pingTime := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time { return pingTime }
+
+	tracker, err := NewPersistentTracker(persistPath)
+	if err != nil {
+		t.Fatalf("Failed to create persistent tracker: %v", err)
+	}
+
+	prURL := "https://github.com/org/repo/pull/1"
+	reviewer := "alice"
+	if err := tracker.RecordNotification(prURL, reviewer); err != nil {
+		t.Fatalf("Failed to record notification: %v", err)
+	}
+
+	loaded, err := NewPersistentTracker(persistPath)
+	if err != nil {
+		t.Fatalf("Failed to reload persistent tracker: %v", err)
+	}
+
+	timeNow = func() time.Time { return pingTime.Add(3 * time.Hour) }
+	if loaded.ShouldNotifyReviewer(prURL, reviewer, 24, time.Time{}) {
+		t.Error("Expected loaded tracker not to notify within threshold with no later review")
+	}
+	if !loaded.ShouldNotifyReviewer(prURL, reviewer, 24, pingTime.Add(2*time.Hour)) {
+		t.Error("Expected loaded tracker to notify when a review was submitted after the stored ping")
+	}
+}

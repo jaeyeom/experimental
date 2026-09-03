@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
@@ -402,18 +403,137 @@ func TestGetPendingPullRequests(t *testing.T) {
 			t.Fatal("expected executor to be called")
 		}
 
-		jsonFields := ""
-		for i, arg := range executor.lastArgs {
-			if arg == "--json" && i+1 < len(executor.lastArgs) {
-				jsonFields = executor.lastArgs[i+1]
-				break
-			}
-		}
-		if jsonFields == "" {
-			t.Fatal("expected --json argument")
-		}
+		jsonFields := jsonFieldsArg(t, executor.lastArgs)
 		if !strings.Contains(jsonFields, "labels") {
 			t.Errorf("expected --json fields to include labels, got %q", jsonFields)
+		}
+	})
+
+	t.Run("requests latestReviews in gh pr list JSON fields", func(t *testing.T) {
+		executor := &mockExecutor{captureArgs: true, output: "[]"}
+		client := NewClientWithExecutor(executor)
+
+		if _, err := client.GetPendingPullRequests(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		jsonFields := jsonFieldsArg(t, executor.lastArgs)
+		if !strings.Contains(jsonFields, "latestReviews") {
+			t.Errorf("expected --json fields to include latestReviews, got %q", jsonFields)
+		}
+	})
+
+	t.Run("parses latestReviews", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "Reviewed PR",
+				"url": "https://github.com/org/repo/pull/1",
+				"files": [],
+				"reviewRequests": [{"__typename": "User", "login": "alice"}],
+				"latestReviews": [
+					{
+						"author": {"login": "alice"},
+						"submittedAt": "2026-03-01T15:04:05Z",
+						"state": "CHANGES_REQUESTED"
+					},
+					{
+						"author": {"login": "bob"},
+						"submittedAt": "2026-03-01T16:00:00Z",
+						"state": "APPROVED"
+					}
+				]
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+		if len(prs[0].LatestReviews) != 2 {
+			t.Fatalf("expected 2 latest reviews, got %d", len(prs[0].LatestReviews))
+		}
+
+		alice := prs[0].LatestReviews[0]
+		if alice.Author.Login != "alice" {
+			t.Errorf("expected first review author alice, got %q", alice.Author.Login)
+		}
+		if alice.State != "CHANGES_REQUESTED" {
+			t.Errorf("expected first review state CHANGES_REQUESTED, got %q", alice.State)
+		}
+		wantAliceAt := mustParseTime(t, "2026-03-01T15:04:05Z")
+		if !alice.SubmittedAt.Equal(wantAliceAt) {
+			t.Errorf("expected alice submittedAt %v, got %v", wantAliceAt, alice.SubmittedAt)
+		}
+
+		bob := prs[0].LatestReviews[1]
+		if bob.Author.Login != "bob" {
+			t.Errorf("expected second review author bob, got %q", bob.Author.Login)
+		}
+		if bob.State != "APPROVED" {
+			t.Errorf("expected second review state APPROVED, got %q", bob.State)
+		}
+	})
+
+	t.Run("treats PRs without latestReviews field as unreviewed", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "Unreviewed PR",
+				"url": "https://github.com/org/repo/pull/1",
+				"files": [],
+				"reviewRequests": []
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+		if len(prs[0].LatestReviews) != 0 {
+			t.Errorf("expected no latest reviews, got %d", len(prs[0].LatestReviews))
+		}
+	})
+
+	t.Run("parses latestReviews with null author", func(t *testing.T) {
+		sampleJSON := `[
+			{
+				"title": "Deleted reviewer PR",
+				"url": "https://github.com/org/repo/pull/1",
+				"files": [],
+				"reviewRequests": [],
+				"latestReviews": [
+					{
+						"author": null,
+						"submittedAt": "2026-03-01T15:04:05Z",
+						"state": "COMMENTED"
+					}
+				]
+			}
+		]`
+
+		client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+		prs, err := client.GetPendingPullRequests()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(prs) != 1 {
+			t.Fatalf("expected 1 PR, got %d", len(prs))
+		}
+		if len(prs[0].LatestReviews) != 1 {
+			t.Fatalf("expected 1 latest review, got %d", len(prs[0].LatestReviews))
+		}
+		if prs[0].LatestReviews[0].Author.Login != "" {
+			t.Errorf("expected empty author login for null author, got %q", prs[0].LatestReviews[0].Author.Login)
 		}
 	})
 
@@ -777,6 +897,26 @@ func (m *mockExecutor) Execute(cmd string, args ...string) (string, error) {
 func (m *mockExecutor) ExecuteWithStdin(_ /* stdin */, cmd string, args ...string) (string, error) {
 	// For testing purposes, just delegate to Execute
 	return m.Execute(cmd, args...)
+}
+
+func jsonFieldsArg(t *testing.T, args []string) string {
+	t.Helper()
+	for i, arg := range args {
+		if arg == "--json" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	t.Fatal("expected --json argument")
+	return ""
+}
+
+func mustParseTime(t *testing.T, value string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", value, err)
+	}
+	return parsed
 }
 
 // Helper function to compare slices.

@@ -144,6 +144,15 @@ func (t *Tracker) Save() error {
 // ShouldNotify determines if a notification should be sent based on the threshold hours.
 // Returns true if no previous notification exists or if the threshold hours have passed since the last notification.
 func (t *Tracker) ShouldNotify(prURL, reviewerLogin string, thresholdHours int) bool {
+	return t.ShouldNotifyReviewer(prURL, reviewerLogin, thresholdHours, time.Time{})
+}
+
+// ShouldNotifyReviewer determines if a notification should be sent for this
+// reviewer. latestReviewAt is their most recent submitted review on the PR, or
+// zero if they have not reviewed. A review submitted after the last
+// notification starts a new request cycle, so the previous cooldown does not
+// apply.
+func (t *Tracker) ShouldNotifyReviewer(prURL, reviewerLogin string, thresholdHours int, latestReviewAt time.Time) bool {
 	key := PRNotificationKey{
 		PRURL:         prURL,
 		ReviewerLogin: reviewerLogin,
@@ -157,20 +166,28 @@ func (t *Tracker) ShouldNotify(prURL, reviewerLogin string, thresholdHours int) 
 		return true
 	}
 
-	// Check if threshold hours have passed since the last notification
+	if !latestReviewAt.IsZero() && latestReviewAt.After(lastNotified) {
+		return true
+	}
+
 	thresholdDuration := time.Duration(thresholdHours) * time.Hour
 	return timeNow().Sub(lastNotified) >= thresholdDuration
 }
 
 // RecordNotification records that a notification was sent for a PR to a specific reviewer.
 func (t *Tracker) RecordNotification(prURL, reviewerLogin string) error {
+	return t.RecordNotificationAt(prURL, reviewerLogin, timeNow())
+}
+
+// RecordNotificationAt records that a notification was sent at the given time.
+func (t *Tracker) RecordNotificationAt(prURL, reviewerLogin string, at time.Time) error {
 	key := PRNotificationKey{
 		PRURL:         prURL,
 		ReviewerLogin: reviewerLogin,
 	}
 
 	t.mutex.Lock()
-	t.notifications[key] = timeNow()
+	t.notifications[key] = at
 	t.mutex.Unlock()
 
 	// Persist the updated state
