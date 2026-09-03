@@ -263,7 +263,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, rebase bool, clock Clock, sleeper Sleeper) Item {
 	pr := *c.PR
 	pane := *pr.Tab.PaneID
-	rendered := Render(promptTemplate(cfg, rebase), pr)
+	rendered := Render(promptTemplate(cfg, rebase), pr, cfg)
 	item := Item{Repo: c.Repo, Number: c.Number}
 	baseline, err := snapshotPane(ctx, h, pane)
 	if err != nil {
@@ -371,7 +371,7 @@ func evaluateDry(c Candidate, cfg config.Config, st State, rebase, force bool) I
 	pr := *c.PR
 	r.Action = ActionWouldDispatch
 	r.PaneID = *pr.Tab.PaneID
-	r.RenderedPrompt = Render(promptTemplate(cfg, rebase), pr)
+	r.RenderedPrompt = Render(promptTemplate(cfg, rebase), pr, cfg)
 	return r
 }
 

@@ -135,6 +135,8 @@ variables are not expanded.
 | ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens. Passed as ~herdr agent prompt --until~ flags, then required to hold after a ~working~ (or ~state_change_seq~) transition. At least one token required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
 | ~dry_run~ | ~true~ | ~true~ / ~false~ / ~1~ / ~0~. ~--go~ overrides to live. |
+| ~comment_link_max_chars~ | ~500~ | Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~ disables. Vendor-neutral: length only, not host. |
+| ~comment_body_max_chars~ | ~4000~ | Cap each comment body after link stripping. Appends ~… [truncated, see <thread url>]~. ~0~ disables. |
 
 ~dispatch_wait_until=idle done~ (the default) waits until the agent
 truly finishes — including after the user answers a question in that
