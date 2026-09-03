@@ -31,6 +31,16 @@ When creating or updating a PR:
 - Delete unused optional sections instead of leaving them empty.
 
 A workflow strips leftover comments from the stored body as a backstop.
+Other repositories can call the same workflow (pin the SHA):
+
+```yaml
+jobs:
+  strip:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: jaeyeom/experimental/.github/workflows/strip-pr-html-comments.yml@<sha>
+```
 
 ## Temp File Handling
 -   **`$TMPDIR` differs between sandbox and unsandbox modes.** Sandbox uses
