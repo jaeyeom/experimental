@@ -64,6 +64,24 @@ func TestTabsOrphansFixtureMerged(t *testing.T) {
 	}
 }
 
+func TestTabsOrphansEmptySearchIsNoPR(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	t.Setenv("GH_FAKE_SEARCH_EMPTY", "1")
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\n")
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"tabs", "--orphans", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	var doc scan.OrphanDocument
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout.String())
+	}
+	if len(doc.OrphanTabs) != 1 || doc.OrphanTabs[0].Bucket != scan.BucketNoPR {
+		t.Fatalf("orphan_tabs = %+v, want 1 no_pr", doc.OrphanTabs)
+	}
+}
+
 func TestTabsOrphansStdinReuseSkipsMatchedTab(t *testing.T) {
 	ghBin, herdrBin := fixtureBins(t)
 	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\n")
@@ -173,6 +191,48 @@ func TestTabsCloseMergedGoSkippedNotFound(t *testing.T) {
 	}
 	if len(doc.Results) != 1 || doc.Results[0].Action != scan.ActionSkippedNotFound {
 		t.Fatalf("results = %+v, want skipped_not_found", doc.Results)
+	}
+}
+
+func TestTabsCloseMergedAllNoPRRefuses(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	t.Setenv("GH_FAKE_SEARCH_EMPTY", "1")
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\n")
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"tabs", "--orphans", "--close-merged", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitPrecondition {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitPrecondition, stderr.String(), stdout.String())
+	}
+	var doc scan.CloseDocument
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout.String())
+	}
+	if len(doc.Results) != 0 {
+		t.Fatalf("results = %+v, want empty (refused)", doc.Results)
+	}
+	if len(doc.Warnings) == 0 {
+		t.Fatalf("warnings empty, want close-merged refused: %s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "every orphan is no_pr") {
+		t.Fatalf("stderr = %q, want all-no_pr refusal", stderr.String())
+	}
+}
+
+func TestTabsCloseMergedForceAllNoPR(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	t.Setenv("GH_FAKE_SEARCH_EMPTY", "1")
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\n")
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"tabs", "--orphans", "--close-merged", "--force", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	var doc scan.CloseDocument
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout.String())
+	}
+	if len(doc.Results) != 0 {
+		t.Fatalf("results = %+v, want empty (nothing merged)", doc.Results)
 	}
 }
 

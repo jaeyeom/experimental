@@ -275,6 +275,27 @@ func TestSearchAuthoredPRs(t *testing.T) {
 			t.Fatalf("got = %v, want empty non-nil", got)
 		}
 	})
+
+	// gh phrase-quotes a single argv that contains spaces, so
+	// `search prs "(A OR B)"` becomes q="(A OR B)" and matches nothing.
+	// Each token must be its own argv: search prs A OR B --author ...
+	t.Run("OR query is separate argv not one phrase", func(t *testing.T) {
+		t.Parallel()
+		body := `[{"number":1,"title":"[AP-1306] Fix","url":"https://gh/acme/x/pull/1",
+			"state":"merged","isDraft":false,"closedAt":"2026-08-18T22:19:28Z",
+			"repository":{"nameWithOwner":"acme/x"}}]`
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "search", "prs", "AP-1306", "OR", "AP-1287",
+			"--author", "alice", "--limit", "100", "--json", jsonFields).
+			WillSucceed(body, 0).Build()
+		got, err := NewClient(mock, testGHBin).SearchAuthoredPRs(context.Background(), "alice", "AP-1306 OR AP-1287")
+		if err != nil {
+			t.Fatalf("SearchAuthoredPRs() unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0].Number != 1 {
+			t.Fatalf("got = %+v, want the merged AP-1306 hit", got)
+		}
+	})
 }
 
 func TestReviewThreads(t *testing.T) {

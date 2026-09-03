@@ -90,9 +90,15 @@ func (c *Client) SearchOpenPRRepos(ctx context.Context, author string) (repos []
 // states (open, merged, closed). It is the reverse of ListOpenPRs: given a
 // ticket, find every PR whose text matches, so a tab can be correlated back to
 // a merged or abandoned PR.
+//
+// Query tokens are passed as separate argv entries. gh phrase-quotes a single
+// argv that contains spaces, so `(A OR B)` as one argument becomes
+// q="(A OR B)" and matches nothing; `A OR B` as three arguments becomes
+// q=( A OR B ).
 func (c *Client) SearchAuthoredPRs(ctx context.Context, author, query string) ([]PRSearchItem, error) {
-	result, err := c.requireOK(ctx, defaultCallTimeout,
-		"search", "prs", query, "--author", author, "--limit", "100", "--json", prSearchJSONFields)
+	args := append([]string{"search", "prs"}, strings.Fields(query)...)
+	args = append(args, "--author", author, "--limit", "100", "--json", prSearchJSONFields)
+	result, err := c.requireOK(ctx, defaultCallTimeout, args...)
 	if err != nil {
 		return nil, err
 	}

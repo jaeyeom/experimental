@@ -26,6 +26,7 @@ func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		readStdin   bool
 		closeMerged bool
 		goLive      bool
+		force       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "tabs",
@@ -39,7 +40,7 @@ func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if goLive && !closeMerged {
 				return &ExitError{Code: ExitUsage, Err: errors.New("--go requires --close-merged")}
 			}
-			return runTabsOrphans(cmd.Context(), stdout, exec, configPath, readStdin, closeMerged, goLive)
+			return runTabsOrphans(cmd.Context(), stdout, exec, configPath, readStdin, closeMerged, goLive, force)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -48,10 +49,11 @@ func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "reuse open-PR matches from a scan document on stdin")
 	cmd.Flags().BoolVar(&closeMerged, "close-merged", false, "close merged-bucket orphan tabs (default is dry-run)")
 	cmd.Flags().BoolVar(&goLive, "go", false, "actually close tabs (default is dry-run)")
+	cmd.Flags().BoolVar(&force, "force", false, "allow --close-merged when classification is all no_pr or unknown")
 	return cmd
 }
 
-func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, readStdin, closeMerged, goLive bool) error {
+func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, readStdin, closeMerged, goLive, force bool) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -79,6 +81,21 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 	}
 	if !closeMerged {
 		return writeOrphanJSON(stdout, doc)
+	}
+	if !force {
+		if reason := scan.UntrustedCloseReason(doc.OrphanTabs); reason != nil {
+			warnings := append(append([]string{}, doc.Warnings...), reason.Error())
+			out := scan.CloseDocument{
+				GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+				DryRun:      cfg.DryRun,
+				Results:     []scan.CloseItem{},
+				Warnings:    warnings,
+			}
+			if werr := writeCloseJSON(stdout, out); werr != nil {
+				return werr
+			}
+			return gateError(reason, cfg)
+		}
 	}
 	out, closeErr := scan.CloseMerged(ctx, scan.CloseDeps{
 		GH:    deps.GH,
