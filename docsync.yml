@@ -1,0 +1,295 @@
+# Curated code → doc index. Matching is root-anchored (no implicit **/).
+# Schema: devtools/docsync/docsync.yml.example
+
+version: 1
+rules:
+  # --- repository root ---
+  - match: ["Makefile"]
+    docs:
+      - path: README.org
+        section: "* Build System"
+        why: "make check/test/lint/format/fix/coverage targets"
+      - path: CLAUDE.md
+        section: "## Automation & Workflow"
+        why: "always run make check; use make format"
+      - path: AGENTS.md
+        why: "make check before signaling completion"
+
+  - match: ["MODULE.bazel", ".bazeliskrc"]
+    docs:
+      - path: README.org
+        section: "* Build System"
+        why: "Bazelisk, Go SDK, nogo, Gazelle, rules_python"
+
+  - match: ["go.mod", "pyproject.toml", "uv.lock"]
+    docs:
+      - path: README.org
+        section: "* Getting Started"
+        why: "Go module path, uv lockfile, listed linters"
+
+  - match: ["check-oserrorsgodernize.sh"]
+    docs:
+      - path: README.org
+        section: "* Getting Started"
+        why: "oserrorsgodernize must be built against golang.org/x/tools >= v0.49.0"
+
+  - match:
+      - "scripts/strip_pr_html_comments.py"
+      - ".github/workflows/strip-pr-html-comments.yml"
+      - ".github/pull_request_template.md"
+    docs:
+      - path: CLAUDE.md
+        section: "## Pull requests"
+        why: "squash-merge copies HTML comments; reusable strip workflow"
+      - path: AGENTS.md
+        why: "omit template HTML comments from PR bodies"
+
+  - match: ["tools/lint/**", "devtools/linters/unnecessaryinterfaceassertion/**"]
+    docs:
+      - path: README.org
+        section: "* Build System"
+        why: "nogo custom linters"
+      - path: devtools/linters/README.org
+        why: "unnecessary-interface-assertion-linter"
+
+  - match: ["tools/org-lint/**"]
+    docs:
+      - path: tools/org-lint/README.md
+        why: "org_lint_tests Starlark macro and check-org-lint-tests.sh"
+
+  # --- baseball / text / codelab ---
+  - match: ["baseball/**/*.go"]
+    docs:
+      - path: baseball/README.md
+        why: "Bulls and Cows solver"
+
+  - match: ["text/canvas/**/*.go"]
+    docs:
+      - path: text/canvas/README.md
+        why: "Canvas, Renderable, layout types"
+
+  - match: ["text/markdown/split/**"]
+    docs:
+      - path: text/markdown/split/README.md
+        why: "split CLI flags (-input/-output) and header-based splitting"
+
+  - match: ["codelab/dart/shyaml/**"]
+    docs:
+      - path: codelab/dart/shyaml/README.org
+        why: "spreadsheet-as-config CLI layout (bin/lib/test)"
+
+  # --- devtools catalog ---
+  - match: ["devtools/devcheck/**/*.go"]
+    docs:
+      - path: devtools/devcheck/README.org
+        why: "devcheck flags, Bazel/Make preference, LLM-oriented output"
+      - path: devtools/README.org
+        section: "*** devcheck"
+        why: "package summary and --dry-run/--filter flags"
+
+  - match:
+      - "devtools/docsync/**/*.go"
+      - "devtools/docsync/docsync.yml.example"
+    docs:
+      - path: devtools/docsync/README.org
+        why: "CLI, mapping schema, glob semantics, exit codes"
+      - path: devtools/README.org
+        section: "*** docsync"
+        why: "package summary"
+
+  - match: ["devtools/linters/cmd/org-lint/**"]
+    docs:
+      - path: devtools/linters/README.org
+        section: "** org-lint"
+        why: "org-lint CLI, exit codes, Emacs package loading"
+      - path: devtools/README.org
+        section: "*** linters"
+        why: "package summary"
+
+  - match: ["devtools/ascii-art/**"]
+    docs:
+      - path: devtools/ascii-art/README.org
+        why: "box-renderer CLI; documented gantt-chart/graph-viz layout"
+      - path: devtools/README.org
+        section: "*** ascii-art"
+        why: "package summary"
+
+  - match: ["devtools/rename-jira-keys/**/*.go"]
+    docs:
+      - path: devtools/rename-jira-keys/README.org
+        why: "rename-jira-keys flags and file rename behavior"
+      - path: devtools/README.org
+        section: "*** rename-jira-keys"
+        why: "package summary"
+
+  - match: ["devtools/claude-usage/**/*.go"]
+    docs:
+      - path: devtools/claude-usage/README.org
+        why: "usage windows, --json, Keychain/credentials resolution"
+      - path: devtools/README.org
+        section: "*** claude-usage"
+        why: "package summary"
+
+  - match: ["devtools/magit/magit"]
+    docs:
+      - path: devtools/magit/README.org
+        why: "magit CLI flags, emacsclient, perspective reuse"
+      - path: devtools/README.org
+        section: "*** magit"
+        why: "package summary"
+
+  - match:
+      - "devtools/prsync/**/*.go"
+      - "devtools/prsync/prsync.config.example"
+    docs:
+      - path: devtools/prsync/README.org
+        why: "scan/tabs/dispatch/comment/gate flags and herdr/gh prerequisites"
+
+  - match: ["devtools/reviewpush/**"]
+    docs:
+      - path: devtools/reviewpush/README.md
+        why: "review-and-push-loop Codex review/push workflow"
+
+  - match: ["devtools/pkg/ghauth/**", "devtools/pkg/ghtest/**"]
+    docs:
+      - path: devtools/pkg/PLAN.md
+        why: "ghauth TokenSource chain and ghtest helpers"
+
+  # --- gh-nudge (per-command docs) ---
+  - match:
+      - "devtools/gh-nudge/cmd/gh-nudge/**"
+      - "devtools/gh-nudge/internal/notification/**"
+    docs:
+      - path: devtools/gh-nudge/nudge.org
+        why: "review-reminder CLI, Slack DMs, notification thresholds"
+      - path: devtools/gh-nudge/README.org
+        why: "suite index"
+      - path: devtools/README.org
+        section: "*** gh-nudge"
+        why: "package summary"
+
+  - match:
+      - "devtools/gh-nudge/cmd/gh-slack/**"
+      - "devtools/gh-nudge/internal/slack/**"
+    docs:
+      - path: devtools/gh-nudge/slack.org
+        why: "gh-slack CLI and GitHub-to-Slack mapping"
+
+  - match: ["devtools/gh-nudge/cmd/gh-merge/**"]
+    docs:
+      - path: devtools/gh-nudge/merge.org
+        why: "gh-merge CLI, MERGEABLE filter, dry-run"
+
+  - match:
+      - "devtools/gh-nudge/cmd/gh-codeowners/**"
+      - "devtools/gh-nudge/internal/codeowners/**"
+    docs:
+      - path: devtools/gh-nudge/codeowners.org
+        why: "gh-codeowners CLI"
+
+  - match:
+      - "devtools/gh-nudge/cmd/gh-pr-review/**"
+      - "devtools/gh-nudge/internal/prreview/**"
+      - "devtools/gh-nudge/internal/models/**"
+    docs:
+      - path: devtools/gh-nudge/pr-review.org
+        why: "gh-pr-review capture/comment/submit workflow"
+      - path: devtools/gh-nudge/cmd/gh-pr-review/README.md
+        why: "quick-start README"
+
+  - match:
+      - "devtools/gh-nudge/cmd/gh-storage/**"
+      - "devtools/gh-nudge/internal/storage/**"
+    docs:
+      - path: devtools/gh-nudge/storage.org
+        why: "unified storage CLI and ~/.config/gh-nudge/storage layout"
+
+  - match:
+      - "devtools/gh-nudge/internal/config/**"
+      - "devtools/gh-nudge/pkl/**"
+    docs:
+      - path: devtools/gh-nudge/README.org
+        why: "shared config and suite layout"
+      - path: devtools/gh-nudge/nudge.org
+        why: "Slack token and reminder configuration"
+
+  # --- repo-sync ---
+  - match:
+      - "devtools/repo-sync/cmd/**"
+      - "devtools/repo-sync/internal/cli/**"
+    docs:
+      - path: devtools/repo-sync/README.org
+        why: "CLI commands (init/config/sync) and Bazel/Make install"
+      - path: devtools/README.org
+        section: "*** repo-sync"
+        why: "package summary"
+
+  - match: ["devtools/repo-sync/internal/database/**"]
+    docs:
+      - path: devtools/repo-sync/database-schema.org
+        why: "SQLite schema and metadata tracking"
+
+  - match: ["devtools/repo-sync/internal/reposync/**"]
+    docs:
+      - path: devtools/repo-sync/conflict-resolution.org
+        why: "content/deletion conflict detection and rsync"
+      - path: devtools/repo-sync/README.org
+        why: "selective sync behavior"
+
+  - match: ["devtools/repo-sync/internal/**/*.go"]
+    docs:
+      - path: devtools/repo-sync/technical-implementation.org
+        why: "architecture (config/database/git/reposync/cli)"
+      - path: devtools/repo-sync/error-handling.org
+        why: "error recovery procedures"
+
+  # --- setup-dev / ansible ---
+  - match:
+      - "devtools/setup-dev/ansible/*.go"
+      - "devtools/setup-dev/ansible/Makefile"
+    docs:
+      - path: devtools/setup-dev/ansible/README.org
+        why: "generator, playbook list, ensure.sh workflow"
+      - path: devtools/setup-dev/ansible/CLAUDE.md
+        why: "packages_data.go and make generate-ansible"
+      - path: .claude/skills/ansible-dev-setup/SKILL.md
+        why: "how to add packages and regenerate playbooks"
+      - path: devtools/README.org
+        section: "*** setup-dev"
+        why: "package summary"
+
+  - match:
+      - "devtools/setup-dev/ansible/ensure.sh"
+      - "devtools/setup-dev/ansible/bootstrap.sh"
+      - "devtools/setup-dev/ansible/community_general.sh"
+      - "devtools/setup-dev/ansible/cache_expired.sh"
+      - "devtools/setup-dev/ansible/verified-run"
+    docs:
+      - path: devtools/setup-dev/ansible/README.org
+        why: "bootstrap, ensure.sh, ansible-core, community.general"
+      - path: devtools/setup-dev/README.org
+        why: "fresh-machine bootstrap and clone path"
+
+  - match:
+      - "devtools/setup-dev/ansible/install_methods.go"
+      - "devtools/setup-dev/ansible/ensure.sh"
+    docs:
+      - path: devtools/setup-dev/ansible/macos.org
+        why: "Homebrew and community.general on macOS"
+
+  # --- spacemacs ---
+  - match: ["spacemacs/.spacemacs", "spacemacs/Makefile", "spacemacs/setup.sh"]
+    docs:
+      - path: spacemacs/README.org
+        why: "ensure.sh spacemacs setup and .spacemacs deployment"
+      - path: spacemacs/CLAUDE.md
+        why: "upstream ediff merge, TOC, naming, keybindings"
+      - path: .claude/skills/spacemacs/SKILL.md
+        why: "edit conventions for .spacemacs"
+
+  - match: ["spacemacs/private/local/*.el"]
+    docs:
+      - path: spacemacs/CLAUDE.md
+        why: "custom elisp conventions"
+      - path: .claude/skills/spacemacs/SKILL.md
+        why: "private/local packages such as my-attention.el"
