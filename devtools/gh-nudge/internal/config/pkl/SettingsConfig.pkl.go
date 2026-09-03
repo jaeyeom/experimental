@@ -3,7 +3,7 @@ package pkl
 
 // General application settings
 type SettingsConfig struct {
-	// Hours between reminder notifications for the same PR/reviewer
+	// Hours between reminder notifications for the same outstanding review request
 	ReminderThresholdHours int `pkl:"reminder_threshold_hours"`
 
 	// Only send notifications during working hours

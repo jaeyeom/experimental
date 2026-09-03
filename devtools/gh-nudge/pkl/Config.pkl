@@ -35,7 +35,7 @@ class SlackConfig {
 
 /// General application settings
 class SettingsConfig {
-  /// Hours between reminder notifications for the same PR/reviewer
+  /// Hours between reminder notifications for the same outstanding review request
   reminder_threshold_hours: Int(this > 0) = 24
   /// Only send notifications during working hours
   working_hours_only: Boolean = false

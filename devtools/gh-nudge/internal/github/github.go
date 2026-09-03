@@ -66,12 +66,13 @@ const pullRequestListLimit = 100
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	// Construct the gh command to get PR information.
 	// This fetches open PRs authored by the current user with their title, URL,
-	// review requests, and files. We use `pr list --author @me` instead of
-	// `pr status` because `pr status` is hardcoded to return at most 10 PRs.
+	// review requests, latest reviews, and files. We use `pr list --author @me`
+	// instead of `pr status` because `pr status` is hardcoded to return at most
+	// 10 PRs.
 	output, err := c.executor.Execute("gh", "pr", "list",
 		"--author", "@me",
 		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
-		"--json", "url,title,reviewRequests,files,mergeable,headRefName,statusCheckRollup,isDraft,labels")
+		"--json", "url,title,reviewRequests,latestReviews,files,mergeable,headRefName,statusCheckRollup,isDraft,labels")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gh command: %w", err)
 	}
