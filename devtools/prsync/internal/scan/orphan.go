@@ -13,9 +13,11 @@ import (
 )
 
 // Orphan tab buckets. has_open_pr tabs are not orphans and are omitted.
+// unknown means a multi-ticket search chunk mapped no PR onto any ticket.
 const (
-	BucketMerged = "merged"
-	BucketNoPR   = "no_pr"
+	BucketMerged  = "merged"
+	BucketNoPR    = "no_pr"
+	BucketUnknown = "unknown"
 )
 
 // GitHub search rejects queries with more than five AND/OR/NOT operators
@@ -53,7 +55,8 @@ type OrphanDocument struct {
 	Warnings    []string    `json:"warnings"`
 }
 
-// OrphanTab is one live-agent tab with no open or draft PR.
+// OrphanTab is one live-agent tab with no open or draft PR, or whose
+// search classification is unknown.
 type OrphanTab struct {
 	TabID       string    `json:"tab_id"`       //nolint:tagliatelle // brief outbound contract
 	WorkspaceID string    `json:"workspace_id"` //nolint:tagliatelle // brief outbound contract
@@ -85,7 +88,8 @@ func OrphansStarted(doc OrphanDocument) bool {
 // not reclaimable). openTabs is the set of tab ids a caller-supplied scan
 // already matched to an open PR; those are skipped without a GitHub search.
 // Remaining tickets are searched in OR-batched GitHub queries so a handful of
-// orphan tabs cannot trip the search secondary rate limit.
+// orphan tabs cannot trip the search secondary rate limit. A chunk that maps
+// no PR onto any of its tickets is unknown (not no_pr) and warned.
 // A non-nil error is fatal after the caller emits the document when
 // OrphansStarted.
 func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs map[string]struct{}, now time.Time) (OrphanDocument, error) {
@@ -135,15 +139,16 @@ func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs m
 		tickets = append(tickets, c.ticket)
 	}
 
-	items, err := searchAuthoredTickets(ctx, deps.GH, author, tickets)
+	items, unknown, warnings, err := searchAuthoredTickets(ctx, deps.GH, author, tickets, cfg.TitleIDPattern)
 	if err != nil {
 		return doc, err
 	}
+	doc.Warnings = append(doc.Warnings, warnings...)
 	for _, c := range pending {
 		if err := ctx.Err(); err != nil {
 			return doc, fmt.Errorf("orphans: %w", err)
 		}
-		orphan, ok := classifyCandidate(cfg, c, items)
+		orphan, ok := classifyCandidate(cfg, c, items, unknown)
 		if ok {
 			doc.OrphanTabs = append(doc.OrphanTabs, orphan)
 		}
@@ -201,61 +206,102 @@ func candidateFromTab(tab herdr.Tab, live map[string]string, openTabs map[string
 
 // ticketSearchQueries splits tickets into GitHub search queries under the
 // five-OR and 256-character limits. A single ticket is passed through as-is.
+// Tokens are space-separated (`A OR B`) so SearchAuthoredPRs can pass each as
+// its own argv; wrapping the whole expression in parentheses would make gh
+// phrase-quote it and match nothing.
 func ticketSearchQueries(tickets []string) []string {
+	chunks := ticketSearchChunks(tickets)
+	if chunks == nil {
+		return nil
+	}
+	queries := make([]string, len(chunks))
+	for i, chunk := range chunks {
+		queries[i] = searchQuery(chunk)
+	}
+	return queries
+}
+
+func ticketSearchChunks(tickets []string) [][]string {
 	if len(tickets) == 0 {
 		return nil
 	}
-	var queries []string
+	var chunks [][]string
 	var chunk []string
 	for _, ticket := range tickets {
 		trial := searchQuery(append(append([]string{}, chunk...), ticket))
 		if len(chunk) > 0 && (len(chunk)+1 > maxSearchORTerms || len(trial) > maxSearchQueryLen) {
-			queries = append(queries, searchQuery(chunk))
+			chunks = append(chunks, chunk)
 			chunk = []string{ticket}
 			continue
 		}
 		chunk = append(chunk, ticket)
 	}
-	return append(queries, searchQuery(chunk))
+	return append(chunks, chunk)
 }
 
 func searchQuery(tickets []string) string {
-	if len(tickets) == 1 {
-		return tickets[0]
-	}
-	return "(" + strings.Join(tickets, " OR ") + ")"
+	return strings.Join(tickets, " OR ")
 }
 
-func searchAuthoredTickets(ctx context.Context, client OrphanGH, author string, tickets []string) ([]gh.PRSearchItem, error) {
+func searchAuthoredTickets(ctx context.Context, client OrphanGH, author string, tickets []string, re *regexp.Regexp) ([]gh.PRSearchItem, map[string]struct{}, []string, error) {
 	var all []gh.PRSearchItem
-	for _, query := range ticketSearchQueries(tickets) {
+	unknown := make(map[string]struct{})
+	var warnings []string
+	for _, chunk := range ticketSearchChunks(tickets) {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("search prs: %w", err)
+			return nil, nil, warnings, fmt.Errorf("search prs: %w", err)
 		}
+		query := searchQuery(chunk)
 		items, err := client.SearchAuthoredPRs(ctx, author, query)
 		if err != nil {
-			return nil, fmt.Errorf("search prs %s: %w", query, err)
+			return nil, nil, warnings, fmt.Errorf("search prs %s: %w", query, err)
 		}
 		all = append(all, items...)
+		if len(chunk) > 1 && !chunkMappedAny(items, chunk, re) {
+			warnings = append(warnings, fmt.Sprintf(
+				"search %q returned no matching PRs for any of %d tickets; treating as unknown",
+				query, len(chunk)))
+			for _, ticket := range chunk {
+				unknown[ticket] = struct{}{}
+			}
+		}
 	}
 	if all == nil {
 		all = []gh.PRSearchItem{}
 	}
-	return all, nil
+	return all, unknown, warnings, nil
 }
 
-func classifyCandidate(cfg config.Config, c orphanCandidate, items []gh.PRSearchItem) (OrphanTab, bool) {
-	prs := filterByTicket(items, c.ticket, cfg.TitleIDPattern)
-	if hasOpenPR(prs) {
-		return OrphanTab{}, false
+func chunkMappedAny(items []gh.PRSearchItem, tickets []string, re *regexp.Regexp) bool {
+	wanted := make(map[string]struct{}, len(tickets))
+	for _, ticket := range tickets {
+		wanted[ticket] = struct{}{}
 	}
+	for _, item := range items {
+		if id := ExtractID(item.Title, re); id != nil {
+			if _, ok := wanted[*id]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
 
+func classifyCandidate(cfg config.Config, c orphanCandidate, items []gh.PRSearchItem, unknown map[string]struct{}) (OrphanTab, bool) {
 	orphan := OrphanTab{
 		TabID:       c.tab.TabID,
 		WorkspaceID: c.tab.WorkspaceID,
 		Label:       c.tab.Label,
 		Ticket:      c.ticket,
 		AgentStatus: c.status,
+	}
+	if _, bad := unknown[c.ticket]; bad {
+		orphan.Bucket = BucketUnknown
+		return orphan, true
+	}
+	prs := filterByTicket(items, c.ticket, cfg.TitleIDPattern)
+	if hasOpenPR(prs) {
+		return OrphanTab{}, false
 	}
 	resolving := pickResolving(prs)
 	if resolving == nil {
