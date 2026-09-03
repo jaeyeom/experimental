@@ -1,0 +1,27 @@
+{
+  "affected": [
+    {
+      "path": "docs/api-reference.md",
+      "section": "## Authentication",
+      "why": "token TTL + claim shape",
+      "triggered_by": [
+        "internal/auth/token.go"
+      ]
+    },
+    {
+      "path": "docs/configuration.md",
+      "why": "documented option list",
+      "triggered_by": [
+        "config/schema.go"
+      ]
+    }
+  ],
+  "changed_files": [
+    "internal/auth/token.go",
+    "config/schema.go",
+    "README.md"
+  ],
+  "unmatched_files": [
+    "README.md"
+  ]
+}

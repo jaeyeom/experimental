@@ -55,6 +55,32 @@ otherwise language-specific tools, and prints LLM-friendly output.
 
 [[file:devcheck/README.org][→ Full Documentation]]
 
+*** docsync                                                    :experimental:
+
+Matcher CLI that maps changed files to the docs they likely stale. Judgment
+(is the doc actually stale, and how to fix it) stays with the human or LLM;
+the tool only reports which docs a change implicated.
+
+*Key Features:*
+- Curated ~docsync.yml~ glob map from code paths to shadowed docs
+- ~check~ against ~git diff~ or an explicit file list
+- ~validate~ lints the mapping (schema, globs, missing docs)
+- Human-readable and JSON output with CI-friendly exit codes
+
+*Installation:*
+#+BEGIN_SRC bash
+  go install github.com/jaeyeom/experimental/devtools/docsync/cmd/docsync@latest
+#+END_SRC
+
+*Usage:*
+#+BEGIN_SRC bash
+  docsync check --base main
+  docsync check --files internal/auth/token.go --json
+  docsync validate
+#+END_SRC
+
+[[file:docsync/README.org][→ Full Documentation]]
+
 *** linters                                                    :experimental:
 
 Collection of linting tools for various file formats, including org-lint

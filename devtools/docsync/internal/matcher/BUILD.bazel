@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["matcher.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/docsync/internal/matcher",
+    visibility = ["//devtools/docsync:__subpackages__"],
+    deps = [
+        "//devtools/docsync/internal/mapping:go_default_library",
+        "@com_github_bmatcuk_doublestar_v4//:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["matcher_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/docsync/internal/mapping:go_default_library"],
+)

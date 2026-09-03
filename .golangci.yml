@@ -60,6 +60,7 @@ linters:
           allow:
             - $gostd
             - github.com/apple/pkl-go
+            - github.com/bmatcuk/doublestar
             - github.com/google/uuid
             - "github.com/jaeyeom/experimental"
             - "github.com/jaeyeom/go-cmdexec"

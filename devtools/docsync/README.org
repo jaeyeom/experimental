@@ -1,0 +1,247 @@
+#+TITLE: docsync
+#+DATE: 2026-08-28
+
+* Overview
+
+~docsync~ is a matcher CLI: given a curated map of code paths to the docs
+that shadow them, it diffs a change set against that map and reports which
+docs a change likely made stale. The mechanical part — glob-matching
+changed files and computing the union of implicated docs — is
+deterministic. Judgment ("is this doc actually stale, and how do I fix
+it?") stays with the human or the LLM.
+
+v1 does not draft doc edits, does not talk to the network, and does not
+read ~last_reviewed~ front-matter.
+
+Related: this repo's
+~docs/superpowers/specs/2026-08-28-docsync-design.md~.
+
+* Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/docsync/cmd/docsync@latest
+#+END_SRC
+
+Or with Bazel from this repo:
+
+#+BEGIN_SRC bash
+bazel run //devtools/docsync/cmd/docsync -- version
+#+END_SRC
+
+After ~go install~, put ~$GOPATH/bin~ / ~$GOBIN~ on ~PATH~.
+
+* Commands
+
+#+BEGIN_EXAMPLE
+docsync check    --base REF | --files PATH ... | -
+                 [--config PATH] [--json] [--exit-zero]
+docsync validate [--config PATH]
+docsync version
+#+END_EXAMPLE
+
+| Command     | Effect |
+|-------------+--------|
+| ~check~     | Match changed files to implicated docs |
+| ~validate~  | Lint ~docsync.yml~ (no git) |
+| ~version~   | Print ~{"version":"..."}~ as JSON |
+
+Copy [[file:docsync.yml.example][docsync.yml.example]] to ~docsync.yml~ at the mapping root and edit.
+
+** check
+
+Requires exactly one of ~--base~ or ~--files~ / ~-~. Both or neither is a
+usage error (exit 2). There is no implicit default base.
+
+| Flag | Effect |
+|------+--------|
+| ~--base REF~ | Changes via ~git diff --name-only REF...HEAD~ |
+| ~--files PATH~ | Explicit changed file (repeatable) |
+| ~-~ or ~--files -~ | NUL- or newline-separated paths from stdin |
+| ~--config PATH~ | Mapping file (default: upward discovery) |
+| ~--json~ | Emit JSON instead of the text report |
+| ~--exit-zero~ | Exit 0 even when docs are implicated |
+
+#+BEGIN_SRC bash
+docsync check --base main
+docsync check --files internal/auth/token.go --files config/schema.go
+docsync check --files - --json < changed.txt
+git diff --name-only main...HEAD | docsync check -
+#+END_SRC
+
+Text report, one block per implicated doc (deduped by path + section):
+
+#+BEGIN_EXAMPLE
+Affected docs (2):
+  docs/api-reference.md  §Authentication
+    ← internal/auth/token.go (why: token TTL + claim shape)
+  docs/configuration.md
+    ← config/schema.go (why: documented option list)
+#+END_EXAMPLE
+
+No matches:
+
+#+BEGIN_EXAMPLE
+All clear — no docs implicated.
+#+END_EXAMPLE
+
+JSON (~--json~). Keys are snake_case as specified (~triggered_by~,
+~changed_files~, ~unmatched_files~). ~unmatched_files~ are changed paths
+that hit no rule (coverage gaps):
+
+#+BEGIN_SRC json
+{
+  "affected": [
+    {
+      "path": "docs/api-reference.md",
+      "section": "## Authentication",
+      "why": "token TTL + claim shape",
+      "triggered_by": ["internal/auth/token.go"]
+    }
+  ],
+  "changed_files": ["internal/auth/token.go", "config/schema.go"],
+  "unmatched_files": ["README.md"]
+}
+#+END_SRC
+
+** validate
+
+Loads and lints the mapping without touching git.
+
+#+BEGIN_SRC bash
+docsync validate
+docsync validate --config ./docsync.yml
+#+END_SRC
+
+Checks: schema (~version~ must be ~1~, required fields, unknown keys),
+each ~match~ glob compiles, each ~docs[].path~ exists on disk (error),
+and — warning only — a rule whose globs currently match zero files in
+the tree.
+
+#+BEGIN_EXAMPLE
+docsync.yml: 2 problems
+  error  rule[3].match "src/**.go" is not a valid glob (bare ** must be a path segment)
+  warn   rule[5].match ["legacy/*.go"] matches no files currently tracked
+  error  rule[1].docs[0].path "docs/old-name.md" does not exist
+#+END_EXAMPLE
+
+Clean mapping prints ~docsync.yml: ok~.
+
+** version
+
+#+BEGIN_SRC bash
+docsync version
+#+END_SRC
+
+#+BEGIN_SRC json
+{"version":"0.1.0"}
+#+END_SRC
+
+* Mapping file
+
+~docsync.yml~, schema version ~1~, one ~rules~ list. Each rule is a set
+of ~match~ globs and the ~docs~ they shadow. ~section~ and ~why~ are
+optional; ~path~ is required. Unknown YAML keys are a hard error.
+
+See [[file:docsync.yml.example][docsync.yml.example]] for a commented three-rule map.
+
+** Glob semantics
+
+Matching uses ~github.com/bmatcuk/doublestar/v4~ (~*~, ~**~, ~?~,
+~[...]~, ~{a,b}~). Patterns are slash-separated.
+
+1. *Root-anchored, not floating.* A pattern matches the entire
+   config-root-relative path. There is no implicit ~**/~ prefix.
+   ~config/schema.go~ matches only that file, not
+   ~src/config/schema.go~. This differs from ~.gitignore~. To match a
+   name at any depth, write the ~**/~ yourself.
+
+   | Pattern | Matches | Doesn't match |
+   |---------+---------+---------------|
+   | ~config/schema.go~ | ~config/schema.go~ | ~src/config/schema.go~ |
+   | ~**/config/schema.go~ | ~config/schema.go~, ~src/config/schema.go~ | ~config/schema_test.go~ |
+   | ~**/schema.go~ | any ~schema.go~ at any depth | — |
+
+2. *A leading ~/~ is stripped.* ~/config/schema.go~ and
+   ~config/schema.go~ mean the same thing.
+
+3. *Bare ~**~ must be a complete path segment.* ~src/**.go~ is invalid;
+   write ~src/**/*.go~.
+
+** Two-list maps
+
+There is no migration subcommand. An exact path is a glob with no
+metacharacters, so a two-list "exact files / glob patterns" map folds
+into a single ~rules~ list:
+
+#+BEGIN_SRC yaml
+# Not accepted — two lists:
+exact_files:
+  config/schema.go:
+    - path: docs/configuration.md
+      why: documented option list
+glob_patterns:
+  "internal/auth/**/*.go":
+    - path: docs/api-reference.md
+      section: "## Authentication"
+      why: token TTL + claim shape
+#+END_SRC
+
+becomes:
+
+#+BEGIN_SRC yaml
+version: 1
+rules:
+  - match: ["config/schema.go"]
+    docs:
+      - path: docs/configuration.md
+        why: documented option list
+  - match: ["internal/auth/**/*.go"]
+    docs:
+      - path: docs/api-reference.md
+        section: "## Authentication"
+        why: token TTL + claim shape
+#+END_SRC
+
+Each former key is one ~match~ entry. Several globs that share docs can
+sit on the same rule (~match: ["a", "b"]~).
+
+* Config discovery
+
+~check~ and ~validate~ walk *up* from the current directory looking for
+~docsync.yml~ (as git finds ~.git~). The directory that contains the
+mapping file is the *root*.
+
+1. ~--config PATH~ — use this file (must exist; missing file → exit 2).
+   That file's directory becomes the root.
+2. Else walk up from cwd. Under ~bazel run~, cwd is
+   ~BUILD_WORKING_DIRECTORY~.
+3. If none is found: precondition error (exit 3).
+
+All ~match~ globs and ~docs[].path~ values are relative to the root.
+Changed paths (~git diff --name-only~ is repo-root-relative; ~--files~
+/ stdin may be cwd-relative or absolute) are normalized to
+root-relative before matching. A path that falls *outside* the root is
+dropped — not an error — which is normal when the mapping root is a
+subdirectory of a larger repo.
+
+* Exit codes
+
+| Code | ~check~ | ~validate~ |
+|------+---------+------------|
+|    0 | No docs implicated | Clean |
+|    1 | One or more docs implicated | Warnings only |
+|    2 | Usage, config, or flag error | Any hard error |
+|    3 | Git not found, not a repo, or mapping not found via discovery | Mapping not found via discovery |
+
+~check --exit-zero~ forces 0 unless the run itself errored (2 and 3
+still apply).
+
+* Development
+
+#+BEGIN_SRC bash
+go test ./devtools/docsync/...
+bazel test //devtools/docsync/...
+#+END_SRC
+
+~org_lint_tests~ on this file lives in [[file:BUILD.bazel][BUILD.bazel]].
+Run ~make check~ from the repo root before sending a change.
