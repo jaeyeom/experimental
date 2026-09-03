@@ -448,6 +448,42 @@ settings:
 		}
 	})
 
+	t.Run("should load skip_users", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+
+slack:
+  token: "xoxb-test-token"
+
+settings:
+  skip_users:
+    - "bot-account"
+    - "contractor-who-opted-out"
+`
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
+		if err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		if len(cfg.Settings.SkipUsers) != 2 {
+			t.Fatalf("Expected 2 skip_users, got %d", len(cfg.Settings.SkipUsers))
+		}
+		if cfg.Settings.SkipUsers[0] != "bot-account" || cfg.Settings.SkipUsers[1] != "contractor-who-opted-out" {
+			t.Errorf("Expected skip_users [bot-account contractor-who-opted-out], got %v", cfg.Settings.SkipUsers)
+		}
+	})
+
 	t.Run("should default label filters to empty", func(t *testing.T) {
 		tempDir := t.TempDir()
 		configPath := filepath.Join(tempDir, "config.yaml")
@@ -477,6 +513,9 @@ slack:
 		if len(cfg.Settings.SkipLabels) != 0 {
 			t.Errorf("Expected empty skip_labels, got %v", cfg.Settings.SkipLabels)
 		}
+		if len(cfg.Settings.SkipUsers) != 0 {
+			t.Errorf("Expected empty skip_users, got %v", cfg.Settings.SkipUsers)
+		}
 	})
 }
 
@@ -496,5 +535,20 @@ func TestConvertPklConfigLabelFilters(t *testing.T) {
 	}
 	if len(cfg.Settings.SkipLabels) != 2 || cfg.Settings.SkipLabels[0] != "wip" || cfg.Settings.SkipLabels[1] != "do-not-nudge" {
 		t.Errorf("Expected skip_labels [wip do-not-nudge], got %v", cfg.Settings.SkipLabels)
+	}
+}
+
+func TestConvertPklConfigSkipUsers(t *testing.T) {
+	pklCfg := &pklconfig.Config{
+		Settings: pklconfig.SettingsConfig{
+			ReminderThresholdHours: 24,
+			SkipUsers:              []string{"bot-account", "contractor-who-opted-out"},
+		},
+	}
+
+	cfg := convertPklConfig(pklCfg)
+
+	if len(cfg.Settings.SkipUsers) != 2 || cfg.Settings.SkipUsers[0] != "bot-account" || cfg.Settings.SkipUsers[1] != "contractor-who-opted-out" {
+		t.Errorf("Expected skip_users [bot-account contractor-who-opted-out], got %v", cfg.Settings.SkipUsers)
 	}
 }

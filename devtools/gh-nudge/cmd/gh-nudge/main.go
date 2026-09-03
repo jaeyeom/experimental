@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
@@ -110,6 +111,13 @@ func processReviewer(
 	}
 
 	slog.Debug("Processing reviewer", "login", reviewer.Login)
+
+	if slices.Contains(cfg.Settings.SkipUsers, reviewer.Login) {
+		slog.Info("Skipping notification for user in skip_users",
+			"pr", pr.Title,
+			"reviewer", reviewer.Login)
+		return nil
+	}
 
 	// Check if we have a Slack user ID for this GitHub user
 	_, ok := slackClient.GetSlackUserIDForGitHubUser(slack.GitHubUsername(reviewer.Login))

@@ -20,4 +20,8 @@ type SettingsConfig struct {
 
 	// Skip nudging if the PR has any of these labels. Empty means no skip filter.
 	SkipLabels []string `pkl:"skip_labels"`
+
+	// Skip nudging these GitHub users. Empty means no users are skipped.
+	// Skipped users do not need a Slack user ID mapping.
+	SkipUsers []string `pkl:"skip_users"`
 }

@@ -47,6 +47,9 @@ class SettingsConfig {
   require_labels: Listing<String> = new {}
   /// Skip nudging if the PR has any of these labels. Empty means no skip filter.
   skip_labels: Listing<String> = new {}
+  /// Skip nudging these GitHub users. Empty means no users are skipped.
+  /// Skipped users do not need a Slack user ID mapping.
+  skip_users: Listing<String> = new {}
 }
 
 /// Root configuration
