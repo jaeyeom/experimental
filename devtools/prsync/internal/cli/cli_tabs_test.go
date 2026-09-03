@@ -102,6 +102,30 @@ func TestTabsOrphansStdinReuseSkipsMatchedTab(t *testing.T) {
 	}
 }
 
+func TestTabsOrphansStdinDraftIsNotOrphan(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	// Without the scan row, empty search would classify this tab as no_pr.
+	t.Setenv("GH_FAKE_SEARCH_EMPTY", "1")
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\n")
+	doc := stdinEligibleDoc()
+	doc.PRs[0].IsDraft = true
+	restore := swapStdin(t, string(mustScanJSON(t, doc)))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"tabs", "--orphans", "--stdin", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	var got scan.OrphanDocument
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout.String())
+	}
+	if len(got.OrphanTabs) != 0 {
+		t.Fatalf("orphan_tabs = %+v, want empty (open draft PR is not an orphan)", got.OrphanTabs)
+	}
+}
+
 func TestTabsGoRequiresCloseMerged(t *testing.T) {
 	t.Parallel()
 

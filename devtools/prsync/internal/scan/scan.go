@@ -135,9 +135,6 @@ func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []st
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("scan: %w", err)
 			}
-			if item.IsDraft && !cfg.IncludeDrafts {
-				continue
-			}
 			classified, err := classifyPR(ctx, client, cfg, owner, name, repo, item)
 			if err != nil {
 				return err

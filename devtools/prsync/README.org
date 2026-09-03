@@ -3,8 +3,8 @@
 
 * Overview
 
-~prsync~ surveys the author's open GitHub pull requests (drafts omitted
-by default), classifies which ones still need attention, matches each PR
+~prsync~ surveys the author's open GitHub pull requests (including
+drafts), classifies which ones still need attention, matches each PR
 to a running
 [[https://herdr.dev/][herdr]] agent tab, and — on explicit request — sends
 that agent a prompt to address unresolved review comments — or, with
@@ -131,7 +131,7 @@ variables are not expanded.
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for the per-send settle wait (and ~herdr agent prompt --timeout~). A prompt the agent never picks up becomes ~dispatched_timeout~. |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. Default: check out ~{head}~ (via ~gh pr checkout {number}~ if needed), bring it up to date with ~origin/{base}~, then apply mechanical / unambiguous fixes; for a design decision, tradeoff, or disagreement, pause and ask the user (with a recommended option) before editing / resolving / pushing. After the addressed threads are pushed, re-request each human reviewer whose listed comments are all done (~gh pr edit {number} --add-reviewer <login>~). Skip bots, skip already-pending reviewers, and do not dismiss reviews. |
 | ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
-| ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. When true, ~scan~ includes draft PRs and ~dispatch~ may send to them. |
+| ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts. |
 | ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens. Passed as ~herdr agent prompt --until~ flags, then required to hold after a ~working~ (or ~state_change_seq~) transition. At least one token required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
 | ~dry_run~ | ~true~ | ~true~ / ~false~ / ~1~ / ~0~. ~--go~ overrides to live. |
@@ -233,8 +233,9 @@ prsync scan --config ./prsync.config
 }
 #+END_SRC
 
-Draft PRs are omitted unless ~dispatch_include_drafts~ is true. ~bucket~
-is ~needs_you~ | ~ready~ | ~waiting~ | ~draft~. ~APPROVED~ with
+Draft PRs are included with ~is_draft: true~ (bucket ~draft~ unless they
+also need attention). ~dispatch~ skips them unless ~dispatch_include_drafts~
+is true. ~bucket~ is ~needs_you~ | ~ready~ | ~waiting~ | ~draft~. ~APPROVED~ with
 leftover ~review_requests~ is ~needs_you~, not ready to merge. ~tab~ is
 ~null~ when no unique herdr tab matches.
 
