@@ -52,6 +52,7 @@ type SettingsConfig struct {
 	DMByDefault            bool     `yaml:"dm_by_default"`
 	RequireLabels          []string `yaml:"require_labels"`
 	SkipLabels             []string `yaml:"skip_labels"`
+	SkipUsers              []string `yaml:"skip_users"`
 }
 
 // LoadConfig loads the configuration from the specified file path.
@@ -129,6 +130,7 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			DMByDefault:            pklCfg.Settings.DmByDefault,
 			RequireLabels:          pklCfg.Settings.RequireLabels,
 			SkipLabels:             pklCfg.Settings.SkipLabels,
+			SkipUsers:              pklCfg.Settings.SkipUsers,
 		},
 	}
 
