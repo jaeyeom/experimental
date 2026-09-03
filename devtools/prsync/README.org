@@ -128,26 +128,34 @@ variables are not expanded.
 | ~concurrency_wait_on~ | ~any~ | ~any~ (every working or blocked agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. |
 | ~gate_poll_ms~ | ~2000~ | Gate poll interval (milliseconds). |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
-| ~dispatch_timeout_ms~ | ~1800000~ | Passed to ~herdr agent prompt --timeout~. |
+| ~dispatch_timeout_ms~ | ~1800000~ | Bound for the per-send settle wait (and ~herdr agent prompt --timeout~). A prompt the agent never picks up becomes ~dispatched_timeout~. |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. Default: check out ~{head}~ (via ~gh pr checkout {number}~ if needed), bring it up to date with ~origin/{base}~, then apply mechanical / unambiguous fixes; for a design decision, tradeoff, or disagreement, pause and ask the user (with a recommended option) before editing / resolving / pushing. After the addressed threads are pushed, re-request each human reviewer whose listed comments are all done (~gh pr edit {number} --add-reviewer <login>~). Skip bots, skip already-pending reviewers, and do not dismiss reviews. |
 | ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
 | ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. When true, ~scan~ includes draft PRs and ~dispatch~ may send to them. |
-| ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated tokens. Each becomes its own ~--until~ flag on ~herdr agent prompt~. At least one token required. |
+| ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens. Passed as ~herdr agent prompt --until~ flags, then required to hold after a ~working~ (or ~state_change_seq~) transition. At least one token required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
 | ~dry_run~ | ~true~ | ~true~ / ~false~ / ~1~ / ~0~. ~--go~ overrides to live. |
 
 ~dispatch_wait_until=idle done~ (the default) waits until the agent
 truly finishes — including after the user answers a question in that
-tab. Live dispatch therefore runs:
+tab. Live dispatch still runs:
 
 #+BEGIN_EXAMPLE
 herdr agent prompt <pane_id> <prompt> --wait --until idle --until done --timeout …
 #+END_EXAMPLE
 
-If the user never answers, the wait ends at ~dispatch_timeout_ms~
-(~dispatched_timeout~; state is written so it is not retried blindly).
-A ~blocked~ settlement (~dispatched_blocked~) happens only when
-~blocked~ is included in ~dispatch_wait_until~: the batch stops, but
+That herdr wait is not treated as completion by itself: a candidate is
+already ~idle~/~done~ at send time, so ~--until idle done~ is true
+immediately. After the send, ~prsync~ records the pane's
+~state_change_seq~ (or ~revision~), waits until the agent is observed
+~working~ (or the sequence advances without a ~blocked~ flap), then
+requires the settle tokens to hold for several consecutive polls.
+
+If the agent never picks up the prompt, the wait ends at
+~dispatch_timeout_ms~ (~dispatched_timeout~; state is written so it is
+not retried blindly). A ~blocked~ settlement (~dispatched_blocked~)
+happens only when ~blocked~ is included in ~dispatch_wait_until~ *and*
+that status holds after the start transition: the batch stops, but
 dedupe state is not written, so a re-run can retry the same comment.
 Set ~dispatch_wait_until=idle~ only if you want to wait until herdr
 reports ~idle~ (can take about 30 minutes if the agent settles to
@@ -480,8 +488,9 @@ Confirm:
 - ~agent prompt~ targets a ~pane_id~ (~w2:pC~, not a tab id).
 - Default wait is ~--wait --until idle --until done~ (from
   ~dispatch_wait_until~).
-- ~--wait --until idle --until done~ returns after the agent settles
-  (after the user answers, if it asked).
+- ~--wait --until idle --until done~ is the herdr send; ~prsync~ then
+  waits for a ~working~ (or sequence) transition and a debounced
+  settle, not the pre-send ~idle~ status.
 
 This procedure is README-only; CI uses fixture binaries, not live herdr.
 

@@ -49,10 +49,12 @@ type Tab struct {
 
 // Agent is one herdr agent from `herdr agent list`.
 type Agent struct {
-	PaneID      string `json:"pane_id"` //nolint:tagliatelle // herdr/brief wire format
-	TabID       string `json:"tab_id"`  //nolint:tagliatelle // herdr/brief wire format
-	Agent       string `json:"agent"`
-	AgentStatus string `json:"agent_status"` //nolint:tagliatelle // herdr/brief wire format
+	PaneID         string `json:"pane_id"` //nolint:tagliatelle // herdr/brief wire format
+	TabID          string `json:"tab_id"`  //nolint:tagliatelle // herdr/brief wire format
+	Agent          string `json:"agent"`
+	AgentStatus    string `json:"agent_status"`     //nolint:tagliatelle // herdr/brief wire format
+	StateChangeSeq int    `json:"state_change_seq"` //nolint:tagliatelle // herdr/brief wire format
+	Revision       int    `json:"revision"`
 }
 
 // Pane is the focused or addressed pane from `herdr pane current`.
