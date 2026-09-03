@@ -242,6 +242,55 @@ func TestCloseMergedLiveReverifyUsesResolvedAuthor(t *testing.T) {
 	}
 }
 
+func unknownOrphan(tabID, ticket string) OrphanTab {
+	return OrphanTab{
+		TabID:       tabID,
+		WorkspaceID: "w2",
+		Label:       ticket,
+		Ticket:      ticket,
+		AgentStatus: "idle",
+		Bucket:      BucketUnknown,
+	}
+}
+
+func TestUntrustedCloseReason(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		orphans []OrphanTab
+		wantErr bool
+	}{
+		{name: "empty is fine", orphans: nil},
+		{name: "merged only", orphans: []OrphanTab{mergedOrphan("w2:tA", "AP-1306")}},
+		{name: "merged and no_pr", orphans: []OrphanTab{
+			mergedOrphan("w2:tA", "AP-1306"),
+			noPROrphan("w2:tB", "AP-1287"),
+		}},
+		{name: "all no_pr", orphans: []OrphanTab{noPROrphan("w2:tB", "AP-1287")}, wantErr: true},
+		{name: "unknown", orphans: []OrphanTab{unknownOrphan("w2:tA", "AP-1306")}, wantErr: true},
+		{name: "unknown among merged", orphans: []OrphanTab{
+			mergedOrphan("w2:tA", "AP-1306"),
+			unknownOrphan("w2:tB", "AP-1287"),
+		}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := UntrustedCloseReason(tc.orphans)
+			if tc.wantErr {
+				if !errors.Is(err, ErrCloseMergedUntrusted) {
+					t.Fatalf("error = %v, want ErrCloseMergedUntrusted", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestCloseMergedEmptyResults(t *testing.T) {
 	t.Parallel()
 

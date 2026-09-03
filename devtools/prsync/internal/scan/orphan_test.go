@@ -77,6 +77,9 @@ func TestOrphansNoPRBucket(t *testing.T) {
 	if got.Bucket != BucketNoPR || got.PR != nil || got.AgentStatus != "idle" {
 		t.Fatalf("orphan = %+v", got)
 	}
+	if len(doc.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none for a single-ticket empty search", doc.Warnings)
+	}
 }
 
 func TestOrphansOmitsNoPRWhenAgentWorking(t *testing.T) {
@@ -329,17 +332,17 @@ func TestTicketSearchQueries(t *testing.T) {
 		{
 			name:    "two joined with OR",
 			tickets: []string{"AP-1", "AP-2"},
-			want:    []string{"(AP-1 OR AP-2)"},
+			want:    []string{"AP-1 OR AP-2"},
 		},
 		{
 			name:    "six is one query of five ORs",
 			tickets: []string{"A-1", "A-2", "A-3", "A-4", "A-5", "A-6"},
-			want:    []string{"(A-1 OR A-2 OR A-3 OR A-4 OR A-5 OR A-6)"},
+			want:    []string{"A-1 OR A-2 OR A-3 OR A-4 OR A-5 OR A-6"},
 		},
 		{
 			name:    "seven splits after five ORs",
 			tickets: []string{"A-1", "A-2", "A-3", "A-4", "A-5", "A-6", "A-7"},
-			want:    []string{"(A-1 OR A-2 OR A-3 OR A-4 OR A-5 OR A-6)", "A-7"},
+			want:    []string{"A-1 OR A-2 OR A-3 OR A-4 OR A-5 OR A-6", "A-7"},
 		},
 		{
 			name: "splits before exceeding 256-char query",
@@ -351,7 +354,7 @@ func TestTicketSearchQueries(t *testing.T) {
 				"TICKET-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
 			},
 			want: []string{
-				"(TICKET-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA OR TICKET-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB OR TICKET-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC OR TICKET-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD)",
+				"TICKET-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA OR TICKET-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB OR TICKET-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC OR TICKET-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
 				"TICKET-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
 			},
 		},
@@ -406,7 +409,7 @@ func TestOrphansBatchesMultipleTicketsIntoOneSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
-	if len(g.queried) != 1 || g.queried[0] != "(AP-1306 OR AP-1287 OR AP-1400)" {
+	if len(g.queried) != 1 || g.queried[0] != "AP-1306 OR AP-1287 OR AP-1400" {
 		t.Fatalf("queried = %v, want one batched OR query", g.queried)
 	}
 	if len(doc.OrphanTabs) != 2 {
@@ -440,7 +443,7 @@ func TestOrphansChunksWhenOverFiveOROperators(t *testing.T) {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
 	want := []string{
-		"(AP-1 OR AP-2 OR AP-3 OR AP-4 OR AP-5 OR AP-6)",
+		"AP-1 OR AP-2 OR AP-3 OR AP-4 OR AP-5 OR AP-6",
 		"AP-7",
 	}
 	if len(g.queried) != len(want) {
@@ -453,6 +456,104 @@ func TestOrphansChunksWhenOverFiveOROperators(t *testing.T) {
 	}
 	if len(doc.OrphanTabs) != 7 {
 		t.Fatalf("len(orphan_tabs) = %d, want 7", len(doc.OrphanTabs))
+	}
+}
+
+func TestOrphansEmptySweepIsUnknownNotNoPR(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{
+		"AP-1306": {},
+		"AP-1287": {},
+	}}
+	h := stubHerdr{
+		tabs: []herdr.Tab{
+			liveTab("w2:tA", "w2", "AP-1306"),
+			liveTab("w2:tB", "w2", "AP-1287"),
+		},
+		agents: []herdr.Agent{
+			liveAgent("w2:pA", "w2:tA", "idle"),
+			liveAgent("w2:pB", "w2:tB", "idle"),
+		},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.OrphanTabs) != 2 {
+		t.Fatalf("orphan_tabs = %+v, want 2 unknown", doc.OrphanTabs)
+	}
+	for i, got := range doc.OrphanTabs {
+		if got.Bucket != BucketUnknown || got.PR != nil {
+			t.Fatalf("orphan[%d] = %+v, want unknown with pr=null", i, got)
+		}
+	}
+	if len(doc.Warnings) == 0 {
+		t.Fatal("warnings empty, want empty-sweep warning")
+	}
+}
+
+func TestOrphansEmptySweepSurfacesWorkingUnknown(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{
+		"AP-1306": {},
+		"AP-1287": {},
+	}}
+	h := stubHerdr{
+		tabs: []herdr.Tab{
+			liveTab("w2:tA", "w2", "AP-1306"),
+			liveTab("w2:tB", "w2", "AP-1287"),
+		},
+		agents: []herdr.Agent{
+			liveAgent("w2:pA", "w2:tA", "working"),
+			liveAgent("w2:pB", "w2:tB", "idle"),
+		},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.OrphanTabs) != 2 {
+		t.Fatalf("orphan_tabs = %+v, want both unknown (working is not omitted)", doc.OrphanTabs)
+	}
+	if doc.OrphanTabs[0].Bucket != BucketUnknown || doc.OrphanTabs[0].AgentStatus != "working" {
+		t.Fatalf("orphan[0] = %+v, want working unknown", doc.OrphanTabs[0])
+	}
+}
+
+func TestOrphansMixedChunkDoesNotWarn(t *testing.T) {
+	t.Parallel()
+
+	g := &orphanGH{search: map[string][]gh.PRSearchItem{
+		"AP-1306": {{
+			Number: 32347, Title: "[AP-1306] Fix", State: "merged",
+			ClosedAt: "2026-08-18T22:19:28Z", Repository: gh.SearchRepository{NameWithOwner: "acme/x"},
+		}},
+		"AP-1287": {},
+	}}
+	h := stubHerdr{
+		tabs: []herdr.Tab{
+			liveTab("w2:tA", "w2", "AP-1306"),
+			liveTab("w2:tB", "w2", "AP-1287"),
+		},
+		agents: []herdr.Agent{
+			liveAgent("w2:pA", "w2:tA", "idle"),
+			liveAgent("w2:pB", "w2:tB", "idle"),
+		},
+	}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none when the chunk mapped a PR", doc.Warnings)
+	}
+	if len(doc.OrphanTabs) != 2 {
+		t.Fatalf("orphan_tabs = %+v, want merged + no_pr", doc.OrphanTabs)
+	}
+	if doc.OrphanTabs[0].Bucket != BucketMerged || doc.OrphanTabs[1].Bucket != BucketNoPR {
+		t.Fatalf("orphan_tabs = %+v, want AP-1306 merged and AP-1287 no_pr", doc.OrphanTabs)
 	}
 }
 

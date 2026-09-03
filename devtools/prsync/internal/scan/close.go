@@ -22,6 +22,37 @@ const (
 // ErrCloseFailed is returned when a live tab close fails (exit 3).
 var ErrCloseFailed = errors.New("close merged failed")
 
+// ErrCloseMergedUntrusted is returned when --close-merged must not proceed
+// because classification is an empty-sweep unknown or all no_pr.
+var ErrCloseMergedUntrusted = errors.New("close-merged refused")
+
+// UntrustedCloseReason reports whether --close-merged should refuse this
+// classification. An empty orphan list is fine (nothing to close). Unknown
+// buckets mean the search sweep was empty. An all-no_pr list is the
+// silent-success failure mode that hid merged tabs; callers may override.
+func UntrustedCloseReason(orphans []OrphanTab) error {
+	if len(orphans) == 0 {
+		return nil
+	}
+	hasUnknown := false
+	hasMerged := false
+	for _, tab := range orphans {
+		switch tab.Bucket {
+		case BucketUnknown:
+			hasUnknown = true
+		case BucketMerged:
+			hasMerged = true
+		}
+	}
+	if hasUnknown {
+		return fmt.Errorf("%w: search classification is unknown", ErrCloseMergedUntrusted)
+	}
+	if !hasMerged {
+		return fmt.Errorf("%w: every orphan is no_pr; pass --force to override", ErrCloseMergedUntrusted)
+	}
+	return nil
+}
+
 // TabCloser is the herdr surface --close-merged uses.
 type TabCloser interface {
 	TabList(ctx context.Context) ([]herdr.Tab, error)
@@ -39,6 +70,7 @@ type CloseDocument struct {
 	GeneratedAt string      `json:"generated_at"` //nolint:tagliatelle // brief outbound contract
 	DryRun      bool        `json:"dry_run"`      //nolint:tagliatelle // brief outbound contract
 	Results     []CloseItem `json:"results"`
+	Warnings    []string    `json:"warnings"`
 }
 
 // CloseItem is one tab's close outcome.
@@ -54,12 +86,14 @@ type CloseItem struct {
 // CloseMerged closes tabs classified as merged orphans. Dry-run never calls
 // herdr or GitHub. Live send re-verifies each candidate's PR is still
 // merged/closed immediately before close so a newly opened PR cannot be
-// closed by a stale classification. no_pr tabs are never candidates.
+// closed by a stale classification. no_pr and unknown tabs are never
+// candidates. Callers should consult UntrustedCloseReason first.
 func CloseMerged(ctx context.Context, deps CloseDeps, cfg config.Config, author string, orphans []OrphanTab, now time.Time) (CloseDocument, error) {
 	doc := CloseDocument{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
 		DryRun:      cfg.DryRun,
 		Results:     []CloseItem{},
+		Warnings:    []string{},
 	}
 	var merged []OrphanTab
 	for _, tab := range orphans {

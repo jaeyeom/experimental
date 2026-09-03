@@ -16,13 +16,17 @@ case "${cmd} ${sub}" in
   "search prs")
     # scan passes flags first (`search prs --author ...`); the orphan report
     # passes a ticket positional (`search prs PROJ-123 --author ...`) or a
-    # batched OR query (`search prs (A OR B) --author ...`).
+    # batched OR query as separate argv (`search prs A OR B --author ...`).
     case "${3-}" in
       --*|"")
         cat "${DIR}/gh-search-prs.json"
         ;;
       *)
-        cat "${DIR}/gh-search-authored-prs.json"
+        if [ -n "${GH_FAKE_SEARCH_EMPTY-}" ]; then
+          printf '%s\n' "[]"
+        else
+          cat "${DIR}/gh-search-authored-prs.json"
+        fi
         ;;
     esac
     exit 0
