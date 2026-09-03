@@ -32,7 +32,8 @@
 # Inline prompt, or @/path/to/file (tilde is expanded).
 # Substituted: {identifier} {number} {title} {repo} {url} {head} {base} {comments}.
 # Unknown placeholders are left literal. Review comment bodies are interpolated
-# into the prompt as text.
+# after over-long markdown link targets are stripped and the body is capped
+# (see comment_link_max_chars / comment_body_max_chars).
 # Default: check out {head} (via `gh pr checkout {number}` if needed),
 # bring it up to date with origin/{base}, then apply mechanical /
 # unambiguous fixes; for a design decision, tradeoff, or disagreement,
@@ -66,6 +67,14 @@
 # the per-send wait to return while the agent is awaiting the user
 # (dispatched_blocked; the batch stops, but dedupe state is not written).
 # dispatch_wait_until=idle done
+
+# Rewrite [label](url) to label when len(url) exceeds this. 0 disables.
+# Applied before comment_body_max_chars. Length-only; not host-specific.
+# comment_link_max_chars=500
+
+# Cap each comment body after link stripping. 0 disables. Truncated
+# bodies append: … [truncated, see <thread url>]
+# comment_body_max_chars=4000
 
 # Written only on live send (dispatched / dispatched_timeout). Never
 # written on a transient blocked settlement.

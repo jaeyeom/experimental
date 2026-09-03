@@ -299,6 +299,8 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 		"dispatch_timeout_ms=100",
 		"state_file=" + filepath.Join(dir, "state.json"),
 		"dry_run=false",
+		"comment_link_max_chars=200",
+		"comment_body_max_chars=1000",
 		"unknown_future_key=ignored",
 	}, "\n")+"\n")
 
@@ -347,6 +349,27 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 	}
 	if got.DryRun {
 		t.Fatal("DryRun = true")
+	}
+	if got.CommentLinkMaxChars != 200 {
+		t.Fatalf("CommentLinkMaxChars = %d, want 200", got.CommentLinkMaxChars)
+	}
+	if got.CommentBodyMaxChars != 1000 {
+		t.Fatalf("CommentBodyMaxChars = %d, want 1000", got.CommentBodyMaxChars)
+	}
+}
+
+func TestLoadZeroCommentLimitsDisable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "comment_link_max_chars=0\ncomment_body_max_chars=0\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.CommentLinkMaxChars != 0 {
+		t.Fatalf("CommentLinkMaxChars = %d, want 0", got.CommentLinkMaxChars)
+	}
+	if got.CommentBodyMaxChars != 0 {
+		t.Fatalf("CommentBodyMaxChars = %d, want 0", got.CommentBodyMaxChars)
 	}
 }
 
@@ -405,6 +428,9 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "missing prompt file", body: "dispatch_prompt_template=@/no/such/prompt\n", key: "dispatch_prompt_template"},
 		{name: "missing rebase prompt file", body: "rebase_prompt_template=@/no/such/rebase\n", key: "rebase_prompt_template"},
 		{name: "empty state file", body: "state_file=\n", key: "state_file"},
+		{name: "negative link max", body: "comment_link_max_chars=-1\n", key: "comment_link_max_chars"},
+		{name: "negative body max", body: "comment_body_max_chars=-5\n", key: "comment_body_max_chars"},
+		{name: "non integer link max", body: "comment_link_max_chars=2s\n", key: "comment_link_max_chars"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -534,6 +560,12 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.SourcePath != "" {
 		t.Fatalf("SourcePath = %q", got.SourcePath)
+	}
+	if got.CommentLinkMaxChars != 500 {
+		t.Fatalf("CommentLinkMaxChars = %d, want 500", got.CommentLinkMaxChars)
+	}
+	if got.CommentBodyMaxChars != 4000 {
+		t.Fatalf("CommentBodyMaxChars = %d, want 4000", got.CommentBodyMaxChars)
 	}
 }
 

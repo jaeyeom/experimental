@@ -73,6 +73,8 @@ type Config struct {
 	DispatchTimeout      time.Duration
 	StateFile            string
 	DryRun               bool
+	CommentLinkMaxChars  int
+	CommentBodyMaxChars  int
 
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
@@ -114,6 +116,8 @@ func Defaults() Config {
 		DispatchTimeout:      1800000 * time.Millisecond,
 		StateFile:            "~/.config/prsync/state.json",
 		DryRun:               true,
+		CommentLinkMaxChars:  500,
+		CommentBodyMaxChars:  4000,
 	}
 }
 
@@ -263,10 +267,8 @@ func applyKey(cfg *Config, key, val string) error {
 		cfg.ConcurrencyWaitOn = val
 	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms":
 		return applyMillis(cfg, key, val)
-	case "dispatch_prompt_template":
-		return applyPrompt(cfg, "dispatch_prompt_template", val)
-	case "rebase_prompt_template":
-		return applyPrompt(cfg, "rebase_prompt_template", val)
+	case "dispatch_prompt_template", "rebase_prompt_template":
+		return applyPrompt(cfg, key, val)
 	case "dispatch_include_drafts":
 		return applyIncludeDrafts(cfg, val)
 	case "dispatch_wait_until":
@@ -275,6 +277,8 @@ func applyKey(cfg *Config, key, val string) error {
 		cfg.StateFile = val
 	case "dry_run":
 		return applyDryRun(cfg, val)
+	case "comment_link_max_chars", "comment_body_max_chars":
+		return applyCommentLimit(cfg, key, val)
 	}
 	return nil
 }
@@ -356,6 +360,20 @@ func applyDryRun(cfg *Config, val string) error {
 	return nil
 }
 
+func applyCommentLimit(cfg *Config, key, val string) error {
+	n, err := parseNonNegativeInt(key, val)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case "comment_link_max_chars":
+		cfg.CommentLinkMaxChars = n
+	case "comment_body_max_chars":
+		cfg.CommentBodyMaxChars = n
+	}
+	return nil
+}
+
 func resolvePrompt(key, val string) (string, error) {
 	if !strings.HasPrefix(val, "@") {
 		return val, nil
@@ -380,6 +398,17 @@ func parseMillis(key, val string) (time.Duration, error) {
 		return 0, &KeyError{Key: key, Reason: "overflow"}
 	}
 	return time.Duration(n) * time.Millisecond, nil
+}
+
+func parseNonNegativeInt(key, val string) (int, error) {
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, &KeyError{Key: key, Reason: "not an integer"}
+	}
+	if n < 0 {
+		return 0, &KeyError{Key: key, Reason: "must be >= 0"}
+	}
+	return n, nil
 }
 
 func parseBool(key, val string) (bool, error) {
