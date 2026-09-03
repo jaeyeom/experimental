@@ -1,5 +1,17 @@
 name: Strip PR HTML comments
 
+# Other repositories:
+#
+#   jobs:
+#     strip:
+#       permissions:
+#         contents: read
+#         pull-requests: write
+#       uses: jaeyeom/experimental/.github/workflows/strip-pr-html-comments.yml@<sha>
+#
+# Pin the SHA (gh-actionpins). The Python stripper is loaded from the same
+# commit as this workflow file via job.workflow_sha.
+
 permissions:
   contents: read
   pull-requests: write
@@ -7,6 +19,7 @@ permissions:
 on:
   pull_request:
     types: [opened, edited, reopened, ready_for_review]
+  workflow_call:
 
 concurrency:
   group: strip-pr-html-comments-${{ github.event.pull_request.number }}
@@ -17,38 +30,29 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      # Run the stripper from the base branch so a topic branch cannot
-      # change the code that holds pull-requests: write. Fall back to this
-      # PR's copy only while the script is still landing.
+      # Load the stripper from this workflow's commit, not the consumer repo.
+      # github.workflow_sha is the *caller* SHA; job.workflow_sha is this file.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: trusted
-
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          path: pr
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: scripts/strip_pr_html_comments.py
+          sparse-checkout-cone-mode: false
 
       - name: Strip HTML comments from PR body
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # path: checkouts leave GITHUB_WORKSPACE without .git; gh needs this.
+          # Checkout is jaeyeom/experimental; gh must target the caller repo.
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ -f trusted/scripts/strip_pr_html_comments.py ]; then
-            script=trusted/scripts/strip_pr_html_comments.py
-          else
-            script=pr/scripts/strip_pr_html_comments.py
-          fi
           json=$(mktemp)
           stripped=$(mktemp)
           trap 'rm -f "$json" "$stripped"' EXIT
           gh pr view "$PR_NUMBER" --json body > "$json"
-          state=$(python3 "$script" "$json" "$stripped")
+          state=$(python3 scripts/strip_pr_html_comments.py "$json" "$stripped")
           if [ "$state" = "unchanged" ]; then
             echo "PR body already has no HTML comments to strip"
             exit 0

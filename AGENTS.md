@@ -5,7 +5,9 @@ When creating a pull request, omit HTML comments (`<!-- ... -->`) from
 squash-merges with the PR title and description as the commit message, so
 those comments would appear in `git log`. Delete unused optional sections
 instead of leaving them empty. A workflow strips leftover comments from
-the stored body as a backstop.
+the stored body as a backstop. Other repositories can call
+`jaeyeom/experimental/.github/workflows/strip-pr-html-comments.yml`
+pinned to a commit SHA.
 
 ## Instructions for Jules (non-local Cloud-based async workflow)
 
