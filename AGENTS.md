@@ -1,5 +1,12 @@
 For important context and instructions, please review the `CLAUDE.md` file before proceeding.
 
+When creating a pull request, omit HTML comments (`<!-- ... -->`) from
+`.github/pull_request_template.md` in the submitted body. This repository
+squash-merges with the PR title and description as the commit message, so
+those comments would appear in `git log`. Delete unused optional sections
+instead of leaving them empty. A workflow strips leftover comments from
+the stored body as a backstop.
+
 ## Instructions for Jules (non-local Cloud-based async workflow)
 
 - Run `make check` and resolve all issues.
