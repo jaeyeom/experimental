@@ -48,4 +48,9 @@ settings {
     "wip"
     "do-not-nudge"
   }
+  // Skip nudging these GitHub users. They do not need a Slack mapping.
+  skip_users {
+    "bot-account"
+    "contractor-who-opted-out"
+  }
 }

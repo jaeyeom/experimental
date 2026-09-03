@@ -162,6 +162,11 @@ settings {
     "wip"
     "do-not-nudge"
   }
+  // Skip nudging these GitHub users. They do not need a Slack mapping.
+  skip_users {
+    "bot-account"
+    "contractor-who-opted-out"
+  }
 }
 #+end_src
 
@@ -222,6 +227,9 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
     skip_labels:  # Skip if the PR has any of these labels
       - "wip"
       - "do-not-nudge"
+    skip_users:  # Skip these GitHub users (no Slack mapping required)
+      - "bot-account"
+      - "contractor-who-opted-out"
 #+end_src
 
 *Note*: YAML support may be deprecated in a future release. Consider migrating
