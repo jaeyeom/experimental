@@ -150,7 +150,7 @@ slack {
 }
 
 settings {
-  reminder_threshold_hours = 24  // Hours between reminders for same PR/reviewer
+  reminder_threshold_hours = 24  // Hours between reminders for the same outstanding review request
   working_hours_only = true
   dm_by_default = true
   // Skip nudging unless the PR has all of these labels. Empty means no requirement.
@@ -218,7 +218,7 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
         channel: "#documentation"
 
   settings:
-    reminder_threshold_hours: 24  # Only send reminders once per 24 hours for the same PR/reviewer
+    reminder_threshold_hours: 24  # Once per period for the same outstanding review request
     working_hours_only: true
     message_template: "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours. {url}"
     dm_by_default: true  # Send DMs to reviewers by default

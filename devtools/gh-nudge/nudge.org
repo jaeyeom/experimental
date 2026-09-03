@@ -63,8 +63,8 @@ Please see [[file:README.org][README.org]] file for the full configuration.
 ** Notification Persistence
 
 GitHub Nudge tracks when notifications are sent to avoid spamming reviewers with
-repeated reminders for the same PR. The notification history is persisted to a
-JSON file between runs:
+repeated reminders for the same outstanding review request. The notification
+history is persisted to a JSON file between runs:
 
 - When using a custom config file: stored in the same directory as the config
   file as `notifications.json`
@@ -72,5 +72,9 @@ JSON file between runs:
   `$HOME/.config/gh-nudge/notifications.json`
 
 This ensures that even if you run GitHub Nudge multiple times (e.g., via a
-scheduled cron job), reviewers will only be notified about the same PR once per
-`reminder_threshold_hours` period.
+scheduled cron job), reviewers will only be notified about the same outstanding
+review request once per `reminder_threshold_hours` period.
+
+The cooldown is per request cycle, not per reviewer for the life of the PR. If a
+reviewer submits a review and is later re-requested, the previous ping no longer
+blocks a new reminder. Dry-run mode still does not record pings.

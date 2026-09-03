@@ -1,6 +1,9 @@
 package models
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestChecksStatus(t *testing.T) {
 	tests := []struct {
@@ -299,6 +302,123 @@ func TestPullRequestAllowsNudge(t *testing.T) {
 			got := tc.pr.AllowsNudge(tc.requireLabels, tc.skipLabels)
 			if got != tc.wantAllowsNudge {
 				t.Errorf("AllowsNudge() = %v, want %v", got, tc.wantAllowsNudge)
+			}
+		})
+	}
+}
+
+func TestLatestReviewSubmittedAt(t *testing.T) {
+	aliceEarlier := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	aliceLater := time.Date(2026, 3, 1, 15, 0, 0, 0, time.UTC)
+	bobTime := time.Date(2026, 3, 1, 16, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		pr    PullRequest
+		login string
+		want  time.Time
+	}{
+		{
+			name:  "no reviews",
+			pr:    PullRequest{},
+			login: "alice",
+		},
+		{
+			name: "review by requested reviewer",
+			pr: PullRequest{
+				LatestReviews: []Review{
+					{
+						Author:      ReviewAuthor{Login: "alice"},
+						SubmittedAt: aliceEarlier,
+						State:       "COMMENTED",
+					},
+				},
+			},
+			login: "alice",
+			want:  aliceEarlier,
+		},
+		{
+			name: "ignores reviews by other reviewers",
+			pr: PullRequest{
+				LatestReviews: []Review{
+					{
+						Author:      ReviewAuthor{Login: "bob"},
+						SubmittedAt: bobTime,
+						State:       "APPROVED",
+					},
+				},
+			},
+			login: "alice",
+		},
+		{
+			name: "picks the latest review for the reviewer",
+			pr: PullRequest{
+				LatestReviews: []Review{
+					{
+						Author:      ReviewAuthor{Login: "alice"},
+						SubmittedAt: aliceEarlier,
+						State:       "COMMENTED",
+					},
+					{
+						Author:      ReviewAuthor{Login: "bob"},
+						SubmittedAt: bobTime,
+						State:       "APPROVED",
+					},
+					{
+						Author:      ReviewAuthor{Login: "alice"},
+						SubmittedAt: aliceLater,
+						State:       "CHANGES_REQUESTED",
+					},
+				},
+			},
+			login: "alice",
+			want:  aliceLater,
+		},
+		{
+			name: "ignores reviews with empty author login",
+			pr: PullRequest{
+				LatestReviews: []Review{
+					{
+						Author:      ReviewAuthor{},
+						SubmittedAt: aliceLater,
+						State:       "COMMENTED",
+					},
+				},
+			},
+			login: "alice",
+		},
+		{
+			name: "ignores zero submitted time",
+			pr: PullRequest{
+				LatestReviews: []Review{
+					{
+						Author: ReviewAuthor{Login: "alice"},
+						State:  "COMMENTED",
+					},
+				},
+			},
+			login: "alice",
+		},
+		{
+			name: "login match is case-sensitive",
+			pr: PullRequest{
+				LatestReviews: []Review{
+					{
+						Author:      ReviewAuthor{Login: "Alice"},
+						SubmittedAt: aliceLater,
+						State:       "APPROVED",
+					},
+				},
+			},
+			login: "alice",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.pr.LatestReviewSubmittedAt(tc.login)
+			if !got.Equal(tc.want) {
+				t.Errorf("LatestReviewSubmittedAt(%q) = %v, want %v", tc.login, got, tc.want)
 			}
 		})
 	}

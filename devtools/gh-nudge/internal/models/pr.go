@@ -1,6 +1,8 @@
 // Package models contains data structures used throughout the application.
 package models
 
+import "time"
+
 // Constants for CI check status classification.
 const (
 	ChecksPass    = "PASS"
@@ -15,6 +17,7 @@ type PullRequest struct {
 	URL               string          `json:"url"`
 	Files             []File          `json:"files"`
 	ReviewRequests    []ReviewRequest `json:"reviewRequests"`
+	LatestReviews     []Review        `json:"latestReviews,omitempty"`
 	Mergeable         string          `json:"mergeable,omitempty"`
 	HeadRefName       string          `json:"headRefName,omitempty"`
 	StatusCheckRollup []StatusCheck   `json:"statusCheckRollup,omitempty"`
@@ -113,6 +116,33 @@ type File struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
+}
+
+// Review is a submitted pull request review from GitHub's latestReviews field.
+type Review struct {
+	Author      ReviewAuthor `json:"author"`
+	SubmittedAt time.Time    `json:"submittedAt"`
+	State       string       `json:"state"`
+}
+
+// ReviewAuthor is the GitHub user who submitted a review.
+type ReviewAuthor struct {
+	Login string `json:"login"`
+}
+
+// LatestReviewSubmittedAt returns the most recent submittedAt for the given
+// reviewer login, or the zero time if they have no submitted review.
+func (pr *PullRequest) LatestReviewSubmittedAt(login string) time.Time {
+	var latest time.Time
+	for _, review := range pr.LatestReviews {
+		if review.Author.Login != login || review.SubmittedAt.IsZero() {
+			continue
+		}
+		if review.SubmittedAt.After(latest) {
+			latest = review.SubmittedAt
+		}
+	}
+	return latest
 }
 
 // ReviewRequest represents a user or team requested to review a PR.
