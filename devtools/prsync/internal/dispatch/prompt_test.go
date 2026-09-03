@@ -214,20 +214,9 @@ func TestRenderStripsOverlongLinkTargets(t *testing.T) {
 		}},
 	}
 	got := Render("{comments}", pr, config.Defaults())
-	if !strings.Contains(got, "Handle the nil pointer.") {
-		t.Fatalf("missing prose: %q", got)
-	}
-	if !strings.Contains(got, "[docs](https://pkg.go.dev/fmt)") {
-		t.Fatalf("short link not kept: %q", got)
-	}
-	if strings.Contains(got, longTarget) {
-		t.Fatalf("long link target still present: %q", got)
-	}
-	if !strings.Contains(got, "vscode") {
-		t.Fatalf("long link label dropped: %q", got)
-	}
-	if strings.Contains(got, "[vscode](") {
-		t.Fatalf("long link not reduced to its label: %q", got)
+	want := "- src/widget.go:10 — review-bot: Handle the nil pointer. See [docs](https://pkg.go.dev/fmt). Solve it in vscode. (https://github.com/acme/widgets/pull/1#discussion_r9)"
+	if got != want {
+		t.Fatalf("Render() = %q\nwant %q", got, want)
 	}
 	if len(got) >= 1024 {
 		t.Fatalf("rendered comments still oversized: %d bytes", len(got))
@@ -250,15 +239,10 @@ func TestRenderCapsLongCommentBody(t *testing.T) {
 		}},
 	}
 	got := Render("{comments}", pr, config.Defaults())
-	if strings.Contains(got, body) {
-		t.Fatal("uncapped body still present")
-	}
-	wantMark := "… [truncated, see " + thread + "]"
-	if !strings.Contains(got, wantMark) {
-		t.Fatalf("missing truncation marker: %q", got)
-	}
-	if !strings.Contains(got, strings.Repeat("x", 4000)) {
-		t.Fatalf("truncated prefix missing: %q", got)
+	want := "- src/widget.go:3 — r: " + strings.Repeat("x", 4000) +
+		"… [truncated, see " + thread + "] (" + thread + ")"
+	if got != want {
+		t.Fatalf("Render() = %q\nwant %q", got, want)
 	}
 }
 
@@ -278,14 +262,9 @@ func TestRenderStripsLinksBeforeBodyCap(t *testing.T) {
 		}},
 	}
 	got := Render("{comments}", pr, config.Defaults())
-	if strings.Contains(got, "truncated") {
-		t.Fatalf("stripped body was still truncated: %q", got)
-	}
-	if !strings.Contains(got, prose) {
-		t.Fatalf("prose missing: %q", got)
-	}
-	if strings.Contains(got, longTarget) {
-		t.Fatalf("long target kept: %q", got)
+	want := "- f.go:1 — b: " + prose + "vscode (u)"
+	if got != want {
+		t.Fatalf("Render() = %q\nwant %q", got, want)
 	}
 }
 
@@ -306,8 +285,9 @@ func TestRenderZeroLinkMaxKeepsLongTarget(t *testing.T) {
 		}},
 	}
 	got := Render("{comments}", pr, cfg)
-	if !strings.Contains(got, longTarget) {
-		t.Fatalf("0 link max dropped target: %q", got)
+	want := "- f.go:10 — b: See [vscode](" + longTarget + "). (u)"
+	if got != want {
+		t.Fatalf("Render() = %q\nwant %q", got, want)
 	}
 }
 
@@ -328,10 +308,8 @@ func TestRenderZeroBodyMaxKeepsLongBody(t *testing.T) {
 		}},
 	}
 	got := Render("{comments}", pr, cfg)
-	if !strings.Contains(got, body) {
-		t.Fatalf("0 body max truncated: %q", got)
-	}
-	if strings.Contains(got, "truncated") {
-		t.Fatalf("0 body max still marked truncated: %q", got)
+	want := "- f.go:3 — r: " + body + " (u)"
+	if got != want {
+		t.Fatalf("Render() = %q\nwant %q", got, want)
 	}
 }
