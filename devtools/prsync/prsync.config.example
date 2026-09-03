@@ -48,8 +48,8 @@
 # origin/{base}, resolve conflicts, --force-with-lease, no new worktree.
 # rebase_prompt_template=
 
-# true / false / 1 / 0. When true, scan includes draft PRs and dispatch
-# may send to them. Default omits drafts from scan.
+# true / false / 1 / 0. When true, dispatch may send to draft PRs.
+# scan always includes drafts (is_draft) so orphan detection can see them.
 # dispatch_include_drafts=false
 # dry_run=true
 
