@@ -213,6 +213,32 @@ func TestAgentList(t *testing.T) {
 		}
 	})
 
+	t.Run("parses state_change_seq and revision", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		mock.ExpectCommandWithArgs(testHerdrBin, "agent", "list").WillSucceed(`{
+  "result": {
+    "agents": [
+      {
+        "pane_id": "w2:pC",
+        "tab_id": "w2:tC",
+        "agent": "codex",
+        "agent_status": "idle",
+        "state_change_seq": 12,
+        "revision": 4
+      }
+    ]
+  }
+}`, 0).Build()
+		got, err := NewClient(mock, testHerdrBin).AgentList(context.Background())
+		if err != nil {
+			t.Fatalf("AgentList() unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0].StateChangeSeq != 12 || got[0].Revision != 4 {
+			t.Fatalf("AgentList() = %+v", got)
+		}
+	})
+
 	t.Run("missing agents is degraded", func(t *testing.T) {
 		t.Parallel()
 		mock := newHerdrMock()

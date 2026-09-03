@@ -157,8 +157,8 @@ func TestDispatchRebaseForceRedispatches(t *testing.T) {
 	}
 }
 
-func TestDispatchGoStallDoesNotWriteState(t *testing.T) {
-	t.Setenv("HERDR_FAKE_PROMPT", "stall")
+func TestDispatchGoIdleAtSendTimesOut(t *testing.T) {
+	t.Setenv("HERDR_FAKE_HOLD_IDLE", "1")
 	ghBin, herdrBin := fixtureBins(t)
 	statePath := filepath.Join(t.TempDir(), "state.json")
 	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
@@ -172,11 +172,32 @@ func TestDispatchGoStallDoesNotWriteState(t *testing.T) {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
 	got := decodeDispatch(t, stdout.Bytes())
-	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedStalled {
-		t.Fatalf("results = %+v, want skipped_stalled", got.Results)
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatchedTimeout {
+		t.Fatalf("results = %+v, want dispatched_timeout (pre-send idle is not completion)", got.Results)
 	}
-	if _, err := os.Stat(statePath); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatal("state_file written on stall")
+}
+
+func TestDispatchGoStallNeverStartsTimesOut(t *testing.T) {
+	t.Setenv("HERDR_FAKE_PROMPT", "stall")
+	t.Setenv("HERDR_FAKE_HOLD_IDLE", "1")
+	ghBin, herdrBin := fixtureBins(t)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	raw := mustScanJSON(t, stdinEligibleDoc())
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatchedTimeout {
+		t.Fatalf("results = %+v, want dispatched_timeout (never picked up)", got.Results)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("state_file missing after never-started timeout: %v", err)
 	}
 }
 
@@ -221,7 +242,7 @@ func TestDispatchGoBlockedStopsBatch(t *testing.T) {
 	t.Setenv("HERDR_FAKE_PROMPT", "blocked")
 	ghBin, herdrBin := fixtureBins(t)
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath, "dispatch_wait_until=idle done blocked")
 	raw := mustScanJSON(t, stdinTwoEligibleDoc())
 	restore := swapStdin(t, string(raw))
 
@@ -244,6 +265,10 @@ func TestDispatchGoBlockedStopsBatch(t *testing.T) {
 	if _, err := os.Stat(statePath); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("state_file written on blocked send")
 	}
+
+	runtime := os.Getenv("HERDR_FAKE_RUNTIME")
+	_ = os.Remove(filepath.Join(runtime, "prompted"))
+	_ = os.Remove(filepath.Join(runtime, "listn"))
 
 	restore = swapStdin(t, string(raw))
 	stdout.Reset()
@@ -351,9 +376,14 @@ func TestDispatchGoGateTimeoutExit4(t *testing.T) {
 	}
 }
 
-func writeLiveConfig(t *testing.T, ghBin, herdrBin, statePath string) string {
+func writeLiveConfig(t *testing.T, ghBin, herdrBin, statePath string, extra ...string) string {
 	t.Helper()
-	return writeScanConfig(t, strings.Join([]string{
+	runtime := filepath.Join(t.TempDir(), "herdr-runtime")
+	if err := os.MkdirAll(runtime, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_FAKE_RUNTIME", runtime)
+	lines := []string{
 		"gh_bin=" + ghBin,
 		"herdr_bin=" + herdrBin,
 		"author=alice",
@@ -362,7 +392,9 @@ func writeLiveConfig(t *testing.T, ghBin, herdrBin, statePath string) string {
 		"gate_poll_ms=1",
 		"gate_timeout_ms=50",
 		"dispatch_timeout_ms=1000",
-	}, "\n")+"\n")
+	}
+	lines = append(lines, extra...)
+	return writeScanConfig(t, strings.Join(lines, "\n")+"\n")
 }
 
 func stdinTwoEligibleDoc() scan.Document {

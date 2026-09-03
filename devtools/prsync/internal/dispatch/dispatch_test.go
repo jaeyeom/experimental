@@ -200,6 +200,29 @@ func TestRunDryRunHerdrRequired(t *testing.T) {
 	}
 }
 
+func TestRunLivePreSendIdleIsNotDispatched(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts: []herdr.PromptOutcome{{
+			Status: herdr.PromptMatched,
+			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "idle"},
+		}},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
+		t.Fatalf("results = %+v, want dispatched_timeout (pre-send idle is not completion)", got.Results)
+	}
+}
+
 func TestRunLiveDispatchedWritesState(t *testing.T) {
 	t.Parallel()
 
@@ -401,6 +424,7 @@ func TestRunLiveRebaseBlockedStopsAdvancing(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.WaitUntil = []string{"idle", "done", "blocked"}
 	pr1 := fixtureEligiblePR()
 	pr1.Unaddressed = false
 	pr1.BlockingComments = nil
@@ -410,7 +434,8 @@ func TestRunLiveRebaseBlockedStopsAdvancing(t *testing.T) {
 	pr2.BlockingComments = nil
 	pr2.HeadSHA = "bbb222"
 	h := &scriptHerdr{
-		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: blockedSettlePost("w2:pC", "w2:tC"),
 		prompts: []herdr.PromptOutcome{{
 			Status: herdr.PromptMatched,
 			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "blocked"},
@@ -440,13 +465,14 @@ func TestRunLiveRebaseBlockedStopsAdvancing(t *testing.T) {
 	}
 }
 
-func TestRunLiveStallDoesNotWriteState(t *testing.T) {
+func TestRunLiveStallNeverStartsTimesOut(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
 	h := &scriptHerdr{
-		lists:   [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		prompts: []herdr.PromptOutcome{{Status: herdr.PromptStalled}},
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts:   []herdr.PromptOutcome{{Status: herdr.PromptStalled}},
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
@@ -454,14 +480,18 @@ func TestRunLiveStallDoesNotWriteState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
-	if len(got.Results) != 1 || got.Results[0].Action != ActionSkippedStalled {
-		t.Fatalf("results = %+v, want skipped_stalled", got.Results)
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
+		t.Fatalf("results = %+v, want dispatched_timeout (never picked up)", got.Results)
 	}
-	if got.Results[0].PaneID != "" || got.Results[0].RenderedPrompt != "" {
-		t.Fatalf("stalled item should omit pane/prompt: %+v", got.Results[0])
+	if got.Results[0].PaneID == "" || got.Results[0].RenderedPrompt == "" {
+		t.Fatalf("timeout item missing pane/prompt: %+v", got.Results[0])
 	}
-	if _, err := os.Stat(store.Path); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatal("state file written on stall")
+	st, err := LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if !st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
+		t.Fatalf("state after never-started timeout = %#v", st)
 	}
 }
 
@@ -553,8 +583,10 @@ func TestRunLiveBlockedSettlementIsDispatchedBlocked(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.WaitUntil = []string{"idle", "done", "blocked"}
 	h := &scriptHerdr{
-		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: blockedSettlePost("w2:pC", "w2:tC"),
 		prompts: []herdr.PromptOutcome{{
 			Status: herdr.PromptMatched,
 			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "blocked"},
@@ -584,11 +616,13 @@ func TestRunLiveBlockedStopsAdvancing(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.WaitUntil = []string{"idle", "done", "blocked"}
 	pr2 := fixtureEligiblePR()
 	pr2.Number = 124
 	pr2.BlockingComments = []scan.Comment{{CommentID: "PRRC_second"}}
 	h := &scriptHerdr{
-		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: blockedSettlePost("w2:pC", "w2:tC"),
 		prompts: []herdr.PromptOutcome{{
 			Status: herdr.PromptMatched,
 			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "blocked"},
@@ -621,9 +655,11 @@ func TestRunLiveBlockedDoesNotDedupeOnRerun(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.WaitUntil = []string{"idle", "done", "blocked"}
 	pr := fixtureEligiblePR()
 	h := &scriptHerdr{
-		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: blockedSettlePost("w2:pC", "w2:tC"),
 		prompts: []herdr.PromptOutcome{
 			{
 				Status: herdr.PromptMatched,
@@ -645,6 +681,12 @@ func TestRunLiveBlockedDoesNotDedupeOnRerun(t *testing.T) {
 		t.Fatalf("first = %+v, want dispatched_blocked", got.Results)
 	}
 
+	h.postLists = [][]herdr.Agent{
+		{seqAgent("w2:pC", "w2:tC", "working", 2)},
+		{seqAgent("w2:pC", "w2:tC", "idle", 3)},
+		{seqAgent("w2:pC", "w2:tC", "idle", 3)},
+		{seqAgent("w2:pC", "w2:tC", "idle", 3)},
+	}
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
 	}, fixtureNow)
@@ -783,6 +825,7 @@ func liveCfg(t *testing.T) (config.Config, FileStore) {
 	cfg.DryRun = false
 	cfg.GatePoll = time.Millisecond
 	cfg.GateTimeout = 50 * time.Millisecond
+	cfg.DispatchTimeout = 50 * time.Millisecond
 	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
 	cfg.StateFile = store.Path
 	return cfg, store
