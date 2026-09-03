@@ -313,18 +313,29 @@ func TestWaitHonorsContextCancelDuringSleep(t *testing.T) {
 }
 
 type scriptHerdr struct {
-	minErr   error
-	lists    [][]herdr.Agent
-	listErrs []error
-	n        int
-	prompts  []herdr.PromptOutcome
-	promptN  int
-	sawUntil []string
+	minErr      error
+	lists       [][]herdr.Agent
+	listErrs    []error
+	n           int
+	prompts     []herdr.PromptOutcome
+	promptN     int
+	sawUntil    []string
+	lastPane    string
+	sincePrompt int
+	settling    bool
+	postLists   [][]herdr.Agent
 }
 
-func (s *scriptHerdr) RequireMin(context.Context, string) error { return s.minErr }
+func (s *scriptHerdr) RequireMin(context.Context, string) error {
+	s.settling = false
+	s.sincePrompt = 0
+	return s.minErr
+}
 
-func (s *scriptHerdr) Prompt(_ context.Context, _, _ string, until []string, _ time.Duration) herdr.PromptOutcome {
+func (s *scriptHerdr) Prompt(_ context.Context, pane, _ string, until []string, _ time.Duration) herdr.PromptOutcome {
+	s.lastPane = pane
+	s.settling = true
+	s.sincePrompt = 0
 	s.sawUntil = append([]string(nil), until...)
 	if s.promptN < len(s.prompts) {
 		out := s.prompts[s.promptN]
@@ -336,6 +347,25 @@ func (s *scriptHerdr) Prompt(_ context.Context, _, _ string, until []string, _ t
 }
 
 func (s *scriptHerdr) AgentList(context.Context) ([]herdr.Agent, error) {
+	if s.settling {
+		s.sincePrompt++
+		if len(s.postLists) > 0 {
+			i := s.sincePrompt - 1
+			if i >= len(s.postLists) {
+				i = len(s.postLists) - 1
+			}
+			return s.postLists[i], nil
+		}
+		pane := s.lastPane
+		if pane == "" {
+			pane = "w2:pC"
+		}
+		status := "idle"
+		if s.sincePrompt == 1 {
+			status = "working"
+		}
+		return []herdr.Agent{seqAgent(pane, "w2:tC", status, s.sincePrompt+1)}, nil
+	}
 	i := s.n
 	s.n++
 	if i < len(s.listErrs) && s.listErrs[i] != nil {
@@ -379,7 +409,23 @@ func workingAgent(paneID, tabID string) herdr.Agent {
 }
 
 func idleAgent(paneID, tabID string) herdr.Agent {
-	return herdr.Agent{PaneID: paneID, TabID: tabID, Agent: "codex", AgentStatus: "idle"}
+	return seqAgent(paneID, tabID, "idle", 0)
+}
+
+func seqAgent(paneID, tabID, status string, seq int) herdr.Agent {
+	return herdr.Agent{
+		PaneID:         paneID,
+		TabID:          tabID,
+		Agent:          "codex",
+		AgentStatus:    status,
+		StateChangeSeq: seq,
+	}
+}
+
+func blockedSettlePost(paneID, tabID string) [][]herdr.Agent {
+	working := seqAgent(paneID, tabID, "working", 2)
+	blocked := seqAgent(paneID, tabID, "blocked", 3)
+	return [][]herdr.Agent{{working}, {blocked}, {blocked}, {blocked}}
 }
 
 func blockedAgent(paneID, tabID string) herdr.Agent {

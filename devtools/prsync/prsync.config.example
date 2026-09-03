@@ -53,11 +53,14 @@
 # dispatch_include_drafts=false
 # dry_run=true
 
-# Whitespace-separated herdr --until tokens. Each token becomes its own
-# `herdr agent prompt --until <token>` flag. At least one token required.
+# Whitespace-separated settle tokens. Each token becomes its own
+# `herdr agent prompt --until <token>` flag, then must hold after a
+# working (or state_change_seq) transition — pre-send idle is not
+# completion. At least one token required.
 # Default `idle done` waits until the agent truly finishes (after the
 # user answers a question in that tab). Live dispatch then runs:
 # --wait --until idle --until done
+# and polls until that status holds past startup flap.
 # Set `idle` only to wait until herdr reports idle (can take ~30 min if
 # the agent settles to done instead). Include `blocked` only if you want
 # the per-send wait to return while the agent is awaiting the user

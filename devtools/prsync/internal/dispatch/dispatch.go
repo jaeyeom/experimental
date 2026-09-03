@@ -234,7 +234,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, failItem(c, err))
 			return doc, err
 		}
-		item = sendPrompt(ctx, h, cfg, c, req.Rebase)
+		item = sendPrompt(ctx, h, cfg, c, req.Rebase, clock, sleeper)
 		doc.Results = append(doc.Results, item)
 		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
 			if req.Rebase {
@@ -260,22 +260,38 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 	return doc, nil
 }
 
-func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, rebase bool) Item {
+func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, rebase bool, clock Clock, sleeper Sleeper) Item {
 	pr := *c.PR
 	pane := *pr.Tab.PaneID
 	rendered := Render(promptTemplate(cfg, rebase), pr)
-	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
 	item := Item{Repo: c.Repo, Number: c.Number}
+	baseline, err := snapshotPane(ctx, h, pane)
+	if err != nil {
+		item.Action = ActionFailed
+		item.Detail = err.Error()
+		return item
+	}
+	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
 	switch out.Status {
-	case herdr.PromptMatched:
+	case herdr.PromptMatched, herdr.PromptStalled:
+		settled, settleErr := waitForSettle(ctx, h, pane, baseline, cfg.WaitUntil, cfg.DispatchTimeout, cfg.GatePoll, clock, sleeper)
+		if errors.Is(settleErr, errSettleTimeout) {
+			item.Action = ActionDispatchedTimeout
+			item.PaneID = pane
+			item.RenderedPrompt = rendered
+			return item
+		}
+		if settleErr != nil {
+			item.Action = ActionFailed
+			item.Detail = settleErr.Error()
+			return item
+		}
 		item.Action = ActionDispatched
-		if out.Agent.AgentStatus == "blocked" {
+		if settled.AgentStatus == "blocked" {
 			item.Action = ActionDispatchedBlocked
 		}
 		item.PaneID = pane
 		item.RenderedPrompt = rendered
-	case herdr.PromptStalled:
-		item.Action = ActionSkippedStalled
 	case herdr.PromptTimeout:
 		item.Action = ActionDispatchedTimeout
 		item.PaneID = pane
@@ -289,6 +305,17 @@ func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, re
 		}
 	}
 	return item
+}
+
+func snapshotPane(ctx context.Context, h Herdr, paneID string) (herdr.Agent, error) {
+	agents, err := h.AgentList(ctx)
+	if err != nil {
+		return herdr.Agent{}, fmt.Errorf("baseline agent list: %w", err)
+	}
+	if a, ok := findAgent(agents, paneID); ok {
+		return a, nil
+	}
+	return herdr.Agent{PaneID: paneID}, nil
 }
 
 func queueRest(doc *Document, cands []Candidate, from int) {
