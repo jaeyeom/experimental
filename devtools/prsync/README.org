@@ -125,7 +125,7 @@ variables are not expanded.
 | ~tab_label_template~ | ~{id}~ | Herdr tab label after substituting ~{id}~. Exact, case-sensitive. |
 | ~herdr_bin~ | ~herdr~ | herdr executable. |
 | ~gh_bin~ | ~gh~ | gh executable. |
-| ~concurrency_wait_on~ | ~any~ | ~any~ (every working or blocked agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. |
+| ~concurrency_wait_on~ | ~any~ | ~any~ (every working or blocked agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. Live ~Wait~ still requires the empty busy set to hold for the same consecutive-poll debounce as settle. |
 | ~gate_poll_ms~ | ~2000~ | Gate poll interval (milliseconds). |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for the per-send settle wait (and ~herdr agent prompt --timeout~). A prompt the agent never picks up becomes ~dispatched_timeout~. |
@@ -148,10 +148,16 @@ herdr agent prompt <pane_id> <prompt> --wait --until idle --until done --timeout
 
 That herdr wait is not treated as completion by itself: a candidate is
 already ~idle~/~done~ at send time, so ~--until idle done~ is true
-immediately. After the send, ~prsync~ records the pane's
-~state_change_seq~ (or ~revision~), waits until the agent is observed
+immediately. After herdr returns, ~prsync~ snapshots the pane's
+~state_change_seq~ (or ~revision~) and waits until the agent is observed
 ~working~ (or the sequence advances without a ~blocked~ flap), then
-requires the settle tokens to hold for several consecutive polls.
+requires the settle tokens to hold for several consecutive polls. Sequence
+advances during herdr's own wait (startup ~idle~↔~blocked~ flap) do not
+count as a missed ~working~ window.
+
+The live concurrency gate uses the same debounce: a single non-~working~
+sample is not safe. The busy set must stay empty for those consecutive
+polls, so a tab in startup or mid-run flap still counts as busy.
 
 If the agent never picks up the prompt, the wait ends at
 ~dispatch_timeout_ms~ (~dispatched_timeout~; state is written so it is
@@ -389,7 +395,10 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
 }
 #+END_SRC
 
-Live send (writes ~state_file~ on ~dispatched~ / ~dispatched_timeout~):
+Live send (writes ~state_file~ on ~dispatched~ / ~dispatched_timeout~).
+~--go~ waits for a debounced empty busy set, then sends one PR at a time.
+~dispatched~ is a post-prompt ~working~ (or sequence) transition plus a
+debounced settle, not the ~idle~ herdr ~--until~ already matched.
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config --go
@@ -450,6 +459,10 @@ prsync comment --config ./prsync.config --all --body "please retry"
 
 ** gate
 
+One-shot busy-set check (no debounce). Live ~dispatch --go~ uses
+~Wait~, which requires the empty busy set to hold for several
+consecutive polls so a flap ~idle~ is still busy.
+
 #+BEGIN_SRC bash
 prsync gate --config ./prsync.config
 #+END_SRC
@@ -502,8 +515,9 @@ Confirm:
 - Default wait is ~--wait --until idle --until done~ (from
   ~dispatch_wait_until~).
 - ~--wait --until idle --until done~ is the herdr send; ~prsync~ then
-  waits for a ~working~ (or sequence) transition and a debounced
-  settle, not the pre-send ~idle~ status.
+  snapshots the pane and waits for a ~working~ (or sequence) transition
+  and a debounced settle, not the idle herdr just returned. The live
+  gate uses that same debounce so a flap idle is still busy.
 
 This procedure is README-only; CI uses fixture binaries, not live herdr.
 

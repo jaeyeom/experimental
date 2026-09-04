@@ -223,6 +223,42 @@ func TestRunLivePreSendIdleIsNotDispatched(t *testing.T) {
 	}
 }
 
+func TestRunLivePromptReturnOnFlapIdleWaitsForWorking(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	flapIdle := seqAgent("w2:pC", "w2:tC", "idle", 5)
+	h := &scriptHerdr{
+		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{
+			{flapIdle},
+			{flapIdle},
+			{flapIdle},
+			{flapIdle},
+			{seqAgent("w2:pC", "w2:tC", "working", 6)},
+			{seqAgent("w2:pC", "w2:tC", "idle", 7)},
+			{seqAgent("w2:pC", "w2:tC", "idle", 7)},
+			{seqAgent("w2:pC", "w2:tC", "idle", 7)},
+		},
+		prompts: []herdr.PromptOutcome{{
+			Status: herdr.PromptMatched,
+			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "idle", StateChangeSeq: 5},
+		}},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched after working (flap idle is not completion)", got.Results)
+	}
+	if h.sincePrompt < 6 {
+		t.Fatalf("post-prompt AgentList calls = %d, want flap idle skipped until working", h.sincePrompt)
+	}
+}
+
 func TestRunLiveDispatchedWritesState(t *testing.T) {
 	t.Parallel()
 

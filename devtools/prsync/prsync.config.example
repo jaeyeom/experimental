@@ -22,6 +22,9 @@
 
 # Gate busy-set: any (every working or blocked agent) | managed (only
 # tabs matched to PRs in the current scan; managed runs a scan).
+# Live dispatch Wait requires the empty busy set to hold for several
+# consecutive polls (same debounce as settle); a single idle sample
+# during startup/mid-run flap is still busy. `prsync gate` stays one-shot.
 # concurrency_wait_on=any
 
 # Milliseconds. Parsed as n * time.Millisecond (2000 = 2s, not 2µs).
@@ -56,12 +59,14 @@
 
 # Whitespace-separated settle tokens. Each token becomes its own
 # `herdr agent prompt --until <token>` flag, then must hold after a
-# working (or state_change_seq) transition — pre-send idle is not
-# completion. At least one token required.
+# working (or state_change_seq) transition — the idle herdr returns
+# on is not completion. At least one token required.
 # Default `idle done` waits until the agent truly finishes (after the
 # user answers a question in that tab). Live dispatch then runs:
 # --wait --until idle --until done
-# and polls until that status holds past startup flap.
+# snapshots the pane, and polls until that status holds past startup
+# flap. Sequence advances during herdr's wait do not count as missed
+# working.
 # Set `idle` only to wait until herdr reports idle (can take ~30 min if
 # the agent settles to done instead). Include `blocked` only if you want
 # the per-send wait to return while the agent is awaiting the user
