@@ -158,10 +158,11 @@ func rebaseRecorded(st State, key string) bool {
 
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
 // polls, never emits queued, and never writes state. Live send polls the gate
-// one PR at a time, writes state on dispatched / dispatched_timeout, and
-// returns ErrTimeout or ErrFailed after emitting partial results. A blocked
-// settlement does not write dedupe state and stops the batch so a re-run can
-// retry the same comment after the user answers.
+// one PR at a time (empty busy set must hold for settleDebouncePolls samples),
+// writes state on dispatched / dispatched_timeout, and returns ErrTimeout or
+// ErrFailed after emitting partial results. A blocked settlement does not
+// write dedupe state and stops the batch so a re-run can retry the same
+// comment after the user answers.
 func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time) (Document, error) {
 	doc := Document{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
@@ -265,15 +266,16 @@ func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, re
 	pane := *pr.Tab.PaneID
 	rendered := Render(promptTemplate(cfg, rebase), pr, cfg)
 	item := Item{Repo: c.Repo, Number: c.Number}
-	baseline, err := snapshotPane(ctx, h, pane)
-	if err != nil {
-		item.Action = ActionFailed
-		item.Detail = err.Error()
-		return item
-	}
 	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
 	switch out.Status {
 	case herdr.PromptMatched, herdr.PromptStalled:
+		// Snapshot after prompt so herdr --until seq advances are not a missed working window.
+		baseline, err := snapshotPane(ctx, h, pane)
+		if err != nil {
+			item.Action = ActionFailed
+			item.Detail = err.Error()
+			return item
+		}
 		settled, settleErr := waitForSettle(ctx, h, pane, baseline, cfg.WaitUntil, cfg.DispatchTimeout, cfg.GatePoll, clock, sleeper)
 		if errors.Is(settleErr, errSettleTimeout) {
 			item.Action = ActionDispatchedTimeout

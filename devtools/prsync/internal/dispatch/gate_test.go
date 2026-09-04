@@ -226,33 +226,7 @@ func TestWaitFlipsWorkingToIdle(t *testing.T) {
 	h := &scriptHerdr{lists: [][]herdr.Agent{
 		{workingAgent("w2:pC", "w2:tC")},
 		{idleAgent("w2:pC", "w2:tC")},
-	}}
-	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
-	sleeper := &fakeSleeper{clock: clock}
-	cfg := config.Defaults()
-	cfg.GatePoll = time.Millisecond
-	cfg.GateTimeout = 50 * time.Millisecond
-
-	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
-	if err != nil {
-		t.Fatalf("Wait() unexpected error: %v", err)
-	}
-	if !got.Safe {
-		t.Fatalf("safe = false after flip, busy=%+v", got.Busy)
-	}
-	if h.n != 2 {
-		t.Fatalf("AgentList calls = %d, want 2 (busy then idle)", h.n)
-	}
-	if sleeper.n != 1 {
-		t.Fatalf("Sleep calls = %d, want 1", sleeper.n)
-	}
-}
-
-func TestWaitFlipsBlockedToIdle(t *testing.T) {
-	t.Parallel()
-
-	h := &scriptHerdr{lists: [][]herdr.Agent{
-		{blockedAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
 		{idleAgent("w2:pC", "w2:tC")},
 	}}
 	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
@@ -268,11 +242,92 @@ func TestWaitFlipsBlockedToIdle(t *testing.T) {
 	if !got.Safe {
 		t.Fatalf("safe = false after flip, busy=%+v", got.Busy)
 	}
-	if h.n != 2 {
-		t.Fatalf("AgentList calls = %d, want 2 (blocked then idle)", h.n)
+	if h.n != 1+settleDebouncePolls {
+		t.Fatalf("AgentList calls = %d, want %d (busy then %d idle)", h.n, 1+settleDebouncePolls, settleDebouncePolls)
 	}
-	if sleeper.n != 1 {
-		t.Fatalf("Sleep calls = %d, want 1", sleeper.n)
+	if sleeper.n != settleDebouncePolls {
+		t.Fatalf("Sleep calls = %d, want %d", sleeper.n, settleDebouncePolls)
+	}
+}
+
+func TestWaitFlipsBlockedToIdle(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{
+		{blockedAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+	}}
+	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
+	sleeper := &fakeSleeper{clock: clock}
+	cfg := config.Defaults()
+	cfg.GatePoll = time.Millisecond
+	cfg.GateTimeout = 50 * time.Millisecond
+
+	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
+	if err != nil {
+		t.Fatalf("Wait() unexpected error: %v", err)
+	}
+	if !got.Safe {
+		t.Fatalf("safe = false after flip, busy=%+v", got.Busy)
+	}
+	if h.n != 1+settleDebouncePolls {
+		t.Fatalf("AgentList calls = %d, want %d (blocked then %d idle)", h.n, 1+settleDebouncePolls, settleDebouncePolls)
+	}
+	if sleeper.n != settleDebouncePolls {
+		t.Fatalf("Sleep calls = %d, want %d", sleeper.n, settleDebouncePolls)
+	}
+}
+
+func TestWaitDebouncesSingleIdleAfterWorking(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{
+		{workingAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+		{workingAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+	}}
+	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
+	sleeper := &fakeSleeper{clock: clock}
+	cfg := config.Defaults()
+	cfg.GatePoll = time.Millisecond
+	cfg.GateTimeout = 50 * time.Millisecond
+
+	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
+	if err != nil {
+		t.Fatalf("Wait() unexpected error: %v", err)
+	}
+	if !got.Safe {
+		t.Fatalf("safe = false after debounce, busy=%+v", got.Busy)
+	}
+	if h.n != 6 {
+		t.Fatalf("AgentList calls = %d, want 6 (single idle after working is not safe)", h.n)
+	}
+}
+
+func TestWaitIdleMustHoldDebouncePolls(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
+	sleeper := &fakeSleeper{clock: clock}
+	cfg := config.Defaults()
+	cfg.GatePoll = time.Millisecond
+	cfg.GateTimeout = 50 * time.Millisecond
+
+	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
+	if err != nil {
+		t.Fatalf("Wait() unexpected error: %v", err)
+	}
+	if !got.Safe {
+		t.Fatalf("safe = false, want true; busy=%+v", got.Busy)
+	}
+	if h.n != settleDebouncePolls {
+		t.Fatalf("AgentList calls = %d, want %d (empty busy set must hold)", h.n, settleDebouncePolls)
 	}
 }
 

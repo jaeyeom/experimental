@@ -54,19 +54,27 @@ func Check(ctx context.Context, h Herdr, waitOn, runnerPane string, matchedTabs 
 	return snapshot(ctx, h, waitOn, runnerPane, matchedTabs)
 }
 
-// Wait polls until the busy set is empty or cfg.GateTimeout elapses.
+// Wait polls until the busy set stays empty for settleDebouncePolls
+// consecutive samples or cfg.GateTimeout elapses. A single idle/done
+// sample is not safe: startup and mid-run flap still count as busy.
 func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (Result, error) {
 	if err := h.RequireMin(ctx, herdrMinVersion); err != nil {
 		return Result{}, fmt.Errorf("herdr version: %w", err)
 	}
 	start := clock.Now()
+	held := 0
 	for {
 		res, err := snapshot(ctx, h, cfg.ConcurrencyWaitOn, runnerPane, matchedTabs)
 		if err != nil {
 			return res, err
 		}
 		if res.Safe {
-			return res, nil
+			held++
+			if held >= settleDebouncePolls {
+				return res, nil
+			}
+		} else {
+			held = 0
 		}
 		if clock.Now().Sub(start) >= cfg.GateTimeout {
 			return res, ErrTimeout

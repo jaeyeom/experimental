@@ -100,6 +100,30 @@ func TestWaitForSettleDebouncesSingleIdleAfterWorking(t *testing.T) {
 	}
 }
 
+func TestWaitForSettleBaselineWorkingHonorsBlockedUntil(t *testing.T) {
+	t.Parallel()
+
+	// herdr --until idle can return after the working sample; the settle
+	// baseline is then already working and the next polls are blocked.
+	baseline := seqAgent("w2:pC", "w2:tC", "working", 2)
+	blocked := seqAgent("w2:pC", "w2:tC", "blocked", 3)
+	h := &scriptHerdr{lists: [][]herdr.Agent{
+		{blocked},
+		{blocked},
+		{blocked},
+	}}
+	clock := &fakeClock{now: fixtureNow}
+	sleeper := &fakeSleeper{clock: clock}
+
+	got, err := waitForSettle(context.Background(), h, "w2:pC", baseline, []string{"idle", "done", "blocked"}, time.Second, time.Millisecond, clock, sleeper)
+	if err != nil {
+		t.Fatalf("waitForSettle() unexpected error: %v", err)
+	}
+	if got.AgentStatus != "blocked" {
+		t.Fatalf("settled status = %q, want blocked (baseline working arms the watch)", got.AgentStatus)
+	}
+}
+
 func TestWaitForSettleBlockedUntilIsDispatchedBlocked(t *testing.T) {
 	t.Parallel()
 
