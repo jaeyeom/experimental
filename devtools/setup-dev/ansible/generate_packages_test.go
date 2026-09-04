@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -323,5 +324,88 @@ func TestGetGeneratedRuleNames(t *testing.T) {
 				t.Errorf("expected generated rule %q", want)
 			}
 		}
+	}
+}
+
+func ansiblePlaybookDir(t *testing.T) string {
+	t.Helper()
+	var candidates []string
+	_, file, _, ok := runtime.Caller(0)
+	if ok {
+		candidates = append(candidates, filepath.Dir(file))
+	}
+	candidates = append(candidates, ".")
+	if srcdir := os.Getenv("TEST_SRCDIR"); srcdir != "" {
+		ws := os.Getenv("TEST_WORKSPACE")
+		if ws == "" {
+			ws = "_main"
+		}
+		candidates = append(candidates, filepath.Join(srcdir, ws, "devtools/setup-dev/ansible"))
+	}
+	for _, dir := range candidates {
+		if _, err := os.Stat(filepath.Join(dir, "setup-cicd.yml")); err != nil {
+			continue
+		}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return abs
+	}
+	t.Fatal("setup-cicd.yml not found")
+	return ""
+}
+
+func TestJSProfilesDefaultToOxlintOxfmt(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
+
+	for _, playbook := range []string{"setup-cicd", "profile-cloudflare-dev"} {
+		t.Run(playbook, func(t *testing.T) {
+			imports, err := getPlaybookImports(playbook)
+			if err != nil {
+				t.Fatalf("getPlaybookImports(%q): %v", playbook, err)
+			}
+			got := make(map[string]bool, len(imports))
+			for _, imp := range imports {
+				got[imp] = true
+			}
+			for _, want := range []string{"oxlint", "oxfmt"} {
+				if !got[want] {
+					t.Errorf("%s.yml missing import %s.yml; got %v", playbook, want, imports)
+				}
+			}
+			for _, old := range []string{"eslint", "prettier"} {
+				if got[old] {
+					t.Errorf("%s.yml still imports %s.yml; JS default is oxlint+oxfmt", playbook, old)
+				}
+			}
+		})
+	}
+}
+
+func TestClaudeSandboxFormatsJSWithOxfmt(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "setup-claude-sandbox.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	if !strings.Contains(got, "oxfmt") {
+		t.Error("setup-claude-sandbox.yml should format JS/TS/CSS with oxfmt")
+	}
+	if strings.Contains(got, "prettier") {
+		t.Error("setup-claude-sandbox.yml still formats JS with prettier")
 	}
 }
