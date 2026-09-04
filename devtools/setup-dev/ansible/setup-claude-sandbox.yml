@@ -26,7 +26,7 @@
                     case "$f" in
                       *.go) command -v gofmt &>/dev/null && gofmt -w "$f";;
                       *.py) command -v ruff &>/dev/null && ruff format -q "$f";;
-                      *.js|*.ts|*.tsx|*.jsx|*.css) command -v prettier &>/dev/null && prettier --write --log-level silent "$f";;
+                      *.js|*.ts|*.tsx|*.jsx|*.css) command -v oxfmt &>/dev/null && oxfmt "$f";;
                       *.sh|*.bash) command -v shfmt &>/dev/null && shfmt -w "$f";;
                     esac;
                   done; true
