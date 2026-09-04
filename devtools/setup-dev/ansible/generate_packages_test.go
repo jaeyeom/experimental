@@ -356,13 +356,13 @@ func ansiblePlaybookDir(t *testing.T) string {
 	return ""
 }
 
-func TestJSProfilesDefaultToOxlintOxfmt(t *testing.T) {
-	dir := ansiblePlaybookDir(t)
+func chdirAnsiblePlaybookDir(t *testing.T) {
+	t.Helper()
 	orig, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(dir); err != nil {
+	if err := os.Chdir(ansiblePlaybookDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -370,28 +370,46 @@ func TestJSProfilesDefaultToOxlintOxfmt(t *testing.T) {
 			t.Errorf("restore cwd: %v", err)
 		}
 	})
+}
 
-	for _, playbook := range []string{"setup-cicd", "profile-cloudflare-dev"} {
-		t.Run(playbook, func(t *testing.T) {
-			imports, err := getPlaybookImports(playbook)
-			if err != nil {
-				t.Fatalf("getPlaybookImports(%q): %v", playbook, err)
-			}
-			got := make(map[string]bool, len(imports))
-			for _, imp := range imports {
-				got[imp] = true
-			}
-			for _, want := range []string{"oxlint", "oxfmt"} {
-				if !got[want] {
-					t.Errorf("%s.yml missing import %s.yml; got %v", playbook, want, imports)
-				}
-			}
-			for _, old := range []string{"eslint", "prettier"} {
-				if got[old] {
-					t.Errorf("%s.yml still imports %s.yml; JS default is oxlint+oxfmt", playbook, old)
-				}
-			}
-		})
+func TestJSProfilesDefaultToOxlintOxfmt(t *testing.T) {
+	chdirAnsiblePlaybookDir(t)
+
+	imports, err := getPlaybookImports("profile-cloudflare-dev")
+	if err != nil {
+		t.Fatalf("getPlaybookImports: %v", err)
+	}
+	got := make(map[string]bool, len(imports))
+	for _, imp := range imports {
+		got[imp] = true
+	}
+	for _, want := range []string{"oxlint", "oxfmt"} {
+		if !got[want] {
+			t.Errorf("profile-cloudflare-dev.yml missing import %s.yml; got %v", want, imports)
+		}
+	}
+	for _, old := range []string{"eslint", "prettier", "biome"} {
+		if got[old] {
+			t.Errorf("profile-cloudflare-dev.yml imports %s.yml; JS default is oxlint+oxfmt", old)
+		}
+	}
+}
+
+func TestCICDIncludesAllJSLintFormatTools(t *testing.T) {
+	chdirAnsiblePlaybookDir(t)
+
+	imports, err := getPlaybookImports("setup-cicd")
+	if err != nil {
+		t.Fatalf("getPlaybookImports: %v", err)
+	}
+	got := make(map[string]bool, len(imports))
+	for _, imp := range imports {
+		got[imp] = true
+	}
+	for _, want := range []string{"oxlint", "oxfmt", "biome", "eslint", "prettier"} {
+		if !got[want] {
+			t.Errorf("setup-cicd.yml missing import %s.yml; got %v", want, imports)
+		}
 	}
 }
 

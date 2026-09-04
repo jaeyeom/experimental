@@ -1,5 +1,5 @@
 ---
-# JS lint/format default is oxlint + oxfmt. eslint.yml and prettier.yml remain available.
+# JS lint/format: oxlint + oxfmt are the default; biome, eslint, and prettier stay installed for other repos.
 - import_playbook: lcov.yml
 - import_playbook: shellcheck.yml
 - import_playbook: bazel-affected-tests.yml
@@ -8,6 +8,9 @@
 - import_playbook: copier.yml
 - import_playbook: oxlint.yml
 - import_playbook: oxfmt.yml
+- import_playbook: biome.yml
+- import_playbook: eslint.yml
+- import_playbook: prettier.yml
 - import_playbook: act.yml
 - import_playbook: actionlint.yml
 - import_playbook: circleci.yml
@@ -27,4 +30,4 @@
 
     - name: CI/CD environment setup completed
       debug:
-        msg: "All CI/CD tools have been installed: lcov, shellcheck, bazel-affected-tests, org-lint, task, copier, oxlint, oxfmt, act, actionlint, circleci"
+        msg: "All CI/CD tools have been installed: lcov, shellcheck, bazel-affected-tests, org-lint, task, copier, oxlint, oxfmt, biome, eslint, prettier, act, actionlint, circleci"
