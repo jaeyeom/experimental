@@ -20,16 +20,19 @@ type settleWatch struct {
 	last       herdr.Agent
 }
 
-// waitForSettle polls until the pane leaves its pre-send baseline and the
+// waitForSettle polls until the pane leaves its settle baseline and the
 // requested status holds for settleDebouncePolls consecutive samples.
 //
-// It does not honor idle/done until the agent is observed working, or
+// The baseline is the pane snapshot taken after herdr agent prompt returns,
+// so sequence advances during herdr's --until wait (startup flap) are not
+// treated as a missed working window. It does not honor idle/done until
+// the agent is observed working (including a working baseline), or
 // state_change_seq/revision advances without a blocked sample (a fast job
 // whose working window was missed). Startup flap (idle↔blocked) is not a
 // settle.
 func waitForSettle(ctx context.Context, h Herdr, paneID string, baseline herdr.Agent, until []string, timeout, poll time.Duration, clock Clock, sleeper Sleeper) (herdr.Agent, error) {
 	start := clock.Now()
-	var watch settleWatch
+	watch := settleWatch{armed: baseline.AgentStatus == "working"}
 	for {
 		if err := ctx.Err(); err != nil {
 			return watch.last, fmt.Errorf("settle: %w", err)
