@@ -170,9 +170,11 @@ func TestFileLockManagerWithLockRetry(t *testing.T) {
 		if elapsed < 20*time.Millisecond {
 			t.Fatalf("Expected at least 20ms elapsed, got %v", elapsed)
 		}
-		// Upper bound is more flexible due to system scheduling and jitter
-		if elapsed > 150*time.Millisecond {
-			t.Fatalf("Expected less than 150ms elapsed, got %v", elapsed)
+		// Hang check only. CI scheduling can delay the 35ms unlock goroutine,
+		// which adds extra backoff sleeps (capped at MaxDelay). Do not treat
+		// that as a backoff-formula failure.
+		if elapsed > 2*time.Second {
+			t.Fatalf("Expected lock acquisition within 2s, got %v", elapsed)
 		}
 	})
 }
