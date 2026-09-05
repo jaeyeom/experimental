@@ -17,6 +17,7 @@ func TestEligibleSkipReasons(t *testing.T) {
 		cfg    config.Config
 		st     State
 		rebase bool
+		ciFix  bool
 		force  bool
 		want   string
 	}{
@@ -52,6 +53,91 @@ func TestEligibleSkipReasons(t *testing.T) {
 			cfg:    cfg,
 			rebase: true,
 			want:   ActionSkippedDraft,
+		},
+		{
+			name:  "ci-fix skips addressed gate",
+			c:     Candidate{Repo: "acme/widgets", Number: 1, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.BlockingComments = nil })},
+			cfg:   cfg,
+			ciFix: true,
+			want:  "",
+		},
+		{
+			name:  "ci-fix still skips no tab",
+			c:     Candidate{Repo: "acme/widgets", Number: 1, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.Tab = nil })},
+			cfg:   cfg,
+			ciFix: true,
+			want:  ActionSkippedNoTab,
+		},
+		{
+			name:  "ci-fix still skips draft",
+			c:     Candidate{Repo: "acme/widgets", Number: 1, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.IsDraft = true })},
+			cfg:   cfg,
+			ciFix: true,
+			want:  ActionSkippedDraft,
+		},
+		{
+			name:  "ci-fix not deduped by comment ids",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCommentIDs: []string{"PRRC_widget"}}},
+			ciFix: true,
+			want:  "",
+		},
+		{
+			name:  "ci-fix not deduped by rebase head SHA",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			ciFix: true,
+			want:  "",
+		},
+		{
+			name:  "ci-fix deduped by ci-fix SHA",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix: true,
+			want:  ActionSkippedDeduped,
+		},
+		{
+			name:  "ci-fix retries when still failing",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "failing" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix: true,
+			want:  "",
+		},
+		{
+			name:  "ci-fix still deduped when green",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "green" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix: true,
+			want:  ActionSkippedDeduped,
+		},
+		{
+			name:  "ci-fix completed with new sha still deduped when green",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "fff000"; p.CIState = "green" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix: true,
+			want:  ActionSkippedDeduped,
+		},
+		{
+			name:  "ci-fix force redispatches same head",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "green" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix: true,
+			force: true,
+			want:  "",
+		},
+		{
+			name: "comment mode not deduped by ci-fix SHA",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.HeadSHA = "abc123" })},
+			cfg:  cfg,
+			st:   State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			want: "",
 		},
 		{
 			name:   "rebase not deduped by comment ids",
@@ -184,7 +270,7 @@ func TestEligibleSkipReasons(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase, tc.force)
+			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase, tc.ciFix, tc.force)
 			if got.Action != tc.want {
 				t.Fatalf("action = %q, want %q", got.Action, tc.want)
 			}

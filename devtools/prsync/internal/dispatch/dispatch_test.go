@@ -120,6 +120,44 @@ func TestRunDryRunRebaseRendersRebaseTemplate(t *testing.T) {
 	}
 }
 
+func TestRunDryRunCIFixRendersCIFixTemplate(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+		Hint:  "job X failed at target Y; key error: boom",
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	prompt := got.Results[0].RenderedPrompt
+	if !strings.Contains(prompt, "Check out fix-widget") {
+		t.Fatalf("missing checkout of head: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Fix the failing CI") {
+		t.Fatalf("missing CI-fix body: %q", prompt)
+	}
+	if !strings.Contains(prompt, "job X failed at target Y; key error: boom") {
+		t.Fatalf("missing hint: %q", prompt)
+	}
+	if strings.Contains(prompt, "unresolved review comments") {
+		t.Fatalf("used comment template: %q", prompt)
+	}
+	if strings.Contains(prompt, "--force-with-lease") {
+		t.Fatalf("used rebase template: %q", prompt)
+	}
+}
+
 func TestRunDryRunDoesNotWriteState(t *testing.T) {
 	t.Parallel()
 
@@ -444,6 +482,156 @@ func TestRunLiveRebaseForceRedispatches(t *testing.T) {
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
 		Force:  true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("force Run() unexpected error: %v", err)
+	}
+	if len(got3.Results) != 1 || got3.Results[0].Action != ActionDispatched {
+		t.Fatalf("force results = %+v, want dispatched", got3.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls after force = %d, want 2", h.promptN)
+	}
+}
+
+func TestRunLiveCIFixWritesSHA(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.HeadSHA = "abc123def456"
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "Fix the failing CI") {
+		t.Fatalf("live CI-fix used wrong template: %q", got.Results[0].RenderedPrompt)
+	}
+	st, err := LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if !st.DedupedCIFix("acme/widgets#123", "abc123def456") {
+		t.Fatalf("state after CI-fix = %#v", st)
+	}
+	if st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
+		t.Fatalf("CI-fix must not record comment ids: %#v", st)
+	}
+	if st.DedupedHead("acme/widgets#123", "abc123def456") {
+		t.Fatalf("CI-fix must not record rebase head SHA: %#v", st)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped", got2.Results)
+	}
+	if h.promptN != 1 {
+		t.Fatalf("Prompt calls after SHA dedupe = %d, want 1", h.promptN)
+	}
+
+	pr.HeadSHA = "fff000aaa111"
+	got3, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("third Run() unexpected error: %v", err)
+	}
+	if len(got3.Results) != 1 || got3.Results[0].Action != ActionDispatched {
+		t.Fatalf("changed SHA results = %+v, want dispatched", got3.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls after SHA change = %d, want 2", h.promptN)
+	}
+}
+
+func TestRunLiveCIFixRetriesWhenStillFailing(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.HeadSHA = "abc123def456"
+	pr.CIState = "failing"
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionDispatched {
+		t.Fatalf("second results = %+v, want dispatched (still failing)", got2.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls after failing retry = %d, want 2", h.promptN)
+	}
+}
+
+func TestRunLiveCIFixForceRedispatches(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.HeadSHA = "abc123def456"
+	pr.CIState = "green"
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped", got2.Results)
+	}
+
+	got3, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+		Force: true,
 	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("force Run() unexpected error: %v", err)

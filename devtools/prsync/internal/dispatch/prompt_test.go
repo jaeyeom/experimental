@@ -178,6 +178,93 @@ func TestRenderDefaultRebaseTemplate(t *testing.T) {
 	}
 }
 
+func TestRenderDefaultCIFixTemplate(t *testing.T) {
+	t.Parallel()
+
+	pr := fixtureEligiblePR()
+	got := Render(config.Defaults().CIFixPromptTemplate, pr, config.Defaults())
+	if !strings.Contains(got, "PR #123 (https://github.com/acme/widgets/pull/123)") {
+		t.Fatalf("missing number/url: %q", got)
+	}
+	if !strings.Contains(got, "Check out fix-widget") {
+		t.Fatalf("missing checkout of head: %q", got)
+	}
+	if !strings.Contains(got, "gh pr checkout 123") {
+		t.Fatalf("missing gh pr checkout: %q", got)
+	}
+	if !strings.Contains(got, "origin/main") {
+		t.Fatalf("missing origin/base: %q", got)
+	}
+	if !strings.Contains(got, "on fix-widget at its latest tip") {
+		t.Fatalf("missing latest-tip guard: %q", got)
+	}
+	idxCheckout := strings.Index(got, "Check out fix-widget")
+	idxFix := strings.Index(got, "Fix the failing CI")
+	if idxCheckout < 0 || idxFix < 0 || idxCheckout > idxFix {
+		t.Fatalf("branch-switch preamble not before CI-fix body: %q", got)
+	}
+	if strings.Contains(got, "{") {
+		t.Fatalf("unreplaced placeholder: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "reproduce") {
+		t.Fatalf("missing reproduce: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "flaky") {
+		t.Fatalf("missing flake triage: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "ask the user") {
+		t.Fatalf("missing ask-the-user: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "recommend") {
+		t.Fatalf("missing recommended option: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "never push an unverified") {
+		t.Fatalf("missing verify-before-push: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "do not touch") {
+		t.Fatalf("missing stay-scoped: %q", got)
+	}
+	if !strings.Contains(got, "CI-log / flaky-test") {
+		t.Fatalf("missing generic CI tooling: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "investigate from scratch") {
+		t.Fatalf("empty hint should tell the agent to investigate from scratch: %q", got)
+	}
+	if strings.Contains(got, "add-reviewer") {
+		t.Fatalf("CI-fix template re-requests reviewer: %q", got)
+	}
+	if strings.Contains(got, "unresolved review comments") {
+		t.Fatalf("used comment template: %q", got)
+	}
+}
+
+func TestRenderHintVerbatim(t *testing.T) {
+	t.Parallel()
+
+	pr := fixtureEligiblePR()
+	hint := "job X failed at target Y; key error: boom; looks real (not flake) {head}"
+	got := RenderHint(config.Defaults().CIFixPromptTemplate, pr, config.Defaults(), hint)
+	if !strings.Contains(got, hint) {
+		t.Fatalf("hint not present verbatim: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "do not trust") {
+		t.Fatalf("missing do-not-trust framing: %q", got)
+	}
+	if strings.Contains(got, "(none; investigate from scratch)") {
+		t.Fatalf("used empty-hint fallback with a hint: %q", got)
+	}
+}
+
+func TestRenderEmptyHintInvestigatesFromScratch(t *testing.T) {
+	t.Parallel()
+
+	got := RenderHint("hint={hint}.", scan.PR{}, config.Defaults(), "   ")
+	want := "hint=(none; investigate from scratch)."
+	if got != want {
+		t.Fatalf("RenderHint() = %q, want %q", got, want)
+	}
+}
+
 func TestRenderHeadAndBase(t *testing.T) {
 	t.Parallel()
 

@@ -536,7 +536,7 @@ rules:
     docs:
       - path: devtools/prsync/README.org
         section: "** dispatch"
-        why: "herdr prompt injection and --rebase/--go/--force"
+        why: "herdr prompt injection and --rebase/--ci-fix/--go/--force"
 
   - match: ["devtools/prsync/internal/comment/**", "devtools/prsync/internal/cli/comment.go"]
     docs:

@@ -36,6 +36,8 @@ type Request struct {
 	PRs        []string
 	RunnerPane string
 	Rebase     bool
+	CIFix      bool
+	Hint       string
 	Force      bool
 }
 
@@ -99,34 +101,51 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 }
 
 // Evaluate returns the skip action for a candidate, or a zero Action if eligible.
-// Rebase mode skips the unaddressed-comment gate. A rebase dispatch is
-// satisfied only when the PR is no longer behind or conflicting; a matching
-// head SHA is not enough, so a failed rebase can be retried. force skips
-// both comment and rebase dedupe.
-func Evaluate(c Candidate, cfg config.Config, st State, rebase, force bool) Item {
-	r := Item{Repo: c.Repo, Number: c.Number}
+// Rebase and CI-fix modes skip the unaddressed-comment gate. A rebase dispatch
+// is satisfied only when the PR is no longer behind or conflicting; a matching
+// head SHA is not enough, so a failed rebase can be retried. A CI-fix dispatch
+// is satisfied only when CI is no longer failing; a matching head SHA is not
+// enough, so a still-red check can be retried. force skips comment, rebase,
+// and CI-fix dedupe.
+func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) Item {
+	return Item{Repo: c.Repo, Number: c.Number, Action: skipReason(c, cfg, st, rebase, ciFix, force)}
+}
+
+func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) string {
 	if c.PR == nil {
-		r.Action = ActionSkippedNotFound
-		return r
+		return ActionSkippedNotFound
 	}
 	pr := *c.PR
 	switch {
-	case !rebase && !pr.Unaddressed:
-		r.Action = ActionSkippedAddressed
+	case !rebase && !ciFix && !pr.Unaddressed:
+		return ActionSkippedAddressed
 	case pr.IsDraft && !cfg.IncludeDrafts:
-		r.Action = ActionSkippedDraft
+		return ActionSkippedDraft
 	case pr.Tab == nil:
-		r.Action = ActionSkippedNoTab
+		return ActionSkippedNoTab
 	case pr.Tab.PaneID == nil:
-		r.Action = ActionSkippedNoAgent
+		return ActionSkippedNoAgent
 	case !readyStatus(pr.Tab.AgentStatus):
-		r.Action = ActionSkippedBusy
-	case !force && rebase && rebaseDeduped(st, prKey(c.Repo, c.Number), pr):
-		r.Action = ActionSkippedDeduped
-	case !force && !rebase && st.Deduped(prKey(c.Repo, c.Number), commentIDs(pr)):
-		r.Action = ActionSkippedDeduped
+		return ActionSkippedBusy
+	case skipDeduped(st, prKey(c.Repo, c.Number), pr, rebase, ciFix, force):
+		return ActionSkippedDeduped
+	default:
+		return ""
 	}
-	return r
+}
+
+func skipDeduped(st State, key string, pr scan.PR, rebase, ciFix, force bool) bool {
+	if force {
+		return false
+	}
+	switch {
+	case rebase:
+		return rebaseDeduped(st, key, pr)
+	case ciFix:
+		return ciFixDeduped(st, key, pr)
+	default:
+		return st.Deduped(key, commentIDs(pr))
+	}
 }
 
 // rebaseDeduped reports whether a prior rebase dispatch is already satisfied.
@@ -154,6 +173,32 @@ func rebaseRecorded(st State, key string) bool {
 	}
 	entry, ok := st[key]
 	return ok && entry.DispatchedHeadSHA != ""
+}
+
+// ciFixDeduped reports whether a prior CI-fix dispatch is already satisfied.
+// failing always retries. A recorded CI-fix plus a known non-failing CI
+// state is satisfied even if the head SHA moved. Empty CI state falls back
+// to head-SHA equality so older scan documents keep SHA dedupe.
+func ciFixDeduped(st State, key string, pr scan.PR) bool {
+	if ciFixIncomplete(pr.CIState) {
+		return false
+	}
+	if pr.CIState != "" && ciFixRecorded(st, key) {
+		return true
+	}
+	return st.DedupedCIFix(key, pr.HeadSHA)
+}
+
+func ciFixIncomplete(status string) bool {
+	return status == "failing"
+}
+
+func ciFixRecorded(st State, key string) bool {
+	if st == nil {
+		return false
+	}
+	entry, ok := st[key]
+	return ok && entry.DispatchedCIFixSHA != ""
 }
 
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
@@ -185,7 +230,7 @@ func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, r
 		return doc, err
 	}
 	for _, c := range cands {
-		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req.Rebase, req.Force))
+		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req))
 	}
 	if err := annotateGate(ctx, h, cfg, req, &doc); err != nil {
 		return doc, err
@@ -221,7 +266,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, failItem(c, err))
 			return doc, fmt.Errorf("dispatch: %w", err)
 		}
-		item := Evaluate(c, cfg, st, req.Rebase, req.Force)
+		item := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force)
 		if item.Action != "" {
 			doc.Results = append(doc.Results, item)
 			continue
@@ -235,14 +280,10 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, failItem(c, err))
 			return doc, err
 		}
-		item = sendPrompt(ctx, h, cfg, c, req.Rebase, clock, sleeper)
+		item = sendPrompt(ctx, h, cfg, c, req, clock, sleeper)
 		doc.Results = append(doc.Results, item)
 		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
-			if req.Rebase {
-				st.RecordHead(prKey(c.Repo, c.Number), c.PR.HeadSHA, now)
-			} else {
-				st.Record(prKey(c.Repo, c.Number), commentIDs(*c.PR), now)
-			}
+			recordDispatch(st, c, req, now)
 			if err := saveState(store, st); err != nil {
 				return doc, err
 			}
@@ -261,10 +302,22 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 	return doc, nil
 }
 
-func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, rebase bool, clock Clock, sleeper Sleeper) Item {
+func recordDispatch(st State, c Candidate, req Request, now time.Time) {
+	key := prKey(c.Repo, c.Number)
+	switch {
+	case req.CIFix:
+		st.RecordCIFix(key, c.PR.HeadSHA, now)
+	case req.Rebase:
+		st.RecordHead(key, c.PR.HeadSHA, now)
+	default:
+		st.Record(key, commentIDs(*c.PR), now)
+	}
+}
+
+func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, req Request, clock Clock, sleeper Sleeper) Item {
 	pr := *c.PR
 	pane := *pr.Tab.PaneID
-	rendered := Render(promptTemplate(cfg, rebase), pr, cfg)
+	rendered := RenderHint(promptTemplate(cfg, req), pr, cfg, req.Hint)
 	item := Item{Repo: c.Repo, Number: c.Number}
 	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
 	switch out.Status {
@@ -365,23 +418,27 @@ func saveState(store StateStore, st State) error {
 	return nil
 }
 
-func evaluateDry(c Candidate, cfg config.Config, st State, rebase, force bool) Item {
-	r := Evaluate(c, cfg, st, rebase, force)
+func evaluateDry(c Candidate, cfg config.Config, st State, req Request) Item {
+	r := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force)
 	if r.Action != "" {
 		return r
 	}
 	pr := *c.PR
 	r.Action = ActionWouldDispatch
 	r.PaneID = *pr.Tab.PaneID
-	r.RenderedPrompt = Render(promptTemplate(cfg, rebase), pr, cfg)
+	r.RenderedPrompt = RenderHint(promptTemplate(cfg, req), pr, cfg, req.Hint)
 	return r
 }
 
-func promptTemplate(cfg config.Config, rebase bool) string {
-	if rebase {
+func promptTemplate(cfg config.Config, req Request) string {
+	switch {
+	case req.CIFix:
+		return cfg.CIFixPromptTemplate
+	case req.Rebase:
 		return cfg.RebasePromptTemplate
+	default:
+		return cfg.PromptTemplate
 	}
-	return cfg.PromptTemplate
 }
 
 func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, doc *Document) error {

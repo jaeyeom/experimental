@@ -279,8 +279,10 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 	dir := t.TempDir()
 	promptFile := filepath.Join(dir, "prompt.txt")
 	rebaseFile := filepath.Join(dir, "rebase.txt")
+	ciFixFile := filepath.Join(dir, "ci-fix.txt")
 	mustWrite(t, promptFile, "from-file")
 	mustWrite(t, rebaseFile, "rebase-from-file")
+	mustWrite(t, ciFixFile, "ci-fix-from-file")
 	cfgPath := filepath.Join(dir, "prsync.config")
 	mustWrite(t, cfgPath, strings.Join([]string{
 		"repos=acme/widgets other/repo",
@@ -294,6 +296,7 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 		"gate_timeout_ms=50",
 		"dispatch_prompt_template=@" + promptFile,
 		"rebase_prompt_template=@" + rebaseFile,
+		"ci_fix_prompt_template=@" + ciFixFile,
 		"dispatch_include_drafts=1",
 		"dispatch_wait_until=idle done",
 		"dispatch_timeout_ms=100",
@@ -334,6 +337,9 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 	}
 	if got.RebasePromptTemplate != "rebase-from-file" {
 		t.Fatalf("RebasePromptTemplate = %q", got.RebasePromptTemplate)
+	}
+	if got.CIFixPromptTemplate != "ci-fix-from-file" {
+		t.Fatalf("CIFixPromptTemplate = %q", got.CIFixPromptTemplate)
 	}
 	if !got.IncludeDrafts {
 		t.Fatal("IncludeDrafts = false")
@@ -427,6 +433,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "empty wait until", body: "dispatch_wait_until=\n", key: "dispatch_wait_until"},
 		{name: "missing prompt file", body: "dispatch_prompt_template=@/no/such/prompt\n", key: "dispatch_prompt_template"},
 		{name: "missing rebase prompt file", body: "rebase_prompt_template=@/no/such/rebase\n", key: "rebase_prompt_template"},
+		{name: "missing ci-fix prompt file", body: "ci_fix_prompt_template=@/no/such/ci-fix\n", key: "ci_fix_prompt_template"},
 		{name: "empty state file", body: "state_file=\n", key: "state_file"},
 		{name: "negative link max", body: "comment_link_max_chars=-1\n", key: "comment_link_max_chars"},
 		{name: "negative body max", body: "comment_body_max_chars=-5\n", key: "comment_body_max_chars"},
@@ -557,6 +564,48 @@ func TestDefaults(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?i)do not create a new worktree`).MatchString(got.RebasePromptTemplate) {
 		t.Fatalf("RebasePromptTemplate missing no-worktree: %q", got.RebasePromptTemplate)
+	}
+	if !regexp.MustCompile(`(?s)Check out \{head\}.*Fix the failing CI`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing branch-switch preamble before CI-fix body: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`stash or commit`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing stash/commit: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`gh pr checkout \{number\}`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing gh pr checkout: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`on \{head\} at its latest tip`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing latest-tip guard: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)reproduce`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing reproduce: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)flaky`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing flake triage: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)ask the user`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing ask-the-user: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)recommend`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing recommended option: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)never push an unverified`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing verify-before-push: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)do not touch`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing stay-scoped: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)CI-log / flaky-test`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing generic CI tooling: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`\{hint\}`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing {hint}: %q", got.CIFixPromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)do not trust`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing do-not-trust hint: %q", got.CIFixPromptTemplate)
+	}
+	if regexp.MustCompile(`add-reviewer`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate re-requests reviewer: %q", got.CIFixPromptTemplate)
 	}
 	if got.SourcePath != "" {
 		t.Fatalf("SourcePath = %q", got.SourcePath)
