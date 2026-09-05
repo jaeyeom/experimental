@@ -49,6 +49,8 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # Portable 24-hour cache TTL (see cache_expired.sh). Do not use find -mtime +1.
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/cache_expired.sh"
+# shellcheck disable=SC1091  # Sourced from the same directory as this script
+. "$(dirname "$0")/playbook_resume.sh"
 
 # Detect OS
 OS="$(uname -s)"
@@ -777,14 +779,25 @@ fi
 # flags that take a value argument:
 #   ./ensure.sh --tags setup -- profile-cloudflare-dev
 # Without --, a flag's value argument would be mistaken for a playbook name.
+# --from is consumed here (not passed to ansible-playbook):
+#   ./ensure.sh --from setup-git -- all
 flags=""
 playbooks=""
+from_playbook=""
 _past_separator=false
+_expect_from_value=false
 for _arg in "$@"; do
+    if [ "$_expect_from_value" = true ]; then
+        from_playbook="$_arg"
+        _expect_from_value=false
+        continue
+    fi
     if [ "$_past_separator" = true ]; then
         playbooks="$playbooks $_arg"
     elif [ "$_arg" = "--" ]; then
         _past_separator=true
+    elif [ "$_arg" = "--from" ]; then
+        _expect_from_value=true
     else
         case "$_arg" in
             -*) flags="$flags $_arg" ;;
@@ -792,6 +805,23 @@ for _arg in "$@"; do
         esac
     fi
 done
+if [ "$_expect_from_value" = true ]; then
+    echo "Error: --from requires a playbook name." >&2
+    exit 1
+fi
+
+from_task=""
+if [ -n "$from_playbook" ]; then
+    _from_file=$from_playbook
+    case "$_from_file" in
+        *.yml) ;;
+        *) _from_file="$_from_file.yml" ;;
+    esac
+    if [ ! -f "$_from_file" ]; then
+        _from_file="$(dirname "$0")/${_from_file##*/}"
+    fi
+    from_task=$(include_guard_task_name "$_from_file") || exit 1
+fi
 
 # Pre-approve any verified-run URLs before the Ansible run so that
 # non-interactive verified-run exec calls inside playbooks don't fail.
@@ -799,6 +829,8 @@ pre_approve_urls "$@"
 
 # Run each playbook target, tracking failures.
 any_failed=false
+ANSIBLE_RUN_LOG="$LOG_DIR/ensure_sh.ansible.log"
+ANSIBLE_RUN_STATUS="$LOG_DIR/ensure_sh.ansible.status"
 # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
 for playbook in $playbooks; do
     # Add .yml suffix only if it doesn't already exist
@@ -807,9 +839,27 @@ for playbook in $playbooks; do
         *) playbook="$playbook.yml" ;;
     esac
     echo "==> Running playbook: $playbook"
-    # shellcheck disable=SC2086  # Intentional word splitting for flags
-    if ! ansible-playbook -i inventory.ini $flags "$playbook"; then
-        echo "Error: playbook $playbook failed." >&2
+    # Keep live stdout. Record ansible-playbook's status without pipefail:
+    # the subshell writes $? after ansible-playbook, then tee displays output.
+    if [ -n "$from_task" ]; then
+        # shellcheck disable=SC2086  # Intentional word splitting for flags
+        (
+            ansible-playbook -i inventory.ini $flags --start-at-task "$from_task" "$playbook"
+            echo $? >"$ANSIBLE_RUN_STATUS"
+        ) 2>&1 | tee "$ANSIBLE_RUN_LOG"
+    else
+        # shellcheck disable=SC2086  # Intentional word splitting for flags
+        (
+            ansible-playbook -i inventory.ini $flags "$playbook"
+            echo $? >"$ANSIBLE_RUN_STATUS"
+        ) 2>&1 | tee "$ANSIBLE_RUN_LOG"
+    fi
+    _ap_status=1
+    if [ -f "$ANSIBLE_RUN_STATUS" ]; then
+        _ap_status=$(cat "$ANSIBLE_RUN_STATUS")
+    fi
+    if [ "$_ap_status" -ne 0 ]; then
+        print_playbook_failure "$playbook" "$ANSIBLE_RUN_LOG" "$playbooks"
         any_failed=true
     fi
 done

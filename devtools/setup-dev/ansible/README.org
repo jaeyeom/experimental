@@ -24,6 +24,26 @@ filenames.
   ./ensure.sh [rule]...
 #+end_src
 
+Flags that take a value need =--= before playbook names, or the value is
+treated as a playbook:
+
+#+begin_src sh
+  ./ensure.sh --tags setup -- profile-cloudflare-dev
+#+end_src
+
+When a nested =import_playbook= fails, Ansible stops and =ensure.sh= prints
+the leaf file and task (not only the top-level argument), plus a resume
+command. =--from= starts at that playbook's include-guard task and continues
+the rest of the original run:
+
+#+begin_src sh
+  ./ensure.sh --from setup-git -- all
+#+end_src
+
+=--from= reads the include-guard task name from the playbook file. If the
+file has no include guard, it exits with an error instead of guessing
+=--start-at-task=.
+
 =ensure.sh= refreshes system package managers (=nala= on Debian/Ubuntu,
 =brew= on macOS, =pkg= on Termux) and a few toolchains (=rustup=, Termux
 =pip=, =ansible-galaxy=) at most once every 24 hours. Stamp files live in
