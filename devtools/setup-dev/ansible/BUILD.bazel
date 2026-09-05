@@ -44,6 +44,7 @@ sh_binary(
     data = [
         "cache_expired.sh",
         "community_general.sh",
+        "playbook_resume.sh",
     ],
 )
 
@@ -51,6 +52,12 @@ sh_test(
     name = "cache_expired_test",
     srcs = ["cache_expired_test.sh"],
     data = ["cache_expired.sh"],
+)
+
+sh_test(
+    name = "playbook_resume_test",
+    srcs = ["playbook_resume_test.sh"],
+    data = ["playbook_resume.sh"],
 )
 
 sh_test(
