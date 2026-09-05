@@ -1,6 +1,7 @@
 ---
 - import_playbook: jq.yml
 - import_playbook: setup-user-bin-directory.yml
+- import_playbook: setup-claude-toolbox.yml
 - import_playbook: which.yml
 - import_playbook: setup-claude-termux-rg.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is defined
@@ -195,26 +196,6 @@
       ansible.builtin.stat:
         path: /data/data/com.termux
       register: termux_check
-
-    - name: Check if claude is installed
-      shell: command -v claude
-      register: claude_check
-      failed_when: false
-      changed_when: false
-
-    - name: Install sandbox-helpers plugin
-      command: claude plugin install sandbox-helpers@claude-toolbox
-      when: claude_check.rc == 0
-      changed_when: true
-
-    - name: Remove shims replaced by sandbox-helpers plugin
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ user_shims_bin_directory }}/gh"
-        - "{{ user_shims_bin_directory }}/jira"
-      when: claude_check.rc == 0
 
     - name: Create claude wrapper script in ~/.local/shims/bin
       copy:
