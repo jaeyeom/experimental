@@ -21,6 +21,11 @@
       failed_when: false
       changed_when: false
 
+    - name: Update claude-toolbox marketplace
+      command: claude plugin marketplace update claude-toolbox
+      when: claude_check.rc == 0
+      changed_when: false
+
     - name: Install git-guardrails plugin (covers find guardrails)
       command: claude plugin install git-guardrails@claude-toolbox
       when: claude_check.rc == 0
@@ -33,4 +38,6 @@
       loop:
         - "{{ user_shims_bin_directory }}/find"
         - "{{ user_bin_directory }}/find"
+        - "{{ user_shims_bin_directory }}/git"
+        - "{{ user_bin_directory }}/git"
       when: claude_check.rc == 0
