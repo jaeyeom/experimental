@@ -8,7 +8,9 @@ drafts), classifies which ones still need attention, matches each PR
 to a running
 [[https://herdr.dev/][herdr]] agent tab, and — on explicit request — sends
 that agent a prompt to address unresolved review comments — or, with
-~--rebase~, a rebase-in-place prompt even when there are no open comments.
+~--rebase~, a rebase-in-place prompt even when there are no open comments —
+or, with ~--ci-fix~, a templated CI-fix prompt for a PR whose checks are
+red.
 It can also run the join in reverse (~tabs --orphans~) to flag live-agent
 tabs whose PR already merged, so their worktrees and gate slots can be
 reclaimed — and, with ~--close-merged --go~, close those merged-bucket
@@ -57,7 +59,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--force] [--stdin]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--force] [--stdin]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] --body TEXT
 prsync gate     [--config PATH]
 prsync version
@@ -75,11 +77,15 @@ prsync version
 | ~--all~ | dispatch, comment | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch, comment, tabs | Live send / close (default is dry-run) |
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
+| ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
+| ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it against live state |
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
 | ~--stdin~ | dispatch, comment | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
 | ~--body TEXT~ | comment | Comment body to post (required) |
 
-~--pr~ and ~--all~ together is an error (exit 2). ~--go~ on ~tabs~
+~--pr~ and ~--all~ together is an error (exit 2). ~--ci-fix~ and
+~--rebase~ together is an error (exit 2). ~--hint~ without ~--ci-fix~
+is an error (exit 2). ~--go~ on ~tabs~
 requires ~--close-merged~ (exit 2 otherwise). ~--go~ always sends (or,
 with ~--close-merged~, closes). ~dry_run=false~ in the config also
 sends / closes without ~--go~ (for cron); ~tabs~ still needs
@@ -131,6 +137,7 @@ variables are not expanded.
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for the per-send settle wait (and ~herdr agent prompt --timeout~). A prompt the agent never picks up becomes ~dispatched_timeout~. |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. Default: check out ~{head}~ (via ~gh pr checkout {number}~ if needed), bring it up to date with ~origin/{base}~, then apply mechanical / unambiguous fixes; for a design decision, tradeoff, or disagreement, pause and ask the user (with a recommended option) before editing / resolving / pushing. After the addressed threads are pushed, re-request each human reviewer whose listed comments are all done (~gh pr edit {number} --add-reviewer <login>~). Skip bots, skip already-pending reviewers, and do not dismiss reviews. |
 | ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
+| ~ci_fix_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~, plus ~{hint}~. Used only with ~dispatch --ci-fix~. Default: the same branch-switch preamble as the comment template, then reproduce the failing check, triage flake vs real vs judgment-call, verify locally before pushing, and stay scoped to this PR. ~{hint}~ is a non-authoritative starting point (empty → investigate from scratch). |
 | ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts. |
 | ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens. Passed as ~herdr agent prompt --until~ flags, then required to hold after a ~working~ (or ~state_change_seq~) transition. At least one token required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
@@ -426,6 +433,32 @@ prompt to every PR that has a ready tab; auto-picking behind/conflicting
 PRs is a follow-up. Scan documents without ~merge_state_status~ keep
 head-SHA dedupe (use ~--force~ to retry a stuck entry).
 
+CI-fix mode (a PR whose checks are red, including
+~skipped_addressed~ in comment mode). A CI-fix dispatch is satisfied
+only when CI is no longer ~failing~ (~ci_state~). The same ~head_sha~
+does not block a retry of a still-red check. A completed CI-fix (not
+failing, with a recorded dispatch) is ~skipped_deduped~. ~--force~
+re-dispatches anyway. ~--hint~ is a starting point the agent must
+verify against live CI; omit it to investigate from scratch.
+~prsync~ does not decide whether a failure is worth fixing — the
+caller chooses ~--ci-fix~, and the templated prompt is where triage
+lives.
+
+#+BEGIN_SRC bash
+prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123
+prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 \
+  --hint 'job X failed at step/target Y; key error: boom; looks real (not flake)'
+prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 --go
+prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 --go --force
+#+END_SRC
+
+The prompt is sent to the PR's existing herdr tab. Gate / serial / wait
+are unchanged. ~--ci-fix~ and ~--rebase~ cannot be combined; rebase
+first, then CI-fix. A caller that both rebases/comments *and*
+re-triggers CI on a PR must still sequence the CI re-trigger last,
+since a new commit invalidates it. Scan documents without ~ci_state~
+keep head-SHA dedupe (use ~--force~ to retry a stuck entry).
+
 ** comment
 
 Posts a PR comment through ~gh pr comment~. No herdr tab, no agent, and
@@ -502,6 +535,7 @@ Against a real herdr ≥ 0.8 and an authenticated ~gh~:
 prsync scan --config ./prsync.config
 prsync dispatch --config ./prsync.config          # review rendered_prompt
 prsync dispatch --config ./prsync.config --go     # pane_id + --wait --until idle --until done
+prsync dispatch --config ./prsync.config --ci-fix # review CI-fix rendered_prompt
 prsync comment --config ./prsync.config --body "please retry"      # review rendered_prompt
 prsync comment --config ./prsync.config --body "please retry" --go
 prsync tabs --orphans --close-merged --config ./prsync.config      # review would_close

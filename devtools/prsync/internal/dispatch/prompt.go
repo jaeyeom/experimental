@@ -14,9 +14,17 @@ import (
 // inlineLink matches [label](url) with an optional quoted title.
 var inlineLink = regexp.MustCompile(`\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 
+const emptyHint = "(none; investigate from scratch)"
+
 // Render substitutes prompt template variables with PR fields.
 // Replacement is literal strings.ReplaceAll, longest key first.
 func Render(tmpl string, pr scan.PR, cfg config.Config) string {
+	return RenderHint(tmpl, pr, cfg, "")
+}
+
+// RenderHint is Render plus {hint}. The hint is substituted last so its
+// text is verbatim even if it contains other placeholders.
+func RenderHint(tmpl string, pr scan.PR, cfg config.Config, hint string) string {
 	id := ""
 	if pr.Identifier != nil {
 		id = *pr.Identifier
@@ -41,7 +49,10 @@ func Render(tmpl string, pr scan.PR, cfg config.Config) string {
 	for _, v := range vars {
 		out = strings.ReplaceAll(out, v.key, v.val)
 	}
-	return out
+	if strings.TrimSpace(hint) == "" {
+		hint = emptyHint
+	}
+	return strings.ReplaceAll(out, "{hint}", hint)
 }
 
 func formatComments(comments []scan.Comment, cfg config.Config) string {

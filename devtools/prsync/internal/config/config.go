@@ -14,11 +14,13 @@ import (
 	"time"
 )
 
-const defaultPromptTemplate = `Get onto this PR's branch before editing:
+const branchSwitchPreamble = `Get onto this PR's branch before editing:
 1. If the working tree has uncommitted changes, stash or commit them first.
 2. Check out {head} (if absent locally, run ` + "`gh pr checkout {number}`" + `).
 3. Fetch origin and bring {head} up to date with origin/{base} as needed.
-Do not start editing until you are on {head} at its latest tip.
+Do not start editing until you are on {head} at its latest tip.`
+
+const defaultPromptTemplate = branchSwitchPreamble + `
 
 Address the unresolved review comments on PR #{number} ({url}).
 
@@ -53,6 +55,33 @@ const defaultRebasePromptTemplate = `Rebase PR #{number} ({url}) onto origin/{ba
 
 Do not touch other PRs.`
 
+const defaultCIFixPromptTemplate = branchSwitchPreamble + `
+
+Fix the failing CI on PR #{number} ({url}). Stay scoped to this PR.
+Do not touch unrelated failures or other PRs.
+
+Caller hint (non-authoritative starting point; verify against live CI
+state, do not trust — CI may have re-run, e.g. after a rebase, and the
+failure may have changed):
+{hint}
+
+Use the repo's available CI-log / flaky-test investigation tools if any.
+Do not assume a particular CI provider or build system.
+
+1. Reproduce before touching anything. Run the failing check locally on
+   this branch and confirm it actually fails before proposing a change.
+2. Triage before fixing. Not every red check is a code bug:
+   - a flaky or infrastructure failure → do not "fix" it; report back that
+     it is not a code problem and stop.
+   - a genuine failure with an unambiguous fix → fix it, verify locally,
+     push.
+   - a failure whose fix is a judgment call (a design tradeoff, or one
+     that needs new tests written to a scope that isn't obvious) → pause
+     and ask the user, with a recommended option, before editing or
+     pushing.
+3. Verify locally before pushing. Re-run the same check and confirm it
+   now passes; never push an unverified fix.`
+
 var repoPattern = regexp.MustCompile(`^[^/\s]+/[^/\s]+$`)
 
 // Config is the resolved prsync configuration.
@@ -68,6 +97,7 @@ type Config struct {
 	GateTimeout          time.Duration
 	PromptTemplate       string
 	RebasePromptTemplate string
+	CIFixPromptTemplate  string
 	IncludeDrafts        bool
 	WaitUntil            []string
 	DispatchTimeout      time.Duration
@@ -112,6 +142,7 @@ func Defaults() Config {
 		GateTimeout:          1800000 * time.Millisecond,
 		PromptTemplate:       defaultPromptTemplate,
 		RebasePromptTemplate: defaultRebasePromptTemplate,
+		CIFixPromptTemplate:  defaultCIFixPromptTemplate,
 		WaitUntil:            []string{"idle", "done"},
 		DispatchTimeout:      1800000 * time.Millisecond,
 		StateFile:            "~/.config/prsync/state.json",
@@ -267,7 +298,7 @@ func applyKey(cfg *Config, key, val string) error {
 		cfg.ConcurrencyWaitOn = val
 	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms":
 		return applyMillis(cfg, key, val)
-	case "dispatch_prompt_template", "rebase_prompt_template":
+	case "dispatch_prompt_template", "rebase_prompt_template", "ci_fix_prompt_template":
 		return applyPrompt(cfg, key, val)
 	case "dispatch_include_drafts":
 		return applyIncludeDrafts(cfg, val)
@@ -327,6 +358,8 @@ func applyPrompt(cfg *Config, key, val string) error {
 	switch key {
 	case "rebase_prompt_template":
 		cfg.RebasePromptTemplate = text
+	case "ci_fix_prompt_template":
+		cfg.CIFixPromptTemplate = text
 	default:
 		cfg.PromptTemplate = text
 	}

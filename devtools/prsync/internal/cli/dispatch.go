@@ -27,15 +27,17 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		all        bool
 		goLive     bool
 		rebase     bool
+		ciFix      bool
+		hint       string
 		force      bool
 		readStdin  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
-		Short: "Send unmatched review comments to the matched herdr agent",
+		Short: "Send a review-comment, rebase, or CI-fix prompt to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase, force, readStdin)
+			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -43,14 +45,22 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
 	cmd.Flags().BoolVar(&goLive, "go", false, "send prompts (default is dry-run)")
 	cmd.Flags().BoolVar(&rebase, "rebase", false, "dispatch a rebase-in-place prompt (skips the unaddressed-comment gate)")
+	cmd.Flags().BoolVar(&ciFix, "ci-fix", false, "dispatch a CI-fix prompt (skips the unaddressed-comment gate)")
+	cmd.Flags().StringVar(&hint, "hint", "", "non-authoritative CI failure hint (requires --ci-fix)")
 	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan)")
 	return cmd
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, force, readStdin bool) error {
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, ciFix bool, hint string, force, readStdin bool) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
+	}
+	if rebase && ciFix {
+		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --ci-fix and --rebase")}
+	}
+	if hint != "" && !ciFix {
+		return &ExitError{Code: ExitUsage, Err: errors.New("--hint requires --ci-fix")}
 	}
 	for _, p := range prs {
 		if _, _, err := dispatch.ParsePR(p); err != nil {
@@ -74,6 +84,8 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		PRs:        prs,
 		RunnerPane: h.RunnerPane(ctx),
 		Rebase:     rebase,
+		CIFix:      ciFix,
+		Hint:       hint,
 		Force:      force,
 	}, time.Now())
 	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
