@@ -33,7 +33,7 @@
 # dispatch_timeout_ms=1800000
 
 # Inline prompt, or @/path/to/file (tilde is expanded).
-# Substituted: {identifier} {number} {title} {repo} {url} {head} {base} {comments}.
+# Substituted: {identifier} {number} {title} {repo} {url} {head} {base} {comments} {hint}.
 # Unknown placeholders are left literal. Review comment bodies are interpolated
 # after over-long markdown link targets are stripped and the body is capped
 # (see comment_link_max_chars / comment_body_max_chars).
@@ -51,6 +51,16 @@
 # dispatch_prompt_template. Default: checkout {head}, fetch, rebase onto
 # origin/{base}, resolve conflicts, --force-with-lease, no new worktree.
 # rebase_prompt_template=
+
+# Used only by `prsync dispatch --ci-fix`. Same placeholders as
+# dispatch_prompt_template, plus {hint} (substituted last, verbatim).
+# Default: the same branch-switch preamble as dispatch_prompt_template,
+# then reproduce the failing check locally, triage flake vs real vs
+# judgment-call (pause and ask the user, with a recommended option),
+# verify locally before pushing, stay scoped to this PR. Use the repo's
+# CI-log / flaky-test tools if any; do not assume a CI provider.
+# Empty {hint} becomes "(none; investigate from scratch)".
+# ci_fix_prompt_template=
 
 # true / false / 1 / 0. When true, dispatch may send to draft PRs.
 # scan always includes drafts (is_draft) so orphan detection can see them.
