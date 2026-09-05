@@ -166,6 +166,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-claude-privacy.yml
 - setup-claude-sandbox.yml
 - setup-claude-termux-rg.yml
+- setup-claude-toolbox.yml
 - setup-codex-termux.yml
 - setup-config-tools.yml
 - setup-cousine-font.yml
@@ -181,7 +182,6 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-fira-code.yml
 - setup-fira-code-nerd-font.yml
 - setup-git.yml
-- setup-git-guardrails.yml
 - setup-go-tools.yml
 - setup-gpg-agent.yml
 - setup-gpg-keygen.yml

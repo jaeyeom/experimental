@@ -1,0 +1,51 @@
+---
+- import_playbook: setup-user-bin-directory.yml
+
+- name: Install claude-toolbox plugins
+  hosts: all
+  tasks:
+    - name: Include guard for setup-claude-toolbox playbook
+      block:
+        - name: Stop early if the setup-claude-toolbox playbook is already included
+          meta: end_play
+          when: setup_claude_toolbox_playbook_imported is defined
+        - name: Ensure the setup-claude-toolbox playbook is not included
+          set_fact:
+            setup_claude_toolbox_playbook_imported: true
+          when: setup_claude_toolbox_playbook_imported is not defined
+
+    - name: Check if claude is installed
+      shell: command -v claude
+      register: claude_check
+      failed_when: false
+      changed_when: false
+
+    - name: Update claude-toolbox marketplace
+      command: claude plugin marketplace update claude-toolbox
+      when: claude_check.rc == 0
+      changed_when: false
+
+    - name: Install git-guardrails plugin
+      command: claude plugin install git-guardrails@claude-toolbox
+      when: claude_check.rc == 0
+      changed_when: true
+
+    - name: Install sandbox-helpers plugin
+      command: claude plugin install sandbox-helpers@claude-toolbox
+      when: claude_check.rc == 0
+      changed_when: true
+
+    - name: Remove shims replaced by claude-toolbox plugins
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ user_shims_bin_directory }}/git"
+        - "{{ user_bin_directory }}/git"
+        - "{{ user_shims_bin_directory }}/find"
+        - "{{ user_bin_directory }}/find"
+        - "{{ user_shims_bin_directory }}/gh"
+        - "{{ user_bin_directory }}/gh"
+        - "{{ user_shims_bin_directory }}/jira"
+        - "{{ user_bin_directory }}/jira"
+      when: claude_check.rc == 0
