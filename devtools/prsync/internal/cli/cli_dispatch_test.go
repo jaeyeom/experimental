@@ -304,6 +304,71 @@ func TestDispatchRebaseAddressedWouldDispatch(t *testing.T) {
 	}
 }
 
+func TestDispatchCIFixAddressedWouldDispatch(t *testing.T) {
+	_, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+	doc := stdinEligibleDoc()
+	doc.PRs[0].Unaddressed = false
+	doc.PRs[0].BlockingComments = nil
+	doc.PRs[0].Head = "fix-widget"
+	doc.PRs[0].Base = "main"
+	raw := mustScanJSON(t, doc)
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--ci-fix", "--hint", "job X failed", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "Check out fix-widget") {
+		t.Fatalf("rendered_prompt = %q", got.Results[0].RenderedPrompt)
+	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "job X failed") {
+		t.Fatalf("missing hint: %q", got.Results[0].RenderedPrompt)
+	}
+	if strings.Contains(got.Results[0].RenderedPrompt, "unresolved review comments") {
+		t.Fatalf("used comment template: %q", got.Results[0].RenderedPrompt)
+	}
+	if strings.Contains(got.Results[0].RenderedPrompt, "--force-with-lease") {
+		t.Fatalf("used rebase template: %q", got.Results[0].RenderedPrompt)
+	}
+}
+
+func TestDispatchCIFixAndRebase(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--ci-fix", "--rebase"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitUsage {
+		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "cannot combine --ci-fix and --rebase") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestDispatchHintRequiresCIFix(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--hint", "job X failed"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitUsage {
+		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitUsage, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--hint requires --ci-fix") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestDispatchAddressedWithoutRebaseIsSkipped(t *testing.T) {
 	_, herdrBin := fixtureBins(t)
 	cfgPath := writeScanConfig(t, strings.Join([]string{

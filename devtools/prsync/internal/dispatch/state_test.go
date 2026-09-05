@@ -125,6 +125,67 @@ func TestRecordPreservesHeadSHA(t *testing.T) {
 	}
 }
 
+func TestRecordCIFixPreservesOtherFields(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	st.RecordCIFix("acme/widgets#123", "ci-sha", at)
+	got := st["acme/widgets#123"]
+	if !reflect.DeepEqual(got.DispatchedCommentIDs, []string{"PRRC_a"}) {
+		t.Fatalf("comment ids = %v, want preserved", got.DispatchedCommentIDs)
+	}
+	if got.DispatchedHeadSHA != "abc123" {
+		t.Fatalf("head SHA = %q, want preserved", got.DispatchedHeadSHA)
+	}
+	if got.DispatchedCIFixSHA != "ci-sha" {
+		t.Fatalf("CI-fix SHA = %q, want ci-sha", got.DispatchedCIFixSHA)
+	}
+}
+
+func TestRecordPreservesCIFixSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.RecordCIFix("acme/widgets#123", "ci-sha", at)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	got := st["acme/widgets#123"]
+	if got.DispatchedCIFixSHA != "ci-sha" {
+		t.Fatalf("CI-fix SHA = %q, want preserved", got.DispatchedCIFixSHA)
+	}
+}
+
+func TestDedupeCIFixSameSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}}
+	if !st.DedupedCIFix("acme/widgets#123", "abc123") {
+		t.Fatal("same CI-fix SHA must be deduped")
+	}
+}
+
+func TestDedupeCIFixChangedSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}}
+	if st.DedupedCIFix("acme/widgets#123", "def456") {
+		t.Fatal("changed CI-fix SHA must not be deduped")
+	}
+}
+
+func TestDedupeCIFixEmptySHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}}
+	if st.DedupedCIFix("acme/widgets#123", "") {
+		t.Fatal("empty current SHA must not be deduped")
+	}
+}
+
 func TestLoadFileMissingIsEmpty(t *testing.T) {
 	t.Parallel()
 
