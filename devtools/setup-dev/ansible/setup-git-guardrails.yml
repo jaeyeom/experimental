@@ -1,19 +1,18 @@
 ---
-- import_playbook: which.yml
 - import_playbook: setup-user-bin-directory.yml
 
-- name: Deploy secure find wrapper
+- name: Install git-guardrails Claude plugin
   hosts: all
   tasks:
-    - name: Include guard for setup-find playbook
+    - name: Include guard for setup-git-guardrails playbook
       block:
-        - name: Stop early if the setup-find playbook is already included
+        - name: Stop early if the setup-git-guardrails playbook is already included
           meta: end_play
-          when: setup_find_playbook_imported is defined
-        - name: Ensure the setup-find playbook is not included
+          when: setup_git_guardrails_playbook_imported is defined
+        - name: Ensure the setup-git-guardrails playbook is not included
           set_fact:
-            setup_find_playbook_imported: true
-          when: setup_find_playbook_imported is not defined
+            setup_git_guardrails_playbook_imported: true
+          when: setup_git_guardrails_playbook_imported is not defined
 
     - name: Check if claude is installed
       shell: command -v claude
@@ -26,7 +25,7 @@
       when: claude_check.rc == 0
       changed_when: false
 
-    - name: Install git-guardrails plugin (covers find guardrails)
+    - name: Install git-guardrails plugin
       command: claude plugin install git-guardrails@claude-toolbox
       when: claude_check.rc == 0
       changed_when: true

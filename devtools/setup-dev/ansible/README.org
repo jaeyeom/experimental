@@ -178,10 +178,10 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-docker-wrapper-udocker.yml
 - setup-emacs.yml
 - setup-emacs-lsp-booster.yml
-- setup-find.yml
 - setup-fira-code.yml
 - setup-fira-code-nerd-font.yml
 - setup-git.yml
+- setup-git-guardrails.yml
 - setup-go-tools.yml
 - setup-gpg-agent.yml
 - setup-gpg-keygen.yml
