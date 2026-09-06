@@ -1,0 +1,227 @@
+---
+- import_playbook: grok.yml
+
+- name: Ensure grok is configured
+  hosts: all
+  vars:
+    grok_home: "{{ ansible_facts['env']['GROK_HOME'] | default(ansible_facts['env']['HOME'] ~ '/.grok', true) }}"
+    grok_cli_chat_proxy_base_url: "{{ ansible_facts['env']['GROK_CLI_CHAT_PROXY_BASE_URL'] | default('https://cli-chat-proxy.grok.com/v1', true) }}"
+  tasks:
+    - name: Include guard for setup-grok playbook
+      block:
+        - name: Stop early if the setup-grok playbook is already included
+          meta: end_play
+          when: setup_grok_playbook_imported is defined
+        - name: Ensure the setup-grok playbook is not included
+          set_fact:
+            setup_grok_playbook_imported: true
+          when: setup_grok_playbook_imported is not defined
+
+    - name: Ensure the grok config directory exists
+      ansible.builtin.file:
+        path: "{{ grok_home }}"
+        state: directory
+        mode: "0755"
+
+    # Local knobs: product telemetry and session-trace upload. The /privacy
+    # training toggle is account-level and is applied by the task below.
+    - name: Disable Grok product telemetry and trace upload
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+
+        path = Path(os.environ["GROK_HOME"]) / "config.toml"
+        updates = (
+            ("features", "telemetry", "false"),
+            ("telemetry", "trace_upload", "false"),
+        )
+
+
+        def is_table_header(line, name):
+            return line.strip() == "[%s]" % name
+
+
+        def upsert(text, section, key, value):
+            lines = text.splitlines()
+            header = None
+            for i, line in enumerate(lines):
+                if is_table_header(line, section):
+                    header = i
+                    break
+            assignment = "%s = %s" % (key, value)
+            if header is None:
+                if lines and lines[-1].strip():
+                    lines.append("")
+                lines.append("[%s]" % section)
+                lines.append(assignment)
+                return "\n".join(lines) + "\n", True
+            end = len(lines)
+            key_at = None
+            for j in range(header + 1, len(lines)):
+                stripped = lines[j].strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    end = j
+                    break
+                if stripped.startswith("#") or "=" not in stripped:
+                    continue
+                if stripped.split("=", 1)[0].strip() == key:
+                    key_at = j
+                    break
+            if key_at is not None:
+                if lines[key_at].strip() == assignment:
+                    out = "\n".join(lines)
+                    if text.endswith("\n"):
+                        out += "\n"
+                    return out, False
+                lines[key_at] = assignment
+            else:
+                lines.insert(end, assignment)
+            return "\n".join(lines) + "\n", True
+
+
+        original = path.read_text() if path.exists() else ""
+        text = original
+        changed = False
+        for section, key, value in updates:
+            text, did = upsert(text, section, key, value)
+            changed = changed or did
+        if changed:
+            existed = path.exists()
+            path.write_text(text)
+            if not existed:
+                path.chmod(0o644)
+            print("CONFIG_CHANGED")
+        else:
+            print("CONFIG_UNCHANGED")
+        PY
+      environment:
+        GROK_HOME: "{{ grok_home }}"
+      register: grok_config_privacy
+      changed_when: "'CONFIG_CHANGED' in grok_config_privacy.stdout"
+
+    # Account-level /privacy setting: Opt out of coding-data retention and
+    # training. Cached on disk as coding_data_retention_opt_out in auth.json
+    # and persisted via PUT /privacy/coding-data-retention.
+    - name: Opt out of Grok coding-data training collection
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+        import urllib.error
+        import urllib.request
+
+        grok_home = Path(os.environ["GROK_HOME"])
+        base = os.environ["GROK_CLI_CHAT_PROXY_BASE_URL"].rstrip("/")
+        auth_path = grok_home / "auth.json"
+
+        def emit(status):
+            print(status)
+
+        if not auth_path.exists():
+            emit("TRAINING_SKIPPED_NO_AUTH")
+            raise SystemExit(0)
+
+        try:
+            auth = json.loads(auth_path.read_text())
+        except (OSError, json.JSONDecodeError) as err:
+            emit("TRAINING_SKIPPED_BAD_AUTH")
+            print("failed to read auth.json: %s" % err)
+            raise SystemExit(0)
+
+        if not isinstance(auth, dict) or not auth:
+            emit("TRAINING_SKIPPED_NO_AUTH")
+            raise SystemExit(0)
+
+        statuses = []
+        cache_changed = False
+
+        def request(method, url, token, body=None):
+            headers = {
+                "Authorization": "Bearer %s" % token,
+                "Content-Type": "application/json",
+            }
+            data = None if body is None else json.dumps(body).encode()
+            req = urllib.request.Request(url, data=data, method=method, headers=headers)
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    raw = resp.read()
+                    return resp.status, raw
+            except urllib.error.HTTPError as err:
+                return err.code, err.read()
+
+        for entry in auth.values():
+            if not isinstance(entry, dict):
+                continue
+            token = entry.get("key")
+            if not token:
+                continue
+            status, raw = request("GET", base + "/user", token)
+            if status in (401, 403):
+                statuses.append("TRAINING_SKIPPED_HTTP_%s" % status)
+                continue
+            if status != 200:
+                emit("TRAINING_FAILED_HTTP_%s" % status)
+                print(raw.decode("utf-8", "replace")[:300])
+                raise SystemExit(1)
+            try:
+                user = json.loads(raw)
+            except json.JSONDecodeError:
+                emit("TRAINING_FAILED_BAD_USER")
+                raise SystemExit(1)
+            opted_out = user.get("codingDataRetentionOptOut") is True
+            if not opted_out:
+                put_status, put_raw = request(
+                    "PUT",
+                    base + "/privacy/coding-data-retention",
+                    token,
+                    {"codingDataRetentionOptOut": True},
+                )
+                if put_status != 200:
+                    emit("TRAINING_FAILED_HTTP_%s" % put_status)
+                    print(put_raw.decode("utf-8", "replace")[:300])
+                    raise SystemExit(1)
+                statuses.append("TRAINING_OPTED_OUT")
+                opted_out = True
+            else:
+                statuses.append("TRAINING_ALREADY_OPTED_OUT")
+            if entry.get("coding_data_retention_opt_out") is not True:
+                entry["coding_data_retention_opt_out"] = True
+                cache_changed = True
+
+        if not statuses:
+            emit("TRAINING_SKIPPED_NO_AUTH")
+            raise SystemExit(0)
+
+        if cache_changed:
+            tmp = auth_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(auth, indent=2) + "\n")
+            tmp.chmod(auth_path.stat().st_mode & 0o777)
+            tmp.replace(auth_path)
+            statuses.append("AUTH_CACHE_UPDATED")
+
+        for status in statuses:
+            emit(status)
+        PY
+      environment:
+        GROK_HOME: "{{ grok_home }}"
+        GROK_CLI_CHAT_PROXY_BASE_URL: "{{ grok_cli_chat_proxy_base_url }}"
+      register: grok_training_privacy
+      changed_when: >-
+        'TRAINING_OPTED_OUT' in grok_training_privacy.stdout
+        or 'AUTH_CACHE_UPDATED' in grok_training_privacy.stdout
+      failed_when: grok_training_privacy.rc != 0
+
+    - name: Display Grok privacy settings information
+      ansible.builtin.debug:
+        msg: |
+          Grok Build privacy settings have been configured:
+          - [features] telemetry = false: product analytics off
+          - [telemetry] trace_upload = false: session traces not uploaded
+          - /privacy coding-data training collection: opted out
+
+          Training collection is an account-level setting (Coding data,
+          retention, and training). On a fresh machine, run `grok login`
+          and re-run this playbook if auth.json is not present yet.
+          On team accounts only a team admin can change it.

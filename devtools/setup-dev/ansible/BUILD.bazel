@@ -243,6 +243,7 @@ sh_test(
         "setup-git.yml",
         "setup-go-tools.yml",
         "setup-gpg-agent.yml",
+        "setup-grok.yml",
         "setup-herdr.yml",
         "setup-history.yml",
         "setup-homebrew-env.yml",
@@ -2150,6 +2151,7 @@ sh_test(
         "setup-fira-code-nerd-font.yml",
         "setup-git.yml",
         "setup-gpg-agent.yml",
+        "setup-grok.yml",
         "setup-herdr.yml",
         "setup-history.yml",
         "setup-npm.yml",
@@ -3128,6 +3130,21 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-grok_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-grok.yml"],
+    data = [
+        "curl.yml",
+        "grok.yml",
+        "setup-grok.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-grpc_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-grpc.yml"],
@@ -3716,6 +3733,7 @@ sh_test(
         "setup-claude-toolbox.yml",
         "setup-codex-termux.yml",
         "setup-git.yml",
+        "setup-grok.yml",
         "setup-herdr.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
@@ -4391,6 +4409,7 @@ test_suite(
         ":setup-go-tools_syntax_test",
         ":setup-gpg-agent_syntax_test",
         ":setup-gpg-keygen_syntax_test",
+        ":setup-grok_syntax_test",
         ":setup-grpc_syntax_test",
         ":setup-herdr_syntax_test",
         ":setup-history_syntax_test",
