@@ -13,7 +13,7 @@
 - import_playbook: setup-claude-toolbox.yml
 - import_playbook: setup-claude-privacy.yml
 - import_playbook: claudelytics.yml
-- import_playbook: grok.yml
+- import_playbook: setup-grok.yml
 - import_playbook: setup-herdr.yml
 
 - name: Setup vibe coding environment

@@ -413,6 +413,45 @@ func TestCICDIncludesAllJSLintFormatTools(t *testing.T) {
 	}
 }
 
+func TestSetupVibeCodingImportsSetupGrok(t *testing.T) {
+	chdirAnsiblePlaybookDir(t)
+
+	imports, err := getPlaybookImports("setup-vibe-coding")
+	if err != nil {
+		t.Fatalf("getPlaybookImports: %v", err)
+	}
+	got := make(map[string]bool, len(imports))
+	for _, imp := range imports {
+		got[imp] = true
+	}
+	if !got["setup-grok"] {
+		t.Errorf("setup-vibe-coding.yml missing import setup-grok.yml; got %v", imports)
+	}
+	if got["grok"] {
+		t.Error("setup-vibe-coding.yml should import setup-grok.yml, not grok.yml directly")
+	}
+}
+
+func TestSetupGrokOptsOutOfTraining(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "setup-grok.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	for _, want := range []string{
+		"import_playbook: grok.yml",
+		"codingDataRetentionOptOut",
+		"/privacy/coding-data-retention",
+		"telemetry = false",
+		"trace_upload = false",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("setup-grok.yml missing %q", want)
+		}
+	}
+}
+
 func TestClaudeSandboxFormatsJSWithOxfmt(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "setup-claude-sandbox.yml"))
