@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -435,21 +436,70 @@ func TestGetPostImports(t *testing.T) {
 	}
 }
 
-func TestPrsyncGoTool(t *testing.T) {
-	var (
-		tool  PlatformSpecificTool
-		found bool
-	)
+func findPlatformSpecificTool(t *testing.T, command string) PlatformSpecificTool {
+	t.Helper()
 	for _, candidate := range platformSpecificTools {
-		if candidate.command == "prsync" {
-			tool = candidate
+		if candidate.command == command {
+			return candidate
+		}
+	}
+	t.Fatalf("%s is not registered in platformSpecificTools", command)
+	return PlatformSpecificTool{}
+}
+
+func TestAsideCLI(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "aside")
+	if _, ok := tool.platforms[PlatformTermux]; ok {
+		t.Error("aside should omit Termux; official installer is linux/macOS only")
+	}
+	wantInstall := "{{ playbook_dir }}/verified-run exec https://releases.aside.com/install.sh"
+	wantPATH := `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`
+	for _, platform := range []PlatformName{PlatformDarwin, PlatformDebianLike} {
+		method, ok := tool.platforms[platform].(ShellInstallMethod)
+		if !ok {
+			t.Errorf("aside %s method = %T, want ShellInstallMethod", platform, tool.platforms[platform])
+			continue
+		}
+		if method.InstallCommand != wantInstall {
+			t.Errorf("aside %s InstallCommand = %q, want %q", platform, method.InstallCommand, wantInstall)
+		}
+		if got := method.Environment["PATH"]; got != wantPATH {
+			t.Errorf("aside %s PATH = %q, want %q", platform, got, wantPATH)
+		}
+	}
+	wantImports := []Import{
+		{Playbook: "curl"},
+		{Playbook: "setup-user-bin-directory"},
+		{Playbook: "libatomic1", When: WhenDebianLike},
+	}
+	if !reflect.DeepEqual(tool.Imports, wantImports) {
+		t.Errorf("aside Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
+	}
+}
+
+func TestLibatomic1Package(t *testing.T) {
+	var pkg PackageData
+	found := false
+	for _, candidate := range packages {
+		if candidate.command == "libatomic1" {
+			pkg = candidate
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("prsync is not registered in platformSpecificTools")
+		t.Fatal("libatomic1 is not registered in packages")
 	}
+	if pkg.DebianPkgName() != "libatomic1" {
+		t.Errorf("libatomic1 DebianPkgName = %q, want libatomic1", pkg.DebianPkgName())
+	}
+	if !strings.Contains(pkg.CheckCommand(), "libatomic") {
+		t.Errorf("libatomic1 CheckCommand = %q, want a libatomic probe", pkg.CheckCommand())
+	}
+}
+
+func TestPrsyncGoTool(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "prsync")
 	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
 	if !ok {
 		t.Fatalf("prsync PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])

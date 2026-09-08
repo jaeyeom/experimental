@@ -430,6 +430,9 @@ func TestSetupVibeCodingImportsSetupGrok(t *testing.T) {
 	if got["grok"] {
 		t.Error("setup-vibe-coding.yml should import setup-grok.yml, not grok.yml directly")
 	}
+	if !got["aside"] {
+		t.Errorf("setup-vibe-coding.yml missing import aside.yml; got %v", imports)
+	}
 }
 
 func TestSetupGrokOptsOutOfTraining(t *testing.T) {
