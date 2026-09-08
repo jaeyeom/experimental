@@ -819,6 +819,7 @@ rules:
   - match:
       - "devtools/setup-dev/ansible/ensure.sh"
       - "devtools/setup-dev/ansible/bootstrap.sh"
+      - "devtools/setup-dev/ansible/ansible_become.sh"
       - "devtools/setup-dev/ansible/community_general.sh"
       - "devtools/setup-dev/ansible/cache_expired.sh"
       - "devtools/setup-dev/ansible/verified-run"

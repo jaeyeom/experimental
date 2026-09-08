@@ -50,6 +50,21 @@ file has no include guard, it exits with an error instead of guessing
 =$HOME/.cache/last_upgrade/=; delete one to force that refresh on the
 next run.
 
+** sudo / privilege escalation
+
+Playbooks use =become: yes= for apt operations. Ansible's sudo plugin
+defaults to =sudo -H -S -n= and does *not* reuse a terminal sudo ticket:
+=sudo true= succeeding without a password in your shell is not enough.
+sudo timestamps are TTY-specific, and Ansible invokes sudo on a different
+TTY (or none).
+
+On Linux, =ensure.sh= probes passwordless sudo in a new session (so a
+TTY ticket cannot hide a missing =NOPASSWD= rule). If that fails, it
+passes =-K= and Ansible prompts for the become password once at the start
+of the run. Passwordless sudo skips the prompt. Non-interactive runs
+without passwordless sudo fail immediately; re-run from a terminal, pass
+=-K=, or configure =NOPASSWD=.
+
 ** Ansible version requirement
 
 Playbooks use =ansible.builtin.deb822_repository= (ansible-core >= 2.15).
