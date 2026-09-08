@@ -156,4 +156,39 @@ _summary_generic=$(print_playbook_failure "all.yml" "$_empty" " all" 2>&1)
 assert_eq "failure summary without task path" "$_summary_generic" \
     "Error: playbook all.yml failed."
 
+# --- spacemacs.yml: --from spacemacs and --from emacs (#318) ---
+# --from emacs starts at emacs.yml, which sits between this file's
+# setup-user-config-directory import and the Spacemacs git task. The
+# Spacemacs play itself must define user_config_directory when missing.
+
+_spacemacs="$SCRIPT_DIR/spacemacs.yml"
+if [ ! -f "$_spacemacs" ]; then
+    fail "spacemacs.yml must sit next to playbook_resume_test.sh (sh_test data)"
+fi
+
+_got=$(include_guard_task_name "$_spacemacs") || _got=""
+assert_eq "--from spacemacs include-guard" \
+    "$_got" \
+    "Stop early if the spacemacs playbook is already included"
+
+_got=$(include_guard_task_name "$SCRIPT_DIR/spacemacs") || _got=""
+assert_eq "--from spacemacs suffix-less include-guard" \
+    "$_got" \
+    "Stop early if the spacemacs playbook is already included"
+
+_guard_line=$(grep -n 'Stop early if the spacemacs playbook is already included' "$_spacemacs" | sed -n '1p')
+_fact_line=$(grep -n 'when: user_config_directory is not defined' "$_spacemacs" | sed -n '1p')
+_dest_line=$(grep -F -n 'dest: "{{ user_config_directory }}/emacs"' "$_spacemacs" | sed -n '1p')
+_expr_line=$(grep -F -n "ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] + '/.config')" "$_spacemacs" | sed -n '1p')
+_guard_n=${_guard_line%%:*}
+_fact_n=${_fact_line%%:*}
+_dest_n=${_dest_line%%:*}
+_expr_n=${_expr_line%%:*}
+if [ -z "$_guard_n" ] || [ -z "$_fact_n" ] || [ -z "$_dest_n" ] || [ -z "$_expr_n" ]; then
+    fail "spacemacs.yml play must include-guard, set user_config_directory from XDG/HOME when undefined, and git dest to {{ user_config_directory }}/emacs"
+fi
+if [ "$_guard_n" -ge "$_fact_n" ] || [ "$_expr_n" -ge "$_dest_n" ] || [ "$_fact_n" -ge "$_dest_n" ]; then
+    fail "spacemacs.yml must set user_config_directory after its include-guard and before git dest (got guard=$_guard_n fact=$_fact_n expr=$_expr_n dest=$_dest_n)"
+fi
+
 echo "All playbook_resume tests passed."

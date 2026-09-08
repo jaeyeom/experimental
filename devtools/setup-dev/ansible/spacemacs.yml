@@ -6,6 +6,21 @@
 - name: Spacemacs is properly setup and up-to-date
   hosts: all
   tasks:
+    - name: Include guard for spacemacs playbook
+      block:
+        - name: Stop early if the spacemacs playbook is already included
+          meta: end_play
+          when: spacemacs_playbook_imported is defined
+        - name: Ensure the spacemacs playbook is not included
+          set_fact:
+            spacemacs_playbook_imported: true
+          when: spacemacs_playbook_imported is not defined
+
+    - name: Determine the user config directory
+      ansible.builtin.set_fact:
+        user_config_directory: "{{ ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] + '/.config') }}"
+      when: user_config_directory is not defined
+
     - name: Spacemacs is up-to-date
       ansible.builtin.git:
         repo: https://github.com/syl20bnr/spacemacs
