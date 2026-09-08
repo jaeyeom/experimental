@@ -26,6 +26,7 @@ apt-get install -y \
   htop \
   jq \
   keychain \
+  libatomic1 \
   libssl-dev \
   libtool-bin \
   libvips-tools \
