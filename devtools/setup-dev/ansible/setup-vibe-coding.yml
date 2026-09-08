@@ -15,6 +15,7 @@
 - import_playbook: claudelytics.yml
 - import_playbook: setup-grok.yml
 - import_playbook: setup-herdr.yml
+- import_playbook: aside.yml
 
 - name: Setup vibe coding environment
   hosts: all
@@ -31,4 +32,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, prsync, perplexity MCP, claudelytics, grok, herdr"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, prsync, perplexity MCP, claudelytics, grok, herdr, aside"

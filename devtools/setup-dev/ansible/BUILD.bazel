@@ -146,6 +146,7 @@ sh_test(
         "act.yml",
         "actionlint.yml",
         "all.yml",
+        "aside.yml",
         "bazel.yml",
         "bazel-affected-tests.yml",
         "biome.yml",
@@ -209,6 +210,7 @@ sh_test(
         "keychain.yml",
         "ktlint.yml",
         "lcov.yml",
+        "libatomic1.yml",
         "libssl-dev.yml",
         "libtool.yml",
         "libvterm.yml",
@@ -316,6 +318,24 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["antigravity.yml"],
     data = ["antigravity.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "aside_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["aside.yml"],
+    data = [
+        "aside.yml",
+        "curl.yml",
+        "gather-facts.yml",
+        "libatomic1.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
     tags = [
         "ansible",
         "local",
@@ -1616,6 +1636,17 @@ sh_test(
 )
 
 sh_test(
+    name = "libatomic1_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["libatomic1.yml"],
+    data = ["libatomic1.yml"],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "libssl-dev_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["libssl-dev.yml"],
@@ -2094,6 +2125,7 @@ sh_test(
     args = ["profile-cloudflare-dev.yml"],
     data = [
         "7z.yml",
+        "aside.yml",
         "cargo.yml",
         "cargo-install-update.yml",
         "claude.yml",
@@ -2129,6 +2161,7 @@ sh_test(
         "image2ascii.yml",
         "jq.yml",
         "keychain.yml",
+        "libatomic1.yml",
         "libssl-dev.yml",
         "libtool.yml",
         "libvterm.yml",
@@ -3710,6 +3743,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-vibe-coding.yml"],
     data = [
+        "aside.yml",
         "cargo.yml",
         "cargo-install-update.yml",
         "claude.yml",
@@ -3730,6 +3764,7 @@ sh_test(
         "grok.yml",
         "herdr.yml",
         "jq.yml",
+        "libatomic1.yml",
         "libssl-dev.yml",
         "npm.yml",
         "nvm.yml",
@@ -4261,6 +4296,7 @@ test_suite(
         ":ag_syntax_test",
         ":all_syntax_test",
         ":antigravity_syntax_test",
+        ":aside_syntax_test",
         ":bazel-affected-tests_syntax_test",
         ":bazel_syntax_test",
         ":biome_syntax_test",
@@ -4345,6 +4381,7 @@ test_suite(
         ":kotlinc_syntax_test",
         ":ktlint_syntax_test",
         ":lcov_syntax_test",
+        ":libatomic1_syntax_test",
         ":libssl-dev_syntax_test",
         ":libtool_syntax_test",
         ":libvterm_syntax_test",
