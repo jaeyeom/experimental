@@ -156,10 +156,9 @@ _summary_generic=$(print_playbook_failure "all.yml" "$_empty" " all" 2>&1)
 assert_eq "failure summary without task path" "$_summary_generic" \
     "Error: playbook all.yml failed."
 
-# --- spacemacs.yml: --from spacemacs and --from emacs (#318) ---
-# --from emacs starts at emacs.yml, which sits between this file's
-# setup-user-config-directory import and the Spacemacs git task. The
-# Spacemacs play itself must define user_config_directory when missing.
+# --- spacemacs.yml: --from starts at the beginning of the leaf file (#318) ---
+# Resume re-runs that file, including import_playbook, so
+# setup-user-config-directory.yml owns user_config_directory.
 
 _spacemacs="$SCRIPT_DIR/spacemacs.yml"
 if [ ! -f "$_spacemacs" ]; then
@@ -177,18 +176,22 @@ assert_eq "--from spacemacs suffix-less include-guard" \
     "Stop early if the spacemacs playbook is already included"
 
 _guard_line=$(grep -n 'Stop early if the spacemacs playbook is already included' "$_spacemacs" | sed -n '1p')
-_fact_line=$(grep -n 'when: user_config_directory is not defined' "$_spacemacs" | sed -n '1p')
+_import_line=$(grep -n 'import_playbook: setup-user-config-directory.yml' "$_spacemacs" | sed -n '1p')
 _dest_line=$(grep -F -n 'dest: "{{ user_config_directory }}/emacs"' "$_spacemacs" | sed -n '1p')
-_expr_line=$(grep -F -n "ansible_facts['env']['XDG_CONFIG_HOME'] | default(ansible_facts['env']['HOME'] + '/.config')" "$_spacemacs" | sed -n '1p')
 _guard_n=${_guard_line%%:*}
-_fact_n=${_fact_line%%:*}
+_import_n=${_import_line%%:*}
 _dest_n=${_dest_line%%:*}
-_expr_n=${_expr_line%%:*}
-if [ -z "$_guard_n" ] || [ -z "$_fact_n" ] || [ -z "$_dest_n" ] || [ -z "$_expr_n" ]; then
-    fail "spacemacs.yml play must include-guard, set user_config_directory from XDG/HOME when undefined, and git dest to {{ user_config_directory }}/emacs"
+if [ -z "$_guard_n" ] || [ -z "$_import_n" ] || [ -z "$_dest_n" ]; then
+    fail "spacemacs.yml must include-guard, import setup-user-config-directory.yml, and git dest to {{ user_config_directory }}/emacs"
 fi
-if [ "$_guard_n" -ge "$_fact_n" ] || [ "$_expr_n" -ge "$_dest_n" ] || [ "$_fact_n" -ge "$_dest_n" ]; then
-    fail "spacemacs.yml must set user_config_directory after its include-guard and before git dest (got guard=$_guard_n fact=$_fact_n expr=$_expr_n dest=$_dest_n)"
+if [ "$_guard_n" -ge "$_import_n" ]; then
+    fail "--from spacemacs must start before import_playbook (got guard=$_guard_n import=$_import_n)"
+fi
+if [ "$_import_n" -ge "$_dest_n" ]; then
+    fail "setup-user-config-directory.yml must be imported before git dest (got import=$_import_n dest=$_dest_n)"
+fi
+if grep -q 'when: user_config_directory is not defined' "$_spacemacs"; then
+    fail "spacemacs.yml must not copy user_config_directory set_fact; the import owns it"
 fi
 
 echo "All playbook_resume tests passed."
