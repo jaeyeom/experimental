@@ -28,6 +28,8 @@ failed_task_name() {
 
 # Print the include-guard task name from PLAYBOOK (.yml optional).
 # Reads the file; does not construct the name from the filename.
+# --from starts at this task: it must be the first play in the file so
+# that file's import_playbook lines still run.
 # Usage: include_guard_task_name PLAYBOOK
 include_guard_task_name() {
     _igt_pb="$1"

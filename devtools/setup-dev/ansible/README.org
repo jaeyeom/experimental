@@ -33,8 +33,10 @@ treated as a playbook:
 
 When a nested =import_playbook= fails, Ansible stops and =ensure.sh= prints
 the leaf file and task (not only the top-level argument), plus a resume
-command. =--from= starts at that playbook's include-guard task and continues
-the rest of the original run:
+command. =--from= starts at the beginning of that leaf playbook file (its
+include-guard, which must be the first play so that file's
+=import_playbook= lines still run) and continues the rest of the original
+run. Re-running the rest of that leaf file is expected:
 
 #+begin_src sh
   ./ensure.sh --from setup-git -- all

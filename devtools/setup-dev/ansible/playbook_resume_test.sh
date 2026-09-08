@@ -156,4 +156,42 @@ _summary_generic=$(print_playbook_failure "all.yml" "$_empty" " all" 2>&1)
 assert_eq "failure summary without task path" "$_summary_generic" \
     "Error: playbook all.yml failed."
 
+# --- spacemacs.yml: --from starts at the beginning of the leaf file (#318) ---
+# Resume re-runs that file, including import_playbook, so
+# setup-user-config-directory.yml owns user_config_directory.
+
+_spacemacs="$SCRIPT_DIR/spacemacs.yml"
+if [ ! -f "$_spacemacs" ]; then
+    fail "spacemacs.yml must sit next to playbook_resume_test.sh (sh_test data)"
+fi
+
+_got=$(include_guard_task_name "$_spacemacs") || _got=""
+assert_eq "--from spacemacs include-guard" \
+    "$_got" \
+    "Stop early if the spacemacs playbook is already included"
+
+_got=$(include_guard_task_name "$SCRIPT_DIR/spacemacs") || _got=""
+assert_eq "--from spacemacs suffix-less include-guard" \
+    "$_got" \
+    "Stop early if the spacemacs playbook is already included"
+
+_guard_line=$(grep -n 'Stop early if the spacemacs playbook is already included' "$_spacemacs" | sed -n '1p')
+_import_line=$(grep -n 'import_playbook: setup-user-config-directory.yml' "$_spacemacs" | sed -n '1p')
+_dest_line=$(grep -F -n 'dest: "{{ user_config_directory }}/emacs"' "$_spacemacs" | sed -n '1p')
+_guard_n=${_guard_line%%:*}
+_import_n=${_import_line%%:*}
+_dest_n=${_dest_line%%:*}
+if [ -z "$_guard_n" ] || [ -z "$_import_n" ] || [ -z "$_dest_n" ]; then
+    fail "spacemacs.yml must include-guard, import setup-user-config-directory.yml, and git dest to {{ user_config_directory }}/emacs"
+fi
+if [ "$_guard_n" -ge "$_import_n" ]; then
+    fail "--from spacemacs must start before import_playbook (got guard=$_guard_n import=$_import_n)"
+fi
+if [ "$_import_n" -ge "$_dest_n" ]; then
+    fail "setup-user-config-directory.yml must be imported before git dest (got import=$_import_n dest=$_dest_n)"
+fi
+if grep -q 'when: user_config_directory is not defined' "$_spacemacs"; then
+    fail "spacemacs.yml must not copy user_config_directory set_fact; the import owns it"
+fi
+
 echo "All playbook_resume tests passed."

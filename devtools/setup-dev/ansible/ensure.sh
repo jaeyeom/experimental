@@ -781,7 +781,9 @@ fi
 # flags that take a value argument:
 #   ./ensure.sh --tags setup -- profile-cloudflare-dev
 # Without --, a flag's value argument would be mistaken for a playbook name.
-# --from is consumed here (not passed to ansible-playbook):
+# --from is consumed here (not passed to ansible-playbook).
+# It starts at the leaf playbook file's include-guard (first play) so
+# that file's import_playbook lines still run:
 #   ./ensure.sh --from setup-git -- all
 flags=""
 playbooks=""
