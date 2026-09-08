@@ -1,4 +1,15 @@
 ---
+# Include-guard play first so --from spacemacs starts here and still runs
+# the import_playbook lines below. Do not set spacemacs_playbook_imported
+# in this play: the main play sets it, otherwise that play would skip on
+# the first run.
+- name: Include guard for spacemacs playbook
+  hosts: all
+  tasks:
+    - name: Stop early if the spacemacs playbook is already included
+      meta: end_play
+      when: spacemacs_playbook_imported is defined
+
 - import_playbook: setup-user-config-directory.yml
 - import_playbook: git.yml
 - import_playbook: emacs.yml
@@ -6,6 +17,16 @@
 - name: Spacemacs is properly setup and up-to-date
   hosts: all
   tasks:
+    - name: Include guard for spacemacs playbook
+      block:
+        - name: Stop early if the spacemacs playbook is already included
+          meta: end_play
+          when: spacemacs_playbook_imported is defined
+        - name: Ensure the spacemacs playbook is not included
+          set_fact:
+            spacemacs_playbook_imported: true
+          when: spacemacs_playbook_imported is not defined
+
     - name: Spacemacs is up-to-date
       ansible.builtin.git:
         repo: https://github.com/syl20bnr/spacemacs
