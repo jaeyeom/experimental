@@ -42,6 +42,7 @@ sh_binary(
     name = "ensure",
     srcs = ["ensure.sh"],
     data = [
+        "ansible_become.sh",
         "cache_expired.sh",
         "community_general.sh",
         "playbook_resume.sh",
@@ -64,6 +65,12 @@ sh_test(
     name = "community_general_test",
     srcs = ["community_general_test.sh"],
     data = ["community_general.sh"],
+)
+
+sh_test(
+    name = "ansible_become_test",
+    srcs = ["ansible_become_test.sh"],
+    data = ["ansible_become.sh"],
 )
 
 # GENERATED ANSIBLE TESTS - DO NOT EDIT BELOW THIS LINE

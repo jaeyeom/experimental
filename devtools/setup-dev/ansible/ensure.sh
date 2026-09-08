@@ -51,6 +51,8 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 . "$(dirname "$0")/cache_expired.sh"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/playbook_resume.sh"
+# shellcheck disable=SC1091  # Sourced from the same directory as this script
+. "$(dirname "$0")/ansible_become.sh"
 
 # Detect OS
 OS="$(uname -s)"
@@ -821,6 +823,39 @@ if [ -n "$from_playbook" ]; then
         _from_file="$(dirname "$0")/${_from_file##*/}"
     fi
     from_task=$(include_guard_task_name "$_from_file") || exit 1
+fi
+
+# Ansible become cannot reuse a terminal sudo ticket. sudo timestamps are
+# TTY-specific (tty_tickets), and Ansible invokes `sudo -H -S -n` without
+# that TTY — so `sudo true` succeeding in this shell is not enough.
+# Prompt with -K on Linux when passwordless sudo is unavailable.
+if [ -z "$TERMUX_VERSION" ] && [ "$OS" != "Darwin" ]; then
+    _ab_already=0
+    # shellcheck disable=SC2086  # Intentional word splitting — flags never contain spaces
+    if ansible_become_has_password $flags; then
+        _ab_already=1
+    fi
+    _ab_pwless=0
+    if ansible_sudo_passwordless; then
+        _ab_pwless=1
+    fi
+    _ab_interactive=0
+    if [ -t 0 ]; then
+        _ab_interactive=1
+    fi
+    if _ab_extra=$(ansible_become_extra_flags "$_ab_interactive" "$_ab_already" "$_ab_pwless"); then
+        if [ -n "$_ab_extra" ]; then
+            echo "Ansible privilege escalation cannot reuse this terminal's sudo ticket."
+            echo "sudo timestamps are TTY-specific; Ansible runs sudo on a different TTY."
+            echo "You will be prompted for your sudo password."
+            flags="$flags $_ab_extra"
+        fi
+    else
+        echo "Error: Ansible privilege escalation requires a sudo password." >&2
+        echo "A terminal sudo ticket (from 'sudo true') is not reused by Ansible." >&2
+        echo "Re-run from a terminal, pass -K, or configure passwordless sudo." >&2
+        exit 1
+    fi
 fi
 
 # Pre-approve any verified-run URLs before the Ansible run so that
