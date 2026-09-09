@@ -244,7 +244,14 @@ prsync scan --config ./prsync.config
     }
   ],
   "inaccessible_repos": [],
-  "warnings": []
+  "warnings": [],
+  "summary": {
+    "total": 1,
+    "tab_here": 1,
+    "off_machine": 0,
+    "no_identifier": 0,
+    "drafts": 0
+  }
 }
 #+END_SRC
 
@@ -252,7 +259,10 @@ Draft PRs are included with ~is_draft: true~ (bucket ~draft~ unless they
 also need attention). ~dispatch~ skips them unless ~dispatch_include_drafts~
 is true. ~bucket~ is ~needs_you~ | ~ready~ | ~waiting~ | ~draft~. ~APPROVED~ with
 leftover ~review_requests~ is ~needs_you~, not ready to merge. ~tab~ is
-~null~ when no unique herdr tab matches.
+~null~ when no unique herdr tab matches. ~summary~ is a derived rollup of
+~prs~ (~total~, ~tab_here~, ~off_machine~, ~no_identifier~, ~drafts~) so a
+consumer can cross-check a "nothing is local" conclusion against
+~summary.tab_here~.
 
 ** tabs --orphans
 

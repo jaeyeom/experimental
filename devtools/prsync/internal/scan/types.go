@@ -8,6 +8,16 @@ type Document struct {
 	PRs               []PR     `json:"prs"`                //nolint:tagliatelle // brief outbound contract
 	InaccessibleRepos []string `json:"inaccessible_repos"` //nolint:tagliatelle // brief outbound contract
 	Warnings          []string `json:"warnings"`
+	Summary           Summary  `json:"summary"`
+}
+
+// Summary is a derived rollup of PRs. It is not a second per-PR source of truth.
+type Summary struct {
+	Total        int `json:"total"`
+	TabHere      int `json:"tab_here"`      //nolint:tagliatelle // brief outbound contract
+	OffMachine   int `json:"off_machine"`   //nolint:tagliatelle // brief outbound contract
+	NoIdentifier int `json:"no_identifier"` //nolint:tagliatelle // brief outbound contract
+	Drafts       int `json:"drafts"`
 }
 
 // PR is one classified pull request in a scan document.
