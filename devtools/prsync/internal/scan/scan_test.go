@@ -84,6 +84,10 @@ func TestRunHerdrMissingDegrades(t *testing.T) {
 	if len(doc.Warnings) != 1 || !bytes.Contains([]byte(doc.Warnings[0]), []byte("herdr unreachable")) {
 		t.Fatalf("warnings = %v, want herdr unreachable", doc.Warnings)
 	}
+	want := Summary{Total: 1, OffMachine: 1}
+	if doc.Summary != want {
+		t.Fatalf("summary = %+v, want %+v", doc.Summary, want)
+	}
 }
 
 func TestRunHerdrUnsupported(t *testing.T) {
@@ -355,6 +359,10 @@ func TestRunIncludesDrafts(t *testing.T) {
 			}
 			if g.threadCalls[200] != 1 {
 				t.Fatalf("ReviewThreads(#200) calls = %d, want 1", g.threadCalls[200])
+			}
+			want := Summary{Total: 2, TabHere: 1, OffMachine: 1, Drafts: 1}
+			if doc.Summary != want {
+				t.Fatalf("summary = %+v, want %+v", doc.Summary, want)
 			}
 		})
 	}

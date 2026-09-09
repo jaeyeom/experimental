@@ -45,5 +45,12 @@
     }
   ],
   "inaccessible_repos": [],
-  "warnings": []
+  "warnings": [],
+  "summary": {
+    "total": 1,
+    "tab_here": 1,
+    "off_machine": 0,
+    "no_identifier": 0,
+    "drafts": 0
+  }
 }

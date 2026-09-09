@@ -48,28 +48,33 @@ func Started(doc Document) bool {
 func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now time.Time) (Document, error) {
 	doc := emptyDocument(now)
 	if err := deps.GH.AuthStatus(ctx); err != nil {
-		return doc, fmt.Errorf("gh auth: %w", err)
+		return finish(doc, fmt.Errorf("gh auth: %w", err))
 	}
 	author, err := resolveAuthor(ctx, deps.GH, cfg.Author)
 	if err != nil {
-		return doc, err
+		return finish(doc, err)
 	}
 	doc.Author = author
 	cfg.Author = author
 
 	resolved, err := resolveRepos(ctx, deps.GH, cfg, repos, &doc)
 	if err != nil {
-		return doc, err
+		return finish(doc, err)
 	}
 	doc.Repos = resolved
 
 	if err := classifyRepos(ctx, deps.GH, cfg, resolved, &doc); err != nil {
-		return doc, err
+		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps.Herdr, cfg, &doc); err != nil {
-		return doc, err
+		return finish(doc, err)
 	}
-	return doc, nil
+	return finish(doc, nil)
+}
+
+func finish(doc Document, err error) (Document, error) {
+	doc.Summary = summarize(doc.PRs)
+	return doc, err
 }
 
 func emptyDocument(now time.Time) Document {
