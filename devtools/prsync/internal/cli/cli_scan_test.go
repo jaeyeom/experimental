@@ -82,6 +82,10 @@ func TestScanFixtureHappyPath(t *testing.T) {
 	if doc.PRs[0].Tab.PaneID == nil || *doc.PRs[0].Tab.PaneID != "w2:pC" {
 		t.Fatalf("pane_id = %v, want w2:pC", doc.PRs[0].Tab.PaneID)
 	}
+	want := scan.Summary{Total: 1, TabHere: 1}
+	if doc.Summary != want {
+		t.Fatalf("summary = %+v, want %+v", doc.Summary, want)
+	}
 }
 
 func TestScanHerdrMissingDegrades(t *testing.T) {
@@ -103,6 +107,10 @@ func TestScanHerdrMissingDegrades(t *testing.T) {
 	}
 	if len(doc.Warnings) == 0 || !strings.Contains(doc.Warnings[0], "herdr unreachable") {
 		t.Fatalf("warnings = %v", doc.Warnings)
+	}
+	want := scan.Summary{Total: 1, OffMachine: 1}
+	if doc.Summary != want {
+		t.Fatalf("summary = %+v, want %+v", doc.Summary, want)
 	}
 }
 
