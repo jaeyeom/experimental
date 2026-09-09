@@ -5,6 +5,12 @@ where I could put random pieces of code. Later, I wanted to have a monorepo for
 my code, and I realized that this repository could be the best option if I
 cleaned it up a bit.
 
+New work usually starts here. A project lives in this monorepo while it is
+still experimental and not yet stable. Once it stabilizes it often stays; when
+it needs its own release cycle or module path, it sometimes splits out into an
+independent repository (for example
+[[https://github.com/jaeyeom/bazel-affected-tests][bazel-affected-tests]]).
+
 The result is a polyglot monorepo (Go, Python, TypeScript, Protobuf, Elisp,
 Ansible) that holds reusable libraries, command-line tools, language
 experiments, and my development environment configuration, all built and tested
