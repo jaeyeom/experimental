@@ -36,7 +36,14 @@ jobs:
           ${{ runner.os }}-bazel-
 
     - name: Install lcov
-      run: sudo apt-get update && sudo apt-get install -y lcov
+      run: |
+        # GitHub-hosted ubuntu runners ship a Google Chrome apt source that
+        # periodically hash-mismatches and fails apt-get update before lcov
+        # is installed. Coverage does not need Chrome.
+        sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+          /etc/apt/sources.list.d/google-chrome.sources
+        sudo apt-get update
+        sudo apt-get install -y lcov
 
     - name: Run tests with coverage
       run: |
