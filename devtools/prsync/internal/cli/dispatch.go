@@ -74,6 +74,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	if goLive {
 		cfg.DryRun = false
 	}
+	logStartup(ctx, "dispatch", cfg)
 	doc, err := loadScanDoc(ctx, cfg, exec, readStdin)
 	if err != nil {
 		return err

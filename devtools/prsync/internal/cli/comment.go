@@ -62,6 +62,7 @@ func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, c
 	if goLive {
 		cfg.DryRun = false
 	}
+	logStartup(ctx, "comment", cfg)
 	doc, err := loadScanDoc(ctx, cfg, exec, readStdin)
 	if err != nil {
 		return err

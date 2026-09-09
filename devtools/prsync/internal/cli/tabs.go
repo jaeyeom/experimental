@@ -61,6 +61,7 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 	if goLive {
 		cfg.DryRun = false
 	}
+	logStartup(ctx, "tabs", cfg)
 	openTabs, err := openTabsFromStdin(readStdin)
 	if err != nil {
 		return err
