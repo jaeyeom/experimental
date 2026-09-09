@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 )
 
 const settleDebouncePolls = 3
@@ -31,6 +33,7 @@ type settleWatch struct {
 // whose working window was missed). Startup flap (idle↔blocked) is not a
 // settle.
 func waitForSettle(ctx context.Context, h Herdr, paneID string, baseline herdr.Agent, until []string, timeout, poll time.Duration, clock Clock, sleeper Sleeper) (herdr.Agent, error) {
+	log := runlog.FromContext(ctx)
 	start := clock.Now()
 	watch := settleWatch{armed: baseline.AgentStatus == "working"}
 	for {
@@ -42,11 +45,17 @@ func waitForSettle(ctx context.Context, h Herdr, paneID string, baseline herdr.A
 			return watch.last, fmt.Errorf("settle agent list: %w", err)
 		}
 		if cur, ok := findAgent(agents, paneID); ok {
-			if watch.observe(cur, baseline, until) {
+			if watch.observe(cur, baseline, until, log) {
+				decision := ActionDispatched
+				if cur.AgentStatus == "blocked" {
+					decision = ActionDispatchedBlocked
+				}
+				log.Info("settle", "pane_id", paneID, "decision", decision, "agent_status", cur.AgentStatus)
 				return cur, nil
 			}
 		}
 		if clock.Now().Sub(start) >= timeout {
+			log.Info("settle", "pane_id", paneID, "decision", ActionDispatchedTimeout, "agent_status", watch.last.AgentStatus)
 			return watch.last, errSettleTimeout
 		}
 		if err := sleeper.Sleep(ctx, poll); err != nil {
@@ -55,7 +64,20 @@ func waitForSettle(ctx context.Context, h Herdr, paneID string, baseline herdr.A
 	}
 }
 
-func (w *settleWatch) observe(cur, baseline herdr.Agent, until []string) bool {
+func (w *settleWatch) observe(cur, baseline herdr.Agent, until []string, log *slog.Logger) bool {
+	prev := w.last.AgentStatus
+	if prev == "" {
+		prev = baseline.AgentStatus
+	}
+	if cur.AgentStatus != prev {
+		log.Info("agent_status",
+			"pane_id", cur.PaneID,
+			"from", prev,
+			"to", cur.AgentStatus,
+			"state_change_seq", cur.StateChangeSeq,
+			"revision", cur.Revision,
+		)
+	}
 	w.last = cur
 	if cur.AgentStatus == "blocked" {
 		w.sawBlocked = true

@@ -62,11 +62,13 @@ prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [-
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--force] [--stdin]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] --body TEXT
 prsync gate     [--config PATH]
+prsync logs     [--path]
 prsync version
 #+END_EXAMPLE
 
 | Flag | Commands | Effect |
 |------+----------+--------|
+| ~--log-level LEVEL~ | all except ~logs~ | ~debug~ / ~info~ / ~warn~ / ~error~. Default ~info~. Also ~PRSYNC_LOG~. Writes JSONL under =$XDG_STATE_HOME/prsync/=; stdout is unchanged |
 | ~--config PATH~ | scan, tabs, dispatch, comment, gate | Use this file (must exist) |
 | ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
 | ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
@@ -82,6 +84,7 @@ prsync version
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
 | ~--stdin~ | dispatch, comment | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
 | ~--body TEXT~ | comment | Comment body to post (required) |
+| ~--path~ | logs | Print the run-log file path as JSON instead of dumping the file |
 
 ~--pr~ and ~--all~ together is an error (exit 2). ~--ci-fix~ and
 ~--rebase~ together is an error (exit 2). ~--hint~ without ~--ci-fix~
@@ -537,6 +540,28 @@ Self-exclusion uses ~HERDR_PANE_ID~ only. If that env var is empty, ~gate~
 does not call ~herdr pane current~ (that would drop the focused pane under
 cron).
 
+** logs
+
+Each run (except ~logs~ itself) appends structured JSON lines to
+=$XDG_STATE_HOME/prsync/prsync.jsonl= (or
+=~/.local/state/prsync/prsync.jsonl= when ~XDG_STATE_HOME~ is unset).
+The file rotates by size (~10 MiB~) and age (~14 days~), keeping a few
+numbered backups so it cannot grow unbounded. Default level is ~info~ to
+the file; stdout JSON is unchanged. ~--log-level~ overrides ~PRSYNC_LOG~.
+
+A dispatch line of investigation includes the target pane, send, each
+~agent_status~ transition, gate wait start/end, the settle decision, the
+dedupe / skip outcome, and the process exit. Startup records the resolved
+config path and ~concurrency_wait_on~.
+
+#+BEGIN_SRC bash
+prsync logs --path
+prsync logs
+#+END_SRC
+
+~--path~ prints ~{"path":"…"}~. Without it, ~logs~ dumps the JSONL file
+(empty stdout if no log exists yet).
+
 * Manual smoke test
 
 Against a real herdr ≥ 0.8 and an authenticated ~gh~:
@@ -551,6 +576,8 @@ prsync comment --config ./prsync.config --body "please retry" --go
 prsync tabs --orphans --close-merged --config ./prsync.config      # review would_close
 prsync tabs --orphans --close-merged --go --config ./prsync.config
 prsync gate --config ./prsync.config
+prsync logs --path
+prsync logs
 #+END_SRC
 
 Confirm:

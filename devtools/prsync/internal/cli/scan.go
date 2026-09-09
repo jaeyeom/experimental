@@ -39,6 +39,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
 			}
+			logStartup(cmd.Context(), "scan", cfg)
 			deps := scan.Deps{
 				GH:    gh.NewClient(exec, cfg.GHBin),
 				Herdr: herdr.NewClient(exec, cfg.HerdrBin),

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
@@ -57,14 +58,23 @@ func Check(ctx context.Context, h Herdr, waitOn, runnerPane string, matchedTabs 
 // Wait polls until the busy set stays empty for settleDebouncePolls
 // consecutive samples or cfg.GateTimeout elapses. A single idle/done
 // sample is not safe: startup and mid-run flap still count as busy.
-func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (Result, error) {
-	if err := h.RequireMin(ctx, herdrMinVersion); err != nil {
+func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (res Result, err error) {
+	log := runlog.FromContext(ctx)
+	log.Info("gate_wait_start", "wait_on", cfg.ConcurrencyWaitOn, "runner_pane", runnerPane)
+	defer func() {
+		args := []any{"safe", res.Safe, "busy_count", len(res.Busy)}
+		if err != nil {
+			args = append(args, "error", err.Error())
+		}
+		log.Info("gate_wait_end", args...)
+	}()
+	if err = h.RequireMin(ctx, herdrMinVersion); err != nil {
 		return Result{}, fmt.Errorf("herdr version: %w", err)
 	}
 	start := clock.Now()
 	held := 0
 	for {
-		res, err := snapshot(ctx, h, cfg.ConcurrencyWaitOn, runnerPane, matchedTabs)
+		res, err = snapshot(ctx, h, cfg.ConcurrencyWaitOn, runnerPane, matchedTabs)
 		if err != nil {
 			return res, err
 		}
@@ -79,7 +89,7 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 		if clock.Now().Sub(start) >= cfg.GateTimeout {
 			return res, ErrTimeout
 		}
-		if err := sleeper.Sleep(ctx, cfg.GatePoll); err != nil {
+		if err = sleeper.Sleep(ctx, cfg.GatePoll); err != nil {
 			return res, fmt.Errorf("gate sleep: %w", err)
 		}
 	}
