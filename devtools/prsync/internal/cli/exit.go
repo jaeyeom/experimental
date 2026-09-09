@@ -17,7 +17,7 @@ const (
 	ExitUsage = 2
 	// ExitPrecondition is a missing tool or auth failure.
 	ExitPrecondition = 3
-	// ExitGateTimeout is a live dispatch that timed out on the gate.
+	// ExitGateTimeout is a live dispatch that timed out on the gate or settle wait.
 	ExitGateTimeout = 4
 )
 
