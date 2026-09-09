@@ -550,6 +550,12 @@ rules:
         section: "** gate"
         why: "concurrency gate"
 
+  - match: ["devtools/prsync/internal/runlog/**", "devtools/prsync/internal/cli/log.go", "devtools/prsync/internal/cli/logs.go"]
+    docs:
+      - path: devtools/prsync/README.org
+        section: "** logs"
+        why: "XDG state run log, --log-level, PRSYNC_LOG, prsync logs"
+
   - match: ["devtools/prsync/internal/cli/exit.go"]
     docs:
       - path: devtools/prsync/README.org

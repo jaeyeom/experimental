@@ -11,6 +11,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
@@ -235,6 +236,9 @@ func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, r
 	if err := annotateGate(ctx, h, cfg, req, &doc); err != nil {
 		return doc, err
 	}
+	for _, item := range doc.Results {
+		logResult(ctx, item)
+	}
 	return doc, nil
 }
 
@@ -268,19 +272,28 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 		}
 		item := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force)
 		if item.Action != "" {
+			logResult(ctx, item)
 			doc.Results = append(doc.Results, item)
 			continue
 		}
 		_, err := Wait(ctx, h, cfg, req.RunnerPane, matched, clock, sleeper)
 		if errors.Is(err, ErrTimeout) {
-			queueRest(&doc, cands, i)
+			queueRest(ctx, &doc, cands, i)
 			return doc, err
 		}
 		if err != nil {
-			doc.Results = append(doc.Results, failItem(c, err))
+			failed := failItem(c, err)
+			logResult(ctx, failed)
+			doc.Results = append(doc.Results, failed)
 			return doc, err
 		}
+		runlog.FromContext(ctx).Info("dispatch_send",
+			"repo", c.Repo,
+			"number", c.Number,
+			"pane_id", *c.PR.Tab.PaneID,
+		)
 		item = sendPrompt(ctx, h, cfg, c, req, clock, sleeper)
+		logResult(ctx, item)
 		doc.Results = append(doc.Results, item)
 		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
 			recordDispatch(st, c, req, now)
@@ -289,7 +302,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			}
 		}
 		if item.Action == ActionDispatchedBlocked {
-			queueRest(&doc, cands, i+1)
+			queueRest(ctx, &doc, cands, i+1)
 			return doc, nil
 		}
 		if item.Action == ActionFailed {
@@ -351,6 +364,12 @@ func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, re
 		item.Action = ActionDispatchedTimeout
 		item.PaneID = pane
 		item.RenderedPrompt = rendered
+		runlog.FromContext(ctx).Info("settle",
+			"pane_id", pane,
+			"decision", ActionDispatchedTimeout,
+			"agent_status", out.Agent.AgentStatus,
+			"reason", "herdr prompt timeout",
+		)
 	default:
 		item.Action = ActionFailed
 		if out.Err != nil {
@@ -373,13 +392,15 @@ func snapshotPane(ctx context.Context, h Herdr, paneID string) (herdr.Agent, err
 	return herdr.Agent{PaneID: paneID}, nil
 }
 
-func queueRest(doc *Document, cands []Candidate, from int) {
+func queueRest(ctx context.Context, doc *Document, cands []Candidate, from int) {
 	for _, c := range cands[from:] {
-		doc.Results = append(doc.Results, Item{
+		item := Item{
 			Repo:   c.Repo,
 			Number: c.Number,
 			Action: ActionQueued,
-		})
+		}
+		logResult(ctx, item)
+		doc.Results = append(doc.Results, item)
 	}
 }
 
@@ -389,6 +410,17 @@ func failItem(c Candidate, err error) Item {
 		item.Detail = err.Error()
 	}
 	return item
+}
+
+func logResult(ctx context.Context, item Item) {
+	args := []any{"repo", item.Repo, "number", item.Number, "action", item.Action}
+	if item.PaneID != "" {
+		args = append(args, "pane_id", item.PaneID)
+	}
+	if item.Detail != "" {
+		args = append(args, "detail", item.Detail)
+	}
+	runlog.FromContext(ctx).Info("result", args...)
 }
 
 type realClock struct{}

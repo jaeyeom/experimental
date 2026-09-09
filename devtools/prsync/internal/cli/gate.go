@@ -36,6 +36,7 @@ func runGate(ctx context.Context, stdout io.Writer, exec executor.Executor, conf
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	logStartup(ctx, "gate", cfg)
 	res, err := evaluateGate(ctx, cfg, exec)
 	if err != nil {
 		return gateError(err, cfg)

@@ -5,12 +5,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/version"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "prsync-xdg-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("XDG_STATE_HOME", dir)
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestVersionJSON(t *testing.T) {
 	t.Parallel()
