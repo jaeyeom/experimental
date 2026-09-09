@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
@@ -248,6 +249,30 @@ func TestDispatchCIFixForceRedispatches(t *testing.T) {
 	}
 }
 
+func TestDispatchGoSettlesWhenHerdrWaitHangs(t *testing.T) {
+	t.Setenv("HERDR_FAKE_PROMPT", "kill")
+	ghBin, herdrBin := fixtureBins(t)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	raw := mustScanJSON(t, stdinEligibleDoc())
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	start := time.Now()
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("took %s, hung on herdr --wait instead of settling on idle/done", elapsed)
+	}
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched (terminal idle while herdr --wait hung)", got.Results)
+	}
+}
+
 func TestDispatchGoIdleAtSendTimesOut(t *testing.T) {
 	t.Setenv("HERDR_FAKE_HOLD_IDLE", "1")
 	ghBin, herdrBin := fixtureBins(t)
@@ -259,8 +284,11 @@ func TestDispatchGoIdleAtSendTimesOut(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
-	if code != ExitOK {
-		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	if code != ExitGateTimeout {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitGateTimeout, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "settle timeout") {
+		t.Fatalf("stderr = %q, want settle timeout", stderr.String())
 	}
 	got := decodeDispatch(t, stdout.Bytes())
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatchedTimeout {
@@ -280,8 +308,11 @@ func TestDispatchGoStallNeverStartsTimesOut(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
-	if code != ExitOK {
-		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	if code != ExitGateTimeout {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitGateTimeout, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "settle timeout") {
+		t.Fatalf("stderr = %q, want settle timeout", stderr.String())
 	}
 	got := decodeDispatch(t, stdout.Bytes())
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatchedTimeout {
@@ -392,8 +423,11 @@ func TestDispatchGoHerdrTimeoutWritesState(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
-	if code != ExitOK {
-		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	if code != ExitGateTimeout {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitGateTimeout, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "settle timeout") {
+		t.Fatalf("stderr = %q, want settle timeout", stderr.String())
 	}
 	got := decodeDispatch(t, stdout.Bytes())
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatchedTimeout {

@@ -253,11 +253,36 @@ func TestRunLivePreSendIdleIsNotDispatched(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
 	}, fixtureNow)
-	if err != nil {
-		t.Fatalf("Run() unexpected error: %v", err)
+	if !errors.Is(err, ErrSettleTimeout) {
+		t.Fatalf("error = %v, want ErrSettleTimeout (pre-send idle is not settled)", err)
 	}
 	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
 		t.Fatalf("results = %+v, want dispatched_timeout (pre-send idle is not completion)", got.Results)
+	}
+}
+
+func TestRunLiveSettlesWhenHerdrWaitNeverReturns(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{
+		lists:       [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		blockPrompt: true,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	got, err := Run(ctx, h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Run took %s, hung on herdr --wait instead of settling on idle/done", elapsed)
+	}
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched (terminal idle while herdr --wait hung)", got.Results)
 	}
 }
 
@@ -701,8 +726,8 @@ func TestRunLiveStallNeverStartsTimesOut(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
 	}, fixtureNow)
-	if err != nil {
-		t.Fatalf("Run() unexpected error: %v", err)
+	if !errors.Is(err, ErrSettleTimeout) {
+		t.Fatalf("error = %v, want ErrSettleTimeout (never picked up)", err)
 	}
 	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
 		t.Fatalf("results = %+v, want dispatched_timeout (never picked up)", got.Results)
@@ -730,8 +755,8 @@ func TestRunLiveHerdrTimeoutWritesState(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
 	}, fixtureNow)
-	if err != nil {
-		t.Fatalf("Run() unexpected error: %v", err)
+	if !errors.Is(err, ErrSettleTimeout) {
+		t.Fatalf("error = %v, want ErrSettleTimeout", err)
 	}
 	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
 		t.Fatalf("results = %+v, want dispatched_timeout", got.Results)

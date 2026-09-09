@@ -13,7 +13,10 @@ import (
 
 const settleDebouncePolls = 3
 
-var errSettleTimeout = errors.New("settle timeout")
+// ErrSettleTimeout is returned when the per-send settle wait expires.
+var ErrSettleTimeout = errors.New("settle timeout")
+
+var errSettleTimeout = ErrSettleTimeout
 
 type settleWatch struct {
 	armed      bool
@@ -33,10 +36,26 @@ type settleWatch struct {
 // whose working window was missed). Startup flap (idle↔blocked) is not a
 // settle.
 func waitForSettle(ctx context.Context, h Herdr, paneID string, baseline herdr.Agent, until []string, timeout, poll time.Duration, clock Clock, sleeper Sleeper) (herdr.Agent, error) {
+	return waitForSettleWithPrompt(ctx, h, paneID, baseline, until, timeout, poll, clock, sleeper, nil)
+}
+
+// waitForSettleWithPrompt is waitForSettle plus an optional herdr prompt
+// result channel. While that wait is in flight, only an observed working
+// status arms the watch — sequence advances during herdr's --until are
+// still flap, not a missed working window. A working sample seen during
+// that wait is the start transition, so a later idle/done settle is
+// detected even if herdr --wait itself never returns.
+func waitForSettleWithPrompt(ctx context.Context, h Herdr, paneID string, baseline herdr.Agent, until []string, timeout, poll time.Duration, clock Clock, sleeper Sleeper, prompt <-chan herdr.PromptOutcome) (herdr.Agent, error) {
 	log := runlog.FromContext(ctx)
 	start := clock.Now()
 	watch := settleWatch{armed: baseline.AgentStatus == "working"}
+	promptDone := prompt == nil
 	for {
+		if !promptDone {
+			if err := drainPrompt(ctx, h, paneID, prompt, &promptDone, &baseline, &watch, log); err != nil {
+				return watch.last, err
+			}
+		}
 		if err := ctx.Err(); err != nil {
 			return watch.last, fmt.Errorf("settle: %w", err)
 		}
@@ -45,7 +64,7 @@ func waitForSettle(ctx context.Context, h Herdr, paneID string, baseline herdr.A
 			return watch.last, fmt.Errorf("settle agent list: %w", err)
 		}
 		if cur, ok := findAgent(agents, paneID); ok {
-			if watch.observe(cur, baseline, until, log) {
+			if watch.observe(cur, baseline, until, log, promptDone) {
 				decision := ActionDispatched
 				if cur.AgentStatus == "blocked" {
 					decision = ActionDispatchedBlocked
@@ -64,7 +83,43 @@ func waitForSettle(ctx context.Context, h Herdr, paneID string, baseline herdr.A
 	}
 }
 
-func (w *settleWatch) observe(cur, baseline herdr.Agent, until []string, log *slog.Logger) bool {
+func drainPrompt(ctx context.Context, h Herdr, paneID string, prompt <-chan herdr.PromptOutcome, promptDone *bool, baseline *herdr.Agent, watch *settleWatch, log *slog.Logger) error {
+	select {
+	case out := <-prompt:
+		*promptDone = true
+		switch out.Status {
+		case herdr.PromptTimeout:
+			log.Info("settle",
+				"pane_id", paneID,
+				"decision", ActionDispatchedTimeout,
+				"agent_status", out.Agent.AgentStatus,
+				"reason", "herdr prompt timeout",
+			)
+			return errSettleTimeout
+		case herdr.PromptMatched, herdr.PromptStalled:
+			if watch.armed {
+				return nil
+			}
+			snap, err := snapshotPane(ctx, h, paneID)
+			if err != nil {
+				return err
+			}
+			*baseline = snap
+			watch.armed = snap.AgentStatus == "working"
+			watch.last = snap
+			return nil
+		default:
+			if out.Err != nil {
+				return out.Err
+			}
+			return errors.New("herdr prompt failed")
+		}
+	default:
+		return nil
+	}
+}
+
+func (w *settleWatch) observe(cur, baseline herdr.Agent, until []string, log *slog.Logger, allowSeqArm bool) bool {
 	prev := w.last.AgentStatus
 	if prev == "" {
 		prev = baseline.AgentStatus
@@ -85,7 +140,7 @@ func (w *settleWatch) observe(cur, baseline herdr.Agent, until []string, log *sl
 	if cur.AgentStatus == "working" {
 		w.armed = true
 	}
-	if !w.armed && agentProgressed(cur, baseline) && matchesUntil(cur.AgentStatus, until) && !w.sawBlocked {
+	if !w.armed && allowSeqArm && agentProgressed(cur, baseline) && matchesUntil(cur.AgentStatus, until) && !w.sawBlocked {
 		w.armed = true
 	}
 	if w.armed && matchesUntil(cur.AgentStatus, until) {

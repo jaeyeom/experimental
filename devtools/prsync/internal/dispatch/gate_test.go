@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -368,6 +369,7 @@ func TestWaitHonorsContextCancelDuringSleep(t *testing.T) {
 }
 
 type scriptHerdr struct {
+	mu          sync.Mutex
 	minErr      error
 	lists       [][]herdr.Agent
 	listErrs    []error
@@ -379,29 +381,43 @@ type scriptHerdr struct {
 	sincePrompt int
 	settling    bool
 	postLists   [][]herdr.Agent
+	blockPrompt bool
 }
 
 func (s *scriptHerdr) RequireMin(context.Context, string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.settling = false
 	s.sincePrompt = 0
 	return s.minErr
 }
 
-func (s *scriptHerdr) Prompt(_ context.Context, pane, _ string, until []string, _ time.Duration) herdr.PromptOutcome {
+func (s *scriptHerdr) Prompt(ctx context.Context, pane, _ string, until []string, _ time.Duration) herdr.PromptOutcome {
+	s.mu.Lock()
 	s.lastPane = pane
 	s.settling = true
 	s.sincePrompt = 0
 	s.sawUntil = append([]string(nil), until...)
+	block := s.blockPrompt
+	var out herdr.PromptOutcome
 	if s.promptN < len(s.prompts) {
-		out := s.prompts[s.promptN]
+		out = s.prompts[s.promptN]
 		s.promptN++
-		return out
+	} else {
+		s.promptN++
+		out = herdr.PromptOutcome{Status: herdr.PromptMatched}
 	}
-	s.promptN++
-	return herdr.PromptOutcome{Status: herdr.PromptMatched}
+	s.mu.Unlock()
+	if block {
+		<-ctx.Done()
+		return herdr.PromptOutcome{Status: herdr.PromptError, Err: ctx.Err()}
+	}
+	return out
 }
 
 func (s *scriptHerdr) AgentList(context.Context) ([]herdr.Agent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.settling {
 		s.sincePrompt++
 		if len(s.postLists) > 0 {

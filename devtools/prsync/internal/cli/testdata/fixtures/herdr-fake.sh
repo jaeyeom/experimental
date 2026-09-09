@@ -4,6 +4,27 @@ set -eu
 DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 RUNTIME=${HERDR_FAKE_RUNTIME-}
 
+runtime_lock() {
+  if [ -z "$RUNTIME" ]; then
+    return 0
+  fi
+  lock=$RUNTIME/lock
+  n=0
+  while ! mkdir "$lock" 2>/dev/null; do
+    n=$((n + 1))
+    if [ "$n" -gt 200 ]; then
+      return 0
+    fi
+    sleep 0.01
+  done
+}
+
+runtime_unlock() {
+  if [ -n "$RUNTIME" ]; then
+    rmdir "$RUNTIME/lock" 2>/dev/null || true
+  fi
+}
+
 case "${1-}" in
   --version)
     printf '%s\n' "${HERDR_FAKE_VERSION:-herdr 0.8.1}"
@@ -42,12 +63,14 @@ case "${1-} ${2-}" in
     tab_id=${HERDR_FAKE_TAB_ID:-w2:tC}
     pane_id=${HERDR_FAKE_PANE_ID:-w2:pC}
     if [ -n "$RUNTIME" ] && [ -f "$RUNTIME/prompted" ] && [ -z "${HERDR_FAKE_HOLD_IDLE-}" ]; then
+      runtime_lock
       n=0
       if [ -f "$RUNTIME/listn" ]; then
-        n=$(cat "$RUNTIME/listn")
+        n=$(cat "$RUNTIME/listn" 2>/dev/null) || n=0
       fi
       n=$((n + 1))
       printf '%s\n' "$n" > "$RUNTIME/listn"
+      runtime_unlock
       seq=$((n + 1))
       if [ "$n" -eq 1 ]; then
         status=working
@@ -87,8 +110,10 @@ case "${1-} ${2-}" in
   "agent prompt")
     if [ -n "$RUNTIME" ]; then
       mkdir -p "$RUNTIME"
+      runtime_lock
       printf '%s\n' "1" > "$RUNTIME/prompted"
       rm -f "$RUNTIME/listn"
+      runtime_unlock
     fi
     if [ -n "${HERDR_FAKE_PROMPT_SENTINEL-}" ]; then
       printf '%s\n' "called" > "$HERDR_FAKE_PROMPT_SENTINEL"
