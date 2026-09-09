@@ -137,7 +137,7 @@ variables are not expanded.
 | ~concurrency_wait_on~ | ~any~ | ~any~ (every working or blocked agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. Live ~Wait~ still requires the empty busy set to hold for the same consecutive-poll debounce as settle. |
 | ~gate_poll_ms~ | ~2000~ | Gate poll interval (milliseconds). |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
-| ~dispatch_timeout_ms~ | ~1800000~ | Bound for the per-send settle wait (and ~herdr agent prompt --timeout~). A prompt the agent never picks up becomes ~dispatched_timeout~. |
+| ~dispatch_timeout_ms~ | ~1800000~ | Bound for the per-send settle wait (and ~herdr agent prompt --timeout~). A prompt the agent never picks up becomes ~dispatched_timeout~ (exit 4). |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. Default: check out ~{head}~ (via ~gh pr checkout {number}~ if needed), bring it up to date with ~origin/{base}~, then apply mechanical / unambiguous fixes; for a design decision, tradeoff, or disagreement, pause and ask the user (with a recommended option) before editing / resolving / pushing. After the addressed threads are pushed, re-request each human reviewer whose listed comments are all done (~gh pr edit {number} --add-reviewer <login>~). Skip bots, skip already-pending reviewers, and do not dismiss reviews. |
 | ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
 | ~ci_fix_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~, plus ~{hint}~. Used only with ~dispatch --ci-fix~. Default: the same branch-switch preamble as the comment template, then reproduce the failing check, triage flake vs real vs judgment-call, verify locally before pushing, and stay scoped to this PR. ~{hint}~ is a non-authoritative starting point (empty → investigate from scratch). |
@@ -158,20 +158,23 @@ herdr agent prompt <pane_id> <prompt> --wait --until idle --until done --timeout
 
 That herdr wait is not treated as completion by itself: a candidate is
 already ~idle~/~done~ at send time, so ~--until idle done~ is true
-immediately. After herdr returns, ~prsync~ snapshots the pane's
-~state_change_seq~ (or ~revision~) and waits until the agent is observed
-~working~ (or the sequence advances without a ~blocked~ flap), then
-requires the settle tokens to hold for several consecutive polls. Sequence
-advances during herdr's own wait (startup ~idle~↔~blocked~ flap) do not
-count as a missed ~working~ window.
+immediately. ~prsync~ polls ~herdr agent list~ *during* that wait. A
+~working~ sample seen while herdr is still blocked is the start
+transition, so a later debounced ~idle~/~done~ is completion even if
+herdr ~--wait~ never returns. Sequence advances during herdr's own wait
+(startup ~idle~↔~blocked~ flap) do not count as a missed ~working~
+window; after herdr returns without a ~working~ sample, ~prsync~
+snapshots the pane and waits for a post-return ~working~ (or a later
+sequence advance without a ~blocked~ flap), then requires the settle
+tokens to hold for several consecutive polls.
 
 The live concurrency gate uses the same debounce: a single non-~working~
 sample is not safe. The busy set must stay empty for those consecutive
 polls, so a tab in startup or mid-run flap still counts as busy.
 
 If the agent never picks up the prompt, the wait ends at
-~dispatch_timeout_ms~ (~dispatched_timeout~; state is written so it is
-not retried blindly). A ~blocked~ settlement (~dispatched_blocked~)
+~dispatch_timeout_ms~ (~dispatched_timeout~, exit 4, with a timeout
+message on stderr; state is written so it is not retried blindly). A ~blocked~ settlement (~dispatched_blocked~)
 happens only when ~blocked~ is included in ~dispatch_wait_until~ *and*
 that status holds after the start transition: the batch stops, but
 dedupe state is not written, so a re-run can retry the same comment.
@@ -417,8 +420,9 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
 
 Live send (writes ~state_file~ on ~dispatched~ / ~dispatched_timeout~).
 ~--go~ waits for a debounced empty busy set, then sends one PR at a time.
-~dispatched~ is a post-prompt ~working~ (or sequence) transition plus a
-debounced settle, not the ~idle~ herdr ~--until~ already matched.
+~dispatched~ is an observed ~working~ (or post-return sequence) transition
+plus a debounced settle, not the ~idle~ herdr ~--until~ already matched.
+~dispatched_timeout~ is exit 4.
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config --go
@@ -585,10 +589,13 @@ Confirm:
 - ~agent prompt~ targets a ~pane_id~ (~w2:pC~, not a tab id).
 - Default wait is ~--wait --until idle --until done~ (from
   ~dispatch_wait_until~).
-- ~--wait --until idle --until done~ is the herdr send; ~prsync~ then
-  snapshots the pane and waits for a ~working~ (or sequence) transition
-  and a debounced settle, not the idle herdr just returned. The live
-  gate uses that same debounce so a flap idle is still busy.
+- ~--wait --until idle --until done~ is the herdr send; ~prsync~ polls
+  the pane during that wait and treats an observed ~working~ then
+  debounced ~idle~/~done~ as settle even if herdr ~--wait~ is still
+  blocked. After herdr returns without a ~working~ sample, settle still
+  requires a post-return ~working~ (or sequence) transition, not the
+  idle herdr just returned. The live gate uses that same debounce so a
+  flap idle is still busy.
 
 This procedure is README-only; CI uses fixture binaries, not live herdr.
 
@@ -621,7 +628,7 @@ This procedure is README-only; CI uses fixture binaries, not live herdr.
 |    1 | ~gate~ only: busy set is non-empty |
 |    2 | Usage, config, or flag error |
 |    3 | Missing tool, auth failure, herdr too old, or mid-loop dispatch failure |
-|    4 | Live dispatch timed out waiting on the gate |
+|    4 | Live dispatch timed out waiting on the gate or settle |
 
 * Development
 

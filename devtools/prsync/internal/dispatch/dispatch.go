@@ -205,10 +205,10 @@ func ciFixRecorded(st State, key string) bool {
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
 // polls, never emits queued, and never writes state. Live send polls the gate
 // one PR at a time (empty busy set must hold for settleDebouncePolls samples),
-// writes state on dispatched / dispatched_timeout, and returns ErrTimeout or
-// ErrFailed after emitting partial results. A blocked settlement does not
-// write dedupe state and stops the batch so a re-run can retry the same
-// comment after the user answers.
+// writes state on dispatched / dispatched_timeout, and returns ErrTimeout,
+// ErrSettleTimeout, or ErrFailed after emitting partial results. A blocked
+// settlement does not write dedupe state and stops the batch so a re-run can
+// retry the same comment after the user answers.
 func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time) (Document, error) {
 	doc := Document{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
@@ -265,6 +265,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 	matched := MatchedTabs(req.Doc)
 	clock := Clock(realClock{})
 	sleeper := Sleeper(realSleeper{})
+	timedOut := false
 	for i, c := range cands {
 		if err := ctx.Err(); err != nil {
 			doc.Results = append(doc.Results, failItem(c, err))
@@ -301,6 +302,9 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 				return doc, err
 			}
 		}
+		if item.Action == ActionDispatchedTimeout {
+			timedOut = true
+		}
 		if item.Action == ActionDispatchedBlocked {
 			queueRest(ctx, &doc, cands, i+1)
 			return doc, nil
@@ -311,6 +315,9 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			}
 			return doc, fmt.Errorf("%w: %s", ErrFailed, item.Detail)
 		}
+	}
+	if timedOut {
+		return doc, ErrSettleTimeout
 	}
 	return doc, nil
 }
@@ -332,52 +339,36 @@ func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, re
 	pane := *pr.Tab.PaneID
 	rendered := RenderHint(promptTemplate(cfg, req), pr, cfg, req.Hint)
 	item := Item{Repo: c.Repo, Number: c.Number}
-	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
-	switch out.Status {
-	case herdr.PromptMatched, herdr.PromptStalled:
-		// Snapshot after prompt so herdr --until seq advances are not a missed working window.
-		baseline, err := snapshotPane(ctx, h, pane)
-		if err != nil {
-			item.Action = ActionFailed
-			item.Detail = err.Error()
-			return item
-		}
-		settled, settleErr := waitForSettle(ctx, h, pane, baseline, cfg.WaitUntil, cfg.DispatchTimeout, cfg.GatePoll, clock, sleeper)
-		if errors.Is(settleErr, errSettleTimeout) {
-			item.Action = ActionDispatchedTimeout
-			item.PaneID = pane
-			item.RenderedPrompt = rendered
-			return item
-		}
-		if settleErr != nil {
-			item.Action = ActionFailed
-			item.Detail = settleErr.Error()
-			return item
-		}
-		item.Action = ActionDispatched
-		if settled.AgentStatus == "blocked" {
-			item.Action = ActionDispatchedBlocked
-		}
-		item.PaneID = pane
-		item.RenderedPrompt = rendered
-	case herdr.PromptTimeout:
+	baseline, err := snapshotPane(ctx, h, pane)
+	if err != nil {
+		item.Action = ActionFailed
+		item.Detail = err.Error()
+		return item
+	}
+	promptCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	promptCh := make(chan herdr.PromptOutcome, 1)
+	go func() {
+		promptCh <- h.Prompt(promptCtx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
+	}()
+	settled, settleErr := waitForSettleWithPrompt(ctx, h, pane, baseline, cfg.WaitUntil, cfg.DispatchTimeout, cfg.GatePoll, clock, sleeper, promptCh)
+	if errors.Is(settleErr, errSettleTimeout) {
 		item.Action = ActionDispatchedTimeout
 		item.PaneID = pane
 		item.RenderedPrompt = rendered
-		runlog.FromContext(ctx).Info("settle",
-			"pane_id", pane,
-			"decision", ActionDispatchedTimeout,
-			"agent_status", out.Agent.AgentStatus,
-			"reason", "herdr prompt timeout",
-		)
-	default:
-		item.Action = ActionFailed
-		if out.Err != nil {
-			item.Detail = out.Err.Error()
-		} else {
-			item.Detail = "herdr prompt failed"
-		}
+		return item
 	}
+	if settleErr != nil {
+		item.Action = ActionFailed
+		item.Detail = settleErr.Error()
+		return item
+	}
+	item.Action = ActionDispatched
+	if settled.AgentStatus == "blocked" {
+		item.Action = ActionDispatchedBlocked
+	}
+	item.PaneID = pane
+	item.RenderedPrompt = rendered
 	return item
 }
 

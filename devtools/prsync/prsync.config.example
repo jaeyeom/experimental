@@ -74,9 +74,11 @@
 # Default `idle done` waits until the agent truly finishes (after the
 # user answers a question in that tab). Live dispatch then runs:
 # --wait --until idle --until done
-# snapshots the pane, and polls until that status holds past startup
-# flap. Sequence advances during herdr's wait do not count as missed
-# working.
+# and polls agent list during that wait. A working sample seen while
+# herdr is still blocked is the start transition; idle/done after that
+# is settle even if herdr --wait never returns. Sequence advances
+# during herdr's wait do not count as missed working. The wait is
+# bounded by dispatch_timeout_ms (dispatched_timeout, exit 4).
 # Set `idle` only to wait until herdr reports idle (can take ~30 min if
 # the agent settles to done instead). Include `blocked` only if you want
 # the per-send wait to return while the agent is awaiting the user

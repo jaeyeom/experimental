@@ -191,6 +191,9 @@ func dispatchExit(err error, cfg config.Config) error {
 	if errors.Is(err, dispatch.ErrTimeout) {
 		return &ExitError{Code: ExitGateTimeout, Err: err}
 	}
+	if errors.Is(err, dispatch.ErrSettleTimeout) {
+		return &ExitError{Code: ExitGateTimeout, Err: fmt.Errorf("settle timeout after %s: target tab did not stay idle/done", cfg.DispatchTimeout)}
+	}
 	if errors.Is(err, dispatch.ErrLock) {
 		return &ExitError{Code: ExitPrecondition, Err: err}
 	}
