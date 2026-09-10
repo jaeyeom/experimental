@@ -134,9 +134,9 @@ variables are not expanded.
 | ~tab_label_template~ | ~{id}~ | Herdr tab label after substituting ~{id}~. Exact, case-sensitive. |
 | ~herdr_bin~ | ~herdr~ | herdr executable. |
 | ~gh_bin~ | ~gh~ | gh executable. |
-| ~concurrency_wait_on~ | ~any~ | ~any~ (every working or blocked agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. Live ~Wait~ still requires the empty busy set to hold for the same consecutive-poll debounce as settle. |
+| ~concurrency_wait_on~ | ~any~ | ~any~ (every working or blocked agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. Live ~Wait~ still requires the empty busy set to hold for the same consecutive-poll debounce as settle. A busy set that is only ~blocked~ (awaiting human input) does not poll until ~gate_timeout_ms~: live dispatch returns immediately with ~gate_timeout~ naming that tab. |
 | ~gate_poll_ms~ | ~2000~ | Gate poll interval (milliseconds). |
-| ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (exit 4). |
+| ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on a ~working~ busy set after this many ms (~gate_timeout~, exit 4). A ~blocked~ busy set fails immediately with the same action. |
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for the per-send settle wait (and ~herdr agent prompt --timeout~). A prompt the agent never picks up becomes ~dispatched_timeout~ (exit 4). |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. Default: check out ~{head}~ (via ~gh pr checkout {number}~ if needed), bring it up to date with ~origin/{base}~, then apply mechanical / unambiguous fixes; for a design decision, tradeoff, or disagreement, pause and ask the user (with a recommended option) before editing / resolving / pushing. After the addressed threads are pushed, re-request each human reviewer whose listed comments are all done (~gh pr edit {number} --add-reviewer <login>~). Skip bots, skip already-pending reviewers, and do not dismiss reviews. |
 | ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
@@ -170,7 +170,12 @@ tokens to hold for several consecutive polls.
 
 The live concurrency gate uses the same debounce: a single non-~working~
 sample is not safe. The busy set must stay empty for those consecutive
-polls, so a tab in startup or mid-run flap still counts as busy.
+polls, so a tab in startup or mid-run flap still counts as busy. A tab
+that is ~blocked~ (awaiting the user) is still in the busy set, but it
+does not deadlock the wait: live dispatch returns ~gate_timeout~ for the
+current PR (detail names the tab and says it is awaiting input) and
+~queued~ for the rest, instead of polling until an outer reaper kills the
+process.
 
 If the agent never picks up the prompt, the wait ends at
 ~dispatch_timeout_ms~ (~dispatched_timeout~, exit 4, with a timeout
@@ -422,7 +427,10 @@ Live send (writes ~state_file~ on ~dispatched~ / ~dispatched_timeout~).
 ~--go~ waits for a debounced empty busy set, then sends one PR at a time.
 ~dispatched~ is an observed ~working~ (or post-return sequence) transition
 plus a debounced settle, not the ~idle~ herdr ~--until~ already matched.
-~dispatched_timeout~ is exit 4.
+~dispatched_timeout~ is exit 4. A ~working~ tab holding the gate until
+~gate_timeout_ms~, or a ~blocked~ tab that will not clear without a human,
+is ~gate_timeout~ for the current PR (stderr and ~detail~ name the tab)
+and ~queued~ for the rest (exit 4, no prompt sent, no state write).
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config --go
@@ -511,7 +519,9 @@ prsync comment --config ./prsync.config --all --body "please retry"
 
 One-shot busy-set check (no debounce). Live ~dispatch --go~ uses
 ~Wait~, which requires the empty busy set to hold for several
-consecutive polls so a flap ~idle~ is still busy.
+consecutive polls so a flap ~idle~ is still busy. A ~blocked~ busy set
+fails that wait immediately (~gate_timeout~) rather than polling until
+~gate_timeout_ms~.
 
 #+BEGIN_SRC bash
 prsync gate --config ./prsync.config
@@ -526,7 +536,9 @@ Safe:
 }
 #+END_SRC
 
-Unsafe (exit 1) when a working or blocked agent is in the busy set:
+Unsafe (exit 1) when a working or blocked agent is in the busy set.
+~agent_status~ distinguishes ~working~ (making progress) from ~blocked~
+(awaiting human input):
 
 #+BEGIN_SRC json
 {
@@ -534,7 +546,8 @@ Unsafe (exit 1) when a working or blocked agent is in the busy set:
   "busy": [
     {
       "pane_id": "w2:pC",
-      "tab_id": "w2:tC"
+      "tab_id": "w2:tC",
+      "agent_status": "blocked"
     }
   ]
 }
@@ -595,7 +608,8 @@ Confirm:
   blocked. After herdr returns without a ~working~ sample, settle still
   requires a post-return ~working~ (or sequence) transition, not the
   idle herdr just returned. The live gate uses that same debounce so a
-  flap idle is still busy.
+  flap idle is still busy. A blocked tab holding the gate is
+  ~gate_timeout~ (exit 4) with the tab named on stderr, not a hang.
 
 This procedure is README-only; CI uses fixture binaries, not live herdr.
 
@@ -628,7 +642,7 @@ This procedure is README-only; CI uses fixture binaries, not live herdr.
 |    1 | ~gate~ only: busy set is non-empty |
 |    2 | Usage, config, or flag error |
 |    3 | Missing tool, auth failure, herdr too old, or mid-loop dispatch failure |
-|    4 | Live dispatch timed out waiting on the gate or settle |
+|    4 | Live dispatch timed out waiting on the gate or settle, including a ~blocked~ tab that fails the gate immediately |
 
 * Development
 

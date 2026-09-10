@@ -1039,16 +1039,68 @@ func TestRunLiveGateTimeoutQueuesRest(t *testing.T) {
 	if len(got.Results) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(got.Results))
 	}
-	for _, r := range got.Results {
-		if r.Action != ActionQueued {
-			t.Fatalf("result = %+v, want queued", r)
-		}
+	if got.Results[0].Action != ActionGateTimeout || got.Results[0].Number != 123 {
+		t.Fatalf("first = %+v, want gate_timeout #123", got.Results[0])
+	}
+	if !strings.Contains(got.Results[0].Detail, "w2:tX") {
+		t.Fatalf("first detail = %q, want waited-on tab w2:tX", got.Results[0].Detail)
+	}
+	if got.Results[1].Action != ActionQueued || got.Results[1].Number != 124 {
+		t.Fatalf("second = %+v, want queued #124", got.Results[1])
 	}
 	if h.promptN != 0 {
 		t.Fatalf("Prompt calls = %d, want 0 on gate timeout", h.promptN)
 	}
 	if _, err := os.Stat(store.Path); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("state file written on gate timeout")
+	}
+}
+
+func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	cfg.GateTimeout = time.Second
+	blocked := fixtureEligiblePR()
+	blocked.Number = 99
+	blocked.Tab.TabID = "w2:tBlocked"
+	blockedPane := "w2:pBlocked"
+	blocked.Tab.PaneID = &blockedPane
+	blocked.Tab.Label = "PROJ-99"
+	blocked.Tab.AgentStatus = "blocked"
+	target := fixtureEligiblePR()
+	h := &scriptHerdr{lists: [][]herdr.Agent{{
+		blockedAgent("w2:pBlocked", "w2:tBlocked"),
+		idleAgent("w2:pC", "w2:tC"),
+	}}}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{blocked, target}},
+		PRs: []string{"acme/widgets#123"},
+	}, fixtureNow)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("error = %v, want ErrTimeout", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionGateTimeout {
+		t.Fatalf("results = %+v, want gate_timeout", got.Results)
+	}
+	detail := got.Results[0].Detail
+	if !strings.Contains(detail, "w2:tBlocked") {
+		t.Fatalf("detail = %q, want waited-on tab", detail)
+	}
+	if !strings.Contains(detail, "PROJ-99") {
+		t.Fatalf("detail = %q, want tab label", detail)
+	}
+	if !strings.Contains(detail, "blocked awaiting your input") {
+		t.Fatalf("detail = %q, want blocked awaiting your input", detail)
+	}
+	if !strings.Contains(detail, "acme/widgets#123") {
+		t.Fatalf("detail = %q, want target PR", detail)
+	}
+	if h.promptN != 0 {
+		t.Fatalf("Prompt calls = %d, want 0 (do not inject while another tab is blocked)", h.promptN)
+	}
+	if h.n != 1 {
+		t.Fatalf("AgentList calls = %d, want 1 (fail fast on blocked)", h.n)
 	}
 }
 

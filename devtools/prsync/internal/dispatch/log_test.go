@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -109,6 +110,41 @@ func TestRunLogsDedupeOutcome(t *testing.T) {
 	}
 	if hasLog(recs, "dispatch_send") {
 		t.Fatalf("deduped skip logged dispatch_send: %v", logMsgs(recs))
+	}
+}
+
+func TestRunLiveLogsBlockedGateTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pX", "w2:tX")}}}
+	buf, ctx := withLog(t)
+	got, err := Run(ctx, h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("error = %v, want ErrTimeout", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionGateTimeout {
+		t.Fatalf("results = %+v, want gate_timeout", got.Results)
+	}
+	recs := logRecords(t, buf)
+	end, ok := logByMsg(recs, "gate_wait_end")
+	if !ok {
+		t.Fatalf("missing gate_wait_end in %v", logMsgs(recs))
+	}
+	if end["tab_id"] != "w2:tX" || end["agent_status"] != "blocked" {
+		t.Fatalf("gate_wait_end = %v, want tab_id w2:tX agent_status blocked", end)
+	}
+	result, ok := logByMsg(recs, "result")
+	if !ok {
+		t.Fatalf("missing result in %v", logMsgs(recs))
+	}
+	if result["action"] != ActionGateTimeout {
+		t.Fatalf("result.action = %v, want gate_timeout", result["action"])
+	}
+	if hasLog(recs, "dispatch_send") {
+		t.Fatalf("blocked gate timeout logged dispatch_send: %v", logMsgs(recs))
 	}
 }
 

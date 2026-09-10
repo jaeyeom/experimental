@@ -43,8 +43,9 @@ type Result struct {
 
 // Busy is one working or blocked agent in the busy set.
 type Busy struct {
-	PaneID string `json:"pane_id"` //nolint:tagliatelle // brief outbound contract
-	TabID  string `json:"tab_id"`  //nolint:tagliatelle // brief outbound contract
+	PaneID string `json:"pane_id"`      //nolint:tagliatelle // brief outbound contract
+	TabID  string `json:"tab_id"`       //nolint:tagliatelle // brief outbound contract
+	Status string `json:"agent_status"` //nolint:tagliatelle // brief outbound contract
 }
 
 // Check is a one-shot busy-set evaluation. It does not sleep.
@@ -58,11 +59,16 @@ func Check(ctx context.Context, h Herdr, waitOn, runnerPane string, matchedTabs 
 // Wait polls until the busy set stays empty for settleDebouncePolls
 // consecutive samples or cfg.GateTimeout elapses. A single idle/done
 // sample is not safe: startup and mid-run flap still count as busy.
+// A busy set that is only blocked (awaiting human input) returns
+// ErrTimeout immediately: that state does not clear on its own.
 func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (res Result, err error) {
 	log := runlog.FromContext(ctx)
 	log.Info("gate_wait_start", "wait_on", cfg.ConcurrencyWaitOn, "runner_pane", runnerPane)
 	defer func() {
 		args := []any{"safe", res.Safe, "busy_count", len(res.Busy)}
+		if len(res.Busy) > 0 {
+			args = append(args, "tab_id", res.Busy[0].TabID, "agent_status", res.Busy[0].Status)
+		}
 		if err != nil {
 			args = append(args, "error", err.Error())
 		}
@@ -85,6 +91,9 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 			}
 		} else {
 			held = 0
+			if !hasWorking(res.Busy) {
+				return res, ErrTimeout
+			}
 		}
 		if clock.Now().Sub(start) >= cfg.GateTimeout {
 			return res, ErrTimeout
@@ -121,9 +130,18 @@ func busySet(agents []herdr.Agent, waitOn, runnerPane string, matchedTabs map[st
 		if !isBusy(agent, waitOn, runnerPane, matchedTabs) {
 			continue
 		}
-		out = append(out, Busy{PaneID: agent.PaneID, TabID: agent.TabID})
+		out = append(out, Busy{PaneID: agent.PaneID, TabID: agent.TabID, Status: agent.AgentStatus})
 	}
 	return out
+}
+
+func hasWorking(busy []Busy) bool {
+	for _, b := range busy {
+		if b.Status == "working" {
+			return true
+		}
+	}
+	return false
 }
 
 func isBusy(agent herdr.Agent, waitOn, runnerPane string, matchedTabs map[string]struct{}) bool {

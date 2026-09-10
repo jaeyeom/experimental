@@ -24,7 +24,9 @@
 # tabs matched to PRs in the current scan; managed runs a scan).
 # Live dispatch Wait requires the empty busy set to hold for several
 # consecutive polls (same debounce as settle); a single idle sample
-# during startup/mid-run flap is still busy. `prsync gate` stays one-shot.
+# during startup/mid-run flap is still busy. A blocked-only busy set
+# fails immediately (gate_timeout naming the tab) instead of polling
+# until gate_timeout_ms. `prsync gate` stays one-shot.
 # concurrency_wait_on=any
 
 # Milliseconds. Parsed as n * time.Millisecond (2000 = 2s, not 2µs).

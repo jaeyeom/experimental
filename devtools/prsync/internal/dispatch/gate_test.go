@@ -27,6 +27,9 @@ func TestCheckWorkingIsBusy(t *testing.T) {
 	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
 		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
 	}
+	if got.Busy[0].Status != "working" {
+		t.Fatalf("busy status = %q, want working", got.Busy[0].Status)
+	}
 }
 
 func TestCheckIdleIsSafe(t *testing.T) {
@@ -118,6 +121,9 @@ func TestCheckBlockedIsBusy(t *testing.T) {
 	}
 	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
 		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
+	}
+	if got.Busy[0].Status != "blocked" {
+		t.Fatalf("busy status = %q, want blocked", got.Busy[0].Status)
 	}
 }
 
@@ -251,14 +257,40 @@ func TestWaitFlipsWorkingToIdle(t *testing.T) {
 	}
 }
 
-func TestWaitFlipsBlockedToIdle(t *testing.T) {
+func TestWaitBlockedOnlyReturnsTimeoutImmediately(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pC", "w2:tC")}}}
+	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
+	sleeper := &fakeSleeper{clock: clock}
+	cfg := config.Defaults()
+	cfg.GatePoll = time.Millisecond
+	cfg.GateTimeout = 50 * time.Millisecond
+
+	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("Wait() error = %v, want ErrTimeout (blocked never clears without a human)", err)
+	}
+	if got.Safe {
+		t.Fatal("safe = true on blocked-only busy set, want false")
+	}
+	if len(got.Busy) != 1 || got.Busy[0].Status != "blocked" || got.Busy[0].TabID != "w2:tC" {
+		t.Fatalf("busy = %+v, want blocked w2:tC", got.Busy)
+	}
+	if h.n != 1 {
+		t.Fatalf("AgentList calls = %d, want 1 (do not poll until timeout for blocked)", h.n)
+	}
+	if sleeper.n != 0 {
+		t.Fatalf("Sleep calls = %d, want 0", sleeper.n)
+	}
+}
+
+func TestWaitWorkingThenBlockedReturnsTimeout(t *testing.T) {
 	t.Parallel()
 
 	h := &scriptHerdr{lists: [][]herdr.Agent{
+		{workingAgent("w2:pC", "w2:tC")},
 		{blockedAgent("w2:pC", "w2:tC")},
-		{idleAgent("w2:pC", "w2:tC")},
-		{idleAgent("w2:pC", "w2:tC")},
-		{idleAgent("w2:pC", "w2:tC")},
 	}}
 	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
 	sleeper := &fakeSleeper{clock: clock}
@@ -267,17 +299,17 @@ func TestWaitFlipsBlockedToIdle(t *testing.T) {
 	cfg.GateTimeout = 50 * time.Millisecond
 
 	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
-	if err != nil {
-		t.Fatalf("Wait() unexpected error: %v", err)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("Wait() error = %v, want ErrTimeout after working flips to blocked", err)
 	}
-	if !got.Safe {
-		t.Fatalf("safe = false after flip, busy=%+v", got.Busy)
+	if got.Safe || len(got.Busy) != 1 || got.Busy[0].Status != "blocked" {
+		t.Fatalf("busy = %+v, want blocked", got.Busy)
 	}
-	if h.n != 1+settleDebouncePolls {
-		t.Fatalf("AgentList calls = %d, want %d (blocked then %d idle)", h.n, 1+settleDebouncePolls, settleDebouncePolls)
+	if h.n != 2 {
+		t.Fatalf("AgentList calls = %d, want 2 (working then blocked, then stop)", h.n)
 	}
-	if sleeper.n != settleDebouncePolls {
-		t.Fatalf("Sleep calls = %d, want %d", sleeper.n, settleDebouncePolls)
+	if sleeper.n != 1 {
+		t.Fatalf("Sleep calls = %d, want 1 (do not keep polling blocked until timeout)", sleeper.n)
 	}
 }
 
