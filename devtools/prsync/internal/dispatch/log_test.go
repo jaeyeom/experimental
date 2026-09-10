@@ -129,6 +129,13 @@ func TestRunLiveLogsBlockedGateTimeout(t *testing.T) {
 		t.Fatalf("results = %+v, want gate_timeout", got.Results)
 	}
 	recs := logRecords(t, buf)
+	wait, ok := logByMsg(recs, "gate_wait")
+	if !ok {
+		t.Fatalf("missing gate_wait in %v", logMsgs(recs))
+	}
+	if wait["tab_id"] != "w2:tX" || wait["agent_status"] != "blocked" {
+		t.Fatalf("gate_wait = %v, want tab_id w2:tX agent_status blocked", wait)
+	}
 	end, ok := logByMsg(recs, "gate_wait_end")
 	if !ok {
 		t.Fatalf("missing gate_wait_end in %v", logMsgs(recs))

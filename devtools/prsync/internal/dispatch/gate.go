@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
@@ -12,6 +13,16 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
+
+type statusCtxKey struct{}
+
+// WithStatusWriter attaches w for live gate-wait progress lines on stderr.
+func WithStatusWriter(ctx context.Context, w io.Writer) context.Context {
+	if w == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, statusCtxKey{}, w)
+}
 
 const herdrMinVersion = "0.8.0"
 
@@ -59,8 +70,10 @@ func Check(ctx context.Context, h Herdr, waitOn, runnerPane string, matchedTabs 
 // Wait polls until the busy set stays empty for settleDebouncePolls
 // consecutive samples or cfg.GateTimeout elapses. A single idle/done
 // sample is not safe: startup and mid-run flap still count as busy.
-// A busy set that is only blocked (awaiting human input) returns
-// ErrTimeout immediately: that state does not clear on its own.
+// Working and blocked tabs are both waited on: blocked means the
+// agent is awaiting human input, not that the next dispatch should
+// skip. Progress is logged (and written to WithStatusWriter) when
+// the waited-on tab or status changes.
 func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (res Result, err error) {
 	log := runlog.FromContext(ctx)
 	log.Info("gate_wait_start", "wait_on", cfg.ConcurrencyWaitOn, "runner_pane", runnerPane)
@@ -79,6 +92,7 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 	}
 	start := clock.Now()
 	held := 0
+	lastStatus := ""
 	for {
 		res, err = snapshot(ctx, h, cfg.ConcurrencyWaitOn, runnerPane, matchedTabs)
 		if err != nil {
@@ -91,8 +105,12 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 			}
 		} else {
 			held = 0
-			if !hasWorking(res.Busy) {
-				return res, ErrTimeout
+			line := gateWaitLine(res.Busy)
+			if line != "" && line != lastStatus {
+				lastStatus = line
+				b := res.Busy[0]
+				log.Info("gate_wait", "tab_id", b.TabID, "agent_status", b.Status)
+				writeStatus(ctx, line)
 			}
 		}
 		if clock.Now().Sub(start) >= cfg.GateTimeout {
@@ -135,13 +153,30 @@ func busySet(agents []herdr.Agent, waitOn, runnerPane string, matchedTabs map[st
 	return out
 }
 
-func hasWorking(busy []Busy) bool {
-	for _, b := range busy {
-		if b.Status == "working" {
-			return true
-		}
+func gateWaitLine(busy []Busy) string {
+	if len(busy) == 0 {
+		return ""
 	}
-	return false
+	b := busy[0]
+	name := b.TabID
+	if name == "" {
+		name = b.PaneID
+	}
+	if b.Status == "blocked" {
+		return fmt.Sprintf("waiting on %s — blocked awaiting your input", name)
+	}
+	if b.Status != "" {
+		return fmt.Sprintf("waiting on %s — %s", name, b.Status)
+	}
+	return fmt.Sprintf("waiting on %s", name)
+}
+
+func writeStatus(ctx context.Context, line string) {
+	w, _ := ctx.Value(statusCtxKey{}).(io.Writer)
+	if w == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "prsync: %s\n", line)
 }
 
 func isBusy(agent herdr.Agent, waitOn, runnerPane string, matchedTabs map[string]struct{}) bool {

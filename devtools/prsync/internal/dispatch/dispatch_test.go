@@ -1060,7 +1060,6 @@ func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
-	cfg.GateTimeout = time.Second
 	blocked := fixtureEligiblePR()
 	blocked.Number = 99
 	blocked.Tab.TabID = "w2:tBlocked"
@@ -1099,8 +1098,8 @@ func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
 	if h.promptN != 0 {
 		t.Fatalf("Prompt calls = %d, want 0 (do not inject while another tab is blocked)", h.promptN)
 	}
-	if h.n != 1 {
-		t.Fatalf("AgentList calls = %d, want 1 (fail fast on blocked)", h.n)
+	if h.n < 2 {
+		t.Fatalf("AgentList calls = %d, want polling until timeout", h.n)
 	}
 }
 

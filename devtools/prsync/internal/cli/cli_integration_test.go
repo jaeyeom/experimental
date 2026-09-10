@@ -516,8 +516,8 @@ func TestDispatchGoBlockedGateTimeoutExit4(t *testing.T) {
 	if code != ExitGateTimeout {
 		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitGateTimeout, stderr.String(), stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "blocked awaiting your input") {
-		t.Fatalf("stderr = %q, want blocked awaiting your input", stderr.String())
+	if !strings.Contains(stderr.String(), "waiting on") || !strings.Contains(stderr.String(), "blocked awaiting your input") {
+		t.Fatalf("stderr = %q, want waiting on … blocked awaiting your input", stderr.String())
 	}
 	got := decodeDispatch(t, stdout.Bytes())
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionGateTimeout {
