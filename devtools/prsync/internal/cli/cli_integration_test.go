@@ -491,13 +491,43 @@ func TestDispatchGoGateTimeoutExit4(t *testing.T) {
 	if len(got.Results) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(got.Results))
 	}
-	for _, r := range got.Results {
-		if r.Action != dispatch.ActionQueued {
-			t.Fatalf("result = %+v, want queued", r)
-		}
+	if got.Results[0].Action != dispatch.ActionGateTimeout {
+		t.Fatalf("first = %+v, want gate_timeout", got.Results[0])
+	}
+	if got.Results[1].Action != dispatch.ActionQueued {
+		t.Fatalf("second = %+v, want queued", got.Results[1])
 	}
 	if _, err := os.Stat(statePath); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("state_file written on gate timeout")
+	}
+}
+
+func TestDispatchGoBlockedGateTimeoutExit4(t *testing.T) {
+	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
+	ghBin, herdrBin := fixtureBins(t)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	raw := mustScanJSON(t, stdinEligibleDoc())
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitGateTimeout {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitGateTimeout, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "waiting on") || !strings.Contains(stderr.String(), "blocked awaiting your input") {
+		t.Fatalf("stderr = %q, want waiting on … blocked awaiting your input", stderr.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionGateTimeout {
+		t.Fatalf("results = %+v, want gate_timeout", got.Results)
+	}
+	if !strings.Contains(got.Results[0].Detail, "blocked awaiting your input") {
+		t.Fatalf("detail = %q, want blocked awaiting your input", got.Results[0].Detail)
+	}
+	if _, err := os.Stat(statePath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("state_file written on blocked gate timeout")
 	}
 }
 

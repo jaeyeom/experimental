@@ -50,6 +50,9 @@ func TestGateBusyWhenBlocked(t *testing.T) {
 	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
 		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
 	}
+	if got.Busy[0].Status != "blocked" {
+		t.Fatalf("busy status = %q, want blocked", got.Busy[0].Status)
+	}
 }
 
 func TestGateBusyWhenWorking(t *testing.T) {
@@ -68,6 +71,9 @@ func TestGateBusyWhenWorking(t *testing.T) {
 	}
 	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
 		t.Fatalf("busy = %+v", got.Busy)
+	}
+	if got.Busy[0].Status != "working" {
+		t.Fatalf("busy status = %q, want working", got.Busy[0].Status)
 	}
 }
 
