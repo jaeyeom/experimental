@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
@@ -54,13 +53,6 @@ func TestRunLiveLogsDispatchLifecycle(t *testing.T) {
 	}
 	if send["repo"] != "acme/widgets" || send["number"] != float64(123) {
 		t.Fatalf("dispatch_send repo/number = %v %v", send["repo"], send["number"])
-	}
-	status, ok := logByMsg(recs, "agent_status")
-	if !ok {
-		t.Fatalf("missing agent_status transition in %v", logMsgs(recs))
-	}
-	if status["from"] != "working" || status["to"] != "idle" {
-		t.Fatalf("agent_status = %v, want working -> idle", status)
 	}
 	settle, ok := logByMsg(recs, "settle")
 	if !ok {
@@ -184,17 +176,23 @@ func TestRunDryRunLogsWouldDispatchWithoutGateWait(t *testing.T) {
 	}
 }
 
-func TestWaitForSettleLogsTimeoutDecision(t *testing.T) {
+func TestRunLiveLogsStallTimeoutDecision(t *testing.T) {
 	t.Parallel()
 
-	baseline := seqAgent("w2:pC", "w2:tC", "idle", 1)
-	h := &scriptHerdr{lists: [][]herdr.Agent{{baseline}}}
-	clock := &fakeClock{now: fixtureNow}
-	sleeper := &fakeSleeper{clock: clock}
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{
+		lists:   [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts: []herdr.PromptOutcome{{Status: herdr.PromptStalled}},
+	}
 	buf, ctx := withLog(t)
-	_, err := waitForSettle(ctx, h, "w2:pC", baseline, []string{"idle", "done"}, 50*time.Millisecond, time.Millisecond, clock, sleeper)
-	if err == nil {
-		t.Fatal("waitForSettle() error = nil, want timeout")
+	got, err := Run(ctx, h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if !errors.Is(err, ErrSettleTimeout) {
+		t.Fatalf("error = %v, want ErrSettleTimeout", err)
+	}
+	if got.Results[0].Action != ActionDispatchedTimeout {
+		t.Fatalf("action = %q, want dispatched_timeout", got.Results[0].Action)
 	}
 	recs := logRecords(t, buf)
 	settle, ok := logByMsg(recs, "settle")
