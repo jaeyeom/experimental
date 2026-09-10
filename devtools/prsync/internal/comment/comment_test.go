@@ -3,6 +3,7 @@ package comment
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func TestRunDryRunWouldDispatch(t *testing.T) {
 	t.Parallel()
 
 	g := &fakeGH{}
-	got, err := Run(context.Background(), g, config.Defaults(), Request{
+	got, err := Run(context.Background(), g, nil, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, false)}},
 		Body: "please retry",
 	}, fixtureNow)
@@ -55,7 +56,7 @@ func TestRunDryRunWouldDispatch(t *testing.T) {
 func TestRunDryRunCommentsOffMachinePR(t *testing.T) {
 	t.Parallel()
 
-	got, err := Run(context.Background(), &fakeGH{}, config.Defaults(), Request{
+	got, err := Run(context.Background(), &fakeGH{}, nil, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, true)}},
 		Body: "please retry",
 	}, fixtureNow)
@@ -70,7 +71,7 @@ func TestRunDryRunCommentsOffMachinePR(t *testing.T) {
 func TestRunSkippedNotFound(t *testing.T) {
 	t.Parallel()
 
-	got, err := Run(context.Background(), &fakeGH{}, config.Defaults(), Request{
+	got, err := Run(context.Background(), &fakeGH{}, nil, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, false)}},
 		PRs:  []string{"acme/widgets#123", "acme/missing#9"},
 		Body: "please retry",
@@ -99,7 +100,7 @@ func TestRunLivePostsComment(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.DryRun = false
 	g := &fakeGH{}
-	got, err := Run(context.Background(), g, cfg, Request{
+	got, err := Run(context.Background(), g, nil, cfg, Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, true), pr("acme/gizmos", 50, false)}},
 		Body: "please retry",
 	}, fixtureNow)
@@ -141,7 +142,7 @@ func TestRunLiveFailureStopsBatch(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.DryRun = false
 	g := &fakeGH{err: errors.New("boom")}
-	got, err := Run(context.Background(), g, cfg, Request{
+	got, err := Run(context.Background(), g, nil, cfg, Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/gizmos", 50, false), pr("acme/widgets", 123, false)}},
 		Body: "please retry",
 	}, fixtureNow)
@@ -162,7 +163,7 @@ func TestRunLiveFailureStopsBatch(t *testing.T) {
 func TestRunInvalidPRFlag(t *testing.T) {
 	t.Parallel()
 
-	_, err := Run(context.Background(), &fakeGH{}, config.Defaults(), Request{
+	_, err := Run(context.Background(), &fakeGH{}, nil, config.Defaults(), Request{
 		PRs:  []string{"not-a-pr"},
 		Body: "please retry",
 	}, fixtureNow)
@@ -174,10 +175,247 @@ func TestRunInvalidPRFlag(t *testing.T) {
 	}
 }
 
+func TestRunLiveDedupesSameTuple(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.DryRun = false
+	store := liveStore(t)
+	g := &fakeGH{}
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	req := Request{Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci"}
+	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("first Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("first results = %+v, want dispatched", got.Results)
+	}
+	st, err := dispatch.LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if !st.DedupedPosted("acme/widgets#123", "abc123def456", "/ci") {
+		t.Fatalf("state after post = %#v", st)
+	}
+
+	got2, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != dispatch.ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped", got2.Results)
+	}
+	if len(g.calls) != 1 {
+		t.Fatalf("CommentPR calls = %d, want 1", len(g.calls))
+	}
+}
+
+func TestRunLiveNewSHAPostsAgain(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.DryRun = false
+	store := liveStore(t)
+	g := &fakeGH{}
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	if _, err := Run(context.Background(), g, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
+	}, fixtureNow); err != nil {
+		t.Fatalf("first Run() unexpected error: %v", err)
+	}
+
+	p.HeadSHA = "fff000aaa111"
+	got, err := Run(context.Background(), g, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("changed SHA Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("changed SHA results = %+v, want dispatched", got.Results)
+	}
+	if len(g.calls) != 2 {
+		t.Fatalf("CommentPR calls = %d, want 2", len(g.calls))
+	}
+}
+
+func TestRunLiveDifferentBodyPostsAgain(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.DryRun = false
+	store := liveStore(t)
+	g := &fakeGH{}
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	if _, err := Run(context.Background(), g, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
+	}, fixtureNow); err != nil {
+		t.Fatalf("first Run() unexpected error: %v", err)
+	}
+
+	got, err := Run(context.Background(), g, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "please retry",
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("different body Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("different body results = %+v, want dispatched", got.Results)
+	}
+	if len(g.calls) != 2 {
+		t.Fatalf("CommentPR calls = %d, want 2", len(g.calls))
+	}
+}
+
+func TestRunDryRunDedupedDoesNotPost(t *testing.T) {
+	t.Parallel()
+
+	store := liveStore(t)
+	st := dispatch.State{}
+	st.RecordPosted("acme/widgets#123", "abc123def456", "/ci", fixtureNow)
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	g := &fakeGH{}
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	got, err := Run(context.Background(), g, store, config.Defaults(), Request{
+		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if !got.DryRun {
+		t.Fatal("dry_run = false, want true")
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
+		t.Fatalf("results = %+v, want skipped_deduped", got.Results)
+	}
+	if len(g.calls) != 0 {
+		t.Fatalf("CommentPR called on dry-run: %+v", g.calls)
+	}
+}
+
+func TestRunAllowDuplicatePostsAgain(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.DryRun = false
+	store := liveStore(t)
+	g := &fakeGH{}
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	req := Request{Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci"}
+	if _, err := Run(context.Background(), g, store, cfg, req, fixtureNow); err != nil {
+		t.Fatalf("first Run() unexpected error: %v", err)
+	}
+
+	req.AllowDuplicate = true
+	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("allow-duplicate Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("allow-duplicate results = %+v, want dispatched", got.Results)
+	}
+	if len(g.calls) != 2 {
+		t.Fatalf("CommentPR calls = %d, want 2", len(g.calls))
+	}
+}
+
+func TestRunFailureDoesNotRecord(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.DryRun = false
+	store := liveStore(t)
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	req := Request{Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci"}
+	if _, err := Run(context.Background(), &fakeGH{err: errors.New("boom")}, store, cfg, req, fixtureNow); !errors.Is(err, dispatch.ErrFailed) {
+		t.Fatalf("error = %v, want ErrFailed", err)
+	}
+	st, err := dispatch.LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if st.DedupedPosted("acme/widgets#123", "abc123def456", "/ci") {
+		t.Fatalf("failed post must not record state: %#v", st)
+	}
+
+	g := &fakeGH{}
+	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("retry Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("retry results = %+v, want dispatched", got.Results)
+	}
+	if len(g.calls) != 1 {
+		t.Fatalf("CommentPR calls = %d, want 1", len(g.calls))
+	}
+}
+
+func TestRunDispatchStateDoesNotDedupeComment(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.DryRun = false
+	store := liveStore(t)
+	st := dispatch.State{}
+	st.Record("acme/widgets#123", []string{"PRRC_widget"}, fixtureNow)
+	st.RecordHead("acme/widgets#123", "abc123def456", fixtureNow)
+	st.RecordCIFix("acme/widgets#123", "abc123def456", fixtureNow)
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	g := &fakeGH{}
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	got, err := Run(context.Background(), g, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched (other modes must not skip comment)", got.Results)
+	}
+}
+
+func TestRunDryRunDoesNotWriteState(t *testing.T) {
+	t.Parallel()
+
+	store := liveStore(t)
+	p := pr("acme/widgets", 123, false)
+	p.HeadSHA = "abc123def456"
+	if _, err := Run(context.Background(), &fakeGH{}, store, config.Defaults(), Request{
+		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
+	}, fixtureNow); err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	st, err := dispatch.LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if len(st) != 0 {
+		t.Fatalf("dry-run wrote state: %#v", st)
+	}
+}
+
 type commentCall struct {
 	repo   string
 	number int
 	body   string
+}
+
+func liveStore(t *testing.T) dispatch.FileStore {
+	t.Helper()
+	return dispatch.FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
 }
 
 type fakeGH struct {

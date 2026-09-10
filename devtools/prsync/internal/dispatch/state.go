@@ -50,6 +50,8 @@ type Entry struct {
 	DispatchedCommentIDs []string `json:"dispatched_comment_ids"`          //nolint:tagliatelle // brief outbound contract
 	DispatchedHeadSHA    string   `json:"dispatched_head_sha,omitempty"`   //nolint:tagliatelle // brief outbound contract
 	DispatchedCIFixSHA   string   `json:"dispatched_ci_fix_sha,omitempty"` //nolint:tagliatelle // brief outbound contract
+	PostedHeadSHA        string   `json:"posted_head_sha,omitempty"`       //nolint:tagliatelle // brief outbound contract
+	PostedBody           string   `json:"posted_body,omitempty"`           //nolint:tagliatelle // brief outbound contract
 	DispatchedAt         string   `json:"dispatched_at"`                   //nolint:tagliatelle // brief outbound contract
 }
 
@@ -190,7 +192,8 @@ func (s State) Deduped(key string, commentIDs []string) bool {
 }
 
 // Record replaces the stored comment-id set for key. It does not union.
-// An existing head SHA and CI-fix SHA are preserved so modes share state.
+// An existing head SHA, CI-fix SHA, and posted comment are preserved so
+// modes share state.
 func (s State) Record(key string, commentIDs []string, at time.Time) {
 	ids := append([]string(nil), commentIDs...)
 	prev := s[key]
@@ -198,6 +201,8 @@ func (s State) Record(key string, commentIDs []string, at time.Time) {
 		DispatchedCommentIDs: ids,
 		DispatchedHeadSHA:    prev.DispatchedHeadSHA,
 		DispatchedCIFixSHA:   prev.DispatchedCIFixSHA,
+		PostedHeadSHA:        prev.PostedHeadSHA,
+		PostedBody:           prev.PostedBody,
 		DispatchedAt:         at.UTC().Format(time.RFC3339),
 	}
 }
@@ -212,13 +217,16 @@ func (s State) DedupedHead(key, sha string) bool {
 	return ok && entry.DispatchedHeadSHA == sha
 }
 
-// RecordHead stores the head SHA for rebase dedupe. Comment IDs and CI-fix SHA are preserved.
+// RecordHead stores the head SHA for rebase dedupe. Comment IDs, CI-fix SHA,
+// and posted comment are preserved.
 func (s State) RecordHead(key, sha string, at time.Time) {
 	prev := s[key]
 	s[key] = Entry{
 		DispatchedCommentIDs: prev.DispatchedCommentIDs,
 		DispatchedHeadSHA:    sha,
 		DispatchedCIFixSHA:   prev.DispatchedCIFixSHA,
+		PostedHeadSHA:        prev.PostedHeadSHA,
+		PostedBody:           prev.PostedBody,
 		DispatchedAt:         at.UTC().Format(time.RFC3339),
 	}
 }
@@ -233,13 +241,40 @@ func (s State) DedupedCIFix(key, sha string) bool {
 	return ok && entry.DispatchedCIFixSHA == sha
 }
 
-// RecordCIFix stores the head SHA for CI-fix dedupe. Comment IDs and rebase SHA are preserved.
+// RecordCIFix stores the head SHA for CI-fix dedupe. Comment IDs, rebase SHA,
+// and posted comment are preserved.
 func (s State) RecordCIFix(key, sha string, at time.Time) {
 	prev := s[key]
 	s[key] = Entry{
 		DispatchedCommentIDs: prev.DispatchedCommentIDs,
 		DispatchedHeadSHA:    prev.DispatchedHeadSHA,
 		DispatchedCIFixSHA:   sha,
+		PostedHeadSHA:        prev.PostedHeadSHA,
+		PostedBody:           prev.PostedBody,
+		DispatchedAt:         at.UTC().Format(time.RFC3339),
+	}
+}
+
+// DedupedPosted reports whether the last posted comment matches sha and body.
+// An empty SHA is never treated as a match.
+func (s State) DedupedPosted(key, sha, body string) bool {
+	if s == nil || sha == "" {
+		return false
+	}
+	entry, ok := s[key]
+	return ok && entry.PostedHeadSHA == sha && entry.PostedBody == body
+}
+
+// RecordPosted stores the head SHA and body for comment-command dedupe.
+// Comment IDs, rebase SHA, and CI-fix SHA are preserved.
+func (s State) RecordPosted(key, sha, body string, at time.Time) {
+	prev := s[key]
+	s[key] = Entry{
+		DispatchedCommentIDs: prev.DispatchedCommentIDs,
+		DispatchedHeadSHA:    prev.DispatchedHeadSHA,
+		DispatchedCIFixSHA:   prev.DispatchedCIFixSHA,
+		PostedHeadSHA:        sha,
+		PostedBody:           body,
 		DispatchedAt:         at.UTC().Format(time.RFC3339),
 	}
 }
