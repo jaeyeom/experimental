@@ -72,18 +72,17 @@ case "${1-} ${2-}" in
       printf '%s\n' "$n" > "$RUNTIME/listn"
       runtime_unlock
       seq=$((n + 1))
-      if [ "$n" -eq 1 ]; then
-        status=working
+      # After a prompt, the tab has settled unless a test overrides.
+      # Do not report working on the first post-prompt list: that was
+      # for the old settle poll and poisons the next dispatch's gate.
+      if [ -n "${HERDR_FAKE_SETTLE-}" ]; then
+        status=$HERDR_FAKE_SETTLE
       else
-        status=idle
-        if [ -n "${HERDR_FAKE_SETTLE-}" ]; then
-          status=$HERDR_FAKE_SETTLE
-        else
-          case "${HERDR_FAKE_PROMPT-}" in
-            blocked) status=blocked ;;
-            'done') status='done' ;;
-          esac
-        fi
+        case "${HERDR_FAKE_PROMPT-}" in
+          blocked) status=blocked ;;
+          'done') status='done' ;;
+          *) status=idle ;;
+        esac
       fi
     fi
     use_dynamic=0
