@@ -26,6 +26,9 @@ func WithStatusWriter(ctx context.Context, w io.Writer) context.Context {
 
 const herdrMinVersion = "0.8.0"
 
+// settleDebouncePolls is how many consecutive empty-busy samples the gate needs.
+const settleDebouncePolls = 3
+
 // ErrTimeout is returned when Wait expires with a non-empty busy set.
 var ErrTimeout = errors.New("gate timeout")
 
@@ -44,6 +47,7 @@ type Herdr interface {
 	RequireMin(ctx context.Context, minimum string) error
 	AgentList(ctx context.Context) ([]herdr.Agent, error)
 	Prompt(ctx context.Context, paneID, text string, until []string, timeout time.Duration) herdr.PromptOutcome
+	Wait(ctx context.Context, paneID string, until []string, timeout time.Duration) herdr.PromptOutcome
 }
 
 // Result is the outbound gate JSON document.

@@ -181,6 +181,23 @@ case "${1-} ${2-}" in
         ;;
     esac
     ;;
+  "agent wait")
+    outcome=${HERDR_FAKE_WAIT:-success}
+    case "$outcome" in
+      timeout)
+        cat "${DIR}/herdr-error-timeout.json" >&2
+        exit 1
+        ;;
+      success)
+        cat "${DIR}/herdr-agent-prompt.json"
+        exit 0
+        ;;
+      *)
+        printf '%s\n' "herdr-fake: unknown wait outcome: $outcome" >&2
+        exit 1
+        ;;
+    esac
+    ;;
   *)
     printf '%s\n' "herdr-fake: unexpected: $*" >&2
     exit 1

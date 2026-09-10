@@ -23,7 +23,7 @@
 # Gate busy-set: any (every working or blocked agent) | managed (only
 # tabs matched to PRs in the current scan; managed runs a scan).
 # Live dispatch Wait requires the empty busy set to hold for several
-# consecutive polls (same debounce as settle); a single idle sample
+# consecutive polls; a single idle sample
 # during startup/mid-run flap is still busy. Blocked is waited on
 # like working (stderr names the tab) until the tab clears or
 # gate_timeout_ms. `prsync gate` stays one-shot.
@@ -70,21 +70,20 @@
 # dry_run=true
 
 # Whitespace-separated settle tokens. Each token becomes its own
-# `herdr agent prompt --until <token>` flag, then must hold after a
-# working (or state_change_seq) transition — the idle herdr returns
-# on is not completion. At least one token required.
+# `herdr agent prompt --until <token>` flag (and `herdr agent wait
+# --until` on leftover time). At least one token required.
 # Default `idle done` waits until the agent truly finishes (after the
-# user answers a question in that tab). Live dispatch then runs:
-# --wait --until idle --until done
-# and polls agent list during that wait. A working sample seen while
-# herdr is still blocked is the start transition; idle/done after that
-# is settle even if herdr --wait never returns. Sequence advances
-# during herdr's wait do not count as missed working. The wait is
-# bounded by dispatch_timeout_ms (dispatched_timeout, exit 4).
-# Set `idle` only to wait until herdr reports idle (can take ~30 min if
-# the agent settles to done instead). Include `blocked` only if you want
-# the per-send wait to return while the agent is awaiting the user
-# (dispatched_blocked; the batch stops, but dedupe state is not written).
+# user answers a question in that tab). Live dispatch runs:
+# --wait --until idle --until done --timeout …
+# herdr prompt --wait has an activity gate (working/blocked within 5s,
+# else agent_prompt_stalled). A matched return is dispatched. prsync
+# does not poll agent list to detect settle. On herdr timeout, one
+# snapshot: idle/done is dispatched; working/blocked continues with
+# `herdr agent wait --until idle --until done --timeout` using remaining
+# dispatch_timeout_ms. agent wait is never started from idle/done.
+# Include `blocked` only if you want the per-send wait to return while
+# the agent is awaiting the user (dispatched_blocked; the batch stops,
+# but dedupe state is not written).
 # dispatch_wait_until=idle done
 
 # Rewrite [label](url) to label when len(url) exceeds this. 0 disables.

@@ -357,13 +357,13 @@ func TestPrompt(t *testing.T) {
 		}
 	})
 
-	t.Run("process kill is PromptError", func(t *testing.T) {
+	t.Run("process kill is PromptTimeout", func(t *testing.T) {
 		t.Parallel()
 		mock := newHerdrMock()
 		expectPrompt(mock).WillTimeout(timeout + 5*time.Second).Build()
 		out := NewClient(mock, testHerdrBin).Prompt(context.Background(), "w2:pC", "hello", until, timeout)
-		if out.Status != PromptError {
-			t.Fatalf("status = %q, want %q", out.Status, PromptError)
+		if out.Status != PromptTimeout {
+			t.Fatalf("status = %q, want %q", out.Status, PromptTimeout)
 		}
 		var timeoutErr *executor.TimeoutError
 		if !errors.As(out.Err, &timeoutErr) {
@@ -400,6 +400,67 @@ func TestPrompt(t *testing.T) {
 	})
 }
 
+func TestWait(t *testing.T) {
+	t.Parallel()
+
+	until := []string{"idle", "done"}
+	timeout := 30 * time.Second
+
+	t.Run("matched", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		expectWait(mock).WillSucceed(promptSuccessJSON, 0).Build()
+		out := NewClient(mock, testHerdrBin).Wait(context.Background(), "w2:pC", until, timeout)
+		if out.Status != PromptMatched {
+			t.Fatalf("status = %q, want %q (err=%v)", out.Status, PromptMatched, out.Err)
+		}
+		if out.Agent.PaneID != "w2:pC" || out.Agent.AgentStatus != "idle" {
+			t.Fatalf("agent = %+v", out.Agent)
+		}
+	})
+
+	t.Run("herdr timeout code", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		expectWait(mock).WillReturn(&executor.ExecutionResult{
+			Stderr:   `{"error":{"code":"timeout","message":"wait exceeded timeout_ms"}}`,
+			ExitCode: 1,
+		}, nil).Build()
+		out := NewClient(mock, testHerdrBin).Wait(context.Background(), "w2:pC", until, timeout)
+		if out.Status != PromptTimeout {
+			t.Fatalf("status = %q, want %q (err=%v)", out.Status, PromptTimeout, out.Err)
+		}
+	})
+
+	t.Run("process kill is PromptTimeout", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		expectWait(mock).WillTimeout(timeout + 5*time.Second).Build()
+		out := NewClient(mock, testHerdrBin).Wait(context.Background(), "w2:pC", until, timeout)
+		if out.Status != PromptTimeout {
+			t.Fatalf("status = %q, want %q", out.Status, PromptTimeout)
+		}
+	})
+
+	t.Run("passes until flags and timeout ms without --wait", func(t *testing.T) {
+		t.Parallel()
+		mock := newHerdrMock()
+		var saw []string
+		mock.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
+			if cfg.Command != testHerdrBin {
+				return false
+			}
+			saw = append([]string(nil), cfg.Args...)
+			return true
+		}).WillSucceed(promptSuccessJSON, 0).Build()
+		_ = NewClient(mock, testHerdrBin).Wait(context.Background(), "w2:pC", until, timeout)
+		want := []string{"agent", "wait", "w2:pC", "--until", "idle", "--until", "done", "--timeout", "30000"}
+		if !equalStrings(saw, want) {
+			t.Fatalf("args = %v, want %v", saw, want)
+		}
+	})
+}
+
 func newHerdrMock() *executor.MockExecutor {
 	mock := executor.NewMockExecutor()
 	mock.SetAvailableCommand(testHerdrBin, true)
@@ -410,6 +471,13 @@ func expectPrompt(mock *executor.MockExecutor) *executor.MockExpectationBuilder 
 	return mock.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
 		return cfg.Command == testHerdrBin && len(cfg.Args) >= 4 &&
 			cfg.Args[0] == "agent" && cfg.Args[1] == "prompt"
+	})
+}
+
+func expectWait(mock *executor.MockExecutor) *executor.MockExpectationBuilder {
+	return mock.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
+		return cfg.Command == testHerdrBin && len(cfg.Args) >= 3 &&
+			cfg.Args[0] == "agent" && cfg.Args[1] == "wait"
 	})
 }
 
