@@ -164,9 +164,26 @@ func (c *Client) Prompt(ctx context.Context, paneID, text string, until []string
 		args = append(args, "--until", tok)
 	}
 	args = append(args, "--timeout", strconv.FormatInt(timeout.Milliseconds(), 10))
+	return c.classifyAgentCmd(ctx, timeout, args...)
+}
 
+// Wait runs `herdr agent wait` with the same --until/--timeout mapping as Prompt.
+func (c *Client) Wait(ctx context.Context, paneID string, until []string, timeout time.Duration) PromptOutcome {
+	args := []string{"agent", "wait", paneID}
+	for _, tok := range until {
+		args = append(args, "--until", tok)
+	}
+	args = append(args, "--timeout", strconv.FormatInt(timeout.Milliseconds(), 10))
+	return c.classifyAgentCmd(ctx, timeout, args...)
+}
+
+func (c *Client) classifyAgentCmd(ctx context.Context, timeout time.Duration, args ...string) PromptOutcome {
 	result, err := c.execute(ctx, timeout+promptTimeoutGrace, args...)
 	if err != nil {
+		var timeoutErr *executor.TimeoutError
+		if errors.As(err, &timeoutErr) {
+			return PromptOutcome{Status: PromptTimeout, Err: err}
+		}
 		return PromptOutcome{Status: PromptError, Err: err}
 	}
 	if result.ExitCode == 0 {
@@ -181,13 +198,13 @@ func (c *Client) Prompt(ctx context.Context, paneID, text string, until []string
 		case "timeout":
 			return PromptOutcome{Status: PromptTimeout}
 		default:
-			return PromptOutcome{Status: PromptError, Err: fmt.Errorf("herdr prompt: %s", code)}
+			return PromptOutcome{Status: PromptError, Err: fmt.Errorf("herdr %s: %s", args[1], code)}
 		}
 	}
 	if ctx.Err() != nil {
 		return PromptOutcome{Status: PromptError, Err: ctx.Err()}
 	}
-	return PromptOutcome{Status: PromptError, Err: fmt.Errorf("herdr prompt: unparseable result")}
+	return PromptOutcome{Status: PromptError, Err: fmt.Errorf("herdr %s: unparseable result", args[1])}
 }
 
 func (c *Client) output(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {

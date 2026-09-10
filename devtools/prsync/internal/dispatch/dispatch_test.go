@@ -238,13 +238,12 @@ func TestRunDryRunHerdrRequired(t *testing.T) {
 	}
 }
 
-func TestRunLivePreSendIdleIsNotDispatched(t *testing.T) {
+func TestRunLivePromptMatchedIdleIsDispatched(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
 	h := &scriptHerdr{
-		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		postLists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
 		prompts: []herdr.PromptOutcome{{
 			Status: herdr.PromptMatched,
 			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "idle"},
@@ -253,59 +252,57 @@ func TestRunLivePreSendIdleIsNotDispatched(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
 	}, fixtureNow)
-	if !errors.Is(err, ErrSettleTimeout) {
-		t.Fatalf("error = %v, want ErrSettleTimeout (pre-send idle is not settled)", err)
-	}
-	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
-		t.Fatalf("results = %+v, want dispatched_timeout (pre-send idle is not completion)", got.Results)
-	}
-}
-
-func TestRunLiveSettlesWhenHerdrWaitNeverReturns(t *testing.T) {
-	t.Parallel()
-
-	cfg, store := liveCfg(t)
-	h := &scriptHerdr{
-		lists:       [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		blockPrompt: true,
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	start := time.Now()
-	got, err := Run(ctx, h, store, cfg, Request{
-		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("Run took %s, hung on herdr --wait instead of settling on idle/done", elapsed)
-	}
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
 	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
-		t.Fatalf("results = %+v, want dispatched (terminal idle while herdr --wait hung)", got.Results)
+		t.Fatalf("results = %+v, want dispatched (herdr --wait matched idle/done)", got.Results)
+	}
+	if h.waitN != 0 {
+		t.Fatalf("Wait calls = %d, want 0 (do not agent wait after a matched prompt)", h.waitN)
+	}
+	if h.sincePrompt != 0 {
+		t.Fatalf("post-prompt AgentList calls = %d, want 0 (no settle poll)", h.sincePrompt)
 	}
 }
 
-func TestRunLivePromptReturnOnFlapIdleWaitsForWorking(t *testing.T) {
+func TestRunLivePromptTimeoutIdleIsDispatched(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
-	flapIdle := seqAgent("w2:pC", "w2:tC", "idle", 5)
 	h := &scriptHerdr{
-		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		postLists: [][]herdr.Agent{
-			{flapIdle},
-			{flapIdle},
-			{flapIdle},
-			{flapIdle},
-			{seqAgent("w2:pC", "w2:tC", "working", 6)},
-			{seqAgent("w2:pC", "w2:tC", "idle", 7)},
-			{seqAgent("w2:pC", "w2:tC", "idle", 7)},
-			{seqAgent("w2:pC", "w2:tC", "idle", 7)},
-		},
-		prompts: []herdr.PromptOutcome{{
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts:   []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched (timeout snapshot idle/done)", got.Results)
+	}
+	if h.waitN != 0 {
+		t.Fatalf("Wait calls = %d, want 0 (do not agent wait from idle)", h.waitN)
+	}
+	if h.sincePrompt != 1 {
+		t.Fatalf("post-prompt AgentList calls = %d, want 1 (one timeout snapshot)", h.sincePrompt)
+	}
+}
+
+func TestRunLivePromptTimeoutWorkingWaitsThenDispatched(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{{workingAgent("w2:pC", "w2:tC")}},
+		prompts:   []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
+		waits: []herdr.PromptOutcome{{
 			Status: herdr.PromptMatched,
-			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "idle", StateChangeSeq: 5},
+			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "idle"},
 		}},
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
@@ -315,10 +312,43 @@ func TestRunLivePromptReturnOnFlapIdleWaitsForWorking(t *testing.T) {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
 	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
-		t.Fatalf("results = %+v, want dispatched after working (flap idle is not completion)", got.Results)
+		t.Fatalf("results = %+v, want dispatched after agent wait", got.Results)
 	}
-	if h.sincePrompt < 6 {
-		t.Fatalf("post-prompt AgentList calls = %d, want flap idle skipped until working", h.sincePrompt)
+	if h.waitN != 1 {
+		t.Fatalf("Wait calls = %d, want 1", h.waitN)
+	}
+	if !slices.Equal(h.sawWaitUntil, []string{"idle", "done"}) {
+		t.Fatalf("wait until = %v, want [idle done] (blocked not added)", h.sawWaitUntil)
+	}
+	if h.lastWaitTimeout <= 0 || h.lastWaitTimeout > cfg.DispatchTimeout {
+		t.Fatalf("wait timeout = %s, want remaining time within dispatch_timeout_ms", h.lastWaitTimeout)
+	}
+	if h.sincePrompt != 1 {
+		t.Fatalf("post-prompt AgentList calls = %d, want 1 (no poll loop)", h.sincePrompt)
+	}
+}
+
+func TestRunLivePromptTimeoutWorkingRemainingExpiredTimesOut(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	cfg.DispatchTimeout = 0
+	h := &scriptHerdr{
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{{workingAgent("w2:pC", "w2:tC")}},
+		prompts:   []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
+	}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if !errors.Is(err, ErrSettleTimeout) {
+		t.Fatalf("error = %v, want ErrSettleTimeout (no remaining time)", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
+		t.Fatalf("results = %+v, want dispatched_timeout", got.Results)
+	}
+	if h.waitN != 0 {
+		t.Fatalf("Wait calls = %d, want 0 when remaining time is exhausted", h.waitN)
 	}
 }
 
@@ -719,9 +749,8 @@ func TestRunLiveStallNeverStartsTimesOut(t *testing.T) {
 
 	cfg, store := liveCfg(t)
 	h := &scriptHerdr{
-		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		postLists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		prompts:   []herdr.PromptOutcome{{Status: herdr.PromptStalled}},
+		lists:   [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		prompts: []herdr.PromptOutcome{{Status: herdr.PromptStalled}},
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
@@ -735,6 +764,12 @@ func TestRunLiveStallNeverStartsTimesOut(t *testing.T) {
 	if got.Results[0].PaneID == "" || got.Results[0].RenderedPrompt == "" {
 		t.Fatalf("timeout item missing pane/prompt: %+v", got.Results[0])
 	}
+	if h.waitN != 0 {
+		t.Fatalf("Wait calls = %d, want 0 (stalled is never-started, not a cue to wait)", h.waitN)
+	}
+	if h.sincePrompt != 0 {
+		t.Fatalf("post-prompt AgentList calls = %d, want 0 (do not poll after stall)", h.sincePrompt)
+	}
 	st, err := LoadFile(store.Path)
 	if err != nil {
 		t.Fatalf("LoadFile() error = %v", err)
@@ -744,13 +779,15 @@ func TestRunLiveStallNeverStartsTimesOut(t *testing.T) {
 	}
 }
 
-func TestRunLiveHerdrTimeoutWritesState(t *testing.T) {
+func TestRunLiveWaitTimeoutStillWorkingTimesOut(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
 	h := &scriptHerdr{
-		lists:   [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		prompts: []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
+		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{{workingAgent("w2:pC", "w2:tC")}, {workingAgent("w2:pC", "w2:tC")}},
+		prompts:   []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
+		waits:     []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
@@ -761,15 +798,15 @@ func TestRunLiveHerdrTimeoutWritesState(t *testing.T) {
 	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedTimeout {
 		t.Fatalf("results = %+v, want dispatched_timeout", got.Results)
 	}
-	if got.Results[0].PaneID == "" || got.Results[0].RenderedPrompt == "" {
-		t.Fatalf("timeout item missing pane/prompt: %+v", got.Results[0])
+	if h.waitN != 1 {
+		t.Fatalf("Wait calls = %d, want 1", h.waitN)
 	}
 	st, err := LoadFile(store.Path)
 	if err != nil {
 		t.Fatalf("LoadFile() error = %v", err)
 	}
 	if !st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
-		t.Fatalf("state after herdr timeout = %#v", st)
+		t.Fatalf("state after wait timeout = %#v", st)
 	}
 }
 

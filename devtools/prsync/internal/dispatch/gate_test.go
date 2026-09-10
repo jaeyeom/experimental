@@ -432,19 +432,23 @@ func TestWaitHonorsContextCancelDuringSleep(t *testing.T) {
 }
 
 type scriptHerdr struct {
-	mu          sync.Mutex
-	minErr      error
-	lists       [][]herdr.Agent
-	listErrs    []error
-	n           int
-	prompts     []herdr.PromptOutcome
-	promptN     int
-	sawUntil    []string
-	lastPane    string
-	sincePrompt int
-	settling    bool
-	postLists   [][]herdr.Agent
-	blockPrompt bool
+	mu              sync.Mutex
+	minErr          error
+	lists           [][]herdr.Agent
+	listErrs        []error
+	n               int
+	prompts         []herdr.PromptOutcome
+	promptN         int
+	waits           []herdr.PromptOutcome
+	waitN           int
+	sawUntil        []string
+	sawWaitUntil    []string
+	lastPane        string
+	lastWaitTimeout time.Duration
+	sincePrompt     int
+	settling        bool
+	postLists       [][]herdr.Agent
+	blockPrompt     bool
 }
 
 func (s *scriptHerdr) RequireMin(context.Context, string) error {
@@ -476,6 +480,21 @@ func (s *scriptHerdr) Prompt(ctx context.Context, pane, _ string, until []string
 		return herdr.PromptOutcome{Status: herdr.PromptError, Err: ctx.Err()}
 	}
 	return out
+}
+
+func (s *scriptHerdr) Wait(_ context.Context, pane string, until []string, timeout time.Duration) herdr.PromptOutcome {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastPane = pane
+	s.lastWaitTimeout = timeout
+	s.sawWaitUntil = append([]string(nil), until...)
+	if s.waitN < len(s.waits) {
+		out := s.waits[s.waitN]
+		s.waitN++
+		return out
+	}
+	s.waitN++
+	return herdr.PromptOutcome{Status: herdr.PromptMatched, Agent: herdr.Agent{PaneID: pane, AgentStatus: "idle"}}
 }
 
 func (s *scriptHerdr) AgentList(context.Context) ([]herdr.Agent, error) {
