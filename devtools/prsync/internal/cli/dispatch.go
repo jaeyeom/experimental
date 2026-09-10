@@ -37,7 +37,8 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		Short: "Send a review-comment, rebase, or CI-fix prompt to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDispatch(cmd.Context(), stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin)
+			ctx := dispatch.WithStatusWriter(cmd.Context(), cmd.ErrOrStderr())
+			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")

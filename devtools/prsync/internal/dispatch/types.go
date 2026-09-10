@@ -15,6 +15,7 @@ const (
 	ActionSkippedAddressed  = "skipped_addressed"
 	ActionSkippedNotFound   = "skipped_not_found"
 	ActionQueued            = "queued"
+	ActionGateTimeout       = "gate_timeout"
 	ActionFailed            = "failed"
 )
 

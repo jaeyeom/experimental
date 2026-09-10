@@ -206,9 +206,11 @@ func ciFixRecorded(st State, key string) bool {
 // polls, never emits queued, and never writes state. Live send polls the gate
 // one PR at a time (empty busy set must hold for settleDebouncePolls samples),
 // writes state on dispatched / dispatched_timeout, and returns ErrTimeout,
-// ErrSettleTimeout, or ErrFailed after emitting partial results. A blocked
-// settlement does not write dedupe state and stops the batch so a re-run can
-// retry the same comment after the user answers.
+// ErrSettleTimeout, or ErrFailed after emitting partial results. A gate
+// timeout emits gate_timeout for the current PR (naming the tab being
+// waited on) and queued for the rest. A blocked settlement does not write
+// dedupe state and stops the batch so a re-run can retry the same comment
+// after the user answers.
 func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time) (Document, error) {
 	doc := Document{
 		GeneratedAt: now.UTC().Format(time.RFC3339),
@@ -277,10 +279,13 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, item)
 			continue
 		}
-		_, err := Wait(ctx, h, cfg, req.RunnerPane, matched, clock, sleeper)
+		res, err := Wait(ctx, h, cfg, req.RunnerPane, matched, clock, sleeper)
 		if errors.Is(err, ErrTimeout) {
-			queueRest(ctx, &doc, cands, i)
-			return doc, err
+			item := gateTimeoutItem(c, res.Busy, req.Doc)
+			logResult(ctx, item)
+			doc.Results = append(doc.Results, item)
+			queueRest(ctx, &doc, cands, i+1)
+			return doc, fmt.Errorf("%w: %s", ErrTimeout, item.Detail)
 		}
 		if err != nil {
 			failed := failItem(c, err)
@@ -381,6 +386,47 @@ func snapshotPane(ctx context.Context, h Herdr, paneID string) (herdr.Agent, err
 		return a, nil
 	}
 	return herdr.Agent{PaneID: paneID}, nil
+}
+
+func gateTimeoutItem(c Candidate, busy []Busy, doc scan.Document) Item {
+	return Item{
+		Repo:   c.Repo,
+		Number: c.Number,
+		Action: ActionGateTimeout,
+		Detail: gateTimeoutDetail(busy, tabLabels(doc), c),
+	}
+}
+
+func tabLabels(doc scan.Document) map[string]string {
+	out := make(map[string]string)
+	for _, pr := range doc.PRs {
+		if pr.Tab != nil && pr.Tab.TabID != "" && pr.Tab.Label != "" {
+			out[pr.Tab.TabID] = pr.Tab.Label
+		}
+	}
+	return out
+}
+
+func gateTimeoutDetail(busy []Busy, labels map[string]string, c Candidate) string {
+	target := prKey(c.Repo, c.Number)
+	if len(busy) == 0 {
+		return fmt.Sprintf("gate timeout; not dispatching %s", target)
+	}
+	b := busy[0]
+	name := b.TabID
+	if name == "" {
+		name = b.PaneID
+	}
+	if label := labels[b.TabID]; label != "" {
+		name = fmt.Sprintf("%s [%s]", name, label)
+	}
+	if b.Status == "blocked" {
+		return fmt.Sprintf("waiting on %s — blocked awaiting your input; not dispatching %s until it clears", name, target)
+	}
+	if b.Status != "" {
+		return fmt.Sprintf("waiting on %s — %s; not dispatching %s until it clears", name, b.Status, target)
+	}
+	return fmt.Sprintf("waiting on %s; not dispatching %s until it clears", name, target)
 }
 
 func queueRest(ctx context.Context, doc *Document, cands []Candidate, from int) {

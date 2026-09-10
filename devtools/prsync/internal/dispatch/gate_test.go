@@ -1,9 +1,11 @@
 package dispatch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +28,9 @@ func TestCheckWorkingIsBusy(t *testing.T) {
 	}
 	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
 		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
+	}
+	if got.Busy[0].Status != "working" {
+		t.Fatalf("busy status = %q, want working", got.Busy[0].Status)
 	}
 }
 
@@ -118,6 +123,9 @@ func TestCheckBlockedIsBusy(t *testing.T) {
 	}
 	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
 		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
+	}
+	if got.Busy[0].Status != "blocked" {
+		t.Fatalf("busy status = %q, want blocked", got.Busy[0].Status)
 	}
 }
 
@@ -278,6 +286,61 @@ func TestWaitFlipsBlockedToIdle(t *testing.T) {
 	}
 	if sleeper.n != settleDebouncePolls {
 		t.Fatalf("Sleep calls = %d, want %d", sleeper.n, settleDebouncePolls)
+	}
+}
+
+func TestWaitBlockedTimeoutStaysBusy(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pC", "w2:tC")}}}
+	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
+	sleeper := &fakeSleeper{clock: clock}
+	cfg := config.Defaults()
+	cfg.GatePoll = time.Millisecond
+	cfg.GateTimeout = 3 * time.Millisecond
+
+	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("Wait() error = %v, want ErrTimeout", err)
+	}
+	if got.Safe {
+		t.Fatal("safe = true on timeout, want false")
+	}
+	if len(got.Busy) != 1 || got.Busy[0].Status != "blocked" || got.Busy[0].TabID != "w2:tC" {
+		t.Fatalf("busy = %+v, want blocked w2:tC", got.Busy)
+	}
+	if sleeper.n == 0 {
+		t.Fatal("Sleep calls = 0, want polling until timeout (do not fail fast on blocked)")
+	}
+}
+
+func TestWaitBlockedWritesStatusOnce(t *testing.T) {
+	t.Parallel()
+
+	h := &scriptHerdr{lists: [][]herdr.Agent{
+		{blockedAgent("w2:pC", "w2:tC")},
+		{blockedAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+		{idleAgent("w2:pC", "w2:tC")},
+	}}
+	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
+	sleeper := &fakeSleeper{clock: clock}
+	cfg := config.Defaults()
+	cfg.GatePoll = time.Millisecond
+	cfg.GateTimeout = 50 * time.Millisecond
+	var buf bytes.Buffer
+	ctx := WithStatusWriter(context.Background(), &buf)
+
+	if _, err := Wait(ctx, h, cfg, "", nil, clock, sleeper); err != nil {
+		t.Fatalf("Wait() unexpected error: %v", err)
+	}
+	got := buf.String()
+	if strings.Count(got, "blocked awaiting your input") != 1 {
+		t.Fatalf("status writes = %q, want blocked awaiting your input once", got)
+	}
+	if !strings.Contains(got, "w2:tC") {
+		t.Fatalf("status writes = %q, want tab w2:tC", got)
 	}
 }
 
