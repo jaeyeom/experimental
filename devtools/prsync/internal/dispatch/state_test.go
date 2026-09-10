@@ -186,6 +186,102 @@ func TestDedupeCIFixEmptySHA(t *testing.T) {
 	}
 }
 
+func TestDedupePostedEmptyState(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	if st.DedupedPosted("acme/widgets#123", "abc123", "/ci") {
+		t.Fatal("empty state must not be posted-comment deduped")
+	}
+}
+
+func TestDedupePostedSameTuple(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {PostedHeadSHA: "abc123", PostedBody: "/ci"}}
+	if !st.DedupedPosted("acme/widgets#123", "abc123", "/ci") {
+		t.Fatal("same (head SHA, body) must be deduped")
+	}
+}
+
+func TestDedupePostedChangedSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {PostedHeadSHA: "abc123", PostedBody: "/ci"}}
+	if st.DedupedPosted("acme/widgets#123", "def456", "/ci") {
+		t.Fatal("changed head SHA must not be posted-comment deduped")
+	}
+}
+
+func TestDedupePostedChangedBody(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {PostedHeadSHA: "abc123", PostedBody: "/ci"}}
+	if st.DedupedPosted("acme/widgets#123", "abc123", "please retry") {
+		t.Fatal("changed body must not be posted-comment deduped")
+	}
+}
+
+func TestDedupePostedEmptySHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {PostedHeadSHA: "abc123", PostedBody: "/ci"}}
+	if st.DedupedPosted("acme/widgets#123", "", "/ci") {
+		t.Fatal("empty current SHA must not be posted-comment deduped")
+	}
+}
+
+func TestDedupePostedEmptyStoredSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {PostedBody: "/ci"}}
+	if st.DedupedPosted("acme/widgets#123", "abc123", "/ci") {
+		t.Fatal("empty stored SHA must not be posted-comment deduped")
+	}
+}
+
+func TestRecordPostedPreservesOtherFields(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	st.RecordCIFix("acme/widgets#123", "ci-sha", at)
+	st.RecordPosted("acme/widgets#123", "post-sha", "/ci", at)
+	got := st["acme/widgets#123"]
+	if !reflect.DeepEqual(got.DispatchedCommentIDs, []string{"PRRC_a"}) {
+		t.Fatalf("comment ids = %v, want preserved", got.DispatchedCommentIDs)
+	}
+	if got.DispatchedHeadSHA != "abc123" {
+		t.Fatalf("head SHA = %q, want preserved", got.DispatchedHeadSHA)
+	}
+	if got.DispatchedCIFixSHA != "ci-sha" {
+		t.Fatalf("CI-fix SHA = %q, want preserved", got.DispatchedCIFixSHA)
+	}
+	if got.PostedHeadSHA != "post-sha" || got.PostedBody != "/ci" {
+		t.Fatalf("posted = {%q %q}, want post-sha /ci", got.PostedHeadSHA, got.PostedBody)
+	}
+	if got.DispatchedAt != "2026-01-01T09:00:00Z" {
+		t.Fatalf("dispatched_at = %q", got.DispatchedAt)
+	}
+}
+
+func TestRecordModesPreservePosted(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.RecordPosted("acme/widgets#123", "post-sha", "/ci", at)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	st.RecordCIFix("acme/widgets#123", "ci-sha", at)
+	got := st["acme/widgets#123"]
+	if got.PostedHeadSHA != "post-sha" || got.PostedBody != "/ci" {
+		t.Fatalf("posted = {%q %q}, want preserved", got.PostedHeadSHA, got.PostedBody)
+	}
+}
+
 func TestLoadFileMissingIsEmpty(t *testing.T) {
 	t.Parallel()
 

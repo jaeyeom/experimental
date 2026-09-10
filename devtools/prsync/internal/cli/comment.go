@@ -18,12 +18,13 @@ import (
 
 func newCommentCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	var (
-		configPath string
-		prs        []string
-		all        bool
-		goLive     bool
-		readStdin  bool
-		body       string
+		configPath     string
+		prs            []string
+		all            bool
+		goLive         bool
+		readStdin      bool
+		body           string
+		allowDuplicate bool
 	)
 	cmd := &cobra.Command{
 		Use:   "comment",
@@ -34,7 +35,7 @@ func newCommentCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if err != nil {
 				return &ExitError{Code: ExitUsage, Err: err}
 			}
-			return runComment(cmd.Context(), stdout, exec, configPath, prs, all, goLive, readStdin, resolved)
+			return runComment(cmd.Context(), stdout, exec, configPath, prs, all, goLive, readStdin, allowDuplicate, resolved)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -43,10 +44,11 @@ func newCommentCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&goLive, "go", false, "post comments (default is dry-run)")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan)")
 	cmd.Flags().StringVar(&body, "body", "", "comment body text")
+	cmd.Flags().BoolVar(&allowDuplicate, "allow-duplicate", false, "post even if dedupe state would skip")
 	return cmd
 }
 
-func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, readStdin bool, body string) error {
+func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, readStdin, allowDuplicate bool, body string) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -67,18 +69,29 @@ func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, c
 	if err != nil {
 		return err
 	}
-	out, err := comment.Run(ctx, gh.NewClient(exec, cfg.GHBin), cfg, comment.Request{
-		Doc:  doc,
-		PRs:  prs,
-		Body: body,
+	out, err := comment.Run(ctx, gh.NewClient(exec, cfg.GHBin), dispatch.FileStore{Path: cfg.StateFile}, cfg, comment.Request{
+		Doc:            doc,
+		PRs:            prs,
+		Body:           body,
+		AllowDuplicate: allowDuplicate,
 	}, time.Now())
 	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
 		return writeErr
 	}
 	if err != nil {
-		return scanExit(err, cfg)
+		return commentExit(err, cfg)
 	}
 	return nil
+}
+
+func commentExit(err error, cfg config.Config) error {
+	if errors.Is(err, dispatch.ErrCorruptState) {
+		return &ExitError{Code: ExitUsage, Err: err}
+	}
+	if errors.Is(err, dispatch.ErrLock) {
+		return &ExitError{Code: ExitPrecondition, Err: err}
+	}
+	return scanExit(err, cfg)
 }
 
 func resolveCommentBody(body string, bodySet bool) (string, error) {
