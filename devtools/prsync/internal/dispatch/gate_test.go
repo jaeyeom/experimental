@@ -513,11 +513,7 @@ func (s *scriptHerdr) AgentList(context.Context) ([]herdr.Agent, error) {
 		if pane == "" {
 			pane = "w2:pC"
 		}
-		status := "idle"
-		if s.sincePrompt == 1 {
-			status = "working"
-		}
-		return []herdr.Agent{seqAgent(pane, "w2:tC", status, s.sincePrompt+1)}, nil
+		return []herdr.Agent{seqAgent(pane, "w2:tC", "idle", s.sincePrompt+1)}, nil
 	}
 	i := s.n
 	s.n++

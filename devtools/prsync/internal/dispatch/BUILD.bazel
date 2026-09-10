@@ -29,6 +29,7 @@ go_test(
         "gate_test.go",
         "log_test.go",
         "prompt_test.go",
+        "settle_test.go",
         "state_test.go",
     ],
     data = glob(["testdata/**"]),
