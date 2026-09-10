@@ -208,7 +208,8 @@ func ciFixRecorded(st State, key string) bool {
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never
 // polls, never emits queued, and never writes state. Live send polls the gate
 // one PR at a time (empty busy set must hold for settleDebouncePolls samples),
-// then blocks on herdr agent prompt --wait (and agent wait on leftover time).
+// then blocks on herdr agent prompt --wait, debounce-confirms idle/done, and
+// agent-waits leftover time if the tab resumes working.
 // It writes state on dispatched / dispatched_timeout, and returns ErrTimeout,
 // ErrSettleTimeout, or ErrFailed after emitting partial results. A gate
 // timeout emits gate_timeout for the current PR (naming the tab being
@@ -343,89 +344,112 @@ func recordDispatch(st State, c Candidate, req Request, now time.Time) {
 	}
 }
 
-func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, req Request, clock Clock, _ Sleeper) Item {
+func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, req Request, clock Clock, sleeper Sleeper) Item {
 	pr := *c.PR
 	pane := *pr.Tab.PaneID
 	rendered := RenderHint(promptTemplate(cfg, req), pr, cfg, req.Hint)
 	item := Item{Repo: c.Repo, Number: c.Number}
 	deadline := clock.Now().Add(cfg.DispatchTimeout)
 	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
-	return finishAgentOutcome(ctx, h, cfg, clock, item, pane, rendered, out, deadline)
+	return finishAgentOutcome(ctx, h, cfg, clock, sleeper, item, pane, rendered, out, deadline)
 }
 
-func finishAgentOutcome(ctx context.Context, h Herdr, cfg config.Config, clock Clock, item Item, pane, rendered string, out herdr.PromptOutcome, deadline time.Time) Item {
-	switch out.Status {
-	case herdr.PromptMatched:
-		return dispatchedFromAgent(ctx, item, pane, rendered, out.Agent)
-	case herdr.PromptStalled:
-		runlog.FromContext(ctx).Info("settle",
-			"pane_id", pane,
-			"decision", ActionDispatchedTimeout,
-			"reason", "herdr prompt stalled",
-		)
-		return timeoutItem(item, pane, rendered)
-	case herdr.PromptTimeout:
-		return continueAfterTimeout(ctx, h, cfg, clock, item, pane, rendered, deadline)
-	default:
-		item.Action = ActionFailed
-		if out.Err != nil {
-			item.Detail = out.Err.Error()
-		} else {
-			item.Detail = "herdr prompt failed"
+func finishAgentOutcome(ctx context.Context, h Herdr, cfg config.Config, clock Clock, sleeper Sleeper, item Item, pane, rendered string, out herdr.PromptOutcome, deadline time.Time) Item {
+	for {
+		switch out.Status {
+		case herdr.PromptStalled:
+			runlog.FromContext(ctx).Info("settle",
+				"pane_id", pane,
+				"decision", ActionDispatchedTimeout,
+				"reason", "herdr prompt stalled",
+			)
+			return timeoutItem(item, pane, rendered)
+		case herdr.PromptMatched, herdr.PromptTimeout:
+			snap, stable, err := confirmSettled(ctx, h, cfg, clock, sleeper, pane, deadline)
+			if err != nil {
+				item.Action = ActionFailed
+				item.Detail = err.Error()
+				return item
+			}
+			if stable {
+				return dispatchedFromAgent(ctx, item, pane, rendered, snap)
+			}
+			remaining := deadline.Sub(clock.Now())
+			if remaining <= 0 || !holdsTurn(snap.AgentStatus) {
+				runlog.FromContext(ctx).Info("settle",
+					"pane_id", pane,
+					"decision", ActionDispatchedTimeout,
+					"agent_status", snap.AgentStatus,
+					"reason", "settle not stable",
+				)
+				return timeoutItem(item, pane, rendered)
+			}
+			out = h.Wait(ctx, pane, cfg.WaitUntil, remaining)
+			if out.Status == herdr.PromptTimeout {
+				snap, stable, err = confirmSettled(ctx, h, cfg, clock, sleeper, pane, deadline)
+				if err != nil {
+					item.Action = ActionFailed
+					item.Detail = err.Error()
+					return item
+				}
+				if stable {
+					return dispatchedFromAgent(ctx, item, pane, rendered, snap)
+				}
+				runlog.FromContext(ctx).Info("settle",
+					"pane_id", pane,
+					"decision", ActionDispatchedTimeout,
+					"agent_status", snap.AgentStatus,
+					"reason", "herdr wait timeout",
+				)
+				return timeoutItem(item, pane, rendered)
+			}
+		default:
+			item.Action = ActionFailed
+			if out.Err != nil {
+				item.Detail = out.Err.Error()
+			} else {
+				item.Detail = "herdr prompt failed"
+			}
+			return item
 		}
-		return item
 	}
 }
 
-func continueAfterTimeout(ctx context.Context, h Herdr, cfg config.Config, clock Clock, item Item, pane, rendered string, deadline time.Time) Item {
-	snap, err := snapshotPane(ctx, h, pane)
-	if err != nil {
-		item.Action = ActionFailed
-		item.Detail = err.Error()
-		return item
-	}
-	if readyStatus(snap.AgentStatus) || (snap.AgentStatus == "blocked" && matchesUntil("blocked", cfg.WaitUntil)) {
-		return dispatchedFromAgent(ctx, item, pane, rendered, snap)
-	}
-	remaining := deadline.Sub(clock.Now())
-	if remaining <= 0 || !holdsTurn(snap.AgentStatus) {
-		runlog.FromContext(ctx).Info("settle",
-			"pane_id", pane,
-			"decision", ActionDispatchedTimeout,
-			"agent_status", snap.AgentStatus,
-			"reason", "herdr prompt timeout",
-		)
-		return timeoutItem(item, pane, rendered)
-	}
-	waitOut := h.Wait(ctx, pane, cfg.WaitUntil, remaining)
-	if waitOut.Status == herdr.PromptMatched {
-		return dispatchedFromAgent(ctx, item, pane, rendered, waitOut.Agent)
-	}
-	if waitOut.Status != herdr.PromptTimeout {
-		item.Action = ActionFailed
-		if waitOut.Err != nil {
-			item.Detail = waitOut.Err.Error()
-		} else {
-			item.Detail = "herdr wait failed"
+// confirmSettled polls agent list until a terminal status holds for
+// settleDebouncePolls samples. A single idle/done from herdr --wait is
+// not completion: idle between answering a blocked question and the
+// agent resuming is transient.
+func confirmSettled(ctx context.Context, h Herdr, cfg config.Config, clock Clock, sleeper Sleeper, pane string, deadline time.Time) (herdr.Agent, bool, error) {
+	held := 0
+	var last herdr.Agent
+	for {
+		snap, err := snapshotPane(ctx, h, pane)
+		if err != nil {
+			return herdr.Agent{}, false, err
 		}
-		return item
+		last = snap
+		if settleTerminal(snap.AgentStatus, cfg.WaitUntil) {
+			held++
+			if held >= settleDebouncePolls {
+				return snap, true, nil
+			}
+		} else {
+			return snap, false, nil
+		}
+		if deadline.Sub(clock.Now()) <= 0 {
+			return last, false, nil
+		}
+		if err := sleeper.Sleep(ctx, cfg.GatePoll); err != nil {
+			return last, false, fmt.Errorf("settle sleep: %w", err)
+		}
 	}
-	snap, err = snapshotPane(ctx, h, pane)
-	if err != nil {
-		item.Action = ActionFailed
-		item.Detail = err.Error()
-		return item
+}
+
+func settleTerminal(status string, until []string) bool {
+	if readyStatus(status) {
+		return true
 	}
-	if readyStatus(snap.AgentStatus) || (snap.AgentStatus == "blocked" && matchesUntil("blocked", cfg.WaitUntil)) {
-		return dispatchedFromAgent(ctx, item, pane, rendered, snap)
-	}
-	runlog.FromContext(ctx).Info("settle",
-		"pane_id", pane,
-		"decision", ActionDispatchedTimeout,
-		"agent_status", snap.AgentStatus,
-		"reason", "herdr wait timeout",
-	)
-	return timeoutItem(item, pane, rendered)
+	return status == "blocked" && matchesUntil("blocked", until)
 }
 
 func dispatchedFromAgent(ctx context.Context, item Item, pane, rendered string, agent herdr.Agent) Item {

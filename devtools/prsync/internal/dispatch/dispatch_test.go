@@ -261,8 +261,8 @@ func TestRunLivePromptMatchedIdleIsDispatched(t *testing.T) {
 	if h.waitN != 0 {
 		t.Fatalf("Wait calls = %d, want 0 (do not agent wait after a matched prompt)", h.waitN)
 	}
-	if h.sincePrompt != 0 {
-		t.Fatalf("post-prompt AgentList calls = %d, want 0 (no settle poll)", h.sincePrompt)
+	if h.sincePrompt != settleDebouncePolls {
+		t.Fatalf("post-prompt AgentList calls = %d, want %d (debounce terminal idle)", h.sincePrompt, settleDebouncePolls)
 	}
 }
 
@@ -287,8 +287,8 @@ func TestRunLivePromptTimeoutIdleIsDispatched(t *testing.T) {
 	if h.waitN != 0 {
 		t.Fatalf("Wait calls = %d, want 0 (do not agent wait from idle)", h.waitN)
 	}
-	if h.sincePrompt != 1 {
-		t.Fatalf("post-prompt AgentList calls = %d, want 1 (one timeout snapshot)", h.sincePrompt)
+	if h.sincePrompt != settleDebouncePolls {
+		t.Fatalf("post-prompt AgentList calls = %d, want %d (debounce terminal idle)", h.sincePrompt, settleDebouncePolls)
 	}
 }
 
@@ -297,9 +297,14 @@ func TestRunLivePromptTimeoutWorkingWaitsThenDispatched(t *testing.T) {
 
 	cfg, store := liveCfg(t)
 	h := &scriptHerdr{
-		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
-		postLists: [][]herdr.Agent{{workingAgent("w2:pC", "w2:tC")}},
-		prompts:   []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
+		lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
+		postLists: [][]herdr.Agent{
+			{workingAgent("w2:pC", "w2:tC")},
+			{idleAgent("w2:pC", "w2:tC")},
+			{idleAgent("w2:pC", "w2:tC")},
+			{idleAgent("w2:pC", "w2:tC")},
+		},
+		prompts: []herdr.PromptOutcome{{Status: herdr.PromptTimeout}},
 		waits: []herdr.PromptOutcome{{
 			Status: herdr.PromptMatched,
 			Agent:  herdr.Agent{PaneID: "w2:pC", AgentStatus: "idle"},
@@ -322,9 +327,6 @@ func TestRunLivePromptTimeoutWorkingWaitsThenDispatched(t *testing.T) {
 	}
 	if h.lastWaitTimeout <= 0 || h.lastWaitTimeout > cfg.DispatchTimeout {
 		t.Fatalf("wait timeout = %s, want remaining time within dispatch_timeout_ms", h.lastWaitTimeout)
-	}
-	if h.sincePrompt != 1 {
-		t.Fatalf("post-prompt AgentList calls = %d, want 1 (no poll loop)", h.sincePrompt)
 	}
 }
 

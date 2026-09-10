@@ -76,11 +76,12 @@
 # user answers a question in that tab). Live dispatch runs:
 # --wait --until idle --until done --timeout …
 # herdr prompt --wait has an activity gate (working/blocked within 5s,
-# else agent_prompt_stalled). A matched return is dispatched. prsync
-# does not poll agent list to detect settle. On herdr timeout, one
-# snapshot: idle/done is dispatched; working/blocked continues with
+# else agent_prompt_stalled). A matched return is not dispatched until
+# idle/done holds for several consecutive agent-list samples. A
+# transient idle after a blocked question is answered is not
+# completion; working/blocked continues with
 # `herdr agent wait --until idle --until done --timeout` using remaining
-# dispatch_timeout_ms. agent wait is never started from idle/done.
+# dispatch_timeout_ms.
 # Include `blocked` only if you want the per-send wait to return while
 # the agent is awaiting the user (dispatched_blocked; the batch stops,
 # but dedupe state is not written).
