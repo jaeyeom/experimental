@@ -324,3 +324,165 @@ func TestCommentNotFoundPR(t *testing.T) {
 		t.Fatalf("actions = %v", actions)
 	}
 }
+
+func TestCommentGoThenDeduped(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	sentinel := filepath.Join(t.TempDir(), "comment")
+	t.Setenv("GH_FAKE_COMMENT_SENTINEL", sentinel)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + statePath,
+	}, "\n")+"\n")
+
+	doc := stdinEligibleDoc()
+	doc.PRs[0].HeadSHA = "abc123def456"
+	raw := mustScanJSON(t, doc)
+
+	restore := swapStdin(t, string(raw))
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "/ci", "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("first --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if got.DryRun {
+		t.Fatal("dry_run = true, want false")
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("first results = %+v, want dispatched", got.Results)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("state_file missing after --go: %v", err)
+	}
+	if err := os.Remove(sentinel); err != nil {
+		t.Fatalf("remove sentinel: %v", err)
+	}
+
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "/ci", "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("second --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got = decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped", got.Results)
+	}
+	if _, err := os.Stat(sentinel); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("gh pr comment was invoked on deduped re-run")
+	}
+
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "/ci"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("dry-run exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got = decodeDispatch(t, stdout.Bytes())
+	if !got.DryRun {
+		t.Fatal("dry_run = false, want true")
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
+		t.Fatalf("dry-run results = %+v, want skipped_deduped", got.Results)
+	}
+}
+
+func TestCommentGoNewSHAPostsAgain(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	sentinel := filepath.Join(t.TempDir(), "comment")
+	t.Setenv("GH_FAKE_COMMENT_SENTINEL", sentinel)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + statePath,
+	}, "\n")+"\n")
+
+	doc := stdinEligibleDoc()
+	doc.PRs[0].HeadSHA = "abc123def456"
+	raw := mustScanJSON(t, doc)
+	restore := swapStdin(t, string(raw))
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "/ci", "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("first --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if err := os.Remove(sentinel); err != nil {
+		t.Fatalf("remove sentinel: %v", err)
+	}
+
+	doc.PRs[0].HeadSHA = "fff000aaa111"
+	raw = mustScanJSON(t, doc)
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "/ci", "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("changed SHA --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("changed SHA results = %+v, want dispatched", got.Results)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("gh pr comment was not invoked after SHA change: %v", err)
+	}
+}
+
+func TestCommentAllowDuplicatePostsAgain(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	sentinel := filepath.Join(t.TempDir(), "comment")
+	t.Setenv("GH_FAKE_COMMENT_SENTINEL", sentinel)
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + statePath,
+	}, "\n")+"\n")
+
+	doc := stdinEligibleDoc()
+	doc.PRs[0].HeadSHA = "abc123def456"
+	raw := mustScanJSON(t, doc)
+
+	restore := swapStdin(t, string(raw))
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "/ci", "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("first --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if err := os.Remove(sentinel); err != nil {
+		t.Fatalf("remove sentinel: %v", err)
+	}
+
+	restore = swapStdin(t, string(raw))
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"comment", "--stdin", "--config", cfgPath, "--body", "/ci", "--go", "--allow-duplicate"}, &stdout, &stderr, executor.NewBasicExecutor())
+	restore()
+	if code != ExitOK {
+		t.Fatalf("--allow-duplicate exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatched {
+		t.Fatalf("--allow-duplicate results = %+v, want dispatched", got.Results)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("gh pr comment was not invoked with --allow-duplicate: %v", err)
+	}
+}

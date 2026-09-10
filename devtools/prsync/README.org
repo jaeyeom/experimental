@@ -60,7 +60,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force]
 prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--force] [--stdin]
-prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] --body TEXT
+prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH]
 prsync logs     [--path]
 prsync version
@@ -84,6 +84,7 @@ prsync version
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
 | ~--stdin~ | dispatch, comment | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
 | ~--body TEXT~ | comment | Comment body to post (required) |
+| ~--allow-duplicate~ | comment | Post even if the same ~(repo, number, head_sha, body)~ was already recorded |
 | ~--path~ | logs | Print the run-log file path as JSON instead of dumping the file |
 
 ~--pr~ and ~--all~ together is an error (exit 2). ~--ci-fix~ and
@@ -483,12 +484,22 @@ no concurrency gate — this is a GitHub API call, so it works for
 off-machine PRs (a ~tab~ of ~null~ is not a skip). Dry-run by default.
 The body is caller-supplied (~--body~); the tool does not special-case
 any comment text. JSON matches the ~dispatch~ result shape:
-~would_dispatch~ / ~dispatched~ / ~skipped_not_found~, with the comment
-body in ~rendered_prompt~.
+~would_dispatch~ / ~dispatched~ / ~skipped_not_found~ /
+~skipped_deduped~, with the comment body in ~rendered_prompt~.
+
+Live send (~--go~) records ~state_file~ on ~dispatched~, keyed on
+~(repo, number, head_sha, body)~. A second live run against the same
+tuple is ~skipped_deduped~ (dry-run of a recorded tuple is also
+~skipped_deduped~). A new commit (new ~head_sha~) legitimately allows
+the same body again. ~--allow-duplicate~ posts anyway. Comment-command
+state does not clobber dispatch comment-id / rebase / CI-fix fields.
 
 #+BEGIN_SRC bash
 prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry"
 prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go
+# same head SHA + body: skipped_deduped
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go
+prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry" --go --allow-duplicate
 prsync comment --config ./prsync.config --all --body "please retry"
 #+END_SRC
 
