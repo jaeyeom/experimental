@@ -537,6 +537,9 @@ rules:
       - path: devtools/prsync/README.org
         section: "** dispatch"
         why: "herdr prompt injection and --rebase/--ci-fix/--go/--force"
+      - path: devtools/prsync/README.org
+        section: "** Live dispatch"
+        why: "gate wait, settle debounce, herdr --wait --until"
 
   - match: ["devtools/prsync/internal/comment/**", "devtools/prsync/internal/cli/comment.go"]
     docs:
@@ -549,6 +552,9 @@ rules:
       - path: devtools/prsync/README.org
         section: "** gate"
         why: "concurrency gate"
+      - path: devtools/prsync/README.org
+        section: "** Live dispatch"
+        why: "gate wait and blocked-as-busy"
 
   - match: ["devtools/prsync/internal/runlog/**", "devtools/prsync/internal/cli/log.go", "devtools/prsync/internal/cli/logs.go"]
     docs:

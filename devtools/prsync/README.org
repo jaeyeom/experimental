@@ -1,29 +1,35 @@
 #+TITLE: prsync
-#+DATE: 2026-08-17
+#+DATE: 2026-09-10
 
 * Overview
 
-~prsync~ surveys the author's open GitHub pull requests (including
-drafts), classifies which ones still need attention, matches each PR
-to a running
-[[https://herdr.dev/][herdr]] agent tab, and — on explicit request — sends
-that agent a prompt to address unresolved review comments — or, with
-~--rebase~, a rebase-in-place prompt even when there are no open comments —
-or, with ~--ci-fix~, a templated CI-fix prompt for a PR whose checks are
-red.
-It can also run the join in reverse (~tabs --orphans~) to flag live-agent
-tabs whose PR already merged, so their worktrees and gate slots can be
-reclaimed — and, with ~--close-merged --go~, close those merged-bucket
-tabs itself. ~comment~ posts a conversation-level PR comment through ~gh~
-with no herdr tab and no concurrency gate.
+~prsync~ is a JSON CLI that surveys *your* open GitHub PRs, matches each
+to a local [[https://herdr.dev/][herdr]] agent tab, and — when you ask — sends that agent a
+prompt or posts a GitHub comment.
 
-~scan~ and ~tabs --orphans~ are read-only on GitHub. ~comment~ writes a PR
-comment via ~gh~. ~dispatch~ is write-only on herdr (prompt injection).
-~tabs --orphans --close-merged --go~ is write-only on herdr (tab close).
-The tool shells out to the already-authenticated ~gh~ CLI and to herdr ≥
-0.8. It never embeds a GitHub token. Dispatch is serialized (one agent at
-a time) and dry-run by default; ~comment~ and ~tabs --close-merged~ are
-also dry-run by default. All commands emit JSON on stdout.
+| Command | What it does |
+|---------+--------------|
+| ~scan~ | List open PRs (including drafts), bucket which still need you, match each to a herdr tab |
+| ~dispatch~ | Send that tab a prompt: review comments (default), rebase (~--rebase~), or red CI (~--ci-fix~) |
+| ~comment~ | Post a conversation-level PR comment via ~gh~ (no herdr tab, no gate) |
+| ~tabs --orphans~ | Flag live-agent tabs whose PR already merged; ~--close-merged --go~ closes them |
+| ~gate~ | One-shot "is an agent busy?" |
+| ~logs~ / ~version~ | Dump the run log / print version |
+
+Dry-run by default (~--go~ actually sends or closes). Uses the
+already-authenticated ~gh~ CLI and herdr ≥ 0.8; never embeds a GitHub
+token. Dispatch is one agent at a time. All commands emit JSON on
+stdout.
+
+Typical loop:
+
+#+BEGIN_SRC bash
+prsync scan --config ./prsync.config
+prsync dispatch --config ./prsync.config          # review rendered_prompt
+prsync dispatch --config ./prsync.config --go     # send
+prsync tabs --orphans --close-merged --config ./prsync.config
+prsync tabs --orphans --close-merged --go --config ./prsync.config
+#+END_SRC
 
 Related tracker: [[https://github.com/jaeyeom/experimental/issues/211][#211]].
 
@@ -44,15 +50,16 @@ After ~go install~, put ~$GOPATH/bin~ / ~$GOBIN~ on ~PATH~.
 * Prerequisites
 
 - ~gh~ authenticated (~gh auth login~). ~prsync~ never calls ~gh auth token~.
-- herdr ≥ 0.8 on ~PATH~ for matching and dispatch. Missing herdr: ~scan~
-  degrades (tabs are unset); ~dispatch~ and ~gate~ exit 3; ~comment~ still
-  runs (it does not need a tab). Present but older than 0.8, or unparseable
-  ~herdr --version~: every command that would talk to herdr (including
-  ~scan~) exits 3. ~comment --stdin~ never talks to herdr.
+- herdr ≥ 0.8 on ~PATH~ for matching and dispatch:
+  - missing: ~scan~ degrades (tabs unset); ~dispatch~ and ~gate~ exit 3;
+    ~comment~ still runs
+  - present but older than 0.8, or unparseable ~herdr --version~: every
+    command that would talk to herdr (including ~scan~) exits 3
+  - ~comment --stdin~ never talks to herdr
 - Linux or macOS. No Windows requirement.
 
-Optional: copy [[file:prsync.config.example][prsync.config.example]] to
-~./prsync.config~ or =$HOME/.config/prsync/prsync.config= and edit.
+Optional: copy [[file:prsync.config.example][prsync.config.example]] to ~./prsync.config~ or
+=$HOME/.config/prsync/prsync.config= and edit.
 
 * Commands
 
@@ -68,38 +75,35 @@ prsync version
 
 | Flag | Commands | Effect |
 |------+----------+--------|
-| ~--log-level LEVEL~ | all except ~logs~ | ~debug~ / ~info~ / ~warn~ / ~error~. Default ~info~. Also ~PRSYNC_LOG~. Writes JSONL under =$XDG_STATE_HOME/prsync/=; stdout is unchanged |
+| ~--log-level LEVEL~ | all except ~logs~ | ~debug~ / ~info~ / ~warn~ / ~error~. Default ~info~. Also ~PRSYNC_LOG~. JSONL under =$XDG_STATE_HOME/prsync/=; stdout is unchanged |
 | ~--config PATH~ | scan, tabs, dispatch, comment, gate | Use this file (must exist) |
 | ~--repo owner/repo~ | scan | Repeatable; replaces ~repos~ entirely |
 | ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
 | ~--orphans~ | tabs | Required; report live-agent tabs with no open/draft PR |
 | ~--close-merged~ | tabs | Close ~merged~-bucket orphan tabs (default is dry-run) |
-| ~--stdin~ | tabs | Reuse open-PR↔tab matches from a scan document on stdin (else self-resolve) |
 | ~--pr owner/repo#N~ | dispatch, comment | Repeatable; limit candidates |
 | ~--all~ | dispatch, comment | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch, comment, tabs | Live send / close (default is dry-run) |
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
 | ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
-| ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it against live state |
+| ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it |
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
-| ~--stdin~ | dispatch, comment | Read a scan document from stdin (FIFO or regular file). Default is self-scan. |
+| ~--stdin~ | tabs, dispatch, comment | Read a scan document from a pipe or redirected file. Default is self-scan (tabs: self-resolve) |
 | ~--body TEXT~ | comment | Comment body to post (required) |
 | ~--allow-duplicate~ | comment | Post even if the same ~(repo, number, head_sha, body)~ was already recorded |
 | ~--path~ | logs | Print the run-log file path as JSON instead of dumping the file |
 
-~--pr~ and ~--all~ together is an error (exit 2). ~--ci-fix~ and
-~--rebase~ together is an error (exit 2). ~--hint~ without ~--ci-fix~
-is an error (exit 2). ~--go~ on ~tabs~
-requires ~--close-merged~ (exit 2 otherwise). ~--go~ always sends (or,
-with ~--close-merged~, closes). ~dry_run=false~ in the config also
-sends / closes without ~--go~ (for cron); ~tabs~ still needs
-~--close-merged~ to close anything.
+Usage errors (exit 2): ~--pr~ with ~--all~; ~--ci-fix~ with ~--rebase~;
+~--hint~ without ~--ci-fix~; ~--go~ on ~tabs~ without ~--close-merged~.
 
-~dispatch~ and ~comment~ read a scan document from stdin only when
-~--stdin~ is set and stdin is a FIFO or regular file (a pipe or
-redirected file). Sockets, TTYs, and other non-file stdin are ignored so
-they cannot hang on a blocking peek. Decode errors are fatal. Without
-~--stdin~, they always self-scan.
+~--go~ always sends (or, with ~--close-merged~, closes). ~dry_run=false~
+in the config also sends / closes without ~--go~ (for cron); ~tabs~
+still needs ~--close-merged~ to close anything.
+
+~--stdin~ reads a scan document only from a FIFO or regular file (a
+pipe or redirected file). Sockets, TTYs, and other non-file stdin are
+ignored so they cannot hang. Decode errors are fatal. Without
+~--stdin~, ~dispatch~ / ~comment~ always self-scan.
 
 #+BEGIN_SRC bash
 prsync scan --config ./prsync.config | prsync dispatch --stdin --config ./prsync.config
@@ -117,13 +121,14 @@ Search order (first existing file wins):
 If none exist, built-in defaults are used. That is not an error.
 
 The file is ~KEY=VALUE~, one assignment per line. Blank lines and ~#~
-comment lines are ignored. Inline comments (~key=value # comment~) are not
-supported. Unknown keys are ignored. The parser does not ~source~ the file.
+comment lines are ignored. Inline comments (~key=value # comment~) are
+not supported. Unknown keys are ignored. The parser does not ~source~
+the file.
 
-~*_ms~ keys are integers in milliseconds (~2000~ is 2s, not 2µs). ~true~ /
-~false~ / ~1~ / ~0~ are accepted for booleans. ~state_file~, ~gh_bin~,
-~herdr_bin~, and ~@/path~ prompt files expand a leading tilde. Environment
-variables are not expanded.
+~*_ms~ keys are integers in milliseconds (~2000~ is 2s, not 2µs).
+~true~ / ~false~ / ~1~ / ~0~ are accepted for booleans. ~state_file~,
+~gh_bin~, ~herdr_bin~, and ~@/path~ prompt files expand a leading tilde.
+Environment variables are not expanded.
 
 ** Keys
 
@@ -135,62 +140,59 @@ variables are not expanded.
 | ~tab_label_template~ | ~{id}~ | Herdr tab label after substituting ~{id}~. Exact, case-sensitive. |
 | ~herdr_bin~ | ~herdr~ | herdr executable. |
 | ~gh_bin~ | ~gh~ | gh executable. |
-| ~concurrency_wait_on~ | ~any~ | ~any~ (every working or blocked agent) or ~managed~ (tabs matched in this scan). ~managed~ runs a scan. Live ~Wait~ still requires the empty busy set to hold for several consecutive polls. ~blocked~ is waited on like ~working~ (one agent at a time until the human answers). A change in the waited-on tab is logged and printed on stderr. |
-| ~gate_poll_ms~ | ~2000~ | Poll interval (milliseconds) for the concurrency gate and for post-send settle debounce. |
-| ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4), whether the busy tab is ~working~ or ~blocked~. |
-| ~dispatch_timeout_ms~ | ~1800000~ | Bound for ~herdr agent prompt --wait --timeout~ (and leftover time on ~herdr agent wait --timeout~). ~agent_prompt_stalled~ or a wait that expires while the tab is still ~working~/~blocked~ is ~dispatched_timeout~ (exit 4). |
-| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. ~{identifier}~, ~{number}~, ~{title}~, ~{repo}~, ~{url}~, ~{head}~, ~{base}~, ~{comments}~ are substituted. Unknown placeholders are left literal. Default: check out ~{head}~ (via ~gh pr checkout {number}~ if needed), bring it up to date with ~origin/{base}~, then apply mechanical / unambiguous fixes; for a design decision, tradeoff, or disagreement, pause and ask the user (with a recommended option) before editing / resolving / pushing. After the addressed threads are pushed, re-request each human reviewer whose listed comments are all done (~gh pr edit {number} --add-reviewer <login>~). Skip bots, skip already-pending reviewers, and do not dismiss reviews. |
-| ~rebase_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~. Used only with ~dispatch --rebase~. Default: check out ~{head}~, fetch, rebase onto ~origin/{base}~, resolve conflicts, ~--force-with-lease~, no new worktree. |
-| ~ci_fix_prompt_template~ | built-in | Same substitution as ~dispatch_prompt_template~, plus ~{hint}~. Used only with ~dispatch --ci-fix~. Default: the same branch-switch preamble as the comment template, then reproduce the failing check, triage flake vs real vs judgment-call, verify locally before pushing, and stay scoped to this PR. ~{hint}~ is a non-authoritative starting point (empty → investigate from scratch). |
-| ~dispatch_include_drafts~ | ~false~ | ~true~ / ~false~ / ~1~ / ~0~. When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts. |
-| ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens. Passed as ~herdr agent prompt --until~ (and ~herdr agent wait --until~) flags, then required to hold for several consecutive ~agent list~ samples. At least one token required. |
+| ~concurrency_wait_on~ | ~any~ | ~any~ = every working or blocked agent; ~managed~ = tabs matched in this scan (~managed~ runs a scan). |
+| ~gate_poll_ms~ | ~2000~ | Poll interval for the concurrency gate and post-send settle. |
+| ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4). |
+| ~dispatch_timeout_ms~ | ~1800000~ | Bound for ~herdr agent prompt --wait~ (and leftover ~herdr agent wait~). Still ~working~/~blocked~ → ~dispatched_timeout~ (exit 4). |
+| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~ ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{comments}~. Unknown placeholders are left literal. |
+| ~rebase_prompt_template~ | built-in | Same substitution. Used only with ~dispatch --rebase~. |
+| ~ci_fix_prompt_template~ | built-in | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~. |
+| ~dispatch_include_drafts~ | ~false~ | When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts. |
+| ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens, passed as ~herdr agent prompt --until~. At least one required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
-| ~dry_run~ | ~true~ | ~true~ / ~false~ / ~1~ / ~0~. ~--go~ overrides to live. |
-| ~comment_link_max_chars~ | ~500~ | Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~ disables. Vendor-neutral: length only, not host. |
+| ~dry_run~ | ~true~ | ~--go~ overrides to live. |
+| ~comment_link_max_chars~ | ~500~ | Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~ disables. Length only, not host. |
 | ~comment_body_max_chars~ | ~4000~ | Cap each comment body after link stripping. Appends ~… [truncated, see <thread url>]~. ~0~ disables. |
 
-~dispatch_wait_until=idle done~ (the default) waits until the agent
-truly finishes — including after the user answers a question in that
-tab. Live dispatch runs:
+Default prompt text (checkout ~{head}~, mechanical vs judgment-call
+triage, re-request reviewers, rebase / CI-fix wording) is commented in
+[[file:prsync.config.example][prsync.config.example]].
 
-#+BEGIN_EXAMPLE
-herdr agent prompt <pane_id> <prompt> --wait --until idle --until done --timeout …
-#+END_EXAMPLE
+** Live dispatch
 
-~herdr agent prompt --wait~ has its own activity gate: from a
-non-~working~ pane it must observe ~working~ or ~blocked~ within five
-seconds (~agent_prompt_stalled~ otherwise). Unrelated pre-send
-~idle~/~done~ does not complete the wait. A matched herdr return is
-not ~dispatched~ by itself: ~prsync~ then debounce-polls ~agent list~
-until ~idle~/~done~ holds for several consecutive samples. A transient
-~idle~ between answering a ~blocked~ question and the agent resuming
-~working~ is not completion. If the status is still ~working~ or
-~blocked~, it continues with ~herdr agent wait --until idle --until
-done --timeout~ using remaining ~dispatch_timeout_ms~. ~agent wait~ is
-never started from a *stable* ~idle~/~done~.
+~dispatch --go~ does three things, one PR at a time:
 
-The live concurrency gate still debounce-polls ~agent list~ before
-inject so overlapping dispatches do not start a second agent. A single
-non-~working~ sample is not safe. A ~blocked~ tab (awaiting the user) is
-waited on like ~working~: the next dispatch does not inject until that
-tab clears, or ~gate_timeout_ms~ elapses. While waiting, stderr (and the
-run log) names the tab, e.g. ~waiting on w2:tC — blocked awaiting your
-input~. A timeout is ~gate_timeout~ for the current PR (detail names the
-tab) and ~queued~ for the rest, instead of hanging until an outer reaper
-kills the process.
+1. *Gate* — wait until no waited-on agent is ~working~ or ~blocked~.
+   A single idle sample is not enough (startup / mid-run flap still
+   counts as busy). A ~blocked~ tab (awaiting you) is waited on like
+   ~working~; stderr names it, e.g. ~waiting on w2:tC — blocked
+   awaiting your input~. If it still holds at ~gate_timeout_ms~, the
+   current PR is ~gate_timeout~ and the rest are ~queued~ (exit 4, no
+   prompt, no state write).
+2. *Send* — ~herdr agent prompt <pane_id> <prompt> --wait --until idle
+   --until done --timeout …~ (tokens from ~dispatch_wait_until~). From
+   a non-~working~ pane, herdr must observe ~working~ or ~blocked~
+   within five seconds (~agent_prompt_stalled~ otherwise). Pre-send
+   ~idle~/~done~ does not complete the wait.
+3. *Settle* — debounce-poll ~agent list~ until ~idle~/~done~ holds for
+   several consecutive samples. A transient ~idle~ after you answer a
+   ~blocked~ question is not completion. If the tab is still
+   ~working~/~blocked~, continue with ~herdr agent wait~ using remaining
+   ~dispatch_timeout_ms~. ~agent wait~ is never started from a *stable*
+   ~idle~/~done~.
 
-If the agent never picks up the prompt (~agent_prompt_stalled~), or a
-wait expires while the tab is still ~working~/~blocked~, the result is
-~dispatched_timeout~ (exit 4, with a timeout message on stderr; state is
-written so it is not retried blindly). A ~blocked~ settlement (~dispatched_blocked~)
-happens only when ~blocked~ is included in ~dispatch_wait_until~ *and*
-that status holds for the settle debounce: the batch stops, but
-dedupe state is not written, so a re-run can retry the same comment.
-Set ~dispatch_wait_until=idle~ only if you want to wait until herdr
-reports ~idle~ (can take about 30 minutes if the agent settles to
+If the agent never picks up the prompt, or a wait expires while the tab
+is still ~working~/~blocked~, the result is ~dispatched_timeout~ (exit
+4; state is written so it is not retried blindly).
+~dispatched_blocked~ happens only when ~blocked~ is in
+~dispatch_wait_until~ *and* that status holds for the settle debounce:
+the batch stops, but dedupe state is not written, so a re-run can
+retry. Set ~dispatch_wait_until=idle~ only if you want to wait until
+herdr reports ~idle~ (can take ~30 minutes if the agent settles to
 ~done~ instead).
 
-See [[file:prsync.config.example][prsync.config.example]] for a commented copy of every key.
+~prsync gate~ is the same busy-set check without debounce — a snapshot,
+not the wait ~dispatch --go~ uses.
 
 * Worked examples
 
@@ -214,9 +216,7 @@ prsync scan --config ./prsync.config
 {
   "generated_at": "2026-01-01T09:00:00Z",
   "author": "alice",
-  "repos": [
-    "acme/widgets"
-  ],
+  "repos": ["acme/widgets"],
   "prs": [
     {
       "repo": "acme/widgets",
@@ -230,10 +230,7 @@ prsync scan --config ./prsync.config
       "merge_state_status": "CLEAN",
       "is_draft": false,
       "review_decision": "APPROVED",
-      "review_requests": [
-        "User:reviewer-login",
-        "Team:platform-reviewers"
-      ],
+      "review_requests": ["User:reviewer-login", "Team:platform-reviewers"],
       "ci_state": "green",
       "bucket": "needs_you",
       "unaddressed": true,
@@ -269,44 +266,30 @@ prsync scan --config ./prsync.config
 }
 #+END_SRC
 
-Draft PRs are included with ~is_draft: true~ (bucket ~draft~ unless they
-also need attention). ~dispatch~ skips them unless ~dispatch_include_drafts~
-is true. ~bucket~ is ~needs_you~ | ~ready~ | ~waiting~ | ~draft~. ~APPROVED~ with
-leftover ~review_requests~ is ~needs_you~, not ready to merge. ~tab~ is
-~null~ when no unique herdr tab matches. ~summary~ is a derived rollup of
-~prs~ (~total~, ~tab_here~, ~off_machine~, ~no_identifier~, ~drafts~) so a
-consumer can cross-check a "nothing is local" conclusion against
-~summary.tab_here~.
+| Field | Meaning |
+|-------+---------|
+| ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
+| ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
+| ~tab~ | ~null~ when no unique herdr tab matches |
+| ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~ |
 
 ** tabs --orphans
 
-The inverse of ~scan~'s PR→tab join: walk *this machine's* herdr tabs and
-flag the ones that still have a *live agent* (~agent_status~ ∈
-~working~ / ~idle~ / ~blocked~ — an agent session actually exists) but no
-open or draft PR. These are almost always tabs whose PR already merged (or
-was abandoned): the agent is done and the tab, its worktree, and its slot
-against the concurrency gate can be reclaimed.
+Inverse of ~scan~: walk *this machine's* herdr tabs and flag those with
+a live agent (~working~ / ~idle~ / ~blocked~) but no open or draft PR.
+Usually the PR already merged — the tab, worktree, and gate slot can
+be reclaimed.
 
-For live-agent tabs whose labels yield tickets via ~title_id_pattern~,
-~prsync~ resolves those tickets to the author's PRs (across all states) in
-one batched ~gh search prs~ — tokens passed as separate argv so ~gh~ does
-not phrase-quote the ~OR~ group, chunked if GitHub's five-OR /
-256-character query limits require it — and buckets each tab:
+Tabs whose labels yield tickets via ~title_id_pattern~ are resolved to
+the author's PRs (any state) and bucketed:
 
-- ~merged~ — the ticket's PR is merged (or closed) → *safe to close*;
-  ~pr~ carries the number, repo, ~state~, and ~merged_at~ (null for a
-  closed-but-unmerged PR).
-- ~no_pr~ — search ran and found nothing for this ticket, and the agent
-  is ~idle~ or ~blocked~ → *verify before closing* (may be unpushed
-  local WIP). A ~working~ agent with no PR is in-progress work, not an
-  orphan, and is omitted.
-- ~unknown~ — a multi-ticket search chunk returned no matching PRs for
-  *any* ticket in the chunk. That is treated as a broken or throttled
-  sweep, not as N genuine ~no_pr~ tabs; a ~warnings~ entry is emitted.
-  ~working~ agents are still surfaced (we could not tell).
+| Bucket | Meaning |
+|--------+---------|
+| ~merged~ | Ticket's PR is merged or closed → *safe to close*. ~pr~ has number, repo, ~state~, ~merged_at~ (null if closed but unmerged) |
+| ~no_pr~ | Search found nothing, agent is ~idle~ or ~blocked~ → *verify* (may be unpushed WIP). A ~working~ agent with no PR is omitted, not an orphan |
+| ~unknown~ | A search chunk matched *no* ticket (broken or throttled sweep, not N genuine ~no_pr~). A ~warnings~ entry is emitted; ~working~ agents are still surfaced |
 
-Tabs with an open/draft PR are not orphans and are omitted. Agent-less
-scratch tabs and unparseable / non-ticket labels are skipped.
+Skipped: tabs with an open/draft PR, agent-less scratch tabs, unparseable / non-ticket labels.
 
 #+BEGIN_SRC bash
 prsync tabs --orphans --config ./prsync.config
@@ -346,17 +329,12 @@ prsync tabs --orphans --config ./prsync.config
 }
 #+END_SRC
 
-~--close-merged~ closes only the ~merged~ bucket, driven by ~prsync~'s
-own classification rather than a hand-copied ~tab_id~. Dry-run by
-default (same as ~dispatch~ / ~comment~); ~--go~ actually closes.
-~no_pr~ and ~unknown~ tabs are never touched — they may hold unpushed
-work, or the search may have failed. If every orphan is ~no_pr~, or any
-orphan is ~unknown~, ~--close-merged~ refuses (exit 3) rather than
-reporting a silent "nothing to close"; pass ~--force~ to override. At
-close time each candidate is re-verified (its PR is still merged or
-closed) so a race cannot close a tab that grew a new open PR. The
-report and the close both see only the local herdr socket, so a ticket
-whose tab lives on another machine is never mislabeled or closed here.
+~--close-merged~ closes only the ~merged~ bucket (dry-run by default;
+~--go~ actually closes). ~no_pr~ and ~unknown~ are never touched. If
+every orphan is ~no_pr~, or any is ~unknown~, the close refuses
+(exit 3) instead of a silent "nothing to close"; ~--force~ overrides.
+Each candidate is re-verified at close time so a race cannot close a
+tab that grew a new open PR. Only the local herdr socket is visible.
 
 #+BEGIN_SRC bash
 prsync tabs --orphans --close-merged --config ./prsync.config
@@ -387,23 +365,23 @@ prsync tabs --orphans --close-merged --go --config ./prsync.config
 #+END_SRC
 
 Live ~action~ values: ~closed~, ~skipped_not_merged~,
-~skipped_not_found~. Dry-run emits ~would_close~ for each merged-bucket
-tab it would close.
+~skipped_not_found~. Dry-run emits ~would_close~.
 
-Piping a ~scan~ document in with ~--stdin~ reuses its open-PR↔tab matches,
-so tabs that already have an open PR are skipped without a ~gh search~:
+Pipe a ~scan~ document with ~--stdin~ to reuse its open-PR↔tab matches
+(tabs that already have an open PR are skipped without a ~gh search~):
 
 #+BEGIN_SRC bash
 prsync scan --config ./prsync.config | prsync tabs --orphans --stdin --config ./prsync.config
 #+END_SRC
 
-Missing / unreachable / too-old herdr is a precondition failure (exit 3),
-since tabs are the whole input — unlike ~scan~, which degrades.
+Missing / unreachable / too-old herdr is a precondition failure
+(exit 3), since tabs are the whole input — unlike ~scan~, which
+degrades.
 
 ** dispatch
 
-Dry-run (default). Review ~rendered_prompt~ and confirm ~pane_id~ is a pane
-(~w2:pC~), not a tab id (~w2:tC~):
+Dry-run (default). Review ~rendered_prompt~ and confirm ~pane_id~ is a
+pane (~w2:pC~), not a tab id (~w2:tC~):
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config
@@ -420,91 +398,51 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
       "number": 123,
       "action": "would_dispatch",
       "pane_id": "w2:pC",
-      "rendered_prompt": "Get onto this PR's branch before editing:\n1. If the working tree has uncommitted changes, stash or commit them first.\n2. Check out fix-widget (if absent locally, run `gh pr checkout 123`).\n3. Fetch origin and bring fix-widget up to date with origin/main as needed.\nDo not start editing until you are on fix-widget at its latest tip.\n\nAddress the unresolved review comments on PR #123 (https://github.com/acme/widgets/pull/123).\n\nUnaddressed threads:\n- src/widget.go:42 — reviewer-login: This should handle the nil case. (https://github.com/acme/widgets/pull/123#discussion_r1)\n\nTriage each thread before acting:\n- Mechanical / unambiguous (typo, nil check, rename, obvious bug): make the\n  change, resolve the thread, and continue.\n- Design decision, tradeoff, or disagreement: pause and ask the user how to\n  proceed, with a recommended option. Do not edit, resolve, or push for that\n  thread until they answer.\n\nPush after the mechanical threads are done (and after the user answers any\nquestions).\n\nAfter those threads are handled and pushed, re-request each human reviewer\nwhose listed comments are all addressed:\n  gh pr edit 123 --add-reviewer <login>\nSkip bots and anyone already pending. Do not dismiss reviews. Do not\nre-request a reviewer who still has unanswered threads.\n\nDo not touch other PRs."
+      "rendered_prompt": "Get onto this PR's branch before editing: ... Address the unresolved review comments on PR #123 ..."
     }
   ]
 }
 #+END_SRC
 
-Live send (writes ~state_file~ on ~dispatched~ / ~dispatched_timeout~).
-~--go~ waits for a debounced empty busy set, then sends one PR at a time.
-~dispatched~ is a terminal ~idle~/~done~ that holds for several consecutive
-~agent list~ samples after herdr ~--wait~ returns — not a single ~idle~
-from herdr (that can be the pause after a ~blocked~ question is answered).
-~dispatched_timeout~ is exit 4. A ~working~ or ~blocked~ tab holding the
-gate is waited on (stderr names the tab). If it still holds at
-~gate_timeout_ms~, the current PR is ~gate_timeout~ (stderr and ~detail~
-name the tab) and the rest are ~queued~ (exit 4, no prompt sent, no
-state write).
-
-#+BEGIN_SRC bash
-prsync dispatch --config ./prsync.config --go
-#+END_SRC
-
+Live send (~--go~) writes ~state_file~ on ~dispatched~ /
+~dispatched_timeout~. Gate / serial / wait: [[*Live dispatch][Live dispatch]].
 A second live run against the same unaddressed comment ids is
+~skipped_deduped~. The prompt always goes to the PR's existing herdr
+tab (no new worktree).
+
+| Mode | Flag | Done when | Notes |
+|------+------+-----------+-------|
+| comments (default) | (none) | listed threads addressed | Dedupe on unaddressed comment ids |
+| rebase | ~--rebase~ | not ~BEHIND~ or ~DIRTY~ | Same ~head_sha~ does not block retry of a failed rebase. ~--all~ sends to every PR with a ready tab (auto-picking behind PRs is a follow-up). Missing ~merge_state_status~ in a scan document keeps head-SHA dedupe |
+| CI-fix | ~--ci-fix~ | ~ci_state~ no longer ~failing~ | Same ~head_sha~ does not block retry of a still-red check. ~--hint~ is a starting point the agent must verify; omit it to investigate from scratch. Caller chooses ~--ci-fix~ — ~prsync~ does not triage. Missing ~ci_state~ keeps head-SHA dedupe |
+
+Cannot combine ~--rebase~ and ~--ci-fix~; rebase first, then CI-fix. If
+you also re-trigger CI, do that last (a new commit invalidates it).
+~--force~ re-dispatches even when dedupe would skip. A completed
+rebase or CI-fix (satisfied, with a recorded dispatch) is
 ~skipped_deduped~.
 
-Rebase mode (a PR that only needs a rebase, including
-~skipped_addressed~ in comment mode). A rebase dispatch is satisfied
-only when the PR is no longer ~BEHIND~ or ~DIRTY~
-(~merge_state_status~). The same ~head_sha~ does not block a retry of a
-failed or ignored rebase. A completed rebase (up to date, with a
-recorded dispatch) is ~skipped_deduped~. ~--force~ re-dispatches anyway.
-
 #+BEGIN_SRC bash
-prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123
 prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
-prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go --force
-#+END_SRC
-
-The prompt is sent to the PR's existing herdr tab (no new worktree).
-Gate / serial / wait are unchanged. ~--rebase --all~ sends the rebase
-prompt to every PR that has a ready tab; auto-picking behind/conflicting
-PRs is a follow-up. Scan documents without ~merge_state_status~ keep
-head-SHA dedupe (use ~--force~ to retry a stuck entry).
-
-CI-fix mode (a PR whose checks are red, including
-~skipped_addressed~ in comment mode). A CI-fix dispatch is satisfied
-only when CI is no longer ~failing~ (~ci_state~). The same ~head_sha~
-does not block a retry of a still-red check. A completed CI-fix (not
-failing, with a recorded dispatch) is ~skipped_deduped~. ~--force~
-re-dispatches anyway. ~--hint~ is a starting point the agent must
-verify against live CI; omit it to investigate from scratch.
-~prsync~ does not decide whether a failure is worth fixing — the
-caller chooses ~--ci-fix~, and the templated prompt is where triage
-lives.
-
-#+BEGIN_SRC bash
-prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123
 prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 \
   --hint 'job X failed at step/target Y; key error: boom; looks real (not flake)'
-prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 --go
 prsync dispatch --config ./prsync.config --ci-fix --pr acme/widgets#123 --go --force
 #+END_SRC
 
-The prompt is sent to the PR's existing herdr tab. Gate / serial / wait
-are unchanged. ~--ci-fix~ and ~--rebase~ cannot be combined; rebase
-first, then CI-fix. A caller that both rebases/comments *and*
-re-triggers CI on a PR must still sequence the CI re-trigger last,
-since a new commit invalidates it. Scan documents without ~ci_state~
-keep head-SHA dedupe (use ~--force~ to retry a stuck entry).
-
 ** comment
 
-Posts a PR comment through ~gh pr comment~. No herdr tab, no agent, and
-no concurrency gate — this is a GitHub API call, so it works for
-off-machine PRs (a ~tab~ of ~null~ is not a skip). Dry-run by default.
-The body is caller-supplied (~--body~); the tool does not special-case
-any comment text. JSON matches the ~dispatch~ result shape:
-~would_dispatch~ / ~dispatched~ / ~skipped_not_found~ /
-~skipped_deduped~, with the comment body in ~rendered_prompt~.
+Posts a PR comment through ~gh pr comment~. No herdr tab, no agent, no
+gate — a ~tab~ of ~null~ is not a skip, so this works for off-machine
+PRs. Dry-run by default. ~--body~ is posted as-is. JSON matches the
+~dispatch~ result shape (~would_dispatch~ / ~dispatched~ /
+~skipped_not_found~ / ~skipped_deduped~), with the body in
+~rendered_prompt~.
 
 Live send (~--go~) records ~state_file~ on ~dispatched~, keyed on
-~(repo, number, head_sha, body)~. A second live run against the same
-tuple is ~skipped_deduped~ (dry-run of a recorded tuple is also
-~skipped_deduped~). A new commit (new ~head_sha~) legitimately allows
-the same body again. ~--allow-duplicate~ posts anyway. Comment-command
-state does not clobber dispatch comment-id / rebase / CI-fix fields.
+~(repo, number, head_sha, body)~. The same tuple is ~skipped_deduped~
+(including dry-run). A new ~head_sha~ allows the same body again.
+~--allow-duplicate~ posts anyway. Comment state does not clobber
+dispatch comment-id / rebase / CI-fix fields.
 
 #+BEGIN_SRC bash
 prsync comment --config ./prsync.config --pr acme/widgets#123 --body "please retry"
@@ -532,10 +470,8 @@ prsync comment --config ./prsync.config --all --body "please retry"
 
 ** gate
 
-One-shot busy-set check (no debounce). Live ~dispatch --go~ uses
-~Wait~, which requires the empty busy set to hold for several
-consecutive polls so a flap ~idle~ is still busy. ~blocked~ is waited
-on like ~working~ until the tab clears or ~gate_timeout_ms~.
+One-shot busy-set check (no debounce). ~dispatch --go~ uses the
+debounced wait described under [[*Live dispatch][Live dispatch]].
 
 #+BEGIN_SRC bash
 prsync gate --config ./prsync.config
@@ -567,23 +503,22 @@ Unsafe (exit 1) when a working or blocked agent is in the busy set.
 }
 #+END_SRC
 
-Self-exclusion uses ~HERDR_PANE_ID~ only. If that env var is empty, ~gate~
-does not call ~herdr pane current~ (that would drop the focused pane under
-cron).
+Self-exclusion uses ~HERDR_PANE_ID~ only. If that env var is empty,
+~gate~ does not call ~herdr pane current~ (that would drop the focused
+pane under cron).
 
 ** logs
 
-Each run (except ~logs~ itself) appends structured JSON lines to
+Each run (except ~logs~ itself) appends JSON lines to
 =$XDG_STATE_HOME/prsync/prsync.jsonl= (or
-=~/.local/state/prsync/prsync.jsonl= when ~XDG_STATE_HOME~ is unset).
-The file rotates by size (~10 MiB~) and age (~14 days~), keeping a few
-numbered backups so it cannot grow unbounded. Default level is ~info~ to
-the file; stdout JSON is unchanged. ~--log-level~ overrides ~PRSYNC_LOG~.
+=~/.local/state/prsync/prsync.jsonl=). Rotates by size (~10 MiB~) and
+age (~14 days~). Default level ~info~; stdout JSON is unchanged.
+~--log-level~ overrides ~PRSYNC_LOG~.
 
 A dispatch line of investigation includes the target pane, send, each
-~agent_status~ transition, gate wait start/end, the settle decision, the
-dedupe / skip outcome, and the process exit. Startup records the resolved
-config path and ~concurrency_wait_on~.
+~agent_status~ transition, gate wait, settle decision, skip/dedupe
+outcome, and process exit. Startup records the resolved config path
+and ~concurrency_wait_on~.
 
 #+BEGIN_SRC bash
 prsync logs --path
@@ -595,57 +530,43 @@ prsync logs
 
 * Manual smoke test
 
-Against a real herdr ≥ 0.8 and an authenticated ~gh~:
+Against a real herdr ≥ 0.8 and an authenticated ~gh~, run the typical
+loop from the overview plus:
 
 #+BEGIN_SRC bash
-prsync scan --config ./prsync.config
-prsync dispatch --config ./prsync.config          # review rendered_prompt
-prsync dispatch --config ./prsync.config --go     # pane_id + --wait --until idle --until done
-prsync dispatch --config ./prsync.config --ci-fix # review CI-fix rendered_prompt
-prsync comment --config ./prsync.config --body "please retry"      # review rendered_prompt
+prsync dispatch --config ./prsync.config --ci-fix
+prsync comment --config ./prsync.config --body "please retry"
 prsync comment --config ./prsync.config --body "please retry" --go
-prsync tabs --orphans --close-merged --config ./prsync.config      # review would_close
-prsync tabs --orphans --close-merged --go --config ./prsync.config
 prsync gate --config ./prsync.config
 prsync logs --path
 prsync logs
 #+END_SRC
 
-Confirm:
-
-- ~agent prompt~ targets a ~pane_id~ (~w2:pC~, not a tab id).
-- Default wait is ~--wait --until idle --until done~ (from
-  ~dispatch_wait_until~).
-- ~--wait --until idle --until done~ is the herdr send. ~prsync~ then
-  debounce-polls ~agent list~ so a transient ~idle~ after a ~blocked~
-  question is answered is not completion. Still ~working~/~blocked~
-  continues with ~herdr agent wait --timeout~ using remaining
-  ~dispatch_timeout_ms~. The live gate still debounce-polls before
-  inject so a flap idle is busy. A blocked tab holding the gate is
-  waited on (stderr names it); a timeout is ~gate_timeout~ (exit 4).
-
-This procedure is README-only; CI uses fixture binaries, not live herdr.
+Confirm ~agent prompt~ targets a ~pane_id~ (~w2:pC~, not a tab id) and
+the default wait is ~--wait --until idle --until done~. README-only;
+CI uses fixture binaries, not live herdr.
 
 * Security
 
-- ~prsync~ never calls ~gh auth token~ and never prints the environment.
-  Auth is the operator's existing ~gh~ login plus the local herdr socket.
+- ~prsync~ never calls ~gh auth token~ and never prints the
+  environment. Auth is the operator's existing ~gh~ login plus the
+  local herdr socket.
 - ~comment --go~ posts the given body as a GitHub PR comment. Dry-run
   first; there is no extra confirmation beyond ~--go~.
 - ~tabs --orphans --close-merged --go~ runs ~herdr tab close~ on each
   tab still in the ~merged~ bucket. Dry-run first; ~no_pr~, ~unknown~,
   and ~has_open_pr~ tabs are never candidates. An all-~no_pr~ or
   ~unknown~ classification refuses the close unless ~--force~.
-- Review comment bodies are interpolated into the dispatch prompt as text.
-  ~prsync~ does not execute them. The *agent* may follow malicious review
-  text — this is inherent to the product. Do not treat the prompt as
-  sanitized English.
-- The config parser does not ~source~ the file, so values cannot execute
-  as shell.
+- Review comment bodies are interpolated into the dispatch prompt as
+  text. ~prsync~ does not execute them. The *agent* may follow
+  malicious review text — this is inherent to the product. Do not treat
+  the prompt as sanitized English.
+- The config parser does not ~source~ the file, so values cannot
+  execute as shell.
 - JSON on stdout can contain review bodies and logins. That is the
   operator's responsibility.
-- Concurrent ~prsync dispatch --go~ across machines sharing ~state_file~
-  over NFS is unsupported.
+- Concurrent ~prsync dispatch --go~ across machines sharing
+  ~state_file~ over NFS is unsupported.
 
 * Exit codes
 
