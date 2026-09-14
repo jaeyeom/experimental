@@ -1,0 +1,81 @@
+---
+- name: Ensure kubectl is present
+  hosts: all
+  vars:
+    kubernetes_minor_version: v1.31
+  tasks:
+    - name: Include guard for kubectl playbook
+      block:
+        - name: Stop early if the kubectl playbook is already included
+          meta: end_play
+          when: kubectl_playbook_imported is defined
+        - name: Ensure the kubectl playbook is not included
+          set_fact:
+            kubectl_playbook_imported: true
+          when: kubectl_playbook_imported is not defined
+
+    - name: Install kubectl on Debian/Ubuntu
+      block:
+        - name: Install kubectl prerequisites
+          ansible.builtin.apt:
+            name:
+              - apt-transport-https
+              - ca-certificates
+              - curl
+              - gnupg
+            state: present
+            update_cache: yes
+
+        - name: Ensure keyrings directory exists
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Check if GPG key for kubectl exists
+          ansible.builtin.stat:
+            path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+          register: kubectl_gpg_key
+
+        - name: Download GPG key for kubectl
+          ansible.builtin.get_url:
+            url: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor_version }}/deb/Release.key"
+            dest: /tmp/kubectl-repo.gpg
+            mode: '0644'
+          when: not kubectl_gpg_key.stat.exists
+
+        - name: Dearmor and install GPG key for kubectl
+          ansible.builtin.shell: |
+            cat /tmp/kubectl-repo.gpg | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+          args:
+            creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+          when: not kubectl_gpg_key.stat.exists
+
+        - name: Ensure Kubernetes apt keyring is world-readable
+          ansible.builtin.file:
+            path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            mode: '0644'
+
+        - name: Add apt repository for kubectl
+          ansible.builtin.deb822_repository:
+            name: kubernetes
+            types: deb
+            uris: "https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor_version }}/deb/"
+            suites: "/"
+            signed_by: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            enabled: true
+            state: present
+
+        - name: Install kubectl via apt
+          ansible.builtin.apt:
+            name: kubectl
+            state: present
+            update_cache: yes
+
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and (ansible_facts['distribution'] == "Ubuntu" or ansible_facts['distribution'] == "Debian")
+      become: yes
+
+    - name: Skip kubectl installation on unsupported systems
+      ansible.builtin.debug:
+        msg: "kubectl installation skipped - only supported on Ubuntu/Debian systems (not Termux or macOS)"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined or ansible_facts['distribution'] not in ["Ubuntu", "Debian"]
