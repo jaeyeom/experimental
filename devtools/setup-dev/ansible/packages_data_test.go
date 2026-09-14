@@ -65,6 +65,32 @@ func TestGitHubReleaseCacheKey(t *testing.T) {
 	}
 }
 
+func TestHashicorpAptRepoName(t *testing.T) {
+	var repoNames []string
+	for _, tool := range platformSpecificTools {
+		if tool.command != "terraform" && tool.command != "terraform-ls" {
+			continue
+		}
+		method, ok := tool.platforms[PlatformDebianLike].(AptRepoInstallMethod)
+		if !ok {
+			t.Fatalf("%s debian method is %T, want AptRepoInstallMethod", tool.command, tool.platforms[PlatformDebianLike])
+		}
+		if method.RepoName != "hashicorp" {
+			t.Errorf("%s RepoName = %q, want hashicorp", tool.command, method.RepoName)
+		}
+		if method.Name != tool.command {
+			t.Errorf("%s apt package Name = %q, want %q", tool.command, method.Name, tool.command)
+		}
+		repoNames = append(repoNames, method.RepoName)
+	}
+	if len(repoNames) != 2 {
+		t.Fatalf("found %d HashiCorp apt tools, want 2", len(repoNames))
+	}
+	if repoNames[0] != repoNames[1] {
+		t.Errorf("terraform and terraform-ls RepoName differ: %q vs %q", repoNames[0], repoNames[1])
+	}
+}
+
 func TestPlatformSpecificToolsSorted(t *testing.T) {
 	if !sort.SliceIsSorted(platformSpecificTools, func(i, j int) bool {
 		return platformSpecificTools[i].command < platformSpecificTools[j].command
