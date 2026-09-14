@@ -451,7 +451,7 @@ func TestDispatchGoGateTimeoutExit4(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "working")
 	ghBin, herdrBin := fixtureBins(t)
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath, "gate_timeout_ms=50")
 	raw := mustScanJSON(t, stdinTwoEligibleDoc())
 	restore := swapStdin(t, string(raw))
 	defer restore()
@@ -480,7 +480,7 @@ func TestDispatchGoBlockedGateTimeoutExit4(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
 	ghBin, herdrBin := fixtureBins(t)
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath)
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath, "gate_timeout_ms=50")
 	raw := mustScanJSON(t, stdinEligibleDoc())
 	restore := swapStdin(t, string(raw))
 	defer restore()
@@ -519,7 +519,8 @@ func writeLiveConfig(t *testing.T, ghBin, herdrBin, statePath string, extra ...s
 		"repos=acme/widgets",
 		"state_file=" + statePath,
 		"gate_poll_ms=1",
-		"gate_timeout_ms=50",
+		// Three herdr-fake.sh debounce polls need more than 50ms under CI load.
+		"gate_timeout_ms=2000",
 		"dispatch_timeout_ms=1000",
 	}
 	lines = append(lines, extra...)
