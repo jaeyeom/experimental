@@ -60,7 +60,7 @@
 
     - name: Add apt repository for terraform
       ansible.builtin.deb822_repository:
-        name: terraform
+        name: hashicorp
         types: deb
         uris: "https://apt.releases.hashicorp.com"
         suites: "{{ ansible_facts['distribution_release'] }}"
@@ -69,6 +69,13 @@
         signed_by: /usr/share/keyrings/hashicorp-archive-keyring.gpg
         enabled: true
         state: present
+      become: yes
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+
+    - name: Remove obsolete apt source for terraform
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/terraform.sources
+        state: absent
       become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
 
