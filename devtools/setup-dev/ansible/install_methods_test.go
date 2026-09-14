@@ -596,11 +596,19 @@ func TestAptRepoInstallMethod(t *testing.T) {
 		"gcloud_gpg_key",
 		"https://packages.cloud.google.com/apt/doc/apt-key.gpg",
 		"/etc/apt/trusted.gpg.d/google.gpg",
+		"name: gcloud",
 		"uris: \"https://packages.cloud.google.com/apt\"",
 		"suites: \"cloud-sdk\"",
 		"architectures: amd64",
 		"- main",
 		"deb822_repository:",
+	})
+	// Unique repos keep the command as the deb822 name and do not delete a
+	// command-named sources file.
+	assertNotContains(t, setup, []string{
+		"name: gcloud-cli",
+		"/etc/apt/sources.list.d/gcloud.sources",
+		"state: absent",
 	})
 
 	// Default when uses WhenDebianLike.
@@ -641,6 +649,44 @@ func TestAptRepoInstallMethodCustomWhenAndAutoCodename(t *testing.T) {
 	if !strings.Contains(setup, WhenUbuntu) {
 		t.Error("expected custom When condition")
 	}
+}
+
+func TestAptRepoInstallMethodSharedRepoName(t *testing.T) {
+	shared := AptRepoInstallMethod{
+		GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
+		GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+		RepoURL:        "https://apt.releases.hashicorp.com",
+		RepoComponents: "main",
+		RepoName:       "hashicorp",
+	}
+	terraform := shared
+	terraform.Name = "terraform"
+	terraformLS := shared
+	terraformLS.Name = "terraform-ls"
+
+	tfSetup := terraform.RenderSetupTasks("terraform")
+	lsSetup := terraformLS.RenderSetupTasks("terraform-ls")
+
+	for cmd, setup := range map[string]string{
+		"terraform":    tfSetup,
+		"terraform-ls": lsSetup,
+	} {
+		assertContains(t, setup, []string{
+			"deb822_repository:",
+			"name: hashicorp",
+			`uris: "https://apt.releases.hashicorp.com"`,
+			"/etc/apt/sources.list.d/" + cmd + ".sources",
+			"state: absent",
+		})
+		assertNotContains(t, setup, []string{
+			"        name: " + cmd + "\n",
+		})
+	}
+
+	tfInstall := terraform.RenderInstallTask("terraform")
+	assertContains(t, tfInstall, []string{"name: terraform"})
+	lsInstall := terraformLS.RenderInstallTask("terraform-ls")
+	assertContains(t, lsInstall, []string{"name: terraform-ls"})
 }
 
 func TestInstallMethodInterfaceCompliance(t *testing.T) {

@@ -841,6 +841,12 @@ type AptRepoInstallMethod struct {
 	// Name is the package name to install via apt.
 	Name string
 
+	// RepoName is the deb822 repository identity used as
+	// ansible.builtin.deb822_repository name (and therefore
+	// /etc/apt/sources.list.d/<RepoName>.sources). When empty, the command
+	// name is used so single-package repos keep their current filenames.
+	RepoName string
+
 	// GPGKeyURL is the URL to download the GPG public key for the repository.
 	// Example: "https://debian.unison-lang.org/public.gpg"
 	GPGKeyURL string
@@ -884,6 +890,13 @@ func (a AptRepoInstallMethod) GetImports() []Import {
 	return nil
 }
 
+func (a AptRepoInstallMethod) repoName(command string) string {
+	if a.RepoName != "" {
+		return a.RepoName
+	}
+	return command
+}
+
 func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
 	codename := a.Codename
@@ -906,7 +919,9 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
 		when = a.When
 	}
 
-	return `    - name: Check if GPG key for ` + command + ` exists
+	repoName := a.repoName(command)
+
+	tasks := `    - name: Check if GPG key for ` + command + ` exists
       ansible.builtin.stat:
         path: ` + a.GPGKeyPath + `
       register: ` + commandID + `_gpg_key
@@ -930,7 +945,7 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
 
     - name: Add apt repository for ` + command + `
       ansible.builtin.deb822_repository:
-        name: ` + command + `
+        name: ` + repoName + `
         types: deb
         uris: "` + a.RepoURL + `"
         suites: "` + codename + `"
@@ -940,8 +955,20 @@ func (a AptRepoInstallMethod) RenderSetupTasks(command string) string {
         state: present
       become: yes
       when: ` + when + `
-
 `
+
+	if repoName != command {
+		tasks += `
+    - name: Remove obsolete apt source for ` + command + `
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/` + command + `.sources
+        state: absent
+      become: yes
+      when: ` + when + `
+`
+	}
+
+	return tasks + "\n"
 }
 
 func (a AptRepoInstallMethod) RenderInstallTask(command string) string {

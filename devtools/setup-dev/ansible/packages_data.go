@@ -830,6 +830,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform", Tap: "hashicorp/tap"},
 			PlatformDebianLike: AptRepoInstallMethod{
 				Name:           "terraform",
+				RepoName:       "hashicorp",
 				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
 				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
 				RepoURL:        "https://apt.releases.hashicorp.com",
@@ -843,6 +844,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform-ls", Tap: "hashicorp/tap"},
 			PlatformDebianLike: AptRepoInstallMethod{
 				Name:           "terraform-ls",
+				RepoName:       "hashicorp",
 				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
 				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
 				RepoURL:        "https://apt.releases.hashicorp.com",
