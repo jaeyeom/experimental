@@ -175,6 +175,7 @@ sh_test(
         "fillstruct.yml",
         "fzf.yml",
         "gather-facts.yml",
+        "gcloud.yml",
         "gh.yml",
         "gh-codeowners.yml",
         "gh-merge.yml",
