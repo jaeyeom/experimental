@@ -257,6 +257,7 @@ sh_test(
         "setup-go-tools.yml",
         "setup-gpg-agent.yml",
         "setup-grok.yml",
+        "setup-grok-termux.yml",
         "setup-herdr.yml",
         "setup-history.yml",
         "setup-homebrew-env.yml",
@@ -1426,6 +1427,9 @@ sh_test(
     data = [
         "curl.yml",
         "grok.yml",
+        "setup-grok-termux.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -2207,6 +2211,7 @@ sh_test(
         "setup-git.yml",
         "setup-gpg-agent.yml",
         "setup-grok.yml",
+        "setup-grok-termux.yml",
         "setup-herdr.yml",
         "setup-history.yml",
         "setup-npm.yml",
@@ -3193,6 +3198,24 @@ sh_test(
         "curl.yml",
         "grok.yml",
         "setup-grok.yml",
+        "setup-grok-termux.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "setup-grok-termux_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-grok-termux.yml"],
+    data = [
+        "setup-grok-termux.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -3793,6 +3816,7 @@ sh_test(
         "setup-codex-termux.yml",
         "setup-git.yml",
         "setup-grok.yml",
+        "setup-grok-termux.yml",
         "setup-herdr.yml",
         "setup-npm.yml",
         "setup-nvm.yml",
@@ -4471,6 +4495,7 @@ test_suite(
         ":setup-go-tools_syntax_test",
         ":setup-gpg-agent_syntax_test",
         ":setup-gpg-keygen_syntax_test",
+        ":setup-grok-termux_syntax_test",
         ":setup-grok_syntax_test",
         ":setup-grpc_syntax_test",
         ":setup-herdr_syntax_test",

@@ -224,6 +224,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-gpg-agent.yml
 - setup-gpg-keygen.yml
 - setup-grok.yml
+- setup-grok-termux.yml
 - setup-grpc.yml
 - setup-herdr.yml
 - setup-history.yml
