@@ -1,15 +1,24 @@
 ---
+# herdr publishes Linux and macOS builds only. Gather facts first so the
+# import condition can see TERMUX_VERSION, then skip configuration on Termux
+# where the binary is not installed.
+- import_playbook: gather-facts.yml
 - import_playbook: herdr.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
 - name: Ensure herdr is configured
   hosts: all
   vars:
     # herdr resolves its config through XDG on every platform (including
-    # macOS), so a single path works everywhere.
+    # macOS), so a single path works everywhere herdr itself runs.
     herdr_config_dir: >-
       {{ ansible_facts['env']['XDG_CONFIG_HOME']
          | default(ansible_facts['env']['HOME'] ~ '/.config', true) }}/herdr
   tasks:
+    - name: Skip herdr setup on Termux
+      meta: end_play
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
     - name: Include guard for setup-herdr playbook
       block:
         - name: Stop early if the setup-herdr playbook is already included
