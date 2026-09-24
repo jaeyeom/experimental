@@ -534,9 +534,29 @@ func TestPrsyncGoTool(t *testing.T) {
 	if method.PkgPath != wantPath {
 		t.Errorf("prsync PkgPath = %q, want %q", method.PkgPath, wantPath)
 	}
-	wantImports := []Import{{Playbook: "gh"}, {Playbook: "herdr"}}
+	// herdr has no Termux build. prsync still installs there and warns when
+	// herdr is absent; the import itself must not run on Termux.
+	wantImports := []Import{{Playbook: "gh"}, {Playbook: "herdr", When: WhenNotTermux}}
 	if !reflect.DeepEqual(tool.Imports, wantImports) {
 		t.Errorf("prsync Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
+	}
+	wantAll := []Import{
+		{Playbook: "gh"},
+		{Playbook: "herdr", When: WhenNotTermux},
+		{Playbook: "setup-user-go-bin-directory"},
+	}
+	if got := tool.GetAllImports(); !reflect.DeepEqual(got, wantAll) {
+		t.Errorf("prsync GetAllImports() = %s, want %s", formatImports(got), formatImports(wantAll))
+	}
+}
+
+func TestHerdrOmitsTermux(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "herdr")
+	if _, ok := tool.platforms[PlatformTermux]; ok {
+		t.Error("herdr should omit Termux; upstream ships Linux and macOS builds only")
+	}
+	if _, ok := tool.platforms[PlatformAll]; ok {
+		t.Error("herdr should not use PlatformAll; that would install it on Termux")
 	}
 }
 

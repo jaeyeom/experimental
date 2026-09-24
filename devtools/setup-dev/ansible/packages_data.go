@@ -728,7 +728,9 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 	GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
 	GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
 	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
-	GoTool("prsync", "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest", Import{Playbook: "gh"}, Import{Playbook: "herdr"}),
+	// herdr has no Termux build. prsync still installs there and warns when
+	// the binary is absent; do not import the herdr playbook on Termux.
+	GoTool("prsync", "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
 	{
 		command: "pylsp",
 		platforms: map[PlatformName]InstallMethod{
