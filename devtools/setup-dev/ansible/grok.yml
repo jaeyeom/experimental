@@ -62,3 +62,5 @@
             {{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh
           when: grok_installed.rc != 0
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+- import_playbook: setup-grok-termux.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined

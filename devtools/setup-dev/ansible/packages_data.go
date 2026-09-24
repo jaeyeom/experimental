@@ -515,7 +515,12 @@ chmod +x {{ user_bin_directory }}/google-java-format`,
 				},
 			},
 		},
-		Imports: []Import{{Playbook: "curl"}},
+		Imports: []Import{
+			{Playbook: "curl"},
+			// The official binary is static musl. On Termux it cannot read
+			// /etc/resolv.conf, so the post-install play wraps it.
+			{Playbook: "setup-grok-termux", When: WhenTermux, PostInstall: true},
+		},
 	},
 	GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
 	GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),

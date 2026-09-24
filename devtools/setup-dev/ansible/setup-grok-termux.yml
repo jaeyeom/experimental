@@ -1,0 +1,160 @@
+---
+# Official Grok on Termux is the static musl linux-aarch64 binary. musl
+# resolves DNS by reading /etc/resolv.conf. Termux's /etc is Android's
+# read-only /system/etc, which has no resolv.conf, so `grok update` and
+# API calls fail with "error sending request for url" before any HTTP
+# response. proot bind-mounts Termux's resolv.conf onto that path and
+# leaves the rest of the filesystem alone.
+#
+# ~/.grok/bin/grok stays the real binary. The installer and `grok update`
+# replace that symlink, and install.sh appends ~/.grok/bin to the front
+# of PATH. The shim lives in ~/.local/shims/bin and its PATH line is
+# kept after the installer block so the shim wins. Re-running install.sh
+# moves the installer block to the end of the profile; this play puts
+# the shim line back after it.
+- import_playbook: setup-user-bin-directory.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+- name: Configure Grok wrapper for Termux
+  hosts: all
+  vars:
+    grok_termux_prefix: /data/data/com.termux/files/usr
+    grok_termux_resolv: "{{ grok_termux_prefix }}/etc/resolv.conf"
+  tasks:
+    - name: Include guard for setup-grok-termux playbook
+      block:
+        - name: Stop early if the setup-grok-termux playbook is already included
+          meta: end_play
+          when: setup_grok_termux_playbook_imported is defined
+        - name: Ensure the setup-grok-termux playbook is not included
+          set_fact:
+            setup_grok_termux_playbook_imported: true
+          when: setup_grok_termux_playbook_imported is not defined
+
+    - name: Ensure proot is available on Termux
+      ansible.builtin.command: pkg install -y proot
+      args:
+        creates: "{{ grok_termux_prefix }}/bin/proot"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Ensure Termux resolv.conf lists a nameserver
+      ansible.builtin.shell: |
+        set -eu
+        resolv="{{ grok_termux_resolv }}"
+        if [ -s "$resolv" ] && grep -q '^nameserver ' "$resolv"; then
+          printf '%s\n' UNCHANGED
+          exit 0
+        fi
+        printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > "$resolv"
+        printf '%s\n' CHANGED
+      register: grok_termux_resolv_result
+      changed_when: "'CHANGED' in grok_termux_resolv_result.stdout"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Install Grok Termux wrapper scripts
+      ansible.builtin.copy:
+        content: |
+          #!/data/data/com.termux/files/usr/bin/sh
+          # Bind Termux's resolv.conf over /etc/resolv.conf for the official
+          # static musl Grok binary. ~/.grok/bin stays the real binary so
+          # `grok update` can replace it.
+          set -eu
+
+          name=$(basename "$0")
+          case "$name" in
+            grok|agent) ;;
+            *)
+              printf '%s\n' "grok termux wrapper: unexpected command name: $name" >&2
+              exit 1
+              ;;
+          esac
+
+          prefix=${PREFIX:-/data/data/com.termux/files/usr}
+          resolv="$prefix/etc/resolv.conf"
+          if [ ! -s "$resolv" ]; then
+            printf '%s\n' "grok termux wrapper: $resolv is missing or empty" >&2
+            exit 1
+          fi
+
+          exec "$prefix/bin/proot" -b "$resolv:/etc/resolv.conf" "$HOME/.grok/bin/$name" "$@"
+        dest: "{{ user_shims_bin_directory | default('', true) }}/{{ item }}"
+        mode: "0755"
+      loop:
+        - grok
+        - agent
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Remove installer symlinks that skip the Termux wrapper
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+
+        home = Path(os.environ["HOME"])
+        removed = False
+        for name in ("grok", "agent"):
+            link = home / ".local" / "bin" / name
+            if not link.is_symlink():
+                continue
+            official = home / ".grok" / "bin" / name
+            if not official.exists():
+                continue
+            if link.resolve() != official.resolve():
+                continue
+            link.unlink()
+            removed = True
+            print("REMOVED %s" % name)
+        if not removed:
+            print("UNCHANGED")
+        PY
+      register: grok_termux_unlinked
+      changed_when: "'REMOVED' in grok_termux_unlinked.stdout"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Keep the Grok shim ahead of ~/.grok/bin on PATH
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+
+        profile = os.environ.get("USER_PROFILE_PATH", "")
+        if not profile:
+            print("SHIM_PATH_UNCHANGED")
+            raise SystemExit(0)
+        path = Path(os.path.expanduser(profile))
+        begin = "# >>> grok termux shim >>>"
+        end = "# <<< grok termux shim <<<"
+        block = [
+            begin,
+            'export PATH="$HOME/.local/shims/bin:$PATH"',
+            end,
+        ]
+        original = path.read_text() if path.exists() else ""
+        kept = []
+        skip = False
+        for line in original.splitlines():
+            if line.strip() == begin:
+                skip = True
+                continue
+            if skip:
+                if line.strip() == end:
+                    skip = False
+                continue
+            kept.append(line)
+        while kept and not kept[-1].strip():
+            kept.pop()
+        new = "\n".join(kept + [""] + block) + "\n"
+        if path.exists() and new == original:
+            print("SHIM_PATH_UNCHANGED")
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(new)
+            print("SHIM_PATH_CHANGED")
+        PY
+      environment:
+        USER_PROFILE_PATH: "{{ user_profile_path | default('', true) }}"
+      register: grok_termux_shim_path
+      changed_when: "'SHIM_PATH_CHANGED' in grok_termux_shim_path.stdout"
+      when:
+        - ansible_facts['env']['TERMUX_VERSION'] is defined
+        - user_profile_path is defined

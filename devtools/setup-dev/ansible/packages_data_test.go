@@ -473,6 +473,20 @@ func findPlatformSpecificTool(t *testing.T, command string) PlatformSpecificTool
 	return PlatformSpecificTool{}
 }
 
+func TestGrokTermuxWrapper(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "grok")
+	got := tool.GetPostImports()
+	want := []Import{{Playbook: "setup-grok-termux", When: WhenTermux}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GetPostImports() = %s, want %s", formatImports(got), formatImports(want))
+	}
+	for _, imp := range tool.GetAllImports() {
+		if imp.Playbook == "setup-grok-termux" {
+			t.Errorf("setup-grok-termux should be post-install only, found in GetAllImports: %s", formatImports(tool.GetAllImports()))
+		}
+	}
+}
+
 func TestAsideCLI(t *testing.T) {
 	tool := findPlatformSpecificTool(t, "aside")
 	if _, ok := tool.platforms[PlatformTermux]; ok {
