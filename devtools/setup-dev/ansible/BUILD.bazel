@@ -2461,6 +2461,7 @@ sh_test(
     args = ["prsync.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "gh.yml",
         "go.yml",
         "herdr.yml",
@@ -3227,6 +3228,7 @@ sh_test(
     args = ["setup-herdr.yml"],
     data = [
         "curl.yml",
+        "gather-facts.yml",
         "herdr.yml",
         "setup-herdr.yml",
         "tasks/github-release-info.yml",

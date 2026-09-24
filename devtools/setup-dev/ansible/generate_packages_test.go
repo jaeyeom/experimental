@@ -435,6 +435,41 @@ func TestSetupVibeCodingImportsSetupGrok(t *testing.T) {
 	}
 }
 
+func TestHerdrSkippedOnTermux(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	read := func(name string) string {
+		t.Helper()
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+
+	setup := read("setup-herdr.yml")
+	for _, want := range []string{
+		"import_playbook: gather-facts.yml",
+		"import_playbook: herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined",
+		"meta: end_play\n      when: ansible_facts['env']['TERMUX_VERSION'] is defined",
+	} {
+		if !strings.Contains(setup, want) {
+			t.Errorf("setup-herdr.yml missing %q", want)
+		}
+	}
+
+	vibe := read("setup-vibe-coding.yml")
+	wantVibe := "import_playbook: setup-herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
+	if !strings.Contains(vibe, wantVibe) {
+		t.Errorf("setup-vibe-coding.yml missing %q", wantVibe)
+	}
+
+	prsync := read("prsync.yml")
+	wantPrsync := "import_playbook: herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
+	if !strings.Contains(prsync, wantPrsync) {
+		t.Errorf("prsync.yml missing %q", wantPrsync)
+	}
+}
+
 func TestSetupGrokOptsOutOfTraining(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "setup-grok.yml"))

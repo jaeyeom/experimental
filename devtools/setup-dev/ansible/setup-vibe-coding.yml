@@ -15,6 +15,7 @@
 - import_playbook: claudelytics.yml
 - import_playbook: setup-grok.yml
 - import_playbook: setup-herdr.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 - import_playbook: aside.yml
 
 - name: Setup vibe coding environment
