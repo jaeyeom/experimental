@@ -28,3 +28,6 @@
 - import_playbook: setup-terraform-tools.yml
 - import_playbook: gcloud.yml
 - import_playbook: setup-claude-sandbox.yml
+# After every other shell-rc edit. zoxide init has to stay last, behind
+# starship and direnv, or Ghostel's prompt wrapper hides __zoxide_hook.
+- import_playbook: setup-z.yml

@@ -2,3 +2,5 @@
 # Antigravity profile: Google's AI agentic IDE on a minimal base.
 - import_playbook: profile-minimal.yml
 - import_playbook: antigravity.yml
+# After anything this profile appends to the shell rc.
+- import_playbook: setup-z.yml
