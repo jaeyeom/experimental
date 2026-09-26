@@ -32,6 +32,7 @@
 ;;   ChatGPT .................... ChatGPT integration
 ;;   Alert.el ................... Claude Code notifications
 ;;   Claude Code ................. claude-code.el integration
+;;   Herdr ....................... emacs-herdr (Herdr TUI in Ghostel)
 ;;   Convenient functions ........ Utility functions
 ;;   Services ................... Background services
 ;;   Git and Project ............. Magit, project management
@@ -211,6 +212,8 @@
 (declare-function my/chatgpt-shell-insert-natural-english ".spacemacs" t)
 (declare-function my/claude-code-display-buffer-right ".spacemacs" t)
 (declare-function my/claude-hook-listener ".spacemacs" t)
+(declare-function herdr-menu "herdr" ())
+(declare-function herdr-mode "herdr" (&optional arg))
 (declare-function my/evil-paste-fix-clipboard-advice ".spacemacs" t)
 (declare-function my/dired-find-file-smart ".spacemacs" t)
 (declare-function my/forge-insert-pullreqs-to-review ".spacemacs" t)
@@ -474,6 +477,9 @@ This function should only modify configuration layer settings."
      gdscript-mode
      gherkin-mode
      green-is-the-new-black-theme
+     (herdr :location (recipe :fetcher github
+                              :repo "baongoc124/emacs-herdr"
+                              :files ("*.el")))
      (highlight-chars :location (recipe :fetcher github
                                         :repo "emacsmirror/highlight-chars"
                                         :files ("*.el")))
@@ -2316,6 +2322,25 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 
     )
   (require 'claude-code nil 'noerror)
+
+  ;;; Herdr
+  ;; emacs-herdr runs the Herdr TUI in Ghostel, which the shell layer already
+  ;; provides. The herdr CLI has no Termux build, so leave the integration off
+  ;; when the binary is not on exec-path.
+  (when (executable-find "herdr")
+    (with-eval-after-load 'herdr
+      ;; C-9 is on ghostel-keymap-exceptions, so it still opens the menu from
+      ;; inside *herdr*. SPC $ h is the leader binding from other buffers.
+      ;; Label sync copies terminal titles and project names onto every Herdr
+      ;; tab and workspace. Leave both off.
+      (setopt herdr-sync-tab-labels nil
+              herdr-sync-workspace-labels nil
+              herdr-menu-key "C-9")
+      (spacemacs/set-leader-keys "$ h" #'herdr-menu)
+      (autoload 'herdr-menu "herdr" nil t))
+    (require 'herdr nil 'noerror)
+    (when (fboundp #'herdr-mode)
+      (herdr-mode 1)))
 
   ;;; Convenient functions
   (defun my/kill-ring-save-unfilled (start end)
