@@ -3,27 +3,55 @@
 - import_playbook: fzf.yml
 - import_playbook: setup-shell-profile.yml
 
+# No include guard: top-level profiles import this playbook again after
+# every other shell-rc edit so the block below can move back to the end.
 - name: Ensure z directory jumping with zoxide and starship
   hosts: all
   tasks:
-    - name: Include guard for setup-z playbook
-      block:
-        - name: Stop early if the setup-z playbook is already included
-          meta: end_play
-          when: setup_z_playbook_imported is defined
-        - name: Ensure the setup-z playbook is not included
-          set_fact:
-            setup_z_playbook_imported: true
-          when: setup_z_playbook_imported is not defined
+    - name: Stat shell profile before placing zoxide
+      ansible.builtin.stat:
+        path: "{{ user_profile_path }}"
+      register: zoxide_profile_stat
 
-    - name: Configure zoxide in shell profile
+    - name: Read the last non-empty line of the shell profile
+      ansible.builtin.shell: awk 'NF { line=$0 } END { print line }' {{ user_profile_path }}
+      register: zoxide_profile_last_line
+      changed_when: false
+      when: zoxide_profile_stat.stat.exists
+
+    # blockinfile updates a marker in place. Drop it first when a later
+    # edit (starship, direnv, another profile block) landed after it.
+    - name: Remove zoxide block so it can be moved to the end
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        marker: "# {mark} Enable zoxide"
+        state: absent
+      when:
+        - zoxide_profile_stat.stat.exists
+        - zoxide_profile_last_line.stdout | default('') != '# END Enable zoxide'
+
+    - name: Configure zoxide at the end of the shell profile
       ansible.builtin.blockinfile:
         path: "{{ user_profile_path }}"
         append_newline: true
         prepend_newline: true
         create: true
+        insertafter: EOF
         marker: "# {mark} Enable zoxide"
         block: |
+          {% set zoxide_shell = user_shell.stdout | basename %}
+          # Ghostel auto-injection replaces PROMPT_COMMAND after this file
+          # returns, so zoxide's doctor cannot see __zoxide_hook. Source the
+          # integration here first (the later auto-load returns immediately),
+          # then initialize zoxide so the hook is appended to that wrapper.
+          # This block stays last so starship and direnv cannot stash it.
+          case ${INSIDE_EMACS-} in
+              ghostel|ghostel,*)
+                  if [[ -n ${EMACS_GHOSTEL_PATH:-} && -r ${EMACS_GHOSTEL_PATH}/etc/shell/ghostel.{{ zoxide_shell }} ]]; then
+                      source "${EMACS_GHOSTEL_PATH}/etc/shell/ghostel.{{ zoxide_shell }}"
+                  fi
+                  ;;
+          esac
           if command -v zoxide >/dev/null 2>&1; then
-              eval "$(zoxide init {{ user_shell.stdout | basename }})"
+              eval "$(zoxide init {{ zoxide_shell }})"
           fi
