@@ -29,6 +29,7 @@
       lineinfile:
         path: "{{ user_profile_path }}"
         line: '[ "$TERM_PROGRAM" != "vscode" ] && eval "$(starship init {{ user_shell.stdout | basename }})"'
+        insertbefore: "# BEGIN Enable zoxide"
         create: yes
       when: starship_check is changed
 

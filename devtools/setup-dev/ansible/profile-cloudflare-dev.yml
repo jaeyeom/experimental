@@ -13,3 +13,5 @@
 - import_playbook: setup-wrangler.yml
 - import_playbook: setup-vibe-coding.yml
 - import_playbook: setup-spacemacs.yml
+# After nvm, wrangler, and spacemacs shell-rc blocks.
+- import_playbook: setup-z.yml
