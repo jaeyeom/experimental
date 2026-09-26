@@ -32,6 +32,7 @@
 ;;   ChatGPT .................... ChatGPT integration
 ;;   Alert.el ................... Claude Code notifications
 ;;   Claude Code ................. claude-code.el integration
+;;   Agent Shell ................. xenodium/agent-shell (ACP)
 ;;   Herdr ....................... emacs-herdr (Herdr TUI in Ghostel)
 ;;   Convenient functions ........ Utility functions
 ;;   Services ................... Background services
@@ -212,6 +213,8 @@
 (declare-function my/chatgpt-shell-insert-natural-english ".spacemacs" t)
 (declare-function my/claude-code-display-buffer-right ".spacemacs" t)
 (declare-function my/claude-hook-listener ".spacemacs" t)
+(declare-function my/agent-shell-diff-emacs-state ".spacemacs" t)
+(declare-function evil-emacs-state "evil-states" (&optional arg))
 (declare-function herdr-menu "herdr" ())
 (declare-function herdr-mode "herdr" (&optional arg))
 (declare-function my/evil-paste-fix-clipboard-advice ".spacemacs" t)
@@ -275,6 +278,9 @@
 
 ;; ChatGPT Shell
 (defvar chatgpt-shell-prompt-query-response-style)
+
+;; Agent Shell (xenodium/agent-shell)
+(defvar agent-shell-mode-map)
 
 ;; Spacemacs
 (defvar dotspacemacs-default-font)
@@ -459,6 +465,9 @@ This function should only modify configuration layer settings."
    ;; Also include the dependencies as they will not be resolved automatically.
    dotspacemacs-additional-packages
    '(
+     ;; xenodium/agent-shell (MELPA), plus its acp and shell-maker dependencies.
+     acp
+     agent-shell
      atomic-chrome
      bazel
      chatgpt-shell
@@ -491,6 +500,7 @@ This function should only modify configuration layer settings."
      org-tree-slide
      ox-clip
      pkl-mode
+     shell-maker
      solarized-theme
      (tramp-gh :location (recipe :fetcher github :repo "jaeyeom/tramp-gh"))
      )
@@ -2322,6 +2332,42 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 
     )
   (require 'claude-code nil 'noerror)
+
+  ;;; Agent Shell
+  ;; xenodium/agent-shell: a comint buffer for ACP agents (Claude, Codex,
+  ;; Gemini, Grok, and others). `SPC $ s' starts or reuses a shell and
+  ;; `SPC $ S' toggles it. A prefix argument on `agent-shell' starts a
+  ;; new session.
+  ;;
+  ;; The agent binaries are separate from this package. Grok speaks ACP
+  ;; itself (`grok agent stdio'). Claude needs `claude-agent-acp' and
+  ;; Codex needs `codex-acp' on `exec-path'; the plain `claude' and
+  ;; `codex' CLIs are not ACP servers.
+  (with-eval-after-load 'agent-shell
+    (spacemacs/set-leader-keys
+      "$ s" 'agent-shell
+      "$ S" 'agent-shell-toggle)
+    (autoload 'agent-shell "agent-shell" nil t)
+    (autoload 'agent-shell-toggle "agent-shell" nil t)
+
+    ;; Keep the shell beside the buffer being edited, matching Claude Code.
+    (setopt agent-shell-display-action
+            '((display-buffer-in-direction)
+              (direction . right)))
+    (setopt agent-shell-header-style
+            (if (display-graphic-p) 'graphical 'text))
+
+    ;; Evil: insert RET inserts a newline; normal RET submits the prompt.
+    (evil-define-key 'insert agent-shell-mode-map (kbd "RET") 'newline)
+    (evil-define-key 'normal agent-shell-mode-map (kbd "RET") 'comint-send-input)
+
+    (defun my/agent-shell-diff-emacs-state ()
+      "Use Emacs state for agent-shell diff prompts (y/n/p/q)."
+      (when (and (stringp (buffer-name))
+                 (string-match-p "\\`\\*agent-shell-diff" (buffer-name)))
+        (evil-emacs-state)))
+    (add-hook 'diff-mode-hook #'my/agent-shell-diff-emacs-state))
+  (require 'agent-shell nil 'noerror)
 
   ;;; Herdr
   ;; emacs-herdr runs the Herdr TUI in Ghostel, which the shell layer already
