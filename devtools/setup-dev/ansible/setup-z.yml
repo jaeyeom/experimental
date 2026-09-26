@@ -27,3 +27,8 @@
           if command -v zoxide >/dev/null 2>&1; then
               eval "$(zoxide init {{ user_shell.stdout | basename }})"
           fi
+          # Ghostel wraps PROMPT_COMMAND after this file loads and still
+          # runs __zoxide_hook. zoxide's doctor does not see that wrapper.
+          case ${INSIDE_EMACS-} in
+              ghostel|ghostel,*) _ZO_DOCTOR=0 ;;
+          esac
