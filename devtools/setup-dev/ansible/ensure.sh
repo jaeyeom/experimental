@@ -6,12 +6,11 @@ LOG_FILE="$HOME/.cache/setup-dev/ensure_sh.log"
 LOG_DIR=$(dirname "$LOG_FILE")
 mkdir -p "$LOG_DIR"
 
-# Generate a simple session ID. Prefer /dev/urandom when available, fall back to time+pid.
-if [ -r /dev/urandom ]; then
-    SESSION_ID=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
-else
-    SESSION_ID="$(date +%s)-$$"
-fi
+# Bounded /dev/urandom read (see session_id.sh). Do not use tr | head -c:
+# head closes the pipe early, and tr prints "Broken pipe" when SIGPIPE is ignored.
+# shellcheck disable=SC1091  # Sourced from the same directory as this script
+. "$(dirname "$0")/session_id.sh"
+SESSION_ID=$(session_id)
 
 finish() {
     exit_code=$?
