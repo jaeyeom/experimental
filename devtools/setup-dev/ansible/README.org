@@ -129,6 +129,16 @@ Go installer (=go install=) is quite cross-platform and handles versioning well,
 so it's usually a good idea to use it for Go projects. The generator includes
 automatic version checking and upgrade logic for Go packages.
 
+The Go toolchain itself is not installed from apt on Debian and Ubuntu.
+Ubuntu's =golang= package lags upstream (noble still ships Go 1.22), and the
+old playbook also left an existing =go= binary untouched, so =go install=
+kept running that older toolchain. =go install pkg@version= does not download
+a newer toolchain when only a dependency requires one. =go.yml= therefore
+installs the latest stable upstream release under =/usr/local/go=, checks its
+SHA-256 against https://go.dev/dl/?mode=json, and replaces it when a newer
+stable release is published. macOS still uses Homebrew, and Termux still uses
+=pkg=, because the official Linux tarballs do not run there.
+
 *** Rust Packages
 On macOS and Debian, =rustup= is the sole Rust toolchain provider. It is
 installed via Homebrew (macOS) or apt (Debian), and =rustup default stable=
@@ -190,6 +200,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - cleanup-repo.yml
 - gather-facts.yml
 - gmi.yml
+- go.yml
 - golangci-lint.yml
 - kubectl.yml
 - magit.yml

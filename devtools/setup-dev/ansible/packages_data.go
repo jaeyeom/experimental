@@ -12,7 +12,6 @@ var packages = []PackageData{
 	{command: "fzf"},
 	{command: "gh"},
 	{command: "git"},
-	{command: "go", debianPkgName: "golang", termuxPkgName: "golang", brewPkgName: "go"},
 	{command: "gpg", brewPkgName: "gnupg"},
 	{command: "gpg-agent", Imports: []Import{{Playbook: "gpg"}}, brewPkgName: "gnupg"},
 	{command: "grep"},
