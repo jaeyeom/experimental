@@ -470,6 +470,31 @@ func TestHerdrSkippedOnTermux(t *testing.T) {
 	}
 }
 
+func TestGoPlaybookInstallsUpstreamToolchainOnDebian(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "go.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	for _, want := range []string{
+		"https://go.dev/dl/?mode=json",
+		"https://go.dev/dl/{{ go_archive.filename }}",
+		"checksum: \"sha256:{{ go_archive.sha256 }}\"",
+		"rm -rf /usr/local/go",
+		"/usr/local/go/bin",
+		"pkg install -y golang",
+		"community.general.homebrew:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("go.yml missing %q", want)
+		}
+	}
+	if strings.Contains(got, "name: golang") {
+		t.Error("go.yml still installs apt package golang")
+	}
+}
+
 func TestSetupGrokOptsOutOfTraining(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "setup-grok.yml"))

@@ -5,6 +5,18 @@
 - name: Ensure the user go bin directory is set up
   hosts: all
   tasks:
+    - name: Ensure the upstream Go toolchain is on PATH
+      ansible.builtin.blockinfile:
+        path: "{{ user_profile_path }}"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        marker: "# {mark} set PATH for the upstream Go toolchain"
+        block: |
+          if [ -d /usr/local/go/bin ] ; then
+              PATH="/usr/local/go/bin:$PATH"
+          fi
+
     - name: Ensure go bin PATH is set
       ansible.builtin.blockinfile:
         path: "{{ user_profile_path }}"
@@ -21,6 +33,8 @@
       command: go env GOPATH
       register: go_env_gopath
       changed_when: false
+      environment:
+        GOTOOLCHAIN: local
 
     - name: Add GOPATH/bin to current Ansible PATH
       set_fact:
@@ -30,6 +44,8 @@
       command: go env GOVERSION
       register: go_toolchain_version_cmd
       changed_when: false
+      environment:
+        GOTOOLCHAIN: local
 
     - name: Set Go toolchain version fact
       set_fact:
