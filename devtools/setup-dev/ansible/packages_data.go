@@ -10,7 +10,13 @@ var packages = []PackageData{
 	{command: "direnv"},
 	{command: "ffmpegthumbnailer"},
 	{command: "fzf"},
-	{command: "gh"},
+	{
+		// github/gh-stack publishes release binaries for the usual desktop and
+		// server targets, but not Android. Termux builds gh with GOOS=android,
+		// so `gh extension install` cannot find an asset there.
+		command: "gh",
+		Suffix:  ghStackExtensionSuffix(),
+	},
 	{command: "git"},
 	{command: "go", debianPkgName: "golang", termuxPkgName: "golang", brewPkgName: "go"},
 	{command: "gpg", brewPkgName: "gnupg"},
@@ -71,6 +77,18 @@ var packages = []PackageData{
 	{command: "which"},
 	{command: "zip"},
 	{command: "zoxide"},
+}
+
+// ghStackExtensionSuffix is appended to the gh playbook so the extension is
+// installed whenever gh itself is installed.
+func ghStackExtensionSuffix() string {
+	tasks := GhExtensionInstallMethod{Repo: "github/gh-stack"}.RenderBlockInstallTask("gh-stack")
+	return `
+
+    - name: Ensure gh-stack extension is present
+      when: ` + WhenNotTermux + `
+      block:
+` + tasks
 }
 
 var platformSpecificTools = []PlatformSpecificTool{
