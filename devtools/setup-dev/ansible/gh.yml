@@ -49,3 +49,20 @@
         - name: Install gh on Termux
           command: pkg install -y gh
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Ensure gh-stack extension is present
+      when: ansible_facts['env']['TERMUX_VERSION'] is not defined
+      block:
+        - name: Check if gh-stack extension is installed
+          shell: gh extension list | grep -q 'gh-stack'
+          register: gh_stack_installed
+          failed_when: false
+          changed_when: False
+
+        - name: Install gh-stack extension
+          command: gh extension install github/gh-stack
+          when: gh_stack_installed.rc != 0
+
+        - name: Upgrade gh-stack extension
+          command: gh extension upgrade gh-stack
+          when: gh_stack_installed.rc == 0

@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+
+	// Renders the Ansible YAML template under test, not HTML.
+	// nosemgrep: import-text-template
+	"text/template"
 )
 
 func TestPackagesSorted(t *testing.T) {
@@ -514,6 +519,44 @@ func TestAsideCLI(t *testing.T) {
 	}
 	if !reflect.DeepEqual(tool.Imports, wantImports) {
 		t.Errorf("aside Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
+	}
+}
+
+func TestGhPlaybookInstallsGhStackExtension(t *testing.T) {
+	var pkg PackageData
+	found := false
+	for _, candidate := range packages {
+		if candidate.command == "gh" {
+			pkg = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("gh is not registered in packages")
+	}
+
+	tmpl := template.Must(template.New("packages").Parse(packagesTemplate))
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, pkg); err != nil {
+		t.Fatalf("render gh playbook: %v", err)
+	}
+	got := buf.String()
+	for _, want := range []string{
+		"gh extension install github/gh-stack",
+		"gh extension upgrade gh-stack",
+		"gh extension list | grep -q 'gh-stack'",
+		"when: " + WhenNotTermux,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("gh playbook missing %q", want)
+		}
+	}
+	// The extension tasks must sit inside the non-Termux block, after gh is installed.
+	installGh := strings.Index(got, "name: Install gh on Termux")
+	extension := strings.Index(got, "gh extension install github/gh-stack")
+	if installGh < 0 || extension < 0 || extension < installGh {
+		t.Errorf("gh-stack install should follow the gh package install tasks")
 	}
 }
 
