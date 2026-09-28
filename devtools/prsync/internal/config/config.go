@@ -37,11 +37,15 @@ Triage each thread before acting:
 Push after the mechanical threads are done (and after the user answers any
 questions).
 
-After those threads are handled and pushed, re-request each human reviewer
-whose listed comments are all addressed:
+After those threads are handled and pushed, re-request review only from the
+human authors of the threads listed above, once all of their listed comments
+are addressed:
   gh pr edit {number} --add-reviewer <login>
-Skip bots and anyone already pending. Do not dismiss reviews. Do not
-re-request a reviewer who still has unanswered threads.
+NEVER re-request anyone who has already approved: check
+` + "`gh pr view {number} --json latestReviews`" + ` first and skip every login whose
+state is APPROVED, even if you addressed their threads. Also skip bots, the
+PR author, anyone already pending, and anyone who still has
+unanswered threads. If nobody is left, request nobody. Do not dismiss reviews.
 
 Do not touch other PRs.`
 

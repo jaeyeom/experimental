@@ -547,6 +547,9 @@ func TestDefaults(t *testing.T) {
 	if !regexp.MustCompile(`(?i)unanswered threads`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing unanswered-threads guard: %q", got.PromptTemplate)
 	}
+	if !regexp.MustCompile(`NEVER re-request anyone who has already approved`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing skip-approvers guard: %q", got.PromptTemplate)
+	}
 	if !regexp.MustCompile(`(?s)Push after the mechanical threads.*gh pr edit \{number\} --add-reviewer`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate re-request not after push: %q", got.PromptTemplate)
 	}

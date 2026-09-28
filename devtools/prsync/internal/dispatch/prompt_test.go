@@ -129,6 +129,12 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	if !strings.Contains(strings.ToLower(got), "unanswered threads") {
 		t.Fatalf("missing unanswered-threads guard: %q", got)
 	}
+	if !strings.Contains(got, "NEVER re-request anyone who has already approved") {
+		t.Fatalf("missing skip-approvers guard: %q", got)
+	}
+	if !strings.Contains(got, "gh pr view 123 --json latestReviews") {
+		t.Fatalf("missing approval-state check: %q", got)
+	}
 	idxPush := strings.Index(got, "Push after the mechanical threads")
 	idxRerequest := strings.Index(got, "gh pr edit 123 --add-reviewer")
 	if idxPush < 0 || idxRerequest < 0 || idxPush > idxRerequest {
