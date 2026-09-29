@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1139,6 +1140,51 @@ func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
 	}
 	if h.n < 2 {
 		t.Fatalf("AgentList calls = %d, want polling until timeout", h.n)
+	}
+}
+
+func TestRunDryRunStripsBoilerplateButStillDispatches(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`(?m)^Reply with /apply\.$`)}
+	pr := fixtureEligiblePR()
+	pr.BlockingComments[0].Body = "Fix the nil check.\n\nReply with /apply."
+	pr.BlockingComments = append(pr.BlockingComments, scan.Comment{
+		ThreadID:  "PRRT_bot",
+		CommentID: "PRRC_bot",
+		Author:    "review-bot",
+		Path:      "src/widget.go",
+		URL:       "https://github.com/acme/widgets/pull/123#discussion_r2",
+		Body:      "Reply with /apply.",
+	})
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{pr}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if !got.DryRun {
+		t.Fatal("dry_run = false, want true")
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	prompt := got.Results[0].RenderedPrompt
+	if !strings.Contains(prompt, "Fix the nil check.") {
+		t.Fatalf("stripped prose missing: %q", prompt)
+	}
+	if strings.Contains(prompt, "Reply with /apply.") {
+		t.Fatalf("boilerplate still in dry-run prompt: %q", prompt)
+	}
+	botURL := "https://github.com/acme/widgets/pull/123#discussion_r2"
+	if !strings.Contains(prompt, "(boilerplate only; see "+botURL+")") {
+		t.Fatalf("empty comment dropped: %q", prompt)
+	}
+	if !strings.Contains(prompt, "reviewer-login") || !strings.Contains(prompt, "review-bot") {
+		t.Fatalf("comment no longer listed: %q", prompt)
 	}
 }
 

@@ -109,6 +109,9 @@ type Config struct {
 	DryRun               bool
 	CommentLinkMaxChars  int
 	CommentBodyMaxChars  int
+	// CommentStripPatterns are removed from each comment body before link
+	// stripping and the body cap. Empty means no stripping.
+	CommentStripPatterns []*regexp.Regexp
 
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
@@ -312,10 +315,17 @@ func applyKey(cfg *Config, key, val string) error {
 		cfg.StateFile = val
 	case "dry_run":
 		return applyDryRun(cfg, val)
-	case "comment_link_max_chars", "comment_body_max_chars":
-		return applyCommentLimit(cfg, key, val)
+	case "comment_link_max_chars", "comment_body_max_chars", "comment_strip_patterns":
+		return applyCommentKey(cfg, key, val)
 	}
 	return nil
+}
+
+func applyCommentKey(cfg *Config, key, val string) error {
+	if key == "comment_strip_patterns" {
+		return applyStripPatterns(cfg, val)
+	}
+	return applyCommentLimit(cfg, key, val)
 }
 
 func applyRepos(cfg *Config, val string) error {
@@ -395,6 +405,40 @@ func applyDryRun(cfg *Config, val string) error {
 	}
 	cfg.DryRun = b
 	return nil
+}
+
+func applyStripPatterns(cfg *Config, val string) error {
+	text, err := resolvePrompt("comment_strip_patterns", val)
+	if err != nil {
+		return err
+	}
+	patterns, err := compileStripPatterns(text)
+	if err != nil {
+		return err
+	}
+	cfg.CommentStripPatterns = patterns
+	return nil
+}
+
+func compileStripPatterns(text string) ([]*regexp.Regexp, error) {
+	var out []*regexp.Regexp
+	for i, line := range strings.Split(text, "\n") {
+		n := i + 1
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		re, err := regexp.Compile(trimmed)
+		if err != nil {
+			return nil, &KeyError{
+				Key:    "comment_strip_patterns",
+				Line:   n,
+				Reason: fmt.Sprintf("line %d: %s", n, err.Error()),
+			}
+		}
+		out = append(out, re)
+	}
+	return out, nil
 }
 
 func applyCommentLimit(cfg *Config, key, val string) error {
