@@ -1,5 +1,11 @@
 package main
 
+// locateDBRefreshDue is true when the locate database is missing or older
+// than locate_updatedb_max_age_seconds (default 7 days). A missing file has
+// no mtime, so defaulting that timestamp to 0 makes the age larger than the
+// limit and the refresh runs. -e locate_updatedb_max_age_seconds=0 forces a run.
+const locateDBRefreshDue = `((ansible_date_time.epoch | int) - (locate_db_stat.stat.mtime | default(0) | int)) >= (locate_updatedb_max_age_seconds | default(7 * 24 * 60 * 60) | int)`
+
 var packages = []PackageData{
 	{command: "7z", debianPkgName: "p7zip-full", termuxPkgName: "p7zip", brewPkgName: "p7zip"},
 	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag", brewPkgName: "the_silver_searcher"},
@@ -28,13 +34,38 @@ var packages = []PackageData{
 		debianPkgName: "plocate",
 		termuxPkgName: "mlocate",
 		brewPkgName:   "findutils",
+		// WSL often has no systemd, so plocate-updatedb.timer never runs and
+		// this playbook is the only refresh. plocate skips /mnt and 9p/drvfs
+		// so Windows drives stay out of the index. Termux mlocate has neither
+		// flag, and its database lives under the Termux prefix.
 		Suffix: `
 
-    - name: Ensure locate DB is up-to-date on non-macOS systems
-      command: updatedb
-      become: "{{ 'no' if ansible_facts['env']['TERMUX_VERSION'] is defined else 'yes' }}"
-      ignore_errors: true
+    - name: Check locate database age on non-macOS systems
+      stat:
+        path: "{{ '/data/data/com.termux/files/usr/var/mlocate/mlocate.db' if ansible_facts['env']['TERMUX_VERSION'] is defined else '/var/lib/plocate/plocate.db' }}"
+      register: locate_db_stat
       when: ` + WhenNotDarwin + `
+
+    - name: Ensure locate DB is up-to-date on non-Termux, non-macOS systems
+      command:
+        argv:
+          - updatedb
+          - --add-prunepaths
+          - /mnt
+          - --add-prunefs
+          - 9p drvfs
+      become: yes
+      ignore_errors: true
+      when:
+        - ` + WhenDebianLike + `
+        - ` + locateDBRefreshDue + `
+
+    - name: Ensure locate DB is up-to-date on Termux
+      command: updatedb
+      ignore_errors: true
+      when:
+        - ` + WhenTermux + `
+        - ` + locateDBRefreshDue + `
 
     - name: Note about locate DB on macOS
       debug:
