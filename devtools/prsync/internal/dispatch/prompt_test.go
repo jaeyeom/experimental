@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -444,5 +445,191 @@ func TestRenderZeroBodyMaxKeepsLongBody(t *testing.T) {
 	}
 	if strings.Contains(got, "truncated") {
 		t.Fatalf("0 body max still marked truncated: %q", got)
+	}
+}
+
+func TestRenderNoStripPatternsLeavesBodyByteIdentical(t *testing.T) {
+	t.Parallel()
+
+	line := 10
+	body := "Fix the nil check.\n\n\nReply with /apply.\n  "
+	url := "https://github.com/acme/widgets/pull/1#discussion_r9"
+	pr := commentPR(line, "review-bot", "src/widget.go", url, body)
+	got := Render("{comments}", pr, config.Defaults())
+	want := "- src/widget.go:10 — review-bot: " + body + " (" + url + ")"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{}
+	if gotEmpty := Render("{comments}", pr, cfg); gotEmpty != got {
+		t.Fatalf("empty pattern list = %q, want %q", gotEmpty, got)
+	}
+}
+
+func TestRenderUnmatchedStripPatternLeavesBodyByteIdentical(t *testing.T) {
+	t.Parallel()
+
+	line := 10
+	body := "Fix the nil check.\n\n\nStill here.  "
+	url := "https://github.com/acme/widgets/pull/1#discussion_r9"
+	pr := commentPR(line, "review-bot", "src/widget.go", url, body)
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`(?m)^Powered by Bot$`)}
+	got := Render("{comments}", pr, cfg)
+	want := "- src/widget.go:10 — review-bot: " + body + " (" + url + ")"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderStripsSingleLineBoilerplate(t *testing.T) {
+	t.Parallel()
+
+	line := 10
+	url := "https://github.com/acme/widgets/pull/1#discussion_r9"
+	pr := commentPR(line, "review-bot", "src/widget.go", url, "Fix the nil check.\n\nReply with /apply.")
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`(?m)^Reply with /apply\.$`)}
+	got := Render("{comments}", pr, cfg)
+	want := "- src/widget.go:10 — review-bot: Fix the nil check. (" + url + ")"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderAppliesEveryStripPattern(t *testing.T) {
+	t.Parallel()
+
+	line := 1
+	url := "u"
+	body := "Fix it.\n\nReply with /apply.\n\nPowered by Bot"
+	pr := commentPR(line, "b", "f.go", url, body)
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?m)^Reply with /apply\.$`),
+		regexp.MustCompile(`(?m)^Powered by Bot$`),
+	}
+	got := Render("{comments}", pr, cfg)
+	want := "- f.go:1 — b: Fix it. (u)"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderStripsMultilineFooter(t *testing.T) {
+	t.Parallel()
+
+	line := 4
+	url := "https://github.com/acme/widgets/pull/1#discussion_r3"
+	body := "Use errors.Is.\n\n---\nPowered by Bot\nHow to apply: click the button."
+	pr := commentPR(line, "review-bot", "src/widget.go", url, body)
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`(?s)\n---\n.*`)}
+	got := Render("{comments}", pr, cfg)
+	want := "- src/widget.go:4 — review-bot: Use errors.Is. (" + url + ")"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "Powered by Bot") || strings.Contains(got, "How to apply") {
+		t.Fatalf("footer still present: %q", got)
+	}
+}
+
+func TestRenderEmptyStrippedBodyKeepsComment(t *testing.T) {
+	t.Parallel()
+
+	realURL := "https://github.com/acme/widgets/pull/1#discussion_r1"
+	botURL := "https://github.com/acme/widgets/pull/1#discussion_r2"
+	line := 8
+	pr := scan.PR{
+		BlockingComments: []scan.Comment{
+			{
+				Author: "reviewer",
+				Path:   "src/widget.go",
+				Line:   &line,
+				URL:    realURL,
+				Body:   "Fix the nil check.\n\nReply with /apply.",
+			},
+			{
+				Author: "review-bot",
+				Path:   "src/widget.go",
+				URL:    botURL,
+				Body:   "Reply with /apply.",
+			},
+		},
+	}
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`(?m)^Reply with /apply\.$`)}
+	got := Render("{comments}", pr, cfg)
+	want := "- src/widget.go:8 — reviewer: Fix the nil check. (" + realURL + ")\n" +
+		"- src/widget.go — review-bot: (boilerplate only; see " + botURL + ") (" + botURL + ")"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderStripCollapsesNewlineRunsLeftBehind(t *testing.T) {
+	t.Parallel()
+
+	line := 1
+	url := "u"
+	body := "Keep.\n\n\n\nAlso.\n\n\nFOOTER"
+	pr := commentPR(line, "b", "f.go", url, body)
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`(?m)^FOOTER$`)}
+	got := Render("{comments}", pr, cfg)
+	want := "- f.go:1 — b: Keep.\n\nAlso. (u)"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderStripsBeforeLinkAndBodyCap(t *testing.T) {
+	t.Parallel()
+
+	line := 1
+	url := "https://github.com/acme/widgets/pull/1#discussion_r4"
+	footer := "Generated by ReviewBot. Apply with /apply."
+	pr := commentPR(line, "review-bot", "f.go", url, "Please fix this bug.\n"+footer)
+	cfg := config.Defaults()
+	cfg.CommentBodyMaxChars = 30
+	cfg.CommentStripPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`Generated by ReviewBot\. Apply with /apply\.`),
+	}
+	got := Render("{comments}", pr, cfg)
+	if strings.Contains(got, "Generated") || strings.Contains(got, "truncated") {
+		t.Fatalf("footer survived or cap ran first: %q", got)
+	}
+	if !strings.Contains(got, "Please fix this bug.") {
+		t.Fatalf("prose missing: %q", got)
+	}
+}
+
+func TestRenderStripLeavesAuthorPathAndURL(t *testing.T) {
+	t.Parallel()
+
+	line := 2
+	url := "https://github.com/acme/widgets/pull/1#discussion_r5"
+	pr := commentPR(line, "bot", "src/bot.go", url, "Fix the nil check.")
+	cfg := config.Defaults()
+	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`bot`)}
+	got := Render("{comments}", pr, cfg)
+	want := "- src/bot.go:2 — bot: Fix the nil check. (" + url + ")"
+	if got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func commentPR(line int, author, path, url, body string) scan.PR {
+	return scan.PR{
+		BlockingComments: []scan.Comment{{
+			Author: author,
+			Path:   path,
+			Line:   &line,
+			URL:    url,
+			Body:   body,
+		}},
 	}
 }
