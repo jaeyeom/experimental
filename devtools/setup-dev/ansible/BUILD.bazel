@@ -3710,10 +3710,13 @@ sh_test(
     data = [
         "curl.yml",
         "gather-facts.yml",
+        "setup-shell-profile.yml",
         "setup-terraform-tools.yml",
+        "setup-user-bin-directory.yml",
         "terraform.yml",
         "terraform-ls.yml",
         "tflint.yml",
+        "unzip.yml",
     ],
     tags = [
         "ansible",
@@ -4053,7 +4056,10 @@ sh_test(
     data = [
         "curl.yml",
         "gather-facts.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
         "tflint.yml",
+        "unzip.yml",
     ],
     tags = [
         "ansible",

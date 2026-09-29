@@ -4,7 +4,11 @@
 # and then run: make
 - import_playbook: gather-facts.yml
 - import_playbook: curl.yml
-  when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
+- import_playbook: unzip.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
+- import_playbook: setup-user-bin-directory.yml
+  when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 
 - name: Ensure tflint is present
   hosts: all
@@ -23,12 +27,39 @@
       block:
         - name: Check if tflint is installed
           shell: command -v tflint
+          register: tflint_installed
+          failed_when: false
           changed_when: False
-      rescue:
-        - name: Install tflint on MacOS
-          community.general.homebrew:
-            name: tflint
-            state: present
+          environment:
+            PATH: "{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"
+
+        - name: Install tflint
+          shell: |
+            set -eu
+            arch=$(uname -m)
+            case "$arch" in
+              x86_64) asset="tflint_darwin_amd64.zip" ;;
+              aarch64|arm64) asset="tflint_darwin_arm64.zip" ;;
+              *) echo "unsupported tflint architecture: $arch" >&2; exit 1 ;;
+            esac
+            base="https://github.com/terraform-linters/tflint/releases/latest/download"
+            workdir=$(mktemp -d)
+            trap 'rm -rf "$workdir"' EXIT
+            curl -fsSL -o "$workdir/$asset" "$base/$asset"
+            curl -fsSL -o "$workdir/checksums.txt" "$base/checksums.txt"
+            (
+              cd "$workdir"
+              if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum --ignore-missing -c checksums.txt
+              else
+                shasum -a 256 --ignore-missing -c checksums.txt
+              fi
+              unzip -o "$asset"
+            )
+            install -m 0755 "$workdir/tflint" "{{ user_bin_directory }}/tflint"
+          when: tflint_installed.rc != 0
+          environment:
+            PATH: "{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"
       when: ansible_facts['os_family'] == "Darwin"
 
     - name: Install tflint via shell on Debian/Ubuntu
@@ -38,9 +69,34 @@
           register: tflint_installed
           failed_when: false
           changed_when: False
+          environment:
+            PATH: "{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"
 
         - name: Install tflint
           shell: |
-            curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+            set -eu
+            arch=$(uname -m)
+            case "$arch" in
+              x86_64) asset="tflint_linux_amd64.zip" ;;
+              aarch64|arm64) asset="tflint_linux_arm64.zip" ;;
+              *) echo "unsupported tflint architecture: $arch" >&2; exit 1 ;;
+            esac
+            base="https://github.com/terraform-linters/tflint/releases/latest/download"
+            workdir=$(mktemp -d)
+            trap 'rm -rf "$workdir"' EXIT
+            curl -fsSL -o "$workdir/$asset" "$base/$asset"
+            curl -fsSL -o "$workdir/checksums.txt" "$base/checksums.txt"
+            (
+              cd "$workdir"
+              if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum --ignore-missing -c checksums.txt
+              else
+                shasum -a 256 --ignore-missing -c checksums.txt
+              fi
+              unzip -o "$asset"
+            )
+            install -m 0755 "$workdir/tflint" "{{ user_bin_directory }}/tflint"
           when: tflint_installed.rc != 0
+          environment:
+            PATH: "{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin"

@@ -607,6 +607,68 @@ func TestPrsyncGoTool(t *testing.T) {
 	}
 }
 
+func TestTflintReleaseArchive(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "tflint")
+	if _, ok := tool.platforms[PlatformTermux]; ok {
+		t.Error("tflint should omit Termux; upstream publishes no Android archive")
+	}
+	if _, ok := tool.platforms[PlatformDarwin].(BrewInstallMethod); ok {
+		t.Error("tflint darwin method must not be the removed homebrew-core formula")
+	}
+
+	wantImports := []Import{
+		{Playbook: "curl", When: WhenNotTermux},
+		{Playbook: "unzip", When: WhenNotTermux},
+		{Playbook: "setup-user-bin-directory", When: WhenNotTermux},
+	}
+	if !reflect.DeepEqual(tool.Imports, wantImports) {
+		t.Errorf("tflint Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
+	}
+
+	for _, platform := range []PlatformName{PlatformDarwin, PlatformDebianLike} {
+		method, ok := tool.platforms[platform].(ShellInstallMethod)
+		if !ok {
+			t.Errorf("tflint %s method = %T, want ShellInstallMethod", platform, tool.platforms[platform])
+			continue
+		}
+		cmd := method.InstallCommand
+		if strings.Contains(cmd, "install_linux.sh") || strings.Contains(cmd, "| bash") || strings.Contains(cmd, "| sh") {
+			t.Errorf("tflint %s InstallCommand still runs a remote shell script: %q", platform, cmd)
+		}
+		if !strings.Contains(cmd, "curl -fsSL") {
+			t.Errorf("tflint %s InstallCommand must fail on HTTP errors, got %q", platform, cmd)
+		}
+		if !strings.Contains(cmd, "{{ user_bin_directory }}") {
+			t.Errorf("tflint %s InstallCommand must install into user_bin_directory", platform)
+		}
+		checksum := strings.Index(cmd, "checksums.txt")
+		unzip := strings.Index(cmd, "unzip")
+		if checksum < 0 || unzip < 0 || checksum > unzip {
+			t.Errorf("tflint %s InstallCommand must check checksums.txt before unzip", platform)
+		}
+		if got := method.Environment["PATH"]; got != `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"` {
+			t.Errorf("tflint %s PATH = %q", platform, got)
+		}
+	}
+
+	debian, debianOK := tool.platforms[PlatformDebianLike].(ShellInstallMethod)
+	if debianOK {
+		for _, asset := range []string{"tflint_linux_amd64.zip", "tflint_linux_arm64.zip", "uname -m"} {
+			if !strings.Contains(debian.InstallCommand, asset) {
+				t.Errorf("tflint debian InstallCommand missing %q", asset)
+			}
+		}
+	}
+	darwin, darwinOK := tool.platforms[PlatformDarwin].(ShellInstallMethod)
+	if darwinOK {
+		for _, asset := range []string{"tflint_darwin_amd64.zip", "tflint_darwin_arm64.zip"} {
+			if !strings.Contains(darwin.InstallCommand, asset) {
+				t.Errorf("tflint darwin InstallCommand missing %q", asset)
+			}
+		}
+	}
+}
+
 func TestHerdrOmitsTermux(t *testing.T) {
 	tool := findPlatformSpecificTool(t, "herdr")
 	if _, ok := tool.platforms[PlatformTermux]; ok {
