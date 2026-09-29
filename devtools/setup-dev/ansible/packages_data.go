@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 // locateDBRefreshDue is true when the locate database is missing or older
 // than locate_updatedb_max_age_seconds (default 7 days). A missing file has
 // no mtime, so defaulting that timestamp to 0 makes the age larger than the
@@ -119,6 +121,41 @@ func ghStackExtensionSuffix() string {
       when: ` + WhenNotTermux + `
       block:
 ` + tasks
+}
+
+// tflintReleaseInstallCommand downloads one official release zip, checks
+// checksums.txt, then installs the binary. __OS__ is "linux" or "darwin".
+const tflintReleaseInstallCommand = `set -eu
+arch=$(uname -m)
+case "$arch" in
+  x86_64) asset="tflint___OS___amd64.zip" ;;
+  aarch64|arm64) asset="tflint___OS___arm64.zip" ;;
+  *) echo "unsupported tflint architecture: $arch" >&2; exit 1 ;;
+esac
+base="https://github.com/terraform-linters/tflint/releases/latest/download"
+workdir=$(mktemp -d)
+trap 'rm -rf "$workdir"' EXIT
+curl -fsSL -o "$workdir/$asset" "$base/$asset"
+curl -fsSL -o "$workdir/checksums.txt" "$base/checksums.txt"
+(
+  cd "$workdir"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum --ignore-missing -c checksums.txt
+  else
+    shasum -a 256 --ignore-missing -c checksums.txt
+  fi
+  unzip -o "$asset"
+)
+install -m 0755 "$workdir/tflint" "{{ user_bin_directory }}/tflint"
+`
+
+func tflintReleaseInstall(goos string) ShellInstallMethod {
+	return ShellInstallMethod{
+		InstallCommand: strings.ReplaceAll(tflintReleaseInstallCommand, "__OS__", goos),
+		Environment: map[string]string{
+			"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+		},
+	}
 }
 
 var platformSpecificTools = []PlatformSpecificTool{
@@ -908,14 +945,19 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 		},
 	},
 	{
+		// install_linux.sh was removed upstream, and the homebrew-core formula
+		// is gone. The tap publishes a cask, which community.general.homebrew
+		// does not install, so both platforms use the release zip.
 		command: "tflint",
 		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "tflint"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: "curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash",
-			},
+			PlatformDarwin:     tflintReleaseInstall("darwin"),
+			PlatformDebianLike: tflintReleaseInstall("linux"),
 		},
-		Imports: []Import{{Playbook: "curl", When: WhenDebianLike}},
+		Imports: []Import{
+			{Playbook: "curl", When: WhenNotTermux},
+			{Playbook: "unzip", When: WhenNotTermux},
+			{Playbook: "setup-user-bin-directory", When: WhenNotTermux},
+		},
 	},
 	{
 		command: "tsc",
