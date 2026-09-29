@@ -304,6 +304,7 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 		"dry_run=false",
 		"comment_link_max_chars=200",
 		"comment_body_max_chars=1000",
+		"comment_strip_patterns=(?i)reply with /apply\\.",
 		"unknown_future_key=ignored",
 	}, "\n")+"\n")
 
@@ -361,6 +362,99 @@ func TestLoadAppliesKnownKeys(t *testing.T) {
 	}
 	if got.CommentBodyMaxChars != 1000 {
 		t.Fatalf("CommentBodyMaxChars = %d, want 1000", got.CommentBodyMaxChars)
+	}
+	if len(got.CommentStripPatterns) != 1 || got.CommentStripPatterns[0].String() != `(?i)reply with /apply\.` {
+		t.Fatalf("CommentStripPatterns = %v", patternStrings(got.CommentStripPatterns))
+	}
+}
+
+func TestLoadStripPatternsFromFile(t *testing.T) {
+	dir := t.TempDir()
+	patterns := filepath.Join(dir, "strip.txt")
+	mustWrite(t, patterns, strings.Join([]string{
+		"# bot footers",
+		"",
+		"  # indented comment",
+		`(?m)^Reply with /apply\.$`,
+		`(?s)\n---\n.*Powered by Bot.*`,
+		"",
+	}, "\n"))
+	cfgPath := filepath.Join(dir, "prsync.config")
+	mustWrite(t, cfgPath, "comment_strip_patterns=@"+patterns+"\n")
+
+	got, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{
+		`(?m)^Reply with /apply\.$`,
+		`(?s)\n---\n.*Powered by Bot.*`,
+	}
+	if !slices.Equal(patternStrings(got.CommentStripPatterns), want) {
+		t.Fatalf("CommentStripPatterns = %v, want %v", patternStrings(got.CommentStripPatterns), want)
+	}
+}
+
+func TestLoadStripPatternsExpandsTilde(t *testing.T) {
+	home, _ := isolateConfigEnv(t)
+	mustWrite(t, filepath.Join(home, "strip.txt"), "(?i)promo footer\n")
+	cfgPath := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, cfgPath, "comment_strip_patterns=@~/strip.txt\n")
+
+	got, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.CommentStripPatterns) != 1 || got.CommentStripPatterns[0].String() != "(?i)promo footer" {
+		t.Fatalf("CommentStripPatterns = %v", patternStrings(got.CommentStripPatterns))
+	}
+}
+
+func TestLoadEmptyStripPatterns(t *testing.T) {
+	dir := t.TempDir()
+	onlyComments := filepath.Join(dir, "strip.txt")
+	mustWrite(t, onlyComments, "# nothing\n\n")
+	cfgPath := filepath.Join(dir, "prsync.config")
+	mustWrite(t, cfgPath, "comment_strip_patterns=@"+onlyComments+"\n")
+
+	got, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.CommentStripPatterns) != 0 {
+		t.Fatalf("CommentStripPatterns = %v, want none", patternStrings(got.CommentStripPatterns))
+	}
+}
+
+func TestLoadStripPatternInvalidNamesLine(t *testing.T) {
+	dir := t.TempDir()
+	patterns := filepath.Join(dir, "strip.txt")
+	mustWrite(t, patterns, strings.Join([]string{
+		"# keep",
+		"",
+		"(?i)ok",
+		"[bad",
+	}, "\n"))
+	cfgPath := filepath.Join(dir, "prsync.config")
+	mustWrite(t, cfgPath, "comment_strip_patterns=@"+patterns+"\n")
+
+	_, err := Load(cfgPath)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var keyErr *KeyError
+	if !errors.As(err, &keyErr) {
+		t.Fatalf("error type %T: %v", err, err)
+	}
+	if keyErr.Key != "comment_strip_patterns" {
+		t.Fatalf("Key = %q, want comment_strip_patterns (%v)", keyErr.Key, err)
+	}
+	if keyErr.Line != 4 {
+		t.Fatalf("Line = %d, want 4 (%v)", keyErr.Line, err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "comment_strip_patterns") || !strings.Contains(msg, "line 4") || !strings.Contains(msg, "[bad") {
+		t.Fatalf("Error() = %q, want key, line 4, and [bad", msg)
 	}
 }
 
@@ -438,6 +532,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "negative link max", body: "comment_link_max_chars=-1\n", key: "comment_link_max_chars"},
 		{name: "negative body max", body: "comment_body_max_chars=-5\n", key: "comment_body_max_chars"},
 		{name: "non integer link max", body: "comment_link_max_chars=2s\n", key: "comment_link_max_chars"},
+		{name: "bad strip pattern", body: "comment_strip_patterns=[bad\n", key: "comment_strip_patterns"},
+		{name: "missing strip file", body: "comment_strip_patterns=@/no/such/strip\n", key: "comment_strip_patterns"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -619,6 +715,17 @@ func TestDefaults(t *testing.T) {
 	if got.CommentBodyMaxChars != 4000 {
 		t.Fatalf("CommentBodyMaxChars = %d, want 4000", got.CommentBodyMaxChars)
 	}
+	if len(got.CommentStripPatterns) != 0 {
+		t.Fatalf("CommentStripPatterns = %v, want none", patternStrings(got.CommentStripPatterns))
+	}
+}
+
+func patternStrings(patterns []*regexp.Regexp) []string {
+	out := make([]string, len(patterns))
+	for i, re := range patterns {
+		out[i] = re.String()
+	}
+	return out
 }
 
 func isolateConfigEnv(t *testing.T) (home, cwd string) {

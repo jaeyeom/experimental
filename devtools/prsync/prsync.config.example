@@ -37,8 +37,9 @@
 # Inline prompt, or @/path/to/file (tilde is expanded).
 # Substituted: {identifier} {number} {title} {repo} {url} {head} {base} {comments} {hint}.
 # Unknown placeholders are left literal. Review comment bodies are interpolated
-# after over-long markdown link targets are stripped and the body is capped
-# (see comment_link_max_chars / comment_body_max_chars).
+# after comment_strip_patterns are removed, over-long markdown link targets
+# are stripped, and the body is capped (see comment_strip_patterns /
+# comment_link_max_chars / comment_body_max_chars).
 # Default: check out {head} (via `gh pr checkout {number}` if needed),
 # bring it up to date with origin/{base}, then apply mechanical /
 # unambiguous fixes; for a design decision, tradeoff, or disagreement,
@@ -88,11 +89,26 @@
 # but dedupe state is not written).
 # dispatch_wait_until=idle done
 
+# One RE2 pattern per line; blank lines and lines starting with # are
+# ignored. Inline, or @/path/to/file (tilde expanded), same as the prompt
+# templates. Each match is removed from the comment body before
+# comment_link_max_chars and comment_body_max_chars. After a removal,
+# trailing whitespace is trimmed and runs of 3+ newlines become one blank
+# line. A body that is empty afterwards is rendered as
+# "(boilerplate only; see <thread url>)"; the comment is still listed.
+# Unresolved threads, eligibility, and the dedupe key are unchanged.
+# An invalid pattern is a config error (exit 2) naming this key and the
+# offending line. An unreadable @file is a config error naming this key.
+# Default: empty (no stripping).
+# comment_strip_patterns=@~/.config/prsync/strip_patterns.txt
+
 # Rewrite [label](url) to label when len(url) exceeds this. 0 disables.
-# Applied before comment_body_max_chars. Length-only; not host-specific.
+# Applied after comment_strip_patterns and before comment_body_max_chars.
+# Length-only; not host-specific.
 # comment_link_max_chars=500
 
-# Cap each comment body after link stripping. 0 disables. Truncated
+# Cap each comment body after pattern stripping and link stripping.
+# 0 disables. Truncated
 # bodies append: … [truncated, see <thread url>]
 # comment_body_max_chars=4000
 

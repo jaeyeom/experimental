@@ -257,6 +257,67 @@ func TestDispatchStdinJSONDryRun(t *testing.T) {
 	}
 }
 
+func TestDispatchDryRunStripsCommentBoilerplate(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	patterns := filepath.Join(t.TempDir(), "strip.txt")
+	if err := os.WriteFile(patterns, []byte("(?m)^Reply with /apply\\.$\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+		"comment_strip_patterns=@" + patterns,
+	}, "\n")+"\n")
+
+	doc := stdinEligibleDoc()
+	doc.PRs[0].BlockingComments[0].Body = "Fix the nil check.\n\nReply with /apply."
+	restore := swapStdin(t, string(mustScanJSON(t, doc)))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if !got.DryRun || len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionWouldDispatch {
+		t.Fatalf("results = %+v, want dry-run would_dispatch", got.Results)
+	}
+	prompt := got.Results[0].RenderedPrompt
+	if !strings.Contains(prompt, "Fix the nil check.") || strings.Contains(prompt, "Reply with /apply.") {
+		t.Fatalf("dry-run prompt = %q", prompt)
+	}
+}
+
+func TestDispatchInvalidStripPatternExitsUsage(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	patterns := filepath.Join(t.TempDir(), "strip.txt")
+	if err := os.WriteFile(patterns, []byte("# keep\n\n(?i)ok\n[bad\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+		"comment_strip_patterns=@" + patterns,
+	}, "\n")+"\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitUsage {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitUsage, stderr.String(), stdout.String())
+	}
+	msg := stderr.String()
+	if !strings.Contains(msg, "comment_strip_patterns") || !strings.Contains(msg, "line 4") || !strings.Contains(msg, "[bad") {
+		t.Fatalf("stderr = %q, want key, line 4, and [bad", msg)
+	}
+}
+
 func TestDispatchStdinDecodeError(t *testing.T) {
 	restore := swapStdin(t, "  \n{not json")
 	defer restore()

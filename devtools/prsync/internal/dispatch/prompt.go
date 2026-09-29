@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
@@ -13,6 +14,9 @@ import (
 
 // inlineLink matches [label](url) with an optional quoted title.
 var inlineLink = regexp.MustCompile(`\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
+
+// newlineRun collapses to one blank line.
+var newlineRun = regexp.MustCompile(`\n{3,}`)
 
 const emptyHint = "(none; investigate from scratch)"
 
@@ -64,7 +68,8 @@ func formatComments(comments []scan.Comment, cfg config.Config) string {
 }
 
 func formatComment(c scan.Comment, cfg config.Config) string {
-	body := stripOverlongLinks(c.Body, cfg.CommentLinkMaxChars)
+	body := stripBoilerplate(c.Body, cfg.CommentStripPatterns, c.URL)
+	body = stripOverlongLinks(body, cfg.CommentLinkMaxChars)
 	body = capBody(body, c.URL, cfg.CommentBodyMaxChars)
 	if c.Path == "" {
 		return fmt.Sprintf("- (no path) — %s: %s (%s)", c.Author, body, c.URL)
@@ -73,6 +78,25 @@ func formatComment(c scan.Comment, cfg config.Config) string {
 		return fmt.Sprintf("- %s — %s: %s (%s)", c.Path, c.Author, body, c.URL)
 	}
 	return fmt.Sprintf("- %s:%d — %s: %s (%s)", c.Path, *c.Line, c.Author, body, c.URL)
+}
+
+func stripBoilerplate(body string, patterns []*regexp.Regexp, threadURL string) string {
+	if len(patterns) == 0 {
+		return body
+	}
+	stripped := body
+	for _, re := range patterns {
+		stripped = re.ReplaceAllString(stripped, "")
+	}
+	if stripped == body {
+		return body
+	}
+	stripped = newlineRun.ReplaceAllString(stripped, "\n\n")
+	stripped = strings.TrimRightFunc(stripped, unicode.IsSpace)
+	if strings.TrimSpace(stripped) == "" {
+		return "(boilerplate only; see " + threadURL + ")"
+	}
+	return stripped
 }
 
 func stripOverlongLinks(body string, limit int) string {

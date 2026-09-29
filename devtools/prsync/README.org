@@ -127,7 +127,8 @@ the file.
 
 ~*_ms~ keys are integers in milliseconds (~2000~ is 2s, not 2µs).
 ~true~ / ~false~ / ~1~ / ~0~ are accepted for booleans. ~state_file~,
-~gh_bin~, ~herdr_bin~, and ~@/path~ prompt files expand a leading tilde.
+~gh_bin~, ~herdr_bin~, and ~@/path~ values (prompt templates and
+~comment_strip_patterns~) expand a leading tilde.
 Environment variables are not expanded.
 
 ** Keys
@@ -151,8 +152,9 @@ Environment variables are not expanded.
 | ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens, passed as ~herdr agent prompt --until~. At least one required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
 | ~dry_run~ | ~true~ | ~--go~ overrides to live. |
-| ~comment_link_max_chars~ | ~500~ | Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~ disables. Length only, not host. |
-| ~comment_body_max_chars~ | ~4000~ | Cap each comment body after link stripping. Appends ~… [truncated, see <thread url>]~. ~0~ disables. |
+| ~comment_strip_patterns~ | empty | One RE2 pattern per line (blank lines and ~#~ comments ignored). Inline, or ~@/path~ (tilde expanded). Matches are removed from each comment body before ~comment_link_max_chars~ and ~comment_body_max_chars~. After a removal, trailing whitespace is trimmed and runs of 3+ newlines become one blank line. An empty body is rendered as ~(boilerplate only; see <thread url>)~; the comment is still listed. Does not change unresolved threads, eligibility, or the dedupe key. An invalid pattern is a config error naming the key and the line. An unreadable ~@file~ is a config error naming the key. |
+| ~comment_link_max_chars~ | ~500~ | Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~ disables. Length only, not host. Applied after ~comment_strip_patterns~. |
+| ~comment_body_max_chars~ | ~4000~ | Cap each comment body after pattern stripping and link stripping. Appends ~… [truncated, see <thread url>]~. ~0~ disables. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, re-request reviewers, rebase / CI-fix wording) is commented in
