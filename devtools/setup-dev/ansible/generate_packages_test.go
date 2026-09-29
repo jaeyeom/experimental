@@ -470,6 +470,37 @@ func TestHerdrSkippedOnTermux(t *testing.T) {
 	}
 }
 
+func TestLocateDatabaseRefreshIsThrottled(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "locate.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	for _, want := range []string{
+		"Check locate database age on non-macOS systems",
+		"/var/lib/plocate/plocate.db",
+		"/data/data/com.termux/files/usr/var/mlocate/mlocate.db",
+		"Ensure locate DB is up-to-date on non-Termux, non-macOS systems",
+		"--add-prunepaths",
+		"- /mnt",
+		"--add-prunefs",
+		"- 9p drvfs",
+		"locate_updatedb_max_age_seconds | default(7 * 24 * 60 * 60)",
+		"Ensure locate DB is up-to-date on Termux",
+		"command: updatedb",
+		WhenDebianLike,
+		WhenTermux,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("locate.yml missing %q", want)
+		}
+	}
+	if strings.Contains(got, "command: updatedb\n      become:") {
+		t.Error("locate.yml still runs updatedb unconditionally on every non-macOS play")
+	}
+}
+
 func TestGoPlaybookInstallsUpstreamToolchainOnDebian(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "go.yml"))
