@@ -64,7 +64,7 @@ func formatComments(comments []scan.Comment, cfg config.Config) string {
 	for _, c := range comments {
 		lines = append(lines, formatComment(c, cfg))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n\n")
 }
 
 func formatComment(c scan.Comment, cfg config.Config) string {

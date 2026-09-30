@@ -563,10 +563,51 @@ func TestRenderEmptyStrippedBodyKeepsComment(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.CommentStripPatterns = []*regexp.Regexp{regexp.MustCompile(`(?m)^Reply with /apply\.$`)}
 	got := Render("{comments}", pr, cfg)
-	want := "- src/widget.go:8 — reviewer: Fix the nil check. (" + realURL + ")\n" +
+	want := "- src/widget.go:8 — reviewer: Fix the nil check. (" + realURL + ")\n\n" +
 		"- src/widget.go — review-bot: (boilerplate only; see " + botURL + ") (" + botURL + ")"
 	if got != want {
 		t.Fatalf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderBlankLineBetweenUnaddressedThreads(t *testing.T) {
+	t.Parallel()
+
+	line1, line2, line3 := 1, 2, 3
+	pr := scan.PR{
+		Number: 7,
+		URL:    "https://github.com/acme/widgets/pull/7",
+		Head:   "fix",
+		Base:   "main",
+		BlockingComments: []scan.Comment{
+			{Author: "alice", Path: "a.go", Line: &line1, URL: "https://example.test/1", Body: "first"},
+			{Author: "bob", Path: "b.go", Line: &line2, URL: "https://example.test/2", Body: "second\nstill second"},
+			{Author: "cara", Path: "c.go", Line: &line3, URL: "https://example.test/3", Body: "third"},
+		},
+	}
+	got := Render(config.Defaults().PromptTemplate, pr, config.Defaults())
+	const heading = "Unaddressed threads:\n"
+	idx := strings.Index(got, heading)
+	if idx < 0 {
+		t.Fatalf("missing heading: %q", got)
+	}
+	want := strings.Join([]string{
+		"- a.go:1 — alice: first (https://example.test/1)",
+		"",
+		"- b.go:2 — bob: second",
+		"still second (https://example.test/2)",
+		"",
+		"- c.go:3 — cara: third (https://example.test/3)",
+	}, "\n")
+	rest := got[idx+len(heading):]
+	if !strings.HasPrefix(rest, want+"\n") {
+		t.Fatalf("threads after heading:\n%s\nwant prefix:\n%s", rest, want)
+	}
+
+	pr.BlockingComments = pr.BlockingComments[:1]
+	one := Render("{comments}", pr, config.Defaults())
+	if strings.Contains(one, "\n\n") {
+		t.Fatalf("single thread has a blank line: %q", one)
 	}
 }
 
