@@ -487,7 +487,7 @@ This function should only modify configuration layer settings."
      gherkin-mode
      green-is-the-new-black-theme
      (herdr :location (recipe :fetcher github
-                              :repo "baongoc124/emacs-herdr"
+                              :repo "jaeyeom/emacs-herdr"
                               :files ("*.el")))
      (highlight-chars :location (recipe :fetcher github
                                         :repo "emacsmirror/highlight-chars"
