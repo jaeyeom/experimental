@@ -157,8 +157,9 @@ Environment variables are not expanded.
 | ~comment_body_max_chars~ | ~4000~ | Cap each comment body after pattern stripping and link stripping. Appends ~… [truncated, see <thread url>]~. ~0~ disables. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
-triage, re-request reviewers, rebase / CI-fix wording) is commented in
-[[file:prsync.config.example][prsync.config.example]].
+triage, reply on every thread and resolve unless that reply asks the
+reviewer a follow-up, re-request reviewers, rebase / CI-fix wording) is
+commented in [[file:prsync.config.example][prsync.config.example]].
 
 ** Live dispatch
 

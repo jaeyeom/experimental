@@ -109,6 +109,18 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	if strings.Contains(got, "{") {
 		t.Fatalf("unreplaced placeholder: %q", got)
 	}
+	if !strings.Contains(strings.ToLower(got), "without asking the user") {
+		t.Fatalf("missing mechanical autonomy: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "reply on every listed thread") {
+		t.Fatalf("missing reply-on-every-thread: %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "unless the reply asks the reviewer a follow-up") {
+		t.Fatalf("missing follow-up resolve exception: %q", got)
+	}
+	if !strings.Contains(got, "Do not edit, reply to the reviewer,") || !strings.Contains(got, "resolve, or push for that thread until they answer.") {
+		t.Fatalf("missing hold-reply until the user answers: %q", got)
+	}
 	if !strings.Contains(strings.ToLower(got), "ask the user") {
 		t.Fatalf("missing ask-the-user: %q", got)
 	}
