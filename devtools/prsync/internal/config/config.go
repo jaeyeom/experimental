@@ -27,15 +27,22 @@ Address the unresolved review comments on PR #{number} ({url}).
 Unaddressed threads:
 {comments}
 
-Triage each thread before acting:
+Triage each thread before editing or pushing:
 - Mechanical / unambiguous (typo, nil check, rename, obvious bug): make the
-  change, resolve the thread, and continue.
+  change without asking the user, and continue.
 - Design decision, tradeoff, or disagreement: pause and ask the user how to
-  proceed, with a recommended option. Do not edit, resolve, or push for that
-  thread until they answer.
+  proceed, with a recommended option. Do not edit, reply to the reviewer,
+  resolve, or push for that thread until they answer.
 
 Push after the mechanical threads are done (and after the user answers any
 questions).
+
+Reply on every listed thread once its outcome is known: right away for a
+mechanical thread, and after the user answers for any other. Post the reply
+on that review thread, not as a new top-level PR comment. Then mark the
+thread resolved, unless the reply asks the reviewer a follow-up question.
+Leave a follow-up open so the reviewer can answer. A reply that closes the
+point (change made, already done, or declined) must be resolved.
 
 After those threads are handled and pushed, re-request review only from the
 human authors of the threads listed above, once all of their listed comments
