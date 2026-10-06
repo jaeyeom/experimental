@@ -622,6 +622,18 @@ func TestDefaults(t *testing.T) {
 	if !regexp.MustCompile(`(?i)mechanical`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing mechanical-triage: %q", got.PromptTemplate)
 	}
+	if !regexp.MustCompile(`(?i)without asking the user`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing mechanical autonomy: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)reply on every listed thread`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing reply-on-every-thread: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?i)unless the reply asks the reviewer a follow-up`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing follow-up resolve exception: %q", got.PromptTemplate)
+	}
+	if !regexp.MustCompile(`(?is)do not edit, reply to the reviewer,\s+resolve, or push`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing hold-reply until the user answers: %q", got.PromptTemplate)
+	}
 	if !regexp.MustCompile(`(?i)ask the user`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing ask-the-user: %q", got.PromptTemplate)
 	}
