@@ -6,6 +6,11 @@
 # response. proot bind-mounts Termux's resolv.conf onto that path and
 # leaves the rest of the filesystem alone.
 #
+# The shim starts that proot only when this process is not already traced
+# by proot. Nested proot does not attach, and proot-distro refuses to run
+# in that state. A direct exec stays inside the outer proot, so the
+# resolv.conf bind still applies. proot_tracer.sh is the shared check.
+#
 # ~/.grok/bin/grok stays the real binary. The installer and `grok update`
 # replace that symlink, and install.sh appends ~/.grok/bin to the front
 # of PATH. The shim lives in ~/.local/shims/bin and its PATH line is
@@ -51,32 +56,23 @@
       changed_when: "'CHANGED' in grok_termux_resolv_result.stdout"
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
 
+    - name: Ensure the shim lib directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_facts['env']['HOME'] }}/.local/shims/lib"
+        state: directory
+        mode: "0700"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
+    - name: Install the proot tracer helper
+      ansible.builtin.copy:
+        src: proot_tracer.sh
+        dest: "{{ ansible_facts['env']['HOME'] }}/.local/shims/lib/proot_tracer.sh"
+        mode: "0644"
+      when: ansible_facts['env']['TERMUX_VERSION'] is defined
+
     - name: Install Grok Termux wrapper scripts
       ansible.builtin.copy:
-        content: |
-          #!/data/data/com.termux/files/usr/bin/sh
-          # Bind Termux's resolv.conf over /etc/resolv.conf for the official
-          # static musl Grok binary. ~/.grok/bin stays the real binary so
-          # `grok update` can replace it.
-          set -eu
-
-          name=$(basename "$0")
-          case "$name" in
-            grok|agent) ;;
-            *)
-              printf '%s\n' "grok termux wrapper: unexpected command name: $name" >&2
-              exit 1
-              ;;
-          esac
-
-          prefix=${PREFIX:-/data/data/com.termux/files/usr}
-          resolv="$prefix/etc/resolv.conf"
-          if [ ! -s "$resolv" ]; then
-            printf '%s\n' "grok termux wrapper: $resolv is missing or empty" >&2
-            exit 1
-          fi
-
-          exec "$prefix/bin/proot" -b "$resolv:/etc/resolv.conf" "$HOME/.grok/bin/$name" "$@"
+        src: grok_termux_wrapper.sh
         dest: "{{ user_shims_bin_directory | default('', true) }}/{{ item }}"
         mode: "0755"
       loop:
