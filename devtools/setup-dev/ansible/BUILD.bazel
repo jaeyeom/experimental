@@ -76,6 +76,18 @@ sh_test(
     data = ["ansible_become.sh"],
 )
 
+sh_test(
+    name = "proot_tracer_test",
+    srcs = ["proot_tracer_test.sh"],
+    data = [
+        "codex_termux_wrapper.sh",
+        "grok_termux_wrapper.sh",
+        "proot_tracer.sh",
+        "setup-codex-termux.yml",
+        "setup-grok-termux.yml",
+    ],
+)
+
 # GENERATED ANSIBLE TESTS - DO NOT EDIT BELOW THIS LINE
 # Individual syntax check test for each playbook (for better caching)
 
