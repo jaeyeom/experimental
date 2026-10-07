@@ -1,0 +1,13 @@
+[
+  {
+    "__typename": "CheckRun",
+    "name": "build",
+    "status": "COMPLETED",
+    "conclusion": "SUCCESS"
+  },
+  {
+    "__typename": "StatusContext",
+    "context": "ci/circleci: test",
+    "state": "FAILURE"
+  }
+]
