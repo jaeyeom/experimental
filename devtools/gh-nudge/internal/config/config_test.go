@@ -656,6 +656,75 @@ settings:
 	})
 }
 
+func TestLoadConfigMinFirstReviewRequestHours(t *testing.T) {
+	writeConfig := func(t *testing.T, content string) string {
+		t.Helper()
+		configPath := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+		return configPath
+	}
+
+	t.Run("loads the minimum age of the first review request", func(t *testing.T) {
+		configPath := writeConfig(t, `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings:
+  min_first_review_request_hours: 24
+`)
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if cfg.Settings.MinFirstReviewRequestHours != 24 {
+			t.Errorf("min_first_review_request_hours = %d, want 24", cfg.Settings.MinFirstReviewRequestHours)
+		}
+	})
+
+	t.Run("defaults the minimum age to zero", func(t *testing.T) {
+		configPath := writeConfig(t, `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+`)
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if cfg.Settings.MinFirstReviewRequestHours != 0 {
+			t.Errorf("min_first_review_request_hours = %d, want 0", cfg.Settings.MinFirstReviewRequestHours)
+		}
+	})
+
+	t.Run("rejects a negative minimum age", func(t *testing.T) {
+		configPath := writeConfig(t, `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings:
+  min_first_review_request_hours: -1
+`)
+		_, err := LoadConfig(configPath)
+		if err == nil {
+			t.Fatal("LoadConfig() error = nil, want min_first_review_request_hours validation error")
+		}
+		if !strings.Contains(err.Error(), "min_first_review_request_hours") {
+			t.Errorf("LoadConfig() error = %v, want min_first_review_request_hours", err)
+		}
+	})
+}
+
 func TestConvertPklConfigRequireLabelAges(t *testing.T) {
 	pklCfg := &pklconfig.Config{
 		Settings: pklconfig.SettingsConfig{
@@ -676,6 +745,20 @@ func TestConvertPklConfigRequireLabelAges(t *testing.T) {
 	}
 	if cfg.Settings.RequireLabelAges[1] != (LabelAgeConfig{Label: "Y", MinHours: 48}) {
 		t.Errorf("second rule = %+v", cfg.Settings.RequireLabelAges[1])
+	}
+}
+
+func TestConvertPklConfigMinFirstReviewRequestHours(t *testing.T) {
+	pklCfg := &pklconfig.Config{
+		Settings: pklconfig.SettingsConfig{
+			ReminderThresholdHours:     24,
+			MinFirstReviewRequestHours: 24,
+		},
+	}
+
+	cfg := convertPklConfig(pklCfg)
+	if cfg.Settings.MinFirstReviewRequestHours != 24 {
+		t.Errorf("min_first_review_request_hours = %d, want 24", cfg.Settings.MinFirstReviewRequestHours)
 	}
 }
 

@@ -9,14 +9,18 @@ import (
 	"time"
 )
 
-// issueEvent is one GitHub issue event. Pull requests share issue numbers,
-// and a "labeled" event records when a label was added.
+// issueEvent is one GitHub issue event. Pull requests share issue numbers.
+// A "labeled" event records when a label was added. A "review_requested"
+// event records when a user was asked to review.
 type issueEvent struct {
 	Event     string    `json:"event"`
 	CreatedAt time.Time `json:"created_at"` //nolint:tagliatelle // GitHub API uses snake_case
 	Label     *struct {
 		Name string `json:"name"`
 	} `json:"label"`
+	RequestedReviewer *struct {
+		Login string `json:"login"`
+	} `json:"requested_reviewer"` //nolint:tagliatelle // GitHub API uses snake_case
 }
 
 // LatestLabelAddedAt returns the newest time each requested label was added
@@ -35,20 +39,9 @@ func (c *Client) LatestLabelAddedAt(prURL string, labels []string) (map[string]t
 		return map[string]time.Time{}, nil
 	}
 
-	owner, repo, number, err := parsePullRequestURL(prURL)
+	events, err := c.listIssueEvents(prURL)
 	if err != nil {
 		return nil, err
-	}
-
-	path := fmt.Sprintf("repos/%s/%s/issues/%d/events?per_page=100", owner, repo, number)
-	output, err := c.executor.Execute("gh", "api", "--paginate", path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list issue events for %s: %w", prURL, err)
-	}
-
-	var events []issueEvent
-	if err := json.Unmarshal([]byte(output), &events); err != nil {
-		return nil, fmt.Errorf("failed to parse issue events for %s: %w", prURL, err)
 	}
 
 	added := make(map[string]time.Time)
@@ -66,6 +59,25 @@ func (c *Client) LatestLabelAddedAt(prURL string, labels []string) (map[string]t
 		added[name] = event.CreatedAt
 	}
 	return added, nil
+}
+
+func (c *Client) listIssueEvents(prURL string) ([]issueEvent, error) {
+	owner, repo, number, err := parsePullRequestURL(prURL)
+	if err != nil {
+		return nil, err
+	}
+
+	path := fmt.Sprintf("repos/%s/%s/issues/%d/events?per_page=100", owner, repo, number)
+	output, err := c.executor.Execute("gh", "api", "--paginate", path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list issue events for %s: %w", prURL, err)
+	}
+
+	var events []issueEvent
+	if err := json.Unmarshal([]byte(output), &events); err != nil {
+		return nil, fmt.Errorf("failed to parse issue events for %s: %w", prURL, err)
+	}
+	return events, nil
 }
 
 func parsePullRequestURL(prURL string) (owner, repo string, number int, err error) {

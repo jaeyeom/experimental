@@ -28,4 +28,8 @@ type SettingsConfig struct {
 	// Each entry must be present and at least this old since it was last added.
 	// Empty means no label-age requirement. Every entry is required.
 	RequireLabelAges []LabelAgeConfig `pkl:"require_label_ages"`
+
+	// Minimum hours since this reviewer was first requested on the pull request.
+	// Zero means no first-request age requirement. A later request does not restart the clock.
+	MinFirstReviewRequestHours int `pkl:"min_first_review_request_hours"`
 }
