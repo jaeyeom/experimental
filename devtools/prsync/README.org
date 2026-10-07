@@ -81,14 +81,14 @@ prsync version
 | ~--json~ | scan, tabs | Accepted no-op (stdout is always JSON) |
 | ~--orphans~ | tabs | Required; report live-agent tabs with no open/draft PR |
 | ~--close-merged~ | tabs | Close ~merged~-bucket orphan tabs (default is dry-run) |
-| ~--pr owner/repo#N~ | dispatch, comment | Repeatable; limit candidates |
+| ~--pr owner/repo#N~ | dispatch, comment | Repeatable. ~dispatch~ fetches only these PRs; ~comment~ limits candidates in the scan |
 | ~--all~ | dispatch, comment | Every PR in the scan document (default when no ~--pr~) |
 | ~--go~ | dispatch, comment, tabs | Live send / close (default is dry-run) |
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
 | ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
 | ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it |
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
-| ~--stdin~ | tabs, dispatch, comment | Read a scan document from a pipe or redirected file. Default is self-scan (tabs: self-resolve) |
+| ~--stdin~ | tabs, dispatch, comment | Read a scan document from a pipe or redirected file. Absent a document: tabs self-resolve; comment and bare dispatch self-scan; ~dispatch --pr~ fetches those PRs |
 | ~--body TEXT~ | comment | Comment body to post (required) |
 | ~--allow-duplicate~ | comment | Post even if the same ~(repo, number, head_sha, body)~ was already recorded |
 | ~--path~ | logs | Print the run-log file path as JSON instead of dumping the file |
@@ -102,8 +102,12 @@ still needs ~--close-merged~ to close anything.
 
 ~--stdin~ reads a scan document only from a FIFO or regular file (a
 pipe or redirected file). Sockets, TTYs, and other non-file stdin are
-ignored so they cannot hang. Decode errors are fatal. Without
-~--stdin~, ~dispatch~ / ~comment~ always self-scan.
+ignored so they cannot hang. Decode errors are fatal. Without a
+stdin document, ~comment~ always self-scans. ~dispatch~ self-scans for
+~--all~ and when no ~--pr~ is given. ~dispatch --pr~ fetches each named
+PR with ~gh pr view~ (the same JSON fields as ~gh pr list~), loads
+review threads for those PRs only, and matches herdr tabs as a full
+scan does.
 
 #+BEGIN_SRC bash
 prsync scan --config ./prsync.config | prsync dispatch --stdin --config ./prsync.config
@@ -384,8 +388,10 @@ degrades.
 
 ** dispatch
 
-Dry-run (default). Review ~rendered_prompt~ and confirm ~pane_id~ is a
-pane (~w2:pC~), not a tab id (~w2:tC~):
+Dry-run (default). ~--pr~ fetches only those PRs instead of scanning
+every open PR. ~--all~ and a bare ~dispatch~ still self-scan. When a
+stdin document is present, it is used as given. Review ~rendered_prompt~
+and confirm ~pane_id~ is a pane (~w2:pC~), not a tab id (~w2:tC~):
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config

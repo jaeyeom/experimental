@@ -491,6 +491,134 @@ func TestDispatchNotFoundPR(t *testing.T) {
 	}
 }
 
+func TestDispatchPRFetchesOnlyTargets(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	viewLog := filepath.Join(t.TempDir(), "view.log")
+	t.Setenv("GH_FAKE_VIEW_LOG", viewLog)
+	t.Setenv("GH_FAKE_LIST_FAIL", "1")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/unrelated",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{
+		"dispatch", "--config", cfgPath,
+		"--pr", "acme/widgets#123",
+		"--pr", "acme/missing#9",
+	}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(got.Results))
+	}
+	actions := map[string]string{}
+	for _, r := range got.Results {
+		actions[fmt.Sprintf("%s#%d", r.Repo, r.Number)] = r.Action
+	}
+	if actions["acme/widgets#123"] != dispatch.ActionWouldDispatch {
+		t.Fatalf("actions = %v, stderr=%q", actions, stderr.String())
+	}
+	if actions["acme/missing#9"] != dispatch.ActionSkippedNotFound {
+		t.Fatalf("actions = %v", actions)
+	}
+	raw, err := os.ReadFile(viewLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(raw)
+	if !strings.Contains(log, "pr view 123 --repo acme/widgets") {
+		t.Fatalf("view log = %q", log)
+	}
+	if !strings.Contains(log, "pr view 9 --repo acme/missing") {
+		t.Fatalf("view log = %q", log)
+	}
+}
+
+func TestDispatchEmptyStdinPRFetchesTargets(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	viewLog := filepath.Join(t.TempDir(), "view.log")
+	t.Setenv("GH_FAKE_VIEW_LOG", viewLog)
+	t.Setenv("GH_FAKE_LIST_FAIL", "1")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/unrelated",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+	restore := swapStdin(t, "")
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{
+		"dispatch", "--stdin", "--config", cfgPath, "--pr", "acme/widgets#123",
+	}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	raw, err := os.ReadFile(viewLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "pr view 123 --repo acme/widgets") {
+		t.Fatalf("view log = %q", raw)
+	}
+}
+
+func TestDispatchAllStillFullScans(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	t.Setenv("GH_FAKE_LIST_FAIL", "1")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"repos=acme/widgets",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--all", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code == ExitOK {
+		t.Fatalf("exit = 0, want full scan to fail, stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "pr list should not run") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestDispatchStdinDoesNotViewPRs(t *testing.T) {
+	ghBin, herdrBin := fixtureBins(t)
+	viewLog := filepath.Join(t.TempDir(), "view.log")
+	t.Setenv("GH_FAKE_VIEW_LOG", viewLog)
+	t.Setenv("GH_FAKE_LIST_FAIL", "1")
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"gh_bin=" + ghBin,
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+	}, "\n")+"\n")
+	raw := mustScanJSON(t, stdinEligibleDoc())
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{
+		"dispatch", "--stdin", "--config", cfgPath, "--pr", "acme/widgets#123",
+	}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if _, err := os.Stat(viewLog); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("gh pr view ran despite a stdin scan document")
+	}
+}
+
 func TestDispatchDoesNotInvokePromptOnInternalScan(t *testing.T) {
 	ghBin, herdrBin := fixtureBins(t)
 	sentinel := filepath.Join(t.TempDir(), "prompt")

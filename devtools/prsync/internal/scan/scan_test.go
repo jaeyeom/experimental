@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -368,6 +371,79 @@ func TestRunIncludesDrafts(t *testing.T) {
 	}
 }
 
+func TestRunTargetsFetchesOnlyNamedPRs(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Author = "alice"
+	item := fixturePRs()[0]
+	g := &scriptGH{
+		search: []string{"acme/other"},
+		list: map[string]listResult{
+			"acme/other": {prs: []gh.PRListItem{item}},
+		},
+		view: map[string]viewResult{
+			"acme/widgets#123": {item: item},
+			"acme/gone#4":      {err: gh.ErrInaccessible},
+		},
+		threads: map[int][]gh.Thread{123: fixtureThreads()},
+	}
+	h := stubHerdr{
+		tabs:   []herdr.Tab{liveTab("w2:tC", "w2", "PROJ-123")},
+		agents: []herdr.Agent{liveAgent("w2:pC", "w2:tC", "idle")},
+	}
+	doc, err := RunTargets(context.Background(), depsWith(g, h), cfg, []Target{
+		{Repo: "acme/widgets", Number: 123},
+		{Repo: "acme/widgets", Number: 123},
+		{Repo: "acme/missing", Number: 9},
+		{Repo: "acme/gone", Number: 4},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("RunTargets() unexpected error: %v", err)
+	}
+	if g.searchCalls != 0 || g.listCalls != 0 {
+		t.Fatalf("searchCalls = %d, listCalls = %d, want 0", g.searchCalls, g.listCalls)
+	}
+	wantViews := []string{"acme/widgets#123", "acme/missing#9", "acme/gone#4"}
+	if !slices.Equal(g.viewCalls, wantViews) {
+		t.Fatalf("viewCalls = %v, want %v", g.viewCalls, wantViews)
+	}
+	if g.threadCalls[123] != 1 || g.threadCalls[9] != 0 || g.threadCalls[4] != 0 {
+		t.Fatalf("threadCalls = %v, want only #123", g.threadCalls)
+	}
+	if len(doc.PRs) != 1 || doc.PRs[0].Number != 123 || doc.PRs[0].Repo != "acme/widgets" {
+		t.Fatalf("prs = %+v, want only acme/widgets#123", doc.PRs)
+	}
+	if doc.PRs[0].Tab == nil || doc.PRs[0].Tab.PaneID == nil || *doc.PRs[0].Tab.PaneID != "w2:pC" {
+		t.Fatalf("tab = %+v, want pane w2:pC", doc.PRs[0].Tab)
+	}
+	if len(doc.InaccessibleRepos) != 1 || doc.InaccessibleRepos[0] != "acme/gone" {
+		t.Fatalf("inaccessible = %v, want [acme/gone]", doc.InaccessibleRepos)
+	}
+	wantRepos := []string{"acme/widgets", "acme/missing", "acme/gone"}
+	if !slices.Equal(doc.Repos, wantRepos) {
+		t.Fatalf("repos = %v, want %v", doc.Repos, wantRepos)
+	}
+}
+
+func TestRunTargetsViewError(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Author = "alice"
+	g := &scriptGH{
+		view: map[string]viewResult{
+			"acme/widgets#123": {err: errors.New("boom")},
+		},
+	}
+	_, err := RunTargets(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []Target{
+		{Repo: "acme/widgets", Number: 123},
+	}, fixtureNow)
+	if err == nil || !strings.Contains(err.Error(), "view pr acme/widgets#123") {
+		t.Fatalf("RunTargets() error = %v, want view pr error", err)
+	}
+}
+
 func TestRunDraftMatchesTab(t *testing.T) {
 	t.Parallel()
 
@@ -410,6 +486,10 @@ func (fixtureGH) ListOpenPRs(_ context.Context, repo, _ string) ([]gh.PRListItem
 		return nil, gh.ErrInaccessible
 	}
 	return fixturePRs(), nil
+}
+
+func (fixtureGH) ViewPR(context.Context, string, int) (gh.PRListItem, error) {
+	return gh.PRListItem{}, gh.ErrNotFound
 }
 
 func (fixtureGH) ReviewThreads(context.Context, string, string, int) ([]gh.Thread, error) {
@@ -460,6 +540,11 @@ type listResult struct {
 	err error
 }
 
+type viewResult struct {
+	item gh.PRListItem
+	err  error
+}
+
 type scriptGH struct {
 	authErr      error
 	login        string
@@ -467,7 +552,11 @@ type scriptGH struct {
 	search       []string
 	searchCapped bool
 	searchErr    error
+	searchCalls  int
 	list         map[string]listResult
+	listCalls    int
+	view         map[string]viewResult
+	viewCalls    []string
 	threads      map[int][]gh.Thread
 	threadErr    error
 	threadCalls  map[int]int
@@ -486,15 +575,27 @@ func (g *scriptGH) UserLogin(context.Context) (string, error) {
 }
 
 func (g *scriptGH) SearchOpenPRRepos(context.Context, string) ([]string, bool, error) {
+	g.searchCalls++
 	return g.search, g.searchCapped, g.searchErr
 }
 
 func (g *scriptGH) ListOpenPRs(_ context.Context, repo, _ string) ([]gh.PRListItem, error) {
+	g.listCalls++
 	res, ok := g.list[repo]
 	if !ok {
 		return nil, gh.ErrInaccessible
 	}
 	return res.prs, res.err
+}
+
+func (g *scriptGH) ViewPR(_ context.Context, repo string, number int) (gh.PRListItem, error) {
+	key := fmt.Sprintf("%s#%d", repo, number)
+	g.viewCalls = append(g.viewCalls, key)
+	res, ok := g.view[key]
+	if !ok {
+		return gh.PRListItem{}, gh.ErrNotFound
+	}
+	return res.item, res.err
 }
 
 func (g *scriptGH) ReviewThreads(_ context.Context, _, _ string, number int) ([]gh.Thread, error) {

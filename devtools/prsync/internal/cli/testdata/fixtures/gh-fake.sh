@@ -14,6 +14,10 @@ case "${cmd} ${sub}" in
     exit 0
     ;;
   "search prs")
+    if [ -n "${GH_FAKE_LIST_FAIL-}" ]; then
+      printf '%s\n' "gh-fake: search prs should not run" >&2
+      exit 1
+    fi
     # scan passes flags first (`search prs --author ...`); the orphan report
     # passes a ticket positional (`search prs PROJ-123 --author ...`) or a
     # batched OR query as separate argv (`search prs A OR B --author ...`).
@@ -32,7 +36,23 @@ case "${cmd} ${sub}" in
     exit 0
     ;;
   "pr list")
+    if [ -n "${GH_FAKE_LIST_FAIL-}" ]; then
+      printf '%s\n' "gh-fake: pr list should not run" >&2
+      exit 1
+    fi
     cat "${DIR}/gh-pr-list.json"
+    exit 0
+    ;;
+  "pr view")
+    if [ -n "${GH_FAKE_VIEW_LOG-}" ]; then
+      printf '%s\n' "$*" >> "${GH_FAKE_VIEW_LOG}"
+    fi
+    number=${3-}
+    if [ "${number}" != "123" ]; then
+      printf '%s\n' "GraphQL: Could not resolve to a PullRequest with the number of ${number}." >&2
+      exit 1
+    fi
+    cat "${DIR}/gh-pr-view.json"
     exit 0
     ;;
   "pr comment")

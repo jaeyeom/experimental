@@ -147,6 +147,43 @@ func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRList
 	return prs, nil
 }
 
+// ViewPR runs `gh pr view <number> --repo <repo> --json` with the same fields
+// as ListOpenPRs. A missing pull request is ErrNotFound. A missing or archived
+// repository is ErrInaccessible.
+func (c *Client) ViewPR(ctx context.Context, repo string, number int) (PRListItem, error) {
+	result, err := c.executeChecked(ctx, defaultCallTimeout, validJSONOutput,
+		"pr", "view", strconv.Itoa(number), "--repo", repo, "--json", prListJSONFields)
+	if err != nil {
+		return PRListItem{}, err
+	}
+	if result.ExitCode != 0 {
+		stderr := strings.TrimSpace(result.Stderr)
+		if isPRNotFound(result.Stderr) {
+			return PRListItem{}, fmt.Errorf("%w: %s", ErrNotFound, stderr)
+		}
+		if isInaccessible(result.Stderr) {
+			return PRListItem{}, fmt.Errorf("%w: %s", ErrInaccessible, stderr)
+		}
+		return PRListItem{}, &ProcError{ExitCode: result.ExitCode, Stdout: result.Output, Stderr: result.Stderr}
+	}
+	var item PRListItem
+	if err := json.Unmarshal([]byte(result.Output), &item); err != nil {
+		return PRListItem{}, fmt.Errorf("decode pr view: %w", err)
+	}
+	return item, nil
+}
+
+func isPRNotFound(stderr string) bool {
+	s := strings.ToLower(stderr)
+	if strings.Contains(s, "could not resolve to a pullrequest") {
+		return true
+	}
+	if strings.Contains(s, "no pull requests found") {
+		return true
+	}
+	return strings.Contains(s, "pull request") && strings.Contains(s, "not found")
+}
+
 // CommentPR runs `gh pr comment <number> --repo <repo> --body <body>`.
 func (c *Client) CommentPR(ctx context.Context, repo string, number int, body string) error {
 	_, err := c.requireOK(ctx, defaultCallTimeout,

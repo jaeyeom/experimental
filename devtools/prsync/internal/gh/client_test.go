@@ -223,6 +223,88 @@ func TestListOpenPRs(t *testing.T) {
 	})
 }
 
+func TestViewPR(t *testing.T) {
+	t.Parallel()
+
+	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	body := `{
+		"number":123,
+		"title":"[PROJ-123] Fix the widget",
+		"url":"https://github.com/acme/widgets/pull/123",
+		"baseRefName":"main",
+		"headRefName":"fix-widget",
+		"headRefOid":"abc123def456",
+		"mergeable":"MERGEABLE",
+		"mergeStateStatus":"BEHIND",
+		"isDraft":false,
+		"reviewDecision":"APPROVED",
+		"reviewRequests":[{"__typename":"User","login":"reviewer"}],
+		"latestReviews":[{"author":{"login":"reviewer"},"state":"APPROVED","submittedAt":"2026-01-01T00:00:00Z"}],
+		"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]
+	}`
+
+	t.Run("parses one pull request", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "123",
+			"--repo", "acme/widgets", "--json", jsonFields).
+			WillSucceed(body, 0).Build()
+		got, err := NewClient(mock, testGHBin).ViewPR(context.Background(), "acme/widgets", 123)
+		if err != nil {
+			t.Fatalf("ViewPR() unexpected error: %v", err)
+		}
+		if got.Number != 123 || got.HeadRefOid != "abc123def456" || got.MergeStateStatus != "BEHIND" {
+			t.Fatalf("ViewPR() = %+v", got)
+		}
+		if calls := len(mock.Executions()); calls != 1 {
+			t.Fatalf("calls = %d, want 1", calls)
+		}
+	})
+
+	t.Run("missing pull request", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name   string
+			stderr string
+		}{
+			{name: "graphql pull request", stderr: "GraphQL: Could not resolve to a PullRequest with the number of 9. (repository.pullRequest)"},
+			{name: "pull request not found", stderr: "pull request not found"},
+			{name: "no pull requests found", stderr: "no pull requests found for branch \"missing\""},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				mock := newGHMock()
+				mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "9",
+					"--repo", "acme/widgets", "--json", jsonFields).
+					WillFail(tc.stderr, 1).Build()
+				_, err := NewClient(mock, testGHBin).ViewPR(context.Background(), "acme/widgets", 9)
+				if !errors.Is(err, ErrNotFound) {
+					t.Fatalf("ViewPR() error = %v, want ErrNotFound", err)
+				}
+				if errors.Is(err, ErrInaccessible) {
+					t.Fatalf("ViewPR() treated a missing PR as an inaccessible repo: %v", err)
+				}
+				if calls := len(mock.Executions()); calls != 1 {
+					t.Fatalf("calls = %d, want 1", calls)
+				}
+			})
+		}
+	})
+
+	t.Run("inaccessible repository", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "9",
+			"--repo", "acme/gone", "--json", jsonFields).
+			WillFail("Could not resolve to a Repository with the name 'acme/gone'.", 1).Build()
+		_, err := NewClient(mock, testGHBin).ViewPR(context.Background(), "acme/gone", 9)
+		if !errors.Is(err, ErrInaccessible) {
+			t.Fatalf("ViewPR() error = %v, want ErrInaccessible", err)
+		}
+	})
+}
+
 func TestSearchAuthoredPRs(t *testing.T) {
 	t.Parallel()
 
