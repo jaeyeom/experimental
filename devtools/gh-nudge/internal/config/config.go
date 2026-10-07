@@ -61,6 +61,9 @@ type SettingsConfig struct {
 	SkipLabels             []string         `yaml:"skip_labels"`
 	SkipUsers              []string         `yaml:"skip_users"`
 	RequireLabelAges       []LabelAgeConfig `yaml:"require_label_ages"`
+	// MinFirstReviewRequestHours is the minimum age of a reviewer's first
+	// review request. Zero disables the gate. A later request does not restart it.
+	MinFirstReviewRequestHours int `yaml:"min_first_review_request_hours"`
 }
 
 // LoadConfig loads the configuration from the specified file path.
@@ -136,13 +139,14 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			DMChannelIDMapping: dmChannelIDMapping,
 		},
 		Settings: SettingsConfig{
-			ReminderThresholdHours: pklCfg.Settings.ReminderThresholdHours,
-			WorkingHoursOnly:       pklCfg.Settings.WorkingHoursOnly,
-			MessageTemplate:        pklCfg.Settings.MessageTemplate,
-			DMByDefault:            pklCfg.Settings.DmByDefault,
-			RequireLabels:          pklCfg.Settings.RequireLabels,
-			SkipLabels:             pklCfg.Settings.SkipLabels,
-			SkipUsers:              pklCfg.Settings.SkipUsers,
+			ReminderThresholdHours:     pklCfg.Settings.ReminderThresholdHours,
+			WorkingHoursOnly:           pklCfg.Settings.WorkingHoursOnly,
+			MessageTemplate:            pklCfg.Settings.MessageTemplate,
+			DMByDefault:                pklCfg.Settings.DmByDefault,
+			RequireLabels:              pklCfg.Settings.RequireLabels,
+			SkipLabels:                 pklCfg.Settings.SkipLabels,
+			SkipUsers:                  pklCfg.Settings.SkipUsers,
+			MinFirstReviewRequestHours: pklCfg.Settings.MinFirstReviewRequestHours,
 		},
 	}
 
@@ -205,6 +209,9 @@ func validateSettings(settings SettingsConfig) error {
 		if rule.MinHours <= 0 {
 			return fmt.Errorf("require_label_ages min_hours must be > 0 for label %q", rule.Label)
 		}
+	}
+	if settings.MinFirstReviewRequestHours < 0 {
+		return fmt.Errorf("min_first_review_request_hours must be >= 0")
 	}
 	return nil
 }

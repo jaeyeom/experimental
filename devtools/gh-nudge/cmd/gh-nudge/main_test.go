@@ -358,6 +358,10 @@ type fakeLabelAges struct {
 	err    error
 	calls  int
 	labels []string
+
+	requested    map[string]time.Time
+	requestErr   error
+	requestCalls int
 }
 
 func (f *fakeLabelAges) LatestLabelAddedAt(_ string, labels []string) (map[string]time.Time, error) {
@@ -367,6 +371,14 @@ func (f *fakeLabelAges) LatestLabelAddedAt(_ string, labels []string) (map[strin
 		return nil, f.err
 	}
 	return f.added, nil
+}
+
+func (f *fakeLabelAges) EarliestReviewRequestedAt(string) (map[string]time.Time, error) {
+	f.requestCalls++
+	if f.requestErr != nil {
+		return nil, f.requestErr
+	}
+	return f.requested, nil
 }
 
 func TestProcessPullRequestRequireLabelAges(t *testing.T) {
@@ -530,6 +542,167 @@ func TestProcessPullRequestRequireLabelAges(t *testing.T) {
 			recorded := !tracker.ShouldNotify(pr.URL, reviewer, 24)
 			if recorded != tc.wantRecorded {
 				t.Errorf("recorded = %v, want %v", recorded, tc.wantRecorded)
+			}
+		})
+	}
+}
+
+func TestProcessPullRequestMinFirstReviewRequestHours(t *testing.T) {
+	alice := "alice"
+	bob := "bob"
+	prURL := "https://github.com/org/repo/pull/1"
+	now := time.Now()
+	oldEnough := now.Add(-24 * time.Hour)
+	tooYoung := now.Add(-23 * time.Hour)
+
+	tests := []struct {
+		name          string
+		reviewers     []models.ReviewRequest
+		minHours      int
+		labels        []string
+		requireLabels []string
+		labelRules    []config.LabelAgeConfig
+		skipUsers     []string
+		requested     map[string]time.Time
+		requestErr    error
+		wantCalls     int
+		wantPosted    int
+		recorded      []string
+		unrecorded    []string
+	}{
+		{
+			name:       "no minimum nudges without a lookup",
+			wantPosted: 1,
+			recorded:   []string{alice},
+		},
+		{
+			name:       "first request younger than the minimum is not nudged",
+			minHours:   24,
+			requested:  map[string]time.Time{alice: tooYoung},
+			wantCalls:  1,
+			unrecorded: []string{alice},
+		},
+		{
+			name:       "first request at least as old as the minimum is nudged",
+			minHours:   24,
+			requested:  map[string]time.Time{alice: oldEnough},
+			wantCalls:  1,
+			wantPosted: 1,
+			recorded:   []string{alice},
+		},
+		{
+			name:       "missing first request skips that reviewer",
+			minHours:   24,
+			wantCalls:  1,
+			unrecorded: []string{alice},
+		},
+		{
+			name:       "lookup error skips the pull request",
+			minHours:   24,
+			requestErr: errors.New("timeline unavailable"),
+			wantCalls:  1,
+			unrecorded: []string{alice},
+		},
+		{
+			name:          "label filter skips before the review-request lookup",
+			minHours:      24,
+			labels:        []string{"wip"},
+			requireLabels: []string{"ready-for-review"},
+			unrecorded:    []string{alice},
+		},
+		{
+			name:       "unmet label age skips before the review-request lookup",
+			minHours:   24,
+			labelRules: []config.LabelAgeConfig{{Label: "X", MinHours: 24}},
+			unrecorded: []string{alice},
+		},
+		{
+			name: "only a reviewer whose first request is old enough is nudged",
+			reviewers: []models.ReviewRequest{
+				{Type: "User", Login: alice},
+				{Type: "User", Login: bob},
+				{Type: "Team", Name: "devs"},
+			},
+			minHours: 24,
+			requested: map[string]time.Time{
+				alice: oldEnough,
+				bob:   tooYoung,
+			},
+			wantCalls:  1,
+			wantPosted: 1,
+			recorded:   []string{alice},
+			unrecorded: []string{bob},
+		},
+		{
+			name:       "skip_users is not nudged",
+			minHours:   24,
+			skipUsers:  []string{alice},
+			requested:  map[string]time.Time{alice: oldEnough},
+			wantCalls:  1,
+			unrecorded: []string{alice},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			poster := &recordingPoster{}
+			client := slack.NewClient(slack.ClientConfig{
+				Token: "test-token",
+				UserIDMapping: slack.UserIDMapping{
+					slack.GitHubUsername(alice): slack.UserID("U12345"),
+					slack.GitHubUsername(bob):   slack.UserID("U67890"),
+				},
+				DMChannelIDMapping: slack.DMChannelIDMapping{
+					slack.GitHubUsername(alice): slack.ChannelID("C12345"),
+					slack.GitHubUsername(bob):   slack.ChannelID("C67890"),
+				},
+				MessagePoster: poster,
+			})
+			client.SetDefaultChannel("#reviews")
+
+			tracker := notification.NewTracker()
+			lookup := &fakeLabelAges{requested: tc.requested, requestErr: tc.requestErr}
+			cfg := &config.Config{
+				Settings: config.SettingsConfig{
+					ReminderThresholdHours:     24,
+					MessageTemplate:            "review {title}",
+					DMByDefault:                true,
+					RequireLabels:              tc.requireLabels,
+					RequireLabelAges:           tc.labelRules,
+					SkipUsers:                  tc.skipUsers,
+					MinFirstReviewRequestHours: tc.minHours,
+				},
+			}
+			reviewers := tc.reviewers
+			if reviewers == nil {
+				reviewers = []models.ReviewRequest{{Type: "User", Login: alice}}
+			}
+			pr := models.PullRequest{
+				Title:          "Test PR",
+				URL:            prURL,
+				ReviewRequests: reviewers,
+			}
+			for _, name := range tc.labels {
+				pr.Labels = append(pr.Labels, models.Label{Name: name})
+			}
+
+			processPullRequest(pr, lookup, client, tracker, cfg)
+
+			if lookup.requestCalls != tc.wantCalls {
+				t.Errorf("review request lookup calls = %d, want %d", lookup.requestCalls, tc.wantCalls)
+			}
+			if poster.calls != tc.wantPosted {
+				t.Errorf("posted = %d, want %d", poster.calls, tc.wantPosted)
+			}
+			for _, login := range tc.recorded {
+				if tracker.ShouldNotify(pr.URL, login, 24) {
+					t.Errorf("expected %s to be recorded", login)
+				}
+			}
+			for _, login := range tc.unrecorded {
+				if !tracker.ShouldNotify(pr.URL, login, 24) {
+					t.Errorf("expected %s not to be recorded", login)
+				}
 			}
 		})
 	}

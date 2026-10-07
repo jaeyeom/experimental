@@ -419,6 +419,59 @@ func TestPullRequestMeetsLabelMinAges(t *testing.T) {
 	}
 }
 
+func TestMeetsFirstReviewRequestAge(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	tests := []struct {
+		name        string
+		requestedAt time.Time
+		minHours    int
+		want        bool
+	}{
+		{
+			name:     "non-positive minimum has no requirement",
+			minHours: 0,
+			want:     true,
+		},
+		{
+			name:     "negative minimum has no requirement",
+			minHours: -1,
+			want:     true,
+		},
+		{
+			name:     "missing request time does not meet a positive minimum",
+			minHours: 24,
+			want:     false,
+		},
+		{
+			name:        "request younger than the minimum does not meet it",
+			requestedAt: now.Add(-24*time.Hour + time.Second),
+			minHours:    24,
+			want:        false,
+		},
+		{
+			name:        "request aged exactly the minimum meets it",
+			requestedAt: now.Add(-day),
+			minHours:    24,
+			want:        true,
+		},
+		{
+			name:        "older first request meets the minimum",
+			requestedAt: now.Add(-2 * day),
+			minHours:    24,
+			want:        true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MeetsFirstReviewRequestAge(tc.requestedAt, tc.minHours, now)
+			if got != tc.want {
+				t.Errorf("MeetsFirstReviewRequestAge() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLatestReviewSubmittedAt(t *testing.T) {
 	aliceEarlier := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	aliceLater := time.Date(2026, 3, 1, 15, 0, 0, 0, time.UTC)

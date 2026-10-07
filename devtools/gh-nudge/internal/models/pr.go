@@ -156,6 +156,20 @@ type ReviewAuthor struct {
 	Login string `json:"login"`
 }
 
+// MeetsFirstReviewRequestAge reports whether a reviewer was first requested
+// at least minHours before now. A non-positive minHours has no requirement.
+// A missing or zero request time does not satisfy a positive minimum.
+func MeetsFirstReviewRequestAge(requestedAt time.Time, minHours int, now time.Time) bool {
+	if minHours <= 0 {
+		return true
+	}
+	if requestedAt.IsZero() {
+		return false
+	}
+	required := time.Duration(minHours) * time.Hour
+	return now.Sub(requestedAt) >= required
+}
+
 // LatestReviewSubmittedAt returns the most recent submittedAt for the given
 // reviewer login, or the zero time if they have no submitted review.
 func (pr *PullRequest) LatestReviewSubmittedAt(login string) time.Time {
