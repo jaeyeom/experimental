@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "github.go",
+        "label_age.go",
         "prreview.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github",
@@ -18,6 +19,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "github_test.go",
+        "label_age_test.go",
         "prreview_test.go",
     ],
     embed = [":go_default_library"],

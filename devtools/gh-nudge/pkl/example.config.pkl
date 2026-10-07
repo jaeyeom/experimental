@@ -53,4 +53,12 @@ settings {
     "bot-account"
     "contractor-who-opted-out"
   }
+  // Also require each label to have been on the PR this long since it was last added.
+  // Empty means no age requirement. Add another `new { }` block for another label.
+  require_label_ages {
+    new {
+      label = "X"
+      min_hours = 24
+    }
+  }
 }

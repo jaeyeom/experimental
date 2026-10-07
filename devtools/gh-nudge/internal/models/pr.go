@@ -94,6 +94,32 @@ func (pr *PullRequest) HasLabel(name string) bool {
 	return false
 }
 
+// LabelMinAge requires a label to have been on the pull request for MinHours
+// since it was most recently added.
+type LabelMinAge struct {
+	Label    string
+	MinHours int
+}
+
+// MeetsLabelMinAges reports whether every rule is satisfied at now.
+// An empty rule list has no age requirement.
+// A rule is satisfied when the pull request currently has that label and
+// addedAt has an add time at least MinHours before now.
+// A missing or zero add time does not satisfy the rule.
+func (pr *PullRequest) MeetsLabelMinAges(rules []LabelMinAge, addedAt map[string]time.Time, now time.Time) bool {
+	for _, rule := range rules {
+		added, ok := addedAt[rule.Label]
+		if !pr.HasLabel(rule.Label) || !ok || added.IsZero() {
+			return false
+		}
+		required := time.Duration(rule.MinHours) * time.Hour
+		if now.Sub(added) < required {
+			return false
+		}
+	}
+	return true
+}
+
 // AllowsNudge reports whether a nudge should be sent for this pull request
 // given the configured label filters. Empty slices mean no constraint.
 // requireLabels must all be present; skipLabels must all be absent.

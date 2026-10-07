@@ -19,6 +19,14 @@ class ChannelRoutingConfig {
   channel: String
 }
 
+/// A label that must have been on the pull request for a minimum time.
+class LabelAgeConfig {
+  /// Label name. Matched exactly, including case.
+  label: String(!isEmpty)
+  /// Minimum hours since that label was most recently added.
+  min_hours: Int(this > 0)
+}
+
 /// Slack-related configuration
 class SlackConfig {
   /// Slack Bot OAuth token (starts with xoxb-)
@@ -50,6 +58,9 @@ class SettingsConfig {
   /// Skip nudging these GitHub users. Empty means no users are skipped.
   /// Skipped users do not need a Slack user ID mapping.
   skip_users: Listing<String> = new {}
+  /// Each entry must be present and at least this old since it was last added.
+  /// Empty means no label-age requirement. Every entry is required.
+  require_label_ages: Listing<LabelAgeConfig> = new {}
 }
 
 /// Root configuration
