@@ -12,6 +12,9 @@ var ErrUnauthenticated = errors.New("gh is not authenticated")
 // ErrInaccessible is returned only for 404 / not-found / archived repositories.
 var ErrInaccessible = errors.New("repository inaccessible")
 
+// ErrNotFound is returned when gh pr view cannot resolve that pull request.
+var ErrNotFound = errors.New("pull request not found")
+
 // ProcError is a non-zero process exit from gh.
 type ProcError struct {
 	ExitCode int

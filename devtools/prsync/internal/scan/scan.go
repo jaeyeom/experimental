@@ -28,7 +28,14 @@ type GH interface {
 	UserLogin(ctx context.Context) (string, error)
 	SearchOpenPRRepos(ctx context.Context, author string) (repos []string, capped bool, err error)
 	ListOpenPRs(ctx context.Context, repo, author string) ([]gh.PRListItem, error)
+	ViewPR(ctx context.Context, repo string, number int) (gh.PRListItem, error)
 	ReviewThreads(ctx context.Context, owner, repo string, number int) ([]gh.Thread, error)
+}
+
+// Target is one pull request to classify without listing its repository.
+type Target struct {
+	Repo   string
+	Number int
 }
 
 // Herdr is the herdr surface scan uses.
@@ -70,6 +77,92 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 		return finish(doc, err)
 	}
 	return finish(doc, nil)
+}
+
+// RunTargets classifies targets with gh pr view and review threads for those
+// PRs only, then matches herdr tabs. It does not search repositories or list
+// every open PR. A missing PR is omitted. An inaccessible repository is
+// recorded and its PRs are omitted. Other view errors are fatal.
+func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Target, now time.Time) (Document, error) {
+	doc := emptyDocument(now)
+	if err := deps.GH.AuthStatus(ctx); err != nil {
+		return finish(doc, fmt.Errorf("gh auth: %w", err))
+	}
+	author, err := resolveAuthor(ctx, deps.GH, cfg.Author)
+	if err != nil {
+		return finish(doc, err)
+	}
+	doc.Author = author
+	cfg.Author = author
+
+	unique := dedupeTargets(targets)
+	doc.Repos = reposOf(unique)
+
+	for _, target := range unique {
+		if err := ctx.Err(); err != nil {
+			return finish(doc, fmt.Errorf("scan: %w", err))
+		}
+		owner, name, err := splitRepo(target.Repo)
+		if err != nil {
+			return finish(doc, err)
+		}
+		item, err := deps.GH.ViewPR(ctx, target.Repo, target.Number)
+		if err != nil {
+			if errors.Is(err, gh.ErrNotFound) {
+				continue
+			}
+			if errors.Is(err, gh.ErrInaccessible) {
+				doc.InaccessibleRepos = appendUnique(doc.InaccessibleRepos, target.Repo)
+				continue
+			}
+			return finish(doc, fmt.Errorf("view pr %s#%d: %w", target.Repo, target.Number, err))
+		}
+		classified, err := classifyPR(ctx, deps.GH, cfg, owner, name, target.Repo, item)
+		if err != nil {
+			return finish(doc, err)
+		}
+		doc.PRs = append(doc.PRs, classified)
+	}
+	if err := matchTabs(ctx, deps.Herdr, cfg, &doc); err != nil {
+		return finish(doc, err)
+	}
+	return finish(doc, nil)
+}
+
+func dedupeTargets(targets []Target) []Target {
+	seen := make(map[string]struct{}, len(targets))
+	out := make([]Target, 0, len(targets))
+	for _, target := range targets {
+		key := fmt.Sprintf("%s#%d", target.Repo, target.Number)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, target)
+	}
+	return out
+}
+
+func reposOf(targets []Target) []string {
+	repos := make([]string, 0, len(targets))
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		if _, ok := seen[target.Repo]; ok {
+			continue
+		}
+		seen[target.Repo] = struct{}{}
+		repos = append(repos, target.Repo)
+	}
+	return repos
+}
+
+func appendUnique(list []string, value string) []string {
+	for _, existing := range list {
+		if existing == value {
+			return list
+		}
+	}
+	return append(list, value)
 }
 
 func finish(doc Document, err error) (Document, error) {
