@@ -44,15 +44,23 @@ type ChannelRoutingConfig struct {
 	Channel string `yaml:"channel"`
 }
 
+// LabelAgeConfig requires a label to have been on the pull request for MinHours
+// since it was most recently added.
+type LabelAgeConfig struct {
+	Label    string `yaml:"label"`
+	MinHours int    `yaml:"min_hours"`
+}
+
 // SettingsConfig contains general application settings.
 type SettingsConfig struct {
-	ReminderThresholdHours int      `yaml:"reminder_threshold_hours"`
-	WorkingHoursOnly       bool     `yaml:"working_hours_only"`
-	MessageTemplate        string   `yaml:"message_template"`
-	DMByDefault            bool     `yaml:"dm_by_default"`
-	RequireLabels          []string `yaml:"require_labels"`
-	SkipLabels             []string `yaml:"skip_labels"`
-	SkipUsers              []string `yaml:"skip_users"`
+	ReminderThresholdHours int              `yaml:"reminder_threshold_hours"`
+	WorkingHoursOnly       bool             `yaml:"working_hours_only"`
+	MessageTemplate        string           `yaml:"message_template"`
+	DMByDefault            bool             `yaml:"dm_by_default"`
+	RequireLabels          []string         `yaml:"require_labels"`
+	SkipLabels             []string         `yaml:"skip_labels"`
+	SkipUsers              []string         `yaml:"skip_users"`
+	RequireLabelAges       []LabelAgeConfig `yaml:"require_label_ages"`
 }
 
 // LoadConfig loads the configuration from the specified file path.
@@ -97,7 +105,11 @@ func loadPklConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to evaluate pkl config: %w", err)
 	}
 
-	return convertPklConfig(&pklCfg), nil
+	cfg := convertPklConfig(&pklCfg)
+	if err := validateSettings(cfg.Settings); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 func convertPklConfig(pklCfg *pklconfig.Config) *Config {
@@ -132,6 +144,13 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			SkipLabels:             pklCfg.Settings.SkipLabels,
 			SkipUsers:              pklCfg.Settings.SkipUsers,
 		},
+	}
+
+	for _, age := range pklCfg.Settings.RequireLabelAges {
+		cfg.Settings.RequireLabelAges = append(cfg.Settings.RequireLabelAges, LabelAgeConfig{
+			Label:    age.Label,
+			MinHours: age.MinHours,
+		})
 	}
 
 	if pklCfg.Github.Owner != nil {
@@ -171,5 +190,21 @@ func loadYamlConfig(path string) (*Config, error) {
 		cfg.Settings.MessageTemplate = "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours."
 	}
 
+	if err := validateSettings(cfg.Settings); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+func validateSettings(settings SettingsConfig) error {
+	for _, rule := range settings.RequireLabelAges {
+		if rule.Label == "" {
+			return fmt.Errorf("require_label_ages label must not be empty")
+		}
+		if rule.MinHours <= 0 {
+			return fmt.Errorf("require_label_ages min_hours must be > 0 for label %q", rule.Label)
+		}
+	}
+	return nil
 }
