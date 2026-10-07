@@ -1,0 +1,38 @@
+---
+- name: Ensure Ghostty passes Ctrl+Enter through
+  hosts: all
+  vars:
+    # Ghostty reads $XDG_CONFIG_HOME/ghostty/config.ghostty, defaulting to
+    # ~/.config/ghostty/config.ghostty. An empty XDG_CONFIG_HOME is unset.
+    ghostty_config_dir: >-
+      {{ ansible_facts['env']['XDG_CONFIG_HOME']
+         | default(ansible_facts['env']['HOME'] ~ '/.config', true) }}/ghostty
+  tasks:
+    - name: Include guard for setup-ghostty playbook
+      block:
+        - name: Stop early if the setup-ghostty playbook is already included
+          meta: end_play
+          when: setup_ghostty_playbook_imported is defined
+        - name: Ensure the setup-ghostty playbook is not included
+          set_fact:
+            setup_ghostty_playbook_imported: true
+          when: setup_ghostty_playbook_imported is not defined
+
+    - name: Ensure the Ghostty config directory exists
+      ansible.builtin.file:
+        path: "{{ ghostty_config_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Ensure Ctrl+Enter is not Ghostty's fullscreen binding
+      ansible.builtin.blockinfile:
+        path: "{{ ghostty_config_dir }}/config.ghostty"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        mode: '0644'
+        marker: "# {mark} ghostty ctrl+enter setup"
+        block: |
+          # Pass Ctrl+Enter through to the program in the terminal.
+          # Ghostty's default binding is toggle_fullscreen.
+          keybind = ctrl+enter=unbind
