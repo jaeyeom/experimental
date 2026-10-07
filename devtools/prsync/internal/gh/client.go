@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,13 +23,22 @@ const (
 
 // Client shells out to gh_bin through an injected executor.
 type Client struct {
-	exec executor.Executor
-	bin  string
+	exec   executor.Executor
+	bin    string
+	errOut io.Writer
+	sleep  func(ctx context.Context, d time.Duration) error
+	now    func() time.Time
 }
 
 // NewClient returns a gh adapter that invokes bin via exec.
 func NewClient(exec executor.Executor, bin string) *Client {
-	return &Client{exec: exec, bin: bin}
+	return &Client{
+		exec:   exec,
+		bin:    bin,
+		errOut: os.Stderr,
+		sleep:  sleepWithContext,
+		now:    time.Now,
+	}
 }
 
 // AuthStatus runs `gh auth status`. A missing binary is an ExecutableNotFoundError.
@@ -44,7 +55,7 @@ func (c *Client) AuthStatus(ctx context.Context) error {
 
 // UserLogin runs `gh api user --jq .login`.
 func (c *Client) UserLogin(ctx context.Context) (string, error) {
-	result, err := c.requireOK(ctx, defaultCallTimeout, "api", "user", "--jq", ".login")
+	result, err := c.requireText(ctx, defaultCallTimeout, "api", "user", "--jq", ".login")
 	if err != nil {
 		return "", err
 	}
@@ -58,7 +69,7 @@ func (c *Client) UserLogin(ctx context.Context) (string, error) {
 // SearchOpenPRRepos returns unique repository.nameWithOwner values.
 // capped is true when gh returned exactly 1000 search hits.
 func (c *Client) SearchOpenPRRepos(ctx context.Context, author string) (repos []string, capped bool, err error) {
-	result, err := c.requireOK(ctx, defaultCallTimeout,
+	result, err := c.requireJSON(ctx, defaultCallTimeout,
 		"search", "prs", "--author", author, "--state", "open", "--limit", "1000", "--json", "repository")
 	if err != nil {
 		return nil, false, err
@@ -98,7 +109,7 @@ func (c *Client) SearchOpenPRRepos(ctx context.Context, author string) (repos []
 func (c *Client) SearchAuthoredPRs(ctx context.Context, author, query string) ([]PRSearchItem, error) {
 	args := append([]string{"search", "prs"}, strings.Fields(query)...)
 	args = append(args, "--author", author, "--limit", "100", "--json", prSearchJSONFields)
-	result, err := c.requireOK(ctx, defaultCallTimeout, args...)
+	result, err := c.requireJSON(ctx, defaultCallTimeout, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +125,7 @@ func (c *Client) SearchAuthoredPRs(ctx context.Context, author, query string) ([
 
 // ListOpenPRs runs `gh pr list` for one repo. 404/archived become ErrInaccessible.
 func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRListItem, error) {
-	result, err := c.execute(ctx, defaultCallTimeout,
+	result, err := c.executeChecked(ctx, defaultCallTimeout, validJSONOutput,
 		"pr", "list", "--repo", repo, "--author", author, "--state", "open",
 		"--limit", "1000", "--json", prListJSONFields)
 	if err != nil {
@@ -175,7 +186,7 @@ func (c *Client) reviewThreadsPage(ctx context.Context, owner, repo string, numb
 	if cursor != "" {
 		args = append(args, "-F", "cursor="+cursor)
 	}
-	result, err := c.requireOK(ctx, defaultCallTimeout, args...)
+	result, err := c.requireJSON(ctx, defaultCallTimeout, args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -202,24 +213,23 @@ func (c *Client) reviewThreadsPage(ctx context.Context, owner, repo string, numb
 }
 
 func (c *Client) requireOK(ctx context.Context, timeout time.Duration, args ...string) (*executor.ExecutionResult, error) {
-	result, err := c.execute(ctx, timeout, args...)
+	return finishOK(c.execute(ctx, timeout, args...))
+}
+
+func (c *Client) requireJSON(ctx context.Context, timeout time.Duration, args ...string) (*executor.ExecutionResult, error) {
+	return finishOK(c.executeChecked(ctx, timeout, validJSONOutput, args...))
+}
+
+func (c *Client) requireText(ctx context.Context, timeout time.Duration, args ...string) (*executor.ExecutionResult, error) {
+	return finishOK(c.executeChecked(ctx, timeout, nonEmptyOutput, args...))
+}
+
+func finishOK(result *executor.ExecutionResult, err error) (*executor.ExecutionResult, error) {
 	if err != nil {
 		return nil, err
 	}
 	if result.ExitCode != 0 {
 		return nil, &ProcError{ExitCode: result.ExitCode, Stdout: result.Output, Stderr: result.Stderr}
-	}
-	return result, nil
-}
-
-func (c *Client) execute(ctx context.Context, timeout time.Duration, args ...string) (*executor.ExecutionResult, error) {
-	result, err := c.exec.Execute(ctx, executor.ToolConfig{
-		Command: c.bin,
-		Args:    args,
-		Timeout: timeout,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("run %s: %w", c.bin, err)
 	}
 	return result, nil
 }
