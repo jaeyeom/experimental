@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -349,5 +350,187 @@ func TestProcessReviewerNewCyclePingThenRespectsThreshold(t *testing.T) {
 	}
 	if poster.calls != 1 {
 		t.Errorf("second run posted = %d, want 1 (cooldown after new-cycle ping)", poster.calls)
+	}
+}
+
+type fakeLabelAges struct {
+	added  map[string]time.Time
+	err    error
+	calls  int
+	labels []string
+}
+
+func (f *fakeLabelAges) LatestLabelAddedAt(_ string, labels []string) (map[string]time.Time, error) {
+	f.calls++
+	f.labels = append([]string(nil), labels...)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.added, nil
+}
+
+func TestProcessPullRequestRequireLabelAges(t *testing.T) {
+	reviewer := "alice"
+	prURL := "https://github.com/org/repo/pull/1"
+	now := time.Now()
+
+	tests := []struct {
+		name          string
+		labels        []string
+		rules         []config.LabelAgeConfig
+		requireLabels []string
+		added         map[string]time.Time
+		lookupErr     error
+		wantCalls     int
+		wantLabels    []string
+		wantPosted    bool
+		wantRecorded  bool
+	}{
+		{
+			name:         "no age rules nudges without a lookup",
+			wantPosted:   true,
+			wantRecorded: true,
+		},
+		{
+			name:   "missing required age label skips without a lookup",
+			labels: []string{"backend"},
+			rules:  []config.LabelAgeConfig{{Label: "X", MinHours: 24}},
+		},
+		{
+			name:   "skips lookup when a later required label is missing",
+			labels: []string{"X"},
+			rules: []config.LabelAgeConfig{
+				{Label: "X", MinHours: 24},
+				{Label: "Y", MinHours: 24},
+			},
+		},
+		{
+			name:       "label younger than the minimum is not nudged",
+			labels:     []string{"X"},
+			rules:      []config.LabelAgeConfig{{Label: "X", MinHours: 24}},
+			added:      map[string]time.Time{"X": now.Add(-23 * time.Hour)},
+			wantCalls:  1,
+			wantLabels: []string{"X"},
+		},
+		{
+			name:         "label at least as old as the minimum is nudged",
+			labels:       []string{"X"},
+			rules:        []config.LabelAgeConfig{{Label: "X", MinHours: 24}},
+			added:        map[string]time.Time{"X": now.Add(-24 * time.Hour)},
+			wantCalls:    1,
+			wantLabels:   []string{"X"},
+			wantPosted:   true,
+			wantRecorded: true,
+		},
+		{
+			name:       "lookup error skips the pull request",
+			labels:     []string{"X"},
+			rules:      []config.LabelAgeConfig{{Label: "X", MinHours: 24}},
+			lookupErr:  errors.New("timeline unavailable"),
+			wantCalls:  1,
+			wantLabels: []string{"X"},
+		},
+		{
+			name:          "label filter skips before the age lookup",
+			labels:        []string{"wip"},
+			requireLabels: []string{"ready-for-review"},
+			rules:         []config.LabelAgeConfig{{Label: "wip", MinHours: 1}},
+		},
+		{
+			name:   "every age rule must pass",
+			labels: []string{"X", "Y"},
+			rules: []config.LabelAgeConfig{
+				{Label: "X", MinHours: 24},
+				{Label: "Y", MinHours: 48},
+			},
+			added: map[string]time.Time{
+				"X": now.Add(-25 * time.Hour),
+				"Y": now.Add(-30 * time.Hour),
+			},
+			wantCalls:  1,
+			wantLabels: []string{"X", "Y"},
+		},
+		{
+			name:   "all aged labels are nudged",
+			labels: []string{"X", "Y"},
+			rules: []config.LabelAgeConfig{
+				{Label: "X", MinHours: 24},
+				{Label: "Y", MinHours: 48},
+			},
+			added: map[string]time.Time{
+				"X": now.Add(-25 * time.Hour),
+				"Y": now.Add(-49 * time.Hour),
+			},
+			wantCalls:    1,
+			wantLabels:   []string{"X", "Y"},
+			wantPosted:   true,
+			wantRecorded: true,
+		},
+		{
+			name:   "stricter duplicate rule blocks a younger label",
+			labels: []string{"X"},
+			rules: []config.LabelAgeConfig{
+				{Label: "X", MinHours: 24},
+				{Label: "X", MinHours: 48},
+			},
+			added:      map[string]time.Time{"X": now.Add(-30 * time.Hour)},
+			wantCalls:  1,
+			wantLabels: []string{"X"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			poster := &recordingPoster{}
+			client := slack.NewClient(slack.ClientConfig{
+				Token: "test-token",
+				UserIDMapping: slack.UserIDMapping{
+					slack.GitHubUsername(reviewer): slack.UserID("U12345"),
+				},
+				DMChannelIDMapping: slack.DMChannelIDMapping{
+					slack.GitHubUsername(reviewer): slack.ChannelID("C12345"),
+				},
+				MessagePoster: poster,
+			})
+			client.SetDefaultChannel("#reviews")
+
+			tracker := notification.NewTracker()
+			lookup := &fakeLabelAges{added: tc.added, err: tc.lookupErr}
+			cfg := &config.Config{
+				Settings: config.SettingsConfig{
+					ReminderThresholdHours: 24,
+					MessageTemplate:        "review {title}",
+					DMByDefault:            true,
+					RequireLabels:          tc.requireLabels,
+					RequireLabelAges:       tc.rules,
+				},
+			}
+			pr := models.PullRequest{
+				Title: "Test PR",
+				URL:   prURL,
+				ReviewRequests: []models.ReviewRequest{
+					{Type: "User", Login: reviewer},
+				},
+			}
+			for _, name := range tc.labels {
+				pr.Labels = append(pr.Labels, models.Label{Name: name})
+			}
+
+			processPullRequest(pr, lookup, client, tracker, cfg)
+
+			if lookup.calls != tc.wantCalls {
+				t.Errorf("lookup calls = %d, want %d", lookup.calls, tc.wantCalls)
+			}
+			if strings.Join(lookup.labels, ",") != strings.Join(tc.wantLabels, ",") {
+				t.Errorf("lookup labels = %v, want %v", lookup.labels, tc.wantLabels)
+			}
+			if (poster.calls > 0) != tc.wantPosted {
+				t.Errorf("posted = %d calls, wantPosted %v", poster.calls, tc.wantPosted)
+			}
+			recorded := !tracker.ShouldNotify(pr.URL, reviewer, 24)
+			if recorded != tc.wantRecorded {
+				t.Errorf("recorded = %v, want %v", recorded, tc.wantRecorded)
+			}
+		})
 	}
 }

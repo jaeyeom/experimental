@@ -169,9 +169,15 @@ func processReviewer(
 	return nil
 }
 
+// labelAddedAtLookup fetches the newest time each label was added to a pull request.
+type labelAddedAtLookup interface {
+	LatestLabelAddedAt(prURL string, labels []string) (map[string]time.Time, error)
+}
+
 // processPullRequest handles the notification logic for a single pull request.
 func processPullRequest(
 	pr models.PullRequest,
+	labelAges labelAddedAtLookup,
 	slackClient *slack.Client,
 	notificationTracker *notification.Tracker,
 	cfg *config.Config,
@@ -185,6 +191,10 @@ func processPullRequest(
 			"labels", pr.Labels,
 			"require_labels", cfg.Settings.RequireLabels,
 			"skip_labels", cfg.Settings.SkipLabels)
+		return
+	}
+
+	if !labelAgesAllowNudge(pr, labelAges, cfg.Settings.RequireLabelAges, time.Now()) {
 		return
 	}
 
@@ -241,10 +251,59 @@ func main() {
 
 	// Process each pull request
 	for _, pr := range prs {
-		processPullRequest(pr, slackClient, notificationTracker, cfg)
+		processPullRequest(pr, githubClient, slackClient, notificationTracker, cfg)
 	}
 
 	slog.Info("Finished processing pull requests")
+}
+
+// labelAgesAllowNudge reports whether every configured label-age rule is met.
+// An empty rule list allows the pull request without a lookup.
+// A pull request that is missing one of the labels is skipped without a lookup.
+// A lookup failure or an unmet age skips the pull request.
+func labelAgesAllowNudge(pr models.PullRequest, lookup labelAddedAtLookup, rules []config.LabelAgeConfig, now time.Time) bool {
+	if len(rules) == 0 {
+		return true
+	}
+
+	modelRules := make([]models.LabelMinAge, len(rules))
+	var names []string
+	seen := make(map[string]struct{}, len(rules))
+	for i, rule := range rules {
+		modelRules[i] = models.LabelMinAge{Label: rule.Label, MinHours: rule.MinHours}
+		if !pr.HasLabel(rule.Label) {
+			slog.Info("Skipping pull request until required label ages are met",
+				"pr", pr.Title,
+				"url", pr.URL,
+				"labels", pr.Labels,
+				"require_label_ages", rules)
+			return false
+		}
+		if _, ok := seen[rule.Label]; ok {
+			continue
+		}
+		seen[rule.Label] = struct{}{}
+		names = append(names, rule.Label)
+	}
+
+	added, err := lookup.LatestLabelAddedAt(pr.URL, names)
+	if err != nil {
+		slog.Error("Skipping pull request because label age lookup failed",
+			"pr", pr.Title,
+			"url", pr.URL,
+			"error", err)
+		return false
+	}
+	if !pr.MeetsLabelMinAges(modelRules, added, now) {
+		slog.Info("Skipping pull request until required label ages are met",
+			"pr", pr.Title,
+			"url", pr.URL,
+			"labels", pr.Labels,
+			"require_label_ages", rules,
+			"added_at", added)
+		return false
+	}
+	return true
 }
 
 // convertChannelRouting converts the channel routing configuration from the config

@@ -16,6 +16,7 @@ development process and reduces delays in merging important changes.
 ** Features
 - Uses GitHub CLI (`gh`) to identify pending pull requests
 - Filters PRs based on configurable criteria (age, labels, etc.)
+- Can require a label to have been on the PR for a minimum time since it was last added
 - Sends customized notifications to reviewers via Slack DMs
 - Maps GitHub usernames to Slack usernames for proper @mentions
 - Routes notifications to appropriate Slack channels based on file patterns in

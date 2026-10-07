@@ -538,6 +538,147 @@ func TestConvertPklConfigLabelFilters(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRequireLabelAges(t *testing.T) {
+	t.Run("loads label age rules", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings:
+  require_label_ages:
+    - label: "X"
+      min_hours: 24
+    - label: "Y"
+      min_hours: 48
+`
+		if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if len(cfg.Settings.RequireLabelAges) != 2 {
+			t.Fatalf("require_label_ages len = %d, want 2", len(cfg.Settings.RequireLabelAges))
+		}
+		if cfg.Settings.RequireLabelAges[0] != (LabelAgeConfig{Label: "X", MinHours: 24}) {
+			t.Errorf("first rule = %+v", cfg.Settings.RequireLabelAges[0])
+		}
+		if cfg.Settings.RequireLabelAges[1] != (LabelAgeConfig{Label: "Y", MinHours: 48}) {
+			t.Errorf("second rule = %+v", cfg.Settings.RequireLabelAges[1])
+		}
+	})
+
+	t.Run("defaults label age rules to empty", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+`
+		if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if len(cfg.Settings.RequireLabelAges) != 0 {
+			t.Errorf("require_label_ages = %v, want empty", cfg.Settings.RequireLabelAges)
+		}
+	})
+
+	t.Run("rejects a non-positive min_hours", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings:
+  require_label_ages:
+    - label: "X"
+      min_hours: 0
+`
+		if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		_, err := LoadConfig(configPath)
+		if err == nil {
+			t.Fatal("LoadConfig() error = nil, want min_hours validation error")
+		}
+		if !strings.Contains(err.Error(), "min_hours") {
+			t.Errorf("LoadConfig() error = %v, want min_hours", err)
+		}
+	})
+
+	t.Run("rejects an empty label", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings:
+  require_label_ages:
+    - label: ""
+      min_hours: 24
+`
+		if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		_, err := LoadConfig(configPath)
+		if err == nil {
+			t.Fatal("LoadConfig() error = nil, want label validation error")
+		}
+		if !strings.Contains(err.Error(), "label") {
+			t.Errorf("LoadConfig() error = %v, want label", err)
+		}
+	})
+}
+
+func TestConvertPklConfigRequireLabelAges(t *testing.T) {
+	pklCfg := &pklconfig.Config{
+		Settings: pklconfig.SettingsConfig{
+			ReminderThresholdHours: 24,
+			RequireLabelAges: []pklconfig.LabelAgeConfig{
+				{Label: "X", MinHours: 24},
+				{Label: "Y", MinHours: 48},
+			},
+		},
+	}
+
+	cfg := convertPklConfig(pklCfg)
+	if len(cfg.Settings.RequireLabelAges) != 2 {
+		t.Fatalf("require_label_ages len = %d, want 2", len(cfg.Settings.RequireLabelAges))
+	}
+	if cfg.Settings.RequireLabelAges[0] != (LabelAgeConfig{Label: "X", MinHours: 24}) {
+		t.Errorf("first rule = %+v", cfg.Settings.RequireLabelAges[0])
+	}
+	if cfg.Settings.RequireLabelAges[1] != (LabelAgeConfig{Label: "Y", MinHours: 48}) {
+		t.Errorf("second rule = %+v", cfg.Settings.RequireLabelAges[1])
+	}
+}
+
 func TestConvertPklConfigSkipUsers(t *testing.T) {
 	pklCfg := &pklconfig.Config{
 		Settings: pklconfig.SettingsConfig{

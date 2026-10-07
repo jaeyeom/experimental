@@ -24,4 +24,8 @@ type SettingsConfig struct {
 	// Skip nudging these GitHub users. Empty means no users are skipped.
 	// Skipped users do not need a Slack user ID mapping.
 	SkipUsers []string `pkl:"skip_users"`
+
+	// Each entry must be present and at least this old since it was last added.
+	// Empty means no label-age requirement. Every entry is required.
+	RequireLabelAges []LabelAgeConfig `pkl:"require_label_ages"`
 }

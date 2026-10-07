@@ -6,6 +6,7 @@ go_library(
         "ChannelRoutingConfig.pkl.go",
         "Config.pkl.go",
         "GitHubConfig.pkl.go",
+        "LabelAgeConfig.pkl.go",
         "SettingsConfig.pkl.go",
         "SlackConfig.pkl.go",
         "init.pkl.go",

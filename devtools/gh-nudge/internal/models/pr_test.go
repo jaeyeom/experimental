@@ -307,6 +307,118 @@ func TestPullRequestAllowsNudge(t *testing.T) {
 	}
 }
 
+func TestPullRequestMeetsLabelMinAges(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+	tests := []struct {
+		name    string
+		pr      PullRequest
+		rules   []LabelMinAge
+		addedAt map[string]time.Time
+		want    bool
+	}{
+		{
+			name: "empty rules allow a PR with no label ages",
+			pr:   prWithLabels(),
+			want: true,
+		},
+		{
+			name:  "missing label does not meet the age",
+			pr:    prWithLabels("backend"),
+			rules: []LabelMinAge{{Label: "X", MinHours: 24}},
+			addedAt: map[string]time.Time{
+				"X": now.Add(-2 * day),
+			},
+			want: false,
+		},
+		{
+			name:  "present label with no add time does not meet the age",
+			pr:    prWithLabels("X"),
+			rules: []LabelMinAge{{Label: "X", MinHours: 24}},
+			want:  false,
+		},
+		{
+			name:  "zero add time does not meet the age",
+			pr:    prWithLabels("X"),
+			rules: []LabelMinAge{{Label: "X", MinHours: 24}},
+			addedAt: map[string]time.Time{
+				"X": {},
+			},
+			want: false,
+		},
+		{
+			name:  "label younger than the minimum does not meet the age",
+			pr:    prWithLabels("X"),
+			rules: []LabelMinAge{{Label: "X", MinHours: 24}},
+			addedAt: map[string]time.Time{
+				"X": now.Add(-24*time.Hour + time.Second),
+			},
+			want: false,
+		},
+		{
+			name:  "label aged exactly the minimum meets the age",
+			pr:    prWithLabels("X"),
+			rules: []LabelMinAge{{Label: "X", MinHours: 24}},
+			addedAt: map[string]time.Time{
+				"X": now.Add(-day),
+			},
+			want: true,
+		},
+		{
+			name:  "label older than the minimum meets the age",
+			pr:    prWithLabels("X", "backend"),
+			rules: []LabelMinAge{{Label: "X", MinHours: 24}},
+			addedAt: map[string]time.Time{
+				"X": now.Add(-2 * day),
+			},
+			want: true,
+		},
+		{
+			name:  "label name match is case sensitive",
+			pr:    prWithLabels("X"),
+			rules: []LabelMinAge{{Label: "x", MinHours: 24}},
+			addedAt: map[string]time.Time{
+				"x": now.Add(-2 * day),
+			},
+			want: false,
+		},
+		{
+			name: "every rule must be met",
+			pr:   prWithLabels("X", "Y"),
+			rules: []LabelMinAge{
+				{Label: "X", MinHours: 24},
+				{Label: "Y", MinHours: 48},
+			},
+			addedAt: map[string]time.Time{
+				"X": now.Add(-2 * day),
+				"Y": now.Add(-day),
+			},
+			want: false,
+		},
+		{
+			name: "all rules met when each label is old enough",
+			pr:   prWithLabels("X", "Y"),
+			rules: []LabelMinAge{
+				{Label: "X", MinHours: 24},
+				{Label: "Y", MinHours: 48},
+			},
+			addedAt: map[string]time.Time{
+				"X": now.Add(-2 * day),
+				"Y": now.Add(-3 * day),
+			},
+			want: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.pr.MeetsLabelMinAges(tc.rules, tc.addedAt, now)
+			if got != tc.want {
+				t.Errorf("MeetsLabelMinAges() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLatestReviewSubmittedAt(t *testing.T) {
 	aliceEarlier := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	aliceLater := time.Date(2026, 3, 1, 15, 0, 0, 0, time.UTC)
