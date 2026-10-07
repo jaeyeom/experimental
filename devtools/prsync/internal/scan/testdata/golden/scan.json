@@ -15,6 +15,7 @@
       "head": "fix-widget",
       "head_sha": "abc123def456",
       "merge_state_status": "CLEAN",
+      "mergeable": "MERGEABLE",
       "is_draft": false,
       "review_decision": "APPROVED",
       "review_requests": [

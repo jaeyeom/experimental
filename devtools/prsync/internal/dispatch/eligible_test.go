@@ -12,14 +12,15 @@ func TestEligibleSkipReasons(t *testing.T) {
 
 	cfg := config.Defaults()
 	tests := []struct {
-		name   string
-		c      Candidate
-		cfg    config.Config
-		st     State
-		rebase bool
-		ciFix  bool
-		force  bool
-		want   string
+		name       string
+		c          Candidate
+		cfg        config.Config
+		st         State
+		rebase     bool
+		ciFix      bool
+		force      bool
+		want       string
+		wantDetail string
 	}{
 		{
 			name: "not found",
@@ -92,12 +93,13 @@ func TestEligibleSkipReasons(t *testing.T) {
 			want:  "",
 		},
 		{
-			name:  "ci-fix deduped by ci-fix SHA",
-			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
-			cfg:   cfg,
-			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
-			ciFix: true,
-			want:  ActionSkippedDeduped,
+			name:       "ci-fix deduped by ci-fix SHA",
+			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix:      true,
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123, ci_state=",
 		},
 		{
 			name:  "ci-fix retries when still failing",
@@ -108,20 +110,55 @@ func TestEligibleSkipReasons(t *testing.T) {
 			want:  "",
 		},
 		{
-			name:  "ci-fix still deduped when green",
-			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "green" })},
-			cfg:   cfg,
-			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
-			ciFix: true,
-			want:  ActionSkippedDeduped,
+			name:       "ci-fix still deduped when green",
+			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "green" })},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix:      true,
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123, ci_state=green",
 		},
 		{
-			name:  "ci-fix completed with new sha still deduped when green",
+			name:  "ci-fix new head is not deduped when green",
 			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "fff000"; p.CIState = "green" })},
 			cfg:   cfg,
 			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
 			ciFix: true,
-			want:  ActionSkippedDeduped,
+			want:  "",
+		},
+		{
+			name:  "ci-fix new head pending is not deduped",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "fff000"; p.CIState = "pending" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix: true,
+			want:  "",
+		},
+		{
+			name:  "ci-fix new head none is not deduped",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "fff000"; p.CIState = "none" })},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix: true,
+			want:  "",
+		},
+		{
+			name:       "ci-fix same head pending stays deduped",
+			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "pending" })},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix:      true,
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123, ci_state=pending",
+		},
+		{
+			name:       "ci-fix same head none stays deduped",
+			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "none" })},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix:      true,
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123, ci_state=none",
 		},
 		{
 			name:  "ci-fix force redispatches same head",
@@ -148,12 +185,13 @@ func TestEligibleSkipReasons(t *testing.T) {
 			want:   "",
 		},
 		{
-			name:   "rebase deduped by head SHA",
-			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
-			cfg:    cfg,
-			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
-			rebase: true,
-			want:   ActionSkippedDeduped,
+			name:       "rebase deduped by head SHA",
+			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123" })},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase:     true,
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123, merge_state=",
 		},
 		{
 			name:   "rebase retries when still behind",
@@ -172,20 +210,47 @@ func TestEligibleSkipReasons(t *testing.T) {
 			want:   "",
 		},
 		{
-			name:   "rebase still deduped when clean",
-			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.MergeStateStatus = "CLEAN" })},
-			cfg:    cfg,
-			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
-			rebase: true,
-			want:   ActionSkippedDeduped,
+			name: "rebase still deduped when clean",
+			c: Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) {
+				p.Unaddressed = false
+				p.HeadSHA = "abc123"
+				p.MergeStateStatus = "CLEAN"
+				p.Mergeable = "MERGEABLE"
+			})},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase:     true,
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123, merge_state=CLEAN",
 		},
 		{
-			name:   "rebase completed with new sha still deduped when clean",
+			name:   "rebase new head is not deduped when clean",
 			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "fff000"; p.MergeStateStatus = "CLEAN" })},
 			cfg:    cfg,
 			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
 			rebase: true,
-			want:   ActionSkippedDeduped,
+			want:   "",
+		},
+		{
+			name:   "rebase retries when merge state unknown",
+			c:      Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.MergeStateStatus = "UNKNOWN" })},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			want:   "",
+		},
+		{
+			name: "rebase retries when mergeable conflicting",
+			c: Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) {
+				p.Unaddressed = false
+				p.HeadSHA = "abc123"
+				p.MergeStateStatus = "CLEAN"
+				p.Mergeable = "CONFLICTING"
+			})},
+			cfg:    cfg,
+			st:     State{"acme/widgets#123": {DispatchedHeadSHA: "abc123"}},
+			rebase: true,
+			want:   "",
 		},
 		{
 			name:   "rebase force redispatches same head",
@@ -273,6 +338,9 @@ func TestEligibleSkipReasons(t *testing.T) {
 			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase, tc.ciFix, tc.force)
 			if got.Action != tc.want {
 				t.Fatalf("action = %q, want %q", got.Action, tc.want)
+			}
+			if got.Detail != tc.wantDetail {
+				t.Fatalf("detail = %q, want %q", got.Detail, tc.wantDetail)
 			}
 			if got.Repo != tc.c.Repo || got.Number != tc.c.Number {
 				t.Fatalf("result = %+v, want repo/number from candidate", got)
