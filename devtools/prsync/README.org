@@ -231,6 +231,7 @@ prsync scan --config ./prsync.config
       "head": "fix-widget",
       "head_sha": "abc123def456",
       "merge_state_status": "CLEAN",
+      "mergeable": "MERGEABLE",
       "is_draft": false,
       "review_decision": "APPROVED",
       "review_requests": ["User:reviewer-login", "Team:platform-reviewers"],
@@ -416,14 +417,14 @@ tab (no new worktree).
 | Mode | Flag | Done when | Notes |
 |------+------+-----------+-------|
 | comments (default) | (none) | listed threads addressed | Dedupe on unaddressed comment ids |
-| rebase | ~--rebase~ | not ~BEHIND~ or ~DIRTY~ | Same ~head_sha~ does not block retry of a failed rebase. ~--all~ sends to every PR with a ready tab (auto-picking behind PRs is a follow-up). Missing ~merge_state_status~ in a scan document keeps head-SHA dedupe |
-| CI-fix | ~--ci-fix~ | ~ci_state~ no longer ~failing~ | Same ~head_sha~ does not block retry of a still-red check. ~--hint~ is a starting point the agent must verify; omit it to investigate from scratch. Caller chooses ~--ci-fix~ — ~prsync~ does not triage. Missing ~ci_state~ keeps head-SHA dedupe |
+| rebase | ~--rebase~ | recorded ~dispatched_head_sha~ equals the current head, and merge state is not ~BEHIND~, ~DIRTY~, or ~UNKNOWN~, and ~mergeable~ is not ~CONFLICTING~ | A new head is a fresh decision. ~BEHIND~, ~DIRTY~, ~UNKNOWN~, and ~mergeable~ ~CONFLICTING~ retry even when the recorded sha matches. ~--all~ sends to every PR with a ready tab (auto-picking behind PRs is a follow-up). Missing ~merge_state_status~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, merge_state=<status>~ |
+| CI-fix | ~--ci-fix~ | recorded ~dispatched_ci_fix_sha~ equals the current head, and ~ci_state~ is not ~failing~ | A new head is a fresh decision, including ~pending~, ~none~, and ~green~. A still-red check retries on the same head. ~--hint~ is a starting point the agent must verify; omit it to investigate from scratch. Caller chooses ~--ci-fix~ — ~prsync~ does not triage. Missing ~ci_state~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, ci_state=<status>~ |
 
 Cannot combine ~--rebase~ and ~--ci-fix~; rebase first, then CI-fix. If
 you also re-trigger CI, do that last (a new commit invalidates it).
-~--force~ re-dispatches even when dedupe would skip. A completed
-rebase or CI-fix (satisfied, with a recorded dispatch) is
-~skipped_deduped~.
+~--force~ re-dispatches even when dedupe would skip. A rebase or CI-fix
+recorded for this head, once the PR is no longer in a needs-work state,
+is ~skipped_deduped~ and ~detail~ says which sha and status were recorded.
 
 #+BEGIN_SRC bash
 prsync dispatch --config ./prsync.config --rebase --pr acme/widgets#123 --go
