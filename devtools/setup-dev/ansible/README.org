@@ -230,6 +230,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-emacs-lsp-booster.yml
 - setup-fira-code.yml
 - setup-fira-code-nerd-font.yml
+- setup-ghostty.yml
 - setup-git.yml
 - setup-go-tools.yml
 - setup-gpg-agent.yml
