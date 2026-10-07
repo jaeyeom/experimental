@@ -112,31 +112,33 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 // failing. A skipped rebase or CI-fix sets Detail to the recorded SHA and
 // status. force skips comment, rebase, and CI-fix dedupe.
 func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) Item {
-	action, detail := skipReason(c, cfg, st, rebase, ciFix, force)
-	return Item{Repo: c.Repo, Number: c.Number, Action: action, Detail: detail}
+	item := skipReason(c, cfg, st, rebase, ciFix, force)
+	item.Repo = c.Repo
+	item.Number = c.Number
+	return item
 }
 
-func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) (string, string) {
+func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) Item {
 	if c.PR == nil {
-		return ActionSkippedNotFound, ""
+		return Item{Action: ActionSkippedNotFound}
 	}
 	pr := *c.PR
 	key := prKey(c.Repo, c.Number)
 	switch {
 	case !rebase && !ciFix && !pr.Unaddressed:
-		return ActionSkippedAddressed, ""
+		return Item{Action: ActionSkippedAddressed}
 	case pr.IsDraft && !cfg.IncludeDrafts:
-		return ActionSkippedDraft, ""
+		return Item{Action: ActionSkippedDraft}
 	case pr.Tab == nil:
-		return ActionSkippedNoTab, ""
+		return Item{Action: ActionSkippedNoTab}
 	case pr.Tab.PaneID == nil:
-		return ActionSkippedNoAgent, ""
+		return Item{Action: ActionSkippedNoAgent}
 	case !readyStatus(pr.Tab.AgentStatus):
-		return ActionSkippedBusy, ""
+		return Item{Action: ActionSkippedBusy}
 	case skipDeduped(st, key, pr, rebase, ciFix, force):
-		return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
+		return Item{Action: ActionSkippedDeduped, Detail: dedupeDetail(st, key, pr, rebase, ciFix)}
 	default:
-		return "", ""
+		return Item{}
 	}
 }
 
