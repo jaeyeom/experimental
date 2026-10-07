@@ -90,11 +90,22 @@ type ReviewAuthor struct {
 	Login string `json:"login"`
 }
 
-// StatusCheck is one statusCheckRollup entry.
+// StatusCheck is one statusCheckRollup entry. Check runs use name, status,
+// and conclusion. Commit statuses (StatusContext) use context and state.
 type StatusCheck struct {
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
+	Context    string `json:"context"`
+	State      string `json:"state"`
+}
+
+// DisplayName returns the check name, or the commit-status context when name is empty.
+func (c StatusCheck) DisplayName() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Context
 }
 
 // Thread is one review thread after pagination flattening.
