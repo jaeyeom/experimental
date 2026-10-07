@@ -1,13 +1,18 @@
 package gh
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -195,31 +200,25 @@ func TestListOpenPRs(t *testing.T) {
 		}
 	})
 
-	t.Run("http 403 rate limit is fatal", func(t *testing.T) {
+	t.Run("http 403 primary rate limit is fatal", func(t *testing.T) {
 		t.Parallel()
-		tests := []struct {
-			name   string
-			stderr string
-		}{
-			{name: "api rate limit", stderr: "HTTP 403: API rate limit exceeded"},
-			{name: "secondary", stderr: "HTTP 403: secondary rate limit"},
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
+			"--repo", "acme/widgets", "--author", "alice", "--state", "open",
+			"--limit", "1000", "--json", jsonFields).
+			WillFail("HTTP 403: API rate limit exceeded", 1).Once().Build()
+		_, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
+		if err == nil {
+			t.Fatal("ListOpenPRs() error = nil, want fatal")
 		}
-		for _, tc := range tests {
-			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
-				mock := newGHMock()
-				mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
-					"--repo", "acme/widgets", "--author", "alice", "--state", "open",
-					"--limit", "1000", "--json", jsonFields).
-					WillFail(tc.stderr, 1).Build()
-				_, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
-				if err == nil {
-					t.Fatal("ListOpenPRs() error = nil, want fatal")
-				}
-				if errors.Is(err, ErrInaccessible) {
-					t.Fatalf("ListOpenPRs() treated 403 as inaccessible: %v", err)
-				}
-			})
+		if errors.Is(err, ErrInaccessible) {
+			t.Fatalf("ListOpenPRs() treated 403 as inaccessible: %v", err)
+		}
+		if strings.Contains(err.Error(), "transient upstream error") {
+			t.Fatalf("ListOpenPRs() retried primary rate limit: %v", err)
+		}
+		if calls := len(mock.Executions()); calls != 1 {
+			t.Fatalf("calls = %d, want 1", calls)
 		}
 	})
 }
@@ -412,6 +411,312 @@ func TestCommentPR(t *testing.T) {
 			t.Fatalf("CommentPR() error = %v, want ProcError", err)
 		}
 	})
+}
+
+const retryListBody = `[{"number":7}]`
+
+func TestListOpenPRsRetriesTransientFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		fail func(*executor.MockExpectationBuilder)
+	}{
+		{
+			name: "http 504",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillFail("HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)", 1)
+			},
+		},
+		{
+			name: "http 502",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillFail("HTTP 502: Bad Gateway", 1)
+			},
+		},
+		{
+			name: "http 503",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillFail("HTTP 503: Service Unavailable", 1)
+			},
+		},
+		{
+			name: "unexpected end of json input",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillFail("unexpected end of JSON input", 1)
+			},
+		},
+		{
+			name: "unexpected eof",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillFail("unexpected EOF", 1)
+			},
+		},
+		{
+			name: "empty output",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillFail("", 1)
+			},
+		},
+		{
+			name: "timeout",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillTimeout(60 * time.Second)
+			},
+		},
+		{
+			name: "truncated json",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillSucceed(`[{"number":`, 0)
+			},
+		},
+		{
+			name: "secondary rate limit",
+			fail: func(b *executor.MockExpectationBuilder) {
+				b.WillFail("HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.", 1)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mock := newGHMock()
+			first := expectPRList(mock).Once()
+			tc.fail(first)
+			first.Build()
+			expectPRList(mock).WillSucceed(retryListBody, 0).Once().Build()
+			client, probe := newProbedClient(t, mock)
+			got, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice")
+			if err != nil {
+				t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+			}
+			if len(got) != 1 || got[0].Number != 7 {
+				t.Fatalf("ListOpenPRs() = %+v, want PR 7", got)
+			}
+			if calls := len(mock.Executions()); calls != 2 {
+				t.Fatalf("calls = %d, want 2", calls)
+			}
+			if !slices.Equal(probe.waits, []time.Duration{2 * time.Second}) {
+				t.Fatalf("waits = %v, want [2s]", probe.waits)
+			}
+			if !strings.Contains(probe.stderr.String(), "transient") || !strings.Contains(probe.logs.String(), "gh retry") {
+				t.Fatalf("stderr=%q logs=%q, want a retry log", probe.stderr.String(), probe.logs.String())
+			}
+		})
+	}
+}
+
+func TestListOpenPRsTransientExhausted(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillFail("HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)", 1).Times(3).Build()
+	client, probe := newProbedClient(t, mock)
+	_, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice")
+	if err == nil {
+		t.Fatal("ListOpenPRs() error = nil, want exhausted transient error")
+	}
+	if !strings.Contains(err.Error(), "transient upstream error") {
+		t.Fatalf("ListOpenPRs() error = %v, want transient upstream error", err)
+	}
+	if !strings.Contains(err.Error(), "HTTP 504") {
+		t.Fatalf("ListOpenPRs() error = %v, want the upstream 504", err)
+	}
+	if calls := len(mock.Executions()); calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
+	wantWaits := []time.Duration{2 * time.Second, 8 * time.Second}
+	if !slices.Equal(probe.waits, wantWaits) {
+		t.Fatalf("waits = %v, want %v", probe.waits, wantWaits)
+	}
+	stderr := probe.stderr.String()
+	if !strings.Contains(stderr, "attempt 2/3") || !strings.Contains(stderr, "waiting 2s") ||
+		!strings.Contains(stderr, "attempt 3/3") || !strings.Contains(stderr, "waiting 8s") {
+		t.Fatalf("stderr = %q, want both retry lines", stderr)
+	}
+	if !strings.Contains(probe.logs.String(), `"msg":"gh retry"`) {
+		t.Fatalf("logs = %q, want gh retry", probe.logs.String())
+	}
+}
+
+func TestListOpenPRsHonorsSecondaryRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		stderr string
+		want   time.Duration
+	}{
+		{
+			name:   "header seconds",
+			stderr: "HTTP 403: secondary rate limit\nRetry-After: 30",
+			want:   30 * time.Second,
+		},
+		{
+			name:   "phrase seconds",
+			stderr: "HTTP 403: secondary rate limit; retry after 45 seconds",
+			want:   45 * time.Second,
+		},
+		{
+			name:   "header http date",
+			stderr: "HTTP 403: You have exceeded a secondary rate limit.\nRetry-After: Wed, 21 Oct 2015 07:28:30 GMT",
+			want:   30 * time.Second,
+		},
+		{
+			name:   "past http date waits zero",
+			stderr: "HTTP 403: secondary rate limit\nRetry-After: Wed, 21 Oct 2015 07:27:00 GMT",
+			want:   0,
+		},
+		{
+			name:   "gateway timeout keeps the schedule",
+			stderr: "HTTP 504: 504 Gateway Timeout\nRetry-After: 30",
+			want:   2 * time.Second,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mock := newGHMock()
+			expectPRList(mock).WillFail(tc.stderr, 1).Once().Build()
+			expectPRList(mock).WillSucceed(retryListBody, 0).Once().Build()
+			client, probe := newProbedClient(t, mock)
+			if _, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice"); err != nil {
+				t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+			}
+			if !slices.Equal(probe.waits, []time.Duration{tc.want}) {
+				t.Fatalf("waits = %v, want [%s]", probe.waits, tc.want)
+			}
+		})
+	}
+}
+
+func TestListOpenPRsDoesNotRetryClientErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		stderr string
+	}{
+		{name: "http 401", stderr: "HTTP 401: Bad credentials"},
+		{name: "http 403 forbidden", stderr: "HTTP 403: Must have admin rights to Repository"},
+		{name: "permission", stderr: "HTTP 403: Resource not accessible by integration"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mock := newGHMock()
+			expectPRList(mock).WillFail(tc.stderr, 1).Once().Build()
+			client, probe := newProbedClient(t, mock)
+			_, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice")
+			if err == nil {
+				t.Fatal("ListOpenPRs() error = nil, want client error")
+			}
+			if strings.Contains(err.Error(), "transient upstream error") {
+				t.Fatalf("ListOpenPRs() retried client error: %v", err)
+			}
+			if calls := len(mock.Executions()); calls != 1 {
+				t.Fatalf("calls = %d, want 1", calls)
+			}
+			if len(probe.waits) != 0 {
+				t.Fatalf("waits = %v, want none", probe.waits)
+			}
+		})
+	}
+}
+
+func TestListOpenPRsDoesNotRetryWrongJSONShape(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillSucceed(`{"number":1}`, 0).Once().Build()
+	client, probe := newProbedClient(t, mock)
+	_, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice")
+	if err == nil || !strings.Contains(err.Error(), "decode pr list") {
+		t.Fatalf("ListOpenPRs() error = %v, want decode pr list", err)
+	}
+	if strings.Contains(err.Error(), "transient upstream error") {
+		t.Fatalf("ListOpenPRs() retried a complete JSON object: %v", err)
+	}
+	if calls := len(mock.Executions()); calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestListOpenPRsStopsWhenRetryWaitIsCanceled(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillFail("HTTP 504: 504 Gateway Timeout", 1).Once().Build()
+	client, probe := newProbedClient(t, mock)
+	client.sleep = func(_ context.Context, d time.Duration) error {
+		probe.waits = append(probe.waits, d)
+		return context.Canceled
+	}
+	_, err := client.ListOpenPRs(context.Background(), "acme/widgets", "alice")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListOpenPRs() error = %v, want context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "transient upstream error") {
+		t.Fatalf("canceled wait reported as exhausted: %v", err)
+	}
+	if calls := len(mock.Executions()); calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestUserLoginRetriesEmptyOutput(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	mock.ExpectCommandWithArgs(testGHBin, "api", "user", "--jq", ".login").
+		WillSucceed("", 0).Once().Build()
+	mock.ExpectCommandWithArgs(testGHBin, "api", "user", "--jq", ".login").
+		WillSucceed("alice\n", 0).Once().Build()
+	client, probe := newProbedClient(t, mock)
+	got, err := client.UserLogin(probe.ctx())
+	if err != nil {
+		t.Fatalf("UserLogin() unexpected error: %v", err)
+	}
+	if got != "alice" {
+		t.Fatalf("UserLogin() = %q, want alice", got)
+	}
+	if calls := len(mock.Executions()); calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+	if !slices.Equal(probe.waits, []time.Duration{2 * time.Second}) {
+		t.Fatalf("waits = %v, want [2s]", probe.waits)
+	}
+}
+
+type ghRetryProbe struct {
+	waits  []time.Duration
+	stderr bytes.Buffer
+	logs   bytes.Buffer
+}
+
+func newProbedClient(t *testing.T, mock *executor.MockExecutor) (*Client, *ghRetryProbe) {
+	t.Helper()
+	probe := &ghRetryProbe{}
+	client := NewClient(mock, testGHBin)
+	client.errOut = &probe.stderr
+	client.now = func() time.Time { return time.Date(2015, 10, 21, 7, 28, 0, 0, time.UTC) }
+	client.sleep = func(_ context.Context, d time.Duration) error {
+		probe.waits = append(probe.waits, d)
+		return nil
+	}
+	return client, probe
+}
+
+func (p *ghRetryProbe) ctx() context.Context {
+	handler := slog.NewJSONHandler(&p.logs, &slog.HandlerOptions{Level: slog.LevelDebug})
+	return runlog.WithLogger(context.Background(), slog.New(handler))
+}
+
+func expectPRList(mock *executor.MockExecutor) *executor.MockExpectationBuilder {
+	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	return mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
+		"--repo", "acme/widgets", "--author", "alice", "--state", "open",
+		"--limit", "1000", "--json", jsonFields)
 }
 
 func newGHMock() *executor.MockExecutor {
