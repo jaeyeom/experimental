@@ -105,34 +105,51 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 }
 
 // Evaluate returns the skip action for a candidate, or a zero Action if eligible.
-// Rebase and CI-fix modes skip the unaddressed-comment gate. A rebase dispatch
-// is satisfied only when the PR is no longer behind or conflicting; a matching
-// head SHA is not enough, so a failed rebase can be retried. A CI-fix dispatch
-// is satisfied only when CI is no longer failing; a matching head SHA is not
-// enough, so a still-red check can be retried. force skips comment, rebase,
-// and CI-fix dedupe.
+// Rebase and CI-fix modes skip the unaddressed-comment gate. A rebase is
+// deduped only when dispatched_head_sha equals the current head and the PR is
+// not behind, dirty, unknown, or mergeable CONFLICTING. A CI-fix is deduped
+// only when dispatched_ci_fix_sha equals the current head and CI is not
+// failing. A skipped rebase or CI-fix sets Detail to the recorded SHA and
+// status. force skips comment, rebase, and CI-fix dedupe.
 func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) Item {
-	return Item{Repo: c.Repo, Number: c.Number, Action: skipReason(c, cfg, st, rebase, ciFix, force)}
+	action, detail := skipReason(c, cfg, st, rebase, ciFix, force)
+	return Item{Repo: c.Repo, Number: c.Number, Action: action, Detail: detail}
 }
 
-func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) string {
+func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) (string, string) {
 	if c.PR == nil {
-		return ActionSkippedNotFound
+		return ActionSkippedNotFound, ""
 	}
 	pr := *c.PR
+	key := prKey(c.Repo, c.Number)
 	switch {
 	case !rebase && !ciFix && !pr.Unaddressed:
-		return ActionSkippedAddressed
+		return ActionSkippedAddressed, ""
 	case pr.IsDraft && !cfg.IncludeDrafts:
-		return ActionSkippedDraft
+		return ActionSkippedDraft, ""
 	case pr.Tab == nil:
-		return ActionSkippedNoTab
+		return ActionSkippedNoTab, ""
 	case pr.Tab.PaneID == nil:
-		return ActionSkippedNoAgent
+		return ActionSkippedNoAgent, ""
 	case !readyStatus(pr.Tab.AgentStatus):
-		return ActionSkippedBusy
-	case skipDeduped(st, prKey(c.Repo, c.Number), pr, rebase, ciFix, force):
-		return ActionSkippedDeduped
+		return ActionSkippedBusy, ""
+	case skipDeduped(st, key, pr, rebase, ciFix, force):
+		return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
+	default:
+		return "", ""
+	}
+}
+
+func dedupeDetail(st State, key string, pr scan.PR, rebase, ciFix bool) string {
+	if st == nil {
+		return ""
+	}
+	entry := st[key]
+	switch {
+	case rebase:
+		return fmt.Sprintf("recorded at %s, merge_state=%s", entry.DispatchedHeadSHA, pr.MergeStateStatus)
+	case ciFix:
+		return fmt.Sprintf("recorded at %s, ci_state=%s", entry.DispatchedCIFixSHA, pr.CIState)
 	default:
 		return ""
 	}
@@ -152,57 +169,38 @@ func skipDeduped(st State, key string, pr scan.PR, rebase, ciFix, force bool) bo
 	}
 }
 
-// rebaseDeduped reports whether a prior rebase dispatch is already satisfied.
-// BEHIND and DIRTY always retry. A recorded rebase plus a known up-to-date
-// merge state (CLEAN and similar) is satisfied even if the head SHA moved.
-// Empty merge state falls back to head-SHA equality so older scan documents
-// keep the previous behavior.
+// rebaseDeduped reports whether a prior rebase dispatch on this head is
+// already satisfied. BEHIND, DIRTY, UNKNOWN, and mergeable CONFLICTING always
+// retry. Any other merge state, including empty, is satisfied only when
+// dispatched_head_sha equals the current head.
 func rebaseDeduped(st State, key string, pr scan.PR) bool {
-	if rebaseIncomplete(pr.MergeStateStatus) {
+	if rebaseIncomplete(pr) {
 		return false
-	}
-	if pr.MergeStateStatus != "" && rebaseRecorded(st, key) {
-		return true
 	}
 	return st.DedupedHead(key, pr.HeadSHA)
 }
 
-func rebaseIncomplete(status string) bool {
-	return status == "BEHIND" || status == "DIRTY"
-}
-
-func rebaseRecorded(st State, key string) bool {
-	if st == nil {
-		return false
+func rebaseIncomplete(pr scan.PR) bool {
+	switch pr.MergeStateStatus {
+	case "BEHIND", "DIRTY", "UNKNOWN":
+		return true
+	default:
+		return pr.Mergeable == "CONFLICTING"
 	}
-	entry, ok := st[key]
-	return ok && entry.DispatchedHeadSHA != ""
 }
 
-// ciFixDeduped reports whether a prior CI-fix dispatch is already satisfied.
-// failing always retries. A recorded CI-fix plus a known non-failing CI
-// state is satisfied even if the head SHA moved. Empty CI state falls back
-// to head-SHA equality so older scan documents keep SHA dedupe.
+// ciFixDeduped reports whether a prior CI-fix dispatch on this head is
+// already satisfied. failing always retries. Any other CI state, including
+// empty, is satisfied only when dispatched_ci_fix_sha equals the current head.
 func ciFixDeduped(st State, key string, pr scan.PR) bool {
 	if ciFixIncomplete(pr.CIState) {
 		return false
-	}
-	if pr.CIState != "" && ciFixRecorded(st, key) {
-		return true
 	}
 	return st.DedupedCIFix(key, pr.HeadSHA)
 }
 
 func ciFixIncomplete(status string) bool {
 	return status == "failing"
-}
-
-func ciFixRecorded(st State, key string) bool {
-	if st == nil {
-		return false
-	}
-	entry, ok := st[key]
-	return ok && entry.DispatchedCIFixSHA != ""
 }
 
 // Run evaluates the candidate set. Dry-run does a one-shot gate.Check, never

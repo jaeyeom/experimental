@@ -142,6 +142,9 @@ func TestDispatchRebaseForceRedispatches(t *testing.T) {
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
 		t.Fatalf("second results = %+v, want skipped_deduped", got.Results)
 	}
+	if got.Results[0].Detail != "recorded at abc123def456, merge_state=CLEAN" {
+		t.Fatalf("detail = %q, want recorded sha and merge state", got.Results[0].Detail)
+	}
 
 	restore = swapStdin(t, string(raw))
 	stdout.Reset()
@@ -232,6 +235,9 @@ func TestDispatchCIFixForceRedispatches(t *testing.T) {
 	got = decodeDispatch(t, stdout.Bytes())
 	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
 		t.Fatalf("second results = %+v, want skipped_deduped", got.Results)
+	}
+	if got.Results[0].Detail != "recorded at abc123def456, ci_state=green" {
+		t.Fatalf("detail = %q, want recorded sha and ci state", got.Results[0].Detail)
 	}
 
 	restore = swapStdin(t, string(raw))
