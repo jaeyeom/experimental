@@ -42,14 +42,14 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
-	cmd.Flags().StringArrayVar(&prs, "pr", nil, "limit to owner/repo#N (repeatable)")
+	cmd.Flags().StringArrayVar(&prs, "pr", nil, "fetch only owner/repo#N instead of a full scan (repeatable)")
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
 	cmd.Flags().BoolVar(&goLive, "go", false, "send prompts (default is dry-run)")
 	cmd.Flags().BoolVar(&rebase, "rebase", false, "dispatch a rebase-in-place prompt (skips the unaddressed-comment gate)")
 	cmd.Flags().BoolVar(&ciFix, "ci-fix", false, "dispatch a CI-fix prompt (skips the unaddressed-comment gate)")
 	cmd.Flags().StringVar(&hint, "hint", "", "non-authoritative CI failure hint (requires --ci-fix)")
 	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
-	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan)")
+	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan, or fetch --pr targets)")
 	return cmd
 }
 
@@ -76,7 +76,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		cfg.DryRun = false
 	}
 	logStartup(ctx, "dispatch", cfg)
-	doc, err := loadScanDoc(ctx, cfg, exec, readStdin)
+	doc, err := loadDispatchDoc(ctx, cfg, exec, readStdin, prs)
 	if err != nil {
 		return err
 	}
@@ -107,11 +107,53 @@ func loadScanDoc(ctx context.Context, cfg config.Config, exec executor.Executor,
 	if fromStdin {
 		return doc, nil
 	}
+	return loadFullScan(ctx, cfg, exec)
+}
+
+// loadDispatchDoc uses a stdin scan document when one is present. Otherwise
+// every --pr target is fetched on its own. --all and a bare dispatch still
+// run a full scan.
+func loadDispatchDoc(ctx context.Context, cfg config.Config, exec executor.Executor, readStdin bool, prs []string) (scan.Document, error) {
+	doc, fromStdin, err := readStdinScan(os.Stdin, readStdin)
+	if err != nil {
+		return scan.Document{}, &ExitError{Code: ExitUsage, Err: fmt.Errorf("stdin scan JSON: %w", err)}
+	}
+	if fromStdin {
+		return doc, nil
+	}
+	if len(prs) > 0 {
+		return loadTargetedDoc(ctx, cfg, exec, prs)
+	}
+	return loadFullScan(ctx, cfg, exec)
+}
+
+func loadFullScan(ctx context.Context, cfg config.Config, exec executor.Executor) (scan.Document, error) {
 	deps := scan.Deps{
 		GH:    gh.NewClient(exec, cfg.GHBin),
 		Herdr: herdr.NewClient(exec, cfg.HerdrBin),
 	}
-	doc, err = scan.Run(ctx, deps, cfg, nil, time.Now())
+	doc, err := scan.Run(ctx, deps, cfg, nil, time.Now())
+	return finishScanLoad(doc, err, cfg)
+}
+
+func loadTargetedDoc(ctx context.Context, cfg config.Config, exec executor.Executor, prs []string) (scan.Document, error) {
+	targets := make([]scan.Target, 0, len(prs))
+	for _, raw := range prs {
+		repo, n, err := dispatch.ParsePR(raw)
+		if err != nil {
+			return scan.Document{}, &ExitError{Code: ExitUsage, Err: err}
+		}
+		targets = append(targets, scan.Target{Repo: repo, Number: n})
+	}
+	deps := scan.Deps{
+		GH:    gh.NewClient(exec, cfg.GHBin),
+		Herdr: herdr.NewClient(exec, cfg.HerdrBin),
+	}
+	doc, err := scan.RunTargets(ctx, deps, cfg, targets, time.Now())
+	return finishScanLoad(doc, err, cfg)
+}
+
+func finishScanLoad(doc scan.Document, err error, cfg config.Config) (scan.Document, error) {
 	if err != nil {
 		if scan.Started(doc) {
 			return doc, scanExit(err, cfg)
