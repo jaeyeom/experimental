@@ -175,6 +175,9 @@ settings {
       min_hours = 24
     }
   }
+  // Hours since this reviewer was first requested. Zero disables the gate.
+  // A later request does not restart the clock.
+  min_first_review_request_hours = 24
 }
 #+end_src
 
@@ -241,6 +244,9 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
     require_label_ages:  # Also require each label to have aged since it was last added
       - label: "X"
         min_hours: 24
+    # Hours since this reviewer was first requested. 0 disables the gate.
+    # A later request does not restart the clock.
+    min_first_review_request_hours: 24
 #+end_src
 
 *Note*: YAML support may be deprecated in a future release. Consider migrating

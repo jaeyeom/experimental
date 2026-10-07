@@ -17,6 +17,10 @@ development process and reduces delays in merging important changes.
 - Uses GitHub CLI (`gh`) to identify pending pull requests
 - Filters PRs based on configurable criteria (age, labels, etc.)
 - Can require a label to have been on the PR for a minimum time since it was last added
+- Can wait to nudge a reviewer until that reviewer's first review request is a
+  minimum age. Zero disables the gate. A later request does not restart the
+  clock, and a reviewer who is not old enough is skipped without recording a
+  notification
 - Sends customized notifications to reviewers via Slack DMs
 - Maps GitHub usernames to Slack usernames for proper @mentions
 - Routes notifications to appropriate Slack channels based on file patterns in
@@ -79,3 +83,8 @@ review request once per `reminder_threshold_hours` period.
 The cooldown is per request cycle, not per reviewer for the life of the PR. If a
 reviewer submits a review and is later re-requested, the previous ping no longer
 blocks a new reminder. Dry-run mode still does not record pings.
+
+`min_first_review_request_hours` can hold the first nudge until that reviewer's
+first review request is old enough. Skipping for that reason does not record a
+ping, so the reminder clock has not started. A later request does not restart
+that age.

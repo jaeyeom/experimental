@@ -169,15 +169,16 @@ func processReviewer(
 	return nil
 }
 
-// labelAddedAtLookup fetches the newest time each label was added to a pull request.
-type labelAddedAtLookup interface {
+// pullRequestLookup fetches label and review-request times for a pull request.
+type pullRequestLookup interface {
 	LatestLabelAddedAt(prURL string, labels []string) (map[string]time.Time, error)
+	EarliestReviewRequestedAt(prURL string) (map[string]time.Time, error)
 }
 
 // processPullRequest handles the notification logic for a single pull request.
 func processPullRequest(
 	pr models.PullRequest,
-	labelAges labelAddedAtLookup,
+	lookup pullRequestLookup,
 	slackClient *slack.Client,
 	notificationTracker *notification.Tracker,
 	cfg *config.Config,
@@ -194,12 +195,27 @@ func processPullRequest(
 		return
 	}
 
-	if !labelAgesAllowNudge(pr, labelAges, cfg.Settings.RequireLabelAges, time.Now()) {
+	if !labelAgesAllowNudge(pr, lookup, cfg.Settings.RequireLabelAges, time.Now()) {
+		return
+	}
+
+	requestedAt, ok := firstReviewRequestedAt(pr, lookup, cfg.Settings.MinFirstReviewRequestHours)
+	if !ok {
 		return
 	}
 
 	// Process each reviewer
 	for _, reviewer := range pr.ReviewRequests {
+		if !firstReviewRequestAllowsNudge(
+			pr,
+			reviewer,
+			requestedAt,
+			cfg.Settings.MinFirstReviewRequestHours,
+			time.Now(),
+		) {
+			continue
+		}
+
 		err := processReviewer(pr, reviewer, slackClient, notificationTracker, cfg)
 		if err != nil {
 			slog.Error("Error processing reviewer", "reviewer", reviewer.Login, "error", err)
@@ -208,6 +224,44 @@ func processPullRequest(
 		// Sleep briefly to avoid rate limiting
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// firstReviewRequestedAt loads the earliest review-request time for each user.
+// A non-positive minimum skips the lookup and allows the pull request.
+// A lookup failure skips the pull request.
+func firstReviewRequestedAt(pr models.PullRequest, lookup pullRequestLookup, minHours int) (map[string]time.Time, bool) {
+	if minHours <= 0 {
+		return nil, true
+	}
+	requested, err := lookup.EarliestReviewRequestedAt(pr.URL)
+	if err != nil {
+		slog.Error("Skipping pull request because first review request lookup failed",
+			"pr", pr.Title,
+			"url", pr.URL,
+			"error", err)
+		return nil, false
+	}
+	return requested, true
+}
+
+// firstReviewRequestAllowsNudge reports whether this reviewer has been
+// requested for at least minHours, measured from the first request.
+// A non-positive minimum allows the reviewer. Teams are left to processReviewer.
+func firstReviewRequestAllowsNudge(pr models.PullRequest, reviewer models.ReviewRequest, requestedAt map[string]time.Time, minHours int, now time.Time) bool {
+	if minHours <= 0 || reviewer.Type != "User" {
+		return true
+	}
+	requested := requestedAt[reviewer.Login]
+	if models.MeetsFirstReviewRequestAge(requested, minHours, now) {
+		return true
+	}
+	slog.Info("Skipping reviewer until the first review request is old enough",
+		"pr", pr.Title,
+		"url", pr.URL,
+		"reviewer", reviewer.Login,
+		"min_first_review_request_hours", minHours,
+		"first_requested_at", requested)
+	return false
 }
 
 func main() {
@@ -261,7 +315,7 @@ func main() {
 // An empty rule list allows the pull request without a lookup.
 // A pull request that is missing one of the labels is skipped without a lookup.
 // A lookup failure or an unmet age skips the pull request.
-func labelAgesAllowNudge(pr models.PullRequest, lookup labelAddedAtLookup, rules []config.LabelAgeConfig, now time.Time) bool {
+func labelAgesAllowNudge(pr models.PullRequest, lookup pullRequestLookup, rules []config.LabelAgeConfig, now time.Time) bool {
 	if len(rules) == 0 {
 		return true
 	}

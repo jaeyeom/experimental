@@ -61,4 +61,7 @@ settings {
       min_hours = 24
     }
   }
+  // Hours since this reviewer was first requested. Zero disables the gate.
+  // A later request does not restart the clock.
+  min_first_review_request_hours = 24
 }
