@@ -250,7 +250,7 @@ func classifyPR(ctx context.Context, client GH, cfg config.Config, owner, name, 
 	}
 	comments := blockingComments(threads, cfg.Author)
 	id := ExtractID(item.Title, cfg.TitleIDPattern)
-	ci := CIState(item.StatusCheckRollup)
+	ci := CIState(selectCIChecks(item.StatusCheckRollup, cfg.CIIgnoreChecks, cfg.CIOnlyChecks))
 	reqs := formatReviewRequests(item.ReviewRequests)
 	out := PR{
 		Repo:             repo,

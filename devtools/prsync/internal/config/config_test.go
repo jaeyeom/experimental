@@ -458,6 +458,39 @@ func TestLoadStripPatternInvalidNamesLine(t *testing.T) {
 	}
 }
 
+func TestLoadCICheckGlobs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, strings.Join([]string{
+		`ci_ignore_checks="*approved*, *review*, lint-advisory/*"`,
+		"ci_only_checks=ci/*,build,test-*",
+	}, "\n")+"\n")
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	wantIgnore := []string{"*approved*", "*review*", "lint-advisory/*"}
+	wantOnly := []string{"ci/*", "build", "test-*"}
+	if !slices.Equal(got.CIIgnoreChecks, wantIgnore) {
+		t.Fatalf("CIIgnoreChecks = %#v, want %#v", got.CIIgnoreChecks, wantIgnore)
+	}
+	if !slices.Equal(got.CIOnlyChecks, wantOnly) {
+		t.Fatalf("CIOnlyChecks = %#v, want %#v", got.CIOnlyChecks, wantOnly)
+	}
+}
+
+func TestLoadEmptyCICheckGlobs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "ci_ignore_checks=\nci_only_checks=\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.CIIgnoreChecks) != 0 || len(got.CIOnlyChecks) != 0 {
+		t.Fatalf("ignore=%#v only=%#v, want empty", got.CIIgnoreChecks, got.CIOnlyChecks)
+	}
+}
+
 func TestLoadZeroCommentLimitsDisable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "comment_link_max_chars=0\ncomment_body_max_chars=0\n")
@@ -533,6 +566,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "negative body max", body: "comment_body_max_chars=-5\n", key: "comment_body_max_chars"},
 		{name: "non integer link max", body: "comment_link_max_chars=2s\n", key: "comment_link_max_chars"},
 		{name: "bad strip pattern", body: "comment_strip_patterns=[bad\n", key: "comment_strip_patterns"},
+		{name: "bad ci ignore glob", body: "ci_ignore_checks=[\n", key: "ci_ignore_checks"},
+		{name: "bad ci only glob", body: "ci_only_checks=foo[bar\n", key: "ci_only_checks"},
 		{name: "missing strip file", body: "comment_strip_patterns=@/no/such/strip\n", key: "comment_strip_patterns"},
 	}
 	for _, tc := range tests {

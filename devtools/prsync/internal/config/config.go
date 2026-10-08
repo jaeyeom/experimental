@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -119,6 +120,13 @@ type Config struct {
 	// CommentStripPatterns are removed from each comment body before link
 	// stripping and the body cap. Empty means no stripping.
 	CommentStripPatterns []*regexp.Regexp
+	// CIIgnoreChecks are path globs dropped from ci_state when CIOnlyChecks
+	// is empty. Patterns match a CheckRun name or a StatusContext context.
+	// Empty counts every rollup entry.
+	CIIgnoreChecks []string
+	// CIOnlyChecks, when non-empty, are the only path globs that feed
+	// ci_state. They win over CIIgnoreChecks.
+	CIOnlyChecks []string
 
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
@@ -322,10 +330,57 @@ func applyKey(cfg *Config, key, val string) error {
 		cfg.StateFile = val
 	case "dry_run":
 		return applyDryRun(cfg, val)
-	case "comment_link_max_chars", "comment_body_max_chars", "comment_strip_patterns":
-		return applyCommentKey(cfg, key, val)
+	default:
+		return applyOtherKey(cfg, key, val)
 	}
 	return nil
+}
+
+func applyOtherKey(cfg *Config, key, val string) error {
+	switch key {
+	case "comment_link_max_chars", "comment_body_max_chars", "comment_strip_patterns":
+		return applyCommentKey(cfg, key, val)
+	case "ci_ignore_checks", "ci_only_checks":
+		return applyCheckGlobs(cfg, key, val)
+	default:
+		return nil
+	}
+}
+
+func applyCheckGlobs(cfg *Config, key, val string) error {
+	patterns, err := splitGlobs(key, val)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case "ci_ignore_checks":
+		cfg.CIIgnoreChecks = patterns
+	case "ci_only_checks":
+		cfg.CIOnlyChecks = patterns
+	}
+	return nil
+}
+
+func splitGlobs(key, val string) ([]string, error) {
+	if strings.TrimSpace(val) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(val, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		pattern := strings.TrimSpace(part)
+		if pattern == "" {
+			continue
+		}
+		if _, err := path.Match(pattern, ""); err != nil {
+			return nil, &KeyError{Key: key, Reason: fmt.Sprintf("invalid glob %q", pattern)}
+		}
+		out = append(out, pattern)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 func applyCommentKey(cfg *Config, key, val string) error {
