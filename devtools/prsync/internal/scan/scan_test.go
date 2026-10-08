@@ -119,6 +119,67 @@ func TestRunHerdrUnsupported(t *testing.T) {
 	}
 }
 
+func TestRunCICheckFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		checks []gh.StatusCheck
+		ignore []string
+		only   []string
+		want   string
+	}{
+		{
+			name: "ignore review gates",
+			checks: []gh.StatusCheck{
+				{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"},
+				{Context: "code owners approved", State: "FAILURE"},
+				{Context: "review threads answered", State: "PENDING"},
+			},
+			ignore: []string{"*approved*", "*review*"},
+			want:   "green",
+		},
+		{
+			name: "allowlist wins over ignore",
+			checks: []gh.StatusCheck{
+				{Name: "build", Status: "COMPLETED", Conclusion: "FAILURE"},
+				{Context: "code owners approved", State: "FAILURE"},
+			},
+			ignore: []string{"build", "*approved*"},
+			only:   []string{"build"},
+			want:   "failing",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pr := fixturePRs()[0]
+			pr.StatusCheckRollup = tc.checks
+			cfg := config.Defaults()
+			cfg.Author = "alice"
+			cfg.Repos = []string{"acme/widgets"}
+			cfg.CIIgnoreChecks = tc.ignore
+			cfg.CIOnlyChecks = tc.only
+
+			g := &scriptGH{
+				list:    map[string]listResult{"acme/widgets": {prs: []gh.PRListItem{pr}}},
+				threads: map[int][]gh.Thread{},
+			}
+			doc, err := Run(context.Background(), Deps{GH: g, Herdr: fixtureHerdr{}}, cfg, nil, fixtureNow)
+			if err != nil {
+				t.Fatalf("Run() unexpected error: %v", err)
+			}
+			if len(doc.PRs) != 1 {
+				t.Fatalf("len(prs) = %d, want 1", len(doc.PRs))
+			}
+			if doc.PRs[0].CIState != tc.want {
+				t.Fatalf("CIState = %q, want %q", doc.PRs[0].CIState, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunInaccessibleRepo(t *testing.T) {
 	t.Parallel()
 

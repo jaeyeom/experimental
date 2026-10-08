@@ -258,3 +258,144 @@ func TestMixedStatusCheckRollupFixture(t *testing.T) {
 		t.Fatalf("status context = %+v", checks[1])
 	}
 }
+
+// mixedReviewGateRollup is a CheckRun plus StatusContext rollup: green CI,
+// a pending real CI status, and red review-gate entries that are not CI.
+func mixedReviewGateRollup(build gh.StatusCheck) []gh.StatusCheck {
+	return []gh.StatusCheck{
+		build,
+		{Name: "test-unit", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Context: "ci/circleci: test", State: "SUCCESS"},
+		{Context: "code owners approved", State: "FAILURE"},
+		{Context: "review threads answered", State: "PENDING"},
+		{Name: "lint-advisory/style", Status: "COMPLETED", Conclusion: "FAILURE"},
+		{Name: "ready for human review", Status: "COMPLETED", Conclusion: "ACTION_REQUIRED"},
+	}
+}
+
+func TestCIStateFilterMixedRollup(t *testing.T) {
+	t.Parallel()
+
+	greenBuild := gh.StatusCheck{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"}
+	pendingBuild := gh.StatusCheck{Name: "build", Status: "IN_PROGRESS"}
+	redBuild := gh.StatusCheck{Name: "build", Status: "COMPLETED", Conclusion: "FAILURE"}
+	ignore := []string{"*approved*", "*review*", "lint-advisory/*"}
+	only := []string{"ci/*", "build", "test-*"}
+
+	tests := []struct {
+		name   string
+		checks []gh.StatusCheck
+		ignore []string
+		only   []string
+		want   string
+	}{
+		{
+			name:   "default counts review-gate failures",
+			checks: mixedReviewGateRollup(greenBuild),
+			want:   "failing",
+		},
+		{
+			name:   "ignored review gates leave green ci",
+			checks: mixedReviewGateRollup(greenBuild),
+			ignore: ignore,
+			want:   "green",
+		},
+		{
+			name:   "ignored review gates leave pending ci",
+			checks: mixedReviewGateRollup(pendingBuild),
+			ignore: ignore,
+			want:   "pending",
+		},
+		{
+			name: "ignored reds with pending status context",
+			checks: []gh.StatusCheck{
+				greenBuild,
+				{Context: "ci/circleci: test", State: "PENDING"},
+				{Context: "code owners approved", State: "FAILURE"},
+				{Name: "ready for human review", Status: "COMPLETED", Conclusion: "FAILURE"},
+			},
+			ignore: ignore,
+			want:   "pending",
+		},
+		{
+			name:   "red build still failing when review gates are ignored",
+			checks: mixedReviewGateRollup(redBuild),
+			ignore: ignore,
+			want:   "failing",
+		},
+		{
+			name:   "allowlist drops review gates",
+			checks: mixedReviewGateRollup(greenBuild),
+			only:   only,
+			want:   "green",
+		},
+		{
+			name: "allowlist keeps a red ci status context",
+			checks: []gh.StatusCheck{
+				greenBuild,
+				{Context: "ci/circleci: test", State: "FAILURE"},
+				{Context: "code owners approved", State: "FAILURE"},
+				{Name: "lint-advisory/style", Status: "COMPLETED", Conclusion: "FAILURE"},
+			},
+			only: only,
+			want: "failing",
+		},
+		{
+			name: "allowlist wins over ignore",
+			checks: []gh.StatusCheck{
+				redBuild,
+				{Context: "code owners approved", State: "FAILURE"},
+			},
+			ignore: []string{"build", "*approved*"},
+			only:   []string{"build"},
+			want:   "failing",
+		},
+		{
+			name: "allowlist excludes a red check outside the list",
+			checks: []gh.StatusCheck{
+				greenBuild,
+				{Name: "lint", Status: "COMPLETED", Conclusion: "FAILURE"},
+				{Context: "code owners approved", State: "FAILURE"},
+			},
+			only: []string{"build"},
+			want: "green",
+		},
+		{
+			name: "ignore matches context when name does not",
+			checks: []gh.StatusCheck{
+				{Name: "build", Context: "code owners approved", Status: "COMPLETED", Conclusion: "FAILURE"},
+				{Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			},
+			ignore: ignore,
+			want:   "green",
+		},
+		{
+			name: "ignore matches name when context does not",
+			checks: []gh.StatusCheck{
+				{Name: "ready for human review", Context: "ci/circleci: test", Status: "COMPLETED", Conclusion: "FAILURE"},
+				{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"},
+			},
+			ignore: ignore,
+			want:   "green",
+		},
+		{
+			name: "every check ignored is none",
+			checks: []gh.StatusCheck{
+				{Context: "code owners approved", State: "FAILURE"},
+				{Name: "ready for human review", Status: "COMPLETED", Conclusion: "FAILURE"},
+			},
+			ignore: ignore,
+			want:   "none",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := CIState(selectCIChecks(tc.checks, tc.ignore, tc.only))
+			if got != tc.want {
+				t.Fatalf("CIState() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

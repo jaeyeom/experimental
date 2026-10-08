@@ -152,6 +152,8 @@ Environment variables are not expanded.
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~ ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{comments}~. Unknown placeholders are left literal. |
 | ~rebase_prompt_template~ | built-in | Same substitution. Used only with ~dispatch --rebase~. |
 | ~ci_fix_prompt_template~ | built-in | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~. |
+| ~ci_ignore_checks~ | empty | Comma-separated path globs (~path.Match~, case-sensitive; ~*~ does not cross ~/~). Dropped from ~ci_state~ when ~ci_only_checks~ is empty. Matched against each CheckRun ~name~ and StatusContext ~context~. An invalid glob is a config error naming this key. |
+| ~ci_only_checks~ | empty | When set, this list wins: only matching checks feed ~ci_state~. Same glob rules as ~ci_ignore_checks~. |
 | ~dispatch_include_drafts~ | ~false~ | When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts. |
 | ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens, passed as ~herdr agent prompt --until~. At least one required. |
 | ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
@@ -276,6 +278,7 @@ prsync scan --config ./prsync.config
 
 | Field | Meaning |
 |-------+---------|
+| ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. |
 | ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
 | ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
 | ~tab~ | ~null~ when no unique herdr tab matches |

@@ -69,6 +69,15 @@
 # Empty {hint} becomes "(none; investigate from scratch)".
 # ci_fix_prompt_template=
 
+# Comma-separated path globs (path.Match: * does not cross /) matched
+# against each CheckRun name and StatusContext context.
+# When ci_only_checks is set, it wins and only those checks feed
+# ci_state. Otherwise ci_ignore_checks are dropped and every other
+# check counts. Both empty counts every check.
+# If none remain, ci_state is none. An invalid glob is a config error.
+# ci_ignore_checks=*approved*,*review*,lint-advisory/*
+# ci_only_checks=ci/*,build,test-*
+
 # true / false / 1 / 0. When true, dispatch may send to draft PRs.
 # scan always includes drafts (is_draft) so orphan detection can see them.
 # dispatch_include_drafts=false
