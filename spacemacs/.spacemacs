@@ -29,7 +29,7 @@
 ;;   ASCII Image ................. ASCII art rendering
 ;;   EAF ....................... Emacs Application Framework
 ;;   Copilot .................... GitHub Copilot
-;;   ChatGPT .................... ChatGPT integration
+;;   GPTel and Aider ............ GPTel backends and Aider
 ;;   Alert.el ................... Claude Code notifications
 ;;   Claude Code ................. claude-code.el integration
 ;;   Agent Shell ................. xenodium/agent-shell (ACP)
@@ -100,16 +100,16 @@
 (declare-function oref "eieio" (obj slot))
 (declare-function oset "eieio" (obj slot value))
 
-;; ChatGPT/GPTel Functions
-(declare-function chatgpt-shell-send-to-buffer "chatgpt-shell" t)
-(declare-function chatgpt-shell-proofread-paragraph-or-region "chatgpt-shell" ())
-(declare-function chatgpt-shell-quick-insert "chatgpt-shell" ())
-(declare-function chatgpt-shell-prompt-compose "chatgpt-shell" t)
-(declare-function chatgpt-shell-eshell-summarize-last-command-output "chatgpt-shell" ())
-(declare-function chatgpt-shell-eshell-whats-wrong-with-last-command "chatgpt-shell" ())
-(declare-function ob-chatgpt-shell-setup "ob-chatgpt-shell" ())
+;; GPTel Functions
 (declare-function gptel-make-anthropic "gptel" (name &rest args))
 (declare-function gptel-make-openai "gptel" (name &rest args))
+
+;; Agent Shell
+(declare-function agent-shell-insert "agent-shell" t)
+(declare-function agent-shell--shell-buffer "agent-shell" t)
+(declare-function agent-shell-prompt-compose "agent-shell" ())
+(declare-function agent-shell-subscribe-to "agent-shell" t)
+(declare-function agent-shell-unsubscribe "agent-shell" t)
 
 ;; Copilot Functions
 (declare-function copilot-mode "copilot" ())
@@ -118,6 +118,8 @@
 (declare-function eshell-fn-on-files "em-unix" t)
 (declare-function eshell-getopts "em-unix" (format &rest args))
 (declare-function eshell-command-not-found-mode "eshell-command-not-found" (&optional arg))
+(declare-function eshell-beginning-of-output "esh-mode" ())
+(declare-function eshell-end-of-output "esh-mode" ())
 
 ;; Org Functions
 (declare-function org-html-export-to-html "ox-html" (&optional async subtreep visible-only body-only ext-plist))
@@ -207,12 +209,36 @@
 (declare-function my/safe-eaf-call-sync ".spacemacs" t)
 (declare-function my/go-mode-setup ".spacemacs" t)
 (declare-function my/go-mode-lsp-setup ".spacemacs" t)
-(declare-function my/visible-buffer-text ".spacemacs" t)
-(declare-function my/chatgpt-shell-purpose-of-email ".spacemacs" t)
-(declare-function my/chatgpt-shell-reply-email ".spacemacs" t)
-(declare-function my/chatgpt-shell-insert-natural-english ".spacemacs" t)
 (declare-function my/claude-code-display-buffer-right ".spacemacs" t)
 (declare-function my/claude-hook-listener ".spacemacs" t)
+(declare-function my/visible-buffer-text ".spacemacs" t)
+(declare-function my/agent-shell-request ".spacemacs" t)
+(declare-function my/agent-shell--read-merge-choice ".spacemacs" t)
+(declare-function my/agent-shell-strip-code-fences ".spacemacs" t)
+(declare-function my/agent-shell--release-marker ".spacemacs" t)
+(declare-function my/agent-shell-send-into-buffer ".spacemacs" t)
+(declare-function my/agent-shell-send-other-buffer ".spacemacs" t)
+(declare-function my/agent-shell-send-merge ".spacemacs" t)
+(declare-function my/agent-shell--merge-region ".spacemacs" t)
+(declare-function my/agent-shell--smerge-replace ".spacemacs" t)
+(declare-function my/agent-shell--confirm-replace ".spacemacs" t)
+(declare-function my/agent-shell--keep-side ".spacemacs" t)
+(declare-function my/agent-shell--select-text ".spacemacs" t)
+(declare-function smerge-mode "smerge-mode" (&optional arg))
+(declare-function smerge-next "smerge-mode" (&optional n))
+(declare-function smerge-keep-lower "smerge-mode" ())
+(declare-function smerge-keep-upper "smerge-mode" ())
+(declare-function evil-visual-select "evil-states" (beg end &optional type extra))
+(declare-function my/agent-shell-region-text ".spacemacs" t)
+(declare-function my/agent-shell-purpose-of-email ".spacemacs" t)
+(declare-function my/agent-shell-reply-email ".spacemacs" t)
+(declare-function my/agent-shell-natural-english ".spacemacs" t)
+(declare-function my/agent-shell-proofread-region ".spacemacs" t)
+(declare-function my/agent-shell-quick-insert ".spacemacs" t)
+(declare-function my/agent-shell-eshell-transcript ".spacemacs" t)
+(declare-function my/agent-shell-eshell-summarize ".spacemacs" t)
+(declare-function my/agent-shell-eshell-whats-wrong ".spacemacs" t)
+(declare-function my/agent-shell-dwim ".spacemacs" t)
 (declare-function my/agent-shell-diff-emacs-state ".spacemacs" t)
 (declare-function evil-emacs-state "evil-states" (&optional arg))
 (declare-function herdr-menu "herdr" ())
@@ -238,6 +264,7 @@
 (defvar eshell-interpreter-alist)
 (defvar eshell-last-output-start)
 (defvar eshell-prompt-regexp)
+(defvar eshell-last-input-start)
 (defvar eshell-last-input-end)
 (defvar eshell-last-command-status)
 
@@ -275,9 +302,6 @@
 
 ;; Go Mode
 (defvar gofmt-command)
-
-;; ChatGPT Shell
-(defvar chatgpt-shell-prompt-query-response-style)
 
 ;; Agent Shell (xenodium/agent-shell)
 (defvar agent-shell-mode-map)
@@ -470,7 +494,6 @@ This function should only modify configuration layer settings."
      agent-shell
      atomic-chrome
      bazel
-     chatgpt-shell
      (claude-code :location (recipe :fetcher github
                                     :repo "stevemolitor/claude-code.el"
                                     :files ("*.el" (:exclude "demo.gif"))))
@@ -493,7 +516,6 @@ This function should only modify configuration layer settings."
                                         :repo "emacsmirror/highlight-chars"
                                         :files ("*.el")))
      ob-async
-     ob-chatgpt-shell
      ob-go
      ob-mermaid
      ob-tmux
@@ -1450,7 +1472,6 @@ If URL is subreddit page then use `reddigg-view-sub' to browse the URL."
 
     ;; Babel
     (require 'ob-awk nil 'noerror)
-    (require 'ob-chatgpt-shell nil 'noerror)
     (require 'ob-emacs-lisp nil 'noerror)
     (require 'ob-eshell nil 'noerror)
     (require 'ob-go nil 'noerror)
@@ -1526,9 +1547,6 @@ mode does not work with Roam links."
 
     (org-export-define-derived-backend 'html-inline-images 'html
       :menu-entry '(?h "Export to HTML" ((?m "As MHTML file" my/org-html-export-to-mhtml)))))
-
-  (with-eval-after-load 'ob-chatgpt-shell
-    (ob-chatgpt-shell-setup))
 
   (with-eval-after-load 'ob-python
     ;; Use ipython if available
@@ -2130,12 +2148,11 @@ Uses image2ascii with color support."
   (when (fboundp #'copilot-mode)
     (add-hook 'prog-mode-hook #'copilot-mode))
 
-  ;;; ChatGPT
+  ;;; GPTel and Aider
   (setq-default openai-key (auth-source-pass-get 'secret "platform.openai.com")
                 openai-user (auth-source-pass-get "user" "platform.openai.com"))
 
   (let ((anthropic-api-key (auth-source-pass-get 'secret "api.anthropic.com"))
-        (perplexity-api-key (auth-source-pass-get 'secret "api.perplexity.ai"))
         (exa-api-key (auth-source-pass-get 'secret "api.exa.com")))
 
     (with-eval-after-load 'gptel
@@ -2154,93 +2171,13 @@ Uses image2ascii with color support."
         :models '("Llama"))                   ;Any names, doesn't matter for Llama
       )
 
-    (setopt chatgpt-shell-openai-key openai-key
-            gptel-api-key openai-key)
-    (setopt chatgpt-shell-anthropic-key anthropic-api-key)
-    (setopt chatgpt-shell-perplexity-key perplexity-api-key)
-    (setopt chatgpt-shell-show-model-icons (display-graphic-p))
+    (setopt gptel-api-key openai-key)
 
     (setopt aider-args '("--model" "anthropic/claude-3-5-sonnet-20241022" "--test-cmd" "pre-commit"))
     (setenv "ANTHROPIC_API_KEY" anthropic-api-key)
     (setenv "EXA_API_KEY" exa-api-key)
     (spacemacs/set-leader-keys "$ a m" 'aider-transient-menu)
     )
-
-  (defun my/visible-buffer-text ()
-    "Return the visible text in the current buffer."
-    (let ((text ""))
-      (save-excursion
-        (goto-char (point-min))
-        (while (< (point) (point-max))
-          (if (not (invisible-p (point)))
-              (setq text (concat text (char-to-string (following-char)))))
-          (forward-char)))
-      text))
-
-  (defun my/chatgpt-shell-purpose-of-email (additional-prompt)
-    "Ask ChatGPT for the purpose of an email."
-    (interactive "sAdditional prompt: ")
-    (chatgpt-shell-send-to-buffer
-     (concat "Please tell me the purpose of this email very clearly and briefly to the point. "
-             "Do not mention sender and receiver name. Say straightly that it's a talent acquisition, "
-             "engineering team outsourcing, selling SaaS, or whatever."
-             additional-prompt
-             "\n\n"
-             (my/visible-buffer-text))))
-
-  (defun my/chatgpt-shell-reply-email (additional-prompt)
-    "Ask ChatGPT to write a reply to an email with the given
-`additional-prompt' in string. The content is written in the
-current buffer."
-    (interactive "sAdditional prompt: ")
-    (let ((chatgpt-shell-prompt-query-response-style 'inline))
-      (chatgpt-shell-send-to-buffer
-       (concat "Please write a reply to the following email. "
-               additional-prompt
-               "\n\n"
-               (buffer-substring-no-properties (point-min) (point-max))))))
-
-  (defun my/chatgpt-shell-insert-natural-english (additional-prompt)
-    "Ask ChatGPT to insert natural English."
-    (interactive "sAdditional prompt: ")
-    (let ((chatgpt-shell-prompt-query-response-style 'inline))
-      (chatgpt-shell-send-to-buffer
-       (concat "Could you make the following grammatically correct and natural? "
-               additional-prompt))))
-
-  (defun my/chatgpt-shell-dwim (additional-prompt)
-    "Do What I Mean with ChatGPT. If the current buffer is a Gnus
-Article mode, ask ChatGPT for the purpose of the email. If the
-current buffer is a message-mode, ask ChatGPT to write a reply to
-the email."
-    (interactive "sAdditional prompt: ")
-    (cond
-     ((region-active-p)
-      (cond
-       ((string-empty-p additional-prompt) (chatgpt-shell-proofread-paragraph-or-region))
-       ((string= "!" additional-prompt) (chatgpt-shell-quick-insert))
-       ((string= "p" additional-prompt) (chatgpt-shell-prompt-compose nil))
-       (t (chatgpt-shell-send-to-buffer
-           (concat additional-prompt
-                   "\n\n"
-                   (buffer-substring-no-properties (region-beginning) (region-end)))))))
-     ((or (eq major-mode 'gnus-article-mode)
-          (eq major-mode 'notmuch-show-mode))
-      (my/chatgpt-shell-purpose-of-email additional-prompt))
-     ((or (eq major-mode 'message-mode)
-          (eq major-mode 'notmuch-message-mode))
-      (my/chatgpt-shell-reply-email additional-prompt))
-     ((eq major-mode 'eshell-mode)
-      ;; If eshell last command failed, summarize the output.
-      (if (eq eshell-last-command-status 0)
-          (chatgpt-shell-eshell-summarize-last-command-output)
-        (chatgpt-shell-eshell-whats-wrong-with-last-command)))
-     (t
-      (my/chatgpt-shell-insert-natural-english additional-prompt))))
-
-  (spacemacs/set-leader-keys "o a" 'my/chatgpt-shell-dwim)
-
-  (autoload 'my/chatgpt-shell-dwim "chatgpt-shell")
 
   ;;; Alert.el configuration for Claude Code notifications
   (defvar alert-default-style)  ; Silence byte-compiler warning
@@ -2337,7 +2274,10 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   ;; xenodium/agent-shell: a comint buffer for ACP agents (Claude, Codex,
   ;; Gemini, Grok, and others). `SPC $ s' starts or reuses a shell and
   ;; `SPC $ S' toggles it. A prefix argument on `agent-shell' starts a
-  ;; new session.
+  ;; new session. `SPC o a' is the former chatgpt-shell DWIM. Proofread
+  ;; and quick-insert offer a merge in the region. Natural English and
+  ;; email replies stream into this buffer. Explanations open in
+  ;; *Agent Reply*.
   ;;
   ;; The agent binaries are separate from this package. Grok speaks ACP
   ;; itself (`grok agent stdio'). Claude needs `claude-agent-acp' and
@@ -2346,9 +2286,400 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (with-eval-after-load 'agent-shell
     (spacemacs/set-leader-keys
       "$ s" 'agent-shell
-      "$ S" 'agent-shell-toggle)
+      "$ S" 'agent-shell-toggle
+      "o a" 'my/agent-shell-dwim)
     (autoload 'agent-shell "agent-shell" nil t)
     (autoload 'agent-shell-toggle "agent-shell" nil t)
+
+    (defun my/visible-buffer-text ()
+      "Return the visible text in the current buffer."
+      (let ((text ""))
+        (save-excursion
+          (goto-char (point-min))
+          (while (< (point) (point-max))
+            (unless (invisible-p (point))
+              (setq text (concat text (char-to-string (following-char)))))
+            (forward-char)))
+        text))
+
+    (defun my/agent-shell-strip-code-fences (text)
+      "Remove markdown code fence lines from TEXT."
+      (replace-regexp-in-string
+       (rx (optional "\n") bol "```" (zero-or-more (or alphanumeric "-" "+"))
+           (zero-or-more space) eol (optional "\n"))
+       "" text t))
+
+    (defun my/agent-shell--release-marker (marker)
+      "Drop MARKER when it is a marker."
+      (when (markerp marker)
+        (set-marker marker nil)))
+
+    (defun my/agent-shell-request (prompt on-text on-done)
+      "Submit PROMPT without focusing the agent shell.
+Call ON-TEXT with each text chunk. Call ON-DONE with the full text
+when the turn ends successfully, or with nil when it fails."
+      (let* ((shell (agent-shell--shell-buffer))
+             (chunks nil)
+             (token nil)
+             (done nil))
+        (setq token
+              (agent-shell-subscribe-to
+               :shell-buffer shell
+               :on-event
+               (lambda (event)
+                 (unless done
+                   (pcase (alist-get :event event)
+                     ('agent-message-chunk
+                      (let ((piece (alist-get :text-chunk
+                                              (alist-get :data event))))
+                        (when (stringp piece)
+                          (push piece chunks)
+                          (when on-text
+                            (funcall on-text piece)))))
+                     ('turn-complete
+                      (setq done t)
+                      (agent-shell-unsubscribe :subscription token)
+                      (if (equal (alist-get :stop-reason
+                                            (alist-get :data event))
+                                 "end_turn")
+                          (funcall on-done
+                                   (mapconcat #'identity (nreverse chunks) ""))
+                        (message "Agent stopped: %s"
+                                 (or (alist-get :stop-reason
+                                                (alist-get :data event))
+                                     "unknown"))
+                        (funcall on-done nil)))
+                     ('error
+                      (setq done t)
+                      (agent-shell-unsubscribe :subscription token)
+                      (message "Agent shell request failed: %s"
+                               (or (alist-get :message
+                                              (alist-get :data event))
+                                   "unknown error"))
+                      (funcall on-done nil)))))))
+        (condition-case err
+            (progn
+              (deactivate-mark)
+              (agent-shell-insert :text prompt
+                                  :submit t
+                                  :no-focus t
+                                  :shell-buffer shell))
+          (error
+           (setq done t)
+           (when (buffer-live-p shell)
+             (with-current-buffer shell
+               (agent-shell-unsubscribe :subscription token)))
+           (signal (car err) (cdr err))))))
+
+    (defun my/agent-shell-send-into-buffer (prompt &optional start end)
+      "Stream the reply to PROMPT into the current buffer.
+START and END, when non-nil, bound a region replaced by the first
+chunk. Later chunks continue at that point. The shell keeps the
+prompt and stays unfocused."
+      (let* ((source (current-buffer))
+             (start-marker (when start (copy-marker start)))
+             (end-marker (when end (copy-marker end t)))
+             (at (copy-marker (or end (point)) t))
+             (replaced nil))
+        (my/agent-shell-request
+         prompt
+         (lambda (piece)
+           (when (buffer-live-p source)
+             (unless replaced
+               (pop-to-buffer source))
+             (with-current-buffer source
+               (let ((inhibit-read-only t))
+                 (when (and start-marker end-marker (not replaced))
+                   (delete-region start-marker end-marker)
+                   (set-marker at start-marker))
+                 (setq replaced t)
+                 (goto-char at)
+                 (insert piece)
+                 (set-marker at (point))))))
+         (lambda (text)
+           (my/agent-shell--release-marker start-marker)
+           (my/agent-shell--release-marker end-marker)
+           (my/agent-shell--release-marker at)
+           (when (and text (string-empty-p text))
+             (message "Agent reply was empty"))))))
+
+    (defun my/agent-shell-send-other-buffer (prompt)
+      "Submit PROMPT and stream the reply into *Agent Reply*."
+      (let ((buffer (get-buffer-create "*Agent Reply*")))
+        (with-current-buffer buffer
+          (special-mode)
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert prompt "\n\n")))
+        (pop-to-buffer buffer)
+        (let ((at (with-current-buffer buffer
+                    (copy-marker (point-max) t))))
+          (my/agent-shell-request
+           prompt
+           (lambda (piece)
+             (when (buffer-live-p buffer)
+               (with-current-buffer buffer
+                 (let ((inhibit-read-only t))
+                   (goto-char at)
+                   (insert piece)))))
+           (lambda (_text)
+             (my/agent-shell--release-marker at))))))
+
+    (defun my/agent-shell--select-text (beg text)
+      "Select TEXT starting at BEG."
+      (goto-char beg)
+      (if (fboundp 'evil-visual-select)
+          (evil-visual-select beg (+ beg (length text)) 'char)
+        (push-mark (+ beg (length text)) t t)))
+
+    (defun my/agent-shell--keep-side (side text)
+      "Keep the `lower' or `upper' smerge SIDE, matching TEXT's newline."
+      (if (eq side 'lower)
+          (smerge-keep-lower)
+        (smerge-keep-upper))
+      (unless (string-suffix-p "\n" text)
+        (when (eq (char-before) ?\n)
+          (delete-char -1))))
+
+    (defun my/agent-shell--read-merge-choice (on-iterate)
+      "Read y, n, or i when ON-ITERATE is non-nil."
+      (if on-iterate
+          (read-char-choice
+           "Apply change? (y or n) / Iterate? (i): " '(?y ?n ?i))
+        (read-char-choice "Apply change? (y or n): " '(?y ?n))))
+
+    (defun my/agent-shell--smerge-replace (beg old text on-iterate)
+      "Show OLD and TEXT as a conflict at BEG and apply the choice.
+The region previously holding OLD is already deleted."
+      (insert "<<<<<<< Before\n"
+              old (unless (string-suffix-p "\n" old) "\n")
+              "=======\n"
+              text (unless (string-suffix-p "\n" text) "\n")
+              ">>>>>>> After\n")
+      (smerge-mode 1)
+      (goto-char beg)
+      (smerge-next)
+      (unwind-protect
+          (condition-case nil
+              (pcase (my/agent-shell--read-merge-choice on-iterate)
+                (?y
+                 (my/agent-shell--keep-side 'lower text)
+                 (message "Applied"))
+                (?n
+                 (my/agent-shell--keep-side 'upper old)
+                 (message "Skipped"))
+                (?i
+                 (my/agent-shell--keep-side 'upper old)
+                 (my/agent-shell--select-text beg old)
+                 (when on-iterate
+                   (funcall on-iterate))))
+            (quit
+             (my/agent-shell--keep-side 'upper old)
+             (message "Skipped")))
+        (smerge-mode -1)))
+
+    (defun my/agent-shell--confirm-replace (beg old text on-iterate)
+      "Ask whether to insert TEXT or restore OLD at BEG.
+The region previously holding OLD is already deleted."
+      (goto-char beg)
+      (condition-case nil
+          (pcase (my/agent-shell--read-merge-choice on-iterate)
+            (?y (insert text) (message "Applied"))
+            (?n (insert old) (message "Skipped"))
+            (?i
+             (insert old)
+             (my/agent-shell--select-text beg old)
+             (when on-iterate
+               (funcall on-iterate))))
+        (quit
+         (insert old)
+         (message "Skipped"))))
+
+    (defun my/agent-shell--merge-region (buffer start end text on-iterate)
+      "Offer TEXT as a replacement for START..END in BUFFER.
+ON-ITERATE, when non-nil, runs after the original text is restored
+and selected again."
+      (cond
+       ((not (buffer-live-p buffer))
+        (message "Agent reply arrived after its buffer was killed"))
+       ((string-empty-p (string-trim text))
+        (message "Agent reply was empty"))
+       (t
+        (with-current-buffer buffer
+          (pop-to-buffer buffer)
+          (let ((old (buffer-substring-no-properties start end)))
+            (if (equal (string-trim text) (string-trim old))
+                (message "No change suggested")
+              (let ((inhibit-read-only t)
+                    (beg (copy-marker start)))
+                (unwind-protect
+                    (progn
+                      (delete-region start end)
+                      (goto-char beg)
+                      (if (bolp)
+                          (my/agent-shell--smerge-replace
+                           beg old text on-iterate)
+                        (my/agent-shell--confirm-replace
+                         beg old text on-iterate)))
+                  (set-marker beg nil)))))))))
+
+    (defun my/agent-shell-send-merge (prompt start end on-iterate)
+      "Submit PROMPT and merge the reply into START..END.
+ON-ITERATE is called with no arguments when the user chooses to
+iterate. Code fences are removed before the merge."
+      (let ((source (current-buffer))
+            (start-marker (copy-marker start))
+            (end-marker (copy-marker end)))
+        (my/agent-shell-request
+         prompt
+         nil
+         (lambda (text)
+           (unwind-protect
+               (when text
+                 (my/agent-shell--merge-region
+                  source start-marker end-marker
+                  (my/agent-shell-strip-code-fences text)
+                  on-iterate))
+             (my/agent-shell--release-marker start-marker)
+             (my/agent-shell--release-marker end-marker))))))
+
+    (defun my/agent-shell-region-text ()
+      "Return the active region without text properties."
+      (buffer-substring-no-properties (region-beginning) (region-end)))
+
+    (defun my/agent-shell-purpose-of-email (additional-prompt)
+      "Ask the agent for the purpose of the email in the current buffer.
+ADDITIONAL-PROMPT is appended to the instruction."
+      (interactive "sAdditional prompt: ")
+      (my/agent-shell-send-other-buffer
+       (concat "Please tell me the purpose of this email very clearly and briefly to the point. "
+               "Do not mention sender and receiver name. Say straightly that it's a talent acquisition, "
+               "engineering team outsourcing, selling SaaS, or whatever."
+               additional-prompt
+               "\n\n"
+               (my/visible-buffer-text))))
+
+    (defun my/agent-shell-reply-email (additional-prompt)
+      "Stream a reply to the email in the current buffer.
+ADDITIONAL-PROMPT is appended to the instruction. An active region
+is replaced as the reply arrives."
+      (interactive "sAdditional prompt: ")
+      (let ((start (and (region-active-p) (region-beginning)))
+            (end (and (region-active-p) (region-end))))
+        (my/agent-shell-send-into-buffer
+         (concat "Please write a reply to the following email. "
+                 additional-prompt
+                 "\n\n"
+                 (buffer-substring-no-properties (point-min) (point-max)))
+         start end)))
+
+    (defun my/agent-shell-natural-english (additional-prompt)
+      "Insert a natural-English rewrite at point.
+ADDITIONAL-PROMPT is appended to the instruction. The reply is
+inserted into this buffer."
+      (interactive "sAdditional prompt: ")
+      (my/agent-shell-send-into-buffer
+       (concat "Could you make the following grammatically correct and natural? "
+               additional-prompt)))
+
+    (defun my/agent-shell-proofread-region ()
+      "Offer the agent's proofread text as a merge of the active region."
+      (interactive)
+      (let ((start (region-beginning))
+            (end (region-end)))
+        (my/agent-shell-send-merge
+         (concat "Please help me proofread the following English text and only reply with fixed text.\n"
+                 "Output just the proofread text without any intro, comments, or explanations.\n"
+                 "If the original text was indented on the left, preserve the same amount of spacing in your response:\n\n"
+                 (buffer-substring-no-properties start end))
+         start end
+         #'my/agent-shell-quick-insert)))
+
+    (defun my/agent-shell-quick-insert ()
+      "Read an instruction and write the agent's result into this buffer.
+In `prog-mode', name the current language. An active region is
+offered as a merge. Otherwise the result streams in at point."
+      (interactive)
+      (let* ((start (and (region-active-p) (region-beginning)))
+             (end (and (region-active-p) (region-end)))
+             (region (and start (buffer-substring-no-properties start end)))
+             (language (and (derived-mode-p 'prog-mode)
+                            (string-trim-right (symbol-name major-mode) "-mode")))
+             (query (read-string "Agent insert: "))
+             (prompt (concat "Follow my instruction and only my instruction.\n"
+                             "Do not explain nor wrap in a markdown block.\n"
+                             "Do not balance unbalanced brackets or parenthesis at beginning or end of text.\n"
+                             "Write solutions in their entirety."
+                             (if language
+                                 (format "\nUse `%s` programming language." language)
+                               "")
+                             "\n\n"
+                             query
+                             (if region
+                                 (concat "\n\n"
+                                         "Apply my instruction to:"
+                                         "\n\n"
+                                         region)
+                               ""))))
+        (if start
+            (my/agent-shell-send-merge
+             prompt start end #'my/agent-shell-quick-insert)
+          (my/agent-shell-send-into-buffer prompt))))
+
+    (defun my/agent-shell-eshell-transcript ()
+      "Return the last eshell command and its output."
+      (concat (buffer-substring-no-properties
+               eshell-last-input-start eshell-last-input-end)
+              "\n\n"
+              (buffer-substring-no-properties
+               (eshell-beginning-of-output) (eshell-end-of-output))))
+
+    (defun my/agent-shell-eshell-summarize ()
+      "Show a summary of the last eshell command in *Agent Reply*."
+      (interactive)
+      (my/agent-shell-send-other-buffer
+       (concat "Summarize the output of the following command:\n\n"
+               (my/agent-shell-eshell-transcript))))
+
+    (defun my/agent-shell-eshell-whats-wrong ()
+      "Show what went wrong with the last eshell command in *Agent Reply*."
+      (interactive)
+      (my/agent-shell-send-other-buffer
+       (concat "What's wrong with this command execution?\n\n"
+               (my/agent-shell-eshell-transcript))))
+
+    (defun my/agent-shell-dwim (additional-prompt)
+      "Run the former chatgpt-shell action for the current buffer.
+ADDITIONAL-PROMPT is extra instruction. With an active region, an
+empty prompt proofreads it as a merge, \"!\" quick-inserts, \"p\"
+opens `agent-shell-prompt-compose', and any other prompt opens in
+*Agent Reply*. An article buffer explains the email there too. A
+message buffer streams a reply into this buffer. Eshell summarizes
+or explains the last command in *Agent Reply*. Otherwise natural
+English streams in at point."
+      (interactive "sAdditional prompt: ")
+      (cond
+       ((region-active-p)
+        (cond
+         ((string-empty-p additional-prompt) (my/agent-shell-proofread-region))
+         ((string= "!" additional-prompt) (my/agent-shell-quick-insert))
+         ((string= "p" additional-prompt) (agent-shell-prompt-compose))
+         (t (my/agent-shell-send-other-buffer
+             (concat additional-prompt
+                     "\n\n"
+                     (my/agent-shell-region-text))))))
+       ((or (eq major-mode 'gnus-article-mode)
+            (eq major-mode 'notmuch-show-mode))
+        (my/agent-shell-purpose-of-email additional-prompt))
+       ((or (eq major-mode 'message-mode)
+            (eq major-mode 'notmuch-message-mode))
+        (my/agent-shell-reply-email additional-prompt))
+       ((eq major-mode 'eshell-mode)
+        (if (eq eshell-last-command-status 0)
+            (my/agent-shell-eshell-summarize)
+          (my/agent-shell-eshell-whats-wrong)))
+       (t
+        (my/agent-shell-natural-english additional-prompt))))
 
     ;; Keep the shell beside the buffer being edited, matching Claude Code.
     (setopt agent-shell-display-action
