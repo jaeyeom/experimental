@@ -1,5 +1,5 @@
 ---
-- name: Ensure Ghostty passes Ctrl+Enter through
+- name: Ensure Ghostty is configured
   hosts: all
   vars:
     # Ghostty reads $XDG_CONFIG_HOME/ghostty/config.ghostty, defaulting to
@@ -36,3 +36,60 @@
           # Pass Ctrl+Enter through to the program in the terminal.
           # Ghostty's default binding is toggle_fullscreen.
           keybind = ctrl+enter=unbind
+
+    - name: Ensure Ghostty uses a translucent blurred background
+      ansible.builtin.blockinfile:
+        path: "{{ ghostty_config_dir }}/config.ghostty"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        mode: '0644'
+        marker: "# {mark} ghostty appearance setup"
+        block: |
+          # Translucent window with a light blur.
+          # On macOS, changing background-opacity requires a full Ghostty
+          # restart. Reload Config is not enough.
+          background-opacity = 0.80
+          background-blur = 10
+
+    - name: Ensure Ctrl+` shows and hides the Ghostty window on macOS
+      when: ansible_facts['os_family'] == "Darwin"
+      ansible.builtin.blockinfile:
+        path: "{{ ghostty_config_dir }}/config.ghostty"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        mode: '0644'
+        marker: "# {mark} ghostty ctrl+backquote setup"
+        block: |
+          # Ctrl+` shows or hides a normal window so macOS tabs work.
+          # Quick Terminal cannot have tabs on macOS because tabs need a
+          # titlebar. toggle_visibility is macOS-only.
+          # Place the window at the top once; window-save-state remembers
+          # later moves. Sizes are in terminal cells. Global hotkeys need
+          # macOS Accessibility permission for Ghostty.
+          keybind = global:ctrl+backquote=toggle_visibility
+          macos-titlebar-style = tabs
+          window-save-state = always
+          window-position-x = 0
+          window-position-y = 0
+          window-width = 400
+          window-height = 28
+
+          # Hide Ghostty from the Dock and Cmd+Tab so Ctrl+` is the way in.
+          # Side effect: keyboard layout switching is no longer automatic.
+          macos-hidden = always
+
+    - name: Ensure the Ghostty cursor does not blink
+      ansible.builtin.blockinfile:
+        path: "{{ ghostty_config_dir }}/config.ghostty"
+        append_newline: true
+        prepend_newline: true
+        create: true
+        mode: '0644'
+        marker: "# {mark} ghostty cursor setup"
+        block: |
+          # Solid cursor. Shell integration otherwise sends DECSCUSR and
+          # turns blinking back on, so no-cursor is required for this to stick.
+          cursor-style-blink = false
+          shell-integration-features = no-cursor
