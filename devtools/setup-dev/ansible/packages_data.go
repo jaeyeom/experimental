@@ -506,6 +506,18 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest", Import{Playbook: "gh"}),
 	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
 	{
+		// macOS only. The Homebrew cask repackages the official signed .dmg:
+		// https://ghostty.org/docs/install/binary#homebrew
+		// A drag-install of Ghostty.app does not put `ghostty` on PATH.
+		command: "ghostty",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin: BrewCaskInstallMethod{
+				Name:         "ghostty",
+				CheckCommand: `test -d /Applications/Ghostty.app || test -d ~/Applications/Ghostty.app || command -v ghostty`,
+			},
+		},
+	},
+	{
 		command: "githooks-cli",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: ShellInstallMethod{

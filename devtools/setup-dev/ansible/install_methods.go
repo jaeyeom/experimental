@@ -133,6 +133,10 @@ func (b BrewInstallMethod) RenderBlockInstallTask(command string) string {
 // Casks are used for GUI applications and larger software bundles.
 type BrewCaskInstallMethod struct {
 	Name string
+	// CheckCommand exits 0 when the app is already installed. Empty means
+	// `command -v <command>`. Set this when a drag-install leaves an .app
+	// bundle that is not on PATH.
+	CheckCommand string
 }
 
 func (b BrewCaskInstallMethod) GetMethodType() string {
@@ -147,10 +151,17 @@ func (b BrewCaskInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
+func (b BrewCaskInstallMethod) checkCommand(command string) string {
+	if b.CheckCommand != "" {
+		return b.CheckCommand
+	}
+	return "command -v " + command
+}
+
 func (b BrewCaskInstallMethod) RenderInstallTask(command string) string {
 	return `      block:
         - name: Check if ` + command + ` is installed
-          shell: command -v ` + command + `
+          shell: ` + b.checkCommand(command) + `
           changed_when: False
       rescue:
         - name: Install ` + command + ` on MacOS via cask
