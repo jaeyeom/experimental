@@ -20,6 +20,12 @@
       failed_when: false
       changed_when: false
 
+    - name: Add claude-toolbox marketplace
+      command: claude plugin marketplace add jaeyeom/claude-toolbox
+      when: claude_check.rc == 0
+      register: claude_toolbox_marketplace_add
+      changed_when: "'already on disk' not in (claude_toolbox_marketplace_add.stdout | default(''))"
+
     - name: Update claude-toolbox marketplace
       command: claude plugin marketplace update claude-toolbox
       when: claude_check.rc == 0
