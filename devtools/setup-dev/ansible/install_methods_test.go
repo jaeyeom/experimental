@@ -199,9 +199,21 @@ func TestBrewCaskInstallMethod(t *testing.T) {
 		"community.general.homebrew_cask:",
 		"name: visual-studio-code",
 		"Install code on MacOS via cask",
+		"shell: command -v code",
 	})
 	block := method.RenderBlockInstallTask("code")
 	assertContains(t, block, []string{"name: visual-studio-code"})
+
+	custom := BrewCaskInstallMethod{
+		Name:         "ghostty",
+		CheckCommand: "test -d /Applications/Ghostty.app",
+	}
+	customTask := custom.RenderInstallTask("ghostty")
+	assertContains(t, customTask, []string{
+		"shell: test -d /Applications/Ghostty.app",
+		"name: ghostty",
+	})
+	assertNotContains(t, customTask, []string{"command -v ghostty"})
 }
 
 func TestTermuxPkgInstallMethod(t *testing.T) {
