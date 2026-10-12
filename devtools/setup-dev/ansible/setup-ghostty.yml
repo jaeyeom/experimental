@@ -1,4 +1,6 @@
 ---
+- import_playbook: ghostty.yml
+
 - name: Ensure Ghostty is configured
   hosts: all
   vars:

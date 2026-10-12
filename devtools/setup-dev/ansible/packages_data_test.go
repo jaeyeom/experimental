@@ -560,6 +560,38 @@ func TestGhPlaybookInstallsGhStackExtension(t *testing.T) {
 	}
 }
 
+func TestGhosttyCaskSkipsExistingApp(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "ghostty")
+	if len(tool.platforms) != 1 {
+		t.Errorf("ghostty platforms = %d, want darwin only", len(tool.platforms))
+	}
+	method, ok := tool.platforms[PlatformDarwin].(BrewCaskInstallMethod)
+	if !ok {
+		t.Fatalf("ghostty darwin method = %T, want BrewCaskInstallMethod", tool.platforms[PlatformDarwin])
+	}
+	if method.Name != "ghostty" {
+		t.Errorf("ghostty cask name = %q, want ghostty", method.Name)
+	}
+	for _, probe := range []string{
+		"/Applications/Ghostty.app",
+		"~/Applications/Ghostty.app",
+		"command -v ghostty",
+	} {
+		if !strings.Contains(method.CheckCommand, probe) {
+			t.Errorf("ghostty CheckCommand = %q, want it to include %q", method.CheckCommand, probe)
+		}
+	}
+	task := method.RenderInstallTask("ghostty")
+	checkAt := strings.Index(task, "Check if ghostty is installed")
+	installAt := strings.Index(task, "community.general.homebrew_cask:")
+	if checkAt < 0 || installAt < 0 || checkAt > installAt {
+		t.Errorf("ghostty install task must probe for an existing app before brew, got:\n%s", task)
+	}
+	if !strings.Contains(task, "state: present") {
+		t.Errorf("ghostty install task must use state present, got:\n%s", task)
+	}
+}
+
 func TestLibatomic1Package(t *testing.T) {
 	var pkg PackageData
 	found := false
