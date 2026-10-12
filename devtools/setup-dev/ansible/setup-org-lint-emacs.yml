@@ -44,7 +44,7 @@
              (require 'org)
              (require 'ob-shell nil t)
              (unless (locate-library \"dart-mode\") (error \"dart-mode missing\"))
-             (message \"ok\"))" 2>&1 | tail -1
+             (message \"ok\"))" 2>&1
       args:
         executable: bash
       register: org_lint_emacs_prereqs
@@ -56,12 +56,12 @@
         set -euo pipefail
         emacs --batch -l "{{ ansible_facts['env']['HOME'] }}/.config/emacs/init.el" --eval \
           "(progn (configuration-layer//install-packages '(org org-contrib dart-mode)) (message \"ok\"))" \
-          2>&1 | tail -1
+          2>&1
       args:
         executable: bash
       register: org_lint_emacs_install
-      changed_when: org_lint_emacs_install.stdout == 'ok'
-      when: org_lint_emacs_prereqs.stdout != 'ok'
+      changed_when: (org_lint_emacs_install.stdout | trim).split("\n")[-1] == 'ok'
+      when: (org_lint_emacs_prereqs.stdout | trim).split("\n")[-1] != 'ok'
 
     - name: Verify org-lint Emacs prerequisites after install
       ansible.builtin.shell: |
@@ -71,9 +71,9 @@
              (require 'org)
              (require 'ob-shell nil t)
              (unless (locate-library \"dart-mode\") (error \"dart-mode missing\"))
-             (message \"ok\"))" 2>&1 | tail -1
+             (message \"ok\"))" 2>&1
       args:
         executable: bash
       register: org_lint_emacs_verify
       changed_when: false
-      failed_when: org_lint_emacs_verify.stdout != 'ok'
+      failed_when: (org_lint_emacs_verify.stdout | trim).split("\n")[-1] != 'ok'
