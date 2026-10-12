@@ -7,7 +7,6 @@
 - import_playbook: gh-storage.yml
 - import_playbook: prsync.yml
 - import_playbook: review-and-push-loop.yml
-- import_playbook: setup-perplexity-mcp.yml
 - import_playbook: setup-git.yml
 - import_playbook: claude.yml
 - import_playbook: setup-claude-toolbox.yml
@@ -33,4 +32,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, prsync, perplexity MCP, claudelytics, grok, herdr, aside"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, prsync, claudelytics, grok, herdr, aside"
