@@ -2,8 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -709,6 +714,443 @@ func TestHerdrOmitsTermux(t *testing.T) {
 	if _, ok := tool.platforms[PlatformAll]; ok {
 		t.Error("herdr should not use PlatformAll; that would install it on Termux")
 	}
+}
+
+func TestEmacsDarwinApplicationsAlias(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "emacs")
+	method, ok := tool.platforms[PlatformDarwin].(BrewInstallMethod)
+	if !ok {
+		t.Fatalf("emacs darwin method = %T, want BrewInstallMethod", tool.platforms[PlatformDarwin])
+	}
+	if method.Name != "emacs-plus" {
+		t.Errorf("emacs brew name = %q, want emacs-plus", method.Name)
+	}
+	if strings.Contains(method.Name, "@") {
+		t.Errorf("emacs brew name must stay unversioned, got %q", method.Name)
+	}
+	if method.Tap != "d12frosted/emacs-plus" {
+		t.Errorf("emacs tap = %q", method.Tap)
+	}
+
+	suffix := tool.Suffix
+	for _, want := range []string{
+		"brew --prefix emacs-plus",
+		`dest_dir="/Applications"`,
+		"make alias file to posix file",
+		`with properties {name:\"Emacs.app\"}`,
+		`ln -s "$src" "$dest"`,
+		"EMACS_APP_LINK_MODE: alias",
+		"EMACS_APP_LINK_MODE: symlink",
+		"become: yes",
+		WhenDarwin,
+		`emacs_app_alias.rc not in [0, 2]`,
+		`emacs_app_alias.rc | default(0) == 2`,
+	} {
+		if !strings.Contains(suffix, want) {
+			t.Errorf("emacs suffix missing %q", want)
+		}
+	}
+	if strings.Contains(suffix, "emacs-plus@") {
+		t.Error("emacs suffix must not hardcode an emacs-plus version")
+	}
+	if strings.Contains(suffix, "rm -rf") || strings.Contains(suffix, "ansible.builtin.copy") {
+		t.Error("emacs suffix must not copy or recursively remove Emacs.app")
+	}
+	userTask, adminTask, ok := strings.Cut(suffix, "Expose emacs-plus Emacs.app in /Applications as admin")
+	if !ok {
+		t.Fatal("emacs suffix missing admin fallback task")
+	}
+	if strings.Contains(userTask, "become:") {
+		t.Error("user alias task must not become")
+	}
+	if !strings.Contains(adminTask, "become: yes") {
+		t.Error("admin fallback task must become")
+	}
+
+	tmpl := template.Must(template.New("platformspecific").Parse(platformSpecificTemplate))
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, tool); err != nil {
+		t.Fatalf("render emacs playbook: %v", err)
+	}
+	got := buf.String()
+	installAt := strings.Index(got, "Install emacs on MacOS")
+	aliasAt := strings.Index(got, "Expose emacs-plus Emacs.app in /Applications")
+	if installAt < 0 || aliasAt < 0 || aliasAt < installAt {
+		t.Errorf("Emacs.app alias task should follow the Darwin emacs-plus install")
+	}
+}
+
+func TestEmacsAppLinkScript(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("emacs app link script uses BSD stat")
+	}
+
+	t.Run("shellcheck", func(t *testing.T) {
+		if _, err := exec.LookPath("shellcheck"); err != nil {
+			t.Skip("shellcheck not installed")
+		}
+		dir := t.TempDir()
+		path := filepath.Join(dir, "emacs_app_link.sh")
+		content := "#!/bin/sh\n" + emacsAppLinkScript
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("shellcheck", "-s", "sh", path)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("shellcheck: %v\n%s", err, out)
+		}
+	})
+
+	root := t.TempDir()
+	prefix := filepath.Join(root, "opt", "emacs-plus")
+	src := filepath.Join(prefix, "Emacs.app")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	destDir := filepath.Join(root, "Applications")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(destDir, "Emacs.app")
+
+	t.Run("creates finder alias", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		log := filepath.Join(t.TempDir(), "osascript.log")
+		stdout, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: prefix, destDir: destDir, log: log,
+		})
+		if code != 0 || stdout != "created" {
+			t.Fatalf("code=%d stdout=%q, want created", code, stdout)
+		}
+		info, err := os.Lstat(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			t.Fatal("Finder alias path is a symlink")
+		}
+		if !osascriptLogContains(t, log, "make alias file") {
+			t.Fatal("osascript was not asked to make an alias")
+		}
+		if err := os.Remove(dest); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("symlink fallback when finder fails", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		stdout, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: prefix, destDir: destDir, createFail: true,
+		})
+		if code != 0 || stdout != "created" {
+			t.Fatalf("code=%d stdout=%q, want created symlink", code, stdout)
+		}
+		got, err := os.Readlink(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != src {
+			t.Errorf("symlink = %q, want %q", got, src)
+		}
+		if err := os.Remove(dest); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("skips symlink that already points at the prefix", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(src, dest); err != nil {
+			t.Fatal(err)
+		}
+		log := filepath.Join(t.TempDir(), "osascript.log")
+		stdout, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: prefix, destDir: destDir, log: log,
+		})
+		if code != 0 || stdout != "unchanged" {
+			t.Fatalf("code=%d stdout=%q, want unchanged", code, stdout)
+		}
+		if osascriptLogContains(t, log, "make alias file") {
+			t.Fatal("replaced a symlink that already points at the prefix")
+		}
+		if err := os.Remove(dest); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("skips alias whose target resolves to the current prefix", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		cellar := filepath.Join(root, "Cellar", "Emacs.app")
+		if err := os.MkdirAll(cellar, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		linkedPrefix := filepath.Join(root, "linked-prefix")
+		if err := os.MkdirAll(linkedPrefix, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		linkedSrc := filepath.Join(linkedPrefix, "Emacs.app")
+		if err := os.Symlink(cellar, linkedSrc); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dest, []byte("alias"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		stdout, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: linkedPrefix, destDir: destDir, aliasTarget: cellar + "/",
+		})
+		if code != 0 || stdout != "unchanged" {
+			t.Fatalf("code=%d stdout=%q, want unchanged", code, stdout)
+		}
+		if err := os.Remove(dest); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("refuses a real bundle", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(dest, "Contents"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		marker := filepath.Join(dest, "Contents", "keep")
+		if err := os.WriteFile(marker, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: prefix, destDir: destDir,
+		})
+		if code != 1 {
+			t.Fatalf("code=%d, want 1", code)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("real bundle was removed: %v", err)
+		}
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("refuses a file that is not an alias", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dest, []byte("not-an-alias"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: prefix, destDir: destDir,
+		})
+		if code != 1 {
+			t.Fatalf("code=%d, want 1", code)
+		}
+		body, err := os.ReadFile(dest)
+		if err != nil || string(body) != "not-an-alias" {
+			t.Fatalf("file changed: %q err=%v", body, err)
+		}
+		if err := os.Remove(dest); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("permission denied asks for admin", func(t *testing.T) {
+		locked := filepath.Join(t.TempDir(), "Applications")
+		if err := os.MkdirAll(locked, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+		_, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: prefix, destDir: locked, createFail: true,
+		})
+		if code != 2 {
+			t.Fatalf("code=%d, want 2", code)
+		}
+		if _, err := os.Lstat(filepath.Join(locked, "Emacs.app")); !os.IsNotExist(err) {
+			t.Fatalf("created Emacs.app without write permission: %v", err)
+		}
+	})
+
+	t.Run("skips when the prefix has no Emacs.app", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		stdout, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: t.TempDir(), destDir: destDir,
+		})
+		if code != 0 || stdout != "unchanged" {
+			t.Fatalf("code=%d stdout=%q, want unchanged", code, stdout)
+		}
+		if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+			t.Fatalf("created Emacs.app without a source bundle: %v", err)
+		}
+	})
+
+	t.Run("skips when emacs-plus is not installed", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		stdout, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "alias", brewPrefix: prefix, destDir: destDir, failPrefix: true,
+		})
+		if code != 0 || stdout != "unchanged" {
+			t.Fatalf("code=%d stdout=%q, want unchanged", code, stdout)
+		}
+		if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+			t.Fatalf("created Emacs.app without emacs-plus: %v", err)
+		}
+	})
+
+	t.Run("admin mode creates a symlink without finder", func(t *testing.T) {
+		if err := os.RemoveAll(dest); err != nil {
+			t.Fatal(err)
+		}
+		log := filepath.Join(t.TempDir(), "osascript.log")
+		stdout, code := runEmacsAppLink(t, emacsAppLinkEnv{
+			mode: "symlink", brewPrefix: prefix, destDir: destDir, log: log,
+		})
+		if code != 0 || stdout != "created" {
+			t.Fatalf("code=%d stdout=%q, want created", code, stdout)
+		}
+		got, err := os.Readlink(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != src {
+			t.Errorf("symlink = %q, want %q", got, src)
+		}
+		if osascriptLogContains(t, log, "make alias file") {
+			t.Fatal("admin symlink mode called osascript")
+		}
+		if err := os.Remove(dest); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+type emacsAppLinkEnv struct {
+	mode        string
+	brewPrefix  string
+	destDir     string
+	log         string
+	aliasTarget string
+	createFail  bool
+	failPrefix  bool
+}
+
+func runEmacsAppLink(t *testing.T, env emacsAppLinkEnv) (string, int) {
+	t.Helper()
+	work := t.TempDir()
+	bin := filepath.Join(work, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	brew := "#!/bin/sh\n" +
+		"if [ \"$BREW_FAIL\" = 1 ]; then\n" +
+		"  exit 1\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"--prefix\" ] && [ \"$2\" = \"emacs-plus\" ]; then\n" +
+		"  printf '%s\\n' \"$BREW_PREFIX\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"printf '%s\\n' \"unexpected brew args: $*\" >&2\n" +
+		"exit 1\n"
+	writeExecutable(t, filepath.Join(bin, "brew"), brew)
+	createFail := "0"
+	if env.createFail {
+		createFail = "1"
+	}
+	brewFail := "0"
+	if env.failPrefix {
+		brewFail = "1"
+	}
+	osascript := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" >> \"$OSASCRIPT_LOG\"\n" +
+		"script=$2\n" +
+		"case \"$script\" in\n" +
+		"  *\"make alias file\"*)\n" +
+		"    if [ \"$OSASCRIPT_CREATE_FAIL\" = 1 ]; then exit 1; fi\n" +
+		"    : > \"$LINK_DEST/Emacs.app\"\n" +
+		"    exit 0\n" +
+		"    ;;\n" +
+		"  *\"original item\"*)\n" +
+		"    if [ -n \"${OSASCRIPT_TARGET:-}\" ]; then\n" +
+		"      printf '%s\\n' \"$OSASCRIPT_TARGET\"\n" +
+		"      exit 0\n" +
+		"    fi\n" +
+		"    exit 1\n" +
+		"    ;;\n" +
+		"esac\n" +
+		"exit 1\n"
+	writeExecutable(t, filepath.Join(bin, "osascript"), osascript)
+	if env.log == "" {
+		env.log = filepath.Join(work, "osascript.log")
+	}
+	script := strings.ReplaceAll(emacsAppLinkScript, `dest_dir="/Applications"`, `dest_dir="`+env.destDir+`"`)
+	path := filepath.Join(work, "link.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", path)
+	cmd.Env = []string{
+		"PATH=" + bin + ":/bin:/usr/bin",
+		"EMACS_APP_LINK_MODE=" + env.mode,
+		"BREW_PREFIX=" + env.brewPrefix,
+		"LINK_DEST=" + env.destDir,
+		"OSASCRIPT_LOG=" + env.log,
+		"OSASCRIPT_TARGET=" + env.aliasTarget,
+		"OSASCRIPT_CREATE_FAIL=" + createFail,
+		"BREW_FAIL=" + brewFail,
+		"HOME=" + work,
+		"TMPDIR=" + work,
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("run link script: %v\n%s", err, stderr.String())
+		}
+		code = exitErr.ExitCode()
+	}
+	if stderr.Len() > 0 {
+		t.Logf("stderr: %s", stderr.String())
+	}
+	return strings.TrimSpace(string(out)), code
+}
+
+func writeExecutable(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func osascriptLogContains(t *testing.T, path, needle string) bool {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+		t.Fatal(err)
+	}
+	return strings.Contains(string(body), needle)
 }
 
 func formatImports(imports []Import) string {

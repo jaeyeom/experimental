@@ -158,6 +158,125 @@ func tflintReleaseInstall(goos string) ShellInstallMethod {
 	}
 }
 
+// emacsAppLinkScript points /Applications/Emacs.app at the stable
+// emacs-plus prefix ($(brew --prefix emacs-plus)/Emacs.app). A Finder
+// alias is preferred. A symlink is the fallback when Finder cannot make
+// one. EMACS_APP_LINK_MODE=symlink skips Finder and only creates a symlink;
+// the admin task uses that after the user task cannot write the destination.
+// A real Emacs.app bundle is left in place. Prints "unchanged" or "created".
+// Exit 2 means the destination directory is not writable.
+const emacsAppLinkScript = `set -eu
+if ! prefix=$(brew --prefix emacs-plus 2>/dev/null); then
+  printf '%s\n' unchanged
+  exit 0
+fi
+src="${prefix}/Emacs.app"
+dest_dir="/Applications"
+dest="${dest_dir}/Emacs.app"
+src=${src%/}
+
+if [ ! -d "$src" ]; then
+  printf '%s\n' unchanged
+  exit 0
+fi
+
+same_app() {
+  candidate="$1"
+  [ -n "${candidate}" ] || return 1
+  candidate=${candidate%/}
+  if [ "$candidate" = "$src" ]; then
+    return 0
+  fi
+  if [ ! -e "$candidate" ]; then
+    return 1
+  fi
+  [ "$(stat -L -f '%d:%i' "$candidate")" = "$(stat -L -f '%d:%i' "$src")" ]
+}
+
+if [ -L "$dest" ]; then
+  link=$(readlink "$dest" || true)
+  case "$link" in
+    /*) ;;
+    "") ;;
+    *) link="${dest_dir}/${link}" ;;
+  esac
+  if same_app "$link"; then
+    printf '%s\n' unchanged
+    exit 0
+  fi
+  if [ ! -w "$dest_dir" ]; then
+    exit 2
+  fi
+  rm -f "$dest"
+elif [ -d "$dest" ]; then
+  printf '%s\n' "${dest} is a real bundle, not an alias to ${src}" >&2
+  exit 1
+elif [ -e "$dest" ]; then
+  if [ "${EMACS_APP_LINK_MODE:-alias}" != "symlink" ]; then
+    alias_target=$(osascript -e "tell application \"Finder\" to POSIX path of (original item of (POSIX file \"${dest}\" as alias))" 2>/dev/null || true)
+    if same_app "$alias_target"; then
+      printf '%s\n' unchanged
+      exit 0
+    fi
+    if [ -z "$alias_target" ]; then
+      printf '%s\n' "${dest} exists and is not a Finder alias to ${src}" >&2
+      exit 1
+    fi
+  fi
+  if [ ! -w "$dest_dir" ]; then
+    exit 2
+  fi
+  rm -f "$dest"
+fi
+
+if [ "${EMACS_APP_LINK_MODE:-alias}" != "symlink" ]; then
+  if osascript -e "tell application \"Finder\" to make alias file to posix file \"${src}\" at posix file \"${dest_dir}\" with properties {name:\"Emacs.app\"}" >/dev/null 2>&1; then
+    printf '%s\n' created
+    exit 0
+  fi
+fi
+
+if ln -s "$src" "$dest" 2>/dev/null; then
+  printf '%s\n' created
+  exit 0
+fi
+
+if [ ! -w "$dest_dir" ]; then
+  exit 2
+fi
+printf '%s\n' "could not create ${dest} pointing at ${src}" >&2
+exit 1
+`
+
+// emacsApplicationsAliasSuffix runs after the Darwin emacs-plus install.
+// The first task does not use become. The second task uses become only when
+// the user could not create the alias or symlink.
+func emacsApplicationsAliasSuffix() string {
+	body := indent(emacsAppLinkScript, 8)
+	return `
+
+    - name: Expose emacs-plus Emacs.app in /Applications
+      ansible.builtin.shell: |
+` + body + `      environment:
+        EMACS_APP_LINK_MODE: alias
+      register: emacs_app_alias
+      changed_when: emacs_app_alias.stdout == "created"
+      failed_when: emacs_app_alias.rc not in [0, 2]
+      when: ` + WhenDarwin + `
+
+    - name: Expose emacs-plus Emacs.app in /Applications as admin
+      ansible.builtin.shell: |
+` + body + `      environment:
+        EMACS_APP_LINK_MODE: symlink
+      register: emacs_app_alias_admin
+      changed_when: emacs_app_alias_admin.stdout == "created"
+      become: yes
+      when:
+        - ` + WhenDarwin + `
+        - emacs_app_alias.rc | default(0) == 2
+`
+}
+
 var platformSpecificTools = []PlatformSpecificTool{
 	{
 		command: "act",
@@ -438,6 +557,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 			PlatformDebian: DebianPkgInstallMethod{Name: "emacs"},
 			PlatformTermux: TermuxPkgInstallMethod{Name: "emacs"},
 		},
+		Suffix: emacsApplicationsAliasSuffix(),
 	},
 	{
 		command: "emacs-lsp-booster",
