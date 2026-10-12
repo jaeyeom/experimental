@@ -183,7 +183,7 @@
           exit 1
         elif [ -e "$dest" ]; then
           if [ "${EMACS_APP_LINK_MODE:-alias}" != "symlink" ]; then
-            alias_target=$(osascript -e "tell application \"Finder\" to POSIX path of (original item of (POSIX file \"${dest}\" as alias))" 2>/dev/null || true)
+            alias_target=$(osascript -e "tell application \"Finder\" to POSIX path of ((original item of (POSIX file \"${dest}\" as alias)) as alias)" 2>/dev/null || true)
             if same_app "$alias_target"; then
               printf '%s\n' unchanged
               exit 0
@@ -273,7 +273,7 @@
           exit 1
         elif [ -e "$dest" ]; then
           if [ "${EMACS_APP_LINK_MODE:-alias}" != "symlink" ]; then
-            alias_target=$(osascript -e "tell application \"Finder\" to POSIX path of (original item of (POSIX file \"${dest}\" as alias))" 2>/dev/null || true)
+            alias_target=$(osascript -e "tell application \"Finder\" to POSIX path of ((original item of (POSIX file \"${dest}\" as alias)) as alias)" 2>/dev/null || true)
             if same_app "$alias_target"; then
               printf '%s\n' unchanged
               exit 0

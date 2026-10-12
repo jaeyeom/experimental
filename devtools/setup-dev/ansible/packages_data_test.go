@@ -737,6 +737,8 @@ func TestEmacsDarwinApplicationsAlias(t *testing.T) {
 		"brew --prefix emacs-plus",
 		`dest_dir="/Applications"`,
 		"make alias file to posix file",
+		"POSIX path of ((original item of (POSIX file",
+		"as alias)) as alias",
 		`with properties {name:\"Emacs.app\"}`,
 		`ln -s "$src" "$dest"`,
 		"EMACS_APP_LINK_MODE: alias",
