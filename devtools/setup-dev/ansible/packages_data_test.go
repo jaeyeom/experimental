@@ -734,15 +734,8 @@ func TestEmacsDarwinApplicationsAlias(t *testing.T) {
 
 	suffix := tool.Suffix
 	for _, want := range []string{
-		"brew --prefix emacs-plus",
-		`dest_dir="/Applications"`,
-		"make alias file to posix file",
-		"POSIX path of ((original item of (POSIX file",
-		"as alias)) as alias",
-		`with properties {name:\"Emacs.app\"}`,
-		`ln -s "$src" "$dest"`,
-		"EMACS_APP_LINK_MODE: alias",
-		"EMACS_APP_LINK_MODE: symlink",
+		"{{ playbook_dir }}/emacs_app_link.sh",
+		"- symlink",
 		"become: yes",
 		WhenDarwin,
 		`emacs_app_alias.rc not in [0, 2]`,
@@ -752,11 +745,29 @@ func TestEmacsDarwinApplicationsAlias(t *testing.T) {
 			t.Errorf("emacs suffix missing %q", want)
 		}
 	}
-	if strings.Contains(suffix, "emacs-plus@") {
-		t.Error("emacs suffix must not hardcode an emacs-plus version")
+	script, err := os.ReadFile(filepath.Join(ansiblePlaybookDir(t), "emacs_app_link.sh"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(suffix, "rm -rf") || strings.Contains(suffix, "ansible.builtin.copy") {
-		t.Error("emacs suffix must not copy or recursively remove Emacs.app")
+	scriptText := string(script)
+	for _, want := range []string{
+		"brew --prefix emacs-plus",
+		"EMACS_APP_LINK_DIR:-/Applications",
+		"make alias file to posix file",
+		"POSIX path of ((original item of (POSIX file",
+		"as alias)) as alias",
+		`with properties {name:\"Emacs.app\"}`,
+		`ln -s "$src" "$dest"`,
+	} {
+		if !strings.Contains(scriptText, want) {
+			t.Errorf("emacs_app_link.sh missing %q", want)
+		}
+	}
+	if strings.Contains(scriptText, "emacs-plus@") || strings.Contains(suffix, "emacs-plus@") {
+		t.Error("emacs link must not hardcode an emacs-plus version")
+	}
+	if strings.Contains(scriptText, "rm -rf") || strings.Contains(suffix, "ansible.builtin.copy") {
+		t.Error("emacs link must not copy or recursively remove Emacs.app")
 	}
 	userTask, adminTask, ok := strings.Cut(suffix, "Expose emacs-plus Emacs.app in /Applications as admin")
 	if !ok {
@@ -791,13 +802,7 @@ func TestEmacsAppLinkScript(t *testing.T) {
 		if _, err := exec.LookPath("shellcheck"); err != nil {
 			t.Skip("shellcheck not installed")
 		}
-		dir := t.TempDir()
-		path := filepath.Join(dir, "emacs_app_link.sh")
-		content := "#!/bin/sh\n" + emacsAppLinkScript
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		cmd := exec.Command("shellcheck", "-s", "sh", path)
+		cmd := exec.Command("shellcheck", "-s", "sh", filepath.Join(ansiblePlaybookDir(t), "emacs_app_link.sh")) //nolint:gosec // shellcheck the repo script under test
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("shellcheck: %v\n%s", err, out)
@@ -1098,15 +1103,14 @@ func runEmacsAppLink(t *testing.T, env emacsAppLinkEnv) (string, int) {
 	if env.log == "" {
 		env.log = filepath.Join(work, "osascript.log")
 	}
-	script := strings.ReplaceAll(emacsAppLinkScript, `dest_dir="/Applications"`, `dest_dir="`+env.destDir+`"`)
-	path := filepath.Join(work, "link.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o600); err != nil {
-		t.Fatal(err)
+	args := []string{filepath.Join(ansiblePlaybookDir(t), "emacs_app_link.sh")}
+	if env.mode == "symlink" {
+		args = append(args, "symlink")
 	}
-	cmd := exec.Command("/bin/sh", path)
+	cmd := exec.Command("/bin/sh", args...) //nolint:gosec // run the repo script under test with a temp PATH
 	cmd.Env = []string{
 		"PATH=" + bin + ":/bin:/usr/bin",
-		"EMACS_APP_LINK_MODE=" + env.mode,
+		"EMACS_APP_LINK_DIR=" + env.destDir,
 		"BREW_PREFIX=" + env.brewPrefix,
 		"LINK_DEST=" + env.destDir,
 		"OSASCRIPT_LOG=" + env.log,

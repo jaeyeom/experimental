@@ -28,7 +28,7 @@ go_test(
         "packages_data_test.go",
         "types_test.go",
     ],
-    data = glob(["*.yml"]),
+    data = glob(["*.yml"]) + ["emacs_app_link.sh"],
     embed = [":go_default_library"],
 )
 
