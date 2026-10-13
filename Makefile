@@ -85,6 +85,8 @@ lint-mypy:
 check-uv-lock: pyproject.toml uv.lock
 	@if ! command -v uv >/dev/null 2>&1; then \
 		echo "Error: uv is required to check uv.lock"; \
+		echo "Install with:"; \
+		echo "  cd devtools/setup-dev/ansible && ./ensure.sh uv"; \
 		exit 1; \
 	fi
 	uv lock --check
