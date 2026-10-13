@@ -79,7 +79,7 @@ rules:
     docs:
       - path: README.org
         section: "* Getting Started"
-        why: "oserrorsgodernize must be built against golang.org/x/tools >= v0.49.0"
+        why: "oserrorsgodernize must be built against golang.org/x/tools >= v0.50.0"
 
   - match: ["check-bazel-src-files.sh"]
     docs:
