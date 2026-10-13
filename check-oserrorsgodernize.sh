@@ -2,12 +2,13 @@
 # Fail if oserrorsgodernize is missing, built against an old golang.org/x/tools,
 # or built with a different Go major.minor than the current toolchain.
 # Go 1.27 fatals with "package without types" when the analyzer uses x/tools
-# older than v0.49.0 (see #283). A binary built with an older Go can also fail
-# to load current stdlib packages (e.g. math/rand/v2).
+# older than v0.49.0 (see #283). Go 1.27.2 writes unified export data version 5,
+# which x/tools older than v0.50.0 cannot decode (see #387). A binary built
+# with an older Go can also fail to load current stdlib packages (e.g. math/rand/v2).
 
 set -euo pipefail
 
-MIN_XTOOLS="${OSERRORS_MIN_XTOOLS:-v0.49.0}"
+MIN_XTOOLS="${OSERRORS_MIN_XTOOLS:-v0.50.0}"
 
 install_hint() {
 	echo "Reinstall with:" >&2

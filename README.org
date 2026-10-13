@@ -43,8 +43,10 @@ The Go module path is =github.com/jaeyeom/experimental=. You will need:
 - =uv= — Python lockfile tool (`uv.lock`; checked by =make check=).
 
 =oserrorsgodernize= must be built with the current Go toolchain against
-=golang.org/x/tools= v0.49.0 or newer (Go 1.27 fatals with =package without
-types= otherwise; see [[https://github.com/jaeyeom/experimental/issues/283][#283]]).
+=golang.org/x/tools= v0.50.0 or newer. Go 1.27 fatals with =package without
+types= on older analyzers (see [[https://github.com/jaeyeom/experimental/issues/283][#283]]).
+Go 1.27.2 writes export data version 5, which =x/tools= older than v0.50.0
+cannot decode (see [[https://github.com/jaeyeom/experimental/issues/387][#387]]).
 =make lint= checks this. Reinstall after upgrading Go:
 
 #+begin_src sh
