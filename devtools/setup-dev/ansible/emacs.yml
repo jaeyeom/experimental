@@ -132,3 +132,27 @@
             update_cache: yes
           become: yes
       when: ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != "Darwin" and ansible_facts['distribution'] == "Ubuntu"
+
+    - name: Expose emacs-plus Emacs.app in /Applications
+      ansible.builtin.command:
+        argv:
+          - /bin/sh
+          - "{{ playbook_dir }}/emacs_app_link.sh"
+      register: emacs_app_alias
+      changed_when: emacs_app_alias.stdout == "created"
+      failed_when: emacs_app_alias.rc not in [0, 2]
+      when: ansible_facts['os_family'] == "Darwin"
+
+    - name: Expose emacs-plus Emacs.app in /Applications as admin
+      ansible.builtin.command:
+        argv:
+          - /bin/sh
+          - "{{ playbook_dir }}/emacs_app_link.sh"
+          - symlink
+      become: yes
+      register: emacs_app_alias_admin
+      changed_when: emacs_app_alias_admin.stdout == "created"
+      when:
+        - ansible_facts['os_family'] == "Darwin"
+        - emacs_app_alias.rc | default(0) == 2
+
