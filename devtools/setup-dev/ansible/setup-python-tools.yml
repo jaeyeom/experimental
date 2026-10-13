@@ -1,6 +1,7 @@
 ---
 # setup-python-tools.yml - Python development tools
 - import_playbook: uv.yml          # Lockfile tool (make check)
+- import_playbook: semgrep.yml     # Security linter (make check)
 - import_playbook: ruff.yml        # Formatter + Linter (already exists)
 - import_playbook: pylsp.yml       # Language server (already exists)
 - import_playbook: mypy.yml        # Type checker (to be added)
