@@ -158,6 +158,37 @@ func tflintReleaseInstall(goos string) ShellInstallMethod {
 	}
 }
 
+// emacsApplicationsAliasSuffix runs emacs_app_link.sh after the Darwin
+// emacs-plus install. The admin task runs only when the user cannot write
+// the destination, and it passes "symlink" so Finder is not invoked as root.
+func emacsApplicationsAliasSuffix() string {
+	return `
+
+    - name: Expose emacs-plus Emacs.app in /Applications
+      ansible.builtin.command:
+        argv:
+          - /bin/sh
+          - "{{ playbook_dir }}/emacs_app_link.sh"
+      register: emacs_app_alias
+      changed_when: emacs_app_alias.stdout == "created"
+      failed_when: emacs_app_alias.rc not in [0, 2]
+      when: ` + WhenDarwin + `
+
+    - name: Expose emacs-plus Emacs.app in /Applications as admin
+      ansible.builtin.command:
+        argv:
+          - /bin/sh
+          - "{{ playbook_dir }}/emacs_app_link.sh"
+          - symlink
+      become: yes
+      register: emacs_app_alias_admin
+      changed_when: emacs_app_alias_admin.stdout == "created"
+      when:
+        - ` + WhenDarwin + `
+        - emacs_app_alias.rc | default(0) == 2
+`
+}
+
 var platformSpecificTools = []PlatformSpecificTool{
 	{
 		command: "act",
@@ -438,6 +469,7 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 			PlatformDebian: DebianPkgInstallMethod{Name: "emacs"},
 			PlatformTermux: TermuxPkgInstallMethod{Name: "emacs"},
 		},
+		Suffix: emacsApplicationsAliasSuffix(),
 	},
 	{
 		command: "emacs-lsp-booster",
