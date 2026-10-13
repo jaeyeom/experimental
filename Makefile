@@ -185,8 +185,10 @@ clean-coverage:
 # Semgrep targets
 .PHONY: check-semgrep
 check-semgrep:
-	@if command -v semgrep >/dev/null 2>&1; then \
-		semgrep scan --error --config auto --config .semgrep; \
-	else \
-		echo "Skipping semgrep: not installed"; \
+	@if ! command -v semgrep >/dev/null 2>&1; then \
+		echo "Error: semgrep is required for make check"; \
+		echo "Install with:"; \
+		echo "  cd devtools/setup-dev/ansible && ./ensure.sh semgrep"; \
+		exit 1; \
 	fi
+	@semgrep scan --error --config auto --config .semgrep
