@@ -451,6 +451,8 @@ func TestHerdrSkippedOnTermux(t *testing.T) {
 		"import_playbook: gather-facts.yml",
 		"import_playbook: herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined",
 		"meta: end_play\n      when: ansible_facts['env']['TERMUX_VERSION'] is defined",
+		"prefix = \"ctrl+]\"",
+		"close_pane = \"\"",
 	} {
 		if !strings.Contains(setup, want) {
 			t.Errorf("setup-herdr.yml missing %q", want)
