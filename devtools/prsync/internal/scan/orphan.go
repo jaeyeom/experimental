@@ -13,7 +13,7 @@ import (
 )
 
 // Orphan tab buckets. has_open_pr tabs are not orphans and are omitted.
-// unknown means a multi-ticket search chunk mapped no PR onto any ticket.
+// unknown means no chunk in a multi-ticket sweep mapped a PR onto a ticket.
 const (
 	BucketMerged  = "merged"
 	BucketNoPR    = "no_pr"
@@ -88,8 +88,10 @@ func OrphansStarted(doc OrphanDocument) bool {
 // not reclaimable). openTabs is the set of tab ids a caller-supplied scan
 // already matched to an open PR; those are skipped without a GitHub search.
 // Remaining tickets are searched in OR-batched GitHub queries so a handful of
-// orphan tabs cannot trip the search secondary rate limit. A chunk that maps
-// no PR onto any of its tickets is unknown (not no_pr) and warned.
+// orphan tabs cannot trip the search secondary rate limit. The sweep is
+// unknown only when no chunk mapped a PR and more than one ticket was
+// searched. An empty chunk is no_pr when another chunk in the same run
+// mapped a PR.
 // A non-nil error is fatal after the caller emits the document when
 // OrphansStarted.
 func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs map[string]struct{}, now time.Time) (OrphanDocument, error) {
@@ -247,6 +249,14 @@ func searchAuthoredTickets(ctx context.Context, client OrphanGH, author string, 
 	var all []gh.PRSearchItem
 	unknown := make(map[string]struct{})
 	var warnings []string
+	// Held until the sweep finishes. One mapped chunk proves the query
+	// works, so an empty sibling is genuine no_pr rather than a broken search.
+	type unmatchedChunk struct {
+		query   string
+		tickets []string
+	}
+	var unmatched []unmatchedChunk
+	anyMapped := false
 	for _, chunk := range ticketSearchChunks(tickets) {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, warnings, fmt.Errorf("search prs: %w", err)
@@ -257,11 +267,20 @@ func searchAuthoredTickets(ctx context.Context, client OrphanGH, author string, 
 			return nil, nil, warnings, fmt.Errorf("search prs %s: %w", query, err)
 		}
 		all = append(all, items...)
-		if len(chunk) > 1 && !chunkMappedAny(items, chunk, re) {
+		if chunkMappedAny(items, chunk, re) {
+			anyMapped = true
+			continue
+		}
+		if len(chunk) > 1 {
+			unmatched = append(unmatched, unmatchedChunk{query: query, tickets: chunk})
+		}
+	}
+	if !anyMapped && len(tickets) > 1 {
+		for _, chunk := range unmatched {
 			warnings = append(warnings, fmt.Sprintf(
 				"search %q returned no matching PRs for any of %d tickets; treating as unknown",
-				query, len(chunk)))
-			for _, ticket := range chunk {
+				chunk.query, len(chunk.tickets)))
+			for _, ticket := range chunk.tickets {
 				unknown[ticket] = struct{}{}
 			}
 		}

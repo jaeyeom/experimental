@@ -298,7 +298,7 @@ the author's PRs (any state) and bucketed:
 |--------+---------|
 | ~merged~ | Ticket's PR is merged or closed → *safe to close*. ~pr~ has number, repo, ~state~, ~merged_at~ (null if closed but unmerged) |
 | ~no_pr~ | Search found nothing, agent is ~idle~ or ~blocked~ → *verify* (may be unpushed WIP). A ~working~ agent with no PR is omitted, not an orphan |
-| ~unknown~ | A search chunk matched *no* ticket (broken or throttled sweep, not N genuine ~no_pr~). A ~warnings~ entry is emitted; ~working~ agents are still surfaced |
+| ~unknown~ | No chunk in the sweep matched a ticket, and more than one ticket was searched (broken or throttled sweep, not N genuine ~no_pr~). An empty chunk is ~no_pr~ when another chunk mapped a PR. A ~warnings~ entry is emitted; ~working~ agents are still surfaced |
 
 Skipped: tabs with an open/draft PR, agent-less scratch tabs, unparseable / non-ticket labels.
 
