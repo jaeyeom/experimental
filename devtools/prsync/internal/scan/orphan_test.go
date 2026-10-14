@@ -457,6 +457,19 @@ func TestOrphansChunksWhenOverFiveOROperators(t *testing.T) {
 	if len(doc.OrphanTabs) != 7 {
 		t.Fatalf("len(orphan_tabs) = %d, want 7", len(doc.OrphanTabs))
 	}
+	// Nothing in the sweep mapped. The multi-ticket chunk stays unknown.
+	// The trailing one-ticket query is the form a broken search cannot hide in.
+	for i, got := range doc.OrphanTabs[:6] {
+		if got.Ticket != tickets[i] || got.Bucket != BucketUnknown {
+			t.Fatalf("orphan[%d] = %+v, want %s unknown", i, got, tickets[i])
+		}
+	}
+	if doc.OrphanTabs[6].Ticket != "AP-7" || doc.OrphanTabs[6].Bucket != BucketNoPR {
+		t.Fatalf("orphan[6] = %+v, want AP-7 no_pr", doc.OrphanTabs[6])
+	}
+	if len(doc.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one empty-chunk warning", doc.Warnings)
+	}
 }
 
 func TestOrphansEmptySweepIsUnknownNotNoPR(t *testing.T) {
@@ -554,6 +567,86 @@ func TestOrphansMixedChunkDoesNotWarn(t *testing.T) {
 	}
 	if doc.OrphanTabs[0].Bucket != BucketMerged || doc.OrphanTabs[1].Bucket != BucketNoPR {
 		t.Fatalf("orphan_tabs = %+v, want AP-1306 merged and AP-1287 no_pr", doc.OrphanTabs)
+	}
+}
+
+func TestOrphansEmptyChunkIsNoPRWhenAnotherChunkMapped(t *testing.T) {
+	t.Parallel()
+
+	// Six PR-less tickets fill the first search chunk. A merged ticket in
+	// the next chunk proves the sweep. Those six are no_pr, not unknown.
+	tickets := []string{"AP-1", "AP-2", "AP-3", "AP-4", "AP-5", "AP-6", "AP-7"}
+	search := make(map[string][]gh.PRSearchItem, len(tickets))
+	tabs := make([]herdr.Tab, 0, len(tickets))
+	agents := make([]herdr.Agent, 0, len(tickets))
+	for _, ticket := range tickets {
+		search[ticket] = nil
+		id := "w2:t" + ticket
+		tabs = append(tabs, liveTab(id, "w2", ticket))
+		agents = append(agents, liveAgent("w2:p"+ticket, id, "idle"))
+	}
+	search["AP-7"] = []gh.PRSearchItem{{
+		Number: 70, Title: "[AP-7] Fix", URL: "https://gh/acme/x/pull/70",
+		State: "merged", ClosedAt: "2026-08-18T22:19:28Z",
+		Repository: gh.SearchRepository{NameWithOwner: "acme/x"},
+	}}
+	g := &orphanGH{search: search}
+	h := stubHerdr{tabs: tabs, agents: agents}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none when another chunk mapped a PR", doc.Warnings)
+	}
+	if len(doc.OrphanTabs) != len(tickets) {
+		t.Fatalf("orphan_tabs = %+v, want %d", doc.OrphanTabs, len(tickets))
+	}
+	for i, ticket := range tickets[:6] {
+		got := doc.OrphanTabs[i]
+		if got.Ticket != ticket || got.Bucket != BucketNoPR || got.PR != nil {
+			t.Fatalf("orphan[%d] = %+v, want %s no_pr", i, got, ticket)
+		}
+	}
+	got := doc.OrphanTabs[6]
+	if got.Ticket != "AP-7" || got.Bucket != BucketMerged || got.PR == nil || got.PR.Number != 70 {
+		t.Fatalf("orphan[6] = %+v, want AP-7 merged", got)
+	}
+}
+
+func TestOrphansAllEmptyMultiChunksStayUnknown(t *testing.T) {
+	t.Parallel()
+
+	// Two chunks and no mapped PR: the sweep is still untrusted.
+	tickets := []string{
+		"AP-1", "AP-2", "AP-3", "AP-4", "AP-5", "AP-6",
+		"AP-7", "AP-8", "AP-9", "AP-10", "AP-11", "AP-12",
+	}
+	search := make(map[string][]gh.PRSearchItem, len(tickets))
+	tabs := make([]herdr.Tab, 0, len(tickets))
+	agents := make([]herdr.Agent, 0, len(tickets))
+	for _, ticket := range tickets {
+		search[ticket] = nil
+		id := "w2:t" + ticket
+		tabs = append(tabs, liveTab(id, "w2", ticket))
+		agents = append(agents, liveAgent("w2:p"+ticket, id, "idle"))
+	}
+	g := &orphanGH{search: search}
+	h := stubHerdr{tabs: tabs, agents: agents}
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Orphans() unexpected error: %v", err)
+	}
+	if len(doc.OrphanTabs) != len(tickets) {
+		t.Fatalf("len(orphan_tabs) = %d, want %d", len(doc.OrphanTabs), len(tickets))
+	}
+	for i, got := range doc.OrphanTabs {
+		if got.Ticket != tickets[i] || got.Bucket != BucketUnknown || got.PR != nil {
+			t.Fatalf("orphan[%d] = %+v, want %s unknown", i, got, tickets[i])
+		}
+	}
+	if len(doc.Warnings) != 2 {
+		t.Fatalf("warnings = %v, want one warning per empty chunk", doc.Warnings)
 	}
 }
 
