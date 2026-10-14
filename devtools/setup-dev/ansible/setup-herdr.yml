@@ -35,7 +35,7 @@
         state: directory
         mode: '0755'
 
-    - name: Ensure herdr uses ctrl+] as the prefix key
+    - name: Ensure herdr uses ctrl+] and leaves close_pane unbound
       ansible.builtin.blockinfile:
         path: "{{ herdr_config_dir }}/config.toml"
         append_newline: true
@@ -51,8 +51,12 @@
           # sequence.
           # Action bindings are symbolic ("prefix+c", "prefix+v", ...), so they
           # follow this key automatically and need no changes.
+          # prefix+x (close_pane) sits next to prefix+c (new tab). An empty
+          # binding drops that shortcut. The mouse menu and `herdr pane close`
+          # still close a pane.
           [keys]
           prefix = "ctrl+]"
+          close_pane = ""
       register: herdr_prefix_config
 
     # blockinfile appends the managed block verbatim, so a hand-written [keys]
@@ -66,8 +70,8 @@
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
 
-    # Applies the new prefix to an already-running session. A missing server is
-    # the normal case on a fresh machine, so failures here are not fatal.
+    # Applies the keybinding change to an already-running session. A missing
+    # server is the normal case on a fresh machine, so failures here are not fatal.
     - name: Reload the configuration in a running herdr server
       ansible.builtin.command: herdr server reload-config
       register: herdr_reload
