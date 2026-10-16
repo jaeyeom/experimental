@@ -68,8 +68,9 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 	}
 	client := herdr.NewClient(exec, cfg.HerdrBin)
 	deps := scan.OrphanDeps{
-		GH:    gh.NewClient(exec, cfg.GHBin),
-		Herdr: client,
+		GH:     gh.NewClient(exec, cfg.GHBin),
+		Herdr:  client,
+		RepoOf: scan.GitHubRepoFromCWD,
 	}
 	doc, err := scan.Orphans(ctx, deps, cfg, openTabs, time.Now())
 	if err != nil {

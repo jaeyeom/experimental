@@ -18,6 +18,7 @@ const (
 	maxReviewThreadPages = 50
 	prListJSONFields     = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
 	prSearchJSONFields   = "number,title,url,state,isDraft,closedAt,repository"
+	prStateJSONFields    = "number,title,url,state,isDraft,closedAt"
 	reviewThreadsQuery   = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
 )
 
@@ -151,26 +152,57 @@ func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRList
 // as ListOpenPRs. A missing pull request is ErrNotFound. A missing or archived
 // repository is ErrInaccessible.
 func (c *Client) ViewPR(ctx context.Context, repo string, number int) (PRListItem, error) {
-	result, err := c.executeChecked(ctx, defaultCallTimeout, validJSONOutput,
-		"pr", "view", strconv.Itoa(number), "--repo", repo, "--json", prListJSONFields)
+	raw, err := c.prViewJSON(ctx, repo, number, prListJSONFields)
 	if err != nil {
 		return PRListItem{}, err
+	}
+	var item PRListItem
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return PRListItem{}, fmt.Errorf("decode pr view: %w", err)
+	}
+	return item, nil
+}
+
+// ViewPRState runs `gh pr view` for one pull request in any state and by any
+// author. State is normalized to "open", "merged", or "closed". Repository is
+// the repo argument when the payload omits it. A missing pull request is
+// ErrNotFound. A missing or archived repository is ErrInaccessible.
+func (c *Client) ViewPRState(ctx context.Context, repo string, number int) (PRSearchItem, error) {
+	raw, err := c.prViewJSON(ctx, repo, number, prStateJSONFields)
+	if err != nil {
+		return PRSearchItem{}, err
+	}
+	var item PRSearchItem
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return PRSearchItem{}, fmt.Errorf("decode pr view: %w", err)
+	}
+	item.State = strings.ToLower(strings.TrimSpace(item.State))
+	if item.Repository.NameWithOwner == "" {
+		item.Repository.NameWithOwner = repo
+	}
+	if item.Number == 0 {
+		item.Number = number
+	}
+	return item, nil
+}
+
+func (c *Client) prViewJSON(ctx context.Context, repo string, number int, fields string) (string, error) {
+	result, err := c.executeChecked(ctx, defaultCallTimeout, validJSONOutput,
+		"pr", "view", strconv.Itoa(number), "--repo", repo, "--json", fields)
+	if err != nil {
+		return "", err
 	}
 	if result.ExitCode != 0 {
 		stderr := strings.TrimSpace(result.Stderr)
 		if isPRNotFound(result.Stderr) {
-			return PRListItem{}, fmt.Errorf("%w: %s", ErrNotFound, stderr)
+			return "", fmt.Errorf("%w: %s", ErrNotFound, stderr)
 		}
 		if isInaccessible(result.Stderr) {
-			return PRListItem{}, fmt.Errorf("%w: %s", ErrInaccessible, stderr)
+			return "", fmt.Errorf("%w: %s", ErrInaccessible, stderr)
 		}
-		return PRListItem{}, &ProcError{ExitCode: result.ExitCode, Stdout: result.Output, Stderr: result.Stderr}
+		return "", &ProcError{ExitCode: result.ExitCode, Stdout: result.Output, Stderr: result.Stderr}
 	}
-	var item PRListItem
-	if err := json.Unmarshal([]byte(result.Output), &item); err != nil {
-		return PRListItem{}, fmt.Errorf("decode pr view: %w", err)
-	}
-	return item, nil
+	return result.Output, nil
 }
 
 func isPRNotFound(stderr string) bool {

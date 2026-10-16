@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -687,6 +688,9 @@ type orphanGH struct {
 	search         map[string][]gh.PRSearchItem
 	queried        []string
 	searchedAuthor string
+	views          map[string]gh.PRSearchItem
+	viewed         []string
+	viewErr        error
 }
 
 func (g *orphanGH) AuthStatus(context.Context) error { return g.authErr }
@@ -696,6 +700,22 @@ func (g *orphanGH) UserLogin(context.Context) (string, error) {
 		return g.login, nil
 	}
 	return "alice", nil
+}
+
+func (g *orphanGH) ViewPRState(_ context.Context, repo string, number int) (gh.PRSearchItem, error) {
+	key := fmt.Sprintf("%s#%d", repo, number)
+	g.viewed = append(g.viewed, key)
+	if g.viewErr != nil {
+		return gh.PRSearchItem{}, g.viewErr
+	}
+	item, ok := g.views[key]
+	if !ok {
+		return gh.PRSearchItem{}, gh.ErrNotFound
+	}
+	if item.Repository.NameWithOwner == "" {
+		item.Repository.NameWithOwner = repo
+	}
+	return item, nil
 }
 
 func (g *orphanGH) SearchAuthoredPRs(_ context.Context, author, query string) ([]gh.PRSearchItem, error) {
