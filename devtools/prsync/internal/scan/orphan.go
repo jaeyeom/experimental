@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -39,12 +40,19 @@ type OrphanGH interface {
 	AuthStatus(ctx context.Context) error
 	UserLogin(ctx context.Context) (string, error)
 	SearchAuthoredPRs(ctx context.Context, author, query string) ([]gh.PRSearchItem, error)
+	// ViewPRState loads one pull request by repo and number, any author.
+	// State is "open", "merged", or "closed", matching SearchAuthoredPRs.
+	// A missing pull request is gh.ErrNotFound.
+	ViewPRState(ctx context.Context, repo string, number int) (gh.PRSearchItem, error)
 }
 
 // OrphanDeps is the injected GitHub and herdr adapters for the orphan report.
 type OrphanDeps struct {
 	GH    OrphanGH
 	Herdr Herdr
+	// RepoOf maps a live agent's cwd to a github.com owner/repo.
+	// Nil leaves #number tab labels unresolved. Ticket labels do not use it.
+	RepoOf func(cwd string) (string, error)
 }
 
 // OrphanDocument is the outbound `tabs --orphans` JSON document.
@@ -92,6 +100,12 @@ func OrphansStarted(doc OrphanDocument) bool {
 // unknown only when no chunk mapped a PR and more than one ticket was
 // searched. An empty chunk is no_pr when another chunk in the same run
 // mapped a PR.
+// A tab labeled exactly "#N" is matched to pull request N in the github.com
+// repository of the live agent's cwd (origin remote). That lookup is not
+// limited to the configured author, so a review tab for someone else's PR is
+// included. Merged and closed pull requests use the merged bucket. An open
+// pull request is omitted. A missing pull request is no_pr unless the agent
+// is working.
 // A non-nil error is fatal after the caller emits the document when
 // OrphansStarted.
 func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs map[string]struct{}, now time.Time) (OrphanDocument, error) {
@@ -122,40 +136,74 @@ func Orphans(ctx context.Context, deps OrphanDeps, cfg config.Config, openTabs m
 	}
 
 	live := liveAgentsByTab(agents)
+	pending, tickets, err := collectCandidates(ctx, tabs, live, openTabs, cfg.TitleIDPattern)
+	if err != nil {
+		return doc, err
+	}
+	items, unknown, warnings, err := searchAuthoredTickets(ctx, deps.GH, author, tickets, cfg.TitleIDPattern)
+	if err != nil {
+		return doc, err
+	}
+	doc.Warnings = append(doc.Warnings, warnings...)
+	orphans, warnings, err := classifyPending(ctx, deps, cfg, pending, items, unknown)
+	if err != nil {
+		return doc, err
+	}
+	doc.OrphanTabs = append(doc.OrphanTabs, orphans...)
+	doc.Warnings = append(doc.Warnings, warnings...)
+	return doc, nil
+}
+
+func collectCandidates(ctx context.Context, tabs []herdr.Tab, live map[string]tabSession, openTabs map[string]struct{}, re *regexp.Regexp) ([]orphanCandidate, []string, error) {
 	var pending []orphanCandidate
 	ticketSeen := make(map[string]struct{})
 	var tickets []string
 	for _, tab := range tabs {
 		if err := ctx.Err(); err != nil {
-			return doc, fmt.Errorf("orphans: %w", err)
+			return nil, nil, fmt.Errorf("orphans: %w", err)
 		}
-		c, ok := candidateFromTab(tab, live, openTabs, cfg.TitleIDPattern)
+		c, ok := candidateFromTab(tab, live, openTabs, re)
 		if !ok {
 			continue
 		}
 		pending = append(pending, c)
+		if c.prNumber > 0 {
+			continue
+		}
 		if _, seen := ticketSeen[c.ticket]; seen {
 			continue
 		}
 		ticketSeen[c.ticket] = struct{}{}
 		tickets = append(tickets, c.ticket)
 	}
+	return pending, tickets, nil
+}
 
-	items, unknown, warnings, err := searchAuthoredTickets(ctx, deps.GH, author, tickets, cfg.TitleIDPattern)
-	if err != nil {
-		return doc, err
-	}
-	doc.Warnings = append(doc.Warnings, warnings...)
+func classifyPending(ctx context.Context, deps OrphanDeps, cfg config.Config, pending []orphanCandidate, items []gh.PRSearchItem, unknown map[string]struct{}) ([]OrphanTab, []string, error) {
+	var orphans []OrphanTab
+	var warnings []string
+	repos := map[string]repoLookup{}
+	views := map[string]prView{}
 	for _, c := range pending {
 		if err := ctx.Err(); err != nil {
-			return doc, fmt.Errorf("orphans: %w", err)
+			return orphans, warnings, fmt.Errorf("orphans: %w", err)
+		}
+		if c.prNumber > 0 {
+			orphan, ok, warn := classifyNumber(ctx, deps.GH, deps.RepoOf, c, repos, views)
+			if warn != "" {
+				warnings = append(warnings, warn)
+			}
+			if ok {
+				orphans = append(orphans, orphan)
+			}
+			continue
 		}
 		orphan, ok := classifyCandidate(cfg, c, items, unknown)
 		if ok {
-			doc.OrphanTabs = append(doc.OrphanTabs, orphan)
+			orphans = append(orphans, orphan)
 		}
 	}
-	return doc, nil
+	return orphans, warnings, nil
 }
 
 func resolveOrphanAuthor(ctx context.Context, client OrphanGH, configured string) (string, error) {
@@ -169,10 +217,18 @@ func resolveOrphanAuthor(ctx context.Context, client OrphanGH, configured string
 	return login, nil
 }
 
-// liveAgentsByTab maps a tab id to the status of its first live agent. A tab
-// absent from the map has no running agent session (an agent-less scratch tab).
-func liveAgentsByTab(agents []herdr.Agent) map[string]string {
-	out := make(map[string]string)
+// tabSession is the first live session on a tab, including the directories a
+// #number label is resolved against.
+type tabSession struct {
+	status        string
+	cwd           string
+	foregroundCwd string
+}
+
+// liveAgentsByTab maps a tab id to its first live agent. A tab absent from
+// the map has no running agent session (an agent-less scratch tab).
+func liveAgentsByTab(agents []herdr.Agent) map[string]tabSession {
+	out := make(map[string]tabSession)
 	for _, agent := range agents {
 		if _, ok := liveAgentStatuses[agent.AgentStatus]; !ok {
 			continue
@@ -180,30 +236,154 @@ func liveAgentsByTab(agents []herdr.Agent) map[string]string {
 		if _, seen := out[agent.TabID]; seen {
 			continue
 		}
-		out[agent.TabID] = agent.AgentStatus
+		out[agent.TabID] = tabSession{
+			status:        agent.AgentStatus,
+			cwd:           agent.Cwd,
+			foregroundCwd: agent.ForegroundCwd,
+		}
 	}
 	return out
 }
 
 type orphanCandidate struct {
-	tab    herdr.Tab
-	ticket string
-	status string
+	tab      herdr.Tab
+	ticket   string
+	status   string
+	prNumber int
+	cwds     []string
 }
 
-func candidateFromTab(tab herdr.Tab, live map[string]string, openTabs map[string]struct{}, re *regexp.Regexp) (orphanCandidate, bool) {
-	status, ok := live[tab.TabID]
+func candidateFromTab(tab herdr.Tab, live map[string]tabSession, openTabs map[string]struct{}, re *regexp.Regexp) (orphanCandidate, bool) {
+	agent, ok := live[tab.TabID]
 	if !ok {
-		return orphanCandidate{}, false
-	}
-	ticketPtr := ExtractID(tab.Label, re)
-	if ticketPtr == nil {
 		return orphanCandidate{}, false
 	}
 	if _, matched := openTabs[tab.TabID]; matched {
 		return orphanCandidate{}, false
 	}
-	return orphanCandidate{tab: tab, ticket: *ticketPtr, status: status}, true
+	if number, ok := prNumberLabel(tab.Label); ok {
+		return orphanCandidate{
+			tab:      tab,
+			ticket:   fmt.Sprintf("#%d", number),
+			status:   agent.status,
+			prNumber: number,
+			cwds:     agentCWDs(agent),
+		}, true
+	}
+	ticketPtr := ExtractID(tab.Label, re)
+	if ticketPtr == nil {
+		return orphanCandidate{}, false
+	}
+	return orphanCandidate{tab: tab, ticket: *ticketPtr, status: agent.status}, true
+}
+
+func agentCWDs(agent tabSession) []string {
+	var cwds []string
+	if agent.cwd != "" {
+		cwds = append(cwds, agent.cwd)
+	}
+	if agent.foregroundCwd != "" && agent.foregroundCwd != agent.cwd {
+		cwds = append(cwds, agent.foregroundCwd)
+	}
+	return cwds
+}
+
+type repoLookup struct {
+	repo string
+	err  error
+}
+
+type prView struct {
+	item gh.PRSearchItem
+	err  error
+}
+
+func resolveRepo(repoOf func(string) (string, error), cwds []string, cache map[string]repoLookup) (string, error) {
+	if repoOf == nil {
+		return "", errors.New("no repo resolver")
+	}
+	if len(cwds) == 0 {
+		return "", errors.New("agent cwd is empty")
+	}
+	var last error
+	for _, cwd := range cwds {
+		hit, ok := cache[cwd]
+		if !ok {
+			repo, err := repoOf(cwd)
+			hit = repoLookup{repo: repo, err: err}
+			cache[cwd] = hit
+		}
+		if hit.err == nil && hit.repo != "" {
+			return hit.repo, nil
+		}
+		if hit.err != nil {
+			last = hit.err
+			continue
+		}
+		last = errors.New("no github repo")
+	}
+	if last == nil {
+		last = errors.New("no github repo")
+	}
+	return "", last
+}
+
+func viewPR(ctx context.Context, client OrphanGH, repo string, number int, cache map[string]prView) (gh.PRSearchItem, error) {
+	key := fmt.Sprintf("%s#%d", repo, number)
+	if hit, ok := cache[key]; ok {
+		return hit.item, hit.err
+	}
+	item, err := client.ViewPRState(ctx, repo, number)
+	if err != nil {
+		err = fmt.Errorf("view %s#%d: %w", repo, number, err)
+		cache[key] = prView{err: err}
+		return gh.PRSearchItem{}, err
+	}
+	cache[key] = prView{item: item}
+	return item, nil
+}
+
+// classifyNumber buckets a "#N" tab. A non-empty warning means the tab was
+// not classified; callers must not treat that as no_pr or unknown.
+func classifyNumber(ctx context.Context, client OrphanGH, repoOf func(string) (string, error), c orphanCandidate, repos map[string]repoLookup, views map[string]prView) (OrphanTab, bool, string) {
+	repo, err := resolveRepo(repoOf, c.cwds, repos)
+	if err != nil {
+		return OrphanTab{}, false, fmt.Sprintf("%s: cannot resolve repo from agent cwd: %s", c.ticket, err.Error())
+	}
+	item, err := viewPR(ctx, client, repo, c.prNumber, views)
+	if err != nil {
+		if errors.Is(err, gh.ErrNotFound) {
+			if c.status == "working" {
+				return OrphanTab{}, false, ""
+			}
+			return numberOrphan(c, BucketNoPR, nil), true, ""
+		}
+		return OrphanTab{}, false, fmt.Sprintf("%s: %s", c.ticket, err.Error())
+	}
+	item.State = strings.ToLower(strings.TrimSpace(item.State))
+	if item.Repository.NameWithOwner == "" {
+		item.Repository.NameWithOwner = repo
+	}
+	switch item.State {
+	case "open":
+		return OrphanTab{}, false, ""
+	case "merged", "closed":
+		return numberOrphan(c, BucketMerged, toOrphanPR(item)), true, ""
+	default:
+		return OrphanTab{}, false, fmt.Sprintf("%s: view %s#%d: unrecognized state %q", c.ticket, repo, c.prNumber, item.State)
+	}
+}
+
+func numberOrphan(c orphanCandidate, bucket string, pr *OrphanPR) OrphanTab {
+	return OrphanTab{
+		TabID:       c.tab.TabID,
+		WorkspaceID: c.tab.WorkspaceID,
+		Label:       c.tab.Label,
+		Ticket:      c.ticket,
+		AgentStatus: c.status,
+		Bucket:      bucket,
+		PR:          pr,
+	}
 }
 
 // ticketSearchQueries splits tickets into GitHub search queries under the

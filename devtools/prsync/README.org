@@ -292,15 +292,22 @@ Usually the PR already merged — the tab, worktree, and gate slot can
 be reclaimed.
 
 Tabs whose labels yield tickets via ~title_id_pattern~ are resolved to
-the author's PRs (any state) and bucketed:
+the author's PRs (any state) and bucketed. A label that is exactly
+~#~ plus a pull request number (~#42~, not ~#1#2~ or ~#42 extra~)
+is resolved instead to that number in the github.com repository of the
+live agent's cwd (~git remote get-url origin~, then ~foreground_cwd~ if
+the shell cwd is not a GitHub checkout). That lookup is not limited to
+~author~, so a review tab for someone else's PR is included. ~--close-merged~
+closes it when the pull request is merged or closed, and re-checks with
+~gh pr view~ immediately before the close.
 
 | Bucket | Meaning |
 |--------+---------|
-| ~merged~ | Ticket's PR is merged or closed → *safe to close*. ~pr~ has number, repo, ~state~, ~merged_at~ (null if closed but unmerged) |
-| ~no_pr~ | Search found nothing, agent is ~idle~ or ~blocked~ → *verify* (may be unpushed WIP). A ~working~ agent with no PR is omitted, not an orphan |
+| ~merged~ | Matching PR (ticket, or ~#N~) is merged or closed → *safe to close*. ~pr~ has number, repo, ~state~, ~merged_at~ (null if closed but unmerged) |
+| ~no_pr~ | No matching PR, agent is ~idle~ or ~blocked~ → *verify* (may be unpushed WIP, or ~#N~ is not a pull request in that repo). A ~working~ agent with no PR is omitted, not an orphan |
 | ~unknown~ | No chunk in the sweep matched a ticket, and more than one ticket was searched (broken or throttled sweep, not N genuine ~no_pr~). An empty chunk is ~no_pr~ when another chunk mapped a PR. A ~warnings~ entry is emitted; ~working~ agents are still surfaced |
 
-Skipped: tabs with an open/draft PR, agent-less scratch tabs, unparseable / non-ticket labels.
+Skipped: tabs with an open/draft PR, agent-less scratch tabs, unparseable / non-ticket labels. A ~#N~ tab whose cwd is not a github.com checkout is skipped with a warning, not closed. A ~gh pr view~ error for one ~#N~ tab warns and skips that tab; it does not mark the sweep ~unknown~.
 
 #+BEGIN_SRC bash
 prsync tabs --orphans --config ./prsync.config

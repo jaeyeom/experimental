@@ -52,7 +52,9 @@ type Agent struct {
 	PaneID         string `json:"pane_id"` //nolint:tagliatelle // herdr/brief wire format
 	TabID          string `json:"tab_id"`  //nolint:tagliatelle // herdr/brief wire format
 	Agent          string `json:"agent"`
-	AgentStatus    string `json:"agent_status"`     //nolint:tagliatelle // herdr/brief wire format
+	AgentStatus    string `json:"agent_status"` //nolint:tagliatelle // herdr/brief wire format
+	Cwd            string `json:"cwd"`
+	ForegroundCwd  string `json:"foreground_cwd"`   //nolint:tagliatelle // herdr/brief wire format
 	StateChangeSeq int    `json:"state_change_seq"` //nolint:tagliatelle // herdr/brief wire format
 	Revision       int    `json:"revision"`
 }
