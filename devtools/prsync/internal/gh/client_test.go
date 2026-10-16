@@ -305,6 +305,43 @@ func TestViewPR(t *testing.T) {
 	})
 }
 
+func TestViewPRState(t *testing.T) {
+	t.Parallel()
+
+	const jsonFields = "number,title,url,state,isDraft,closedAt"
+
+	t.Run("normalizes merged state and fills repo", func(t *testing.T) {
+		t.Parallel()
+		body := `{"number":42,"title":"Fix the widget","url":"https://github.com/acme/widgets/pull/42","state":"MERGED","isDraft":false,"closedAt":"2026-08-18T22:19:28Z"}`
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "42",
+			"--repo", "acme/widgets", "--json", jsonFields).
+			WillSucceed(body, 0).Build()
+		got, err := NewClient(mock, testGHBin).ViewPRState(context.Background(), "acme/widgets", 42)
+		if err != nil {
+			t.Fatalf("ViewPRState() unexpected error: %v", err)
+		}
+		if got.Number != 42 || got.State != "merged" || got.ClosedAt != "2026-08-18T22:19:28Z" {
+			t.Fatalf("ViewPRState() = %+v", got)
+		}
+		if got.Repository.NameWithOwner != "acme/widgets" {
+			t.Fatalf("repo = %q", got.Repository.NameWithOwner)
+		}
+	})
+
+	t.Run("missing pull request", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "9",
+			"--repo", "acme/widgets", "--json", jsonFields).
+			WillFail("GraphQL: Could not resolve to a PullRequest with the number of 9. (repository.pullRequest)", 1).Build()
+		_, err := NewClient(mock, testGHBin).ViewPRState(context.Background(), "acme/widgets", 9)
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("ViewPRState() error = %v, want ErrNotFound", err)
+		}
+	})
+}
+
 func TestSearchAuthoredPRs(t *testing.T) {
 	t.Parallel()
 

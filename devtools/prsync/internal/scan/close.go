@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 )
 
@@ -164,7 +166,7 @@ func closeOne(ctx context.Context, deps CloseDeps, cfg config.Config, author str
 		item.Action = ActionSkippedNotFound
 		return item, nil
 	}
-	still, pr, err := stillMerged(ctx, deps.GH, cfg, author, tab.Ticket)
+	still, pr, err := stillMerged(ctx, deps.GH, cfg, author, tab)
 	if err != nil {
 		item.Action = ActionFailed
 		item.Detail = err.Error()
@@ -193,12 +195,15 @@ func closeOne(ctx context.Context, deps CloseDeps, cfg config.Config, author str
 	return item, nil
 }
 
-func stillMerged(ctx context.Context, client OrphanGH, cfg config.Config, author, ticket string) (bool, *OrphanPR, error) {
-	items, err := client.SearchAuthoredPRs(ctx, author, ticket)
-	if err != nil {
-		return false, nil, fmt.Errorf("search prs %s: %w", ticket, err)
+func stillMerged(ctx context.Context, client OrphanGH, cfg config.Config, author string, tab OrphanTab) (bool, *OrphanPR, error) {
+	if number, ok := prNumberLabel(tab.Ticket); ok {
+		return stillNumberMerged(ctx, client, tab, number)
 	}
-	candidates := filterByTicket(items, ticket, cfg.TitleIDPattern)
+	items, err := client.SearchAuthoredPRs(ctx, author, tab.Ticket)
+	if err != nil {
+		return false, nil, fmt.Errorf("search prs %s: %w", tab.Ticket, err)
+	}
+	candidates := filterByTicket(items, tab.Ticket, cfg.TitleIDPattern)
 	if hasOpenPR(candidates) {
 		return false, nil, nil
 	}
@@ -207,4 +212,29 @@ func stillMerged(ctx context.Context, client OrphanGH, cfg config.Config, author
 		return false, nil, nil
 	}
 	return true, toOrphanPR(*resolving), nil
+}
+
+// stillNumberMerged re-reads the pull request recorded on a "#N" tab. The
+// lookup is by repo and number, not by author.
+func stillNumberMerged(ctx context.Context, client OrphanGH, tab OrphanTab, number int) (bool, *OrphanPR, error) {
+	if tab.PR == nil || tab.PR.Repo == "" {
+		return false, nil, nil
+	}
+	item, err := client.ViewPRState(ctx, tab.PR.Repo, number)
+	if errors.Is(err, gh.ErrNotFound) {
+		return false, nil, nil
+	}
+	if err != nil {
+		return false, nil, fmt.Errorf("view %s#%d: %w", tab.PR.Repo, number, err)
+	}
+	item.State = strings.ToLower(strings.TrimSpace(item.State))
+	if item.Repository.NameWithOwner == "" {
+		item.Repository.NameWithOwner = tab.PR.Repo
+	}
+	switch item.State {
+	case "merged", "closed":
+		return true, toOrphanPR(item), nil
+	default:
+		return false, toOrphanPR(item), nil
+	}
 }

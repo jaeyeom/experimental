@@ -243,7 +243,8 @@ when persp-mode is available). Does not start Emacs.
 
 Surveys the author's open GitHub PRs, matches them to running herdr agent
 tabs, and on request dispatches a prompt to address review comments or
-rebase. ~tabs --orphans~ finds live-agent tabs whose PR already merged.
+rebase. ~tabs --orphans~ finds live-agent tabs whose PR already merged
+or closed, including a tab labeled exactly ~#N~.
 
 *Key Features:*
 - JSON CLI: ~scan~, ~tabs --orphans~, ~dispatch~, ~comment~, ~gate~, ~logs~, ~version~
