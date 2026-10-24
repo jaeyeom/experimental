@@ -510,7 +510,8 @@ elif [ "$OS" = "Darwin" ]; then
     # Only update if not done in the last 24 hours
     if cache_expired "$BREW_CACHE"; then
         echo "Updating Homebrew..."
-        brew update && brew upgrade
+        # Homebrew 7 asks [y/n] before upgrading. --no-ask skips that prompt.
+        brew update && brew upgrade --no-ask
         touch "$BREW_CACHE"
     fi
 
