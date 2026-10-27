@@ -3,23 +3,32 @@ package gh
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 const (
-	defaultCallTimeout   = 60 * time.Second
-	maxReviewThreadPages = 50
-	prListJSONFields     = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
-	prSearchJSONFields   = "number,title,url,state,isDraft,closedAt,repository"
-	prStateJSONFields    = "number,title,url,state,isDraft,closedAt"
-	reviewThreadsQuery   = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
+	defaultCallTimeout     = 60 * time.Second
+	maxReviewThreadPages   = 50
+	rollupFetchConcurrency = 4
+	// prListJSONFields omits statusCheckRollup and latestReviews. One search
+	// page that includes the rollup exceeds GitHub's GraphQL resource limit
+	// once many open PRs each carry a large check rollup, and the gateway
+	// answers 502 or 504.
+	prListJSONFields      = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
+	prViewJSONFields      = prListJSONFields + ",latestReviews,statusCheckRollup"
+	statusCheckJSONFields = "statusCheckRollup"
+	prSearchJSONFields    = "number,title,url,state,isDraft,closedAt,repository"
+	prStateJSONFields     = "number,title,url,state,isDraft,closedAt"
+	reviewThreadsQuery    = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
 )
 
 // Client shells out to gh_bin through an injected executor.
@@ -145,14 +154,93 @@ func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRList
 	if prs == nil {
 		prs = []PRListItem{}
 	}
+	if len(prs) == 0 {
+		return prs, nil
+	}
+	if err := c.fillStatusChecks(ctx, repo, prs); err != nil {
+		return nil, err
+	}
 	return prs, nil
 }
 
-// ViewPR runs `gh pr view <number> --repo <repo> --json` with the same fields
-// as ListOpenPRs. A missing pull request is ErrNotFound. A missing or archived
-// repository is ErrInaccessible.
+// fillStatusChecks loads each pull request's rollup with its own view.
+// A per-PR failure sets StatusCheckError and leaves the rollup nil.
+// A primary rate limit or a canceled context fails the whole list.
+func (c *Client) fillStatusChecks(ctx context.Context, repo string, items []PRListItem) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		wg      sync.WaitGroup
+		fatalMu sync.Mutex
+		fatal   error
+		sem     = make(chan struct{}, rollupFetchConcurrency)
+	)
+	for i := range items {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+			checks, err := c.statusChecks(ctx, repo, items[i].Number)
+			if err == nil {
+				items[i].StatusCheckRollup = checks
+				return
+			}
+			if rollupErrFatal(err) {
+				fatalMu.Lock()
+				if fatal == nil {
+					fatal = err
+					cancel()
+				}
+				fatalMu.Unlock()
+				return
+			}
+			items[i].StatusCheckRollup = nil
+			items[i].StatusCheckError = err.Error()
+		}(i)
+	}
+	wg.Wait()
+	if fatal != nil {
+		return fatal
+	}
+	return ctx.Err()
+}
+
+func rollupErrFatal(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "rate limit") && !strings.Contains(lower, "secondary")
+}
+
+func (c *Client) statusChecks(ctx context.Context, repo string, number int) ([]StatusCheck, error) {
+	raw, err := c.prViewJSON(ctx, repo, number, statusCheckJSONFields)
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		StatusCheckRollup []StatusCheck `json:"statusCheckRollup"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, fmt.Errorf("decode status checks: %w", err)
+	}
+	return payload.StatusCheckRollup, nil
+}
+
+// ViewPR runs `gh pr view <number> --repo <repo> --json` for one pull request,
+// including latestReviews and statusCheckRollup. A missing pull request is
+// ErrNotFound. A missing or archived repository is ErrInaccessible.
 func (c *Client) ViewPR(ctx context.Context, repo string, number int) (PRListItem, error) {
-	raw, err := c.prViewJSON(ctx, repo, number, prListJSONFields)
+	raw, err := c.prViewJSON(ctx, repo, number, prViewJSONFields)
 	if err != nil {
 		return PRListItem{}, err
 	}

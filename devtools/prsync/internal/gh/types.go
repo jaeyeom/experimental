@@ -50,6 +50,9 @@ type PRListItem struct {
 	ReviewRequests    []ReviewReq    `json:"reviewRequests"`
 	LatestReviews     []LatestReview `json:"latestReviews"`
 	StatusCheckRollup []StatusCheck  `json:"statusCheckRollup"`
+	// StatusCheckError is set when the per-PR rollup view failed.
+	// StatusCheckRollup is then nil and is not "no checks".
+	StatusCheckError string `json:"-"`
 }
 
 // PRSearchItem is one row from `gh search prs`. State is "open", "merged", or
