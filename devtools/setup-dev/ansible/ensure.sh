@@ -831,7 +831,14 @@ fi
 # TTY-specific (tty_tickets), and Ansible invokes `sudo -H -S -n` without
 # that TTY — so `sudo true` succeeding in this shell is not enough.
 # Prompt with -K on Linux when passwordless sudo is unavailable.
+# sudo-rs (Ubuntu 25.10+) rewrites the -p prompt, so use classic sudo.ws.
 if [ -z "$TERMUX_VERSION" ] && [ "$OS" != "Darwin" ]; then
+    _ab_exe_before=${ANSIBLE_BECOME_EXE:-}
+    ansible_use_classic_sudo_for_become
+    if [ -z "$_ab_exe_before" ] && [ -n "${ANSIBLE_BECOME_EXE:-}" ]; then
+        echo "Ansible privilege escalation will use $ANSIBLE_BECOME_EXE."
+        echo "The default sudo is sudo-rs, which rewrites the password prompt Ansible matches."
+    fi
     _ab_already=0
     # shellcheck disable=SC2086  # Intentional word splitting — flags never contain spaces
     if ansible_become_has_password $flags; then

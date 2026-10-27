@@ -44,6 +44,40 @@ ansible_become_extra_flags() {
     return 1
 }
 
+# True when the sudo on PATH is sudo-rs. sudo -V does not authenticate.
+ansible_sudo_is_sudo_rs() {
+    if ! command -v sudo >/dev/null 2>&1; then
+        return 1
+    fi
+    # First line only. Do not pipe to head: a short read raises SIGPIPE,
+    # and classic sudo -V writes more than one line.
+    _asir_ver=$(sudo -V 2>&1) || return 1
+    _asir_nl='
+'
+    _asir_ver=${_asir_ver%%"$_asir_nl"*}
+    case "$_asir_ver" in
+        sudo-rs*) return 0 ;;
+    esac
+    return 1
+}
+
+# Point Ansible at classic sudo when /usr/bin/sudo is sudo-rs.
+#
+# sudo-rs prints `-p PROMPT` as "[sudo: PROMPT] Password:". Ansible's become
+# plugin only matches a line that starts with PROMPT, so privilege escalation
+# times out even though the prompt is visible. sudo.ws prints PROMPT unchanged.
+# A preset ANSIBLE_BECOME_EXE is left alone. No-op when sudo.ws is absent.
+ansible_use_classic_sudo_for_become() {
+    if [ -n "${ANSIBLE_BECOME_EXE:-}" ]; then
+        return 0
+    fi
+    _aucs_ws=$(command -v sudo.ws 2>/dev/null) || return 0
+    if ansible_sudo_is_sudo_rs; then
+        ANSIBLE_BECOME_EXE=$_aucs_ws
+        export ANSIBLE_BECOME_EXE
+    fi
+}
+
 # True if sudo can run non-interactively without a TTY ticket (NOPASSWD or root).
 ansible_sudo_passwordless() {
     if [ "$(id -u)" -eq 0 ]; then

@@ -67,6 +67,12 @@ of the run. Passwordless sudo skips the prompt. Non-interactive runs
 without passwordless sudo fail immediately; re-run from a terminal, pass
 =-K=, or configure =NOPASSWD=.
 
+Ubuntu 25.10 and later point =/usr/bin/sudo= at sudo-rs. sudo-rs prints
+=-p PROMPT= as =[sudo: PROMPT] Password:=, which Ansible's become plugin
+does not recognize, so the task times out on the prompt. When =sudo.ws=
+is on =PATH=, =ensure.sh= sets =ANSIBLE_BECOME_EXE= to that classic sudo.
+A value you already exported is left unchanged.
+
 ** Ansible version requirement
 
 Playbooks use =ansible.builtin.deb822_repository= (ansible-core >= 2.15).
