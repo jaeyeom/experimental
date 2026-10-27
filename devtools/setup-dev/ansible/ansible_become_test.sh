@@ -125,4 +125,70 @@ if ansible_sudo_passwordless; then
 fi
 PATH="$_old_path"
 
+# --- sudo-rs become executable ---
+
+_rs_tmp=$(mktemp -d)
+trap 'rm -rf "$_tmp" "$_rs_tmp"' EXIT
+
+cat > "$_rs_tmp/sudo" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-V" ]; then
+    echo "sudo-rs 0.2.13"
+    exit 0
+fi
+echo "sudo: a password is required" >&2
+exit 1
+EOF
+cat > "$_rs_tmp/sudo.ws" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$_rs_tmp/sudo" "$_rs_tmp/sudo.ws"
+
+PATH="$_rs_tmp:$PATH"
+export PATH
+unset ANSIBLE_BECOME_EXE
+ansible_use_classic_sudo_for_become
+assert_eq "sudo-rs selects sudo.ws" "${ANSIBLE_BECOME_EXE:-}" "$_rs_tmp/sudo.ws"
+
+ANSIBLE_BECOME_EXE=/custom/sudo
+export ANSIBLE_BECOME_EXE
+ansible_use_classic_sudo_for_become
+assert_eq "explicit become exe kept" "$ANSIBLE_BECOME_EXE" "/custom/sudo"
+unset ANSIBLE_BECOME_EXE
+
+cat > "$_rs_tmp/sudo" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-V" ]; then
+    echo "Sudo version 1.9.17p2"
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$_rs_tmp/sudo"
+ansible_use_classic_sudo_for_become
+if [ -n "${ANSIBLE_BECOME_EXE:-}" ]; then
+    fail "classic sudo must not set ANSIBLE_BECOME_EXE, got '$ANSIBLE_BECOME_EXE'"
+fi
+
+rm -f "$_rs_tmp/sudo.ws"
+cat > "$_rs_tmp/sudo" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-V" ]; then
+    echo "sudo-rs 0.2.13"
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$_rs_tmp/sudo"
+# Drop the rest of PATH so the system sudo.ws cannot satisfy command -v.
+PATH="$_rs_tmp"
+ansible_use_classic_sudo_for_become
+if [ -n "${ANSIBLE_BECOME_EXE:-}" ]; then
+    fail "missing sudo.ws must leave ANSIBLE_BECOME_EXE unset, got '$ANSIBLE_BECOME_EXE'"
+fi
+
+PATH="$_old_path"
+unset ANSIBLE_BECOME_EXE
+
 echo "All ansible_become tests passed."
