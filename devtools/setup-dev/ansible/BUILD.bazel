@@ -150,6 +150,22 @@ sh_test(
 )
 
 sh_test(
+    name = "agy_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["agy.yml"],
+    data = [
+        "agy.yml",
+        "curl.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "all_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["all.yml"],
@@ -2099,6 +2115,7 @@ sh_test(
     srcs = ["test_ansible_syntax.sh"],
     args = ["profile-antigravity.yml"],
     data = [
+        "agy.yml",
         "antigravity.yml",
         "cargo.yml",
         "cargo-install-update.yml",
@@ -4358,6 +4375,7 @@ test_suite(
         ":act_syntax_test",
         ":actionlint_syntax_test",
         ":ag_syntax_test",
+        ":agy_syntax_test",
         ":all_syntax_test",
         ":antigravity_syntax_test",
         ":aside_syntax_test",
