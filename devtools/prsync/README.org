@@ -104,10 +104,11 @@ still needs ~--close-merged~ to close anything.
 pipe or redirected file). Sockets, TTYs, and other non-file stdin are
 ignored so they cannot hang. Decode errors are fatal. Without a
 stdin document, ~comment~ always self-scans. ~dispatch~ self-scans for
-~--all~ and when no ~--pr~ is given. ~dispatch --pr~ fetches each named
-PR with ~gh pr view~ (the same JSON fields as ~gh pr list~), loads
-review threads for those PRs only, and matches herdr tabs as a full
-scan does.
+~--all~ and when no ~--pr~ is given. A scan lists open PRs without
+~statusCheckRollup~ or ~latestReviews~, then loads each rollup with its
+own ~gh pr view~. ~dispatch --pr~ fetches each named PR with one
+~gh pr view~ that still includes those fields, loads review threads for
+those PRs only, and matches herdr tabs as a full scan does.
 
 #+BEGIN_SRC bash
 prsync scan --config ./prsync.config | prsync dispatch --stdin --config ./prsync.config
@@ -278,7 +279,7 @@ prsync scan --config ./prsync.config
 
 | Field | Meaning |
 |-------+---------|
-| ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. |
+| ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ / ~unknown~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. ~unknown~ means that pull request's rollup view failed. The PR stays in the document, the failure is a ~warnings~ entry, and the command still succeeds. ~unknown~ is not ready and is not a CI failure. |
 | ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
 | ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
 | ~tab~ | ~null~ when no unique herdr tab matches |

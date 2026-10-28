@@ -180,6 +180,46 @@ func TestRunCICheckFilter(t *testing.T) {
 	}
 }
 
+func TestRunRollupUnavailableWarnsAndContinues(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Author = "alice"
+	cfg.Repos = []string{"acme/widgets"}
+	base := fixturePRs()[0]
+	failed := base
+	failed.Number = 7
+	failed.ReviewRequests = nil
+	failed.StatusCheckRollup = nil
+	failed.StatusCheckError = "transient upstream error: HTTP 502"
+	ok := base
+	ok.Number = 9
+	ok.ReviewRequests = nil
+	ok.StatusCheckRollup = []gh.StatusCheck{{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"}}
+	ok.StatusCheckError = ""
+	g := &scriptGH{
+		list:    map[string]listResult{"acme/widgets": {prs: []gh.PRListItem{failed, ok}}},
+		threads: map[int][]gh.Thread{},
+	}
+	doc, err := Run(context.Background(), Deps{GH: g, Herdr: fixtureHerdr{}}, cfg, nil, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(doc.PRs) != 2 || doc.PRs[0].Number != 7 || doc.PRs[1].Number != 9 {
+		t.Fatalf("prs = %+v, want #7 then #9", doc.PRs)
+	}
+	if doc.PRs[0].CIState != "unknown" || doc.PRs[0].Bucket != "waiting" {
+		t.Fatalf("PR 7 = ci %q bucket %q, want unknown and waiting", doc.PRs[0].CIState, doc.PRs[0].Bucket)
+	}
+	if doc.PRs[1].CIState != "green" {
+		t.Fatalf("PR 9 CIState = %q, want green", doc.PRs[1].CIState)
+	}
+	wantWarn := "ci rollup unavailable for acme/widgets#7: transient upstream error: HTTP 502"
+	if len(doc.Warnings) != 1 || doc.Warnings[0] != wantWarn {
+		t.Fatalf("warnings = %#v, want [%q]", doc.Warnings, wantWarn)
+	}
+}
+
 func TestRunInaccessibleRepo(t *testing.T) {
 	t.Parallel()
 
