@@ -211,7 +211,10 @@ func (c *Client) fillStatusChecks(ctx context.Context, repo string, items []PRLi
 	if fatal != nil {
 		return fatal
 	}
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("fill status checks: %w", err)
+	}
+	return nil
 }
 
 func rollupErrFatal(err error) bool {

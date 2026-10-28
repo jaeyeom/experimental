@@ -278,7 +278,7 @@ prsync scan --config ./prsync.config
 
 | Field | Meaning |
 |-------+---------|
-| ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. |
+| ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ / ~unknown~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. ~unknown~ means that pull request's rollup view failed. The PR stays in the document, the failure is a ~warnings~ entry, and the command still succeeds. ~unknown~ is not ready and is not a CI failure. |
 | ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
 | ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
 | ~tab~ | ~null~ when no unique herdr tab matches |

@@ -97,6 +97,25 @@ func TestBucket(t *testing.T) {
 			want: "waiting",
 		},
 		{
+			name: "unknown CI on an approved PR is waiting",
+			facts: PRFacts{
+				ReviewDecision: "APPROVED",
+				CIState:        "unknown",
+				Mergeable:      "MERGEABLE",
+			},
+			want: "waiting",
+		},
+		{
+			name: "unknown CI with an unaddressed thread is needs_you",
+			facts: PRFacts{
+				Unaddressed:    true,
+				ReviewDecision: "APPROVED",
+				CIState:        "unknown",
+				Mergeable:      "MERGEABLE",
+			},
+			want: "needs_you",
+		},
+		{
 			name:  "failing CI is needs_you",
 			facts: PRFacts{CIState: "failing"},
 			want:  "needs_you",

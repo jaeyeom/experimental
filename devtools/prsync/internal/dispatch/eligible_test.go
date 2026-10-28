@@ -152,6 +152,15 @@ func TestEligibleSkipReasons(t *testing.T) {
 			wantDetail: "recorded at abc123, ci_state=pending",
 		},
 		{
+			name:       "ci-fix same head unknown stays deduped",
+			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "unknown" })},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedCIFixSHA: "abc123"}},
+			ciFix:      true,
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123, ci_state=unknown",
+		},
+		{
 			name:       "ci-fix same head none stays deduped",
 			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) { p.Unaddressed = false; p.HeadSHA = "abc123"; p.CIState = "none" })},
 			cfg:        cfg,
