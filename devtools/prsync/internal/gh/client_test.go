@@ -131,7 +131,7 @@ func TestSearchOpenPRRepos(t *testing.T) {
 func TestListOpenPRs(t *testing.T) {
 	t.Parallel()
 
-	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
 
 	t.Run("parses list", func(t *testing.T) {
 		t.Parallel()
@@ -155,6 +155,7 @@ func TestListOpenPRs(t *testing.T) {
 			"--repo", "acme/widgets", "--author", "alice", "--state", "open",
 			"--limit", "1000", "--json", jsonFields).
 			WillSucceed(body, 0).Build()
+		expectStatusChecks(mock, 123, `{"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}`).Once().Build()
 		got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
 		if err != nil {
 			t.Fatalf("ListOpenPRs() unexpected error: %v", err)
@@ -604,6 +605,7 @@ func TestListOpenPRsRetriesTransientFailure(t *testing.T) {
 			tc.fail(first)
 			first.Build()
 			expectPRList(mock).WillSucceed(retryListBody, 0).Once().Build()
+			expectStatusChecks(mock, 7, `{"statusCheckRollup":[]}`).Once().Build()
 			client, probe := newProbedClient(t, mock)
 			got, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice")
 			if err != nil {
@@ -612,8 +614,8 @@ func TestListOpenPRsRetriesTransientFailure(t *testing.T) {
 			if len(got) != 1 || got[0].Number != 7 {
 				t.Fatalf("ListOpenPRs() = %+v, want PR 7", got)
 			}
-			if calls := len(mock.Executions()); calls != 2 {
-				t.Fatalf("calls = %d, want 2", calls)
+			if calls := len(mock.Executions()); calls != 3 {
+				t.Fatalf("calls = %d, want 3", calls)
 			}
 			if !slices.Equal(probe.waits, []time.Duration{2 * time.Second}) {
 				t.Fatalf("waits = %v, want [2s]", probe.waits)
@@ -698,6 +700,7 @@ func TestListOpenPRsHonorsSecondaryRetryAfter(t *testing.T) {
 			mock := newGHMock()
 			expectPRList(mock).WillFail(tc.stderr, 1).Once().Build()
 			expectPRList(mock).WillSucceed(retryListBody, 0).Once().Build()
+			expectStatusChecks(mock, 7, `{"statusCheckRollup":[]}`).Once().Build()
 			client, probe := newProbedClient(t, mock)
 			if _, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice"); err != nil {
 				t.Fatalf("ListOpenPRs() unexpected error: %v", err)
@@ -783,6 +786,168 @@ func TestListOpenPRsStopsWhenRetryWaitIsCanceled(t *testing.T) {
 	}
 }
 
+func TestListOpenPRsAttachesRollup(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillSucceed(`[{"number":123}]`, 0).Once().Build()
+	expectStatusChecks(mock, 123, `{"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}`).Once().Build()
+	got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
+	if err != nil {
+		t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].StatusCheckError != "" {
+		t.Fatalf("ListOpenPRs() = %+v, want one PR and no rollup error", got)
+	}
+	if len(got[0].StatusCheckRollup) != 1 || got[0].StatusCheckRollup[0].Name != "ci" {
+		t.Fatalf("rollup = %+v, want check ci", got[0].StatusCheckRollup)
+	}
+	if calls := len(mock.Executions()); calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+func TestListOpenPRsFillsRollupsInListOrder(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillSucceed(`[{"number":7},{"number":9}]`, 0).Once().Build()
+	expectStatusChecks(mock, 7, `{"statusCheckRollup":[{"name":"alpha","status":"COMPLETED","conclusion":"SUCCESS"}]}`).Once().Build()
+	expectStatusChecks(mock, 9, `{"statusCheckRollup":[{"name":"beta","status":"COMPLETED","conclusion":"FAILURE"}]}`).Once().Build()
+	got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
+	if err != nil {
+		t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+	}
+	if len(got) != 2 || got[0].Number != 7 || got[1].Number != 9 {
+		t.Fatalf("order = %+v, want 7 then 9", got)
+	}
+	if len(got[0].StatusCheckRollup) != 1 || got[0].StatusCheckRollup[0].Name != "alpha" {
+		t.Fatalf("PR 7 rollup = %+v, want alpha", got[0].StatusCheckRollup)
+	}
+	if len(got[1].StatusCheckRollup) != 1 || got[1].StatusCheckRollup[0].Name != "beta" {
+		t.Fatalf("PR 9 rollup = %+v, want beta", got[1].StatusCheckRollup)
+	}
+}
+
+func TestListOpenPRsEmptySkipsRollup(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillSucceed(`[]`, 0).Once().Build()
+	got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
+	if err != nil {
+		t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Fatalf("ListOpenPRs() = %#v, want empty slice", got)
+	}
+	if calls := len(mock.Executions()); calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestListOpenPRsRollupFailureKeepsTheList(t *testing.T) {
+	t.Parallel()
+
+	t.Run("http 502", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		expectPRList(mock).WillSucceed(`[{"number":7},{"number":9}]`, 0).Once().Build()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
+			"--repo", "acme/widgets", "--json", "statusCheckRollup").
+			WillFail("HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)", 1).Times(3).Build()
+		expectStatusChecks(mock, 9, `{"statusCheckRollup":[{"name":"beta","status":"COMPLETED","conclusion":"SUCCESS"}]}`).Once().Build()
+		client, _ := newProbedClient(t, mock)
+		got, err := client.ListOpenPRs(context.Background(), "acme/widgets", "alice")
+		if err != nil {
+			t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("len = %d, want 2", len(got))
+		}
+		if got[0].Number != 7 || got[0].StatusCheckRollup != nil || !strings.Contains(got[0].StatusCheckError, "transient upstream error") {
+			t.Fatalf("PR 7 = %+v, want rollup error", got[0])
+		}
+		if got[1].Number != 9 || len(got[1].StatusCheckRollup) != 1 || got[1].StatusCheckRollup[0].Name != "beta" || got[1].StatusCheckError != "" {
+			t.Fatalf("PR 9 = %+v, want check beta", got[1])
+		}
+		lists, views := 0, 0
+		for _, cfg := range mock.Executions() {
+			if len(cfg.Args) > 0 && cfg.Args[0] == "pr" && len(cfg.Args) > 1 && cfg.Args[1] == "list" {
+				lists++
+			}
+			if len(cfg.Args) > 1 && cfg.Args[0] == "pr" && cfg.Args[1] == "view" && len(cfg.Args) > 2 && cfg.Args[2] == "7" {
+				views++
+			}
+		}
+		if lists != 1 || views != 3 {
+			t.Fatalf("lists = %d views for 7 = %d, want 1 and 3", lists, views)
+		}
+	})
+
+	t.Run("resource limit", func(t *testing.T) {
+		t.Parallel()
+		mock := newGHMock()
+		expectPRList(mock).WillSucceed(`[{"number":7}]`, 0).Once().Build()
+		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
+			"--repo", "acme/widgets", "--json", "statusCheckRollup").
+			WillFail("GraphQL: Resource limits for this query exceeded", 1).Once().Build()
+		got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
+		if err != nil {
+			t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+		}
+		if len(got) != 1 || !strings.Contains(got[0].StatusCheckError, "Resource limits") {
+			t.Fatalf("PR = %+v, want resource limit on the rollup", got)
+		}
+		views := 0
+		for _, cfg := range mock.Executions() {
+			if len(cfg.Args) > 2 && cfg.Args[0] == "pr" && cfg.Args[1] == "view" && cfg.Args[2] == "7" {
+				views++
+			}
+		}
+		if views != 1 {
+			t.Fatalf("views = %d, want 1", views)
+		}
+	})
+}
+
+func TestListOpenPRsRollupPrimaryRateLimitIsFatal(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillSucceed(`[{"number":7}]`, 0).Once().Build()
+	mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
+		"--repo", "acme/widgets", "--json", "statusCheckRollup").
+		WillFail("HTTP 403: API rate limit exceeded", 1).Once().Build()
+	_, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
+	if err == nil {
+		t.Fatal("ListOpenPRs() error = nil, want fatal")
+	}
+	if !strings.Contains(err.Error(), "rate limit") || strings.Contains(err.Error(), "transient upstream error") {
+		t.Fatalf("ListOpenPRs() error = %v, want a primary rate limit", err)
+	}
+	if errors.Is(err, ErrInaccessible) {
+		t.Fatalf("ListOpenPRs() treated rate limit as inaccessible: %v", err)
+	}
+	if calls := len(mock.Executions()); calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+func TestListOpenPRsRollupCanceledIsFatal(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectPRList(mock).WillSucceed(`[{"number":7}]`, 0).Once().Build()
+	mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
+		"--repo", "acme/widgets", "--json", "statusCheckRollup").
+		WillError(context.Canceled).Once().Build()
+	_, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListOpenPRs() error = %v, want context.Canceled", err)
+	}
+}
+
 func TestUserLoginRetriesEmptyOutput(t *testing.T) {
 	t.Parallel()
 
@@ -832,10 +997,15 @@ func (p *ghRetryProbe) ctx() context.Context {
 }
 
 func expectPRList(mock *executor.MockExecutor) *executor.MockExpectationBuilder {
-	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
 	return mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
 		"--repo", "acme/widgets", "--author", "alice", "--state", "open",
 		"--limit", "1000", "--json", jsonFields)
+}
+
+func expectStatusChecks(mock *executor.MockExecutor, number int, body string) *executor.MockExpectationBuilder {
+	return mock.ExpectCommandWithArgs(testGHBin, "pr", "view", strconv.Itoa(number),
+		"--repo", "acme/widgets", "--json", "statusCheckRollup").WillSucceed(body, 0)
 }
 
 func newGHMock() *executor.MockExecutor {
