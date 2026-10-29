@@ -497,6 +497,29 @@ func TestGrokTermuxWrapper(t *testing.T) {
 	}
 }
 
+func TestAgyCLI(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "agy")
+	method, ok := tool.platforms[PlatformAll].(ShellInstallMethod)
+	if !ok {
+		t.Fatalf("agy method = %T, want ShellInstallMethod", tool.platforms[PlatformAll])
+	}
+	wantInstall := "{{ playbook_dir }}/verified-run exec https://antigravity.google/cli/install.sh"
+	if method.InstallCommand != wantInstall {
+		t.Errorf("agy InstallCommand = %q, want %q", method.InstallCommand, wantInstall)
+	}
+	wantPATH := `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`
+	if got := method.Environment["PATH"]; got != wantPATH {
+		t.Errorf("agy PATH = %q, want %q", got, wantPATH)
+	}
+	wantImports := []Import{
+		{Playbook: "curl"},
+		{Playbook: "setup-user-bin-directory"},
+	}
+	if !reflect.DeepEqual(tool.Imports, wantImports) {
+		t.Errorf("agy Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
+	}
+}
+
 func TestAsideCLI(t *testing.T) {
 	tool := findPlatformSpecificTool(t, "aside")
 	if _, ok := tool.platforms[PlatformTermux]; ok {
