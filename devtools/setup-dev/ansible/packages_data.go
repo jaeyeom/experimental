@@ -209,6 +209,25 @@ var platformSpecificTools = []PlatformSpecificTool{
 		Imports: []Import{{Playbook: "gh"}},
 	},
 	{
+		// agy is the Antigravity CLI, separate from the antigravity desktop
+		// app. install.sh reads uname -o: Android (Termux) gets the Bionic
+		// build, and a proot distro that reports GNU/Linux gets the glibc
+		// build. The binary lands in ~/.local/bin and updates itself.
+		command: "agy",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformAll: ShellInstallMethod{
+				InstallCommand: "{{ playbook_dir }}/verified-run exec https://antigravity.google/cli/install.sh",
+				Environment: map[string]string{
+					"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+				},
+			},
+		},
+		Imports: []Import{
+			{Playbook: "curl"},
+			{Playbook: "setup-user-bin-directory"},
+		},
+	},
+	{
 		command: "antigravity",
 		platforms: map[PlatformName]InstallMethod{
 			PlatformDarwin: BrewCaskInstallMethod{Name: "antigravity"},
