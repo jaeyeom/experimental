@@ -307,6 +307,75 @@ func TestPullRequestAllowsNudge(t *testing.T) {
 	}
 }
 
+func TestPullRequestBlocksMerge(t *testing.T) {
+	tests := []struct {
+		name        string
+		pr          PullRequest
+		blockLabels []string
+		wantLabel   string
+		wantBlock   bool
+	}{
+		{
+			name:      "empty list does not block an unlabeled pull request",
+			pr:        prWithLabels(),
+			wantBlock: false,
+		},
+		{
+			name:      "empty list does not block a labeled pull request",
+			pr:        prWithLabels("do-not-merge"),
+			wantBlock: false,
+		},
+		{
+			name:        "unlabeled pull request is not blocked",
+			pr:          prWithLabels(),
+			blockLabels: []string{"do-not-merge"},
+			wantBlock:   false,
+		},
+		{
+			name:        "matching label blocks the merge",
+			pr:          prWithLabels("do-not-merge"),
+			blockLabels: []string{"do-not-merge"},
+			wantLabel:   "do-not-merge",
+			wantBlock:   true,
+		},
+		{
+			name:        "other labels do not block the merge",
+			pr:          prWithLabels("ready-for-review"),
+			blockLabels: []string{"do-not-merge"},
+			wantBlock:   false,
+		},
+		{
+			name:        "any configured label blocks the merge",
+			pr:          prWithLabels("hold"),
+			blockLabels: []string{"do-not-merge", "hold"},
+			wantLabel:   "hold",
+			wantBlock:   true,
+		},
+		{
+			name:        "first configured match is the reported label",
+			pr:          prWithLabels("hold", "do-not-merge"),
+			blockLabels: []string{"do-not-merge", "hold"},
+			wantLabel:   "do-not-merge",
+			wantBlock:   true,
+		},
+		{
+			name:        "label names match exactly including case",
+			pr:          prWithLabels("Do-Not-Merge"),
+			blockLabels: []string{"do-not-merge"},
+			wantBlock:   false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotLabel, gotBlock := tc.pr.BlocksMerge(tc.blockLabels)
+			if gotBlock != tc.wantBlock || gotLabel != tc.wantLabel {
+				t.Errorf("BlocksMerge() = (%q, %v), want (%q, %v)", gotLabel, gotBlock, tc.wantLabel, tc.wantBlock)
+			}
+		})
+	}
+}
+
 func TestPullRequestMeetsLabelMinAges(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	day := 24 * time.Hour
