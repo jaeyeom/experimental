@@ -717,6 +717,7 @@ func fixturePRs() []gh.PRListItem {
 		Number:           123,
 		Title:            "[PROJ-123] Fix the widget",
 		URL:              "https://github.com/acme/widgets/pull/123",
+		State:            "OPEN",
 		BaseRefName:      "main",
 		HeadRefName:      "fix-widget",
 		HeadRefOid:       "abc123def456",

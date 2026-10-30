@@ -443,6 +443,7 @@ func fixtureEligiblePR() scan.PR {
 		Number:      123,
 		Title:       "[PROJ-123] Fix the widget",
 		URL:         "https://github.com/acme/widgets/pull/123",
+		State:       "open",
 		Identifier:  &id,
 		Head:        "fix-widget",
 		Base:        "main",

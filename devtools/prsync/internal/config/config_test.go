@@ -639,6 +639,9 @@ func TestDefaults(t *testing.T) {
 	if !regexp.MustCompile(`Address the unresolved review comments`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing built-in text: %q", got.PromptTemplate)
 	}
+	if !regexp.MustCompile(`State: \{state\}\.`).MatchString(got.PromptTemplate) {
+		t.Fatalf("PromptTemplate missing state: %q", got.PromptTemplate)
+	}
 	if !regexp.MustCompile(`(?s)Check out \{head\}.*Address the unresolved review comments`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing branch-switch preamble before comment body: %q", got.PromptTemplate)
 	}
@@ -699,6 +702,9 @@ func TestDefaults(t *testing.T) {
 	if regexp.MustCompile(`add-reviewer`).MatchString(got.RebasePromptTemplate) {
 		t.Fatalf("RebasePromptTemplate re-requests reviewer: %q", got.RebasePromptTemplate)
 	}
+	if !regexp.MustCompile(`State: \{state\}\.`).MatchString(got.RebasePromptTemplate) {
+		t.Fatalf("RebasePromptTemplate missing state: %q", got.RebasePromptTemplate)
+	}
 	if !regexp.MustCompile(`Check out \{head\}`).MatchString(got.RebasePromptTemplate) {
 		t.Fatalf("RebasePromptTemplate missing checkout: %q", got.RebasePromptTemplate)
 	}
@@ -710,6 +716,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?i)do not create a new worktree`).MatchString(got.RebasePromptTemplate) {
 		t.Fatalf("RebasePromptTemplate missing no-worktree: %q", got.RebasePromptTemplate)
+	}
+	if !regexp.MustCompile(`State: \{state\}\.`).MatchString(got.CIFixPromptTemplate) {
+		t.Fatalf("CIFixPromptTemplate missing state: %q", got.CIFixPromptTemplate)
 	}
 	if !regexp.MustCompile(`(?s)Check out \{head\}.*Fix the failing CI`).MatchString(got.CIFixPromptTemplate) {
 		t.Fatalf("CIFixPromptTemplate missing branch-switch preamble before CI-fix body: %q", got.CIFixPromptTemplate)

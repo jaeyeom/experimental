@@ -10,6 +10,7 @@
       "number": 123,
       "title": "[PROJ-123] Fix the widget",
       "url": "https://github.com/acme/widgets/pull/123",
+      "state": "open",
       "identifier": "PROJ-123",
       "base": "main",
       "head": "fix-widget",
