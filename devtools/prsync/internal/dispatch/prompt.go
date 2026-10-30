@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
@@ -45,6 +46,7 @@ func RenderHint(tmpl string, pr scan.PR, cfg config.Config, hint string) string 
 		{"{url}", pr.URL},
 		{"{head}", pr.Head},
 		{"{base}", pr.Base},
+		{"{state}", gh.NormalizePRState(pr.State)},
 	}
 	sort.Slice(vars, func(i, j int) bool {
 		return len(vars[i].key) > len(vars[j].key)

@@ -40,6 +40,7 @@ type PRListItem struct {
 	Number            int            `json:"number"`
 	Title             string         `json:"title"`
 	URL               string         `json:"url"`
+	State             string         `json:"state"`
 	BaseRefName       string         `json:"baseRefName"`
 	HeadRefName       string         `json:"headRefName"`
 	HeadRefOid        string         `json:"headRefOid"`

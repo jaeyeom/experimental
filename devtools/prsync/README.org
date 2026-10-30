@@ -106,8 +106,10 @@ ignored so they cannot hang. Decode errors are fatal. Without a
 stdin document, ~comment~ always self-scans. ~dispatch~ self-scans for
 ~--all~ and when no ~--pr~ is given. A scan lists open PRs without
 ~statusCheckRollup~ or ~latestReviews~, then loads each rollup with its
-own ~gh pr view~. ~dispatch --pr~ fetches each named PR with one
-~gh pr view~ that still includes those fields, loads review threads for
+own ~gh pr view~. The list request also asks for ~state~, a scalar on
+each pull request already loaded, so that adds no GraphQL node.
+~dispatch --pr~ fetches each named PR with one ~gh pr view~ that
+includes ~state~ and the rollup fields, loads review threads for
 those PRs only, and matches herdr tabs as a full scan does.
 
 #+BEGIN_SRC bash
@@ -150,7 +152,7 @@ Environment variables are not expanded.
 | ~gate_poll_ms~ | ~2000~ | Poll interval for the concurrency gate and post-send settle. |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4). |
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for ~herdr agent prompt --wait~ (and leftover ~herdr agent wait~). Still ~working~/~blocked~ → ~dispatched_timeout~ (exit 4). |
-| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~ ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{comments}~. Unknown placeholders are left literal. |
+| ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~ ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{state}~ ~{comments}~. ~{state}~ is ~open~, ~closed~, or ~merged~ (empty when unrecognized). Unknown placeholders are left literal. |
 | ~rebase_prompt_template~ | built-in | Same substitution. Used only with ~dispatch --rebase~. |
 | ~ci_fix_prompt_template~ | built-in | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~. |
 | ~ci_ignore_checks~ | empty | Comma-separated path globs (~path.Match~, case-sensitive; ~*~ does not cross ~/~). Dropped from ~ci_state~ when ~ci_only_checks~ is empty. Matched against each CheckRun ~name~ and StatusContext ~context~. An invalid glob is a config error naming this key. |
@@ -233,6 +235,7 @@ prsync scan --config ./prsync.config
       "number": 123,
       "title": "[PROJ-123] Fix the widget",
       "url": "https://github.com/acme/widgets/pull/123",
+      "state": "open",
       "identifier": "PROJ-123",
       "base": "main",
       "head": "fix-widget",
@@ -279,6 +282,7 @@ prsync scan --config ./prsync.config
 
 | Field | Meaning |
 |-------+---------|
+| ~state~ | ~open~ / ~closed~ / ~merged~, from the ~state~ scalar on the ~gh pr list~ or ~gh pr view~ that already loads the pull request. Empty when an older scan document omitted it. ~dispatch --pr~ can name a closed or merged pull request; a full scan lists open ones. |
 | ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ / ~unknown~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. ~unknown~ means that pull request's rollup view failed. The PR stays in the document, the failure is a ~warnings~ entry, and the command still succeeds. ~unknown~ is not ready and is not a CI failure. |
 | ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
 | ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
@@ -419,7 +423,7 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
       "number": 123,
       "action": "would_dispatch",
       "pane_id": "w2:pC",
-      "rendered_prompt": "Get onto this PR's branch before editing: ... Address the unresolved review comments on PR #123 ..."
+      "rendered_prompt": "Get onto this PR's branch before editing: ... Address the unresolved review comments on PR #123 ... State: open."
     }
   ]
 }

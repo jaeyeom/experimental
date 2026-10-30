@@ -212,6 +212,9 @@ func TestDispatchWithoutStdinFlagIgnoresPipedJSON(t *testing.T) {
 	if len(got.Results) != 1 || got.Results[0].Repo != "acme/widgets" || got.Results[0].Number != 123 {
 		t.Fatalf("used piped stdin without --stdin: %+v", got.Results)
 	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "State: open.") {
+		t.Fatalf("rendered_prompt = %q, want State: open.", got.Results[0].RenderedPrompt)
+	}
 }
 
 func TestDispatchStdinJSONDryRun(t *testing.T) {
