@@ -32,4 +32,9 @@ type SettingsConfig struct {
 	// Minimum hours since this reviewer was first requested on the pull request.
 	// Zero means no first-request age requirement. A later request does not restart the clock.
 	MinFirstReviewRequestHours int `pkl:"min_first_review_request_hours"`
+
+	// Labels that stop gh-merge from merging a pull request.
+	// gh-nudge ignores this list. Empty means no label blocks a merge.
+	// Names match exactly, including case. For example, "do-not-merge".
+	BlockMergeLabels []string `pkl:"block_merge_labels"`
 }

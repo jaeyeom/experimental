@@ -516,6 +516,44 @@ slack:
 		if len(cfg.Settings.SkipUsers) != 0 {
 			t.Errorf("Expected empty skip_users, got %v", cfg.Settings.SkipUsers)
 		}
+		if len(cfg.Settings.BlockMergeLabels) != 0 {
+			t.Errorf("Expected empty block_merge_labels, got %v", cfg.Settings.BlockMergeLabels)
+		}
+	})
+
+	t.Run("should load block_merge_labels", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.yaml")
+
+		configContent := `
+github:
+  owner: "test-org"
+  repos:
+    - "repo1"
+
+slack:
+  token: "xoxb-test-token"
+
+settings:
+  block_merge_labels:
+    - "do-not-merge"
+    - "hold"
+`
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
+		if err != nil {
+			t.Fatalf("Failed to write test config file: %v", err)
+		}
+
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		if len(cfg.Settings.BlockMergeLabels) != 2 ||
+			cfg.Settings.BlockMergeLabels[0] != "do-not-merge" ||
+			cfg.Settings.BlockMergeLabels[1] != "hold" {
+			t.Errorf("Expected block_merge_labels [do-not-merge hold], got %v", cfg.Settings.BlockMergeLabels)
+		}
 	})
 }
 
@@ -774,5 +812,22 @@ func TestConvertPklConfigSkipUsers(t *testing.T) {
 
 	if len(cfg.Settings.SkipUsers) != 2 || cfg.Settings.SkipUsers[0] != "bot-account" || cfg.Settings.SkipUsers[1] != "contractor-who-opted-out" {
 		t.Errorf("Expected skip_users [bot-account contractor-who-opted-out], got %v", cfg.Settings.SkipUsers)
+	}
+}
+
+func TestConvertPklConfigBlockMergeLabels(t *testing.T) {
+	pklCfg := &pklconfig.Config{
+		Settings: pklconfig.SettingsConfig{
+			ReminderThresholdHours: 24,
+			BlockMergeLabels:       []string{"do-not-merge", "hold"},
+		},
+	}
+
+	cfg := convertPklConfig(pklCfg)
+
+	if len(cfg.Settings.BlockMergeLabels) != 2 ||
+		cfg.Settings.BlockMergeLabels[0] != "do-not-merge" ||
+		cfg.Settings.BlockMergeLabels[1] != "hold" {
+		t.Errorf("Expected block_merge_labels [do-not-merge hold], got %v", cfg.Settings.BlockMergeLabels)
 	}
 }

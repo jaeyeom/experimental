@@ -64,4 +64,9 @@ settings {
   // Hours since this reviewer was first requested. Zero disables the gate.
   // A later request does not restart the clock.
   min_first_review_request_hours = 24
+  // gh-merge skips a pull request that has any of these labels.
+  // gh-nudge ignores this list. Empty means no label blocks a merge.
+  block_merge_labels {
+    "do-not-merge"
+  }
 }

@@ -91,10 +91,16 @@ func printCIStatus(pr *models.PullRequest) {
 	}
 }
 
+// mergeClient fetches mergeable pull requests and merges one of them.
+type mergeClient interface {
+	GetMergeablePullRequests() ([]models.PullRequest, error)
+	MergePullRequest(prURL string, deleteBranch bool) error
+}
+
 // listMergeablePRs lists all PRs that are ready to merge.
-func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
-	_ = cfg // TODO: use config for filtering/display options
-	slog.Info("Finding PRs with no review requests in the current repository")
+func listMergeablePRs(githubClient mergeClient, cfg *config.Config) error {
+	slog.Info("Finding PRs with no review requests in the current repository",
+		"block_merge_labels", cfg.Settings.BlockMergeLabels)
 
 	prs, err := githubClient.GetMergeablePullRequests()
 	if err != nil {
@@ -114,6 +120,9 @@ func listMergeablePRs(githubClient *github.Client, cfg *config.Config) error {
 		fmt.Printf("         URL: %s\n", pr.URL)
 		fmt.Printf("         Branch: %s\n", pr.HeadRefName)
 		printCIStatus(pr)
+		if label, blocked := pr.BlocksMerge(cfg.Settings.BlockMergeLabels); blocked {
+			fmt.Printf("         Blocked: label %q prevents merge\n", label)
+		}
 		fmt.Println()
 	}
 
@@ -127,17 +136,23 @@ const (
 	mergeResultMerged mergeResult = iota
 	mergeResultSkippedFail
 	mergeResultSkippedPending
+	mergeResultSkippedLabel
 	mergeResultDryRun
 	mergeResultError
 )
 
-// tryMergePR attempts to merge a single PR, checking CI status first.
-// It prints status and returns the outcome.
-func tryMergePR(githubClient *github.Client, pr *models.PullRequest) mergeResult {
+// tryMergePR attempts to merge a single PR, checking block labels and CI status first.
+// It prints status and returns the outcome. A block label is not overridden by --force.
+func tryMergePR(githubClient mergeClient, pr *models.PullRequest, blockLabels []string) mergeResult {
 	fmt.Printf("  %s\n", pr.Title)
 	fmt.Printf("         URL: %s\n", pr.URL)
 	fmt.Printf("         Branch: %s\n", pr.HeadRefName)
 	printCIStatus(pr)
+
+	if label, blocked := pr.BlocksMerge(blockLabels); blocked {
+		fmt.Printf("         Skipping: label %q blocks merge\n\n", label)
+		return mergeResultSkippedLabel
+	}
 
 	ciStatus := pr.ChecksStatus()
 	if ciStatus == models.ChecksFail && !force {
@@ -175,12 +190,12 @@ func tryMergePR(githubClient *github.Client, pr *models.PullRequest) mergeResult
 }
 
 // mergePRs merges all eligible PRs.
-func mergePRs(githubClient *github.Client, cfg *config.Config) error {
-	_ = cfg // TODO: use config for merge strategies/rules
+func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 	slog.Info("Finding and merging PRs with no review requests",
 		"dry_run", dryRun,
 		"delete_branch", deleteBranch,
-		"force", force)
+		"force", force,
+		"block_merge_labels", cfg.Settings.BlockMergeLabels)
 
 	prs, err := githubClient.GetMergeablePullRequests()
 	if err != nil {
@@ -194,15 +209,17 @@ func mergePRs(githubClient *github.Client, cfg *config.Config) error {
 
 	fmt.Printf("Found %d PRs with no review requests:\n\n", len(prs))
 
-	var merged, skippedFail, skippedPending int
+	var merged, skippedFail, skippedPending, skippedLabel int
 	for i := range prs {
-		switch tryMergePR(githubClient, &prs[i]) {
+		switch tryMergePR(githubClient, &prs[i], cfg.Settings.BlockMergeLabels) {
 		case mergeResultMerged:
 			merged++
 		case mergeResultSkippedFail:
 			skippedFail++
 		case mergeResultSkippedPending:
 			skippedPending++
+		case mergeResultSkippedLabel:
+			skippedLabel++
 		}
 	}
 
@@ -213,6 +230,9 @@ func mergePRs(githubClient *github.Client, cfg *config.Config) error {
 	}
 	if skippedFail > 0 || skippedPending > 0 {
 		fmt.Printf("Skipped: %d due to CI failure, %d due to pending CI.\n", skippedFail, skippedPending)
+	}
+	if skippedLabel > 0 {
+		fmt.Printf("Skipped: %d due to a block label.\n", skippedLabel)
 	}
 
 	return nil

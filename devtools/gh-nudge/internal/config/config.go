@@ -64,6 +64,10 @@ type SettingsConfig struct {
 	// MinFirstReviewRequestHours is the minimum age of a reviewer's first
 	// review request. Zero disables the gate. A later request does not restart it.
 	MinFirstReviewRequestHours int `yaml:"min_first_review_request_hours"`
+	// BlockMergeLabels stops gh-merge from merging a pull request that has any
+	// of these labels. gh-nudge ignores this list. Empty means no label blocks
+	// a merge. Names match exactly, including case.
+	BlockMergeLabels []string `yaml:"block_merge_labels"`
 }
 
 // LoadConfig loads the configuration from the specified file path.
@@ -147,6 +151,7 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			SkipLabels:                 pklCfg.Settings.SkipLabels,
 			SkipUsers:                  pklCfg.Settings.SkipUsers,
 			MinFirstReviewRequestHours: pklCfg.Settings.MinFirstReviewRequestHours,
+			BlockMergeLabels:           pklCfg.Settings.BlockMergeLabels,
 		},
 	}
 

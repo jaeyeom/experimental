@@ -64,6 +64,10 @@ class SettingsConfig {
   /// Minimum hours since this reviewer was first requested on the pull request.
   /// Zero means no first-request age requirement. A later request does not restart the clock.
   min_first_review_request_hours: Int(this >= 0) = 0
+  /// Labels that stop gh-merge from merging a pull request.
+  /// gh-nudge ignores this list. Empty means no label blocks a merge.
+  /// Names match exactly, including case. For example, "do-not-merge".
+  block_merge_labels: Listing<String> = new {}
 }
 
 /// Root configuration

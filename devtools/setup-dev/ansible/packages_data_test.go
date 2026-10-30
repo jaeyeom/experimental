@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1006,7 +1007,7 @@ func TestEmacsAppLinkScript(t *testing.T) {
 		if code != 2 {
 			t.Fatalf("code=%d, want 2", code)
 		}
-		if _, err := os.Lstat(filepath.Join(locked, "Emacs.app")); !os.IsNotExist(err) {
+		if _, err := os.Lstat(filepath.Join(locked, "Emacs.app")); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("created Emacs.app without write permission: %v", err)
 		}
 	})
@@ -1021,7 +1022,7 @@ func TestEmacsAppLinkScript(t *testing.T) {
 		if code != 0 || stdout != "unchanged" {
 			t.Fatalf("code=%d stdout=%q, want unchanged", code, stdout)
 		}
-		if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+		if _, err := os.Lstat(dest); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("created Emacs.app without a source bundle: %v", err)
 		}
 	})
@@ -1036,7 +1037,7 @@ func TestEmacsAppLinkScript(t *testing.T) {
 		if code != 0 || stdout != "unchanged" {
 			t.Fatalf("code=%d stdout=%q, want unchanged", code, stdout)
 		}
-		if _, err := os.Lstat(dest); !os.IsNotExist(err) {
+		if _, err := os.Lstat(dest); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("created Emacs.app without emacs-plus: %v", err)
 		}
 	})
@@ -1174,7 +1175,7 @@ func osascriptLogContains(t *testing.T, path, needle string) bool {
 	t.Helper()
 	body, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return false
 		}
 		t.Fatal(err)
