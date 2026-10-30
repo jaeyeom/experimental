@@ -22,8 +22,9 @@ const (
 	// prListJSONFields omits statusCheckRollup and latestReviews. One search
 	// page that includes the rollup exceeds GitHub's GraphQL resource limit
 	// once many open PRs each carry a large check rollup, and the gateway
-	// answers 502 or 504.
-	prListJSONFields      = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
+	// answers 502 or 504. state is a scalar on each pull request already
+	// loaded, so it adds no node and no second request.
+	prListJSONFields      = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
 	prViewJSONFields      = prListJSONFields + ",latestReviews,statusCheckRollup"
 	statusCheckJSONFields = "statusCheckRollup"
 	prSearchJSONFields    = "number,title,url,state,isDraft,closedAt,repository"
@@ -154,6 +155,9 @@ func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRList
 	if prs == nil {
 		prs = []PRListItem{}
 	}
+	for i := range prs {
+		prs[i].State = NormalizePRState(prs[i].State)
+	}
 	if len(prs) == 0 {
 		return prs, nil
 	}
@@ -251,7 +255,19 @@ func (c *Client) ViewPR(ctx context.Context, repo string, number int) (PRListIte
 	if err := json.Unmarshal([]byte(raw), &item); err != nil {
 		return PRListItem{}, fmt.Errorf("decode pr view: %w", err)
 	}
+	item.State = NormalizePRState(item.State)
 	return item, nil
+}
+
+// NormalizePRState maps GitHub's OPEN, CLOSED, and MERGED values to
+// open, closed, or merged. Any other value, including empty, is empty.
+func NormalizePRState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "open", "closed", "merged":
+		return strings.ToLower(strings.TrimSpace(state))
+	default:
+		return ""
+	}
 }
 
 // ViewPRState runs `gh pr view` for one pull request in any state and by any

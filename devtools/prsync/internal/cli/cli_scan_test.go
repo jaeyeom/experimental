@@ -76,6 +76,9 @@ func TestScanFixtureHappyPath(t *testing.T) {
 	if doc.PRs[0].MergeStateStatus != "CLEAN" {
 		t.Fatalf("merge_state_status = %q, want CLEAN", doc.PRs[0].MergeStateStatus)
 	}
+	if doc.PRs[0].State != "open" {
+		t.Fatalf("state = %q, want open", doc.PRs[0].State)
+	}
 	if doc.PRs[0].Mergeable != "MERGEABLE" {
 		t.Fatalf("mergeable = %q, want MERGEABLE", doc.PRs[0].Mergeable)
 	}

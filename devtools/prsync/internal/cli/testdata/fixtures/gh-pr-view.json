@@ -2,6 +2,7 @@
   "number": 123,
   "title": "[PROJ-123] Fix the widget",
   "url": "https://github.com/acme/widgets/pull/123",
+  "state": "OPEN",
   "baseRefName": "main",
   "headRefName": "fix-widget",
   "headRefOid": "abc123def456",

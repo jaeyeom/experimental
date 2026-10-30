@@ -23,7 +23,7 @@ Do not start editing until you are on {head} at its latest tip.`
 
 const defaultPromptTemplate = branchSwitchPreamble + `
 
-Address the unresolved review comments on PR #{number} ({url}).
+Address the unresolved review comments on PR #{number} ({url}). State: {state}.
 
 Unaddressed threads:
 {comments}
@@ -57,7 +57,7 @@ unanswered threads. If nobody is left, request nobody. Do not dismiss reviews.
 
 Do not touch other PRs.`
 
-const defaultRebasePromptTemplate = `Rebase PR #{number} ({url}) onto origin/{base} in this working directory. Do not create a new worktree.
+const defaultRebasePromptTemplate = `Rebase PR #{number} ({url}) onto origin/{base} in this working directory. State: {state}. Do not create a new worktree.
 
 1. Check out {head}.
 2. Fetch origin.
@@ -69,7 +69,7 @@ Do not touch other PRs.`
 
 const defaultCIFixPromptTemplate = branchSwitchPreamble + `
 
-Fix the failing CI on PR #{number} ({url}). Stay scoped to this PR.
+Fix the failing CI on PR #{number} ({url}). State: {state}. Stay scoped to this PR.
 Do not touch unrelated failures or other PRs.
 
 Caller hint (non-authoritative starting point; verify against live CI

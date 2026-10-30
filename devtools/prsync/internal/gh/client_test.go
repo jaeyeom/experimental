@@ -131,7 +131,7 @@ func TestSearchOpenPRRepos(t *testing.T) {
 func TestListOpenPRs(t *testing.T) {
 	t.Parallel()
 
-	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
+	const jsonFields = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
 
 	t.Run("parses list", func(t *testing.T) {
 		t.Parallel()
@@ -139,6 +139,7 @@ func TestListOpenPRs(t *testing.T) {
 			"number":123,
 			"title":"[PROJ-123] Fix the widget",
 			"url":"https://github.com/acme/widgets/pull/123",
+			"state":"OPEN",
 			"baseRefName":"main",
 			"headRefName":"fix-widget",
 			"headRefOid":"abc123def456",
@@ -171,6 +172,9 @@ func TestListOpenPRs(t *testing.T) {
 		}
 		if got[0].MergeStateStatus != "BEHIND" {
 			t.Fatalf("MergeStateStatus = %q, want BEHIND", got[0].MergeStateStatus)
+		}
+		if got[0].State != "open" {
+			t.Fatalf("State = %q, want open", got[0].State)
 		}
 	})
 
@@ -227,11 +231,12 @@ func TestListOpenPRs(t *testing.T) {
 func TestViewPR(t *testing.T) {
 	t.Parallel()
 
-	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
+	const jsonFields = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
 	body := `{
 		"number":123,
 		"title":"[PROJ-123] Fix the widget",
 		"url":"https://github.com/acme/widgets/pull/123",
+		"state":"CLOSED",
 		"baseRefName":"main",
 		"headRefName":"fix-widget",
 		"headRefOid":"abc123def456",
@@ -256,6 +261,9 @@ func TestViewPR(t *testing.T) {
 		}
 		if got.Number != 123 || got.HeadRefOid != "abc123def456" || got.MergeStateStatus != "BEHIND" {
 			t.Fatalf("ViewPR() = %+v", got)
+		}
+		if got.State != "closed" {
+			t.Fatalf("State = %q, want closed", got.State)
 		}
 		if calls := len(mock.Executions()); calls != 1 {
 			t.Fatalf("calls = %d, want 1", calls)
@@ -997,7 +1005,7 @@ func (p *ghRetryProbe) ctx() context.Context {
 }
 
 func expectPRList(mock *executor.MockExecutor) *executor.MockExpectationBuilder {
-	const jsonFields = "number,title,url,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
+	const jsonFields = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
 	return mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
 		"--repo", "acme/widgets", "--author", "alice", "--state", "open",
 		"--limit", "1000", "--json", jsonFields)

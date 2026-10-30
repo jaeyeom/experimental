@@ -86,6 +86,9 @@ func TestRenderDefaultTemplate(t *testing.T) {
 	if !strings.Contains(got, "PR #123 (https://github.com/acme/widgets/pull/123)") {
 		t.Fatalf("missing number/url: %q", got)
 	}
+	if !strings.Contains(got, "State: open.") {
+		t.Fatalf("missing pull request state: %q", got)
+	}
 	if !strings.Contains(got, "Check out fix-widget") {
 		t.Fatalf("missing checkout of head: %q", got)
 	}
@@ -175,6 +178,32 @@ func TestRenderNilIdentifier(t *testing.T) {
 	}
 }
 
+func TestRenderState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state string
+		want  string
+	}{
+		{name: "open enum", state: "OPEN", want: "open"},
+		{name: "closed", state: "closed", want: "closed"},
+		{name: "merged", state: " MERGED ", want: "merged"},
+		{name: "empty", state: "", want: ""},
+		{name: "unrecognized", state: "DRAFT", want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := Render("state={state}.", scan.PR{State: tc.state}, config.Defaults())
+			want := "state=" + tc.want + "."
+			if got != want {
+				t.Fatalf("Render() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestRenderDefaultRebaseTemplate(t *testing.T) {
 	t.Parallel()
 
@@ -182,6 +211,9 @@ func TestRenderDefaultRebaseTemplate(t *testing.T) {
 	got := Render(config.Defaults().RebasePromptTemplate, pr, config.Defaults())
 	if !strings.Contains(got, "PR #123 (https://github.com/acme/widgets/pull/123)") {
 		t.Fatalf("missing number/url: %q", got)
+	}
+	if !strings.Contains(got, "State: open.") {
+		t.Fatalf("missing pull request state: %q", got)
 	}
 	if !strings.Contains(got, "Check out fix-widget") {
 		t.Fatalf("missing checkout: %q", got)
@@ -204,6 +236,9 @@ func TestRenderDefaultCIFixTemplate(t *testing.T) {
 	got := Render(config.Defaults().CIFixPromptTemplate, pr, config.Defaults())
 	if !strings.Contains(got, "PR #123 (https://github.com/acme/widgets/pull/123)") {
 		t.Fatalf("missing number/url: %q", got)
+	}
+	if !strings.Contains(got, "State: open.") {
+		t.Fatalf("missing pull request state: %q", got)
 	}
 	if !strings.Contains(got, "Check out fix-widget") {
 		t.Fatalf("missing checkout of head: %q", got)

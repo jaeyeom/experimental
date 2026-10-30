@@ -22,10 +22,12 @@ type Summary struct {
 
 // PR is one classified pull request in a scan document.
 type PR struct {
-	Repo             string    `json:"repo"`
-	Number           int       `json:"number"`
-	Title            string    `json:"title"`
-	URL              string    `json:"url"`
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	// State is open, closed, or merged. Empty when the document predates the field.
+	State            string    `json:"state"`
 	Identifier       *string   `json:"identifier"`
 	Base             string    `json:"base"`
 	Head             string    `json:"head"`
