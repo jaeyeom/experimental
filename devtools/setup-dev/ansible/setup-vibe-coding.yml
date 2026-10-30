@@ -3,6 +3,7 @@
 - import_playbook: gh-merge.yml
 - import_playbook: gh-nudge.yml
 - import_playbook: gh-pr-review.yml
+- import_playbook: gh-repox.yml
 - import_playbook: gh-slack.yml
 - import_playbook: gh-storage.yml
 - import_playbook: prsync.yml
@@ -32,4 +33,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, prsync, claudelytics, grok, herdr, aside"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, gh-repox, prsync, claudelytics, grok, herdr, aside"
