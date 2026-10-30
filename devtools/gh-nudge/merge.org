@@ -14,6 +14,7 @@ merge these PRs and optionally delete the source branch after merging.
 - Find PRs that have no pending review requests
 - Verify PRs are in a mergeable state
 - Merge PRs automatically with optional branch deletion
+- Skip PRs that have a configured block label, such as ~do-not-merge~
 - Support for dry-run mode to preview actions without executing them
 - Reuse existing configuration from ~gh-nudge~
 
@@ -36,6 +37,11 @@ merge these PRs and optionally delete the source branch after merging.
   gh-merge --config /path/to/config.pkl
 #+end_src
 
+A pull request is not merged when it has any label listed in
+~settings.block_merge_labels~, for example ~do-not-merge~. ~--force~ does not
+override that label. ~gh-merge list~ still prints the pull request and marks
+the label that blocks it.
+
 ** Configuration and Setup
 
 Please see [[file:README.org][README.org]] file for the full configuration.
@@ -52,7 +58,19 @@ github {
     "repo2"
   }
 }
+
+settings {
+  // Skip merging a pull request that has any of these labels.
+  // Empty means no label blocks a merge. Names match exactly, including case.
+  // --force does not override a block label.
+  block_merge_labels {
+    "do-not-merge"
+  }
+}
 #+end_src
+
+~gh-nudge~ ignores ~block_merge_labels~. See [[file:README.org][README.org]] for the
+rest of the shared configuration.
 
 ** Known Issues
 *** Sometimes it needs to run 2 times

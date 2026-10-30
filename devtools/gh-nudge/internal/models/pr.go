@@ -120,6 +120,18 @@ func (pr *PullRequest) MeetsLabelMinAges(rules []LabelMinAge, addedAt map[string
 	return true
 }
 
+// BlocksMerge reports whether any blockLabels entry is on the pull request.
+// It returns the first matching label. An empty list does not block.
+// Label names match exactly, including case.
+func (pr *PullRequest) BlocksMerge(blockLabels []string) (string, bool) {
+	for _, name := range blockLabels {
+		if pr.HasLabel(name) {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // AllowsNudge reports whether a nudge should be sent for this pull request
 // given the configured label filters. Empty slices mean no constraint.
 // requireLabels must all be present; skipLabels must all be absent.
