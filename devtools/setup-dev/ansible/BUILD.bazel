@@ -26,6 +26,7 @@ go_test(
         "generate_packages_test.go",
         "install_methods_test.go",
         "packages_data_test.go",
+        "setup_bazel_wrapper_test.go",
         "types_test.go",
     ],
     data = glob(["*.yml"]) + ["emacs_app_link.sh"],

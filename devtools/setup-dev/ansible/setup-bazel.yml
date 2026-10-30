@@ -130,17 +130,18 @@
               DEBIAN_USER=${DEBIAN_USER:-user}
           fi
 
-          # Convert Termux path to proot-distro debian path
-          # The --termux-home option mounts Termux home to /root, but we're using dynamic user
-          # So we need to map the Termux home directory to the debian user's home
-          if [[ "$TERMUX_CWD" == /data/data/com.termux/files/home/* ]]; then
-              # Remove the Termux home prefix and prepend the debian user's home
-              DEBIAN_CWD="${TERMUX_CWD#/data/data/com.termux/files/home}"
-              DEBIAN_CWD="/home/$DEBIAN_USER${DEBIAN_CWD}"
+          # proot-distro bind-mounts the Termux home at this path, and
+          # --termux-home also mounts it at /home/$DEBIAN_USER. After the
+          # Bazel server chdirs, /proc/<pid>/cwd is the Termux path. Bazel
+          # compares that string with --work-dir and restarts when they
+          # differ, so pass the Termux path through unchanged.
+          TERMUX_HOME=/data/data/com.termux/files/home
+          if [[ "$TERMUX_CWD" == "$TERMUX_HOME" || "$TERMUX_CWD" == "$TERMUX_HOME"/* ]]; then
+              WORK_DIR="$TERMUX_CWD"
           else
               # For other paths, we may need custom bindings
               echo "Warning: Current directory is outside Termux home. Using default directory." >&2
-              DEBIAN_CWD="/home/$DEBIAN_USER"
+              WORK_DIR="/home/$DEBIAN_USER"
           fi
 
           # Check for .bazeliskrc in current and parent directories and read USE_BAZEL_VERSION
@@ -176,5 +177,5 @@
           fi
 
           # Run bazel in proot-distro debian with the working directory set
-          exec pd sh debian --user "$DEBIAN_USER" --termux-home --work-dir "$DEBIAN_CWD" $ENV_ARGS -- bazel "$@"
+          exec pd sh debian --user "$DEBIAN_USER" --termux-home --work-dir "$WORK_DIR" $ENV_ARGS -- bazel "$@"
       when: ansible_facts['env']['TERMUX_VERSION'] is defined
