@@ -43,7 +43,7 @@ var (
 	force        bool
 )
 
-func init() {
+func registerFlags() {
 	flag.StringVar(&configPath, "config", "", "Path to config file")
 	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode (don't actually merge)")
 	flag.BoolVar(&deleteBranch, "d", false, "Delete branch after merge")
@@ -239,6 +239,7 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 }
 
 func main() {
+	registerFlags()
 	flag.Parse()
 
 	// Setup logging

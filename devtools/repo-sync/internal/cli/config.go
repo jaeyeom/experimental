@@ -55,7 +55,7 @@ var showProjectCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerConfigCmd() {
 	// Add project flags
 	addProjectCmd.Flags().String("local-dir", "", "Local work directory path (required)")
 	addProjectCmd.Flags().String("remote-repo", "", "Remote repository URL (required)")

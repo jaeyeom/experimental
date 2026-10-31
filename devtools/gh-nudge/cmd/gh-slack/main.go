@@ -60,7 +60,7 @@ var (
 	vars       string
 )
 
-func init() {
+func registerFlags() {
 	flag.StringVar(&configPath, "config", "", "Path to configuration file")
 	flag.BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode (no messages sent)")
 	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
@@ -130,6 +130,7 @@ func processMessage(githubUsername, msgContent string, slackClient *slack.Client
 }
 
 func main() {
+	registerFlags()
 	flag.Parse()
 
 	// Set up logging

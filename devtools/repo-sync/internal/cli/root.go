@@ -32,13 +32,26 @@ files in sync without uploading entire repositories to remote storage.`,
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() error {
+	registerCommands()
 	if err := rootCmd.Execute(); err != nil {
 		return fmt.Errorf("failed to execute root command: %w", err)
 	}
 	return nil
 }
 
-func init() {
+var commandsRegistered bool
+
+func registerCommands() {
+	if commandsRegistered {
+		return
+	}
+	commandsRegistered = true
+
+	registerInitCmd()
+	registerSyncCmd()
+	registerRemoveCmd()
+	registerConfigCmd()
+
 	cobra.OnInitialize(initConfig)
 
 	// Global flags

@@ -21,7 +21,7 @@ database schema, and default configuration files.`,
 	RunE: runInit,
 }
 
-func init() {
+func registerInitCmd() {
 	initCmd.Flags().Bool("reset-db", false, "Reset existing database")
 }
 

@@ -25,7 +25,7 @@ var (
 	verbose    bool
 )
 
-func init() {
+func registerFlags() {
 	flag.StringVar(&configPath, "config", "", "Path to configuration file")
 	flag.BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode (no notifications sent)")
 	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
@@ -265,6 +265,7 @@ func firstReviewRequestAllowsNudge(pr models.PullRequest, reviewer models.Review
 }
 
 func main() {
+	registerFlags()
 	flag.Parse()
 
 	// Set up logging
