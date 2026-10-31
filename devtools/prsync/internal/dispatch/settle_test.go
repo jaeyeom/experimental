@@ -13,7 +13,7 @@ func TestSendPromptDoesNotSettleOnTransientIdleAfterBlocked(t *testing.T) {
 	t.Parallel()
 
 	cfg, c, req := settlePromptFixture()
-	clock := &fakeClock{now: fixtureNow}
+	clock := &fakeClock{now: fixtureNow()}
 	sleeper := &fakeSleeper{clock: clock}
 	h := &scriptHerdr{
 		prompts: []herdr.PromptOutcome{{
@@ -170,7 +170,7 @@ func TestSendPromptSettleSequences(t *testing.T) {
 			if tt.timeout > 0 {
 				cfg.DispatchTimeout = tt.timeout
 			}
-			clock := &fakeClock{now: fixtureNow}
+			clock := &fakeClock{now: fixtureNow()}
 			sleeper := &fakeSleeper{clock: clock}
 			h := &scriptHerdr{
 				prompts:   []herdr.PromptOutcome{tt.prompt},
@@ -195,7 +195,7 @@ func TestGateDebounceTreatsBlockedAsBusyUnlikeSettleUntilIdle(t *testing.T) {
 	cfg.ConcurrencyWaitOn = "any"
 	cfg.GatePoll = time.Millisecond
 	cfg.GateTimeout = 50 * time.Millisecond
-	clock := &fakeClock{now: fixtureNow}
+	clock := &fakeClock{now: fixtureNow()}
 	sleeper := &fakeSleeper{clock: clock}
 	h := &scriptHerdr{lists: [][]herdr.Agent{
 		{blockedAgent("w2:pX", "w2:tX")},

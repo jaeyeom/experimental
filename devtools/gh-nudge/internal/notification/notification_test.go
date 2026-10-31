@@ -51,16 +51,9 @@ func TestShouldNotify(t *testing.T) {
 }
 
 func TestShouldNotifyAfterThreshold(t *testing.T) {
-	// Create a custom time function for testing
-	originalTimeNow := timeNow
-	defer func() { timeNow = originalTimeNow }()
-
 	mockTime := time.Now()
-	timeNow = func() time.Time {
-		return mockTime
-	}
-
 	tracker := NewTracker()
+	tracker.nowFn = func() time.Time { return mockTime }
 	prURL := "https://github.com/org/repo/pull/1"
 	reviewer := "github-user"
 
@@ -100,14 +93,8 @@ func TestPersistence(t *testing.T) {
 
 	persistPath := filepath.Join(tempDir, "notifications.json")
 
-	// Create a custom time function for testing
-	originalTimeNow := timeNow
-	defer func() { timeNow = originalTimeNow }()
-
 	mockTime := time.Date(2025, 3, 19, 12, 0, 0, 0, time.UTC)
-	timeNow = func() time.Time {
-		return mockTime
-	}
+	now := func() time.Time { return mockTime }
 
 	// Test case 1: Create a new tracker, save some notifications
 	t.Run("should save notifications to file", func(t *testing.T) {
@@ -115,6 +102,7 @@ func TestPersistence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create persistent tracker: %v", err)
 		}
+		tracker.nowFn = now
 
 		prURL := "https://github.com/org/repo/pull/1"
 		reviewer := "github-user"
@@ -135,6 +123,7 @@ func TestPersistence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create persistent tracker: %v", err)
 		}
+		tracker.nowFn = now
 
 		prURL := "https://github.com/org/repo/pull/1"
 		reviewer := "github-user"
@@ -162,6 +151,7 @@ func TestPersistence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create persistent tracker: %v", err)
 		}
+		tracker.nowFn = now
 
 		prURL := "https://github.com/org/repo/pull/1"
 		reviewer := "github-user"
@@ -175,13 +165,10 @@ func TestPersistence(t *testing.T) {
 }
 
 func TestShouldNotifyReviewerNewRequestCycle(t *testing.T) {
-	originalTimeNow := timeNow
-	defer func() { timeNow = originalTimeNow }()
-
 	pingTime := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	timeNow = func() time.Time { return pingTime }
 
 	tracker := NewTracker()
+	tracker.nowFn = func() time.Time { return pingTime }
 	prURL := "https://github.com/org/repo/pull/1"
 	reviewer := "alice"
 
@@ -250,7 +237,7 @@ func TestShouldNotifyReviewerNewRequestCycle(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			timeNow = func() time.Time { return pingTime.Add(tc.elapsed) }
+			tracker.nowFn = func() time.Time { return pingTime.Add(tc.elapsed) }
 			got := tracker.ShouldNotifyReviewer(prURL, tc.reviewer, tc.thresholdHours, tc.latestReviewAt)
 			if got != tc.want {
 				t.Errorf("ShouldNotifyReviewer() = %v, want %v", got, tc.want)
@@ -260,13 +247,10 @@ func TestShouldNotifyReviewerNewRequestCycle(t *testing.T) {
 }
 
 func TestRecordNotificationAtUsesGivenTime(t *testing.T) {
-	originalTimeNow := timeNow
-	defer func() { timeNow = originalTimeNow }()
-
 	now := time.Date(2026, 3, 1, 15, 0, 0, 0, time.UTC)
-	timeNow = func() time.Time { return now }
 
 	tracker := NewTracker()
+	tracker.nowFn = func() time.Time { return now }
 	prURL := "https://github.com/org/repo/pull/1"
 	reviewer := "alice"
 	recordedAt := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
@@ -297,15 +281,12 @@ func TestShouldNotifyReviewerFirstPingIgnoresOldReview(t *testing.T) {
 }
 
 func TestShouldNotifyReviewerCooldownAfterNewCyclePing(t *testing.T) {
-	originalTimeNow := timeNow
-	defer func() { timeNow = originalTimeNow }()
-
 	firstPing := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 	reviewAt := firstPing.Add(2 * time.Hour)
 	secondPing := firstPing.Add(3 * time.Hour)
 
-	timeNow = func() time.Time { return firstPing }
 	tracker := NewTracker()
+	tracker.nowFn = func() time.Time { return firstPing }
 	prURL := "https://github.com/org/repo/pull/1"
 	reviewer := "alice"
 
@@ -313,7 +294,7 @@ func TestShouldNotifyReviewerCooldownAfterNewCyclePing(t *testing.T) {
 		t.Fatalf("Failed to record first notification: %v", err)
 	}
 
-	timeNow = func() time.Time { return secondPing }
+	tracker.nowFn = func() time.Time { return secondPing }
 	if !tracker.ShouldNotifyReviewer(prURL, reviewer, 24, reviewAt) {
 		t.Fatal("Expected to notify after a review submitted after the last ping")
 	}
@@ -336,16 +317,13 @@ func TestShouldNotifyReviewerPersistsAcrossLoad(t *testing.T) {
 	tempDir := t.TempDir()
 	persistPath := filepath.Join(tempDir, "notifications.json")
 
-	originalTimeNow := timeNow
-	defer func() { timeNow = originalTimeNow }()
-
 	pingTime := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	timeNow = func() time.Time { return pingTime }
 
 	tracker, err := NewPersistentTracker(persistPath)
 	if err != nil {
 		t.Fatalf("Failed to create persistent tracker: %v", err)
 	}
+	tracker.nowFn = func() time.Time { return pingTime }
 
 	prURL := "https://github.com/org/repo/pull/1"
 	reviewer := "alice"
@@ -358,7 +336,7 @@ func TestShouldNotifyReviewerPersistsAcrossLoad(t *testing.T) {
 		t.Fatalf("Failed to reload persistent tracker: %v", err)
 	}
 
-	timeNow = func() time.Time { return pingTime.Add(3 * time.Hour) }
+	loaded.nowFn = func() time.Time { return pingTime.Add(3 * time.Hour) }
 	if loaded.ShouldNotifyReviewer(prURL, reviewer, 24, time.Time{}) {
 		t.Error("Expected loaded tracker not to notify within threshold with no later review")
 	}

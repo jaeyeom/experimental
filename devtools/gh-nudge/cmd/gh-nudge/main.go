@@ -19,20 +19,8 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
-var (
-	configPath string
-	dryRun     bool
-	verbose    bool
-)
-
-func init() {
-	flag.StringVar(&configPath, "config", "", "Path to configuration file")
-	flag.BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode (no notifications sent)")
-	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
-}
-
 // setupLogger configures the application logger based on verbosity level.
-func setupLogger() *slog.Logger {
+func setupLogger(verbose bool) *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
 		logLevel = slog.LevelDebug
@@ -45,7 +33,7 @@ func setupLogger() *slog.Logger {
 }
 
 // getNotificationPath determines the path for storing notification data.
-func getNotificationPath() (string, error) {
+func getNotificationPath(configPath string) (string, error) {
 	if configPath != "" {
 		// If config path is specified, use the same directory
 		return filepath.Join(filepath.Dir(configPath), "notifications.json"), nil
@@ -60,7 +48,7 @@ func getNotificationPath() (string, error) {
 }
 
 // initializeClients sets up the GitHub and Slack clients.
-func initializeClients(cfg *config.Config) (*github.Client, *slack.Client) {
+func initializeClients(cfg *config.Config, dryRun bool) (*github.Client, *slack.Client) {
 	// Initialize GitHub client
 	ctx := context.Background()
 	exec := executor.NewBasicExecutor()
@@ -265,10 +253,16 @@ func firstReviewRequestAllowsNudge(pr models.PullRequest, reviewer models.Review
 }
 
 func main() {
+	var configPath string
+	var dryRun bool
+	var verbose bool
+	flag.StringVar(&configPath, "config", "", "Path to configuration file")
+	flag.BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode (no notifications sent)")
+	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
 	flag.Parse()
 
 	// Set up logging
-	setupLogger()
+	setupLogger(verbose)
 
 	// Load configuration
 	cfg, err := config.LoadConfig(configPath)
@@ -278,10 +272,10 @@ func main() {
 	}
 
 	// Initialize clients
-	githubClient, slackClient := initializeClients(cfg)
+	githubClient, slackClient := initializeClients(cfg, dryRun)
 
 	// Initialize notification tracker with persistence
-	notificationPath, err := getNotificationPath()
+	notificationPath, err := getNotificationPath(configPath)
 	if err != nil {
 		slog.Error("Failed to determine notification path", "error", err)
 		os.Exit(1)

@@ -50,28 +50,8 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/slack"
 )
 
-var (
-	configPath string
-	dryRun     bool
-	verbose    bool
-	recipients string
-	message    string
-	template   string
-	vars       string
-)
-
-func init() {
-	flag.StringVar(&configPath, "config", "", "Path to configuration file")
-	flag.BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode (no messages sent)")
-	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
-	flag.StringVar(&recipients, "to", "", "GitHub usernames to send messages to (comma-separated)")
-	flag.StringVar(&message, "message", "", "Message to send")
-	flag.StringVar(&template, "template", "", "Message template to use")
-	flag.StringVar(&vars, "var", "", "Variables for template in format key=value,key2=value2")
-}
-
 // setupLogger configures the application logger based on verbosity level.
-func setupLogger() *slog.Logger {
+func setupLogger(verbose bool) *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
 		logLevel = slog.LevelDebug
@@ -130,10 +110,24 @@ func processMessage(githubUsername, msgContent string, slackClient *slack.Client
 }
 
 func main() {
+	var configPath string
+	var dryRun bool
+	var verbose bool
+	var recipients string
+	var message string
+	var template string
+	var vars string
+	flag.StringVar(&configPath, "config", "", "Path to configuration file")
+	flag.BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode (no messages sent)")
+	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
+	flag.StringVar(&recipients, "to", "", "GitHub usernames to send messages to (comma-separated)")
+	flag.StringVar(&message, "message", "", "Message to send")
+	flag.StringVar(&template, "template", "", "Message template to use")
+	flag.StringVar(&vars, "var", "", "Variables for template in format key=value,key2=value2")
 	flag.Parse()
 
 	// Set up logging
-	setupLogger()
+	setupLogger(verbose)
 
 	// Validate required parameters
 	if recipients == "" {

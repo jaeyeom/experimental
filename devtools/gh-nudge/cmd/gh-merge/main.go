@@ -35,32 +35,15 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
-var (
-	configPath   string
+// mergeOptions holds the flags that change merge behavior.
+type mergeOptions struct {
 	dryRun       bool
 	deleteBranch bool
-	verbose      bool
 	force        bool
-)
-
-func init() {
-	flag.StringVar(&configPath, "config", "", "Path to config file")
-	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode (don't actually merge)")
-	flag.BoolVar(&deleteBranch, "d", false, "Delete branch after merge")
-	flag.BoolVar(&verbose, "v", false, "Verbose output")
-	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nCommands:\n")
-		fmt.Fprintf(os.Stderr, "  list    List mergeable PRs (default)\n")
-		fmt.Fprintf(os.Stderr, "  merge   Merge eligible PRs\n")
-	}
 }
 
 // setupLogging configures the logger with the appropriate level.
-func setupLogging() *slog.Logger {
+func setupLogging(verbose bool) *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
 		logLevel = slog.LevelDebug
@@ -143,7 +126,7 @@ const (
 
 // tryMergePR attempts to merge a single PR, checking block labels and CI status first.
 // It prints status and returns the outcome. A block label is not overridden by --force.
-func tryMergePR(githubClient mergeClient, pr *models.PullRequest, blockLabels []string) mergeResult {
+func tryMergePR(githubClient mergeClient, pr *models.PullRequest, blockLabels []string, opts mergeOptions) mergeResult {
 	fmt.Printf("  %s\n", pr.Title)
 	fmt.Printf("         URL: %s\n", pr.URL)
 	fmt.Printf("         Branch: %s\n", pr.HeadRefName)
@@ -155,34 +138,34 @@ func tryMergePR(githubClient mergeClient, pr *models.PullRequest, blockLabels []
 	}
 
 	ciStatus := pr.ChecksStatus()
-	if ciStatus == models.ChecksFail && !force {
+	if ciStatus == models.ChecksFail && !opts.force {
 		fmt.Printf("         Skipping: CI checks failed — blocking merge (use --force to override)\n\n")
 		return mergeResultSkippedFail
 	}
-	if ciStatus == models.ChecksPending && !force {
+	if ciStatus == models.ChecksPending && !opts.force {
 		fmt.Printf("         Skipping: CI checks still in progress\n\n")
 		return mergeResultSkippedPending
 	}
-	if force && (ciStatus == models.ChecksFail || ciStatus == models.ChecksPending) {
+	if opts.force && (ciStatus == models.ChecksFail || ciStatus == models.ChecksPending) {
 		fmt.Printf("         Warning: merging despite CI status %s (--force)\n", ciStatus)
 	}
 
-	if dryRun {
+	if opts.dryRun {
 		branchAction := "keep"
-		if deleteBranch {
+		if opts.deleteBranch {
 			branchAction = "delete"
 		}
 		fmt.Printf("         Would merge PR and %s branch\n", branchAction)
 		return mergeResultDryRun
 	}
 
-	if err := githubClient.MergePullRequest(pr.URL, deleteBranch); err != nil {
+	if err := githubClient.MergePullRequest(pr.URL, opts.deleteBranch); err != nil {
 		fmt.Printf("         Error merging: %v\n", err)
 		return mergeResultError
 	}
 
 	successMsg := "Successfully added to the merge queue"
-	if deleteBranch {
+	if opts.deleteBranch {
 		successMsg += " and deleted branch"
 	}
 	fmt.Printf("         %s\n\n", successMsg)
@@ -190,11 +173,11 @@ func tryMergePR(githubClient mergeClient, pr *models.PullRequest, blockLabels []
 }
 
 // mergePRs merges all eligible PRs.
-func mergePRs(githubClient mergeClient, cfg *config.Config) error {
+func mergePRs(githubClient mergeClient, cfg *config.Config, opts mergeOptions) error {
 	slog.Info("Finding and merging PRs with no review requests",
-		"dry_run", dryRun,
-		"delete_branch", deleteBranch,
-		"force", force,
+		"dry_run", opts.dryRun,
+		"delete_branch", opts.deleteBranch,
+		"force", opts.force,
 		"block_merge_labels", cfg.Settings.BlockMergeLabels)
 
 	prs, err := githubClient.GetMergeablePullRequests()
@@ -211,7 +194,7 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 
 	var merged, skippedFail, skippedPending, skippedLabel int
 	for i := range prs {
-		switch tryMergePR(githubClient, &prs[i], cfg.Settings.BlockMergeLabels) {
+		switch tryMergePR(githubClient, &prs[i], cfg.Settings.BlockMergeLabels, opts) {
 		case mergeResultMerged:
 			merged++
 		case mergeResultSkippedFail:
@@ -223,7 +206,7 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 		}
 	}
 
-	if dryRun {
+	if opts.dryRun {
 		fmt.Printf("Found %d PRs with no review requests (dry run, no changes made).\n", len(prs))
 	} else {
 		fmt.Printf("Successfully added to the merge queue %d of %d PRs.\n", merged, len(prs))
@@ -239,10 +222,26 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 }
 
 func main() {
+	var configPath string
+	var opts mergeOptions
+	var verbose bool
+	flag.StringVar(&configPath, "config", "", "Path to config file")
+	flag.BoolVar(&opts.dryRun, "dry-run", false, "Dry run mode (don't actually merge)")
+	flag.BoolVar(&opts.deleteBranch, "d", false, "Delete branch after merge")
+	flag.BoolVar(&verbose, "v", false, "Verbose output")
+	flag.BoolVar(&opts.force, "force", false, "Merge even if CI checks have failed or are pending")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nCommands:\n")
+		fmt.Fprintf(os.Stderr, "  list    List mergeable PRs (default)\n")
+		fmt.Fprintf(os.Stderr, "  merge   Merge eligible PRs\n")
+	}
 	flag.Parse()
 
 	// Setup logging
-	setupLogging()
+	setupLogging(verbose)
 
 	// Load configuration
 	cfg, err := config.LoadConfig(configPath)
@@ -269,7 +268,7 @@ func main() {
 	case "list":
 		cmdErr = listMergeablePRs(githubClient, cfg)
 	case "merge":
-		cmdErr = mergePRs(githubClient, cfg)
+		cmdErr = mergePRs(githubClient, cfg, opts)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		flag.Usage()

@@ -39,9 +39,6 @@ func defaultLockRetry() lockRetryConfig {
 	}
 }
 
-// heldLocks tracks lock files owned by this process (re-homed LockManager).
-var heldLocks sync.Map
-
 // State is the on-disk dedupe map keyed by owner/repo#N.
 type State map[string]Entry
 
@@ -58,6 +55,13 @@ type Entry struct {
 // FileStore loads dispatch state from a JSON file.
 type FileStore struct {
 	Path string
+	// locks records paths this value holds in this process. Copies share the map.
+	locks *sync.Map
+}
+
+// NewFileStore returns a store for path. Copies share its in-process lock set.
+func NewFileStore(path string) FileStore {
+	return FileStore{Path: path, locks: &sync.Map{}}
 }
 
 // Load implements StateStore.
@@ -74,7 +78,11 @@ func (s FileStore) Save(st State) error {
 // closes the file and removes the lock. Retry shape matches gh-nudge's
 // DefaultFileLockConfig (~5s). A live holder returns ErrLock.
 func (s FileStore) AcquireLock() (func(), error) {
-	return acquireLockRetry(s.Path+".lock", defaultLockRetry())
+	held := s.locks
+	if held == nil {
+		held = &sync.Map{}
+	}
+	return acquireLockRetry(s.Path+".lock", defaultLockRetry(), held)
 }
 
 // WithLock runs fn while holding the exclusive state lock.
@@ -87,14 +95,14 @@ func (s FileStore) WithLock(fn func() error) error {
 	return fn()
 }
 
-func acquireLockRetry(lockPath string, cfg lockRetryConfig) (func(), error) {
+func acquireLockRetry(lockPath string, cfg lockRetryConfig, held *sync.Map) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		return nil, fmt.Errorf("%w: create lock dir: %v", ErrLock, err)
 	}
 	var lastErr error
 	delay := cfg.InitialDelay
 	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
-		unlock, err := tryAcquireLock(lockPath)
+		unlock, err := tryAcquireLock(lockPath, held)
 		if err == nil {
 			return unlock, nil
 		}
@@ -104,7 +112,7 @@ func acquireLockRetry(lockPath string, cfg lockRetryConfig) (func(), error) {
 		}
 		if isStaleLock(lockPath) {
 			_ = os.Remove(lockPath)
-			unlock, err := tryAcquireLock(lockPath)
+			unlock, err := tryAcquireLock(lockPath, held)
 			if err == nil {
 				return unlock, nil
 			}
@@ -122,26 +130,26 @@ func acquireLockRetry(lockPath string, cfg lockRetryConfig) (func(), error) {
 	return nil, fmt.Errorf("%w: %v", ErrLock, lastErr)
 }
 
-func tryAcquireLock(lockPath string) (func(), error) {
-	if _, loaded := heldLocks.LoadOrStore(lockPath, struct{}{}); loaded {
+func tryAcquireLock(lockPath string, held *sync.Map) (func(), error) {
+	if _, loaded := held.LoadOrStore(lockPath, struct{}{}); loaded {
 		return nil, fmt.Errorf("lock already held for path: %s", lockPath)
 	}
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) //nolint:gosec // lock metadata is not secret
 	if err != nil {
-		heldLocks.Delete(lockPath)
+		held.Delete(lockPath)
 		return nil, fmt.Errorf("create lock file: %w", err)
 	}
 	lockInfo := fmt.Sprintf("locked_at: %s\npid: %d\n", time.Now().Format(time.RFC3339), os.Getpid())
 	if _, err := fmt.Fprintf(file, "%s", lockInfo); err != nil {
 		_ = file.Close()
 		_ = os.Remove(lockPath)
-		heldLocks.Delete(lockPath)
+		held.Delete(lockPath)
 		return nil, fmt.Errorf("write lock file: %w", err)
 	}
 	return func() {
 		_ = file.Close()
 		_ = os.Remove(lockPath)
-		heldLocks.Delete(lockPath)
+		held.Delete(lockPath)
 	}, nil
 }
 

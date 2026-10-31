@@ -68,11 +68,11 @@ func getAllYmlFiles() ([]string, error) {
 func getGeneratedRuleNames() []string {
 	var generated []string
 
-	for _, pkg := range packages {
+	for _, pkg := range packages() {
 		generated = append(generated, pkg.Command())
 	}
 
-	for _, pkg := range platformSpecificTools {
+	for _, pkg := range platformSpecificTools() {
 		generated = append(generated, pkg.Command())
 	}
 
@@ -431,11 +431,11 @@ test_suite(
 func validatePlatformNames() error {
 	// Build a set from the canonical list in types.go
 	validPlatforms := make(map[PlatformName]bool)
-	for _, platform := range AllPlatforms {
+	for _, platform := range AllPlatforms() {
 		validPlatforms[platform] = true
 	}
 
-	for _, tool := range platformSpecificTools {
+	for _, tool := range platformSpecificTools() {
 		for platform := range tool.platforms {
 			if !validPlatforms[platform] {
 				// This should never happen with typed constants, but keeping for safety
@@ -443,7 +443,7 @@ func validatePlatformNames() error {
 					"invalid platform name '%s' for tool '%s'.\nValid platforms are: %v",
 					platform,
 					tool.command,
-					AllPlatforms,
+					AllPlatforms(),
 				)
 			}
 		}
@@ -460,7 +460,7 @@ func buildCommandAptInfo() map[string]AptPackageInfo {
 
 	// All entries in the packages slice use the system package manager
 	// (apt) on Debian-like systems.
-	for _, pkg := range packages {
+	for _, pkg := range packages() {
 		entry := AptPackageInfo{PackageName: pkg.DebianPkgName()}
 		if pkg.UbuntuPPA != "" {
 			entry.SourceType = AptSourcePPA
@@ -470,7 +470,7 @@ func buildCommandAptInfo() map[string]AptPackageInfo {
 	}
 
 	// From platformSpecificTools, extract only apt-based install methods.
-	for _, tool := range platformSpecificTools {
+	for _, tool := range platformSpecificTools() {
 		for _, platform := range []PlatformName{PlatformDebianLike, PlatformUbuntu, PlatformDebian} {
 			method, ok := tool.platforms[platform]
 			if !ok {
@@ -684,8 +684,8 @@ func main() {
 	tmpl := template.Must(template.New("packages").Parse(packagesTemplate))
 	template.Must(tmpl.New("platformspecific").Parse(platformSpecificTemplate))
 
-	generatePackages(tmpl.Lookup("packages"), packages)
-	generatePackages(tmpl.Lookup("platformspecific"), platformSpecificTools)
+	generatePackages(tmpl.Lookup("packages"), packages())
+	generatePackages(tmpl.Lookup("platformspecific"), platformSpecificTools())
 
 	err := updateReadmeManualPlaybooks()
 	if err != nil {

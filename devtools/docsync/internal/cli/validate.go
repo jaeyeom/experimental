@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -16,16 +17,16 @@ func newValidateCmd(stdout io.Writer) *cobra.Command {
 		Use:   "validate",
 		Short: "Lint a docsync.yml mapping file",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runValidate(stdout, configPath)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runValidate(cmd.Context(), stdout, configPath)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to docsync.yml")
 	return cmd
 }
 
-func runValidate(stdout io.Writer, configPath string) error {
-	path, err := resolveMappingPath(configPath)
+func runValidate(ctx context.Context, stdout io.Writer, configPath string) error {
+	path, err := resolveMappingPath(ctx, configPath)
 	if err != nil {
 		return err
 	}

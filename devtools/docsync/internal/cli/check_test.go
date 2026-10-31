@@ -146,11 +146,8 @@ func TestCheckExitZero(t *testing.T) {
 
 func TestCheckConfigNotFoundDiscovery(t *testing.T) {
 	dir := t.TempDir()
-	orig := startDirFn
-	startDirFn = func() string { return dir }
-	t.Cleanup(func() { startDirFn = orig })
 	var stdout, stderr bytes.Buffer
-	code := Execute(context.Background(), []string{"check", "--files", "a.go"}, &stdout, &stderr, nil)
+	code := Execute(withStartDir(context.Background(), dir), []string{"check", "--files", "a.go"}, &stdout, &stderr, nil)
 	if code != ExitPrecondition {
 		t.Fatalf("exit = %d, want %d, stderr=%q", code, ExitPrecondition, stderr.String())
 	}

@@ -338,7 +338,7 @@ func TestSaveFileRoundTrip(t *testing.T) {
 func TestWithLockExclusive(t *testing.T) {
 	t.Parallel()
 
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	unlock, err := store.AcquireLock()
 	if err != nil {
 		t.Fatalf("AcquireLock() error = %v", err)
@@ -365,7 +365,7 @@ func TestWithLockExclusive(t *testing.T) {
 func TestWithLockReapsStale(t *testing.T) {
 	t.Parallel()
 
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	if err := os.WriteFile(store.Path+".lock", []byte("locked_at: 2020-01-01T00:00:00Z\npid: 999999\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func TestWithLockReapsStale(t *testing.T) {
 func TestWithLockReleases(t *testing.T) {
 	t.Parallel()
 
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	unlock, err := store.AcquireLock()
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestFileStoreLoad(t *testing.T) {
 	if err := SaveFile(path, st); err != nil {
 		t.Fatal(err)
 	}
-	got, err := FileStore{Path: path}.Load()
+	got, err := NewFileStore(path).Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}

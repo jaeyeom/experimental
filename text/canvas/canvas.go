@@ -182,32 +182,34 @@ func BlendLast() BlendFunc {
 
 // boxDrawingMergeMap defines how box-drawing characters should be merged.
 // The key is a pair of characters (existing, new), and the value is the merged result.
-var boxDrawingMergeMap = map[[2]rune]rune{
-	// Horizontal + Vertical intersections
-	{'-', '|'}: '+',
-	{'|', '-'}: '+',
-	{'─', '│'}: '┼',
-	{'│', '─'}: '┼',
+func boxDrawingMergeMap() map[[2]rune]rune {
+	return map[[2]rune]rune{
+		// Horizontal + Vertical intersections
+		{'-', '|'}: '+',
+		{'|', '-'}: '+',
+		{'─', '│'}: '┼',
+		{'│', '─'}: '┼',
 
-	// Single line corners and intersections
-	{'─', '┌'}: '┬',
-	{'─', '┐'}: '┬',
-	{'─', '└'}: '┴',
-	{'─', '┘'}: '┴',
-	{'│', '┌'}: '├',
-	{'│', '┐'}: '┤',
-	{'│', '└'}: '├',
-	{'│', '┘'}: '┤',
+		// Single line corners and intersections
+		{'─', '┌'}: '┬',
+		{'─', '┐'}: '┬',
+		{'─', '└'}: '┴',
+		{'─', '┘'}: '┴',
+		{'│', '┌'}: '├',
+		{'│', '┐'}: '┤',
+		{'│', '└'}: '├',
+		{'│', '┘'}: '┤',
 
-	// T-junctions to crosses
-	{'┬', '│'}: '┼',
-	{'┴', '│'}: '┼',
-	{'├', '─'}: '┼',
-	{'┤', '─'}: '┼',
-	{'│', '┬'}: '┼',
-	{'│', '┴'}: '┼',
-	{'─', '├'}: '┼',
-	{'─', '┤'}: '┼',
+		// T-junctions to crosses
+		{'┬', '│'}: '┼',
+		{'┴', '│'}: '┼',
+		{'├', '─'}: '┼',
+		{'┤', '─'}: '┼',
+		{'│', '┬'}: '┼',
+		{'│', '┴'}: '┼',
+		{'─', '├'}: '┼',
+		{'─', '┤'}: '┼',
+	}
 }
 
 // isBoxDrawingChar returns true if the rune is a box-drawing character.
@@ -219,9 +221,10 @@ func isBoxDrawingChar(r rune) bool {
 // BlendBoxDrawing returns a BlendFunc that intelligently merges box-drawing characters.
 // For non-box-drawing characters, it uses the fallback BlendFunc.
 func BlendBoxDrawing(fallback BlendFunc) BlendFunc {
+	mergeMap := boxDrawingMergeMap()
 	return func(existing, incoming rune) rune {
 		// Check if we have a predefined merge for this pair
-		if merged, ok := boxDrawingMergeMap[[2]rune{existing, incoming}]; ok {
+		if merged, ok := mergeMap[[2]rune{existing, incoming}]; ok {
 			return merged
 		}
 
@@ -250,7 +253,9 @@ func BlendBoxDrawing(fallback BlendFunc) BlendFunc {
 
 // DefaultBlendFunc is the default blend function used when StrategyBlend is selected.
 // It uses '#' to indicate overlapping regions.
-var DefaultBlendFunc = BlendOverlap('#')
+func DefaultBlendFunc() BlendFunc {
+	return BlendOverlap('#')
+}
 
 // Renderable defines an interface for objects that can be rendered to a CharSetter.
 // This allows different types of objects (text blocks, lines, bars, etc.) to be
@@ -573,7 +578,7 @@ func NewRenderableCollection() *RenderableCollection {
 		objects:           make(map[string]Renderable),
 		insertionOrder:    make([]string, 0),
 		collisionStrategy: StrategyOverwrite,
-		blendFunc:         DefaultBlendFunc,
+		blendFunc:         DefaultBlendFunc(),
 	}
 }
 

@@ -4,6 +4,8 @@ linters:
     - cyclop
     - depguard
     - errcheck
+    - gochecknoglobals
+    - gochecknoinits
     - gocritic
     - godot
     - gosec

@@ -13,16 +13,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize repo-sync configuration and database",
-	Long: `Initialize repo-sync by creating the necessary configuration directories,
+func newInitCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize repo-sync configuration and database",
+		Long: `Initialize repo-sync by creating the necessary configuration directories,
 database schema, and default configuration files.`,
-	RunE: runInit,
-}
-
-func init() {
-	initCmd.Flags().Bool("reset-db", false, "Reset existing database")
+		RunE: runInit,
+	}
+	cmd.Flags().Bool("reset-db", false, "Reset existing database")
+	return cmd
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {

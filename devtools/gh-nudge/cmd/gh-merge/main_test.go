@@ -38,15 +38,6 @@ func mergeFixture(title, url string, labels ...string) models.PullRequest {
 	return pr
 }
 
-func withMergeFlags(t *testing.T, dry, del, frc bool) {
-	t.Helper()
-	prevDry, prevDel, prevForce := dryRun, deleteBranch, force
-	dryRun, deleteBranch, force = dry, del, frc
-	t.Cleanup(func() {
-		dryRun, deleteBranch, force = prevDry, prevDel, prevForce
-	})
-}
-
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -69,7 +60,6 @@ func captureStdout(t *testing.T, fn func()) string {
 }
 
 func TestMergePRsSkipsBlockLabel(t *testing.T) {
-	withMergeFlags(t, false, false, false)
 	client := &fakeMergeClient{
 		prs: []models.PullRequest{
 			mergeFixture("Hold this", "https://github.com/example/repo/pull/1", "do-not-merge"),
@@ -79,7 +69,7 @@ func TestMergePRsSkipsBlockLabel(t *testing.T) {
 	cfg := &config.Config{Settings: config.SettingsConfig{BlockMergeLabels: []string{"do-not-merge"}}}
 
 	output := captureStdout(t, func() {
-		if err := mergePRs(client, cfg); err != nil {
+		if err := mergePRs(client, cfg, mergeOptions{}); err != nil {
 			t.Fatalf("mergePRs() error = %v", err)
 		}
 	})
@@ -96,7 +86,6 @@ func TestMergePRsSkipsBlockLabel(t *testing.T) {
 }
 
 func TestMergePRsBlockLabelIgnoresForce(t *testing.T) {
-	withMergeFlags(t, false, false, true)
 	client := &fakeMergeClient{
 		prs: []models.PullRequest{
 			mergeFixture("Hold this", "https://github.com/example/repo/pull/1", "do-not-merge"),
@@ -110,7 +99,7 @@ func TestMergePRsBlockLabelIgnoresForce(t *testing.T) {
 	cfg := &config.Config{Settings: config.SettingsConfig{BlockMergeLabels: []string{"do-not-merge"}}}
 
 	output := captureStdout(t, func() {
-		if err := mergePRs(client, cfg); err != nil {
+		if err := mergePRs(client, cfg, mergeOptions{force: true}); err != nil {
 			t.Fatalf("mergePRs() error = %v", err)
 		}
 	})
@@ -127,7 +116,6 @@ func TestMergePRsBlockLabelIgnoresForce(t *testing.T) {
 }
 
 func TestMergePRsEmptyBlockListMergesLabeledPR(t *testing.T) {
-	withMergeFlags(t, false, false, false)
 	client := &fakeMergeClient{
 		prs: []models.PullRequest{
 			mergeFixture("Labeled", "https://github.com/example/repo/pull/1", "do-not-merge"),
@@ -135,7 +123,7 @@ func TestMergePRsEmptyBlockListMergesLabeledPR(t *testing.T) {
 	}
 	cfg := &config.Config{}
 
-	if err := mergePRs(client, cfg); err != nil {
+	if err := mergePRs(client, cfg, mergeOptions{}); err != nil {
 		t.Fatalf("mergePRs() error = %v", err)
 	}
 	if len(client.merged) != 1 || client.merged[0] != "https://github.com/example/repo/pull/1" {
@@ -144,7 +132,6 @@ func TestMergePRsEmptyBlockListMergesLabeledPR(t *testing.T) {
 }
 
 func TestMergePRsBlockLabelIsCaseSensitive(t *testing.T) {
-	withMergeFlags(t, false, false, false)
 	client := &fakeMergeClient{
 		prs: []models.PullRequest{
 			mergeFixture("Different case", "https://github.com/example/repo/pull/1", "Do-Not-Merge"),
@@ -152,7 +139,7 @@ func TestMergePRsBlockLabelIsCaseSensitive(t *testing.T) {
 	}
 	cfg := &config.Config{Settings: config.SettingsConfig{BlockMergeLabels: []string{"do-not-merge"}}}
 
-	if err := mergePRs(client, cfg); err != nil {
+	if err := mergePRs(client, cfg, mergeOptions{}); err != nil {
 		t.Fatalf("mergePRs() error = %v", err)
 	}
 	if len(client.merged) != 1 {
@@ -161,7 +148,6 @@ func TestMergePRsBlockLabelIsCaseSensitive(t *testing.T) {
 }
 
 func TestMergePRsDryRunDoesNotMergeBlockedPR(t *testing.T) {
-	withMergeFlags(t, true, false, false)
 	client := &fakeMergeClient{
 		prs: []models.PullRequest{
 			mergeFixture("Hold this", "https://github.com/example/repo/pull/1", "do-not-merge"),
@@ -171,7 +157,7 @@ func TestMergePRsDryRunDoesNotMergeBlockedPR(t *testing.T) {
 	cfg := &config.Config{Settings: config.SettingsConfig{BlockMergeLabels: []string{"do-not-merge"}}}
 
 	output := captureStdout(t, func() {
-		if err := mergePRs(client, cfg); err != nil {
+		if err := mergePRs(client, cfg, mergeOptions{dryRun: true}); err != nil {
 			t.Fatalf("mergePRs() error = %v", err)
 		}
 	})

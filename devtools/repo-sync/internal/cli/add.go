@@ -9,16 +9,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var addCmd = &cobra.Command{
-	Use:   "add <project-name> <file-path>",
-	Short: "Add a new file to synchronization scope",
-	Long: `Add a new file to the synchronization scope for the specified project.
+func newAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "add <project-name> <file-path>",
+		Short: "Add a new file to synchronization scope",
+		Long: `Add a new file to the synchronization scope for the specified project.
 This will first perform a sync operation, then copy the file to the remote
 work directory and commit it to the remote repository.`,
-	Args: cobra.ExactArgs(2),
-	RunE: func(_ *cobra.Command, args []string) error {
-		return runAdd(args[0], args[1])
-	},
+		Args: cobra.ExactArgs(2),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runAdd(args[0], args[1])
+		},
+	}
 }
 
 func runAdd(projectName, filePath string) error {

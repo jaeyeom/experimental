@@ -28,13 +28,15 @@ const (
 
 // AllPlatforms is the canonical list of all valid platform names.
 // This is the single source of truth for valid platforms.
-var AllPlatforms = []PlatformName{
-	PlatformAll,
-	PlatformDarwin,
-	PlatformTermux,
-	PlatformDebianLike,
-	PlatformDebian,
-	PlatformUbuntu,
+func AllPlatforms() []PlatformName {
+	return []PlatformName{
+		PlatformAll,
+		PlatformDarwin,
+		PlatformTermux,
+		PlatformDebianLike,
+		PlatformDebian,
+		PlatformUbuntu,
+	}
 }
 
 // Import represents a playbook import with optional conditional logic.
@@ -167,13 +169,15 @@ func (p PlatformSpecificTool) HasUbuntu() bool     { return p.HasPlatform(Platfo
 
 // platformWhen maps each platform to its Ansible when condition for use in
 // conditional imports. An empty string means unconditional (always runs).
-var platformWhen = map[PlatformName]string{
-	PlatformAll:        "",
-	PlatformDarwin:     WhenDarwin,
-	PlatformTermux:     WhenTermux,
-	PlatformDebianLike: WhenDebianLike,
-	PlatformDebian:     WhenDebianLike + ` and ansible_facts['distribution'] == "Debian"`,
-	PlatformUbuntu:     WhenDebianLike + ` and ` + WhenUbuntu,
+func platformWhen() map[PlatformName]string {
+	return map[PlatformName]string{
+		PlatformAll:        "",
+		PlatformDarwin:     WhenDarwin,
+		PlatformTermux:     WhenTermux,
+		PlatformDebianLike: WhenDebianLike,
+		PlatformDebian:     WhenDebianLike + ` and ansible_facts['distribution'] == "Debian"`,
+		PlatformUbuntu:     WhenDebianLike + ` and ` + WhenUbuntu,
+	}
 }
 
 // combineWhenConditions deduplicates and joins multiple Ansible when
@@ -241,12 +245,12 @@ func (p PlatformSpecificTool) GetAllImports() []Import {
 	}
 
 	// Add imports from platform methods with platform-specific conditions
-	for _, platform := range AllPlatforms {
+	for _, platform := range AllPlatforms() {
 		method, ok := p.platforms[platform]
 		if !ok {
 			continue
 		}
-		when := platformWhen[platform]
+		when := platformWhen()[platform]
 		for _, imp := range method.GetImports() {
 			addImport(imp.Playbook, when, false)
 		}

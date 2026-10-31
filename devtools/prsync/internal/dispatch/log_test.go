@@ -25,7 +25,7 @@ func TestRunLiveLogsDispatchLifecycle(t *testing.T) {
 	buf, ctx := withLog(t)
 	got, err := Run(ctx, h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -78,14 +78,14 @@ func TestRunLogsDedupeOutcome(t *testing.T) {
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	if _, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow); err != nil {
+	}, fixtureNow()); err != nil {
 		t.Fatalf("seed Run() unexpected error: %v", err)
 	}
 
 	buf, ctx := withLog(t)
 	got, err := Run(ctx, h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestRunLiveLogsBlockedGateTimeout(t *testing.T) {
 	buf, ctx := withLog(t)
 	got, err := Run(ctx, h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("error = %v, want ErrTimeout", err)
 	}
@@ -151,12 +151,12 @@ func TestRunDryRunLogsWouldDispatchWithoutGateWait(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	buf, ctx := withLog(t)
 	got, err := Run(ctx, h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestRunLiveLogsStallTimeoutDecision(t *testing.T) {
 	buf, ctx := withLog(t)
 	got, err := Run(ctx, h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, ErrSettleTimeout) {
 		t.Fatalf("error = %v, want ErrSettleTimeout", err)
 	}

@@ -20,9 +20,20 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
-var update = flag.Bool("update", false, "update golden files")
+func TestMain(m *testing.M) {
+	flag.Bool("update", false, "update golden files")
+	flag.Parse()
+	os.Exit(m.Run())
+}
 
-var fixtureNow = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+func goldenUpdate() bool {
+	f := flag.Lookup("update")
+	return f != nil && f.Value.String() == "true"
+}
+
+func fixtureNow() time.Time {
+	return time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+}
 
 func TestRunGolden(t *testing.T) {
 	t.Parallel()
@@ -34,7 +45,7 @@ func TestRunGolden(t *testing.T) {
 	cfg.HerdrBin = "herdr"
 
 	deps := Deps{GH: fixtureGH{}, Herdr: fixtureHerdr{}}
-	doc, err := Run(context.Background(), deps, cfg, nil, fixtureNow)
+	doc, err := Run(context.Background(), deps, cfg, nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -46,7 +57,7 @@ func TestRunGolden(t *testing.T) {
 	got = append(got, '\n')
 
 	path := filepath.Join("testdata", "golden", "scan.json")
-	if *update {
+	if goldenUpdate() {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -74,7 +85,7 @@ func TestRunHerdrMissingDegrades(t *testing.T) {
 		GH:    fixtureGH{},
 		Herdr: stubHerdr{minErr: herdr.ErrNotInstalled},
 	}
-	doc, err := Run(context.Background(), deps, cfg, nil, fixtureNow)
+	doc, err := Run(context.Background(), deps, cfg, nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -104,7 +115,7 @@ func TestRunHerdrUnsupported(t *testing.T) {
 		GH:    fixtureGH{},
 		Herdr: stubHerdr{minErr: herdr.ErrUnsupported},
 	}
-	doc, err := Run(context.Background(), deps, cfg, nil, fixtureNow)
+	doc, err := Run(context.Background(), deps, cfg, nil, fixtureNow())
 	if err == nil {
 		t.Fatal("Run() error = nil, want unsupported")
 	}
@@ -166,7 +177,7 @@ func TestRunCICheckFilter(t *testing.T) {
 				list:    map[string]listResult{"acme/widgets": {prs: []gh.PRListItem{pr}}},
 				threads: map[int][]gh.Thread{},
 			}
-			doc, err := Run(context.Background(), Deps{GH: g, Herdr: fixtureHerdr{}}, cfg, nil, fixtureNow)
+			doc, err := Run(context.Background(), Deps{GH: g, Herdr: fixtureHerdr{}}, cfg, nil, fixtureNow())
 			if err != nil {
 				t.Fatalf("Run() unexpected error: %v", err)
 			}
@@ -201,7 +212,7 @@ func TestRunRollupUnavailableWarnsAndContinues(t *testing.T) {
 		list:    map[string]listResult{"acme/widgets": {prs: []gh.PRListItem{failed, ok}}},
 		threads: map[int][]gh.Thread{},
 	}
-	doc, err := Run(context.Background(), Deps{GH: g, Herdr: fixtureHerdr{}}, cfg, nil, fixtureNow)
+	doc, err := Run(context.Background(), Deps{GH: g, Herdr: fixtureHerdr{}}, cfg, nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -234,7 +245,7 @@ func TestRunInaccessibleRepo(t *testing.T) {
 		threads: map[int][]gh.Thread{123: fixtureThreads()},
 	}
 	deps := Deps{GH: g, Herdr: fixtureHerdr{}}
-	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets", "acme/archived"}, fixtureNow)
+	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets", "acme/archived"}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -260,7 +271,7 @@ func TestRunMidScanRateLimitEmitsPartial(t *testing.T) {
 		threads: map[int][]gh.Thread{123: fixtureThreads()},
 	}
 	deps := Deps{GH: g, Herdr: fixtureHerdr{}}
-	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets", "acme/gizmos"}, fixtureNow)
+	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets", "acme/gizmos"}, fixtureNow())
 	if err == nil {
 		t.Fatal("Run() error = nil, want rate-limit")
 	}
@@ -277,7 +288,7 @@ func TestRunUnauthenticatedNoDocument(t *testing.T) {
 
 	cfg := config.Defaults()
 	g := &scriptGH{authErr: gh.ErrUnauthenticated}
-	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, nil, fixtureNow)
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, nil, fixtureNow())
 	if err == nil {
 		t.Fatal("Run() error = nil, want unauthenticated")
 	}
@@ -295,7 +306,7 @@ func TestRunGHMissing(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.GHBin = "/missing/gh"
 	g := &scriptGH{authErr: &executor.ExecutableNotFoundError{Command: cfg.GHBin}}
-	_, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, nil, fixtureNow)
+	_, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, nil, fixtureNow())
 	if err == nil {
 		t.Fatal("Run() error = nil, want missing binary")
 	}
@@ -316,7 +327,7 @@ func TestRunSearchCapWarning(t *testing.T) {
 		list:         map[string]listResult{"acme/widgets": {prs: fixturePRs()}},
 		threads:      map[int][]gh.Thread{123: fixtureThreads()},
 	}
-	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, nil, fixtureNow)
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -341,7 +352,7 @@ func TestRunRepoOverrideReplacesConfig(t *testing.T) {
 		list:    map[string]listResult{"acme/widgets": {prs: fixturePRs()}},
 		threads: map[int][]gh.Thread{123: fixtureThreads()},
 	}
-	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -383,7 +394,7 @@ func TestRunAuthorLastCommentNotBlocking(t *testing.T) {
 			}},
 		}}},
 	}
-	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -409,7 +420,7 @@ func TestRunDeletedAuthorIsBlocking(t *testing.T) {
 			}},
 		}}},
 	}
-	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -448,7 +459,7 @@ func TestRunIncludesDrafts(t *testing.T) {
 					200: fixtureThreads(),
 				},
 			}
-			doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+			doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow())
 			if err != nil {
 				t.Fatalf("Run() unexpected error: %v", err)
 			}
@@ -498,7 +509,7 @@ func TestRunTargetsFetchesOnlyNamedPRs(t *testing.T) {
 		{Repo: "acme/widgets", Number: 123},
 		{Repo: "acme/missing", Number: 9},
 		{Repo: "acme/gone", Number: 4},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("RunTargets() unexpected error: %v", err)
 	}
@@ -539,7 +550,7 @@ func TestRunTargetsViewError(t *testing.T) {
 	}
 	_, err := RunTargets(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []Target{
 		{Repo: "acme/widgets", Number: 123},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err == nil || !strings.Contains(err.Error(), "view pr acme/widgets#123") {
 		t.Fatalf("RunTargets() error = %v, want view pr error", err)
 	}
@@ -560,7 +571,7 @@ func TestRunDraftMatchesTab(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tD", "w2", "PROJ-200")},
 		agents: []herdr.Agent{liveAgent("w2:pD", "w2:tD", "idle")},
 	}
-	doc, err := Run(context.Background(), depsWith(g, h), cfg, []string{"acme/widgets"}, fixtureNow)
+	doc, err := Run(context.Background(), depsWith(g, h), cfg, []string{"acme/widgets"}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}

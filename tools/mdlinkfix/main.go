@@ -29,11 +29,12 @@ import (
 	"github.com/jaeyeom/experimental/text/markdown/linkfix"
 )
 
-var (
-	dryRun   = flag.Bool("dry-run", false, "Print changes without modifying files")
-	verbose  = flag.Bool("verbose", false, "Print verbose output")
-	validate = flag.Bool("validate", false, "Validate local links and report broken ones")
-)
+// fileOptions controls how a markdown file is processed.
+type fileOptions struct {
+	dryRun   bool
+	verbose  bool
+	validate bool
+}
 
 // loadConfig loads configuration from environment variables.
 func loadConfig() linkfix.Config {
@@ -49,7 +50,7 @@ func loadConfig() linkfix.Config {
 
 // ProcessFile processes a single markdown file.
 // Returns the list of broken links found (if validation is enabled).
-func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
+func ProcessFile(filePath string, opts fileOptions) ([]linkfix.BrokenLink, error) {
 	// Get original file info to preserve permissions
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -66,7 +67,7 @@ func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
 	// Load config from environment variables
 	cfg := loadConfig()
 
-	if *verbose {
+	if opts.verbose {
 		fmt.Printf("Config: BaseURL=%q, LocalPrefix=%q, SuffixDrop=%q, SuffixAdd=%q, BaseDir=%q\n",
 			cfg.BaseURL, cfg.LocalPrefix, cfg.SuffixDrop, cfg.SuffixAdd, cfg.BaseDir)
 	}
@@ -74,7 +75,7 @@ func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
 	newContent, changes := linkfix.ProcessContent(cfg, string(content), fileDir)
 
 	// Print changes if verbose or dry-run
-	if (*verbose || *dryRun) && len(changes) > 0 {
+	if (opts.verbose || opts.dryRun) && len(changes) > 0 {
 		for _, c := range changes {
 			fmt.Printf("  %s -> %s\n", c.OldPath, c.NewPath)
 		}
@@ -82,18 +83,18 @@ func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
 
 	// If validate mode, check for broken links after processing
 	var brokenLinks []linkfix.BrokenLink
-	if *validate {
+	if opts.validate {
 		brokenLinks = linkfix.FindBrokenLinks(cfg, newContent, fileDir, filePath)
 	}
 
 	if len(changes) == 0 {
-		if *verbose {
+		if opts.verbose {
 			fmt.Printf("%s: no changes\n", filePath)
 		}
 		return brokenLinks, nil
 	}
 
-	if *dryRun {
+	if opts.dryRun {
 		fmt.Printf("%s: %d link(s) would be changed\n", filePath, len(changes))
 		return brokenLinks, nil
 	}
@@ -108,6 +109,9 @@ func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
 }
 
 func main() {
+	dryRun := flag.Bool("dry-run", false, "Print changes without modifying files")
+	verbose := flag.Bool("verbose", false, "Print verbose output")
+	validate := flag.Bool("validate", false, "Validate local links and report broken ones")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -127,8 +131,9 @@ func main() {
 	exitCode := 0
 	var allBrokenLinks []linkfix.BrokenLink
 
+	opts := fileOptions{dryRun: *dryRun, verbose: *verbose, validate: *validate}
 	for _, filePath := range flag.Args() {
-		brokenLinks, err := ProcessFile(filePath)
+		brokenLinks, err := ProcessFile(filePath, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error processing %s: %v\n", filePath, err)
 			exitCode = 1

@@ -13,7 +13,9 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
-var fixtureNow = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+func fixtureNow() time.Time {
+	return time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+}
 
 func TestRunDryRunWouldDispatch(t *testing.T) {
 	t.Parallel()
@@ -22,7 +24,7 @@ func TestRunDryRunWouldDispatch(t *testing.T) {
 	got, err := Run(context.Background(), g, nil, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, false)}},
 		Body: "please retry",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestRunDryRunCommentsOffMachinePR(t *testing.T) {
 	got, err := Run(context.Background(), &fakeGH{}, nil, config.Defaults(), Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, true)}},
 		Body: "please retry",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestRunSkippedNotFound(t *testing.T) {
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, false)}},
 		PRs:  []string{"acme/widgets#123", "acme/missing#9"},
 		Body: "please retry",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -103,7 +105,7 @@ func TestRunLivePostsComment(t *testing.T) {
 	got, err := Run(context.Background(), g, nil, cfg, Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/widgets", 123, true), pr("acme/gizmos", 50, false)}},
 		Body: "please retry",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -145,7 +147,7 @@ func TestRunLiveFailureStopsBatch(t *testing.T) {
 	got, err := Run(context.Background(), g, nil, cfg, Request{
 		Doc:  scan.Document{PRs: []scan.PR{pr("acme/gizmos", 50, false), pr("acme/widgets", 123, false)}},
 		Body: "please retry",
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, dispatch.ErrFailed) {
 		t.Fatalf("error = %v, want ErrFailed", err)
 	}
@@ -166,7 +168,7 @@ func TestRunInvalidPRFlag(t *testing.T) {
 	_, err := Run(context.Background(), &fakeGH{}, nil, config.Defaults(), Request{
 		PRs:  []string{"not-a-pr"},
 		Body: "please retry",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err == nil {
 		t.Fatal("error = nil, want invalid --pr")
 	}
@@ -185,7 +187,7 @@ func TestRunLiveDedupesSameTuple(t *testing.T) {
 	p := pr("acme/widgets", 123, false)
 	p.HeadSHA = "abc123def456"
 	req := Request{Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci"}
-	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow())
 	if err != nil {
 		t.Fatalf("first Run() unexpected error: %v", err)
 	}
@@ -200,7 +202,7 @@ func TestRunLiveDedupesSameTuple(t *testing.T) {
 		t.Fatalf("state after post = %#v", st)
 	}
 
-	got2, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	got2, err := Run(context.Background(), g, store, cfg, req, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -223,14 +225,14 @@ func TestRunLiveNewSHAPostsAgain(t *testing.T) {
 	p.HeadSHA = "abc123def456"
 	if _, err := Run(context.Background(), g, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
-	}, fixtureNow); err != nil {
+	}, fixtureNow()); err != nil {
 		t.Fatalf("first Run() unexpected error: %v", err)
 	}
 
 	p.HeadSHA = "fff000aaa111"
 	got, err := Run(context.Background(), g, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("changed SHA Run() unexpected error: %v", err)
 	}
@@ -253,13 +255,13 @@ func TestRunLiveDifferentBodyPostsAgain(t *testing.T) {
 	p.HeadSHA = "abc123def456"
 	if _, err := Run(context.Background(), g, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
-	}, fixtureNow); err != nil {
+	}, fixtureNow()); err != nil {
 		t.Fatalf("first Run() unexpected error: %v", err)
 	}
 
 	got, err := Run(context.Background(), g, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "please retry",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("different body Run() unexpected error: %v", err)
 	}
@@ -276,7 +278,7 @@ func TestRunDryRunDedupedDoesNotPost(t *testing.T) {
 
 	store := liveStore(t)
 	st := dispatch.State{}
-	st.RecordPosted("acme/widgets#123", "abc123def456", "/ci", fixtureNow)
+	st.RecordPosted("acme/widgets#123", "abc123def456", "/ci", fixtureNow())
 	if err := store.Save(st); err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +287,7 @@ func TestRunDryRunDedupedDoesNotPost(t *testing.T) {
 	p.HeadSHA = "abc123def456"
 	got, err := Run(context.Background(), g, store, config.Defaults(), Request{
 		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -310,12 +312,12 @@ func TestRunAllowDuplicatePostsAgain(t *testing.T) {
 	p := pr("acme/widgets", 123, false)
 	p.HeadSHA = "abc123def456"
 	req := Request{Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci"}
-	if _, err := Run(context.Background(), g, store, cfg, req, fixtureNow); err != nil {
+	if _, err := Run(context.Background(), g, store, cfg, req, fixtureNow()); err != nil {
 		t.Fatalf("first Run() unexpected error: %v", err)
 	}
 
 	req.AllowDuplicate = true
-	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow())
 	if err != nil {
 		t.Fatalf("allow-duplicate Run() unexpected error: %v", err)
 	}
@@ -336,7 +338,7 @@ func TestRunFailureDoesNotRecord(t *testing.T) {
 	p := pr("acme/widgets", 123, false)
 	p.HeadSHA = "abc123def456"
 	req := Request{Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci"}
-	if _, err := Run(context.Background(), &fakeGH{err: errors.New("boom")}, store, cfg, req, fixtureNow); !errors.Is(err, dispatch.ErrFailed) {
+	if _, err := Run(context.Background(), &fakeGH{err: errors.New("boom")}, store, cfg, req, fixtureNow()); !errors.Is(err, dispatch.ErrFailed) {
 		t.Fatalf("error = %v, want ErrFailed", err)
 	}
 	st, err := dispatch.LoadFile(store.Path)
@@ -348,7 +350,7 @@ func TestRunFailureDoesNotRecord(t *testing.T) {
 	}
 
 	g := &fakeGH{}
-	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow)
+	got, err := Run(context.Background(), g, store, cfg, req, fixtureNow())
 	if err != nil {
 		t.Fatalf("retry Run() unexpected error: %v", err)
 	}
@@ -367,9 +369,9 @@ func TestRunDispatchStateDoesNotDedupeComment(t *testing.T) {
 	cfg.DryRun = false
 	store := liveStore(t)
 	st := dispatch.State{}
-	st.Record("acme/widgets#123", []string{"PRRC_widget"}, fixtureNow)
-	st.RecordHead("acme/widgets#123", "abc123def456", fixtureNow)
-	st.RecordCIFix("acme/widgets#123", "abc123def456", fixtureNow)
+	st.Record("acme/widgets#123", []string{"PRRC_widget"}, fixtureNow())
+	st.RecordHead("acme/widgets#123", "abc123def456", fixtureNow())
+	st.RecordCIFix("acme/widgets#123", "abc123def456", fixtureNow())
 	if err := store.Save(st); err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +380,7 @@ func TestRunDispatchStateDoesNotDedupeComment(t *testing.T) {
 	p.HeadSHA = "abc123def456"
 	got, err := Run(context.Background(), g, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -395,7 +397,7 @@ func TestRunDryRunDoesNotWriteState(t *testing.T) {
 	p.HeadSHA = "abc123def456"
 	if _, err := Run(context.Background(), &fakeGH{}, store, config.Defaults(), Request{
 		Doc: scan.Document{PRs: []scan.PR{p}}, Body: "/ci",
-	}, fixtureNow); err != nil {
+	}, fixtureNow()); err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
 	st, err := dispatch.LoadFile(store.Path)
@@ -415,7 +417,7 @@ type commentCall struct {
 
 func liveStore(t *testing.T) dispatch.FileStore {
 	t.Helper()
-	return dispatch.FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	return dispatch.NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 }
 
 type fakeGH struct {

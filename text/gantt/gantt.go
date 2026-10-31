@@ -43,12 +43,14 @@ type Chars struct {
 }
 
 // DefaultChars provides standard ASCII characters for GANTT charts.
-var DefaultChars = Chars{
-	Full:      '#',
-	Empty:     ' ',
-	LeftHalf:  '>',
-	RightHalf: '<',
-	BothEnds:  'X',
+func DefaultChars() Chars {
+	return Chars{
+		Full:      '#',
+		Empty:     ' ',
+		LeftHalf:  '>',
+		RightHalf: '<',
+		BothEnds:  'X',
+	}
 }
 
 // Task represents a single task in the GANTT chart.
@@ -76,7 +78,7 @@ func New() *Chart {
 		tasks:         make([]Task, 0),
 		timeUnit:      time.Second,
 		prefix:        "",
-		chars:         DefaultChars,
+		chars:         DefaultChars(),
 		showGrid:      false,
 		gridInterval:  5 * time.Second,
 		showSeparator: false,

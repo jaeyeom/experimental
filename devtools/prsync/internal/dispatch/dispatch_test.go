@@ -21,18 +21,29 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
-var update = flag.Bool("update", false, "update golden files")
+func TestMain(m *testing.M) {
+	flag.Bool("update", false, "update golden files")
+	flag.Parse()
+	os.Exit(m.Run())
+}
 
-var fixtureNow = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+func goldenUpdate() bool {
+	f := flag.Lookup("update")
+	return f != nil && f.Value.String() == "true"
+}
+
+func fixtureNow() time.Time {
+	return time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+}
 
 func TestRunDryRunGolden(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
 	doc := goldenScanDoc()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	pre := State{}
-	pre.Record("acme/widgets#204", []string{"PRRC_old"}, fixtureNow)
+	pre.Record("acme/widgets#204", []string{"PRRC_old"}, fixtureNow())
 	if err := SaveFile(store.Path, pre); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +61,7 @@ func TestRunDryRunGolden(t *testing.T) {
 			"acme/widgets#203",
 			"acme/widgets#204",
 		},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -67,7 +78,7 @@ func TestRunDryRunGolden(t *testing.T) {
 	}
 	got = append(got, '\n')
 	path := filepath.Join("testdata", "golden", "dispatch-dry-run.json")
-	if *update {
+	if goldenUpdate() {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -88,7 +99,7 @@ func TestRunDryRunRebaseRendersRebaseTemplate(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	pr := fixtureEligiblePR()
 	pr.Unaddressed = false
@@ -96,7 +107,7 @@ func TestRunDryRunRebaseRendersRebaseTemplate(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -125,7 +136,7 @@ func TestRunDryRunCIFixRendersCIFixTemplate(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	pr := fixtureEligiblePR()
 	pr.Unaddressed = false
@@ -134,7 +145,7 @@ func TestRunDryRunCIFixRendersCIFixTemplate(t *testing.T) {
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
 		Hint:  "job X failed at target Y; key error: boom",
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -163,12 +174,12 @@ func TestRunDryRunDoesNotWriteState(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "state.json")
-	store := FileStore{Path: path}
+	store := NewFileStore(path)
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	cfg := config.Defaults()
 	_, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -182,10 +193,10 @@ func TestRunDryRunDoesNotPoll(t *testing.T) {
 
 	h := &scriptHerdr{lists: [][]herdr.Agent{{workingAgent("w2:pX", "w2:tX")}}}
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -208,10 +219,10 @@ func TestRunDryRunNeverQueued(t *testing.T) {
 		{idleAgent("w2:pX", "w2:tX")},
 	}}
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -230,10 +241,10 @@ func TestRunDryRunHerdrRequired(t *testing.T) {
 
 	h := &scriptHerdr{minErr: herdr.ErrNotInstalled}
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	_, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, herdr.ErrNotInstalled) {
 		t.Fatalf("error = %v, want ErrNotInstalled", err)
 	}
@@ -252,7 +263,7 @@ func TestRunLivePromptMatchedIdleIsDispatched(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -278,7 +289,7 @@ func TestRunLivePromptTimeoutIdleIsDispatched(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -313,7 +324,7 @@ func TestRunLivePromptTimeoutWorkingWaitsThenDispatched(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -343,7 +354,7 @@ func TestRunLivePromptTimeoutWorkingRemainingExpiredTimesOut(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, ErrSettleTimeout) {
 		t.Fatalf("error = %v, want ErrSettleTimeout (no remaining time)", err)
 	}
@@ -363,7 +374,7 @@ func TestRunLiveDispatchedWritesState(t *testing.T) {
 	pr := fixtureEligiblePR()
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -393,7 +404,7 @@ func TestRunLiveDispatchedWritesState(t *testing.T) {
 
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -417,7 +428,7 @@ func TestRunLiveRebaseWritesHeadSHA(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -441,7 +452,7 @@ func TestRunLiveRebaseWritesHeadSHA(t *testing.T) {
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -456,7 +467,7 @@ func TestRunLiveRebaseWritesHeadSHA(t *testing.T) {
 	got3, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("third Run() unexpected error: %v", err)
 	}
@@ -481,7 +492,7 @@ func TestRunLiveRebaseRetriesWhenStillBehind(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -492,7 +503,7 @@ func TestRunLiveRebaseRetriesWhenStillBehind(t *testing.T) {
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -517,7 +528,7 @@ func TestRunLiveRebaseForceRedispatches(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -528,7 +539,7 @@ func TestRunLiveRebaseForceRedispatches(t *testing.T) {
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -540,7 +551,7 @@ func TestRunLiveRebaseForceRedispatches(t *testing.T) {
 		Doc:    scan.Document{PRs: []scan.PR{pr}},
 		Rebase: true,
 		Force:  true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("force Run() unexpected error: %v", err)
 	}
@@ -564,7 +575,7 @@ func TestRunLiveCIFixWritesSHA(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -591,7 +602,7 @@ func TestRunLiveCIFixWritesSHA(t *testing.T) {
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -606,7 +617,7 @@ func TestRunLiveCIFixWritesSHA(t *testing.T) {
 	got3, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("third Run() unexpected error: %v", err)
 	}
@@ -631,7 +642,7 @@ func TestRunLiveCIFixRetriesWhenStillFailing(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -642,7 +653,7 @@ func TestRunLiveCIFixRetriesWhenStillFailing(t *testing.T) {
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -667,7 +678,7 @@ func TestRunLiveCIFixForceRedispatches(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -678,7 +689,7 @@ func TestRunLiveCIFixForceRedispatches(t *testing.T) {
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -690,7 +701,7 @@ func TestRunLiveCIFixForceRedispatches(t *testing.T) {
 		Doc:   scan.Document{PRs: []scan.PR{pr}},
 		CIFix: true,
 		Force: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("force Run() unexpected error: %v", err)
 	}
@@ -726,7 +737,7 @@ func TestRunLiveRebaseBlockedStopsAdvancing(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc:    scan.Document{PRs: []scan.PR{pr1, pr2}},
 		Rebase: true,
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -757,7 +768,7 @@ func TestRunLiveStallNeverStartsTimesOut(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, ErrSettleTimeout) {
 		t.Fatalf("error = %v, want ErrSettleTimeout (never picked up)", err)
 	}
@@ -794,7 +805,7 @@ func TestRunLiveWaitTimeoutStillWorkingTimesOut(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, ErrSettleTimeout) {
 		t.Fatalf("error = %v, want ErrSettleTimeout", err)
 	}
@@ -826,7 +837,7 @@ func TestRunLiveProcessKillNoWrite(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err == nil {
 		t.Fatal("Run() error = nil, want failed")
 	}
@@ -856,7 +867,7 @@ func TestRunLiveDoneSettlementIsDispatched(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -883,7 +894,7 @@ func TestRunLiveBlockedSettlementIsDispatchedBlocked(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -919,7 +930,7 @@ func TestRunLiveBlockedStopsAdvancing(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR(), pr2}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -962,7 +973,7 @@ func TestRunLiveBlockedDoesNotDedupeOnRerun(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("first Run() unexpected error: %v", err)
 	}
@@ -978,7 +989,7 @@ func TestRunLiveBlockedDoesNotDedupeOnRerun(t *testing.T) {
 	}
 	got2, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
@@ -1002,14 +1013,14 @@ func TestRunLiveReplaceNotUnion(t *testing.T) {
 
 	cfg, store := liveCfg(t)
 	pre := State{}
-	pre.Record("acme/widgets#123", []string{"PRRC_old", "PRRC_gone"}, fixtureNow)
+	pre.Record("acme/widgets#123", []string{"PRRC_old", "PRRC_gone"}, fixtureNow())
 	if err := SaveFile(store.Path, pre); err != nil {
 		t.Fatal(err)
 	}
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	if _, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow); err != nil {
+	}, fixtureNow()); err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
 	st, err := LoadFile(store.Path)
@@ -1038,7 +1049,7 @@ func TestRunLiveMidLoopFatalPartialJSON(t *testing.T) {
 	}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR(), pr2}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err == nil {
 		t.Fatal("Run() error = nil, want mid-loop fatal")
 	}
@@ -1072,7 +1083,7 @@ func TestRunLiveGateTimeoutQueuesRest(t *testing.T) {
 	h := &scriptHerdr{lists: [][]herdr.Agent{{workingAgent("w2:pX", "w2:tX")}}}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR(), pr2}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("error = %v, want ErrTimeout", err)
 	}
@@ -1115,7 +1126,7 @@ func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{blocked, target}},
 		PRs: []string{"acme/widgets#123"},
-	}, fixtureNow)
+	}, fixtureNow())
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("error = %v, want ErrTimeout", err)
 	}
@@ -1158,11 +1169,11 @@ func TestRunDryRunStripsBoilerplateButStillDispatches(t *testing.T) {
 		URL:       "https://github.com/acme/widgets/pull/123#discussion_r2",
 		Body:      "Reply with /apply.",
 	})
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{pr}},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
@@ -1192,11 +1203,11 @@ func TestRunDryRunDoesNotCallPrompt(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	if _, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
-	}, fixtureNow); err != nil {
+	}, fixtureNow()); err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
 	if h.promptN != 0 {
@@ -1211,7 +1222,7 @@ func liveCfg(t *testing.T) (config.Config, FileStore) {
 	cfg.GatePoll = time.Millisecond
 	cfg.GateTimeout = 50 * time.Millisecond
 	cfg.DispatchTimeout = 50 * time.Millisecond
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	cfg.StateFile = store.Path
 	return cfg, store
 }
@@ -1221,11 +1232,11 @@ func TestRunRecordsEveryInputPR(t *testing.T) {
 
 	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
 	cfg := config.Defaults()
-	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	store := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
 	got, err := Run(context.Background(), h, store, cfg, Request{
 		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
 		PRs: []string{"acme/widgets#123", "acme/missing#1"},
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}

@@ -56,7 +56,7 @@ func runCheck(ctx context.Context, stdout io.Writer, exec executor.Executor, opt
 	if err := validateCheckInputs(opts.base, useFiles); err != nil {
 		return err
 	}
-	m, err := resolveMapping(opts.configPath)
+	m, err := resolveMapping(ctx, opts.configPath)
 	if err != nil {
 		return err
 	}
@@ -95,9 +95,16 @@ func checkExit(result matcher.Result, exitZero bool) error {
 	return &ExitError{Code: ExitDocsAffected}
 }
 
-var startDirFn = defaultStartDir
+type startDirKey struct{}
 
-func defaultStartDir() string {
+func withStartDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, startDirKey{}, dir)
+}
+
+func startDir(ctx context.Context) string {
+	if dir, ok := ctx.Value(startDirKey{}).(string); ok {
+		return dir
+	}
 	if wd := os.Getenv("BUILD_WORKING_DIRECTORY"); wd != "" {
 		return wd
 	}
@@ -108,12 +115,8 @@ func defaultStartDir() string {
 	return wd
 }
 
-func startDir() string {
-	return startDirFn()
-}
-
-func resolveMapping(configPath string) (mapping.Mapping, error) {
-	path, err := resolveMappingPath(configPath)
+func resolveMapping(ctx context.Context, configPath string) (mapping.Mapping, error) {
+	path, err := resolveMappingPath(ctx, configPath)
 	if err != nil {
 		return mapping.Mapping{}, err
 	}
@@ -124,11 +127,11 @@ func resolveMapping(configPath string) (mapping.Mapping, error) {
 	return m, nil
 }
 
-func resolveMappingPath(configPath string) (string, error) {
+func resolveMappingPath(ctx context.Context, configPath string) (string, error) {
 	if configPath != "" {
 		return configPath, nil
 	}
-	found, err := mapping.Find(startDir())
+	found, err := mapping.Find(startDir(ctx))
 	if err != nil {
 		if errors.Is(err, mapping.ErrNotFound) {
 			return "", &ExitError{Code: ExitPrecondition, Err: err}
@@ -149,7 +152,7 @@ func changedFiles(ctx context.Context, exec executor.Executor, m mapping.Mapping
 	if opts.base != "" {
 		return filesFromGit(ctx, exec, m, opts.base)
 	}
-	return filesFromInput(m, opts.files, opts.args)
+	return filesFromInput(ctx, m, opts.files, opts.args)
 }
 
 func filesFromGit(ctx context.Context, exec executor.Executor, m mapping.Mapping, base string) ([]string, error) {
@@ -173,7 +176,7 @@ func filesFromGit(ctx context.Context, exec executor.Executor, m mapping.Mapping
 	return out, nil
 }
 
-func filesFromInput(m mapping.Mapping, fileFlags, args []string) ([]string, error) {
+func filesFromInput(ctx context.Context, m mapping.Mapping, fileFlags, args []string) ([]string, error) {
 	raw := make([]string, 0, len(fileFlags))
 	readStdin := false
 	for _, f := range fileFlags {
@@ -195,7 +198,7 @@ func filesFromInput(m mapping.Mapping, fileFlags, args []string) ([]string, erro
 		}
 		raw = append(raw, extra...)
 	}
-	return relativizeAll(m.Root, startDir(), raw), nil
+	return relativizeAll(m.Root, startDir(ctx), raw), nil
 }
 
 func readStdinPaths() ([]string, error) {
