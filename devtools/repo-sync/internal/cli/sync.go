@@ -38,7 +38,7 @@ var uploadCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerSyncCmd() {
 	syncCmd.Flags().Bool("dry-run", false, "Show what would be synced without making changes")
 	syncCmd.Flags().Bool("force", false, "Force sync even if there are conflicts")
 

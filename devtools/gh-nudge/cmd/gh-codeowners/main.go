@@ -51,7 +51,7 @@ const (
 	Version = "0.1.0"
 )
 
-func init() {
+func registerFlags() {
 	flag.StringVar(&codeownersFile, "codeowners-file", "CODEOWNERS", "Path to CODEOWNERS file")
 	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
 	flag.BoolVar(&version, "version", false, "Display version information")
@@ -147,6 +147,7 @@ func run() error {
 }
 
 func main() {
+	registerFlags()
 	flag.Parse()
 
 	// Set up logging

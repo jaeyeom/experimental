@@ -20,7 +20,7 @@ This will record the deletion in the metadata database for multi-machine coordin
 	},
 }
 
-func init() {
+func registerRemoveCmd() {
 	removeCmd.Flags().Bool("confirm", false, "Skip confirmation prompt")
 }
 
