@@ -13,49 +13,50 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newConfigCmd() *cobra.Command {
-	configCmd := &cobra.Command{
-		Use:   "config",
-		Short: "Manage project configurations",
-		Long:  `Manage project configurations including adding, removing, and listing projects.`,
-	}
+var configCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Manage project configurations",
+	Long:  `Manage project configurations including adding, removing, and listing projects.`,
+}
 
-	addProjectCmd := &cobra.Command{
-		Use:   "add-project <name>",
-		Short: "Add a new project configuration",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAddProject(args[0], cmd)
-		},
-	}
+var addProjectCmd = &cobra.Command{
+	Use:   "add-project <name>",
+	Short: "Add a new project configuration",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runAddProject(args[0], cmd)
+	},
+}
 
-	removeProjectCmd := &cobra.Command{
-		Use:   "remove-project <name>",
-		Short: "Remove a project configuration",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			force, _ := cmd.Flags().GetBool("force")
-			return runRemoveProject(args[0], force)
-		},
-	}
+var removeProjectCmd = &cobra.Command{
+	Use:   "remove-project <name>",
+	Short: "Remove a project configuration",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		force, _ := cmd.Flags().GetBool("force")
+		return runRemoveProject(args[0], force)
+	},
+}
 
-	listProjectsCmd := &cobra.Command{
-		Use:   "list-projects",
-		Short: "List all configured projects",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return runListProjects()
-		},
-	}
+var listProjectsCmd = &cobra.Command{
+	Use:   "list-projects",
+	Short: "List all configured projects",
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return runListProjects()
+	},
+}
 
-	showProjectCmd := &cobra.Command{
-		Use:   "show-project <name>",
-		Short: "Show project configuration details",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return runShowProject(args[0])
-		},
-	}
+var showProjectCmd = &cobra.Command{
+	Use:   "show-project <name>",
+	Short: "Show project configuration details",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		return runShowProject(args[0])
+	},
+}
 
+func registerConfigCmd() {
+	// Add project flags
 	addProjectCmd.Flags().String("local-dir", "", "Local work directory path (required)")
 	addProjectCmd.Flags().String("remote-repo", "", "Remote repository URL (required)")
 	addProjectCmd.Flags().String("remote-prefix", "", "Remote path prefix within repository (required)")
@@ -75,13 +76,14 @@ func newConfigCmd() *cobra.Command {
 		os.Exit(1)
 	}
 
+	// Remove project flags
 	removeProjectCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
 
+	// Add subcommands
 	configCmd.AddCommand(addProjectCmd)
 	configCmd.AddCommand(removeProjectCmd)
 	configCmd.AddCommand(listProjectsCmd)
 	configCmd.AddCommand(showProjectCmd)
-	return configCmd
 }
 
 func runAddProject(name string, cmd *cobra.Command) error {

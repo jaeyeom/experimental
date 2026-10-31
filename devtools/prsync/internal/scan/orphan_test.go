@@ -40,7 +40,7 @@ func TestOrphansMergedBucket(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "AP-1306")},
 		agents: []herdr.Agent{liveAgent("w2:pA", "w2:tA", "idle")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestOrphansNoPRBucket(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tB", "w2", "AP-1287")},
 		agents: []herdr.Agent{liveAgent("w2:pB", "w2:tB", "idle")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestOrphansOmitsNoPRWhenAgentWorking(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tB", "w2", "AP-1287")},
 		agents: []herdr.Agent{liveAgent("w2:pB", "w2:tB", "working")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestOrphansNoPRBlockedStillSurfaced(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tH", "w2", "AP-1288")},
 		agents: []herdr.Agent{liveAgent("w2:pH", "w2:tH", "blocked")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestOrphansMergedWorkingUnaffected(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "AP-1306")},
 		agents: []herdr.Agent{liveAgent("w2:pA", "w2:tA", "working")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestOrphansHasOpenPROmitted(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tC", "w2", "AP-1400")},
 		agents: []herdr.Agent{liveAgent("w2:pC", "w2:tC", "idle")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestOrphansSkipsAgentlessAndUnparseable(t *testing.T) {
 			liveAgent("w2:pDead", "w2:tScratch", "none"), // not a live status
 		},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestOrphansStdinReuseSkipsSearch(t *testing.T) {
 		agents: []herdr.Agent{liveAgent("w2:pD", "w2:tD", "idle")},
 	}
 	openTabs := map[string]struct{}{"w2:tD": {}}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), openTabs, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), openTabs, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestOrphansClosedUnmergedHasNilMergedAt(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tE", "w2", "AP-1700")},
 		agents: []herdr.Agent{liveAgent("w2:pE", "w2:tE", "idle")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestOrphansTitleFilterIgnoresBodyOnlyMatch(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tF", "w2", "AP-1800")},
 		agents: []herdr.Agent{liveAgent("w2:pF", "w2:tF", "idle")},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestOrphansHerdrRequiredEmitsAuthorThenError(t *testing.T) {
 
 	g := &orphanGH{search: map[string][]gh.PRSearchItem{}}
 	h := stubHerdr{minErr: herdr.ErrNotInstalled}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err == nil {
 		t.Fatal("Orphans() error = nil, want herdr required")
 	}
@@ -290,7 +290,7 @@ func TestOrphansUnauthenticatedNoDocument(t *testing.T) {
 	t.Parallel()
 
 	g := &orphanGH{authErr: gh.ErrUnauthenticated}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: stubHerdr{}}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: stubHerdr{}}, orphanCfg(), nil, fixtureNow)
 	if !errors.Is(err, gh.ErrUnauthenticated) {
 		t.Fatalf("Orphans() error = %v, want ErrUnauthenticated", err)
 	}
@@ -308,7 +308,7 @@ func TestOrphansResolvesAuthorWhenUnset(t *testing.T) {
 		agents: []herdr.Agent{liveAgent("w2:pG", "w2:tG", "idle")},
 	}
 	cfg := config.Defaults() // no author set
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, cfg, nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, cfg, nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -406,7 +406,7 @@ func TestOrphansBatchesMultipleTicketsIntoOneSearch(t *testing.T) {
 			liveAgent("w2:pC", "w2:tC", "idle"),
 		},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestOrphansChunksWhenOverFiveOROperators(t *testing.T) {
 	}
 	g := &orphanGH{search: search}
 	h := stubHerdr{tabs: tabs, agents: agents}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestOrphansEmptySweepIsUnknownNotNoPR(t *testing.T) {
 			liveAgent("w2:pB", "w2:tB", "idle"),
 		},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestOrphansEmptySweepSurfacesWorkingUnknown(t *testing.T) {
 			liveAgent("w2:pB", "w2:tB", "idle"),
 		},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -556,7 +556,7 @@ func TestOrphansMixedChunkDoesNotWarn(t *testing.T) {
 			liveAgent("w2:pB", "w2:tB", "idle"),
 		},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestOrphansEmptyChunkIsNoPRWhenAnotherChunkMapped(t *testing.T) {
 	}}
 	g := &orphanGH{search: search}
 	h := stubHerdr{tabs: tabs, agents: agents}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestOrphansAllEmptyMultiChunksStayUnknown(t *testing.T) {
 	}
 	g := &orphanGH{search: search}
 	h := stubHerdr{tabs: tabs, agents: agents}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -670,7 +670,7 @@ func TestOrphansDuplicateTicketSharesSearch(t *testing.T) {
 			liveAgent("w2:pB", "w2:tB", "idle"),
 		},
 	}
-	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow())
+	doc, err := Orphans(context.Background(), OrphanDeps{GH: g, Herdr: h}, orphanCfg(), nil, fixtureNow)
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}

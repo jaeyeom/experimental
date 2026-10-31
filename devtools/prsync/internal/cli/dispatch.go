@@ -81,7 +81,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		return err
 	}
 	h := herdr.NewClient(exec, cfg.HerdrBin)
-	out, err := dispatch.Run(ctx, h, dispatch.NewFileStore(cfg.StateFile), cfg, dispatch.Request{
+	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile}, cfg, dispatch.Request{
 		Doc:        doc,
 		PRs:        prs,
 		RunnerPane: h.RunnerPane(ctx),

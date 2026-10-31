@@ -8,30 +8,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStatusCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "status [project-name]",
-		Short: "Show project sync status",
-		Long:  `Show the current synchronization status for a project or all projects.`,
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			if len(args) == 1 {
-				return runProjectStatus(args[0])
-			}
-			return runAllStatus()
-		},
-	}
+var statusCmd = &cobra.Command{
+	Use:   "status [project-name]",
+	Short: "Show project sync status",
+	Long:  `Show the current synchronization status for a project or all projects.`,
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			return runProjectStatus(args[0])
+		}
+		return runAllStatus()
+	},
 }
 
-func newVerifyCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "verify <project-name>",
-		Short: "Verify project configuration and connectivity",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			return runVerify(args[0])
-		},
-	}
+var verifyCmd = &cobra.Command{
+	Use:   "verify <project-name>",
+	Short: "Verify project configuration and connectivity",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		return runVerify(args[0])
+	},
 }
 
 func runProjectStatus(projectName string) error {

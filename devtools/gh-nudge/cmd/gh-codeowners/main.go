@@ -40,13 +40,25 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/codeowners"
 )
 
+var (
+	codeownersFile string
+	verbose        bool
+	version        bool
+)
+
 const (
 	// Version of the gh-codeowners tool.
 	Version = "0.1.0"
 )
 
+func registerFlags() {
+	flag.StringVar(&codeownersFile, "codeowners-file", "CODEOWNERS", "Path to CODEOWNERS file")
+	flag.BoolVar(&verbose, "verbose", false, "Show verbose output")
+	flag.BoolVar(&version, "version", false, "Display version information")
+}
+
 // setupLogger configures the application logger based on verbosity level.
-func setupLogger(verbose bool) *slog.Logger {
+func setupLogger() *slog.Logger {
 	logLevel := slog.LevelInfo
 	if verbose {
 		logLevel = slog.LevelDebug
@@ -91,9 +103,9 @@ func processFiles(input io.Reader, owners *codeowners.Codeowners, output io.Writ
 	return nil
 }
 
-func run(codeownersFile string, showVersion bool) error {
+func run() error {
 	// Handle version flag
-	if showVersion {
+	if version {
 		fmt.Printf("gh-codeowners version %s\n", Version)
 		return nil
 	}
@@ -135,15 +147,13 @@ func run(codeownersFile string, showVersion bool) error {
 }
 
 func main() {
-	codeownersFile := flag.String("codeowners-file", "CODEOWNERS", "Path to CODEOWNERS file")
-	verbose := flag.Bool("verbose", false, "Show verbose output")
-	showVersion := flag.Bool("version", false, "Display version information")
+	registerFlags()
 	flag.Parse()
 
 	// Set up logging
-	setupLogger(*verbose)
+	setupLogger()
 
-	if err := run(*codeownersFile, *showVersion); err != nil {
+	if err := run(); err != nil {
 		slog.Error("Command failed", "error", err)
 		os.Exit(1)
 	}

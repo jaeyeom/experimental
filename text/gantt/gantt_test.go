@@ -57,7 +57,7 @@ func TestAddTask(t *testing.T) {
 func TestBasicRender(t *testing.T) {
 	chart := New().
 		WithTimeUnit(5 * time.Second).
-		WithChars(DefaultChars())
+		WithChars(DefaultChars)
 
 	chart.AddTask("Task_A", 0, 10*time.Second)
 
@@ -108,7 +108,7 @@ func TestRenderWithGrid(t *testing.T) {
 func TestMultipleTasks(t *testing.T) {
 	chart := New().
 		WithTimeUnit(5 * time.Second).
-		WithChars(DefaultChars())
+		WithChars(DefaultChars)
 
 	chart.AddTask("Task_A", 0, 10*time.Second)
 	chart.AddTask("Task_B", 5*time.Second, 15*time.Second)
@@ -131,7 +131,7 @@ func TestTaskBarRendering(t *testing.T) {
 	chart := New().
 		WithTimeUnit(1 * time.Second).
 		WithLabelWidth(8).
-		WithChars(DefaultChars())
+		WithChars(DefaultChars)
 
 	// Task from 0s to 3s with cell-centered model:
 	// Cell 0: '<' (task starts), Cells 1-2: '##', Cell 3: '>' (task ends)

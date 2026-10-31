@@ -12,6 +12,9 @@ import (
 	"time"
 )
 
+// For testing purposes, we can override this function.
+var timeNow = time.Now
+
 // PRNotificationKey uniquely identifies a PR notification to a specific reviewer.
 type PRNotificationKey struct {
 	PRURL         string // URL of the PR
@@ -33,14 +36,6 @@ type Tracker struct {
 	notifications map[PRNotificationKey]time.Time
 	mutex         sync.RWMutex
 	persistPath   string
-	nowFn         func() time.Time
-}
-
-func (t *Tracker) currentTime() time.Time {
-	if t.nowFn != nil {
-		return t.nowFn()
-	}
-	return time.Now()
 }
 
 // NewTracker creates a new notification tracker.
@@ -176,12 +171,12 @@ func (t *Tracker) ShouldNotifyReviewer(prURL, reviewerLogin string, thresholdHou
 	}
 
 	thresholdDuration := time.Duration(thresholdHours) * time.Hour
-	return t.currentTime().Sub(lastNotified) >= thresholdDuration
+	return timeNow().Sub(lastNotified) >= thresholdDuration
 }
 
 // RecordNotification records that a notification was sent for a PR to a specific reviewer.
 func (t *Tracker) RecordNotification(prURL, reviewerLogin string) error {
-	return t.RecordNotificationAt(prURL, reviewerLogin, t.currentTime())
+	return t.RecordNotificationAt(prURL, reviewerLogin, timeNow())
 }
 
 // RecordNotificationAt records that a notification was sent at the given time.

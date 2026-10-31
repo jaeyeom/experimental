@@ -20,21 +20,20 @@ import (
 )
 
 func TestPackagesSorted(t *testing.T) {
-	pkgs := packages()
-	if !sort.SliceIsSorted(pkgs, func(i, j int) bool {
-		return pkgs[i].command < pkgs[j].command
+	if !sort.SliceIsSorted(packages, func(i, j int) bool {
+		return packages[i].command < packages[j].command
 	}) {
 		t.Errorf("packages slice is not sorted by command name")
-		for i := 1; i < len(pkgs); i++ {
-			if pkgs[i].command < pkgs[i-1].command {
-				t.Errorf("Package '%s' is out of order (comes after '%s')", pkgs[i].command, pkgs[i-1].command)
+		for i := 1; i < len(packages); i++ {
+			if packages[i].command < packages[i-1].command {
+				t.Errorf("Package '%s' is out of order (comes after '%s')", packages[i].command, packages[i-1].command)
 			}
 		}
 	}
 }
 
 func TestNoNpmOnDebianLike(t *testing.T) {
-	for _, tool := range platformSpecificTools() {
+	for _, tool := range platformSpecificTools {
 		method, ok := tool.platforms[PlatformDebianLike]
 		if !ok {
 			continue
@@ -79,7 +78,7 @@ func TestGitHubReleaseCacheKey(t *testing.T) {
 
 func TestHashicorpAptRepoName(t *testing.T) {
 	var repoNames []string
-	for _, tool := range platformSpecificTools() {
+	for _, tool := range platformSpecificTools {
 		if tool.command != "terraform" && tool.command != "terraform-ls" {
 			continue
 		}
@@ -104,14 +103,13 @@ func TestHashicorpAptRepoName(t *testing.T) {
 }
 
 func TestPlatformSpecificToolsSorted(t *testing.T) {
-	tools := platformSpecificTools()
-	if !sort.SliceIsSorted(tools, func(i, j int) bool {
-		return tools[i].command < tools[j].command
+	if !sort.SliceIsSorted(platformSpecificTools, func(i, j int) bool {
+		return platformSpecificTools[i].command < platformSpecificTools[j].command
 	}) {
 		t.Errorf("platformSpecificTools slice is not sorted by command name")
-		for i := 1; i < len(tools); i++ {
-			if tools[i].command < tools[i-1].command {
-				t.Errorf("Tool '%s' is out of order (comes after '%s')", tools[i].command, tools[i-1].command)
+		for i := 1; i < len(platformSpecificTools); i++ {
+			if platformSpecificTools[i].command < platformSpecificTools[i-1].command {
+				t.Errorf("Tool '%s' is out of order (comes after '%s')", platformSpecificTools[i].command, platformSpecificTools[i-1].command)
 			}
 		}
 	}
@@ -477,7 +475,7 @@ func TestGetPostImports(t *testing.T) {
 
 func findPlatformSpecificTool(t *testing.T, command string) PlatformSpecificTool {
 	t.Helper()
-	for _, candidate := range platformSpecificTools() {
+	for _, candidate := range platformSpecificTools {
 		if candidate.command == command {
 			return candidate
 		}
@@ -556,7 +554,7 @@ func TestAsideCLI(t *testing.T) {
 func TestGhPlaybookInstallsGhStackExtension(t *testing.T) {
 	var pkg PackageData
 	found := false
-	for _, candidate := range packages() {
+	for _, candidate := range packages {
 		if candidate.command == "gh" {
 			pkg = candidate
 			found = true
@@ -626,7 +624,7 @@ func TestGhosttyCaskSkipsExistingApp(t *testing.T) {
 func TestLibatomic1Package(t *testing.T) {
 	var pkg PackageData
 	found := false
-	for _, candidate := range packages() {
+	for _, candidate := range packages {
 		if candidate.command == "libatomic1" {
 			pkg = candidate
 			found = true

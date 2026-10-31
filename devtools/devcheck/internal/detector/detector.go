@@ -30,7 +30,7 @@ func NewProjectDetector() *ProjectDetector {
 	return &ProjectDetector{
 		scanner:        NewScanner(DefaultScanOptions()),
 		patternMatcher: NewPatternMatcher(),
-		languages:      languageProfiles(),
+		languages:      languageProfiles,
 		buildTools: map[config.BuildSystem]func(string) map[config.ToolType][]config.Tool{
 			config.BuildSystemBazel: bazelTools,
 			config.BuildSystemMake:  makeTools,
@@ -160,12 +160,12 @@ func (d *ProjectDetector) SupportedBuildSystems() []config.BuildSystem {
 
 func bazelTools(rootPath string) map[config.ToolType][]config.Tool {
 	var format, lint []config.Tool
-	for _, label := range bazelFormatLabels() {
+	for _, label := range bazelFormatLabels {
 		if bazelLabelExists(rootPath, label) {
 			format = append(format, config.Tool{Command: "bazel", Args: []string{"run", label}})
 		}
 	}
-	for _, label := range bazelLintLabels() {
+	for _, label := range bazelLintLabels {
 		if bazelLabelExists(rootPath, label) {
 			lint = append(lint, config.Tool{Command: "bazel", Args: []string{"run", label}})
 		}

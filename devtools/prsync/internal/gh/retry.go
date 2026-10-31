@@ -20,6 +20,9 @@ import (
 // Three attempts wait 2s, then 8s.
 const ghRetryAttempts = 3
 
+// ghRetryBackoffs are the waits before the second and third attempts.
+var ghRetryBackoffs = []time.Duration{2 * time.Second, 8 * time.Second}
+
 var transientHTTPRE = regexp.MustCompile(`(?i)\bhttp\s+50[234]\b`)
 
 type outputCheck func(*executor.ExecutionResult) error
@@ -76,12 +79,10 @@ func (c *Client) retryWait(failedAttempt int, kind transientKind, text string) t
 	if idx < 0 {
 		idx = 0
 	}
-	// Waits before the second and third attempts.
-	backoffs := [...]time.Duration{2 * time.Second, 8 * time.Second}
-	if idx >= len(backoffs) {
-		return backoffs[len(backoffs)-1]
+	if idx >= len(ghRetryBackoffs) {
+		return ghRetryBackoffs[len(ghRetryBackoffs)-1]
 	}
-	return backoffs[idx]
+	return ghRetryBackoffs[idx]
 }
 
 func (c *Client) sleepForRetry(ctx context.Context, d time.Duration) error {

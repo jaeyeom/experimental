@@ -12,30 +12,28 @@ type languageProfile struct {
 	tools       func(root string, scan *ScanResult) map[config.ToolType][]config.Tool
 }
 
-func languageProfiles() []languageProfile {
-	return []languageProfile{
-		{
-			language:   config.LanguageGo,
-			configKeys: []string{"golangci-lint"},
-			tools:      goTools,
-		},
-		{
-			language:   config.LanguagePython,
-			configKeys: []string{"ruff"},
-			tools:      pythonTools,
-		},
-		{
-			language:    config.LanguageTypeScript,
-			configKeys:  []string{"eslint"},
-			extraConfig: recordTypeScriptConfig,
-			tools:       jsTools,
-		},
-		{
-			language:   config.LanguageJavaScript,
-			configKeys: []string{"eslint"},
-			tools:      jsTools,
-		},
-	}
+var languageProfiles = []languageProfile{
+	{
+		language:   config.LanguageGo,
+		configKeys: []string{"golangci-lint"},
+		tools:      goTools,
+	},
+	{
+		language:   config.LanguagePython,
+		configKeys: []string{"ruff"},
+		tools:      pythonTools,
+	},
+	{
+		language:    config.LanguageTypeScript,
+		configKeys:  []string{"eslint"},
+		extraConfig: recordTypeScriptConfig,
+		tools:       jsTools,
+	},
+	{
+		language:   config.LanguageJavaScript,
+		configKeys: []string{"eslint"},
+		tools:      jsTools,
+	},
 }
 
 func goTools(_ string, _ *ScanResult) map[config.ToolType][]config.Tool {

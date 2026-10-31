@@ -10,49 +10,67 @@ import (
 	"github.com/spf13/viper"
 )
 
+var (
+	cfgFile string
+	verbose bool
+	debug   bool
+)
+
+// rootCmd represents the base command when called without any subcommands.
+var rootCmd = &cobra.Command{
+	Use:   "repo-sync",
+	Short: "Multi-machine development file synchronization utility",
+	Long: `Repo-Sync is a specialized utility for synchronizing project-specific files
+across multiple development machines using Git-based workflow automation.
+
+It addresses the unique challenge of keeping development configurations and project
+files in sync without uploading entire repositories to remote storage.`,
+	PersistentPreRun: func(_ *cobra.Command, _ []string) {
+		setupLogging()
+	},
+}
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() error {
-	if err := newRootCmd().Execute(); err != nil {
+	registerCommands()
+	if err := rootCmd.Execute(); err != nil {
 		return fmt.Errorf("failed to execute root command: %w", err)
 	}
 	return nil
 }
 
-func newRootCmd() *cobra.Command {
-	var cfgFile string
-	var verbose bool
-	var debug bool
+var commandsRegistered bool
 
-	rootCmd := &cobra.Command{
-		Use:   "repo-sync",
-		Short: "Multi-machine development file synchronization utility",
-		Long: `Repo-Sync is a specialized utility for synchronizing project-specific files
-across multiple development machines using Git-based workflow automation.
-
-It addresses the unique challenge of keeping development configurations and project
-files in sync without uploading entire repositories to remote storage.`,
-		PersistentPreRun: func(_ *cobra.Command, _ []string) {
-			initConfig(cfgFile)
-			setupLogging(verbose, debug)
-		},
+func registerCommands() {
+	if commandsRegistered {
+		return
 	}
+	commandsRegistered = true
 
+	registerInitCmd()
+	registerSyncCmd()
+	registerRemoveCmd()
+	registerConfigCmd()
+
+	cobra.OnInitialize(initConfig)
+
+	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.config/repo-sync/config.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "debug output with detailed tracing")
 
-	rootCmd.AddCommand(newInitCmd())
-	rootCmd.AddCommand(newSyncCmd())
-	rootCmd.AddCommand(newAddCmd())
-	rootCmd.AddCommand(newRemoveCmd())
-	rootCmd.AddCommand(newConfigCmd())
-	rootCmd.AddCommand(newStatusCmd())
-	rootCmd.AddCommand(newVerifyCmd())
-	return rootCmd
+	// Add subcommands
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(addCmd)
+	rootCmd.AddCommand(removeCmd)
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(verifyCmd)
 }
 
 // initConfig reads in config file and ENV variables if set.
-func initConfig(cfgFile string) {
+func initConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
@@ -75,7 +93,7 @@ func initConfig(cfgFile string) {
 	}
 }
 
-func setupLogging(verbose, debug bool) {
+func setupLogging() {
 	// Configure slog based on verbosity flags
 	var level slog.Level
 	switch {

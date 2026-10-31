@@ -7,13 +7,15 @@ import (
 	"strings"
 )
 
-var githubHTTPSRemotePattern = regexp.MustCompile(`^(?:https?|ssh)://(?:[^@/]+@)?github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$`)
-
-var githubSSHRemotePattern = regexp.MustCompile(`^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$`)
+// githubRemotePatterns parse a github.com origin URL into owner/repo.
+var githubRemotePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`^(?:https?|ssh)://(?:[^@/]+@)?github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$`),
+	regexp.MustCompile(`^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$`),
+}
 
 func parseGitHubRemote(raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
-	for _, re := range []*regexp.Regexp{githubHTTPSRemotePattern, githubSSHRemotePattern} {
+	for _, re := range githubRemotePatterns {
 		match := re.FindStringSubmatch(raw)
 		if match == nil {
 			continue

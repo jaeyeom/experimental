@@ -69,7 +69,7 @@ func runComment(ctx context.Context, stdout io.Writer, exec executor.Executor, c
 	if err != nil {
 		return err
 	}
-	out, err := comment.Run(ctx, gh.NewClient(exec, cfg.GHBin), dispatch.NewFileStore(cfg.StateFile), cfg, comment.Request{
+	out, err := comment.Run(ctx, gh.NewClient(exec, cfg.GHBin), dispatch.FileStore{Path: cfg.StateFile}, cfg, comment.Request{
 		Doc:            doc,
 		PRs:            prs,
 		Body:           body,

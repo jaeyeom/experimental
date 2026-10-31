@@ -28,14 +28,11 @@ const (
 	maxSearchQueryLen = 256
 )
 
-// liveAgentStatus reports whether status means a herdr agent session exists.
-func liveAgentStatus(status string) bool {
-	switch status {
-	case "working", "idle", "blocked":
-		return true
-	default:
-		return false
-	}
+// liveAgentStatuses are the herdr statuses that mean an agent session exists.
+var liveAgentStatuses = map[string]struct{}{
+	"working": {},
+	"idle":    {},
+	"blocked": {},
 }
 
 // OrphanGH is the GitHub surface the orphan report uses.
@@ -233,7 +230,7 @@ type tabSession struct {
 func liveAgentsByTab(agents []herdr.Agent) map[string]tabSession {
 	out := make(map[string]tabSession)
 	for _, agent := range agents {
-		if !liveAgentStatus(agent.AgentStatus) {
+		if _, ok := liveAgentStatuses[agent.AgentStatus]; !ok {
 			continue
 		}
 		if _, seen := out[agent.TabID]; seen {

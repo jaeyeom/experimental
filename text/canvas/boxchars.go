@@ -16,85 +16,77 @@ type BoxChars struct {
 }
 
 // SingleBoxChars uses single-line Unicode box drawing characters.
-func SingleBoxChars() BoxChars {
-	return BoxChars{
-		TopLeft:     '┌',
-		TopRight:    '┐',
-		BottomLeft:  '└',
-		BottomRight: '┘',
-		Horizontal:  '─',
-		Vertical:    '│',
-		TeeLeft:     '┤',
-		TeeRight:    '├',
-		TeeTop:      '┴',
-		TeeBottom:   '┬',
-		Cross:       '┼',
-	}
+var SingleBoxChars = BoxChars{
+	TopLeft:     '┌',
+	TopRight:    '┐',
+	BottomLeft:  '└',
+	BottomRight: '┘',
+	Horizontal:  '─',
+	Vertical:    '│',
+	TeeLeft:     '┤',
+	TeeRight:    '├',
+	TeeTop:      '┴',
+	TeeBottom:   '┬',
+	Cross:       '┼',
 }
 
 // DoubleBoxChars uses double-line Unicode box drawing characters.
-func DoubleBoxChars() BoxChars {
-	return BoxChars{
-		TopLeft:     '╔',
-		TopRight:    '╗',
-		BottomLeft:  '╚',
-		BottomRight: '╝',
-		Horizontal:  '═',
-		Vertical:    '║',
-		TeeLeft:     '╣',
-		TeeRight:    '╠',
-		TeeTop:      '╩',
-		TeeBottom:   '╦',
-		Cross:       '╬',
-	}
+var DoubleBoxChars = BoxChars{
+	TopLeft:     '╔',
+	TopRight:    '╗',
+	BottomLeft:  '╚',
+	BottomRight: '╝',
+	Horizontal:  '═',
+	Vertical:    '║',
+	TeeLeft:     '╣',
+	TeeRight:    '╠',
+	TeeTop:      '╩',
+	TeeBottom:   '╦',
+	Cross:       '╬',
 }
 
 // RoundedBoxChars uses rounded corner Unicode box drawing characters.
-func RoundedBoxChars() BoxChars {
-	return BoxChars{
-		TopLeft:     '╭',
-		TopRight:    '╮',
-		BottomLeft:  '╰',
-		BottomRight: '╯',
-		Horizontal:  '─',
-		Vertical:    '│',
-		TeeLeft:     '┤',
-		TeeRight:    '├',
-		TeeTop:      '┴',
-		TeeBottom:   '┬',
-		Cross:       '┼',
-	}
+var RoundedBoxChars = BoxChars{
+	TopLeft:     '╭',
+	TopRight:    '╮',
+	BottomLeft:  '╰',
+	BottomRight: '╯',
+	Horizontal:  '─',
+	Vertical:    '│',
+	TeeLeft:     '┤',
+	TeeRight:    '├',
+	TeeTop:      '┴',
+	TeeBottom:   '┬',
+	Cross:       '┼',
 }
 
 // ASCIIBoxChars uses ASCII characters for maximum compatibility.
-func ASCIIBoxChars() BoxChars {
-	return BoxChars{
-		TopLeft:     '+',
-		TopRight:    '+',
-		BottomLeft:  '+',
-		BottomRight: '+',
-		Horizontal:  '-',
-		Vertical:    '|',
-		TeeLeft:     '+',
-		TeeRight:    '+',
-		TeeTop:      '+',
-		TeeBottom:   '+',
-		Cross:       '+',
-	}
+var ASCIIBoxChars = BoxChars{
+	TopLeft:     '+',
+	TopRight:    '+',
+	BottomLeft:  '+',
+	BottomRight: '+',
+	Horizontal:  '-',
+	Vertical:    '|',
+	TeeLeft:     '+',
+	TeeRight:    '+',
+	TeeTop:      '+',
+	TeeBottom:   '+',
+	Cross:       '+',
 }
 
 // GetBoxChars returns the box drawing characters for a given border style.
 func GetBoxChars(style BorderStyle) BoxChars {
 	switch style {
 	case BorderSingle:
-		return SingleBoxChars()
+		return SingleBoxChars
 	case BorderDouble:
-		return DoubleBoxChars()
+		return DoubleBoxChars
 	case BorderRounded:
-		return RoundedBoxChars()
+		return RoundedBoxChars
 	case BorderASCII:
-		return ASCIIBoxChars()
+		return ASCIIBoxChars
 	default:
-		return SingleBoxChars()
+		return SingleBoxChars
 	}
 }

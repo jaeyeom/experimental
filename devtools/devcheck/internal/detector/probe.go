@@ -11,17 +11,11 @@ import (
 	"github.com/jaeyeom/experimental/devtools/devcheck/internal/config"
 )
 
-func bazelFormatLabels() []string {
-	return []string{"//tools:format", "//:format"}
-}
-
-func bazelLintLabels() []string {
-	return []string{"//tools:lint", "//:lint"}
-}
-
 var (
-	makeTargetRe = regexp.MustCompile(`^([A-Za-z0-9_./-]+)\s*:`)
-	bazelNameRe  = regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
+	bazelFormatLabels = []string{"//tools:format", "//:format"}
+	bazelLintLabels   = []string{"//tools:lint", "//:lint"}
+	makeTargetRe      = regexp.MustCompile(`^([A-Za-z0-9_./-]+)\s*:`)
+	bazelNameRe       = regexp.MustCompile(`name\s*=\s*"([^"]+)"`)
 )
 
 func selectBuildSystem(root string, candidates []config.BuildSystem) config.BuildSystem {
@@ -47,7 +41,7 @@ func selectBuildSystem(root string, candidates []config.BuildSystem) config.Buil
 }
 
 func bazelHasFormatAndLint(root string) bool {
-	return bazelHasAnyLabel(root, bazelFormatLabels()) && bazelHasAnyLabel(root, bazelLintLabels())
+	return bazelHasAnyLabel(root, bazelFormatLabels) && bazelHasAnyLabel(root, bazelLintLabels)
 }
 
 func bazelHasAnyLabel(root string, labels []string) bool {

@@ -38,7 +38,11 @@ Check out [Local Doc](/en/local-doc) and [Remote Doc](/en/remote-doc).
 		os.Unsetenv("MDLINK_SUFFIX_ADD")
 	}()
 
-	if _, err := ProcessFile(inputFile, fileOptions{}); err != nil {
+	// Process the file
+	*dryRun = false
+	*verbose = false
+	*validate = false
+	if _, err := ProcessFile(inputFile); err != nil {
 		t.Fatalf("ProcessFile() error = %v", err)
 	}
 
@@ -82,7 +86,13 @@ Check out [Remote Doc](/en/remote-doc).
 		os.Unsetenv("MDLINK_SUFFIX_ADD")
 	}()
 
-	if _, err := ProcessFile(inputFile, fileOptions{dryRun: true}); err != nil {
+	// Process the file in dry-run mode
+	*dryRun = true
+	*verbose = false
+	*validate = false
+	defer func() { *dryRun = false }()
+
+	if _, err := ProcessFile(inputFile); err != nil {
 		t.Fatalf("ProcessFile() error = %v", err)
 	}
 
@@ -128,7 +138,13 @@ Check out [Existing](existing.md) and [Broken](nonexisting.md).
 		os.Unsetenv("MDLINK_SUFFIX_ADD")
 	}()
 
-	brokenLinks, err := ProcessFile(inputFile, fileOptions{validate: true})
+	// Process the file with validation
+	*dryRun = false
+	*verbose = false
+	*validate = true
+	defer func() { *validate = false }()
+
+	brokenLinks, err := ProcessFile(inputFile)
 	if err != nil {
 		t.Fatalf("ProcessFile() error = %v", err)
 	}

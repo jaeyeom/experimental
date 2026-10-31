@@ -9,45 +9,45 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newSyncCmd() *cobra.Command {
-	syncCmd := &cobra.Command{
-		Use:   "sync <project-name>",
-		Short: "Synchronize project files",
-		Long: `Perform bidirectional synchronization of project files between local and remote repositories.
+var syncCmd = &cobra.Command{
+	Use:   "sync <project-name>",
+	Short: "Synchronize project files",
+	Long: `Perform bidirectional synchronization of project files between local and remote repositories.
 This includes rsync operations, Git workflow automation, and conflict resolution.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSync(args[0], cmd)
-		},
-	}
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runSync(args[0], cmd)
+	},
+}
 
-	downloadCmd := &cobra.Command{
-		Use:   "download <project-name>",
-		Short: "Download files from remote (remote takes precedence)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDownload(args[0], cmd)
-		},
-	}
+var downloadCmd = &cobra.Command{
+	Use:   "download <project-name>",
+	Short: "Download files from remote (remote takes precedence)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runDownload(args[0], cmd)
+	},
+}
 
-	uploadCmd := &cobra.Command{
-		Use:   "upload <project-name>",
-		Short: "Upload files to remote (local takes precedence)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runUpload(args[0], cmd)
-		},
-	}
+var uploadCmd = &cobra.Command{
+	Use:   "upload <project-name>",
+	Short: "Upload files to remote (local takes precedence)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runUpload(args[0], cmd)
+	},
+}
 
+func registerSyncCmd() {
 	syncCmd.Flags().Bool("dry-run", false, "Show what would be synced without making changes")
 	syncCmd.Flags().Bool("force", false, "Force sync even if there are conflicts")
 
 	downloadCmd.Flags().Bool("dry-run", false, "Show what would be downloaded without making changes")
 	uploadCmd.Flags().Bool("dry-run", false, "Show what would be uploaded without making changes")
 
+	// Add subcommands to sync
 	syncCmd.AddCommand(downloadCmd)
 	syncCmd.AddCommand(uploadCmd)
-	return syncCmd
 }
 
 func runSync(projectName string, cmd *cobra.Command) error {
