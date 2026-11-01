@@ -14,6 +14,10 @@
     herdr_config_dir: >-
       {{ ansible_facts['env']['XDG_CONFIG_HOME']
          | default(ansible_facts['env']['HOME'] ~ '/.config', true) }}/herdr
+    # Each entry receives the same `herdr --skill` text. Add paths for other
+    # agents here; the tasks below loop over this list.
+    herdr_skill_paths:
+      - "{{ ansible_facts['env']['HOME'] }}/.claude/skills/herdr/SKILL.md"
   tasks:
     - name: Skip herdr setup on Termux
       meta: end_play
@@ -80,3 +84,74 @@
       when: herdr_prefix_config is changed
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
+
+    # strip_empty_ends would drop the trailing newline and make the installed
+    # file differ from `herdr --skill`. No banner: skill frontmatter must stay
+    # first, and the file must match the command output byte for byte.
+    - name: Check whether herdr is installed
+      ansible.builtin.shell: command -v herdr
+      register: herdr_skill_command_check
+      changed_when: false
+      failed_when: false
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
+
+    - name: Warn when herdr is not installed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping herdr skill install because herdr is not on PATH.
+          Nothing was written.
+      when: herdr_skill_command_check.rc != 0
+
+    - name: Read the herdr agent skill
+      ansible.builtin.command:
+        cmd: herdr --skill
+        strip_empty_ends: false
+      register: herdr_skill_output
+      changed_when: false
+      failed_when: false
+      when: herdr_skill_command_check.rc == 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
+
+    - name: Warn when herdr --skill fails
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping herdr skill install because `herdr --skill`
+          exited {{ herdr_skill_output.rc | default('unknown') }}.
+          Nothing was written.
+      when:
+        - herdr_skill_command_check.rc == 0
+        - herdr_skill_output.rc | default(1) != 0
+
+    - name: Warn when herdr --skill prints nothing
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping herdr skill install because `herdr --skill`
+          printed nothing. Nothing was written.
+      when:
+        - herdr_skill_command_check.rc == 0
+        - herdr_skill_output.rc | default(1) == 0
+        - (herdr_skill_output.stdout | default('') | trim | length) == 0
+
+    - name: Ensure herdr skill parent directories exist
+      ansible.builtin.file:
+        path: "{{ item | dirname }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ herdr_skill_paths }}"
+      when:
+        - herdr_skill_command_check.rc == 0
+        - herdr_skill_output.rc | default(1) == 0
+        - (herdr_skill_output.stdout | default('') | trim | length) > 0
+
+    - name: Install the herdr agent skill
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        content: "{{ herdr_skill_output.stdout }}"
+        mode: '0644'
+      loop: "{{ herdr_skill_paths }}"
+      when:
+        - herdr_skill_command_check.rc == 0
+        - herdr_skill_output.rc | default(1) == 0
+        - (herdr_skill_output.stdout | default('') | trim | length) > 0
