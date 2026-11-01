@@ -7,6 +7,12 @@ set -e
 CACHE_DIR="${HOME}/.cache/setup-dev/verified-scripts"
 INDEX_FILE="${CACHE_DIR}/index.txt"
 SCRIPTS_DIR="${CACHE_DIR}/scripts"
+# Skill text is a separate index from install scripts. `verified-run list`
+# stays a list of URLs.
+TEXTS_DIR="${CACHE_DIR}/texts"
+TEXTS_INDEX="${TEXTS_DIR}/index.txt"
+TEXT_WORK=""
+TEXT_DEST_TMP=""
 
 # Ensure cache directory structure exists
 init_cache() {
@@ -405,6 +411,296 @@ cmd_remove() {
     remove_approval "$_crm_url"
 }
 
+# Skill-text approvals. The command after `--` produces the artifact on
+# stdout. A terminal is required only when the bytes are not yet approved.
+# The Ansible local command module has no controlling terminal, so
+# ensure.sh calls review-text in its own shell. apply-text still prompts
+# on /dev/tty when one is open, and fails closed otherwise.
+
+init_texts() {
+    mkdir -p "$TEXTS_DIR"
+    touch "$TEXTS_INDEX"
+}
+
+text_begin() {
+    init_texts
+    TEXT_WORK=$(mktemp -d)
+    TEXT_DEST_TMP=""
+    # TEXT_DEST_TMP is set later, when a destination temp file exists.
+    # shellcheck disable=SC2064
+    trap 'rm -rf "$TEXT_WORK"; if [ -n "$TEXT_DEST_TMP" ]; then rm -f "$TEXT_DEST_TMP"; fi' EXIT
+}
+
+valid_text_name() {
+    case "$1" in
+        ""|-*|*[!A-Za-z0-9._-]*)
+            printf '%s\n' "Error: invalid skill name: $1" >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+get_stored_text_hash() {
+    _gst_name="$1"
+    if [ ! -f "$TEXTS_INDEX" ]; then
+        return 0
+    fi
+    while IFS='	' read -r _gst_hash _gst_n; do
+        if [ "$_gst_n" = "$_gst_name" ]; then
+            printf '%s' "$_gst_hash"
+            return 0
+        fi
+    done < "$TEXTS_INDEX"
+}
+
+store_text_approval() {
+    _sta_name="$1"
+    _sta_hash="$2"
+    _sta_body="$3"
+    _sta_old=$(get_stored_text_hash "$_sta_name")
+
+    cp "$_sta_body" "${TEXTS_DIR}/${_sta_hash}"
+
+    if [ -n "$_sta_old" ]; then
+        _sta_tmp="${TEXTS_INDEX}.tmp"
+        : >"$_sta_tmp"
+        while IFS='	' read -r _sta_h _sta_n; do
+            if [ "$_sta_n" != "$_sta_name" ]; then
+                printf '%s\t%s\n' "$_sta_h" "$_sta_n" >>"$_sta_tmp"
+            fi
+        done < "$TEXTS_INDEX"
+        mv "$_sta_tmp" "$TEXTS_INDEX"
+        if [ "$_sta_old" != "$_sta_hash" ]; then
+            _sta_used=""
+            while IFS='	' read -r _sta_h _sta_n; do
+                if [ "$_sta_h" = "$_sta_old" ]; then
+                    _sta_used=1
+                fi
+            done < "$TEXTS_INDEX"
+            if [ -z "$_sta_used" ]; then
+                rm -f "${TEXTS_DIR}/${_sta_old}"
+            fi
+        fi
+    fi
+
+    printf '%s\t%s\n' "$_sta_hash" "$_sta_name" >> "$TEXTS_INDEX"
+}
+
+# Run the artifact command. On success set TEXT_OUT, TEXT_HASH, and TEXT_OLD.
+text_capture() {
+    TEXT_OUT="${TEXT_WORK}/stdout"
+    TEXT_RC=0
+    "$@" >"$TEXT_OUT" || TEXT_RC=$?
+    if [ "$TEXT_RC" -ne 0 ]; then
+        printf '%s\n' "Error: command exited ${TEXT_RC}; skill text not stored." >&2
+        return 1
+    fi
+    if [ ! -s "$TEXT_OUT" ]; then
+        printf '%s\n' "Error: command printed nothing; skill text not stored." >&2
+        return 1
+    fi
+    TEXT_HASH=$(compute_hash "$TEXT_OUT")
+    TEXT_OLD=$(get_stored_text_hash "$TEXT_NAME")
+    return 0
+}
+
+format_cmd() {
+    _fc_out=""
+    for _fc_a in "$@"; do
+        if [ -z "$_fc_out" ]; then
+            _fc_out="${_fc_a}"
+        else
+            _fc_out="${_fc_out} ${_fc_a}"
+        fi
+    done
+    printf '%s' "$_fc_out"
+}
+
+tty_openable() {
+    (: </dev/tty) 2>/dev/null && (: >/dev/tty) 2>/dev/null
+}
+
+# Show a diff of revealed bytes. Control sequences in the skill text stay
+# data, so a payload cannot redraw the terminal before the question.
+show_visible_diff() {
+    _svd_old="$1"
+    _svd_new="$2"
+    _svd_new_vis="${TEXT_WORK}/new.vis"
+    cat -v "$_svd_new" >"$_svd_new_vis"
+    if [ -n "$_svd_old" ] && [ -f "$_svd_old" ]; then
+        _svd_old_vis="${TEXT_WORK}/old.vis"
+        cat -v "$_svd_old" >"$_svd_old_vis"
+        show_diff "$_svd_old_vis" "$_svd_new_vis" >/dev/tty 2>&1 || true
+    else
+        show_diff /dev/null "$_svd_new_vis" >/dev/tty 2>&1 || true
+    fi
+}
+
+text_version_note() {
+    _tv_cmd="$1"
+    _tv_base=${_tv_cmd##*/}
+    if [ "$_tv_base" != "herdr" ]; then
+        return 0
+    fi
+    _tv_file="${TEXT_WORK}/version"
+    if ! "$_tv_cmd" --version >"$_tv_file" 2>/dev/null; then
+        return 0
+    fi
+    _tv_line=""
+    IFS= read -r _tv_line <"$_tv_file" || return 0
+    if [ -n "$_tv_line" ]; then
+        printf 'Version: %s\n' "$_tv_line" >/dev/tty
+    fi
+}
+
+text_unapproved_message() {
+    _tum_cmd=$(format_cmd "$@")
+    printf '%s\n' "Skill text is not approved or content has changed. Run: $0 review-text ${TEXT_NAME} -- ${_tum_cmd}"
+}
+
+# Diff, then the header and question. Store on yes. Do not write a dest.
+text_prompt_store() {
+    _tps_name="$1"
+    _tps_hash="$2"
+    _tps_old="$3"
+    _tps_body="$4"
+    shift 4
+
+    if [ -n "$_tps_old" ]; then
+        printf '%s\n' "Skill text has changed since last approval." >/dev/tty
+        show_visible_diff "${TEXTS_DIR}/${_tps_old}" "$_tps_body"
+    else
+        printf '%s\n' "New skill text (not previously approved)." >/dev/tty
+        show_visible_diff "" "$_tps_body"
+    fi
+
+    _tps_cmd=$(format_cmd "$@")
+    printf '\n' >/dev/tty
+    printf '%s\n' "Name: ${_tps_name}" >/dev/tty
+    printf '%s\n' "Command: ${_tps_cmd}" >/dev/tty
+    text_version_note "$1"
+    if [ -n "$_tps_old" ]; then
+        printf '%s\n' "Old hash: ${_tps_old}" >/dev/tty
+    else
+        printf '%s\n' "Old hash: (none)" >/dev/tty
+    fi
+    printf '%s\n' "New hash: ${_tps_hash}" >/dev/tty
+    printf '%s' 'Approve this skill text? (y/N): ' >/dev/tty
+    _tps_reply=""
+    read -r _tps_reply </dev/tty || _tps_reply=""
+    # A cooked tty can hand back a trailing CR. Drop it before the match.
+    _tps_reply=$(printf '%s' "$_tps_reply" | tr -d '\r')
+
+    case "$_tps_reply" in
+        [Yy]|[Yy][Ee][Ss])
+            store_text_approval "$_tps_name" "$_tps_hash" "$_tps_body"
+            printf '%s\n' "Skill text approved." >/dev/tty
+            return 0
+            ;;
+        *)
+            printf '%s\n' "Skill text not approved." >/dev/tty
+            return 1
+            ;;
+    esac
+}
+
+write_text_dest() {
+    _wd_body="$1"
+    _wd_dest="$2"
+    _wd_dir=$(dirname "$_wd_dest")
+    if [ ! -d "$_wd_dir" ]; then
+        printf '%s\n' "Error: destination directory does not exist: ${_wd_dir}" >&2
+        return 1
+    fi
+    _wd_tmp=$(mktemp "${_wd_dir}/.verified-text.XXXXXX")
+    TEXT_DEST_TMP="$_wd_tmp"
+    cat "$_wd_body" >"$_wd_tmp"
+    chmod 0644 "$_wd_tmp"
+    if [ -f "$_wd_dest" ] && cmp -s "$_wd_tmp" "$_wd_dest"; then
+        rm -f "$_wd_tmp"
+        TEXT_DEST_TMP=""
+        printf '%s\n' unchanged
+        return 0
+    fi
+    mv "$_wd_tmp" "$_wd_dest"
+    TEXT_DEST_TMP=""
+    printf '%s\n' updated
+}
+
+cmd_review_text() {
+    if [ "$#" -lt 3 ] || [ "$2" != "--" ]; then
+        printf '%s\n' "Usage: verified-run review-text <name> -- <command> [args...]" >&2
+        exit 1
+    fi
+    TEXT_NAME=$1
+    shift 2
+    if [ "$#" -eq 0 ]; then
+        printf '%s\n' "Usage: verified-run review-text <name> -- <command> [args...]" >&2
+        exit 1
+    fi
+    valid_text_name "$TEXT_NAME" || exit 1
+    text_begin
+    text_capture "$@" || exit 1
+    if [ -n "$TEXT_OLD" ] && [ "$TEXT_OLD" = "$TEXT_HASH" ]; then
+        printf '%s\n' "Skill text already approved with matching hash."
+        printf '%s\n' "Hash: ${TEXT_HASH}"
+        return 0
+    fi
+    if ! tty_openable; then
+        printf '%s\n' "Error: no terminal available to review skill text." >&2
+        exit 1
+    fi
+    text_prompt_store "$TEXT_NAME" "$TEXT_HASH" "$TEXT_OLD" "$TEXT_OUT" "$@" || exit 1
+}
+
+cmd_apply_text() {
+    if [ "$#" -lt 4 ] || [ "$3" != "--" ]; then
+        printf '%s\n' "Usage: verified-run apply-text <name> <dest> -- <command> [args...]" >&2
+        exit 1
+    fi
+    TEXT_NAME=$1
+    TEXT_DEST=$2
+    shift 3
+    if [ "$#" -eq 0 ]; then
+        printf '%s\n' "Usage: verified-run apply-text <name> <dest> -- <command> [args...]" >&2
+        exit 1
+    fi
+    valid_text_name "$TEXT_NAME" || exit 1
+    text_begin
+    text_capture "$@" || exit 1
+    if [ -n "$TEXT_OLD" ] && [ "$TEXT_OLD" = "$TEXT_HASH" ]; then
+        write_text_dest "$TEXT_OUT" "$TEXT_DEST"
+        return 0
+    fi
+    if ! tty_openable; then
+        text_unapproved_message "$@"
+        exit 1
+    fi
+    text_prompt_store "$TEXT_NAME" "$TEXT_HASH" "$TEXT_OLD" "$TEXT_OUT" "$@" || exit 1
+    write_text_dest "$TEXT_OUT" "$TEXT_DEST"
+}
+
+cmd_check_text() {
+    if [ "$#" -lt 3 ] || [ "$2" != "--" ]; then
+        printf '%s\n' "Usage: verified-run check-text <name> -- <command> [args...]" >&2
+        exit 1
+    fi
+    TEXT_NAME=$1
+    shift 2
+    if [ "$#" -eq 0 ]; then
+        printf '%s\n' "Usage: verified-run check-text <name> -- <command> [args...]" >&2
+        exit 1
+    fi
+    valid_text_name "$TEXT_NAME" || exit 1
+    text_begin
+    text_capture "$@" || exit 1
+    if [ -n "$TEXT_OLD" ] && [ "$TEXT_OLD" = "$TEXT_HASH" ]; then
+        exit 0
+    fi
+    exit 1
+}
+
 # Show usage
 usage() {
     cat <<EOF
@@ -416,6 +712,12 @@ Commands:
   check <url>     Exit 0 if approved with matching hash, 1 otherwise
   list            Show all approved scripts
   remove <url>    Remove a URL from approved list
+  review-text <name> -- <command>
+                  Review a command's stdout and store it on approval
+  apply-text <name> <dest> -- <command>
+                  Write <dest> when stdout matches the stored approval
+  check-text <name> -- <command>
+                  Exit 0 when stdout matches the stored approval
 
 Options:
   --interactive   Allow on-the-fly approval during exec
@@ -432,6 +734,10 @@ Examples:
 
   # Interactive execution (prompts for approval if needed)
   verified-run exec --interactive https://example.com/install.sh
+
+  # Review and approve agent skill text, then install it
+  verified-run review-text herdr-skill -- herdr --skill
+  verified-run apply-text herdr-skill ~/.claude/skills/herdr/SKILL.md -- herdr --skill
 EOF
 }
 
@@ -459,6 +765,15 @@ case "$command" in
         ;;
     remove)
         cmd_remove "$@"
+        ;;
+    review-text)
+        cmd_review_text "$@"
+        ;;
+    apply-text)
+        cmd_apply_text "$@"
+        ;;
+    check-text)
+        cmd_check_text "$@"
         ;;
     help|--help|-h)
         usage

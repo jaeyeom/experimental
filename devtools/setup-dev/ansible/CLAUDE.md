@@ -51,6 +51,33 @@ scripts.
 - Raw `curl ... | bash` without `verified-run` is **not** acceptable for
   new entries, even if older entries (e.g. `claude`) still use it.
 
+Skill text written into an agent skill path is pinned the same way.
+`review-text`, `apply-text`, and `check-text` hash a command's stdout and
+store the approved bytes under
+`~/.cache/setup-dev/verified-scripts/texts/`. `apply-text` writes the
+destination only when the hash matches. A mismatch on a terminal shows the
+diff and asks on `/dev/tty`. Without a terminal it exits non-zero and
+prints the `review-text` command. `setup-herdr.yml` installs
+`herdr --skill` with `apply-text herdr-skill`.
+
+The Ansible local command module has no controlling terminal, so that
+prompt cannot run inside the playbook task. When the selected playbooks
+import `setup-herdr.yml`, `ensure.sh` runs `herdr.yml` first, then runs
+`review-text herdr-skill -- herdr --skill` in this shell if the text is
+non-empty and not the stored approval. A no stops `ensure.sh` before any
+skill file is written. `apply-text` then writes the approved bytes. The
+later playbook imports `herdr.yml` again; that second run is idempotent
+when the installed version already matches. `./ensure.sh --check` (and
+`-C`) still runs that preliminary `herdr.yml` in check mode and skips the
+skill review, so a dry run does not prompt or store an approval. Missing
+`herdr`, a failing `herdr --skill`, or empty output warns and continues,
+so an older binary does not fail `./ensure.sh setup-vibe-coding`. This is
+separate from
+`pre_approve_urls`, which stays URL-only and runs before the binary is
+upgraded. A direct `ansible-playbook setup-herdr.yml` fails the skill task
+and prints the `review-text` command. The installer URL stays on
+`verified-run exec`.
+
 ## Claude Code Permission Rules
 
 When editing the `permissions.allow` / `permissions.deny` lists in
