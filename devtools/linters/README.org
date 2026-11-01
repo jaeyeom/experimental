@@ -198,9 +198,10 @@ bazel build //devtools/linters/cmd/unnecessary-interface-assertion-linter
 
 Reports two kinds of package-level variables:
 
-- An unexported ~var~ whose initializer is a Go constant expression, when the
-  package does not assign to it or take its address. Exported variables are
-  ignored.
+- A package-level ~var~, exported or not, whose initializer is a Go constant
+  expression, when the package does not assign to it or take its address.
+  A string kept for ~-ldflags -X~ is suppressed on that declaration with a
+  nolint comment and a reason.
 - An initializer that calls a function or receives from a channel, unless the
   call is pure and a name keeps the result.
 

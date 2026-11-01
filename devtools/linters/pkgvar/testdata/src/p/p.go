@@ -1,10 +1,10 @@
 // Package p is an analysistest fixture for pkgvar.
 //
-// p.go is the base fixture. It covers an unexported constant, a discarded
-// result, a direct impure call, a channel receive, and the quiet cases in
-// the block at the bottom of this file. edges.go covers the cases that sit
-// behind a callee expression, a selector or pointer, a call argument, a
-// range, or an instantiation. alias.go covers an allowlisted function
+// p.go is the base fixture. It covers a constant initializer, exported or
+// not, a discarded result, a direct impure call, a channel receive, and the
+// quiet cases in the block at the bottom of this file. edges.go covers the
+// cases that sit behind a callee expression, a selector or pointer, a call
+// argument, a range, or an instantiation. alias.go covers an allowlisted function
 // imported under another name. All three files are package p, and
 // analysistest loads them together. A declaration in this file is visible
 // to edges.go.
@@ -109,13 +109,29 @@ func setAssigned() { assigned = 2 }
 
 func addrAddressed() *int { return &addressed }
 
+func setPublic() { Public = 2 }
+
+func addrExposed() *int { return &Exposed }
+
 var assigned = 1
 
 var addressed = 1
 
+// This package assigns to Public, so it cannot be a constant.
+var Public = 1
+
+// This package takes the address of Exposed, so it cannot be a constant.
+var Exposed = 1
+
+// Version is a constant string. -ldflags -X is a nolint comment on the real
+// declaration, with a reason. The checker still reports it.
+var Version = "dev" // want "can be a constant"
+
 var (
 	x            = 1                                 // want "can be a constant"
+	X            = 1                                 // want "can be a constant"
 	s            = "hello"                           // want "can be a constant"
+	S            = "hello"                           // want "can be a constant"
 	n            = len("abc")                        // want "can be a constant"
 	sum          = 1 + 2                             // want "can be a constant"
 	fromConst    = c                                 // want "can be a constant"
@@ -152,8 +168,6 @@ var (
 
 // These initializers stay quiet. The comment on each line is the reason.
 var (
-	X                       = 1                                 // Exported. Another package can assign to it.
-	Version                 = "dev"                             // Exported string. -ldflags -X requires a variable.
 	_                       = 1                                 // The blank name is not a package-level variable.
 	xs                      = []int{1, 2, 3}                    // A slice composite is not a Go constant.
 	m                       = map[string]int{"a": 1}            // A map composite is not a Go constant.

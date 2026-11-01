@@ -1,10 +1,11 @@
 // Package pkgvar reports package-level variables that should be constants
 // and package-level initializers that do work at import time.
 //
-// An unexported variable is reported when its initializer is a Go constant
-// expression and the package neither assigns to it nor takes its address.
-// Exported variables are not reported: another package can assign to them,
-// and -ldflags -X requires a string variable.
+// A package-level variable, exported or not, is reported when its initializer
+// is a Go constant expression and the package neither assigns to it nor takes
+// its address. An assignment or address-take in another package still leaves
+// the finding. A string kept for -ldflags -X is suppressed on that declaration
+// with a nolint comment and a reason.
 //
 // An initializer is reported when it contains a call or a channel receive,
 // unless every such call is pure and at least one name keeps the result.
@@ -36,7 +37,7 @@ import (
 )
 
 const (
-	diagConst   = "unexported package-level variable can be a constant"
+	diagConst   = "package-level variable can be a constant"
 	diagDiscard = "package-level initializer discards its result"
 	diagImpure  = "package-level initializer calls an impure function or receives from a channel"
 
@@ -151,7 +152,7 @@ func (c *checker) reportConst(spec *ast.ValueSpec) {
 			continue
 		}
 		obj, _ := c.pass.TypesInfo.Defs[name].(*types.Var)
-		if obj == nil || obj.Parent() != c.pass.Pkg.Scope() || ast.IsExported(name.Name) {
+		if obj == nil || obj.Parent() != c.pass.Pkg.Scope() {
 			continue
 		}
 		if c.assigned[obj] || c.addressed[obj] {

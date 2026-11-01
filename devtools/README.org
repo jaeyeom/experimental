@@ -90,7 +90,7 @@ pkgvar for package-level variables.
 *Available Linters:*
 - *org-lint*: Go wrapper around Emacs org-lint for Org-mode files
 - *unnecessary-interface-assertion-linter*: flags `var _ Iface = (*T)(nil)` when the interface is otherwise unused
-- *pkgvar*: reports an unexported package-level `var` that can be a `const`, and a package-level initializer that calls a function or receives from a channel unless that call is pure and a name keeps the result
+- *pkgvar*: reports a package-level `var`, exported or not, that can be a `const`, and a package-level initializer that calls a function or receives from a channel unless that call is pure and a name keeps the result
 
 *Installation:*
 #+BEGIN_SRC bash
