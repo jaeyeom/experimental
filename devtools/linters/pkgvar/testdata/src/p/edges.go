@@ -1,3 +1,11 @@
+// edges.go covers the cases the base fixture in p.go does not reach:
+// an effect inside a callee expression, an update through a selector,
+// pointer, index, or another package's variable, a pointer-receiver method
+// or method value, a range over a channel or an iterator, a recursive
+// call, an explicit instantiation, and an address taken inside a call
+// argument. It is part of package p, so it uses pt, xs, ch, and object
+// from p.go. Each file has its own imports.
+
 package p
 
 import (

@@ -1,4 +1,13 @@
 // Package p is an analysistest fixture for pkgvar.
+//
+// p.go is the base fixture. It covers an unexported constant, a discarded
+// result, a direct impure call, a channel receive, and the quiet cases in
+// the block at the bottom of this file. edges.go covers the cases that sit
+// behind a callee expression, a selector or pointer, a call argument, a
+// range, or an instantiation. alias.go covers an allowlisted function
+// imported under another name. All three files are package p, and
+// analysistest loads them together. A declaration in this file is visible
+// to edges.go.
 package p
 
 import (
