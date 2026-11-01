@@ -145,13 +145,26 @@
         - herdr_skill_output.rc | default(1) == 0
         - (herdr_skill_output.stdout | default('') | trim | length) > 0
 
+    # apply-text writes the raw `herdr --skill` bytes when they match the
+    # stored approval. Stdout is `updated` or `unchanged`. ensure.sh reviews
+    # the text before this playbook. A direct ansible-playbook run has no
+    # terminal here, so a new or changed skill fails this task and prints
+    # the review-text command.
     - name: Install the herdr agent skill
-      ansible.builtin.copy:
-        dest: "{{ item }}"
-        content: "{{ herdr_skill_output.stdout }}"
-        mode: '0644'
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/verified-run"
+          - apply-text
+          - herdr-skill
+          - "{{ item }}"
+          - "--"
+          - herdr
+          - --skill
       loop: "{{ herdr_skill_paths }}"
+      changed_when: (stdout | trim) == "updated"
       when:
         - herdr_skill_command_check.rc == 0
         - herdr_skill_output.rc | default(1) == 0
         - (herdr_skill_output.stdout | default('') | trim | length) > 0
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
