@@ -3,7 +3,7 @@
 
 * Overview
 
-This directory contains linting tools for various file formats, including org-lint for Org-mode files and a Go linter for unnecessary interface assertions.
+This directory contains linting tools for various file formats, including org-lint for Org-mode files, a Go linter for unnecessary interface assertions, and pkgvar for package-level variables.
 
 * Tools
 
@@ -192,4 +192,40 @@ Exit code 1 if issues are found, 0 if clean.
 
 #+BEGIN_SRC bash
 bazel build //devtools/linters/cmd/unnecessary-interface-assertion-linter
+#+END_SRC
+
+** pkgvar
+
+Reports two kinds of package-level variables:
+
+- A package-level ~var~, exported or not, whose initializer is a Go constant
+  expression, when the package does not assign to it or take its address.
+  A string kept for ~-ldflags -X~ is suppressed on that declaration with a
+  nolint comment and a reason.
+- An initializer that calls a function or receives from a channel, unless the
+  call is pure and a name keeps the result.
+
+The default allowlist is ~errors.New~, ~fmt.Errorf~, and ~regexp.MustCompile~.
+A listed function is quiet only when every argument is pure and a name keeps
+the result. ~new~ and ~make~ are pure builtins. Interface assertions stay with
+unnecessary-interface-assertion-linter.
+
+*** Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/linters/cmd/pkgvar@latest
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+# go vet drives the singlechecker
+go vet -vettool=$(which pkgvar) ./...
+
+# The default allowlist is errors.New, fmt.Errorf, and regexp.MustCompile.
+go vet -vettool=$(which pkgvar) -allowlist errors.New,fmt.Errorf,regexp.MustCompile ./...
+#+END_SRC
+
+#+BEGIN_SRC bash
+bazel build //devtools/linters/cmd/pkgvar
 #+END_SRC
