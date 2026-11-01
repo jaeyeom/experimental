@@ -11,6 +11,7 @@ go_library(
         "@org_golang_x_tools//go/analysis:go_default_library",
         "@org_golang_x_tools//go/analysis/passes/inspect:go_default_library",
         "@org_golang_x_tools//go/ast/inspector:go_default_library",
+        "@org_golang_x_tools//go/types/typeutil:go_default_library",
     ],
 )
 
@@ -34,6 +35,7 @@ go_library(
     name = "p_fixture",
     srcs = [
         "testdata/src/p/alias.go",  # keep
+        "testdata/src/p/edges.go",  # keep
         "testdata/src/p/p.go",  # keep
     ],
     importpath = "p",

@@ -10,9 +10,13 @@
 // unless every such call is pure and at least one name keeps the result.
 // A same-package function is pure when its body does not mutate package-level
 // variables, take their addresses, start a goroutine, defer, send, or receive,
-// and every call in that body is pure. An imported function is pure only when
-// it is allowlisted. The default allowlist is errors.New, fmt.Errorf, and
-// regexp.MustCompile. A listed function also requires pure arguments.
+// and every call in that body is pure. A pointer-receiver method or method
+// value takes the address of the variable it is selected from. Selector,
+// pointer, index, and slice expressions are followed to that variable.
+// Ranging over a channel receives from it. Ranging over an iterator calls it.
+// An imported function is pure only when it is allowlisted. The default
+// allowlist is errors.New, fmt.Errorf, and regexp.MustCompile. A listed
+// function also requires pure arguments.
 // Builtins len, cap, complex, real, imag, min, max, new, and make are pure.
 // panic, print, and println are not. Method calls are never allowlisted.
 // Calls inside a function literal count only when that literal is called.
@@ -28,6 +32,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 const (
@@ -114,6 +119,8 @@ type checker struct {
 	visiting  map[*types.Func]bool
 	assigned  map[*types.Var]bool
 	addressed map[*types.Var]bool
+	// optHits counts optimistic results for functions still on the visiting stack.
+	optHits int
 }
 
 func (c *checker) reportSpec(spec *ast.ValueSpec) {
@@ -190,7 +197,10 @@ func (c *checker) exprEffect(root ast.Expr) effect {
 }
 
 func (c *checker) callEffect(call *ast.CallExpr) effect {
-	eff := effectNone
+	eff := c.funValueEffect(call.Fun)
+	if c.methodAddrVar(call.Fun) != nil {
+		eff = effectImpure
+	}
 	for _, arg := range call.Args {
 		eff = eff.join(c.exprEffect(arg))
 	}
@@ -203,6 +213,27 @@ func (c *checker) callEffect(call *ast.CallExpr) effect {
 	return eff.join(effectCall)
 }
 
+// funValueEffect is the effect of evaluating the callee expression, not of
+// invoking it. A pure method does not hide an impure receiver or index.
+func (c *checker) funValueEffect(fun ast.Expr) effect {
+	switch fun := ast.Unparen(fun).(type) {
+	case *ast.Ident, *ast.FuncLit:
+		return effectNone
+	case *ast.SelectorExpr:
+		return c.exprEffect(fun.X)
+	case *ast.IndexExpr:
+		eff := c.funValueEffect(fun.X)
+		if !isType(c.pass.TypesInfo, fun.Index) {
+			eff = eff.join(c.exprEffect(fun.Index))
+		}
+		return eff
+	case *ast.IndexListExpr:
+		return c.funValueEffect(fun.X)
+	default:
+		return c.exprEffect(fun)
+	}
+}
+
 func (c *checker) conversion(call *ast.CallExpr) bool {
 	fun := ast.Unparen(call.Fun)
 	tv, ok := c.pass.TypesInfo.Types[fun]
@@ -213,25 +244,25 @@ func (c *checker) conversion(call *ast.CallExpr) bool {
 }
 
 func (c *checker) calleePure(call *ast.CallExpr) bool {
-	fun := ast.Unparen(call.Fun)
-	if lit, ok := fun.(*ast.FuncLit); ok {
+	if lit, ok := ast.Unparen(call.Fun).(*ast.FuncLit); ok {
 		return c.blockPure(lit.Body)
 	}
-	switch obj := objectOf(c.pass.TypesInfo, fun).(type) {
+	switch obj := typeutil.Callee(c.pass.TypesInfo, call).(type) {
 	case *types.Builtin:
 		return pureBuiltin(obj.Name())
 	case *types.Func:
-		if obj.Pkg() == c.pass.Pkg {
-			return c.funcPure(obj)
+		fn := obj.Origin()
+		if fn.Pkg() == c.pass.Pkg {
+			return c.funcPure(fn)
 		}
-		sig, _ := obj.Type().(*types.Signature)
+		sig, _ := fn.Type().(*types.Signature)
 		if sig != nil && sig.Recv() != nil {
 			return false
 		}
-		if obj.Pkg() == nil {
-			return pureBuiltin(obj.Name())
+		if fn.Pkg() == nil {
+			return pureBuiltin(fn.Name())
 		}
-		_, ok := c.allow[obj.Pkg().Path()+"."+obj.Name()]
+		_, ok := c.allow[fn.Pkg().Path()+"."+fn.Name()]
 		return ok
 	default:
 		return false
@@ -239,10 +270,12 @@ func (c *checker) calleePure(call *ast.CallExpr) bool {
 }
 
 func (c *checker) funcPure(fn *types.Func) bool {
+	fn = fn.Origin()
 	if pure, ok := c.memo[fn]; ok {
 		return pure
 	}
 	if c.visiting[fn] {
+		c.optHits++
 		return true
 	}
 	decl := c.decls[fn]
@@ -251,10 +284,21 @@ func (c *checker) funcPure(fn *types.Func) bool {
 		return false
 	}
 	c.visiting[fn] = true
+	hits := c.optHits
 	pure := c.blockPure(decl.Body)
 	delete(c.visiting, fn)
-	c.memo[fn] = pure
-	return pure
+	if !pure {
+		c.memo[fn] = false
+		return false
+	}
+	// A pure answer that used a function still on the stack is incomplete.
+	// Leave it unmemoized so a later impure result can be seen. Memoize when
+	// the cycle has finished and nothing impure was found.
+	if c.optHits > hits && len(c.visiting) > 0 {
+		return true
+	}
+	c.memo[fn] = true
+	return true
 }
 
 func (c *checker) blockPure(body *ast.BlockStmt) bool {
@@ -292,9 +336,17 @@ func (c *checker) stepPure(n ast.Node) (bool, bool) {
 	case *ast.AssignStmt:
 		return !c.assignsPkg(n.Lhs), true
 	case *ast.IncDecStmt:
-		return c.pkgVar(n.X) == nil, true
+		return c.rootPkgVar(n.X) == nil, true
+	case *ast.SelectorExpr:
+		if c.methodAddrVar(n) != nil {
+			return false, false
+		}
+		return true, true
 	case *ast.RangeStmt:
-		return !c.assignsPkg(rangeLHS(n)), true
+		if c.rangeImpure(n) {
+			return false, false
+		}
+		return true, true
 	default:
 		return true, true
 	}
@@ -304,7 +356,39 @@ func (c *checker) impureUnary(n *ast.UnaryExpr) bool {
 	if n.Op == token.ARROW {
 		return true
 	}
-	return n.Op == token.AND && c.pkgVar(n.X) != nil
+	return n.Op == token.AND && c.rootPkgVar(n.X) != nil
+}
+
+func (c *checker) rangeImpure(stmt *ast.RangeStmt) bool {
+	if c.assignsPkg(rangeLHS(stmt)) {
+		return true
+	}
+	tv, ok := c.pass.TypesInfo.Types[stmt.X]
+	if !ok || tv.Type == nil {
+		return false
+	}
+	switch t := tv.Type.Underlying().(type) {
+	case *types.Chan:
+		return true
+	case *types.Signature:
+		return isIterator(t) && c.iterEffect(stmt.X) == effectImpure
+	default:
+		return false
+	}
+}
+
+func (c *checker) iterEffect(expr ast.Expr) effect {
+	if lit, ok := ast.Unparen(expr).(*ast.FuncLit); ok {
+		if c.blockPure(lit.Body) {
+			return effectCall
+		}
+		return effectImpure
+	}
+	fn := funcObject(c.pass.TypesInfo, expr)
+	if fn != nil && c.funcPure(fn) {
+		return effectCall
+	}
+	return effectImpure
 }
 
 func (c *checker) collectMutations() {
@@ -319,9 +403,11 @@ func (c *checker) collectMutations() {
 				c.noteAssign(rangeLHS(n))
 			case *ast.UnaryExpr:
 				if n.Op == token.AND {
-					if v := c.pkgVar(n.X); v != nil {
-						c.addressed[v] = true
-					}
+					c.noteAddress(n.X)
+				}
+			case *ast.SelectorExpr:
+				if v := c.methodAddrVar(n); v != nil && v.Pkg() == c.pass.Pkg {
+					c.addressed[v] = true
 				}
 			}
 			return true
@@ -329,9 +415,52 @@ func (c *checker) collectMutations() {
 	}
 }
 
+// noteAddress records an explicit address-take of a variable in this package.
+func (c *checker) noteAddress(expr ast.Expr) {
+	v := c.rootPkgVar(expr)
+	if v != nil && v.Pkg() == c.pass.Pkg {
+		c.addressed[v] = true
+	}
+}
+
+// methodAddrVar is the package-level variable a pointer-receiver method or
+// method value is selected from. Selection.Indirect is false for an
+// addressable value whose address is taken implicitly, so the method's
+// receiver type is what decides. Value receivers and locals return nil.
+func (c *checker) methodAddrVar(expr ast.Expr) *types.Var {
+	sel, ok := ast.Unparen(expr).(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	selection := c.pass.TypesInfo.Selections[sel]
+	if selection == nil || !pointerRecv(selection) {
+		return nil
+	}
+	switch selection.Kind() {
+	case types.MethodVal, types.MethodExpr:
+		return c.rootPkgVar(sel.X)
+	default:
+		return nil
+	}
+}
+
+func pointerRecv(selection *types.Selection) bool {
+	fn, ok := selection.Obj().(*types.Func)
+	if !ok {
+		return false
+	}
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() == nil {
+		return false
+	}
+	_, isPtr := sig.Recv().Type().Underlying().(*types.Pointer)
+	return isPtr
+}
+
 func (c *checker) noteAssign(lhs []ast.Expr) {
 	for _, expr := range lhs {
-		if v := c.pkgVar(expr); v != nil {
+		v := c.rootPkgVar(expr)
+		if v != nil && v.Pkg() == c.pass.Pkg {
 			c.assigned[v] = true
 		}
 	}
@@ -339,29 +468,42 @@ func (c *checker) noteAssign(lhs []ast.Expr) {
 
 func (c *checker) assignsPkg(lhs []ast.Expr) bool {
 	for _, expr := range lhs {
-		if c.pkgVar(expr) != nil {
+		if c.rootPkgVar(expr) != nil {
 			return true
 		}
 	}
 	return false
 }
 
-func (c *checker) pkgVar(expr ast.Expr) *types.Var {
-	var obj types.Object
+// rootPkgVar follows selectors, pointers, indexes, and slices to a
+// package-level variable. The variable may belong to any package: purity
+// cares about every package variable, while the constant rule records only
+// variables declared in the package under analysis.
+func (c *checker) rootPkgVar(expr ast.Expr) *types.Var {
 	switch expr := ast.Unparen(expr).(type) {
 	case *ast.Ident:
-		obj = c.pass.TypesInfo.ObjectOf(expr)
+		return pkgLevelVar(c.pass.TypesInfo.ObjectOf(expr))
 	case *ast.SelectorExpr:
-		obj = c.pass.TypesInfo.ObjectOf(expr.Sel)
+		if v := pkgLevelVar(c.pass.TypesInfo.ObjectOf(expr.Sel)); v != nil {
+			return v
+		}
+		return c.rootPkgVar(expr.X)
+	case *ast.StarExpr:
+		return c.rootPkgVar(expr.X)
 	case *ast.IndexExpr:
-		return c.pkgVar(expr.X)
+		return c.rootPkgVar(expr.X)
+	case *ast.IndexListExpr:
+		return c.rootPkgVar(expr.X)
 	case *ast.SliceExpr:
-		return c.pkgVar(expr.X)
+		return c.rootPkgVar(expr.X)
 	default:
 		return nil
 	}
+}
+
+func pkgLevelVar(obj types.Object) *types.Var {
 	v, ok := obj.(*types.Var)
-	if !ok || v.Parent() != c.pass.Pkg.Scope() {
+	if !ok || v.Pkg() == nil || v.Parent() != v.Pkg().Scope() {
 		return nil
 	}
 	return v
@@ -395,15 +537,45 @@ func pureBuiltin(name string) bool {
 	}
 }
 
-func objectOf(info *types.Info, fun ast.Expr) types.Object {
-	switch fun := ast.Unparen(fun).(type) {
+func funcObject(info *types.Info, expr ast.Expr) *types.Func {
+	switch expr := ast.Unparen(expr).(type) {
 	case *ast.Ident:
-		return info.ObjectOf(fun)
+		fn, _ := info.ObjectOf(expr).(*types.Func)
+		return fn
 	case *ast.SelectorExpr:
-		return info.ObjectOf(fun.Sel)
-	default:
-		return nil
+		fn, _ := info.ObjectOf(expr.Sel).(*types.Func)
+		return fn
+	case *ast.IndexExpr:
+		if isType(info, expr.Index) {
+			return funcObject(info, expr.X)
+		}
+	case *ast.IndexListExpr:
+		return funcObject(info, expr.X)
 	}
+	return nil
+}
+
+func isType(info *types.Info, expr ast.Expr) bool {
+	tv, ok := info.Types[expr]
+	return ok && tv.IsType()
+}
+
+// isIterator reports the Go range-over-function shape: one func(V) bool or
+// func(K, V) bool parameter and no results.
+func isIterator(sig *types.Signature) bool {
+	if sig.Params().Len() != 1 || sig.Results().Len() != 0 {
+		return false
+	}
+	yield, ok := sig.Params().At(0).Type().Underlying().(*types.Signature)
+	if !ok || yield.Results().Len() != 1 {
+		return false
+	}
+	basic, ok := yield.Results().At(0).Type().Underlying().(*types.Basic)
+	if !ok || basic.Kind() != types.Bool {
+		return false
+	}
+	n := yield.Params().Len()
+	return n == 1 || n == 2
 }
 
 func funcDecls(pass *analysis.Pass) map[*types.Func]*ast.FuncDecl {
@@ -416,7 +588,7 @@ func funcDecls(pass *analysis.Pass) map[*types.Func]*ast.FuncDecl {
 			}
 			fn, _ := pass.TypesInfo.Defs[fnDecl.Name].(*types.Func)
 			if fn != nil {
-				out[fn] = fnDecl
+				out[fn.Origin()] = fnDecl
 			}
 		}
 	}
