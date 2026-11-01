@@ -85,12 +85,12 @@ the tool only reports which docs a change implicated.
 
 Collection of linting tools for various file formats, including org-lint
 for Org-mode files, a Go linter for unnecessary interface assertions, and
-blankassign for package-level blank assignments.
+pkgvar for package-level variables.
 
 *Available Linters:*
 - *org-lint*: Go wrapper around Emacs org-lint for Org-mode files
 - *unnecessary-interface-assertion-linter*: flags `var _ Iface = (*T)(nil)` when the interface is otherwise unused
-- *blankassign*: reports package-level `var _ = f()` when the initializer calls a function or receives from a channel
+- *pkgvar*: reports an unexported package-level `var` that can be a `const`, and a package-level initializer that calls a function or receives from a channel unless that call is pure and a name keeps the result
 
 *Installation:*
 #+BEGIN_SRC bash

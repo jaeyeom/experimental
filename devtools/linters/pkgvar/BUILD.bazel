@@ -5,7 +5,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = ["analyzer.go"],
-    importpath = "github.com/jaeyeom/experimental/devtools/linters/blankassign",
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/pkgvar",
     visibility = ["//devtools/linters:__subpackages__"],
     deps = [
         "@org_golang_x_tools//go/analysis:go_default_library",
@@ -31,9 +31,12 @@ go_test(
 # Fixture libraries exist so check-bazel-src-files sees the testdata .go files.
 # analysistest loads them; these targets are not part of the analyzer build.
 go_library(
-    name = "blank_fixture",
-    srcs = ["testdata/src/blank/blank.go"],  # keep
-    importpath = "blank",
+    name = "p_fixture",
+    srcs = [
+        "testdata/src/p/alias.go",  # keep
+        "testdata/src/p/p.go",  # keep
+    ],
+    importpath = "p",
     tags = ["manual"],
     visibility = ["//visibility:private"],
     deps = [":other_fixture"],  # keep
@@ -43,14 +46,6 @@ go_library(
     name = "other_fixture",
     srcs = ["testdata/src/example.com/other/other.go"],  # keep
     importpath = "example.com/other",
-    tags = ["manual"],
-    visibility = ["//visibility:private"],
-)
-
-go_library(
-    name = "allow_fixture",
-    srcs = ["testdata/src/allow/allow.go"],  # keep
-    importpath = "allow",
     tags = ["manual"],
     visibility = ["//visibility:private"],
 )

@@ -3,7 +3,7 @@
 
 * Overview
 
-This directory contains linting tools for various file formats, including org-lint for Org-mode files, a Go linter for unnecessary interface assertions, and blankassign for package-level blank assignments.
+This directory contains linting tools for various file formats, including org-lint for Org-mode files, a Go linter for unnecessary interface assertions, and pkgvar for package-level variables.
 
 * Tools
 
@@ -194,29 +194,37 @@ Exit code 1 if issues are found, 0 if clean.
 bazel build //devtools/linters/cmd/unnecessary-interface-assertion-linter
 #+END_SRC
 
-** blankassign
+** pkgvar
 
-Reports a package-level value spec when every name is ~_~, an initializer is
-present, and that initializer calls a function or receives from a channel.
-Interface assertions such as ~var _ http.Handler = (*handler)(nil)~ are left
-to unnecessary-interface-assertion-linter.
+Reports two kinds of package-level variables:
+
+- An unexported ~var~ whose initializer is a Go constant expression, when the
+  package does not assign to it or take its address. Exported variables are
+  ignored.
+- An initializer that calls a function or receives from a channel, unless the
+  call is pure and a name keeps the result.
+
+The default allowlist is ~errors.New~, ~fmt.Errorf~, and ~regexp.MustCompile~.
+A listed function is quiet only when every argument is pure and a name keeps
+the result. ~new~ and ~make~ are pure builtins. Interface assertions stay with
+unnecessary-interface-assertion-linter.
 
 *** Installation
 
 #+BEGIN_SRC bash
-go install github.com/jaeyeom/experimental/devtools/linters/cmd/blankassign@latest
+go install github.com/jaeyeom/experimental/devtools/linters/cmd/pkgvar@latest
 #+END_SRC
 
 *** Usage
 
 #+BEGIN_SRC bash
 # go vet drives the singlechecker
-go vet -vettool=$(which blankassign) ./...
+go vet -vettool=$(which pkgvar) ./...
 
-# Ignore constant calls to a package function. The default allowlist is empty.
-go vet -vettool=$(which blankassign) -allowlist regexp.MustCompile ./...
+# The default allowlist is errors.New, fmt.Errorf, and regexp.MustCompile.
+go vet -vettool=$(which pkgvar) -allowlist errors.New,fmt.Errorf,regexp.MustCompile ./...
 #+END_SRC
 
 #+BEGIN_SRC bash
-bazel build //devtools/linters/cmd/blankassign
+bazel build //devtools/linters/cmd/pkgvar
 #+END_SRC

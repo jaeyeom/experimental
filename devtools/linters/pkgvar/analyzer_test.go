@@ -1,4 +1,4 @@
-package blankassign_test
+package pkgvar_test
 
 import (
 	"fmt"
@@ -9,36 +9,31 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jaeyeom/experimental/devtools/linters/blankassign"
+	"github.com/jaeyeom/experimental/devtools/linters/pkgvar"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-func TestDefaultAllowlistEmpty(t *testing.T) {
-	flag := blankassign.Analyzer.Flags.Lookup("allowlist")
+func TestDefaultAllowlist(t *testing.T) {
+	flag := pkgvar.Analyzer.Flags.Lookup("allowlist")
 	if flag == nil {
 		t.Fatal("allowlist flag is not defined")
 		return
 	}
-	if flag.DefValue != "" {
-		t.Fatalf("default allowlist = %q, want empty", flag.DefValue)
+	const want = "errors.New,fmt.Errorf,regexp.MustCompile"
+	if flag.DefValue != want {
+		t.Fatalf("default allowlist = %q, want %q", flag.DefValue, want)
 	}
 }
 
-func TestBlankAssign(t *testing.T) {
-	setAllowlist(t, "")
-	analysistest.Run(reporter{t}, prepareAnalysis(t), blankassign.Analyzer, "blank")
-}
-
-func TestAllowlist(t *testing.T) {
-	// allow.Quiet matches the GOPATH import path of testdata/src/allow.
-	setAllowlist(t, "regexp.MustCompile,allow.Quiet")
-	analysistest.Run(reporter{t}, prepareAnalysis(t), blankassign.Analyzer, "allow")
+func TestPkgVar(t *testing.T) {
+	setAllowlist(t, "errors.New,fmt.Errorf,regexp.MustCompile")
+	analysistest.Run(reporter{t}, prepareAnalysis(t), pkgvar.Analyzer, "p")
 }
 
 func TestAllowlistRejectsBadEntry(t *testing.T) {
 	setAllowlist(t, "not-a-function")
 	got := &capture{}
-	analysistest.Run(got, prepareAnalysis(t), blankassign.Analyzer, "blank")
+	analysistest.Run(got, prepareAnalysis(t), pkgvar.Analyzer, "p")
 	if !strings.Contains(strings.Join(got.errs, "\n"), "invalid allowlist entry") {
 		t.Fatalf("errors = %q, want invalid allowlist entry", got.errs)
 	}
@@ -47,7 +42,7 @@ func TestAllowlistRejectsBadEntry(t *testing.T) {
 // Tests share Analyzer.Flags, so they must not call t.Parallel.
 func setAllowlist(t *testing.T, value string) {
 	t.Helper()
-	flag := blankassign.Analyzer.Flags.Lookup("allowlist")
+	flag := pkgvar.Analyzer.Flags.Lookup("allowlist")
 	if flag == nil {
 		t.Fatal("allowlist flag is not defined")
 		return
@@ -218,9 +213,9 @@ func testdataDir(t *testing.T) string {
 	}
 	candidates = append(candidates,
 		"testdata",
-		filepath.Join("devtools", "linters", "blankassign", "testdata"),
+		filepath.Join("devtools", "linters", "pkgvar", "testdata"),
 	)
-	marker := filepath.Join("src", "blank", "blank.go")
+	marker := filepath.Join("src", "p", "p.go")
 	for _, dir := range candidates {
 		if _, err := os.Stat(filepath.Join(dir, marker)); err != nil {
 			continue
