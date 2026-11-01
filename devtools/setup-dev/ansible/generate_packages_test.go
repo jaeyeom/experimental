@@ -472,6 +472,34 @@ func TestHerdrSkippedOnTermux(t *testing.T) {
 	}
 }
 
+func TestHerdrSkillInstall(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "setup-herdr.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	for _, want := range []string{
+		"herdr_skill_paths:",
+		"{{ ansible_facts['env']['HOME'] }}/.claude/skills/herdr/SKILL.md",
+		"ansible.builtin.shell: command -v herdr",
+		"cmd: herdr --skill",
+		"strip_empty_ends: false",
+		"changed_when: false",
+		"failed_when: false",
+		"Skipping herdr skill install because herdr is not on PATH.",
+		"exited {{ herdr_skill_output.rc | default('unknown') }}",
+		"printed nothing",
+		"path: \"{{ item | dirname }}\"",
+		"content: \"{{ herdr_skill_output.stdout }}\"",
+		"loop: \"{{ herdr_skill_paths }}\"",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("setup-herdr.yml missing %q", want)
+		}
+	}
+}
+
 func TestLocateDatabaseRefreshIsThrottled(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "locate.yml"))
