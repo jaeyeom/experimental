@@ -84,11 +84,13 @@ the tool only reports which docs a change implicated.
 *** linters                                                    :experimental:
 
 Collection of linting tools for various file formats, including org-lint
-for Org-mode files and a Go linter for unnecessary interface assertions.
+for Org-mode files, a Go linter for unnecessary interface assertions, and
+blankassign for package-level blank assignments.
 
 *Available Linters:*
 - *org-lint*: Go wrapper around Emacs org-lint for Org-mode files
 - *unnecessary-interface-assertion-linter*: flags `var _ Iface = (*T)(nil)` when the interface is otherwise unused
+- *blankassign*: reports package-level `var _ = f()` when the initializer calls a function or receives from a channel
 
 *Installation:*
 #+BEGIN_SRC bash

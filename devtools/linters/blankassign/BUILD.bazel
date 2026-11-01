@@ -1,0 +1,56 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+# gazelle:exclude testdata
+
+go_library(
+    name = "go_default_library",
+    srcs = ["analyzer.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/linters/blankassign",
+    visibility = ["//devtools/linters:__subpackages__"],
+    deps = [
+        "@org_golang_x_tools//go/analysis:go_default_library",
+        "@org_golang_x_tools//go/analysis/passes/inspect:go_default_library",
+        "@org_golang_x_tools//go/ast/inspector:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["analyzer_test.go"],
+    # The SDK is on PATH when the sandbox has no system go. analysistest
+    # loads packages with the go command.
+    data = glob(["testdata/**"]) + [
+        "@go_default_sdk//:files",  # keep
+    ],
+    deps = [
+        ":go_default_library",
+        "@org_golang_x_tools//go/analysis/analysistest:go_default_library",
+    ],
+)
+
+# Fixture libraries exist so check-bazel-src-files sees the testdata .go files.
+# analysistest loads them; these targets are not part of the analyzer build.
+go_library(
+    name = "blank_fixture",
+    srcs = ["testdata/src/blank/blank.go"],  # keep
+    importpath = "blank",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+    deps = [":other_fixture"],  # keep
+)
+
+go_library(
+    name = "other_fixture",
+    srcs = ["testdata/src/example.com/other/other.go"],  # keep
+    importpath = "example.com/other",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)
+
+go_library(
+    name = "allow_fixture",
+    srcs = ["testdata/src/allow/allow.go"],  # keep
+    importpath = "allow",
+    tags = ["manual"],
+    visibility = ["//visibility:private"],
+)

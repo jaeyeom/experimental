@@ -3,7 +3,7 @@
 
 * Overview
 
-This directory contains linting tools for various file formats, including org-lint for Org-mode files and a Go linter for unnecessary interface assertions.
+This directory contains linting tools for various file formats, including org-lint for Org-mode files, a Go linter for unnecessary interface assertions, and blankassign for package-level blank assignments.
 
 * Tools
 
@@ -192,4 +192,31 @@ Exit code 1 if issues are found, 0 if clean.
 
 #+BEGIN_SRC bash
 bazel build //devtools/linters/cmd/unnecessary-interface-assertion-linter
+#+END_SRC
+
+** blankassign
+
+Reports a package-level value spec when every name is ~_~, an initializer is
+present, and that initializer calls a function or receives from a channel.
+Interface assertions such as ~var _ http.Handler = (*handler)(nil)~ are left
+to unnecessary-interface-assertion-linter.
+
+*** Installation
+
+#+BEGIN_SRC bash
+go install github.com/jaeyeom/experimental/devtools/linters/cmd/blankassign@latest
+#+END_SRC
+
+*** Usage
+
+#+BEGIN_SRC bash
+# go vet drives the singlechecker
+go vet -vettool=$(which blankassign) ./...
+
+# Ignore constant calls to a package function. The default allowlist is empty.
+go vet -vettool=$(which blankassign) -allowlist regexp.MustCompile ./...
+#+END_SRC
+
+#+BEGIN_SRC bash
+bazel build //devtools/linters/cmd/blankassign
 #+END_SRC
