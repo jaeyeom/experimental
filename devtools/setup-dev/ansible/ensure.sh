@@ -51,6 +51,8 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/playbook_resume.sh"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
+. "$(dirname "$0")/herdr_skill_approve.sh"
+# shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/ansible_become.sh"
 
 # Detect OS
@@ -875,6 +877,15 @@ pre_approve_urls "$@"
 any_failed=false
 ANSIBLE_RUN_LOG="$LOG_DIR/ensure_sh.ansible.log"
 ANSIBLE_RUN_STATUS="$LOG_DIR/ensure_sh.ansible.status"
+
+# The Ansible command module has no controlling terminal, so a skill
+# prompt there cannot be answered. Review in this shell after herdr.yml
+# upgrades the binary. pre_approve_urls stays URL-only.
+# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+if any_arg_imports setup-herdr.yml $playbooks; then
+    approve_herdr_skill "$(dirname "$0")" "$flags" "$playbooks" || exit 1
+fi
+
 # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
 for playbook in $playbooks; do
     # Add .yml suffix only if it doesn't already exist

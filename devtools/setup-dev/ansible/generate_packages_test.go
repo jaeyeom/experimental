@@ -491,12 +491,17 @@ func TestHerdrSkillInstall(t *testing.T) {
 		"exited {{ herdr_skill_output.rc | default('unknown') }}",
 		"printed nothing",
 		"path: \"{{ item | dirname }}\"",
-		"content: \"{{ herdr_skill_output.stdout }}\"",
+		"apply-text",
+		"herdr-skill",
+		"changed_when: (stdout | trim) == \"updated\"",
 		"loop: \"{{ herdr_skill_paths }}\"",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("setup-herdr.yml missing %q", want)
 		}
+	}
+	if strings.Contains(got, "content: \"{{ herdr_skill_output.stdout }}\"") {
+		t.Errorf("setup-herdr.yml still copies unreviewed herdr --skill stdout")
 	}
 }
 

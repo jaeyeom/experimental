@@ -46,6 +46,7 @@ sh_binary(
         "ansible_become.sh",
         "cache_expired.sh",
         "community_general.sh",
+        "herdr_skill_approve.sh",
         "playbook_resume.sh",
     ],
 )
@@ -86,6 +87,23 @@ sh_test(
         "proot_tracer.sh",
         "setup-codex-termux.yml",
         "setup-grok-termux.yml",
+    ],
+)
+
+sh_test(
+    name = "verified_text_test",
+    srcs = ["verified_text_test.sh"],
+    data = ["verified-run"],
+)
+
+sh_test(
+    name = "herdr_skill_approve_test",
+    srcs = ["herdr_skill_approve_test.sh"],
+    data = [
+        "ensure.sh",
+        "herdr_skill_approve.sh",
+        "playbook_resume.sh",
+        "verified-run",
     ],
 )
 
