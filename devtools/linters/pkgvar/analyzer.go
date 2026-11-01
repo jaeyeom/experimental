@@ -171,6 +171,18 @@ func keepsResult(names []*ast.Ident) bool {
 }
 
 func (c *checker) exprEffect(root ast.Expr) effect {
+	return c.walkEffect(root, false)
+}
+
+// argEffect is exprEffect for a call argument. A pointer-receiver method
+// value, or an address of a package-level variable, makes that argument
+// impure. The same expression as a whole initializer is not a call, so
+// exprEffect leaves it alone.
+func (c *checker) argEffect(root ast.Expr) effect {
+	return c.walkEffect(root, true)
+}
+
+func (c *checker) walkEffect(root ast.Expr, addr bool) effect {
 	if root == nil || isGoConst(c.pass.TypesInfo, root) {
 		return effectNone
 	}
@@ -186,7 +198,12 @@ func (c *checker) exprEffect(root ast.Expr) effect {
 			eff = eff.join(c.callEffect(n))
 			return false
 		case *ast.UnaryExpr:
-			if n.Op == token.ARROW {
+			if c.unaryImpure(n, addr) {
+				eff = effectImpure
+				return false
+			}
+		case *ast.SelectorExpr:
+			if addr && c.methodAddrVar(n) != nil {
 				eff = effectImpure
 				return false
 			}
@@ -196,13 +213,20 @@ func (c *checker) exprEffect(root ast.Expr) effect {
 	return eff
 }
 
+func (c *checker) unaryImpure(n *ast.UnaryExpr, addr bool) bool {
+	if n.Op == token.ARROW {
+		return true
+	}
+	return addr && n.Op == token.AND && c.rootPkgVar(n.X) != nil
+}
+
 func (c *checker) callEffect(call *ast.CallExpr) effect {
 	eff := c.funValueEffect(call.Fun)
 	if c.methodAddrVar(call.Fun) != nil {
 		eff = effectImpure
 	}
 	for _, arg := range call.Args {
-		eff = eff.join(c.exprEffect(arg))
+		eff = eff.join(c.argEffect(arg))
 	}
 	if eff == effectImpure || c.conversion(call) {
 		return eff
@@ -560,8 +584,8 @@ func isType(info *types.Info, expr ast.Expr) bool {
 	return ok && tv.IsType()
 }
 
-// isIterator reports the Go range-over-function shape: one func(V) bool or
-// func(K, V) bool parameter and no results.
+// isIterator reports the Go range-over-function shape: one yield parameter
+// of func() bool, func(V) bool, or func(K, V) bool, and no results.
 func isIterator(sig *types.Signature) bool {
 	if sig.Params().Len() != 1 || sig.Results().Len() != 0 {
 		return false
@@ -574,8 +598,7 @@ func isIterator(sig *types.Signature) bool {
 	if !ok || basic.Kind() != types.Bool {
 		return false
 	}
-	n := yield.Params().Len()
-	return n == 1 || n == 2
+	return yield.Params().Len() <= 2
 }
 
 func funcDecls(pass *analysis.Pass) map[*types.Func]*ast.FuncDecl {

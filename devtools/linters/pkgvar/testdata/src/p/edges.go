@@ -142,6 +142,53 @@ func rangeInt() int {
 	return sum
 }
 
+func seq0(yield func() bool) {
+	os.Getpid()
+	yield()
+}
+
+func rangeSeq0() int {
+	n := 0
+	for range seq0 {
+		n++
+	}
+	return n
+}
+
+func rangeLit0() int {
+	n := 0
+	for range func(yield func() bool) {
+		os.Getpid()
+		yield()
+	} {
+		n++
+	}
+	return n
+}
+
+func rangeOther() int {
+	n := 0
+	for range pkg.Seq0 {
+		n++
+	}
+	return n
+}
+
+func ignore(func()) int { return 1 }
+
+func ignoreVal(func() int) int { return 1 }
+
+func takes() int { return ignore(counter.Inc) }
+
+func passAddr() *int { return id(&pt.X) }
+
+func takesVal() int { return ignoreVal(vi.Get) }
+
+func takesLocal() int {
+	n := Count(1)
+	return ignore(n.Inc)
+}
+
 func recA() int { return recB() + os.Getpid() }
 
 func recB() int { return recA() }
@@ -185,6 +232,13 @@ var (
 	viaLit       = rangeLit() // want "impure function or receives from a channel"
 	viaSlice     = rangeSlice()
 	viaInts      = rangeInt()
+	viaSeq0      = rangeSeq0()  // want "impure function or receives from a channel"
+	viaLit0      = rangeLit0()  // want "impure function or receives from a channel"
+	viaOtherSeq  = rangeOther() // want "impure function or receives from a channel"
+	viaArgInc    = takes()      // want "impure function or receives from a channel"
+	viaArgAddr   = passAddr()   // want "impure function or receives from a channel"
+	viaArgVal    = takesVal()
+	viaArgLocal  = takesLocal()
 	viaRecA      = recA() // want "impure function or receives from a channel"
 	viaRecB      = recB() // want "impure function or receives from a channel"
 	viaFact      = fact(3)

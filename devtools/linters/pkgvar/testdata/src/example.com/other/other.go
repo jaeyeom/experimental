@@ -6,3 +6,6 @@ func F() int { return 1 }
 
 // N is a package variable used to test cross-package mutation.
 var N int
+
+// Seq0 is a zero-parameter iterator used to test range over func(func() bool).
+func Seq0(yield func() bool) { yield() }
