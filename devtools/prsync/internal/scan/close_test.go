@@ -45,7 +45,7 @@ func TestCloseMergedDryRunWouldCloseMergedOnly(t *testing.T) {
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, orphanCfg(), "alice", []OrphanTab{
 		mergedOrphan("w2:tA", "AP-1306"),
 		noPROrphan("w2:tB", "AP-1287"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestCloseMergedLiveClosesMerged(t *testing.T) {
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{
 		mergedOrphan("w2:tA", "AP-1306"),
 		noPROrphan("w2:tB", "AP-1287"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestCloseMergedLiveSkipsNotMerged(t *testing.T) {
 	h := &closeHerdr{tabs: []herdr.Tab{liveTab("w2:tA", "w2", "AP-1306")}}
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{
 		mergedOrphan("w2:tA", "AP-1306"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestCloseMergedLiveSkipsNotFound(t *testing.T) {
 	h := &closeHerdr{} // tab list empty
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{
 		mergedOrphan("w2:tA", "AP-1306"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestCloseMergedLiveTabCloseNotFound(t *testing.T) {
 	}
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{
 		mergedOrphan("w2:tA", "AP-1306"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestCloseMergedLiveFailureStopsBatch(t *testing.T) {
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{
 		mergedOrphan("w2:tA", "AP-1306"),
 		mergedOrphan("w2:tC", "AP-1400"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if !errors.Is(err, ErrCloseFailed) {
 		t.Fatalf("error = %v, want ErrCloseFailed", err)
 	}
@@ -233,7 +233,7 @@ func TestCloseMergedLiveReverifyUsesResolvedAuthor(t *testing.T) {
 	h := &closeHerdr{tabs: []herdr.Tab{liveTab("w2:tA", "w2", "AP-1306")}}
 	_, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "bob", []OrphanTab{
 		mergedOrphan("w2:tA", "AP-1306"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestCloseMergedEmptyResults(t *testing.T) {
 	h := &closeHerdr{}
 	got, err := CloseMerged(context.Background(), CloseDeps{Herdr: h}, orphanCfg(), "alice", []OrphanTab{
 		noPROrphan("w2:tB", "AP-1287"),
-	}, fixtureNow())
+	}, fixtureNow)
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
