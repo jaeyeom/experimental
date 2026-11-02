@@ -152,38 +152,45 @@ var (
 		panic("x")
 		return 0
 	}())
-	loaded      = []string{os.Getenv("A")}            // want "impure function or receives from a channel"
-	_           = <-ch                                // want "impure function or receives from a channel"
-	tableBad    = buildImpure()                       // want "impure function or receives from a channel"
-	_           = new(int)                            // want "discards its result"
-	ExportedEnv = os.Getenv("EXP")                    // want "impure function or receives from a channel"
-	blockX      = 1                                   // want "can be a constant"
-	viaAssign   = assignsSink()                       // want "impure function or receives from a channel"
-	viaAddr     = takesAddr()                         // want "impure function or receives from a channel"
-	viaGo       = startsGoroutine()                   // want "impure function or receives from a channel"
-	viaDefer    = defers()                            // want "impure function or receives from a channel"
-	viaSend     = sends()                             // want "impure function or receives from a channel"
-	invoked     = func() int { return os.Getpid() }() // want "impure function or receives from a channel"
+	loaded       = []string{os.Getenv("A")}            // want "impure function or receives from a channel"
+	_            = <-ch                                // want "impure function or receives from a channel"
+	tableBad     = buildImpure()                       // want "impure function or receives from a channel"
+	_            = new(int)                            // want "discards its result"
+	ExportedEnv  = os.Getenv("EXP")                    // want "impure function or receives from a channel"
+	blockX       = 1                                   // want "can be a constant"
+	viaAssign    = assignsSink()                       // want "impure function or receives from a channel"
+	viaAddr      = takesAddr()                         // want "impure function or receives from a channel"
+	viaGo        = startsGoroutine()                   // want "impure function or receives from a channel"
+	viaDefer     = defers()                            // want "impure function or receives from a channel"
+	viaSend      = sends()                             // want "impure function or receives from a channel"
+	invoked      = func() int { return os.Getpid() }() // want "impure function or receives from a channel"
+	nolintBare   = "dev"                               //nolint:pkgvar // want "can be a constant"
+	nolintOther  = "dev"                               //nolint:other // kept // want "can be a constant"
+	nolintPrefix = "dev"                               //nolint:pkgvarfoo // kept // want "can be a constant"
+	nolintImpure = dial()                              //nolint:pkgvar // want "impure function or receives from a channel"
 )
 
 // These initializers stay quiet. The comment on each line is the reason.
 var (
-	_                       = 1                                 // The blank name is not a package-level variable.
-	xs                      = []int{1, 2, 3}                    // A slice composite is not a Go constant.
-	m                       = map[string]int{"a": 1}            // A map composite is not a Go constant.
-	arr                     = [2]int{1, 2}                      // An array composite is not a Go constant.
-	pt                      = Point{X: 1, Y: 2}                 // A struct composite is not a Go constant.
-	ErrX                    = errors.New("x")                   // Allowlisted, the argument is pure, and the name keeps the result.
-	msg                     = fmt.Errorf("bad %s", "x")         // Allowlisted, both arguments are pure, and the name keeps the result.
-	re                      = regexp.MustCompile("^[a-z]+$")    // Allowlisted, the pattern is pure, and the name keeps the result.
-	rePure                  = regexp.MustCompile(purePattern()) // purePattern is pure, so the allowlisted call stays pure.
-	buf                     = new(bytes.Buffer)                 // new is a pure builtin, and the name keeps the result.
-	made                    = make([]int, 0)                    // make is a pure builtin, and the name keeps the result.
-	table                   = build()                           // build only calls allowlisted MustCompile with a pure argument.
-	pureMethod              = object{}.Pure()                   // The method body is pure. Methods are judged by their body, not the allowlist.
-	lo                      = min(two(), 3)                     // min is a pure builtin, and two is a pure same-package function.
-	closure                 = returnsClosure()                  // The returned function literal is not called, so os.Getenv inside it does not run.
-	unused                  = func() int { return os.Getpid() } // The function literal is not called, so os.Getpid does not count.
-	_          http.Handler = (*handler)(nil)                   // A conversion is not a call. Interface assertions belong to the other linter.
-	_          http.Handler = handler{}                         // A composite used as an interface value is not a call.
+	_                          = 1                                 // The blank name is not a package-level variable.
+	xs                         = []int{1, 2, 3}                    // A slice composite is not a Go constant.
+	m                          = map[string]int{"a": 1}            // A map composite is not a Go constant.
+	arr                        = [2]int{1, 2}                      // An array composite is not a Go constant.
+	pt                         = Point{X: 1, Y: 2}                 // A struct composite is not a Go constant.
+	ErrX                       = errors.New("x")                   // Allowlisted, the argument is pure, and the name keeps the result.
+	msg                        = fmt.Errorf("bad %s", "x")         // Allowlisted, both arguments are pure, and the name keeps the result.
+	re                         = regexp.MustCompile("^[a-z]+$")    // Allowlisted, the pattern is pure, and the name keeps the result.
+	rePure                     = regexp.MustCompile(purePattern()) // purePattern is pure, so the allowlisted call stays pure.
+	buf                        = new(bytes.Buffer)                 // new is a pure builtin, and the name keeps the result.
+	made                       = make([]int, 0)                    // make is a pure builtin, and the name keeps the result.
+	table                      = build()                           // build only calls allowlisted MustCompile with a pure argument.
+	pureMethod                 = object{}.Pure()                   // The method body is pure. Methods are judged by their body, not the allowlist.
+	lo                         = min(two(), 3)                     // min is a pure builtin, and two is a pure same-package function.
+	closure                    = returnsClosure()                  // The returned function literal is not called, so os.Getenv inside it does not run.
+	unused                     = func() int { return os.Getpid() } // The function literal is not called, so os.Getpid does not count.
+	_             http.Handler = (*handler)(nil)                   // A conversion is not a call. Interface assertions belong to the other linter.
+	_             http.Handler = handler{}                         // A composite used as an interface value is not a call.
+	linkerVersion              = "dev"                             //nolint:pkgvar // set with -ldflags -X
+	keptDial                   = dial()                            //nolint:pkgvar // dial stays at package scope only with this directive
+	nolintListed               = "dev"                             //nolint:gosec,pkgvar // pkgvar is one name in the list
 )
