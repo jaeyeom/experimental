@@ -8,45 +8,46 @@ import "strings"
 // limit and the refresh runs. -e locate_updatedb_max_age_seconds=0 forces a run.
 const locateDBRefreshDue = `((ansible_date_time.epoch | int) - (locate_db_stat.stat.mtime | default(0) | int)) >= (locate_updatedb_max_age_seconds | default(7 * 24 * 60 * 60) | int)`
 
-var packages = []PackageData{
-	{command: "7z", debianPkgName: "p7zip-full", termuxPkgName: "p7zip", brewPkgName: "p7zip"},
-	{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag", brewPkgName: "the_silver_searcher"},
-	{command: "clang-format"},
-	{command: "cmake"},
-	{command: "curl"},
-	{command: "dart", debianPkgName: "dart", termuxPkgName: "dart", brewPkgName: "dart-sdk"},
-	{command: "direnv"},
-	{command: "ffmpegthumbnailer"},
-	{command: "fzf"},
-	{
-		// github/gh-stack publishes release binaries for the usual desktop and
-		// server targets, but not Android. Termux builds gh with GOOS=android,
-		// so `gh extension install` cannot find an asset there.
-		command: "gh",
-		Suffix:  ghStackExtensionSuffix(),
-	},
-	{command: "git"},
-	{command: "gpg", brewPkgName: "gnupg"},
-	{command: "gpg-agent", Imports: []Import{{Playbook: "gpg"}}, brewPkgName: "gnupg"},
-	{command: "grep"},
-	{command: "htop"},
-	{command: "jq"},
-	{command: "keychain"},
-	{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
-	{command: "libatomic1", checkCommand: "ldconfig -p | grep -q libatomic"},
-	{command: "libssl-dev", checkCommand: "pkg-config --exists libssl", termuxPkgName: "openssl", brewPkgName: "openssl"},
-	{command: "libtool", debianPkgName: "libtool-bin"},
-	{command: "libvterm", checkCommand: "pkg-config --exists vterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
-	{
-		command:       "locate",
-		debianPkgName: "plocate",
-		termuxPkgName: "mlocate",
-		brewPkgName:   "findutils",
-		// WSL often has no systemd, so plocate-updatedb.timer never runs and
-		// this playbook is the only refresh. plocate skips /mnt and 9p/drvfs
-		// so Windows drives stay out of the index. Termux mlocate has neither
-		// flag, and its database lives under the Termux prefix.
-		Suffix: `
+func packages() []PackageData {
+	return []PackageData{
+		{command: "7z", debianPkgName: "p7zip-full", termuxPkgName: "p7zip", brewPkgName: "p7zip"},
+		{command: "ag", debianPkgName: "silversearcher-ag", termuxPkgName: "silversearcher-ag", brewPkgName: "the_silver_searcher"},
+		{command: "clang-format"},
+		{command: "cmake"},
+		{command: "curl"},
+		{command: "dart", debianPkgName: "dart", termuxPkgName: "dart", brewPkgName: "dart-sdk"},
+		{command: "direnv"},
+		{command: "ffmpegthumbnailer"},
+		{command: "fzf"},
+		{
+			// github/gh-stack publishes release binaries for the usual desktop and
+			// server targets, but not Android. Termux builds gh with GOOS=android,
+			// so `gh extension install` cannot find an asset there.
+			command: "gh",
+			Suffix:  ghStackExtensionSuffix(),
+		},
+		{command: "git"},
+		{command: "gpg", brewPkgName: "gnupg"},
+		{command: "gpg-agent", Imports: []Import{{Playbook: "gpg"}}, brewPkgName: "gnupg"},
+		{command: "grep"},
+		{command: "htop"},
+		{command: "jq"},
+		{command: "keychain"},
+		{command: "kotlinc", debianPkgName: "kotlin", termuxPkgName: "kotlin", brewPkgName: "kotlin"},
+		{command: "libatomic1", checkCommand: "ldconfig -p | grep -q libatomic"},
+		{command: "libssl-dev", checkCommand: "pkg-config --exists libssl", termuxPkgName: "openssl", brewPkgName: "openssl"},
+		{command: "libtool", debianPkgName: "libtool-bin"},
+		{command: "libvterm", checkCommand: "pkg-config --exists vterm", debianPkgName: "libvterm-dev", termuxPkgName: "libvterm", brewPkgName: "libvterm"},
+		{
+			command:       "locate",
+			debianPkgName: "plocate",
+			termuxPkgName: "mlocate",
+			brewPkgName:   "findutils",
+			// WSL often has no systemd, so plocate-updatedb.timer never runs and
+			// this playbook is the only refresh. plocate skips /mnt and 9p/drvfs
+			// so Windows drives stay out of the index. Termux mlocate has neither
+			// flag, and its database lives under the Termux prefix.
+			Suffix: `
 
     - name: Check locate database age on non-macOS systems
       stat:
@@ -79,36 +80,37 @@ var packages = []PackageData{
       debug:
         msg: "On macOS, run 'sudo /usr/libexec/locate.updatedb' manually to update the locate database"
       when: ` + WhenDarwin,
-	},
-	{command: "make"},
-	{command: "man", brewPkgName: "man-db"},
-	{command: "mediainfo"},
-	{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
-	{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []Import{{Playbook: "python3-notmuch2"}}},
-	{command: "npm", debianPkgName: "npm", termuxPkgName: "nodejs", brewPkgName: "node"},
-	{command: "openssl", debianPkgName: "openssl", termuxPkgName: "openssl-tool", brewPkgName: "openssl"},
-	{command: "pandoc"},
-	{command: "pass"},
-	{command: "perl"},
-	{command: "pkg-config"},
-	{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf", brewPkgName: "protobuf"},
-	{command: "psql", debianPkgName: "postgresql-client", termuxPkgName: "postgresql", brewPkgName: "postgresql"},
-	{command: "python3-notmuch2", checkCommand: "python3 -c \"import notmuch2\"", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch", brewPkgName: "notmuch"},
-	{command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep", brewPkgName: "ripgrep"},
-	{command: "sed", brewPkgName: "gsed"},
-	{command: "shellcheck"},
-	{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh", brewPkgName: "openssh"},
-	{command: "sshpass"},
-	{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer", brewPkgName: "mactex"},
-	{command: "tmux"},
-	{command: "udocker"},
-	{command: "unzip"},
-	{command: "vipsthumbnail", debianPkgName: "libvips-tools", termuxPkgName: "libvips", brewPkgName: "vips"},
-	{command: "w3m"},
-	{command: "wget"},
-	{command: "which"},
-	{command: "zip"},
-	{command: "zoxide"},
+		},
+		{command: "make"},
+		{command: "man", brewPkgName: "man-db"},
+		{command: "mediainfo"},
+		{command: "mono", debianPkgName: "mono-devel", termuxPkgName: "mono"},
+		{command: "notmuch", debianPkgName: "notmuch", termuxPkgName: "notmuch", Imports: []Import{{Playbook: "python3-notmuch2"}}},
+		{command: "npm", debianPkgName: "npm", termuxPkgName: "nodejs", brewPkgName: "node"},
+		{command: "openssl", debianPkgName: "openssl", termuxPkgName: "openssl-tool", brewPkgName: "openssl"},
+		{command: "pandoc"},
+		{command: "pass"},
+		{command: "perl"},
+		{command: "pkg-config"},
+		{command: "protoc", debianPkgName: "protobuf-compiler", termuxPkgName: "protobuf", brewPkgName: "protobuf"},
+		{command: "psql", debianPkgName: "postgresql-client", termuxPkgName: "postgresql", brewPkgName: "postgresql"},
+		{command: "python3-notmuch2", checkCommand: "python3 -c \"import notmuch2\"", debianPkgName: "python3-notmuch2", termuxPkgName: "notmuch", brewPkgName: "notmuch"},
+		{command: "rg", debianPkgName: "ripgrep", termuxPkgName: "ripgrep", brewPkgName: "ripgrep"},
+		{command: "sed", brewPkgName: "gsed"},
+		{command: "shellcheck"},
+		{command: "ssh", debianPkgName: "openssh-client", termuxPkgName: "openssh", brewPkgName: "openssh"},
+		{command: "sshpass"},
+		{command: "tlmgr", debianPkgName: "texlive-lang-korean", termuxPkgName: "texlive-installer", brewPkgName: "mactex"},
+		{command: "tmux"},
+		{command: "udocker"},
+		{command: "unzip"},
+		{command: "vipsthumbnail", debianPkgName: "libvips-tools", termuxPkgName: "libvips", brewPkgName: "vips"},
+		{command: "w3m"},
+		{command: "wget"},
+		{command: "which"},
+		{command: "zip"},
+		{command: "zoxide"},
+	}
 }
 
 // ghStackExtensionSuffix is appended to the gh playbook so the extension is
@@ -189,244 +191,245 @@ func emacsApplicationsAliasSuffix() string {
 `
 }
 
-var platformSpecificTools = []PlatformSpecificTool{
-	{
-		command: "act",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "act"},
-			PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
-			PlatformTermux:     GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
+func platformSpecificTools() []PlatformSpecificTool {
+	return []PlatformSpecificTool{
+		{
+			command: "act",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "act"},
+				PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
+				PlatformTermux:     GoInstallMethod{PkgPath: "github.com/nektos/act@latest"},
+			},
+			Imports: []Import{{Playbook: "gh"}},
 		},
-		Imports: []Import{{Playbook: "gh"}},
-	},
-	{
-		command: "actionlint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "actionlint"},
-			PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/rhysd/actionlint/cmd/actionlint@latest"},
-			PlatformTermux:     GoInstallMethod{PkgPath: "github.com/rhysd/actionlint/cmd/actionlint@latest"},
+		{
+			command: "actionlint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "actionlint"},
+				PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/rhysd/actionlint/cmd/actionlint@latest"},
+				PlatformTermux:     GoInstallMethod{PkgPath: "github.com/rhysd/actionlint/cmd/actionlint@latest"},
+			},
+			Imports: []Import{{Playbook: "gh"}},
 		},
-		Imports: []Import{{Playbook: "gh"}},
-	},
-	{
-		// agy is the Antigravity CLI, separate from the antigravity desktop
-		// app. install.sh reads uname -o: Android (Termux) gets the Bionic
-		// build, and a proot distro that reports GNU/Linux gets the glibc
-		// build. The binary lands in ~/.local/bin and updates itself.
-		command: "agy",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: ShellInstallMethod{
-				InstallCommand: "{{ playbook_dir }}/verified-run exec https://antigravity.google/cli/install.sh",
-				Environment: map[string]string{
-					"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+		{
+			// agy is the Antigravity CLI, separate from the antigravity desktop
+			// app. install.sh reads uname -o: Android (Termux) gets the Bionic
+			// build, and a proot distro that reports GNU/Linux gets the glibc
+			// build. The binary lands in ~/.local/bin and updates itself.
+			command: "agy",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: ShellInstallMethod{
+					InstallCommand: "{{ playbook_dir }}/verified-run exec https://antigravity.google/cli/install.sh",
+					Environment: map[string]string{
+						"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+					},
+				},
+			},
+			Imports: []Import{
+				{Playbook: "curl"},
+				{Playbook: "setup-user-bin-directory"},
+			},
+		},
+		{
+			command: "antigravity",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewCaskInstallMethod{Name: "antigravity"},
+				PlatformDebianLike: AptRepoInstallMethod{
+					Name:           "antigravity",
+					GPGKeyURL:      "https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg",
+					GPGKeyPath:     "/etc/apt/keyrings/antigravity-repo-key.gpg",
+					RepoURL:        "https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/",
+					RepoComponents: "main",
+					Codename:       "antigravity-debian",
+					GPGKeyBase64:   "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tCgp4c0JOQkdDUnQ3TUJDQURrWUpISFFRb0w2dEtyVy9MYm1mUjlsano3aWIyYVdubzRKTzNWS1F2THdqeVVNUHBxCi9TWFhNT254OGpYd2dXaXpwUHhRWURSSjBTUVhTOVVMSjFoWFJML09nTW5aQVl2WURlVjJqQm5Lc0FJRWRpRy8KZTFxbThQNFc5cXBXSmMraE5xN0ZPVDEzUnpHV1J4NTdTZExXU1hvMEtlWTM4cjlsdmpqT21UL2N1T2NtandsRApUOVhZZi9SU08reUovQXN5TWRBcitaYkRlUVVkOUhZSmlQZEkwNGxHYUdNMDJNakRNbngrbW9uYyt5NTR0K1orCnJ5MVd0UWR6b1F0OWRIbElQbFYxdFIreFY1REhIc2VqQ1p4dTlUV3p6U2xMNXdmQkJlRXo3Ui9PSXppdkdKcFcKUWRKemQrMlFEWFNSZzlxMlhZV1A1WlZ0U2dqVlZKak5sYjZaQUJFQkFBSE5WRUZ5ZEdsbVlXTjBJRkpsWjJsegpkSEo1SUZKbGNHOXphWFJ2Y25rZ1UybG5ibVZ5SUR4aGNuUnBabUZqZEMxeVpXZHBjM1J5ZVMxeVpYQnZjMmwwCmIzSjVMWE5wWjI1bGNrQm5iMjluYkdVdVkyOXRQc0xBamdRVEFRb0FPQlloQkRXNm9MTStuck9XOVp5b09NQzYKWE9iY1l4V2pCUUpna2JlekFoc0RCUXNKQ0FjQ0JoVUtDUWdMQWdRV0FnTUJBaDRCQWhlQUFBb0pFTUM2WE9iYwpZeFdqK2lnSUFNRmg2RHJBWU1lcTlzYloxWkc2b0FNcmluVWhlR1FiRXFlNzZuSURRTnNabmhEd1oyd1dxZ1ZDCjdEZ09NcWxoUW1PbXptN002TnptcTJkdlB3cTN4QzJPZUk5ZlF5empUNzJkZUJUekxQN1BKb2s5UEpGT01kTGYKSUxTc1VubU1zaGVRdDREVU8wallBWDJLVXVXT0lYWEphWjMxOVF5b1JOQlBZYTVxejdxWFM3d0hMT1k4OUlEcQpmSHQ2QXVkOEVSNXpoeU95aHl0Y1lNZWFHQzFnMUlLV21nZXduaEVxMDJGYW50TUpHbG1tRmkyZUEwRVBEMDJHCkMzNzQyUUdxUnhMd2pXc201L1RweXVVMjRFWUtSR0NSbTdRZFZJbzN1Z0ZTZXRLcm4wYnlPeFdHQnZ0dTRmSDgKWFd2WmtSVCt1K3l6SDFzNXlGWUJxYzJKVHJySnZSVT0KPVFudk4KLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQo=",
 				},
 			},
 		},
-		Imports: []Import{
-			{Playbook: "curl"},
-			{Playbook: "setup-user-bin-directory"},
-		},
-	},
-	{
-		command: "antigravity",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewCaskInstallMethod{Name: "antigravity"},
-			PlatformDebianLike: AptRepoInstallMethod{
-				Name:           "antigravity",
-				GPGKeyURL:      "https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg",
-				GPGKeyPath:     "/etc/apt/keyrings/antigravity-repo-key.gpg",
-				RepoURL:        "https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/",
-				RepoComponents: "main",
-				Codename:       "antigravity-debian",
-				GPGKeyBase64:   "LS0tLS1CRUdJTiBQR1AgUFVCTElDIEtFWSBCTE9DSy0tLS0tCgp4c0JOQkdDUnQ3TUJDQURrWUpISFFRb0w2dEtyVy9MYm1mUjlsano3aWIyYVdubzRKTzNWS1F2THdqeVVNUHBxCi9TWFhNT254OGpYd2dXaXpwUHhRWURSSjBTUVhTOVVMSjFoWFJML09nTW5aQVl2WURlVjJqQm5Lc0FJRWRpRy8KZTFxbThQNFc5cXBXSmMraE5xN0ZPVDEzUnpHV1J4NTdTZExXU1hvMEtlWTM4cjlsdmpqT21UL2N1T2NtandsRApUOVhZZi9SU08reUovQXN5TWRBcitaYkRlUVVkOUhZSmlQZEkwNGxHYUdNMDJNakRNbngrbW9uYyt5NTR0K1orCnJ5MVd0UWR6b1F0OWRIbElQbFYxdFIreFY1REhIc2VqQ1p4dTlUV3p6U2xMNXdmQkJlRXo3Ui9PSXppdkdKcFcKUWRKemQrMlFEWFNSZzlxMlhZV1A1WlZ0U2dqVlZKak5sYjZaQUJFQkFBSE5WRUZ5ZEdsbVlXTjBJRkpsWjJsegpkSEo1SUZKbGNHOXphWFJ2Y25rZ1UybG5ibVZ5SUR4aGNuUnBabUZqZEMxeVpXZHBjM1J5ZVMxeVpYQnZjMmwwCmIzSjVMWE5wWjI1bGNrQm5iMjluYkdVdVkyOXRQc0xBamdRVEFRb0FPQlloQkRXNm9MTStuck9XOVp5b09NQzYKWE9iY1l4V2pCUUpna2JlekFoc0RCUXNKQ0FjQ0JoVUtDUWdMQWdRV0FnTUJBaDRCQWhlQUFBb0pFTUM2WE9iYwpZeFdqK2lnSUFNRmg2RHJBWU1lcTlzYloxWkc2b0FNcmluVWhlR1FiRXFlNzZuSURRTnNabmhEd1oyd1dxZ1ZDCjdEZ09NcWxoUW1PbXptN002TnptcTJkdlB3cTN4QzJPZUk5ZlF5empUNzJkZUJUekxQN1BKb2s5UEpGT01kTGYKSUxTc1VubU1zaGVRdDREVU8wallBWDJLVXVXT0lYWEphWjMxOVF5b1JOQlBZYTVxejdxWFM3d0hMT1k4OUlEcQpmSHQ2QXVkOEVSNXpoeU95aHl0Y1lNZWFHQzFnMUlLV21nZXduaEVxMDJGYW50TUpHbG1tRmkyZUEwRVBEMDJHCkMzNzQyUUdxUnhMd2pXc201L1RweXVVMjRFWUtSR0NSbTdRZFZJbzN1Z0ZTZXRLcm4wYnlPeFdHQnZ0dTRmSDgKWFd2WmtSVCt1K3l6SDFzNXlGWUJxYzJKVHJySnZSVT0KPVFudk4KLS0tLS1FTkQgUEdQIFBVQkxJQyBLRVkgQkxPQ0stLS0tLQo=",
-			},
-		},
-	},
-	{
-		// aside is the Aside Browser remote-control CLI. Termux is omitted:
-		// the official installer targets linux-x64/linux-arm64 and macOS only.
-		command: "aside",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: ShellInstallMethod{
-				InstallCommand: "{{ playbook_dir }}/verified-run exec https://releases.aside.com/install.sh",
-				Environment: map[string]string{
-					"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+		{
+			// aside is the Aside Browser remote-control CLI. Termux is omitted:
+			// the official installer targets linux-x64/linux-arm64 and macOS only.
+			command: "aside",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: ShellInstallMethod{
+					InstallCommand: "{{ playbook_dir }}/verified-run exec https://releases.aside.com/install.sh",
+					Environment: map[string]string{
+						"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+					},
+				},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: "{{ playbook_dir }}/verified-run exec https://releases.aside.com/install.sh",
+					Environment: map[string]string{
+						"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+					},
 				},
 			},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: "{{ playbook_dir }}/verified-run exec https://releases.aside.com/install.sh",
-				Environment: map[string]string{
-					"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+			Imports: []Import{
+				{Playbook: "curl"},
+				{Playbook: "setup-user-bin-directory"},
+				{Playbook: "libatomic1", When: WhenDebianLike},
+			},
+		},
+		GoTool("bazel-affected-tests", "github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
+		{
+			command: "biome",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "biome"},
+				PlatformDebianLike: NvmInstallMethod{Name: "@biomejs/biome"},
+				PlatformTermux:     NpmInstallMethod{Name: "@biomejs/biome"},
+			},
+			Imports: nil,
+		},
+		GoTool("buf", "github.com/bufbuild/buf/cmd/buf@latest"),
+		GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
+		GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
+		{
+			command: "cargo",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformTermux: TermuxPkgInstallMethod{Name: "rust"},
+			},
+		},
+		{
+			command: "cargo-add",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: CargoInstallMethod{Name: "cargo-edit"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "cargo-install-update",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: CargoInstallMethod{Name: "cargo-update"},
+			},
+			Imports: []Import{
+				{Playbook: "pkg-config", When: WhenNotDarwin},
+				{Playbook: "libssl-dev", When: WhenNotDarwin},
+			},
+		},
+		{
+			command: "cargo-outdated",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: CargoInstallMethod{Name: "cargo-outdated"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "check-jsonschema",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "check-jsonschema"},
+				PlatformTermux:     UvInstallMethod{Name: "check-jsonschema"},
+				PlatformDebianLike: UvInstallMethod{Name: "check-jsonschema"},
+			},
+			Imports: []Import{{Playbook: "uv", When: WhenNotDarwin}},
+		},
+		{
+			command: "checkstyle",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "checkstyle"},
+				PlatformDebianLike: PackageInstallMethod{Name: "checkstyle"},
+			},
+			Imports: []Import{{Playbook: "setup-java"}},
+		},
+		{
+			// circleci is the official CircleCI CLI. Termux is omitted: there is
+			// no official package, and the installer targets Linux/macOS only.
+			command: "circleci",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "circleci"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand:    "DESTDIR={{ user_bin_directory }} {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/install.sh",
+					VersionCommand:    "circleci version",
+					VersionRegex:      "([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/CircleCI-Public/circleci-cli/releases/latest",
+					LatestVersionPath: "tag_name",
+					Environment: map[string]string{
+						"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+					},
+				},
+			},
+			Imports: []Import{
+				{Playbook: "curl", When: WhenDebianLike},
+				{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
+			},
+		},
+		{
+			command: "claude",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: ShellInstallMethod{
+					InstallCommand: "curl -fsSL https://claude.ai/install.sh | bash",
+				},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: "curl -fsSL https://claude.ai/install.sh | bash",
+				},
+				PlatformTermux: NpmInstallMethod{
+					Name:        "@anthropic-ai/claude-code@2.1.112",
+					InstallArgs: []string{"--ignore-scripts"},
+				},
+			},
+			Imports: []Import{
+				{Playbook: "curl", When: WhenDarwin},
+				{Playbook: "setup-npm", When: WhenTermux},
+				{Playbook: "setup-nvm", When: WhenDebianLike},
+			},
+		},
+		{
+			command: "claudelytics",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: CargoInstallMethod{Name: "claudelytics"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "cloudflared",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "cloudflared"},
+				PlatformDebianLike: AptRepoInstallMethod{
+					Name:           "cloudflared",
+					GPGKeyURL:      "https://pkg.cloudflare.com/cloudflare-main.gpg",
+					GPGKeyPath:     "/usr/share/keyrings/cloudflare-main.gpg",
+					RepoURL:        "https://pkg.cloudflare.com/cloudflared",
+					RepoComponents: "main",
+					Codename:       "any",
 				},
 			},
 		},
-		Imports: []Import{
-			{Playbook: "curl"},
-			{Playbook: "setup-user-bin-directory"},
-			{Playbook: "libatomic1", When: WhenDebianLike},
-		},
-	},
-	GoTool("bazel-affected-tests", "github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@latest"),
-	{
-		command: "biome",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "biome"},
-			PlatformDebianLike: NvmInstallMethod{Name: "@biomejs/biome"},
-			PlatformTermux:     NpmInstallMethod{Name: "@biomejs/biome"},
-		},
-		Imports: nil,
-	},
-	GoTool("buf", "github.com/bufbuild/buf/cmd/buf@latest"),
-	GoTool("buildifier", "github.com/bazelbuild/buildtools/buildifier@latest"),
-	GoTool("buildozer", "github.com/bazelbuild/buildtools/buildozer@latest"),
-	{
-		command: "cargo",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformTermux: TermuxPkgInstallMethod{Name: "rust"},
-		},
-	},
-	{
-		command: "cargo-add",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: CargoInstallMethod{Name: "cargo-edit"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "cargo-install-update",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: CargoInstallMethod{Name: "cargo-update"},
-		},
-		Imports: []Import{
-			{Playbook: "pkg-config", When: WhenNotDarwin},
-			{Playbook: "libssl-dev", When: WhenNotDarwin},
-		},
-	},
-	{
-		command: "cargo-outdated",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: CargoInstallMethod{Name: "cargo-outdated"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "check-jsonschema",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "check-jsonschema"},
-			PlatformTermux:     UvInstallMethod{Name: "check-jsonschema"},
-			PlatformDebianLike: UvInstallMethod{Name: "check-jsonschema"},
-		},
-		Imports: []Import{{Playbook: "uv", When: WhenNotDarwin}},
-	},
-	{
-		command: "checkstyle",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "checkstyle"},
-			PlatformDebianLike: PackageInstallMethod{Name: "checkstyle"},
-		},
-		Imports: []Import{{Playbook: "setup-java"}},
-	},
-	{
-		// circleci is the official CircleCI CLI. Termux is omitted: there is
-		// no official package, and the installer targets Linux/macOS only.
-		command: "circleci",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "circleci"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand:    "DESTDIR={{ user_bin_directory }} {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/install.sh",
-				VersionCommand:    "circleci version",
-				VersionRegex:      "([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/CircleCI-Public/circleci-cli/releases/latest",
-				LatestVersionPath: "tag_name",
-				Environment: map[string]string{
-					"PATH": `"{{ user_bin_directory }}:{{ ansible_facts['env']['PATH'] }}"`,
+		{
+			command: "codex",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     NpmInstallMethod{Name: "@openai/codex"},
+				PlatformDebianLike: NvmInstallMethod{Name: "@openai/codex"},
+				PlatformTermux: NpmInstallMethod{
+					Name:        "@openai/codex",
+					InstallArgs: []string{"--os=linux", "--cpu=arm64"},
 				},
 			},
-		},
-		Imports: []Import{
-			{Playbook: "curl", When: WhenDebianLike},
-			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
-		},
-	},
-	{
-		command: "claude",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: ShellInstallMethod{
-				InstallCommand: "curl -fsSL https://claude.ai/install.sh | bash",
-			},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: "curl -fsSL https://claude.ai/install.sh | bash",
-			},
-			PlatformTermux: NpmInstallMethod{
-				Name:        "@anthropic-ai/claude-code@2.1.112",
-				InstallArgs: []string{"--ignore-scripts"},
+			Imports: []Import{
+				{Playbook: "setup-codex-termux", When: WhenTermux, PostInstall: true},
 			},
 		},
-		Imports: []Import{
-			{Playbook: "curl", When: WhenDarwin},
-			{Playbook: "setup-npm", When: WhenTermux},
-			{Playbook: "setup-nvm", When: WhenDebianLike},
+		{
+			command: "copier",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "copier"},
+				PlatformTermux:     UvInstallMethod{Name: "copier"},
+				PlatformDebianLike: UvInstallMethod{Name: "copier"},
+			},
+			Imports: nil,
 		},
-	},
-	{
-		command: "claudelytics",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: CargoInstallMethod{Name: "claudelytics"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "cloudflared",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "cloudflared"},
-			PlatformDebianLike: AptRepoInstallMethod{
-				Name:           "cloudflared",
-				GPGKeyURL:      "https://pkg.cloudflare.com/cloudflare-main.gpg",
-				GPGKeyPath:     "/usr/share/keyrings/cloudflare-main.gpg",
-				RepoURL:        "https://pkg.cloudflare.com/cloudflared",
-				RepoComponents: "main",
-				Codename:       "any",
+		{
+			command: "delta",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "git-delta"},
+				PlatformDebian: DebianPkgInstallMethod{Name: "git-delta"},
+				PlatformUbuntu: UbuntuPkgInstallMethod{Name: "git-delta"},
+				PlatformTermux: TermuxPkgInstallMethod{Name: "git-delta"},
 			},
 		},
-	},
-	{
-		command: "codex",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     NpmInstallMethod{Name: "@openai/codex"},
-			PlatformDebianLike: NvmInstallMethod{Name: "@openai/codex"},
-			PlatformTermux: NpmInstallMethod{
-				Name:        "@openai/codex",
-				InstallArgs: []string{"--os=linux", "--cpu=arm64"},
-			},
-		},
-		Imports: []Import{
-			{Playbook: "setup-codex-termux", When: WhenTermux, PostInstall: true},
-		},
-	},
-	{
-		command: "copier",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "copier"},
-			PlatformTermux:     UvInstallMethod{Name: "copier"},
-			PlatformDebianLike: UvInstallMethod{Name: "copier"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "delta",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "git-delta"},
-			PlatformDebian: DebianPkgInstallMethod{Name: "git-delta"},
-			PlatformUbuntu: UbuntuPkgInstallMethod{Name: "git-delta"},
-			PlatformTermux: TermuxPkgInstallMethod{Name: "git-delta"},
-		},
-	},
-	{
-		command: "detekt",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "detekt"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: `
+		{
+			command: "detekt",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "detekt"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: `
 version="{{ detekt_latest_release.json.tag_name | regex_replace('^v', '') }}"
 curl -sSLO "https://github.com/detekt/detekt/releases/download/v${version}/detekt-cli-${version}.zip"
 unzip -o "detekt-cli-${version}.zip"
@@ -436,179 +439,179 @@ mkdir -p {{ user_bin_directory }}/../lib
 mv "detekt-cli-${version}" {{ user_bin_directory }}/../lib/detekt
 ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directory }}/detekt
 `,
-				VersionCommand:    "detekt --version",
-				VersionRegex:      "([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/detekt/detekt/releases/latest",
-				LatestVersionPath: "tag_name",
+					VersionCommand:    "detekt --version",
+					VersionRegex:      "([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/detekt/detekt/releases/latest",
+					LatestVersionPath: "tag_name",
+				},
+			},
+			Imports: []Import{
+				{Playbook: "curl", When: WhenDebianLike},
+				{Playbook: "unzip", When: WhenDebianLike},
+				{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
 			},
 		},
-		Imports: []Import{
-			{Playbook: "curl", When: WhenDebianLike},
-			{Playbook: "unzip", When: WhenDebianLike},
-			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
-		},
-	},
-	{
-		command:   "docker",
-		platforms: nil, // No installation tasks - only conditional imports
-		Imports: []Import{
-			{Playbook: "setup-docker-lima", When: "ansible_facts['os_family'] == \"Darwin\""},
-			{Playbook: "setup-docker-wrapper-udocker", When: "ansible_facts['env']['TERMUX_VERSION'] is defined"},
-			{Playbook: "setup-docker-ce", When: "ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != \"Darwin\""},
-		},
-	},
-	{
-		command: "e",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDebianLike: PackageInstallMethod{Name: "e-wrapper"},
-			PlatformDarwin: ShellInstallMethod{
-				InstallCommand: `curl -fsSL https://raw.githubusercontent.com/kilobyte/e/master/e -o {{ user_bin_directory }}/e && chmod 0700 {{ user_bin_directory }}/e`,
-			},
-			PlatformTermux: ShellInstallMethod{
-				InstallCommand: `curl -fsSL https://raw.githubusercontent.com/kilobyte/e/master/e -o {{ user_bin_directory }}/e && chmod 0700 {{ user_bin_directory }}/e`,
+		{
+			command:   "docker",
+			platforms: nil, // No installation tasks - only conditional imports
+			Imports: []Import{
+				{Playbook: "setup-docker-lima", When: "ansible_facts['os_family'] == \"Darwin\""},
+				{Playbook: "setup-docker-wrapper-udocker", When: "ansible_facts['env']['TERMUX_VERSION'] is defined"},
+				{Playbook: "setup-docker-ce", When: "ansible_facts['env']['TERMUX_VERSION'] is not defined and ansible_facts['os_family'] != \"Darwin\""},
 			},
 		},
-		Imports: []Import{
-			{Playbook: "setup-user-bin-directory", When: WhenNotDebianLike},
-			{Playbook: "curl", When: WhenNotDebianLike},
-		},
-	},
-	{
-		command: "emacs",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "emacs-plus", Tap: "d12frosted/emacs-plus", Options: []string{"with-dbus", "with-imagemagick"}},
-			PlatformUbuntu: AptRepoInstallMethod{
-				Name:           "emacs",
-				GPGKeyURL:      "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF4E48910A020E77056748B745738AE8480447DDF&options=mr",
-				GPGKeyPath:     "/etc/apt/keyrings/ubuntuhandbook1-emacs-ppa.gpg",
-				RepoURL:        "https://ppa.launchpadcontent.net/ubuntuhandbook1/emacs/ubuntu",
-				RepoComponents: "main",
-				When:           WhenDebianLike + " and " + WhenUbuntu,
+		{
+			command: "e",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDebianLike: PackageInstallMethod{Name: "e-wrapper"},
+				PlatformDarwin: ShellInstallMethod{
+					InstallCommand: `curl -fsSL https://raw.githubusercontent.com/kilobyte/e/master/e -o {{ user_bin_directory }}/e && chmod 0700 {{ user_bin_directory }}/e`,
+				},
+				PlatformTermux: ShellInstallMethod{
+					InstallCommand: `curl -fsSL https://raw.githubusercontent.com/kilobyte/e/master/e -o {{ user_bin_directory }}/e && chmod 0700 {{ user_bin_directory }}/e`,
+				},
 			},
-			PlatformDebian: DebianPkgInstallMethod{Name: "emacs"},
-			PlatformTermux: TermuxPkgInstallMethod{Name: "emacs"},
-		},
-		Suffix: emacsApplicationsAliasSuffix(),
-	},
-	{
-		command: "emacs-lsp-booster",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: CargoInstallMethod{Name: "emacs-lsp-booster"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "eslint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "eslint"},
-			PlatformDebianLike: NvmInstallMethod{Name: "eslint"},
-			PlatformTermux:     NpmInstallMethod{Name: "eslint"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "fd",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDebianLike: CargoInstallMethod{Name: "fd-find"},
-			PlatformTermux:     TermuxPkgInstallMethod{Name: "fd"},
-			PlatformDarwin:     BrewInstallMethod{Name: "fd"},
-		},
-	},
-	GoTool("fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
-	{
-		command: "gcloud",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "google-cloud-sdk"},
-			PlatformDebianLike: AptRepoInstallMethod{
-				Name:           "google-cloud-cli",
-				GPGKeyURL:      "https://packages.cloud.google.com/apt/doc/apt-key.gpg",
-				GPGKeyPath:     "/etc/apt/trusted.gpg.d/google-cloud.gpg",
-				RepoURL:        "https://packages.cloud.google.com/apt",
-				RepoComponents: "main",
-				Codename:       "cloud-sdk",
-			},
-			// Termux: Not officially supported by Google
-		},
-		Imports: nil,
-	},
-	{
-		command: "gdformat",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     UvInstallMethod{Name: "gdtoolkit"},
-			PlatformTermux:     UvInstallMethod{Name: "gdtoolkit"},
-			PlatformDebianLike: UvInstallMethod{Name: "gdtoolkit"},
-		},
-		Imports: []Import{{Playbook: "uv"}},
-	},
-	{
-		command: "gemini",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDebianLike: NvmInstallMethod{Name: "@google/gemini-cli"},
-			PlatformTermux:     NpmInstallMethod{Name: "@google/gemini-cli"},
-			PlatformDarwin:     BrewInstallMethod{Name: "gemini-cli"},
-		},
-		Imports: nil,
-	},
-	GoTool("gh-codeowners", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest", Import{Playbook: "gh"}),
-	GoTool("gh-merge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest", Import{Playbook: "gh"}),
-	GoTool("gh-nudge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest", Import{Playbook: "gh"}),
-	GoTool("gh-pr-review", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest", Import{Playbook: "gh"}),
-	GhExtension("gh-repox", "jaeyeom/gh-repox"),
-	GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest", Import{Playbook: "gh"}),
-	GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
-	{
-		// macOS only. The Homebrew cask repackages the official signed .dmg:
-		// https://ghostty.org/docs/install/binary#homebrew
-		// A drag-install of Ghostty.app does not put `ghostty` on PATH.
-		command: "ghostty",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewCaskInstallMethod{
-				Name:         "ghostty",
-				CheckCommand: `test -d /Applications/Ghostty.app || test -d ~/Applications/Ghostty.app || command -v ghostty`,
+			Imports: []Import{
+				{Playbook: "setup-user-bin-directory", When: WhenNotDebianLike},
+				{Playbook: "curl", When: WhenNotDebianLike},
 			},
 		},
-	},
-	{
-		command: "githooks-cli",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: ShellInstallMethod{
-				InstallCommand: `
+		{
+			command: "emacs",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "emacs-plus", Tap: "d12frosted/emacs-plus", Options: []string{"with-dbus", "with-imagemagick"}},
+				PlatformUbuntu: AptRepoInstallMethod{
+					Name:           "emacs",
+					GPGKeyURL:      "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF4E48910A020E77056748B745738AE8480447DDF&options=mr",
+					GPGKeyPath:     "/etc/apt/keyrings/ubuntuhandbook1-emacs-ppa.gpg",
+					RepoURL:        "https://ppa.launchpadcontent.net/ubuntuhandbook1/emacs/ubuntu",
+					RepoComponents: "main",
+					When:           WhenDebianLike + " and " + WhenUbuntu,
+				},
+				PlatformDebian: DebianPkgInstallMethod{Name: "emacs"},
+				PlatformTermux: TermuxPkgInstallMethod{Name: "emacs"},
+			},
+			Suffix: emacsApplicationsAliasSuffix(),
+		},
+		{
+			command: "emacs-lsp-booster",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: CargoInstallMethod{Name: "emacs-lsp-booster"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "eslint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "eslint"},
+				PlatformDebianLike: NvmInstallMethod{Name: "eslint"},
+				PlatformTermux:     NpmInstallMethod{Name: "eslint"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "fd",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDebianLike: CargoInstallMethod{Name: "fd-find"},
+				PlatformTermux:     TermuxPkgInstallMethod{Name: "fd"},
+				PlatformDarwin:     BrewInstallMethod{Name: "fd"},
+			},
+		},
+		GoTool("fillstruct", "github.com/davidrjenni/reftools/cmd/fillstruct@latest"),
+		{
+			command: "gcloud",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "google-cloud-sdk"},
+				PlatformDebianLike: AptRepoInstallMethod{
+					Name:           "google-cloud-cli",
+					GPGKeyURL:      "https://packages.cloud.google.com/apt/doc/apt-key.gpg",
+					GPGKeyPath:     "/etc/apt/trusted.gpg.d/google-cloud.gpg",
+					RepoURL:        "https://packages.cloud.google.com/apt",
+					RepoComponents: "main",
+					Codename:       "cloud-sdk",
+				},
+				// Termux: Not officially supported by Google
+			},
+			Imports: nil,
+		},
+		{
+			command: "gdformat",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     UvInstallMethod{Name: "gdtoolkit"},
+				PlatformTermux:     UvInstallMethod{Name: "gdtoolkit"},
+				PlatformDebianLike: UvInstallMethod{Name: "gdtoolkit"},
+			},
+			Imports: []Import{{Playbook: "uv"}},
+		},
+		{
+			command: "gemini",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDebianLike: NvmInstallMethod{Name: "@google/gemini-cli"},
+				PlatformTermux:     NpmInstallMethod{Name: "@google/gemini-cli"},
+				PlatformDarwin:     BrewInstallMethod{Name: "gemini-cli"},
+			},
+			Imports: nil,
+		},
+		GoTool("gh-codeowners", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-codeowners@latest", Import{Playbook: "gh"}),
+		GoTool("gh-merge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge@latest", Import{Playbook: "gh"}),
+		GoTool("gh-nudge", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-nudge@latest", Import{Playbook: "gh"}),
+		GoTool("gh-pr-review", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-pr-review@latest", Import{Playbook: "gh"}),
+		GhExtension("gh-repox", "jaeyeom/gh-repox"),
+		GoTool("gh-slack", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-slack@latest", Import{Playbook: "gh"}),
+		GoTool("gh-storage", "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-storage@latest", Import{Playbook: "gh"}),
+		{
+			// macOS only. The Homebrew cask repackages the official signed .dmg:
+			// https://ghostty.org/docs/install/binary#homebrew
+			// A drag-install of Ghostty.app does not put `ghostty` on PATH.
+			command: "ghostty",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewCaskInstallMethod{
+					Name:         "ghostty",
+					CheckCommand: `test -d /Applications/Ghostty.app || test -d ~/Applications/Ghostty.app || command -v ghostty`,
+				},
+			},
+		},
+		{
+			command: "githooks-cli",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: ShellInstallMethod{
+					InstallCommand: `
 if git hooks --version >/dev/null 2>&1; then
     echo "Githooks already installed, skipping."
 else
     {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
 fi`,
-			},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: `
+				},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: `
 if git hooks --version >/dev/null 2>&1; then
     echo "Githooks already installed, skipping."
 else
     {{ playbook_dir }}/verified-run exec https://raw.githubusercontent.com/gabyx/githooks/main/scripts/install.sh -- -- --non-interactive
 fi`,
+				},
 			},
+			Imports: []Import{{Playbook: "git"}, {Playbook: "curl"}},
 		},
-		Imports: []Import{{Playbook: "git"}, {Playbook: "curl"}},
-	},
-	GoTool("godef", "github.com/rogpeppe/godef@latest"),
-	GoTool("godoc", "golang.org/x/tools/cmd/godoc@latest"),
-	GoTool("godoctor", "github.com/godoctor/godoctor@latest"),
-	{
-		command: "godot",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewCaskInstallMethod{Name: "godot"},
+		GoTool("godef", "github.com/rogpeppe/godef@latest"),
+		GoTool("godoc", "golang.org/x/tools/cmd/godoc@latest"),
+		GoTool("godoctor", "github.com/godoctor/godoctor@latest"),
+		{
+			command: "godot",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewCaskInstallMethod{Name: "godot"},
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	GoTool("gofumpt", "mvdan.cc/gofumpt@latest"),
-	GoTool("goimports", "golang.org/x/tools/cmd/goimports@latest"),
-	GoTool("gomodifytags", "github.com/fatih/gomodifytags@latest"),
-	{
-		command: "google-java-format",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "google-java-format"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: `
+		GoTool("gofumpt", "mvdan.cc/gofumpt@latest"),
+		GoTool("goimports", "golang.org/x/tools/cmd/goimports@latest"),
+		GoTool("gomodifytags", "github.com/fatih/gomodifytags@latest"),
+		{
+			command: "google-java-format",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "google-java-format"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: `
 version="{{ google_java_format_latest_release.json.tag_name | regex_replace('^v', '') }}"
 curl -sSL -o {{ user_bin_directory }}/google-java-format-all-deps.jar "https://github.com/google/google-java-format/releases/download/v${version}/google-java-format-${version}-all-deps.jar"
 cat > {{ user_bin_directory }}/google-java-format << 'WRAPPER'
@@ -616,175 +619,175 @@ cat > {{ user_bin_directory }}/google-java-format << 'WRAPPER'
 exec java -jar "$(dirname "$0")/google-java-format-all-deps.jar" "$@"
 WRAPPER
 chmod +x {{ user_bin_directory }}/google-java-format`,
-				VersionCommand:    "google-java-format --version",
-				VersionRegex:      "([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/google/google-java-format/releases/latest",
-				LatestVersionPath: "tag_name",
-			},
-		},
-		Imports: []Import{
-			{Playbook: "setup-java"},
-			{Playbook: "curl", When: WhenDebianLike},
-			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
-		},
-	},
-	GoTool("gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"),
-	GoTool("gopls", "golang.org/x/tools/gopls@latest"),
-	{
-		command: "goreleaser",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "goreleaser"},
-			PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/goreleaser/goreleaser/v2@latest"},
-			PlatformTermux:     GoInstallMethod{PkgPath: "github.com/goreleaser/goreleaser/v2@latest"},
-		},
-	},
-	GoTool("gorename", "golang.org/x/tools/cmd/gorename@latest"),
-	GoTool("gotests", "github.com/cweill/gotests/gotests@latest"),
-	{
-		command: "graphify",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: UvInstallMethod{Name: "graphifyy"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "grok",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: ShellInstallMethod{
-				InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
-			},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
-			},
-			PlatformTermux: ShellInstallMethod{
-				InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
-				Environment: map[string]string{
-					"PATH": `"{{ ansible_facts['env']['HOME'] }}/.grok/bin:{{ ansible_facts['env']['PATH'] }}"`,
+					VersionCommand:    "google-java-format --version",
+					VersionRegex:      "([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/google/google-java-format/releases/latest",
+					LatestVersionPath: "tag_name",
 				},
 			},
+			Imports: []Import{
+				{Playbook: "setup-java"},
+				{Playbook: "curl", When: WhenDebianLike},
+				{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
+			},
 		},
-		Imports: []Import{
-			{Playbook: "curl"},
-			// The official binary is static musl. On Termux it cannot read
-			// /etc/resolv.conf, so the post-install play wraps it.
-			{Playbook: "setup-grok-termux", When: WhenTermux, PostInstall: true},
+		GoTool("gopkgs", "github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest"),
+		GoTool("gopls", "golang.org/x/tools/gopls@latest"),
+		{
+			command: "goreleaser",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "goreleaser"},
+				PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/goreleaser/goreleaser/v2@latest"},
+				PlatformTermux:     GoInstallMethod{PkgPath: "github.com/goreleaser/goreleaser/v2@latest"},
+			},
 		},
-	},
-	GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
-	GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),
-	{
-		command: "gws",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "googleworkspace-cli"},
-			PlatformDebianLike: NvmInstallMethod{Name: "@googleworkspace/cli"},
+		GoTool("gorename", "golang.org/x/tools/cmd/gorename@latest"),
+		GoTool("gotests", "github.com/cweill/gotests/gotests@latest"),
+		{
+			command: "graphify",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: UvInstallMethod{Name: "graphifyy"},
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	{
-		// herdr is a terminal workspace manager for AI coding agents.
-		// Upstream ships Linux/macOS builds only (no Termux target), so
-		// Termux is deliberately omitted here.
-		command: "herdr",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "herdr"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand:    "{{ playbook_dir }}/verified-run exec https://herdr.dev/install.sh",
-				VersionCommand:    "herdr --version",
-				VersionRegex:      "herdr ([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/herdrdev/herdr/releases/latest",
-				LatestVersionPath: "tag_name",
-				Environment: map[string]string{
-					"PATH": `"{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"`,
+		{
+			command: "grok",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: ShellInstallMethod{
+					InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
+				},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
+				},
+				PlatformTermux: ShellInstallMethod{
+					InstallCommand: "{{ playbook_dir }}/verified-run exec https://x.ai/cli/install.sh",
+					Environment: map[string]string{
+						"PATH": `"{{ ansible_facts['env']['HOME'] }}/.grok/bin:{{ ansible_facts['env']['PATH'] }}"`,
+					},
 				},
 			},
-		},
-		Imports: []Import{{Playbook: "curl"}},
-	},
-	GoTool("hugo", "github.com/gohugoio/hugo@latest"),
-	GoTool("image2ascii", "github.com/qeesung/image2ascii@latest"),
-	GoTool("impl", "github.com/josharian/impl@latest"),
-	GoTool("jira", "github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
-	{
-		command: "ktlint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "ktlint"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand:    `curl -sSL https://github.com/pinterest/ktlint/releases/download/{{ ktlint_latest_release.json.tag_name }}/ktlint -o {{ user_bin_directory }}/ktlint && chmod a+x {{ user_bin_directory }}/ktlint`,
-				VersionCommand:    "ktlint --version",
-				VersionRegex:      "([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/pinterest/ktlint/releases/latest",
-				LatestVersionPath: "tag_name",
-			},
-			PlatformTermux: ShellInstallMethod{
-				InstallCommand:    `curl -sSL https://github.com/pinterest/ktlint/releases/download/{{ ktlint_latest_release.json.tag_name }}/ktlint -o {{ user_bin_directory }}/ktlint && chmod a+x {{ user_bin_directory }}/ktlint`,
-				VersionCommand:    "ktlint --version",
-				VersionRegex:      "([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/pinterest/ktlint/releases/latest",
-				LatestVersionPath: "tag_name",
+			Imports: []Import{
+				{Playbook: "curl"},
+				// The official binary is static musl. On Termux it cannot read
+				// /etc/resolv.conf, so the post-install play wraps it.
+				{Playbook: "setup-grok-termux", When: WhenTermux, PostInstall: true},
 			},
 		},
-		Imports: []Import{
-			{Playbook: "curl", When: WhenNotDarwin},
-			{Playbook: "setup-user-bin-directory", When: WhenNotDarwin},
+		GoTool("grpcui", "github.com/fullstorydev/grpcui/cmd/grpcui@latest"),
+		GoTool("guru", "golang.org/x/tools/cmd/guru@latest"),
+		{
+			command: "gws",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "googleworkspace-cli"},
+				PlatformDebianLike: NvmInstallMethod{Name: "@googleworkspace/cli"},
+			},
+			Imports: nil,
 		},
-	},
-	{
-		command: "lcov",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "lcov"},
-			PlatformDebianLike: PackageInstallMethod{Name: "lcov"},
-			// termux: Skipped due to GNU Make 4.4.1 bugs with lcov's Makefile
+		{
+			// herdr is a terminal workspace manager for AI coding agents.
+			// Upstream ships Linux/macOS builds only (no Termux target), so
+			// Termux is deliberately omitted here.
+			command: "herdr",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "herdr"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand:    "{{ playbook_dir }}/verified-run exec https://herdr.dev/install.sh",
+					VersionCommand:    "herdr --version",
+					VersionRegex:      "herdr ([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/herdrdev/herdr/releases/latest",
+					LatestVersionPath: "tag_name",
+					Environment: map[string]string{
+						"PATH": `"{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"`,
+					},
+				},
+			},
+			Imports: []Import{{Playbook: "curl"}},
 		},
-		Imports: nil,
-	},
-	{
-		command: "markdownlint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "markdownlint-cli"},
-			PlatformDebianLike: NvmInstallMethod{Name: "markdownlint-cli"},
-			PlatformTermux:     NpmInstallMethod{Name: "markdownlint-cli"},
+		GoTool("hugo", "github.com/gohugoio/hugo@latest"),
+		GoTool("image2ascii", "github.com/qeesung/image2ascii@latest"),
+		GoTool("impl", "github.com/josharian/impl@latest"),
+		GoTool("jira", "github.com/ankitpokhrel/jira-cli/cmd/jira@latest"),
+		{
+			command: "ktlint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "ktlint"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand:    `curl -sSL https://github.com/pinterest/ktlint/releases/download/{{ ktlint_latest_release.json.tag_name }}/ktlint -o {{ user_bin_directory }}/ktlint && chmod a+x {{ user_bin_directory }}/ktlint`,
+					VersionCommand:    "ktlint --version",
+					VersionRegex:      "([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/pinterest/ktlint/releases/latest",
+					LatestVersionPath: "tag_name",
+				},
+				PlatformTermux: ShellInstallMethod{
+					InstallCommand:    `curl -sSL https://github.com/pinterest/ktlint/releases/download/{{ ktlint_latest_release.json.tag_name }}/ktlint -o {{ user_bin_directory }}/ktlint && chmod a+x {{ user_bin_directory }}/ktlint`,
+					VersionCommand:    "ktlint --version",
+					VersionRegex:      "([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/pinterest/ktlint/releases/latest",
+					LatestVersionPath: "tag_name",
+				},
+			},
+			Imports: []Import{
+				{Playbook: "curl", When: WhenNotDarwin},
+				{Playbook: "setup-user-bin-directory", When: WhenNotDarwin},
+			},
 		},
-	},
-	{
-		command: "mkdocs",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "mkdocs-material"},
-			PlatformDebianLike: UvInstallMethod{Name: "mkdocs-material"},
-			PlatformTermux:     UvInstallMethod{Name: "mkdocs-material"},
+		{
+			command: "lcov",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "lcov"},
+				PlatformDebianLike: PackageInstallMethod{Name: "lcov"},
+				// termux: Skipped due to GNU Make 4.4.1 bugs with lcov's Makefile
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	{
-		command: "mypy",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "mypy"},
-			PlatformDebianLike: UvInstallMethod{Name: "mypy"},
-			PlatformTermux:     UvInstallMethod{Name: "mypy"},
+		{
+			command: "markdownlint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "markdownlint-cli"},
+				PlatformDebianLike: NvmInstallMethod{Name: "markdownlint-cli"},
+				PlatformTermux:     NpmInstallMethod{Name: "markdownlint-cli"},
+			},
 		},
-		Imports: nil,
-	},
-	{
-		command: "nix",
-		platforms: map[PlatformName]InstallMethod{
-			// The Determinate installer needs root and re-invokes itself via
-			// sudo when run as a regular user, which fails under Ansible's
-			// non-interactive shell. Become: true elevates upfront so the
-			// installer sees it is already root. The inline /nix guard makes
-			// re-runs idempotent even when nix is not yet on the user's PATH.
-			PlatformDarwin: ShellInstallMethod{
-				InstallCommand: `if test -d /nix; then exit 0; fi
+		{
+			command: "mkdocs",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "mkdocs-material"},
+				PlatformDebianLike: UvInstallMethod{Name: "mkdocs-material"},
+				PlatformTermux:     UvInstallMethod{Name: "mkdocs-material"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "mypy",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "mypy"},
+				PlatformDebianLike: UvInstallMethod{Name: "mypy"},
+				PlatformTermux:     UvInstallMethod{Name: "mypy"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "nix",
+			platforms: map[PlatformName]InstallMethod{
+				// The Determinate installer needs root and re-invokes itself via
+				// sudo when run as a regular user, which fails under Ansible's
+				// non-interactive shell. Become: true elevates upfront so the
+				// installer sees it is already root. The inline /nix guard makes
+				// re-runs idempotent even when nix is not yet on the user's PATH.
+				PlatformDarwin: ShellInstallMethod{
+					InstallCommand: `if test -d /nix; then exit 0; fi
 curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm`,
-				Become: true,
-			},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: `if test -d /nix; then exit 0; fi
+					Become: true,
+				},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: `if test -d /nix; then exit 0; fi
 curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm`,
-				Become: true,
+					Become: true,
+				},
+				// Termux/Qubes: out of scope per issue #170.
 			},
-			// Termux/Qubes: out of scope per issue #170.
-		},
-		Imports: []Import{{Playbook: "curl"}},
-		Suffix: `
+			Imports: []Import{{Playbook: "curl"}},
+			Suffix: `
 
     - name: Ensure ~/.config/nix directory exists
       ansible.builtin.file:
@@ -801,305 +804,306 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
         create: yes
         mode: '0644'
       when: ` + WhenNotTermux,
-	},
-	{
-		command: "nvm",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: ShellInstallMethod{
-				InstallCommand:    `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_latest_release.json.tag_name }}/install.sh | bash`,
-				VersionCommand:    "nvm --version",
-				VersionRegex:      "([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/nvm-sh/nvm/releases/latest",
-				LatestVersionPath: "tag_name",
+		},
+		{
+			command: "nvm",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: ShellInstallMethod{
+					InstallCommand:    `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_latest_release.json.tag_name }}/install.sh | bash`,
+					VersionCommand:    "nvm --version",
+					VersionRegex:      "([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/nvm-sh/nvm/releases/latest",
+					LatestVersionPath: "tag_name",
+				},
+			},
+			Imports: []Import{{Playbook: "curl"}},
+		},
+		{
+			command: "org-lint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformAll: GoInstallMethod{
+					PkgPath: "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest",
+				},
+			},
+			Imports: []Import{{Playbook: "setup-org-lint-emacs"}},
+		},
+		GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
+		{
+			command: "oxfmt",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "oxfmt"},
+				PlatformDebianLike: NvmInstallMethod{Name: "oxfmt"},
+				PlatformTermux:     NpmInstallMethod{Name: "oxfmt"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "oxlint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "oxlint"},
+				PlatformDebianLike: NvmInstallMethod{Name: "oxlint"},
+				PlatformTermux:     NpmInstallMethod{Name: "oxlint"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "pkl",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "pkl"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand:    `arch=$(uname -m) && os=$(uname -s | tr '[:upper:]' '[:lower:]') && if [ "$arch" = "x86_64" ]; then arch="amd64"; elif [ "$arch" = "arm64" ]; then arch="aarch64"; fi && curl -L -o ~/.local/bin/pkl "https://github.com/apple/pkl/releases/download/{{ pkl_latest_release.json.tag_name }}/pkl-${os}-${arch}" && chmod +x ~/.local/bin/pkl`,
+					VersionCommand:    "pkl --version",
+					VersionRegex:      "Pkl ([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/apple/pkl/releases/latest",
+					LatestVersionPath: "tag_name",
+				},
+			},
+			Imports: []Import{
+				{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
+				{Playbook: "curl", When: WhenDebianLike},
 			},
 		},
-		Imports: []Import{{Playbook: "curl"}},
-	},
-	{
-		command: "org-lint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformAll: GoInstallMethod{
-				PkgPath: "github.com/jaeyeom/experimental/devtools/linters/cmd/org-lint@latest",
+		{
+			command: "pnpm",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "pnpm"},
+				PlatformDebianLike: NvmInstallMethod{Name: "pnpm"},
+				PlatformTermux:     NpmInstallMethod{Name: "pnpm"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "prettier",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "prettier"},
+				PlatformDebianLike: NvmInstallMethod{Name: "prettier"},
+				PlatformTermux:     NpmInstallMethod{Name: "prettier"},
+			},
+			Imports: nil,
+		},
+		GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
+		GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
+		GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
+		// herdr has no Termux build. prsync still installs there and warns when
+		// the binary is absent; do not import the herdr playbook on Termux.
+		GoTool("prsync", "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
+		{
+			command: "pylsp",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "python-lsp-server"},
+				PlatformTermux:     UvInstallMethod{Name: "python-lsp-server"},
+				PlatformDebianLike: UvInstallMethod{Name: "python-lsp-server"},
+			},
+			Imports: nil,
+		},
+		GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
+		GoTool("review-and-push-loop", "github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest", Import{Playbook: "codex"}),
+		{
+			command: "ruff",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformTermux:     TermuxPkgInstallMethod{Name: "ruff"},
+				PlatformDarwin:     BrewInstallMethod{Name: "ruff"},
+				PlatformDebianLike: UvInstallMethod{Name: "ruff"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "rust-analyzer",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     RustupComponentMethod{Name: "rust-analyzer"},
+				PlatformDebianLike: RustupComponentMethod{Name: "rust-analyzer"},
+				PlatformTermux:     TermuxPkgInstallMethod{Name: "rust-analyzer"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "rustup",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "rustup"},
+				PlatformDebianLike: PackageInstallMethod{Name: "rustup"},
 			},
 		},
-		Imports: []Import{{Playbook: "setup-org-lint-emacs"}},
-	},
-	GoTool("oserrorsgodernize", "github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest"),
-	{
-		command: "oxfmt",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "oxfmt"},
-			PlatformDebianLike: NvmInstallMethod{Name: "oxfmt"},
-			PlatformTermux:     NpmInstallMethod{Name: "oxfmt"},
+		{
+			command: "semgrep",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "semgrep"},
+				PlatformDebianLike: UvInstallMethod{Name: "semgrep"},
+				// Termux can't install semgrep reliably.
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	{
-		command: "oxlint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "oxlint"},
-			PlatformDebianLike: NvmInstallMethod{Name: "oxlint"},
-			PlatformTermux:     NpmInstallMethod{Name: "oxlint"},
+		GoTool("shfmt", "mvdan.cc/sh/v3/cmd/shfmt@latest"),
+		{
+			command: "sqlfluff",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "sqlfluff"},
+				PlatformDebianLike: UvInstallMethod{Name: "sqlfluff"},
+				PlatformTermux:     PipInstallMethod{Name: "sqlfluff"},
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	{
-		command: "pkl",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "pkl"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand:    `arch=$(uname -m) && os=$(uname -s | tr '[:upper:]' '[:lower:]') && if [ "$arch" = "x86_64" ]; then arch="amd64"; elif [ "$arch" = "arm64" ]; then arch="aarch64"; fi && curl -L -o ~/.local/bin/pkl "https://github.com/apple/pkl/releases/download/{{ pkl_latest_release.json.tag_name }}/pkl-${os}-${arch}" && chmod +x ~/.local/bin/pkl`,
-				VersionCommand:    "pkl --version",
-				VersionRegex:      "Pkl ([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/apple/pkl/releases/latest",
-				LatestVersionPath: "tag_name",
+		{
+			command: "starship",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "starship"},
+				PlatformTermux: TermuxPkgInstallMethod{Name: "starship"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand:    "{{ playbook_dir }}/verified-run exec https://starship.rs/install.sh -- -y --bin-dir ~/.cargo/bin",
+					VersionCommand:    "starship --version",
+					VersionRegex:      "starship ([0-9.]+)",
+					LatestVersionURL:  "https://api.github.com/repos/starship/starship/releases/latest",
+					LatestVersionPath: "tag_name",
+					Environment: map[string]string{
+						"PATH": `"{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"`,
+					},
+				},
+			},
+			Imports: []Import{{Playbook: "setup-cargo"}, {Playbook: "curl"}},
+		},
+		{
+			command: "stylelint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "stylelint"},
+				PlatformDebianLike: NvmInstallMethod{Name: "stylelint"},
+				PlatformTermux:     NpmInstallMethod{Name: "stylelint"},
+			},
+			Imports: nil,
+		},
+		{
+			command: "swiftformat",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "swiftformat"},
 			},
 		},
-		Imports: []Import{
-			{Playbook: "setup-user-bin-directory", When: WhenDebianLike},
-			{Playbook: "curl", When: WhenDebianLike},
+		{
+			command: "swiftlint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "swiftlint"},
+			},
 		},
-	},
-	{
-		command: "pnpm",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "pnpm"},
-			PlatformDebianLike: NvmInstallMethod{Name: "pnpm"},
-			PlatformTermux:     NpmInstallMethod{Name: "pnpm"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "prettier",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "prettier"},
-			PlatformDebianLike: NvmInstallMethod{Name: "prettier"},
-			PlatformTermux:     NpmInstallMethod{Name: "prettier"},
-		},
-		Imports: nil,
-	},
-	GoTool("protoc-gen-go", "google.golang.org/protobuf/cmd/protoc-gen-go@latest", Import{Playbook: "protoc"}),
-	GoTool("protoc-gen-go-grpc", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest", Import{Playbook: "protoc"}),
-	GoTool("protolint", "github.com/yoheimuta/protolint/cmd/protolint@latest"),
-	// herdr has no Termux build. prsync still installs there and warns when
-	// the binary is absent; do not import the herdr playbook on Termux.
-	GoTool("prsync", "github.com/jaeyeom/experimental/devtools/prsync/cmd/prsync@latest", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
-	{
-		command: "pylsp",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "python-lsp-server"},
-			PlatformTermux:     UvInstallMethod{Name: "python-lsp-server"},
-			PlatformDebianLike: UvInstallMethod{Name: "python-lsp-server"},
-		},
-		Imports: nil,
-	},
-	GoTool("repo-sync", "github.com/jaeyeom/experimental/devtools/repo-sync/cmd/repo-sync@latest"),
-	GoTool("review-and-push-loop", "github.com/jaeyeom/experimental/devtools/reviewpush/cmd/review-and-push-loop@latest", Import{Playbook: "codex"}),
-	{
-		command: "ruff",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformTermux:     TermuxPkgInstallMethod{Name: "ruff"},
-			PlatformDarwin:     BrewInstallMethod{Name: "ruff"},
-			PlatformDebianLike: UvInstallMethod{Name: "ruff"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "rust-analyzer",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     RustupComponentMethod{Name: "rust-analyzer"},
-			PlatformDebianLike: RustupComponentMethod{Name: "rust-analyzer"},
-			PlatformTermux:     TermuxPkgInstallMethod{Name: "rust-analyzer"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "rustup",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "rustup"},
-			PlatformDebianLike: PackageInstallMethod{Name: "rustup"},
-		},
-	},
-	{
-		command: "semgrep",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "semgrep"},
-			PlatformDebianLike: UvInstallMethod{Name: "semgrep"},
-			// Termux can't install semgrep reliably.
-		},
-		Imports: nil,
-	},
-	GoTool("shfmt", "mvdan.cc/sh/v3/cmd/shfmt@latest"),
-	{
-		command: "sqlfluff",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "sqlfluff"},
-			PlatformDebianLike: UvInstallMethod{Name: "sqlfluff"},
-			PlatformTermux:     PipInstallMethod{Name: "sqlfluff"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "starship",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "starship"},
-			PlatformTermux: TermuxPkgInstallMethod{Name: "starship"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand:    "{{ playbook_dir }}/verified-run exec https://starship.rs/install.sh -- -y --bin-dir ~/.cargo/bin",
-				VersionCommand:    "starship --version",
-				VersionRegex:      "starship ([0-9.]+)",
-				LatestVersionURL:  "https://api.github.com/repos/starship/starship/releases/latest",
-				LatestVersionPath: "tag_name",
-				Environment: map[string]string{
-					"PATH": `"{{ ansible_facts['env']['HOME'] }}/.cargo/bin:{{ ansible_facts['env']['PATH'] }}"`,
+		GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
+		{
+			command: "terraform",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform", Tap: "hashicorp/tap"},
+				PlatformDebianLike: AptRepoInstallMethod{
+					Name:           "terraform",
+					RepoName:       "hashicorp",
+					GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
+					GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+					RepoURL:        "https://apt.releases.hashicorp.com",
+					RepoComponents: "main",
 				},
 			},
 		},
-		Imports: []Import{{Playbook: "setup-cargo"}, {Playbook: "curl"}},
-	},
-	{
-		command: "stylelint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "stylelint"},
-			PlatformDebianLike: NvmInstallMethod{Name: "stylelint"},
-			PlatformTermux:     NpmInstallMethod{Name: "stylelint"},
-		},
-		Imports: nil,
-	},
-	{
-		command: "swiftformat",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "swiftformat"},
-		},
-	},
-	{
-		command: "swiftlint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "swiftlint"},
-		},
-	},
-	GoTool("task", "github.com/go-task/task/v3/cmd/task@latest"),
-	{
-		command: "terraform",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform", Tap: "hashicorp/tap"},
-			PlatformDebianLike: AptRepoInstallMethod{
-				Name:           "terraform",
-				RepoName:       "hashicorp",
-				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
-				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
-				RepoURL:        "https://apt.releases.hashicorp.com",
-				RepoComponents: "main",
+		{
+			command: "terraform-ls",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform-ls", Tap: "hashicorp/tap"},
+				PlatformDebianLike: AptRepoInstallMethod{
+					Name:           "terraform-ls",
+					RepoName:       "hashicorp",
+					GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
+					GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+					RepoURL:        "https://apt.releases.hashicorp.com",
+					RepoComponents: "main",
+				},
 			},
 		},
-	},
-	{
-		command: "terraform-ls",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "hashicorp/tap/terraform-ls", Tap: "hashicorp/tap"},
-			PlatformDebianLike: AptRepoInstallMethod{
-				Name:           "terraform-ls",
-				RepoName:       "hashicorp",
-				GPGKeyURL:      "https://apt.releases.hashicorp.com/gpg",
-				GPGKeyPath:     "/usr/share/keyrings/hashicorp-archive-keyring.gpg",
-				RepoURL:        "https://apt.releases.hashicorp.com",
-				RepoComponents: "main",
+		{
+			// install_linux.sh was removed upstream, and the homebrew-core formula
+			// is gone. The tap publishes a cask, which community.general.homebrew
+			// does not install, so both platforms use the release zip.
+			command: "tflint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     tflintReleaseInstall("darwin"),
+				PlatformDebianLike: tflintReleaseInstall("linux"),
+			},
+			Imports: []Import{
+				{Playbook: "curl", When: WhenNotTermux},
+				{Playbook: "unzip", When: WhenNotTermux},
+				{Playbook: "setup-user-bin-directory", When: WhenNotTermux},
 			},
 		},
-	},
-	{
-		// install_linux.sh was removed upstream, and the homebrew-core formula
-		// is gone. The tap publishes a cask, which community.general.homebrew
-		// does not install, so both platforms use the release zip.
-		command: "tflint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     tflintReleaseInstall("darwin"),
-			PlatformDebianLike: tflintReleaseInstall("linux"),
+		{
+			command: "tsc",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "typescript"},
+				PlatformDebianLike: NvmInstallMethod{Name: "typescript"},
+				PlatformTermux:     NpmInstallMethod{Name: "typescript"},
+			},
+			Imports: nil,
 		},
-		Imports: []Import{
-			{Playbook: "curl", When: WhenNotTermux},
-			{Playbook: "unzip", When: WhenNotTermux},
-			{Playbook: "setup-user-bin-directory", When: WhenNotTermux},
+		{
+			command: "tuir",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     UvInstallMethod{Name: "tuir-continued"},
+				PlatformTermux:     PipInstallMethod{Name: "tuir-continued"},
+				PlatformDebianLike: UvInstallMethod{Name: "tuir-continued"},
+			},
+			Imports: nil,
 		},
-	},
-	{
-		command: "tsc",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "typescript"},
-			PlatformDebianLike: NvmInstallMethod{Name: "typescript"},
-			PlatformTermux:     NpmInstallMethod{Name: "typescript"},
+		{
+			command: "turbo",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "turbo"},
+				PlatformDebianLike: NvmInstallMethod{Name: "turbo"},
+				PlatformTermux:     NpmInstallMethod{Name: "turbo"},
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	{
-		command: "tuir",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     UvInstallMethod{Name: "tuir-continued"},
-			PlatformTermux:     PipInstallMethod{Name: "tuir-continued"},
-			PlatformDebianLike: UvInstallMethod{Name: "tuir-continued"},
+		{
+			command: "ucm",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "unison-language", Tap: "unisonweb/unison"},
+				PlatformDebianLike: AptRepoInstallMethod{
+					Name:           "unisonweb",
+					GPGKeyURL:      "https://debian.unison-lang.org/public.gpg",
+					GPGKeyPath:     "/etc/apt/trusted.gpg.d/unison-computing.gpg",
+					RepoURL:        "https://debian.unison-lang.org/",
+					RepoComponents: "main",
+					Codename:       "trixie",
+					Arch:           "amd64",
+				},
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	{
-		command: "turbo",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "turbo"},
-			PlatformDebianLike: NvmInstallMethod{Name: "turbo"},
-			PlatformTermux:     NpmInstallMethod{Name: "turbo"},
+		{
+			command: "uv",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin: BrewInstallMethod{Name: "uv"},
+				PlatformTermux: TermuxPkgInstallMethod{Name: "uv"},
+				PlatformDebianLike: ShellInstallMethod{
+					InstallCommand: "curl -LsSf https://astral.sh/uv/install.sh | sh",
+				},
+			},
+			Imports: nil,
 		},
-		Imports: nil,
-	},
-	{
-		command: "ucm",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "unison-language", Tap: "unisonweb/unison"},
-			PlatformDebianLike: AptRepoInstallMethod{
-				Name:           "unisonweb",
-				GPGKeyURL:      "https://debian.unison-lang.org/public.gpg",
-				GPGKeyPath:     "/etc/apt/trusted.gpg.d/unison-computing.gpg",
-				RepoURL:        "https://debian.unison-lang.org/",
-				RepoComponents: "main",
-				Codename:       "trixie",
-				Arch:           "amd64",
+		{
+			command: "viddy",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "viddy"},
+				PlatformDebianLike: CargoInstallMethod{Name: "viddy"},
+				PlatformTermux:     CargoInstallMethod{Name: "viddy"},
 			},
 		},
-		Imports: nil,
-	},
-	{
-		command: "uv",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin: BrewInstallMethod{Name: "uv"},
-			PlatformTermux: TermuxPkgInstallMethod{Name: "uv"},
-			PlatformDebianLike: ShellInstallMethod{
-				InstallCommand: "curl -LsSf https://astral.sh/uv/install.sh | sh",
+		{
+			command: "wrangler",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     NpmInstallMethod{Name: "wrangler"},
+				PlatformDebianLike: NvmInstallMethod{Name: "wrangler"},
+				PlatformTermux:     NpmInstallMethod{Name: "wrangler"},
+			},
+			Imports: nil,
+		},
+		GoTool("yamlfmt", "github.com/google/yamlfmt/cmd/yamlfmt@latest"),
+		{
+			command: "yamllint",
+			platforms: map[PlatformName]InstallMethod{
+				PlatformDarwin:     BrewInstallMethod{Name: "yamllint"},
+				PlatformDebianLike: PackageInstallMethod{Name: "yamllint"},
+				PlatformTermux:     PipInstallMethod{Name: "yamllint"},
 			},
 		},
-		Imports: nil,
-	},
-	{
-		command: "viddy",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "viddy"},
-			PlatformDebianLike: CargoInstallMethod{Name: "viddy"},
-			PlatformTermux:     CargoInstallMethod{Name: "viddy"},
-		},
-	},
-	{
-		command: "wrangler",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     NpmInstallMethod{Name: "wrangler"},
-			PlatformDebianLike: NvmInstallMethod{Name: "wrangler"},
-			PlatformTermux:     NpmInstallMethod{Name: "wrangler"},
-		},
-		Imports: nil,
-	},
-	GoTool("yamlfmt", "github.com/google/yamlfmt/cmd/yamlfmt@latest"),
-	{
-		command: "yamllint",
-		platforms: map[PlatformName]InstallMethod{
-			PlatformDarwin:     BrewInstallMethod{Name: "yamllint"},
-			PlatformDebianLike: PackageInstallMethod{Name: "yamllint"},
-			PlatformTermux:     PipInstallMethod{Name: "yamllint"},
-		},
-	},
+	}
 }

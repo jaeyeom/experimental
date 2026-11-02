@@ -14,7 +14,6 @@ var syncCmd = &cobra.Command{
 	Short: "Synchronize project files",
 	Long: `Perform bidirectional synchronization of project files between local and remote repositories.
 This includes rsync operations, Git workflow automation, and conflict resolution.`,
-	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runSync(args[0], cmd)
 	},
@@ -23,7 +22,6 @@ This includes rsync operations, Git workflow automation, and conflict resolution
 var downloadCmd = &cobra.Command{
 	Use:   "download <project-name>",
 	Short: "Download files from remote (remote takes precedence)",
-	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDownload(args[0], cmd)
 	},
@@ -32,13 +30,16 @@ var downloadCmd = &cobra.Command{
 var uploadCmd = &cobra.Command{
 	Use:   "upload <project-name>",
 	Short: "Upload files to remote (local takes precedence)",
-	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runUpload(args[0], cmd)
 	},
 }
 
 func registerSyncCmd() {
+	syncCmd.Args = cobra.ExactArgs(1)
+	downloadCmd.Args = cobra.ExactArgs(1)
+	uploadCmd.Args = cobra.ExactArgs(1)
+
 	syncCmd.Flags().Bool("dry-run", false, "Show what would be synced without making changes")
 	syncCmd.Flags().Bool("force", false, "Force sync even if there are conflicts")
 

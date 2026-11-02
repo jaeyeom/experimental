@@ -52,7 +52,7 @@ func TestOrphansPRNumberMerged(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "#42")},
 		agents: []herdr.Agent{liveAgentAt("w2:pA", "w2:tA", "idle", "/work/widgets")},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestOrphansPRNumberClosedUnmerged(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "#42")},
 		agents: []herdr.Agent{liveAgentAt("w2:pA", "w2:tA", "idle", "/work/widgets")},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestOrphansPRNumberOpenOmitted(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tB", "w2", "#43")},
 		agents: []herdr.Agent{liveAgentAt("w2:pB", "w2:tB", "idle", "/work/widgets")},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestOrphansPRNumberNotFoundIdle(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "#42")},
 		agents: []herdr.Agent{liveAgentAt("w2:pA", "w2:tA", "idle", "/work/widgets")},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestOrphansPRNumberNotFoundWorkingOmitted(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "#42")},
 		agents: []herdr.Agent{liveAgentAt("w2:pA", "w2:tA", "working", "/work/widgets")},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestOrphansPRNumberUnresolvedRepoWarns(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "#42")},
 		agents: []herdr.Agent{liveAgentAt("w2:pA", "w2:tA", "idle", "/not/a/repo")},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestOrphansPRNumberUsesForegroundCWD(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "#42")},
 		agents: []herdr.Agent{agent},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestOrphansPRNumberIgnoresNonExactLabels(t *testing.T) {
 			liveAgentAt("w2:pF", "w2:tF", "idle", "/work/widgets"),
 		},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestOrphansPRNumberViewErrorWarns(t *testing.T) {
 		tabs:   []herdr.Tab{liveTab("w2:tA", "w2", "#42")},
 		agents: []herdr.Agent{liveAgentAt("w2:pA", "w2:tA", "idle", "/work/widgets")},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestOrphansPRNumberDoesNotBlockTicketSearch(t *testing.T) {
 			liveAgentAt("w2:pA", "w2:tA", "idle", "/work/widgets"),
 		},
 	}
-	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow)
+	doc, err := Orphans(context.Background(), numberDeps(g, h), orphanCfg(), nil, fixtureNow())
 	if err != nil {
 		t.Fatalf("Orphans() unexpected error: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestCloseMergedPRNumberReverifiesByView(t *testing.T) {
 	}}
 	h := &closeHerdr{tabs: []herdr.Tab{liveTab("w2:tA", "w2", "#42")}}
 	tab := numberMergedOrphan("w2:tA", 42)
-	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{tab}, fixtureNow)
+	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{tab}, fixtureNow())
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestCloseMergedPRNumberSkipsWhenReopened(t *testing.T) {
 	h := &closeHerdr{tabs: []herdr.Tab{liveTab("w2:tA", "w2", "#42")}}
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{
 		numberMergedOrphan("w2:tA", 42),
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestCloseMergedPRNumberClosedStillCloses(t *testing.T) {
 	h := &closeHerdr{tabs: []herdr.Tab{liveTab("w2:tA", "w2", "#42")}}
 	got, err := CloseMerged(context.Background(), CloseDeps{GH: g, Herdr: h}, cfg, "alice", []OrphanTab{
 		numberMergedOrphan("w2:tA", 42),
-	}, fixtureNow)
+	}, fixtureNow())
 	if err != nil {
 		t.Fatalf("CloseMerged() unexpected error: %v", err)
 	}
