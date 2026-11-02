@@ -28,6 +28,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"regexp"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -125,6 +126,9 @@ type checker struct {
 }
 
 func (c *checker) reportSpec(spec *ast.ValueSpec) {
+	if specSuppressed(spec) {
+		return
+	}
 	c.reportConst(spec)
 	eff := effectNone
 	for _, value := range spec.Values {
@@ -141,6 +145,51 @@ func (c *checker) reportSpec(spec *ast.ValueSpec) {
 			c.pass.Reportf(spec.Pos(), diagDiscard)
 		}
 	}
+}
+
+var (
+	nolintLinters = regexp.MustCompile(`^//\s*nolint:([A-Za-z0-9_,-]+)`)
+	nolintReason  = regexp.MustCompile(`\s//\s*(\S.*)`)
+	wantMarker    = regexp.MustCompile(`^want\b`)
+)
+
+// specSuppressed reports whether spec.Comment suppresses pkgvar.
+// A trailing comment is one Go comment: the second // is text, not another
+// comment. spec.Doc and comments on any other line are ignored. A reason
+// whose first word is the analysistest marker want does not suppress.
+// wanted does, because the word boundary does not split it.
+func specSuppressed(spec *ast.ValueSpec) bool {
+	if spec.Comment == nil {
+		return false
+	}
+	for _, comment := range spec.Comment.List {
+		if commentSuppressesPkgvar(comment.Text) {
+			return true
+		}
+	}
+	return false
+}
+
+func commentSuppressesPkgvar(text string) bool {
+	loc := nolintLinters.FindStringSubmatchIndex(text)
+	if loc == nil {
+		return false
+	}
+	listed := false
+	for _, part := range strings.Split(text[loc[2]:loc[3]], ",") {
+		if strings.TrimSpace(part) == "pkgvar" {
+			listed = true
+			break
+		}
+	}
+	if !listed {
+		return false
+	}
+	reason := nolintReason.FindStringSubmatch(text[loc[1]:])
+	if reason == nil {
+		return false
+	}
+	return !wantMarker.MatchString(reason[1])
 }
 
 func (c *checker) reportConst(spec *ast.ValueSpec) {
