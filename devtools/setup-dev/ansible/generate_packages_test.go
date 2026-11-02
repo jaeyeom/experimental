@@ -493,7 +493,8 @@ func TestHerdrSkillInstall(t *testing.T) {
 		"path: \"{{ item | dirname }}\"",
 		"apply-text",
 		"herdr-skill",
-		"changed_when: (stdout | trim) == \"updated\"",
+		"register: herdr_skill_apply",
+		"changed_when: (herdr_skill_apply.stdout | trim) == \"updated\"",
 		"loop: \"{{ herdr_skill_paths }}\"",
 	} {
 		if !strings.Contains(got, want) {
@@ -502,6 +503,9 @@ func TestHerdrSkillInstall(t *testing.T) {
 	}
 	if strings.Contains(got, "content: \"{{ herdr_skill_output.stdout }}\"") {
 		t.Errorf("setup-herdr.yml still copies unreviewed herdr --skill stdout")
+	}
+	if strings.Contains(got, "changed_when: (stdout | trim) == \"updated\"") {
+		t.Errorf("setup-herdr.yml still evaluates changed_when against bare stdout")
 	}
 }
 
