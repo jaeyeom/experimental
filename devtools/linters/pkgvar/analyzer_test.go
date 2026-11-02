@@ -19,14 +19,14 @@ func TestDefaultAllowlist(t *testing.T) {
 		t.Fatal("allowlist flag is not defined")
 		return
 	}
-	const want = "errors.New,fmt.Errorf,regexp.MustCompile"
+	const want = "errors.New,fmt.Errorf,regexp.MustCompile,strings.Join,strings.Repeat,strings.ReplaceAll,strings.Split"
 	if flag.DefValue != want {
 		t.Fatalf("default allowlist = %q, want %q", flag.DefValue, want)
 	}
 }
 
 func TestPkgVar(t *testing.T) {
-	setAllowlist(t, "errors.New,fmt.Errorf,regexp.MustCompile")
+	setAllowlist(t, "errors.New,fmt.Errorf,regexp.MustCompile,strings.Join,strings.Repeat,strings.ReplaceAll,strings.Split")
 	analysistest.Run(reporter{t}, prepareAnalysis(t), pkgvar.Analyzer, "p")
 }
 

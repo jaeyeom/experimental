@@ -16,7 +16,8 @@
 // pointer, index, and slice expressions are followed to that variable.
 // Ranging over a channel receives from it. Ranging over an iterator calls it.
 // An imported function is pure only when it is allowlisted. The default
-// allowlist is errors.New, fmt.Errorf, and regexp.MustCompile. A listed
+// allowlist is errors.New, fmt.Errorf, regexp.MustCompile, strings.Join,
+// strings.Repeat, strings.ReplaceAll, and strings.Split. A listed
 // function also requires pure arguments.
 // Builtins len, cap, complex, real, imag, min, max, new, and make are pure.
 // panic, print, and println are not. Method calls are never allowlisted.
@@ -42,7 +43,7 @@ const (
 	diagDiscard = "package-level initializer discards its result"
 	diagImpure  = "package-level initializer calls an impure function or receives from a channel"
 
-	defaultAllowlist = "errors.New,fmt.Errorf,regexp.MustCompile"
+	defaultAllowlist = "errors.New,fmt.Errorf,regexp.MustCompile,strings.Join,strings.Repeat,strings.ReplaceAll,strings.Split"
 )
 
 // Analyzer reports package-level variables that should not be variables.
