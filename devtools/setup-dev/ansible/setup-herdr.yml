@@ -161,7 +161,8 @@
           - herdr
           - --skill
       loop: "{{ herdr_skill_paths }}"
-      changed_when: (stdout | trim) == "updated"
+      register: herdr_skill_apply
+      changed_when: (herdr_skill_apply.stdout | trim) == "updated"
       when:
         - herdr_skill_command_check.rc == 0
         - herdr_skill_output.rc | default(1) == 0
