@@ -205,7 +205,8 @@ Reports two kinds of package-level variables:
 - An initializer that calls a function or receives from a channel, unless the
   call is pure and a name keeps the result.
 
-The default allowlist is ~errors.New~, ~fmt.Errorf~, and ~regexp.MustCompile~.
+The default allowlist is ~errors.New~, ~fmt.Errorf~, ~regexp.MustCompile~,
+~strings.Join~, ~strings.Repeat~, ~strings.ReplaceAll~, and ~strings.Split~.
 A listed function is quiet only when every argument is pure and a name keeps
 the result. ~new~ and ~make~ are pure builtins. Interface assertions stay with
 unnecessary-interface-assertion-linter.
@@ -222,8 +223,9 @@ go install github.com/jaeyeom/experimental/devtools/linters/cmd/pkgvar@latest
 # go vet drives the singlechecker
 go vet -vettool=$(which pkgvar) ./...
 
-# The default allowlist is errors.New, fmt.Errorf, and regexp.MustCompile.
-go vet -vettool=$(which pkgvar) -allowlist errors.New,fmt.Errorf,regexp.MustCompile ./...
+# The default allowlist is errors.New, fmt.Errorf, regexp.MustCompile,
+# strings.Join, strings.Repeat, strings.ReplaceAll, and strings.Split.
+go vet -vettool=$(which pkgvar) -allowlist errors.New,fmt.Errorf,regexp.MustCompile,strings.Join,strings.Repeat,strings.ReplaceAll,strings.Split ./...
 #+END_SRC
 
 #+BEGIN_SRC bash
