@@ -21,9 +21,14 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
-var update = flag.Bool("update", false, "update golden files")
+var update *bool
 
-var fixtureNow = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+func TestMain(m *testing.M) {
+	update = flag.Bool("update", false, "update golden files")
+	os.Exit(m.Run())
+}
+
+var fixtureNow = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC) //nolint:pkgvar // time.Date with time.UTC does not load zone data
 
 func TestRunDryRunGolden(t *testing.T) {
 	t.Parallel()

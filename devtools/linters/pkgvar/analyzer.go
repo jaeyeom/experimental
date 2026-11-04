@@ -47,17 +47,20 @@ const (
 )
 
 // Analyzer reports package-level variables that should not be variables.
-var Analyzer = newAnalyzer()
+var Analyzer = &analysis.Analyzer{
+	Name:     "pkgvar",
+	Doc:      "report package-level variables that should be constants or that run at import time",
+	Requires: []*analysis.Analyzer{inspect.Analyzer},
+	Run:      run,
+}
 
-func newAnalyzer() *analysis.Analyzer {
-	a := &analysis.Analyzer{
-		Name:     "pkgvar",
-		Doc:      "report package-level variables that should be constants or that run at import time",
-		Requires: []*analysis.Analyzer{inspect.Analyzer},
-		Run:      run,
+// RegisterFlags adds the allowlist flag. Call it before flag parsing.
+// The registration is not a package-level initializer: that call is impure.
+func RegisterFlags() {
+	if Analyzer.Flags.Lookup("allowlist") != nil {
+		return
 	}
-	a.Flags.String("allowlist", defaultAllowlist, "comma-separated import/path.Func calls that stay pure when every argument is pure")
-	return a
+	Analyzer.Flags.String("allowlist", defaultAllowlist, "comma-separated import/path.Func calls that stay pure when every argument is pure")
 }
 
 func run(pass *analysis.Pass) (any, error) {

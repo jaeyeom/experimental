@@ -22,7 +22,6 @@ var configCmd = &cobra.Command{
 var addProjectCmd = &cobra.Command{
 	Use:   "add-project <name>",
 	Short: "Add a new project configuration",
-	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runAddProject(args[0], cmd)
 	},
@@ -31,7 +30,6 @@ var addProjectCmd = &cobra.Command{
 var removeProjectCmd = &cobra.Command{
 	Use:   "remove-project <name>",
 	Short: "Remove a project configuration",
-	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 		return runRemoveProject(args[0], force)
@@ -49,13 +47,16 @@ var listProjectsCmd = &cobra.Command{
 var showProjectCmd = &cobra.Command{
 	Use:   "show-project <name>",
 	Short: "Show project configuration details",
-	Args:  cobra.ExactArgs(1),
 	RunE: func(_ *cobra.Command, args []string) error {
 		return runShowProject(args[0])
 	},
 }
 
 func registerConfigCmd() {
+	addProjectCmd.Args = cobra.ExactArgs(1)
+	removeProjectCmd.Args = cobra.ExactArgs(1)
+	showProjectCmd.Args = cobra.ExactArgs(1)
+
 	// Add project flags
 	addProjectCmd.Flags().String("local-dir", "", "Local work directory path (required)")
 	addProjectCmd.Flags().String("remote-repo", "", "Remote repository URL (required)")

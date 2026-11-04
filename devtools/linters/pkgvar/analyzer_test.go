@@ -13,6 +13,11 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
+func TestMain(m *testing.M) {
+	pkgvar.RegisterFlags()
+	os.Exit(m.Run())
+}
+
 func TestDefaultAllowlist(t *testing.T) {
 	flag := pkgvar.Analyzer.Flags.Lookup("allowlist")
 	if flag == nil {

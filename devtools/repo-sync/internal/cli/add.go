@@ -15,10 +15,13 @@ var addCmd = &cobra.Command{
 	Long: `Add a new file to the synchronization scope for the specified project.
 This will first perform a sync operation, then copy the file to the remote
 work directory and commit it to the remote repository.`,
-	Args: cobra.ExactArgs(2),
 	RunE: func(_ *cobra.Command, args []string) error {
 		return runAdd(args[0], args[1])
 	},
+}
+
+func registerAddCmd() {
+	addCmd.Args = cobra.ExactArgs(2)
 }
 
 func runAdd(projectName, filePath string) error {
