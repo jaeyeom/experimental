@@ -276,6 +276,8 @@ func TestGoInstallMethodRenderInstallTask(t *testing.T) {
 
 	// Install uses the configured package path.
 	assertContains(t, got, []string{"go install example.com/mytool@latest"})
+	// Public modules stay on the public proxy.
+	assertNotContains(t, got, []string{"GOPRIVATE"})
 
 	if got := method.GetMethodType(); got != "go" {
 		t.Errorf("GetMethodType() = %q, want go", got)
@@ -287,6 +289,66 @@ func TestGoInstallMethodRenderInstallTask(t *testing.T) {
 	if !strings.HasPrefix(block, "    ") {
 		t.Errorf("RenderBlockInstallTask should indent:\n%s", block)
 	}
+}
+
+func ansibleTask(t *testing.T, yamlText, name string) string {
+	t.Helper()
+	marker := "- name: " + name
+	start := strings.Index(yamlText, marker)
+	if start < 0 {
+		t.Fatalf("task %q not found in:\n%s", name, yamlText)
+	}
+	rest := yamlText[start+len(marker):]
+	rel := strings.Index(rest, "- name:")
+	if rel < 0 {
+		return yamlText[start:]
+	}
+	return yamlText[start : start+len(marker)+rel]
+}
+
+func TestGoInstallMethodPrivateFactoryEnv(t *testing.T) {
+	method := GoInstallMethod{PkgPath: "github.com/jaeyeom/agentic-factory/cmd/factory@latest"}
+	got := method.RenderInstallTask("factory")
+
+	wantEnv := []string{
+		"GOPRIVATE: github.com/jaeyeom/agentic-factory",
+		"GONOSUMDB: github.com/jaeyeom/agentic-factory",
+		`GIT_CONFIG_COUNT: "2"`,
+		"GIT_CONFIG_KEY_0: credential.https://github.com.helper",
+		`GIT_CONFIG_VALUE_0: ""`,
+		"GIT_CONFIG_KEY_1: credential.https://github.com.helper",
+		`GIT_CONFIG_VALUE_1: "!gh auth git-credential"`,
+	}
+	listTask := ansibleTask(t, got, "Determine the latest factory version")
+	installTask := ansibleTask(t, got, "Upgrade factory")
+	if !strings.Contains(listTask, "go list -m") {
+		t.Fatalf("version task is not go list:\n%s", listTask)
+	}
+	if !strings.Contains(installTask, "go install github.com/jaeyeom/agentic-factory/cmd/factory@latest") {
+		t.Fatalf("upgrade task is not go install:\n%s", installTask)
+	}
+	assertContains(t, listTask, wantEnv)
+	assertContains(t, installTask, wantEnv)
+	// The generated when already upgrades when the module version differs.
+	assertContains(t, installTask, []string{
+		"factory_module_version != factory_latest.stdout",
+	})
+
+	for _, name := range []string{
+		"Check if factory is installed",
+		"Debug module path and version",
+		"Get factory build Go version",
+	} {
+		task := ansibleTask(t, got, name)
+		assertNotContains(t, task, []string{"GOPRIVATE", "GONOSUMDB", "GIT_CONFIG_COUNT"})
+	}
+
+	assertNotContains(t, got, []string{
+		"git config --global",
+		"GITHUB_TOKEN",
+		"ghp_",
+		"github_pat_",
+	})
 }
 
 func TestGoInstallMethodGetImports(t *testing.T) {
