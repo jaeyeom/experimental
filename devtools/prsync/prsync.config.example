@@ -19,6 +19,7 @@
 
 # herdr_bin=herdr
 # gh_bin=gh
+# jira_bin=jira
 
 # Gate busy-set: any (every working or blocked agent) | managed (only
 # tabs matched to PRs in the current scan; managed runs a scan).

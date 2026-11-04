@@ -13,6 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/jira"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
 	"github.com/spf13/cobra"
@@ -67,6 +68,7 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 		return err
 	}
 	client := herdr.NewClient(exec, cfg.HerdrBin)
+	jiraClient := jira.NewClient(exec, cfg.JiraBin)
 	deps := scan.OrphanDeps{
 		GH:     gh.NewClient(exec, cfg.GHBin),
 		Herdr:  client,
@@ -93,6 +95,7 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 				Results:     []scan.CloseItem{},
 				Warnings:    warnings,
 			}
+			scan.AttachUnblock(ctx, jiraClient, &out)
 			if werr := writeCloseJSON(stdout, out); werr != nil {
 				return werr
 			}
@@ -103,6 +106,7 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 		GH:    deps.GH,
 		Herdr: client,
 	}, cfg, doc.Author, doc.OrphanTabs, time.Now())
+	scan.AttachUnblock(ctx, jiraClient, &out)
 	if werr := writeCloseJSON(stdout, out); werr != nil {
 		return werr
 	}
