@@ -251,6 +251,28 @@ func (g GoInstallMethod) RenderSetupTasks(_ string) string {
 	return ""
 }
 
+const agenticFactoryModule = "github.com/jaeyeom/agentic-factory"
+
+// privateFactoryFetchEnv is the Ansible environment for go list and go install
+// of github.com/jaeyeom/agentic-factory. keySpaces is the indent of the
+// environment key. The blank credential helper clears inherited
+// https://github.com helpers for this process only. Other modules return "".
+func (g GoInstallMethod) privateFactoryFetchEnv(keySpaces int) string {
+	module, _, _ := strings.Cut(g.PkgPath, "@")
+	if module != agenticFactoryModule && !strings.HasPrefix(module, agenticFactoryModule+"/") {
+		return ""
+	}
+	return indent(`
+environment:
+  GOPRIVATE: github.com/jaeyeom/agentic-factory
+  GONOSUMDB: github.com/jaeyeom/agentic-factory
+  GIT_CONFIG_COUNT: "2"
+  GIT_CONFIG_KEY_0: credential.https://github.com.helper
+  GIT_CONFIG_VALUE_0: ""
+  GIT_CONFIG_KEY_1: credential.https://github.com.helper
+  GIT_CONFIG_VALUE_1: "!gh auth git-credential"`, keySpaces)
+}
+
 func (g GoInstallMethod) RenderInstallTask(command string) string {
 	commandID := strings.ReplaceAll(command, "-", "_")
 	return `    - name: Check if ` + command + ` is installed
@@ -266,7 +288,7 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
             ` + commandID + `_module_path: "{{ ` + commandID + `_installed.stdout.split()[1] }}"
             ` + commandID + `_module_version: "{{ ` + commandID + `_installed.stdout.split()[2] }}"
         - name: Determine the latest ` + command + ` version
-          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@latest"
+          command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ ` + commandID + `_module_path }}@latest"` + g.privateFactoryFetchEnv(10) + `
           register: ` + commandID + `_latest
           ignore_errors: yes
           changed_when: False
@@ -287,7 +309,7 @@ func (g GoInstallMethod) RenderInstallTask(command string) string {
       changed_when: false
 
     - name: Upgrade ` + command + `
-      command: go install ` + g.PkgPath + `
+      command: go install ` + g.PkgPath + g.privateFactoryFetchEnv(6) + `
       register: ` + commandID + `_upgrade
       until: ` + commandID + `_upgrade is succeeded
       retries: 3

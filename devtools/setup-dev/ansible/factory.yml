@@ -35,6 +35,14 @@
             factory_module_version: "{{ factory_installed.stdout.split()[2] }}"
         - name: Determine the latest factory version
           command: go list -m -f "{{ '{{' }}.Version {{ '}}' }}" "{{ factory_module_path }}@latest"
+          environment:
+            GOPRIVATE: github.com/jaeyeom/agentic-factory
+            GONOSUMDB: github.com/jaeyeom/agentic-factory
+            GIT_CONFIG_COUNT: "2"
+            GIT_CONFIG_KEY_0: credential.https://github.com.helper
+            GIT_CONFIG_VALUE_0: ""
+            GIT_CONFIG_KEY_1: credential.https://github.com.helper
+            GIT_CONFIG_VALUE_1: "!gh auth git-credential"
           register: factory_latest
           ignore_errors: yes
           changed_when: False
@@ -56,6 +64,14 @@
 
     - name: Upgrade factory
       command: go install github.com/jaeyeom/agentic-factory/cmd/factory@latest
+      environment:
+        GOPRIVATE: github.com/jaeyeom/agentic-factory
+        GONOSUMDB: github.com/jaeyeom/agentic-factory
+        GIT_CONFIG_COUNT: "2"
+        GIT_CONFIG_KEY_0: credential.https://github.com.helper
+        GIT_CONFIG_VALUE_0: ""
+        GIT_CONFIG_KEY_1: credential.https://github.com.helper
+        GIT_CONFIG_VALUE_1: "!gh auth git-credential"
       register: factory_upgrade
       until: factory_upgrade is succeeded
       retries: 3
