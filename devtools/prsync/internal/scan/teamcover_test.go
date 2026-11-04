@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
@@ -209,6 +210,212 @@ func TestTeamRequestsSkipsTeams(t *testing.T) {
 	}
 }
 
+func TestTeamRequestsQualifiedSlug(t *testing.T) {
+	t.Parallel()
+
+	teams, users := teamRequests(
+		[]string{"Team:acme/backend-reviewers", "Team:backend-reviewers", "User:bob"},
+		"acme",
+		nil,
+	)
+	if len(teams) != 1 || teams[0] != "acme/backend-reviewers" {
+		t.Fatalf("teams = %#v, want one acme/backend-reviewers", teams)
+	}
+	if len(users) != 1 || users[0] != "bob" {
+		t.Fatalf("users = %#v", users)
+	}
+
+	other, _ := teamRequests([]string{"Team:other/backend-reviewers"}, "acme", nil)
+	if len(other) != 1 || other[0] != "other/backend-reviewers" {
+		t.Fatalf("other org = %#v", other)
+	}
+
+	skipped, _ := teamRequests(
+		[]string{"Team:backend-reviewers", "Team:acme/backend-reviewers"},
+		"acme",
+		[]string{"acme/backend-reviewers"},
+	)
+	if len(skipped) != 0 {
+		t.Fatalf("skipped = %#v, want neither form", skipped)
+	}
+}
+
+func TestRunTeamCoverQualifiedAndBareSlug(t *testing.T) {
+	t.Parallel()
+
+	members := []gh.TeamMember{
+		{Login: "alice", Type: "User"},
+		{Login: "carol", Type: "User"},
+	}
+	tests := []struct {
+		name string
+		slug string
+	}{
+		{name: "org slash slug", slug: "acme/backend-reviewers"},
+		{name: "bare slug", slug: "backend-reviewers"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := teamCoverGH(map[string]memberCall{
+				"acme/backend-reviewers": {members: members},
+			})
+			g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, tc.slug)}}
+			doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), teamCoverCfg(), []string{"acme/widgets"}, fixtureNow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g.memberCalls != 1 {
+				t.Fatalf("memberCalls = %d, want 1", g.memberCalls)
+			}
+			got := doc.PRs[0].TeamReviewSuggestions
+			if len(got) != 1 || got[0].Team != "acme/backend-reviewers" || got[0].Error != "" {
+				t.Fatalf("suggestion = %+v", got)
+			}
+			if len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
+				t.Fatalf("suggest = %+v, want carol", got[0].Suggest)
+			}
+		})
+	}
+}
+
+func TestRunTeamCoverDedupesQualifiedAndBareSlug(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/backend-reviewers": {members: []gh.TeamMember{
+			{Login: "alice", Type: "User"},
+			{Login: "carol", Type: "User"},
+		}},
+	})
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, "backend-reviewers", "acme/backend-reviewers")}}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), teamCoverCfg(), []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.memberCalls != 1 {
+		t.Fatalf("memberCalls = %d, want 1", g.memberCalls)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || got[0].Team != "acme/backend-reviewers" || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
+		t.Fatalf("suggestion = %+v", got)
+	}
+}
+
+func TestRunTeamCoverSkipQualifiedSlugSkipsBothForms(t *testing.T) {
+	t.Parallel()
+
+	for _, slug := range []string{"acme/backend-reviewers", "backend-reviewers"} {
+		t.Run(slug, func(t *testing.T) {
+			t.Parallel()
+			g := teamCoverGH(map[string]memberCall{
+				"acme/backend-reviewers": {members: []gh.TeamMember{{Login: "carol", Type: "User"}}},
+			})
+			g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, slug)}}
+			cfg := teamCoverCfg()
+			cfg.TeamCoverSkipTeams = []string{"acme/backend-reviewers"}
+			doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g.memberCalls != 0 {
+				t.Fatalf("memberCalls = %d, want 0", g.memberCalls)
+			}
+			if doc.PRs[0].TeamReviewSuggestions != nil {
+				t.Fatalf("suggestions = %+v, want none", doc.PRs[0].TeamReviewSuggestions)
+			}
+		})
+	}
+}
+
+func TestRunTeamCoverEveryLookupFailedWarnsOnce(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/backend-reviewers": {err: errors.New("HTTP 404")},
+		"acme/other":             {err: errors.New("HTTP 403")},
+	})
+	one := teamPRSlug(1, "acme/backend-reviewers", "other")
+	two := teamPRSlug(2, "acme/backend-reviewers", "other")
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{one, two}}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), teamCoverCfg(), []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.memberCalls != 2 {
+		t.Fatalf("memberCalls = %d, want 2", g.memberCalls)
+	}
+	for _, pr := range doc.PRs {
+		if len(pr.TeamReviewSuggestions) != 2 {
+			t.Fatalf("suggestions = %+v", pr.TeamReviewSuggestions)
+		}
+		for _, suggestion := range pr.TeamReviewSuggestions {
+			if suggestion.Error == "" || len(suggestion.Suggest) != 0 {
+				t.Fatalf("suggestion = %+v, want error and empty suggest", suggestion)
+			}
+		}
+	}
+	if got := countSubstr(doc.Warnings, "every team lookup failed"); got != 1 {
+		t.Fatalf("warnings = %#v, want one every-lookup-failed warning", doc.Warnings)
+	}
+}
+
+func TestRunTeamCoverMixedLookupDoesNotWarnEveryFailed(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/backend-reviewers": {members: []gh.TeamMember{
+			{Login: "alice", Type: "User"},
+			{Login: "carol", Type: "User"},
+		}},
+		"acme/other": {err: errors.New("HTTP 404")},
+	})
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, "acme/backend-reviewers", "other")}}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), teamCoverCfg(), []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 2 {
+		t.Fatalf("suggestions = %+v", got)
+	}
+	if got[0].Team != "acme/backend-reviewers" || got[0].Error != "" || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
+		t.Fatalf("live = %+v, want carol", got[0])
+	}
+	if got[1].Team != "acme/other" || got[1].Error == "" || len(got[1].Suggest) != 0 {
+		t.Fatalf("failed = %+v, want error and empty suggest", got[1])
+	}
+	if countSubstr(doc.Warnings, "every team lookup failed") != 0 {
+		t.Fatalf("warnings = %#v, mixed lookups must not say every lookup failed", doc.Warnings)
+	}
+}
+
+func TestRunTeamCoverSnapshotFailureSkipsLookupWarning(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/backend-reviewers": {err: errors.New("HTTP 404")},
+	})
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, "backend-reviewers")}}
+	g.snapshots = map[string]snapResult{
+		"acme/widgets#1": {err: errors.New("HTTP 500")},
+	}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), teamCoverCfg(), []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.memberCalls != 0 {
+		t.Fatalf("memberCalls = %d, want 0", g.memberCalls)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || got[0].Error == "" || len(got[0].Suggest) != 0 {
+		t.Fatalf("suggestion = %+v, want snapshot error and empty suggest", got)
+	}
+	if countSubstr(doc.Warnings, "every team lookup failed") != 0 {
+		t.Fatalf("warnings = %#v, snapshot failure is not a team lookup", doc.Warnings)
+	}
+}
+
 func TestRunTeamCoverOffDoesNotFetch(t *testing.T) {
 	t.Parallel()
 
@@ -325,15 +532,31 @@ func teamCoverGH(members map[string]memberCall) *scriptGH {
 }
 
 func teamPR(number int) gh.PRListItem {
-	return gh.PRListItem{
-		Number:      number,
-		Title:       "Fix",
-		State:       "OPEN",
-		BaseRefName: "main",
-		URL:         "https://github.com/acme/widgets/pull/1",
-		ReviewRequests: []gh.ReviewReq{
-			{Type: "User", Login: "someone"},
-			{Type: "Team", Slug: "foo"},
-		},
+	return teamPRSlug(number, "foo")
+}
+
+func teamPRSlug(number int, slugs ...string) gh.PRListItem {
+	reqs := make([]gh.ReviewReq, 0, 1+len(slugs))
+	reqs = append(reqs, gh.ReviewReq{Type: "User", Login: "someone"})
+	for _, slug := range slugs {
+		reqs = append(reqs, gh.ReviewReq{Type: "Team", Slug: slug})
 	}
+	return gh.PRListItem{
+		Number:         number,
+		Title:          "Fix",
+		State:          "OPEN",
+		BaseRefName:    "main",
+		URL:            "https://github.com/acme/widgets/pull/1",
+		ReviewRequests: reqs,
+	}
+}
+
+func countSubstr(warnings []string, needle string) int {
+	n := 0
+	for _, warning := range warnings {
+		if strings.Contains(warning, needle) {
+			n++
+		}
+	}
+	return n
 }
