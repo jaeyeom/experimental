@@ -253,6 +253,7 @@ or closed, including a tab labeled exactly ~#N~.
 - Dry-run by default; ~--go~ sends or closes
 - Append-only JSONL run logs under =$XDG_STATE_HOME/prsync/= (~prsync logs~)
 - Shells out to authenticated ~gh~, herdr ≥ 0.8, and (after a live close) ~jira issue view~; never embeds a token
+- Optional ~team_cover~: ~scan~ suggests people for requested teams and does not request them
 
 *Installation:*
 #+BEGIN_SRC bash

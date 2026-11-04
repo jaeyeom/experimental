@@ -129,3 +129,15 @@
 # Written only on live send (dispatched / dispatched_timeout). Never
 # written on a transient blocked settlement.
 # state_file=~/.config/prsync/state.json
+
+# Report-only. When true, scan suggests individual reviewers for each
+# requested team that no member already covers. prsync never runs
+# `gh pr edit --add-reviewer`; the hint is printed on stderr.
+# team_cover=false
+# team_cover_per_team=1
+# team_cover_skip_teams=
+# team_cover_exclude_logins=
+# Or @/path/to/file, one login per line
+# team_cover_signals=codeowners,history,load
+# team_cover_history_days=90
+# team_cover_active_days=0     # 0 = no activity filter
