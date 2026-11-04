@@ -491,6 +491,57 @@ func TestLoadEmptyCICheckGlobs(t *testing.T) {
 	}
 }
 
+func TestLoadTeamCover(t *testing.T) {
+	dir := t.TempDir()
+	exclude := filepath.Join(dir, "exclude.txt")
+	mustWrite(t, exclude, "# departed\n\nleft\n  away  \n")
+	path := filepath.Join(dir, "prsync.config")
+	mustWrite(t, path, strings.Join([]string{
+		"team_cover=true",
+		"team_cover_per_team=2",
+		"team_cover_skip_teams=acme/bots, acme/oncall",
+		"team_cover_exclude_logins=@" + exclude,
+		"team_cover_signals=load,codeowners,load",
+		"team_cover_history_days=14",
+		"team_cover_active_days=30",
+		"",
+	}, "\n"))
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !got.TeamCover || got.TeamCoverPerTeam != 2 {
+		t.Fatalf("enabled=%v per=%d", got.TeamCover, got.TeamCoverPerTeam)
+	}
+	if !slices.Equal(got.TeamCoverSkipTeams, []string{"acme/bots", "acme/oncall"}) {
+		t.Fatalf("skip = %#v", got.TeamCoverSkipTeams)
+	}
+	if !slices.Equal(got.TeamCoverExcludeLogins, []string{"left", "away"}) {
+		t.Fatalf("exclude = %#v", got.TeamCoverExcludeLogins)
+	}
+	if !slices.Equal(got.TeamCoverSignals, []string{"load", "codeowners"}) {
+		t.Fatalf("signals = %#v", got.TeamCoverSignals)
+	}
+	if got.TeamCoverHistoryDays != 14 || got.TeamCoverActiveDays != 30 {
+		t.Fatalf("history=%d active=%d", got.TeamCoverHistoryDays, got.TeamCoverActiveDays)
+	}
+}
+
+func TestLoadTeamCoverInlineExcludeAndEmptySignals(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "team_cover_exclude_logins=left, away\nteam_cover_signals=\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !slices.Equal(got.TeamCoverExcludeLogins, []string{"left", "away"}) {
+		t.Fatalf("exclude = %#v", got.TeamCoverExcludeLogins)
+	}
+	if len(got.TeamCoverSignals) != 0 {
+		t.Fatalf("signals = %#v, want none", got.TeamCoverSignals)
+	}
+}
+
 func TestLoadZeroCommentLimitsDisable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "comment_link_max_chars=0\ncomment_body_max_chars=0\n")
@@ -573,6 +624,13 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad ci ignore glob", body: "ci_ignore_checks=[\n", key: "ci_ignore_checks"},
 		{name: "bad ci only glob", body: "ci_only_checks=foo[bar\n", key: "ci_only_checks"},
 		{name: "missing strip file", body: "comment_strip_patterns=@/no/such/strip\n", key: "comment_strip_patterns"},
+		{name: "bad team cover bool", body: "team_cover=yes\n", key: "team_cover"},
+		{name: "zero suggestions per team", body: "team_cover_per_team=0\n", key: "team_cover_per_team"},
+		{name: "bad skip team", body: "team_cover_skip_teams=not-a-team\n", key: "team_cover_skip_teams"},
+		{name: "unknown signal", body: "team_cover_signals=codeowners,vibes\n", key: "team_cover_signals"},
+		{name: "negative history days", body: "team_cover_history_days=-1\n", key: "team_cover_history_days"},
+		{name: "negative active days", body: "team_cover_active_days=-3\n", key: "team_cover_active_days"},
+		{name: "missing exclude file", body: "team_cover_exclude_logins=@/no/such/exclude\n", key: "team_cover_exclude_logins"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -636,6 +694,18 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.IncludeDrafts {
 		t.Fatal("IncludeDrafts default is not false")
+	}
+	if got.TeamCover {
+		t.Fatal("TeamCover default is not false")
+	}
+	if got.TeamCoverPerTeam != 1 {
+		t.Fatalf("TeamCoverPerTeam = %d, want 1", got.TeamCoverPerTeam)
+	}
+	if !slices.Equal(got.TeamCoverSignals, []string{"codeowners", "history", "load"}) {
+		t.Fatalf("TeamCoverSignals = %#v", got.TeamCoverSignals)
+	}
+	if got.TeamCoverHistoryDays != 90 || got.TeamCoverActiveDays != 0 {
+		t.Fatalf("history=%d active=%d", got.TeamCoverHistoryDays, got.TeamCoverActiveDays)
 	}
 	if got.StateFile != "~/.config/prsync/state.json" {
 		t.Fatalf("StateFile = %q", got.StateFile)

@@ -30,6 +30,13 @@ type GH interface {
 	ListOpenPRs(ctx context.Context, repo, author string) ([]gh.PRListItem, error)
 	ViewPR(ctx context.Context, repo string, number int) (gh.PRListItem, error)
 	ReviewThreads(ctx context.Context, owner, repo string, number int) ([]gh.Thread, error)
+	ReviewSnapshot(ctx context.Context, repo string, number int) (author string, reviews []gh.LatestReview, err error)
+	TeamMembers(ctx context.Context, org, slug string) ([]gh.TeamMember, error)
+	ChangedFiles(ctx context.Context, repo string, number int) ([]string, error)
+	Codeowners(ctx context.Context, repo, ref string) (string, error)
+	PathHistory(ctx context.Context, repo, ref, path string, since time.Time) (gh.PathHistory, error)
+	DirectReviewCount(ctx context.Context, org, login string) (int, error)
+	OrgActive(ctx context.Context, org, login string, since time.Time) (bool, error)
 }
 
 // Target is one pull request to classify without listing its repository.
@@ -71,6 +78,9 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	doc.Repos = resolved
 
 	if err := classifyRepos(ctx, deps.GH, cfg, resolved, &doc); err != nil {
+		return finish(doc, err)
+	}
+	if err := coverTeams(ctx, deps.GH, cfg, &doc, now); err != nil {
 		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps.Herdr, cfg, &doc); err != nil {
@@ -122,6 +132,9 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 			return finish(doc, err)
 		}
 		doc.PRs = append(doc.PRs, classified)
+	}
+	if err := coverTeams(ctx, deps.GH, cfg, &doc, now); err != nil {
+		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps.Herdr, cfg, &doc); err != nil {
 		return finish(doc, err)

@@ -602,6 +602,34 @@ func (fixtureGH) ReviewThreads(context.Context, string, string, int) ([]gh.Threa
 	return fixtureThreads(), nil
 }
 
+func (fixtureGH) ReviewSnapshot(context.Context, string, int) (string, []gh.LatestReview, error) {
+	return "", nil, nil
+}
+
+func (fixtureGH) TeamMembers(context.Context, string, string) ([]gh.TeamMember, error) {
+	return nil, nil
+}
+
+func (fixtureGH) ChangedFiles(context.Context, string, int) ([]string, error) {
+	return nil, nil
+}
+
+func (fixtureGH) Codeowners(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (fixtureGH) PathHistory(context.Context, string, string, string, time.Time) (gh.PathHistory, error) {
+	return gh.PathHistory{}, nil
+}
+
+func (fixtureGH) DirectReviewCount(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
+func (fixtureGH) OrgActive(context.Context, string, string, time.Time) (bool, error) {
+	return true, nil
+}
+
 type fixtureHerdr struct{}
 
 func (fixtureHerdr) RequireMin(context.Context, string) error { return nil }
@@ -652,20 +680,45 @@ type viewResult struct {
 }
 
 type scriptGH struct {
-	authErr      error
-	login        string
-	loginErr     error
-	search       []string
-	searchCapped bool
-	searchErr    error
-	searchCalls  int
-	list         map[string]listResult
-	listCalls    int
-	view         map[string]viewResult
-	viewCalls    []string
-	threads      map[int][]gh.Thread
-	threadErr    error
-	threadCalls  map[int]int
+	authErr       error
+	login         string
+	loginErr      error
+	search        []string
+	searchCapped  bool
+	searchErr     error
+	searchCalls   int
+	list          map[string]listResult
+	listCalls     int
+	view          map[string]viewResult
+	viewCalls     []string
+	threads       map[int][]gh.Thread
+	threadErr     error
+	threadCalls   map[int]int
+	snapshots     map[string]snapResult
+	members       map[string]memberCall
+	memberCalls   int
+	files         map[string][]string
+	fileErr       map[string]error
+	codeowners    map[string]string
+	codeownersErr map[string]error
+	history       map[string]gh.PathHistory
+	historyErr    error
+	load          map[string]int
+	loadErr       error
+	loadCalls     int
+	active        map[string]bool
+	activeErr     error
+}
+
+type snapResult struct {
+	author  string
+	reviews []gh.LatestReview
+	err     error
+}
+
+type memberCall struct {
+	members []gh.TeamMember
+	err     error
 }
 
 func (g *scriptGH) AuthStatus(context.Context) error { return g.authErr }
@@ -713,6 +766,83 @@ func (g *scriptGH) ReviewThreads(_ context.Context, _, _ string, number int) ([]
 		return nil, g.threadErr
 	}
 	return g.threads[number], nil
+}
+
+func (g *scriptGH) ReviewSnapshot(_ context.Context, repo string, number int) (string, []gh.LatestReview, error) {
+	if g.snapshots == nil {
+		return "", nil, nil
+	}
+	res := g.snapshots[fmt.Sprintf("%s#%d", repo, number)]
+	return res.author, res.reviews, res.err
+}
+
+func (g *scriptGH) TeamMembers(_ context.Context, org, slug string) ([]gh.TeamMember, error) {
+	g.memberCalls++
+	if g.members == nil {
+		return nil, fmt.Errorf("team members not configured for %s/%s", org, slug)
+	}
+	res, ok := g.members[org+"/"+slug]
+	if !ok {
+		return nil, fmt.Errorf("team members not configured for %s/%s", org, slug)
+	}
+	return res.members, res.err
+}
+
+func (g *scriptGH) ChangedFiles(_ context.Context, repo string, number int) ([]string, error) {
+	key := fmt.Sprintf("%s#%d", repo, number)
+	if g.fileErr != nil && g.fileErr[key] != nil {
+		return nil, g.fileErr[key]
+	}
+	if g.files == nil {
+		return nil, nil
+	}
+	return g.files[key], nil
+}
+
+func (g *scriptGH) Codeowners(_ context.Context, repo, ref string) (string, error) {
+	key := repo + "@" + ref
+	if g.codeownersErr != nil && g.codeownersErr[key] != nil {
+		return "", g.codeownersErr[key]
+	}
+	if g.codeowners == nil {
+		return "", nil
+	}
+	return g.codeowners[key], nil
+}
+
+func (g *scriptGH) PathHistory(_ context.Context, repo, ref, path string, _ time.Time) (gh.PathHistory, error) {
+	if g.historyErr != nil {
+		return gh.PathHistory{}, g.historyErr
+	}
+	if g.history == nil {
+		return gh.PathHistory{}, nil
+	}
+	return g.history[repo+"@"+ref+"\x00"+path], nil
+}
+
+func (g *scriptGH) DirectReviewCount(_ context.Context, org, login string) (int, error) {
+	g.loadCalls++
+	if g.loadErr != nil {
+		return 0, g.loadErr
+	}
+	if g.load == nil {
+		return 0, nil
+	}
+	return g.load[org+"/"+strings.ToLower(login)], nil
+}
+
+func (g *scriptGH) OrgActive(_ context.Context, org, login string, _ time.Time) (bool, error) {
+	if g.activeErr != nil {
+		return false, g.activeErr
+	}
+	if g.active == nil {
+		return true, nil
+	}
+	active, ok := g.active[org+"/"+strings.ToLower(login)]
+	if !ok {
+		return true, nil
+	}
+	return active, nil
 }
 
 func depsWith(g GH, h Herdr) Deps { return Deps{GH: g, Herdr: h} }

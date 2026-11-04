@@ -129,6 +129,24 @@ type Config struct {
 	// ci_state. They win over CIIgnoreChecks.
 	CIOnlyChecks []string
 
+	// TeamCover suggests individual reviewers for requested teams.
+	// Report-only: scan never requests a reviewer itself. Default off,
+	// so a scan's JSON and GitHub calls stay as they are today.
+	TeamCover bool
+	// TeamCoverPerTeam is how many people to suggest for one uncovered team.
+	TeamCoverPerTeam int
+	// TeamCoverSkipTeams are org/slug values that get no suggestion entry.
+	TeamCoverSkipTeams []string
+	// TeamCoverExcludeLogins are never suggested.
+	TeamCoverExcludeLogins []string
+	// TeamCoverSignals is the rank order. Empty ranks by login only.
+	TeamCoverSignals []string
+	// TeamCoverHistoryDays is the lookback for the history signal.
+	TeamCoverHistoryDays int
+	// TeamCoverActiveDays drops members with no org activity in this
+	// many days. Zero disables the filter.
+	TeamCoverActiveDays int
+
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
 }
@@ -173,6 +191,9 @@ func Defaults() Config {
 		DryRun:               true,
 		CommentLinkMaxChars:  500,
 		CommentBodyMaxChars:  4000,
+		TeamCoverPerTeam:     1,
+		TeamCoverSignals:     []string{"codeowners", "history", "load"},
+		TeamCoverHistoryDays: 90,
 	}
 }
 
@@ -357,9 +378,174 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyCommentKey(cfg, key, val)
 	case "ci_ignore_checks", "ci_only_checks":
 		return applyCheckGlobs(cfg, key, val)
+	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
+		"team_cover_exclude_logins", "team_cover_signals",
+		"team_cover_history_days", "team_cover_active_days":
+		return applyTeamCover(cfg, key, val)
 	default:
 		return nil
 	}
+}
+
+func applyTeamCover(cfg *Config, key, val string) error {
+	switch key {
+	case "team_cover":
+		return applyTeamCoverEnabled(cfg, val)
+	case "team_cover_per_team":
+		return applyTeamCoverPerTeam(cfg, val)
+	case "team_cover_skip_teams":
+		return applyTeamCoverSkip(cfg, val)
+	case "team_cover_exclude_logins":
+		return applyTeamCoverExclude(cfg, val)
+	case "team_cover_signals":
+		return applyTeamCoverSignals(cfg, val)
+	case "team_cover_history_days":
+		return applyTeamCoverDays(&cfg.TeamCoverHistoryDays, key, val)
+	case "team_cover_active_days":
+		return applyTeamCoverDays(&cfg.TeamCoverActiveDays, key, val)
+	default:
+		return nil
+	}
+}
+
+func applyTeamCoverEnabled(cfg *Config, val string) error {
+	b, err := parseBool("team_cover", val)
+	if err != nil {
+		return err
+	}
+	cfg.TeamCover = b
+	return nil
+}
+
+func applyTeamCoverPerTeam(cfg *Config, val string) error {
+	n, err := parseNonNegativeInt("team_cover_per_team", val)
+	if err != nil {
+		return err
+	}
+	if n < 1 {
+		return &KeyError{Key: "team_cover_per_team", Reason: "must be >= 1"}
+	}
+	cfg.TeamCoverPerTeam = n
+	return nil
+}
+
+func applyTeamCoverSkip(cfg *Config, val string) error {
+	teams, err := parseSkipTeams(val)
+	if err != nil {
+		return err
+	}
+	cfg.TeamCoverSkipTeams = teams
+	return nil
+}
+
+func parseSkipTeams(val string) ([]string, error) {
+	if strings.TrimSpace(val) == "" {
+		return nil, nil
+	}
+	var out []string
+	for _, part := range strings.Split(val, ",") {
+		team := strings.TrimSpace(part)
+		if team == "" {
+			continue
+		}
+		if !repoPattern.MatchString(team) {
+			return nil, &KeyError{Key: "team_cover_skip_teams", Reason: fmt.Sprintf("invalid team %q", team)}
+		}
+		out = append(out, team)
+	}
+	return out, nil
+}
+
+func applyTeamCoverExclude(cfg *Config, val string) error {
+	logins, err := parseExcludeLogins(val)
+	if err != nil {
+		return err
+	}
+	cfg.TeamCoverExcludeLogins = logins
+	return nil
+}
+
+func parseExcludeLogins(val string) ([]string, error) {
+	if strings.TrimSpace(val) == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(val, "@") {
+		text, err := resolvePrompt("team_cover_exclude_logins", val)
+		if err != nil {
+			return nil, err
+		}
+		return loginLines(text), nil
+	}
+	var out []string
+	for _, part := range strings.Split(val, ",") {
+		login := strings.TrimSpace(part)
+		if login == "" {
+			continue
+		}
+		out = append(out, login)
+	}
+	return out, nil
+}
+
+func loginLines(text string) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		login := strings.TrimSpace(line)
+		if login == "" || strings.HasPrefix(login, "#") {
+			continue
+		}
+		out = append(out, login)
+	}
+	return out
+}
+
+func applyTeamCoverSignals(cfg *Config, val string) error {
+	signals, err := parseTeamCoverSignals(val)
+	if err != nil {
+		return err
+	}
+	cfg.TeamCoverSignals = signals
+	return nil
+}
+
+func parseTeamCoverSignals(val string) ([]string, error) {
+	if strings.TrimSpace(val) == "" {
+		return []string{}, nil
+	}
+	allowed := map[string]struct{}{
+		"codeowners": {},
+		"history":    {},
+		"load":       {},
+	}
+	var out []string
+	seen := map[string]struct{}{}
+	for _, part := range strings.Split(val, ",") {
+		sig := strings.TrimSpace(part)
+		if sig == "" {
+			continue
+		}
+		if _, ok := allowed[sig]; !ok {
+			return nil, &KeyError{Key: "team_cover_signals", Reason: fmt.Sprintf("unknown signal %q", sig)}
+		}
+		if _, ok := seen[sig]; ok {
+			continue
+		}
+		seen[sig] = struct{}{}
+		out = append(out, sig)
+	}
+	if out == nil {
+		return []string{}, nil
+	}
+	return out, nil
+}
+
+func applyTeamCoverDays(dst *int, key, val string) error {
+	n, err := parseNonNegativeInt(key, val)
+	if err != nil {
+		return err
+	}
+	*dst = n
+	return nil
 }
 
 func applyCheckGlobs(cfg *Config, key, val string) error {
