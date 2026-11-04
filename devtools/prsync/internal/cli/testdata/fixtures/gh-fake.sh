@@ -70,7 +70,48 @@ case "${cmd} ${sub}" in
     exit 0
     ;;
   "api graphql")
-    cat "${DIR}/gh-review-threads.json"
+    # Path history and review threads share `gh api graphql`. The history
+    # query names associatedPullRequests; review threads do not.
+    case "$*" in
+      *associatedPullRequests*)
+        cat "${DIR}/gh-path-history.json"
+        ;;
+      *)
+        cat "${DIR}/gh-review-threads.json"
+        ;;
+    esac
+    exit 0
+    ;;
+  "api --paginate")
+    case "${3-}" in
+      orgs/acme/teams/platform-reviewers/members)
+        cat "${DIR}/gh-team-members.json"
+        ;;
+      repos/acme/widgets/pulls/123/files)
+        printf '%s\n' "src/foo/special.go"
+        ;;
+      *)
+        printf '%s\n' "gh-fake: unexpected: $*" >&2
+        exit 1
+        ;;
+    esac
+    exit 0
+    ;;
+  "api search/issues")
+    count=1
+    case "$*" in
+      *user-review-requested:carol*)
+        count=5
+        ;;
+      *user-review-requested:bob*)
+        count=1
+        ;;
+    esac
+    printf '%s\n' "{\"total_count\":${count}}"
+    exit 0
+    ;;
+  "api repos/acme/widgets/contents/"*)
+    cat "${DIR}/gh-codeowners.json"
     exit 0
     ;;
   *)

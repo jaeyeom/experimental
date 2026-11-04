@@ -1,0 +1,7 @@
+[
+  {"login": "alice", "type": "User"},
+  {"login": "dependabot[bot]", "type": "Bot"},
+  {"login": "left", "type": "User"},
+  {"login": "bob", "type": "User"},
+  {"login": "carol", "type": "User"}
+]

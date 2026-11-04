@@ -92,6 +92,56 @@ func TestScanFixtureHappyPath(t *testing.T) {
 	if doc.Summary != want {
 		t.Fatalf("summary = %+v, want %+v", doc.Summary, want)
 	}
+	if strings.Contains(stdout.String(), "team_review_suggestions") {
+		t.Fatalf("stdout = %s, team_cover off must not add team_review_suggestions", stdout.String())
+	}
+}
+
+func TestScanTeamCoverSuggests(t *testing.T) {
+	t.Parallel()
+
+	ghBin, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, ""+
+		"gh_bin="+ghBin+"\n"+
+		"herdr_bin="+herdrBin+"\n"+
+		"author=alice\n"+
+		"repos=acme/widgets\n"+
+		"team_cover=true\n"+
+		"team_cover_exclude_logins=left\n"+
+		"team_cover_signals=codeowners,history,load\n")
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"scan", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	var doc scan.Document
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout.String())
+	}
+	if doc.Summary.UncoveredTeams == nil || *doc.Summary.UncoveredTeams != 1 {
+		t.Fatalf("uncovered = %v", doc.Summary.UncoveredTeams)
+	}
+	if len(doc.PRs) != 1 || len(doc.PRs[0].TeamReviewSuggestions) != 1 {
+		t.Fatalf("suggestions = %+v", doc.PRs[0].TeamReviewSuggestions)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions[0]
+	if got.Team != "acme/platform-reviewers" || got.CoveredBy != nil || got.Error != "" {
+		t.Fatalf("team = %+v", got)
+	}
+	if len(got.Suggest) != 1 || got.Suggest[0].Login != "carol" {
+		t.Fatalf("suggest = %+v, want carol", got.Suggest)
+	}
+	reasons := strings.Join(got.Suggest[0].Reasons, ", ")
+	if !strings.Contains(reasons, "codeowner: /src/foo/special.go") || !strings.Contains(reasons, "5 open direct requests") {
+		t.Fatalf("reasons = %#v", got.Suggest[0].Reasons)
+	}
+	hint := stderr.String()
+	if !strings.Contains(hint, "acme/widgets#123 acme/platform-reviewers: suggest carol") {
+		t.Fatalf("stderr = %q", hint)
+	}
+	if !strings.Contains(hint, "gh pr edit 123 --repo acme/widgets --add-reviewer carol") {
+		t.Fatalf("stderr = %q", hint)
+	}
 }
 
 func TestScanHerdrMissingDegrades(t *testing.T) {

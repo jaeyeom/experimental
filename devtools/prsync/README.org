@@ -61,6 +61,9 @@ After ~go install~, put ~$GOPATH/bin~ / ~$GOBIN~ on ~PATH~.
   A missing binary or a failed ~jira issue view~ fails that check only;
   the close exit code stays the same. The check does not transition,
   comment, or assign.
+- ~team_cover~ lists team members with ~GET /orgs/{org}/teams/{slug}/members~,
+  which needs the ~read:org~ scope. Without it, that team gets an ~error~
+  and the scan continues.
 - Linux or macOS. No Windows requirement.
 
 Optional: copy [[file:prsync.config.example][prsync.config.example]] to ~./prsync.config~ or
@@ -139,8 +142,8 @@ the file.
 
 ~*_ms~ keys are integers in milliseconds (~2000~ is 2s, not 2µs).
 ~true~ / ~false~ / ~1~ / ~0~ are accepted for booleans. ~state_file~,
-~gh_bin~, ~herdr_bin~, ~jira_bin~, and ~@/path~ values (prompt templates
-and ~comment_strip_patterns~) expand a leading tilde.
+~gh_bin~, ~herdr_bin~, ~jira_bin~, and ~@/path~ values (prompt templates,
+~comment_strip_patterns~, and ~team_cover_exclude_logins~) expand a leading tilde.
 Environment variables are not expanded.
 
 ** Keys
@@ -170,6 +173,13 @@ Environment variables are not expanded.
 | ~comment_strip_patterns~ | empty | One RE2 pattern per line (blank lines and ~#~ comments ignored). Inline, or ~@/path~ (tilde expanded). Matches are removed from each comment body before ~comment_link_max_chars~ and ~comment_body_max_chars~. After a removal, trailing whitespace is trimmed and runs of 3+ newlines become one blank line. An empty body is rendered as ~(boilerplate only; see <thread url>)~; the comment is still listed. Does not change unresolved threads, eligibility, or the dedupe key. An invalid pattern is a config error naming the key and the line. An unreadable ~@file~ is a config error naming the key. |
 | ~comment_link_max_chars~ | ~500~ | Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~ disables. Length only, not host. Applied after ~comment_strip_patterns~. |
 | ~comment_body_max_chars~ | ~4000~ | Cap each comment body after pattern stripping and link stripping. Appends ~… [truncated, see <thread url>]~. ~0~ disables. |
+| ~team_cover~ | ~false~ | When true, ~scan~ suggests individual reviewers for each requested team that no member already covers. Report only: prsync never runs ~--add-reviewer~. Off leaves scan JSON and the GitHub call budget unchanged. |
+| ~team_cover_per_team~ | ~1~ | How many people to suggest per uncovered team. Must be >= 1. |
+| ~team_cover_skip_teams~ | empty | Comma-separated ~org/slug~ teams to omit from the report. |
+| ~team_cover_exclude_logins~ | empty | Comma-separated logins, or ~@/path~ (one login per line; blank lines and ~#~ comments ignored). Those logins are never suggested. |
+| ~team_cover_signals~ | ~codeowners,history,load~ | Ranking signals, in that priority order. Empty disables every signal and leaves login order. Duplicate names are dropped. An unknown name is a config error. |
+| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 100 commits. Must be >= 0. |
+| ~team_cover_active_days~ | ~0~ | Drop members with no org event in this many days. ~0~ disables the filter. The events API covers about 90 days. Must be >= 0. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
@@ -293,7 +303,46 @@ prsync scan --config ./prsync.config
 | ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
 | ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
 | ~tab~ | ~null~ when no unique herdr tab matches |
-| ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~ |
+| ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~. ~uncovered_teams~ is present only when ~team_cover~ produced suggestion entries. It counts entries whose ~covered_by~ is null, including teams that failed to list members. ~0~ is included. |
+| ~team_review_suggestions~ | Omitted when ~team_cover~ is off, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), and ~error~ when members could not be listed. |
+
+~team_cover~ is off by default, so the JSON above has no suggestion
+field. With it on, stdout stays JSON. Human-readable lines and one
+ready-to-run hint per pull request go to stderr, and prsync does not
+run the hint:
+
+#+BEGIN_EXAMPLE
+acme/widgets#123 org/some-team: suggest alice (codeowner: src/foo/**, 3 open direct requests)
+acme/widgets#123 org/other-team: covered by bob
+gh pr edit 123 --repo acme/widgets --add-reviewer alice
+#+END_EXAMPLE
+
+A team is covered when one of its members is already requested
+individually or has submitted a review whose state is not ~PENDING~.
+~covered_by~ prefers a requested member over a reviewer, then login
+order. Suggestions skip the author, bots (~[bot]~ or user type ~Bot~),
+excluded logins, people who already approved, and (when
+~team_cover_active_days~ is set) members with no recent org event.
+Coverage still counts those people. A person who belongs to two
+uncovered teams is suggested once in the hint and listed on each team
+they cover. The smallest teams are filled first. Already-picked people
+are reused before the next team is ranked.
+
+Ranking uses the configured signals, then login order: more owned
+touched paths (CODEOWNERS on the base branch, last match wins, user or
+a team they belong to), then more recent commits authored or reviewed
+on those paths, then fewer open direct review requests
+(~user-review-requested:<login>~ in the repo owner org, not
+~review-requested:~). Reasons name the winning CODEOWNERS pattern, the
+history counts, and the open-request count.
+
+Missing ~read:org~, or a failed member list, sets that team's ~error~
+and a stderr warning. The scan continues. A search or history rate
+limit skips that signal for the rest of the run, warns, and still
+suggests from the remaining signals. An events-API error skips the
+activity filter instead of dropping candidates. With the feature off,
+scan does not call team members, CODEOWNERS, path history, or the
+review-request search.
 
 ** tabs --orphans
 

@@ -4,6 +4,7 @@ package gh
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrUnauthenticated is returned when `gh auth status` exits non-zero.
@@ -14,6 +15,21 @@ var ErrInaccessible = errors.New("repository inaccessible")
 
 // ErrNotFound is returned when gh pr view cannot resolve that pull request.
 var ErrNotFound = errors.New("pull request not found")
+
+// ErrRateLimited is a GitHub rate limit. Team-cover skips that signal
+// instead of failing the scan.
+var ErrRateLimited = errors.New("github rate limit")
+
+// IsRateLimited reports whether err is a GitHub rate limit.
+func IsRateLimited(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrRateLimited) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "rate limit")
+}
 
 // ProcError is a non-zero process exit from gh.
 type ProcError struct {
@@ -132,4 +148,16 @@ type ThreadComment struct {
 // ThreadAuthor is a GitHub user on a review comment. Nil author means deleted.
 type ThreadAuthor struct {
 	Login string
+}
+
+// TeamMember is one user from GET /orgs/{org}/teams/{slug}/members.
+type TeamMember struct {
+	Login string `json:"login"`
+	Type  string `json:"type"`
+}
+
+// PathHistory is who authored or reviewed recent commits on one path.
+type PathHistory struct {
+	Authors   []string
+	Reviewers []string
 }

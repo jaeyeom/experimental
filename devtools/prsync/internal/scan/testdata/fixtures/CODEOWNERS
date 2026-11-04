@@ -1,0 +1,4 @@
+# Team owners, with a later line overriding the team.
+* @acme/everyone
+/src/foo/** @acme/foo-team
+/src/foo/special.go @alice

@@ -18,6 +18,9 @@ type Summary struct {
 	OffMachine   int `json:"off_machine"`   //nolint:tagliatelle // brief outbound contract
 	NoIdentifier int `json:"no_identifier"` //nolint:tagliatelle // brief outbound contract
 	Drafts       int `json:"drafts"`
+	// UncoveredTeams is set only when team_cover produced suggestion
+	// entries. Nil keeps the summary JSON identical when the feature is off.
+	UncoveredTeams *int `json:"uncovered_teams,omitempty"` //nolint:tagliatelle // brief outbound contract
 }
 
 // PR is one classified pull request in a scan document.
@@ -42,6 +45,25 @@ type PR struct {
 	Unaddressed      bool      `json:"unaddressed"`
 	BlockingComments []Comment `json:"blocking_comments"` //nolint:tagliatelle // brief outbound contract
 	Tab              *Tab      `json:"tab"`
+	// TeamReviewSuggestions is set only when team_cover is on and this PR
+	// requests a team that is not skipped. Nil keeps scan JSON identical
+	// when the feature is off.
+	TeamReviewSuggestions []TeamReviewSuggestion `json:"team_review_suggestions,omitempty"` //nolint:tagliatelle // brief outbound contract
+}
+
+// TeamReviewSuggestion is one requested team and who could cover it.
+// Scan never requests the suggested people.
+type TeamReviewSuggestion struct {
+	Team      string              `json:"team"`
+	CoveredBy *string             `json:"covered_by"` //nolint:tagliatelle // brief outbound contract
+	Suggest   []SuggestedReviewer `json:"suggest"`
+	Error     string              `json:"error,omitempty"`
+}
+
+// SuggestedReviewer is one person the caller may request with gh pr edit.
+type SuggestedReviewer struct {
+	Login   string   `json:"login"`
+	Reasons []string `json:"reasons"`
 }
 
 // Comment is one unresolved review thread whose last author is not the PR author.

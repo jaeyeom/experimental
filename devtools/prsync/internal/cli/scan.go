@@ -49,6 +49,9 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				if werr := writeJSON(stdout, doc); werr != nil {
 					return werr
 				}
+				if werr := writeTeamCoverHints(cmd.ErrOrStderr(), doc); werr != nil {
+					return werr
+				}
 			}
 			if err != nil {
 				return scanExit(err, cfg)
@@ -69,6 +72,65 @@ func validateRepoFlags(repos []string) error {
 		}
 	}
 	return nil
+}
+
+func writeTeamCoverHints(w io.Writer, doc scan.Document) error {
+	for _, pr := range doc.PRs {
+		logins, err := writeTeamCoverLines(w, pr)
+		if err != nil {
+			return err
+		}
+		if len(logins) == 0 {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "gh pr edit %d --repo %s --add-reviewer %s\n", pr.Number, pr.Repo, strings.Join(logins, ",")); err != nil {
+			return fmt.Errorf("write team cover hint: %w", err)
+		}
+	}
+	return nil
+}
+
+func writeTeamCoverLines(w io.Writer, pr scan.PR) ([]string, error) {
+	var logins []string
+	seen := map[string]struct{}{}
+	for _, team := range pr.TeamReviewSuggestions {
+		line, err := teamCoverLine(pr, team)
+		if err != nil {
+			return nil, err
+		}
+		if line == "" {
+			continue
+		}
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			return nil, fmt.Errorf("write team cover hint: %w", err)
+		}
+		for _, suggestion := range team.Suggest {
+			if _, ok := seen[suggestion.Login]; ok {
+				continue
+			}
+			seen[suggestion.Login] = struct{}{}
+			logins = append(logins, suggestion.Login)
+		}
+	}
+	return logins, nil
+}
+
+func teamCoverLine(pr scan.PR, team scan.TeamReviewSuggestion) (string, error) {
+	switch {
+	case team.Error != "":
+		return fmt.Sprintf("%s#%d %s: %s", pr.Repo, pr.Number, team.Team, team.Error), nil
+	case team.CoveredBy != nil:
+		return fmt.Sprintf("%s#%d %s: covered by %s", pr.Repo, pr.Number, team.Team, *team.CoveredBy), nil
+	}
+	var lines []string
+	for _, suggestion := range team.Suggest {
+		line := fmt.Sprintf("%s#%d %s: suggest %s", pr.Repo, pr.Number, team.Team, suggestion.Login)
+		if len(suggestion.Reasons) > 0 {
+			line += " (" + strings.Join(suggestion.Reasons, ", ") + ")"
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func writeJSON(w io.Writer, doc scan.Document) error {
