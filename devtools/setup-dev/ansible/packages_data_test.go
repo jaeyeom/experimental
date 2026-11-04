@@ -668,6 +668,32 @@ func TestPrsyncGoTool(t *testing.T) {
 	}
 }
 
+func TestFactoryGoTool(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "factory")
+	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
+	if !ok {
+		t.Fatalf("factory PlatformAll method = %T, want GoInstallMethod", tool.platforms[PlatformAll])
+	}
+	wantPath := "github.com/jaeyeom/agentic-factory/cmd/factory@latest"
+	if method.PkgPath != wantPath {
+		t.Errorf("factory PkgPath = %q, want %q", method.PkgPath, wantPath)
+	}
+	// herdr has no Termux build. factory still installs there via go install;
+	// the herdr import itself must not run on Termux.
+	wantImports := []Import{{Playbook: "gh"}, {Playbook: "herdr", When: WhenNotTermux}}
+	if !reflect.DeepEqual(tool.Imports, wantImports) {
+		t.Errorf("factory Imports = %s, want %s", formatImports(tool.Imports), formatImports(wantImports))
+	}
+	wantAll := []Import{
+		{Playbook: "gh"},
+		{Playbook: "herdr", When: WhenNotTermux},
+		{Playbook: "setup-user-go-bin-directory"},
+	}
+	if got := tool.GetAllImports(); !reflect.DeepEqual(got, wantAll) {
+		t.Errorf("factory GetAllImports() = %s, want %s", formatImports(got), formatImports(wantAll))
+	}
+}
+
 func TestTflintReleaseArchive(t *testing.T) {
 	tool := findPlatformSpecificTool(t, "tflint")
 	if _, ok := tool.platforms[PlatformTermux]; ok {

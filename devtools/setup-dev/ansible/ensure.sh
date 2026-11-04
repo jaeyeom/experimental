@@ -53,6 +53,8 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/herdr_skill_approve.sh"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
+. "$(dirname "$0")/factory_skill_approve.sh"
+# shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/ansible_become.sh"
 
 # Detect OS
@@ -884,6 +886,13 @@ ANSIBLE_RUN_STATUS="$LOG_DIR/ensure_sh.ansible.status"
 # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
 if any_arg_imports setup-herdr.yml $playbooks; then
     approve_herdr_skill "$(dirname "$0")" "$flags" "$playbooks" || exit 1
+fi
+
+# factory.yml may upgrade the binary whose skill text is hashed. Review in
+# this shell after that upgrade. pre_approve_urls stays URL-only.
+# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+if any_arg_imports setup-factory.yml $playbooks; then
+    approve_factory_skill "$(dirname "$0")" "$flags" "$playbooks" || exit 1
 fi
 
 # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces

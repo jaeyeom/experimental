@@ -506,6 +506,9 @@ ln -sf {{ user_bin_directory }}/../lib/detekt/bin/detekt-cli {{ user_bin_directo
 		},
 		Imports: nil,
 	},
+	// factory drives herdr from a Jira/GitHub mirror. herdr has no Termux
+	// build; the factory binary still installs there via go install.
+	GoTool("factory", "github.com/jaeyeom/agentic-factory/cmd/factory@latest", Import{Playbook: "gh"}, Import{Playbook: "herdr", When: WhenNotTermux}),
 	{
 		command: "fd",
 		platforms: map[PlatformName]InstallMethod{
