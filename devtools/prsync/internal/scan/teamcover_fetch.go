@@ -61,7 +61,23 @@ func coverTeams(ctx context.Context, client GH, cfg config.Config, doc *Document
 		}
 		doc.PRs[i].TeamReviewSuggestions = suggestions
 	}
+	// A review snapshot error returns before any member call, so the cache stays empty.
+	if allMemberLookupsFailed(cache) {
+		warn(doc, "every team lookup failed")
+	}
 	return nil
+}
+
+func allMemberLookupsFailed(cache *coverCache) bool {
+	if len(cache.members) == 0 {
+		return false
+	}
+	for _, cached := range cache.members {
+		if cached.err == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *coverCache) coverPR(ctx context.Context, client GH, cfg config.Config, doc *Document, pr PR) ([]TeamReviewSuggestion, error) {
@@ -390,7 +406,10 @@ func teamRequests(formatted []string, org string, skip []string) ([]string, []st
 			users = append(users, value)
 			continue
 		}
-		team := org + "/" + value
+		team := value
+		if !strings.Contains(value, "/") {
+			team = org + "/" + value
+		}
 		if _, done := seen[team]; done || containsFold(skip, team) {
 			continue
 		}
