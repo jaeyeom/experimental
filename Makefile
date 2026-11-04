@@ -1,5 +1,5 @@
 # Common targets
-.PHONY: all check format format-whitespace check-whitespace check-format test lint fix check-uv-lock
+.PHONY: all check format format-whitespace check-whitespace check-format test lint fix check-uv-lock install
 
 # Cross-platform sed in-place edit
 SED_INPLACE := $(shell if [ "$$(uname)" = "Darwin" ]; then echo "sed -i ''"; else echo "sed -i"; fi)
@@ -41,6 +41,24 @@ lint: lint-golangci lint-ruff lint-mypy lint-shellcheck check-spacemacs
 # Target fix is best-effort autofix for lint issues. If autofix is not
 # available, it still runs lint checks.
 fix: fix-golangci fix-ruff lint-mypy lint-shellcheck check-spacemacs
+
+install:
+	GOPACKAGESDRIVER= go install \
+		./devtools/claude-usage/cmd/claude-usage \
+		./devtools/devcheck/cmd/devcheck \
+		./devtools/docsync/cmd/docsync \
+		./devtools/gh-nudge/cmd/gh-codeowners \
+		./devtools/gh-nudge/cmd/gh-merge \
+		./devtools/gh-nudge/cmd/gh-nudge \
+		./devtools/gh-nudge/cmd/gh-pr-review \
+		./devtools/gh-nudge/cmd/gh-slack \
+		./devtools/gh-nudge/cmd/gh-storage \
+		./devtools/linters/cmd/org-lint \
+		./devtools/linters/cmd/pkgvar \
+		./devtools/linters/cmd/unnecessary-interface-assertion-linter \
+		./devtools/prsync/cmd/prsync \
+		./devtools/rename-jira-keys/cmd/rename-jira-keys \
+		./devtools/reviewpush/cmd/review-and-push-loop
 
 # Go targets
 .PHONY: lint-golangci fix-golangci verify-golangci-config verify-oserrorsgodernize check-bazel-go-files

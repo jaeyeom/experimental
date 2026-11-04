@@ -369,16 +369,32 @@ bazel build //devtools/<tool-name>/...
 
 ** Installing All Tools
 
+From the repository root, =make install= installs this checkout's Go CLIs.
+It runs one =go install= with paths relative to the module root (no =@latest=,
+no =...= wildcard):
+
 #+BEGIN_SRC bash
-# Install individual Go-based tools
-go install github.com/jaeyeom/experimental/devtools/devcheck/cmd/...@latest
-go install github.com/jaeyeom/experimental/devtools/rename-jira-keys/cmd/...@latest
+make install
+#+END_SRC
 
-# Install linters
-go install github.com/jaeyeom/experimental/devtools/linters/cmd/...@latest
+Packages:
 
-# Install all gh-nudge suite tools
-go install github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/...@latest
+#+BEGIN_SRC bash
+./devtools/claude-usage/cmd/claude-usage
+./devtools/devcheck/cmd/devcheck
+./devtools/docsync/cmd/docsync
+./devtools/gh-nudge/cmd/gh-codeowners
+./devtools/gh-nudge/cmd/gh-merge
+./devtools/gh-nudge/cmd/gh-nudge
+./devtools/gh-nudge/cmd/gh-pr-review
+./devtools/gh-nudge/cmd/gh-slack
+./devtools/gh-nudge/cmd/gh-storage
+./devtools/linters/cmd/org-lint
+./devtools/linters/cmd/pkgvar
+./devtools/linters/cmd/unnecessary-interface-assertion-linter
+./devtools/prsync/cmd/prsync
+./devtools/rename-jira-keys/cmd/rename-jira-keys
+./devtools/reviewpush/cmd/review-and-push-loop
 #+END_SRC
 
 * Contributing

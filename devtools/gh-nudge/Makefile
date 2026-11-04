@@ -15,7 +15,13 @@ lint:
 	GOPACKAGESDRIVER= golangci-lint run ./...
 
 install:
-	go install ./cmd/...
+	go install \
+		./cmd/gh-codeowners \
+		./cmd/gh-merge \
+		./cmd/gh-nudge \
+		./cmd/gh-pr-review \
+		./cmd/gh-slack \
+		./cmd/gh-storage
 
 PKL_GEN_FILES := internal/config/pkl/Config.pkl.go
 
