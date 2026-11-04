@@ -521,7 +521,7 @@ func TestLoadMillisAreMilliseconds(t *testing.T) {
 func TestLoadExpandsTilde(t *testing.T) {
 	home, _ := isolateConfigEnv(t)
 	path := filepath.Join(t.TempDir(), "prsync.config")
-	mustWrite(t, path, "state_file=~/custom/state.json\ngh_bin=~/bin/gh\nherdr_bin=~/bin/herdr\n")
+	mustWrite(t, path, "state_file=~/custom/state.json\ngh_bin=~/bin/gh\nherdr_bin=~/bin/herdr\njira_bin=~/bin/jira\n")
 	got, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -534,6 +534,9 @@ func TestLoadExpandsTilde(t *testing.T) {
 	}
 	if got.HerdrBin != filepath.Join(home, "bin", "herdr") {
 		t.Fatalf("HerdrBin = %q", got.HerdrBin)
+	}
+	if got.JiraBin != filepath.Join(home, "bin", "jira") {
+		t.Fatalf("JiraBin = %q", got.JiraBin)
 	}
 }
 
@@ -551,6 +554,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "empty template", body: "tab_label_template=\n", key: "tab_label_template"},
 		{name: "empty herdr", body: "herdr_bin=\n", key: "herdr_bin"},
 		{name: "empty gh", body: "gh_bin=\n", key: "gh_bin"},
+		{name: "empty jira", body: "jira_bin=\n", key: "jira_bin"},
 		{name: "bad enum", body: "concurrency_wait_on=sometimes\n", key: "concurrency_wait_on"},
 		{name: "zero poll", body: "gate_poll_ms=0\n", key: "gate_poll_ms"},
 		{name: "negative timeout", body: "gate_timeout_ms=-1\n", key: "gate_timeout_ms"},
@@ -609,8 +613,8 @@ func TestDefaults(t *testing.T) {
 	if got.TabLabelTemplate != "{id}" {
 		t.Fatalf("TabLabelTemplate = %q", got.TabLabelTemplate)
 	}
-	if got.HerdrBin != "herdr" || got.GHBin != "gh" {
-		t.Fatalf("bins herdr=%q gh=%q", got.HerdrBin, got.GHBin)
+	if got.HerdrBin != "herdr" || got.GHBin != "gh" || got.JiraBin != "jira" {
+		t.Fatalf("bins herdr=%q gh=%q jira=%q", got.HerdrBin, got.GHBin, got.JiraBin)
 	}
 	if got.ConcurrencyWaitOn != "any" {
 		t.Fatalf("ConcurrencyWaitOn = %q", got.ConcurrencyWaitOn)
