@@ -77,6 +77,7 @@ underneath for hermetic, reproducible builds.
 | =make lint=          | Run golangci-lint, oserrorsgodernize, pkgvar, ruff, mypy, shellcheck, Spacemacs checks. |
 | =make fix=           | Best-effort autofix for lint issues.                                            |
 | =make all=           | Regenerate, format, fix, then test and lint.                                    |
+| =make install=       | Install this checkout's Go CLIs. See =devtools/README.org=.                     |
 | =make coverage-html= | Generate an HTML coverage report under =coverage/html/=.                        |
 
 ** Bazel
