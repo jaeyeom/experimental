@@ -22,6 +22,7 @@ go_library(
         "//devtools/prsync/internal/dispatch:go_default_library",
         "//devtools/prsync/internal/gh:go_default_library",
         "//devtools/prsync/internal/herdr:go_default_library",
+        "//devtools/prsync/internal/jira:go_default_library",
         "//devtools/prsync/internal/runlog:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
         "//devtools/prsync/internal/version:go_default_library",

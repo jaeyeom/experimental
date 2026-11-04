@@ -34,6 +34,10 @@ esac
 
 case "${1-} ${2-}" in
   "tab list")
+    if [ -n "${HERDR_FAKE_TAB_LIST-}" ]; then
+      cat "$HERDR_FAKE_TAB_LIST"
+      exit 0
+    fi
     cat "${DIR}/herdr-tab-list.json"
     exit 0
     ;;
@@ -50,11 +54,31 @@ case "${1-} ${2-}" in
         printf '%s\n' "herdr-fake: tab close failed" >&2
         exit 1
         ;;
+      fail-second)
+        n=0
+        if [ -n "${HERDR_FAKE_CLOSE_COUNT-}" ] && [ -f "$HERDR_FAKE_CLOSE_COUNT" ]; then
+          n=$(cat "$HERDR_FAKE_CLOSE_COUNT")
+        fi
+        n=$((n + 1))
+        if [ -n "${HERDR_FAKE_CLOSE_COUNT-}" ]; then
+          printf '%s\n' "$n" > "$HERDR_FAKE_CLOSE_COUNT"
+        fi
+        if [ "$n" -ge 2 ]; then
+          printf '%s\n' "herdr-fake: tab close failed" >&2
+          exit 1
+        fi
+        printf '%s\n' '{"result":{"closed":true}}'
+        exit 0
+        ;;
     esac
     printf '%s\n' '{"result":{"closed":true}}'
     exit 0
     ;;
   "agent list")
+    if [ -n "${HERDR_FAKE_AGENT_LIST-}" ]; then
+      cat "$HERDR_FAKE_AGENT_LIST"
+      exit 0
+    fi
     status=${HERDR_FAKE_AGENT_STATUS:-idle}
     seq=1
     if [ -n "${HERDR_FAKE_STATUS_FILE-}" ] && [ -f "$HERDR_FAKE_STATUS_FILE" ]; then

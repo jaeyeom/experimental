@@ -26,6 +26,10 @@ case "${cmd} ${sub}" in
         cat "${DIR}/gh-search-prs.json"
         ;;
       *)
+        if [ -n "${GH_FAKE_SEARCH_FILE-}" ]; then
+          cat "$GH_FAKE_SEARCH_FILE"
+          exit 0
+        fi
         if [ -n "${GH_FAKE_SEARCH_EMPTY-}" ]; then
           printf '%s\n' "[]"
         else

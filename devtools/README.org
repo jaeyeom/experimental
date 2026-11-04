@@ -252,7 +252,7 @@ or closed, including a tab labeled exactly ~#N~.
 - JSON CLI: ~scan~, ~tabs --orphans~, ~dispatch~, ~comment~, ~gate~, ~logs~, ~version~
 - Dry-run by default; ~--go~ sends or closes
 - Append-only JSONL run logs under =$XDG_STATE_HOME/prsync/= (~prsync logs~)
-- Shells out to authenticated ~gh~ and herdr ≥ 0.8; never embeds a token
+- Shells out to authenticated ~gh~, herdr ≥ 0.8, and (after a live close) ~jira issue view~; never embeds a token
 
 *Installation:*
 #+BEGIN_SRC bash

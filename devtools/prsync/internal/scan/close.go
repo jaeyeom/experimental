@@ -69,10 +69,11 @@ type CloseDeps struct {
 
 // CloseDocument is the outbound `tabs --orphans --close-merged` JSON document.
 type CloseDocument struct {
-	GeneratedAt string      `json:"generated_at"` //nolint:tagliatelle // brief outbound contract
-	DryRun      bool        `json:"dry_run"`      //nolint:tagliatelle // brief outbound contract
-	Results     []CloseItem `json:"results"`
-	Warnings    []string    `json:"warnings"`
+	GeneratedAt string        `json:"generated_at"` //nolint:tagliatelle // brief outbound contract
+	DryRun      bool          `json:"dry_run"`      //nolint:tagliatelle // brief outbound contract
+	Results     []CloseItem   `json:"results"`
+	Warnings    []string      `json:"warnings"`
+	Unblock     UnblockReport `json:"unblock"`
 }
 
 // CloseItem is one tab's close outcome.

@@ -104,6 +104,7 @@ type Config struct {
 	TabLabelTemplate     string
 	HerdrBin             string
 	GHBin                string
+	JiraBin              string
 	ConcurrencyWaitOn    string
 	GatePoll             time.Duration
 	GateTimeout          time.Duration
@@ -159,6 +160,7 @@ func Defaults() Config {
 		TabLabelTemplate:     "{id}",
 		HerdrBin:             "herdr",
 		GHBin:                "gh",
+		JiraBin:              "jira",
 		ConcurrencyWaitOn:    "any",
 		GatePoll:             2000 * time.Millisecond,
 		GateTimeout:          1800000 * time.Millisecond,
@@ -195,6 +197,7 @@ func Load(explicitPath string) (Config, error) {
 	cfg.StateFile = expandTilde(cfg.StateFile)
 	cfg.GHBin = expandTilde(cfg.GHBin)
 	cfg.HerdrBin = expandTilde(cfg.HerdrBin)
+	cfg.JiraBin = expandTilde(cfg.JiraBin)
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -214,6 +217,9 @@ func (c Config) Validate() error {
 	}
 	if c.GHBin == "" {
 		return &KeyError{Key: "gh_bin", Reason: "must be non-empty"}
+	}
+	if c.JiraBin == "" {
+		return &KeyError{Key: "jira_bin", Reason: "must be non-empty"}
 	}
 	if c.ConcurrencyWaitOn != "any" && c.ConcurrencyWaitOn != "managed" {
 		return &KeyError{Key: "concurrency_wait_on", Reason: fmt.Sprintf("invalid value %q", c.ConcurrencyWaitOn)}
@@ -312,10 +318,8 @@ func applyKey(cfg *Config, key, val string) error {
 		return applyTitleIDPattern(cfg, val)
 	case "tab_label_template":
 		cfg.TabLabelTemplate = val
-	case "herdr_bin":
-		cfg.HerdrBin = val
-	case "gh_bin":
-		cfg.GHBin = val
+	case "herdr_bin", "gh_bin", "jira_bin":
+		applyBin(cfg, key, val)
 	case "concurrency_wait_on":
 		cfg.ConcurrencyWaitOn = val
 	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms":
@@ -334,6 +338,17 @@ func applyKey(cfg *Config, key, val string) error {
 		return applyOtherKey(cfg, key, val)
 	}
 	return nil
+}
+
+func applyBin(cfg *Config, key, val string) {
+	switch key {
+	case "herdr_bin":
+		cfg.HerdrBin = val
+	case "gh_bin":
+		cfg.GHBin = val
+	case "jira_bin":
+		cfg.JiraBin = val
+	}
 }
 
 func applyOtherKey(cfg *Config, key, val string) error {
