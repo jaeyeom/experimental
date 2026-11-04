@@ -8,5 +8,6 @@ import (
 )
 
 func main() {
+	pkgvar.RegisterFlags()
 	singlechecker.Main(pkgvar.Analyzer)
 }

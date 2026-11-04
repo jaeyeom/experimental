@@ -14,13 +14,13 @@ var removeCmd = &cobra.Command{
 	Short: "Remove a file from both local and remote repositories",
 	Long: `Remove a file from both local and remote repositories with deletion tracking.
 This will record the deletion in the metadata database for multi-machine coordination.`,
-	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runRemove(args[0], args[1], cmd)
 	},
 }
 
 func registerRemoveCmd() {
+	removeCmd.Args = cobra.ExactArgs(2)
 	removeCmd.Flags().Bool("confirm", false, "Skip confirmation prompt")
 }
 

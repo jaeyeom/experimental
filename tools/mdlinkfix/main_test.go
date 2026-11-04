@@ -6,6 +6,11 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	registerFlags()
+	os.Exit(m.Run())
+}
+
 func TestProcessFileWithEnv(t *testing.T) {
 	// Create a temporary directory with test files
 	tmpDir := t.TempDir()

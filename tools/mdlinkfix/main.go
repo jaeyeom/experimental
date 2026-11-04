@@ -30,10 +30,19 @@ import (
 )
 
 var (
-	dryRun   = flag.Bool("dry-run", false, "Print changes without modifying files")
-	verbose  = flag.Bool("verbose", false, "Print verbose output")
-	validate = flag.Bool("validate", false, "Validate local links and report broken ones")
+	dryRun   *bool
+	verbose  *bool
+	validate *bool
 )
+
+func registerFlags() {
+	if dryRun != nil {
+		return
+	}
+	dryRun = flag.Bool("dry-run", false, "Print changes without modifying files")
+	verbose = flag.Bool("verbose", false, "Print verbose output")
+	validate = flag.Bool("validate", false, "Validate local links and report broken ones")
+}
 
 // loadConfig loads configuration from environment variables.
 func loadConfig() linkfix.Config {
@@ -108,6 +117,7 @@ func ProcessFile(filePath string) ([]linkfix.BrokenLink, error) {
 }
 
 func main() {
+	registerFlags()
 	flag.Parse()
 
 	if flag.NArg() == 0 {

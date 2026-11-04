@@ -49,8 +49,10 @@ func registerCommands() {
 
 	registerInitCmd()
 	registerSyncCmd()
+	registerAddCmd()
 	registerRemoveCmd()
 	registerConfigCmd()
+	registerStatusCmd()
 
 	cobra.OnInitialize(initConfig)
 

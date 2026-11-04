@@ -13,7 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
-var fixtureNow = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+var fixtureNow = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC) //nolint:pkgvar // time.Date with time.UTC does not load zone data
 
 func TestRunDryRunWouldDispatch(t *testing.T) {
 	t.Parallel()
