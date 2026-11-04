@@ -509,6 +509,85 @@ func TestHerdrSkillInstall(t *testing.T) {
 	}
 }
 
+func TestFactorySkillInstall(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	read := func(name string) string {
+		t.Helper()
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+
+	got := read("setup-factory.yml")
+	for _, want := range []string{
+		"import_playbook: factory.yml",
+		"setup_factory_playbook_imported",
+		"factory_skill_paths:",
+		"{{ ansible_facts['env']['HOME'] }}/.claude/skills/factory/SKILL.md",
+		"command: go env GOPATH",
+		"GOTOOLCHAIN: local",
+		"{{ go_env_gopath.stdout }}/bin:{{ ansible_facts['env']['PATH'] }}",
+		"ansible.builtin.shell: command -v factory",
+		"cmd: factory skill",
+		"strip_empty_ends: false",
+		"changed_when: false",
+		"failed_when: false",
+		"Skipping factory skill install because factory is not on PATH.",
+		"exited {{ factory_skill_output.rc | default('unknown') }}",
+		"printed nothing",
+		"path: \"{{ item | dirname }}\"",
+		"apply-text",
+		"factory-skill",
+		"register: factory_skill_apply",
+		"changed_when: (factory_skill_apply.stdout | trim) == \"updated\"",
+		"loop: \"{{ factory_skill_paths }}\"",
+		"- factory",
+		"- skill",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("setup-factory.yml missing %q", want)
+		}
+	}
+	if strings.Contains(got, "import_playbook: gather-facts.yml") {
+		t.Error("setup-factory.yml must not import gather-facts.yml")
+	}
+	if strings.Contains(got, "import_playbook: factory.yml\n  when:") {
+		t.Error("setup-factory.yml must import factory.yml on every platform")
+	}
+	if strings.Contains(got, "content: \"{{ factory_skill_output.stdout }}\"") {
+		t.Error("setup-factory.yml still copies unreviewed factory skill stdout")
+	}
+	if strings.Contains(got, "changed_when: (stdout | trim)") {
+		t.Error("setup-factory.yml still evaluates changed_when against bare stdout")
+	}
+	if strings.Contains(got, "factory.toml") || strings.Contains(got, "config.toml") {
+		t.Error("setup-factory.yml must not write factory config")
+	}
+
+	factory := read("factory.yml")
+	if !strings.Contains(factory, "command: go install github.com/jaeyeom/agentic-factory/cmd/factory@latest") {
+		t.Error("factory.yml missing go install github.com/jaeyeom/agentic-factory/cmd/factory@latest")
+	}
+	wantHerdr := "import_playbook: herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined"
+	if !strings.Contains(factory, wantHerdr) {
+		t.Errorf("factory.yml missing %q", wantHerdr)
+	}
+	if strings.Count(factory, "TERMUX_VERSION") != 1 {
+		t.Errorf("factory.yml TERMUX_VERSION count = %d, want 1 (herdr import only)", strings.Count(factory, "TERMUX_VERSION"))
+	}
+
+	vibe := read("setup-vibe-coding.yml")
+	wantVibe := "import_playbook: setup-herdr.yml\n  when: ansible_facts['env']['TERMUX_VERSION'] is not defined\n- import_playbook: setup-factory.yml\n"
+	if !strings.Contains(vibe, wantVibe) {
+		t.Errorf("setup-vibe-coding.yml missing unconditional setup-factory import after setup-herdr")
+	}
+	if !strings.Contains(vibe, "herdr, factory, aside") {
+		t.Error("setup-vibe-coding.yml completion message missing factory")
+	}
+}
+
 func TestLocateDatabaseRefreshIsThrottled(t *testing.T) {
 	dir := ansiblePlaybookDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "locate.yml"))

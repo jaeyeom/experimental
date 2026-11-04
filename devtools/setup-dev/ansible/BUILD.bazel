@@ -46,6 +46,7 @@ sh_binary(
         "ansible_become.sh",
         "cache_expired.sh",
         "community_general.sh",
+        "factory_skill_approve.sh",
         "herdr_skill_approve.sh",
         "playbook_resume.sh",
     ],
@@ -94,6 +95,17 @@ sh_test(
     name = "verified_text_test",
     srcs = ["verified_text_test.sh"],
     data = ["verified-run"],
+)
+
+sh_test(
+    name = "factory_skill_approve_test",
+    srcs = ["factory_skill_approve_test.sh"],
+    data = [
+        "ensure.sh",
+        "factory_skill_approve.sh",
+        "playbook_resume.sh",
+        "verified-run",
+    ],
 )
 
 sh_test(
@@ -217,6 +229,7 @@ sh_test(
         "e.yml",
         "emacs.yml",
         "eslint.yml",
+        "factory.yml",
         "fd.yml",
         "ffmpegthumbnailer.yml",
         "fillstruct.yml",
@@ -303,6 +316,7 @@ sh_test(
         "setup-devtools.yml",
         "setup-direnv.yml",
         "setup-emacs.yml",
+        "setup-factory.yml",
         "setup-fira-code-nerd-font.yml",
         "setup-ghostty.yml",
         "setup-git.yml",
@@ -894,6 +908,27 @@ sh_test(
         "setup-npm.yml",
         "setup-nvm.yml",
         "setup-shell-profile.yml",
+        "tasks/github-release-info.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "factory_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["factory.yml"],
+    data = [
+        "curl.yml",
+        "factory.yml",
+        "gather-facts.yml",
+        "gh.yml",
+        "go.yml",
+        "herdr.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
         "tasks/github-release-info.yml",
     ],
     tags = [
@@ -2219,6 +2254,7 @@ sh_test(
         "direnv.yml",
         "e.yml",
         "emacs.yml",
+        "factory.yml",
         "fd.yml",
         "ffmpegthumbnailer.yml",
         "fzf.yml",
@@ -2274,6 +2310,7 @@ sh_test(
         "setup-devtools.yml",
         "setup-direnv.yml",
         "setup-emacs.yml",
+        "setup-factory.yml",
         "setup-fira-code-nerd-font.yml",
         "setup-ghostty.yml",
         "setup-git.yml",
@@ -3145,6 +3182,28 @@ sh_test(
 )
 
 sh_test(
+    name = "setup-factory_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-factory.yml"],
+    data = [
+        "curl.yml",
+        "factory.yml",
+        "gather-facts.yml",
+        "gh.yml",
+        "go.yml",
+        "herdr.yml",
+        "setup-factory.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+        "tasks/github-release-info.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "setup-fira-code_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["setup-fira-code.yml"],
@@ -3855,6 +3914,7 @@ sh_test(
         "codex.yml",
         "curl.yml",
         "delta.yml",
+        "factory.yml",
         "gather-facts.yml",
         "gh.yml",
         "gh-codeowners.yml",
@@ -3880,6 +3940,7 @@ sh_test(
         "setup-claude-privacy.yml",
         "setup-claude-toolbox.yml",
         "setup-codex-termux.yml",
+        "setup-factory.yml",
         "setup-git.yml",
         "setup-grok.yml",
         "setup-grok-termux.yml",
@@ -4435,6 +4496,7 @@ test_suite(
         ":emacs-lsp-booster_syntax_test",
         ":emacs_syntax_test",
         ":eslint_syntax_test",
+        ":factory_syntax_test",
         ":fd_syntax_test",
         ":ffmpegthumbnailer_syntax_test",
         ":fillstruct_syntax_test",
@@ -4559,6 +4621,7 @@ test_suite(
         ":setup-docker-wrapper-udocker_syntax_test",
         ":setup-emacs-lsp-booster_syntax_test",
         ":setup-emacs_syntax_test",
+        ":setup-factory_syntax_test",
         ":setup-fira-code-nerd-font_syntax_test",
         ":setup-fira-code_syntax_test",
         ":setup-ghostty_syntax_test",
