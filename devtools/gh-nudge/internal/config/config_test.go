@@ -853,6 +853,36 @@ settings:
 	}
 }
 
+func TestLoadConfigDefaultUsesNudgeFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GH_MERGE_CONFIG", filepath.Join(home, "ignored.yaml"))
+	if err := os.WriteFile(filepath.Join(home, "ignored.yaml"), []byte("github:\n  owner: from-env\n  repos:\n    - no\nsettings: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nudge := filepath.Join(home, ".config", "gh-nudge")
+	if err := os.MkdirAll(nudge, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nudge, "config.yaml"), []byte("github:\n  owner: nudge\n  repos:\n    - widgets\nsettings: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.GitHub.Owner != "nudge" {
+		t.Fatalf("owner = %q, want nudge", cfg.GitHub.Owner)
+	}
+
+	if err := os.WriteFile(filepath.Join(nudge, "config.pkl"), []byte("not pkl"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(""); err == nil {
+		t.Fatal("LoadConfig() loaded yaml instead of config.pkl")
+	}
+}
+
 func TestLoadConfigMergeQueueDefaults(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")

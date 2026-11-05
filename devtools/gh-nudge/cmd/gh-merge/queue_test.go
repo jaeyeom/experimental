@@ -113,6 +113,16 @@ func readyPR() github.QueuePullRequest {
 	}
 }
 
+func queueConfig() *config.Config {
+	return &config.Config{
+		Path:   "testdata/config.pkl",
+		GitHub: config.GitHubConfig{Owner: "acme", Repos: []string{"widgets"}},
+		Settings: config.SettingsConfig{
+			RequiredChecks: []string{"ci"},
+		},
+	}
+}
+
 func queueSettings() config.SettingsConfig {
 	return config.SettingsConfig{
 		BlockMergeLabels: []string{"do-not-merge"},
@@ -130,7 +140,10 @@ func TestQueueListsEveryPreflightProblemAndDoesNotEnqueue(t *testing.T) {
 	pr.UnresolvedThreads = 2
 	pr.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: "FAILURE"}}
 	client := &fakeQueue{pr: pr}
-	cfg := &config.Config{Settings: queueSettings()}
+	cfg := &config.Config{
+		GitHub:   config.GitHubConfig{Owner: "acme", Repos: []string{"widgets"}},
+		Settings: queueSettings(),
+	}
 
 	output := captureStdout(t, func() {
 		err := queuePullRequest(client, cfg, pr.Ref.Raw, false)
@@ -156,20 +169,31 @@ func TestQueueListsEveryPreflightProblemAndDoesNotEnqueue(t *testing.T) {
 	}
 }
 
-func TestQueueEmptyRequiredChecksSkipsCheckGate(t *testing.T) {
+func TestQueueEmptyRequiredChecksRefuses(t *testing.T) {
 	pr := readyPR()
 	pr.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: "FAILURE"}}
+	cfg := queueConfig()
+	cfg.Settings.RequiredChecks = nil
 	client := &fakeQueue{pr: pr}
-	cfg := &config.Config{Settings: config.SettingsConfig{}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	if !strings.Contains(output, "required_checks is empty") {
+		t.Fatalf("output = %s", output)
+	}
+	if len(client.enqueued) != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueued = %v async = %v", client.enqueued, client.mergedAsync)
+	}
 
-	if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err != nil {
-		t.Fatalf("queuePullRequest() error = %v", err)
+	withAllowNoRequiredChecks(t, true)
+	allowed := &fakeQueue{pr: pr}
+	if err := queuePullRequest(allowed, cfg, pr.Ref.Raw, false); err != nil {
+		t.Fatalf("allowed queuePullRequest() error = %v", err)
 	}
-	if len(client.enqueued) != 1 || client.enqueued[0] != "PR_NODE" {
-		t.Errorf("enqueued = %v, want PR_NODE", client.enqueued)
-	}
-	if len(client.mergedAsync) != 0 {
-		t.Errorf("mergedAsync = %v, want none", client.mergedAsync)
+	if len(allowed.enqueued) != 1 {
+		t.Fatalf("enqueued = %v, want one", allowed.enqueued)
 	}
 }
 
@@ -195,7 +219,10 @@ func TestQueueRemovalPrintsEvidenceAndFlakeHint(t *testing.T) {
 	}
 	settings := queueSettings()
 	settings.RequiredChecks = []string{"ci"}
-	cfg := &config.Config{Settings: settings}
+	cfg := &config.Config{
+		GitHub:   config.GitHubConfig{Owner: "acme", Repos: []string{"widgets"}},
+		Settings: settings,
+	}
 
 	output := captureStdout(t, func() {
 		err := queuePullRequest(client, cfg, pr.Ref.Raw, false)
@@ -305,12 +332,15 @@ func TestQueueRCAGate(t *testing.T) {
 				pr.Comments = []string{tc.comment}
 			}
 			client := &fakeQueue{pr: pr}
-			settings := config.SettingsConfig{RCAMarker: marker}
+			settings := config.SettingsConfig{RCAMarker: marker, RequiredChecks: []string{"ci"}}
 			if tc.limit != 0 {
 				limit := tc.limit
 				settings.MaxRequeues = &limit
 			}
-			cfg := &config.Config{Settings: settings}
+			cfg := &config.Config{
+				GitHub:   config.GitHubConfig{Owner: "acme", Repos: []string{"widgets"}},
+				Settings: settings,
+			}
 			err := queuePullRequest(client, cfg, pr.Ref.Raw, false)
 			if tc.wantCall && err != nil {
 				t.Fatalf("queuePullRequest() error = %v", err)
@@ -336,7 +366,7 @@ func TestQueueStackUsesMergeAsyncOnlyWithDownstack(t *testing.T) {
 	t.Run("refuses without the flag", func(t *testing.T) {
 		client := &fakeQueue{pr: pr, enqueueErr: stackErr, downstack: below}
 		output := captureStdout(t, func() {
-			err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, false)
+			err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
 			if err == nil {
 				t.Fatal("queuePullRequest() error = nil, want refusal")
 			}
@@ -356,7 +386,7 @@ func TestQueueStackUsesMergeAsyncOnlyWithDownstack(t *testing.T) {
 
 	t.Run("calls merge-async when asked", func(t *testing.T) {
 		client := &fakeQueue{pr: pr, enqueueErr: stackErr, downstack: below}
-		if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, true); err != nil {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true); err != nil {
 			t.Fatalf("queuePullRequest() error = %v", err)
 		}
 		if len(client.mergedAsync) != 1 || client.mergedAsync[0] != "acme/widgets#12@abc123" {
@@ -368,7 +398,7 @@ func TestQueueStackUsesMergeAsyncOnlyWithDownstack(t *testing.T) {
 func TestQueueOtherEnqueueErrorDoesNotFallBack(t *testing.T) {
 	pr := readyPR()
 	client := &fakeQueue{pr: pr, enqueueErr: errors.New("required status check failed")}
-	err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, true)
+	err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true)
 	if err == nil {
 		t.Fatal("queuePullRequest() error = nil")
 	}
@@ -465,7 +495,7 @@ func TestQueueHelpAndReadinessNameDraft(t *testing.T) {
 	pr.Draft = true
 	client := &fakeQueue{pr: pr}
 	output := captureStdout(t, func() {
-		err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, false)
+		err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
 		if err == nil {
 			t.Fatal("queuePullRequest() error = nil, want refusal")
 		}
@@ -489,7 +519,7 @@ func TestQueueDryRunDoesNotEnqueue(t *testing.T) {
 		enqueueErr: errors.New("this pull request is part of a stack and must be merged sequentially using merge-async"),
 	}
 	output := captureStdout(t, func() {
-		if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, true); err != nil {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true); err != nil {
 			t.Fatalf("queuePullRequest() error = %v", err)
 		}
 	})
@@ -506,7 +536,7 @@ func TestQueueDryRunDoesNotEnqueue(t *testing.T) {
 		"pull request is not a draft",
 		"no block label",
 		"pull request is approved",
-		"no required checks configured",
+		`required check "ci" is green`,
 		"no unresolved review threads",
 	} {
 		if !strings.Contains(output, want) {
@@ -519,7 +549,7 @@ func TestQueueEnqueueStillPrintsEnqueued(t *testing.T) {
 	pr := readyPR()
 	client := &fakeQueue{pr: pr}
 	output := captureStdout(t, func() {
-		if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, false); err != nil {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
 			t.Fatalf("queuePullRequest() error = %v", err)
 		}
 	})
@@ -541,7 +571,7 @@ func TestQueueJSONReportsReadinessAndResult(t *testing.T) {
 		t.Cleanup(func() { jsonOutput = false })
 		client := &fakeQueue{pr: pr}
 		output := captureStdout(t, func() {
-			if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, false); err != nil {
+			if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
 				t.Fatalf("queuePullRequest() error = %v", err)
 			}
 		})
@@ -559,7 +589,7 @@ func TestQueueJSONReportsReadinessAndResult(t *testing.T) {
 			enqueueErr: errors.New("stack merge-async sequentially"),
 		}
 		output := captureStdout(t, func() {
-			if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, true); err != nil {
+			if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true); err != nil {
 				t.Fatalf("queuePullRequest() error = %v", err)
 			}
 		})
@@ -616,7 +646,7 @@ func TestWatchDryRunDoesNotEnqueue(t *testing.T) {
 func TestQueueAndWatchRunWithoutSlackBlock(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	content := "github:\n  repos:\n    - widgets\n"
+	content := "github:\n  owner: acme\n  repos:\n    - widgets\nsettings:\n  required_checks:\n    - ci\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +686,7 @@ func TestQueueBareNumberUsesCheckoutRemote(t *testing.T) {
 	})
 	t.Chdir(dir)
 	client := &fakeQueue{pr: readyPR()}
-	if err := queuePullRequest(client, &config.Config{}, "12", false); err != nil {
+	if err := queuePullRequest(client, queueConfig(), "12", false); err != nil {
 		t.Fatalf("queuePullRequest() error = %v", err)
 	}
 	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
@@ -675,7 +705,7 @@ func TestQueueBareNumberUsesFirstRemoteWhenOriginIsMissing(t *testing.T) {
 	})
 	t.Chdir(dir)
 	client := &fakeQueue{pr: readyPR()}
-	if err := queuePullRequest(client, &config.Config{}, "12", false); err != nil {
+	if err := queuePullRequest(client, queueConfig(), "12", false); err != nil {
 		t.Fatalf("queuePullRequest() error = %v", err)
 	}
 	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
@@ -693,7 +723,7 @@ func TestQueueBareNumberUsesGHWhenRemoteIsNotGitHub(t *testing.T) {
 	})
 	t.Chdir(dir)
 	client := &fakeQueue{pr: readyPR()}
-	if err := queuePullRequest(client, &config.Config{}, "12", false); err != nil {
+	if err := queuePullRequest(client, queueConfig(), "12", false); err != nil {
 		t.Fatalf("queuePullRequest() error = %v", err)
 	}
 	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
@@ -709,13 +739,233 @@ func TestQueueExplicitRefDoesNotLookUpRemote(t *testing.T) {
 	for _, ref := range []string{"acme/widgets#12", "https://github.com/acme/widgets/pull/12"} {
 		t.Run(ref, func(t *testing.T) {
 			client := &fakeQueue{pr: readyPR()}
-			if err := queuePullRequest(client, &config.Config{}, ref, false); err != nil {
+			if err := queuePullRequest(client, queueConfig(), ref, false); err != nil {
 				t.Fatalf("queuePullRequest() error = %v", err)
 			}
 			if len(client.loadedRefs) != 1 || client.loadedRefs[0] != ref {
 				t.Fatalf("loaded = %v, want %s", client.loadedRefs, ref)
 			}
 		})
+	}
+}
+
+func TestQueueUnknownRepositoryRefuses(t *testing.T) {
+	pr := readyPR()
+	cfg := queueConfig()
+	cfg.GitHub.Repos = []string{"other"}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	if !strings.Contains(output, "acme/widgets is not a configured repository") {
+		t.Fatalf("output = %s", output)
+	}
+	if len(client.enqueued) != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueued = %v async = %v", client.enqueued, client.mergedAsync)
+	}
+
+	withAllowNoRequiredChecks(t, true)
+	allowed := &fakeQueue{pr: pr}
+	if err := queuePullRequest(allowed, cfg, pr.Ref.Raw, false); err != nil {
+		t.Fatalf("allowed queuePullRequest() error = %v", err)
+	}
+	if len(allowed.enqueued) != 1 {
+		t.Fatalf("enqueued = %v, want one", allowed.enqueued)
+	}
+}
+
+func TestQueueAllowFlagStillRefusesDraft(t *testing.T) {
+	withAllowNoRequiredChecks(t, true)
+	pr := readyPR()
+	pr.Draft = true
+	pr.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: "FAILURE"}}
+	cfg := queueConfig()
+	cfg.Settings.RequiredChecks = nil
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want draft refusal")
+		}
+	})
+	if !strings.Contains(output, "pull request is a draft") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Enqueued") || strings.Contains(output, "Would enqueue") {
+		t.Fatalf("draft was enqueued:\n%s", output)
+	}
+	if len(client.enqueued) != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueued = %v async = %v", client.enqueued, client.mergedAsync)
+	}
+}
+
+func TestQueueNamesEachConfigGate(t *testing.T) {
+	pr := readyPR()
+	cfg := queueConfig()
+	cfg.Settings.RequiredChecks = nil
+	cfg.GitHub.Repos = []string{"other"}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	for _, want := range []string{
+		"required_checks is empty",
+		"acme/widgets is not a configured repository",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	if len(client.enqueued) != 0 {
+		t.Fatalf("enqueued = %v", client.enqueued)
+	}
+}
+
+func TestQueueReadinessShowsEffectiveConfig(t *testing.T) {
+	cfg := queueConfig()
+	cfg.Path = "/tmp/loaded.pkl"
+	cfg.Settings.BlockMergeLabels = []string{"do-not-merge"}
+	cfg.Settings.RequiredChecks = []string{"ci"}
+	pr := readyPR()
+
+	withMergeFlags(t, true, false, false)
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	for _, want := range []string{
+		"config: /tmp/loaded.pkl",
+		"block_merge_labels: do-not-merge",
+		"required_checks: ci",
+		"Would enqueue acme/widgets#12.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("dry run missing %q:\n%s", want, output)
+		}
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = false })
+	jsonClient := &fakeQueue{pr: pr}
+	jsonOut := captureStdout(t, func() {
+		if err := queuePullRequest(jsonClient, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	assertEffectiveConfigJSON(t, jsonOut, "would-enqueue", "/tmp/loaded.pkl", []string{"do-not-merge"}, []string{"ci"})
+	if jsonClient.enqueueCalls != 0 {
+		t.Fatalf("json dry run enqueued %d", jsonClient.enqueueCalls)
+	}
+
+	cfg.Settings.RequiredChecks = nil
+	jsonOutput = false
+	refused := &fakeQueue{pr: pr}
+	refusedOut := captureStdout(t, func() {
+		if err := queuePullRequest(refused, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	for _, want := range []string{
+		"config: /tmp/loaded.pkl",
+		"block_merge_labels: do-not-merge",
+		"required_checks: (none)",
+		"required_checks is empty",
+	} {
+		if !strings.Contains(refusedOut, want) {
+			t.Errorf("refusal missing %q:\n%s", want, refusedOut)
+		}
+	}
+	if len(refused.enqueued) != 0 {
+		t.Fatalf("enqueued = %v", refused.enqueued)
+	}
+
+	jsonOutput = true
+	jsonRefused := &fakeQueue{pr: pr}
+	jsonRefusedOut := captureStdout(t, func() {
+		if err := queuePullRequest(jsonRefused, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	assertEffectiveConfigJSON(t, jsonRefusedOut, "refused", "/tmp/loaded.pkl", []string{"do-not-merge"}, []string{})
+}
+
+func assertEffectiveConfigJSON(t *testing.T, output, result, path string, labels, checks []string) {
+	t.Helper()
+	var got queueJSONResult
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\n%s", err, output)
+	}
+	if got.Result != result || got.Config != path {
+		t.Fatalf("result = %+v", got)
+	}
+	if strings.Join(got.BlockMergeLabels, ",") != strings.Join(labels, ",") {
+		t.Fatalf("blockMergeLabels = %#v", got.BlockMergeLabels)
+	}
+	if strings.Join(got.RequiredChecks, ",") != strings.Join(checks, ",") {
+		t.Fatalf("requiredChecks = %#v", got.RequiredChecks)
+	}
+	if !strings.Contains(output, `"blockMergeLabels"`) || !strings.Contains(output, `"requiredChecks"`) || !strings.Contains(output, `"config"`) {
+		t.Fatalf("json missing config fields:\n%s", output)
+	}
+}
+
+func TestResolveMergeConfigPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GH_MERGE_CONFIG", "")
+	nudge := filepath.Join(home, ".config", "gh-nudge")
+	merge := filepath.Join(home, ".config", "gh-merge")
+	if err := os.MkdirAll(nudge, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(merge, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nudgePkl := filepath.Join(nudge, "config.pkl")
+	mergePkl := filepath.Join(merge, "config.pkl")
+	if err := os.WriteFile(nudgePkl, []byte("pkl"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mergePkl, []byte("pkl"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveMergeConfigPath("/flag.pkl")
+	if err != nil || got != "/flag.pkl" {
+		t.Fatalf("flag path = %q, %v", got, err)
+	}
+	t.Setenv("GH_MERGE_CONFIG", "/env.pkl")
+	got, err = resolveMergeConfigPath("")
+	if err != nil || got != "/env.pkl" {
+		t.Fatalf("env path = %q, %v", got, err)
+	}
+	t.Setenv("GH_MERGE_CONFIG", "")
+	got, err = resolveMergeConfigPath("")
+	if err != nil || got != mergePkl {
+		t.Fatalf("merge pkl = %q, want %q, err %v", got, mergePkl, err)
+	}
+	if err := os.Remove(mergePkl); err != nil {
+		t.Fatal(err)
+	}
+	got, err = resolveMergeConfigPath("")
+	if err != nil || got != nudgePkl {
+		t.Fatalf("nudge pkl = %q, want %q, err %v", got, nudgePkl, err)
+	}
+	if err := os.Remove(nudgePkl); err != nil {
+		t.Fatal(err)
+	}
+	wantYAML := filepath.Join(nudge, "config.yaml")
+	got, err = resolveMergeConfigPath("")
+	if err != nil || got != wantYAML {
+		t.Fatalf("nudge yaml = %q, want %q, err %v", got, wantYAML, err)
 	}
 }
 

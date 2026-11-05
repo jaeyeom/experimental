@@ -267,7 +267,7 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
     min_first_review_request_hours: 24
     block_merge_labels:  # gh-merge skips a PR with any of these labels
       - "do-not-merge"
-    required_checks:  # gh-merge queue; empty turns the gate off
+    required_checks:  # gh-merge queue refuses when empty unless --allow-no-required-checks
       - "ci"
     flake_signatures:  # hints matched against a failing log
       - "connection reset"
