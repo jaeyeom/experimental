@@ -68,6 +68,20 @@ class SettingsConfig {
   /// gh-nudge ignores this list. Empty means no label blocks a merge.
   /// Names match exactly, including case. For example, "do-not-merge".
   block_merge_labels: Listing<String> = new {}
+  /// Check names that must be green before gh-merge queue enqueues.
+  /// Empty means this gate is off. Names match exactly, including case.
+  required_checks: Listing<String> = new {}
+  /// Regular expressions matched against a failing merge-queue log.
+  /// A match is a hint, not a verdict. Empty means no hints.
+  flake_signatures: Listing<String> = new {}
+  /// Comment template that must match before a removed pull request can be
+  /// queued again. Placeholders are {event_id} and {class}.
+  /// Class is our-code, flake, or infra. Empty matches nothing.
+  rca_marker: String = ""
+  /// How many earlier flake or infra requeues are allowed.
+  /// gh-merge queue refuses when the timeline count is greater than this.
+  /// Zero means no requeue is allowed.
+  max_requeues: Int(this >= 0) = 2
 }
 
 /// Root configuration

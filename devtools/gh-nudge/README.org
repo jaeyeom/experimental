@@ -183,6 +183,19 @@ settings {
   block_merge_labels {
     "do-not-merge"
   }
+  // gh-merge queue: check names that must be green. Empty turns the gate off.
+  required_checks {
+    "ci"
+  }
+  // Regular expressions matched against a failing merge-queue log. A match is a hint.
+  flake_signatures {
+    "connection reset"
+  }
+  // Comment template required before requeue. {event_id} and {class}.
+  // Class is our-code, flake, or infra.
+  rca_marker = "RCA {event_id} class={class}"
+  // Refuse when earlier flake or infra requeues are greater than this.
+  max_requeues = 2
 }
 #+end_src
 
@@ -254,6 +267,12 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
     min_first_review_request_hours: 24
     block_merge_labels:  # gh-merge skips a PR with any of these labels
       - "do-not-merge"
+    required_checks:  # gh-merge queue; empty turns the gate off
+      - "ci"
+    flake_signatures:  # hints matched against a failing log
+      - "connection reset"
+    rca_marker: "RCA {event_id} class={class}"  # {class} is our-code, flake, or infra
+    max_requeues: 2
 #+end_src
 
 *Note*: YAML support may be deprecated in a future release. Consider migrating

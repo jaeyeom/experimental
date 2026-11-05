@@ -815,6 +815,91 @@ func TestConvertPklConfigSkipUsers(t *testing.T) {
 	}
 }
 
+func TestLoadConfigMergeQueueSettings(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configContent := `
+github:
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings:
+  required_checks:
+    - "ci"
+  flake_signatures:
+    - "connection reset"
+  rca_marker: "RCA {event_id} class={class}"
+  max_requeues: 0
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if len(cfg.Settings.RequiredChecks) != 1 || cfg.Settings.RequiredChecks[0] != "ci" {
+		t.Errorf("required_checks = %v", cfg.Settings.RequiredChecks)
+	}
+	if len(cfg.Settings.FlakeSignatures) != 1 || cfg.Settings.FlakeSignatures[0] != "connection reset" {
+		t.Errorf("flake_signatures = %v", cfg.Settings.FlakeSignatures)
+	}
+	if cfg.Settings.RCAMarker != "RCA {event_id} class={class}" {
+		t.Errorf("rca_marker = %q", cfg.Settings.RCAMarker)
+	}
+	if cfg.Settings.RequeueLimit() != 0 {
+		t.Errorf("max_requeues = %d, want 0", cfg.Settings.RequeueLimit())
+	}
+}
+
+func TestLoadConfigMergeQueueDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configContent := `
+github:
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings: {}
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.Settings.RequeueLimit() != DefaultMaxRequeues {
+		t.Errorf("max_requeues = %d, want default %d", cfg.Settings.RequeueLimit(), DefaultMaxRequeues)
+	}
+	if len(cfg.Settings.RequiredChecks) != 0 || cfg.Settings.RCAMarker != "" {
+		t.Errorf("expected empty queue gates, got %+v", cfg.Settings)
+	}
+}
+
+func TestLoadConfigRejectsBadFlakeSignature(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configContent := `
+github:
+  repos:
+    - "repo1"
+slack:
+  token: "xoxb-test-token"
+settings:
+  flake_signatures:
+    - "("
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("LoadConfig() error = nil, want invalid flake signature")
+	}
+}
+
 func TestConvertPklConfigBlockMergeLabels(t *testing.T) {
 	pklCfg := &pklconfig.Config{
 		Settings: pklconfig.SettingsConfig{
@@ -829,5 +914,28 @@ func TestConvertPklConfigBlockMergeLabels(t *testing.T) {
 		cfg.Settings.BlockMergeLabels[0] != "do-not-merge" ||
 		cfg.Settings.BlockMergeLabels[1] != "hold" {
 		t.Errorf("Expected block_merge_labels [do-not-merge hold], got %v", cfg.Settings.BlockMergeLabels)
+	}
+}
+
+func TestConvertPklConfigMergeQueue(t *testing.T) {
+	pklCfg := &pklconfig.Config{
+		Settings: pklconfig.SettingsConfig{
+			ReminderThresholdHours: 24,
+			RequiredChecks:         []string{"ci"},
+			FlakeSignatures:        []string{"connection reset"},
+			RcaMarker:              "RCA {event_id} class={class}",
+			MaxRequeues:            4,
+		},
+	}
+
+	cfg := convertPklConfig(pklCfg)
+	if len(cfg.Settings.RequiredChecks) != 1 || cfg.Settings.RequiredChecks[0] != "ci" {
+		t.Errorf("required_checks = %v", cfg.Settings.RequiredChecks)
+	}
+	if cfg.Settings.RCAMarker != "RCA {event_id} class={class}" {
+		t.Errorf("rca_marker = %q", cfg.Settings.RCAMarker)
+	}
+	if cfg.Settings.RequeueLimit() != 4 {
+		t.Errorf("max_requeues = %d, want 4", cfg.Settings.RequeueLimit())
 	}
 }

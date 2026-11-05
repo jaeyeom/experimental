@@ -69,4 +69,16 @@ settings {
   block_merge_labels {
     "do-not-merge"
   }
+  // Check names that must be green before `gh-merge queue`. Empty turns the gate off.
+  required_checks {
+    "ci"
+  }
+  // Regular expressions. A match is a hint, not a verdict.
+  flake_signatures {
+    "connection reset"
+  }
+  // Placeholders: {event_id} and {class}. Class is our-code, flake, or infra.
+  rca_marker = "RCA {event_id} class={class}"
+  // Refuse another flake or infra requeue when the timeline count is greater than this.
+  max_requeues = 2
 }
