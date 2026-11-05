@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
@@ -49,13 +50,14 @@ import (
 )
 
 var (
-	configPath       string
-	dryRun           bool
-	deleteBranch     bool
-	verbose          bool
-	force            bool
-	includeDownstack bool
-	jsonOutput       bool
+	configPath            string
+	dryRun                bool
+	deleteBranch          bool
+	verbose               bool
+	force                 bool
+	includeDownstack      bool
+	jsonOutput            bool
+	allowNoRequiredChecks bool
 )
 
 const (
@@ -71,6 +73,7 @@ func registerFlags() {
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
 	flag.BoolVar(&jsonOutput, "json", false, "Print queue and watch results as JSON")
+	flag.BoolVar(&allowNoRequiredChecks, "allow-no-required-checks", false, "Queue even when required_checks is empty or the repository is not configured")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
@@ -262,6 +265,36 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 	return nil
 }
 
+// resolveMergeConfigPath picks the gh-merge config file.
+// -config wins, then GH_MERGE_CONFIG, then ~/.config/gh-merge/config.pkl
+// when that file exists, then the gh-nudge default.
+func resolveMergeConfigPath(flagPath string) (string, error) {
+	if flagPath != "" {
+		return flagPath, nil
+	}
+	if env := os.Getenv("GH_MERGE_CONFIG"); env != "" {
+		return env, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	mergePkl := filepath.Join(home, ".config", "gh-merge", "config.pkl")
+	if configFileExists(mergePkl) {
+		return mergePkl, nil
+	}
+	base := filepath.Join(home, ".config", "gh-nudge", "config")
+	if configFileExists(base + ".pkl") {
+		return base + ".pkl", nil
+	}
+	return base + ".yaml", nil
+}
+
+func configFileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func main() {
 	registerFlags()
 	flag.Parse()
@@ -269,12 +302,18 @@ func main() {
 	// Setup logging
 	setupLogging()
 
-	// Load configuration
-	cfg, err := config.LoadConfig(configPath)
+	// Load configuration. gh-merge picks the path; gh-nudge's default stays put.
+	path, err := resolveMergeConfigPath(configPath)
+	if err != nil {
+		slog.Error("Failed to resolve configuration path", "error", err)
+		os.Exit(1)
+	}
+	cfg, err := config.LoadConfig(path)
 	if err != nil {
 		slog.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
+	cfg.Path = path
 
 	// Initialize GitHub client
 	ctx := context.Background()

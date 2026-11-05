@@ -57,7 +57,10 @@ the label that blocks it.
 latest merge-queue timeline event is a removal, and then calls
 ~enqueuePullRequest~. It does not classify the failure or write the RCA
 comment. ~required_checks~, ~flake_signatures~, ~rca_marker~, and
-~max_requeues~ come from config. Empty ~required_checks~ turns that gate off.
+~max_requeues~ come from config. Empty ~required_checks~ makes ~queue~ refuse
+unless ~--allow-no-required-checks~ is set. That flag does not skip a draft,
+approval, a block label, unresolved threads, or the RCA gate. ~queue~ also
+refuses when ~owner/name~ is not ~github.owner~ plus a name in ~github.repos~.
 A flake-signature match is printed as a hint, not a verdict. ~gh-merge watch~
 decides merged, ejected, or timeout from the timeline. ~isInMergeQueue=false~
 alone is not an ejection. ~--json~ prints one result per pull request:
@@ -68,9 +71,11 @@ every pull request merged.
 
 Please see [[file:README.org][README.org]] file for the full configuration.
 
-~gh-merge~ uses the same configuration file as ~gh-nudge~, typically located at
-~$HOME/.config/gh-nudge/config.pkl~. The relevant sections for GitHub
-integration are:
+~gh-merge~ loads ~-config~ when it is set, otherwise ~GH_MERGE_CONFIG~,
+otherwise ~$HOME/.config/gh-merge/config.pkl~ when that file exists,
+otherwise the ~gh-nudge~ default at ~$HOME/.config/gh-nudge/config.pkl~.
+~gh-nudge~ itself still uses only that default. The relevant sections for
+GitHub integration are:
 
 #+begin_src pkl
 github {

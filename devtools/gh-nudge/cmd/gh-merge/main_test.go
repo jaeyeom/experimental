@@ -38,6 +38,13 @@ func mergeFixture(title, url string, labels ...string) models.PullRequest {
 	return pr
 }
 
+func withAllowNoRequiredChecks(t *testing.T, allow bool) {
+	t.Helper()
+	prev := allowNoRequiredChecks
+	allowNoRequiredChecks = allow
+	t.Cleanup(func() { allowNoRequiredChecks = prev })
+}
+
 func withMergeFlags(t *testing.T, dry, del, frc bool) {
 	t.Helper()
 	prevDry, prevDel, prevForce := dryRun, deleteBranch, force

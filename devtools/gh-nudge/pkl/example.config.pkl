@@ -69,7 +69,8 @@ settings {
   block_merge_labels {
     "do-not-merge"
   }
-  // Check names that must be green before `gh-merge queue`. Empty turns the gate off.
+  // Check names that must be green before `gh-merge queue`.
+  // Empty makes queue refuse unless --allow-no-required-checks is set.
   required_checks {
     "ci"
   }

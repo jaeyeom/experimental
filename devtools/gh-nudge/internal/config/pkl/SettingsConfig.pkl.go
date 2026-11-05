@@ -39,7 +39,8 @@ type SettingsConfig struct {
 	BlockMergeLabels []string `pkl:"block_merge_labels"`
 
 	// Check names that must be green before gh-merge queue enqueues.
-	// Empty means this gate is off. Names match exactly, including case.
+	// Empty makes queue refuse unless --allow-no-required-checks is set.
+	// Names match exactly, including case.
 	RequiredChecks []string `pkl:"required_checks"`
 
 	// Regular expressions matched against a failing merge-queue log.

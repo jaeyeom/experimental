@@ -53,9 +53,12 @@ const (
 )
 
 type queueJSONResult struct {
-	PullRequest string   `json:"pullRequest"`
-	Readiness   []string `json:"readiness"`
-	Result      string   `json:"result"`
+	PullRequest      string   `json:"pullRequest"`
+	Readiness        []string `json:"readiness"`
+	Config           string   `json:"config"`
+	BlockMergeLabels []string `json:"blockMergeLabels"`
+	RequiredChecks   []string `json:"requiredChecks"`
+	Result           string   `json:"result"`
 }
 
 func queueCommandHelp() string {
@@ -74,16 +77,16 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	if err := printRemovalEvidence(client, cfg, pr); err != nil {
 		return err
 	}
-	problems := preflightProblems(pr, cfg.Settings.BlockMergeLabels, cfg.Settings.RequiredChecks)
+	problems := append(queueConfigProblems(pr, cfg), preflightProblems(pr, cfg.Settings.BlockMergeLabels, cfg.Settings.RequiredChecks)...)
 	if len(problems) > 0 {
-		return refuseWithProblems(pr, problems)
+		return refuseWithProblems(pr, cfg, problems)
 	}
 	if err := refuseRCA(pr, cfg.Settings); err != nil {
 		return err
 	}
 	lines := readyLines(pr, cfg.Settings)
 	if dryRun {
-		return writeQueueResult(pr, lines, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
+		return writeQueueResult(pr, cfg, lines, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
 	}
 	kind, err := enqueuePR(client, pr, includeDownstack)
 	if err != nil {
@@ -93,15 +96,64 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	if kind == enqueueAsync {
 		text = fmt.Sprintf("Enqueued %s with merge-async.\n", pr.Ref.Raw)
 	}
-	return writeQueueResult(pr, lines, "enqueued", text)
+	return writeQueueResult(pr, cfg, lines, "enqueued", text)
 }
 
-func refuseWithProblems(pr github.QueuePullRequest, problems []string) error {
+func queueConfigProblems(pr github.QueuePullRequest, cfg *config.Config) []string {
+	if allowNoRequiredChecks {
+		return nil
+	}
+	var problems []string
+	if len(cfg.Settings.RequiredChecks) == 0 {
+		problems = append(problems, "required_checks is empty")
+	}
+	ownerRepo := pr.Ref.Owner + "/" + pr.Ref.Repo
+	if !configuredRepository(cfg, ownerRepo) {
+		problems = append(problems, ownerRepo+" is not a configured repository")
+	}
+	return problems
+}
+
+func configuredRepository(cfg *config.Config, ownerRepo string) bool {
+	for _, name := range cfg.GitHub.Repos {
+		if cfg.GitHub.Owner+"/"+name == ownerRepo {
+			return true
+		}
+	}
+	return false
+}
+
+func effectiveConfigLines(cfg *config.Config) []string {
+	return []string{
+		"config: " + cfg.Path,
+		"block_merge_labels: " + formatNameList(cfg.Settings.BlockMergeLabels),
+		"required_checks: " + formatNameList(cfg.Settings.RequiredChecks),
+	}
+}
+
+func formatNameList(items []string) string {
+	if len(items) == 0 {
+		return "(none)"
+	}
+	return strings.Join(items, ", ")
+}
+
+func jsonStringList(items []string) []string {
+	if items == nil {
+		return []string{}
+	}
+	return items
+}
+
+func refuseWithProblems(pr github.QueuePullRequest, cfg *config.Config, problems []string) error {
 	if jsonOutput {
-		if err := writeQueueResult(pr, problems, "refused", ""); err != nil {
+		if err := writeQueueResult(pr, cfg, problems, "refused", ""); err != nil {
 			return err
 		}
 		return fmt.Errorf("refusing to enqueue %s", pr.Ref.Raw)
+	}
+	for _, line := range effectiveConfigLines(cfg) {
+		fmt.Println(line)
 	}
 	fmt.Printf("Refusing to enqueue %s:\n", pr.Ref.Raw)
 	for _, problem := range problems {
@@ -136,21 +188,27 @@ func readyLines(pr github.QueuePullRequest, settings config.SettingsConfig) []st
 	return lines
 }
 
-func writeQueueResult(pr github.QueuePullRequest, lines []string, result, text string) error {
+func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []string, result, text string) error {
 	if lines == nil {
 		lines = []string{}
 	}
 	if jsonOutput {
 		encoded, err := json.MarshalIndent(queueJSONResult{
-			PullRequest: pr.Ref.Raw,
-			Readiness:   lines,
-			Result:      result,
+			PullRequest:      pr.Ref.Raw,
+			Readiness:        lines,
+			Config:           cfg.Path,
+			BlockMergeLabels: jsonStringList(cfg.Settings.BlockMergeLabels),
+			RequiredChecks:   jsonStringList(cfg.Settings.RequiredChecks),
+			Result:           result,
 		}, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encode queue result: %w", err)
 		}
 		fmt.Printf("%s\n", encoded)
 		return nil
+	}
+	for _, line := range effectiveConfigLines(cfg) {
+		fmt.Println(line)
 	}
 	for _, line := range lines {
 		fmt.Println(line)

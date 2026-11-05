@@ -22,6 +22,8 @@ type Config struct {
 	GitHub   GitHubConfig   `yaml:"github"`
 	Slack    SlackConfig    `yaml:"slack"`
 	Settings SettingsConfig `yaml:"settings"`
+	// Path is the file gh-merge selected. It is not read from the file.
+	Path string `yaml:"-"`
 }
 
 // GitHubConfig contains GitHub-related configuration.
@@ -70,7 +72,8 @@ type SettingsConfig struct {
 	// a merge. Names match exactly, including case.
 	BlockMergeLabels []string `yaml:"block_merge_labels"`
 	// RequiredChecks are check names that must be green before gh-merge queue
-	// enqueues. Empty means this gate is off. Names match exactly.
+	// enqueues. Empty makes queue refuse unless --allow-no-required-checks is
+	// set. Names match exactly.
 	RequiredChecks []string `yaml:"required_checks"`
 	// FlakeSignatures are regular expressions matched against a failing log.
 	// A match is a hint, not a verdict.
