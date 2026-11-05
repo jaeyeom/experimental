@@ -35,7 +35,7 @@ func (m *Model) ShiftEnter() {
 	if !m.composing {
 		return
 	}
-	m.note += "\n"
+	m.insertNoteNewline()
 }
 
 // ShiftTab selects the previous compose target in the list and while the
@@ -52,12 +52,12 @@ func (m *Model) ShiftTab() {
 func (m *Model) composeKey(r rune) (bool, error) {
 	switch r {
 	case '\x1b':
-		m.composing = false
+		m.blurCompose()
 		return false, nil
 	case '\r', '\n':
 		return false, m.sendNote()
 	case '\b', '\x7f':
-		m.trimNote()
+		m.editNote(r)
 		return false, nil
 	case '\t', ']':
 		m.cycleTarget(1)
@@ -67,7 +67,7 @@ func (m *Model) composeKey(r rune) (bool, error) {
 		return false, nil
 	}
 	if r >= ' ' {
-		m.note += string(r)
+		m.editNote(r)
 	}
 	return false, nil
 }
@@ -81,14 +81,6 @@ func (m *Model) cycleTarget(delta int) {
 	if m.target < 0 {
 		m.target += n
 	}
-}
-
-func (m *Model) trimNote() {
-	if m.note == "" {
-		return
-	}
-	runes := []rune(m.note)
-	m.note = string(runes[:len(runes)-1])
 }
 
 func (m *Model) sendNote() error {
@@ -113,8 +105,7 @@ func (m *Model) sendNote() error {
 		m.status = err.Error()
 		return nil
 	}
-	m.note = ""
-	m.composing = false
+	m.clearNote()
 	m.status = "sent to " + tg.Name
 	return nil
 }

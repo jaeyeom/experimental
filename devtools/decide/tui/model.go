@@ -2,7 +2,8 @@
 //
 // decide inbox is a bubbletea program. The list, folders, and detail view are
 // lipgloss. Free text and the type-in outcome field are bubbles text inputs.
-// The compose box sends a note to a configured pane. No pane id is built in.
+// The compose box is a bubbles textarea. It sends a note to a configured pane.
+// No pane id is built in.
 package tui
 
 import (
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -71,16 +73,26 @@ type Model struct {
 	runErr       error
 	free         textinput.Model
 	outcome      textinput.Model
+	noteField    textarea.Model
 }
 
 // New returns an inbox positioned on the open folder.
 func New(dir string) *Model {
 	return &Model{
-		Dir:     dir,
-		Now:     time.Now,
-		free:    newTextField(),
-		outcome: newTextField(),
+		Dir:       dir,
+		Now:       time.Now,
+		free:      newTextField(),
+		outcome:   newTextField(),
+		noteField: newNoteField(),
 	}
+}
+
+func newNoteField() textarea.Model {
+	field := textarea.New()
+	field.Prompt = ""
+	field.ShowLineNumbers = false
+	field.Placeholder = ""
+	return field
 }
 
 func newTextField() textinput.Model {
@@ -130,8 +142,9 @@ func (m *Model) Reload() error {
 // and keeps the unsent draft. While the compose box is focused, Enter sends
 // the note, Tab and ] select the next target, [ selects the previous one,
 // and other printable keys type into it. ? opens the shortcut overlay only
-// when no text field is focused, and Esc or ? closes it. Focused free text
-// and the outcome field insert printable keys, including capitals, ?, and digits.
+// when no text field is focused, and Esc or ? closes it. Focused free text,
+// the outcome field, and the compose box insert printable keys, including
+// capitals, ?, and digits.
 func (m *Model) Key(r rune) (bool, error) {
 	if m.help {
 		return m.helpKey(r)
@@ -142,12 +155,12 @@ func (m *Model) Key(r rune) (bool, error) {
 	if m.mode == modeOutcome {
 		return m.outcomeKey(r)
 	}
+	if m.composing {
+		return m.composeKey(r)
+	}
 	if r == '?' {
 		m.help = true
 		return false, nil
-	}
-	if m.composing {
-		return m.composeKey(r)
 	}
 	switch m.mode {
 	case modeDetail:
@@ -211,7 +224,7 @@ func (m *Model) helpKey(r rune) (bool, error) {
 func (m *Model) listComposeKey(r rune) bool {
 	switch r {
 	case 'c':
-		m.composing = true
+		m.focusCompose()
 		return true
 	case ']', '\t':
 		m.cycleTarget(1)
@@ -272,6 +285,51 @@ func (m *Model) editField(field *textinput.Model, r rune) {
 	updated, _ := field.Update(runeKey(r))
 	*field = updated
 	m.draft = field.Value()
+}
+
+func (m *Model) pullNote() {
+	if m.noteField.Value() != m.note {
+		m.noteField.SetValue(m.note)
+	}
+}
+
+func (m *Model) editNote(r rune) {
+	m.pullNote()
+	if !m.noteField.Focused() {
+		m.noteField.Focus()
+	}
+	updated, _ := m.noteField.Update(runeKey(r))
+	m.noteField = updated
+	m.note = m.noteField.Value()
+}
+
+func (m *Model) focusCompose() {
+	m.composing = true
+	m.answerFocus = false
+	m.free.Blur()
+	m.pullNote()
+	m.noteField.Focus()
+}
+
+func (m *Model) blurCompose() {
+	if m.noteField.Focused() {
+		m.note = m.noteField.Value()
+	}
+	m.composing = false
+	m.noteField.Blur()
+}
+
+func (m *Model) insertNoteNewline() {
+	m.pullNote()
+	m.noteField.InsertRune('\n')
+	m.note = m.noteField.Value()
+}
+
+func (m *Model) clearNote() {
+	m.note = ""
+	m.composing = false
+	m.noteField.Blur()
+	m.noteField.Reset()
 }
 
 func (m *Model) focusAnswer() {
