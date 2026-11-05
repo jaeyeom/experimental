@@ -51,6 +51,9 @@ type Model struct {
 	mode   int
 	draft  string
 	detail *decide.Item
+	height int
+	scroll int
+	rows   [][]hit
 }
 
 // New returns an inbox positioned on the open folder.
@@ -119,6 +122,7 @@ func (m *Model) listKey(r rune) (bool, error) {
 		if m.folder > 0 {
 			m.folder--
 			m.cursor = 0
+			m.scroll = 0
 			if err := m.Reload(); err != nil {
 				return false, err
 			}
@@ -127,6 +131,7 @@ func (m *Model) listKey(r rune) (bool, error) {
 		if m.folder < len(Folders)-1 {
 			m.folder++
 			m.cursor = 0
+			m.scroll = 0
 			if err := m.Reload(); err != nil {
 				return false, err
 			}
@@ -204,6 +209,7 @@ func (m *Model) openRow() error {
 	m.detail = &updated
 	m.mode = modeDetail
 	m.draft = ""
+	m.scroll = 0
 	m.status = "opened " + id
 	return m.Reload()
 }
@@ -289,6 +295,7 @@ func (m *Model) backToList() {
 	m.mode = modeList
 	m.detail = nil
 	m.draft = ""
+	m.scroll = 0
 }
 
 func (m *Model) trimDraft() {
@@ -299,24 +306,75 @@ func (m *Model) trimDraft() {
 	m.draft = string(runes[:len(runes)-1])
 }
 
+type screenLine struct {
+	text string
+	hits []hit
+}
+
 // View renders the folder bar and either the rows or the open detail.
-// Unread rows are bold.
+// Unread rows are bold. A positive height scrolls the body to that many rows.
 func (m *Model) View() string {
+	lines := m.window(m.allLines())
+	m.rows = make([][]hit, len(lines))
 	var b strings.Builder
-	m.writeFolders(&b)
-	if m.mode == modeList {
-		m.writeRows(&b)
-	} else {
-		m.writeDetail(&b)
-	}
-	if m.status != "" {
-		b.WriteString(m.status)
+	for i, line := range lines {
+		b.WriteString(line.text)
 		b.WriteByte('\n')
+		m.rows[i] = line.hits
 	}
 	return b.String()
 }
 
-func (m *Model) writeFolders(b *strings.Builder) {
+func (m *Model) allLines() []screenLine {
+	lines := []screenLine{m.folderLine()}
+	if m.mode == modeList {
+		lines = append(lines, m.rowLines()...)
+	} else {
+		lines = append(lines, m.detailLines()...)
+	}
+	if m.status != "" {
+		lines = append(lines, screenLine{text: m.status})
+	}
+	return lines
+}
+
+func (m *Model) window(lines []screenLine) []screenLine {
+	if m.height <= 1 || len(lines) <= m.height {
+		if m.height <= 1 {
+			return lines
+		}
+		m.scroll = 0
+		return lines
+	}
+	head := lines[:1]
+	rest := lines[1:]
+	var status []screenLine
+	if m.status != "" && len(rest) > 0 {
+		status = rest[len(rest)-1:]
+		rest = rest[:len(rest)-1]
+	}
+	limit := m.height - 1 - len(status)
+	if limit < 1 {
+		limit = 1
+	}
+	if m.scroll > len(rest)-limit {
+		m.scroll = len(rest) - limit
+	}
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
+	end := m.scroll + limit
+	if end > len(rest) {
+		end = len(rest)
+	}
+	out := append(append([]screenLine{}, head...), rest[m.scroll:end]...)
+	return append(out, status...)
+}
+
+func (m *Model) folderLine() screenLine {
+	var b strings.Builder
+	hits := make([]hit, 0, len(Folders))
+	col := 1
 	for i, folder := range Folders {
 		name := folder.Name
 		if i == m.folder {
@@ -324,56 +382,65 @@ func (m *Model) writeFolders(b *strings.Builder) {
 		}
 		if i > 0 {
 			b.WriteByte(' ')
+			col++
 		}
+		start := col
 		b.WriteString(name)
+		col += len(name)
+		hits = append(hits, hit{kind: hitFolder, n: i, x0: start, x1: col - 1})
 	}
-	b.WriteByte('\n')
+	return screenLine{text: b.String(), hits: hits}
 }
 
-func (m *Model) writeRows(b *strings.Builder) {
+func (m *Model) rowLines() []screenLine {
 	if len(m.items) == 0 {
-		b.WriteString("(empty)\n")
+		return []screenLine{{text: "(empty)"}}
 	}
 	now := time.Now()
 	if m.Now != nil {
 		now = m.Now()
 	}
+	lines := make([]screenLine, 0, len(m.items))
 	for i, it := range m.items {
 		marker := "  "
 		if i == m.cursor {
 			marker = "> "
 		}
-		line := marker + rowText(it, now)
+		text := marker + rowText(it, now)
 		if it.Unread {
-			line = boldOn + line + boldOff
+			text = boldOn + text + boldOff
 		}
-		b.WriteString(line)
-		b.WriteByte('\n')
+		lines = append(lines, screenLine{text: text, hits: []hit{{kind: hitRow, n: i}}})
 	}
+	return lines
 }
 
-func (m *Model) writeDetail(b *strings.Builder) {
+func (m *Model) detailLines() []screenLine {
 	if m.detail == nil {
-		b.WriteString("(empty)\n")
-		return
+		return []screenLine{{text: "(empty)"}}
 	}
 	it := m.detail
-	b.WriteString(it.ID)
-	b.WriteByte('\n')
-	b.WriteString(it.Question)
-	b.WriteByte('\n')
+	lines := []screenLine{{text: it.ID}}
+	for _, part := range strings.Split(it.Question, "\n") {
+		lines = append(lines, screenLine{text: part})
+	}
 	if it.Kind == decide.KindTypeIn {
-		b.WriteString("type: " + it.TypeText + "\n")
-		b.WriteString("where: " + it.Where + "\n")
+		lines = append(lines,
+			screenLine{text: "type: " + it.TypeText},
+			screenLine{text: "where: " + it.Where},
+			screenLine{text: "mark done", hits: []hit{{kind: hitMarkDone}}},
+		)
 	} else {
-		m.writeRelay(b, it)
+		lines = append(lines, m.relayLines(it)...)
 	}
 	if m.mode == modeOutcome {
-		b.WriteString("outcome: " + m.draft + "\n")
+		lines = append(lines, screenLine{text: "outcome: " + m.draft})
 	}
+	return lines
 }
 
-func (m *Model) writeRelay(b *strings.Builder, it *decide.Item) {
+func (m *Model) relayLines(it *decide.Item) []screenLine {
+	var lines []screenLine
 	for i, opt := range it.Options {
 		if i >= 9 {
 			break
@@ -382,19 +449,26 @@ func (m *Model) writeRelay(b *strings.Builder, it *decide.Item) {
 		if opt.Recommended {
 			mark = " recommended"
 		}
-		fmt.Fprintf(b, "%d %s %s%s\n", i+1, opt.Key, opt.Label, mark)
+		lines = append(lines, screenLine{
+			text: fmt.Sprintf("%d %s %s%s", i+1, opt.Key, opt.Label, mark),
+			hits: []hit{{kind: hitOption, n: i}},
+		})
 	}
 	for _, link := range it.Links {
-		b.WriteString("link: " + link + "\n")
+		lines = append(lines, screenLine{text: "link: " + link})
 	}
 	deadline := "-"
 	if it.Deadline != nil {
 		deadline = it.Deadline.Format(time.RFC3339)
 	}
-	b.WriteString("deadline: " + deadline + "\n")
+	lines = append(lines, screenLine{text: "deadline: " + deadline})
 	if it.FreeText && m.mode == modeDetail {
-		b.WriteString("answer: " + m.draft + "\n")
+		lines = append(lines,
+			screenLine{text: "answer: " + m.draft, hits: []hit{{kind: hitAnswer}}},
+			screenLine{text: "submit", hits: []hit{{kind: hitSubmit}}},
+		)
 	}
+	return lines
 }
 
 func rowText(it decide.Item, now time.Time) string {
