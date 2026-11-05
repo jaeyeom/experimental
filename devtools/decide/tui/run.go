@@ -8,13 +8,17 @@ import (
 )
 
 // Options configure Run. In and Out default to the caller. Interval defaults
-// to DefaultInterval.
+// to DefaultInterval. Targets and SendTemplate come from decide config.
+// An empty SendTemplate is `herdr agent prompt {pane}` plus the note as its
+// own argument.
 type Options struct {
-	Dir      string
-	In       io.Reader
-	Out      io.Writer
-	Interval time.Duration
-	Now      func() time.Time
+	Dir          string
+	In           io.Reader
+	Out          io.Writer
+	Interval     time.Duration
+	Now          func() time.Time
+	Targets      []Target
+	SendTemplate string
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -33,10 +37,10 @@ func Run(opts Options) error {
 	}
 	defer restore()
 	if raw {
-		if _, err := io.WriteString(opts.Out, mouseOn); err != nil {
+		if _, err := io.WriteString(opts.Out, mouseOn+modifyOn); err != nil {
 			return fmt.Errorf("enable decide mouse: %w", err)
 		}
-		defer func() { _, _ = io.WriteString(opts.Out, mouseOff) }()
+		defer func() { _, _ = io.WriteString(opts.Out, modifyOff+mouseOff) }()
 	}
 	if rows := termRows(opts.In); rows > 0 {
 		m.height = rows
@@ -63,6 +67,8 @@ func prepare(opts Options) (*Model, error) {
 		return nil, fmt.Errorf("decide inbox input or output is nil")
 	}
 	m := New(opts.Dir)
+	m.Targets = opts.Targets
+	m.SendTemplate = opts.SendTemplate
 	if opts.Now != nil {
 		m.Now = opts.Now
 	}
@@ -84,6 +90,10 @@ func waitEvent(m *Model, ticker *time.Ticker, events <-chan termEvent, readErr <
 				return false, nil
 			}
 			return false, m.Click(ev.x, ev.y)
+		}
+		if ev.shiftEnter {
+			m.ShiftEnter()
+			return false, nil
 		}
 		return m.Key(ev.key)
 	case <-ticker.C:
