@@ -442,7 +442,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 5
+	m.height = 6
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 	if !strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || strings.Contains(view, older.ID) {
 		t.Fatalf("initial window = %s", view)
 	}
-	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to (none)") {
+	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to (none)") || !strings.Contains(view, "? help") {
 		t.Fatalf("compose left the initial window\n%s", view)
 	}
 	m.Wheel(true)
@@ -458,7 +458,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 	if strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || !strings.Contains(view, older.ID) {
 		t.Fatalf("scrolled window = %s", view)
 	}
-	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to (none)") {
+	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to (none)") || !strings.Contains(view, "? help") {
 		t.Fatalf("compose left the scrolled window\n%s", view)
 	}
 	m.Wheel(false)
@@ -823,6 +823,107 @@ func TestComposeFocusDoesNotAnswer(t *testing.T) {
 	}
 	if got.State != decide.StateOpen || got.Answer != nil || m.note != "1" {
 		t.Fatalf("focused digit answered: state %s note %q answer %+v", got.State, m.note, got.Answer)
+	}
+}
+
+func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "ship it?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	m := New(dir)
+	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
+	m.runSend = func([]string) error {
+		t.Fatal("overlay sent a note")
+		return nil
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.View(), "? help") {
+		t.Fatalf("footer missing\n%s", m.View())
+	}
+	cursor, folder := m.cursor, m.folder
+	press(t, m, "?")
+	view := m.View()
+	if !strings.Contains(view, "shortcuts") || !strings.Contains(view, "? help") {
+		t.Fatalf("overlay = %s", view)
+	}
+	if strings.Contains(view, item.ID) || strings.Contains(view, "compose:") || strings.Contains(view, "[Inbox]") {
+		t.Fatalf("overlay did not cover the inbox\n%s", view)
+	}
+	press(t, m, "1e\r")
+	if err := m.Click(1, 1); err != nil {
+		t.Fatal(err)
+	}
+	m.Wheel(true)
+	if !m.help || m.cursor != cursor || m.folder != folder {
+		t.Fatalf("overlay changed selection help %v cursor %d folder %d", m.help, m.cursor, m.folder)
+	}
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+	if m.help {
+		t.Fatal("esc left the overlay open")
+	}
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || got.Answer != nil {
+		t.Fatalf("overlay changed the item: %+v", got)
+	}
+
+	press(t, m, "??")
+	if m.help {
+		t.Fatal("second ? left the overlay open")
+	}
+	if !strings.Contains(m.View(), item.ID) || !strings.Contains(m.View(), "? help") || strings.Contains(m.View(), "shortcuts") {
+		t.Fatalf("closed view = %s", m.View())
+	}
+
+	m.composing = true
+	m.note = "keep"
+	press(t, m, "?\r")
+	if m.note != "keep" || !m.help {
+		t.Fatalf("enter while open note %q help %v", m.note, m.help)
+	}
+	press(t, m, "\r?")
+	if m.help || m.note != "keep" {
+		t.Fatalf("after close note %q help %v", m.note, m.help)
+	}
+	if !strings.Contains(m.View(), "compose:") {
+		t.Fatalf("compose missing after close\n%s", m.View())
+	}
+
+	press(t, m, "?")
+	view = m.View()
+	if strings.Contains(view, "compose:") || strings.Contains(view, item.ID) || !strings.Contains(view, "click folder") {
+		t.Fatalf("second overlay = %s", view)
+	}
+	if _, err := m.Key('?'); err != nil {
+		t.Fatal(err)
+	}
+	m.composing = false
+	press(t, m, "\r?")
+	view = m.View()
+	if strings.Contains(view, "ship it?") || strings.Contains(view, "compose:") || strings.Contains(view, "[Inbox]") || !strings.Contains(view, "shortcuts") {
+		t.Fatalf("detail overlay = %s", view)
+	}
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+	got, err = led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || got.Answer != nil {
+		t.Fatalf("closing changed the item: %+v", got)
 	}
 }
 

@@ -58,6 +58,9 @@ func (m *Model) Click(x, y int) error {
 
 // Wheel scrolls the list or the open item by one line.
 func (m *Model) Wheel(down bool) {
+	if m.help {
+		return
+	}
 	if down {
 		m.scroll++
 		return

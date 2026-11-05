@@ -59,6 +59,7 @@ type Model struct {
 	rows         [][]hit
 	target       int
 	composing    bool
+	help         bool
 	note         string
 	runSend      func([]string) error
 }
@@ -103,8 +104,16 @@ func (m *Model) Reload() error {
 // box, and q quits. In the detail view, 1 through 9 answer a relay option,
 // free text submits on Enter when the item allows it, and e asks for an
 // outcome then marks the item done. While the compose box is focused, Enter
-// sends the note and other printable keys type into it.
+// sends the note and other printable keys type into it. ? opens the shortcut
+// overlay, and Esc or ? closes it.
 func (m *Model) Key(r rune) (bool, error) {
+	if m.help {
+		return m.helpKey(r)
+	}
+	if r == '?' {
+		m.help = true
+		return false, nil
+	}
 	if m.composing {
 		return m.composeKey(r)
 	}
@@ -155,6 +164,16 @@ func (m *Model) listKey(r rune) (bool, error) {
 		if err := m.openRow(); err != nil {
 			return false, err
 		}
+	}
+	return false, nil
+}
+
+func (m *Model) helpKey(r rune) (bool, error) {
+	switch r {
+	case '\x1b', '?':
+		m.help = false
+	case 'q':
+		return true, nil
 	}
 	return false, nil
 }
@@ -354,15 +373,40 @@ func (m *Model) View() string {
 }
 
 func (m *Model) allLines() []screenLine {
-	lines := []screenLine{m.folderLine()}
-	if m.mode == modeList {
-		lines = append(lines, m.rowLines()...)
+	var lines []screenLine
+	if m.help {
+		lines = m.helpLines()
 	} else {
-		lines = append(lines, m.detailLines()...)
+		lines = []screenLine{m.folderLine()}
+		if m.mode == modeList {
+			lines = append(lines, m.rowLines()...)
+		} else {
+			lines = append(lines, m.detailLines()...)
+		}
+		lines = append(lines, m.composeLines()...)
 	}
-	lines = append(lines, m.composeLines()...)
+	lines = append(lines, screenLine{text: "? help"})
 	if m.status != "" {
 		lines = append(lines, screenLine{text: m.status})
+	}
+	return lines
+}
+
+func (m *Model) helpLines() []screenLine {
+	text := []string{
+		"shortcuts",
+		"q quit",
+		"j/k move    h/l folder    enter open",
+		"c compose   ] target      tab next target",
+		"enter send  shift+enter newline",
+		"1-9 answer  e done        esc back",
+		"click folder, row, option, target, or compose",
+		"wheel scroll",
+		"? or esc close",
+	}
+	lines := make([]screenLine, len(text))
+	for i, line := range text {
+		lines[i] = screenLine{text: line}
 	}
 	return lines
 }
@@ -377,10 +421,7 @@ func (m *Model) window(lines []screenLine) []screenLine {
 	}
 	head := lines[:1]
 	rest := lines[1:]
-	tailN := 2
-	if m.status != "" {
-		tailN++
-	}
+	tailN := m.pinnedTail()
 	if tailN > len(rest) {
 		tailN = len(rest)
 	}
@@ -402,6 +443,17 @@ func (m *Model) window(lines []screenLine) []screenLine {
 	}
 	out := append(append([]screenLine{}, head...), rest[m.scroll:end]...)
 	return append(out, tail...)
+}
+
+func (m *Model) pinnedTail() int {
+	n := 1
+	if !m.help {
+		n += 2
+	}
+	if m.status != "" {
+		n++
+	}
+	return n
 }
 
 func (m *Model) folderLine() screenLine {
