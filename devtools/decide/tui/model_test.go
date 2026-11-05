@@ -308,8 +308,7 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "\r")
-	press(t, m, "custom words")
+	press(t, m, "\r0custom words")
 	if !strings.Contains(m.View(), "answer: custom words") {
 		t.Fatalf("text box missing draft\n%s", m.View())
 	}
@@ -518,6 +517,164 @@ func TestWheelScrollsOpenItem(t *testing.T) {
 	}
 }
 
+func TestFreeTextIsRowZero(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	two := mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  true,
+		CreatedAt: time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC),
+		Options: []decide.Option{
+			{Key: "a", Label: "Alpha"},
+			{Key: "b", Label: "Beta"},
+		},
+	})
+	nineOpts := make([]decide.Option, 9)
+	for i := range nineOpts {
+		nineOpts[i] = decide.Option{Key: string(rune('a' + i)), Label: "Choice"}
+	}
+	nine := mustCreate(t, led, &decide.Item{
+		Question:  "nine choices",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  true,
+		Options:   nineOpts,
+		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
+	})
+	escItem := mustCreate(t, led, &decide.Item{
+		Question:  "keep draft?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  true,
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}, {Key: "b", Label: "Beta"}},
+		CreatedAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC),
+	})
+	only := mustCreate(t, led, &decide.Item{
+		Question:  "options only",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  false,
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "?")
+	if !strings.Contains(m.View(), "esc keeps the draft") {
+		t.Fatalf("help does not document esc\n%s", m.View())
+	}
+	if _, err := m.Key('?'); err != nil {
+		t.Fatal(err)
+	}
+
+	press(t, m, "\r")
+	view := m.View()
+	opt := strings.Index(view, "2 b Beta")
+	zero := strings.Index(view, "0  answer:")
+	if opt < 0 || zero < opt || strings.Contains(view, "\n10 ") {
+		t.Fatalf("free text is not last row 0\n%s", view)
+	}
+	if err := m.Click(1, screenRow(view, "0  answer:")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Get(two.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer != nil || !strings.Contains(m.View(), "0  answer: _ Esc to cancel") {
+		t.Fatalf("click submitted or hid the cursor\n%s", m.View())
+	}
+	press(t, m, "1\r")
+	got, err = led.Get(two.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.Value != "1" {
+		t.Fatalf("focused 1 = %+v", got.Answer)
+	}
+
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\r")
+	view = m.View()
+	if strings.Contains(view, "\n10 ") || !strings.Contains(view, "9 i Choice") || !strings.Contains(view, "0  answer:") {
+		t.Fatalf("nine options = %s", view)
+	}
+	press(t, m, "0")
+	got, err = led.Get(nine.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer != nil || !m.answerFocus {
+		t.Fatalf("0 submitted a nine-option item: %+v", got.Answer)
+	}
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+
+	press(t, m, "j\r0keep")
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+	got, err = led.Get(escItem.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.answerFocus || m.draft != "keep" || got.Answer != nil {
+		t.Fatalf("esc focus %v draft %q answer %+v", m.answerFocus, m.draft, got.Answer)
+	}
+	press(t, m, "0")
+	if !strings.Contains(m.View(), "answer: keep_") {
+		t.Fatalf("draft was dropped\n%s", m.View())
+	}
+	if err := m.Click(1, screenRow(m.View(), "keep draft?")); err != nil {
+		t.Fatal(err)
+	}
+	got, err = led.Get(escItem.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.answerFocus || m.draft != "keep" || got.Answer != nil {
+		t.Fatalf("outside click focus %v draft %q answer %+v", m.answerFocus, m.draft, got.Answer)
+	}
+	press(t, m, "1")
+	got, err = led.Get(escItem.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.Value != "a" {
+		t.Fatalf("digit after cancel = %+v", got.Answer)
+	}
+
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "j\r")
+	if strings.Contains(m.View(), "0  answer:") || strings.Contains(m.View(), "answer:") {
+		t.Fatalf("options-only row\n%s", m.View())
+	}
+	press(t, m, "0")
+	got, err = led.Get(only.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer != nil {
+		t.Fatalf("options-only 0 answered: %+v", got.Answer)
+	}
+}
+
 func TestClickAnswersOptionAndFreeText(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -568,10 +725,7 @@ func TestClickAnswersOptionAndFreeText(t *testing.T) {
 	if !strings.Contains(m.View(), "answer") {
 		t.Fatalf("free text was not focused\n%s", m.View())
 	}
-	press(t, m, "custom words")
-	if err := m.Click(1, screenRow(m.View(), "submit")); err != nil {
-		t.Fatal(err)
-	}
+	press(t, m, "custom words\r")
 	got, err = led.Get(free.ID)
 	if err != nil {
 		t.Fatal(err)

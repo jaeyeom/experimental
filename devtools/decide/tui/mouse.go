@@ -44,6 +44,10 @@ type termEvent struct {
 // Click handles one left-button press at 1-based screen coordinates.
 func (m *Model) Click(x, y int) error {
 	m.View()
+	if m.answerFocus && !m.onAnswerRow(x, y) {
+		m.answerFocus = false
+		return nil
+	}
 	if y < 1 || y > len(m.rows) {
 		return nil
 	}
@@ -54,6 +58,21 @@ func (m *Model) Click(x, y int) error {
 		return m.hit(h)
 	}
 	return nil
+}
+
+func (m *Model) onAnswerRow(x, y int) bool {
+	if y < 1 || y > len(m.rows) {
+		return false
+	}
+	for _, h := range m.rows[y-1] {
+		if h.kind != hitAnswer {
+			continue
+		}
+		if h.x1 == 0 || (x >= h.x0 && x <= h.x1) {
+			return true
+		}
+	}
+	return false
 }
 
 // Wheel scrolls the list or the open item by one line.
@@ -87,7 +106,7 @@ func (m *Model) hit(h hit) error {
 	case hitOption:
 		return m.answerOption(h.n)
 	case hitAnswer:
-		m.status = "answer"
+		m.focusAnswer()
 		return nil
 	case hitSubmit:
 		return m.submitFreeText()
