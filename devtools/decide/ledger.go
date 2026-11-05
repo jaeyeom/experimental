@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -75,6 +76,8 @@ type Item struct {
 	NotifyPane  string     `json:"notifyPane,omitempty"`
 	TypeText    string     `json:"typeText,omitempty"`
 	Where       string     `json:"where,omitempty"`
+	Reason      string     `json:"reason,omitempty"`
+	Outcome     string     `json:"outcome,omitempty"`
 }
 
 // Ledger is the on-disk decision store for one directory.
@@ -157,7 +160,7 @@ func (l *Ledger) Get(id string) (Item, error) {
 	return found, nil
 }
 
-// List returns every stored item.
+// List returns every stored item in storage order.
 func (l *Ledger) List() ([]Item, error) {
 	var items []Item
 	err := l.locked(false, func(st *store) error {
@@ -173,25 +176,87 @@ func (l *Ledger) List() ([]Item, error) {
 	return items, nil
 }
 
-// Withdraw marks id withdrawn and keeps the record. The id is not reused.
-func (l *Ledger) Withdraw(id string) (Item, error) {
+// Withdraw marks id withdrawn, stores reason, and keeps the record.
+// The id is not reused. A withdrawn or done item is refused.
+func (l *Ledger) Withdraw(id, reason string) (Item, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return Item{}, fmt.Errorf("decide reason is empty")
+	}
+	return l.finish(id, StateWithdrawn, reason)
+}
+
+// Done marks id done and stores outcome. A withdrawn or done item is refused.
+func (l *Ledger) Done(id, outcome string) (Item, error) {
+	outcome = strings.TrimSpace(outcome)
+	if outcome == "" {
+		return Item{}, fmt.Errorf("decide outcome is empty")
+	}
+	return l.finish(id, StateDone, outcome)
+}
+
+// Answer records value on a relay item and sets answeredBy to human.
+// value is an option key, or free text when the item allows it.
+// A type-in, withdrawn, or done item is refused.
+func (l *Ledger) Answer(id, value string) (Item, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return Item{}, fmt.Errorf("decide answer is empty")
+	}
 	var updated Item
 	err := l.locked(true, func(st *store) error {
-		for i := range st.Items {
-			if st.Items[i].ID != id {
-				continue
-			}
-			st.Items[i].State = StateWithdrawn
-			st.Items[i].WithdrawnAt = l.clock().UTC()
-			updated = st.Items[i]
-			return nil
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("%w: %s", ErrNotFound, id)
+		if it.Kind == KindTypeIn {
+			return fmt.Errorf("decide item %s is type-in", id)
+		}
+		if it.State == StateWithdrawn || it.State == StateDone {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		if !hasOption(it, value) && !it.FreeText {
+			return fmt.Errorf("decide answer %q is not an option", value)
+		}
+		it.State = StateAnswered
+		it.AnsweredAt = l.clock().UTC()
+		it.Answer = &Answer{Value: value, AnsweredBy: "human"}
+		updated = *it
+		return nil
 	})
 	if err != nil {
 		return Item{}, err
 	}
 	return updated, nil
+}
+
+// Select returns items in state. Deadline order is soonest first, then items
+// with no deadline, then newest created time. An empty state means open.
+func Select(items []Item, state string) ([]Item, error) {
+	if state == "" {
+		state = StateOpen
+	}
+	switch state {
+	case StateOpen, StateAnswered, StateDone, StateWithdrawn:
+	default:
+		return nil, fmt.Errorf("decide state %q is invalid", state)
+	}
+	out := make([]Item, 0)
+	for _, it := range items {
+		if it.State == state {
+			out = append(out, it)
+		}
+	}
+	Sort(out)
+	return out, nil
+}
+
+// Sort orders items by soonest deadline, then no deadline, then newest
+// created time. Equal times break toward the higher id.
+func Sort(items []Item) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return before(&items[i], &items[j])
+	})
 }
 
 func (l *Ledger) clock() time.Time {
@@ -309,6 +374,80 @@ func (st *store) allocID() string {
 	id := fmt.Sprintf("D-%03d", st.Next)
 	st.Next++
 	return id
+}
+
+func (l *Ledger) finish(id, state, text string) (Item, error) {
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if it.State == StateWithdrawn || it.State == StateDone {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		it.State = state
+		now := l.clock().UTC()
+		switch state {
+		case StateWithdrawn:
+			it.WithdrawnAt = now
+			it.Reason = text
+		case StateDone:
+			it.DoneAt = now
+			it.Outcome = text
+		default:
+			return fmt.Errorf("decide state %q is invalid", state)
+		}
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+func findItem(st *store, id string) (*Item, error) {
+	for i := range st.Items {
+		if st.Items[i].ID == id {
+			return &st.Items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
+}
+
+func hasOption(it *Item, key string) bool {
+	for _, opt := range it.Options {
+		if opt.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func before(a, b *Item) bool {
+	switch {
+	case a.Deadline != nil && b.Deadline != nil:
+		if !a.Deadline.Equal(*b.Deadline) {
+			return a.Deadline.Before(*b.Deadline)
+		}
+		return newer(a, b)
+	case a.Deadline != nil:
+		return true
+	case b.Deadline != nil:
+		return false
+	default:
+		return newer(a, b)
+	}
+}
+
+func newer(a, b *Item) bool {
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.After(b.CreatedAt)
+	}
+	ai, _ := parseID(a.ID)
+	bi, _ := parseID(b.ID)
+	return ai > bi
 }
 
 func parseID(id string) (int, bool) {
