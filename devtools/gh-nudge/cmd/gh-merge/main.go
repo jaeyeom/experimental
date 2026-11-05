@@ -24,6 +24,12 @@
 //	# Enqueue one pull request on the merge queue
 //	gh-merge queue acme/widgets#12
 //
+//	# Enqueue pull request 12 in the current checkout
+//	gh-merge queue 12
+//
+//	# Preview an enqueue. A draft is refused and nothing is enqueued.
+//	gh-merge --dry-run queue 12
+//
 //	# Watch until each pull request merges, is ejected, or times out
 //	gh-merge watch acme/widgets#12
 package main
@@ -59,12 +65,12 @@ const (
 
 func registerFlags() {
 	flag.StringVar(&configPath, "config", "", "Path to config file")
-	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode (don't actually merge)")
+	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode (don't actually merge or enqueue)")
 	flag.BoolVar(&deleteBranch, "d", false, "Delete branch after merge")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
-	flag.BoolVar(&jsonOutput, "json", false, "Print watch results as JSON")
+	flag.BoolVar(&jsonOutput, "json", false, "Print queue and watch results as JSON")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
@@ -72,7 +78,7 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "\nCommands:\n")
 		fmt.Fprintf(os.Stderr, "  list    List mergeable PRs (default)\n")
 		fmt.Fprintf(os.Stderr, "  merge   Merge eligible PRs\n")
-		fmt.Fprintf(os.Stderr, "  queue   Enqueue one pull request on the merge queue\n")
+		fmt.Fprintf(os.Stderr, "  queue   %s\n", queueCommandHelp())
 		fmt.Fprintf(os.Stderr, "  watch   Wait until each pull request merges, is ejected, or times out\n")
 	}
 }
@@ -291,7 +297,7 @@ func main() {
 		cmdErr = mergePRs(githubClient, cfg)
 	case "queue":
 		if len(args) != 2 {
-			fmt.Fprintf(os.Stderr, "Usage: %s queue <owner/repo#n|url>\n", os.Args[0])
+			fmt.Fprintf(os.Stderr, "Usage: %s queue <owner/repo#n|url|number>\n", os.Args[0])
 			os.Exit(1)
 		}
 		cmdErr = queuePullRequest(githubClient, cfg, args[1], includeDownstack)

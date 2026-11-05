@@ -1,8 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,23 +16,26 @@ import (
 )
 
 type fakeQueue struct {
-	pr          github.QueuePullRequest
-	byRef       map[string]github.QueuePullRequest
-	loadErr     error
-	enqueueErr  error
-	enqueued    []string
-	downstack   []github.StackPR
-	downCalls   int
-	evidence    github.FailureEvidence
-	landed      github.StackPR
-	landedOK    bool
-	mergedAsync []string
-	loads       int
-	snapshots   []github.QueuePullRequest
+	pr           github.QueuePullRequest
+	byRef        map[string]github.QueuePullRequest
+	loadErr      error
+	enqueueErr   error
+	enqueued     []string
+	enqueueCalls int
+	loadedRefs   []string
+	downstack    []github.StackPR
+	downCalls    int
+	evidence     github.FailureEvidence
+	landed       github.StackPR
+	landedOK     bool
+	mergedAsync  []string
+	loads        int
+	snapshots    []github.QueuePullRequest
 }
 
 func (f *fakeQueue) LoadPullRequest(ref string) (github.QueuePullRequest, error) {
 	f.loads++
+	f.loadedRefs = append(f.loadedRefs, ref)
 	if f.loadErr != nil {
 		return github.QueuePullRequest{}, f.loadErr
 	}
@@ -61,6 +68,7 @@ func (f *fakeQueue) LoadPullRequest(ref string) (github.QueuePullRequest, error)
 }
 
 func (f *fakeQueue) EnqueuePullRequest(nodeID string) error {
+	f.enqueueCalls++
 	if f.enqueueErr != nil {
 		return f.enqueueErr
 	}
@@ -447,4 +455,315 @@ func TestEarlierRequeuesIgnoresTheFirstEnqueue(t *testing.T) {
 	if got := earlierRequeues(events); got != 0 {
 		t.Errorf("earlierRequeues() = %d, want 0", got)
 	}
+}
+
+func TestQueueHelpAndReadinessNameDraft(t *testing.T) {
+	if !strings.Contains(queueCommandHelp(), "draft") {
+		t.Fatalf("help = %q", queueCommandHelp())
+	}
+	pr := readyPR()
+	pr.Draft = true
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, false)
+		if err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	if !strings.Contains(output, "pull request is a draft") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Would enqueue") || strings.Contains(output, "Enqueued") {
+		t.Fatalf("refused draft still enqueued:\n%s", output)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueDryRunDoesNotEnqueue(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	pr := readyPR()
+	client := &fakeQueue{
+		pr:         pr,
+		enqueueErr: errors.New("this pull request is part of a stack and must be merged sequentially using merge-async"),
+	}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, true); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v, want neither API", client.enqueueCalls, client.mergedAsync)
+	}
+	if !strings.Contains(output, "Would enqueue acme/widgets#12.") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Enqueued") {
+		t.Fatalf("dry run said Enqueued:\n%s", output)
+	}
+	for _, want := range []string{
+		"pull request is not a draft",
+		"no block label",
+		"pull request is approved",
+		"no required checks configured",
+		"no unresolved review threads",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestQueueEnqueueStillPrintsEnqueued(t *testing.T) {
+	pr := readyPR()
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "Enqueued acme/widgets#12.") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Would enqueue") {
+		t.Fatalf("real enqueue said Would enqueue:\n%s", output)
+	}
+	if client.enqueueCalls != 1 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueJSONReportsReadinessAndResult(t *testing.T) {
+	pr := readyPR()
+	t.Run("enqueued", func(t *testing.T) {
+		jsonOutput = true
+		t.Cleanup(func() { jsonOutput = false })
+		client := &fakeQueue{pr: pr}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		assertQueueJSON(t, output, "enqueued")
+		if strings.Contains(output, "Enqueued") {
+			t.Fatalf("json output included text:\n%s", output)
+		}
+	})
+	t.Run("would-enqueue", func(t *testing.T) {
+		withMergeFlags(t, true, false, false)
+		jsonOutput = true
+		t.Cleanup(func() { jsonOutput = false })
+		client := &fakeQueue{
+			pr:         pr,
+			enqueueErr: errors.New("stack merge-async sequentially"),
+		}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, &config.Config{}, pr.Ref.Raw, true); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		assertQueueJSON(t, output, "would-enqueue")
+		if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+			t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+		}
+	})
+}
+
+func assertQueueJSON(t *testing.T, output, result string) {
+	t.Helper()
+	var got queueJSONResult
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\n%s", err, output)
+	}
+	if got.PullRequest != "acme/widgets#12" || got.Result != result {
+		t.Fatalf("result = %+v", got)
+	}
+	if len(got.Readiness) == 0 || !containsAll(got.Readiness, "pull request is not a draft", "pull request is approved") {
+		t.Fatalf("readiness = %v", got.Readiness)
+	}
+}
+
+func containsAll(lines []string, wants ...string) bool {
+	for _, want := range wants {
+		found := false
+		for _, line := range lines {
+			if line == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func TestWatchDryRunDoesNotEnqueue(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	pr := readyPR()
+	pr.Merged = true
+	client := &fakeQueue{pr: pr}
+	if err := watchPullRequests(client, []string{pr.Ref.Raw}, watchOptions{timeout: 0}); err != nil {
+		t.Fatalf("watchPullRequests() error = %v", err)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueAndWatchRunWithoutSlackBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := "github:\n  repos:\n    - widgets\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Slack.Token != "" || cfg.Slack.DefaultChannel != "" {
+		t.Fatalf("slack = %+v, want empty", cfg.Slack)
+	}
+	client := &fakeQueue{pr: readyPR()}
+	if err := queuePullRequest(client, cfg, readyPR().Ref.Raw, false); err != nil {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if len(client.enqueued) != 1 {
+		t.Fatalf("enqueued = %v", client.enqueued)
+	}
+	merged := readyPR()
+	merged.Merged = true
+	watcher := &fakeQueue{pr: merged}
+	if err := watchPullRequests(watcher, []string{merged.Ref.Raw}, watchOptions{timeout: 0}); err != nil {
+		t.Fatalf("watchPullRequests() error = %v", err)
+	}
+	if watcher.enqueueCalls != 0 || len(watcher.mergedAsync) != 0 {
+		t.Fatalf("watch enqueueCalls = %d async = %v", watcher.enqueueCalls, watcher.mergedAsync)
+	}
+}
+
+func TestQueueBareNumberUsesCheckoutRemote(t *testing.T) {
+	dir := initGitRemote(t, "origin", "https://github.com/acme/widgets.git")
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			t.Errorf("gh was called: %v", args)
+			return "", errors.New("gh should not be called")
+		}
+		return defaultRunCommand(name, args...)
+	})
+	t.Chdir(dir)
+	client := &fakeQueue{pr: readyPR()}
+	if err := queuePullRequest(client, &config.Config{}, "12", false); err != nil {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
+		t.Fatalf("loaded = %v, want acme/widgets#12", client.loadedRefs)
+	}
+}
+
+func TestQueueBareNumberUsesFirstRemoteWhenOriginIsMissing(t *testing.T) {
+	dir := initGitRemote(t, "upstream", "git@github.com:acme/widgets.git")
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			t.Errorf("gh was called: %v", args)
+			return "", errors.New("gh should not be called")
+		}
+		return defaultRunCommand(name, args...)
+	})
+	t.Chdir(dir)
+	client := &fakeQueue{pr: readyPR()}
+	if err := queuePullRequest(client, &config.Config{}, "12", false); err != nil {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
+		t.Fatalf("loaded = %v, want acme/widgets#12", client.loadedRefs)
+	}
+}
+
+func TestQueueBareNumberUsesGHWhenRemoteIsNotGitHub(t *testing.T) {
+	dir := initGitRemote(t, "origin", "https://example.com/acme/widgets.git")
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			return "acme/widgets\n", nil
+		}
+		return defaultRunCommand(name, args...)
+	})
+	t.Chdir(dir)
+	client := &fakeQueue{pr: readyPR()}
+	if err := queuePullRequest(client, &config.Config{}, "12", false); err != nil {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
+		t.Fatalf("loaded = %v, want acme/widgets#12", client.loadedRefs)
+	}
+}
+
+func TestQueueExplicitRefDoesNotLookUpRemote(t *testing.T) {
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		t.Errorf("unexpected %s %v", name, args)
+		return "", errors.New("unexpected command")
+	})
+	for _, ref := range []string{"acme/widgets#12", "https://github.com/acme/widgets/pull/12"} {
+		t.Run(ref, func(t *testing.T) {
+			client := &fakeQueue{pr: readyPR()}
+			if err := queuePullRequest(client, &config.Config{}, ref, false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+			if len(client.loadedRefs) != 1 || client.loadedRefs[0] != ref {
+				t.Fatalf("loaded = %v, want %s", client.loadedRefs, ref)
+			}
+		})
+	}
+}
+
+func TestParseGitHubRemote(t *testing.T) {
+	tests := []struct {
+		raw   string
+		owner string
+		repo  string
+		ok    bool
+	}{
+		{raw: "https://github.com/acme/widgets.git", owner: "acme", repo: "widgets", ok: true},
+		{raw: "https://github.com/acme/widgets", owner: "acme", repo: "widgets", ok: true},
+		{raw: "git@github.com:acme/widgets.git", owner: "acme", repo: "widgets", ok: true},
+		{raw: "ssh://git@github.com/acme/widgets.git", owner: "acme", repo: "widgets", ok: true},
+		{raw: "https://example.com/acme/widgets.git", ok: false},
+		{raw: "https://github.com/acme/widgets/pull/12", ok: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			owner, repo, ok := parseGitHubRemote(tc.raw)
+			if ok != tc.ok || owner != tc.owner || repo != tc.repo {
+				t.Fatalf("parseGitHubRemote() = %s/%s ok=%v", owner, repo, ok)
+			}
+		})
+	}
+}
+
+func initGitRemote(t *testing.T, name, remote string) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitIn(t, dir, "init")
+	gitIn(t, dir, "remote", "add", name, remote)
+	return dir
+}
+
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+func withCommandStub(t *testing.T, fn func(string, ...string) (string, error)) {
+	t.Helper()
+	prev := runCommand
+	runCommand = fn
+	t.Cleanup(func() { runCommand = prev })
 }

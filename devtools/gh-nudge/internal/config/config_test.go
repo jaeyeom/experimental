@@ -939,3 +939,30 @@ func TestConvertPklConfigMergeQueue(t *testing.T) {
 		t.Errorf("max_requeues = %d, want 4", cfg.Settings.RequeueLimit())
 	}
 }
+
+func TestLoadConfigWithoutSlackBlock(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configContent := `
+github:
+  owner: "acme"
+  repos:
+    - "widgets"
+settings:
+  required_checks:
+    - "ci"
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+		t.Fatalf("Failed to write test config file: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Slack.Token != "" || cfg.Slack.DefaultChannel != "" {
+		t.Fatalf("slack = %+v, want empty", cfg.Slack)
+	}
+	if len(cfg.Settings.RequiredChecks) != 1 || cfg.Settings.RequiredChecks[0] != "ci" {
+		t.Fatalf("required_checks = %v", cfg.Settings.RequiredChecks)
+	}
+}
