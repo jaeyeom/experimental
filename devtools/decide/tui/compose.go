@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 const sendsName = "sends.jsonl"
@@ -37,6 +38,17 @@ func (m *Model) ShiftEnter() {
 	m.note += "\n"
 }
 
+// ShiftTab selects the previous compose target in the list and while the
+// box is focused. It does not insert a character.
+func (m *Model) ShiftTab() {
+	if m.help || m.answerFocus {
+		return
+	}
+	if m.composing || m.mode == modeList {
+		m.cycleTarget(-1)
+	}
+}
+
 func (m *Model) composeKey(r rune) (bool, error) {
 	switch r {
 	case '\x1b':
@@ -47,8 +59,11 @@ func (m *Model) composeKey(r rune) (bool, error) {
 	case '\b', '\x7f':
 		m.trimNote()
 		return false, nil
-	case '\t':
+	case '\t', ']':
 		m.cycleTarget(1)
+		return false, nil
+	case '[':
+		m.cycleTarget(-1)
 		return false, nil
 	}
 	if r >= ' ' {
@@ -81,7 +96,7 @@ func (m *Model) sendNote() error {
 		return nil
 	}
 	if m.target < 0 || m.target >= len(m.Targets) {
-		m.status = "failed"
+		m.status = "no compose target"
 		return nil
 	}
 	tg := m.Targets[m.target]
@@ -91,16 +106,16 @@ func (m *Model) sendNote() error {
 		send = defaultRunSend
 	}
 	if err := send(argv); err != nil {
-		m.status = "failed"
+		m.status = err.Error()
 		return nil
 	}
 	if err := m.appendSend(tg.Name, tg.Pane, m.note); err != nil {
-		m.status = "failed"
+		m.status = err.Error()
 		return nil
 	}
 	m.note = ""
 	m.composing = false
-	m.status = "sent"
+	m.status = "sent to " + tg.Name
 	return nil
 }
 
@@ -164,32 +179,47 @@ func (m *Model) targetLine() screenLine {
 	if len(m.Targets) == 0 {
 		return screenLine{text: "to (none)"}
 	}
+	if m.target < 0 || m.target >= len(m.Targets) {
+		m.target = 0
+	}
 	var b strings.Builder
-	b.WriteString("to")
-	col := len("to") + 1
+	b.WriteString("to: ")
+	col := utf8.RuneCountInString("to: ") + 1
 	hits := make([]hit, 0, len(m.Targets))
-	for i, tg := range m.Targets {
-		b.WriteByte(' ')
-		col++
-		name := tg.Name
-		if i == m.target {
-			name = "[" + name + "]"
-		}
+	writeTarget := func(i int, suffix string) {
+		name := m.Targets[i].Name
 		start := col
 		b.WriteString(name)
-		col += len(name)
+		col += utf8.RuneCountInString(name)
 		hits = append(hits, hit{kind: hitTarget, n: i, x0: start, x1: col - 1})
+		b.WriteString(suffix)
+		col += utf8.RuneCountInString(suffix)
+	}
+	writeTarget(m.target, " ▸")
+	for i := range m.Targets {
+		if i == m.target {
+			continue
+		}
+		b.WriteByte(' ')
+		col++
+		writeTarget(i, "")
 	}
 	return screenLine{text: b.String(), hits: hits}
 }
 
 func (m *Model) composeLine() screenLine {
-	shown := strings.ReplaceAll(m.note, "\n", `\n`)
-	if m.composing {
-		shown += "_"
+	if !m.composing {
+		return screenLine{
+			text: "compose (c to type, ] or click to pick target):",
+			hits: []hit{{kind: hitCompose}},
+		}
+	}
+	body := strings.ReplaceAll(m.note, "\n", `\n`)
+	if body == "" {
+		body = "…"
 	}
 	return screenLine{
-		text: "compose: " + shown,
+		text: "compose › " + body + "_  Enter send · Esc cancel · Tab target",
 		hits: []hit{{kind: hitCompose}},
 	}
 }

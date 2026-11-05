@@ -101,13 +101,15 @@ func (m *Model) Reload() error {
 }
 
 // Key applies one key. In the list, h and l switch folders, j and k move,
-// Enter opens the row, ] changes the compose target, c focuses the compose
-// box, and q quits. In the detail view, 1 through 9 answer a relay option,
-// 0 focuses free text on a relay item that allows it, and e asks for an
-// outcome then marks the item done. Enter submits free text only while that
-// row is focused. Esc leaves the row and keeps the unsent draft. While the
-// compose box is focused, Enter sends the note and other printable keys type
-// into it. ? opens the shortcut overlay, and Esc or ? closes it.
+// Enter opens the row, Tab and ] select the next compose target, [ selects
+// the previous one, c focuses the compose box, and q quits. In the detail
+// view, 1 through 9 answer a relay option, 0 focuses free text on a relay
+// item that allows it, and e asks for an outcome then marks the item done.
+// Enter submits free text only while that row is focused. Esc leaves the row
+// and keeps the unsent draft. While the compose box is focused, Enter sends
+// the note, Tab and ] select the next target, [ selects the previous one,
+// and other printable keys type into it. ? opens the shortcut overlay, and
+// Esc or ? closes it.
 func (m *Model) Key(r rune) (bool, error) {
 	if m.help {
 		return m.helpKey(r)
@@ -156,7 +158,7 @@ func (m *Model) listKey(r rune) (bool, error) {
 				return false, err
 			}
 		}
-	case 'l', '\t':
+	case 'l':
 		if m.folder < len(Folders)-1 {
 			m.folder++
 			m.cursor = 0
@@ -188,8 +190,11 @@ func (m *Model) listComposeKey(r rune) bool {
 	case 'c':
 		m.composing = true
 		return true
-	case ']':
+	case ']', '\t':
 		m.cycleTarget(1)
+		return true
+	case '[':
+		m.cycleTarget(-1)
 		return true
 	default:
 		return false
