@@ -37,4 +37,22 @@ type SettingsConfig struct {
 	// gh-nudge ignores this list. Empty means no label blocks a merge.
 	// Names match exactly, including case. For example, "do-not-merge".
 	BlockMergeLabels []string `pkl:"block_merge_labels"`
+
+	// Check names that must be green before gh-merge queue enqueues.
+	// Empty means this gate is off. Names match exactly, including case.
+	RequiredChecks []string `pkl:"required_checks"`
+
+	// Regular expressions matched against a failing merge-queue log.
+	// A match is a hint, not a verdict. Empty means no hints.
+	FlakeSignatures []string `pkl:"flake_signatures"`
+
+	// Comment template that must match before a removed pull request can be
+	// queued again. Placeholders are {event_id} and {class}.
+	// Class is our-code, flake, or infra. Empty matches nothing.
+	RcaMarker string `pkl:"rca_marker"`
+
+	// How many earlier flake or infra requeues are allowed.
+	// gh-merge queue refuses when the timeline count is greater than this.
+	// Zero means no requeue is allowed.
+	MaxRequeues int `pkl:"max_requeues"`
 }

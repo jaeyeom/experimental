@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/apple/pkl-go/pkl"
@@ -68,6 +69,30 @@ type SettingsConfig struct {
 	// of these labels. gh-nudge ignores this list. Empty means no label blocks
 	// a merge. Names match exactly, including case.
 	BlockMergeLabels []string `yaml:"block_merge_labels"`
+	// RequiredChecks are check names that must be green before gh-merge queue
+	// enqueues. Empty means this gate is off. Names match exactly.
+	RequiredChecks []string `yaml:"required_checks"`
+	// FlakeSignatures are regular expressions matched against a failing log.
+	// A match is a hint, not a verdict.
+	FlakeSignatures []string `yaml:"flake_signatures"`
+	// RCAMarker is a comment template. Placeholders are {event_id} and {class}.
+	// Class is our-code, flake, or infra. Empty matches nothing.
+	RCAMarker string `yaml:"rca_marker"`
+	// MaxRequeues is how many earlier flake or infra requeues are allowed.
+	// Nil means the default, 2. Zero means none are allowed.
+	MaxRequeues *int `yaml:"max_requeues"`
+}
+
+// DefaultMaxRequeues is the requeue cap when config omits max_requeues.
+const DefaultMaxRequeues = 2
+
+// RequeueLimit returns the number of earlier requeues that are still allowed.
+// A nil MaxRequeues uses DefaultMaxRequeues.
+func (s SettingsConfig) RequeueLimit() int {
+	if s.MaxRequeues == nil {
+		return DefaultMaxRequeues
+	}
+	return *s.MaxRequeues
 }
 
 // LoadConfig loads the configuration from the specified file path.
@@ -152,6 +177,10 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			SkipUsers:                  pklCfg.Settings.SkipUsers,
 			MinFirstReviewRequestHours: pklCfg.Settings.MinFirstReviewRequestHours,
 			BlockMergeLabels:           pklCfg.Settings.BlockMergeLabels,
+			RequiredChecks:             pklCfg.Settings.RequiredChecks,
+			FlakeSignatures:            pklCfg.Settings.FlakeSignatures,
+			RCAMarker:                  pklCfg.Settings.RcaMarker,
+			MaxRequeues:                intPtr(pklCfg.Settings.MaxRequeues),
 		},
 	}
 
@@ -218,5 +247,17 @@ func validateSettings(settings SettingsConfig) error {
 	if settings.MinFirstReviewRequestHours < 0 {
 		return fmt.Errorf("min_first_review_request_hours must be >= 0")
 	}
+	for _, signature := range settings.FlakeSignatures {
+		if _, err := regexp.Compile(signature); err != nil {
+			return fmt.Errorf("flake_signatures %q: %w", signature, err)
+		}
+	}
+	if settings.MaxRequeues != nil && *settings.MaxRequeues < 0 {
+		return fmt.Errorf("max_requeues must be >= 0")
+	}
 	return nil
+}
+
+func intPtr(n int) *int {
+	return &n
 }

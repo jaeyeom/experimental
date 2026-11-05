@@ -20,6 +20,12 @@
 //
 //	# Use a custom config file
 //	gh-merge --config /path/to/config.pkl
+//
+//	# Enqueue one pull request on the merge queue
+//	gh-merge queue acme/widgets#12
+//
+//	# Watch until each pull request merges, is ejected, or times out
+//	gh-merge watch acme/widgets#12
 package main
 
 import (
@@ -28,6 +34,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
@@ -36,11 +43,18 @@ import (
 )
 
 var (
-	configPath   string
-	dryRun       bool
-	deleteBranch bool
-	verbose      bool
-	force        bool
+	configPath       string
+	dryRun           bool
+	deleteBranch     bool
+	verbose          bool
+	force            bool
+	includeDownstack bool
+	jsonOutput       bool
+)
+
+const (
+	defaultWatchTimeout  = 30 * time.Minute
+	defaultWatchInterval = 15 * time.Second
 )
 
 func registerFlags() {
@@ -49,6 +63,8 @@ func registerFlags() {
 	flag.BoolVar(&deleteBranch, "d", false, "Delete branch after merge")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
+	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
+	flag.BoolVar(&jsonOutput, "json", false, "Print watch results as JSON")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
@@ -56,6 +72,8 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "\nCommands:\n")
 		fmt.Fprintf(os.Stderr, "  list    List mergeable PRs (default)\n")
 		fmt.Fprintf(os.Stderr, "  merge   Merge eligible PRs\n")
+		fmt.Fprintf(os.Stderr, "  queue   Enqueue one pull request on the merge queue\n")
+		fmt.Fprintf(os.Stderr, "  watch   Wait until each pull request merges, is ejected, or times out\n")
 	}
 }
 
@@ -271,6 +289,22 @@ func main() {
 		cmdErr = listMergeablePRs(githubClient, cfg)
 	case "merge":
 		cmdErr = mergePRs(githubClient, cfg)
+	case "queue":
+		if len(args) != 2 {
+			fmt.Fprintf(os.Stderr, "Usage: %s queue <owner/repo#n|url>\n", os.Args[0])
+			os.Exit(1)
+		}
+		cmdErr = queuePullRequest(githubClient, cfg, args[1], includeDownstack)
+	case "watch":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "Usage: %s watch <owner/repo#n|url>...\n", os.Args[0])
+			os.Exit(1)
+		}
+		cmdErr = watchPullRequests(githubClient, args[1:], watchOptions{
+			timeout:  defaultWatchTimeout,
+			interval: defaultWatchInterval,
+			asJSON:   jsonOutput,
+		})
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		flag.Usage()

@@ -35,12 +35,34 @@ merge these PRs and optionally delete the source branch after merging.
 
   # Use a custom config file
   gh-merge --config /path/to/config.pkl
+
+  # Enqueue one pull request. The argument is owner/repo#n or a pull request URL.
+  gh-merge queue acme/widgets#12
+
+  # A stack whose enqueue answer requires the async API also queues pull
+  # requests below it. That needs an explicit flag.
+  gh-merge --include-downstack queue acme/widgets#12
+
+  # Wait until each pull request merges, is ejected, or times out.
+  gh-merge watch acme/widgets#12 acme/widgets#13
+  gh-merge --json watch acme/widgets#12
 #+end_src
 
 A pull request is not merged when it has any label listed in
 ~settings.block_merge_labels~, for example ~do-not-merge~. ~--force~ does not
 override that label. ~gh-merge list~ still prints the pull request and marks
 the label that blocks it.
+
+~gh-merge queue~ checks one pull request, prints removal evidence when the
+latest merge-queue timeline event is a removal, and then calls
+~enqueuePullRequest~. It does not classify the failure or write the RCA
+comment. ~required_checks~, ~flake_signatures~, ~rca_marker~, and
+~max_requeues~ come from config. Empty ~required_checks~ turns that gate off.
+A flake-signature match is printed as a hint, not a verdict. ~gh-merge watch~
+decides merged, ejected, or timeout from the timeline. ~isInMergeQueue=false~
+alone is not an ejection. ~--json~ prints one result per pull request:
+~merged~, ~ejected:<reason>~, or ~timeout~. The command exits non-zero unless
+every pull request merged.
 
 ** Configuration and Setup
 

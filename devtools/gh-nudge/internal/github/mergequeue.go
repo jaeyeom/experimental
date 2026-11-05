@@ -1,0 +1,618 @@
+package github
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	// QueueEventAdded is an ADDED_TO_MERGE_QUEUE timeline event.
+	QueueEventAdded = "added"
+	// QueueEventRemoved is a REMOVED_FROM_MERGE_QUEUE timeline event.
+	QueueEventRemoved = "removed"
+)
+
+// PullRef identifies one pull request. Raw is the text the caller passed.
+type PullRef struct {
+	Owner  string
+	Repo   string
+	Number int
+	Raw    string
+}
+
+// QueueCheck is one status check on the pull request head.
+type QueueCheck struct {
+	Name       string
+	Green      bool
+	Conclusion string
+}
+
+// QueueEvent is one merge-queue timeline event, oldest information included.
+type QueueEvent struct {
+	ID        string
+	Kind      string
+	CreatedAt time.Time
+	Reason    string
+	CommitSHA string
+}
+
+// QueuePullRequest is the pull request state gh-merge queue and watch need.
+type QueuePullRequest struct {
+	Ref               PullRef
+	NodeID            string
+	Draft             bool
+	ReviewDecision    string
+	Labels            []string
+	HeadSHA           string
+	Checks            []QueueCheck
+	UnresolvedThreads int
+	Comments          []string
+	Events            []QueueEvent
+	Merged            bool
+	// InMergeQueue flickers while a merge is still in progress.
+	// Callers must not treat false by itself as an ejection.
+	InMergeQueue bool
+}
+
+// StackPR is one pull request in a stack or a merge batch.
+type StackPR struct {
+	Number   int
+	State    string
+	URL      string
+	MergedAt time.Time
+}
+
+// FailureEvidence is the failing check behind a merge-queue removal.
+type FailureEvidence struct {
+	CheckRunURL string
+	JobURL      string
+	StepName    string
+	Log         string
+}
+
+// ParsePullRef accepts owner/repo#n or a github.com pull request URL.
+func ParsePullRef(raw string) (PullRef, error) {
+	raw = strings.TrimSpace(raw)
+	if owner, repo, number, ok := parseHashRef(raw); ok {
+		return PullRef{Owner: owner, Repo: repo, Number: number, Raw: raw}, nil
+	}
+	owner, repo, number, err := parsePullRequestURL(raw)
+	if err != nil {
+		return PullRef{}, fmt.Errorf("invalid pull request %q", raw)
+	}
+	return PullRef{Owner: owner, Repo: repo, Number: number, Raw: raw}, nil
+}
+
+func parseHashRef(raw string) (string, string, int, bool) {
+	ownerRepo, numText, ok := strings.Cut(raw, "#")
+	if !ok || strings.Contains(ownerRepo, "://") || !strings.Contains(ownerRepo, "/") {
+		return "", "", 0, false
+	}
+	owner, repo, ok := strings.Cut(ownerRepo, "/")
+	if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") {
+		return "", "", 0, false
+	}
+	number, err := strconv.Atoi(numText)
+	if err != nil || number <= 0 {
+		return "", "", 0, false
+	}
+	return owner, repo, number, true
+}
+
+const queuePullRequestQuery = `
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      isDraft
+      reviewDecision
+      state
+      merged
+      isInMergeQueue
+      headRefOid
+      url
+      labels(first: 100) { nodes { name } }
+      reviewThreads(first: 100) { nodes { isResolved } }
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              contexts(first: 100) {
+                nodes {
+                  ... on CheckRun { name conclusion status }
+                  ... on StatusContext { context state }
+                }
+              }
+            }
+          }
+        }
+      }
+      comments(last: 100) { nodes { body } }
+      timelineItems(last: 100, itemTypes: [ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT]) {
+        nodes {
+          __typename
+          ... on AddedToMergeQueueEvent { id createdAt }
+          ... on RemovedFromMergeQueueEvent { id createdAt reason beforeCommit { oid } }
+        }
+      }
+    }
+  }
+}`
+
+const enqueuePullRequestMutation = `
+mutation($id: ID!) {
+  enqueuePullRequest(input: {pullRequestId: $id}) {
+    mergeQueueEntry { id }
+  }
+}`
+
+// LoadPullRequest reads the pull request state used by queue and watch.
+func (c *Client) LoadPullRequest(raw string) (QueuePullRequest, error) {
+	ref, err := ParsePullRef(raw)
+	if err != nil {
+		return QueuePullRequest{}, err
+	}
+	body, callErr := c.graphqlQuery(queuePullRequestQuery, []string{
+		"-f", "owner=" + ref.Owner,
+		"-f", "name=" + ref.Repo,
+		"-F", "number=" + strconv.Itoa(ref.Number),
+	})
+	if err := graphqlCallError("load pull request "+ref.Raw, body, callErr); err != nil {
+		return QueuePullRequest{}, err
+	}
+	pr, err := parseQueuePullRequest(body, ref)
+	if err != nil {
+		return QueuePullRequest{}, fmt.Errorf("load pull request %s: %w", ref.Raw, err)
+	}
+	return pr, nil
+}
+
+// EnqueuePullRequest calls the enqueuePullRequest GraphQL mutation.
+func (c *Client) EnqueuePullRequest(nodeID string) error {
+	body, callErr := c.graphqlQuery(enqueuePullRequestMutation, []string{"-f", "id=" + nodeID})
+	if err := graphqlCallError("enqueue pull request", body, callErr); err != nil {
+		return err
+	}
+	return nil
+}
+
+// OpenDownstack returns open pull requests below number in its stack.
+// The stack is ordered from the bottom to the top.
+func (c *Client) OpenDownstack(owner, repo string, number int) ([]StackPR, error) {
+	path := fmt.Sprintf("repos/%s/%s/stacks?pull_request=%d&per_page=100", owner, repo, number)
+	out, err := c.executor.Execute("gh", "api", path)
+	if err != nil {
+		return nil, fmt.Errorf("list stacks for %s/%s#%d: %w", owner, repo, number, err)
+	}
+	var stacks []stackResponse
+	if err := json.Unmarshal([]byte(out), &stacks); err != nil {
+		return nil, fmt.Errorf("parse stacks for %s/%s#%d: %w", owner, repo, number, err)
+	}
+	return openBelow(stacks, number), nil
+}
+
+// FailureEvidence reads the failed check run, job, and failing step log for sha.
+func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, error) {
+	run, ok, err := c.failedCheckRun(owner, repo, sha)
+	if err != nil || !ok {
+		return FailureEvidence{}, err
+	}
+	evidence := FailureEvidence{CheckRunURL: run.HTMLURL, JobURL: run.DetailsURL}
+	jobID, ok := jobIDFromURL(run.DetailsURL)
+	if !ok {
+		return evidence, nil
+	}
+	step, log, err := c.failingStepLog(owner, repo, jobID)
+	if err != nil {
+		return FailureEvidence{}, err
+	}
+	evidence.StepName = step
+	evidence.Log = log
+	return evidence, nil
+}
+
+// LandedFirst returns the other pull request on sha that merged earliest.
+func (c *Client) LandedFirst(owner, repo, sha string, self int) (StackPR, bool, error) {
+	path := fmt.Sprintf("repos/%s/%s/commits/%s/pulls?per_page=100", owner, repo, sha)
+	out, err := c.executor.Execute("gh", "api", path)
+	if err != nil {
+		return StackPR{}, false, fmt.Errorf("list pulls for %s: %w", sha, err)
+	}
+	var pulls []commitPullJSON
+	if err := json.Unmarshal([]byte(out), &pulls); err != nil {
+		return StackPR{}, false, fmt.Errorf("parse pulls for %s: %w", sha, err)
+	}
+	return earliestMerged(pulls, self)
+}
+
+// MergeAsync enqueues with PUT merge-async, merge_action=merge_queue, and sha.
+func (c *Client) MergeAsync(owner, repo string, number int, sha string) error {
+	body := fmt.Sprintf("{\"merge_action\":\"merge_queue\",\"sha\":%q}", sha)
+	path := fmt.Sprintf("repos/%s/%s/pulls/%d/merge-async", owner, repo, number)
+	out, err := c.executor.ExecuteWithStdin(body, "gh", "api", "--method", "PUT", path, "--input", "-")
+	if err != nil {
+		return fmt.Errorf("merge-async %s/%s#%d: %w\n%s", owner, repo, number, err, out)
+	}
+	return nil
+}
+
+func (c *Client) graphqlQuery(query string, fields []string) ([]byte, error) {
+	args := make([]string, 0, 3+len(fields))
+	args = append(args, "api", "graphql", "-f", "query="+query)
+	args = append(args, fields...)
+	out, err := c.executor.Execute("gh", args...)
+	if err != nil {
+		return []byte(out), fmt.Errorf("gh api graphql: %w", err)
+	}
+	return []byte(out), nil
+}
+
+func graphqlCallError(action string, body []byte, callErr error) error {
+	msg := graphqlMessages(body)
+	if callErr != nil {
+		if msg == "" {
+			return fmt.Errorf("%s: %w", action, callErr)
+		}
+		return fmt.Errorf("%s: %s: %w", action, msg, callErr)
+	}
+	if msg != "" {
+		return fmt.Errorf("%s: %s", action, msg)
+	}
+	return nil
+}
+
+func graphqlMessages(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var resp struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Errors) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(resp.Errors))
+	for _, item := range resp.Errors {
+		if item.Message != "" {
+			parts = append(parts, item.Message)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+type queueQueryResponse struct {
+	Data struct {
+		Repository *struct {
+			PullRequest *queuePRJSON `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+type queuePRJSON struct {
+	ID             string `json:"id"`
+	IsDraft        bool   `json:"isDraft"`
+	ReviewDecision string `json:"reviewDecision"`
+	State          string `json:"state"`
+	Merged         bool   `json:"merged"`
+	IsInMergeQueue bool   `json:"isInMergeQueue"`
+	HeadRefOid     string `json:"headRefOid"`
+	URL            string `json:"url"`
+	Labels         struct {
+		Nodes []struct {
+			Name string `json:"name"`
+		} `json:"nodes"`
+	} `json:"labels"`
+	ReviewThreads struct {
+		Nodes []struct {
+			IsResolved bool `json:"isResolved"`
+		} `json:"nodes"`
+	} `json:"reviewThreads"`
+	Commits struct {
+		Nodes []struct {
+			Commit struct {
+				StatusCheckRollup *struct {
+					Contexts struct {
+						Nodes []queueCheckJSON `json:"nodes"`
+					} `json:"contexts"`
+				} `json:"statusCheckRollup"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"commits"`
+	Comments struct {
+		Nodes []struct {
+			Body string `json:"body"`
+		} `json:"nodes"`
+	} `json:"comments"`
+	TimelineItems struct {
+		Nodes []queueEventJSON `json:"nodes"`
+	} `json:"timelineItems"`
+}
+
+type queueCheckJSON struct {
+	Name       string `json:"name"`
+	Context    string `json:"context"`
+	Conclusion string `json:"conclusion"`
+	State      string `json:"state"`
+}
+
+type queueEventJSON struct {
+	TypeName     string    `json:"__typename"` //nolint:tagliatelle // GraphQL field name
+	ID           string    `json:"id"`
+	CreatedAt    time.Time `json:"createdAt"`
+	Reason       string    `json:"reason"`
+	BeforeCommit *struct {
+		OID string `json:"oid"`
+	} `json:"beforeCommit"`
+}
+
+func parseQueuePullRequest(body []byte, ref PullRef) (QueuePullRequest, error) {
+	var resp queueQueryResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return QueuePullRequest{}, fmt.Errorf("parse graphql: %w", err)
+	}
+	if resp.Data.Repository == nil || resp.Data.Repository.PullRequest == nil {
+		return QueuePullRequest{}, fmt.Errorf("pull request not found")
+	}
+	return convertQueuePR(resp.Data.Repository.PullRequest, ref), nil
+}
+
+func convertQueuePR(raw *queuePRJSON, ref PullRef) QueuePullRequest {
+	pr := QueuePullRequest{
+		Ref:            ref,
+		NodeID:         raw.ID,
+		Draft:          raw.IsDraft,
+		ReviewDecision: raw.ReviewDecision,
+		HeadSHA:        raw.HeadRefOid,
+		Merged:         raw.Merged || raw.State == "MERGED",
+		InMergeQueue:   raw.IsInMergeQueue,
+	}
+	for _, label := range raw.Labels.Nodes {
+		pr.Labels = append(pr.Labels, label.Name)
+	}
+	for _, thread := range raw.ReviewThreads.Nodes {
+		if !thread.IsResolved {
+			pr.UnresolvedThreads++
+		}
+	}
+	pr.Checks = checksFrom(raw)
+	for _, comment := range raw.Comments.Nodes {
+		pr.Comments = append(pr.Comments, comment.Body)
+	}
+	pr.Events = eventsFrom(raw.TimelineItems.Nodes)
+	return pr
+}
+
+func checksFrom(raw *queuePRJSON) []QueueCheck {
+	if len(raw.Commits.Nodes) == 0 || raw.Commits.Nodes[0].Commit.StatusCheckRollup == nil {
+		return nil
+	}
+	nodes := raw.Commits.Nodes[0].Commit.StatusCheckRollup.Contexts.Nodes
+	checks := make([]QueueCheck, 0, len(nodes))
+	for _, node := range nodes {
+		name := node.Name
+		if name == "" {
+			name = node.Context
+		}
+		if name == "" {
+			continue
+		}
+		conclusion := node.Conclusion
+		if conclusion == "" {
+			conclusion = node.State
+		}
+		checks = append(checks, QueueCheck{
+			Name:       name,
+			Green:      strings.EqualFold(conclusion, "SUCCESS"),
+			Conclusion: conclusion,
+		})
+	}
+	return checks
+}
+
+func eventsFrom(nodes []queueEventJSON) []QueueEvent {
+	events := make([]QueueEvent, 0, len(nodes))
+	for _, node := range nodes {
+		kind := queueEventKind(node.TypeName)
+		if kind == "" {
+			continue
+		}
+		event := QueueEvent{ID: node.ID, Kind: kind, CreatedAt: node.CreatedAt, Reason: node.Reason}
+		if node.BeforeCommit != nil {
+			event.CommitSHA = node.BeforeCommit.OID
+		}
+		events = append(events, event)
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].CreatedAt.Before(events[j].CreatedAt)
+	})
+	return events
+}
+
+func queueEventKind(typeName string) string {
+	switch typeName {
+	case "AddedToMergeQueueEvent":
+		return QueueEventAdded
+	case "RemovedFromMergeQueueEvent":
+		return QueueEventRemoved
+	default:
+		return ""
+	}
+}
+
+type stackResponse struct {
+	PullRequests []stackPullJSON `json:"pull_requests"` //nolint:tagliatelle // GitHub API uses snake_case
+}
+
+type stackPullJSON struct {
+	Number int    `json:"number"`
+	State  string `json:"state"`
+}
+
+func openBelow(stacks []stackResponse, number int) []StackPR {
+	for _, stack := range stacks {
+		index := -1
+		for i, pr := range stack.PullRequests {
+			if pr.Number == number {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			continue
+		}
+		below := make([]StackPR, 0, index)
+		for _, pr := range stack.PullRequests[:index] {
+			if pr.State != "open" {
+				continue
+			}
+			below = append(below, StackPR{Number: pr.Number, State: pr.State})
+		}
+		return below
+	}
+	return nil
+}
+
+type checkRunsResponse struct {
+	CheckRuns []checkRunJSON `json:"check_runs"` //nolint:tagliatelle // GitHub API uses snake_case
+}
+
+type checkRunJSON struct {
+	Conclusion string `json:"conclusion"`
+	HTMLURL    string `json:"html_url"`    //nolint:tagliatelle // GitHub API uses snake_case
+	DetailsURL string `json:"details_url"` //nolint:tagliatelle // GitHub API uses snake_case
+}
+
+func (c *Client) failedCheckRun(owner, repo, sha string) (checkRunJSON, bool, error) {
+	path := fmt.Sprintf("repos/%s/%s/commits/%s/check-runs?per_page=100", owner, repo, sha)
+	out, err := c.executor.Execute("gh", "api", path)
+	if err != nil {
+		return checkRunJSON{}, false, fmt.Errorf("list check runs for %s: %w", sha, err)
+	}
+	var resp checkRunsResponse
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return checkRunJSON{}, false, fmt.Errorf("parse check runs for %s: %w", sha, err)
+	}
+	run, ok := firstFailedCheck(resp.CheckRuns)
+	return run, ok, nil
+}
+
+func firstFailedCheck(runs []checkRunJSON) (checkRunJSON, bool) {
+	for _, want := range []string{"failure", "timed_out", "cancelled"} {
+		for _, run := range runs {
+			if strings.EqualFold(run.Conclusion, want) {
+				return run, true
+			}
+		}
+	}
+	return checkRunJSON{}, false
+}
+
+type actionsJobJSON struct {
+	Steps []struct {
+		Name       string `json:"name"`
+		Conclusion string `json:"conclusion"`
+	} `json:"steps"`
+}
+
+func (c *Client) failingStepLog(owner, repo string, jobID int64) (string, string, error) {
+	jobPath := fmt.Sprintf("repos/%s/%s/actions/jobs/%d", owner, repo, jobID)
+	jobOut, err := c.executor.Execute("gh", "api", jobPath)
+	if err != nil {
+		return "", "", fmt.Errorf("get job %d: %w", jobID, err)
+	}
+	var job actionsJobJSON
+	if err := json.Unmarshal([]byte(jobOut), &job); err != nil {
+		return "", "", fmt.Errorf("parse job %d: %w", jobID, err)
+	}
+	logPath := jobPath + "/logs"
+	logOut, err := c.executor.Execute("gh", "api", logPath)
+	if err != nil {
+		return "", "", fmt.Errorf("get job %d logs: %w", jobID, err)
+	}
+	step := failingStepName(job)
+	return step, stepLog(logOut, step), nil
+}
+
+func failingStepName(job actionsJobJSON) string {
+	for _, want := range []string{"failure", "timed_out", "cancelled"} {
+		for _, step := range job.Steps {
+			if strings.EqualFold(step.Conclusion, want) {
+				return step.Name
+			}
+		}
+	}
+	return ""
+}
+
+func stepLog(log, step string) string {
+	if step == "" {
+		return log
+	}
+	lines := strings.Split(log, "\n")
+	start := -1
+	for i, line := range lines {
+		if strings.Contains(line, step) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return log
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.Contains(lines[i], "##[group]") {
+			end = i
+			break
+		}
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
+func jobIDFromURL(raw string) (int64, bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return 0, false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	for i, part := range parts {
+		if part != "job" || i+1 >= len(parts) {
+			continue
+		}
+		id, err := strconv.ParseInt(parts[i+1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return id, true
+	}
+	return 0, false
+}
+
+type commitPullJSON struct {
+	Number   int        `json:"number"`
+	HTMLURL  string     `json:"html_url"`  //nolint:tagliatelle // GitHub API uses snake_case
+	MergedAt *time.Time `json:"merged_at"` //nolint:tagliatelle // GitHub API uses snake_case
+}
+
+func earliestMerged(pulls []commitPullJSON, self int) (StackPR, bool, error) {
+	var best StackPR
+	found := false
+	for _, pr := range pulls {
+		if pr.Number == self || pr.MergedAt == nil || pr.MergedAt.IsZero() {
+			continue
+		}
+		if found && !pr.MergedAt.Before(best.MergedAt) {
+			continue
+		}
+		found = true
+		best = StackPR{Number: pr.Number, URL: pr.HTMLURL, MergedAt: *pr.MergedAt}
+	}
+	return best, found, nil
+}
