@@ -2,8 +2,13 @@ package tui
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -437,7 +442,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 3
+	m.height = 5
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -445,10 +450,16 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 	if !strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || strings.Contains(view, older.ID) {
 		t.Fatalf("initial window = %s", view)
 	}
+	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to (none)") {
+		t.Fatalf("compose left the initial window\n%s", view)
+	}
 	m.Wheel(true)
 	view = m.View()
 	if strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || !strings.Contains(view, older.ID) {
 		t.Fatalf("scrolled window = %s", view)
+	}
+	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to (none)") {
+		t.Fatalf("compose left the scrolled window\n%s", view)
 	}
 	m.Wheel(false)
 	if !strings.Contains(m.View(), third.ID) {
@@ -602,6 +613,216 @@ func TestClickMarkDoneCompletesTypeIn(t *testing.T) {
 	}
 	if got.State != decide.StateDone || got.Outcome != "typed it" {
 		t.Fatalf("done = %s %q", got.State, got.Outcome)
+	}
+}
+
+func TestComposeEnterSendsSeparateArguments(t *testing.T) {
+	dir := t.TempDir()
+	m := New(dir)
+	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
+	text := `say "hi" $(uname)`
+	var got []string
+	m.runSend = func(argv []string) error {
+		got = append([]string(nil), argv...)
+		return nil
+	}
+	m.composing = true
+	m.note = text
+	if _, err := m.Key('\r'); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"herdr", "agent", "prompt", "pane-1", text}
+	if len(got) != len(want) {
+		t.Fatalf("argv = %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("argv = %#v", got)
+		}
+	}
+	if got[0] == "sh" {
+		t.Fatal("send used a shell")
+	}
+	if m.note != "" || m.status != "sent" || m.composing {
+		t.Fatalf("after send note %q status %q composing %v", m.note, m.status, m.composing)
+	}
+	if !strings.Contains(m.View(), "\nsent\n") {
+		t.Fatalf("footer = %q", m.View())
+	}
+	data, err := os.ReadFile(filepath.Join(dir, sendsName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("history = %q", data)
+	}
+	var rec sendRecord
+	if err := json.Unmarshal([]byte(lines[0]), &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Target != "inbox" || rec.Pane != "pane-1" || rec.Text != text {
+		t.Fatalf("record = %+v", rec)
+	}
+}
+
+func TestComposeFailureKeepsText(t *testing.T) {
+	dir := t.TempDir()
+	m := New(dir)
+	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
+	text := `say "hi" $(uname)`
+	m.runSend = func([]string) error { return fmt.Errorf("boom") }
+	m.composing = true
+	m.note = text
+	if _, err := m.Key('\r'); err != nil {
+		t.Fatal(err)
+	}
+	if m.note != text || m.status != "failed" {
+		t.Fatalf("note %q status %q", m.note, m.status)
+	}
+	view := m.View()
+	if !strings.Contains(view, "failed") || !strings.Contains(view, text) {
+		t.Fatalf("view = %s", view)
+	}
+	_, err := os.Stat(filepath.Join(dir, sendsName))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("history err = %v", err)
+	}
+}
+
+func TestComposeTargetChangesBeforeSend(t *testing.T) {
+	dir := t.TempDir()
+	m := New(dir)
+	m.Targets = []Target{
+		{Name: "inbox", Pane: "pane-1"},
+		{Name: "alerts", Pane: "pane-2"},
+	}
+	var got [][]string
+	m.runSend = func(argv []string) error {
+		got = append(got, append([]string(nil), argv...))
+		return nil
+	}
+	press(t, m, "c]\t")
+	if m.note != "]" || m.target != 1 || len(got) != 0 {
+		t.Fatalf("typing note %q target %d sends %d", m.note, m.target, len(got))
+	}
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "]]")
+	if !strings.Contains(m.View(), "inbox [alerts]") {
+		t.Fatalf("keyboard target\n%s", m.View())
+	}
+	if _, err := m.Key('c'); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, " note\r")
+	if len(got) != 1 || len(got[0]) != 5 || got[0][3] != "pane-2" || got[0][4] != "] note" {
+		t.Fatalf("keyboard send = %#v", got)
+	}
+
+	view := m.View()
+	row := screenRow(view, "to ")
+	line := strings.Split(view, "\n")[row-1]
+	x := strings.Index(line, "inbox")
+	if x < 0 {
+		t.Fatalf("target line %q", line)
+	}
+	if err := m.Click(x+1, row); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !strings.Contains(m.View(), "[inbox] alerts") {
+		t.Fatalf("click target\n%s", m.View())
+	}
+	if err := m.Click(1, screenRow(m.View(), "compose:")); err != nil {
+		t.Fatal(err)
+	}
+	m.SendTemplate = "tool {pane}"
+	press(t, m, "note-b\r")
+	want := []string{"tool", "pane-1", "note-b"}
+	if len(got) != 2 || len(got[1]) != len(want) {
+		t.Fatalf("click send = %#v", got)
+	}
+	for i := range want {
+		if got[1][i] != want[i] {
+			t.Fatalf("click send = %#v", got[1])
+		}
+	}
+}
+
+func TestShiftEnterDoesNotSend(t *testing.T) {
+	dir := t.TempDir()
+	m := New(dir)
+	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
+	var calls int
+	var got string
+	m.runSend = func(argv []string) error {
+		calls++
+		got = argv[len(argv)-1]
+		return nil
+	}
+	m.composing = true
+	m.note = `say "hi"`
+	m.ShiftEnter()
+	if calls != 0 {
+		t.Fatal("shift+enter sent")
+	}
+	if m.note != "say \"hi\"\n" {
+		t.Fatalf("note = %q", m.note)
+	}
+	if !strings.Contains(m.View(), "compose: say \"hi\"\\n_") {
+		t.Fatalf("view = %s", m.View())
+	}
+	if _, err := m.Key('\r'); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || got != "say \"hi\"\n" {
+		t.Fatalf("calls %d text %q", calls, got)
+	}
+}
+
+func TestShiftEnterSequence(t *testing.T) {
+	r, w := io.Pipe()
+	t.Cleanup(func() { _ = w.Close() })
+	events := make(chan termEvent, 2)
+	errCh := make(chan error, 1)
+	go readEvents(r, events, errCh)
+	if _, err := w.Write([]byte("\x1b[13;2u\x1b[27;2;13~")); err != nil {
+		t.Fatal(err)
+	}
+	first := <-events
+	second := <-events
+	if !first.shiftEnter || !second.shiftEnter {
+		t.Fatalf("sequences = %+v %+v", first, second)
+	}
+}
+
+func TestComposeFocusDoesNotAnswer(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "ship it?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	m := New(dir)
+	m.Targets = []Target{{Name: "inbox", Pane: "pane-1"}}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\r")
+	if err := m.Click(1, screenRow(m.View(), "compose:")); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "1")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || got.Answer != nil || m.note != "1" {
+		t.Fatalf("focused digit answered: state %s note %q answer %+v", got.State, m.note, got.Answer)
 	}
 }
 

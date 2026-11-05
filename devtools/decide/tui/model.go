@@ -2,6 +2,7 @@
 //
 // It lists one folder at a time, opens a row into the detail view, and
 // reloads the ledger while it is open. Answers and done use the ledger writes.
+// The compose box sends a note to a configured pane. No pane id is built in.
 package tui
 
 import (
@@ -42,18 +43,24 @@ var Folders = []struct {
 // Model is the inbox list and the open row's detail view. Tests drive it
 // with Key and Reload.
 type Model struct {
-	Dir    string
-	Now    func() time.Time
-	folder int
-	cursor int
-	items  []decide.Item
-	status string
-	mode   int
-	draft  string
-	detail *decide.Item
-	height int
-	scroll int
-	rows   [][]hit
+	Dir          string
+	Now          func() time.Time
+	Targets      []Target
+	SendTemplate string
+	folder       int
+	cursor       int
+	items        []decide.Item
+	status       string
+	mode         int
+	draft        string
+	detail       *decide.Item
+	height       int
+	scroll       int
+	rows         [][]hit
+	target       int
+	composing    bool
+	note         string
+	runSend      func([]string) error
 }
 
 // New returns an inbox positioned on the open folder.
@@ -92,10 +99,15 @@ func (m *Model) Reload() error {
 }
 
 // Key applies one key. In the list, h and l switch folders, j and k move,
-// Enter opens the row, and q quits. In the detail view, 1 through 9 answer a
-// relay option, free text submits on Enter when the item allows it, and e
-// asks for an outcome then marks the item done.
+// Enter opens the row, ] changes the compose target, c focuses the compose
+// box, and q quits. In the detail view, 1 through 9 answer a relay option,
+// free text submits on Enter when the item allows it, and e asks for an
+// outcome then marks the item done. While the compose box is focused, Enter
+// sends the note and other printable keys type into it.
 func (m *Model) Key(r rune) (bool, error) {
+	if m.composing {
+		return m.composeKey(r)
+	}
 	switch m.mode {
 	case modeDetail:
 		return m.detailKey(r)
@@ -107,6 +119,9 @@ func (m *Model) Key(r rune) (bool, error) {
 }
 
 func (m *Model) listKey(r rune) (bool, error) {
+	if m.listComposeKey(r) {
+		return false, nil
+	}
 	switch r {
 	case 'q':
 		return true, nil
@@ -142,6 +157,19 @@ func (m *Model) listKey(r rune) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (m *Model) listComposeKey(r rune) bool {
+	switch r {
+	case 'c':
+		m.composing = true
+		return true
+	case ']':
+		m.cycleTarget(1)
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Model) detailKey(r rune) (bool, error) {
@@ -332,6 +360,7 @@ func (m *Model) allLines() []screenLine {
 	} else {
 		lines = append(lines, m.detailLines()...)
 	}
+	lines = append(lines, m.composeLines()...)
 	if m.status != "" {
 		lines = append(lines, screenLine{text: m.status})
 	}
@@ -348,12 +377,16 @@ func (m *Model) window(lines []screenLine) []screenLine {
 	}
 	head := lines[:1]
 	rest := lines[1:]
-	var status []screenLine
-	if m.status != "" && len(rest) > 0 {
-		status = rest[len(rest)-1:]
-		rest = rest[:len(rest)-1]
+	tailN := 2
+	if m.status != "" {
+		tailN++
 	}
-	limit := m.height - 1 - len(status)
+	if tailN > len(rest) {
+		tailN = len(rest)
+	}
+	tail := rest[len(rest)-tailN:]
+	rest = rest[:len(rest)-tailN]
+	limit := m.height - 1 - len(tail)
 	if limit < 1 {
 		limit = 1
 	}
@@ -368,7 +401,7 @@ func (m *Model) window(lines []screenLine) []screenLine {
 		end = len(rest)
 	}
 	out := append(append([]screenLine{}, head...), rest[m.scroll:end]...)
-	return append(out, status...)
+	return append(out, tail...)
 }
 
 func (m *Model) folderLine() screenLine {

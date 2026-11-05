@@ -15,9 +15,13 @@ const (
 	hitAnswer
 	hitSubmit
 	hitMarkDone
+	hitTarget
+	hitCompose
 
-	mouseOn  = "\x1b[?1000h\x1b[?1006h"
-	mouseOff = "\x1b[?1000l\x1b[?1006l"
+	mouseOn   = "\x1b[?1000h\x1b[?1006h"
+	mouseOff  = "\x1b[?1000l\x1b[?1006l"
+	modifyOn  = "\x1b[>4;2m"
+	modifyOff = "\x1b[>4;0m"
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -29,11 +33,12 @@ type hit struct {
 }
 
 type termEvent struct {
-	key   rune
-	x, y  int
-	wheel int
-	mouse bool
-	press bool
+	key        rune
+	x, y       int
+	wheel      int
+	mouse      bool
+	press      bool
+	shiftEnter bool
 }
 
 // Click handles one left-button press at 1-based screen coordinates.
@@ -63,6 +68,10 @@ func (m *Model) Wheel(down bool) {
 }
 
 func (m *Model) hit(h hit) error {
+	if m.hitCompose(h) {
+		return nil
+	}
+	m.composing = false
 	switch h.kind {
 	case hitFolder:
 		return m.showFolder(h.n)
@@ -87,6 +96,21 @@ func (m *Model) hit(h hit) error {
 		return nil
 	default:
 		return nil
+	}
+}
+
+func (m *Model) hitCompose(h hit) bool {
+	switch h.kind {
+	case hitTarget:
+		if h.n >= 0 && h.n < len(m.Targets) {
+			m.target = h.n
+		}
+		return true
+	case hitCompose:
+		m.composing = true
+		return true
+	default:
+		return false
 	}
 }
 
@@ -156,12 +180,13 @@ func readEscape(in io.Reader, events chan<- termEvent) {
 		return
 	}
 	third, ok := readByteWait(in, 50*time.Millisecond)
-	if !ok || third != '<' {
+	if !ok {
 		events <- termEvent{key: 0x1b}
 		events <- termEvent{key: '['}
-		if ok {
-			events <- termEvent{key: rune(third)}
-		}
+		return
+	}
+	if third != '<' {
+		readCSI(in, third, events)
 		return
 	}
 	seq := []byte{0x1b, '[', '<'}
@@ -180,6 +205,44 @@ func readEscape(in io.Reader, events chan<- termEvent) {
 		}
 	}
 	events <- termEvent{key: 0x1b}
+}
+
+func readCSI(in io.Reader, first byte, events chan<- termEvent) {
+	seq := []byte{first}
+	if !csiFinal(first) {
+		for len(seq) < 40 {
+			b, ok := readByteWait(in, 50*time.Millisecond)
+			if !ok {
+				break
+			}
+			seq = append(seq, b)
+			if csiFinal(b) {
+				break
+			}
+		}
+	}
+	if !csiFinal(seq[len(seq)-1]) {
+		emitBytes(events, seq)
+		return
+	}
+	switch string(seq) {
+	case "13;2u", "27;2;13~":
+		events <- termEvent{shiftEnter: true}
+	default:
+		emitBytes(events, seq)
+	}
+}
+
+func csiFinal(b byte) bool {
+	return b >= 0x40 && b <= 0x7e
+}
+
+func emitBytes(events chan<- termEvent, seq []byte) {
+	events <- termEvent{key: 0x1b}
+	events <- termEvent{key: '['}
+	for _, b := range seq {
+		events <- termEvent{key: rune(b)}
+	}
 }
 
 func wheelOf(button int, press bool) int {

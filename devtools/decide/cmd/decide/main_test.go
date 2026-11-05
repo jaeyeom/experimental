@@ -407,6 +407,29 @@ func installNotifier(t *testing.T, logPath, tail string) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+func TestLoadConfigComposeTargets(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"targets\":[{\"name\":\"inbox\",\"pane\":\"pane-9\"}],\"sendTemplate\":\"herdr agent prompt {pane}\"}\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := inboxTargets(cfg)
+	if len(targets) != 1 || targets[0].Name != "inbox" || targets[0].Pane != "pane-9" {
+		t.Fatalf("targets = %+v", targets)
+	}
+	if cfg.SendTemplate != "herdr agent prompt {pane}" {
+		t.Fatalf("template = %q", cfg.SendTemplate)
+	}
+}
+
 func writeOptionsOnlyConfig(t *testing.T) {
 	t.Helper()
 	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")

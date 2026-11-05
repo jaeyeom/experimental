@@ -17,10 +17,21 @@ import (
 // fileConfig is the decide config file. An absent file runs no command.
 // OptionsOnly makes relay asks reject free text unless --free-text is set.
 // The example notifier line is not a default.
+// SendTemplate is the compose argv template. Empty means
+// `herdr agent prompt {pane}` plus the note as its own argument.
+// The note is not interpolated into sh -c.
 type fileConfig struct {
-	NotifyTemplate string `json:"notifyTemplate"`
-	NotifyPane     string `json:"notifyPane"`
-	OptionsOnly    bool   `json:"optionsOnly"`
+	NotifyTemplate string         `json:"notifyTemplate"`
+	NotifyPane     string         `json:"notifyPane"`
+	OptionsOnly    bool           `json:"optionsOnly"`
+	SendTemplate   string         `json:"sendTemplate,omitempty"`
+	Targets        []configTarget `json:"targets,omitempty"`
+}
+
+// configTarget is one compose destination. The pane id comes from config.
+type configTarget struct {
+	Name string `json:"name"`
+	Pane string `json:"pane"`
 }
 
 func configPath() (string, bool) {

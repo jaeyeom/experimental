@@ -80,10 +80,31 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, fmt.Errorf("decide directory: %w", err), 1)
 	}
-	if err := tui.Run(tui.Options{Dir: dir, In: os.Stdin, Out: stdout}); err != nil {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	if err := tui.Run(tui.Options{
+		Dir:          dir,
+		In:           os.Stdin,
+		Out:          stdout,
+		Targets:      inboxTargets(cfg),
+		SendTemplate: cfg.SendTemplate,
+	}); err != nil {
 		return fail(stderr, err, 1)
 	}
 	return 0
+}
+
+func inboxTargets(cfg fileConfig) []tui.Target {
+	if len(cfg.Targets) == 0 {
+		return nil
+	}
+	targets := make([]tui.Target, len(cfg.Targets))
+	for i, tg := range cfg.Targets {
+		targets[i] = tui.Target{Name: tg.Name, Pane: tg.Pane}
+	}
+	return targets
 }
 
 func cmdAsk(args []string, stdout, stderr io.Writer) int {
