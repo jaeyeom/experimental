@@ -60,6 +60,7 @@ type Model struct {
 	target       int
 	composing    bool
 	help         bool
+	answerFocus  bool
 	note         string
 	runSend      func([]string) error
 }
@@ -102,13 +103,17 @@ func (m *Model) Reload() error {
 // Key applies one key. In the list, h and l switch folders, j and k move,
 // Enter opens the row, ] changes the compose target, c focuses the compose
 // box, and q quits. In the detail view, 1 through 9 answer a relay option,
-// free text submits on Enter when the item allows it, and e asks for an
-// outcome then marks the item done. While the compose box is focused, Enter
-// sends the note and other printable keys type into it. ? opens the shortcut
-// overlay, and Esc or ? closes it.
+// 0 focuses free text on a relay item that allows it, and e asks for an
+// outcome then marks the item done. Enter submits free text only while that
+// row is focused. Esc leaves the row and keeps the unsent draft. While the
+// compose box is focused, Enter sends the note and other printable keys type
+// into it. ? opens the shortcut overlay, and Esc or ? closes it.
 func (m *Model) Key(r rune) (bool, error) {
 	if m.help {
 		return m.helpKey(r)
+	}
+	if m.answerFocus {
+		return m.answerKey(r)
 	}
 	if r == '?' {
 		m.help = true
@@ -199,23 +204,45 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'e':
 		m.mode = modeOutcome
 		m.draft = ""
+		m.answerFocus = false
 		m.status = "outcome"
 		return false, nil
-	case '\r', '\n':
-		return false, m.submitFreeText()
-	case '\b', '\x7f':
+	case '0':
 		if m.detail != nil && m.detail.FreeText {
-			m.trimDraft()
+			m.focusAnswer()
+			return false, nil
 		}
-		return false, nil
 	}
 	if r >= '1' && r <= '9' {
 		return false, m.answerOption(int(r - '1'))
 	}
-	if r >= ' ' {
+	if r >= ' ' && (m.detail == nil || !m.detail.FreeText) {
 		return false, m.typeFree(r)
 	}
 	return false, nil
+}
+
+// answerKey edits the free-text row. Esc leaves the box and keeps the draft.
+func (m *Model) answerKey(r rune) (bool, error) {
+	switch r {
+	case '\x1b':
+		m.answerFocus = false
+		return false, nil
+	case '\r', '\n':
+		return false, m.submitFreeText()
+	case '\b', '\x7f':
+		m.trimDraft()
+		return false, nil
+	}
+	if r >= ' ' {
+		m.draft += string(r)
+	}
+	return false, nil
+}
+
+func (m *Model) focusAnswer() {
+	m.answerFocus = true
+	m.composing = false
 }
 
 func (m *Model) outcomeKey(r rune) (bool, error) {
@@ -256,6 +283,7 @@ func (m *Model) openRow() error {
 	m.detail = &updated
 	m.mode = modeDetail
 	m.draft = ""
+	m.answerFocus = false
 	m.scroll = 0
 	m.status = "opened " + id
 	return m.Reload()
@@ -342,6 +370,7 @@ func (m *Model) backToList() {
 	m.mode = modeList
 	m.detail = nil
 	m.draft = ""
+	m.answerFocus = false
 	m.scroll = 0
 }
 
@@ -399,6 +428,7 @@ func (m *Model) helpLines() []screenLine {
 		"j/k move    h/l folder    enter open",
 		"c compose   ] target      tab next target",
 		"enter send  shift+enter newline",
+		"0 free text   esc keeps the draft",
 		"1-9 answer  e done        esc back",
 		"click folder, row, option, target, or compose",
 		"wheel scroll",
@@ -548,12 +578,24 @@ func (m *Model) relayLines(it *decide.Item) []screenLine {
 	}
 	lines = append(lines, screenLine{text: "deadline: " + deadline})
 	if it.FreeText && m.mode == modeDetail {
-		lines = append(lines,
-			screenLine{text: "answer: " + m.draft, hits: []hit{{kind: hitAnswer}}},
-			screenLine{text: "submit", hits: []hit{{kind: hitSubmit}}},
-		)
+		lines = append(lines, screenLine{
+			text: m.freeTextLine(),
+			hits: []hit{{kind: hitAnswer}},
+		})
 	}
 	return lines
+}
+
+func (m *Model) freeTextLine() string {
+	body := m.draft
+	if body == "" && !m.answerFocus {
+		body = "___"
+	}
+	line := "0  answer: " + body
+	if m.answerFocus {
+		line += "_ Esc to cancel"
+	}
+	return line
 }
 
 func rowText(it decide.Item, now time.Time) string {
