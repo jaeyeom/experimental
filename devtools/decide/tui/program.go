@@ -9,8 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// inputMsg is one event from the existing reader. Mouse parsing stays here
-// until the bubbletea mouse issue replaces it.
+// inputMsg is one key from the existing reader. Pointer input is a bubbletea
+// mouse message so Shift+Enter parsing stays in the reader.
 type inputMsg struct {
 	ev termEvent
 }
@@ -73,6 +73,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(msg)
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
 	case inputMsg:
 		return m.updateInput(msg.ev)
 	case readDoneMsg:
@@ -119,21 +121,27 @@ func (m *Model) applyRune(r rune) tea.Cmd {
 	return nil
 }
 
-func (m *Model) updateInput(ev termEvent) (tea.Model, tea.Cmd) {
-	if ev.mouse {
-		if ev.wheel != 0 {
-			m.Wheel(ev.wheel > 0)
-			return m, nil
-		}
-		if !ev.press {
-			return m, nil
-		}
-		if err := m.Click(ev.x, ev.y); err != nil {
-			m.runErr = err
-			return m, tea.Quit
-		}
+func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelDown:
+		m.Wheel(true)
+		return m, nil
+	case tea.MouseButtonWheelUp:
+		m.Wheel(false)
 		return m, nil
 	}
+	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
+		return m, nil
+	}
+	// Click keeps 1-based columns. Bubbletea mouse messages are 0-based.
+	if err := m.Click(msg.X+1, msg.Y+1); err != nil {
+		m.runErr = err
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m *Model) updateInput(ev termEvent) (tea.Model, tea.Cmd) {
 	if ev.shiftEnter {
 		m.ShiftEnter()
 		return m, nil
@@ -173,10 +181,33 @@ func (m *Model) scheduleReload() tea.Cmd {
 	})
 }
 
+func mouseMessage(ev termEvent) tea.MouseMsg {
+	msg := tea.MouseMsg{
+		X:      ev.x - 1,
+		Y:      ev.y - 1,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	}
+	if !ev.press {
+		msg.Action = tea.MouseActionRelease
+	}
+	switch ev.wheel {
+	case 1:
+		msg.Button = tea.MouseButtonWheelDown
+	case -1:
+		msg.Button = tea.MouseButtonWheelUp
+	}
+	return msg
+}
+
 func forwardInputs(p *tea.Program, events <-chan termEvent, readErr <-chan error) {
 	for {
 		select {
 		case ev := <-events:
+			if ev.mouse {
+				p.Send(mouseMessage(ev))
+				continue
+			}
 			p.Send(inputMsg{ev: ev})
 		case err := <-readErr:
 			p.Send(readDoneMsg{err: err})
