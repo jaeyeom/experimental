@@ -1,0 +1,27 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "model.go",
+        "run.go",
+        "term_darwin.go",
+        "term_linux.go",
+        "term_other.go",
+        "term_unix.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/decide/tui",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//devtools/decide:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["model_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/decide:go_default_library"],
+)

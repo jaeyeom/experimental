@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/decide/tui"
 )
 
 func main() {
@@ -38,6 +39,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdDone(args[1:], stdout, stderr)
 	case "answer":
 		return cmdAnswer(args[1:], stdout, stderr)
+	case "inbox":
+		return cmdInbox(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -59,7 +62,27 @@ func usage(w io.Writer) {
   decide withdraw [--json] <id> <reason>
   decide done [--json] <id> <outcome>
   decide answer [--json] <id> <option|text>
+  decide inbox
 `)
+}
+
+func cmdInbox(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 0 {
+		return fail(stderr, fmt.Errorf("decide inbox does not take arguments"), 2)
+	}
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		return fail(stderr, fmt.Errorf("decide directory: %w", err), 1)
+	}
+	if err := tui.Run(tui.Options{Dir: dir, In: os.Stdin, Out: stdout}); err != nil {
+		return fail(stderr, err, 1)
+	}
+	return 0
 }
 
 func cmdAsk(args []string, stdout, stderr io.Writer) int {

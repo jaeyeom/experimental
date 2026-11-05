@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/jaeyeom/experimental/devtools/decide/cmd/decide",
     visibility = ["//visibility:private"],
-    deps = ["//devtools/decide:go_default_library"],
+    deps = [
+        "//devtools/decide:go_default_library",
+        "//devtools/decide/tui:go_default_library",
+    ],
 )
 
 go_binary(
