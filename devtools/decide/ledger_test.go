@@ -1,0 +1,463 @@
+package decide
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestDefaultDirUsesXDGStateHome(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/tmp/xdg-state-home")
+
+	got, err := DefaultDir()
+	if err != nil {
+		t.Fatalf("DefaultDir() error = %v", err)
+	}
+	want := filepath.Join("/tmp/xdg-state-home", "decide")
+	if got != want {
+		t.Fatalf("DefaultDir() = %q, want %q", got, want)
+	}
+}
+
+func TestDefaultDirFallsBackToLocalState(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", "/home/tester")
+
+	got, err := DefaultDir()
+	if err != nil {
+		t.Fatalf("DefaultDir() error = %v", err)
+	}
+	want := filepath.Join("/home/tester", ".local", "state", "decide")
+	if got != want {
+		t.Fatalf("DefaultDir() = %q, want %q", got, want)
+	}
+}
+
+func TestCreateAssignsSequentialIDsAndWithdrawKeepsTheRecord(t *testing.T) {
+	led, _ := openTemp(t)
+
+	first, err := led.Create(&Item{
+		Question: "first",
+		Kind:     KindRelay,
+		Owner:    "ada",
+		Options: []Option{
+			{Key: "a", Label: "A", Recommended: true},
+			{Key: "b", Label: "B"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create(first) error = %v", err)
+	}
+	if first.ID != "D-001" {
+		t.Fatalf("first id = %q, want D-001", first.ID)
+	}
+	if first.State != StateOpen {
+		t.Fatalf("first state = %q, want open", first.State)
+	}
+	if first.CreatedAt.IsZero() {
+		t.Fatal("first CreatedAt is zero")
+	}
+
+	second, err := led.Create(&Item{Question: "second", Kind: KindRelay, Owner: "bea"})
+	if err != nil {
+		t.Fatalf("Create(second) error = %v", err)
+	}
+	if second.ID != "D-002" {
+		t.Fatalf("second id = %q, want D-002", second.ID)
+	}
+
+	withdrawn, err := led.Withdraw(first.ID)
+	if err != nil {
+		t.Fatalf("Withdraw(D-001) error = %v", err)
+	}
+	if withdrawn.State != StateWithdrawn {
+		t.Fatalf("withdrawn state = %q", withdrawn.State)
+	}
+	if withdrawn.WithdrawnAt.IsZero() {
+		t.Fatal("WithdrawnAt is zero")
+	}
+	if withdrawn.Question != "first" || withdrawn.Owner != "ada" {
+		t.Fatalf("withdrawn record = %+v", withdrawn)
+	}
+
+	third, err := led.Create(&Item{Question: "third", Kind: KindTypeIn, TypeText: "ship it", Where: "the box"})
+	if err != nil {
+		t.Fatalf("Create(third) error = %v", err)
+	}
+	if third.ID != "D-003" {
+		t.Fatalf("id after withdraw = %q, want D-003", third.ID)
+	}
+
+	got, err := led.Get("D-001")
+	if err != nil {
+		t.Fatalf("Get(D-001) error = %v", err)
+	}
+	if got.State != StateWithdrawn || got.Question != "first" {
+		t.Fatalf("stored withdrawn item = %+v", got)
+	}
+	if _, err := led.Get("D-999"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(missing) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRoundTripEveryField(t *testing.T) {
+	led, dir := openTemp(t)
+
+	full := itemForMark("full")
+	got, err := led.Create(full)
+	if err != nil {
+		t.Fatalf("Create(full) error = %v", err)
+	}
+	full.ID = got.ID
+	if full.ID != "D-001" {
+		t.Fatalf("id = %q, want D-001", full.ID)
+	}
+	stored, err := led.Get(full.ID)
+	if err != nil {
+		t.Fatalf("Get(full) error = %v", err)
+	}
+	assertItemEqual(t, stored, *full)
+	assertItemEqual(t, got, *full)
+
+	plain := itemForMark("plain")
+	gotPlain, err := led.Create(plain)
+	if err != nil {
+		t.Fatalf("Create(plain) error = %v", err)
+	}
+	plain.ID = gotPlain.ID
+	storedPlain, err := led.Get(plain.ID)
+	if err != nil {
+		t.Fatalf("Get(plain) error = %v", err)
+	}
+	assertItemEqual(t, storedPlain, *plain)
+
+	data, err := os.ReadFile(filepath.Join(dir, ledgerName)) //nolint:gosec // test ledger
+	if err != nil {
+		t.Fatalf("read ledger: %v", err)
+	}
+	for _, needle := range []string{`"freeText": false`, `"unread": false`, `"recommended": false`} {
+		if !bytes.Contains(data, []byte(needle)) {
+			t.Fatalf("ledger missing %s\n%s", needle, data)
+		}
+	}
+}
+
+func TestCreateRejectsInvalidItems(t *testing.T) {
+	led, _ := openTemp(t)
+	if _, err := led.Create(nil); err == nil {
+		t.Fatal("Create(nil) error = nil")
+	}
+	if _, err := led.Create(&Item{Kind: "other"}); err == nil {
+		t.Fatal("Create(bad kind) error = nil")
+	}
+	_, err := led.Create(&Item{
+		Kind: KindRelay,
+		Options: []Option{
+			{Key: "a", Label: "A", Recommended: true},
+			{Key: "b", Label: "B", Recommended: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("Create(two recommended) error = nil")
+	}
+	items, err := led.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("len(items) = %d, want 0", len(items))
+	}
+}
+
+func TestTwoProcessesCreate(t *testing.T) {
+	led, dir := openTemp(t)
+	held, err := led.acquire()
+	if err != nil {
+		t.Fatalf("acquire() error = %v", err)
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			if err := release(held); err != nil {
+				t.Errorf("release() error = %v", err)
+			}
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	one := startChild(ctx, t, dir, "one")
+	two := startChild(ctx, t, dir, "two")
+	waitReady(t, one.ready, two.ready)
+	assertBlocked(t, one, two)
+
+	if err := release(held); err != nil {
+		t.Fatalf("release() error = %v", err)
+	}
+	released = true
+	waitChild(t, one)
+	waitChild(t, two)
+
+	idOne := readResult(t, one.result)
+	idTwo := readResult(t, two.result)
+	if idOne == idTwo {
+		t.Fatalf("both processes got %s", idOne)
+	}
+	gotIDs := map[string]bool{idOne: true, idTwo: true}
+	if !gotIDs["D-001"] || !gotIDs["D-002"] {
+		t.Fatalf("ids = %s %s, want D-001 and D-002", idOne, idTwo)
+	}
+
+	for _, tc := range []struct {
+		mark string
+		id   string
+	}{
+		{mark: "one", id: idOne},
+		{mark: "two", id: idTwo},
+	} {
+		stored, err := led.Get(tc.id)
+		if err != nil {
+			t.Fatalf("Get(%s) error = %v", tc.id, err)
+		}
+		want := itemForMark(tc.mark)
+		want.ID = tc.id
+		assertItemEqual(t, stored, *want)
+	}
+}
+
+func TestDecideChildCreate(t *testing.T) {
+	if os.Getenv("DECIDE_CHILD") != "1" {
+		t.Skip("subprocess helper")
+	}
+	ready := os.Getenv("DECIDE_READY")
+	if err := os.WriteFile(ready, []byte("ready\n"), 0o600); err != nil {
+		t.Fatalf("write ready: %v", err)
+	}
+	led, err := Open(os.Getenv("DECIDE_DIR"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	got, err := led.Create(itemForMark(os.Getenv("DECIDE_MARK")))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := os.WriteFile(os.Getenv("DECIDE_RESULT"), []byte(got.ID+"\n"), 0o600); err != nil {
+		t.Fatalf("write result: %v", err)
+	}
+}
+
+type childProc struct {
+	done   chan error
+	out    *bytes.Buffer
+	ready  string
+	result string
+}
+
+func startChild(ctx context.Context, t *testing.T, dir, mark string) *childProc {
+	t.Helper()
+	ready := filepath.Join(dir, "ready-"+mark)
+	result := filepath.Join(dir, "result-"+mark)
+	cmd := exec.CommandContext( //nolint:gosec // re-exec this test binary
+		ctx,
+		os.Args[0],
+		"-test.run=^TestDecideChildCreate$",
+		"-test.count=1",
+		"-test.timeout=20s",
+	)
+	cmd.Env = childEnv(dir, mark, ready, result)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start child %s: %v", mark, err)
+	}
+	proc := &childProc{
+		done:   make(chan error, 1),
+		out:    &out,
+		ready:  ready,
+		result: result,
+	}
+	go func() { proc.done <- cmd.Wait() }()
+	return proc
+}
+
+func childEnv(dir, mark, ready, result string) []string {
+	env := make([]string, 0, len(os.Environ())+4)
+	for _, kv := range os.Environ() {
+		if dropChildEnv(kv) {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env,
+		"DECIDE_CHILD=1",
+		"DECIDE_DIR="+dir,
+		"DECIDE_MARK="+mark,
+		"DECIDE_READY="+ready,
+		"DECIDE_RESULT="+result,
+	)
+}
+
+func dropChildEnv(kv string) bool {
+	for _, prefix := range []string{
+		"XML_OUTPUT_FILE=",
+		"COVERAGE_OUTPUT_FILE=",
+		"GOCOVERDIR=",
+		"TEST_SHARD_STATUS_FILE=",
+	} {
+		if strings.HasPrefix(kv, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func waitReady(t *testing.T, paths ...string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for _, path := range paths {
+		for {
+			if _, err := os.Stat(path); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", path)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+func assertBlocked(t *testing.T, procs ...*childProc) {
+	t.Helper()
+	deadline := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		for _, proc := range procs {
+			select {
+			case err := <-proc.done:
+				t.Fatalf("child finished while lock held: %v\n%s", err, proc.out.String())
+			default:
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func waitChild(t *testing.T, proc *childProc) {
+	t.Helper()
+	select {
+	case err := <-proc.done:
+		if err != nil {
+			t.Fatalf("child error = %v\n%s", err, proc.out.String())
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatalf("child timed out\n%s", proc.out.String())
+	}
+}
+
+func readResult(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // test result file
+	if err != nil {
+		t.Fatalf("read result: %v", err)
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func openTemp(t *testing.T) (*Ledger, string) {
+	t.Helper()
+	dir := t.TempDir()
+	led, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	return led, dir
+}
+
+func itemForMark(mark string) *Item {
+	created := time.Date(2026, 11, 5, 1, 0, 0, 0, time.UTC)
+	item := &Item{
+		Question: "question-" + mark,
+		Options: []Option{
+			{Key: "a", Label: "alpha-" + mark, Recommended: true},
+			{Key: "b", Label: "beta-" + mark, Recommended: false},
+		},
+		FreeText:  mark == "full" || mark == "one",
+		Owner:     "owner-" + mark,
+		Links:     []string{"https://example.com/" + mark},
+		Kind:      KindRelay,
+		State:     StateOpen,
+		CreatedAt: created,
+		Unread:    mark == "full" || mark == "one",
+	}
+	if mark == "plain" {
+		return item
+	}
+	deadline := time.Date(2026, 11, 6, 15, 4, 5, 0, time.UTC)
+	item.Kind = KindTypeIn
+	item.State = StateAnswered
+	item.Deadline = &deadline
+	item.AnsweredAt = time.Date(2026, 11, 5, 2, 0, 0, 0, time.UTC)
+	item.DoneAt = time.Date(2026, 11, 5, 3, 0, 0, 0, time.UTC)
+	item.WithdrawnAt = time.Date(2026, 11, 5, 4, 0, 0, 0, time.UTC)
+	item.Answer = &Answer{Value: "typed-" + mark, AnsweredBy: "human"}
+	item.NotifyPane = "pane-" + mark
+	item.TypeText = "exact-" + mark
+	item.Where = "where-" + mark
+	return item
+}
+
+func assertItemEqual(t *testing.T, got, want Item) {
+	t.Helper()
+	if got.ID != want.ID || got.Question != want.Question || got.FreeText != want.FreeText ||
+		got.Owner != want.Owner || got.Kind != want.Kind || got.State != want.State ||
+		got.Unread != want.Unread || got.NotifyPane != want.NotifyPane ||
+		got.TypeText != want.TypeText || got.Where != want.Where {
+		t.Fatalf("item fields\ngot  %+v\nwant %+v", got, want)
+	}
+	if !got.CreatedAt.Equal(want.CreatedAt) || !got.AnsweredAt.Equal(want.AnsweredAt) ||
+		!got.DoneAt.Equal(want.DoneAt) || !got.WithdrawnAt.Equal(want.WithdrawnAt) {
+		t.Fatalf("timestamps\ngot  created=%s answered=%s done=%s withdrawn=%s\nwant created=%s answered=%s done=%s withdrawn=%s",
+			got.CreatedAt, got.AnsweredAt, got.DoneAt, got.WithdrawnAt,
+			want.CreatedAt, want.AnsweredAt, want.DoneAt, want.WithdrawnAt)
+	}
+	if !sameTimePtr(got.Deadline, want.Deadline) {
+		t.Fatalf("deadline got %v want %v", got.Deadline, want.Deadline)
+	}
+	if !sameAnswer(got.Answer, want.Answer) {
+		t.Fatalf("answer got %+v want %+v", got.Answer, want.Answer)
+	}
+	if len(got.Options) != len(want.Options) || len(got.Links) != len(want.Links) {
+		t.Fatalf("options/links\ngot  %+v %v\nwant %+v %v", got.Options, got.Links, want.Options, want.Links)
+	}
+	for i := range want.Options {
+		if got.Options[i] != want.Options[i] {
+			t.Fatalf("option %d got %+v want %+v", i, got.Options[i], want.Options[i])
+		}
+	}
+	for i := range want.Links {
+		if got.Links[i] != want.Links[i] {
+			t.Fatalf("link %d got %q want %q", i, got.Links[i], want.Links[i])
+		}
+	}
+}
+
+func sameTimePtr(got, want *time.Time) bool {
+	if got == nil || want == nil {
+		return got == nil && want == nil
+	}
+	return got.Equal(*want)
+}
+
+func sameAnswer(got, want *Answer) bool {
+	if got == nil || want == nil {
+		return got == nil && want == nil
+	}
+	return *got == *want
+}
