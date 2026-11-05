@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["ledger.go"],
+    srcs = [
+        "ledger.go",
+        "notify.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/decide",
     visibility = ["//visibility:public"],
     deps = [

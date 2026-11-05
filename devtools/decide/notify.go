@@ -1,4 +1,4 @@
-package main
+package decide
 
 import (
 	"encoding/json"
@@ -10,11 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
-// fileConfig is the decide config file. An absent file runs no command.
+// Config is the decide config file. An absent file runs no command.
 // OptionsOnly makes relay asks reject free text unless --free-text is set.
 // NotifyTemplate is a shell command. It reads "$DECIDE_ANSWER", "$DECIDE_ID",
 // "$DECIDE_OWNER", and "$DECIDE_PANE". Those values are not written into the
@@ -22,16 +20,16 @@ import (
 // SendTemplate is the compose argv template. Empty means
 // `herdr agent prompt {pane}` plus the note as its own argument.
 // The note is not interpolated into sh -c.
-type fileConfig struct {
+type Config struct {
 	NotifyTemplate string         `json:"notifyTemplate"`
 	NotifyPane     string         `json:"notifyPane"`
 	OptionsOnly    bool           `json:"optionsOnly"`
 	SendTemplate   string         `json:"sendTemplate,omitempty"`
-	Targets        []configTarget `json:"targets,omitempty"`
+	Targets        []ConfigTarget `json:"targets,omitempty"`
 }
 
-// configTarget is one compose destination. The pane id comes from config.
-type configTarget struct {
+// ConfigTarget is one compose destination. The pane id comes from config.
+type ConfigTarget struct {
 	Name string `json:"name"`
 	Pane string `json:"pane"`
 }
@@ -48,31 +46,32 @@ func configPath() (string, bool) {
 	return filepath.Join(dir, "decide", "config.json"), true
 }
 
-func loadConfig() (fileConfig, error) {
+// LoadConfig reads the decide config file. A missing file is an empty config.
+func LoadConfig() (Config, error) {
 	path, ok := configPath()
 	if !ok {
-		return fileConfig{}, nil
+		return Config{}, nil
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fileConfig{}, nil
+		return Config{}, nil
 	}
 	if err != nil {
-		return fileConfig{}, fmt.Errorf("read decide config: %w", err)
+		return Config{}, fmt.Errorf("read decide config: %w", err)
 	}
-	var cfg fileConfig
+	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return fileConfig{}, fmt.Errorf("parse decide config: %w", err)
+		return Config{}, fmt.Errorf("parse decide config: %w", err)
 	}
 	return cfg, nil
 }
 
-// notifyAnswer runs the configured template after a relay answer is saved.
+// Notify runs the configured template after a relay answer is saved.
 // An empty template does nothing. The item notify pane overrides the config pane.
 // "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_OWNER", and "$DECIDE_PANE" hold the
 // fields. The answer is not substituted into the command string.
-func notifyAnswer(item *decide.Item, stderr io.Writer) error {
-	cfg, err := loadConfig()
+func Notify(item *Item, out io.Writer) error {
+	cfg, err := LoadConfig()
 	if err != nil {
 		return err
 	}
@@ -96,8 +95,8 @@ func notifyAnswer(item *decide.Item, stderr io.Writer) error {
 		"DECIDE_OWNER=" + item.Owner,
 		"DECIDE_PANE=" + pane,
 	}, os.Environ()...)
-	cmd.Stdout = stderr
-	cmd.Stderr = stderr
+	cmd.Stdout = out
+	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("notify: %w", err)
 	}
