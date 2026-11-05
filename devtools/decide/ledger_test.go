@@ -72,7 +72,7 @@ func TestCreateAssignsSequentialIDsAndWithdrawKeepsTheRecord(t *testing.T) {
 		t.Fatalf("second id = %q, want D-002", second.ID)
 	}
 
-	withdrawn, err := led.Withdraw(first.ID)
+	withdrawn, err := led.Withdraw(first.ID, "dropped")
 	if err != nil {
 		t.Fatalf("Withdraw(D-001) error = %v", err)
 	}
@@ -172,6 +172,110 @@ func TestCreateRejectsInvalidItems(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("len(items) = %d, want 0", len(items))
+	}
+}
+
+func TestAnswerDoneAndWithdraw(t *testing.T) {
+	led, _ := openTemp(t)
+	relay, err := led.Create(&Item{
+		Question: "pick",
+		Kind:     KindRelay,
+		Owner:    "ada",
+		Options: []Option{
+			{Key: "a", Label: "A", Recommended: true},
+			{Key: "b", Label: "B"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Answer(relay.ID, "nope"); err == nil {
+		t.Fatal("free text was accepted")
+	}
+	got, err := led.Answer(relay.ID, "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateAnswered || got.Answer == nil || got.Answer.Value != "b" || got.Answer.AnsweredBy != "human" {
+		t.Fatalf("answer = %+v", got.Answer)
+	}
+
+	openFree, err := led.Create(&Item{Question: "or else", Kind: KindRelay, FreeText: true, Owner: "ada"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	free, err := led.Answer(openFree.ID, "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if free.Answer == nil || free.Answer.Value != "custom" || free.Answer.AnsweredBy != "human" {
+		t.Fatalf("free answer = %+v", free.Answer)
+	}
+
+	typed, err := led.Create(&Item{Question: "type", Kind: KindTypeIn, TypeText: "ship", Where: "box"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Answer(typed.ID, "ship"); err == nil {
+		t.Fatal("type-in answer succeeded")
+	}
+	done, err := led.Done(typed.ID, "typed it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.State != StateDone || done.Outcome != "typed it" || done.TypeText != "ship" || done.Where != "box" {
+		t.Fatalf("done = %+v", done)
+	}
+	if _, err := led.Done(typed.ID, "again"); err == nil {
+		t.Fatal("second done succeeded")
+	}
+	if _, err := led.Withdraw(typed.ID, "nope"); err == nil {
+		t.Fatal("withdraw of done succeeded")
+	}
+
+	other, err := led.Create(&Item{Question: "drop", Kind: KindRelay, Owner: "bea"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withdrawn, err := led.Withdraw(other.ID, "not now")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withdrawn.State != StateWithdrawn || withdrawn.Reason != "not now" || withdrawn.Question != "drop" {
+		t.Fatalf("withdrawn = %+v", withdrawn)
+	}
+	if _, err := led.Withdraw(other.ID, "again"); err == nil {
+		t.Fatal("second withdraw succeeded")
+	}
+	if _, err := led.Answer(other.ID, "a"); err == nil {
+		t.Fatal("answer of withdrawn succeeded")
+	}
+}
+
+func TestSelectOrdersDeadlineThenNewest(t *testing.T) {
+	soon := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	later := time.Date(2026, 12, 2, 0, 0, 0, 0, time.UTC)
+	items := []Item{
+		{ID: "D-001", State: StateOpen, Question: "later", Deadline: &later, CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)},
+		{ID: "D-002", State: StateOpen, Question: "sooner", Deadline: &soon, CreatedAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)},
+		{ID: "D-003", State: StateOpen, Question: "older", CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)},
+		{ID: "D-004", State: StateOpen, Question: "newer", CreatedAt: time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)},
+		{ID: "D-005", State: StateAnswered, Question: "hidden", CreatedAt: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)},
+	}
+	got, err := Select(items, StateOpen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, it := range got {
+		ids = append(ids, it.ID)
+	}
+	want := []string{"D-002", "D-001", "D-004", "D-003"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v", ids, want)
+	}
+	if _, err := Select(items, "nope"); err == nil {
+		t.Fatal("invalid state succeeded")
 	}
 }
 
@@ -407,6 +511,8 @@ func itemForMark(mark string) *Item {
 	item.DoneAt = time.Date(2026, 11, 5, 3, 0, 0, 0, time.UTC)
 	item.WithdrawnAt = time.Date(2026, 11, 5, 4, 0, 0, 0, time.UTC)
 	item.Answer = &Answer{Value: "typed-" + mark, AnsweredBy: "human"}
+	item.Reason = "reason-" + mark
+	item.Outcome = "outcome-" + mark
 	item.NotifyPane = "pane-" + mark
 	item.TypeText = "exact-" + mark
 	item.Where = "where-" + mark
@@ -418,7 +524,8 @@ func assertItemEqual(t *testing.T, got, want Item) {
 	if got.ID != want.ID || got.Question != want.Question || got.FreeText != want.FreeText ||
 		got.Owner != want.Owner || got.Kind != want.Kind || got.State != want.State ||
 		got.Unread != want.Unread || got.NotifyPane != want.NotifyPane ||
-		got.TypeText != want.TypeText || got.Where != want.Where {
+		got.TypeText != want.TypeText || got.Where != want.Where ||
+		got.Reason != want.Reason || got.Outcome != want.Outcome {
 		t.Fatalf("item fields\ngot  %+v\nwant %+v", got, want)
 	}
 	if !got.CreatedAt.Equal(want.CreatedAt) || !got.AnsweredAt.Equal(want.AnsweredAt) ||
