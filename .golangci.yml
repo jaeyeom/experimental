@@ -74,7 +74,11 @@ linters:
             - github.com/mattn/go-sqlite3
             - golang.org/x/sys
             - golang.org/x/tools
+            - github.com/charmbracelet/bubbletea
+            - github.com/charmbracelet/bubbles
+            - github.com/charmbracelet/lipgloss
             - github.com/google/renameio/v2
+            - github.com/muesli/termenv
           deny:
             - pkg: "github.com/leanovate/gopter"
               desc: gopter is for test only

@@ -1,7 +1,7 @@
 // Package tui is the keyboard inbox for decide.
 //
-// It lists one folder at a time, opens a row into the detail view, and
-// reloads the ledger while it is open. Answers and done use the ledger writes.
+// decide inbox is a bubbletea program. The list, folders, and detail view are
+// lipgloss. Free text and the type-in outcome field are bubbles text inputs.
 // The compose box sends a note to a configured pane. No pane id is built in.
 package tui
 
@@ -9,9 +9,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/muesli/termenv"
 )
 
 const (
@@ -63,11 +67,28 @@ type Model struct {
 	answerFocus  bool
 	note         string
 	runSend      func([]string) error
+	interval     time.Duration
+	runErr       error
+	free         textinput.Model
+	outcome      textinput.Model
 }
 
 // New returns an inbox positioned on the open folder.
 func New(dir string) *Model {
-	return &Model{Dir: dir, Now: time.Now}
+	return &Model{
+		Dir:     dir,
+		Now:     time.Now,
+		free:    newTextField(),
+		outcome: newTextField(),
+	}
+}
+
+func newTextField() textinput.Model {
+	field := textinput.New()
+	field.Prompt = ""
+	field.CharLimit = 0
+	field.Width = 0
+	return field
 }
 
 // Reload reads the current folder from disk. The cursor stays on the same id
@@ -108,14 +129,18 @@ func (m *Model) Reload() error {
 // Enter submits free text only while that row is focused. Esc leaves the row
 // and keeps the unsent draft. While the compose box is focused, Enter sends
 // the note, Tab and ] select the next target, [ selects the previous one,
-// and other printable keys type into it. ? opens the shortcut overlay, and
-// Esc or ? closes it.
+// and other printable keys type into it. ? opens the shortcut overlay only
+// when no text field is focused, and Esc or ? closes it. Focused free text
+// and the outcome field insert printable keys, including capitals, ?, and digits.
 func (m *Model) Key(r rune) (bool, error) {
 	if m.help {
 		return m.helpKey(r)
 	}
 	if m.answerFocus {
 		return m.answerKey(r)
+	}
+	if m.mode == modeOutcome {
+		return m.outcomeKey(r)
 	}
 	if r == '?' {
 		m.help = true
@@ -127,8 +152,6 @@ func (m *Model) Key(r rune) (bool, error) {
 	switch m.mode {
 	case modeDetail:
 		return m.detailKey(r)
-	case modeOutcome:
-		return m.outcomeKey(r)
 	default:
 		return m.listKey(r)
 	}
@@ -207,10 +230,7 @@ func (m *Model) detailKey(r rune) (bool, error) {
 		m.backToList()
 		return false, nil
 	case 'e':
-		m.mode = modeOutcome
-		m.draft = ""
-		m.answerFocus = false
-		m.status = "outcome"
+		m.beginOutcome()
 		return false, nil
 	case '0':
 		if m.detail != nil && m.detail.FreeText {
@@ -232,22 +252,45 @@ func (m *Model) answerKey(r rune) (bool, error) {
 	switch r {
 	case '\x1b':
 		m.answerFocus = false
+		m.free.Blur()
+		m.draft = m.free.Value()
 		return false, nil
 	case '\r', '\n':
+		m.draft = m.free.Value()
 		return false, m.submitFreeText()
 	case '\b', '\x7f':
-		m.trimDraft()
+		m.editField(&m.free, r)
 		return false, nil
 	}
 	if r >= ' ' {
-		m.draft += string(r)
+		m.editField(&m.free, r)
 	}
 	return false, nil
+}
+
+func (m *Model) editField(field *textinput.Model, r rune) {
+	updated, _ := field.Update(runeKey(r))
+	*field = updated
+	m.draft = field.Value()
 }
 
 func (m *Model) focusAnswer() {
 	m.answerFocus = true
 	m.composing = false
+	m.outcome.Blur()
+	m.free.SetValue(m.draft)
+	m.free.CursorEnd()
+	m.free.Focus()
+}
+
+func (m *Model) beginOutcome() {
+	m.mode = modeOutcome
+	m.draft = ""
+	m.answerFocus = false
+	m.free.Blur()
+	m.outcome.SetValue("")
+	m.outcome.Focus()
+	m.status = "outcome"
 }
 
 func (m *Model) outcomeKey(r rune) (bool, error) {
@@ -255,18 +298,21 @@ func (m *Model) outcomeKey(r rune) (bool, error) {
 	case '\x1b':
 		m.mode = modeDetail
 		m.draft = ""
+		m.outcome.Blur()
+		m.outcome.SetValue("")
 		if m.detail != nil {
 			m.status = "opened " + m.detail.ID
 		}
 		return false, nil
 	case '\r', '\n':
+		m.draft = m.outcome.Value()
 		return false, m.submitOutcome()
 	case '\b', '\x7f':
-		m.trimDraft()
+		m.editField(&m.outcome, r)
 		return false, nil
 	}
 	if r >= ' ' {
-		m.draft += string(r)
+		m.editField(&m.outcome, r)
 		m.status = "outcome"
 	}
 	return false, nil
@@ -289,6 +335,7 @@ func (m *Model) openRow() error {
 	m.mode = modeDetail
 	m.draft = ""
 	m.answerFocus = false
+	m.resetFields()
 	m.scroll = 0
 	m.status = "opened " + id
 	return m.Reload()
@@ -382,15 +429,15 @@ func (m *Model) backToList() {
 	m.detail = nil
 	m.draft = ""
 	m.answerFocus = false
+	m.resetFields()
 	m.scroll = 0
 }
 
-func (m *Model) trimDraft() {
-	if m.draft == "" {
-		return
-	}
-	runes := []rune(m.draft)
-	m.draft = string(runes[:len(runes)-1])
+func (m *Model) resetFields() {
+	m.free.Blur()
+	m.free.SetValue("")
+	m.outcome.Blur()
+	m.outcome.SetValue("")
 }
 
 type screenLine struct {
@@ -432,6 +479,25 @@ func (m *Model) allLines() []screenLine {
 	return lines
 }
 
+var (
+	styleOnce  sync.Once
+	unreadRow  lipgloss.Style
+	folderBar  lipgloss.Style
+	detailLine lipgloss.Style
+	plainLine  lipgloss.Style
+)
+
+func useStyles() {
+	styleOnce.Do(func() {
+		// ANSI bold is stable in tests and on a real terminal.
+		lipgloss.SetColorProfile(termenv.ANSI)
+		unreadRow = lipgloss.NewStyle().Bold(true)
+		folderBar = lipgloss.NewStyle().Bold(true)
+		detailLine = lipgloss.NewStyle().Faint(true)
+		plainLine = lipgloss.NewStyle()
+	})
+}
+
 func (m *Model) helpLines() []screenLine {
 	text := []string{
 		"shortcuts",
@@ -447,7 +513,7 @@ func (m *Model) helpLines() []screenLine {
 	}
 	lines := make([]screenLine, len(text))
 	for i, line := range text {
-		lines[i] = screenLine{text: line}
+		lines[i] = screenLine{text: plainText(line)}
 	}
 	return lines
 }
@@ -515,7 +581,8 @@ func (m *Model) folderLine() screenLine {
 		col += len(name)
 		hits = append(hits, hit{kind: hitFolder, n: i, x0: start, x1: col - 1})
 	}
-	return screenLine{text: b.String(), hits: hits}
+	useStyles()
+	return screenLine{text: folderBar.Render(b.String()), hits: hits}
 }
 
 func (m *Model) rowLines() []screenLine {
@@ -533,8 +600,11 @@ func (m *Model) rowLines() []screenLine {
 			marker = "> "
 		}
 		text := marker + rowText(it, now)
+		useStyles()
 		if it.Unread {
-			text = boldOn + text + boldOff
+			text = unreadRow.Render(text)
+		} else {
+			text = plainLine.Render(text)
 		}
 		lines = append(lines, screenLine{text: text, hits: []hit{{kind: hitRow, n: i}}})
 	}
@@ -546,23 +616,28 @@ func (m *Model) detailLines() []screenLine {
 		return []screenLine{{text: "(empty)"}}
 	}
 	it := m.detail
-	lines := []screenLine{{text: it.ID}}
+	lines := []screenLine{{text: plainText(it.ID)}}
 	for _, part := range strings.Split(it.Question, "\n") {
-		lines = append(lines, screenLine{text: part})
+		lines = append(lines, screenLine{text: plainText(part)})
 	}
 	if it.Kind == decide.KindTypeIn {
 		lines = append(lines,
-			screenLine{text: "type: " + it.TypeText},
-			screenLine{text: "where: " + it.Where},
-			screenLine{text: "mark done", hits: []hit{{kind: hitMarkDone}}},
+			screenLine{text: plainText("type: " + it.TypeText)},
+			screenLine{text: plainText("where: " + it.Where)},
+			screenLine{text: plainText("mark done"), hits: []hit{{kind: hitMarkDone}}},
 		)
 	} else {
 		lines = append(lines, m.relayLines(it)...)
 	}
 	if m.mode == modeOutcome {
-		lines = append(lines, screenLine{text: "outcome: " + m.draft})
+		lines = append(lines, screenLine{text: plainText("outcome: " + m.draft)})
 	}
 	return lines
+}
+
+func plainText(s string) string {
+	useStyles()
+	return detailLine.Render(s)
 }
 
 func (m *Model) relayLines(it *decide.Item) []screenLine {
@@ -576,21 +651,21 @@ func (m *Model) relayLines(it *decide.Item) []screenLine {
 			mark = " recommended"
 		}
 		lines = append(lines, screenLine{
-			text: fmt.Sprintf("%d %s %s%s", i+1, opt.Key, opt.Label, mark),
+			text: plainText(fmt.Sprintf("%d %s %s%s", i+1, opt.Key, opt.Label, mark)),
 			hits: []hit{{kind: hitOption, n: i}},
 		})
 	}
 	for _, link := range it.Links {
-		lines = append(lines, screenLine{text: "link: " + link})
+		lines = append(lines, screenLine{text: plainText("link: " + link)})
 	}
 	deadline := "-"
 	if it.Deadline != nil {
 		deadline = it.Deadline.Format(time.RFC3339)
 	}
-	lines = append(lines, screenLine{text: "deadline: " + deadline})
+	lines = append(lines, screenLine{text: plainText("deadline: " + deadline)})
 	if it.FreeText && m.mode == modeDetail {
 		lines = append(lines, screenLine{
-			text: m.freeTextLine(),
+			text: plainText(m.freeTextLine()),
 			hits: []hit{{kind: hitAnswer}},
 		})
 	}

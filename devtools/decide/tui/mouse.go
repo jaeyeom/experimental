@@ -47,6 +47,8 @@ func (m *Model) Click(x, y int) error {
 	m.View()
 	if m.answerFocus && !m.onAnswerRow(x, y) {
 		m.answerFocus = false
+		m.free.Blur()
+		m.draft = m.free.Value()
 		return nil
 	}
 	if y < 1 || y > len(m.rows) {
@@ -112,10 +114,8 @@ func (m *Model) hit(h hit) error {
 	case hitSubmit:
 		return m.submitFreeText()
 	case hitMarkDone:
-		m.mode = modeOutcome
-		m.draft = ""
 		m.scroll = 0
-		m.status = "outcome"
+		m.beginOutcome()
 		return nil
 	default:
 		return nil
