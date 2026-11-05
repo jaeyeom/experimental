@@ -16,7 +16,9 @@ import (
 
 // fileConfig is the decide config file. An absent file runs no command.
 // OptionsOnly makes relay asks reject free text unless --free-text is set.
-// The example notifier line is not a default.
+// NotifyTemplate is a shell command. It reads "$DECIDE_ANSWER", "$DECIDE_ID",
+// "$DECIDE_OWNER", and "$DECIDE_PANE". Those values are not written into the
+// command string. An empty template runs nothing. The example is not a default.
 // SendTemplate is the compose argv template. Empty means
 // `herdr agent prompt {pane}` plus the note as its own argument.
 // The note is not interpolated into sh -c.
@@ -67,6 +69,8 @@ func loadConfig() (fileConfig, error) {
 
 // notifyAnswer runs the configured template after a relay answer is saved.
 // An empty template does nothing. The item notify pane overrides the config pane.
+// "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_OWNER", and "$DECIDE_PANE" hold the
+// fields. The answer is not substituted into the command string.
 func notifyAnswer(item *decide.Item, stderr io.Writer) error {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -83,15 +87,15 @@ func notifyAnswer(item *decide.Item, stderr io.Writer) error {
 	if item.Answer != nil {
 		answer = item.Answer.Value
 	}
-	line := strings.NewReplacer(
-		"{id}", item.ID,
-		"{answer}", answer,
-		"{owner}", item.Owner,
-		"{pane}", pane,
-	).Replace(cfg.NotifyTemplate)
-	// The template is local operator config. Placeholders are that operator's ledger fields.
+	// The template is operator config. The answer stays in the environment.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-	cmd := exec.Command("sh", "-c", line) //nolint:gosec // G204: the notify template is operator config
+	cmd := exec.Command("sh", "-c", cfg.NotifyTemplate) //nolint:gosec // G204: the notify template is operator config; fields are environment variables
+	cmd.Env = append([]string{
+		"DECIDE_ID=" + item.ID,
+		"DECIDE_ANSWER=" + answer,
+		"DECIDE_OWNER=" + item.Owner,
+		"DECIDE_PANE=" + pane,
+	}, os.Environ()...)
 	cmd.Stdout = stderr
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {

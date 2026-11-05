@@ -194,7 +194,7 @@ func TestAnswerRunsNotifyTemplate(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	logPath := filepath.Join(state, "notify.log")
 	installNotifier(t, logPath, "exit 0")
-	writeNotifyConfig(t, "notifier {id} {owner} {pane} '{answer}'", "default-pane")
+	writeNotifyConfig(t, `notifier "$DECIDE_ID" "$DECIDE_OWNER" "$DECIDE_PANE" "$DECIDE_ANSWER"`, "default-pane")
 
 	plain := askRelay(t, nil, "use the default pane")
 	if _, err := os.Stat(logPath); !errors.Is(err, fs.ErrNotExist) {
@@ -220,12 +220,40 @@ func TestAnswerRunsNotifyTemplate(t *testing.T) {
 	}
 }
 
+func TestNotifyPassesAnswerInEnvironment(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	logPath := filepath.Join(state, "notify.log")
+	installEnvNotifier(t, logPath)
+	writeNotifyConfig(t, "notifier", "default-pane")
+
+	raw := `say "hi" $(uname)`
+	id := askRelay(t, []string{"--notify-pane", "pane-9"}, "unsafe answer")
+	if _, stderr, code := runCLI("answer", id, raw); code != 0 {
+		t.Fatalf("answer code = %d\n%s", code, stderr)
+	}
+	got := notifyLog(t, logPath)
+	want := []string{id, "ada", "pane-9", raw}
+	if len(got) != len(want) {
+		t.Fatalf("notify log = %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("notify log = %#v", got)
+		}
+	}
+	if showJSON(t, id).Answer == nil || showJSON(t, id).Answer.Value != raw {
+		t.Fatal("answer was not kept")
+	}
+}
+
 func TestNotifyFailureKeepsAnswer(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	installNotifier(t, filepath.Join(state, "notify.log"), "exit 1")
-	writeNotifyConfig(t, "notifier {id}", "pane")
+	writeNotifyConfig(t, `notifier "$DECIDE_ID"`, "pane")
 
 	id := askRelay(t, nil, "keep me")
 	stdout, stderr, code := runCLI("answer", id, "b")
@@ -247,7 +275,7 @@ func TestDoneAndWithdrawSkipNotify(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	logPath := filepath.Join(state, "notify.log")
 	installNotifier(t, logPath, "exit 0")
-	writeNotifyConfig(t, "notifier {id}", "pane")
+	writeNotifyConfig(t, `notifier "$DECIDE_ID"`, "pane")
 
 	typeIn := askTypeIn(t, "ship the note", "the form")
 	if _, stderr, code := runCLI("done", typeIn, "typed it"); code != 0 {
@@ -396,11 +424,25 @@ func idsOf(out string) []string {
 
 func installNotifier(t *testing.T, logPath, tail string) {
 	t.Helper()
+	installNotifierScript(t, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '"+logPath+"'\n"+tail+"\n")
+}
+
+func installEnvNotifier(t *testing.T, logPath string) {
+	t.Helper()
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$DECIDE_ID\" >> '" + logPath + "'\n" +
+		"printf '%s\\n' \"$DECIDE_OWNER\" >> '" + logPath + "'\n" +
+		"printf '%s\\n' \"$DECIDE_PANE\" >> '" + logPath + "'\n" +
+		"printf '%s\\n' \"$DECIDE_ANSWER\" >> '" + logPath + "'\n"
+	installNotifierScript(t, script)
+}
+
+func installNotifierScript(t *testing.T, script string) {
+	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + logPath + "'\n" + tail + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "notifier"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
 		t.Fatal(err)
 	}
