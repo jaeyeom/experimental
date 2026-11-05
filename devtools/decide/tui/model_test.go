@@ -321,6 +321,9 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "j\r")
+	if strings.Contains(m.View(), "answer:") {
+		t.Fatalf("options-only item offered a free-text box\n%s", m.View())
+	}
 	press(t, m, "custom\r")
 	view := m.View()
 	if !strings.Contains(view, "free text is not allowed") {

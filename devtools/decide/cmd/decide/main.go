@@ -55,7 +55,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `Usage:
   decide ask --owner <label> --kind relay|type-in \
-    --option key:label --rec key [--free-text] [--deadline RFC3339] \
+    --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--json] <question>
   decide list [--state open|answered|done|withdrawn] [--json]
@@ -94,6 +94,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	kind := fs.String("kind", "", "relay or type-in")
 	rec := fs.String("rec", "", "recommended option key")
 	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
+	optionsOnly := fs.Bool("options-only", false, "reject an answer that is not an option")
 	deadline := fs.String("deadline", "", "deadline in RFC3339")
 	notifyPane := fs.String("notify-pane", "", "pane stored for a later notify command")
 	typeText := fs.String("type-text", "", "exact text to type")
@@ -109,7 +110,12 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	item, err := buildAsk(*owner, *kind, *rec, *freeText, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
+	cfg, err := loadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	allowFree := relayFreeText(*kind, *freeText, *optionsOnly, cfg.OptionsOnly)
+	item, err := buildAsk(*owner, *kind, *rec, allowFree, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
@@ -264,6 +270,21 @@ func openLedger() (*decide.Ledger, error) {
 		return nil, fmt.Errorf("open decide ledger: %w", err)
 	}
 	return led, nil
+}
+
+// relayFreeText reports whether a relay ask stores free-text answers.
+// --free-text wins over --options-only and over the config default.
+func relayFreeText(kind string, freeText, optionsOnly, configOptionsOnly bool) bool {
+	if kind != decide.KindRelay {
+		return freeText
+	}
+	if freeText {
+		return true
+	}
+	if optionsOnly || configOptionsOnly {
+		return false
+	}
+	return true
 }
 
 func buildAsk(owner, kind, rec string, freeText bool, deadline, notifyPane, typeText, where string, options, links []string, question string) (decide.Item, error) {

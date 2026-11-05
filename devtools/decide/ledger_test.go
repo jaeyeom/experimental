@@ -211,6 +211,41 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 	if free.Answer == nil || free.Answer.Value != "custom" || free.Answer.AnsweredBy != "human" {
 		t.Fatalf("free answer = %+v", free.Answer)
 	}
+	kept, err := led.Create(&Item{
+		Question: "marks",
+		Kind:     KindRelay,
+		FreeText: true,
+		Owner:    "ada",
+		Options:  []Option{{Key: "a", Label: "A", Recommended: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := "  say \"hi\" $(uname)  "
+	gotFree, err := led.Answer(kept.ID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotFree.Answer == nil || gotFree.Answer.Value != raw {
+		t.Fatalf("free answer = %q", gotFree.Answer)
+	}
+	spaced, err := led.Create(&Item{
+		Question: "space",
+		Kind:     KindRelay,
+		FreeText: true,
+		Owner:    "ada",
+		Options:  []Option{{Key: "a", Label: "A", Recommended: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotSpace, err := led.Answer(spaced.ID, " a ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSpace.Answer == nil || gotSpace.Answer.Value != " a " {
+		t.Fatalf("free answer = %+v, want the untrimmed text", gotSpace.Answer)
+	}
 
 	typed, err := led.Create(&Item{Question: "type", Kind: KindTypeIn, TypeText: "ship", Where: "box"})
 	if err != nil {
