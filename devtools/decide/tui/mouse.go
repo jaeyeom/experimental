@@ -39,6 +39,7 @@ type termEvent struct {
 	mouse      bool
 	press      bool
 	shiftEnter bool
+	shiftTab   bool
 }
 
 // Click handles one left-button press at 1-based screen coordinates.
@@ -250,6 +251,8 @@ func readCSI(in io.Reader, first byte, events chan<- termEvent) {
 	switch string(seq) {
 	case "13;2u", "27;2;13~":
 		events <- termEvent{shiftEnter: true}
+	case "Z", "1;2Z", "9;2u", "27;2;9~":
+		events <- termEvent{shiftTab: true}
 	default:
 		emitBytes(events, seq)
 	}

@@ -95,6 +95,10 @@ func waitEvent(m *Model, ticker *time.Ticker, events <-chan termEvent, readErr <
 			m.ShiftEnter()
 			return false, nil
 		}
+		if ev.shiftTab {
+			m.ShiftTab()
+			return false, nil
+		}
 		return m.Key(ev.key)
 	case <-ticker.C:
 		return false, m.Reload()
