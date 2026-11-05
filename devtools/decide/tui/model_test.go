@@ -236,6 +236,178 @@ func TestWriteWhileOpenAppearsWithoutRestart(t *testing.T) {
 	}
 }
 
+func TestDetailOneAnswersFirstOption(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	deadline := time.Date(2026, 12, 1, 15, 4, 5, 0, time.UTC)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "ship it?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options: []decide.Option{
+			{Key: "a", Label: "Alpha", Recommended: true},
+			{Key: "b", Label: "Beta"},
+		},
+		Links:    []string{"https://example.test/spec"},
+		Deadline: &deadline,
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\r")
+	view := m.View()
+	for _, needle := range []string{
+		"ship it?",
+		"1 a Alpha recommended",
+		"2 b Beta",
+		"https://example.test/spec",
+		deadline.Format(time.RFC3339),
+	} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("detail missing %q\n%s", needle, view)
+		}
+	}
+	press(t, m, "1")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" || got.Answer.AnsweredBy != "human" {
+		t.Fatalf("answer = %+v state %s", got.Answer, got.State)
+	}
+}
+
+func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	openFree := mustCreate(t, led, &decide.Item{
+		Question: "or else",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		FreeText: true,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	closed := mustCreate(t, led, &decide.Item{
+		Question:  "pick a key",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  false,
+		Options:   []decide.Option{{Key: "custom", Label: "Custom"}},
+		CreatedAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\r")
+	press(t, m, "custom words")
+	if !strings.Contains(m.View(), "answer: custom words") {
+		t.Fatalf("text box missing draft\n%s", m.View())
+	}
+	press(t, m, "\r")
+	got, err := led.Get(openFree.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "custom words" || got.Answer.AnsweredBy != "human" {
+		t.Fatalf("free text = %+v state %s", got.Answer, got.State)
+	}
+
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "j\r")
+	press(t, m, "custom\r")
+	view := m.View()
+	if !strings.Contains(view, "free text is not allowed") {
+		t.Fatalf("free text was not rejected\n%s", view)
+	}
+	denied, err := led.Get(closed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if denied.State != decide.StateOpen || denied.Answer != nil {
+		t.Fatalf("rejected item changed: %+v", denied.Answer)
+	}
+}
+
+func TestDetailTypeInMarkDone(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "type this",
+		Owner:    "ada",
+		Kind:     decide.KindTypeIn,
+		State:    decide.StateOpen,
+		TypeText: "ship it",
+		Where:    "the pane",
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\r")
+	view := m.View()
+	if !strings.Contains(view, "ship it") || !strings.Contains(view, "the pane") {
+		t.Fatalf("type-in detail missing text or place\n%s", view)
+	}
+	if strings.Contains(view, "\n1 ") || strings.Contains(view, "answer:") {
+		t.Fatalf("type-in has an answer control\n%s", view)
+	}
+	press(t, m, "1")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || got.Answer != nil {
+		t.Fatalf("type-in accepted an answer: %+v", got)
+	}
+	press(t, m, "e")
+	if !strings.Contains(m.View(), "outcome:") {
+		t.Fatalf("mark done did not ask for an outcome\n%s", m.View())
+	}
+	press(t, m, "typed it\r")
+	got, err = led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateDone || got.Outcome != "typed it" {
+		t.Fatalf("done = state %s outcome %q", got.State, got.Outcome)
+	}
+}
+
+func TestDetailEMarksDone(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "archive me",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\re")
+	if !strings.Contains(m.View(), "outcome:") {
+		t.Fatalf("e did not ask for an outcome\n%s", m.View())
+	}
+	press(t, m, "kept\r")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateDone || got.Outcome != "kept" {
+		t.Fatalf("done = state %s outcome %q", got.State, got.Outcome)
+	}
+}
+
 func openLedger(t *testing.T, dir string) *decide.Ledger {
 	t.Helper()
 	led, err := decide.Open(dir)
@@ -252,6 +424,15 @@ func mustCreate(t *testing.T, led *decide.Ledger, item *decide.Item) decide.Item
 		t.Fatal(err)
 	}
 	return got
+}
+
+func press(t *testing.T, m *Model, keys string) {
+	t.Helper()
+	for _, r := range keys {
+		if _, err := m.Key(r); err != nil {
+			t.Fatalf("key %q: %v", r, err)
+		}
+	}
 }
 
 func lineBold(view, id string) bool {
