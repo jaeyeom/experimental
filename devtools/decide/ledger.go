@@ -160,6 +160,24 @@ func (l *Ledger) Get(id string) (Item, error) {
 	return found, nil
 }
 
+// MarkRead clears unread on id and keeps every other field.
+func (l *Ledger) MarkRead(id string) (Item, error) {
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		it.Unread = false
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
 // List returns every stored item in storage order.
 func (l *Ledger) List() ([]Item, error) {
 	var items []Item
