@@ -141,6 +141,83 @@ func TestAnswerRelayFreeTextAndTypeIn(t *testing.T) {
 	}
 }
 
+func TestAnswerRunsNotifyTemplate(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	logPath := filepath.Join(state, "notify.log")
+	installNotifier(t, logPath, "exit 0")
+	writeNotifyConfig(t, "notifier {id} {owner} {pane} '{answer}'", "default-pane")
+
+	plain := askRelay(t, nil, "use the default pane")
+	if _, err := os.Stat(logPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("ask ran the notify template")
+	}
+	if _, stderr, code := runCLI("answer", plain, "b"); code != 0 {
+		t.Fatalf("answer code = %d\n%s", code, stderr)
+	}
+	if got := notifyLog(t, logPath); len(got) != 1 || got[0] != plain+" ada default-pane b" {
+		t.Fatalf("notify log = %#v", got)
+	}
+
+	overridden := askRelay(t, []string{"--notify-pane", "pane-9"}, "use the item pane")
+	if _, stderr, code := runCLI("answer", overridden, "a"); code != 0 {
+		t.Fatalf("answer code = %d\n%s", code, stderr)
+	}
+	got := notifyLog(t, logPath)
+	if len(got) != 2 || got[0] != plain+" ada default-pane b" || got[1] != overridden+" ada pane-9 a" {
+		t.Fatalf("notify log = %#v", got)
+	}
+	if showJSON(t, plain).NotifyPane != "" || showJSON(t, overridden).NotifyPane != "pane-9" {
+		t.Fatal("notify pane leaked onto the other item")
+	}
+}
+
+func TestNotifyFailureKeepsAnswer(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	installNotifier(t, filepath.Join(state, "notify.log"), "exit 1")
+	writeNotifyConfig(t, "notifier {id}", "pane")
+
+	id := askRelay(t, nil, "keep me")
+	stdout, stderr, code := runCLI("answer", id, "b")
+	if code == 0 {
+		t.Fatalf("failing notify succeeded\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "notify") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	got := showJSON(t, id)
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "b" {
+		t.Fatalf("answer was not kept: %+v", got)
+	}
+}
+
+func TestDoneAndWithdrawSkipNotify(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	logPath := filepath.Join(state, "notify.log")
+	installNotifier(t, logPath, "exit 0")
+	writeNotifyConfig(t, "notifier {id}", "pane")
+
+	typeIn := askTypeIn(t, "ship the note", "the form")
+	if _, stderr, code := runCLI("done", typeIn, "typed it"); code != 0 {
+		t.Fatalf("done code = %d\n%s", code, stderr)
+	}
+	relay := askRelay(t, nil, "withdraw me")
+	if _, stderr, code := runCLI("withdraw", relay, "not needed"); code != 0 {
+		t.Fatalf("withdraw code = %d\n%s", code, stderr)
+	}
+	if _, err := os.Stat(logPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("done or withdraw ran notify: %v", err)
+	}
+	if showJSON(t, typeIn).State != decide.StateDone {
+		t.Fatal("type-in was not done")
+	}
+}
+
 func TestWithdrawAndDoneStoreText(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
@@ -268,6 +345,43 @@ func idsOf(out string) []string {
 		ids = append(ids, strings.Split(line, "\t")[0])
 	}
 	return ids
+}
+
+func installNotifier(t *testing.T, logPath, tail string) {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + logPath + "'\n" + tail + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "notifier"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func writeNotifyConfig(t *testing.T, template, pane string) {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(fileConfig{NotifyTemplate: template, NotifyPane: pane})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), append(body, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func notifyLog(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
 func runCLI(args ...string) (string, string, int) {
