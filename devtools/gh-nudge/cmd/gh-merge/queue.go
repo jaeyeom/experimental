@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,21 +45,118 @@ type watchResult struct {
 	Result      string `json:"result"`
 }
 
+type enqueueKind int
+
+const (
+	enqueueDirect enqueueKind = iota
+	enqueueAsync
+)
+
+type queueJSONResult struct {
+	PullRequest string   `json:"pullRequest"`
+	Readiness   []string `json:"readiness"`
+	Result      string   `json:"result"`
+}
+
+func queueCommandHelp() string {
+	return "Enqueue one pull request on the merge queue; refuses a draft"
+}
+
 func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDownstack bool) error {
-	pr, err := client.LoadPullRequest(ref)
+	resolved, err := resolvePullRef(ref)
 	if err != nil {
-		return fmt.Errorf("load pull request %s: %w", ref, err)
+		return err
+	}
+	pr, err := client.LoadPullRequest(resolved)
+	if err != nil {
+		return fmt.Errorf("load pull request %s: %w", resolved, err)
 	}
 	if err := printRemovalEvidence(client, cfg, pr); err != nil {
 		return err
 	}
-	if err := refusePreflight(pr, cfg.Settings); err != nil {
-		return err
+	problems := preflightProblems(pr, cfg.Settings.BlockMergeLabels, cfg.Settings.RequiredChecks)
+	if len(problems) > 0 {
+		return refuseWithProblems(pr, problems)
 	}
 	if err := refuseRCA(pr, cfg.Settings); err != nil {
 		return err
 	}
-	return enqueuePR(client, pr, includeDownstack)
+	lines := readyLines(pr, cfg.Settings)
+	if dryRun {
+		return writeQueueResult(pr, lines, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
+	}
+	kind, err := enqueuePR(client, pr, includeDownstack)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("Enqueued %s.\n", pr.Ref.Raw)
+	if kind == enqueueAsync {
+		text = fmt.Sprintf("Enqueued %s with merge-async.\n", pr.Ref.Raw)
+	}
+	return writeQueueResult(pr, lines, "enqueued", text)
+}
+
+func refuseWithProblems(pr github.QueuePullRequest, problems []string) error {
+	if jsonOutput {
+		if err := writeQueueResult(pr, problems, "refused", ""); err != nil {
+			return err
+		}
+		return fmt.Errorf("refusing to enqueue %s", pr.Ref.Raw)
+	}
+	fmt.Printf("Refusing to enqueue %s:\n", pr.Ref.Raw)
+	for _, problem := range problems {
+		fmt.Printf("- %s\n", problem)
+	}
+	return fmt.Errorf("refusing to enqueue %s", pr.Ref.Raw)
+}
+
+func readyLines(pr github.QueuePullRequest, settings config.SettingsConfig) []string {
+	draft := "pull request is not a draft"
+	if pr.Draft {
+		draft = "pull request is a draft"
+	}
+	lines := []string{draft, "no block label"}
+	if pr.ReviewDecision == "APPROVED" {
+		lines = append(lines, "pull request is approved")
+	} else {
+		lines = append(lines, "pull request is not approved")
+	}
+	if len(settings.RequiredChecks) == 0 {
+		lines = append(lines, "no required checks configured")
+	} else {
+		for _, name := range settings.RequiredChecks {
+			lines = append(lines, fmt.Sprintf("required check %q is green", name))
+		}
+	}
+	if pr.UnresolvedThreads > 0 {
+		lines = append(lines, "unresolved review thread")
+	} else {
+		lines = append(lines, "no unresolved review threads")
+	}
+	return lines
+}
+
+func writeQueueResult(pr github.QueuePullRequest, lines []string, result, text string) error {
+	if lines == nil {
+		lines = []string{}
+	}
+	if jsonOutput {
+		encoded, err := json.MarshalIndent(queueJSONResult{
+			PullRequest: pr.Ref.Raw,
+			Readiness:   lines,
+			Result:      result,
+		}, "", "  ")
+		if err != nil {
+			return fmt.Errorf("encode queue result: %w", err)
+		}
+		fmt.Printf("%s\n", encoded)
+		return nil
+	}
+	for _, line := range lines {
+		fmt.Println(line)
+	}
+	fmt.Print(text)
+	return nil
 }
 
 func printRemovalEvidence(client queueAPI, cfg *config.Config, pr github.QueuePullRequest) error {
@@ -98,18 +198,6 @@ func printLandedFirst(client queueAPI, pr github.QueuePullRequest, sha string) e
 	}
 	fmt.Printf("Landed first: %s/%s#%d\n", pr.Ref.Owner, pr.Ref.Repo, landed.Number)
 	return nil
-}
-
-func refusePreflight(pr github.QueuePullRequest, settings config.SettingsConfig) error {
-	problems := preflightProblems(pr, settings.BlockMergeLabels, settings.RequiredChecks)
-	if len(problems) == 0 {
-		return nil
-	}
-	fmt.Printf("Refusing to enqueue %s:\n", pr.Ref.Raw)
-	for _, problem := range problems {
-		fmt.Printf("- %s\n", problem)
-	}
-	return fmt.Errorf("refusing to enqueue %s", pr.Ref.Raw)
 }
 
 func preflightProblems(pr github.QueuePullRequest, blockLabels, required []string) []string {
@@ -277,16 +365,18 @@ func tailText(text string, n int) string {
 	return strings.Join(lines[len(lines)-n:], "\n")
 }
 
-func enqueuePR(client queueAPI, pr github.QueuePullRequest, includeDownstack bool) error {
+func enqueuePR(client queueAPI, pr github.QueuePullRequest, includeDownstack bool) (enqueueKind, error) {
 	err := client.EnqueuePullRequest(pr.NodeID)
 	if err == nil {
-		fmt.Printf("Enqueued %s.\n", pr.Ref.Raw)
-		return nil
+		return enqueueDirect, nil
 	}
 	if !mutationRequiresAsyncMerge(err) {
-		return fmt.Errorf("enqueue %s: %w", pr.Ref.Raw, err)
+		return 0, fmt.Errorf("enqueue %s: %w", pr.Ref.Raw, err)
 	}
-	return enqueueStack(client, pr, includeDownstack)
+	if err := enqueueStack(client, pr, includeDownstack); err != nil {
+		return 0, err
+	}
+	return enqueueAsync, nil
 }
 
 func mutationRequiresAsyncMerge(err error) bool {
@@ -305,12 +395,14 @@ func enqueueStack(client queueAPI, pr github.QueuePullRequest, includeDownstack 
 	if err != nil {
 		return fmt.Errorf("open downstack for %s: %w", pr.Ref.Raw, err)
 	}
-	fmt.Printf("Open pull requests below %s:\n", pr.Ref.Raw)
-	if len(below) == 0 {
-		fmt.Println("(none)")
-	}
-	for _, item := range below {
-		fmt.Printf("- %s/%s#%d\n", pr.Ref.Owner, pr.Ref.Repo, item.Number)
+	if !jsonOutput {
+		fmt.Printf("Open pull requests below %s:\n", pr.Ref.Raw)
+		if len(below) == 0 {
+			fmt.Println("(none)")
+		}
+		for _, item := range below {
+			fmt.Printf("- %s/%s#%d\n", pr.Ref.Owner, pr.Ref.Repo, item.Number)
+		}
 	}
 	if !includeDownstack {
 		return fmt.Errorf("refusing to enqueue stack %s without --include-downstack", pr.Ref.Raw)
@@ -318,8 +410,132 @@ func enqueueStack(client queueAPI, pr github.QueuePullRequest, includeDownstack 
 	if err := client.MergeAsync(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number, pr.HeadSHA); err != nil {
 		return fmt.Errorf("merge-async %s: %w", pr.Ref.Raw, err)
 	}
-	fmt.Printf("Enqueued %s with merge-async.\n", pr.Ref.Raw)
 	return nil
+}
+
+var runCommand = defaultRunCommand
+
+func defaultRunCommand(name string, args ...string) (string, error) {
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.Command(name, args...) //nolint:gosec // G204: git and gh take argument lists, not a shell
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("run %s: %w", name, err)
+	}
+	return string(out), nil
+}
+
+func resolvePullRef(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if _, err := github.ParsePullRef(raw); err == nil {
+		return raw, nil
+	}
+	number, ok := barePullNumber(raw)
+	if !ok {
+		return "", fmt.Errorf("invalid pull request %q", raw)
+	}
+	ownerRepo, err := githubOwnerRepo()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s#%d", ownerRepo, number), nil
+}
+
+func barePullNumber(raw string) (int, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	number, err := strconv.Atoi(raw)
+	if err != nil || number <= 0 || strconv.Itoa(number) != raw {
+		return 0, false
+	}
+	return number, true
+}
+
+func githubOwnerRepo() (string, error) {
+	if remote, ok := preferredRemoteURL(); ok {
+		if owner, repo, parsed := parseGitHubRemote(remote); parsed {
+			return owner + "/" + repo, nil
+		}
+	}
+	return ownerRepoFromGH()
+}
+
+func preferredRemoteURL() (string, bool) {
+	if remote, ok := gitRemoteURL("origin"); ok {
+		return remote, true
+	}
+	out, err := runCommand("git", "remote")
+	if err != nil {
+		return "", false
+	}
+	name := firstRemoteName(out)
+	if name == "" || name == "origin" {
+		return "", false
+	}
+	return gitRemoteURL(name)
+}
+
+func gitRemoteURL(name string) (string, bool) {
+	out, err := runCommand("git", "remote", "get-url", name)
+	if err != nil {
+		return "", false
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "", false
+	}
+	return out, true
+}
+
+func firstRemoteName(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func ownerRepoFromGH() (string, error) {
+	out, err := runCommand("gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner")
+	if err != nil {
+		return "", fmt.Errorf("resolve repository from gh repo view: %w", err)
+	}
+	name := strings.TrimSpace(out)
+	if _, _, ok := splitOwnerRepo(name); !ok {
+		return "", fmt.Errorf("resolve repository from gh repo view: got %q", name)
+	}
+	return name, nil
+}
+
+func parseGitHubRemote(raw string) (string, string, bool) {
+	raw = strings.TrimSpace(raw)
+	if ownerRepo, ok := strings.CutPrefix(raw, "git@github.com:"); ok {
+		ownerRepo = strings.TrimSuffix(strings.TrimSuffix(ownerRepo, "/"), ".git")
+		return splitOwnerRepo(ownerRepo)
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host != "github.com" {
+		return "", "", false
+	}
+	path := strings.Trim(parsed.Path, "/")
+	path = strings.TrimSuffix(path, ".git")
+	return splitOwnerRepo(path)
+}
+
+func splitOwnerRepo(path string) (string, string, bool) {
+	owner, repo, ok := strings.Cut(path, "/")
+	if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") {
+		return "", "", false
+	}
+	return owner, repo, true
 }
 
 func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {

@@ -1,12 +1,13 @@
 // Code generated from Pkl module `gh_nudge.Config`. DO NOT EDIT.
 package pkl
 
-// Slack-related configuration
+// Slack-related configuration.
+// gh-merge queue and watch do not read these fields. Empty values are valid.
 type SlackConfig struct {
-	// Slack Bot OAuth token (starts with xoxb-)
+	// Slack Bot OAuth token (starts with xoxb-). Empty when Slack is unused.
 	Token string `pkl:"token"`
 
-	// Fallback channel if no routing patterns match
+	// Fallback channel if no routing patterns match. Empty when Slack is unused.
 	DefaultChannel string `pkl:"default_channel"`
 
 	// GitHub username to Slack user ID mapping (for @mentions)
