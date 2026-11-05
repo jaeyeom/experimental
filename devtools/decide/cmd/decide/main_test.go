@@ -100,18 +100,39 @@ func TestListOrdersByDeadlineThenNewest(t *testing.T) {
 func TestAnswerRelayFreeTextAndTypeIn(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	id := askRelay(t, nil, "pick one")
-	if _, stderr, code := runCLI("answer", id, "something else"); code == 0 {
-		t.Fatalf("free text without --free-text succeeded\n%s", stderr)
+	if got := showJSON(t, id); !got.FreeText {
+		t.Fatal("relay free text is not the default")
 	}
-	shown, _, code := runCLI("show", "--json", id)
-	if code != 0 {
-		t.Fatal(shown)
+	const text = "not one of the options"
+	if _, stderr, code := runCLI("answer", id, text); code != 0 {
+		t.Fatalf("free text answer code = %d\n%s", code, stderr)
 	}
-	item := decodeItem(t, shown)
-	if item.State != decide.StateOpen || item.Answer != nil {
-		t.Fatalf("item changed after rejected answer: %+v", item)
+	item := showJSON(t, id)
+	if item.State != decide.StateAnswered || item.Answer == nil || item.Answer.Value != text {
+		t.Fatalf("show answer = %+v", item.Answer)
+	}
+
+	punct := askRelay(t, nil, "keep marks")
+	raw := `say "hi" $(uname)`
+	if _, stderr, code := runCLI("answer", punct, raw); code != 0 {
+		t.Fatalf("punctuation answer code = %d\n%s", code, stderr)
+	}
+	if got := showJSON(t, punct); got.Answer == nil || got.Answer.Value != raw {
+		t.Fatalf("show answer = %+v", got.Answer)
+	}
+
+	only := askRelay(t, []string{"--options-only"}, "keys only")
+	if got := showJSON(t, only); got.FreeText {
+		t.Fatal("--options-only still allowed free text")
+	}
+	if _, stderr, code := runCLI("answer", only, text); code == 0 {
+		t.Fatalf("options-only accepted free text\n%s", stderr)
+	}
+	if got := showJSON(t, only); got.State != decide.StateOpen || got.Answer != nil {
+		t.Fatalf("options-only item changed: %+v", got)
 	}
 
 	free := askRelay(t, []string{"--free-text"}, "or type")
@@ -138,6 +159,32 @@ func TestAnswerRelayFreeTextAndTypeIn(t *testing.T) {
 	}
 	if got := showJSON(t, typeIn); got.State != decide.StateOpen || got.Answer != nil {
 		t.Fatalf("type-in changed: %+v", got)
+	}
+}
+
+func TestAskOptionsOnlyConfigFlagWins(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	writeOptionsOnlyConfig(t)
+
+	id := askRelay(t, nil, "config default")
+	if got := showJSON(t, id); got.FreeText {
+		t.Fatal("config options-only still allowed free text")
+	}
+	if _, stderr, code := runCLI("answer", id, "not one of the options"); code == 0 {
+		t.Fatalf("config options-only accepted free text\n%s", stderr)
+	}
+
+	on := askRelay(t, []string{"--free-text"}, "flag wins")
+	if got := showJSON(t, on); !got.FreeText {
+		t.Fatal("--free-text did not override the config default")
+	}
+	raw := `say "hi" $(uname)`
+	if _, stderr, code := runCLI("answer", on, raw); code != 0 {
+		t.Fatalf("free text answer code = %d\n%s", code, stderr)
+	}
+	if got := showJSON(t, on); got.Answer == nil || got.Answer.Value != raw {
+		t.Fatalf("show answer = %+v", got.Answer)
 	}
 }
 
@@ -358,6 +405,18 @@ func installNotifier(t *testing.T, logPath, tail string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func writeOptionsOnlyConfig(t *testing.T) {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"optionsOnly\": true}\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeNotifyConfig(t *testing.T, template, pane string) {

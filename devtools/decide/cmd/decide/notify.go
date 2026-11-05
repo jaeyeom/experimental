@@ -15,10 +15,12 @@ import (
 )
 
 // fileConfig is the decide config file. An absent file runs no command.
+// OptionsOnly makes relay asks reject free text unless --free-text is set.
 // The example notifier line is not a default.
 type fileConfig struct {
 	NotifyTemplate string `json:"notifyTemplate"`
 	NotifyPane     string `json:"notifyPane"`
+	OptionsOnly    bool   `json:"optionsOnly"`
 }
 
 func configPath() (string, bool) {

@@ -215,10 +215,10 @@ func (l *Ledger) Done(id, outcome string) (Item, error) {
 
 // Answer records value on a relay item and sets answeredBy to human.
 // value is an option key, or free text when the item allows it.
+// Free text is stored as given, including quotes and punctuation.
 // A type-in, withdrawn, or done item is refused.
 func (l *Ledger) Answer(id, value string) (Item, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	if strings.TrimSpace(value) == "" {
 		return Item{}, fmt.Errorf("decide answer is empty")
 	}
 	var updated Item
@@ -233,12 +233,16 @@ func (l *Ledger) Answer(id, value string) (Item, error) {
 		if it.State == StateWithdrawn || it.State == StateDone {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
-		if !hasOption(it, value) && !it.FreeText {
-			return fmt.Errorf("decide answer %q is not an option", value)
+		stored := value
+		if !it.FreeText {
+			stored = strings.TrimSpace(value)
+			if !hasOption(it, stored) {
+				return fmt.Errorf("decide answer %q is not an option", stored)
+			}
 		}
 		it.State = StateAnswered
 		it.AnsweredAt = l.clock().UTC()
-		it.Answer = &Answer{Value: value, AnsweredBy: "human"}
+		it.Answer = &Answer{Value: stored, AnsweredBy: "human"}
 		updated = *it
 		return nil
 	})
