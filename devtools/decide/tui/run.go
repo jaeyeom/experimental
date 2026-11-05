@@ -27,22 +27,31 @@ func Run(opts Options) error {
 	if err != nil {
 		return err
 	}
-	restore, err := makeRaw(opts.In)
+	restore, raw, err := makeRaw(opts.In)
 	if err != nil {
 		return err
 	}
 	defer restore()
+	if raw {
+		if _, err := io.WriteString(opts.Out, mouseOn); err != nil {
+			return fmt.Errorf("enable decide mouse: %w", err)
+		}
+		defer func() { _, _ = io.WriteString(opts.Out, mouseOff) }()
+	}
+	if rows := termRows(opts.In); rows > 0 {
+		m.height = rows
+	}
 
-	keys := make(chan byte, 8)
+	events := make(chan termEvent, 8)
 	readErr := make(chan error, 1)
-	go readKeys(opts.In, keys, readErr)
+	go readEvents(opts.In, events, readErr)
 	ticker := time.NewTicker(opts.Interval)
 	defer ticker.Stop()
 	for {
 		if err := WriteFrame(opts.Out, m.View()); err != nil {
 			return err
 		}
-		quit, err := waitEvent(m, ticker, keys, readErr)
+		quit, err := waitEvent(m, ticker, events, readErr)
 		if err != nil || quit {
 			return err
 		}
@@ -63,10 +72,20 @@ func prepare(opts Options) (*Model, error) {
 	return m, nil
 }
 
-func waitEvent(m *Model, ticker *time.Ticker, keys <-chan byte, readErr <-chan error) (bool, error) {
+func waitEvent(m *Model, ticker *time.Ticker, events <-chan termEvent, readErr <-chan error) (bool, error) {
 	select {
-	case b := <-keys:
-		return m.Key(rune(b))
+	case ev := <-events:
+		if ev.mouse {
+			if ev.wheel != 0 {
+				m.Wheel(ev.wheel > 0)
+				return false, nil
+			}
+			if !ev.press {
+				return false, nil
+			}
+			return false, m.Click(ev.x, ev.y)
+		}
+		return m.Key(ev.key)
 	case <-ticker.C:
 		return false, m.Reload()
 	case err := <-readErr:
@@ -74,19 +93,5 @@ func waitEvent(m *Model, ticker *time.Ticker, keys <-chan byte, readErr <-chan e
 			return true, nil
 		}
 		return false, fmt.Errorf("read decide inbox key: %w", err)
-	}
-}
-
-func readKeys(in io.Reader, keys chan<- byte, readErr chan<- error) {
-	buf := make([]byte, 1)
-	for {
-		n, err := in.Read(buf)
-		if n == 1 {
-			keys <- buf[0]
-		}
-		if err != nil {
-			readErr <- err
-			return
-		}
 	}
 }
