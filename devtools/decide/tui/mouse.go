@@ -96,7 +96,7 @@ func (m *Model) hit(h hit) error {
 	if m.hitCompose(h) {
 		return nil
 	}
-	m.composing = false
+	m.blurCompose()
 	switch h.kind {
 	case hitFolder:
 		return m.showFolder(h.n)
@@ -130,7 +130,7 @@ func (m *Model) hitCompose(h hit) bool {
 		}
 		return true
 	case hitCompose:
-		m.composing = true
+		m.focusCompose()
 		return true
 	default:
 		return false

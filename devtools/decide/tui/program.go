@@ -10,8 +10,7 @@ import (
 )
 
 // inputMsg is one event from the existing reader. Mouse parsing stays here
-// until the bubbletea mouse issue replaces it. Compose keys stay here until
-// the compose field issue replaces that view.
+// until the bubbletea mouse issue replaces it.
 type inputMsg struct {
 	ev termEvent
 }

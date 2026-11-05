@@ -17,6 +17,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//devtools/decide:go_default_library",
+        "@com_github_charmbracelet_bubbles//textarea:go_default_library",
         "@com_github_charmbracelet_bubbles//textinput:go_default_library",
         "@com_github_charmbracelet_bubbletea//:go_default_library",
         "@com_github_charmbracelet_lipgloss//:go_default_library",

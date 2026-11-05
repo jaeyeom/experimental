@@ -1178,18 +1178,21 @@ func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
 		t.Fatalf("closed view = %s", m.View())
 	}
 
-	m.composing = true
-	m.note = "keep"
-	press(t, m, "?\r")
-	if m.note != "keep" || !m.help {
-		t.Fatalf("enter while open note %q help %v", m.note, m.help)
+	if _, err := m.Key('c'); err != nil {
+		t.Fatal(err)
 	}
-	press(t, m, "\r?")
-	if m.help || m.note != "keep" {
-		t.Fatalf("after close note %q help %v", m.note, m.help)
+	if !m.composing || !m.noteField.Focused() {
+		t.Fatal("c did not focus the compose textarea")
 	}
-	if !strings.Contains(m.View(), "compose ›") {
-		t.Fatalf("compose missing after close\n%s", m.View())
+	press(t, m, "?")
+	if m.help || m.note != "?" || !strings.Contains(m.View(), "compose › ?_") {
+		t.Fatalf("focused ? note %q help %v\n%s", m.note, m.help, m.View())
+	}
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+	if m.composing || m.note != "?" || !strings.Contains(m.View(), "compose (c to type, ] or click to pick target):") {
+		t.Fatalf("esc note %q composing %v\n%s", m.note, m.composing, m.View())
 	}
 
 	press(t, m, "?")
@@ -1496,6 +1499,81 @@ func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
 	}
 	if got.State != decide.StateOpen || got.Outcome != "" {
 		t.Fatalf("outcome keys marked done: %+v", got)
+	}
+}
+
+func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	relay := mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	m := New(dir)
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-secret"}, {Name: "beta", Pane: "pane-2"}}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	folder := m.folder
+	m = updateRune(t, m, 'c')
+	if !m.composing || !m.noteField.Focused() {
+		t.Fatal("c did not focus the compose textarea")
+	}
+	m = updateRune(t, m, '\x1b')
+	m = updateRune(t, m, '\r')
+	row := screenRow(m.View(), "compose (")
+	if err := m.Click(1, row); err != nil {
+		t.Fatal(err)
+	}
+	if !m.composing || !m.noteField.Focused() {
+		t.Fatal("click did not focus the compose textarea")
+	}
+	for _, r := range "A?1" {
+		m = updateRune(t, m, r)
+	}
+	if m.note != "A?1" || m.noteField.Value() != "A?1" || m.help || m.folder != folder {
+		t.Fatalf("note %q field %q help %v folder %d", m.note, m.noteField.Value(), m.help, m.folder)
+	}
+	if !strings.Contains(m.View(), "compose › A?1_  Enter send · Esc cancel · Tab target") {
+		t.Fatalf("focused line\n%s", m.View())
+	}
+	got, err := led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || got.Answer != nil {
+		t.Fatalf("focused keys triggered an answer: %+v", got)
+	}
+	m = updateRune(t, m, ']')
+	if m.note != "A?1" || m.target != 1 || !strings.Contains(m.View(), "to: beta ▸") {
+		t.Fatalf("target cycle note %q target %d\n%s", m.note, m.target, m.View())
+	}
+	m = updateRune(t, m, '\t')
+	if m.note != "A?1" || m.target != 0 || !strings.Contains(m.View(), "to: alpha ▸") {
+		t.Fatalf("tab cycle note %q target %d\n%s", m.note, m.target, m.View())
+	}
+	m = updateRune(t, m, '\x1b')
+	if m.composing || m.noteField.Focused() || m.note != "A?1" {
+		t.Fatalf("esc composing %v focused %v note %q", m.composing, m.noteField.Focused(), m.note)
+	}
+	if err := m.Click(1, screenRow(m.View(), "compose (")); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	m.runSend = func(argv []string) error {
+		sent = append([]string(nil), argv...)
+		return nil
+	}
+	m = updateRune(t, m, '\r')
+	if m.status != "sent to alpha" || m.note != "" || m.noteField.Value() != "" || m.composing {
+		t.Fatalf("status %q note %q field %q composing %v", m.status, m.note, m.noteField.Value(), m.composing)
+	}
+	if len(sent) == 0 || sent[len(sent)-1] != "A?1" || strings.Contains(m.View(), "pane-secret") {
+		t.Fatalf("argv %#v\n%s", sent, m.View())
 	}
 }
 
