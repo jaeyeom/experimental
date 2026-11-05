@@ -80,7 +80,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, fmt.Errorf("decide directory: %w", err), 1)
 	}
-	cfg, err := loadConfig()
+	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -96,7 +96,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func inboxTargets(cfg fileConfig) []tui.Target {
+func inboxTargets(cfg decide.Config) []tui.Target {
 	if len(cfg.Targets) == 0 {
 		return nil
 	}
@@ -131,7 +131,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
-	cfg, err := loadConfig()
+	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -231,7 +231,7 @@ func cmdAnswer(args []string, stdout, stderr io.Writer) int {
 	if answered.Kind != decide.KindRelay {
 		return 0
 	}
-	if err := notifyAnswer(&answered, stderr); err != nil {
+	if err := decide.Notify(&answered, stderr); err != nil {
 		return fail(stderr, err, 1)
 	}
 	return 0

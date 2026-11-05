@@ -17,6 +17,21 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "decide-tui-config")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tui config dir: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("XDG_CONFIG_HOME", dir); err != nil {
+		fmt.Fprintf(os.Stderr, "tui config env: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 func TestInboxShowsOpenItemsInOrderAndBoldsUnread(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -1098,6 +1113,157 @@ func TestSGRClickAndWheel(t *testing.T) {
 	if !wheel.mouse || wheel.wheel != 1 {
 		t.Fatalf("wheel = %+v", wheel)
 	}
+}
+
+func TestInboxRelayAnswerRunsNotifyOnce(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+	logPath := filepath.Join(dir, "notify.log")
+	installTUINotifier(t, logPath, false)
+	writeTUINotifyConfig(t, cfgDir, "notifier", "default-pane")
+
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question:   "pick one",
+		Owner:      "ada",
+		Kind:       decide.KindRelay,
+		State:      decide.StateOpen,
+		NotifyPane: "pane-9",
+		Options:    []decide.Option{{Key: "a", Label: "Alpha"}, {Key: "b", Label: "Beta"}},
+		CreatedAt:  time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\r1")
+	want := []string{item.ID, "ada", "pane-9", "a"}
+	if got := notifyLog(t, logPath); !sameLines(got, want) {
+		t.Fatalf("notify log = %#v", got)
+	}
+	saved, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.State != decide.StateAnswered || saved.Answer == nil || saved.Answer.Value != "a" {
+		t.Fatalf("answer = %+v state %s", saved.Answer, saved.State)
+	}
+
+	typeIn := mustCreate(t, led, &decide.Item{
+		Question: "type this",
+		Owner:    "ada",
+		Kind:     decide.KindTypeIn,
+		State:    decide.StateOpen,
+		TypeText: "ship it",
+		Where:    "the pane",
+	})
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\retyped it\r")
+	if got := notifyLog(t, logPath); !sameLines(got, want) {
+		t.Fatalf("type-in ran notify: %#v", got)
+	}
+	done, err := led.Get(typeIn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.State != decide.StateDone || done.Outcome != "typed it" {
+		t.Fatalf("done = state %s outcome %q", done.State, done.Outcome)
+	}
+}
+
+func TestInboxNotifyFailureKeepsAnswer(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgDir)
+	installTUINotifier(t, filepath.Join(dir, "notify.log"), true)
+	writeTUINotifyConfig(t, cfgDir, "notifier", "pane")
+
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question:  "keep me",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+		CreatedAt: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "\r1")
+	if !strings.Contains(m.View(), "notify") {
+		t.Fatalf("view did not show the notify failure\n%s", m.View())
+	}
+	saved, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.State != decide.StateAnswered || saved.Answer == nil || saved.Answer.Value != "a" {
+		t.Fatalf("answer was not kept: %+v state %s", saved.Answer, saved.State)
+	}
+}
+
+func installTUINotifier(t *testing.T, logPath string, fail bool) {
+	t.Helper()
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$DECIDE_ID\" >> '" + logPath + "'\n" +
+		"printf '%s\\n' \"$DECIDE_OWNER\" >> '" + logPath + "'\n" +
+		"printf '%s\\n' \"$DECIDE_PANE\" >> '" + logPath + "'\n" +
+		"printf '%s\\n' \"$DECIDE_ANSWER\" >> '" + logPath + "'\n"
+	if fail {
+		script += "exit 1\n"
+	}
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "notifier"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func writeTUINotifyConfig(t *testing.T, cfgDir, template, pane string) {
+	t.Helper()
+	dir := filepath.Join(cfgDir, "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]string{
+		"notifyTemplate": template,
+		"notifyPane":     pane,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), append(body, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func notifyLog(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
+func sameLines(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func openLedger(t *testing.T, dir string) *decide.Ledger {

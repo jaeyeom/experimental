@@ -331,11 +331,17 @@ func (m *Model) writeAnswer(value string) error {
 		return err
 	}
 	id := m.detail.ID
-	if _, err := led.Answer(id, value); err != nil {
+	updated, err := led.Answer(id, value)
+	if err != nil {
 		m.status = err.Error()
 		return nil
 	}
 	m.status = "answered " + id
+	if updated.Kind == decide.KindRelay {
+		if err := decide.Notify(&updated, io.Discard); err != nil {
+			m.status = err.Error()
+		}
+	}
 	m.backToList()
 	return m.Reload()
 }

@@ -459,7 +459,7 @@ func TestLoadConfigComposeTargets(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := loadConfig()
+	cfg, err := decide.LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +490,7 @@ func writeNotifyConfig(t *testing.T, template, pane string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body, err := json.Marshal(fileConfig{NotifyTemplate: template, NotifyPane: pane})
+	body, err := json.Marshal(decide.Config{NotifyTemplate: template, NotifyPane: pane})
 	if err != nil {
 		t.Fatal(err)
 	}
