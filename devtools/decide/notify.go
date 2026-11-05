@@ -87,14 +87,17 @@ func Notify(item *Item, out io.Writer) error {
 		answer = item.Answer.Value
 	}
 	// The template is operator config. The answer stays in the environment.
+	// Parent values come first. os/exec keeps the last value for a duplicate
+	// key, so the item id, saved answer, owner, and pane override a parent
+	// DECIDE_ID, DECIDE_ANSWER, DECIDE_OWNER, or DECIDE_PANE.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command("sh", "-c", cfg.NotifyTemplate) //nolint:gosec // G204: the notify template is operator config; fields are environment variables
-	cmd.Env = append([]string{
-		"DECIDE_ID=" + item.ID,
-		"DECIDE_ANSWER=" + answer,
-		"DECIDE_OWNER=" + item.Owner,
-		"DECIDE_PANE=" + pane,
-	}, os.Environ()...)
+	cmd.Env = append(os.Environ(),
+		"DECIDE_ID="+item.ID,
+		"DECIDE_ANSWER="+answer,
+		"DECIDE_OWNER="+item.Owner,
+		"DECIDE_PANE="+pane,
+	)
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {

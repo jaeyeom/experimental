@@ -248,6 +248,34 @@ func TestNotifyPassesAnswerInEnvironment(t *testing.T) {
 	}
 }
 
+func TestParentDecideEnvDoesNotOverrideNotify(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DECIDE_ID", "stale")
+	t.Setenv("DECIDE_ANSWER", "stale")
+	t.Setenv("DECIDE_OWNER", "stale")
+	t.Setenv("DECIDE_PANE", "stale")
+	logPath := filepath.Join(state, "notify.log")
+	installEnvNotifier(t, logPath)
+	writeNotifyConfig(t, "notifier", "default-pane")
+
+	id := askRelay(t, []string{"--notify-pane", "pane-9"}, "parent env")
+	if _, stderr, code := runCLI("answer", id, "saved"); code != 0 {
+		t.Fatalf("answer code = %d\n%s", code, stderr)
+	}
+	got := notifyLog(t, logPath)
+	want := []string{id, "ada", "pane-9", "saved"}
+	if len(got) != len(want) {
+		t.Fatalf("notify log = %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("notify log = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestNotifyFailureKeepsAnswer(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)

@@ -1,0 +1,14 @@
+#+TITLE: decide
+#+DATE: 2026-11-05
+
+* Notify
+
+After a relay answer is saved, ~notifyTemplate~ runs as a shell command.
+The four environment variables are how a template reads the answer.
+The template reads ~"$DECIDE_ID"~, ~"$DECIDE_ANSWER"~, ~"$DECIDE_OWNER"~,
+and ~"$DECIDE_PANE"~: the item id, the saved answer, the item owner, and
+the notify pane. An item pane overrides the config pane.
+
+~{id}~, ~{answer}~, ~{owner}~, and ~{pane}~ are not substituted. Braces
+are not replaced. An old ~notifyTemplate~ that still uses those braces
+runs the command and does not insert the answer.
