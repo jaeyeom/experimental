@@ -1,10 +1,11 @@
 package tui
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Options configure Run. In and Out default to the caller. Interval defaults
@@ -22,7 +23,8 @@ type Options struct {
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
-// including writes from another process.
+// including writes from another process. The screen is a bubbletea program.
+// The existing reader still feeds keys and mouse until those handlers move.
 func Run(opts Options) error {
 	if opts.Interval <= 0 {
 		opts.Interval = DefaultInterval
@@ -30,6 +32,10 @@ func Run(opts Options) error {
 	m, err := prepare(opts)
 	if err != nil {
 		return err
+	}
+	m.interval = opts.Interval
+	if rows := termRows(opts.In); rows > 0 {
+		m.height = rows
 	}
 	restore, raw, err := makeRaw(opts.In)
 	if err != nil {
@@ -42,24 +48,27 @@ func Run(opts Options) error {
 		}
 		defer func() { _, _ = io.WriteString(opts.Out, modifyOff+mouseOff) }()
 	}
-	if rows := termRows(opts.In); rows > 0 {
-		m.height = rows
-	}
 
+	p := tea.NewProgram(m,
+		tea.WithInput(nil),
+		tea.WithOutput(opts.Out),
+		tea.WithAltScreen(),
+		tea.WithoutSignalHandler(),
+	)
 	events := make(chan termEvent, 8)
 	readErr := make(chan error, 1)
 	go readEvents(opts.In, events, readErr)
-	ticker := time.NewTicker(opts.Interval)
-	defer ticker.Stop()
-	for {
-		if err := WriteFrame(opts.Out, m.View()); err != nil {
-			return err
-		}
-		quit, err := waitEvent(m, ticker, events, readErr)
-		if err != nil || quit {
-			return err
-		}
+	go forwardInputs(p, events, readErr)
+
+	final, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("decide inbox: %w", err)
 	}
+	done, ok := final.(*Model)
+	if ok && done.runErr != nil {
+		return done.runErr
+	}
+	return nil
 }
 
 func prepare(opts Options) (*Model, error) {
@@ -76,36 +85,4 @@ func prepare(opts Options) (*Model, error) {
 		return nil, err
 	}
 	return m, nil
-}
-
-func waitEvent(m *Model, ticker *time.Ticker, events <-chan termEvent, readErr <-chan error) (bool, error) {
-	select {
-	case ev := <-events:
-		if ev.mouse {
-			if ev.wheel != 0 {
-				m.Wheel(ev.wheel > 0)
-				return false, nil
-			}
-			if !ev.press {
-				return false, nil
-			}
-			return false, m.Click(ev.x, ev.y)
-		}
-		if ev.shiftEnter {
-			m.ShiftEnter()
-			return false, nil
-		}
-		if ev.shiftTab {
-			m.ShiftTab()
-			return false, nil
-		}
-		return m.Key(ev.key)
-	case <-ticker.C:
-		return false, m.Reload()
-	case err := <-readErr:
-		if errors.Is(err, io.EOF) {
-			return true, nil
-		}
-		return false, fmt.Errorf("read decide inbox key: %w", err)
-	}
 }

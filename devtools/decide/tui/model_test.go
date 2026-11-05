@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
@@ -523,12 +524,13 @@ func TestWheelScrollsOpenItem(t *testing.T) {
 	press(t, m, "\r")
 	view := m.View()
 	lines := strings.Split(view, "\n")
-	if len(lines) < 2 || lines[1] != item.ID {
+	if len(lines) < 2 || visibleLine(lines[1]) != item.ID {
 		t.Fatalf("detail top = %q\n%s", lines[1], view)
 	}
 	m.Wheel(true)
 	lines = strings.Split(m.View(), "\n")
-	if lines[1] == item.ID || lines[1] != "which way" {
+	top := visibleLine(lines[1])
+	if top == item.ID || top != "which way" {
 		t.Fatalf("scrolled detail top = %q", lines[1])
 	}
 }
@@ -1404,6 +1406,152 @@ func mustCreate(t *testing.T, led *decide.Ledger, item *decide.Item) decide.Item
 	return got
 }
 
+func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	relay := mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  true,
+		CreatedAt: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	typeIn := mustCreate(t, led, &decide.Item{
+		Question:  "type this",
+		Owner:     "ada",
+		Kind:      decide.KindTypeIn,
+		State:     decide.StateOpen,
+		TypeText:  "ship it",
+		Where:     "the pane",
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	cursor := m.cursor
+	m = updateRune(t, m, '?')
+	if !m.help || m.cursor != cursor {
+		t.Fatalf("help %v cursor %d", m.help, m.cursor)
+	}
+	m = updateRune(t, m, '?')
+	if m.help {
+		t.Fatal("overlay stayed open")
+	}
+
+	m = updateRune(t, m, '\r')
+	m = updateRune(t, m, '0')
+	if !m.answerFocus || !m.free.Focused() {
+		t.Fatal("free text is not a focused text input")
+	}
+	for _, r := range "A?1" {
+		m = updateRune(t, m, r)
+	}
+	if m.draft != "A?1" || m.free.Value() != "A?1" || m.help || m.cursor != cursor {
+		t.Fatalf("free text draft %q help %v cursor %d", m.draft, m.help, m.cursor)
+	}
+	got, err := led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer != nil || m.mode != modeDetail {
+		t.Fatalf("focused keys triggered an answer: %+v mode %d", got.Answer, m.mode)
+	}
+	if !strings.Contains(m.View(), "0  answer:") {
+		t.Fatalf("free text is not row 0\n%s", m.View())
+	}
+
+	m = updateRune(t, m, '\x1b')
+	if m.answerFocus || m.draft != "A?1" {
+		t.Fatalf("esc focus %v draft %q", m.answerFocus, m.draft)
+	}
+	m = updateRune(t, m, '1')
+	got, err = led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.Value != "a" {
+		t.Fatalf("unfocused 1 = %+v", got.Answer)
+	}
+
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m = updateRune(t, m, '\r')
+	m = updateRune(t, m, 'e')
+	if m.mode != modeOutcome || !m.outcome.Focused() {
+		t.Fatal("outcome is not a focused text input")
+	}
+	for _, r := range "A?1" {
+		m = updateRune(t, m, r)
+	}
+	if m.draft != "A?1" || m.outcome.Value() != "A?1" || m.help {
+		t.Fatalf("outcome draft %q help %v", m.draft, m.help)
+	}
+	got, err = led.Get(typeIn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || got.Outcome != "" {
+		t.Fatalf("outcome keys marked done: %+v", got)
+	}
+}
+
+func TestRunIsBubbleTeaProgram(t *testing.T) {
+	dir := t.TempDir()
+	r, w := io.Pipe()
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(Options{Dir: dir, In: r, Out: &out, Interval: time.Hour})
+	}()
+	if _, err := w.Write([]byte{'q'}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("inbox did not quit")
+	}
+	if !strings.Contains(out.String(), "[Inbox]") {
+		t.Fatalf("bubbletea view = %q", out.String())
+	}
+}
+
+func TestProgramShiftKeysDriveCompose(t *testing.T) {
+	m := New(t.TempDir())
+	m.Targets = []Target{{Name: "alpha", Pane: "p1"}, {Name: "beta", Pane: "p2"}}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = next.(*Model)
+	if m.target != 1 || m.note != "" {
+		t.Fatalf("shift tab target %d note %q", m.target, m.note)
+	}
+	m.composing = true
+	next, _ = m.Update(inputMsg{ev: termEvent{shiftEnter: true}})
+	m = next.(*Model)
+	if m.note != "\n" {
+		t.Fatalf("shift enter note %q", m.note)
+	}
+}
+
+func updateRune(t *testing.T, m *Model, r rune) *Model {
+	t.Helper()
+	next, _ := m.Update(runeKey(r))
+	got, ok := next.(*Model)
+	if !ok {
+		t.Fatalf("update type %T", next)
+	}
+	return got
+}
+
 func screenRow(view, needle string) int {
 	for i, line := range strings.Split(view, "\n") {
 		if strings.Contains(line, needle) {
@@ -1420,6 +1568,25 @@ func press(t *testing.T, m *Model, keys string) {
 			t.Fatalf("key %q: %v", r, err)
 		}
 	}
+}
+
+func visibleLine(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			if i < len(s) {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 func lineBold(view, id string) bool {
