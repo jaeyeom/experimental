@@ -24,7 +24,7 @@ type Options struct {
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
 // including writes from another process. The screen is a bubbletea program.
-// The existing reader still feeds keys and mouse until those handlers move.
+// The existing reader still feeds keys. Pointer input is a bubbletea mouse message.
 func Run(opts Options) error {
 	if opts.Interval <= 0 {
 		opts.Interval = DefaultInterval

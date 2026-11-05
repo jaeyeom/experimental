@@ -1221,6 +1221,149 @@ func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
 	}
 }
 
+func TestBubbleTeaMouseMessages(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	older := mustCreate(t, led, &decide.Item{
+		Question:  "older row",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		Unread:    true,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	newer := mustCreate(t, led, &decide.Item{
+		Question:  "newer row",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC),
+	})
+	third := mustCreate(t, led, &decide.Item{
+		Question:  "third row",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	m.height = 6
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	view := m.View()
+	if !strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || strings.Contains(view, older.ID) {
+		t.Fatalf("initial window = %s", view)
+	}
+	m = updateMouseAt(t, m, 1, 1, tea.MouseButtonWheelDown)
+	view = m.View()
+	if strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || !strings.Contains(view, older.ID) {
+		t.Fatalf("scrolled window = %s", view)
+	}
+	m = updateMouseAt(t, m, 1, 1, tea.MouseButtonWheelUp)
+	if !strings.Contains(m.View(), third.ID) {
+		t.Fatalf("wheel up = %s", m.View())
+	}
+	m.scroll = 0
+	m.height = 0
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "older row"), tea.MouseButtonLeft)
+	got, err := led.Get(older.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Unread || got.State != decide.StateOpen || !strings.Contains(m.View(), "older row") {
+		t.Fatalf("click open = unread %v state %s\n%s", got.Unread, got.State, m.View())
+	}
+	bar := strings.Split(m.View(), "\n")[0]
+	m = updateMouseAt(t, m, visibleCol(bar, "Answered"), 1, tea.MouseButtonLeft)
+	if !strings.Contains(m.View(), "[Answered]") || strings.Contains(m.View(), "older row") {
+		t.Fatalf("folder click = %s", m.View())
+	}
+
+	relay := mustCreate(t, led, &decide.Item{
+		Question:  "ship it?",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  true,
+		CreatedAt: time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC),
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	m.folder = 0
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-secret"}, {Name: "beta", Pane: "pane-2"}}
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "ship it?"), tea.MouseButtonLeft)
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "compose ("), tea.MouseButtonLeft)
+	got, err = led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.composing || !m.noteField.Focused() || m.folder != 0 || got.Answer != nil {
+		t.Fatalf("compose click composing %v folder %d answer %+v", m.composing, m.folder, got.Answer)
+	}
+	targetRow := screenRow(m.View(), "to: ")
+	targetLine := strings.Split(m.View(), "\n")[targetRow-1]
+	m = updateMouseAt(t, m, visibleCol(targetLine, "beta"), targetRow, tea.MouseButtonLeft)
+	got, err = led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.target != 1 || !strings.Contains(m.View(), "to: beta ▸") || m.folder != 0 || got.Answer != nil {
+		t.Fatalf("target click target %d folder %d answer %+v\n%s", m.target, m.folder, got.Answer, m.View())
+	}
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "0  answer:"), tea.MouseButtonLeft)
+	got, err = led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.answerFocus || m.folder != 0 || got.Answer != nil {
+		t.Fatalf("answer focus %v folder %d answer %+v", m.answerFocus, m.folder, got.Answer)
+	}
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "1 a Alpha"), tea.MouseButtonLeft)
+	got, err = led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.answerFocus || m.folder != 0 || got.Answer != nil {
+		t.Fatalf("focused option click focus %v folder %d answer %+v", m.answerFocus, m.folder, got.Answer)
+	}
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "0  answer:"), tea.MouseButtonLeft)
+	bar = strings.Split(m.View(), "\n")[0]
+	m = updateMouseAt(t, m, visibleCol(bar, "Answered"), 1, tea.MouseButtonLeft)
+	if m.folder != 0 || !strings.Contains(m.View(), "ship it?") {
+		t.Fatalf("focused folder click folder %d\n%s", m.folder, m.View())
+	}
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "1 a Alpha"), tea.MouseButtonLeft)
+	got, err = led.Get(relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" || m.folder != 0 {
+		t.Fatalf("option click = %+v folder %d", got.Answer, m.folder)
+	}
+}
+
+func TestReaderMouseBecomesBubbleTeaMessage(t *testing.T) {
+	r, w := io.Pipe()
+	t.Cleanup(func() { _ = w.Close() })
+	events := make(chan termEvent, 2)
+	errCh := make(chan error, 1)
+	go readEvents(r, events, errCh)
+	if _, err := w.Write([]byte("\x1b[<0;4;5M\x1b[<65;1;1M")); err != nil {
+		t.Fatal(err)
+	}
+	click := mouseMessage(<-events)
+	wheel := mouseMessage(<-events)
+	if click.X != 3 || click.Y != 4 || click.Button != tea.MouseButtonLeft || click.Action != tea.MouseActionPress {
+		t.Fatalf("click = %+v", click)
+	}
+	if wheel.X != 0 || wheel.Y != 0 || wheel.Button != tea.MouseButtonWheelDown || wheel.Action != tea.MouseActionPress {
+		t.Fatalf("wheel = %+v", wheel)
+	}
+}
+
 func TestSGRClickAndWheel(t *testing.T) {
 	r, w := io.Pipe()
 	t.Cleanup(func() { _ = w.Close() })
@@ -1618,6 +1761,30 @@ func TestProgramShiftKeysDriveCompose(t *testing.T) {
 	if m.note != "\n" {
 		t.Fatalf("shift enter note %q", m.note)
 	}
+}
+
+func updateMouseAt(t *testing.T, m *Model, x, y int, button tea.MouseButton) *Model {
+	t.Helper()
+	next, _ := m.Update(tea.MouseMsg{
+		X:      x - 1,
+		Y:      y - 1,
+		Button: button,
+		Action: tea.MouseActionPress,
+	})
+	got, ok := next.(*Model)
+	if !ok {
+		t.Fatalf("update type %T", next)
+	}
+	return got
+}
+
+func visibleCol(line, needle string) int {
+	vis := visibleLine(line)
+	i := strings.Index(vis, needle)
+	if i < 0 {
+		return 0
+	}
+	return utf8.RuneCountInString(vis[:i]) + 1
 }
 
 func updateRune(t *testing.T, m *Model, r rune) *Model {
