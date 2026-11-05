@@ -1,6 +1,7 @@
 // Command decide is the decision inbox CLI.
 //
-// It stores items in the decide ledger. It does not run a notify command.
+// It stores items in the decide ledger. After a human answers a relay item,
+// it runs the notify template from config.
 package main
 
 import (
@@ -180,9 +181,33 @@ func cmdDone(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdAnswer(args []string, stdout, stderr io.Writer) int {
-	return cmdText(args, stdout, stderr, "answer", "option or text", func(led *decide.Ledger, id, text string) (decide.Item, error) {
-		return led.Answer(id, text)
+	fs, jsonOut, code := itemCmd("answer", args, stderr)
+	if fs == nil {
+		return code
+	}
+	id, text, err := twoArgs(fs.Args(), "id", "option or text")
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	var answered decide.Item
+	code = withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		item, err := led.Answer(id, text)
+		if err != nil {
+			return decide.Item{}, fmt.Errorf("answer decide item: %w", err)
+		}
+		answered = item
+		return item, nil
 	})
+	if code != 0 {
+		return code
+	}
+	if answered.Kind != decide.KindRelay {
+		return 0
+	}
+	if err := notifyAnswer(&answered, stderr); err != nil {
+		return fail(stderr, err, 1)
+	}
+	return 0
 }
 
 func cmdText(args []string, stdout, stderr io.Writer, name, textName string, fn func(*decide.Ledger, string, string) (decide.Item, error)) int {
