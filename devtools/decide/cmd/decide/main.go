@@ -67,8 +67,10 @@ func usage(w io.Writer) {
   decide answer [--json] <id> <option|text>
   decide inbox
   decide status set --agent <name> [--state working|idle|paused|blocked] <text>
+  decide status set --resource <name> free|busy [<note>]
   decide status list [--json]
   decide status clear --agent <name>
+  decide status clear --resource <name>
 `)
 }
 
@@ -92,26 +94,48 @@ func cmdStatusSet(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status set", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	agent := fs.String("agent", "", "agent name")
+	resource := fs.String("resource", "", "shared resource name")
 	state := fs.String("state", "", "working, idle, paused, or blocked")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
-	if strings.TrimSpace(*agent) == "" {
-		return fail(stderr, fmt.Errorf("decide status set requires --agent"), 2)
-	}
-	text, err := oneArg(fs.Args(), "text")
-	if err != nil {
-		return fail(stderr, err, 2)
+	hasAgent := strings.TrimSpace(*agent) != ""
+	hasResource := strings.TrimSpace(*resource) != ""
+	if hasAgent == hasResource {
+		return fail(stderr, fmt.Errorf("decide status set requires --agent or --resource"), 2)
 	}
 	board, err := openStatus()
 	if err != nil {
 		return fail(stderr, err, 1)
+	}
+	if hasResource {
+		return setResource(stdout, stderr, board, *resource, fs.Args())
+	}
+	text, err := oneArg(fs.Args(), "text")
+	if err != nil {
+		return fail(stderr, err, 2)
 	}
 	row, err := board.SetAgent(*agent, *state, text)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
 	fmt.Fprintf(stdout, "%s %s %s\n", row.Name, row.State, row.Text)
+	return 0
+}
+
+func setResource(stdout, stderr io.Writer, board *decide.Status, name string, args []string) int {
+	if len(args) < 1 || len(args) > 2 || strings.TrimSpace(args[0]) == "" {
+		return fail(stderr, fmt.Errorf("decide status set --resource requires free or busy"), 2)
+	}
+	note := ""
+	if len(args) == 2 {
+		note = args[1]
+	}
+	row, err := board.SetResource(name, args[0], note)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	fmt.Fprintln(stdout, decide.ResourceLine(row))
 	return 0
 }
 
@@ -133,17 +157,22 @@ func cmdStatusList(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	if agents == nil {
-		agents = []decide.AgentStatus{}
+	resources, err := board.Resources()
+	if err != nil {
+		return fail(stderr, err, 1)
 	}
 	if *jsonOut {
 		return writeJSON(stdout, stderr, struct {
-			Agents []decide.AgentStatus `json:"agents"`
-		}{Agents: agents})
+			Agents    []decide.AgentStatus    `json:"agents"`
+			Resources []decide.ResourceStatus `json:"resources"`
+		}{Agents: agents, Resources: resources})
 	}
 	now := time.Now()
 	for _, row := range agents {
 		fmt.Fprintf(stdout, "%s %s %s %s\n", row.Name, row.State, statusAge(now.Sub(row.UpdatedAt)), row.Text)
+	}
+	for _, row := range resources {
+		fmt.Fprintln(stdout, decide.ResourceLine(row))
 	}
 	return 0
 }
@@ -152,11 +181,14 @@ func cmdStatusClear(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status clear", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	agent := fs.String("agent", "", "agent name")
+	resource := fs.String("resource", "", "shared resource name")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
-	if strings.TrimSpace(*agent) == "" {
-		return fail(stderr, fmt.Errorf("decide status clear requires --agent"), 2)
+	hasAgent := strings.TrimSpace(*agent) != ""
+	hasResource := strings.TrimSpace(*resource) != ""
+	if hasAgent == hasResource {
+		return fail(stderr, fmt.Errorf("decide status clear requires --agent or --resource"), 2)
 	}
 	if len(fs.Args()) != 0 {
 		return fail(stderr, fmt.Errorf("decide status clear does not take arguments"), 2)
@@ -165,10 +197,16 @@ func cmdStatusClear(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	if err := board.ClearAgent(*agent); err != nil {
-		return fail(stderr, err, 1)
+	name := strings.TrimSpace(*agent)
+	clearErr := board.ClearAgent(name)
+	if hasResource {
+		name = strings.TrimSpace(*resource)
+		clearErr = board.ClearResource(name)
 	}
-	fmt.Fprintf(stdout, "cleared %s\n", strings.TrimSpace(*agent))
+	if clearErr != nil {
+		return fail(stderr, clearErr, 1)
+	}
+	fmt.Fprintf(stdout, "cleared %s\n", name)
 	return 0
 }
 

@@ -786,6 +786,52 @@ func TestStatusSetListAndClearAgent(t *testing.T) {
 	}
 }
 
+func TestStatusResourceFreeBusyAndClear(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	stdout, stderr, code := runCLI("status", "set", "--resource", "workspace", "free", "paused")
+	if code != 0 {
+		t.Fatalf("set code = %d\n%s", code, stderr)
+	}
+	if stdout != "workspace: free (paused)\n" {
+		t.Fatalf("set out = %q", stdout)
+	}
+	if _, stderr, code = runCLI("status", "set", "--resource", "workspace", "maybe"); code == 0 {
+		t.Fatalf("invalid availability accepted\n%s", stderr)
+	}
+
+	stdout, stderr, code = runCLI("status", "list")
+	if code != 0 {
+		t.Fatalf("list code = %d\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "workspace: free (paused)") {
+		t.Fatalf("list = %q", stdout)
+	}
+
+	stdout, stderr, code = runCLI("status", "list", "--json")
+	if code != 0 {
+		t.Fatalf("json code = %d\n%s", code, stderr)
+	}
+	var board struct {
+		Resources []decide.ResourceStatus `json:"resources"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &board); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if len(board.Resources) != 1 || board.Resources[0].Availability != "free" || board.Resources[0].Note != "paused" || board.Resources[0].UpdatedAt.IsZero() {
+		t.Fatalf("resources = %+v", board.Resources)
+	}
+
+	if _, stderr, code = runCLI("status", "clear", "--resource", "workspace"); code != 0 {
+		t.Fatalf("clear code = %d\n%s", code, stderr)
+	}
+	stdout, _, code = runCLI("status", "list")
+	if code != 0 || strings.Contains(stdout, "workspace") {
+		t.Fatalf("after clear %d %q", code, stdout)
+	}
+}
+
 func runCLI(args ...string) (string, string, int) {
 	var stdout, stderr bytes.Buffer
 	code := run(args, &stdout, &stderr)
