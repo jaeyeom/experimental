@@ -7,6 +7,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'decide)
 
 (ert-deftest decide-answer-args-keep-raw-text ()
@@ -104,6 +105,124 @@
       (setq decide--status-timer nil))
     (when (get-buffer "*decide status*")
       (kill-buffer "*decide status*"))))
+
+(ert-deftest decide-plain-g-still-refreshes-without-evil-keys ()
+  (should (eq (lookup-key decide-list-mode-map (kbd "g")) 'decide-refresh))
+  (should (eq (lookup-key decide-status-mode-map (kbd "g")) 'decide-status-refresh)))
+
+(ert-deftest decide-revert-keeps-the-same-item ()
+  (let ((rows '((("id" . "D-1") ("owner" . "ada") ("question" . "one"))
+                (("id" . "D-2") ("owner" . "bea") ("question" . "two")))))
+    (cl-letf (((symbol-function 'decide--json)
+               (lambda (_args) rows)))
+      (unwind-protect
+          (progn
+            (decide-list "inbox")
+            (with-current-buffer "*decide*"
+              (decide--goto-id "D-2")
+              (setq rows (reverse rows))
+              (revert-buffer)
+              (should (string-prefix-p
+                       "D-2"
+                       (buffer-substring-no-properties
+                        (line-beginning-position) (line-end-position)))))
+            (let ((item '(("id" . "D-9")
+                          ("owner" . "ada")
+                          ("state" . "open")
+                          ("kind" . "relay")
+                          ("question" . "keep this line\nstill here"))))
+              (setq rows nil)
+              (cl-letf (((symbol-function 'decide--json)
+                         (lambda (_args) item)))
+                (decide-show-id "D-9")
+                (with-current-buffer "*decide D-9*"
+                  (search-backward "keep")
+                  (let ((pos (point)))
+                    (revert-buffer)
+                    (should (= (point) pos))
+                    (should (eq revert-buffer-function #'decide-item-revert))))))
+            (with-current-buffer (get-buffer-create "*decide status*")
+              (decide-status-mode)
+              (should (eq revert-buffer-function #'decide-status-revert))
+              (cl-letf (((symbol-function 'decide--json)
+                         (lambda (_args)
+                           '(("agents" .
+                              ((("name" . "alpha")
+                                ("state" . "working")
+                                ("text" . "fixing")
+                                ("updatedAt" . "2026-11-06T12:00:00Z"))))))))
+                (decide-status-refresh)
+                (goto-char (point-min))
+                (search-forward "alpha")
+                (let ((pos (point)))
+                  (revert-buffer)
+                  (should (= (point) pos))))))
+        (dolist (name '("*decide*" "*decide D-9*" "*decide status*"))
+          (when (get-buffer name)
+            (kill-buffer name)))))))
+
+(defun decide-test--add-elpa (file)
+  "Add the directory of FILE from a user elpa tree to `load-path'."
+  (dolist (root (list (expand-file-name "~/.config/emacs/elpa")
+                      (expand-file-name "~/.emacs.d/elpa")))
+    (when (file-directory-p root)
+      (dolist (path (directory-files-recursively
+                     root (concat "\\`" (regexp-quote file) "\\'")))
+        (add-to-list 'load-path (file-name-directory path))))))
+
+(defun decide-test--evil-ready-p ()
+  "Non-nil when evil and goto-chg can be loaded."
+  (decide-test--add-elpa "goto-chg.el")
+  (decide-test--add-elpa "evil.el")
+  (and (require 'goto-chg nil t)
+       (require 'evil nil t)))
+
+(ert-deftest decide-evil-normal-state-keys ()
+  (if (not (decide-test--evil-ready-p))
+      (progn
+        (should (eq (lookup-key decide-list-mode-map (kbd "g")) 'decide-refresh))
+        (should (assq 'evil after-load-alist)))
+    (should (eq (evil-initial-state 'decide-list-mode) 'emacs))
+    (should (eq (evil-initial-state 'decide-item-mode) 'emacs))
+    (should (eq (evil-initial-state 'decide-status-mode) 'emacs))
+    (dolist (mode '(decide-list-mode decide-item-mode decide-status-mode))
+      (with-temp-buffer
+        (funcall mode)
+        (evil-local-mode 1)
+        (evil-normal-state)
+        (let ((inhibit-read-only t))
+          (insert "one\ntwo\nthree\n"))
+        (goto-char (point-min))
+        (should (eq (key-binding (kbd "j")) #'next-line))
+        (should (eq (key-binding (kbd "k")) #'previous-line))
+        (should (eq (key-binding (kbd "q")) #'quit-window))
+        (should (eq (key-binding (kbd "g r")) #'revert-buffer))
+        (should (eq (key-binding (kbd "g i")) #'decide-list-inbox))
+        (should (eq (key-binding (kbd "g a")) #'decide-list-answered))
+        (should (eq (key-binding (kbd "g d")) #'decide-list-done))
+        (should (eq (key-binding (kbd "g w")) #'decide-list-withdrawn))
+        (should (eq (key-binding (kbd "g s")) #'decide-status))
+        (call-interactively (key-binding (kbd "j")))
+        (should (= (line-number-at-pos) 2))
+        (call-interactively (key-binding (kbd "k")))
+        (should (= (line-number-at-pos) 1))))
+    (let ((buf (generate-new-buffer "*decide quit*")))
+      (with-current-buffer buf
+        (decide-list-mode))
+      (pop-to-buffer buf)
+      (evil-local-mode 1)
+      (evil-normal-state)
+      (should (eq (key-binding (kbd "q")) #'quit-window))
+      (call-interactively (key-binding (kbd "q")))
+      (should (buffer-live-p buf))
+      (should-not (eq (current-buffer) buf))
+      (should-not (get-buffer-window buf))
+      (kill-buffer buf))
+    (with-temp-buffer
+      (decide-list-mode)
+      (evil-local-mode 1)
+      (should (evil-emacs-state-p))
+      (should (eq (key-binding (kbd "g")) #'decide-refresh)))))
 
 (provide 'decide-test)
 
