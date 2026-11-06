@@ -1025,6 +1025,107 @@ func TestQueueOtherEnqueueErrorDoesNotFallBack(t *testing.T) {
 	}
 }
 
+func TestWatchAndRCAPrintLoadingStepTail(t *testing.T) {
+	const fetchLine = "E: Failed to fetch http://snapshot.example/pool/main/a/acme/acme_1.0_amd64.deb  500  Internal Server Error"
+	evidence := func(t *testing.T) github.FailureEvidence {
+		t.Helper()
+		return loadingStepEvidence(t)
+	}
+	t.Run("watch", func(t *testing.T) {
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: evidence(t)}
+		var err error
+		output := captureStdout(t, func() {
+			err = watchPullRequests(client, []string{pr.Ref.Raw}, watchOptions{
+				timeout: time.Minute,
+				cfg:     queueConfig(),
+			})
+		})
+		assertWatchExit(t, err, 2)
+		for _, want := range []string{fetchLine, "acme/widgets#12 failed_checks"} {
+			if !strings.Contains(output, want) {
+				t.Errorf("output missing %q:\n%s", want, output)
+			}
+		}
+		if strings.Contains(output, "canceled-only-line") || strings.Contains(output, "load line 0\n") {
+			t.Fatalf("tail was not the failing step:\n%s", output)
+		}
+	})
+	t.Run("rca", func(t *testing.T) {
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: evidence(t)}
+		path := writeRCAFile(t, "mirror returned 500\n")
+		output := captureStdout(t, func() {
+			if err := postRCA(client, rcaConfig(), []string{"acme/widgets#12", "--class", "infra", "--file", path}); err != nil {
+				t.Fatalf("postRCA() error = %v", err)
+			}
+		})
+		for _, want := range []string{fetchLine, "Commented on acme/widgets#12."} {
+			if !strings.Contains(output, want) {
+				t.Errorf("output missing %q:\n%s", want, output)
+			}
+		}
+		if strings.Contains(output, "canceled-only-line") || strings.Contains(output, "load line 0\n") {
+			t.Fatalf("tail was not the failing step:\n%s", output)
+		}
+		if strings.Contains(client.comments[0], "snapshot.example") || strings.Contains(client.comments[0], "canceled-only-line") {
+			t.Fatalf("comment included the log: %q", client.comments[0])
+		}
+	})
+}
+
+func loadingStepEvidence(t *testing.T) github.FailureEvidence {
+	t.Helper()
+	t.Setenv(circleTokenEnv, "")
+	withCircleCLI(t, true)
+	withCircleGet(t, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("circleci http api was called")
+		return nil, nil
+	})
+	const workflowID = "11111111-1111-1111-1111-111111111111"
+	const jobID = "6bde3c42-8312-4297-be30-57e10dd84d18"
+	var failed strings.Builder
+	for i := 0; i < 25; i++ {
+		fmt.Fprintf(&failed, "load line %d\n", i)
+	}
+	failed.WriteString("E: Failed to fetch http://snapshot.example/pool/main/a/acme/acme_1.0_amd64.deb  500  Internal Server Error\n")
+	outputBody, err := json.Marshal(map[string]any{
+		"steps": []map[string]any{
+			{"name": "Spin up environment", "phase": "ended", "outcome": "succeeded", "output": "booted\n"},
+			{"name": "Install packages", "phase": "started", "outcome": "", "exit_code": 100, "output": failed.String()},
+			{"name": "Test", "phase": "ended", "outcome": "canceled", "output": strings.Repeat("canceled-only-line\n", 30)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name != "circleci" {
+			t.Fatalf("command = %s %v", name, args)
+		}
+		switch {
+		case len(args) >= 2 && args[0] == "workflow" && args[1] == "get":
+			if !circleArgIs(args, workflowID) {
+				t.Fatalf("args = %v", args)
+			}
+			return `{"jobs":[{"id":"` + jobID + `","name":"unit","outcome":"failed"}]}`, nil
+		case len(args) >= 3 && args[0] == "job" && args[1] == "output" && args[2] == "list":
+			if !circleArgIs(args, jobID) {
+				t.Fatalf("args = %v", args)
+			}
+			return string(outputBody), nil
+		default:
+			t.Fatalf("args = %v", args)
+			return "", nil
+		}
+	})
+	return github.FailureEvidence{
+		Name:        "ci/circleci: unit",
+		TargetURL:   "https://circleci.com/gh/acme/widgets/4242",
+		CheckRunURL: "https://app.circleci.com/pipelines/github/acme/widgets/42/workflow/" + workflowID,
+	}
+}
+
 func TestWatchIgnoresTransientNotInQueue(t *testing.T) {
 	base := readyPR()
 	base.InMergeQueue = false

@@ -35,6 +35,14 @@ type queueAPI interface {
 
 type watchAPI interface {
 	LoadPullRequest(ref string) (github.QueuePullRequest, error)
+	removalAPI
+}
+
+// removalAPI loads the failing check and, for a merge conflict, the pull
+// request that landed first. queue, watch, and rca all use it.
+type removalAPI interface {
+	FailureEvidence(owner, repo, sha string) (github.FailureEvidence, error)
+	LandedFirst(owner, repo, sha string, self int) (github.StackPR, bool, error)
 }
 
 type watchOptions struct {
@@ -84,7 +92,7 @@ func queueCommandHelp() string {
 }
 
 func watchCommandHelp() string {
-	return "Wait until each pull request merges, is ejected, or times out (owner/repo#n, a URL, or a bare number). --timeout is a Go duration (default 30m). Does not read stdin and does not need a terminal"
+	return "Wait until each pull request merges, is ejected, or times out (owner/repo#n, a URL, or a bare number). On an ejection, prints the failing step's log tail. --timeout is a Go duration (default 30m). Does not read stdin and does not need a terminal"
 }
 
 func timeoutHelp() string {
@@ -425,7 +433,7 @@ func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []st
 	return nil
 }
 
-func printRemovalEvidence(client queueAPI, cfg *config.Config, pr github.QueuePullRequest) error {
+func printRemovalEvidence(client removalAPI, cfg *config.Config, pr github.QueuePullRequest) error {
 	event, ok := latestQueueEvent(pr.Events)
 	if !ok || event.Kind != github.QueueEventRemoved {
 		return nil
@@ -455,7 +463,7 @@ func printRemovalEvidence(client queueAPI, cfg *config.Config, pr github.QueuePu
 	return printLandedFirst(client, pr, event.CommitSHA)
 }
 
-func printLandedFirst(client queueAPI, pr github.QueuePullRequest, sha string) error {
+func printLandedFirst(client removalAPI, pr github.QueuePullRequest, sha string) error {
 	landed, found, err := client.LandedFirst(pr.Ref.Owner, pr.Ref.Repo, sha, pr.Ref.Number)
 	if err != nil {
 		return fmt.Errorf("landed first for %s: %w", pr.Ref.Raw, err)
@@ -980,6 +988,11 @@ func watchOne(client watchAPI, ref string, opt watchOptions) (string, error) {
 			return "merged", nil
 		}
 		if event, ok := latestQueueEvent(pr.Events); ok && event.Kind == github.QueueEventRemoved {
+			if !opt.asJSON && opt.cfg != nil {
+				if err := printRemovalEvidence(client, opt.cfg, pr); err != nil {
+					return "", err
+				}
+			}
 			return event.Reason, nil
 		}
 		if !opt.now().Before(deadline) {
