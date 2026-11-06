@@ -30,6 +30,8 @@ type fakeQueue struct {
 	comments     []string
 	commentCalls int
 	commentRef   string
+	dequeueCalls int
+	dequeued     []string
 	landed       github.StackPR
 	landedOK     bool
 	mergedAsync  []string
@@ -67,6 +69,12 @@ func (f *fakeQueue) LoadPullRequest(ref string) (github.QueuePullRequest, error)
 		pr.Comments = append(append([]string{}, pr.Comments...), f.comments...)
 	}
 	return pr, nil
+}
+
+func (f *fakeQueue) DequeuePullRequest(nodeID string) error {
+	f.dequeueCalls++
+	f.dequeued = append(f.dequeued, nodeID)
+	return nil
 }
 
 func (f *fakeQueue) CommentOnPullRequest(owner, repo string, number int, body string) error {
@@ -1424,6 +1432,87 @@ func TestRCABareNumberUsesCheckoutRemote(t *testing.T) {
 	}
 	if client.commentCalls != 1 || !strings.Contains(client.comments[0], "RCA NEW class=infra") {
 		t.Fatalf("comment = %v", client.comments)
+	}
+}
+
+func TestDequeueRemovesQueuedPullRequest(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	pr := readyPR()
+	pr.InMergeQueue = true
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := dequeueCommand(client, []string{"acme/widgets#12"}); err != nil {
+			t.Fatalf("dequeueCommand() error = %v", err)
+		}
+	})
+	if client.dequeueCalls != 1 || len(client.dequeued) != 1 || client.dequeued[0] != "PR_NODE" {
+		t.Fatalf("dequeued = %v calls = %d", client.dequeued, client.dequeueCalls)
+	}
+	if !strings.Contains(output, "Dequeued acme/widgets#12.") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestDequeueDryRunDoesNotMutate(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	pr := readyPR()
+	pr.InMergeQueue = true
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := dequeueCommand(client, []string{"-dry-run", "acme/widgets#12"}); err != nil {
+			t.Fatalf("dequeueCommand() error = %v", err)
+		}
+	})
+	if client.dequeueCalls != 0 {
+		t.Fatalf("dequeueCalls = %d", client.dequeueCalls)
+	}
+	if !strings.Contains(output, "Would dequeue acme/widgets#12.") || strings.Contains(output, "Dequeued") {
+		t.Fatalf("output = %q", output)
+	}
+	help := dryRunHelp()
+	for _, want := range []string{"merge", "enqueue", "dequeue"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("dry-run help %q missing %s", help, want)
+		}
+	}
+}
+
+func TestDequeueRefusesWhenNotQueued(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	client := &fakeQueue{pr: readyPR()}
+	err := dequeueCommand(client, []string{"acme/widgets#12"})
+	if err == nil || !strings.Contains(err.Error(), "not in the merge queue") {
+		t.Fatalf("error = %v", err)
+	}
+	if client.dequeueCalls != 0 {
+		t.Fatalf("dequeueCalls = %d", client.dequeueCalls)
+	}
+}
+
+func TestDequeueBareNumberUsesCheckoutRemote(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	dir := initGitRemote(t, "origin", "https://github.com/acme/widgets.git")
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			t.Errorf("gh was called: %v", args)
+			return "", errors.New("gh should not be called")
+		}
+		return defaultRunCommand(name, args...)
+	})
+	t.Chdir(dir)
+	pr := readyPR()
+	pr.InMergeQueue = true
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := dequeueCommand(client, []string{"12"}); err != nil {
+			t.Fatalf("dequeueCommand() error = %v", err)
+		}
+	})
+	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
+		t.Fatalf("loaded = %v", client.loadedRefs)
+	}
+	if client.dequeueCalls != 1 || !strings.Contains(output, "Dequeued acme/widgets#12.") {
+		t.Fatalf("calls = %d output = %q", client.dequeueCalls, output)
 	}
 }
 
