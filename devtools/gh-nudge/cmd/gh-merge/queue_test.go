@@ -560,6 +560,187 @@ func TestQueueCircleCLILegacyTargetUsesCheckRunWorkflow(t *testing.T) {
 	}
 }
 
+func TestQueueCircleCLILegacyTargetUsesWorkflowUUIDAndJobName(t *testing.T) {
+	const workflowID = "11111111-1111-1111-1111-111111111111"
+	const unitJob = "6bde3c42-8312-4297-be30-57e10dd84d18"
+	const otherJob = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	const buildLink = "https://circleci.com/gh/acme/widgets/4242"
+	for _, path := range []string{"workflow", "workflows"} {
+		t.Run(path, func(t *testing.T) {
+			t.Setenv(circleTokenEnv, "")
+			withCircleCLI(t, true)
+			withCircleGet(t, func(context.Context, string, string) ([]byte, error) {
+				t.Fatal("circleci http api was called")
+				return nil, nil
+			})
+			withCommandStub(t, func(name string, args ...string) (string, error) {
+				if name != "circleci" {
+					t.Fatalf("command = %s %v", name, args)
+				}
+				if len(args) > 0 && args[0] == "pipeline" {
+					t.Fatalf("pipeline command: %v", args)
+				}
+				for _, arg := range args {
+					if strings.Contains(arg, "4242") || arg == otherJob {
+						t.Fatalf("cli args = %v", args)
+					}
+				}
+				switch {
+				case len(args) >= 2 && args[0] == "workflow" && args[1] == "get":
+					if !circleArgIs(args, workflowID) {
+						t.Fatalf("args = %v", args)
+					}
+					return `{"jobs":[{"id":"` + otherJob + `","name":"lint","outcome":"failed"},{"id":"` + unitJob + `","name":"unit","outcome":"failed"}]}`, nil
+				case len(args) >= 3 && args[0] == "job" && args[1] == "output" && args[2] == "list":
+					if !circleArgIs(args, unitJob) {
+						t.Fatalf("args = %v", args)
+					}
+					return `{"steps":[{"outcome":"failed","output":"(12:34:56) ERROR: setup failed\n"}]}`, nil
+				default:
+					t.Fatalf("args = %v", args)
+					return "", nil
+				}
+			})
+			pr := removedPR()
+			client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+				Name:        "ci/circleci: unit",
+				TargetURL:   buildLink,
+				CheckRunURL: "https://app.circleci.com/pipelines/github/acme/widgets/42/" + path + "/" + workflowID,
+			}}
+			output := captureStdout(t, func() {
+				if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+					t.Fatal("queuePullRequest() error = nil")
+				}
+			})
+			if !strings.Contains(output, "(12:34:56) ERROR: setup failed") {
+				t.Fatalf("output = %s", output)
+			}
+		})
+	}
+}
+
+func TestQueueCircleCLIMissingWorkflowPrintsNotFound(t *testing.T) {
+	t.Setenv(circleTokenEnv, "")
+	withCircleCLI(t, true)
+	withCircleGet(t, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("circleci http api was called")
+		return nil, nil
+	})
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		t.Fatalf("command = %s %v", name, args)
+		return "", nil
+	})
+	pr := removedPR()
+	target := "https://circleci.com/gh/acme/widgets/4242"
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:      "ci/circleci: unit",
+		TargetURL: target,
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil")
+		}
+	})
+	for _, want := range []string{target, "workflow not found"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "unrecognized CircleCI pipeline URL") || strings.Contains(output, "pipeline workflows") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueCircleTokenKeepsPipelineListing(t *testing.T) {
+	t.Setenv(circleTokenEnv, "token")
+	withCircleCLI(t, true)
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		t.Fatalf("command = %s %v", name, args)
+		return "", nil
+	})
+	withCircleGet(t, func(_ context.Context, rawURL, token string) ([]byte, error) {
+		if token != "token" {
+			t.Fatalf("token = %q", token)
+		}
+		switch {
+		case strings.HasSuffix(rawURL, "/project/gh/acme/widgets/pipeline/42"):
+			return []byte(`{"id":"pipe-1"}`), nil
+		case strings.HasSuffix(rawURL, "/pipeline/pipe-1/workflow"):
+			return []byte(`{"items":[{"id":"wf-2","status":"failed"}]}`), nil
+		case strings.HasSuffix(rawURL, "/workflow/wf-2/job"):
+			return []byte(`{"items":[{"job_number":8,"status":"failed"}]}`), nil
+		case strings.HasSuffix(rawURL, "/project/gh/acme/widgets/8"):
+			return []byte(`{"steps":[{"actions":[{"status":"failed","output_url":"https://circleci.com/output/8"}]}]}`), nil
+		case rawURL == "https://circleci.com/output/8":
+			return []byte(`[{"message":"ERROR: setup failed\n"}]`), nil
+		default:
+			t.Fatalf("unexpected circleci url %s", rawURL)
+			return nil, nil
+		}
+	})
+	pr := removedPR()
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:      "ci/circleci",
+		TargetURL: "https://app.circleci.com/pipelines/github/acme/widgets/42",
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil")
+		}
+	})
+	if !strings.Contains(output, "ERROR: setup failed") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueCircleUnparsedTargetUsesWorkflowUUID(t *testing.T) {
+	t.Setenv(circleTokenEnv, "token")
+	withCircleCLI(t, true)
+	withCircleGet(t, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("circleci http api was called")
+		return nil, nil
+	})
+	const workflowID = "11111111-1111-1111-1111-111111111111"
+	const jobID = "6bde3c42-8312-4297-be30-57e10dd84d18"
+	target := "https://app.circleci.com/pipelines/github/acme/widgets/latest"
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name != "circleci" || (len(args) > 0 && args[0] == "pipeline") {
+			t.Fatalf("command = %s %v", name, args)
+		}
+		for _, arg := range args {
+			if strings.Contains(arg, "latest") {
+				t.Fatalf("cli invoked with pipeline url: %v", args)
+			}
+		}
+		switch {
+		case len(args) >= 2 && args[0] == "workflow" && args[1] == "get":
+			if !circleArgIs(args, workflowID) {
+				t.Fatalf("args = %v", args)
+			}
+			return `{"jobs":[{"id":"` + jobID + `","name":"unit","outcome":"failed"}]}`, nil
+		case len(args) >= 3 && args[0] == "job":
+			return `{"steps":[{"outcome":"failed","output":"ERROR: setup failed\n"}]}`, nil
+		default:
+			t.Fatalf("args = %v", args)
+			return "", nil
+		}
+	})
+	pr := removedPR()
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:        "ci/circleci: unit",
+		TargetURL:   target,
+		CheckRunURL: "https://app.circleci.com/pipelines/github/acme/widgets/42/workflow/" + workflowID,
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil")
+		}
+	})
+	if !strings.Contains(output, "ERROR: setup failed") || strings.Contains(output, "unrecognized CircleCI pipeline URL") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
 func TestQueueCircleLogModeSelectsAPIOrCLI(t *testing.T) {
 	t.Run("cli does not call http", func(t *testing.T) {
 		t.Setenv(circleTokenEnv, "token")
