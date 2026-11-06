@@ -16,6 +16,33 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
+// TestMain points config and state at temporary directories so a CLI test
+// cannot run the live notify command. A test may still override either variable.
+func TestMain(m *testing.M) {
+	cfg, err := os.MkdirTemp("", "decide-cli-config")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cli config dir: %v\n", err)
+		os.Exit(1)
+	}
+	state, err := os.MkdirTemp("", "decide-cli-state")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cli state dir: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("XDG_CONFIG_HOME", cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "cli config env: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("XDG_STATE_HOME", state); err != nil {
+		fmt.Fprintf(os.Stderr, "cli state env: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(cfg)
+	_ = os.RemoveAll(state)
+	os.Exit(code)
+}
+
 func TestAskPrintsSequentialIDsAndStoresNotifyPane(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
@@ -97,6 +124,37 @@ func TestListOrdersByDeadlineThenNewest(t *testing.T) {
 		if id == answered {
 			t.Fatalf("open list includes answered %s", answered)
 		}
+	}
+}
+
+func TestAnswerWithoutNotifyTemplateDoesNotSpawn(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(dir, "spawned")
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ntouch '" + sentinel + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "sh"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	id := askRelay(t, nil, "no notify")
+	if code := answer(t, id, "a"); code != 0 {
+		t.Fatalf("answer code = %d", code)
+	}
+	if _, err := os.Stat(sentinel); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("notify command was spawned: %v", err)
 	}
 }
 
