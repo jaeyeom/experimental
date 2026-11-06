@@ -56,6 +56,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
@@ -145,13 +146,11 @@ type mergeClient interface {
 
 // listMergeablePRs lists all PRs that are ready to merge.
 func listMergeablePRs(githubClient mergeClient, cfg *config.Config) error {
-	slog.Info("Finding PRs with no review requests in the current repository",
-		"block_merge_labels", cfg.Settings.BlockMergeLabels)
-
 	prs, err := githubClient.GetMergeablePullRequests()
 	if err != nil {
 		return fmt.Errorf("failed to get PRs: %w", err)
 	}
+	logMergeScan(cfg, prs, "Finding PRs with no review requests in the current repository")
 
 	if len(prs) == 0 {
 		fmt.Println("No PRs with no review requests found.")
@@ -237,16 +236,14 @@ func tryMergePR(githubClient mergeClient, pr *models.PullRequest, blockLabels []
 
 // mergePRs merges all eligible PRs.
 func mergePRs(githubClient mergeClient, cfg *config.Config) error {
-	slog.Info("Finding and merging PRs with no review requests",
-		"dry_run", dryRun,
-		"delete_branch", deleteBranch,
-		"force", force,
-		"block_merge_labels", cfg.Settings.BlockMergeLabels)
-
 	prs, err := githubClient.GetMergeablePullRequests()
 	if err != nil {
 		return fmt.Errorf("failed to get PRs: %w", err)
 	}
+	logMergeScan(cfg, prs, "Finding and merging PRs with no review requests",
+		"dry_run", dryRun,
+		"delete_branch", deleteBranch,
+		"force", force)
 
 	if len(prs) == 0 {
 		fmt.Println("No PRs with no review requests found.")
@@ -282,6 +279,36 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+// logMergeScan logs the label gate for list and merge.
+// An empty repo_settings map keeps the global block_merge_labels attribute.
+// Any entry logs one effective line per repository in prs, in first-seen order.
+func logMergeScan(cfg *config.Config, prs []models.PullRequest, msg string, attrs ...any) {
+	if len(cfg.RepoSettings) == 0 {
+		slog.Info(msg, append(attrs, "block_merge_labels", cfg.Settings.BlockMergeLabels)...)
+		return
+	}
+	slog.Info(msg, attrs...)
+	seen := make(map[string]struct{})
+	for i := range prs {
+		owner, repo, ok := ownerRepoFromPullURL(prs[i].URL)
+		if !ok {
+			continue
+		}
+		key := owner + "/" + repo
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		settings, _ := cfg.EffectiveSettings(owner, repo)
+		slog.Info(fmt.Sprintf("%s: block_merge_labels=%s required_checks=%d",
+			key, formatBracketList(settings.BlockMergeLabels), len(settings.RequiredChecks)))
+	}
+}
+
+func formatBracketList(items []string) string {
+	return "[" + strings.Join(items, " ") + "]"
 }
 
 // blockLabelsFor returns the block labels for the pull request's repository.
