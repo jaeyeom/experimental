@@ -166,12 +166,121 @@ type mergeClient interface {
 
 // listMergeablePRs lists all PRs that are ready to merge.
 func listMergeablePRs(githubClient mergeClient, cfg *config.Config) error {
-	prs, err := githubClient.GetMergeablePullRequests()
+	return listFetchedPullRequests(githubClient, cfg, time.Sleep)
+}
+
+type authoredPullRequests interface {
+	GetAuthoredPullRequests() ([]models.PullRequest, error)
+}
+
+type mergeableReader interface {
+	MergeableState(prURL string) (string, error)
+}
+
+func listFetchedPullRequests(githubClient mergeClient, cfg *config.Config, sleep func(time.Duration)) error {
+	fetched, refresh, err := fetchListPullRequests(githubClient)
 	if err != nil {
 		return fmt.Errorf("failed to get PRs: %w", err)
 	}
-	logMergeScan(cfg, prs, "Finding PRs with no review requests in the current repository")
+	ready, err := readyPullRequests(cfg, fetched, refresh, sleep)
+	if err != nil {
+		return err
+	}
+	logMergeScan(cfg, ready, "Finding PRs with no review requests in the current repository")
+	return printReadyPullRequests(cfg, ready)
+}
 
+func fetchListPullRequests(githubClient mergeClient) ([]models.PullRequest, func(string) (string, error), error) {
+	authored, ok := githubClient.(authoredPullRequests)
+	if !ok {
+		prs, err := githubClient.GetMergeablePullRequests()
+		if err != nil {
+			return nil, nil, fmt.Errorf("get mergeable pull requests: %w", err)
+		}
+		return prs, nil, nil
+	}
+	prs, err := authored.GetAuthoredPullRequests()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get authored pull requests: %w", err)
+	}
+	reader, ok := githubClient.(mergeableReader)
+	if !ok {
+		return prs, nil, nil
+	}
+	return prs, reader.MergeableState, nil
+}
+
+func readyPullRequests(cfg *config.Config, fetched []models.PullRequest, refresh func(string) (string, error), sleep func(time.Duration)) ([]models.PullRequest, error) {
+	ready := make([]models.PullRequest, 0, len(fetched))
+	for i := range fetched {
+		pr, err := resolveListPullRequest(fetched[i], refresh, sleep)
+		if err != nil {
+			return nil, err
+		}
+		reasons := skipReasons(&pr, blockLabelsFor(cfg, &pr))
+		if verbose && len(reasons) > 0 {
+			fmt.Printf("skipped: %s %s\n", pr.URL, strings.Join(reasons, ", "))
+		}
+		if listReady(&pr) {
+			ready = append(ready, pr)
+		}
+	}
+	return ready, nil
+}
+
+func resolveListPullRequest(pr models.PullRequest, refresh func(string) (string, error), sleep func(time.Duration)) (models.PullRequest, error) {
+	state, err := resolveMergeable(pr.Mergeable, pr.URL, refresh, sleep)
+	if err != nil {
+		return pr, err
+	}
+	pr.Mergeable = state
+	return pr, nil
+}
+
+// resolveMergeable treats the list payload as the first attempt.
+// UNKNOWN is refreshed at most twice more, about a second apart, for three attempts.
+func resolveMergeable(state, prURL string, refresh func(string) (string, error), sleep func(time.Duration)) (string, error) {
+	if refresh == nil {
+		return state, nil
+	}
+	for refreshes := 0; state == "UNKNOWN" && refreshes < 2; refreshes++ {
+		if sleep != nil {
+			sleep(time.Second)
+		}
+		next, err := refresh(prURL)
+		if err != nil {
+			return "", fmt.Errorf("failed to read mergeable state: %w", err)
+		}
+		state = next
+	}
+	return state, nil
+}
+
+func listReady(pr *models.PullRequest) bool {
+	return !pr.IsDraft && len(pr.ReviewRequests) == 0 && pr.Mergeable == "MERGEABLE"
+}
+
+func skipReasons(pr *models.PullRequest, blockLabels []string) []string {
+	var reasons []string
+	if pr.IsDraft {
+		reasons = append(reasons, "draft")
+	}
+	if len(pr.ReviewRequests) > 0 {
+		reasons = append(reasons, "review requested")
+	}
+	if pr.Mergeable != "" && pr.Mergeable != "MERGEABLE" && pr.Mergeable != "UNKNOWN" {
+		reasons = append(reasons, "not mergeable")
+	}
+	if label, blocked := pr.BlocksMerge(blockLabels); blocked {
+		reasons = append(reasons, "blocking label "+label)
+	}
+	if pr.Mergeable == "UNKNOWN" {
+		reasons = append(reasons, "unknown")
+	}
+	return reasons
+}
+
+func printReadyPullRequests(cfg *config.Config, prs []models.PullRequest) error {
 	if len(prs) == 0 {
 		fmt.Println("No PRs with no review requests found.")
 		return nil

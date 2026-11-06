@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
@@ -671,6 +672,167 @@ func listCIOutput(t *testing.T, required []string, repos map[string]config.RepoS
 			t.Fatalf("listMergeablePRs() error = %v", err)
 		}
 	})
+}
+
+func TestListVerboseSkipReasons(t *testing.T) {
+	withVerbose(t, true)
+	draft := mergeFixture("Draft this", "https://github.com/acme/widgets/pull/1")
+	draft.IsDraft = true
+	review := mergeFixture("Review this", "https://github.com/acme/widgets/pull/2")
+	review.ReviewRequests = []models.ReviewRequest{{Login: "sam"}}
+	conflict := mergeFixture("Conflict this", "https://github.com/acme/widgets/pull/3")
+	conflict.Mergeable = "CONFLICTING"
+	output := listSkipped(t, &config.Config{}, draft, review, conflict)
+	for _, url := range []string{draft.URL, review.URL, conflict.URL} {
+		if strings.Contains(output, "URL: "+url) {
+			t.Fatalf("ready list included %s:\n%s", url, output)
+		}
+	}
+	if !strings.Contains(output, "skipped: "+draft.URL+" draft") {
+		t.Fatalf("output missing draft reason:\n%s", output)
+	}
+	if !strings.Contains(output, "skipped: "+review.URL+" review requested") {
+		t.Fatalf("output missing review reason:\n%s", output)
+	}
+	if !strings.Contains(output, "skipped: "+conflict.URL+" not mergeable") {
+		t.Fatalf("output missing mergeable reason:\n%s", output)
+	}
+}
+
+func TestListQuietOmitsSkippedLines(t *testing.T) {
+	withVerbose(t, false)
+	draft := mergeFixture("Draft this", "https://github.com/acme/widgets/pull/1")
+	draft.IsDraft = true
+	output := listSkipped(t, &config.Config{}, draft)
+	if strings.Contains(output, "skipped:") {
+		t.Fatalf("quiet list printed a skipped line:\n%s", output)
+	}
+	if strings.Contains(output, draft.URL) {
+		t.Fatalf("quiet list showed the draft:\n%s", output)
+	}
+}
+
+func TestListVerboseBlockLabelStaysReady(t *testing.T) {
+	withVerbose(t, true)
+	pr := mergeFixture("Hold this", "https://github.com/acme/widgets/pull/4", "do-not-merge")
+	cfg := &config.Config{Settings: config.SettingsConfig{BlockMergeLabels: []string{"do-not-merge"}}}
+	output := listSkipped(t, cfg, pr)
+	if !strings.Contains(output, `Blocked: label "do-not-merge" prevents merge`) {
+		t.Fatalf("ready list dropped the blocked pull request:\n%s", output)
+	}
+	if !strings.Contains(output, "skipped: "+pr.URL+" blocking label do-not-merge") {
+		t.Fatalf("output missing blocking label reason:\n%s", output)
+	}
+}
+
+func TestListVerboseJoinsEveryReason(t *testing.T) {
+	withVerbose(t, true)
+	pr := mergeFixture("Hold this", "https://github.com/acme/widgets/pull/9", "do-not-merge")
+	pr.IsDraft = true
+	pr.Mergeable = "CONFLICTING"
+	pr.ReviewRequests = []models.ReviewRequest{{Login: "sam"}}
+	cfg := &config.Config{Settings: config.SettingsConfig{BlockMergeLabels: []string{"do-not-merge"}}}
+	output := listSkipped(t, cfg, pr)
+	want := "skipped: " + pr.URL + " draft, review requested, not mergeable, blocking label do-not-merge"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output missing %q:\n%s", want, output)
+	}
+}
+
+func TestListUnknownThenMergeableIsReady(t *testing.T) {
+	withVerbose(t, true)
+	pr := mergeFixture("Ship this", "https://github.com/acme/widgets/pull/5")
+	pr.Mergeable = "UNKNOWN"
+	script := &refreshScript{
+		prs:  []models.PullRequest{pr},
+		next: map[string][]string{pr.URL: {"MERGEABLE"}},
+	}
+	output := captureStdout(t, func() {
+		if err := listFetchedPullRequests(script, &config.Config{}, script.sleep); err != nil {
+			t.Fatalf("listFetchedPullRequests() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "URL: "+pr.URL) {
+		t.Fatalf("resolved pull request was not ready:\n%s", output)
+	}
+	if strings.Contains(output, "skipped:") || strings.Contains(output, "unknown") {
+		t.Fatalf("resolved pull request was skipped:\n%s", output)
+	}
+	if script.refreshes != 1 || len(script.sleeps) != 1 || script.sleeps[0] != time.Second {
+		t.Fatalf("refreshes=%d sleeps=%v", script.refreshes, script.sleeps)
+	}
+}
+
+func TestListUnknownStaysSkipped(t *testing.T) {
+	withVerbose(t, true)
+	pr := mergeFixture("Wait this", "https://github.com/acme/widgets/pull/6")
+	pr.Mergeable = "UNKNOWN"
+	script := &refreshScript{
+		prs:  []models.PullRequest{pr},
+		next: map[string][]string{pr.URL: {"UNKNOWN", "UNKNOWN"}},
+	}
+	output := captureStdout(t, func() {
+		if err := listFetchedPullRequests(script, &config.Config{}, script.sleep); err != nil {
+			t.Fatalf("listFetchedPullRequests() error = %v", err)
+		}
+	})
+	if strings.Contains(output, "URL: "+pr.URL) || strings.Contains(output, "Found ") {
+		t.Fatalf("unknown pull request was ready:\n%s", output)
+	}
+	if !strings.Contains(output, "skipped: "+pr.URL+" unknown") {
+		t.Fatalf("output missing unknown reason:\n%s", output)
+	}
+	if script.refreshes != 2 || len(script.sleeps) != 2 {
+		t.Fatalf("refreshes=%d sleeps=%v", script.refreshes, script.sleeps)
+	}
+}
+
+func listSkipped(t *testing.T, cfg *config.Config, prs ...models.PullRequest) string {
+	t.Helper()
+	script := &refreshScript{prs: prs}
+	return captureStdout(t, func() {
+		if err := listFetchedPullRequests(script, cfg, script.sleep); err != nil {
+			t.Fatalf("listFetchedPullRequests() error = %v", err)
+		}
+	})
+}
+
+func withVerbose(t *testing.T, on bool) {
+	t.Helper()
+	prev := verbose
+	verbose = on
+	t.Cleanup(func() { verbose = prev })
+}
+
+type refreshScript struct {
+	prs       []models.PullRequest
+	next      map[string][]string
+	sleeps    []time.Duration
+	refreshes int
+}
+
+func (s *refreshScript) GetAuthoredPullRequests() ([]models.PullRequest, error) {
+	return s.prs, nil
+}
+
+func (s *refreshScript) GetMergeablePullRequests() ([]models.PullRequest, error) {
+	return nil, errors.New("list should fetch authored pull requests")
+}
+
+func (s *refreshScript) MergePullRequest(string, bool) error { return nil }
+
+func (s *refreshScript) MergeableState(url string) (string, error) {
+	seq := s.next[url]
+	if len(seq) == 0 {
+		return "", errors.New("unexpected mergeable refresh for " + url)
+	}
+	s.next[url] = seq[1:]
+	s.refreshes++
+	return seq[0], nil
+}
+
+func (s *refreshScript) sleep(d time.Duration) {
+	s.sleeps = append(s.sleeps, d)
 }
 
 func (g *ghAttempts) ExecuteSeparated(string, ...string) (string, string, error) {
