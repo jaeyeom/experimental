@@ -14,6 +14,11 @@ type Config struct {
 	Slack SlackConfig `pkl:"slack"`
 
 	Settings SettingsConfig `pkl:"settings"`
+
+	// gh-merge settings for one <owner>/<repo> key.
+	// A missing key uses the global settings. gh-nudge ignores this mapping.
+	// An explicit empty list on an entry does not inherit the global list.
+	RepoSettings map[string]RepoSettings `pkl:"repo_settings"`
 }
 
 // LoadFromPath loads the pkl module at the given path and evaluates it into a Config

@@ -1902,6 +1902,7 @@ func TestQueueReadinessShowsEffectiveConfig(t *testing.T) {
 	})
 	for _, want := range []string{
 		"config: /tmp/loaded.pkl",
+		"settings from: global",
 		"block_merge_labels: do-not-merge",
 		"required_checks: ci",
 		"Would enqueue acme/widgets#12.",
@@ -1922,7 +1923,7 @@ func TestQueueReadinessShowsEffectiveConfig(t *testing.T) {
 			t.Fatalf("queuePullRequest() error = %v", err)
 		}
 	})
-	assertEffectiveConfigJSON(t, jsonOut, "would-enqueue", "/tmp/loaded.pkl", []string{"do-not-merge"}, []string{"ci"})
+	assertEffectiveConfigJSON(t, jsonOut, "would-enqueue", "/tmp/loaded.pkl", "global", []string{"do-not-merge"}, []string{"ci"})
 	if jsonClient.enqueueCalls != 0 {
 		t.Fatalf("json dry run enqueued %d", jsonClient.enqueueCalls)
 	}
@@ -1937,6 +1938,7 @@ func TestQueueReadinessShowsEffectiveConfig(t *testing.T) {
 	})
 	for _, want := range []string{
 		"config: /tmp/loaded.pkl",
+		"settings from: global",
 		"block_merge_labels: do-not-merge",
 		"required_checks: (none)",
 		"required_checks is empty",
@@ -1956,16 +1958,16 @@ func TestQueueReadinessShowsEffectiveConfig(t *testing.T) {
 			t.Fatal("queuePullRequest() error = nil, want refusal")
 		}
 	})
-	assertEffectiveConfigJSON(t, jsonRefusedOut, "refused", "/tmp/loaded.pkl", []string{"do-not-merge"}, []string{})
+	assertEffectiveConfigJSON(t, jsonRefusedOut, "refused", "/tmp/loaded.pkl", "global", []string{"do-not-merge"}, []string{})
 }
 
-func assertEffectiveConfigJSON(t *testing.T, output, result, path string, labels, checks []string) {
+func assertEffectiveConfigJSON(t *testing.T, output, result, path, from string, labels, checks []string) {
 	t.Helper()
 	var got queueJSONResult
 	if err := json.Unmarshal([]byte(output), &got); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v\n%s", err, output)
 	}
-	if got.Result != result || got.Config != path {
+	if got.Result != result || got.Config != path || got.SettingsFrom != from {
 		t.Fatalf("result = %+v", got)
 	}
 	if strings.Join(got.BlockMergeLabels, ",") != strings.Join(labels, ",") {
@@ -1974,7 +1976,7 @@ func assertEffectiveConfigJSON(t *testing.T, output, result, path string, labels
 	if strings.Join(got.RequiredChecks, ",") != strings.Join(checks, ",") {
 		t.Fatalf("requiredChecks = %#v", got.RequiredChecks)
 	}
-	if !strings.Contains(output, `"blockMergeLabels"`) || !strings.Contains(output, `"requiredChecks"`) || !strings.Contains(output, `"config"`) {
+	if !strings.Contains(output, `"blockMergeLabels"`) || !strings.Contains(output, `"requiredChecks"`) || !strings.Contains(output, `"config"`) || !strings.Contains(output, `"settingsFrom"`) {
 		t.Fatalf("json missing config fields:\n%s", output)
 	}
 }
@@ -2329,4 +2331,222 @@ func writeRCAFile(t *testing.T, body string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func stringListPtr(items ...string) *[]string {
+	copied := append([]string(nil), items...)
+	return &copied
+}
+
+func emptyStringList() *[]string {
+	items := []string{}
+	return &items
+}
+
+func TestQueueRepoEntryOverridesRequiredChecksAndInheritsLabels(t *testing.T) {
+	pr := readyPR()
+	pr.Checks = []github.QueueCheck{{Name: "lint", Green: true, Conclusion: "SUCCESS"}}
+	cfg := queueConfig()
+	cfg.Path = "/tmp/loaded.pkl"
+	cfg.Settings.BlockMergeLabels = []string{"do-not-merge"}
+	cfg.Settings.RequiredChecks = []string{"ci"}
+	cfg.Settings.FlakeSignatures = []string{"global-flake"}
+	cfg.RepoSettings = map[string]config.RepoSettings{
+		"acme/widgets": {RequiredChecks: stringListPtr("lint")},
+	}
+	withMergeFlags(t, true, false, false)
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	for _, want := range []string{
+		"settings from: acme/widgets",
+		"required_checks: lint",
+		"block_merge_labels: do-not-merge",
+		"Would enqueue acme/widgets#12.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "required check \"ci\"") {
+		t.Fatalf("queue used the global required check:\n%s", output)
+	}
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = false })
+	jsonOut := captureStdout(t, func() {
+		if err := queuePullRequest(&fakeQueue{pr: pr}, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	assertEffectiveConfigJSON(t, jsonOut, "would-enqueue", "/tmp/loaded.pkl", "acme/widgets", []string{"do-not-merge"}, []string{"lint"})
+}
+
+func TestQueueExplicitEmptyBlockLabelsOverrideGlobal(t *testing.T) {
+	pr := readyPR()
+	pr.Labels = []string{"do-not-merge"}
+	cfg := queueConfig()
+	cfg.Path = "/tmp/loaded.pkl"
+	cfg.Settings.BlockMergeLabels = []string{"do-not-merge"}
+	cfg.RepoSettings = map[string]config.RepoSettings{
+		"acme/widgets": {BlockMergeLabels: emptyStringList()},
+	}
+	withMergeFlags(t, true, false, false)
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(&fakeQueue{pr: pr}, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	for _, want := range []string{
+		"settings from: acme/widgets",
+		"block_merge_labels: (none)",
+		"Would enqueue acme/widgets#12.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "blocks merge") {
+		t.Fatalf("empty block list inherited the global label:\n%s", output)
+	}
+}
+
+func TestQueueEmptyEntryRequiredChecksRefuses(t *testing.T) {
+	pr := readyPR()
+	cfg := queueConfig()
+	cfg.Path = "/tmp/loaded.pkl"
+	cfg.Settings.RequiredChecks = []string{"ci"}
+	cfg.RepoSettings = map[string]config.RepoSettings{
+		"acme/widgets": {RequiredChecks: emptyStringList()},
+	}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(&fakeQueue{pr: pr}, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	for _, want := range []string{
+		"settings from: acme/widgets",
+		"required_checks is empty",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+
+	withAllowNoRequiredChecks(t, true)
+	withMergeFlags(t, true, false, false)
+	allowed := captureStdout(t, func() {
+		if err := queuePullRequest(&fakeQueue{pr: pr}, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(allowed, "Would enqueue acme/widgets#12.") {
+		t.Fatalf("allow flag did not bypass an empty entry list:\n%s", allowed)
+	}
+
+	pr.Draft = true
+	draft := captureStdout(t, func() {
+		if err := queuePullRequest(&fakeQueue{pr: pr}, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want draft refusal")
+		}
+	})
+	if !strings.Contains(draft, "pull request is a draft") {
+		t.Fatalf("allow flag skipped another gate:\n%s", draft)
+	}
+}
+
+func TestWatchJSONIncludesConfigAndSettingsFrom(t *testing.T) {
+	widgets := readyPR()
+	widgets.Merged = true
+	other := readyPR()
+	other.Ref = github.PullRef{Owner: "acme", Repo: "other", Number: 3, Raw: "acme/other#3"}
+	other.Merged = true
+	client := &fakeQueue{byRef: map[string]github.QueuePullRequest{
+		widgets.Ref.Raw: widgets,
+		other.Ref.Raw:   other,
+	}}
+	cfg := queueConfig()
+	cfg.Path = "/tmp/loaded.pkl"
+	cfg.RepoSettings = map[string]config.RepoSettings{
+		"acme/widgets": {RequiredChecks: stringListPtr("lint")},
+	}
+	output := captureStdout(t, func() {
+		if err := watchPullRequests(client, []string{widgets.Ref.Raw, other.Ref.Raw}, watchOptions{
+			timeout: time.Minute,
+			asJSON:  true,
+			cfg:     cfg,
+		}); err != nil {
+			t.Fatalf("watchPullRequests() error = %v", err)
+		}
+	})
+	for _, want := range []string{
+		`"config": "/tmp/loaded.pkl"`,
+		`"settingsFrom": "acme/widgets"`,
+		`"settingsFrom": "global"`,
+		`"result": "merged"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	text := captureStdout(t, func() {
+		if err := watchPullRequests(client, []string{widgets.Ref.Raw}, watchOptions{timeout: time.Minute, cfg: cfg}); err != nil {
+			t.Fatalf("watchPullRequests() error = %v", err)
+		}
+	})
+	if text != "acme/widgets#12 merged\n" {
+		t.Fatalf("text watch = %q", text)
+	}
+}
+
+func TestRCAJSONUsesRepoMarker(t *testing.T) {
+	path := writeRCAFile(t, "Investigated the reset.\n")
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{{
+		ID:        "NEW",
+		Kind:      github.QueueEventRemoved,
+		CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		Reason:    "failed_checks",
+	}}
+	marker := "ENTRY {event_id} class={class}"
+	cfg := queueConfig()
+	cfg.Path = "/tmp/loaded.pkl"
+	cfg.RepoSettings = map[string]config.RepoSettings{
+		"acme/widgets": {RCAMarker: &marker},
+	}
+	client := &fakeQueue{pr: pr}
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = false })
+	output := captureStdout(t, func() {
+		err := postRCA(client, cfg, []string{"acme/widgets#12", "--class", "flake", "--file", path})
+		if err != nil {
+			t.Fatalf("postRCA() error = %v", err)
+		}
+	})
+	for _, want := range []string{
+		`"config": "/tmp/loaded.pkl"`,
+		`"settingsFrom": "acme/widgets"`,
+		`"pullRequest": "acme/widgets#12"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "Commented on") {
+		t.Fatalf("json rca printed text: %s", output)
+	}
+	if !strings.Contains(client.comments[0], "ENTRY NEW class=flake") {
+		t.Fatalf("comment = %q", client.comments[0])
+	}
+
+	jsonOutput = false
+	blank := ""
+	cfg.Settings.RCAMarker = "RCA {event_id} class={class}"
+	cfg.RepoSettings["acme/widgets"] = config.RepoSettings{RCAMarker: &blank}
+	err := postRCA(&fakeQueue{pr: pr}, cfg, []string{"acme/widgets#12", "--class", "flake", "--file", path})
+	if err == nil || err.Error() != "rca_marker is empty" {
+		t.Fatalf("postRCA() error = %v", err)
+	}
 }

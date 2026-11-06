@@ -43,11 +43,14 @@ type watchOptions struct {
 	now      func() time.Time
 	sleep    func(time.Duration)
 	asJSON   bool
+	cfg      *config.Config
 }
 
 type watchResult struct {
-	PullRequest string `json:"pullRequest"`
-	Result      string `json:"result"`
+	PullRequest  string `json:"pullRequest"`
+	Result       string `json:"result"`
+	Config       string `json:"config"`
+	SettingsFrom string `json:"settingsFrom"`
 }
 
 type enqueueKind int
@@ -65,6 +68,7 @@ type queueJSONResult struct {
 	RequiredChecks   []string `json:"requiredChecks"`
 	Result           string   `json:"result"`
 	StackedAbove     []int    `json:"stackedAbove"`
+	SettingsFrom     string   `json:"settingsFrom"`
 }
 
 // baseRefusalDoc describes the queue refusal for a pull request that is not in
@@ -104,6 +108,7 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	if err != nil {
 		return fmt.Errorf("load pull request %s: %w", resolved, err)
 	}
+	cfg = cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo)
 	aboveNumbers, baseProblem, err := reportStackedAbove(client, pr)
 	if err != nil {
 		return err
@@ -316,9 +321,17 @@ func configuredRepository(cfg *config.Config, ownerRepo string) bool {
 func effectiveConfigLines(cfg *config.Config) []string {
 	return []string{
 		"config: " + cfg.Path,
+		"settings from: " + settingsSource(cfg),
 		"block_merge_labels: " + formatNameList(cfg.Settings.BlockMergeLabels),
 		"required_checks: " + formatNameList(cfg.Settings.RequiredChecks),
 	}
+}
+
+func settingsSource(cfg *config.Config) string {
+	if cfg == nil || cfg.SettingsFrom == "" {
+		return config.SettingsFromGlobal
+	}
+	return cfg.SettingsFrom
 }
 
 func formatNameList(items []string) string {
@@ -394,6 +407,7 @@ func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []st
 			RequiredChecks:   jsonStringList(cfg.Settings.RequiredChecks),
 			Result:           result,
 			StackedAbove:     above,
+			SettingsFrom:     settingsSource(cfg),
 		}, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encode queue result: %w", err)
@@ -801,7 +815,7 @@ func (e *watchExitError) Error() string {
 	return fmt.Sprintf("watch status %d", e.code)
 }
 
-func watchCommand(client watchAPI, args []string) error {
+func watchCommand(client watchAPI, cfg *config.Config, args []string) error {
 	refs, timeout, err := parseWatchArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], watchUsage())
@@ -811,6 +825,7 @@ func watchCommand(client watchAPI, args []string) error {
 		timeout:  timeout,
 		interval: defaultWatchInterval,
 		asJSON:   jsonOutput,
+		cfg:      cfg,
 	})
 	if errors.Is(err, errWatchUsage) {
 		fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], watchUsage())
@@ -915,7 +930,13 @@ func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 		if err != nil {
 			return err
 		}
-		results = append(results, watchResult{PullRequest: ref, Result: result})
+		path, from := watchSettings(opt.cfg, ref)
+		results = append(results, watchResult{
+			PullRequest:  ref,
+			Result:       result,
+			Config:       path,
+			SettingsFrom: from,
+		})
 		if exitCode == 0 {
 			exitCode = watchExitCode(result)
 		}
@@ -948,6 +969,39 @@ func watchOne(client watchAPI, ref string, opt watchOptions) (string, error) {
 		}
 		opt.sleep(opt.interval)
 	}
+}
+
+func watchSettings(cfg *config.Config, ref string) (string, string) {
+	if cfg == nil {
+		return "", config.SettingsFromGlobal
+	}
+	owner, repo := ownerRepoFromRef(ref)
+	_, from := cfg.EffectiveSettings(owner, repo)
+	return cfg.Path, from
+}
+
+func ownerRepoFromRef(ref string) (string, string) {
+	head, _, ok := strings.Cut(ref, "#")
+	if !ok {
+		return "", ""
+	}
+	owner, repo, ok := splitOwnerRepo(head)
+	if !ok {
+		return "", ""
+	}
+	return owner, repo
+}
+
+func ownerRepoFromPullURL(raw string) (string, string, bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return "", "", false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 func printWatchResults(results []watchResult, asJSON bool) error {

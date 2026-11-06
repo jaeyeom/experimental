@@ -17,13 +17,22 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/slack"
 )
 
+// SettingsFromGlobal is the settings source when no repo_settings entry applied.
+const SettingsFromGlobal = "global"
+
 // Config represents the application configuration.
 type Config struct {
 	GitHub   GitHubConfig   `yaml:"github"`
 	Slack    SlackConfig    `yaml:"slack"`
 	Settings SettingsConfig `yaml:"settings"`
+	// RepoSettings overrides Settings for one <owner>/<repo> key.
+	// A nil field inherits the global field. A non-nil empty list replaces it.
+	RepoSettings map[string]RepoSettings `yaml:"repo_settings"`
 	// Path is the file gh-merge selected. It is not read from the file.
 	Path string `yaml:"-"`
+	// SettingsFrom is the repo_settings key that applied, or SettingsFromGlobal.
+	// It is not read from the file.
+	SettingsFrom string `yaml:"-"`
 }
 
 // GitHubConfig contains GitHub-related configuration.
@@ -97,6 +106,18 @@ type SettingsConfig struct {
 	CircleCILog string `yaml:"circleci_log"`
 }
 
+// RepoSettings is the subset of settings gh-merge reads for one repository.
+// A nil field inherits the global setting. A non-nil empty list does not.
+type RepoSettings struct {
+	BlockMergeLabels  *[]string `yaml:"block_merge_labels"`
+	RequiredChecks    *[]string `yaml:"required_checks"`
+	FlakeSignatures   *[]string `yaml:"flake_signatures"`
+	RCAMarker         *string   `yaml:"rca_marker"`
+	MaxRequeues       *int      `yaml:"max_requeues"`
+	FailureLogPattern *string   `yaml:"failure_log_pattern"`
+	CircleCILog       *string   `yaml:"circleci_log"`
+}
+
 // DefaultMaxRequeues is the requeue cap when config omits max_requeues.
 const DefaultMaxRequeues = 2
 
@@ -121,6 +142,79 @@ func (s SettingsConfig) RequeueLimit() int {
 		return DefaultMaxRequeues
 	}
 	return *s.MaxRequeues
+}
+
+// EffectiveSettings returns the settings for owner/repo and the source name.
+// A missing entry returns the global settings and SettingsFromGlobal.
+// A present entry replaces each non-nil field. An explicit empty list replaces
+// the global list and does not inherit it.
+func (c *Config) EffectiveSettings(owner, repo string) (SettingsConfig, string) {
+	key := owner + "/" + repo
+	entry, ok := c.RepoSettings[key]
+	if owner == "" || repo == "" || !ok {
+		return cloneSettings(c.Settings), SettingsFromGlobal
+	}
+	settings := cloneSettings(c.Settings)
+	if entry.BlockMergeLabels != nil {
+		settings.BlockMergeLabels = cloneStrings(*entry.BlockMergeLabels)
+	}
+	if entry.RequiredChecks != nil {
+		settings.RequiredChecks = cloneStrings(*entry.RequiredChecks)
+	}
+	if entry.FlakeSignatures != nil {
+		settings.FlakeSignatures = cloneStrings(*entry.FlakeSignatures)
+	}
+	if entry.RCAMarker != nil {
+		settings.RCAMarker = *entry.RCAMarker
+	}
+	if entry.MaxRequeues != nil {
+		settings.MaxRequeues = intPtr(*entry.MaxRequeues)
+	}
+	if entry.FailureLogPattern != nil {
+		settings.FailureLogPattern = *entry.FailureLogPattern
+		if settings.FailureLogPattern == "" {
+			settings.FailureLogPattern = DefaultFailureLogPattern
+		}
+	}
+	if entry.CircleCILog != nil {
+		settings.CircleCILog = *entry.CircleCILog
+		if settings.CircleCILog == "" {
+			settings.CircleCILog = CircleCILogAuto
+		}
+	}
+	return settings, key
+}
+
+// ForRepository returns a copy whose Settings are effective for owner/repo.
+func (c *Config) ForRepository(owner, repo string) *Config {
+	settings, from := c.EffectiveSettings(owner, repo)
+	next := *c
+	next.Settings = settings
+	next.SettingsFrom = from
+	return &next
+}
+
+func cloneSettings(settings SettingsConfig) SettingsConfig {
+	settings.BlockMergeLabels = cloneStrings(settings.BlockMergeLabels)
+	settings.RequiredChecks = cloneStrings(settings.RequiredChecks)
+	settings.FlakeSignatures = cloneStrings(settings.FlakeSignatures)
+	settings.RequireLabels = cloneStrings(settings.RequireLabels)
+	settings.SkipLabels = cloneStrings(settings.SkipLabels)
+	settings.SkipUsers = cloneStrings(settings.SkipUsers)
+	if settings.RequireLabelAges != nil {
+		settings.RequireLabelAges = append([]LabelAgeConfig(nil), settings.RequireLabelAges...)
+	}
+	settings.MaxRequeues = copyIntPtr(settings.MaxRequeues)
+	return settings
+}
+
+func cloneStrings(items []string) []string {
+	if items == nil {
+		return nil
+	}
+	copied := make([]string, len(items))
+	copy(copied, items)
+	return copied
 }
 
 // LoadConfig loads the configuration from the specified file path.
@@ -166,7 +260,7 @@ func loadPklConfig(path string) (*Config, error) {
 	}
 
 	cfg := convertPklConfig(&pklCfg)
-	if err := validateSettings(cfg.Settings); err != nil {
+	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
@@ -212,6 +306,7 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			FailureLogPattern:          pklCfg.Settings.FailureLogPattern,
 			CircleCILog:                pklCfg.Settings.CircleciLog,
 		},
+		RepoSettings: convertRepoSettings(pklCfg.RepoSettings),
 	}
 	normalizeSettings(&cfg.Settings)
 
@@ -234,6 +329,48 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 	}
 
 	return cfg
+}
+
+func convertRepoSettings(entries map[string]pklconfig.RepoSettings) map[string]RepoSettings {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make(map[string]RepoSettings, len(entries))
+	for key, entry := range entries {
+		out[key] = RepoSettings{
+			BlockMergeLabels:  stringListPtr(entry.BlockMergeLabels),
+			RequiredChecks:    stringListPtr(entry.RequiredChecks),
+			FlakeSignatures:   stringListPtr(entry.FlakeSignatures),
+			RCAMarker:         stringPtr(entry.RcaMarker),
+			MaxRequeues:       copyIntPtr(entry.MaxRequeues),
+			FailureLogPattern: stringPtr(entry.FailureLogPattern),
+			CircleCILog:       stringPtr(entry.CircleciLog),
+		}
+	}
+	return out
+}
+
+func stringListPtr(items *[]string) *[]string {
+	if items == nil {
+		return nil
+	}
+	copied := cloneStrings(*items)
+	return &copied
+}
+
+func stringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
+func copyIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	return intPtr(*value)
 }
 
 func loadYamlConfig(path string) (*Config, error) {
@@ -260,11 +397,18 @@ func loadYamlConfig(path string) (*Config, error) {
 	}
 	normalizeSettings(&cfg.Settings)
 
-	if err := validateSettings(cfg.Settings); err != nil {
+	if err := validateConfig(&cfg); err != nil {
 		return nil, err
 	}
 
 	return &cfg, nil
+}
+
+func validateConfig(cfg *Config) error {
+	if err := validateSettings(cfg.Settings); err != nil {
+		return err
+	}
+	return validateRepoSettings(cfg.RepoSettings)
 }
 
 func validateSettings(settings SettingsConfig) error {
@@ -296,6 +440,32 @@ func validateSettings(settings SettingsConfig) error {
 	}
 	if settings.MaxRequeues != nil && *settings.MaxRequeues < 0 {
 		return fmt.Errorf("max_requeues must be >= 0")
+	}
+	return nil
+}
+
+func validateRepoSettings(entries map[string]RepoSettings) error {
+	for key, entry := range entries {
+		if err := validateRepoEntry(key, entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRepoEntry(key string, entry RepoSettings) error {
+	probe := SettingsConfig{MaxRequeues: copyIntPtr(entry.MaxRequeues)}
+	if entry.FlakeSignatures != nil {
+		probe.FlakeSignatures = *entry.FlakeSignatures
+	}
+	if entry.FailureLogPattern != nil {
+		probe.FailureLogPattern = *entry.FailureLogPattern
+	}
+	if entry.CircleCILog != nil {
+		probe.CircleCILog = *entry.CircleCILog
+	}
+	if err := validateSettings(probe); err != nil {
+		return fmt.Errorf("repo_settings %s: %w", key, err)
 	}
 	return nil
 }

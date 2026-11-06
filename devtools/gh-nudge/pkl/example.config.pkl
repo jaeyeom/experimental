@@ -83,3 +83,16 @@ settings {
   // Refuse another flake or infra requeue when the timeline count is greater than this.
   max_requeues = 2
 }
+
+// One entry per <owner>/<repo>. A set field replaces settings.
+// A field left unset inherits settings. An empty list does not inherit.
+// gh-nudge ignores this mapping.
+repo_settings {
+  ["<owner>/<repo>"] {
+    required_checks {
+      "lint"
+    }
+    // Explicit empty list: no label blocks a merge for this repository.
+    block_merge_labels {}
+  }
+}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1090,4 +1091,224 @@ settings:
 	if len(cfg.Settings.RequiredChecks) != 1 || cfg.Settings.RequiredChecks[0] != "ci" {
 		t.Fatalf("required_checks = %v", cfg.Settings.RequiredChecks)
 	}
+}
+
+func TestEffectiveSettingsInheritsUnsetAndReplacesEmpty(t *testing.T) {
+	limit := 4
+	zero := 0
+	empty := []string{}
+	checks := []string{"lint"}
+	marker := "entry-marker"
+	blank := ""
+	cfg := &Config{
+		Settings: SettingsConfig{
+			BlockMergeLabels:  []string{"do-not-merge"},
+			RequiredChecks:    []string{"ci"},
+			FlakeSignatures:   []string{"global-flake"},
+			RCAMarker:         "global-marker",
+			MaxRequeues:       &limit,
+			FailureLogPattern: "GLOBAL",
+			CircleCILog:       CircleCILogAPI,
+		},
+		RepoSettings: map[string]RepoSettings{
+			"acme/widgets": {
+				RequiredChecks: &checks,
+				RCAMarker:      &marker,
+			},
+			"acme/empty": {
+				BlockMergeLabels:  &empty,
+				RequiredChecks:    &empty,
+				FlakeSignatures:   &empty,
+				RCAMarker:         &blank,
+				MaxRequeues:       &zero,
+				FailureLogPattern: &blank,
+				CircleCILog:       &blank,
+			},
+			"acme/bare": {},
+		},
+	}
+
+	got, from := cfg.EffectiveSettings("acme", "widgets")
+	if from != "acme/widgets" || joinNames(got.RequiredChecks) != "lint" {
+		t.Fatalf("entry = %q %v", from, got.RequiredChecks)
+	}
+	if joinNames(got.BlockMergeLabels) != "do-not-merge" || got.RCAMarker != "entry-marker" {
+		t.Fatalf("inherited or replaced = %+v", got)
+	}
+	if got.RequeueLimit() != 4 || got.FailureLogPattern != "GLOBAL" || got.CircleCILog != CircleCILogAPI {
+		t.Fatalf("omitted fields = %+v", got)
+	}
+	if joinNames(got.FlakeSignatures) != "global-flake" {
+		t.Fatalf("flake_signatures = %v", got.FlakeSignatures)
+	}
+
+	got, from = cfg.EffectiveSettings("acme", "empty")
+	if from != "acme/empty" || len(got.BlockMergeLabels) != 0 || len(got.RequiredChecks) != 0 || len(got.FlakeSignatures) != 0 {
+		t.Fatalf("empty override = %q %+v", from, got)
+	}
+	if got.RCAMarker != "" || got.RequeueLimit() != 0 {
+		t.Fatalf("empty strings = marker %q limit %d", got.RCAMarker, got.RequeueLimit())
+	}
+	if got.FailureLogPattern != DefaultFailureLogPattern || got.CircleCILog != CircleCILogAuto {
+		t.Fatalf("empty pattern = %q circle = %q", got.FailureLogPattern, got.CircleCILog)
+	}
+
+	got, from = cfg.EffectiveSettings("acme", "bare")
+	if from != "acme/bare" || got.RCAMarker != "global-marker" || got.RequeueLimit() != 4 {
+		t.Fatalf("bare entry = %q %+v", from, got)
+	}
+	if joinNames(got.RequiredChecks) != "ci" || joinNames(got.BlockMergeLabels) != "do-not-merge" {
+		t.Fatalf("bare entry did not inherit lists: %+v", got)
+	}
+
+	got, from = cfg.EffectiveSettings("acme", "other")
+	if from != SettingsFromGlobal || joinNames(got.RequiredChecks) != "ci" {
+		t.Fatalf("missing entry = %q %v", from, got.RequiredChecks)
+	}
+	got.RequiredChecks[0] = "changed"
+	if cfg.Settings.RequiredChecks[0] != "ci" {
+		t.Fatalf("effective settings aliased the global list: %v", cfg.Settings.RequiredChecks)
+	}
+}
+
+func TestLoadYAMLRepoSettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+github:
+  owner: acme
+  repos:
+    - widgets
+settings:
+  required_checks:
+    - ci
+  block_merge_labels:
+    - do-not-merge
+  rca_marker: global-marker
+  max_requeues: 4
+repo_settings:
+  acme/widgets:
+    required_checks:
+      - lint
+  acme/empty:
+    block_merge_labels: []
+    required_checks: []
+  acme/bare: {}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, from := cfg.EffectiveSettings("acme", "widgets")
+	if from != "acme/widgets" || joinNames(got.RequiredChecks) != "lint" || joinNames(got.BlockMergeLabels) != "do-not-merge" {
+		t.Fatalf("yaml entry = %q checks %v labels %v", from, got.RequiredChecks, got.BlockMergeLabels)
+	}
+	got, from = cfg.EffectiveSettings("acme", "empty")
+	if from != "acme/empty" || len(got.RequiredChecks) != 0 || len(got.BlockMergeLabels) != 0 {
+		t.Fatalf("yaml empty = %q checks %v labels %v", from, got.RequiredChecks, got.BlockMergeLabels)
+	}
+	if _, err := LoadConfig(writeConfig(t, dir, "bad.yaml", `
+github:
+  repos:
+    - widgets
+repo_settings:
+  acme/widgets:
+    flake_signatures:
+      - "("
+`)); err == nil || !strings.Contains(err.Error(), "repo_settings acme/widgets") {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+}
+
+func TestLoadPklRepoSettingsDistinguishesUnsetAndEmpty(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	schema, err := filepath.Abs(circleConfigPkl(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.pkl")
+	content := fmt.Sprintf(`
+amends "%s"
+
+github {
+  repos { "widgets" }
+}
+
+settings {
+  required_checks { "ci" }
+  block_merge_labels { "do-not-merge" }
+  flake_signatures { "global-flake" }
+  rca_marker = "global-marker"
+  max_requeues = 4
+  failure_log_pattern = "GLOBAL"
+  circleci_log = "api"
+}
+
+repo_settings {
+  ["acme/widgets"] {
+    required_checks { "lint" }
+    rca_marker = "entry-marker"
+  }
+  ["acme/empty"] {
+    block_merge_labels = new {}
+    required_checks = new {}
+    flake_signatures = new {}
+    rca_marker = ""
+    max_requeues = 0
+    failure_log_pattern = ""
+    circleci_log = ""
+  }
+  ["acme/bare"] {}
+}
+`, schema)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, from := cfg.EffectiveSettings("acme", "widgets")
+	if from != "acme/widgets" || joinNames(got.RequiredChecks) != "lint" || got.RCAMarker != "entry-marker" {
+		t.Fatalf("pkl entry = %q checks %v marker %q", from, got.RequiredChecks, got.RCAMarker)
+	}
+	if joinNames(got.BlockMergeLabels) != "do-not-merge" || got.RequeueLimit() != 4 || got.CircleCILog != CircleCILogAPI {
+		t.Fatalf("pkl entry did not inherit: %+v", got)
+	}
+	entry := cfg.RepoSettings["acme/widgets"]
+	if entry.BlockMergeLabels != nil || entry.MaxRequeues != nil || entry.CircleCILog != nil {
+		t.Fatalf("unset pkl fields were not nil: %+v", entry)
+	}
+	empty := cfg.RepoSettings["acme/empty"]
+	if empty.BlockMergeLabels == nil || empty.RequiredChecks == nil || len(*empty.RequiredChecks) != 0 {
+		t.Fatalf("empty pkl lists = %+v", empty)
+	}
+	got, from = cfg.EffectiveSettings("acme", "empty")
+	if from != "acme/empty" || len(got.BlockMergeLabels) != 0 || got.RCAMarker != "" || got.RequeueLimit() != 0 {
+		t.Fatalf("pkl empty = %q %+v", from, got)
+	}
+	if got.FailureLogPattern != DefaultFailureLogPattern || got.CircleCILog != CircleCILogAuto {
+		t.Fatalf("pkl empty pattern = %q circle = %q", got.FailureLogPattern, got.CircleCILog)
+	}
+	got, from = cfg.EffectiveSettings("acme", "bare")
+	if from != "acme/bare" || joinNames(got.RequiredChecks) != "ci" || got.FailureLogPattern != "GLOBAL" {
+		t.Fatalf("pkl bare = %q %+v", from, got)
+	}
+}
+
+func joinNames(items []string) string {
+	return strings.Join(items, ",")
+}
+
+func writeConfig(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

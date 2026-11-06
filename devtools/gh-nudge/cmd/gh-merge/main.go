@@ -43,6 +43,9 @@
 //	# A pull request whose base is not the repository's default branch, and
 //	# which is not in a native stack, is refused.
 //	gh-merge queue acme/widgets#11
+//
+//	# A repo_settings entry for <owner>/<repo> replaces the global fields it sets.
+//	# queue, watch, rca, list, and merge use that entry for the pull request's repository.
 package main
 
 import (
@@ -85,7 +88,7 @@ func registerFlags() {
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
-	flag.BoolVar(&jsonOutput, "json", false, "Print queue and watch results as JSON")
+	flag.BoolVar(&jsonOutput, "json", false, "Print queue, watch, and rca results as JSON")
 	flag.DurationVar(&watchTimeout, "timeout", defaultWatchTimeout, timeoutHelp())
 	flag.BoolVar(&allowNoRequiredChecks, "allow-no-required-checks", false, "Queue even when required_checks is empty or the repository is not configured")
 	flag.Usage = func() {
@@ -163,7 +166,7 @@ func listMergeablePRs(githubClient mergeClient, cfg *config.Config) error {
 		fmt.Printf("         URL: %s\n", pr.URL)
 		fmt.Printf("         Branch: %s\n", pr.HeadRefName)
 		printCIStatus(pr)
-		if label, blocked := pr.BlocksMerge(cfg.Settings.BlockMergeLabels); blocked {
+		if label, blocked := pr.BlocksMerge(blockLabelsFor(cfg, pr)); blocked {
 			fmt.Printf("         Blocked: label %q prevents merge\n", label)
 		}
 		fmt.Println()
@@ -254,7 +257,7 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 
 	var merged, skippedFail, skippedPending, skippedLabel int
 	for i := range prs {
-		switch tryMergePR(githubClient, &prs[i], cfg.Settings.BlockMergeLabels) {
+		switch tryMergePR(githubClient, &prs[i], blockLabelsFor(cfg, &prs[i])) {
 		case mergeResultMerged:
 			merged++
 		case mergeResultSkippedFail:
@@ -279,6 +282,17 @@ func mergePRs(githubClient mergeClient, cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+// blockLabelsFor returns the block labels for the pull request's repository.
+// An unparseable URL uses the global list.
+func blockLabelsFor(cfg *config.Config, pr *models.PullRequest) []string {
+	owner, repo, ok := ownerRepoFromPullURL(pr.URL)
+	if !ok {
+		return cfg.Settings.BlockMergeLabels
+	}
+	settings, _ := cfg.EffectiveSettings(owner, repo)
+	return settings.BlockMergeLabels
 }
 
 // resolveMergeConfigPath picks the gh-merge config file.
@@ -357,7 +371,7 @@ func main() {
 		}
 		cmdErr = queuePullRequest(githubClient, cfg, args[1], includeDownstack)
 	case "watch":
-		cmdErr = watchCommand(githubClient, args[1:])
+		cmdErr = watchCommand(githubClient, cfg, args[1:])
 	case "rca":
 		cmdErr = postRCA(githubClient, cfg, args[1:])
 		if errors.Is(cmdErr, errRCAUsage) {

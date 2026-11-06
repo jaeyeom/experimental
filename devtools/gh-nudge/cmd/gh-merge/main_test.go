@@ -220,3 +220,47 @@ func TestListMergeablePRsShowsBlockLabel(t *testing.T) {
 		t.Errorf("output missing blocked line:\n%s", output)
 	}
 }
+
+func TestMergeEmptyRepoBlockLabelsOverrideGlobal(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	client := &fakeMergeClient{
+		prs: []models.PullRequest{
+			mergeFixture("Hold this", "https://github.com/acme/widgets/pull/1", "do-not-merge"),
+		},
+	}
+	empty := []string{}
+	cfg := &config.Config{
+		Settings: config.SettingsConfig{BlockMergeLabels: []string{"do-not-merge"}},
+		RepoSettings: map[string]config.RepoSettings{
+			"acme/widgets": {BlockMergeLabels: &empty},
+		},
+	}
+	if err := mergePRs(client, cfg); err != nil {
+		t.Fatalf("mergePRs() error = %v", err)
+	}
+	if len(client.merged) != 1 {
+		t.Fatalf("merged = %v, want the pull request", client.merged)
+	}
+}
+
+func TestListUsesRepoBlockLabels(t *testing.T) {
+	client := &fakeMergeClient{
+		prs: []models.PullRequest{
+			mergeFixture("Hold this", "https://github.com/acme/widgets/pull/1", "do-not-merge"),
+		},
+	}
+	labels := []string{"do-not-merge"}
+	cfg := &config.Config{
+		RepoSettings: map[string]config.RepoSettings{
+			"acme/widgets": {BlockMergeLabels: &labels},
+		},
+	}
+	output := captureStdout(t, func() {
+		if err := listMergeablePRs(client, cfg); err != nil {
+			t.Fatalf("listMergeablePRs() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, `Blocked: label "do-not-merge" prevents merge`) {
+		t.Fatalf("list ignored the repository entry:\n%s", output)
+	}
+}
