@@ -1088,6 +1088,39 @@ func (s *scriptedExec) Execute(_ context.Context, _ cmdexec.ToolConfig) (*cmdexe
 
 func (s *scriptedExec) IsAvailable(string) bool { return true }
 
+func TestGetAuthoredPullRequestsIncludesDrafts(t *testing.T) {
+	sampleJSON := `[
+		{"title": "Draft PR", "url": "https://github.com/org/repo/pull/1", "isDraft": true},
+		{"title": "Ready PR", "url": "https://github.com/org/repo/pull/2", "isDraft": false}
+	]`
+	client := NewClientWithExecutor(&mockExecutor{output: sampleJSON})
+	prs, err := client.GetAuthoredPullRequests()
+	if err != nil {
+		t.Fatalf("GetAuthoredPullRequests() error = %v", err)
+	}
+	if len(prs) != 2 || !prs[0].IsDraft || prs[1].IsDraft {
+		t.Fatalf("prs = %+v", prs)
+	}
+}
+
+func TestMergeableStateIgnoresStderr(t *testing.T) {
+	exec := &separatedMock{calls: []ghCall{{
+		stdout: `{"mergeable":"MERGEABLE"}`,
+		stderr: "warning: not json",
+	}}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.MergeableState("https://github.com/acme/widgets/pull/1")
+	if err != nil {
+		t.Fatalf("MergeableState() error = %v", err)
+	}
+	if got != "MERGEABLE" {
+		t.Fatalf("MergeableState() = %q", got)
+	}
+	if exec.n != 1 {
+		t.Fatalf("gh calls = %d, want 1", exec.n)
+	}
+}
+
 // Helper function to compare slices.
 func sliceEqual(a, b []string) bool {
 	if len(a) != len(b) {

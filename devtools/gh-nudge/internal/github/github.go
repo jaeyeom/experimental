@@ -86,17 +86,28 @@ func NewClientWithExecutor(executor CommandExecutor) *Client {
 // at 10 with no way to override).
 const pullRequestListLimit = 100
 
+// GetAuthoredPullRequests fetches open pull requests authored by the current user, including drafts.
+// A non-zero gh exit, or stdout that is not a JSON array, is retried once.
+// The pull request list is parsed from stdout only.
+func (c *Client) GetAuthoredPullRequests() ([]models.PullRequest, error) {
+	return c.fetchPullRequests(false)
+}
+
 // GetPendingPullRequests fetches open pull requests authored by the current user, excluding drafts.
 // A non-zero gh exit, or stdout that is not a JSON array, is retried once.
 // The pull request list is parsed from stdout only.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
-	prs, _, err := c.pendingPullRequestsOnce()
+	return c.fetchPullRequests(true)
+}
+
+func (c *Client) fetchPullRequests(skipDrafts bool) ([]models.PullRequest, error) {
+	prs, _, err := c.pullRequestsOnce()
 	if err == nil {
-		return prs, nil
+		return filterDrafts(prs, skipDrafts), nil
 	}
-	prs, stderr, err := c.pendingPullRequestsOnce()
+	prs, stderr, err := c.pullRequestsOnce()
 	if err == nil {
-		return prs, nil
+		return filterDrafts(prs, skipDrafts), nil
 	}
 	if stderr != "" {
 		if _, printErr := fmt.Fprintln(os.Stderr, stderr); printErr != nil {
@@ -107,7 +118,7 @@ func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	return nil, err
 }
 
-func (c *Client) pendingPullRequestsOnce() ([]models.PullRequest, string, error) {
+func (c *Client) pullRequestsOnce() ([]models.PullRequest, string, error) {
 	// `pr list --author @me` replaces `pr status`, which is capped at 10 PRs.
 	stdout, stderr, err := c.executeSeparated("gh", "pr", "list",
 		"--author", "@me",
@@ -120,7 +131,30 @@ func (c *Client) pendingPullRequestsOnce() ([]models.PullRequest, string, error)
 	if err != nil {
 		return nil, stderr, err
 	}
-	return withoutDrafts(prs), stderr, nil
+	return prs, stderr, nil
+}
+
+func filterDrafts(prs []models.PullRequest, skip bool) []models.PullRequest {
+	if !skip {
+		return prs
+	}
+	return withoutDrafts(prs)
+}
+
+// MergeableState reads one pull request's mergeable field from gh.
+// Stdout is parsed alone. Stderr is not part of the value.
+func (c *Client) MergeableState(prURL string) (string, error) {
+	stdout, _, err := c.executeSeparated("gh", "pr", "view", prURL, "--json", "mergeable")
+	if err != nil {
+		return "", fmt.Errorf("failed to read mergeable state: %w", err)
+	}
+	var body struct {
+		Mergeable string `json:"mergeable"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &body); err != nil {
+		return "", fmt.Errorf("failed to parse mergeable state: %w", err)
+	}
+	return body.Mergeable, nil
 }
 
 func (c *Client) executeSeparated(cmd string, args ...string) (string, string, error) {
