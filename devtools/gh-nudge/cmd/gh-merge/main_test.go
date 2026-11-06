@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 )
 
@@ -421,4 +423,135 @@ func TestMergeLogsEffectiveRepoBlockLabels(t *testing.T) {
 	if len(client.merged) != 0 {
 		t.Fatalf("merged = %v, want none", client.merged)
 	}
+}
+
+func TestListGHFailurePrintsStderr(t *testing.T) {
+	exec := &ghAttempts{calls: []ghAttempt{
+		{stdout: "[]", stderr: "gh: api error", err: errors.New("exit status 1")},
+		{stdout: "[]", stderr: "gh: api error", err: errors.New("exit status 1")},
+	}}
+	client := github.NewClientWithExecutor(exec)
+	var cmdErr error
+	stdout, stderr := captureOutputs(t, func() {
+		cmdErr = listMergeablePRs(client, &config.Config{})
+	})
+	if cmdErr == nil {
+		t.Fatal("expected non-zero list failure")
+	}
+	if strings.Contains(stdout, "No PRs with no review requests found.") {
+		t.Fatalf("printed the empty-result line:\n%s", stdout)
+	}
+	if !strings.Contains(stderr+cmdErr.Error(), "gh: api error") {
+		t.Fatalf("output missing gh stderr\nstdout: %s\nstderr: %s\nerr: %v", stdout, stderr, cmdErr)
+	}
+	if exec.n != 2 {
+		t.Fatalf("gh calls = %d, want 2", exec.n)
+	}
+}
+
+func TestListGHTruncatedJSON(t *testing.T) {
+	exec := &ghAttempts{calls: []ghAttempt{{stdout: `[{"url":`}, {stdout: `[{"url":`}}}
+	client := github.NewClientWithExecutor(exec)
+	var cmdErr error
+	stdout, _ := captureOutputs(t, func() {
+		cmdErr = listMergeablePRs(client, &config.Config{})
+	})
+	if cmdErr == nil {
+		t.Fatal("expected non-zero list failure")
+	}
+	if strings.Contains(stdout, "No PRs with no review requests found.") {
+		t.Fatalf("printed the empty-result line:\n%s", stdout)
+	}
+	if !strings.Contains(cmdErr.Error(), "unexpected end of JSON input") {
+		t.Fatalf("error = %v, want unexpected end of JSON input", cmdErr)
+	}
+	if exec.n != 2 {
+		t.Fatalf("gh calls = %d, want 2", exec.n)
+	}
+}
+
+func TestListGHEmptyArray(t *testing.T) {
+	exec := &ghAttempts{calls: []ghAttempt{{stdout: "[]", stderr: "warning: not a pull request list"}}}
+	client := github.NewClientWithExecutor(exec)
+	var cmdErr error
+	stdout, _ := captureOutputs(t, func() {
+		cmdErr = listMergeablePRs(client, &config.Config{})
+	})
+	if cmdErr != nil {
+		t.Fatalf("listMergeablePRs() error = %v", cmdErr)
+	}
+	if !strings.Contains(stdout, "No PRs with no review requests found.") {
+		t.Fatalf("output missing empty-result line:\n%s", stdout)
+	}
+	if exec.n != 1 {
+		t.Fatalf("gh calls = %d, want 1", exec.n)
+	}
+}
+
+func captureOutputs(t *testing.T, fn func()) (string, string) {
+	t.Helper()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	t.Cleanup(func() {
+		os.Stdout, os.Stderr = origOut, origErr
+	})
+	fn()
+	if err := outW.Close(); err != nil {
+		t.Fatalf("close stdout: %v", err)
+	}
+	if err := errW.Close(); err != nil {
+		t.Fatalf("close stderr: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if _, err := io.Copy(&stdout, outR); err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if _, err := io.Copy(&stderr, errR); err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	return stdout.String(), stderr.String()
+}
+
+type ghAttempt struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+type ghAttempts struct {
+	calls []ghAttempt
+	n     int
+}
+
+func (g *ghAttempts) Execute(cmd string, args ...string) (string, error) {
+	stdout, stderr, err := g.ExecuteSeparated(cmd, args...)
+	combined := stdout
+	if stderr != "" {
+		if combined != "" {
+			combined += "\n"
+		}
+		combined += stderr
+	}
+	return combined, err
+}
+
+func (g *ghAttempts) ExecuteWithStdin(_ string, cmd string, args ...string) (string, error) {
+	return g.Execute(cmd, args...)
+}
+
+func (g *ghAttempts) ExecuteSeparated(string, ...string) (string, string, error) {
+	if g.n >= len(g.calls) {
+		return "", "", errors.New("unexpected gh call")
+	}
+	call := g.calls[g.n]
+	g.n++
+	return call.stdout, call.stderr, call.err
 }

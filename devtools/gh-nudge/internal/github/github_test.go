@@ -1,12 +1,14 @@
 package github
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
+	cmdexec "github.com/jaeyeom/go-cmdexec"
 )
 
 // TestNewClient tests the behavior of creating a new GitHub client.
@@ -918,6 +920,173 @@ func mustParseTime(t *testing.T, value string) time.Time {
 	}
 	return parsed
 }
+
+func TestGetPendingPullRequestsRetriesNonZeroExit(t *testing.T) {
+	exec := &separatedMock{calls: []ghCall{
+		{stdout: "[]", stderr: "gh: api error", err: errors.New("exit status 1")},
+		{stdout: "[]", stderr: "gh: api error", err: errors.New("exit status 1")},
+	}}
+	client := NewClientWithExecutor(exec)
+	prs, err := client.GetPendingPullRequests()
+	if err == nil {
+		t.Fatal("expected error after gh exits non-zero twice")
+	}
+	if prs != nil {
+		t.Fatalf("prs = %v, want nil", prs)
+	}
+	if exec.n != 2 {
+		t.Fatalf("gh calls = %d, want 2", exec.n)
+	}
+	if !strings.Contains(err.Error(), "gh: api error") {
+		t.Fatalf("error = %v, want gh stderr", err)
+	}
+}
+
+func TestGetPendingPullRequestsRetriesTruncatedJSON(t *testing.T) {
+	exec := &separatedMock{calls: []ghCall{
+		{stdout: `[{"url":`},
+		{stdout: `[{"url":`},
+	}}
+	client := NewClientWithExecutor(exec)
+	prs, err := client.GetPendingPullRequests()
+	if err == nil {
+		t.Fatal("expected error for truncated JSON")
+	}
+	if prs != nil {
+		t.Fatalf("prs = %v, want nil", prs)
+	}
+	if exec.n != 2 {
+		t.Fatalf("gh calls = %d, want 2", exec.n)
+	}
+	if !strings.Contains(err.Error(), "unexpected end of JSON input") {
+		t.Fatalf("error = %v, want unexpected end of JSON input", err)
+	}
+}
+
+func TestGetPendingPullRequestsRejectsNull(t *testing.T) {
+	exec := &separatedMock{calls: []ghCall{{stdout: "null"}, {stdout: "null"}}}
+	client := NewClientWithExecutor(exec)
+	prs, err := client.GetPendingPullRequests()
+	if err == nil {
+		t.Fatal("expected error for JSON null")
+	}
+	if prs != nil {
+		t.Fatalf("prs = %v, want nil", prs)
+	}
+	if exec.n != 2 {
+		t.Fatalf("gh calls = %d, want 2", exec.n)
+	}
+}
+
+func TestGetPendingPullRequestsUsesSecondAttempt(t *testing.T) {
+	exec := &separatedMock{calls: []ghCall{
+		{stderr: "gh: temporary", err: errors.New("exit status 1")},
+		{stdout: "[]"},
+	}}
+	client := NewClientWithExecutor(exec)
+	prs, err := client.GetPendingPullRequests()
+	if err != nil {
+		t.Fatalf("GetPendingPullRequests() error = %v", err)
+	}
+	if len(prs) != 0 {
+		t.Fatalf("len(prs) = %d, want 0", len(prs))
+	}
+	if exec.n != 2 {
+		t.Fatalf("gh calls = %d, want 2", exec.n)
+	}
+}
+
+func TestGetPendingPullRequestsDoesNotParseStderr(t *testing.T) {
+	exec := &scriptedExec{results: []*cmdexec.ExecutionResult{{
+		Output:   "[]",
+		Stderr:   "warning: not a pull request list",
+		ExitCode: 0,
+	}}}
+	client := NewClient(context.Background(), exec)
+	prs, err := client.GetPendingPullRequests()
+	if err != nil {
+		t.Fatalf("GetPendingPullRequests() error = %v", err)
+	}
+	if len(prs) != 0 {
+		t.Fatalf("len(prs) = %d, want 0", len(prs))
+	}
+	if exec.n != 1 {
+		t.Fatalf("gh calls = %d, want 1", exec.n)
+	}
+}
+
+func TestGetPendingPullRequestsSeparatedNonZeroDoesNotUseStdout(t *testing.T) {
+	exec := &scriptedExec{results: []*cmdexec.ExecutionResult{
+		{Output: "[]", Stderr: "gh: boom", ExitCode: 1},
+		{Output: "[]", Stderr: "gh: boom", ExitCode: 1},
+	}}
+	client := NewClient(context.Background(), exec)
+	prs, err := client.GetPendingPullRequests()
+	if err == nil {
+		t.Fatal("expected error when gh exits non-zero")
+	}
+	if prs != nil {
+		t.Fatalf("prs = %v, want nil", prs)
+	}
+	if exec.n != 2 {
+		t.Fatalf("gh calls = %d, want 2", exec.n)
+	}
+	if !strings.Contains(err.Error(), "gh: boom") {
+		t.Fatalf("error = %v, want gh stderr", err)
+	}
+}
+
+type ghCall struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+type separatedMock struct {
+	calls []ghCall
+	n     int
+}
+
+func (m *separatedMock) Execute(cmd string, args ...string) (string, error) {
+	stdout, stderr, err := m.ExecuteSeparated(cmd, args...)
+	combined := stdout
+	if stderr != "" {
+		if combined != "" {
+			combined += "\n"
+		}
+		combined += stderr
+	}
+	return combined, err
+}
+
+func (m *separatedMock) ExecuteWithStdin(_ string, cmd string, args ...string) (string, error) {
+	return m.Execute(cmd, args...)
+}
+
+func (m *separatedMock) ExecuteSeparated(string, ...string) (string, string, error) {
+	if m.n >= len(m.calls) {
+		return "", "", errors.New("unexpected gh call")
+	}
+	call := m.calls[m.n]
+	m.n++
+	return call.stdout, call.stderr, call.err
+}
+
+type scriptedExec struct {
+	results []*cmdexec.ExecutionResult
+	n       int
+}
+
+func (s *scriptedExec) Execute(_ context.Context, _ cmdexec.ToolConfig) (*cmdexec.ExecutionResult, error) {
+	if s.n >= len(s.results) {
+		return nil, errors.New("unexpected gh call")
+	}
+	result := s.results[s.n]
+	s.n++
+	return result, nil
+}
+
+func (s *scriptedExec) IsAvailable(string) bool { return true }
 
 // Helper function to compare slices.
 func sliceEqual(a, b []string) bool {
