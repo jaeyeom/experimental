@@ -933,3 +933,67 @@ func runCLI(args ...string) (string, string, int) {
 	code := run(args, &stdout, &stderr)
 	return stdout.String(), stderr.String(), code
 }
+
+func TestSkill(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	stdout, stderr, code := runCLI("skill")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if !strings.HasPrefix(stdout, "---\nname: decide\n") {
+		t.Fatalf("stdout does not start with frontmatter:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "description:") {
+		t.Fatalf("stdout missing description:\n%s", stdout)
+	}
+	for _, phrase := range []string{
+		"ask the user for a decision, send a note, or post status",
+		"Run `decide` with no arguments",
+		"Every item has options, includes `--rec`, and usually allows `--free-text`.",
+		"`--notify-pane` routes the answer to the owning agent's pane.",
+		"verify it with `decide show --json`: `state` is `answered` and `answeredBy` is `human`.",
+		"Close an item with `decide done` and an outcome.",
+		"File a new item for a follow-up, and leave the closed item closed.",
+		"`decide status set` posts the agent state, and posts a shared resource as free or busy.",
+		"Deadlines are RFC3339.",
+		"An inbox answer may not count as approval for an outward action, such as posting to chat, writing to a tracker, or merging, when that agent's own check requires a typed approval.",
+		"type this in tab X",
+		"include the exact text.",
+	} {
+		if !strings.Contains(stdout, phrase) {
+			t.Fatalf("skill missing %q\n%s", phrase, stdout)
+		}
+	}
+
+	dir := filepath.Join(cfg, "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again, againErr, againCode := runCLI("skill")
+	if againCode != 0 || again != stdout || againErr != "" {
+		t.Fatalf("config changed skill: exit %d\nstderr=%s\nstdout=%s", againCode, againErr, again)
+	}
+
+	extraOut, extraErr, extraCode := runCLI("skill", "extra")
+	if extraCode != 2 {
+		t.Fatalf("extra exit = %d, want 2, stderr = %s", extraCode, extraErr)
+	}
+	if strings.Contains(extraOut, "name: decide") || strings.Contains(extraErr, "name: decide") {
+		t.Fatalf("skill was printed\nstdout=%s\nstderr=%s", extraOut, extraErr)
+	}
+
+	usageOut, usageErr, usageCode := runCLI()
+	if usageCode != 2 {
+		t.Fatalf("usage exit = %d, stderr = %s", usageCode, usageErr)
+	}
+	if !strings.Contains(usageErr, "\n  decide skill\n") {
+		t.Fatalf("usage does not list skill:\n%s%s", usageOut, usageErr)
+	}
+}
