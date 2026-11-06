@@ -86,14 +86,33 @@ type SettingsConfig struct {
 	MaxRequeues *int `yaml:"max_requeues"`
 	// FailureLogPattern is the regular expression for CircleCI failure lines.
 	// Empty means DefaultFailureLogPattern. An invalid pattern fails config load.
+	// The default matches a line that starts with ERROR: and a timestamp prefix
+	// such as (12:34:56) ERROR:.
 	FailureLogPattern string `yaml:"failure_log_pattern"`
+	// CircleCILog chooses how gh-merge reads CircleCI logs: auto, api, or cli.
+	// auto uses the HTTP API when CIRCLE_TOKEN is set, and the circleci CLI otherwise.
+	// api keeps the HTTP path. cli uses the CLI even when a token is set and does
+	// not call the HTTP API. The CLI may read its token from the system keyring
+	// and then needs an unsandboxed environment.
+	CircleCILog string `yaml:"circleci_log"`
 }
 
 // DefaultMaxRequeues is the requeue cap when config omits max_requeues.
 const DefaultMaxRequeues = 2
 
-// DefaultFailureLogPattern matches a CircleCI line that starts with ERROR:.
-const DefaultFailureLogPattern = "^ERROR:"
+// DefaultFailureLogPattern matches a CircleCI line that starts with ERROR:
+// and a line with a timestamp prefix such as (12:34:56) ERROR:.
+const DefaultFailureLogPattern = `^(?:[(][0-9]{2}:[0-9]{2}:[0-9]{2}[)] )?ERROR:`
+
+// CircleCI log modes.
+const (
+	// CircleCILogAuto uses the HTTP API when CIRCLE_TOKEN is set, otherwise the CLI.
+	CircleCILogAuto = "auto"
+	// CircleCILogAPI keeps the HTTP API path.
+	CircleCILogAPI = "api"
+	// CircleCILogCLI uses the circleci CLI and does not call the HTTP API.
+	CircleCILogCLI = "cli"
+)
 
 // RequeueLimit returns the number of earlier requeues that are still allowed.
 // A nil MaxRequeues uses DefaultMaxRequeues.
@@ -191,6 +210,7 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			RCAMarker:                  pklCfg.Settings.RcaMarker,
 			MaxRequeues:                intPtr(pklCfg.Settings.MaxRequeues),
 			FailureLogPattern:          pklCfg.Settings.FailureLogPattern,
+			CircleCILog:                pklCfg.Settings.CircleciLog,
 		},
 	}
 	normalizeSettings(&cfg.Settings)
@@ -269,6 +289,11 @@ func validateSettings(settings SettingsConfig) error {
 			return fmt.Errorf("failure_log_pattern %q: %w", settings.FailureLogPattern, err)
 		}
 	}
+	switch settings.CircleCILog {
+	case "", CircleCILogAuto, CircleCILogAPI, CircleCILogCLI:
+	default:
+		return fmt.Errorf("circleci_log %q is not auto, api, or cli", settings.CircleCILog)
+	}
 	if settings.MaxRequeues != nil && *settings.MaxRequeues < 0 {
 		return fmt.Errorf("max_requeues must be >= 0")
 	}
@@ -278,6 +303,9 @@ func validateSettings(settings SettingsConfig) error {
 func normalizeSettings(settings *SettingsConfig) {
 	if settings.FailureLogPattern == "" {
 		settings.FailureLogPattern = DefaultFailureLogPattern
+	}
+	if settings.CircleCILog == "" {
+		settings.CircleCILog = CircleCILogAuto
 	}
 }
 

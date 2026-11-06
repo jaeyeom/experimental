@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,12 +24,7 @@ const circleTokenEnv = "CIRCLE_TOKEN"
 func printFailureEvidence(cfg *config.Config, evidence github.FailureEvidence) (string, error) {
 	printEvidenceIdentity(evidence)
 	if isCircleURL(evidence.TargetURL) && evidence.Log == "" {
-		org, repo, number, ok := circlePipeline(evidence.TargetURL)
-		if !ok {
-			fmt.Println("log unavailable: unrecognized CircleCI pipeline URL")
-			return "", nil
-		}
-		return printCircleLog(cfg, org, repo, number)
+		return printCircleCI(cfg, evidence)
 	}
 	if evidence.Log == "" && evidence.JobURL == "" && evidence.TargetURL != "" {
 		fmt.Println("log unavailable: unsupported target")
@@ -55,16 +51,83 @@ func printEvidenceIdentity(evidence github.FailureEvidence) {
 	}
 }
 
-func printCircleLog(cfg *config.Config, org, repo string, number int) (string, error) {
+var circleCLILookPath = exec.LookPath
+
+func printCircleCI(cfg *config.Config, evidence github.FailureEvidence) (string, error) {
+	mode := cfg.Settings.CircleCILog
+	if mode == "" {
+		mode = config.CircleCILogAuto
+	}
 	token := os.Getenv(circleTokenEnv)
-	if token == "" {
-		fmt.Println("log unavailable: no CircleCI token")
+	switch mode {
+	case config.CircleCILogAPI:
+		if token == "" {
+			fmt.Println("log unavailable: no CircleCI token")
+			return "", nil
+		}
+		return printCircleAPILog(cfg, evidence, token)
+	case config.CircleCILogCLI:
+		if !circleCLIOnPath() {
+			fmt.Println("log unavailable: circleci CLI is not on PATH")
+			return "", nil
+		}
+		return printCircleCLILog(cfg, evidence)
+	default:
+		if token != "" {
+			return printCircleAPILog(cfg, evidence, token)
+		}
+		if circleCLIOnPath() {
+			return printCircleCLILog(cfg, evidence)
+		}
+		fmt.Printf("log unavailable: no CircleCI token and circleci CLI is not on PATH: %s\n", evidence.TargetURL)
+		return "", nil
+	}
+}
+
+func circleCLIOnPath() bool {
+	_, err := circleCLILookPath("circleci")
+	return err == nil
+}
+
+func printCircleAPILog(cfg *config.Config, evidence github.FailureEvidence, token string) (string, error) {
+	org, repo, number, ok := circlePipeline(evidence.TargetURL)
+	if !ok {
+		fmt.Println("log unavailable: unrecognized CircleCI pipeline URL")
 		return "", nil
 	}
 	body, err := circleStepLog(org, repo, number, token)
 	if err != nil {
 		return "", fmt.Errorf("circleci log: %w", err)
 	}
+	return printCircleText(cfg, body)
+}
+
+func printCircleCLILog(cfg *config.Config, evidence github.FailureEvidence) (string, error) {
+	workflowID, ok := circleWorkflowID(evidence)
+	if !ok {
+		fmt.Println("log unavailable: unrecognized CircleCI pipeline URL")
+		return "", nil
+	}
+	workflowJSON, err := runCommand("circleci", "workflow", "get", workflowID, "--json")
+	if err != nil {
+		return "", fmt.Errorf("circleci workflow get: %w", err)
+	}
+	jobID, err := circleFailedJobID(workflowJSON)
+	if err != nil {
+		return "", fmt.Errorf("circleci workflow get: %w", err)
+	}
+	outputJSON, err := runCommand("circleci", "job", "output", "list", jobID, "--json")
+	if err != nil {
+		return "", fmt.Errorf("circleci job output list: %w", err)
+	}
+	text, err := circleFailedStepText(outputJSON)
+	if err != nil {
+		return "", fmt.Errorf("circleci job output list: %w", err)
+	}
+	return printCircleText(cfg, text)
+}
+
+func printCircleText(cfg *config.Config, body string) (string, error) {
 	text := strings.TrimRight(body, "\n")
 	fmt.Printf("%s\n", tailText(text, logTailLines))
 	pattern := cfg.Settings.FailureLogPattern
@@ -79,6 +142,78 @@ func printCircleLog(cfg *config.Config, org, repo string, number int) (string, e
 		fmt.Println(line)
 	}
 	return text, nil
+}
+
+func circleWorkflowID(evidence github.FailureEvidence) (string, bool) {
+	for _, raw := range []string{evidence.TargetURL, evidence.CheckRunURL, evidence.JobURL} {
+		if id, ok := workflowUUID(raw); ok {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+var workflowUUIDPattern = regexp.MustCompile(`/workflows/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})`)
+
+func workflowUUID(raw string) (string, bool) {
+	if !isCircleURL(raw) {
+		return "", false
+	}
+	match := workflowUUIDPattern.FindStringSubmatch(raw)
+	if match == nil {
+		return "", false
+	}
+	return match[1], true
+}
+
+func circleFailedJobID(body string) (string, error) {
+	var parsed struct {
+		Jobs []struct {
+			ID      string `json:"id"`
+			Outcome string `json:"outcome"`
+		} `json:"jobs"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		return "", fmt.Errorf("parse circleci workflow: %w", err)
+	}
+	for _, job := range parsed.Jobs {
+		if strings.EqualFold(job.Outcome, "failed") && job.ID != "" {
+			return job.ID, nil
+		}
+	}
+	return "", errors.New("circleci workflow has no failed job")
+}
+
+func circleFailedStepText(body string) (string, error) {
+	var parsed struct {
+		Steps []struct {
+			Outcome string `json:"outcome"`
+			Output  string `json:"output"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		return "", fmt.Errorf("parse circleci job output: %w", err)
+	}
+	var text strings.Builder
+	for _, step := range parsed.Steps {
+		if circleStepSucceeded(step.Outcome) {
+			continue
+		}
+		text.WriteString(step.Output)
+		if step.Output != "" && !strings.HasSuffix(step.Output, "\n") {
+			text.WriteByte('\n')
+		}
+	}
+	return text.String(), nil
+}
+
+func circleStepSucceeded(outcome string) bool {
+	switch strings.ToLower(outcome) {
+	case "succeeded", "success":
+		return true
+	default:
+		return false
+	}
 }
 
 func linesMatching(text, pattern string) ([]string, error) {

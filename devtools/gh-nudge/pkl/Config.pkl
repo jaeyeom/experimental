@@ -86,8 +86,15 @@ class SettingsConfig {
   max_requeues: Int(this >= 0) = 2
   /// Lines of a CircleCI failing step that match this regular expression are
   /// printed with the log tail. An invalid pattern fails config load.
-  /// The default matches a line that starts with ERROR:.
-  failure_log_pattern: String = "^ERROR:"
+  /// The default matches a line that starts with ERROR: and a timestamp
+  /// prefix such as (12:34:56) ERROR:.
+  failure_log_pattern: String = #"^(?:[(][0-9]{2}:[0-9]{2}:[0-9]{2}[)] )?ERROR:"#
+  /// How gh-merge reads CircleCI logs: auto, api, or cli.
+  /// auto uses the HTTP API when CIRCLE_TOKEN is set, and the circleci CLI otherwise.
+  /// api keeps the HTTP path. cli uses the CLI even when a token is set and does
+  /// not call the HTTP API.
+  /// The CLI may read its token from the system keyring and then needs an unsandboxed environment.
+  circleci_log: String = "auto"
 }
 
 /// Root configuration

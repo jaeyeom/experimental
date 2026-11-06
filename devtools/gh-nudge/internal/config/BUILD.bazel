@@ -16,5 +16,6 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = ["config_test.go"],
+    data = ["//devtools/gh-nudge/pkl:config_pkl"],
     embed = [":go_default_library"],
 )
