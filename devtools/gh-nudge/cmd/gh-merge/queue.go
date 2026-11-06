@@ -525,7 +525,15 @@ func refuseRCA(pr github.QueuePullRequest, settings config.SettingsConfig) error
 	if err != nil {
 		return err
 	}
-	earlier := earlierRequeues(pr.Events)
+	if matched && class == "our-code" && event.CommitSHA != "" && event.CommitSHA != pr.HeadSHA {
+		fmt.Printf("our-code ejection at %s; head %s pushed since, proceeding\n",
+			event.CreatedAt.Format(time.RFC3339), pr.HeadSHA)
+		return nil
+	}
+	earlier, err := earlierRequeues(settings.RCAMarker, pr.Comments, pr.Events)
+	if err != nil {
+		return err
+	}
 	return requeueAllowed(class, matched, earlier, settings.RequeueLimit())
 }
 
@@ -573,21 +581,31 @@ func rcaClass(marker, eventID string, comments []string) (string, bool, error) {
 	return found, true, nil
 }
 
-func earlierRequeues(events []github.QueueEvent) int {
+func earlierRequeues(marker string, comments []string, events []github.QueueEvent) (int, error) {
 	sorted := append([]github.QueueEvent(nil), events...)
 	sortQueueEvents(sorted)
 	seenRemoval := false
+	lastRemovalID := ""
 	count := 0
 	for _, event := range sorted {
 		if event.Kind == github.QueueEventRemoved {
 			seenRemoval = true
+			lastRemovalID = event.ID
 			continue
 		}
-		if event.Kind == github.QueueEventAdded && seenRemoval {
-			count++
+		if event.Kind != github.QueueEventAdded || !seenRemoval {
+			continue
 		}
+		class, matched, err := rcaClass(marker, lastRemovalID, comments)
+		if err != nil {
+			return 0, err
+		}
+		if matched && class == "our-code" {
+			continue
+		}
+		count++
 	}
-	return count
+	return count, nil
 }
 
 func latestQueueEvent(events []github.QueueEvent) (github.QueueEvent, bool) {
