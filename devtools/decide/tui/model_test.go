@@ -2896,6 +2896,118 @@ func TestStatusBoardShowsAgentsResourcesAndDimsStale(t *testing.T) {
 	}
 }
 
+func TestStatusComposeFromHighlightedAgent(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question: "stay listed", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen,
+	})
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	board, err := decide.OpenStatus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.SetClock(func() time.Time { return now })
+	if _, err := board.SetAgent("alpha", "working", "fixing"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := board.SetAgent("gamma", "idle", "other"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-a"}, {Name: "beta", Pane: "pane-b"}}
+	m.target = 1
+	m.width = 100
+	m.height = 24
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.View(), "o open") {
+		t.Fatalf("list footer dropped open\n%s", m.View())
+	}
+	press(t, m, "gs")
+	view := m.View()
+	if m.mode != modeStatus || strings.Contains(view, "o open") || !strings.Contains(view, "c  tab") || !strings.Contains(view, "? help") {
+		t.Fatalf("status footer\n%s", view)
+	}
+	alpha := lineContaining(view, "alpha")
+	gamma := lineContaining(view, "gamma")
+	if alpha == "" || gamma == "" || !strings.Contains(alpha, "\x1b[7m") || strings.Contains(gamma, "\x1b[7m") {
+		t.Fatalf("first agent is not highlighted\nalpha %s\ngamma %s", alpha, gamma)
+	}
+	press(t, m, "j")
+	view = m.View()
+	alpha = lineContaining(view, "alpha")
+	gamma = lineContaining(view, "gamma")
+	if strings.Contains(alpha, "\x1b[7m") || !strings.Contains(gamma, "\x1b[7m") {
+		t.Fatalf("j did not move the highlight\nalpha %s\ngamma %s", alpha, gamma)
+	}
+	press(t, m, "j")
+	gamma = lineContaining(m.View(), "gamma")
+	if !strings.Contains(gamma, "\x1b[7m") {
+		t.Fatalf("j wrapped past the last agent\n%s", gamma)
+	}
+	press(t, m, "k")
+	alpha = lineContaining(m.View(), "alpha")
+	if !strings.Contains(alpha, "\x1b[7m") {
+		t.Fatalf("k did not move back\n%s", alpha)
+	}
+	press(t, m, "k")
+	alpha = lineContaining(m.View(), "alpha")
+	if !strings.Contains(alpha, "\x1b[7m") {
+		t.Fatalf("k wrapped past the first agent\n%s", alpha)
+	}
+	press(t, m, "o")
+	if m.mode != modeStatus || m.composing {
+		t.Fatalf("o on status mode %d composing %v", m.mode, m.composing)
+	}
+	if _, err := m.Key('?'); err != nil {
+		t.Fatal(err)
+	}
+	help := m.View()
+	for _, needle := range []string{"c compose", "j/k move", "u returns to the list", "q quit"} {
+		if !strings.Contains(help, needle) {
+			t.Fatalf("status help missing %q\n%s", needle, help)
+		}
+	}
+	for _, banned := range []string{"o or enter opens", "1-9 answer", "e done", "click folder, row, option"} {
+		if strings.Contains(help, banned) {
+			t.Fatalf("status help contains %q\n%s", banned, help)
+		}
+	}
+	if _, err := m.Key('\x1b'); err != nil || m.help {
+		t.Fatal("help stayed open")
+	}
+	press(t, m, "c")
+	if !m.composing || m.composeFocus != focusRecipient || m.target != 0 || !strings.Contains(m.View(), "> [alpha]") || !strings.Contains(m.View(), "[Send]") {
+		t.Fatalf("compose target %d focus %d\n%s", m.target, m.composeFocus, m.View())
+	}
+	if _, err := m.Key('\x1b'); err != nil || m.composing {
+		t.Fatal("compose stayed open")
+	}
+	press(t, m, "j")
+	m.target = 1
+	press(t, m, "c")
+	if !m.composing || m.target != 1 || !strings.Contains(m.View(), "> [beta]") || strings.Contains(m.View(), "> [alpha]") {
+		t.Fatalf("unmatched agent changed recipient to %d\n%s", m.target, m.View())
+	}
+	if _, err := m.Key('\x1b'); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "gi")
+	if m.mode != modeList || !strings.Contains(m.View(), "o open") {
+		t.Fatalf("list footer was not restored\n%s", m.View())
+	}
+	if _, err := m.Key('?'); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(m.View(), "o or enter opens") || !strings.Contains(m.View(), "1-9 answer") {
+		t.Fatalf("list help changed\n%s", m.View())
+	}
+}
+
 func draftArea(view string) string {
 	lines := strings.Split(view, "\n")
 	tops := borderRows(view, "┌")
