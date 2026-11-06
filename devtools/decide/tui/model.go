@@ -108,6 +108,9 @@ func newNoteField() textarea.Model {
 	field.Prompt = ""
 	field.ShowLineNumbers = false
 	field.Placeholder = ""
+	// A wide field keeps the caret column on the logical line. The view
+	// wraps separately to the panel width.
+	field.SetWidth(4096)
 	return field
 }
 
@@ -675,7 +678,11 @@ func (m *Model) clipList(list []screenLine) []screenLine {
 }
 
 func (m *Model) openedScreen(width int) []screenLine {
-	detail := m.detailLines()
+	textW := width
+	if (m.detailFocused() || m.answerFocus) && width >= 2 {
+		textW = width - 2
+	}
+	detail := m.detailLines(textW)
 	_, detailN := m.layoutBudget()
 	var scroll int
 	detail, scroll = clipLines(detail, m.scroll, detailN)
@@ -1055,14 +1062,33 @@ func boxAnswerWithin(lines []screenLine, width int) []screenLine {
 	return out
 }
 
+func panelBox(lines []screenLine, width int, focused bool) []screenLine {
+	return boxWithinStyled(lines, width, focused)
+}
+
 func boxWithin(lines []screenLine, width int) []screenLine {
+	return boxWithinStyled(lines, width, true)
+}
+
+func boxWithinStyled(lines []screenLine, width int, focused bool) []screenLine {
 	if len(lines) == 0 || width < 2 {
 		return boxLines(lines)
 	}
 	useStyles()
 	inner := width - 2
 	rule := strings.Repeat("─", inner)
-	out := []screenLine{{text: focusMark.Render("┌" + rule + "┐")}}
+	top := "┌" + rule + "┐"
+	bot := "└" + rule + "┘"
+	if focused {
+		top = focusMark.Render(top)
+		bot = focusMark.Render(bot)
+	}
+	out := []screenLine{{text: top}}
+	left, right := "│", "│"
+	if focused {
+		left = focusMark.Render("│")
+		right = focusMark.Render("│")
+	}
 	for _, line := range lines {
 		fitted := fitLine(line, inner)
 		hits := fitted.hits
@@ -1077,11 +1103,11 @@ func boxWithin(lines []screenLine, width int) []screenLine {
 			}
 		}
 		out = append(out, screenLine{
-			text: "│" + fitted.text + "│",
+			text: left + fitted.text + right,
 			hits: hits,
 		})
 	}
-	out = append(out, screenLine{text: focusMark.Render("└" + rule + "┘")})
+	out = append(out, screenLine{text: bot})
 	return out
 }
 
@@ -1223,13 +1249,13 @@ func (m *Model) rowLines(width int) []screenLine {
 	return lines
 }
 
-func (m *Model) detailLines() []screenLine {
+func (m *Model) detailLines(width int) []screenLine {
 	if m.detail == nil {
 		return []screenLine{{text: "(empty)"}}
 	}
 	it := m.detail
 	lines := []screenLine{{text: plainText(it.ID)}}
-	lines = append(lines, questionLines(it.Question)...)
+	lines = append(lines, questionLines(it.Question, width)...)
 	if it.Kind == decide.KindTypeIn {
 		lines = append(lines,
 			screenLine{text: plainText("type: " + it.TypeText)},
@@ -1237,10 +1263,14 @@ func (m *Model) detailLines() []screenLine {
 			screenLine{text: plainText("mark done"), hits: []hit{{kind: hitMarkDone}}},
 		)
 	} else {
-		lines = append(lines, m.relayLines(it)...)
+		lines = append(lines, m.relayLines(it, width)...)
 	}
 	if m.mode == modeOutcome {
-		lines = append(lines, screenLine{text: plainText("outcome: " + m.draft)})
+		body := m.draft
+		if m.outcome.Focused() {
+			body = withCursor(m.draft, m.outcome.Position())
+		}
+		lines = append(lines, screenLine{text: plainText("outcome: " + body)})
 	}
 	return lines
 }
@@ -1252,47 +1282,131 @@ func plainText(s string) string {
 
 var urlPattern = regexp.MustCompile(`https?://[^[:space:]]+`)
 
-func questionLines(q string) []screenLine {
+func questionLines(q string, width int) []screenLine {
 	parts := strings.Split(q, "\n")
 	lines := make([]screenLine, 0, len(parts))
 	for _, part := range parts {
-		lines = append(lines, linkLine(part))
+		lines = append(lines, linkLines(part, width)...)
 	}
 	return lines
 }
 
-func linkLine(part string) screenLine {
-	useStyles()
+// textChunk is one wrapped piece of an original string.
+type textChunk struct {
+	text     string
+	from, to int
+}
+
+// wrapIndexed breaks s into lines of at most width columns.
+// A break prefers the last space that fits. A word longer than width
+// is split. The returned ranges refer to bytes of s.
+func wrapIndexed(s string, width int) []textChunk {
+	if width <= 0 || lipgloss.Width(s) <= width {
+		return []textChunk{{text: s, from: 0, to: len(s)}}
+	}
+	var out []textChunk
+	i := 0
+	for i < len(s) {
+		end := i
+		lastBreak := -1
+		vis := 0
+		for end < len(s) {
+			r, size := utf8.DecodeRuneInString(s[end:])
+			rw := lipgloss.Width(string(r))
+			if rw < 1 {
+				rw = 1
+			}
+			if vis+rw > width && end > i {
+				break
+			}
+			if r == ' ' {
+				lastBreak = end
+			}
+			vis += rw
+			end += size
+		}
+		cut := end
+		next := end
+		if end < len(s) && lastBreak > i {
+			cut = lastBreak
+			next = lastBreak + 1
+		}
+		if cut <= i {
+			_, size := utf8.DecodeRuneInString(s[i:])
+			if size < 1 {
+				size = 1
+			}
+			cut = i + size
+			next = cut
+		}
+		out = append(out, textChunk{text: s[i:cut], from: i, to: cut})
+		i = next
+	}
+	if len(out) == 0 {
+		return []textChunk{{from: 0, to: 0}}
+	}
+	return out
+}
+
+func linkLines(part string, width int) []screenLine {
+	chunks := wrapIndexed(part, width)
 	spans := urlPattern.FindAllStringIndex(part, -1)
-	if len(spans) == 0 {
-		return screenLine{text: plainText(part)}
+	lines := make([]screenLine, 0, len(chunks))
+	for _, ch := range chunks {
+		lines = append(lines, styleLinkChunk(part, ch, spans))
+	}
+	return lines
+}
+
+func styleLinkChunk(original string, ch textChunk, spans [][]int) screenLine {
+	if ch.from >= ch.to {
+		return screenLine{text: plainText("")}
 	}
 	var b strings.Builder
-	hits := make([]hit, 0, len(spans))
-	last := 0
+	var hits []hit
+	pos := ch.from
 	for _, span := range spans {
-		if last < span[0] {
-			b.WriteString(plainText(part[last:span[0]]))
+		if span[1] <= ch.from || span[0] >= ch.to {
+			continue
 		}
-		url := part[span[0]:span[1]]
-		start := utf8.RuneCountInString(part[:span[0]]) + 1
-		// One underline span keeps the URL text contiguous for hit tests.
+		visStart := span[0]
+		if visStart < ch.from {
+			visStart = ch.from
+		}
+		visEnd := span[1]
+		if visEnd > ch.to {
+			visEnd = ch.to
+		}
+		if pos < visStart {
+			b.WriteString(plainText(original[pos:visStart]))
+		}
+		frag := original[visStart:visEnd]
+		startCol := lipgloss.Width(original[ch.from:visStart]) + 1
 		b.WriteString("\x1b[4m")
-		b.WriteString(url)
+		b.WriteString(frag)
 		b.WriteString("\x1b[24m")
+		endCol := startCol + lipgloss.Width(frag) - 1
+		if endCol < startCol {
+			endCol = startCol
+		}
 		hits = append(hits, hit{
 			kind: hitLink,
-			x0:   start,
-			x1:   start + utf8.RuneCountInString(url) - 1,
-			url:  url,
+			x0:   startCol,
+			x1:   endCol,
+			url:  original[span[0]:span[1]],
 		})
-		last = span[1]
+		pos = visEnd
 	}
-	b.WriteString(plainText(part[last:]))
+	if pos < ch.to {
+		b.WriteString(plainText(original[pos:ch.to]))
+	}
+	if b.Len() == 0 {
+		return screenLine{text: plainText(ch.text)}
+	}
 	return screenLine{text: b.String(), hits: hits}
 }
 
-func (m *Model) relayLines(it *decide.Item) []screenLine {
+func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 	var lines []screenLine
 	for i, opt := range it.Options {
 		if i >= 9 {
@@ -1304,13 +1418,15 @@ func (m *Model) relayLines(it *decide.Item) []screenLine {
 		}
 		label := fmt.Sprintf("%d %s %s%s", i+1, opt.Key, opt.Label, mark)
 		useStyles()
-		lines = append(lines, screenLine{
-			text: optionButton.Render(label),
-			hits: []hit{{kind: hitOption, n: i}},
-		})
+		for _, ch := range wrapIndexed(label, width) {
+			lines = append(lines, screenLine{
+				text: optionButton.Render(ch.text),
+				hits: []hit{{kind: hitOption, n: i}},
+			})
+		}
 	}
 	for _, link := range it.Links {
-		lines = append(lines, linkLine(link))
+		lines = append(lines, linkLines(link, width)...)
 	}
 	deadline := "-"
 	if it.Deadline != nil {
@@ -1331,11 +1447,32 @@ func (m *Model) freeTextLine() string {
 	if body == "" && !m.answerFocus {
 		body = "___"
 	}
+	if m.answerFocus {
+		body = withCursor(m.draft, m.free.Position())
+	}
 	line := "0  answer: " + body
 	if m.answerFocus {
-		line += "_ Esc to cancel"
+		line += " Esc to cancel"
 	}
 	return line
+}
+
+// cursorOn and cursorOff mark one reversed column at the caret.
+const (
+	cursorOn  = "\x1b[7m"
+	cursorOff = "\x1b[27m"
+)
+
+// withCursor draws a one-column cursor at the rune index col.
+func withCursor(text string, col int) string {
+	runes := []rune(text)
+	if col < 0 {
+		col = 0
+	}
+	if col >= len(runes) {
+		return text + cursorOn + " " + cursorOff
+	}
+	return string(runes[:col]) + cursorOn + string(runes[col]) + cursorOff + string(runes[col+1:])
 }
 
 func rowText(it decide.Item, now time.Time) string {

@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 const sendsName = "sends.jsonl"
@@ -209,8 +211,92 @@ func (m *Model) appendSend(name, pane, text string) error {
 }
 
 func (m *Model) composeBody() []screenLine {
+	width := m.contentWidth()
+	if !m.framed() || width < 2 {
+		return m.composeStack(width)
+	}
+	budget := m.height - 3
+	if budget < 3 {
+		budget = 3
+	}
+	pickerLines := m.pickerLines()
+	pickerBox, textLines := composeBoxHeights(len(pickerLines), budget)
+	picker := windowLines(pickerLines, m.target, pickerBox-2)
+	draft := windowDraft(m.draftLines(composeDraftWidth(width-2, m.composeFocus == focusText)), textLines)
+	return stackRegions(width,
+		panelBox(picker, width, m.composeFocus == focusRecipient),
+		panelBox(draft, width, m.composeFocus == focusText),
+		panelBox([]screenLine{m.sendLine()}, width, m.composeFocus == focusSend),
+	)
+}
+
+// composeBoxHeights sizes the recipient and message boxes inside budget rows.
+// The send box is the remaining three rows: one label and its border.
+func composeBoxHeights(pickerCount, budget int) (pickerBox, textLines int) {
+	const sendBox = 3
+	pickerBox = pickerCount + 2
+	if pickerBox < sendBox {
+		pickerBox = sendBox
+	}
+	textBox := budget - pickerBox - sendBox
+	if textBox >= sendBox {
+		return pickerBox, textBox - 2
+	}
+	textBox = sendBox
+	pickerBox = budget - textBox - sendBox
+	if pickerBox < sendBox {
+		pickerBox = sendBox
+		textBox = budget - pickerBox - sendBox
+	}
+	if textBox < sendBox {
+		textBox = sendBox
+	}
+	lines := textBox - 2
+	if lines < 1 {
+		lines = 1
+	}
+	return pickerBox, lines
+}
+
+// composeDraftWidth leaves one column for the caret when the message is focused.
+func composeDraftWidth(inner int, textFocus bool) int {
+	if inner < 1 {
+		inner = 1
+	}
+	if textFocus && inner > 1 {
+		return inner - 1
+	}
+	return inner
+}
+
+// windowDraft keeps the caret line on screen and pads the message to limit rows.
+func windowDraft(draft []screenLine, limit int) []screenLine {
+	if limit < 1 {
+		limit = 1
+	}
+	if len(draft) > limit {
+		cursor := 0
+		for i, line := range draft {
+			if strings.Contains(line.text, cursorOn) {
+				cursor = i
+				break
+			}
+		}
+		start := cursor - limit + 1
+		if start < 0 {
+			start = 0
+		}
+		draft = draft[start : start+limit]
+	}
+	for len(draft) < limit {
+		draft = append(draft, screenLine{})
+	}
+	return draft
+}
+
+func (m *Model) composeStack(width int) []screenLine {
 	picker := m.pickerLines()
-	draft := m.draftLines()
+	draft := m.draftLines(width)
 	send := m.sendLine()
 	minH := m.composeMinHeight()
 	for len(picker)+len(draft)+1 < minH {
@@ -221,6 +307,21 @@ func (m *Model) composeBody() []screenLine {
 	lines = append(lines, draft...)
 	lines = append(lines, send)
 	return lines
+}
+
+// windowLines shows limit rows of lines, keeping selected on screen.
+func windowLines(lines []screenLine, selected, limit int) []screenLine {
+	if limit <= 0 || len(lines) <= limit {
+		return lines
+	}
+	start := selected - limit/2
+	if start < 0 {
+		start = 0
+	}
+	if start+limit > len(lines) {
+		start = len(lines) - limit
+	}
+	return append([]screenLine(nil), lines[start:start+limit]...)
 }
 
 func (m *Model) composeMinHeight() int {
@@ -258,15 +359,60 @@ func (m *Model) pickerLines() []screenLine {
 	return lines
 }
 
-func (m *Model) draftLines() []screenLine {
+func (m *Model) draftLines(width int) []screenLine {
 	text := m.note
+	row, col := -1, 0
+	if m.composing && m.composeFocus == focusText && m.noteField.Focused() {
+		row = m.noteField.Line()
+		col = m.noteField.LineInfo().CharOffset
+	}
 	if text == "" {
-		return []screenLine{{}}
+		line := ""
+		if row >= 0 {
+			line = withCursor("", col)
+		}
+		return []screenLine{{text: line}}
 	}
 	parts := strings.Split(text, "\n")
-	lines := make([]screenLine, len(parts))
+	var lines []screenLine
 	for i, part := range parts {
-		lines[i] = screenLine{text: part}
+		chunks := wrapIndexed(part, width)
+		if i != row {
+			for _, ch := range chunks {
+				lines = append(lines, screenLine{text: ch.text})
+			}
+			continue
+		}
+		lines = append(lines, cursorChunks(chunks, col)...)
+	}
+	if len(lines) == 0 {
+		return []screenLine{{}}
+	}
+	return lines
+}
+
+// cursorChunks puts a one-column cursor at display column col of the
+// unwrapped line that chunks came from.
+func cursorChunks(chunks []textChunk, col int) []screenLine {
+	if len(chunks) == 0 {
+		return []screenLine{{text: withCursor("", 0)}}
+	}
+	lines := make([]screenLine, len(chunks))
+	seen := 0
+	placed := false
+	for i, ch := range chunks {
+		w := lipgloss.Width(ch.text)
+		if !placed && col <= seen+w {
+			lines[i] = screenLine{text: withCursor(ch.text, col-seen)}
+			placed = true
+			continue
+		}
+		lines[i] = screenLine{text: ch.text}
+		seen += w
+	}
+	if !placed {
+		last := len(lines) - 1
+		lines[last].text = withCursor(chunks[last].text, lipgloss.Width(chunks[last].text))
 	}
 	return lines
 }
