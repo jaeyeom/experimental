@@ -48,8 +48,47 @@
     (should-not (eq (get-text-property (match-beginning 0) 'face) 'shadow))
     (search-forward "beta")
     (should (eq (get-text-property (match-beginning 0) 'face) 'shadow))
-    (search-forward "workspace: free (paused)")
-    (should-not (eq (get-text-property (match-beginning 0) 'face) 'shadow))))
+    (search-forward "workspace")
+    (should-not (eq (get-text-property (match-beginning 0) 'face) 'shadow))
+    (let* ((agent-header (decide--test-line "agent"))
+           (alpha (decide--test-line "alpha"))
+           (beta (decide--test-line "beta"))
+           (res-header (decide--test-line "free/busy"))
+           (workspace (decide--test-line "workspace")))
+      (should (= (string-match-p "state" agent-header)
+                 (string-match-p "working" alpha)))
+      (should (= (string-match-p "state" agent-header)
+                 (string-match-p "paused" beta)))
+      (should (= (string-match-p "text" agent-header)
+                 (string-match-p "fixing" alpha)))
+      (should (= (string-match-p "free/busy" res-header)
+                 (string-match-p "free" workspace)))
+      (should (= (string-match-p "note" res-header)
+                 (string-match-p "paused" workspace))))))
+
+(defun decide--test-line (needle)
+  "Return the first buffer line that contains NEEDLE."
+  (save-excursion
+    (goto-char (point-min))
+    (search-forward needle)
+    (buffer-substring-no-properties (line-beginning-position) (line-end-position))))
+
+(ert-deftest decide-status-columns-stay-inside-the-width ()
+  (with-temp-buffer
+    (decide-status-render
+     '(("agents" .
+        ((("name" . "alpha")
+          ("state" . "working")
+          ("text" . "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+          ("updatedAt" . "2026-11-06T12:00:00Z")))))
+     (date-to-time "2026-11-06T12:00:00Z"))
+    (goto-char (point-min))
+    (while (not (eobp))
+      (should (<= (string-width (buffer-substring-no-properties
+                                 (line-beginning-position) (line-end-position)))
+                  80))
+      (forward-line 1))
+    (should (string-match-p "…" (decide--test-line "alpha")))))
 
 (ert-deftest decide-status-timer-stops-when-the-buffer-is-killed ()
   (unwind-protect

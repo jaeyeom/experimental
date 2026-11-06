@@ -299,29 +299,115 @@ UPDATED is an RFC3339 string.  NOW is an Emacs time."
   "Insert TEXT, dimmed when STALE is non-nil."
   (insert (propertize text 'face (and stale 'shadow)) "\n"))
 
+(defun decide--status-width ()
+  "Column count for the status tables."
+  (if (get-buffer-window (current-buffer))
+      (window-body-width)
+    80))
+
+(defun decide--fit-cell (text width)
+  "Fit TEXT into WIDTH columns."
+  (let ((text (or text "")))
+    (if (<= (string-width text) width)
+        text
+      (truncate-string-to-width text width nil nil "…"))))
+
+(defun decide--format-cells (cells widths)
+  "Pad CELLS to WIDTHS and join them with one space."
+  (let ((parts nil)
+        (i 0))
+    (while (< i (length widths))
+      (let* ((width (nth i widths))
+             (fitted (decide--fit-cell (nth i cells) width))
+             (pad (max 0 (- width (string-width fitted)))))
+        (push (concat fitted (make-string pad ?\s)) parts))
+      (setq i (1+ i)))
+    (string-join (nreverse parts) " ")))
+
+(defun decide--column-widths (headers rows total)
+  "Return column widths for HEADERS and ROWS that fit in TOTAL."
+  (let* ((n (length headers))
+         (widths (mapcar #'string-width headers))
+         (i 0)
+         (fixed 0)
+         (gaps (1- n))
+         (remain 0))
+    (dolist (row rows)
+      (setq i 0)
+      (while (< i (1- n))
+        (let ((w (string-width (or (nth i row) ""))))
+          (when (> w (nth i widths))
+            (setcar (nthcdr i widths) w)))
+        (setq i (1+ i))))
+    (when (<= total 0)
+      (setq total 80))
+    (setq i 0)
+    (while (< i (1- n))
+      (setq fixed (+ fixed (nth i widths)))
+      (setq i (1+ i)))
+    (setq remain (- total fixed gaps))
+    (when (< remain 1)
+      (let ((overflow (- (+ fixed gaps 1) total)))
+        (setq i (- n 2))
+        (while (and (>= i 0) (> overflow 0))
+          (let ((spare (1- (nth i widths))))
+            (when (> spare 0)
+              (let ((cut (min spare overflow)))
+                (setcar (nthcdr i widths) (- (nth i widths) cut))
+                (setq overflow (- overflow cut)))))
+          (setq i (1- i))))
+      (setq fixed 0
+            i 0)
+      (while (< i (1- n))
+        (setq fixed (+ fixed (nth i widths)))
+        (setq i (1+ i)))
+      (setq remain (- total fixed gaps))
+      (when (< remain 1)
+        (setq remain 1)))
+    (setcar (nthcdr (1- n) widths) remain)
+    widths))
+
+(defun decide--render-status-table (headers rows stale-flags)
+  "Insert HEADERS and ROWS. STALE-FLAGS dims each data row."
+  (let* ((widths (decide--column-widths headers rows (decide--status-width)))
+         (i 0))
+    (decide--insert-status-row (decide--format-cells headers widths) nil)
+    (dolist (row rows)
+      (decide--insert-status-row
+       (decide--format-cells row widths)
+       (nth i stale-flags))
+      (setq i (1+ i)))))
+
+(defun decide--status-rows (entries fields now)
+  "Build table rows and stale flags for ENTRIES.
+FIELDS are JSON keys. The third column is the age of updatedAt."
+  (let ((rows nil)
+        (stale nil))
+    (dolist (entry entries)
+      (let ((updated (decide--field entry "updatedAt")))
+        (setq rows (append rows (list (list (decide--field entry (nth 0 fields))
+                                            (decide--field entry (nth 1 fields))
+                                            (decide--age updated now)
+                                            (decide--field entry (nth 2 fields))))))
+        (setq stale (append stale (list (decide--stale-p updated now))))))
+    (cons rows stale)))
+
 (defun decide-status-render (board now)
   "Insert BOARD, a status JSON alist, as of NOW."
-  (dolist (agent (alist-get "agents" board nil nil #'equal))
-    (let ((updated (decide--field agent "updatedAt")))
-      (decide--insert-status-row
-       (format "%s %s %s %s"
-               (decide--field agent "name")
-               (decide--field agent "state")
-               (decide--age updated now)
-               (decide--field agent "text"))
-       (decide--stale-p updated now))))
-  (dolist (res (alist-get "resources" board nil nil #'equal))
-    (let* ((updated (decide--field res "updatedAt"))
-           (note (decide--field res "note"))
-           (line (if (string-empty-p note)
-                     (format "%s: %s"
-                             (decide--field res "name")
-                             (decide--field res "availability"))
-                   (format "%s: %s (%s)"
-                           (decide--field res "name")
-                           (decide--field res "availability")
-                           note))))
-      (decide--insert-status-row line (decide--stale-p updated now)))))
+  (let* ((agents (decide--status-rows
+                  (alist-get "agents" board nil nil #'equal)
+                  '("name" "state" "text") now))
+         (resources (decide--status-rows
+                     (alist-get "resources" board nil nil #'equal)
+                     '("name" "availability" "note") now)))
+    (when (car agents)
+      (decide--render-status-table '("agent" "state" "age" "text")
+                                   (car agents) (cdr agents)))
+    (when (and (car agents) (car resources))
+      (insert "\n"))
+    (when (car resources)
+      (decide--render-status-table '("resource" "free/busy" "age" "note")
+                                   (car resources) (cdr resources)))))
 
 (defun decide-status-refresh ()
   "Replace the status buffer from `decide status list --json'."

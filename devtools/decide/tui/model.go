@@ -720,17 +720,20 @@ func (m *Model) statusScreen(width int) []screenLine {
 	if m.Now != nil {
 		now = m.Now()
 	}
-	lines := make([]screenLine, 0, len(m.agents)+len(m.resources))
+	var lines []screenLine
 	if len(m.agents) == 0 && len(m.resources) == 0 {
 		lines = append(lines, screenLine{text: "no status"})
-	}
-	useStyles()
-	for _, row := range m.agents {
-		text := fmt.Sprintf("%s %s %s %s", row.Name, row.State, age(now.Sub(row.UpdatedAt)), row.Text)
-		lines = append(lines, screenLine{text: statusStyle(row.UpdatedAt, now).Render(text)})
-	}
-	for _, row := range m.resources {
-		lines = append(lines, screenLine{text: statusStyle(row.UpdatedAt, now).Render(decide.ResourceLine(row))})
+	} else {
+		useStyles()
+		if len(m.agents) > 0 {
+			lines = append(lines, m.agentTable(width, now)...)
+		}
+		if len(m.agents) > 0 && len(m.resources) > 0 {
+			lines = append(lines, screenLine{})
+		}
+		if len(m.resources) > 0 {
+			lines = append(lines, m.resourceTable(width, now)...)
+		}
 	}
 	_, limit := m.layoutBudget()
 	lines, m.scroll = clipLines(lines, m.scroll, limit)
@@ -738,6 +741,165 @@ func (m *Model) statusScreen(width int) []screenLine {
 		return fitColumnLines(lines, width)
 	}
 	return lines
+}
+
+func (m *Model) agentTable(width int, now time.Time) []screenLine {
+	headers := []string{"agent", "state", "age", "text"}
+	rows := make([][]string, len(m.agents))
+	for i, row := range m.agents {
+		rows[i] = []string{row.Name, row.State, age(now.Sub(row.UpdatedAt)), row.Text}
+	}
+	return styledStatusRows(headers, rows, width, func(i int) lipgloss.Style {
+		return statusStyle(m.agents[i].UpdatedAt, now)
+	})
+}
+
+func (m *Model) resourceTable(width int, now time.Time) []screenLine {
+	headers := []string{"resource", "free/busy", "age", "note"}
+	rows := make([][]string, len(m.resources))
+	for i, row := range m.resources {
+		rows[i] = []string{row.Name, row.Availability, age(now.Sub(row.UpdatedAt)), row.Note}
+	}
+	return styledStatusRows(headers, rows, width, func(i int) lipgloss.Style {
+		return statusStyle(m.resources[i].UpdatedAt, now)
+	})
+}
+
+func styledStatusRows(headers []string, rows [][]string, width int, style func(int) lipgloss.Style) []screenLine {
+	formatted := alignColumns(headers, rows, width)
+	lines := make([]screenLine, len(formatted))
+	if len(formatted) == 0 {
+		return nil
+	}
+	lines[0] = screenLine{text: formatted[0]}
+	for i := 1; i < len(formatted); i++ {
+		lines[i] = screenLine{text: style(i - 1).Render(formatted[i])}
+	}
+	return lines
+}
+
+func alignColumns(headers []string, rows [][]string, width int) []string {
+	return formatAligned(headers, rows, columnWidths(headers, rows, width))
+}
+
+func columnWidths(headers []string, rows [][]string, width int) []int {
+	n := len(headers)
+	widths := make([]int, n)
+	for i, header := range headers {
+		widths[i] = lipgloss.Width(header)
+		if widths[i] < 1 {
+			widths[i] = 1
+		}
+	}
+	for _, row := range rows {
+		for i := 0; i < n-1 && i < len(row); i++ {
+			if w := lipgloss.Width(row[i]); w > widths[i] {
+				widths[i] = w
+			}
+		}
+	}
+	if n == 0 {
+		return widths
+	}
+	if width <= 0 {
+		widths[n-1] = lastColumnWidth(widths[n-1], rows, n-1)
+		return widths
+	}
+	return fitColumnWidths(widths, width)
+}
+
+func lastColumnWidth(floor int, rows [][]string, col int) int {
+	w := floor
+	for _, row := range rows {
+		if col < len(row) {
+			if n := lipgloss.Width(row[col]); n > w {
+				w = n
+			}
+		}
+	}
+	return w
+}
+
+func fitColumnWidths(widths []int, width int) []int {
+	n := len(widths)
+	gaps := n - 1
+	fixed := 0
+	for i := 0; i < n-1; i++ {
+		fixed += widths[i]
+	}
+	remain := width - fixed - gaps
+	if remain < 1 {
+		widths = shrinkFixedColumns(widths, width)
+		fixed = 0
+		for i := 0; i < n-1; i++ {
+			fixed += widths[i]
+		}
+		remain = width - fixed - gaps
+		if remain < 1 {
+			remain = 1
+		}
+	}
+	widths[n-1] = remain
+	return widths
+}
+
+func shrinkFixedColumns(widths []int, width int) []int {
+	n := len(widths)
+	gaps := n - 1
+	fixed := 0
+	for i := 0; i < n-1; i++ {
+		fixed += widths[i]
+	}
+	overflow := fixed + gaps + 1 - width
+	for i := n - 2; i >= 0 && overflow > 0; i-- {
+		spare := widths[i] - 1
+		if spare <= 0 {
+			continue
+		}
+		if spare > overflow {
+			widths[i] -= overflow
+			return widths
+		}
+		overflow -= spare
+		widths[i] = 1
+	}
+	return widths
+}
+
+func formatAligned(headers []string, rows [][]string, widths []int) []string {
+	out := make([]string, 0, 1+len(rows))
+	out = append(out, formatCells(headers, widths))
+	for _, row := range rows {
+		cells := make([]string, len(widths))
+		for i := range cells {
+			if i < len(row) {
+				cells[i] = row[i]
+			}
+		}
+		out = append(out, formatCells(cells, widths))
+	}
+	return out
+}
+
+func formatCells(cells []string, widths []int) string {
+	var b strings.Builder
+	for i, width := range widths {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		text := ""
+		if i < len(cells) {
+			text = cells[i]
+		}
+		if lipgloss.Width(text) > width {
+			text = truncateVisible(text, width)
+		}
+		b.WriteString(text)
+		if pad := width - lipgloss.Width(text); pad > 0 {
+			b.WriteString(strings.Repeat(" ", pad))
+		}
+	}
+	return b.String()
 }
 
 func statusStyle(updated, now time.Time) lipgloss.Style {

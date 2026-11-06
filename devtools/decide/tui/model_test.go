@@ -197,8 +197,10 @@ func TestStatusFolderIsSelectable(t *testing.T) {
 	if m.mode != modeStatus || !strings.Contains(view, "[Status]") || strings.Contains(view, "[Inbox]") {
 		t.Fatalf("gs mode %d\n%s", m.mode, view)
 	}
-	if !strings.Contains(view, "alpha working now fixing the inbox") {
-		t.Fatalf("gs hid the board\n%s", view)
+	for _, needle := range []string{"alpha", "working", "fixing the inbox"} {
+		if !strings.Contains(view, needle) {
+			t.Fatalf("gs hid the board, missing %q\n%s", needle, view)
+		}
 	}
 	if screenRow(view, "[Status]") == screenRow(view, "Inbox") {
 		t.Fatalf("wide Status is not its own row\n%s", view)
@@ -2815,7 +2817,8 @@ func TestStatusBoardShowsAgentsResourcesAndDimsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	board.SetClock(func() time.Time { return now })
-	if _, err := board.SetAgent("alpha", "working", "fixing the inbox"); err != nil {
+	longText := strings.Repeat("x", 200)
+	if _, err := board.SetAgent("alpha", "working", longText); err != nil {
 		t.Fatal(err)
 	}
 	board.SetClock(func() time.Time { return now.Add(-10 * time.Minute) })
@@ -2829,23 +2832,58 @@ func TestStatusBoardShowsAgentsResourcesAndDimsStale(t *testing.T) {
 
 	m := New(dir)
 	m.Now = func() time.Time { return now }
-	m.width = 80
-	m.height = 24
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
 	press(t, m, "gs")
-	view := m.View()
-	if m.mode != modeStatus || !strings.Contains(view, "alpha working now fixing the inbox") || !strings.Contains(view, "workspace: free (paused)") {
-		t.Fatalf("status view mode %d\n%s", m.mode, view)
+	if m.mode != modeStatus {
+		t.Fatalf("mode %d", m.mode)
 	}
-	stale := lineContaining(view, "beta paused")
-	fresh := lineContaining(view, "alpha working")
-	if stale == "" || !strings.Contains(stale, "\x1b[2m") {
-		t.Fatalf("stale row was not dimmed\n%s", view)
-	}
-	if strings.Contains(fresh, "\x1b[2m") {
-		t.Fatalf("fresh row was dimmed\n%s", fresh)
+	for _, width := range []int{60, 80, 120, 200} {
+		m.width = width
+		m.height = 24
+		view := m.View()
+		assertFrame(t, view, width, 24)
+		agentHeader := lineContaining(view, "text")
+		alpha := lineContaining(view, "alpha")
+		beta := lineContaining(view, "beta")
+		resHeader := lineContaining(view, "free/busy")
+		workspace := lineContaining(view, "workspace")
+		if agentHeader == "" || alpha == "" || beta == "" || resHeader == "" || workspace == "" {
+			t.Fatalf("width %d missing a status row\n%s", width, view)
+		}
+		stateCol := strings.Index(visibleLine(agentHeader), "state")
+		textCol := strings.Index(visibleLine(agentHeader), "text")
+		ageCol := strings.Index(visibleLine(agentHeader), " age ") + 1
+		if stateCol < 1 || textCol <= stateCol || ageCol <= stateCol {
+			t.Fatalf("width %d header columns state %d age %d text %d\n%s", width, stateCol, ageCol, textCol, visibleLine(agentHeader))
+		}
+		if strings.Index(visibleLine(alpha), "working") != stateCol || strings.Index(visibleLine(beta), "paused") != stateCol {
+			t.Fatalf("width %d state column drifted\nalpha %s\nbeta %s", width, visibleLine(alpha), visibleLine(beta))
+		}
+		if strings.Index(visibleLine(alpha), "now") != ageCol || strings.Index(visibleLine(beta), "10m") != ageCol {
+			t.Fatalf("width %d age column drifted\nalpha %s\nbeta %s", width, visibleLine(alpha), visibleLine(beta))
+		}
+		if strings.Index(visibleLine(alpha), "xxxx") != textCol {
+			t.Fatalf("width %d text column drifted\n%s", width, visibleLine(alpha))
+		}
+		if !strings.Contains(visibleLine(alpha), "…") || strings.Contains(visibleLine(alpha), longText) {
+			t.Fatalf("width %d long text left its column\n%s", width, visibleLine(alpha))
+		}
+		busyCol := strings.Index(visibleLine(resHeader), "free/busy")
+		noteCol := strings.Index(visibleLine(resHeader), "note")
+		if busyCol < 1 || noteCol <= busyCol {
+			t.Fatalf("width %d resource header\n%s", width, visibleLine(resHeader))
+		}
+		if strings.Index(visibleLine(workspace), "free") != busyCol || strings.Index(visibleLine(workspace), "paused") != noteCol {
+			t.Fatalf("width %d resource columns drifted\n%s", width, visibleLine(workspace))
+		}
+		if !strings.Contains(beta, "\x1b[2m") {
+			t.Fatalf("width %d stale row was not dimmed\n%s", width, beta)
+		}
+		if strings.Contains(alpha, "\x1b[2m") || strings.Contains(workspace, "\x1b[2m") {
+			t.Fatalf("width %d fresh row was dimmed\nalpha %s\nworkspace %s", width, alpha, workspace)
+		}
 	}
 
 	if _, err := board.SetAgent("gamma", "idle", "just arrived"); err != nil {
