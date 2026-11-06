@@ -22,6 +22,10 @@
 In the inbox, ~g~ then ~s~ opens the same rows. The view reloads on the
 inbox tick. A row older than five minutes is dim.
 
+~decide targets [--json]~ prints the compose recipients from the config.
+Plain output is one name per line. ~--json~ is an array of ~name~ and
+~pane~. It does not print the notify template or the send template.
+
 * Notify
 
 After a relay answer is saved, ~notifyTemplate~ runs as a shell command.
