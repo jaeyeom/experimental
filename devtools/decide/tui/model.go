@@ -165,7 +165,8 @@ func (m *Model) Reload() error {
 
 // Key applies one key. In the list, j and k move, o or Enter opens the row,
 // g starts a folder chord, c opens compose, and q quits. A second key of
-// i, a, d, or w opens Inbox, Answered, Done, or Withdrawn. In the opened
+// i, a, d, w, or s opens Inbox, Answered, Done, Withdrawn, or Status.
+// Status is also a row in the folder list. In the opened
 // item, j and k move to the next and previous item, and u returns to the
 // list. 1 through 9 answer a relay option, 0 focuses free text on a relay
 // item that allows it, and e asks for an outcome then marks the item done.
@@ -684,7 +685,7 @@ func (m *Model) mailLines() []screenLine {
 		return m.composeScreen(pane)
 	}
 	if m.mode == modeStatus {
-		return m.statusScreen(pane)
+		return m.statusMail(pane)
 	}
 	if m.mode != modeList {
 		return m.openedScreen(pane)
@@ -696,6 +697,22 @@ func (m *Model) mailLines() []screenLine {
 		return m.stackedList(pane)
 	}
 	return m.columnList(pane)
+}
+
+func (m *Model) statusMail(pane int) []screenLine {
+	if m.width <= 0 {
+		return stackRegions(0, m.sidebarLines(), m.statusScreen(0))
+	}
+	if m.narrow() {
+		return stackRegions(pane, []screenLine{m.folderTabLine(pane)}, m.statusScreen(pane))
+	}
+	sidebar := m.sidebarLines()
+	sideW, mainW := listColumnWidths(maxWidth(sidebar), pane)
+	cols := [][]screenLine{
+		fitColumnLines(sidebar, sideW),
+		m.statusScreen(mainW),
+	}
+	return zipFixed(cols, []int{sideW, mainW})
 }
 
 func (m *Model) statusScreen(width int) []screenLine {
@@ -824,22 +841,43 @@ func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
 	}
 }
 
+func (m *Model) navLen() int {
+	return len(Folders) + 1
+}
+
+func (m *Model) navSelected(i int) bool {
+	if m.mode == modeStatus {
+		return i == len(Folders)
+	}
+	return i == m.folder
+}
+
+func (m *Model) navText(i int) string {
+	if i >= len(Folders) {
+		if m.navSelected(i) {
+			return "[Status]"
+		}
+		return "Status"
+	}
+	name := Folders[i].Name
+	if m.navSelected(i) {
+		name = "[" + name + "]"
+	}
+	count := 0
+	if i < len(m.counts) {
+		count = m.counts[i]
+	}
+	return fmt.Sprintf("%s %d", name, count)
+}
+
 func (m *Model) folderTabLine(width int) screenLine {
 	var b strings.Builder
-	hits := make([]hit, 0, len(Folders))
-	for i, folder := range Folders {
+	hits := make([]hit, 0, m.navLen())
+	for i := 0; i < m.navLen(); i++ {
 		if i > 0 {
 			b.WriteByte(' ')
 		}
-		count := 0
-		if i < len(m.counts) {
-			count = m.counts[i]
-		}
-		name := folder.Name
-		if i == m.folder {
-			name = "[" + name + "]"
-		}
-		label := fmt.Sprintf("%s %d", name, count)
+		label := m.navText(i)
 		start := lipgloss.Width(b.String()) + 1
 		b.WriteString(label)
 		hits = append(hits, hit{
@@ -853,19 +891,10 @@ func (m *Model) folderTabLine(width int) screenLine {
 }
 
 func (m *Model) sidebarLines() []screenLine {
-	lines := make([]screenLine, len(Folders))
-	for i, folder := range Folders {
-		count := 0
-		if i < len(m.counts) {
-			count = m.counts[i]
-		}
-		name := folder.Name
-		if i == m.folder {
-			name = "[" + name + "]"
-		}
-		label := fmt.Sprintf("%s %d", name, count)
+	lines := make([]screenLine, m.navLen())
+	for i := 0; i < m.navLen(); i++ {
 		lines[i] = screenLine{
-			text: label,
+			text: m.navText(i),
 			hits: []hit{{kind: hitFolder, n: i}},
 		}
 	}
@@ -877,8 +906,8 @@ func (m *Model) layoutBudget() (int, int) {
 		return 0, 0
 	}
 	folderChrome := 0
-	if m.mode == modeList && !m.composing {
-		folderChrome = len(Folders)
+	if !m.composing && (m.mode == modeList || m.mode == modeStatus) {
+		folderChrome = m.navLen()
 		if m.width > 0 {
 			folderChrome = 0
 			if m.narrow() {

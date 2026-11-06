@@ -126,6 +126,9 @@ func (m *Model) hitCompose(h hit) bool {
 }
 
 func (m *Model) showFolder(n int) error {
+	if n == len(Folders) {
+		return m.showStatus()
+	}
 	if n < 0 || n >= len(Folders) {
 		return nil
 	}
