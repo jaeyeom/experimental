@@ -30,8 +30,9 @@
 //	# Preview an enqueue. A draft is refused and nothing is enqueued.
 //	gh-merge --dry-run queue 12
 //
-//	# Watch until each pull request merges, is ejected, or times out
-//	gh-merge watch acme/widgets#12
+//	# Watch until each pull request merges, is ejected, or times out.
+//	# --timeout is a Go duration and defaults to 30m. watch does not read stdin.
+//	gh-merge watch --timeout 30m acme/widgets#12
 //
 //	# Post an RCA marker for the latest removal
 //	gh-merge rca acme/widgets#12 --class flake --file body.md
@@ -65,6 +66,7 @@ var (
 	includeDownstack      bool
 	jsonOutput            bool
 	allowNoRequiredChecks bool
+	watchTimeout          = defaultWatchTimeout
 )
 
 const (
@@ -80,6 +82,7 @@ func registerFlags() {
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
 	flag.BoolVar(&jsonOutput, "json", false, "Print queue and watch results as JSON")
+	flag.DurationVar(&watchTimeout, "timeout", defaultWatchTimeout, timeoutHelp())
 	flag.BoolVar(&allowNoRequiredChecks, "allow-no-required-checks", false, "Queue even when required_checks is empty or the repository is not configured")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
@@ -350,15 +353,7 @@ func main() {
 		}
 		cmdErr = queuePullRequest(githubClient, cfg, args[1], includeDownstack)
 	case "watch":
-		cmdErr = watchPullRequests(githubClient, args[1:], watchOptions{
-			timeout:  defaultWatchTimeout,
-			interval: defaultWatchInterval,
-			asJSON:   jsonOutput,
-		})
-		if errors.Is(cmdErr, errWatchUsage) {
-			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], watchUsage())
-			os.Exit(1)
-		}
+		cmdErr = watchCommand(githubClient, args[1:])
 	case "rca":
 		cmdErr = postRCA(githubClient, cfg, args[1:])
 		if errors.Is(cmdErr, errRCAUsage) {

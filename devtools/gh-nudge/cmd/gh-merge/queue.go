@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -66,7 +67,11 @@ func queueCommandHelp() string {
 }
 
 func watchCommandHelp() string {
-	return "Wait until each pull request merges, is ejected, or times out (owner/repo#n, a URL, or a bare number)"
+	return "Wait until each pull request merges, is ejected, or times out (owner/repo#n, a URL, or a bare number). --timeout is a Go duration (default 30m). Does not read stdin and does not need a terminal"
+}
+
+func timeoutHelp() string {
+	return "How long watch waits before it reports timeout (Go duration, default 30m)"
 }
 
 func queueUsage() string {
@@ -611,6 +616,102 @@ func splitOwnerRepo(path string) (string, string, bool) {
 
 var errWatchUsage = errors.New("watch usage")
 
+type watchExitError struct {
+	code int
+}
+
+func (e *watchExitError) Error() string {
+	return fmt.Sprintf("watch status %d", e.code)
+}
+
+func watchCommand(client watchAPI, args []string) error {
+	refs, timeout, err := parseWatchArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], watchUsage())
+		os.Exit(1)
+	}
+	err = watchPullRequests(client, refs, watchOptions{
+		timeout:  timeout,
+		interval: defaultWatchInterval,
+		asJSON:   jsonOutput,
+	})
+	if errors.Is(err, errWatchUsage) {
+		fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], watchUsage())
+		os.Exit(1)
+	}
+	var status *watchExitError
+	if errors.As(err, &status) {
+		os.Exit(status.code)
+	}
+	return err
+}
+
+func parseWatchArgs(args []string) ([]string, time.Duration, error) {
+	timeout := watchTimeout
+	var refs []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		value, ok := timeoutArg(arg)
+		if ok {
+			if value == "" {
+				next, exists := argAt(args, i+1)
+				if !exists {
+					return nil, 0, errWatchUsage
+				}
+				value = next
+				i++
+			}
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return nil, 0, errWatchUsage
+			}
+			timeout = parsed
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			return nil, 0, errWatchUsage
+		}
+		refs = append(refs, arg)
+	}
+	return refs, timeout, nil
+}
+
+func argAt(args []string, i int) (string, bool) {
+	if i < 0 || i >= len(args) {
+		return "", false
+	}
+	return args[i], true
+}
+
+func timeoutArg(arg string) (string, bool) {
+	for _, name := range []string{"--timeout=", "-timeout="} {
+		if value, ok := strings.CutPrefix(arg, name); ok {
+			return value, true
+		}
+	}
+	if arg == "--timeout" || arg == "-timeout" {
+		return "", true
+	}
+	return "", false
+}
+
+func watchExitCode(result string) int {
+	switch result {
+	case "merged":
+		return 0
+	case "failed_checks":
+		return 2
+	case "merge_conflict":
+		return 3
+	case "manual":
+		return 4
+	case "timeout":
+		return 5
+	default:
+		return 1
+	}
+}
+
 func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 	if len(refs) == 0 {
 		return errWatchUsage
@@ -631,22 +732,22 @@ func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
 		opt.sleep = time.Sleep
 	}
 	results := make([]watchResult, 0, len(refs))
-	allMerged := true
+	var exitCode int
 	for _, ref := range refs {
 		result, err := watchOne(client, ref, opt)
 		if err != nil {
 			return err
 		}
 		results = append(results, watchResult{PullRequest: ref, Result: result})
-		if result != "merged" {
-			allMerged = false
+		if exitCode == 0 {
+			exitCode = watchExitCode(result)
 		}
 	}
 	if err := printWatchResults(results, opt.asJSON); err != nil {
 		return err
 	}
-	if !allMerged {
-		return errors.New("not every pull request merged")
+	if exitCode != 0 {
+		return &watchExitError{code: exitCode}
 	}
 	return nil
 }
@@ -663,7 +764,7 @@ func watchOne(client watchAPI, ref string, opt watchOptions) (string, error) {
 			return "merged", nil
 		}
 		if event, ok := latestQueueEvent(pr.Events); ok && event.Kind == github.QueueEventRemoved {
-			return "ejected:" + event.Reason, nil
+			return event.Reason, nil
 		}
 		if !opt.now().Before(deadline) {
 			return "timeout", nil
