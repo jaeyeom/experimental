@@ -96,6 +96,11 @@ func printCircleAPILog(cfg *config.Config, evidence github.FailureEvidence, toke
 	}
 	body, err := circleStepLog(org, repo, number, token)
 	if err != nil {
+		var missing *noFailedJobError
+		if errors.As(err, &missing) {
+			printNoFailedJob(missing.workflow, evidence.Statuses)
+			return "", nil
+		}
 		return "", fmt.Errorf("circleci log: %w", err)
 	}
 	return printCircleText(cfg, body)
@@ -120,6 +125,10 @@ func printCircleCLILog(cfg *config.Config, evidence github.FailureEvidence) (str
 		return "", fmt.Errorf("circleci workflow get: %w", err)
 	}
 	jobID, err := circleFailedJobID(workflowJSON, circleContextJob(evidence.Name))
+	if errors.Is(err, errNoFailedJob) {
+		printNoFailedJob(workflowID, evidence.Statuses)
+		return "", nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("circleci workflow get: %w", err)
 	}
@@ -149,6 +158,22 @@ func printCircleText(cfg *config.Config, body string) (string, error) {
 		fmt.Println(line)
 	}
 	return text, nil
+}
+
+func printNoFailedJob(workflow string, statuses []github.CommitStatus) {
+	fmt.Printf("no failed job in %s\n", workflow)
+	for _, status := range statuses {
+		switch strings.ToLower(status.State) {
+		case "failure", "error":
+		default:
+			continue
+		}
+		if status.Description == "" {
+			fmt.Printf("%s %s\n", status.Context, status.State)
+			continue
+		}
+		fmt.Printf("%s %s %s\n", status.Context, status.State, status.Description)
+	}
 }
 
 func circleWorkflowID(evidence github.FailureEvidence) (string, bool) {
@@ -181,6 +206,23 @@ func circleContextJob(name string) string {
 	return strings.TrimPrefix(name, prefix)
 }
 
+// errNoFailedJob means the fetched workflow has no failed job.
+// Callers print the commit statuses and continue. Other CircleCI errors stay fatal.
+var errNoFailedJob = errors.New("circleci workflow has no failed job")
+
+// noFailedJobError is errNoFailedJob for the workflow id that was queried.
+type noFailedJobError struct {
+	workflow string
+}
+
+func (e *noFailedJobError) Error() string {
+	return errNoFailedJob.Error()
+}
+
+func (e *noFailedJobError) Unwrap() error {
+	return errNoFailedJob
+}
+
 func circleFailedJobID(body, jobName string) (string, error) {
 	var parsed struct {
 		Jobs []struct {
@@ -201,7 +243,7 @@ func circleFailedJobID(body, jobName string) (string, error) {
 		}
 		return job.ID, nil
 	}
-	return "", errors.New("circleci workflow has no failed job")
+	return "", errNoFailedJob
 }
 
 type circleOutputStep struct {
@@ -387,7 +429,7 @@ func circleFailedJob(workflowID, token string) (int, error) {
 			return item.JobNumber, nil
 		}
 	}
-	return 0, errors.New("circleci workflow has no failed job")
+	return 0, &noFailedJobError{workflow: workflowID}
 }
 
 func circleFailedOutput(org, repo string, jobNumber int, token string) (string, error) {

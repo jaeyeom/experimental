@@ -81,11 +81,19 @@ type StackPR struct {
 	MergedAt time.Time
 }
 
+// CommitStatus is one combined commit status in state failure or error.
+type CommitStatus struct {
+	Context     string
+	State       string
+	Description string
+}
+
 // FailureEvidence is the highest-ranked failing check run or commit status.
 // Name and TargetURL identify that evidence. CheckRunURL and JobURL are set
 // when a check run wins. A status winner keeps CheckRunURL empty unless a
 // check run link contains /workflow/ or /workflows/, which a legacy CircleCI target needs.
 // Log is the Actions failing-step log when TargetURL is a GitHub Actions job URL.
+// Statuses lists commit statuses in state failure or error, with descriptions.
 type FailureEvidence struct {
 	Name        string
 	TargetURL   string
@@ -93,6 +101,7 @@ type FailureEvidence struct {
 	JobURL      string
 	StepName    string
 	Log         string
+	Statuses    []CommitStatus
 }
 
 // ParsePullRef accepts owner/repo#n or a github.com pull request URL.
@@ -323,6 +332,7 @@ func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, erro
 		TargetURL:   chosen.targetURL,
 		CheckRunURL: chosen.checkHTML,
 		JobURL:      chosen.jobURL,
+		Statuses:    failingStatuses(statuses),
 	}
 	jobID, ok := jobIDFromURL(chosen.targetURL)
 	if !ok {
@@ -668,9 +678,10 @@ type checkRunJSON struct {
 }
 
 type statusJSON struct {
-	Context   string `json:"context"`
-	State     string `json:"state"`
-	TargetURL string `json:"target_url"` //nolint:tagliatelle // GitHub API uses snake_case
+	Context     string `json:"context"`
+	State       string `json:"state"`
+	Description string `json:"description"`
+	TargetURL   string `json:"target_url"` //nolint:tagliatelle // GitHub API uses snake_case
 }
 
 type combinedStatusResponse struct {
@@ -803,6 +814,21 @@ func rankCommitStatus(state string) int {
 	default:
 		return rankIgnore
 	}
+}
+
+func failingStatuses(statuses []statusJSON) []CommitStatus {
+	var out []CommitStatus
+	for _, status := range statuses {
+		switch strings.ToLower(status.State) {
+		case "failure", "error":
+			out = append(out, CommitStatus{
+				Context:     status.Context,
+				State:       status.State,
+				Description: status.Description,
+			})
+		}
+	}
+	return out
 }
 
 type actionsJobJSON struct {

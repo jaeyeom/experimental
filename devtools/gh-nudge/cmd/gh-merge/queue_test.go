@@ -1126,6 +1126,308 @@ func loadingStepEvidence(t *testing.T) github.FailureEvidence {
 	}
 }
 
+func TestNoFailedJobContinues(t *testing.T) {
+	const workflowID = "11111111-1111-1111-1111-111111111111"
+	t.Run("queue without rca", func(t *testing.T) {
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
+		var err error
+		output := captureStdout(t, func() {
+			err = queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
+		})
+		if err == nil || err.Error() != "refusing to enqueue: no RCA comment for that removal" {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+		assertNoFailedJobNote(t, output, workflowID)
+		if len(client.enqueued) != 0 {
+			t.Fatalf("enqueued = %v", client.enqueued)
+		}
+	})
+	t.Run("queue our-code", func(t *testing.T) {
+		pr := removedPR()
+		pr.HeadSHA = "deadbeef"
+		pr.Comments = []string{"RCA EVT1 class=our-code"}
+		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
+		var err error
+		output := captureStdout(t, func() {
+			err = queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false)
+		})
+		if err == nil || err.Error() != "refusing to enqueue: RCA class is our-code" {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+		assertNoFailedJobNote(t, output, workflowID)
+		if strings.Contains(output, "pushed since") || len(client.enqueued) != 0 {
+			t.Fatalf("output = %s enqueued = %v", output, client.enqueued)
+		}
+	})
+	t.Run("queue flake", func(t *testing.T) {
+		pr := removedPR()
+		pr.Comments = []string{"RCA EVT1 class=flake"}
+		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		assertNoFailedJobNote(t, output, workflowID)
+		if !strings.Contains(output, "Enqueued acme/widgets#12.") || len(client.enqueued) != 1 {
+			t.Fatalf("output = %s enqueued = %v", output, client.enqueued)
+		}
+	})
+	t.Run("queue over the requeue limit", func(t *testing.T) {
+		pr := removedPR()
+		base := pr.Events[0].CreatedAt
+		pr.Events = []github.QueueEvent{
+			{ID: "A0", Kind: github.QueueEventAdded, CreatedAt: base.Add(-7 * time.Minute)},
+			{ID: "R1", Kind: github.QueueEventRemoved, CreatedAt: base.Add(-6 * time.Minute), Reason: "failed_checks"},
+			{ID: "A1", Kind: github.QueueEventAdded, CreatedAt: base.Add(-5 * time.Minute)},
+			{ID: "R2", Kind: github.QueueEventRemoved, CreatedAt: base.Add(-4 * time.Minute), Reason: "failed_checks"},
+			{ID: "A2", Kind: github.QueueEventAdded, CreatedAt: base.Add(-3 * time.Minute)},
+			{ID: "R3", Kind: github.QueueEventRemoved, CreatedAt: base.Add(-2 * time.Minute), Reason: "failed_checks"},
+			{ID: "A3", Kind: github.QueueEventAdded, CreatedAt: base.Add(-1 * time.Minute)},
+			{ID: "EVT1", Kind: github.QueueEventRemoved, CreatedAt: base, Reason: "failed_checks", CommitSHA: "deadbeef"},
+		}
+		pr.Comments = []string{"RCA EVT1 class=flake"}
+		limit := 2
+		cfg := rcaConfig()
+		cfg.Settings.MaxRequeues = &limit
+		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
+		var err error
+		output := captureStdout(t, func() {
+			err = queuePullRequest(client, cfg, pr.Ref.Raw, false)
+		})
+		const want = "refusing to enqueue: 3 earlier requeues is greater than max_requeues 2"
+		if err == nil || err.Error() != want {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+		assertNoFailedJobNote(t, output, workflowID)
+		if len(client.enqueued) != 0 {
+			t.Fatalf("enqueued = %v", client.enqueued)
+		}
+	})
+	t.Run("queue json", func(t *testing.T) {
+		jsonOutput = true
+		t.Cleanup(func() { jsonOutput = false })
+		pr := removedPR()
+		pr.Comments = []string{"RCA EVT1 class=flake"}
+		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		assertNoFailedJobNote(t, output, workflowID)
+		if !strings.Contains(output, `"result": "enqueued"`) || len(client.enqueued) != 1 {
+			t.Fatalf("output = %s enqueued = %v", output, client.enqueued)
+		}
+	})
+	t.Run("watch", func(t *testing.T) {
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
+		var err error
+		output := captureStdout(t, func() {
+			err = watchPullRequests(client, []string{pr.Ref.Raw}, watchOptions{
+				timeout: time.Minute,
+				cfg:     queueConfig(),
+			})
+		})
+		assertWatchExit(t, err, 2)
+		assertNoFailedJobNote(t, output, workflowID)
+		if !strings.Contains(output, "acme/widgets#12 failed_checks") || strings.Contains(output, "circleci workflow get") {
+			t.Fatalf("output = %s", output)
+		}
+	})
+	t.Run("rca", func(t *testing.T) {
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
+		path := writeRCAFile(t, "Checked the status webhook.\n")
+		output := captureStdout(t, func() {
+			if err := postRCA(client, rcaConfig(), []string{"acme/widgets#12", "--class", "infra", "--file", path}); err != nil {
+				t.Fatalf("postRCA() error = %v", err)
+			}
+		})
+		assertNoFailedJobNote(t, output, workflowID)
+		if !strings.Contains(output, "Commented on acme/widgets#12.") {
+			t.Fatalf("output = %s", output)
+		}
+		comment := client.comments[0]
+		if !strings.Contains(comment, "Checked the status webhook.") || !strings.Contains(comment, "RCA EVT1 class=infra") {
+			t.Fatalf("comment = %q", comment)
+		}
+		if strings.Contains(comment, "apt mirror") || strings.Contains(comment, "no failed job") {
+			t.Fatalf("comment included the note: %q", comment)
+		}
+	})
+	t.Run("cli error still stops", func(t *testing.T) {
+		t.Setenv(circleTokenEnv, "")
+		withCircleCLI(t, true)
+		withCircleGet(t, func(context.Context, string, string) ([]byte, error) {
+			t.Fatal("circleci http api was called")
+			return nil, nil
+		})
+		withCommandStub(t, func(name string, args ...string) (string, error) {
+			if name == "circleci" && len(args) >= 2 && args[0] == "workflow" && args[1] == "get" {
+				return "", errors.New("exit status 1")
+			}
+			t.Fatalf("command = %s %v", name, args)
+			return "", nil
+		})
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+			Name:        "webhook/build",
+			TargetURL:   "https://circleci.com/gh/acme/widgets/4242",
+			CheckRunURL: "https://app.circleci.com/pipelines/github/acme/widgets/42/workflow/" + workflowID,
+			Statuses:    statusNotes(),
+		}}
+		var err error
+		output := captureStdout(t, func() {
+			err = queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
+		})
+		if err == nil || !strings.Contains(err.Error(), "circleci workflow get") || strings.Contains(err.Error(), "no failed job") {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+		if strings.Contains(output, "no failed job in") || len(client.enqueued) != 0 {
+			t.Fatalf("output = %s enqueued = %v", output, client.enqueued)
+		}
+	})
+	t.Run("api", func(t *testing.T) {
+		t.Setenv(circleTokenEnv, "token")
+		withCommandStub(t, func(name string, args ...string) (string, error) {
+			t.Fatalf("command = %s %v", name, args)
+			return "", nil
+		})
+		withCircleGet(t, func(_ context.Context, rawURL, token string) ([]byte, error) {
+			if token != "token" {
+				t.Fatalf("token = %q", token)
+			}
+			switch {
+			case strings.HasSuffix(rawURL, "/project/gh/acme/widgets/pipeline/42"):
+				return []byte(`{"id":"pipe-1"}`), nil
+			case strings.HasSuffix(rawURL, "/pipeline/pipe-1/workflow"):
+				return []byte(`{"items":[{"id":"` + workflowID + `","status":"failed"}]}`), nil
+			case strings.HasSuffix(rawURL, "/workflow/"+workflowID+"/job"):
+				return []byte(`{"items":[{"job_number":7,"status":"success"},{"job_number":8,"status":"success"}]}`), nil
+			default:
+				t.Fatalf("unexpected circleci url %s", rawURL)
+				return nil, nil
+			}
+		})
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+			Name:      "webhook/build",
+			TargetURL: "https://app.circleci.com/pipelines/github/acme/widgets/42",
+			Statuses:  statusNotes(),
+		}}
+		var err error
+		output := captureStdout(t, func() {
+			err = queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
+		})
+		if err == nil || err.Error() != "refusing to enqueue: no RCA comment for that removal" {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+		assertNoFailedJobNote(t, output, workflowID)
+		if len(client.enqueued) != 0 {
+			t.Fatalf("enqueued = %v", client.enqueued)
+		}
+	})
+	t.Run("api pipeline without a failed workflow still stops", func(t *testing.T) {
+		t.Setenv(circleTokenEnv, "token")
+		withCircleGet(t, func(_ context.Context, rawURL, _ string) ([]byte, error) {
+			switch {
+			case strings.HasSuffix(rawURL, "/pipeline/42"):
+				return []byte(`{"id":"pipe-1"}`), nil
+			case strings.HasSuffix(rawURL, "/workflow"):
+				return []byte(`{"items":[{"id":"` + workflowID + `","status":"success"}]}`), nil
+			default:
+				t.Fatalf("unexpected circleci url %s", rawURL)
+				return nil, nil
+			}
+		})
+		pr := removedPR()
+		client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+			Name:      "webhook/build",
+			TargetURL: "https://app.circleci.com/pipelines/github/acme/widgets/42",
+			Statuses:  statusNotes(),
+		}}
+		var err error
+		output := captureStdout(t, func() {
+			err = queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
+		})
+		if err == nil || !strings.Contains(err.Error(), "circleci pipeline has no failed workflow") {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+		if strings.Contains(output, "no failed job in") || strings.Contains(err.Error(), "no failed job") || len(client.enqueued) != 0 {
+			t.Fatalf("err = %v output = %s enqueued = %v", err, output, client.enqueued)
+		}
+	})
+}
+
+func statusNotes() []github.CommitStatus {
+	return []github.CommitStatus{
+		{Context: "webhook/build", State: "error", Description: "apt mirror HTTP 500"},
+		{Context: "ci/tests", State: "failure", Description: "unit tests failed"},
+		{Context: "ci/empty", State: "error"},
+		{Context: "ci/ok", State: "success", Description: "success-only-line"},
+		{Context: "ci/pending", State: "pending", Description: "pending-only-line"},
+	}
+}
+
+func noFailedJobEvidence(t *testing.T, workflowID string) github.FailureEvidence {
+	t.Helper()
+	t.Setenv(circleTokenEnv, "")
+	withCircleCLI(t, true)
+	withCircleGet(t, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("circleci http api was called")
+		return nil, nil
+	})
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name != "circleci" {
+			t.Fatalf("command = %s %v", name, args)
+		}
+		switch {
+		case len(args) >= 2 && args[0] == "workflow" && args[1] == "get":
+			if !circleArgIs(args, workflowID) {
+				t.Fatalf("args = %v", args)
+			}
+			return `{"jobs":[{"id":"job-1","name":"unit","outcome":"success"},{"id":"job-2","name":"lint","outcome":"succeeded"}]}`, nil
+		default:
+			t.Fatalf("args = %v", args)
+			return "", nil
+		}
+	})
+	return github.FailureEvidence{
+		Name:        "webhook/build",
+		TargetURL:   "https://circleci.com/gh/acme/widgets/4242",
+		CheckRunURL: "https://app.circleci.com/pipelines/github/acme/widgets/42/workflow/" + workflowID,
+		Statuses:    statusNotes(),
+	}
+}
+
+func assertNoFailedJobNote(t *testing.T, output, workflowID string) {
+	t.Helper()
+	for _, want := range []string{
+		"no failed job in " + workflowID,
+		"webhook/build error apt mirror HTTP 500",
+		"ci/tests failure unit tests failed",
+		"ci/empty error\n",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	for _, absent := range []string{
+		"success-only-line",
+		"pending-only-line",
+		"circleci workflow has no failed job",
+		"Failing step log tail:",
+		"ci/empty error ",
+	} {
+		if strings.Contains(output, absent) {
+			t.Errorf("output contains %q:\n%s", absent, output)
+		}
+	}
+}
+
 func TestWatchIgnoresTransientNotInQueue(t *testing.T) {
 	base := readyPR()
 	base.InMergeQueue = false

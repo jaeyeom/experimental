@@ -468,6 +468,54 @@ func TestFailureEvidenceLegacyCircleTargetKeepsWorkflowLink(t *testing.T) {
 	}
 }
 
+func TestFailureEvidenceKeepsFailingStatusDescriptions(t *testing.T) {
+	const sha = "abc123"
+	const workflow = "https://app.circleci.com/pipelines/github/acme/widgets/42/workflow/11111111-1111-1111-1111-111111111111"
+	exec := &routeExec{route: map[string]string{
+		"check-runs": `{
+			"check_runs":[{
+				"name":"build",
+				"conclusion":"success",
+				"html_url":"https://github.com/acme/widgets/runs/3",
+				"details_url":"` + workflow + `"
+			}]
+		}`,
+		"commits/" + sha + "/status": `{
+			"statuses":[
+				{"context":"ci/pending","state":"pending","description":"pending-only-line","target_url":"https://example.com/pending"},
+				{"context":"ci/ok","state":"success","description":"success-only-line","target_url":"https://example.com/ok"},
+				{"context":"webhook/build","state":"error","description":"apt mirror HTTP 500","target_url":"https://circleci.com/gh/acme/widgets/4242"},
+				{"context":"ci/tests","state":"failure","description":"unit tests failed","target_url":"https://example.com/tests"},
+				{"context":"ci/empty","state":"error","description":"","target_url":"https://example.com/empty"}
+			]
+		}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.FailureEvidence("acme", "widgets", sha)
+	if err != nil {
+		t.Fatalf("FailureEvidence() error = %v", err)
+	}
+	if got.Name != "ci/tests" || got.TargetURL != "https://example.com/tests" {
+		t.Fatalf("chosen = %s %s", got.Name, got.TargetURL)
+	}
+	if got.CheckRunURL != workflow {
+		t.Fatalf("check run = %s", got.CheckRunURL)
+	}
+	want := []CommitStatus{
+		{Context: "webhook/build", State: "error", Description: "apt mirror HTTP 500"},
+		{Context: "ci/tests", State: "failure", Description: "unit tests failed"},
+		{Context: "ci/empty", State: "error"},
+	}
+	if len(got.Statuses) != len(want) {
+		t.Fatalf("statuses = %+v", got.Statuses)
+	}
+	for i := range want {
+		if got.Statuses[i] != want[i] {
+			t.Errorf("statuses[%d] = %+v, want %+v", i, got.Statuses[i], want[i])
+		}
+	}
+}
+
 func TestLandedFirstPicksEarliestMerged(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"commits/deadbeef/pulls": `[
