@@ -650,20 +650,172 @@ func TestWatchJSONReportsEachResult(t *testing.T) {
 		"acme/widgets#2": ejected,
 		"acme/widgets#3": pending,
 	}}
+	var err error
 	output := captureStdout(t, func() {
-		err := watchPullRequests(client, []string{
+		err = watchPullRequests(client, []string{
 			"acme/widgets#1",
 			"acme/widgets#2",
 			"acme/widgets#3",
 		}, watchOptions{timeout: 0, asJSON: true})
-		if err == nil {
-			t.Fatal("watchPullRequests() error = nil, want a non-merge result")
-		}
 	})
-	for _, want := range []string{`"result": "merged"`, `"result": "ejected:failed_checks"`, `"result": "timeout"`} {
+	for _, want := range []string{`"result": "merged"`, `"result": "failed_checks"`, `"result": "timeout"`} {
 		if !strings.Contains(output, want) {
 			t.Errorf("output missing %q:\n%s", want, output)
 		}
+	}
+	var status *watchExitError
+	if !errors.As(err, &status) || status.code != 2 {
+		t.Fatalf("watchPullRequests() error = %v, want exit 2", err)
+	}
+	if strings.Contains(output, "ejected:") {
+		t.Fatalf("output prefixed ejected:\n%s", output)
+	}
+}
+
+func TestWatchRemovalReasonsAndTimeoutExitCodes(t *testing.T) {
+	cases := []struct {
+		name   string
+		reason string
+		code   int
+	}{
+		{name: "failed checks", reason: "failed_checks", code: 2},
+		{name: "merge conflict", reason: "merge_conflict", code: 3},
+		{name: "manual", reason: "manual", code: 4},
+		{name: "other reason", reason: "blocked", code: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pr := readyPR()
+			pr.Merged = false
+			pr.Events = []github.QueueEvent{{
+				ID:        "R1",
+				Kind:      github.QueueEventRemoved,
+				CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+				Reason:    tc.reason,
+			}}
+			client := &fakeQueue{pr: pr}
+			var err error
+			output := captureStdout(t, func() {
+				err = watchPullRequests(client, []string{pr.Ref.Raw}, watchOptions{timeout: time.Minute})
+			})
+			assertWatchExit(t, err, tc.code)
+			if !strings.Contains(output, "acme/widgets#12 "+tc.reason) {
+				t.Fatalf("output = %q", output)
+			}
+			if strings.Contains(output, "ejected:") {
+				t.Fatalf("output = %q", output)
+			}
+		})
+	}
+}
+
+func TestWatchTimeoutExits5(t *testing.T) {
+	pr := readyPR()
+	pr.Merged = false
+	client := &fakeQueue{pr: pr}
+	var err error
+	output := captureStdout(t, func() {
+		err = watchPullRequests(client, []string{pr.Ref.Raw}, watchOptions{timeout: 0})
+	})
+	assertWatchExit(t, err, 5)
+	if !strings.Contains(output, "acme/widgets#12 timeout") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestWatchMergedJSONExitsZero(t *testing.T) {
+	pr := readyPR()
+	pr.Merged = true
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := watchPullRequests(client, []string{pr.Ref.Raw}, watchOptions{timeout: time.Minute, asJSON: true}); err != nil {
+			t.Fatalf("watchPullRequests() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, `"result": "merged"`) {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestWatchFirstMergeThenTimeoutExits5(t *testing.T) {
+	merged := readyPR()
+	merged.Ref.Raw = "acme/widgets#1"
+	merged.Merged = true
+	pending := readyPR()
+	pending.Ref.Raw = "acme/widgets#2"
+	pending.Merged = false
+	client := &fakeQueue{byRef: map[string]github.QueuePullRequest{
+		"acme/widgets#1": merged,
+		"acme/widgets#2": pending,
+	}}
+	var err error
+	output := captureStdout(t, func() {
+		err = watchPullRequests(client, []string{"acme/widgets#1", "acme/widgets#2"}, watchOptions{timeout: 0, asJSON: true})
+	})
+	assertWatchExit(t, err, 5)
+	for _, want := range []string{`"result": "merged"`, `"result": "timeout"`} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestWatchDoesNotReadStdin(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	if _, err := writer.Write([]byte("leave-me")); err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdin
+	os.Stdin = reader
+	t.Cleanup(func() { os.Stdin = orig })
+	pr := readyPR()
+	pr.Merged = true
+	client := &fakeQueue{pr: pr}
+	if err := watchPullRequests(client, []string{pr.Ref.Raw}, watchOptions{timeout: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 8)
+	n, err := reader.Read(buf)
+	if err != nil || string(buf[:n]) != "leave-me" {
+		t.Fatalf("stdin = %q err = %v", buf[:n], err)
+	}
+}
+
+func TestParseWatchArgsReadsTimeout(t *testing.T) {
+	refs, timeout, err := parseWatchArgs([]string{"--timeout", "5m", "acme/widgets#12"})
+	if err != nil || timeout != 5*time.Minute || len(refs) != 1 || refs[0] != "acme/widgets#12" {
+		t.Fatalf("refs=%v timeout=%s err=%v", refs, timeout, err)
+	}
+	refs, timeout, err = parseWatchArgs([]string{"--timeout=1s", "12"})
+	if err != nil || timeout != time.Second || len(refs) != 1 {
+		t.Fatalf("refs=%v timeout=%s err=%v", refs, timeout, err)
+	}
+	if _, timeout, err = parseWatchArgs([]string{"acme/widgets#12"}); err != nil || timeout != defaultWatchTimeout {
+		t.Fatalf("timeout=%s err=%v", timeout, err)
+	}
+	if _, _, err = parseWatchArgs([]string{"--timeout", "later"}); !errors.Is(err, errWatchUsage) {
+		t.Fatalf("err = %v, want usage", err)
+	}
+	if _, _, err = parseWatchArgs([]string{"--nope", "12"}); !errors.Is(err, errWatchUsage) {
+		t.Fatalf("err = %v, want usage", err)
+	}
+}
+
+func assertWatchExit(t *testing.T, err error, code int) {
+	t.Helper()
+	var status *watchExitError
+	if !errors.As(err, &status) || status.code != code {
+		t.Fatalf("error = %v, want exit %d", err, code)
 	}
 }
 
@@ -934,6 +1086,14 @@ func TestWatchNoArgumentPrintsUsageWithoutAPI(t *testing.T) {
 				t.Errorf("%q missing %s", help, part)
 			}
 		}
+	}
+	for _, part := range []string{"--timeout", "30m", "stdin", "terminal"} {
+		if !strings.Contains(watchCommandHelp(), part) {
+			t.Errorf("watch help missing %s: %q", part, watchCommandHelp())
+		}
+	}
+	if !strings.Contains(timeoutHelp(), "30m") || !strings.Contains(timeoutHelp(), "duration") {
+		t.Errorf("timeout help = %q", timeoutHelp())
 	}
 }
 
