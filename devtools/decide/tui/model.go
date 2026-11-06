@@ -93,6 +93,7 @@ type Model struct {
 	noteField    textarea.Model
 	agents       []decide.AgentStatus
 	resources    []decide.ResourceStatus
+	agentCursor  int
 }
 
 // New returns an inbox positioned on the open folder.
@@ -166,7 +167,8 @@ func (m *Model) Reload() error {
 // Key applies one key. In the list, j and k move, o or Enter opens the row,
 // g starts a folder chord, c opens compose, and q quits. A second key of
 // i, a, d, w, or s opens Inbox, Answered, Done, Withdrawn, or Status.
-// Status is also a row in the folder list. In the opened
+// Status is also a row in the folder list. There, j and k highlight an
+// agent row, and c opens compose. In the opened
 // item, j and k move to the next and previous item, and u returns to the
 // list. 1 through 9 answer a relay option, 0 focuses free text on a relay
 // item that allows it, and e asks for an outcome then marks the item done.
@@ -215,13 +217,38 @@ func (m *Model) statusKey(r rune) (bool, error) {
 	case 'u':
 		m.backToList()
 	case 'j':
-		m.scroll++
+		m.moveAgent(1)
 	case 'k':
-		if m.scroll > 0 {
-			m.scroll--
-		}
+		m.moveAgent(-1)
+	case 'c':
+		m.composeFromStatus()
 	}
 	return false, nil
+}
+
+func (m *Model) moveAgent(delta int) {
+	n := len(m.agents)
+	if n == 0 {
+		return
+	}
+	next := m.agentCursor + delta
+	if next < 0 || next >= n {
+		return
+	}
+	m.agentCursor = next
+}
+
+func (m *Model) composeFromStatus() {
+	if m.agentCursor >= 0 && m.agentCursor < len(m.agents) {
+		name := m.agents[m.agentCursor].Name
+		for i, tg := range m.Targets {
+			if tg.Name == name {
+				m.target = i
+				break
+			}
+		}
+	}
+	m.focusCompose()
 }
 
 func (m *Model) showStatus() error {
@@ -229,6 +256,7 @@ func (m *Model) showStatus() error {
 	m.answerFocus = false
 	m.mode = modeStatus
 	m.scroll = 0
+	m.agentCursor = 0
 	if err := m.loadStatus(); err != nil {
 		m.status = err.Error()
 		return nil
@@ -252,7 +280,18 @@ func (m *Model) loadStatus() error {
 	}
 	m.agents = agents
 	m.resources = resources
+	m.clampAgentCursor()
 	return nil
+}
+
+func (m *Model) clampAgentCursor() {
+	if len(m.agents) == 0 || m.agentCursor < 0 {
+		m.agentCursor = 0
+		return
+	}
+	if m.agentCursor >= len(m.agents) {
+		m.agentCursor = len(m.agents) - 1
+	}
 }
 
 func (m *Model) beginChord() {
@@ -664,7 +703,10 @@ func (m *Model) statusLine() screenLine {
 	if m.chord {
 		return screenLine{text: "g…"}
 	}
-	const hint = "gi/ga/gd/gw/gs  o open  u list  c  tab recipient/text/[Send]  ? help"
+	hint := "gi/ga/gd/gw/gs  o open  u list  c  tab recipient/text/[Send]  ? help"
+	if m.mode == modeStatus {
+		hint = "gi/ga/gd/gw/gs  u list  c  tab recipient/text/[Send]  ? help"
+	}
 	if m.status == "" {
 		return screenLine{text: hint}
 	}
@@ -750,7 +792,11 @@ func (m *Model) agentTable(width int, now time.Time) []screenLine {
 		rows[i] = []string{row.Name, row.State, age(now.Sub(row.UpdatedAt)), row.Text}
 	}
 	return styledStatusRows(headers, rows, width, func(i int) lipgloss.Style {
-		return statusStyle(m.agents[i].UpdatedAt, now)
+		style := statusStyle(m.agents[i].UpdatedAt, now)
+		if i == m.agentCursor {
+			return style.Reverse(true)
+		}
+		return style
 	})
 }
 
@@ -1494,6 +1540,24 @@ func (m *Model) helpLines() []screenLine {
 		"click folder, row, option, target, or [Send]",
 		"wheel scroll",
 		"? or esc close",
+	}
+	if m.mode == modeStatus {
+		text = []string{
+			"shortcuts",
+			"q quit",
+			"j/k move",
+			"g then i inbox, a answered, d done, w withdrawn, s status",
+			"u returns to the list",
+			"c compose",
+			"tab moves recipient, text, [Send]",
+			"shift+tab moves back",
+			"enter on text inserts a newline",
+			"enter on [Send] sends",
+			"esc keeps the draft",
+			"click folder, target, or [Send]",
+			"wheel scroll",
+			"? or esc close",
+		}
 	}
 	lines := make([]screenLine, len(text))
 	for i, line := range text {
