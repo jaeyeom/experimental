@@ -37,6 +37,12 @@ const (
 	modeOutcome
 )
 
+const (
+	focusRecipient = iota
+	focusText
+	focusSend
+)
+
 // narrowWidth is the smallest measured terminal that keeps the sidebar column.
 const narrowWidth = 80
 
@@ -72,6 +78,9 @@ type Model struct {
 	rows         [][]hit
 	target       int
 	composing    bool
+	composeFocus int
+	chord        bool
+	chordSeq     int
 	help         bool
 	answerFocus  bool
 	note         string
@@ -148,20 +157,22 @@ func (m *Model) Reload() error {
 	return nil
 }
 
-// Key applies one key. In the list, h and l switch folders, j and k move,
-// Enter opens the row, Tab and ] select the next compose target, [ selects
-// the previous one, c focuses the compose box, and q quits. In the detail
-// view, 1 through 9 answer a relay option, 0 focuses free text on a relay
+// Key applies one key. In the list, j and k move, o or Enter opens the row,
+// g starts a folder chord, c opens compose, and q quits. A second key of
+// i, a, d, or w opens Inbox, Answered, Done, or Withdrawn. In the opened
+// item, j and k move to the next and previous item, and u returns to the
+// list. 1 through 9 answer a relay option, 0 focuses free text on a relay
 // item that allows it, and e asks for an outcome then marks the item done.
-// Enter submits free text only while that row is focused. Esc leaves the row
-// and keeps the unsent draft. While the compose box is focused, Enter sends
-// the note and ] is inserted. Tab cycles targets only when compose is not
-// focused. [ selects the previous target from the list. Printable keys type
-// into a focused field. ? opens the shortcut overlay only
-// when no text field is focused, and Esc or ? closes it. Focused free text,
-// the outcome field, and the compose box insert printable keys, including
-// capitals, ?, and digits.
+// Enter submits free text only while that row is focused. Esc leaves the
+// row and keeps the unsent draft. In compose, Tab moves from the recipient
+// to the text to [Send], Enter inserts a newline in the text, and Enter on
+// [Send] sends. Printable keys type into a focused field. ? opens the
+// shortcut overlay only when no text field is focused, and Esc or ? closes
+// it.
 func (m *Model) Key(r rune) (bool, error) {
+	if m.chord {
+		return m.finishChord(r)
+	}
 	if m.help {
 		return m.helpKey(r)
 	}
@@ -186,10 +197,35 @@ func (m *Model) Key(r rune) (bool, error) {
 	}
 }
 
-func (m *Model) listKey(r rune) (bool, error) {
-	if m.listComposeKey(r) {
+func (m *Model) beginChord() {
+	m.chord = true
+	m.chordSeq++
+}
+
+func (m *Model) finishChord(r rune) (bool, error) {
+	m.chord = false
+	switch r {
+	case 'i':
+		return false, m.showFolder(0)
+	case 'a':
+		return false, m.showFolder(1)
+	case 'd':
+		return false, m.showFolder(2)
+	case 'w':
+		return false, m.showFolder(3)
+	default:
 		return false, nil
 	}
+}
+
+func (m *Model) expireChord(seq int) {
+	if !m.chord || seq != m.chordSeq {
+		return
+	}
+	m.chord = false
+}
+
+func (m *Model) listKey(r rune) (bool, error) {
 	switch r {
 	case 'q':
 		return true, nil
@@ -201,28 +237,14 @@ func (m *Model) listKey(r rune) (bool, error) {
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case 'h':
-		if m.folder > 0 {
-			m.folder--
-			m.cursor = 0
-			m.scroll = 0
-			if err := m.Reload(); err != nil {
-				return false, err
-			}
-		}
-	case 'l':
-		if m.folder < len(Folders)-1 {
-			m.folder++
-			m.cursor = 0
-			m.scroll = 0
-			if err := m.Reload(); err != nil {
-				return false, err
-			}
-		}
-	case '\r', '\n':
+	case 'g':
+		m.beginChord()
+	case 'o', '\r', '\n':
 		if err := m.openRow(); err != nil {
 			return false, err
 		}
+	case 'c':
+		m.focusCompose()
 	}
 	return false, nil
 }
@@ -237,26 +259,20 @@ func (m *Model) helpKey(r rune) (bool, error) {
 	return false, nil
 }
 
-func (m *Model) listComposeKey(r rune) bool {
-	switch r {
-	case 'c':
-		m.focusCompose()
-		return true
-	case ']', '\t':
-		m.cycleTarget(1)
-		return true
-	case '[':
-		m.cycleTarget(-1)
-		return true
-	default:
-		return false
-	}
-}
-
 func (m *Model) detailKey(r rune) (bool, error) {
 	switch r {
-	case '\x1b':
+	case '\x1b', 'u':
 		m.backToList()
+		return false, nil
+	case 'j':
+		return false, m.openRelative(1)
+	case 'k':
+		return false, m.openRelative(-1)
+	case 'g':
+		m.beginChord()
+		return false, nil
+	case 'c':
+		m.focusCompose()
 		return false, nil
 	case 'e':
 		m.beginOutcome()
@@ -321,10 +337,11 @@ func (m *Model) editNote(r rune) {
 
 func (m *Model) focusCompose() {
 	m.composing = true
+	m.composeFocus = focusRecipient
 	m.answerFocus = false
 	m.free.Blur()
 	m.pullNote()
-	m.noteField.Focus()
+	m.noteField.Blur()
 }
 
 func (m *Model) blurCompose() {
@@ -344,6 +361,7 @@ func (m *Model) insertNoteNewline() {
 func (m *Model) clearNote() {
 	m.note = ""
 	m.composing = false
+	m.composeFocus = focusRecipient
 	m.noteField.Blur()
 	m.noteField.Reset()
 }
@@ -390,6 +408,15 @@ func (m *Model) outcomeKey(r rune) (bool, error) {
 		m.status = "outcome"
 	}
 	return false, nil
+}
+
+func (m *Model) openRelative(delta int) error {
+	next := m.cursor + delta
+	if next < 0 || next >= len(m.items) {
+		return nil
+	}
+	m.cursor = next
+	return m.openRow()
 }
 
 func (m *Model) openRow() error {
@@ -572,10 +599,14 @@ func (m *Model) narrow() bool {
 }
 
 func (m *Model) statusLine() screenLine {
-	if m.status == "" {
-		return screenLine{text: "? help"}
+	if m.chord {
+		return screenLine{text: "g…"}
 	}
-	return screenLine{text: m.status + "  ? help"}
+	const hint = "gi/ga/gd/gw  o open  u list  c  tab recipient/text/[Send]  ? help"
+	if m.status == "" {
+		return screenLine{text: hint}
+	}
+	return screenLine{text: m.status + "  " + hint}
 }
 
 func (m *Model) listFocused() bool {
@@ -587,67 +618,99 @@ func (m *Model) detailFocused() bool {
 }
 
 func (m *Model) mailLines() []screenLine {
-	if m.width <= 0 {
-		return m.unmeasuredMail()
-	}
 	pane := m.contentWidth()
-	if m.narrow() {
-		return m.stackedMail(pane)
-	}
-	return m.columnMail(pane)
-}
-
-// unmeasuredMail is the layout used before the first WindowSizeMsg.
-func (m *Model) unmeasuredMail() []screenLine {
-	sidebar := m.sidebarLines()
-	list := m.rowLines(0)
-	detail := m.detailLines()
-	list, detail = m.clipPanes(list, detail)
-	switch {
-	case m.listFocused():
-		list = boxLines(list)
-	case m.answerFocus:
-		detail = boxAnswer(detail)
-	case m.detailFocused():
-		detail = boxLines(detail)
-	}
-	body := stackRegions(0, sidebar, list, detail)
-	compose := m.composeLines()
 	if m.composing {
-		compose = boxLines(compose)
+		return m.composeScreen(pane)
 	}
-	return append(body, compose...)
+	if m.mode != modeList {
+		return m.openedScreen(pane)
+	}
+	if m.width <= 0 {
+		return m.unmeasuredList()
+	}
+	if m.narrow() {
+		return m.stackedList(pane)
+	}
+	return m.columnList(pane)
 }
 
-func (m *Model) stackedMail(pane int) []screenLine {
-	list := m.rowLines(pane)
-	detail := m.detailLines()
-	list, detail = m.clipPanes(list, detail)
-	list = fitPane(list, pane, m.listFocused())
-	detail = m.fitDetail(detail, pane)
-	body := stackRegions(pane, []screenLine{m.folderTabLine(pane)}, list, detail)
-	return append(body, m.fitCompose(pane)...)
-}
-
-func (m *Model) columnMail(pane int) []screenLine {
+func (m *Model) unmeasuredList() []screenLine {
 	sidebar := m.sidebarLines()
-	probe := m.rowLines(0)
-	detail := m.detailLines()
-	budget := pane - 2
-	sideW, listW, detailW := paneWidths(maxWidth(sidebar), maxWidth(probe), maxWidth(detail), budget)
+	list := m.clipList(m.rowLines(0))
+	if m.listFocused() {
+		list = boxLines(list)
+	}
+	return stackRegions(0, sidebar, list)
+}
+
+func (m *Model) stackedList(pane int) []screenLine {
+	list := m.clipList(m.rowLines(pane))
+	list = fitPane(list, pane, m.listFocused())
+	return stackRegions(pane, []screenLine{m.folderTabLine(pane)}, list)
+}
+
+func (m *Model) columnList(pane int) []screenLine {
+	sidebar := m.sidebarLines()
+	sideW, listW := listColumnWidths(maxWidth(sidebar), pane)
 	listInner := listW
 	if m.listFocused() && listW >= 2 {
 		listInner = listW - 2
 	}
-	list := m.rowLines(listInner)
-	list, detail = m.clipPanes(list, detail)
+	list := m.clipList(m.rowLines(listInner))
 	cols := [][]screenLine{
 		fitColumnLines(sidebar, sideW),
 		fitPane(list, listW, m.listFocused()),
-		m.fitDetail(detail, detailW),
 	}
-	body := zipFixed(cols, []int{sideW, listW, detailW})
-	return append(body, m.fitCompose(pane)...)
+	return zipFixed(cols, []int{sideW, listW})
+}
+
+func (m *Model) clipList(list []screenLine) []screenLine {
+	listN, _ := m.layoutBudget()
+	var scroll int
+	list, scroll = clipLines(list, m.scroll, listN)
+	m.scroll = scroll
+	return list
+}
+
+func (m *Model) openedScreen(width int) []screenLine {
+	detail := m.detailLines()
+	_, detailN := m.layoutBudget()
+	var scroll int
+	detail, scroll = clipLines(detail, m.scroll, detailN)
+	m.scroll = scroll
+	if width <= 0 {
+		if m.answerFocus {
+			return boxAnswer(detail)
+		}
+		if m.detailFocused() {
+			return boxLines(detail)
+		}
+		return detail
+	}
+	return m.fitDetail(detail, width)
+}
+
+func (m *Model) composeScreen(width int) []screenLine {
+	lines := m.composeBody()
+	if width <= 0 {
+		return lines
+	}
+	return fitColumnLines(lines, width)
+}
+
+func listColumnWidths(sidebar, pane int) (int, int) {
+	budget := pane - 1
+	if budget < 2 {
+		budget = 2
+	}
+	side := sidebar
+	if side < 1 {
+		side = 1
+	}
+	if side > budget-1 {
+		side = budget - 1
+	}
+	return side, budget - side
 }
 
 func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
@@ -659,10 +722,6 @@ func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
 	default:
 		return fitPane(lines, width, false)
 	}
-}
-
-func (m *Model) fitCompose(width int) []screenLine {
-	return fitPane(m.composeLines(), width, m.composing)
 }
 
 func (m *Model) folderTabLine(width int) screenLine {
@@ -713,55 +772,37 @@ func (m *Model) sidebarLines() []screenLine {
 	return lines
 }
 
-func (m *Model) clipPanes(list, detail []screenLine) ([]screenLine, []screenLine) {
-	listN, detailN := m.layoutBudget()
-	if m.mode == modeList {
-		var scroll int
-		list, scroll = clipLines(list, m.scroll, listN)
-		detail, _ = clipLines(detail, 0, detailN)
-		m.scroll = scroll
-		return list, detail
-	}
-	var scroll int
-	detail, scroll = clipLines(detail, m.scroll, detailN)
-	list, _ = clipLines(list, 0, listN)
-	m.scroll = scroll
-	return list, detail
-}
-
 func (m *Model) layoutBudget() (int, int) {
 	if m.height <= 1 {
 		return 0, 0
 	}
-	folderChrome := len(Folders)
+	folderChrome := 0
+	if m.mode == modeList && !m.composing {
+		folderChrome = len(Folders)
+		if m.width > 0 {
+			folderChrome = 0
+			if m.narrow() {
+				folderChrome = 1
+			}
+		}
+	}
 	frame := 0
-	if m.width > 0 {
-		folderChrome = 0
-		if m.narrow() {
-			folderChrome = 1
-		}
-		if m.framed() {
-			frame = 2
-		}
+	if m.framed() {
+		frame = 2
 	}
-	chrome := folderChrome + len(m.composeLines()) + 1 + frame
-	if m.composing {
-		chrome += 2
-	}
+	chrome := folderChrome + 1 + frame
 	box := 0
-	if m.listFocused() || m.detailFocused() {
+	if !m.composing && (m.listFocused() || m.detailFocused()) {
 		box = 2
 	}
 	remain := m.height - chrome - box
 	if remain < 2 {
 		remain = 2
 	}
-	listN := remain / 2
-	detailN := remain - listN
-	if m.detailFocused() && detailN < listN {
-		listN, detailN = detailN, listN
+	if m.mode != modeList {
+		return 0, remain
 	}
-	return listN, detailN
+	return remain, 0
 }
 
 func clipLines(lines []screenLine, scroll, limit int) ([]screenLine, int) {
@@ -829,41 +870,6 @@ func zipFixed(cols [][]screenLine, widths []int) []screenLine {
 		out = append(out, screenLine{text: b.String(), hits: hits})
 	}
 	return out
-}
-
-// paneWidths keeps the sidebar wide enough for its labels and gives the
-// leftover to the list and the detail. budget excludes the gaps between them.
-func paneWidths(sidebar, list, detail, budget int) (int, int, int) {
-	if budget < 3 {
-		budget = 3
-	}
-	side := sidebar
-	if side < 1 {
-		side = 1
-	}
-	if side > budget-2 {
-		side = budget - 2
-	}
-	rest := budget - side
-	if list < 1 {
-		list = 1
-	}
-	if detail < 1 {
-		detail = 1
-	}
-	if list+detail <= rest {
-		return side, list, detail
-	}
-	list = rest / 2
-	if list < 1 {
-		list = 1
-	}
-	detail = rest - list
-	if detail < 1 {
-		detail = 1
-		list = rest - detail
-	}
-	return side, list, detail
 }
 
 func maxWidth(lines []screenLine) int {
@@ -1163,12 +1169,17 @@ func (m *Model) helpLines() []screenLine {
 	text := []string{
 		"shortcuts",
 		"q quit",
-		"j/k move    h/l folder    enter open",
-		"c compose   ] target      tab next target",
-		"enter send  shift+enter newline",
-		"0 free text   esc keeps the draft",
+		"j/k move",
+		"g then i inbox, a answered, d done, w withdrawn",
+		"o or enter opens    u returns to the list",
+		"c compose",
+		"tab moves recipient, text, [Send]",
+		"shift+tab moves back",
+		"enter on text inserts a newline",
+		"enter on [Send] sends",
+		"esc keeps the draft",
 		"1-9 answer  e done        esc back",
-		"click folder, row, option, target, or compose",
+		"click folder, row, option, target, or [Send]",
 		"wheel scroll",
 		"? or esc close",
 	}

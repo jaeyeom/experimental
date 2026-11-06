@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 )
 
 const sendsName = "sends.jsonl"
@@ -30,22 +29,29 @@ type sendRecord struct {
 	Text   string `json:"text"`
 }
 
-// ShiftEnter inserts a newline into a focused compose box and does not send.
+// ShiftEnter inserts a newline while the compose text is focused.
 func (m *Model) ShiftEnter() {
-	if !m.composing {
+	if !m.composing || m.composeFocus != focusText {
 		return
 	}
 	m.insertNoteNewline()
 }
 
-// ShiftTab selects the previous compose target in the list and while the
-// box is focused. It does not insert a character.
+// ShiftTab moves compose focus back from [Send] to the text to the recipient.
 func (m *Model) ShiftTab() {
-	if m.help || m.answerFocus {
+	if m.help || m.answerFocus || !m.composing {
 		return
 	}
-	if m.composing || m.mode == modeList {
-		m.cycleTarget(-1)
+	if m.composeFocus == focusText {
+		m.note = m.noteField.Value()
+		m.noteField.Blur()
+	}
+	if m.composeFocus > focusRecipient {
+		m.composeFocus--
+	}
+	if m.composeFocus == focusText {
+		m.pullNote()
+		m.noteField.Focus()
 	}
 }
 
@@ -54,26 +60,72 @@ func (m *Model) composeKey(r rune) (bool, error) {
 	case '\x1b':
 		m.blurCompose()
 		return false, nil
+	case '\t':
+		m.advanceCompose()
+		return false, nil
 	case '\r', '\n':
-		return false, m.sendNote()
+		return m.composeEnter()
 	case '\b', '\x7f':
-		m.editNote(r)
+		if m.composeFocus == focusText {
+			m.editNote(r)
+		}
 		return false, nil
 	}
-	if r >= ' ' {
+	if m.composeFocus == focusRecipient && (r == 'j' || r == 'k') {
+		delta := 1
+		if r == 'k' {
+			delta = -1
+		}
+		m.moveTarget(delta)
+		return false, nil
+	}
+	if m.composeFocus == focusText && r >= ' ' {
 		m.editNote(r)
 	}
 	return false, nil
 }
 
-func (m *Model) cycleTarget(delta int) {
+func (m *Model) composeEnter() (bool, error) {
+	switch m.composeFocus {
+	case focusText:
+		m.insertNoteNewline()
+		return false, nil
+	case focusSend:
+		return false, m.sendNote()
+	default:
+		return false, nil
+	}
+}
+
+func (m *Model) advanceCompose() {
+	if m.composeFocus == focusText {
+		m.note = m.noteField.Value()
+		m.noteField.Blur()
+	}
+	if m.composeFocus < focusSend {
+		m.composeFocus++
+	}
+	if m.composeFocus == focusText {
+		m.pullNote()
+		m.noteField.Focus()
+	}
+}
+
+func (m *Model) moveTarget(delta int) {
 	n := len(m.Targets)
 	if n == 0 {
 		return
 	}
-	m.target = (m.target + delta) % n
-	if m.target < 0 {
-		m.target += n
+	next := m.target + delta
+	if next < 0 || next >= n {
+		return
+	}
+	m.target = next
+}
+
+func (m *Model) pickerArrow(delta int) {
+	if m.composing && m.composeFocus == focusRecipient {
+		m.moveTarget(delta)
 	}
 }
 
@@ -156,69 +208,74 @@ func (m *Model) appendSend(name, pane, text string) error {
 	return nil
 }
 
-func (m *Model) composeLines() []screenLine {
-	lines := m.targetLines()
-	lines = append(lines, m.composeLine(), m.sendLine())
+func (m *Model) composeBody() []screenLine {
+	picker := m.pickerLines()
+	draft := m.draftLines()
+	send := m.sendLine()
+	minH := m.composeMinHeight()
+	for len(picker)+len(draft)+1 < minH {
+		draft = append(draft, screenLine{})
+	}
+	lines := make([]screenLine, 0, len(picker)+len(draft)+1)
+	lines = append(lines, picker...)
+	lines = append(lines, draft...)
+	lines = append(lines, send)
 	return lines
 }
 
-// targetLines is the compose dropdown. The open row is the selected target.
-// The other targets are the entries under it.
-func (m *Model) targetLines() []screenLine {
+func (m *Model) composeMinHeight() int {
+	if m.height <= 1 {
+		return 1
+	}
+	half := m.height / 2
+	if half < 1 {
+		return 1
+	}
+	return half
+}
+
+func (m *Model) pickerLines() []screenLine {
 	if len(m.Targets) == 0 {
-		return []screenLine{{text: "to: ▾ (none)"}}
+		return []screenLine{{text: "(no recipients)"}}
 	}
 	if m.target < 0 || m.target >= len(m.Targets) {
 		m.target = 0
 	}
 	lines := make([]screenLine, 0, len(m.Targets))
-	selected := m.Targets[m.target].Name
-	prefix := "to: ▾ "
-	lines = append(lines, screenLine{
-		text: prefix + selected,
-		hits: []hit{{
-			kind: hitTarget,
-			n:    m.target,
-			x0:   utf8.RuneCountInString(prefix) + 1,
-			x1:   utf8.RuneCountInString(prefix + selected),
-		}},
-	})
 	for i, tg := range m.Targets {
+		label := tg.Name
 		if i == m.target {
-			continue
+			label = "[" + label + "]"
 		}
-		pad := "  "
+		if m.composeFocus == focusRecipient && i == m.target {
+			label = "> " + label
+		}
 		lines = append(lines, screenLine{
-			text: pad + tg.Name,
-			hits: []hit{{
-				kind: hitTarget,
-				n:    i,
-				x0:   utf8.RuneCountInString(pad) + 1,
-				x1:   utf8.RuneCountInString(pad + tg.Name),
-			}},
+			text: label,
+			hits: []hit{{kind: hitTarget, n: i}},
 		})
+	}
+	return lines
+}
+
+func (m *Model) draftLines() []screenLine {
+	text := m.note
+	if text == "" {
+		return []screenLine{{}}
+	}
+	parts := strings.Split(text, "\n")
+	lines := make([]screenLine, len(parts))
+	for i, part := range parts {
+		lines[i] = screenLine{text: part}
 	}
 	return lines
 }
 
 func (m *Model) sendLine() screenLine {
 	useStyles()
-	return screenLine{text: optionButton.Render("Send"), hits: []hit{{kind: hitSend}}}
-}
-
-func (m *Model) composeLine() screenLine {
-	if !m.composing {
-		return screenLine{
-			text: "compose:",
-			hits: []hit{{kind: hitCompose}},
-		}
+	label := "[Send]"
+	if m.composeFocus == focusSend {
+		label = "> [Send]"
 	}
-	body := strings.ReplaceAll(m.note, "\n", `\n`)
-	if body == "" {
-		body = "…"
-	}
-	return screenLine{
-		text: "compose › " + body + "_  Enter send · Esc cancel",
-		hits: []hit{{kind: hitCompose}},
-	}
+	return screenLine{text: optionButton.Render(label), hits: []hit{{kind: hitSend}}}
 }
