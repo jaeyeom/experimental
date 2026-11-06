@@ -38,6 +38,13 @@ file and run ~M-x decide-list~. It calls ~decide list --json~ and
 normal buffer for free text. ~C-c C-c~ sends that buffer and
 ~C-c C-k~ closes it without answering.
 
+~c~ composes a note. The recipient comes from ~decide targets --json~.
+~C-c C-c~ runs ~decide send --to~ with the buffer text as one argument.
+~C-c C-k~ closes the buffer and does not send. ~s~ shows
+~decide status list --json~. A row older than five minutes is dim.
+The status buffer refreshes every two seconds while it is visible, and
+the timer stops when the buffer is killed.
+
 * Notify
 
 After a relay answer is saved, ~notifyTemplate~ runs as a shell command.
