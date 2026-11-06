@@ -550,14 +550,16 @@ type screenLine struct {
 // Unread rows are bold. A positive height scrolls inside the list or detail.
 func (m *Model) View() string {
 	lines := m.allLines()
+	if m.height > 0 && len(lines) > m.height {
+		lines = append([]screenLine(nil), lines[:m.height]...)
+	}
 	m.rows = make([][]hit, len(lines))
-	var b strings.Builder
+	parts := make([]string, len(lines))
 	for i, line := range lines {
-		b.WriteString(line.text)
-		b.WriteByte('\n')
+		parts[i] = line.text
 		m.rows[i] = line.hits
 	}
-	return b.String()
+	return strings.Join(parts, "\n")
 }
 
 func (m *Model) allLines() []screenLine {
@@ -1090,7 +1092,9 @@ func (m *Model) frameLines(lines []screenLine) []screenLine {
 	innerW := m.width - 2
 	innerH := m.height - 2
 	body := lines
-	if len(body) > innerH {
+	if innerH < 1 {
+		body = nil
+	} else if len(body) > innerH {
 		status := body[len(body)-1]
 		if innerH == 1 {
 			body = []screenLine{status}
