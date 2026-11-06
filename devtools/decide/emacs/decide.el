@@ -15,6 +15,7 @@
 
 (require 'json)
 (require 'subr-x)
+(require 'time-date)
 
 (defgroup decide nil
   "Decision inbox."
@@ -36,15 +37,26 @@
 (defvar decide--folder "inbox")
 (defvar-local decide--items nil)
 (defvar-local decide--item-id nil)
+(defvar-local decide--recipient nil)
+(defvar decide--status-timer nil)
+
+(defconst decide-stale-seconds (* 5 60)
+  "A status row older than this many seconds is dimmed.")
 
 (defun decide--answer-args (id text)
   "Argument list that answers ID with TEXT."
   (list "answer" "--json" id text))
 
+(defun decide--send-args (name text)
+  "Argument list that sends TEXT to recipient NAME."
+  (list "send" "--to" name "--json" text))
+
 (defun decide--submit-args (action id text)
   "Argument list for ACTION, or nil when nothing should be sent.
-ACTION is `answer' or `cancel'."
-  (and (eq action 'answer) (decide--answer-args id text)))
+ACTION is `answer', `send', or `cancel'."
+  (cond ((eq action 'answer) (decide--answer-args id text))
+        ((eq action 'send) (decide--send-args id text))
+        (t nil)))
 
 (defun decide--command (args)
   "Run `decide-program' with ARGS.  Return stdout.
@@ -208,6 +220,8 @@ Signal an error when the program exits non-zero."
 
 (define-key decide-list-mode-map (kbd "g") #'decide-refresh)
 (define-key decide-list-mode-map (kbd "RET") #'decide-show)
+(define-key decide-list-mode-map (kbd "c") #'decide-compose)
+(define-key decide-list-mode-map (kbd "s") #'decide-status)
 (define-key decide-list-mode-map (kbd "i") (lambda () (interactive) (decide-list "inbox")))
 (define-key decide-list-mode-map (kbd "a") (lambda () (interactive) (decide-list "answered")))
 (define-key decide-list-mode-map (kbd "d") (lambda () (interactive) (decide-list "done")))
@@ -228,6 +242,135 @@ Signal an error when the program exits non-zero."
 
 (define-key decide-answer-mode-map (kbd "C-c C-c") #'decide-answer-send)
 (define-key decide-answer-mode-map (kbd "C-c C-k") #'decide-answer-cancel)
+
+(defun decide-compose ()
+  "Compose a note to a recipient from `decide targets --json'."
+  (interactive)
+  (let* ((targets (decide--json (list "targets" "--json")))
+         (names (mapcar (lambda (tg) (decide--field tg "name")) targets))
+         (name (completing-read "Recipient: " names nil t)))
+    (with-current-buffer (get-buffer-create "*decide compose*")
+      (decide-compose-mode)
+      (setq decide--recipient name)
+      (pop-to-buffer (current-buffer)))))
+
+(defun decide-compose-send ()
+  "Send this buffer to the chosen recipient."
+  (interactive)
+  (let ((args (decide--submit-args 'send decide--recipient (buffer-string)))
+        (name decide--recipient))
+    (when args
+      (decide--command args))
+    (kill-buffer (current-buffer))
+    (message "Sent to %s" name)))
+
+(defun decide-compose-cancel ()
+  "Close this compose buffer and send nothing."
+  (interactive)
+  (let ((args (decide--submit-args 'cancel decide--recipient (buffer-string))))
+    (when args
+      (decide--command args))
+    (kill-buffer (current-buffer))))
+
+(define-derived-mode decide-compose-mode text-mode "Decide-Compose"
+  "Note to one recipient.  `C-c C-c' sends it and `C-c C-k' cancels."
+  (setq-local header-line-format "C-c C-c send   C-c C-k cancel"))
+
+(define-key decide-compose-mode-map (kbd "C-c C-c") #'decide-compose-send)
+(define-key decide-compose-mode-map (kbd "C-c C-k") #'decide-compose-cancel)
+
+(defun decide--stale-p (updated now)
+  "Non-nil when UPDATED is more than `decide-stale-seconds' before NOW.
+UPDATED is an RFC3339 string.  NOW is an Emacs time."
+  (and (stringp updated)
+       (not (string-empty-p updated))
+       (> (float-time (time-subtract now (date-to-time updated)))
+          decide-stale-seconds)))
+
+(defun decide--age (updated now)
+  "Short age of UPDATED at NOW."
+  (let ((secs (floor (float-time (time-subtract now (date-to-time updated))))))
+    (cond ((< secs 60) "now")
+          ((< secs 3600) (format "%dm" (/ secs 60)))
+          ((< secs 86400) (format "%dh" (/ secs 3600)))
+          (t (format "%dd" (/ secs 86400))))))
+
+(defun decide--insert-status-row (text stale)
+  "Insert TEXT, dimmed when STALE is non-nil."
+  (insert (propertize text 'face (and stale 'shadow)) "\n"))
+
+(defun decide-status-render (board now)
+  "Insert BOARD, a status JSON alist, as of NOW."
+  (dolist (agent (alist-get "agents" board nil nil #'equal))
+    (let ((updated (decide--field agent "updatedAt")))
+      (decide--insert-status-row
+       (format "%s %s %s %s"
+               (decide--field agent "name")
+               (decide--field agent "state")
+               (decide--age updated now)
+               (decide--field agent "text"))
+       (decide--stale-p updated now))))
+  (dolist (res (alist-get "resources" board nil nil #'equal))
+    (let* ((updated (decide--field res "updatedAt"))
+           (note (decide--field res "note"))
+           (line (if (string-empty-p note)
+                     (format "%s: %s"
+                             (decide--field res "name")
+                             (decide--field res "availability"))
+                   (format "%s: %s (%s)"
+                           (decide--field res "name")
+                           (decide--field res "availability")
+                           note))))
+      (decide--insert-status-row line (decide--stale-p updated now)))))
+
+(defun decide-status-refresh ()
+  "Replace the status buffer from `decide status list --json'."
+  (interactive)
+  (let ((board (decide--json (list "status" "list" "--json")))
+        (inhibit-read-only t))
+    (erase-buffer)
+    (decide-status-render board (current-time))))
+
+(defun decide--status-stop-if-ours ()
+  "Stop the status timer when this status buffer goes away."
+  (when (and decide--status-timer
+             (eq (current-buffer) (get-buffer "*decide status*")))
+    (cancel-timer decide--status-timer)
+    (setq decide--status-timer nil)))
+
+(defun decide--status-ensure-timer ()
+  "Refresh the visible status buffer every two seconds."
+  (unless decide--status-timer
+    (setq decide--status-timer
+          (run-with-timer
+           2 2
+           (lambda ()
+             (let ((buf (get-buffer "*decide status*")))
+               (cond
+                ((or (null buf) (not (buffer-live-p buf)))
+                 (when decide--status-timer
+                   (cancel-timer decide--status-timer)
+                   (setq decide--status-timer nil)))
+                ((get-buffer-window buf t)
+                 (with-current-buffer buf
+                   (decide-status-refresh))))))))))
+
+(defun decide-status ()
+  "Show the status board and keep it refreshing while visible."
+  (interactive)
+  (let ((buf (get-buffer-create "*decide status*")))
+    (with-current-buffer buf
+      (decide-status-mode)
+      (decide-status-refresh))
+    (pop-to-buffer buf)
+    (decide--status-ensure-timer)))
+
+(define-derived-mode decide-status-mode special-mode "Decide-Status"
+  "Agent and resource status."
+  (add-hook 'kill-buffer-hook #'decide--status-stop-if-ours nil t))
+
+(define-key decide-status-mode-map (kbd "g") #'decide-status-refresh)
+(define-key decide-status-mode-map (kbd "q") #'quit-window)
 
 (provide 'decide)
 
