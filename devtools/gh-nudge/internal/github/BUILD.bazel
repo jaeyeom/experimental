@@ -27,5 +27,8 @@ go_test(
         "review_request_age_test.go",
     ],
     embed = [":go_default_library"],
-    deps = ["//devtools/gh-nudge/internal/models:go_default_library"],
+    deps = [
+        "//devtools/gh-nudge/internal/models:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+    ],
 )

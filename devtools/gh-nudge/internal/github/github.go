@@ -4,7 +4,10 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	executor "github.com/jaeyeom/go-cmdexec"
@@ -35,6 +38,28 @@ func (e *executorAdapter) ExecuteWithStdin(stdin, cmd string, args ...string) (s
 	return string(output), err
 }
 
+// ExecuteSeparated runs a command and returns stdout and stderr separately.
+// A non-zero exit returns an error. Stderr is not appended to stdout.
+func (e *executorAdapter) ExecuteSeparated(cmd string, args ...string) (string, string, error) {
+	result, err := e.exec.Execute(e.ctx, executor.ToolConfig{
+		Command: cmd,
+		Args:    args,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to execute %s: %w", cmd, err)
+	}
+	if result == nil {
+		return "", "", fmt.Errorf("failed to execute %s: empty result", cmd)
+	}
+	if result.ExitCode != 0 {
+		return result.Output, result.Stderr, &executor.ExitError{
+			ExitCode: result.ExitCode,
+			Stderr:   result.Stderr,
+		}
+	}
+	return result.Output, result.Stderr, nil
+}
+
 // Client provides methods to interact with GitHub.
 type Client struct {
 	executor CommandExecutor
@@ -61,30 +86,74 @@ func NewClientWithExecutor(executor CommandExecutor) *Client {
 // at 10 with no way to override).
 const pullRequestListLimit = 100
 
-// GetPendingPullRequests fetches pending pull requests using the gh CLI.
-// It fetches open PRs created by the current user, excluding drafts.
+// GetPendingPullRequests fetches open pull requests authored by the current user, excluding drafts.
+// A non-zero gh exit, or stdout that is not a JSON array, is retried once.
+// The pull request list is parsed from stdout only.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
-	// Construct the gh command to get PR information.
-	// This fetches open PRs authored by the current user with their title, URL,
-	// review requests, latest reviews, and files. We use `pr list --author @me`
-	// instead of `pr status` because `pr status` is hardcoded to return at most
-	// 10 PRs.
-	output, err := c.executor.Execute("gh", "pr", "list",
+	prs, _, err := c.pendingPullRequestsOnce()
+	if err == nil {
+		return prs, nil
+	}
+	prs, stderr, err := c.pendingPullRequestsOnce()
+	if err == nil {
+		return prs, nil
+	}
+	if stderr != "" {
+		if _, printErr := fmt.Fprintln(os.Stderr, stderr); printErr != nil {
+			err = errors.Join(err, printErr)
+		}
+		err = fmt.Errorf("%w\n%s", err, stderr)
+	}
+	return nil, err
+}
+
+func (c *Client) pendingPullRequestsOnce() ([]models.PullRequest, string, error) {
+	// `pr list --author @me` replaces `pr status`, which is capped at 10 PRs.
+	stdout, stderr, err := c.executeSeparated("gh", "pr", "list",
 		"--author", "@me",
 		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
 		"--json", "url,title,reviewRequests,latestReviews,files,mergeable,headRefName,statusCheckRollup,isDraft,labels")
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute gh command: %w", err)
+		return nil, stderr, fmt.Errorf("failed to execute gh command: %w", err)
 	}
+	prs, err := parsePullRequestList(stdout)
+	if err != nil {
+		return nil, stderr, err
+	}
+	return withoutDrafts(prs), stderr, nil
+}
 
-	// Parse the JSON output
+func (c *Client) executeSeparated(cmd string, args ...string) (string, string, error) {
+	type separated interface {
+		ExecuteSeparated(cmd string, args ...string) (string, string, error)
+	}
+	if sep, ok := c.executor.(separated); ok {
+		stdout, stderr, err := sep.ExecuteSeparated(cmd, args...)
+		if err != nil {
+			return stdout, stderr, fmt.Errorf("failed to execute %s: %w", cmd, err)
+		}
+		return stdout, stderr, nil
+	}
+	out, err := c.executor.Execute(cmd, args...)
+	if err != nil {
+		return "", out, fmt.Errorf("failed to execute %s: %w", cmd, err)
+	}
+	return out, "", nil
+}
+
+func parsePullRequestList(stdout string) ([]models.PullRequest, error) {
+	trimmed := strings.TrimSpace(stdout)
+	if !strings.HasPrefix(trimmed, "[") {
+		return nil, fmt.Errorf("failed to parse gh command output: stdout is not a JSON array")
+	}
 	var prs []models.PullRequest
-	if err := json.Unmarshal([]byte(output), &prs); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &prs); err != nil {
 		return nil, fmt.Errorf("failed to parse gh command output: %w", err)
 	}
+	return prs, nil
+}
 
-	// Skip draft PRs: reviewers are not expected to act on them yet, so
-	// nudging about them would be noise.
+func withoutDrafts(prs []models.PullRequest) []models.PullRequest {
 	pending := make([]models.PullRequest, 0, len(prs))
 	for _, pr := range prs {
 		if pr.IsDraft {
@@ -92,8 +161,7 @@ func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 		}
 		pending = append(pending, pr)
 	}
-
-	return pending, nil
+	return pending
 }
 
 // GetMergeablePullRequests fetches pull requests with no review requests.
