@@ -19,6 +19,9 @@
 - ~decide status clear --resource <name>~ removes that one flag.
   ~--json~ includes a ~resources~ array.
 
+In the inbox, ~g~ then ~s~ opens the same rows. The view reloads on the
+inbox tick. A row older than five minutes is dim.
+
 * Notify
 
 After a relay answer is saved, ~notifyTemplate~ runs as a shell command.

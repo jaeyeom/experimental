@@ -163,6 +163,11 @@ func (m *Model) updateReload() (tea.Model, tea.Cmd) {
 		m.runErr = err
 		return m, tea.Quit
 	}
+	if m.mode == modeStatus {
+		if err := m.loadStatus(); err != nil {
+			m.status = err.Error()
+		}
+	}
 	return m, m.scheduleReload()
 }
 

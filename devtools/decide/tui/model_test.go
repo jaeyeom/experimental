@@ -2725,6 +2725,60 @@ func lineContaining(view, needle string) string {
 	return ""
 }
 
+func TestStatusBoardShowsAgentsResourcesAndDimsStale(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := decide.Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	board, err := decide.OpenStatus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.SetClock(func() time.Time { return now })
+	if _, err := board.SetAgent("alpha", "working", "fixing the inbox"); err != nil {
+		t.Fatal(err)
+	}
+	board.SetClock(func() time.Time { return now.Add(-10 * time.Minute) })
+	if _, err := board.SetAgent("beta", "paused", "old task"); err != nil {
+		t.Fatal(err)
+	}
+	board.SetClock(func() time.Time { return now })
+	if _, err := board.SetResource("workspace", decide.ResourceFree, "paused"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.width = 80
+	m.height = 24
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "gs")
+	view := m.View()
+	if m.mode != modeStatus || !strings.Contains(view, "alpha working now fixing the inbox") || !strings.Contains(view, "workspace: free (paused)") {
+		t.Fatalf("status view mode %d\n%s", m.mode, view)
+	}
+	stale := lineContaining(view, "beta paused")
+	fresh := lineContaining(view, "alpha working")
+	if stale == "" || !strings.Contains(stale, "\x1b[2m") {
+		t.Fatalf("stale row was not dimmed\n%s", view)
+	}
+	if strings.Contains(fresh, "\x1b[2m") {
+		t.Fatalf("fresh row was dimmed\n%s", fresh)
+	}
+
+	if _, err := board.SetAgent("gamma", "idle", "just arrived"); err != nil {
+		t.Fatal(err)
+	}
+	next, _ := m.Update(reloadMsg{})
+	m = next.(*Model)
+	if !strings.Contains(m.View(), "just arrived") {
+		t.Fatalf("refresh missed the new row\n%s", m.View())
+	}
+}
+
 func draftArea(view string) string {
 	lines := strings.Split(view, "\n")
 	tops := borderRows(view, "┌")
