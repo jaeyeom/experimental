@@ -244,6 +244,29 @@ func TestMergeEmptyRepoBlockLabelsOverrideGlobal(t *testing.T) {
 	}
 }
 
+func TestListSuccessStatusContextIsNotPending(t *testing.T) {
+	client := &fakeMergeClient{
+		prs: []models.PullRequest{
+			mergeFixture("Ship this", "https://github.com/acme/widgets/pull/1"),
+		},
+	}
+	client.prs[0].StatusCheckRollup = []models.StatusCheck{
+		{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Context: "ci/circleci", State: "SUCCESS"},
+	}
+	output := captureStdout(t, func() {
+		if err := listMergeablePRs(client, &config.Config{}); err != nil {
+			t.Fatalf("listMergeablePRs() error = %v", err)
+		}
+	})
+	if strings.Contains(output, "checks still running") {
+		t.Fatalf("list treated the successful status context as pending:\n%s", output)
+	}
+	if !strings.Contains(output, "CI: PASS (2/2 checks passed)") {
+		t.Fatalf("output missing pass line:\n%s", output)
+	}
+}
+
 func TestListUsesRepoBlockLabels(t *testing.T) {
 	client := &fakeMergeClient{
 		prs: []models.PullRequest{
