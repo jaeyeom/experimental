@@ -37,6 +37,9 @@ const (
 	modeOutcome
 )
 
+// narrowWidth is the smallest measured terminal that keeps the sidebar column.
+const narrowWidth = 80
+
 // Folders is the inbox order: open, answered, done, withdrawn.
 var Folders = []struct {
 	Name  string
@@ -534,15 +537,38 @@ func (m *Model) allLines() []screenLine {
 	var lines []screenLine
 	if m.help {
 		lines = m.helpLines()
+		if w := m.contentWidth(); w > 0 {
+			lines = fitColumnLines(lines, w)
+		}
 	} else {
 		lines = m.mailLines()
 	}
 	status := m.statusLine()
-	if m.width > 0 {
-		status = fitLine(status, m.width)
+	if w := m.contentWidth(); w > 0 {
+		status = fitLine(status, w)
 	}
 	lines = append(lines, status)
-	return lines
+	return m.frameLines(lines)
+}
+
+// contentWidth is the width inside the outer frame, or the window when the
+// frame is not drawn. Zero means the terminal has not been measured.
+func (m *Model) contentWidth() int {
+	if m.framed() {
+		return m.width - 2
+	}
+	if m.width > 0 {
+		return m.width
+	}
+	return 0
+}
+
+func (m *Model) framed() bool {
+	return m.width >= 2 && m.height >= 2
+}
+
+func (m *Model) narrow() bool {
+	return m.width > 0 && m.width < narrowWidth
 }
 
 func (m *Model) statusLine() screenLine {
@@ -561,8 +587,20 @@ func (m *Model) detailFocused() bool {
 }
 
 func (m *Model) mailLines() []screenLine {
+	if m.width <= 0 {
+		return m.unmeasuredMail()
+	}
+	pane := m.contentWidth()
+	if m.narrow() {
+		return m.stackedMail(pane)
+	}
+	return m.columnMail(pane)
+}
+
+// unmeasuredMail is the layout used before the first WindowSizeMsg.
+func (m *Model) unmeasuredMail() []screenLine {
 	sidebar := m.sidebarLines()
-	list := m.rowLines()
+	list := m.rowLines(0)
 	detail := m.detailLines()
 	list, detail = m.clipPanes(list, detail)
 	switch {
@@ -573,22 +611,86 @@ func (m *Model) mailLines() []screenLine {
 	case m.detailFocused():
 		detail = boxLines(detail)
 	}
-	var body []screenLine
-	if m.width < 72 {
-		body = stackRegions(m.width, sidebar, list, detail)
-	} else {
-		body = zipColumns([][]screenLine{sidebar, list, detail}, m.width)
-	}
+	body := stackRegions(0, sidebar, list, detail)
 	compose := m.composeLines()
 	if m.composing {
 		compose = boxLines(compose)
 	}
-	if m.width > 0 {
-		for i := range compose {
-			compose[i] = fitLine(compose[i], m.width)
-		}
-	}
 	return append(body, compose...)
+}
+
+func (m *Model) stackedMail(pane int) []screenLine {
+	list := m.rowLines(pane)
+	detail := m.detailLines()
+	list, detail = m.clipPanes(list, detail)
+	list = fitPane(list, pane, m.listFocused())
+	detail = m.fitDetail(detail, pane)
+	body := stackRegions(pane, []screenLine{m.folderTabLine(pane)}, list, detail)
+	return append(body, m.fitCompose(pane)...)
+}
+
+func (m *Model) columnMail(pane int) []screenLine {
+	sidebar := m.sidebarLines()
+	probe := m.rowLines(0)
+	detail := m.detailLines()
+	budget := pane - 2
+	sideW, listW, detailW := paneWidths(maxWidth(sidebar), maxWidth(probe), maxWidth(detail), budget)
+	listInner := listW
+	if m.listFocused() && listW >= 2 {
+		listInner = listW - 2
+	}
+	list := m.rowLines(listInner)
+	list, detail = m.clipPanes(list, detail)
+	cols := [][]screenLine{
+		fitColumnLines(sidebar, sideW),
+		fitPane(list, listW, m.listFocused()),
+		m.fitDetail(detail, detailW),
+	}
+	body := zipFixed(cols, []int{sideW, listW, detailW})
+	return append(body, m.fitCompose(pane)...)
+}
+
+func (m *Model) fitDetail(lines []screenLine, width int) []screenLine {
+	switch {
+	case m.answerFocus:
+		return boxAnswerWithin(lines, width)
+	case m.detailFocused():
+		return fitPane(lines, width, true)
+	default:
+		return fitPane(lines, width, false)
+	}
+}
+
+func (m *Model) fitCompose(width int) []screenLine {
+	return fitPane(m.composeLines(), width, m.composing)
+}
+
+func (m *Model) folderTabLine(width int) screenLine {
+	var b strings.Builder
+	hits := make([]hit, 0, len(Folders))
+	for i, folder := range Folders {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		count := 0
+		if i < len(m.counts) {
+			count = m.counts[i]
+		}
+		name := folder.Name
+		if i == m.folder {
+			name = "[" + name + "]"
+		}
+		label := fmt.Sprintf("%s %d", name, count)
+		start := lipgloss.Width(b.String()) + 1
+		b.WriteString(label)
+		hits = append(hits, hit{
+			kind: hitFolder,
+			n:    i,
+			x0:   start,
+			x1:   lipgloss.Width(b.String()),
+		})
+	}
+	return fitLine(screenLine{text: b.String(), hits: hits}, width)
 }
 
 func (m *Model) sidebarLines() []screenLine {
@@ -631,7 +733,18 @@ func (m *Model) layoutBudget() (int, int) {
 	if m.height <= 1 {
 		return 0, 0
 	}
-	chrome := len(Folders) + len(m.composeLines()) + 1
+	folderChrome := len(Folders)
+	frame := 0
+	if m.width > 0 {
+		folderChrome = 0
+		if m.narrow() {
+			folderChrome = 1
+		}
+		if m.framed() {
+			frame = 2
+		}
+	}
+	chrome := folderChrome + len(m.composeLines()) + 1 + frame
 	if m.composing {
 		chrome += 2
 	}
@@ -678,27 +791,15 @@ func stackRegions(width int, cols ...[]screenLine) []screenLine {
 	return out
 }
 
-func zipColumns(cols [][]screenLine, total int) []screenLine {
-	widths := make([]int, len(cols))
+func zipFixed(cols [][]screenLine, widths []int) []screenLine {
 	height := 0
-	for i, col := range cols {
+	for _, col := range cols {
 		if len(col) > height {
 			height = len(col)
-		}
-		for _, line := range col {
-			if w := lipgloss.Width(line.text); w > widths[i] {
-				widths[i] = w
-			}
-		}
-		if widths[i] < 1 {
-			widths[i] = 1
 		}
 	}
 	if height == 0 {
 		return nil
-	}
-	if total > 0 {
-		widths = fitColumnWidths(widths, total-(len(cols)-1))
 	}
 	out := make([]screenLine, 0, height)
 	for row := 0; row < height; row++ {
@@ -714,47 +815,93 @@ func zipColumns(cols [][]screenLine, total int) []screenLine {
 			if row < len(col) {
 				line = col[row]
 			}
-			fitted := fitLine(line, widths[i])
+			width := 1
+			if i < len(widths) && widths[i] > 0 {
+				width = widths[i]
+			}
+			fitted := fitLine(line, width)
 			b.WriteString(fitted.text)
 			for _, h := range fitted.hits {
-				hits = append(hits, shiftHit(h, colX, widths[i]))
+				hits = append(hits, shiftHit(h, colX, width))
 			}
-			colX += widths[i]
+			colX += width
 		}
 		out = append(out, screenLine{text: b.String(), hits: hits})
 	}
 	return out
 }
 
-func fitColumnWidths(widths []int, budget int) []int {
-	if budget < len(widths) {
-		budget = len(widths)
+// paneWidths keeps the sidebar wide enough for its labels and gives the
+// leftover to the list and the detail. budget excludes the gaps between them.
+func paneWidths(sidebar, list, detail, budget int) (int, int, int) {
+	if budget < 3 {
+		budget = 3
 	}
-	sum := 0
-	for _, w := range widths {
-		sum += w
+	side := sidebar
+	if side < 1 {
+		side = 1
 	}
-	if sum <= budget {
-		return widths
+	if side > budget-2 {
+		side = budget - 2
 	}
-	out := append([]int(nil), widths...)
-	used := 0
-	for i := range out {
-		if i == len(out)-1 {
-			out[i] = budget - used
-			if out[i] < 1 {
-				out[i] = 1
-			}
-			break
+	rest := budget - side
+	if list < 1 {
+		list = 1
+	}
+	if detail < 1 {
+		detail = 1
+	}
+	if list+detail <= rest {
+		return side, list, detail
+	}
+	list = rest / 2
+	if list < 1 {
+		list = 1
+	}
+	detail = rest - list
+	if detail < 1 {
+		detail = 1
+		list = rest - detail
+	}
+	return side, list, detail
+}
+
+func maxWidth(lines []screenLine) int {
+	w := 1
+	for _, line := range lines {
+		if n := lipgloss.Width(line.text); n > w {
+			w = n
 		}
-		w := out[i] * budget / sum
-		if w < 1 {
-			w = 1
-		}
-		out[i] = w
-		used += w
+	}
+	return w
+}
+
+func fitColumnLines(lines []screenLine, width int) []screenLine {
+	if width <= 0 {
+		return lines
+	}
+	out := make([]screenLine, len(lines))
+	for i, line := range lines {
+		out[i] = fitLine(line, width)
 	}
 	return out
+}
+
+func fitPane(lines []screenLine, width int, box bool) []screenLine {
+	if len(lines) == 0 {
+		return nil
+	}
+	if width <= 0 {
+		if box {
+			return boxLines(lines)
+		}
+		return lines
+	}
+	if !box || width < 2 {
+		return fitColumnLines(lines, width)
+	}
+	inner := width - 2
+	return boxWithin(fitColumnLines(lines, inner), width)
 }
 
 func shiftHit(h hit, colX, colW int) hit {
@@ -885,6 +1032,95 @@ func lineHas(line screenLine, kind int) bool {
 	return false
 }
 
+func boxAnswerWithin(lines []screenLine, width int) []screenLine {
+	if width < 2 {
+		return fitColumnLines(lines, width)
+	}
+	var out []screenLine
+	for _, line := range lines {
+		if !lineHas(line, hitAnswer) {
+			out = append(out, fitLine(line, width))
+			continue
+		}
+		out = append(out, boxWithin([]screenLine{fitLine(line, width-2)}, width)...)
+	}
+	return out
+}
+
+func boxWithin(lines []screenLine, width int) []screenLine {
+	if len(lines) == 0 || width < 2 {
+		return boxLines(lines)
+	}
+	useStyles()
+	inner := width - 2
+	rule := strings.Repeat("─", inner)
+	out := []screenLine{{text: focusMark.Render("┌" + rule + "┐")}}
+	for _, line := range lines {
+		fitted := fitLine(line, inner)
+		hits := fitted.hits
+		if len(hits) > 0 {
+			hits = append([]hit(nil), hits...)
+			for i := range hits {
+				if hits[i].x1 == 0 {
+					continue
+				}
+				hits[i].x0++
+				hits[i].x1++
+			}
+		}
+		out = append(out, screenLine{
+			text: "│" + fitted.text + "│",
+			hits: hits,
+		})
+	}
+	out = append(out, screenLine{text: focusMark.Render("└" + rule + "┘")})
+	return out
+}
+
+func (m *Model) frameLines(lines []screenLine) []screenLine {
+	if !m.framed() {
+		return lines
+	}
+	innerW := m.width - 2
+	innerH := m.height - 2
+	body := lines
+	if len(body) > innerH {
+		status := body[len(body)-1]
+		if innerH == 1 {
+			body = []screenLine{status}
+		} else {
+			body = append(append([]screenLine(nil), body[:innerH-1]...), status)
+		}
+	}
+	for len(body) < innerH {
+		body = append(body, screenLine{})
+	}
+	useStyles()
+	rule := strings.Repeat("─", innerW)
+	out := make([]screenLine, 0, innerH+2)
+	out = append(out, screenLine{text: focusMark.Render("┌" + rule + "┐")})
+	for _, line := range body {
+		fitted := fitLine(line, innerW)
+		hits := fitted.hits
+		if len(hits) > 0 {
+			hits = append([]hit(nil), hits...)
+			for i := range hits {
+				if hits[i].x1 == 0 {
+					continue
+				}
+				hits[i].x0++
+				hits[i].x1++
+			}
+		}
+		out = append(out, screenLine{
+			text: "│" + fitted.text + "│",
+			hits: hits,
+		})
+	}
+	out = append(out, screenLine{text: focusMark.Render("└" + rule + "┘")})
+	return out
+}
+
 func boxLines(lines []screenLine) []screenLine {
 	if len(lines) == 0 {
 		return nil
@@ -943,7 +1179,7 @@ func (m *Model) helpLines() []screenLine {
 	return lines
 }
 
-func (m *Model) rowLines() []screenLine {
+func (m *Model) rowLines(width int) []screenLine {
 	if len(m.items) == 0 {
 		return []screenLine{{text: "(empty)"}}
 	}
@@ -958,6 +1194,9 @@ func (m *Model) rowLines() []screenLine {
 			marker = "> "
 		}
 		text := marker + rowText(it, now)
+		if width > 0 {
+			text = rowTextFitted(it, now, marker, width)
+		}
 		useStyles()
 		if it.Unread {
 			text = unreadRow.Render(text)
@@ -1091,6 +1330,50 @@ func rowText(it decide.Item, now time.Time) string {
 		text += " due " + it.Deadline.Format(time.RFC3339)
 	}
 	return text
+}
+
+// rowTextFitted keeps a long question and a long owner visible by cutting
+// each with an ellipsis inside width.
+func rowTextFitted(it decide.Item, now time.Time, marker string, width int) string {
+	question := strings.Join(strings.Fields(it.Question), " ")
+	tail := " " + age(now.Sub(it.CreatedAt))
+	if it.Deadline != nil {
+		tail += " due " + it.Deadline.Format(time.RFC3339)
+	}
+	owner := it.Owner
+	full := marker + it.ID + " " + question + " " + owner + tail
+	if lipgloss.Width(full) <= width {
+		return full
+	}
+	fixed := lipgloss.Width(marker+it.ID+tail) + 2
+	remain := width - fixed
+	if remain < 2 {
+		return truncateVisible(full, width)
+	}
+	qBudget := remain / 2
+	oBudget := remain - qBudget
+	qw := lipgloss.Width(question)
+	ow := lipgloss.Width(owner)
+	if qw < qBudget {
+		oBudget += qBudget - qw
+		qBudget = qw
+	}
+	if ow < oBudget {
+		qBudget += oBudget - ow
+		if qBudget > qw {
+			qBudget = qw
+		}
+		oBudget = ow
+	}
+	q := question
+	if qw > qBudget {
+		q = truncateVisible(question, qBudget)
+	}
+	o := owner
+	if ow > oBudget {
+		o = truncateVisible(owner, oBudget)
+	}
+	return marker + it.ID + " " + q + " " + o + tail
 }
 
 func age(d time.Duration) string {
