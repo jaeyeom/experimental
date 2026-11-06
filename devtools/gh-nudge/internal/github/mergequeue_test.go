@@ -2,6 +2,7 @@ package github
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -176,15 +177,19 @@ func TestFailureEvidenceReadsFailedJobLog(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"check-runs": `{"check_runs":[
 			{"conclusion":"success","html_url":"https://github.com/acme/widgets/runs/1","details_url":"https://github.com/acme/widgets/actions/runs/9/job/1"},
-			{"conclusion":"failure","html_url":"https://github.com/acme/widgets/runs/2","details_url":"https://github.com/acme/widgets/actions/runs/9/job/8"}
+			{"name":"unit","conclusion":"failure","html_url":"https://github.com/acme/widgets/runs/2","details_url":"https://github.com/acme/widgets/actions/runs/9/job/8"}
 		]}`,
-		"actions/jobs/8/logs": "ok\n##[group]Run tests\nconnection reset by peer\n##[group]Run later\nignored",
-		"actions/jobs/8":      `{"steps":[{"name":"Run tests","conclusion":"failure"}]}`,
+		"commits/deadbeef/status": `{"statuses":[]}`,
+		"actions/jobs/8/logs":     "ok\n##[group]Run tests\nconnection reset by peer\n##[group]Run later\nignored",
+		"actions/jobs/8":          `{"steps":[{"name":"Run tests","conclusion":"failure"}]}`,
 	}}
 	client := NewClientWithExecutor(exec)
 	got, err := client.FailureEvidence("acme", "widgets", "deadbeef")
 	if err != nil {
 		t.Fatalf("FailureEvidence() error = %v", err)
+	}
+	if got.Name != "unit" || got.TargetURL != "https://github.com/acme/widgets/actions/runs/9/job/8" {
+		t.Errorf("chosen = %s %s", got.Name, got.TargetURL)
 	}
 	if got.CheckRunURL != "https://github.com/acme/widgets/runs/2" {
 		t.Errorf("check run = %s", got.CheckRunURL)
@@ -194,6 +199,69 @@ func TestFailureEvidenceReadsFailedJobLog(t *testing.T) {
 	}
 	if !strings.Contains(got.Log, "connection reset by peer") || strings.Contains(got.Log, "ignored") {
 		t.Errorf("log = %q", got.Log)
+	}
+}
+
+func TestFailureEvidenceRanksChecksAndStatuses(t *testing.T) {
+	const sha = "abc123"
+	cancelled := `{"name":"actions","conclusion":"cancelled","html_url":"https://github.com/acme/widgets/runs/9","details_url":"https://github.com/acme/widgets/actions/runs/1/job/3"}`
+	tests := []struct {
+		name       string
+		checks     string
+		statuses   string
+		wantName   string
+		wantTarget string
+		wantCheck  string
+	}{
+		{
+			name:       "failure status beats cancelled check",
+			checks:     "[" + cancelled + `]`,
+			statuses:   `[{"context":"ci/pending","state":"pending","target_url":"https://example.com/pending"},{"context":"ci/circleci","state":"failure","target_url":"https://app.circleci.com/pipelines/github/acme/widgets/42"}]`,
+			wantName:   "ci/circleci",
+			wantTarget: "https://app.circleci.com/pipelines/github/acme/widgets/42",
+		},
+		{
+			name:       "error status beats cancelled check",
+			checks:     "[" + cancelled + `]`,
+			statuses:   `[{"context":"ci/circleci","state":"error","target_url":"https://app.circleci.com/pipelines/github/acme/widgets/7"}]`,
+			wantName:   "ci/circleci",
+			wantTarget: "https://app.circleci.com/pipelines/github/acme/widgets/7",
+		},
+		{
+			name:       "failure check beats error status",
+			checks:     `[{"name":"unit","conclusion":"failure","html_url":"https://github.com/acme/widgets/runs/2","details_url":"https://example.com/unit"}]`,
+			statuses:   `[{"context":"ci/circleci","state":"error","target_url":"https://app.circleci.com/pipelines/github/acme/widgets/7"}]`,
+			wantName:   "unit",
+			wantTarget: "https://example.com/unit",
+			wantCheck:  "https://github.com/acme/widgets/runs/2",
+		},
+		{
+			name:       "timed out check beats error status",
+			checks:     `[{"name":"actions","conclusion":"cancelled","html_url":"https://github.com/acme/widgets/runs/9","details_url":"https://github.com/acme/widgets/actions/runs/1/job/3"},{"name":"unit","conclusion":"timed_out","html_url":"https://github.com/acme/widgets/runs/4","details_url":"https://example.com/timeout"}]`,
+			statuses:   `[{"context":"ci/circleci","state":"error","target_url":"https://app.circleci.com/pipelines/github/acme/widgets/7"}]`,
+			wantName:   "unit",
+			wantTarget: "https://example.com/timeout",
+			wantCheck:  "https://github.com/acme/widgets/runs/4",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &routeExec{route: map[string]string{
+				"check-runs":                 fmt.Sprintf(`{"check_runs":%s}`, tc.checks),
+				"commits/" + sha + "/status": fmt.Sprintf(`{"statuses":%s}`, tc.statuses),
+			}}
+			client := NewClientWithExecutor(exec)
+			got, err := client.FailureEvidence("acme", "widgets", sha)
+			if err != nil {
+				t.Fatalf("FailureEvidence() error = %v", err)
+			}
+			if got.Name != tc.wantName || got.TargetURL != tc.wantTarget || got.CheckRunURL != tc.wantCheck {
+				t.Fatalf("got name=%q target=%q check=%q", got.Name, got.TargetURL, got.CheckRunURL)
+			}
+			if got.Log != "" {
+				t.Fatalf("log = %q, want none", got.Log)
+			}
+		})
 	}
 }
 

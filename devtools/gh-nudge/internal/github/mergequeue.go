@@ -67,8 +67,13 @@ type StackPR struct {
 	MergedAt time.Time
 }
 
-// FailureEvidence is the failing check behind a merge-queue removal.
+// FailureEvidence is the highest-ranked failing check run or commit status.
+// Name and TargetURL identify that evidence. CheckRunURL and JobURL are set
+// when a check run wins. Log is the Actions failing-step log when TargetURL
+// is a GitHub Actions job URL.
 type FailureEvidence struct {
+	Name        string
+	TargetURL   string
 	CheckRunURL string
 	JobURL      string
 	StepName    string
@@ -196,14 +201,28 @@ func (c *Client) OpenDownstack(owner, repo string, number int) ([]StackPR, error
 	return openBelow(stacks, number), nil
 }
 
-// FailureEvidence reads the failed check run, job, and failing step log for sha.
+// FailureEvidence ranks check runs and commit statuses, then reads an Actions
+// job log when the winner's target URL points at one.
 func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, error) {
-	run, ok, err := c.failedCheckRun(owner, repo, sha)
-	if err != nil || !ok {
+	checks, err := c.listCheckRuns(owner, repo, sha)
+	if err != nil {
 		return FailureEvidence{}, err
 	}
-	evidence := FailureEvidence{CheckRunURL: run.HTMLURL, JobURL: run.DetailsURL}
-	jobID, ok := jobIDFromURL(run.DetailsURL)
+	statuses, err := c.listCommitStatuses(owner, repo, sha)
+	if err != nil {
+		return FailureEvidence{}, err
+	}
+	chosen, ok := pickFailure(checks, statuses)
+	if !ok {
+		return FailureEvidence{}, nil
+	}
+	evidence := FailureEvidence{
+		Name:        chosen.name,
+		TargetURL:   chosen.targetURL,
+		CheckRunURL: chosen.checkHTML,
+		JobURL:      chosen.jobURL,
+	}
+	jobID, ok := jobIDFromURL(chosen.targetURL)
 	if !ok {
 		return evidence, nil
 	}
@@ -213,6 +232,9 @@ func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, erro
 	}
 	evidence.StepName = step
 	evidence.Log = log
+	if evidence.JobURL == "" {
+		evidence.JobURL = chosen.targetURL
+	}
 	return evidence, nil
 }
 
@@ -484,34 +506,118 @@ type checkRunsResponse struct {
 }
 
 type checkRunJSON struct {
+	Name       string `json:"name"`
 	Conclusion string `json:"conclusion"`
 	HTMLURL    string `json:"html_url"`    //nolint:tagliatelle // GitHub API uses snake_case
 	DetailsURL string `json:"details_url"` //nolint:tagliatelle // GitHub API uses snake_case
 }
 
-func (c *Client) failedCheckRun(owner, repo, sha string) (checkRunJSON, bool, error) {
+type statusJSON struct {
+	Context   string `json:"context"`
+	State     string `json:"state"`
+	TargetURL string `json:"target_url"` //nolint:tagliatelle // GitHub API uses snake_case
+}
+
+type combinedStatusResponse struct {
+	Statuses []statusJSON `json:"statuses"`
+}
+
+const (
+	rankFailure = iota
+	rankError
+	rankCancelled
+	rankIgnore
+)
+
+type failureChoice struct {
+	name      string
+	targetURL string
+	checkHTML string
+	jobURL    string
+	rank      int
+}
+
+func (c *Client) listCheckRuns(owner, repo, sha string) ([]checkRunJSON, error) {
 	path := fmt.Sprintf("repos/%s/%s/commits/%s/check-runs?per_page=100", owner, repo, sha)
 	out, err := c.executor.Execute("gh", "api", path)
 	if err != nil {
-		return checkRunJSON{}, false, fmt.Errorf("list check runs for %s: %w", sha, err)
+		return nil, fmt.Errorf("list check runs for %s: %w", sha, err)
 	}
 	var resp checkRunsResponse
 	if err := json.Unmarshal([]byte(out), &resp); err != nil {
-		return checkRunJSON{}, false, fmt.Errorf("parse check runs for %s: %w", sha, err)
+		return nil, fmt.Errorf("parse check runs for %s: %w", sha, err)
 	}
-	run, ok := firstFailedCheck(resp.CheckRuns)
-	return run, ok, nil
+	return resp.CheckRuns, nil
 }
 
-func firstFailedCheck(runs []checkRunJSON) (checkRunJSON, bool) {
-	for _, want := range []string{"failure", "timed_out", "cancelled"} {
-		for _, run := range runs {
-			if strings.EqualFold(run.Conclusion, want) {
-				return run, true
-			}
-		}
+func (c *Client) listCommitStatuses(owner, repo, sha string) ([]statusJSON, error) {
+	path := fmt.Sprintf("repos/%s/%s/commits/%s/status?per_page=100", owner, repo, sha)
+	out, err := c.executor.Execute("gh", "api", path)
+	if err != nil {
+		return nil, fmt.Errorf("list commit statuses for %s: %w", sha, err)
 	}
-	return checkRunJSON{}, false
+	var resp combinedStatusResponse
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		return nil, fmt.Errorf("parse commit statuses for %s: %w", sha, err)
+	}
+	return resp.Statuses, nil
+}
+
+func pickFailure(checks []checkRunJSON, statuses []statusJSON) (failureChoice, bool) {
+	var best failureChoice
+	found := false
+	consider := func(rank int, choice failureChoice) {
+		if rank >= rankIgnore {
+			return
+		}
+		if found && rank >= best.rank {
+			return
+		}
+		choice.rank = rank
+		best = choice
+		found = true
+	}
+	for _, run := range checks {
+		target := run.DetailsURL
+		if target == "" {
+			target = run.HTMLURL
+		}
+		consider(rankCheck(run.Conclusion), failureChoice{
+			name:      run.Name,
+			targetURL: target,
+			checkHTML: run.HTMLURL,
+			jobURL:    run.DetailsURL,
+		})
+	}
+	for _, status := range statuses {
+		consider(rankCommitStatus(status.State), failureChoice{
+			name:      status.Context,
+			targetURL: status.TargetURL,
+		})
+	}
+	return best, found
+}
+
+func rankCheck(conclusion string) int {
+	switch strings.ToLower(conclusion) {
+	case "failure", "timed_out":
+		return rankFailure
+	case "cancelled":
+		return rankCancelled
+	default:
+		return rankIgnore
+	}
+}
+
+func rankCommitStatus(state string) int {
+	switch strings.ToLower(state) {
+	case "failure":
+		return rankFailure
+	case "error":
+		return rankError
+	default:
+		return rankIgnore
+	}
 }
 
 type actionsJobJSON struct {

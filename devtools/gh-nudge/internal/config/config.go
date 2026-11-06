@@ -84,10 +84,16 @@ type SettingsConfig struct {
 	// MaxRequeues is how many earlier flake or infra requeues are allowed.
 	// Nil means the default, 2. Zero means none are allowed.
 	MaxRequeues *int `yaml:"max_requeues"`
+	// FailureLogPattern is the regular expression for CircleCI failure lines.
+	// Empty means DefaultFailureLogPattern. An invalid pattern fails config load.
+	FailureLogPattern string `yaml:"failure_log_pattern"`
 }
 
 // DefaultMaxRequeues is the requeue cap when config omits max_requeues.
 const DefaultMaxRequeues = 2
+
+// DefaultFailureLogPattern matches a CircleCI line that starts with ERROR:.
+const DefaultFailureLogPattern = "^ERROR:"
 
 // RequeueLimit returns the number of earlier requeues that are still allowed.
 // A nil MaxRequeues uses DefaultMaxRequeues.
@@ -184,8 +190,10 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			FlakeSignatures:            pklCfg.Settings.FlakeSignatures,
 			RCAMarker:                  pklCfg.Settings.RcaMarker,
 			MaxRequeues:                intPtr(pklCfg.Settings.MaxRequeues),
+			FailureLogPattern:          pklCfg.Settings.FailureLogPattern,
 		},
 	}
+	normalizeSettings(&cfg.Settings)
 
 	for _, age := range pklCfg.Settings.RequireLabelAges {
 		cfg.Settings.RequireLabelAges = append(cfg.Settings.RequireLabelAges, LabelAgeConfig{
@@ -230,6 +238,7 @@ func loadYamlConfig(path string) (*Config, error) {
 	if cfg.Settings.MessageTemplate == "" {
 		cfg.Settings.MessageTemplate = "Hey <@{slack_id}>, the PR '{title}' has been waiting for your review for {hours} hours."
 	}
+	normalizeSettings(&cfg.Settings)
 
 	if err := validateSettings(cfg.Settings); err != nil {
 		return nil, err
@@ -255,10 +264,21 @@ func validateSettings(settings SettingsConfig) error {
 			return fmt.Errorf("flake_signatures %q: %w", signature, err)
 		}
 	}
+	if settings.FailureLogPattern != "" {
+		if _, err := regexp.Compile(settings.FailureLogPattern); err != nil {
+			return fmt.Errorf("failure_log_pattern %q: %w", settings.FailureLogPattern, err)
+		}
+	}
 	if settings.MaxRequeues != nil && *settings.MaxRequeues < 0 {
 		return fmt.Errorf("max_requeues must be >= 0")
 	}
 	return nil
+}
+
+func normalizeSettings(settings *SettingsConfig) {
+	if settings.FailureLogPattern == "" {
+		settings.FailureLogPattern = DefaultFailureLogPattern
+	}
 }
 
 func intPtr(n int) *int {
