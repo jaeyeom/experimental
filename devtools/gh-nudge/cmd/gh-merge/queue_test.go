@@ -1252,8 +1252,9 @@ func TestEarlierRequeuesIgnoresTheFirstEnqueue(t *testing.T) {
 		{Kind: github.QueueEventAdded, CreatedAt: base},
 		{Kind: github.QueueEventRemoved, CreatedAt: base.Add(time.Minute)},
 	}
-	if got := earlierRequeues(events); got != 0 {
-		t.Errorf("earlierRequeues() = %d, want 0", got)
+	got, err := earlierRequeues("", nil, events)
+	if err != nil || got != 0 {
+		t.Errorf("earlierRequeues() = %d, %v, want 0", got, err)
 	}
 }
 
@@ -2335,6 +2336,145 @@ func TestRCAOurCodeAndRequeueLimitStillRefuse(t *testing.T) {
 	}
 	if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil || !strings.Contains(err.Error(), "max_requeues") {
 		t.Fatalf("queue error = %v, want requeue limit", err)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func ourCodeRemoval(id, sha string, at time.Time) github.QueueEvent {
+	return github.QueueEvent{
+		ID: id, Kind: github.QueueEventRemoved, CreatedAt: at,
+		Reason: "failed_checks", CommitSHA: sha,
+	}
+}
+
+func TestOurCodeSameHeadRefuses(t *testing.T) {
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{
+		ourCodeRemoval("EVT", pr.HeadSHA, time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)),
+	}
+	pr.Comments = []string{"RCA EVT class=our-code"}
+	client := &fakeQueue{pr: pr}
+	err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false)
+	if err == nil || !strings.Contains(err.Error(), "our-code") {
+		t.Fatalf("queue error = %v, want our-code", err)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestOurCodeMovedHeadEnqueues(t *testing.T) {
+	pr := readyPR()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "deadbeef", at)}
+	pr.Comments = []string{"RCA EVT class=our-code"}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	want := "our-code ejection at 2026-01-02T03:04:05Z; head abc123 pushed since, proceeding"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want %q", output, want)
+	}
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestOurCodeMovedHeadDryRunDoesNotEnqueue(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	pr := readyPR()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "deadbeef", at)}
+	pr.Comments = []string{"RCA EVT class=our-code"}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	want := "our-code ejection at 2026-01-02T03:04:05Z; head abc123 pushed since, proceeding"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want %q", output, want)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestOurCodeMissingCommentStillRefuses(t *testing.T) {
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{
+		ourCodeRemoval("EVT", "deadbeef", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)),
+	}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false)
+		if err == nil || !strings.Contains(err.Error(), "no RCA comment") {
+			t.Fatalf("queue error = %v, want no RCA comment", err)
+		}
+	})
+	if strings.Contains(output, "pushed since") {
+		t.Fatalf("missing RCA printed the proceed line:\n%s", output)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestOurCodeRequeueIsOutsideMaxRequeues(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	added := func(id string, at time.Time) github.QueueEvent {
+		return github.QueueEvent{ID: id, Kind: github.QueueEventAdded, CreatedAt: at}
+	}
+	removed := func(id string, at time.Time) github.QueueEvent {
+		return github.QueueEvent{ID: id, Kind: github.QueueEventRemoved, CreatedAt: at, Reason: "failed_checks"}
+	}
+	events := []github.QueueEvent{
+		added("A0", base),
+		ourCodeRemoval("OUR", "deadbeef", base.Add(time.Minute)),
+		added("A-OUR", base.Add(2*time.Minute)),
+		removed("R1", base.Add(3*time.Minute)),
+		added("A1", base.Add(4*time.Minute)),
+		removed("R2", base.Add(5*time.Minute)),
+		added("A2", base.Add(6*time.Minute)),
+		removed("EVT", base.Add(7*time.Minute)),
+	}
+	comments := []string{
+		"RCA OUR class=our-code",
+		"RCA EVT class=flake",
+	}
+	limit := 2
+	cfg := rcaConfig()
+	cfg.Settings.MaxRequeues = &limit
+
+	pr := readyPR()
+	pr.HeadSHA = "abc123"
+	pr.Events = events
+	pr.Comments = comments
+	client := &fakeQueue{pr: pr}
+	if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err != nil {
+		t.Fatalf("queue at the flake cap error = %v", err)
+	}
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d, want the flake requeue allowed", client.enqueueCalls)
+	}
+
+	events = append(events,
+		added("A3", base.Add(8*time.Minute)),
+		removed("NEXT", base.Add(9*time.Minute)),
+	)
+	pr.Events = events
+	comments = append(comments, "RCA NEXT class=flake")
+	pr.Comments = comments
+	client = &fakeQueue{pr: pr}
+	err := queuePullRequest(client, cfg, pr.Ref.Raw, false)
+	if err == nil || !strings.Contains(err.Error(), "3 earlier requeues is greater than max_requeues 2") {
+		t.Fatalf("queue error = %v, want the flake count", err)
 	}
 	if client.enqueueCalls != 0 {
 		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
