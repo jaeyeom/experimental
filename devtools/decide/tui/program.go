@@ -57,6 +57,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Height > 0 {
 			m.height = msg.Height
 		}
+		if msg.Width > 0 {
+			m.width = msg.Width
+		}
 		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(msg)

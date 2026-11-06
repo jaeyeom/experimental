@@ -458,7 +458,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 8
+	m.height = 14
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 	if !strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || strings.Contains(view, older.ID) {
 		t.Fatalf("initial window = %s", view)
 	}
-	if !strings.Contains(view, "compose (c to type") || !strings.Contains(view, "to (none)") || !strings.Contains(view, "? help") {
+	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to: ▾ (none)") || !strings.Contains(view, "? help") {
 		t.Fatalf("compose left the initial window\n%s", view)
 	}
 	m.Wheel(true)
@@ -474,7 +474,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 	if strings.Contains(view, third.ID) || !strings.Contains(view, newer.ID) || !strings.Contains(view, older.ID) {
 		t.Fatalf("scrolled window = %s", view)
 	}
-	if !strings.Contains(view, "compose (c to type") || !strings.Contains(view, "to (none)") || !strings.Contains(view, "? help") {
+	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to: ▾ (none)") || !strings.Contains(view, "? help") {
 		t.Fatalf("compose left the scrolled window\n%s", view)
 	}
 	m.Wheel(false)
@@ -493,8 +493,9 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 	if got.Unread || got.State != decide.StateOpen || !strings.Contains(m.View(), "older row") {
 		t.Fatalf("click open = unread %v state %s\n%s", got.Unread, got.State, m.View())
 	}
-	bar := strings.Split(m.View(), "\n")[0]
-	if err := m.Click(strings.Index(bar, "Answered")+1, 1); err != nil {
+	answeredRow := screenRow(m.View(), "Answered")
+	answeredLine := strings.Split(m.View(), "\n")[answeredRow-1]
+	if err := m.Click(visibleCol(answeredLine, "Answered"), answeredRow); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(m.View(), "[Answered]") || strings.Contains(m.View(), "older row") {
@@ -831,7 +832,7 @@ func TestComposeEnterSendsSeparateArguments(t *testing.T) {
 	if m.note != "" || m.status != "sent to inbox" || m.composing {
 		t.Fatalf("after send note %q status %q composing %v", m.note, m.status, m.composing)
 	}
-	if !strings.Contains(m.View(), "\nsent to inbox\n") || strings.Contains(m.View(), "pane-1") {
+	if !strings.Contains(m.View(), "sent to inbox  ? help") || strings.Contains(m.View(), "pane-1") {
 		t.Fatalf("footer = %q", m.View())
 	}
 	data, err := os.ReadFile(filepath.Join(dir, sendsName))
@@ -895,7 +896,7 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "]")
-	if !strings.Contains(m.View(), "to: alerts ▸") {
+	if !strings.Contains(m.View(), "to: ▾ alerts") {
 		t.Fatalf("keyboard target\n%s", m.View())
 	}
 	if _, err := m.Key('c'); err != nil {
@@ -907,7 +908,7 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 	}
 
 	view := m.View()
-	row := screenRow(view, "to: ")
+	row := screenRow(view, "inbox")
 	line := strings.Split(view, "\n")[row-1]
 	x := strings.Index(line, "inbox")
 	if x < 0 {
@@ -916,10 +917,10 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 	if err := m.Click(utf8.RuneCountInString(line[:x])+1, row); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || !strings.Contains(m.View(), "to: inbox ▸") {
+	if len(got) != 1 || !strings.Contains(m.View(), "to: ▾ inbox") {
 		t.Fatalf("click target\n%s", m.View())
 	}
-	if err := m.Click(1, screenRow(m.View(), "compose (")); err != nil {
+	if err := m.Click(1, screenRow(m.View(), "compose:")); err != nil {
 		t.Fatal(err)
 	}
 	m.SendTemplate = "tool {pane}"
@@ -992,7 +993,7 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := m.View()
-	if !strings.Contains(view, "compose (c to type, ] or click to pick target):") || !strings.Contains(view, "to: alpha ▸") {
+	if !strings.Contains(view, "compose:") || !strings.Contains(view, "to: ▾ alpha") {
 		t.Fatalf("unfocused =\n%s", view)
 	}
 	if !strings.Contains(view, "[Inbox]") {
@@ -1016,7 +1017,7 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := m.Click(1, screenRow(m.View(), "compose (")); err != nil {
+	if err := m.Click(1, screenRow(m.View(), "compose:")); err != nil {
 		t.Fatal(err)
 	}
 	focused := m.View()
@@ -1027,7 +1028,7 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 	if _, err := m.Key('\t'); err != nil {
 		t.Fatal(err)
 	}
-	if m.note != "hi" || m.target != 0 || !strings.Contains(m.View(), "compose › hi_") || strings.Contains(m.View(), "to: beta ▸") {
+	if m.note != "hi" || m.target != 0 || !strings.Contains(m.View(), "compose › hi_") || strings.Contains(m.View(), "to: ▾ beta") {
 		t.Fatalf("focused tab note %q target %d\n%s", m.note, m.target, m.View())
 	}
 	m.ShiftTab()
@@ -1041,7 +1042,7 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 	if _, err := m.Key('\x1b'); err != nil {
 		t.Fatal(err)
 	}
-	if m.composing || m.note != "hi" || !strings.Contains(m.View(), "compose (c to type, ] or click to pick target):") {
+	if m.composing || m.note != "hi" || !strings.Contains(m.View(), "compose:") {
 		t.Fatalf("esc note %q composing %v\n%s", m.note, m.composing, m.View())
 	}
 
@@ -1086,7 +1087,7 @@ func TestComposeFocusDoesNotAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "\r")
-	if err := m.Click(1, screenRow(m.View(), "compose (")); err != nil {
+	if err := m.Click(1, screenRow(m.View(), "compose:")); err != nil {
 		t.Fatal(err)
 	}
 	press(t, m, "1")
@@ -1127,7 +1128,7 @@ func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
 	if !strings.Contains(view, "shortcuts") || !strings.Contains(view, "? help") {
 		t.Fatalf("overlay = %s", view)
 	}
-	if strings.Contains(view, item.ID) || strings.Contains(view, "compose (") || strings.Contains(view, "compose ›") || strings.Contains(view, "[Inbox]") {
+	if strings.Contains(view, item.ID) || strings.Contains(view, "compose:") || strings.Contains(view, "compose ›") || strings.Contains(view, "[Inbox]") {
 		t.Fatalf("overlay did not cover the inbox\n%s", view)
 	}
 	press(t, m, "1e\r")
@@ -1173,13 +1174,13 @@ func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
 	if _, err := m.Key('\x1b'); err != nil {
 		t.Fatal(err)
 	}
-	if m.composing || m.note != "?" || !strings.Contains(m.View(), "compose (c to type, ] or click to pick target):") {
+	if m.composing || m.note != "?" || !strings.Contains(m.View(), "compose:") {
 		t.Fatalf("esc note %q composing %v\n%s", m.note, m.composing, m.View())
 	}
 
 	press(t, m, "?")
 	view = m.View()
-	if strings.Contains(view, "compose (") || strings.Contains(view, "compose ›") || strings.Contains(view, item.ID) || !strings.Contains(view, "click folder") {
+	if strings.Contains(view, "compose:") || strings.Contains(view, "compose ›") || strings.Contains(view, item.ID) || !strings.Contains(view, "click folder") {
 		t.Fatalf("second overlay = %s", view)
 	}
 	if _, err := m.Key('?'); err != nil {
@@ -1188,7 +1189,7 @@ func TestHelpOverlayShowsAndClosesWithoutSending(t *testing.T) {
 	m.composing = false
 	press(t, m, "\r?")
 	view = m.View()
-	if strings.Contains(view, "ship it?") || strings.Contains(view, "compose (") || strings.Contains(view, "compose ›") || strings.Contains(view, "[Inbox]") || !strings.Contains(view, "shortcuts") {
+	if strings.Contains(view, "ship it?") || strings.Contains(view, "compose:") || strings.Contains(view, "compose ›") || strings.Contains(view, "[Inbox]") || !strings.Contains(view, "shortcuts") {
 		t.Fatalf("detail overlay = %s", view)
 	}
 	if _, err := m.Key('\x1b'); err != nil {
@@ -1229,7 +1230,7 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 8
+	m.height = 14
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -1256,8 +1257,9 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	if got.Unread || got.State != decide.StateOpen || !strings.Contains(m.View(), "older row") {
 		t.Fatalf("click open = unread %v state %s\n%s", got.Unread, got.State, m.View())
 	}
-	bar := strings.Split(m.View(), "\n")[0]
-	m = updateMouseAt(t, m, visibleCol(bar, "Answered"), 1, tea.MouseButtonLeft)
+	answeredRow := screenRow(m.View(), "Answered")
+	answeredLine := strings.Split(m.View(), "\n")[answeredRow-1]
+	m = updateMouseAt(t, m, visibleCol(answeredLine, "Answered"), answeredRow, tea.MouseButtonLeft)
 	if !strings.Contains(m.View(), "[Answered]") || strings.Contains(m.View(), "older row") {
 		t.Fatalf("folder click = %s", m.View())
 	}
@@ -1277,7 +1279,7 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	}
 	m.Targets = []Target{{Name: "alpha", Pane: "pane-secret"}, {Name: "beta", Pane: "pane-2"}}
 	m = updateMouseAt(t, m, 1, screenRow(m.View(), "ship it?"), tea.MouseButtonLeft)
-	m = updateMouseAt(t, m, 1, screenRow(m.View(), "compose ("), tea.MouseButtonLeft)
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "compose:"), tea.MouseButtonLeft)
 	got, err = led.Get(relay.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1285,14 +1287,14 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	if !m.composing || !m.noteField.Focused() || m.folder != 0 || got.Answer != nil {
 		t.Fatalf("compose click composing %v folder %d answer %+v", m.composing, m.folder, got.Answer)
 	}
-	targetRow := screenRow(m.View(), "to: ")
+	targetRow := screenRow(m.View(), "beta")
 	targetLine := strings.Split(m.View(), "\n")[targetRow-1]
 	m = updateMouseAt(t, m, visibleCol(targetLine, "beta"), targetRow, tea.MouseButtonLeft)
 	got, err = led.Get(relay.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.target != 1 || !strings.Contains(m.View(), "to: beta ▸") || m.folder != 0 || got.Answer != nil {
+	if m.target != 1 || !strings.Contains(m.View(), "to: ▾ beta") || m.folder != 0 || got.Answer != nil {
 		t.Fatalf("target click target %d folder %d answer %+v\n%s", m.target, m.folder, got.Answer, m.View())
 	}
 	m = updateMouseAt(t, m, 1, screenRow(m.View(), "0  answer:"), tea.MouseButtonLeft)
@@ -1312,8 +1314,9 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 		t.Fatalf("focused option click focus %v folder %d answer %+v", m.answerFocus, m.folder, got.Answer)
 	}
 	m = updateMouseAt(t, m, 1, screenRow(m.View(), "0  answer:"), tea.MouseButtonLeft)
-	bar = strings.Split(m.View(), "\n")[0]
-	m = updateMouseAt(t, m, visibleCol(bar, "Answered"), 1, tea.MouseButtonLeft)
+	answeredRow = screenRow(m.View(), "Answered")
+	answeredLine = strings.Split(m.View(), "\n")[answeredRow-1]
+	m = updateMouseAt(t, m, visibleCol(answeredLine, "Answered"), answeredRow, tea.MouseButtonLeft)
 	if m.folder != 0 || !strings.Contains(m.View(), "ship it?") {
 		t.Fatalf("focused folder click folder %d\n%s", m.folder, m.View())
 	}
@@ -1612,7 +1615,7 @@ func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
 	}
 	m = updateRune(t, m, '\x1b')
 	m = updateRune(t, m, '\r')
-	row := screenRow(m.View(), "compose (")
+	row := screenRow(m.View(), "compose:")
 	if err := m.Click(1, row); err != nil {
 		t.Fatal(err)
 	}
@@ -1636,7 +1639,7 @@ func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
 		t.Fatalf("focused keys triggered an answer: %+v", got)
 	}
 	m = updateRune(t, m, ']')
-	if m.note != "A?1]" || m.target != 0 || strings.Contains(m.View(), "to: beta ▸") {
+	if m.note != "A?1]" || m.target != 0 || strings.Contains(m.View(), "to: ▾ beta") {
 		t.Fatalf("bracket note %q target %d\n%s", m.note, m.target, m.View())
 	}
 	m = updateRune(t, m, '\x7f')
@@ -1644,22 +1647,22 @@ func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
 		t.Fatalf("backspace note %q", m.note)
 	}
 	m = updateRune(t, m, '\t')
-	if m.note != "A?1" || m.target != 0 || strings.Contains(m.View(), "to: beta ▸") {
+	if m.note != "A?1" || m.target != 0 || strings.Contains(m.View(), "to: ▾ beta") {
 		t.Fatalf("tab while focused note %q target %d\n%s", m.note, m.target, m.View())
 	}
 	m.ShiftTab()
-	if m.note != "A?1" || m.target != 1 || !strings.Contains(m.View(), "to: beta ▸") {
+	if m.note != "A?1" || m.target != 1 || !strings.Contains(m.View(), "to: ▾ beta") {
 		t.Fatalf("shift tab note %q target %d\n%s", m.note, m.target, m.View())
 	}
 	m.ShiftTab()
-	if m.note != "A?1" || m.target != 0 || !strings.Contains(m.View(), "to: alpha ▸") {
+	if m.note != "A?1" || m.target != 0 || !strings.Contains(m.View(), "to: ▾ alpha") {
 		t.Fatalf("shift tab back note %q target %d\n%s", m.note, m.target, m.View())
 	}
 	m = updateRune(t, m, '\x1b')
 	if m.composing || m.noteField.Focused() || m.note != "A?1" {
 		t.Fatalf("esc composing %v focused %v note %q", m.composing, m.noteField.Focused(), m.note)
 	}
-	if err := m.Click(1, screenRow(m.View(), "compose (")); err != nil {
+	if err := m.Click(1, screenRow(m.View(), "compose:")); err != nil {
 		t.Fatal(err)
 	}
 	var sent []string
@@ -1811,7 +1814,7 @@ func TestFocusedElementHasOneBorder(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := m.View()
-	if strings.Count(view, "┌") != 1 || !betweenBox(view, "ship it?") || betweenBox(view, "compose (") {
+	if strings.Count(view, "┌") != 1 || !betweenBox(view, "ship it?") || betweenBox(view, "compose:") {
 		t.Fatalf("list border =\n%s", view)
 	}
 	m = updateRune(t, m, 'c')
@@ -1840,7 +1843,7 @@ func TestFocusedElementHasOneBorder(t *testing.T) {
 	m = updateRune(t, m, '?')
 	m = updateRune(t, m, '\r')
 	view = m.View()
-	if strings.Count(view, "┌") != 1 || !betweenBox(view, item.ID) || betweenBox(view, "compose (") {
+	if strings.Count(view, "┌") != 1 || !betweenBox(view, item.ID) || betweenBox(view, "compose:") {
 		t.Fatalf("detail border =\n%s", view)
 	}
 	m = updateRune(t, m, '0')
@@ -1857,6 +1860,84 @@ func TestFocusedElementHasOneBorder(t *testing.T) {
 	}
 	if got.Answer != nil {
 		t.Fatalf("answer field keys answered %+v", got.Answer)
+	}
+}
+
+func TestGmailLayoutNarrowAndWide(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	deadline := time.Date(2026, 12, 1, 15, 4, 5, 0, time.UTC)
+	item := mustCreate(t, led, &decide.Item{
+		Question:  "go https://ex.test/a",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		Unread:    true,
+		FreeText:  true,
+		Deadline:  &deadline,
+		CreatedAt: time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC),
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	mustCreate(t, led, &decide.Item{
+		Question: "done already",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateDone,
+	})
+	m := New(dir)
+	m.Now = func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-1"}, {Name: "beta", Pane: "pane-2"}}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if !lineBold(m.View(), item.ID) {
+		t.Fatalf("unread is not bold\n%s", m.View())
+	}
+	press(t, m, "\r")
+	for _, width := range []int{70, 120} {
+		m.width = width
+		m.height = 24
+		view := m.View()
+		for _, needle := range []string{
+			"[Inbox] 1", "Answered 0", "Done 1", "Withdrawn 0",
+			item.ID, "go https://ex.test/a", "ada", "1d",
+			"due " + deadline.Format(time.RFC3339),
+			"1 a Alpha", "0  answer:", "https://ex.test/a",
+			"to: ▾ alpha", "beta", "compose:", "Send", "? help",
+		} {
+			if !strings.Contains(view, needle) {
+				t.Fatalf("width %d missing %q\n%s", width, needle, view)
+			}
+		}
+		for _, line := range strings.Split(strings.TrimSuffix(view, "\n"), "\n") {
+			if got := utf8.RuneCountInString(visibleLine(line)); got > width {
+				t.Fatalf("width %d line is %d\n%s", width, got, line)
+			}
+		}
+		if width < 72 && screenRow(view, "[Inbox]") == screenRow(view, item.ID) {
+			t.Fatalf("narrow sidebar overlaps the row\n%s", view)
+		}
+		if width >= 72 && screenRow(view, "[Inbox]") != screenRow(view, item.ID) {
+			t.Fatalf("wide sidebar is not beside the row\n%s", view)
+		}
+	}
+
+	m.width = 0
+	m.height = 0
+	var sent []string
+	m.runSend = func(argv []string) error {
+		sent = append([]string(nil), argv...)
+		return nil
+	}
+	press(t, m, "\x1bc")
+	press(t, m, "hello")
+	row := screenRow(m.View(), "Send")
+	line := strings.Split(m.View(), "\n")[row-1]
+	if err := m.Click(visibleCol(line, "Send"), row); err != nil {
+		t.Fatal(err)
+	}
+	if m.status != "sent to alpha" || len(sent) == 0 || sent[len(sent)-1] != "hello" {
+		t.Fatalf("send status %q argv %#v", m.status, sent)
 	}
 }
 

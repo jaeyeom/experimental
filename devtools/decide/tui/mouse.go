@@ -10,6 +10,8 @@ const (
 	hitMarkDone
 	hitTarget
 	hitCompose
+	hitSend
+	hitLink
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -18,6 +20,7 @@ type hit struct {
 	kind   int
 	n      int
 	x0, x1 int
+	url    string
 }
 
 // Click handles one left-button press at 1-based screen coordinates.
@@ -94,6 +97,13 @@ func (m *Model) hit(h hit) error {
 	case hitMarkDone:
 		m.scroll = 0
 		m.beginOutcome()
+		return nil
+	case hitSend:
+		return m.sendNote()
+	case hitLink:
+		if h.url != "" {
+			m.status = h.url
+		}
 		return nil
 	default:
 		return nil

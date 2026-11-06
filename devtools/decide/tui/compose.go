@@ -157,45 +157,59 @@ func (m *Model) appendSend(name, pane, text string) error {
 }
 
 func (m *Model) composeLines() []screenLine {
-	return []screenLine{m.targetLine(), m.composeLine()}
+	lines := m.targetLines()
+	lines = append(lines, m.composeLine(), m.sendLine())
+	return lines
 }
 
-func (m *Model) targetLine() screenLine {
+// targetLines is the compose dropdown. The open row is the selected target.
+// The other targets are the entries under it.
+func (m *Model) targetLines() []screenLine {
 	if len(m.Targets) == 0 {
-		return screenLine{text: "to (none)"}
+		return []screenLine{{text: "to: ▾ (none)"}}
 	}
 	if m.target < 0 || m.target >= len(m.Targets) {
 		m.target = 0
 	}
-	var b strings.Builder
-	b.WriteString("to: ")
-	col := utf8.RuneCountInString("to: ") + 1
-	hits := make([]hit, 0, len(m.Targets))
-	writeTarget := func(i int, suffix string) {
-		name := m.Targets[i].Name
-		start := col
-		b.WriteString(name)
-		col += utf8.RuneCountInString(name)
-		hits = append(hits, hit{kind: hitTarget, n: i, x0: start, x1: col - 1})
-		b.WriteString(suffix)
-		col += utf8.RuneCountInString(suffix)
-	}
-	writeTarget(m.target, " ▸")
-	for i := range m.Targets {
+	lines := make([]screenLine, 0, len(m.Targets))
+	selected := m.Targets[m.target].Name
+	prefix := "to: ▾ "
+	lines = append(lines, screenLine{
+		text: prefix + selected,
+		hits: []hit{{
+			kind: hitTarget,
+			n:    m.target,
+			x0:   utf8.RuneCountInString(prefix) + 1,
+			x1:   utf8.RuneCountInString(prefix + selected),
+		}},
+	})
+	for i, tg := range m.Targets {
 		if i == m.target {
 			continue
 		}
-		b.WriteByte(' ')
-		col++
-		writeTarget(i, "")
+		pad := "  "
+		lines = append(lines, screenLine{
+			text: pad + tg.Name,
+			hits: []hit{{
+				kind: hitTarget,
+				n:    i,
+				x0:   utf8.RuneCountInString(pad) + 1,
+				x1:   utf8.RuneCountInString(pad + tg.Name),
+			}},
+		})
 	}
-	return screenLine{text: b.String(), hits: hits}
+	return lines
+}
+
+func (m *Model) sendLine() screenLine {
+	useStyles()
+	return screenLine{text: optionButton.Render("Send"), hits: []hit{{kind: hitSend}}}
 }
 
 func (m *Model) composeLine() screenLine {
 	if !m.composing {
 		return screenLine{
-			text: "compose (c to type, ] or click to pick target):",
+			text: "compose:",
 			hits: []hit{{kind: hitCompose}},
 		}
 	}
