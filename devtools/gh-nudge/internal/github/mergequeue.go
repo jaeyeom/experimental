@@ -205,6 +205,23 @@ func (c *Client) EnqueuePullRequest(nodeID string) error {
 // OpenDownstack returns open pull requests below number in its stack.
 // The stack is ordered from the bottom to the top.
 func (c *Client) OpenDownstack(owner, repo string, number int) ([]StackPR, error) {
+	stacks, err := c.listStacks(owner, repo, number)
+	if err != nil {
+		return nil, err
+	}
+	return openBelow(stacks, number), nil
+}
+
+// OpenAbove returns open pull requests above number, nearest first.
+func (c *Client) OpenAbove(owner, repo string, number int) ([]StackPR, error) {
+	stacks, err := c.listStacks(owner, repo, number)
+	if err != nil {
+		return nil, err
+	}
+	return openAbove(stacks, number), nil
+}
+
+func (c *Client) listStacks(owner, repo string, number int) ([]stackResponse, error) {
 	path := fmt.Sprintf("repos/%s/%s/stacks?pull_request=%d&per_page=100", owner, repo, number)
 	out, err := c.executor.Execute("gh", "api", path)
 	if err != nil {
@@ -214,7 +231,7 @@ func (c *Client) OpenDownstack(owner, repo string, number int) ([]StackPR, error
 	if err := json.Unmarshal([]byte(out), &stacks); err != nil {
 		return nil, fmt.Errorf("parse stacks for %s/%s#%d: %w", owner, repo, number, err)
 	}
-	return openBelow(stacks, number), nil
+	return stacks, nil
 }
 
 // FailureEvidence ranks check runs and commit statuses, then reads an Actions
@@ -510,27 +527,41 @@ type stackPullJSON struct {
 }
 
 func openBelow(stacks []stackResponse, number int) []StackPR {
+	pulls, index, ok := stackAt(stacks, number)
+	if !ok {
+		return nil
+	}
+	return openStack(pulls[:index])
+}
+
+func openAbove(stacks []stackResponse, number int) []StackPR {
+	pulls, index, ok := stackAt(stacks, number)
+	if !ok || index+1 >= len(pulls) {
+		return nil
+	}
+	return openStack(pulls[index+1:])
+}
+
+func stackAt(stacks []stackResponse, number int) ([]stackPullJSON, int, bool) {
 	for _, stack := range stacks {
-		index := -1
 		for i, pr := range stack.PullRequests {
 			if pr.Number == number {
-				index = i
-				break
+				return stack.PullRequests, i, true
 			}
 		}
-		if index < 0 {
+	}
+	return nil, 0, false
+}
+
+func openStack(pulls []stackPullJSON) []StackPR {
+	out := make([]StackPR, 0)
+	for _, pr := range pulls {
+		if pr.State != "open" {
 			continue
 		}
-		below := make([]StackPR, 0, index)
-		for _, pr := range stack.PullRequests[:index] {
-			if pr.State != "open" {
-				continue
-			}
-			below = append(below, StackPR{Number: pr.Number, State: pr.State})
-		}
-		return below
+		out = append(out, StackPR{Number: pr.Number, State: pr.State})
 	}
-	return nil
+	return out
 }
 
 type checkRunsResponse struct {

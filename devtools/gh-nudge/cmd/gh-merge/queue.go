@@ -24,6 +24,7 @@ type queueAPI interface {
 	LoadPullRequest(ref string) (github.QueuePullRequest, error)
 	EnqueuePullRequest(nodeID string) error
 	OpenDownstack(owner, repo string, number int) ([]github.StackPR, error)
+	OpenAbove(owner, repo string, number int) ([]github.StackPR, error)
 	FailureEvidence(owner, repo, sha string) (github.FailureEvidence, error)
 	LandedFirst(owner, repo, sha string, self int) (github.StackPR, bool, error)
 	MergeAsync(owner, repo string, number int, sha string) error
@@ -60,6 +61,7 @@ type queueJSONResult struct {
 	BlockMergeLabels []string `json:"blockMergeLabels"`
 	RequiredChecks   []string `json:"requiredChecks"`
 	Result           string   `json:"result"`
+	StackedAbove     []int    `json:"stackedAbove"`
 }
 
 func queueCommandHelp() string {
@@ -91,19 +93,27 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	if err != nil {
 		return fmt.Errorf("load pull request %s: %w", resolved, err)
 	}
+	above, err := client.OpenAbove(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number)
+	if err != nil {
+		return fmt.Errorf("stacked above for %s: %w", pr.Ref.Raw, err)
+	}
+	aboveNumbers := stackNumbers(above)
+	if !jsonOutput {
+		fmt.Println(stackedAboveLine(aboveNumbers))
+	}
 	if err := printRemovalEvidence(client, cfg, pr); err != nil {
 		return err
 	}
 	problems := append(queueConfigProblems(pr, cfg), preflightProblems(pr, cfg.Settings.BlockMergeLabels, cfg.Settings.RequiredChecks)...)
 	if len(problems) > 0 {
-		return refuseWithProblems(pr, cfg, problems)
+		return refuseWithProblems(pr, cfg, aboveNumbers, problems)
 	}
 	if err := refuseRCA(pr, cfg.Settings); err != nil {
 		return err
 	}
 	lines := readyLines(pr, cfg.Settings)
 	if dryRun {
-		return writeQueueResult(pr, cfg, lines, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
+		return writeQueueResult(pr, cfg, lines, aboveNumbers, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
 	}
 	kind, err := enqueuePR(client, pr, includeDownstack)
 	if err != nil {
@@ -113,7 +123,26 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	if kind == enqueueAsync {
 		text = fmt.Sprintf("Enqueued %s with merge-async.\n", pr.Ref.Raw)
 	}
-	return writeQueueResult(pr, cfg, lines, "enqueued", text)
+	return writeQueueResult(pr, cfg, lines, aboveNumbers, "enqueued", text)
+}
+
+func stackNumbers(prs []github.StackPR) []int {
+	numbers := make([]int, 0, len(prs))
+	for _, pr := range prs {
+		numbers = append(numbers, pr.Number)
+	}
+	return numbers
+}
+
+func stackedAboveLine(numbers []int) string {
+	if len(numbers) == 0 {
+		return "stacked above: (none)"
+	}
+	parts := make([]string, len(numbers))
+	for i, number := range numbers {
+		parts[i] = fmt.Sprintf("#%d", number)
+	}
+	return "stacked above: " + strings.Join(parts, ", ") + ", retarget needed after merge"
 }
 
 func queueConfigProblems(pr github.QueuePullRequest, cfg *config.Config) []string {
@@ -162,9 +191,9 @@ func jsonStringList(items []string) []string {
 	return items
 }
 
-func refuseWithProblems(pr github.QueuePullRequest, cfg *config.Config, problems []string) error {
+func refuseWithProblems(pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string) error {
 	if jsonOutput {
-		if err := writeQueueResult(pr, cfg, problems, "refused", ""); err != nil {
+		if err := writeQueueResult(pr, cfg, problems, above, "refused", ""); err != nil {
 			return err
 		}
 		return fmt.Errorf("refusing to enqueue %s", pr.Ref.Raw)
@@ -205,9 +234,12 @@ func readyLines(pr github.QueuePullRequest, settings config.SettingsConfig) []st
 	return lines
 }
 
-func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []string, result, text string) error {
+func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []string, above []int, result, text string) error {
 	if lines == nil {
 		lines = []string{}
+	}
+	if above == nil {
+		above = []int{}
 	}
 	if jsonOutput {
 		encoded, err := json.MarshalIndent(queueJSONResult{
@@ -217,6 +249,7 @@ func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []st
 			BlockMergeLabels: jsonStringList(cfg.Settings.BlockMergeLabels),
 			RequiredChecks:   jsonStringList(cfg.Settings.RequiredChecks),
 			Result:           result,
+			StackedAbove:     above,
 		}, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encode queue result: %w", err)

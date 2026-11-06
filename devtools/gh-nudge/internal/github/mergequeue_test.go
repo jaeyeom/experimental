@@ -189,6 +189,28 @@ func TestOpenDownstackListsOpenPullsBelow(t *testing.T) {
 	}
 }
 
+func TestOpenAboveListsOpenPullsAboveNearestFirst(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"stacks?pull_request=12": `[
+			{"pull_requests": [
+				{"number": 10, "state": "open"},
+				{"number": 12, "state": "open"},
+				{"number": 13, "state": "closed"},
+				{"number": 14, "state": "open"},
+				{"number": 15, "state": "open"}
+			]}
+		]`,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.OpenAbove("acme", "widgets", 12)
+	if err != nil {
+		t.Fatalf("OpenAbove() error = %v", err)
+	}
+	if len(got) != 2 || got[0].Number != 14 || got[1].Number != 15 {
+		t.Errorf("above = %+v", got)
+	}
+}
+
 func TestFailureEvidenceReadsFailedJobLog(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"check-runs": `{"check_runs":[

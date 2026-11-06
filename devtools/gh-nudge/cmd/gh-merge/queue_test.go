@@ -25,6 +25,8 @@ type fakeQueue struct {
 	enqueueCalls int
 	loadedRefs   []string
 	downstack    []github.StackPR
+	above        []github.StackPR
+	aboveErr     error
 	downCalls    int
 	evidence     github.FailureEvidence
 	comments     []string
@@ -96,6 +98,13 @@ func (f *fakeQueue) EnqueuePullRequest(nodeID string) error {
 func (f *fakeQueue) OpenDownstack(_, _ string, _ int) ([]github.StackPR, error) {
 	f.downCalls++
 	return f.downstack, nil
+}
+
+func (f *fakeQueue) OpenAbove(_, _ string, _ int) ([]github.StackPR, error) {
+	if f.aboveErr != nil {
+		return nil, f.aboveErr
+	}
+	return f.above, nil
 }
 
 func (f *fakeQueue) FailureEvidence(_, _, _ string) (github.FailureEvidence, error) {
@@ -885,6 +894,92 @@ func TestQueueDryRunDoesNotEnqueue(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestQueuePrintsStackedAboveWithoutEnqueueingIt(t *testing.T) {
+	pr := readyPR()
+	client := &fakeQueue{pr: pr, above: []github.StackPR{{Number: 14, State: "open"}}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "stacked above: #14, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if client.enqueueCalls != 1 || len(client.enqueued) != 1 || client.enqueued[0] != "PR_NODE" {
+		t.Fatalf("enqueued = %v calls = %d", client.enqueued, client.enqueueCalls)
+	}
+}
+
+func TestQueueDryRunPrintsStackedAbove(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	pr := readyPR()
+	client := &fakeQueue{pr: pr, above: []github.StackPR{
+		{Number: 14, State: "open"},
+		{Number: 15, State: "open"},
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "stacked above: #14, #15, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Enqueued") {
+		t.Fatalf("dry run enqueued:\n%s", output)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueNoPullRequestAbove(t *testing.T) {
+	pr := readyPR()
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "stacked above: (none)") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueJSONIncludesStackedAbove(t *testing.T) {
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = false })
+	pr := readyPR()
+	client := &fakeQueue{pr: pr, above: []github.StackPR{{Number: 14, State: "open"}}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	var got queueJSONResult
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\n%s", err, output)
+	}
+	if len(got.StackedAbove) != 1 || got.StackedAbove[0] != 14 {
+		t.Fatalf("stackedAbove = %v\n%s", got.StackedAbove, output)
+	}
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestQueueStackedAboveLookupErrorDoesNotEnqueue(t *testing.T) {
+	pr := readyPR()
+	client := &fakeQueue{pr: pr, aboveErr: errors.New("stack api down")}
+	err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true)
+	if err == nil {
+		t.Fatal("queuePullRequest() error = nil")
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 || client.downCalls != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v downCalls = %d", client.enqueueCalls, client.mergedAsync, client.downCalls)
 	}
 }
 
