@@ -1,6 +1,6 @@
 #!/bin/sh
-# ensure.sh reviews herdr --skill in this shell, after herdr.yml, because
-# the Ansible command module has no controlling terminal.
+# ensure.sh reviews herdr --skill in this shell after the playbook loop,
+# because the Ansible command module has no controlling terminal.
 # HOME is a temp directory. Nothing in the environment skips the prompt.
 set -eu
 
@@ -11,6 +11,7 @@ fail() {
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 HELPER="${SCRIPT_DIR}/herdr_skill_approve.sh"
+PLAYBOOK="${SCRIPT_DIR}/setup-herdr.yml"
 PYTHON=$(command -v python3 || true)
 if [ -z "$PYTHON" ]; then
     fail "python3 is required to drive the pty"
@@ -22,8 +23,6 @@ fi
 
 sh -n "$HELPER"
 sh -n "$SCRIPT_DIR/herdr_skill_approve_test.sh"
-# shellcheck disable=SC1091  # Sourced from the same directory as this script
-. "$SCRIPT_DIR/playbook_resume.sh"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$SCRIPT_DIR/herdr_skill_approve.sh"
 
@@ -40,7 +39,6 @@ CASE=""
 TRACE=""
 SKILL_BODY=""
 SKILL_RC=""
-FAIL_ANSIBLE=""
 
 reset_case() {
     CASE=$(mktemp -d)
@@ -52,11 +50,7 @@ reset_case() {
     export TRACE
     SKILL_BODY="${CASE}/skill-body"
     SKILL_RC="${CASE}/skill-rc"
-    FAIL_ANSIBLE="${CASE}/fail-ansible"
-    export SKILL_BODY SKILL_RC FAIL_ANSIBLE
-    ANSIBLE_RUN_LOG="${CASE}/log/ansible.log"
-    ANSIBLE_RUN_STATUS="${CASE}/log/ansible.status"
-    export ANSIBLE_RUN_LOG ANSIBLE_RUN_STATUS
+    export SKILL_BODY SKILL_RC
     # Keep the real herdr, if any, off PATH. The helper prepends ~/.local/bin
     # under this temp HOME.
     PATH="${CASE}/bin:/usr/bin:/bin"
@@ -66,9 +60,6 @@ reset_case() {
     cat >"${CASE}/bin/ansible-playbook" <<'EOF'
 #!/bin/sh
 printf 'ansible %s\n' "$*" >>"$TRACE"
-if [ -n "${FAIL_ANSIBLE:-}" ] && [ -f "$FAIL_ANSIBLE" ]; then
-    exit 1
-fi
 exit 0
 EOF
     cat >"${CASE}/bin/herdr" <<'EOF'
@@ -94,23 +85,14 @@ trace_count() {
     grep -c "^$1" "$TRACE" 2>/dev/null || true
 }
 
-assert_ansible_before_skill() {
-    _abs_first=$(sed -n '1p' "$TRACE")
-    case "$_abs_first" in
-        ansible\ *) ;;
-        *) fail "$1: first command was '${_abs_first}', want ansible" ;;
-    esac
-    if [ "$(trace_count 'herdr --skill')" -lt 1 ]; then
-        fail "$1: herdr --skill did not run after herdr.yml"
-    fi
+skill_file() {
+    printf '%s\n' "${HOME}/.claude/skills/herdr/SKILL.md"
 }
 
-assert_flags() {
-    _af_line=$(sed -n '1p' "$TRACE")
-    case "$_af_line" in
-        *" -i inventory.ini -v --diff herdr.yml") ;;
-        *) fail "$1: ansible args were '${_af_line}'" ;;
-    esac
+assert_no_playbook() {
+    if grep -q '^ansible ' "$TRACE"; then
+        fail "$1: ran a preliminary playbook"
+    fi
 }
 
 assert_no_approval() {
@@ -118,6 +100,18 @@ assert_no_approval() {
     if [ -f "$_ana_idx" ] && grep -q '	herdr-skill$' "$_ana_idx"; then
         fail "$1: approval was stored"
     fi
+}
+
+assert_not_written() {
+    if [ -e "$(skill_file)" ]; then
+        fail "$1: skill file was written"
+    fi
+}
+
+assert_written() {
+    _aw=$(skill_file)
+    [ -f "$_aw" ] || fail "$1: skill file was not written"
+    cmp -s "$_aw" "$2" || fail "$1: skill file bytes differ"
 }
 
 assert_approval_matches() {
@@ -193,59 +187,55 @@ if os.WIFEXITED(status):
 sys.exit(1)
 PY
 
+cat >"${ROOT}/no_tty.py" <<'PY'
+import os
+import sys
+
+if len(sys.argv) < 2:
+    sys.exit(2)
+pid = os.fork()
+if pid == 0:
+    os.setsid()
+    os.execvp(sys.argv[1], sys.argv[1:])
+    os._exit(127)
+_, status = os.waitpid(pid, 0)
+if os.WIFEXITED(status):
+    sys.exit(os.WEXITSTATUS(status))
+sys.exit(1)
+PY
+
 write_drive() {
     cat >"${CASE}/drive.sh" <<EOF
 #!/bin/sh
 set -eu
-. "${SCRIPT_DIR}/playbook_resume.sh"
 . "${HELPER}"
-approve_herdr_skill "${SCRIPT_DIR}" " -v --diff" " setup-herdr"
+approve_herdr_skill "${SCRIPT_DIR}" " -v --diff"
 EOF
     chmod +x "${CASE}/drive.sh"
 }
 
 run_approve() {
-    approve_herdr_skill "$SCRIPT_DIR" "${1:- -v --diff}" " setup-herdr"
+    approve_herdr_skill "$SCRIPT_DIR" "${1:- -v --diff}"
 }
 
-# --- check mode runs herdr.yml and does not review or store ---
+# --- check mode does not prompt, store, or write ---
 reset_case
 run_approve " --check" >/dev/null
-_check_line=$(sed -n '1p' "$TRACE")
-case "$_check_line" in
-    *" -i inventory.ini --check herdr.yml") ;;
-    *) fail "check mode ansible args were '${_check_line}'" ;;
-esac
 if [ "$(trace_count 'herdr ')" -ne 0 ]; then
     fail "check mode must not run herdr --skill"
 fi
+assert_no_playbook "check mode"
 assert_no_approval "check mode"
+assert_not_written "check mode"
 
 reset_case
 run_approve " -C" >/dev/null
-_c_line=$(sed -n '1p' "$TRACE")
-case "$_c_line" in
-    *" -i inventory.ini -C herdr.yml") ;;
-    *) fail "short check mode ansible args were '${_c_line}'" ;;
-esac
 if [ "$(trace_count 'herdr ')" -ne 0 ]; then
     fail "short check mode must not run herdr --skill"
 fi
+assert_no_playbook "short check mode"
 assert_no_approval "short check mode"
-
-# --- herdr.yml failure stops before herdr --skill ---
-reset_case
-: >"$FAIL_ANSIBLE"
-_fail_out="${CASE}/fail.out"
-if run_approve >"$_fail_out" 2>&1; then
-    fail "herdr.yml failure must stop the review"
-fi
-grep -q 'Error: playbook herdr.yml failed.' "$_fail_out" || fail "missing herdr.yml failure summary"
-if [ "$(trace_count 'herdr ')" -ne 0 ]; then
-    fail "herdr.yml failure must not run herdr"
-fi
-assert_flags "herdr.yml failure"
-assert_no_approval "herdr.yml failure"
+assert_not_written "short check mode"
 
 # --- herdr missing: warn, store nothing, succeed ---
 reset_case
@@ -255,7 +245,9 @@ case "$_miss_out" in
     *"herdr is not on PATH"*) ;;
     *) fail "missing herdr warning was: ${_miss_out}" ;;
 esac
+assert_no_playbook "missing herdr"
 assert_no_approval "missing herdr"
+assert_not_written "missing herdr"
 if [ "$(trace_count 'herdr ')" -ne 0 ]; then
     fail "missing herdr must not be executed"
 fi
@@ -268,7 +260,9 @@ case "$_empty_out" in
     *"printed nothing"*) ;;
     *) fail "empty skill warning was: ${_empty_out}" ;;
 esac
+assert_no_playbook "empty skill"
 assert_no_approval "empty skill"
+assert_not_written "empty skill"
 if [ "$(trace_count 'herdr --skill')" -ne 1 ]; then
     fail "empty skill must not be sent to review-text"
 fi
@@ -281,6 +275,7 @@ case "$_ws_out" in
     *) fail "whitespace skill warning was: ${_ws_out}" ;;
 esac
 assert_no_approval "whitespace skill"
+assert_not_written "whitespace skill"
 
 # --- failing herdr --skill: warn, store nothing, succeed ---
 reset_case
@@ -291,12 +286,14 @@ case "$_bad_out" in
     *"exited 3"*) ;;
     *) fail "failing skill warning was: ${_bad_out}" ;;
 esac
+assert_no_playbook "failing herdr --skill"
 assert_no_approval "failing herdr --skill"
+assert_not_written "failing herdr --skill"
 if [ "$(trace_count 'herdr --skill')" -ne 1 ]; then
     fail "failing herdr --skill must not be sent to review-text"
 fi
 
-# --- first approval through a pty stores the body; a later run does not ask ---
+# --- approval stores the body and apply-text writes it; a later run does not ask ---
 reset_case
 write_drive
 _yes_out="${CASE}/yes.out"
@@ -305,11 +302,16 @@ if ! "$PYTHON" "${ROOT}/pty_answer.py" y "${CASE}/drive.sh" >"$_yes_out"; then
 fi
 grep -q 'needs approval' "$_yes_out" || fail "approval run did not say the text needs approval"
 grep -q 'Skill text approved.' "$_yes_out" || fail "approval run did not confirm approval"
-assert_ansible_before_skill "approval"
-assert_flags "approval"
+grep -q 'updated' "$_yes_out" || fail "approval run did not apply-text"
+assert_no_playbook "approval"
 assert_approval_matches "approval" "$SKILL_BODY"
+assert_written "approval" "$SKILL_BODY"
 if [ "$(trace_count 'herdr --version')" -lt 1 ]; then
     fail "review-text did not ask herdr --version"
+fi
+# capture, check-text, review-text, and apply-text each run herdr --skill.
+if [ "$(trace_count 'herdr --skill')" -ne 4 ]; then
+    fail "approval did not review and apply-text (count $(trace_count 'herdr --skill'))"
 fi
 
 : >"$TRACE"
@@ -320,19 +322,33 @@ esac
 if [ "$(trace_count 'herdr --version')" -ne 0 ]; then
     fail "matching skill text called review-text"
 fi
+# capture, check-text, and apply-text. No review-text.
+if [ "$(trace_count 'herdr --skill')" -ne 3 ]; then
+    fail "matching skill text did not apply-text (count $(trace_count 'herdr --skill'))"
+fi
+assert_no_playbook "second run"
 assert_approval_matches "second run" "$SKILL_BODY"
+assert_written "second run" "$SKILL_BODY"
 
-# --- changed text without a tty fails and keeps the stored body ---
+# --- changed text without a tty fails, keeps the stored body, and does not rewrite ---
 cp "$SKILL_BODY" "${CASE}/original-body"
 printf 'new-bytes' >"$SKILL_BODY"
+cat >"${CASE}/changed-drive.sh" <<EOF
+#!/bin/sh
+set -eu
+. "${HELPER}"
+approve_herdr_skill "${SCRIPT_DIR}" " -v --diff"
+EOF
+chmod +x "${CASE}/changed-drive.sh"
 _changed_err="${CASE}/changed.err"
-if run_approve >"${CASE}/changed.out" 2>"$_changed_err"; then
+if "$PYTHON" "${ROOT}/no_tty.py" "${CASE}/changed-drive.sh" >"${CASE}/changed.out" 2>"$_changed_err"; then
     fail "changed skill text without a tty must fail"
 fi
 grep -q 'no terminal' "$_changed_err" || fail "changed skill text did not report a missing terminal"
 assert_approval_matches "unchanged approval" "${CASE}/original-body"
+assert_written "unchanged skill file" "${CASE}/original-body"
 
-# --- decline through a pty stores nothing and fails ---
+# --- decline through a pty stores nothing, writes nothing, and fails ---
 reset_case
 write_drive
 _no_out="${CASE}/no.out"
@@ -340,26 +356,52 @@ if "$PYTHON" "${ROOT}/pty_answer.py" n "${CASE}/drive.sh" >"$_no_out"; then
     fail "declining the skill must fail"
 fi
 grep -q 'Skill text not approved.' "$_no_out" || fail "decline run did not report the refusal"
+assert_no_playbook "decline"
 assert_no_approval "decline"
-assert_ansible_before_skill "decline"
+assert_not_written "decline"
 
-# --- ensure.sh runs this review after URL approval and before playbooks ---
+# --- direct ansible-playbook keeps apply-text, which fails when unapproved ---
+grep -q 'not (setup_dev_defer_skill_apply | default(false) | bool)' "$PLAYBOOK" || fail "direct run would skip apply-text"
+grep -q 'Skipping herdr skill apply-text because ensure.sh will' "$PLAYBOOK" || fail "playbook does not warn when ensure.sh defers apply-text"
+grep -q '/.claude/skills/herdr/SKILL.md' "$PLAYBOOK" || fail "playbook destination drifted"
+grep -q '/.claude/skills/herdr/SKILL.md' "$HELPER" || fail "helper destination drifted"
+reset_case
+_direct_out="${CASE}/direct.out"
+_direct_rc=0
+"$PYTHON" "${ROOT}/no_tty.py" "$SCRIPT_DIR/verified-run" apply-text herdr-skill "$(skill_file)" -- herdr --skill >"$_direct_out" 2>&1 || _direct_rc=$?
+if [ "$_direct_rc" -eq 0 ]; then
+    fail "direct apply-text of an unapproved skill must fail"
+fi
+grep -q 'review-text' "$_direct_out" || fail "direct apply-text did not print review-text: $(cat "$_direct_out")"
+assert_no_approval "direct apply-text"
+assert_not_written "direct apply-text"
+
+# --- ensure.sh reviews after the playbook loop and does not run herdr.yml first ---
+if grep -q 'ansible-playbook' "$HELPER"; then
+    fail "helper still runs a preliminary playbook"
+fi
 _ensure="${SCRIPT_DIR}/ensure.sh"
 _pre=$(grep -n 'pre_approve_urls "$@"' "$_ensure" | sed -n '1s/:.*//p')
 _src=$(grep -n 'herdr_skill_approve.sh' "$_ensure" | sed -n '1s/:.*//p')
 _guard=$(grep -n 'any_arg_imports setup-herdr.yml' "$_ensure" | sed -n '1s/:.*//p')
+_defer=$(grep -n 'setup_dev_defer_skill_apply=true' "$_ensure" | sed -n '1s/:.*//p')
 # shellcheck disable=SC2016  # Match the literal ensure.sh line, including its $.
-_call=$(grep -n 'approve_herdr_skill "$(dirname "$0")" "$flags" "$playbooks" || exit 1' "$_ensure" | sed -n '1s/:.*//p')
+_call=$(grep -n 'approve_herdr_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1' "$_ensure" | sed -n '1s/:.*//p')
 # shellcheck disable=SC2016  # Match the literal ensure.sh line, including its $.
 _loop=$(grep -n 'for playbook in $playbooks; do' "$_ensure" | sed -n '1s/:.*//p')
+# shellcheck disable=SC2016  # Match the literal ensure.sh line, including its $.
+_exit_line=$(grep -n '\[ "$any_failed" = true \] || \[ "$_skill_follow_rc" -ne 0 \]' "$_ensure" | sed -n '1s/:.*//p')
 [ -n "$_pre" ] || fail "ensure.sh no longer calls pre_approve_urls"
 [ -n "$_src" ] || fail "ensure.sh does not source herdr_skill_approve.sh"
 [ -n "$_guard" ] || fail "ensure.sh does not limit review to setup-herdr.yml"
+[ -n "$_defer" ] || fail "ensure.sh does not pass setup_dev_defer_skill_apply"
 [ -n "$_call" ] || fail "ensure.sh does not call approve_herdr_skill"
 [ -n "$_loop" ] || fail "ensure.sh playbook loop not found"
+[ -n "$_exit_line" ] || fail "ensure.sh does not fail after the skill follow-up"
 [ "$_src" -lt "$_call" ] || fail "helper is sourced after it is called"
 [ "$_pre" -lt "$_guard" ] || fail "skill review runs before URL pre-approval"
-[ "$_guard" -lt "$_call" ] || fail "setup-herdr guard is not the review call"
-[ "$_call" -lt "$_loop" ] || fail "skill review runs inside the playbook loop"
+[ "$_defer" -lt "$_loop" ] || fail "defer var is not passed to the playbook loop"
+[ "$_loop" -lt "$_call" ] || fail "skill review is not after the playbook loop"
+[ "$_call" -lt "$_exit_line" ] || fail "playbook failure is cleared before the skill follow-up exits"
 
 printf '%s\n' "ok"

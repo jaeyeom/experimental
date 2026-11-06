@@ -414,8 +414,9 @@ cmd_remove() {
 # Skill-text approvals. The command after `--` produces the artifact on
 # stdout. A terminal is required only when the bytes are not yet approved.
 # The Ansible local command module has no controlling terminal, so
-# ensure.sh calls review-text in its own shell. apply-text still prompts
-# on /dev/tty when one is open, and fails closed otherwise.
+# ensure.sh reviews and apply-text writes in its own shell after the
+# playbooks. A direct playbook run still calls apply-text, which prompts
+# on /dev/tty when one is open and fails closed otherwise.
 
 init_texts() {
     mkdir -p "$TEXTS_DIR"

@@ -1,46 +1,22 @@
 #!/bin/sh
-# Review `factory skill` before setup-factory.yml writes it. Sourced by ensure.sh.
+# Review `factory skill` and write it after the playbooks. Sourced by ensure.sh.
 #
 # The Ansible local command module has no controlling terminal, so a prompt
-# inside the playbook cannot be answered. This shell has the terminal.
-# factory.yml runs first because it may upgrade the binary whose stdout is
-# hashed. pre_approve_urls stays URL-only and runs before that upgrade.
+# inside the playbook cannot be answered. ensure.sh installs factory in the
+# main loop, then calls this function. This function does not run a playbook
+# and does not use become. pre_approve_urls stays URL-only.
 
-# approve_factory_skill SCRIPT_DIR FLAGS ORIG_PLAYBOOKS
-# FLAGS and ORIG_PLAYBOOKS are word-split strings, as ensure.sh stores them.
-# Returns 0 when there is nothing to install or the text is already approved.
-# Returns non-zero when factory.yml fails, the user declines, or no terminal
-# is available for unapproved text. Does not write skill files.
+# approve_factory_skill SCRIPT_DIR FLAGS
+# FLAGS is a word-split string, as ensure.sh stores it.
+# Returns 0 when there is nothing to install, check mode, or the skill file
+# was written. Returns non-zero when the user declines or apply-text fails.
+# Check mode does not prompt, store an approval, or write the skill file.
 approve_factory_skill() {
     _fs_dir=$1
     _fs_flags=$2
-    _fs_orig=${3-}
 
-    _fs_log=${ANSIBLE_RUN_LOG:-${HOME}/.cache/setup-dev/ensure_sh.ansible.log}
-    _fs_status=${ANSIBLE_RUN_STATUS:-${HOME}/.cache/setup-dev/ensure_sh.ansible.status}
-    mkdir -p "$(dirname "$_fs_log")" "$(dirname "$_fs_status")"
-
-    printf '%s\n' "==> Running playbook: factory.yml"
-    (
-        # shellcheck disable=SC2086  # Intentional word splitting — flags never contain spaces
-        ansible-playbook -i inventory.ini $_fs_flags factory.yml
-        printf '%s\n' "$?" >"$_fs_status"
-    ) 2>&1 | tee "$_fs_log"
-    _fs_rc=1
-    if [ -f "$_fs_status" ]; then
-        _fs_rc=$(cat "$_fs_status")
-    fi
-    if [ "$_fs_rc" -ne 0 ]; then
-        if command -v print_playbook_failure >/dev/null 2>&1; then
-            print_playbook_failure "factory.yml" "$_fs_log" "$_fs_orig"
-        else
-            printf '%s\n' "Error: playbook factory.yml failed." >&2
-        fi
-        return 1
-    fi
-
-    # ansible-playbook --check skips the skill task, so a dry run must not
-    # prompt or store an approval. -C is Ansible's short form of --check.
+    # A --check or -C dry run must not prompt, store an approval, or write
+    # the skill file. -C is the short form of --check.
     _fs_check=0
     # shellcheck disable=SC2086  # Intentional word splitting — flags never contain spaces
     for _fs_flag in $_fs_flags; do
@@ -76,12 +52,18 @@ approve_factory_skill() {
     fi
     rm -f "$_fs_out"
 
-    if PATH="$_fs_path" "${_fs_dir}/verified-run" check-text factory-skill -- factory skill; then
-        return 0
+    if ! PATH="$_fs_path" "${_fs_dir}/verified-run" check-text factory-skill -- factory skill; then
+        printf '%s\n' "factory skill text needs approval."
+        if ! PATH="$_fs_path" "${_fs_dir}/verified-run" review-text factory-skill -- factory skill; then
+            return 1
+        fi
     fi
 
-    printf '%s\n' "factory skill text needs approval."
-    if ! PATH="$_fs_path" "${_fs_dir}/verified-run" review-text factory-skill -- factory skill; then
+    # Same destination as factory_skill_paths in setup-factory.yml.
+    # apply-text refuses to create the parent directory.
+    _fs_dest="${HOME}/.claude/skills/factory/SKILL.md"
+    mkdir -p "$(dirname "$_fs_dest")"
+    if ! PATH="$_fs_path" "${_fs_dir}/verified-run" apply-text factory-skill "$_fs_dest" -- factory skill; then
         return 1
     fi
     return 0
