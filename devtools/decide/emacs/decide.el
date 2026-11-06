@@ -121,6 +121,63 @@ Signal an error when the program exits non-zero."
   (interactive)
   (decide-list decide--folder))
 
+(defun decide--goto-id (id)
+  "Move point to the list line for ID when that item is present."
+  (when (and (stringp id) (not (string-empty-p id)))
+    (let ((items decide--items)
+          (n 0)
+          found)
+      (while (and items (not found))
+        (if (equal (decide--field (car items) "id") id)
+            (setq found t)
+          (setq n (1+ n)
+                items (cdr items))))
+      (when found
+        (goto-char (point-min))
+        (forward-line (1+ n))))))
+
+(defun decide-list-revert (&rest _ignore)
+  "Reload this list and stay on the same item when it remains."
+  (let ((item (decide--item-at-point))
+        (id nil))
+    (when item
+      (setq id (decide--field item "id")))
+    (decide-list decide--folder)
+    (when (get-buffer "*decide*")
+      (with-current-buffer "*decide*"
+        (decide--goto-id id)))))
+
+(defun decide-list-inbox ()
+  "Show the inbox folder."
+  (interactive)
+  (decide-list "inbox"))
+
+(defun decide-list-answered ()
+  "Show the answered folder."
+  (interactive)
+  (decide-list "answered"))
+
+(defun decide-list-done ()
+  "Show the done folder."
+  (interactive)
+  (decide-list "done"))
+
+(defun decide-list-withdrawn ()
+  "Show the withdrawn folder."
+  (interactive)
+  (decide-list "withdrawn"))
+
+(defun decide-item-revert (&rest _ignore)
+  "Reload this item and keep point when the item remains."
+  (when decide--item-id
+    (let ((id decide--item-id)
+          (pos (point)))
+      (decide-show-id id)
+      (let ((buf (get-buffer (format "*decide %s*" id))))
+        (when buf
+          (with-current-buffer buf
+            (goto-char (min pos (point-max)))))))))
+
 (defun decide--item-at-point ()
   "Item on the current list line, or nil."
   (let ((n (- (line-number-at-pos) 2)))
@@ -216,21 +273,23 @@ Signal an error when the program exits non-zero."
 
 (define-derived-mode decide-list-mode special-mode "Decide"
   "List of decision items."
-  (setq-local buffer-read-only t))
+  (setq-local buffer-read-only t)
+  (setq-local revert-buffer-function #'decide-list-revert))
 
 (define-key decide-list-mode-map (kbd "g") #'decide-refresh)
 (define-key decide-list-mode-map (kbd "RET") #'decide-show)
 (define-key decide-list-mode-map (kbd "c") #'decide-compose)
 (define-key decide-list-mode-map (kbd "s") #'decide-status)
-(define-key decide-list-mode-map (kbd "i") (lambda () (interactive) (decide-list "inbox")))
-(define-key decide-list-mode-map (kbd "a") (lambda () (interactive) (decide-list "answered")))
-(define-key decide-list-mode-map (kbd "d") (lambda () (interactive) (decide-list "done")))
-(define-key decide-list-mode-map (kbd "w") (lambda () (interactive) (decide-list "withdrawn")))
+(define-key decide-list-mode-map (kbd "i") #'decide-list-inbox)
+(define-key decide-list-mode-map (kbd "a") #'decide-list-answered)
+(define-key decide-list-mode-map (kbd "d") #'decide-list-done)
+(define-key decide-list-mode-map (kbd "w") #'decide-list-withdrawn)
 (define-key decide-list-mode-map (kbd "q") #'quit-window)
 
 (define-derived-mode decide-item-mode special-mode "Decide-Item"
   "One decision item."
-  (setq-local buffer-read-only t))
+  (setq-local buffer-read-only t)
+  (setq-local revert-buffer-function #'decide-item-revert))
 
 (define-key decide-item-mode-map (kbd "o") #'decide-answer-option)
 (define-key decide-item-mode-map (kbd "f") #'decide-answer-free)
@@ -451,12 +510,47 @@ FIELDS are JSON keys. The third column is the age of updatedAt."
     (pop-to-buffer buf)
     (decide--status-ensure-timer)))
 
+(defun decide-status-revert (&rest _ignore)
+  "Reload the status board and keep point."
+  (let ((pos (point)))
+    (decide-status-refresh)
+    (goto-char (min pos (point-max)))))
+
 (define-derived-mode decide-status-mode special-mode "Decide-Status"
   "Agent and resource status."
+  (setq-local revert-buffer-function #'decide-status-revert)
   (add-hook 'kill-buffer-hook #'decide--status-stop-if-ours nil t))
 
 (define-key decide-status-mode-map (kbd "g") #'decide-status-refresh)
 (define-key decide-status-mode-map (kbd "q") #'quit-window)
+
+(declare-function evil-set-initial-state "evil" (mode state))
+(declare-function evil-define-key* "evil-core" (state keymap key def &rest bindings))
+
+(defun decide--evil-normal-keys (map)
+  "Bind normal-state motion and folder chords on MAP."
+  (apply #'evil-define-key* 'normal map
+         (list (kbd "j") #'next-line
+               (kbd "k") #'previous-line
+               (kbd "q") #'quit-window
+               (kbd "g r") #'revert-buffer
+               (kbd "g i") #'decide-list-inbox
+               (kbd "g a") #'decide-list-answered
+               (kbd "g d") #'decide-list-done
+               (kbd "g w") #'decide-list-withdrawn
+               (kbd "g s") #'decide-status)))
+
+(defun decide--evil-setup ()
+  "Give the decide modes an emacs initial state, then bind normal-state keys.
+The mode maps win in that initial state.  Normal state still moves by
+line, quits, reverts, and opens a folder."
+  (dolist (mode '(decide-list-mode decide-item-mode decide-status-mode))
+    (evil-set-initial-state mode 'emacs))
+  (dolist (map (list decide-list-mode-map decide-item-mode-map decide-status-mode-map))
+    (decide--evil-normal-keys map)))
+
+(with-eval-after-load 'evil
+  (decide--evil-setup))
 
 (provide 'decide)
 
