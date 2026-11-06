@@ -9,9 +9,11 @@ package tui
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -61,6 +63,8 @@ type Model struct {
 	draft        string
 	detail       *decide.Item
 	height       int
+	width        int
+	counts       []int
 	scroll       int
 	rows         [][]hit
 	target       int
@@ -118,6 +122,14 @@ func (m *Model) Reload() error {
 	if err != nil {
 		return fmt.Errorf("list decide ledger: %w", err)
 	}
+	m.counts = make([]int, len(Folders))
+	for _, it := range all {
+		for i, folder := range Folders {
+			if it.State == folder.State {
+				m.counts[i]++
+			}
+		}
+	}
 	items, err := decide.Select(all, Folders[m.folder].State)
 	if err != nil {
 		return fmt.Errorf("select decide folder: %w", err)
@@ -140,8 +152,9 @@ func (m *Model) Reload() error {
 // item that allows it, and e asks for an outcome then marks the item done.
 // Enter submits free text only while that row is focused. Esc leaves the row
 // and keeps the unsent draft. While the compose box is focused, Enter sends
-// the note, Tab and ] select the next target, [ selects the previous one,
-// and other printable keys type into it. ? opens the shortcut overlay only
+// the note and ] is inserted. Tab cycles targets only when compose is not
+// focused. [ selects the previous target from the list. Printable keys type
+// into a focused field. ? opens the shortcut overlay only
 // when no text field is focused, and Esc or ? closes it. Focused free text,
 // the outcome field, and the compose box insert printable keys, including
 // capitals, ?, and digits.
@@ -503,10 +516,10 @@ type screenLine struct {
 	hits []hit
 }
 
-// View renders the folder bar and either the rows or the open detail.
-// Unread rows are bold. A positive height scrolls the body to that many rows.
+// View renders the sidebar, list, detail, compose panel, and status bar.
+// Unread rows are bold. A positive height scrolls inside the list or detail.
 func (m *Model) View() string {
-	lines := m.window(m.allLines())
+	lines := m.allLines()
 	m.rows = make([][]hit, len(lines))
 	var b strings.Builder
 	for i, line := range lines {
@@ -522,24 +535,321 @@ func (m *Model) allLines() []screenLine {
 	if m.help {
 		lines = m.helpLines()
 	} else {
-		lines = []screenLine{m.folderLine()}
-		lines = append(lines, m.boxedBody()...)
-		lines = append(lines, m.boxedCompose()...)
+		lines = m.mailLines()
 	}
-	lines = append(lines, screenLine{text: "? help"})
-	if m.status != "" {
-		lines = append(lines, screenLine{text: m.status})
+	status := m.statusLine()
+	if m.width > 0 {
+		status = fitLine(status, m.width)
+	}
+	lines = append(lines, status)
+	return lines
+}
+
+func (m *Model) statusLine() screenLine {
+	if m.status == "" {
+		return screenLine{text: "? help"}
+	}
+	return screenLine{text: m.status + "  ? help"}
+}
+
+func (m *Model) listFocused() bool {
+	return m.mode == modeList && !m.composing && !m.answerFocus
+}
+
+func (m *Model) detailFocused() bool {
+	return m.mode != modeList && !m.composing && !m.answerFocus
+}
+
+func (m *Model) mailLines() []screenLine {
+	sidebar := m.sidebarLines()
+	list := m.rowLines()
+	detail := m.detailLines()
+	list, detail = m.clipPanes(list, detail)
+	switch {
+	case m.listFocused():
+		list = boxLines(list)
+	case m.answerFocus:
+		detail = boxAnswer(detail)
+	case m.detailFocused():
+		detail = boxLines(detail)
+	}
+	var body []screenLine
+	if m.width < 72 {
+		body = stackRegions(m.width, sidebar, list, detail)
+	} else {
+		body = zipColumns([][]screenLine{sidebar, list, detail}, m.width)
+	}
+	compose := m.composeLines()
+	if m.composing {
+		compose = boxLines(compose)
+	}
+	if m.width > 0 {
+		for i := range compose {
+			compose[i] = fitLine(compose[i], m.width)
+		}
+	}
+	return append(body, compose...)
+}
+
+func (m *Model) sidebarLines() []screenLine {
+	lines := make([]screenLine, len(Folders))
+	for i, folder := range Folders {
+		count := 0
+		if i < len(m.counts) {
+			count = m.counts[i]
+		}
+		name := folder.Name
+		if i == m.folder {
+			name = "[" + name + "]"
+		}
+		label := fmt.Sprintf("%s %d", name, count)
+		lines[i] = screenLine{
+			text: label,
+			hits: []hit{{kind: hitFolder, n: i}},
+		}
 	}
 	return lines
 }
 
+func (m *Model) clipPanes(list, detail []screenLine) ([]screenLine, []screenLine) {
+	listN, detailN := m.layoutBudget()
+	if m.mode == modeList {
+		var scroll int
+		list, scroll = clipLines(list, m.scroll, listN)
+		detail, _ = clipLines(detail, 0, detailN)
+		m.scroll = scroll
+		return list, detail
+	}
+	var scroll int
+	detail, scroll = clipLines(detail, m.scroll, detailN)
+	list, _ = clipLines(list, 0, listN)
+	m.scroll = scroll
+	return list, detail
+}
+
+func (m *Model) layoutBudget() (int, int) {
+	if m.height <= 1 {
+		return 0, 0
+	}
+	chrome := len(Folders) + len(m.composeLines()) + 1
+	if m.composing {
+		chrome += 2
+	}
+	box := 0
+	if m.listFocused() || m.detailFocused() {
+		box = 2
+	}
+	remain := m.height - chrome - box
+	if remain < 2 {
+		remain = 2
+	}
+	listN := remain / 2
+	detailN := remain - listN
+	if m.detailFocused() && detailN < listN {
+		listN, detailN = detailN, listN
+	}
+	return listN, detailN
+}
+
+func clipLines(lines []screenLine, scroll, limit int) ([]screenLine, int) {
+	if limit <= 0 || len(lines) <= limit {
+		return lines, 0
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	maxScroll := len(lines) - limit
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	return append([]screenLine(nil), lines[scroll:scroll+limit]...), scroll
+}
+
+func stackRegions(width int, cols ...[]screenLine) []screenLine {
+	var out []screenLine
+	for _, col := range cols {
+		for _, line := range col {
+			if width > 0 {
+				line = fitLine(line, width)
+			}
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func zipColumns(cols [][]screenLine, total int) []screenLine {
+	widths := make([]int, len(cols))
+	height := 0
+	for i, col := range cols {
+		if len(col) > height {
+			height = len(col)
+		}
+		for _, line := range col {
+			if w := lipgloss.Width(line.text); w > widths[i] {
+				widths[i] = w
+			}
+		}
+		if widths[i] < 1 {
+			widths[i] = 1
+		}
+	}
+	if height == 0 {
+		return nil
+	}
+	if total > 0 {
+		widths = fitColumnWidths(widths, total-(len(cols)-1))
+	}
+	out := make([]screenLine, 0, height)
+	for row := 0; row < height; row++ {
+		var b strings.Builder
+		var hits []hit
+		colX := 1
+		for i, col := range cols {
+			if i > 0 {
+				b.WriteByte(' ')
+				colX++
+			}
+			var line screenLine
+			if row < len(col) {
+				line = col[row]
+			}
+			fitted := fitLine(line, widths[i])
+			b.WriteString(fitted.text)
+			for _, h := range fitted.hits {
+				hits = append(hits, shiftHit(h, colX, widths[i]))
+			}
+			colX += widths[i]
+		}
+		out = append(out, screenLine{text: b.String(), hits: hits})
+	}
+	return out
+}
+
+func fitColumnWidths(widths []int, budget int) []int {
+	if budget < len(widths) {
+		budget = len(widths)
+	}
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	if sum <= budget {
+		return widths
+	}
+	out := append([]int(nil), widths...)
+	used := 0
+	for i := range out {
+		if i == len(out)-1 {
+			out[i] = budget - used
+			if out[i] < 1 {
+				out[i] = 1
+			}
+			break
+		}
+		w := out[i] * budget / sum
+		if w < 1 {
+			w = 1
+		}
+		out[i] = w
+		used += w
+	}
+	return out
+}
+
+func shiftHit(h hit, colX, colW int) hit {
+	if h.x1 == 0 {
+		h.x0 = colX
+		h.x1 = colX + colW - 1
+		if h.x1 < h.x0 {
+			h.x1 = h.x0
+		}
+		return h
+	}
+	h.x0 += colX - 1
+	h.x1 += colX - 1
+	return h
+}
+
+func fitLine(line screenLine, width int) screenLine {
+	if width <= 0 {
+		return line
+	}
+	w := lipgloss.Width(line.text)
+	if w == width {
+		return line
+	}
+	if w < width {
+		line.text += strings.Repeat(" ", width-w)
+		return line
+	}
+	line.text = truncateVisible(line.text, width)
+	if len(line.hits) == 0 {
+		return line
+	}
+	hits := append([]hit(nil), line.hits...)
+	for i := range hits {
+		if hits[i].x1 == 0 {
+			continue
+		}
+		if hits[i].x0 > width {
+			hits[i].x0 = width
+		}
+		if hits[i].x1 > width {
+			hits[i].x1 = width
+		}
+	}
+	line.hits = hits
+	return line
+}
+
+func truncateVisible(text string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	vis := 0
+	limit := width - 1
+	if limit < 1 {
+		limit = width
+	}
+	for i := 0; i < len(text); {
+		if text[i] == 0x1b && i+1 < len(text) && text[i+1] == '[' {
+			j := i + 2
+			for j < len(text) && text[j] != 'm' {
+				j++
+			}
+			if j < len(text) {
+				j++
+			}
+			b.WriteString(text[i:j])
+			i = j
+			continue
+		}
+		if vis >= limit {
+			break
+		}
+		_, size := utf8.DecodeRuneInString(text[i:])
+		if size <= 0 {
+			break
+		}
+		b.WriteString(text[i : i+size])
+		vis++
+		i += size
+	}
+	if vis < lipgloss.Width(text) && limit < width {
+		b.WriteString("…")
+	}
+	return b.String()
+}
+
 var (
-	styleOnce  sync.Once
-	unreadRow  lipgloss.Style
-	folderBar  lipgloss.Style
-	detailLine lipgloss.Style
-	plainLine  lipgloss.Style
-	focusMark  lipgloss.Style
+	styleOnce    sync.Once
+	unreadRow    lipgloss.Style
+	detailLine   lipgloss.Style
+	plainLine    lipgloss.Style
+	focusMark    lipgloss.Style
+	optionButton lipgloss.Style
 )
 
 func useStyles() {
@@ -547,41 +857,11 @@ func useStyles() {
 		// ANSI bold is stable in tests and on a real terminal.
 		lipgloss.SetColorProfile(termenv.ANSI)
 		unreadRow = lipgloss.NewStyle().Bold(true)
-		folderBar = lipgloss.NewStyle().Bold(true)
 		detailLine = lipgloss.NewStyle().Faint(true)
 		plainLine = lipgloss.NewStyle()
 		focusMark = lipgloss.NewStyle().Bold(true)
+		optionButton = lipgloss.NewStyle().Reverse(true)
 	})
-}
-
-func (m *Model) bodyBoxed() bool {
-	return !m.help && !m.composing && !m.answerFocus
-}
-
-func (m *Model) boxedBody() []screenLine {
-	if m.mode == modeList {
-		lines := m.rowLines()
-		if m.composing || m.answerFocus {
-			return lines
-		}
-		return boxLines(lines)
-	}
-	lines := m.detailLines()
-	if m.answerFocus {
-		return boxAnswer(lines)
-	}
-	if m.composing {
-		return lines
-	}
-	return boxLines(lines)
-}
-
-func (m *Model) boxedCompose() []screenLine {
-	lines := m.composeLines()
-	if !m.composing {
-		return lines
-	}
-	return boxLines(lines)
 }
 
 func boxAnswer(lines []screenLine) []screenLine {
@@ -663,83 +943,6 @@ func (m *Model) helpLines() []screenLine {
 	return lines
 }
 
-func (m *Model) window(lines []screenLine) []screenLine {
-	if m.height <= 1 || len(lines) <= m.height {
-		if m.height <= 1 {
-			return lines
-		}
-		m.scroll = 0
-		return lines
-	}
-	headN := 1
-	if m.bodyBoxed() && len(lines) > 1 {
-		headN = 2
-	}
-	head := lines[:headN]
-	rest := lines[headN:]
-	tailN := m.pinnedTail()
-	if tailN > len(rest) {
-		tailN = len(rest)
-	}
-	tail := rest[len(rest)-tailN:]
-	rest = rest[:len(rest)-tailN]
-	limit := m.height - headN - len(tail)
-	if limit < 1 {
-		limit = 1
-	}
-	if m.scroll > len(rest)-limit {
-		m.scroll = len(rest) - limit
-	}
-	if m.scroll < 0 {
-		m.scroll = 0
-	}
-	end := m.scroll + limit
-	if end > len(rest) {
-		end = len(rest)
-	}
-	out := append(append([]screenLine{}, head...), rest[m.scroll:end]...)
-	return append(out, tail...)
-}
-
-func (m *Model) pinnedTail() int {
-	n := 1
-	if !m.help {
-		n += 2
-		if m.composing {
-			n += 2
-		}
-		if m.bodyBoxed() {
-			n++
-		}
-	}
-	if m.status != "" {
-		n++
-	}
-	return n
-}
-
-func (m *Model) folderLine() screenLine {
-	var b strings.Builder
-	hits := make([]hit, 0, len(Folders))
-	col := 1
-	for i, folder := range Folders {
-		name := folder.Name
-		if i == m.folder {
-			name = "[" + name + "]"
-		}
-		if i > 0 {
-			b.WriteByte(' ')
-			col++
-		}
-		start := col
-		b.WriteString(name)
-		col += len(name)
-		hits = append(hits, hit{kind: hitFolder, n: i, x0: start, x1: col - 1})
-	}
-	useStyles()
-	return screenLine{text: folderBar.Render(b.String()), hits: hits}
-}
-
 func (m *Model) rowLines() []screenLine {
 	if len(m.items) == 0 {
 		return []screenLine{{text: "(empty)"}}
@@ -772,9 +975,7 @@ func (m *Model) detailLines() []screenLine {
 	}
 	it := m.detail
 	lines := []screenLine{{text: plainText(it.ID)}}
-	for _, part := range strings.Split(it.Question, "\n") {
-		lines = append(lines, screenLine{text: plainText(part)})
-	}
+	lines = append(lines, questionLines(it.Question)...)
 	if it.Kind == decide.KindTypeIn {
 		lines = append(lines,
 			screenLine{text: plainText("type: " + it.TypeText)},
@@ -795,6 +996,48 @@ func plainText(s string) string {
 	return detailLine.Render(s)
 }
 
+var urlPattern = regexp.MustCompile(`https?://[^[:space:]]+`)
+
+func questionLines(q string) []screenLine {
+	parts := strings.Split(q, "\n")
+	lines := make([]screenLine, 0, len(parts))
+	for _, part := range parts {
+		lines = append(lines, linkLine(part))
+	}
+	return lines
+}
+
+func linkLine(part string) screenLine {
+	useStyles()
+	spans := urlPattern.FindAllStringIndex(part, -1)
+	if len(spans) == 0 {
+		return screenLine{text: plainText(part)}
+	}
+	var b strings.Builder
+	hits := make([]hit, 0, len(spans))
+	last := 0
+	for _, span := range spans {
+		if last < span[0] {
+			b.WriteString(plainText(part[last:span[0]]))
+		}
+		url := part[span[0]:span[1]]
+		start := utf8.RuneCountInString(part[:span[0]]) + 1
+		// One underline span keeps the URL text contiguous for hit tests.
+		b.WriteString("\x1b[4m")
+		b.WriteString(url)
+		b.WriteString("\x1b[24m")
+		hits = append(hits, hit{
+			kind: hitLink,
+			x0:   start,
+			x1:   start + utf8.RuneCountInString(url) - 1,
+			url:  url,
+		})
+		last = span[1]
+	}
+	b.WriteString(plainText(part[last:]))
+	return screenLine{text: b.String(), hits: hits}
+}
+
 func (m *Model) relayLines(it *decide.Item) []screenLine {
 	var lines []screenLine
 	for i, opt := range it.Options {
@@ -805,13 +1048,15 @@ func (m *Model) relayLines(it *decide.Item) []screenLine {
 		if opt.Recommended {
 			mark = " recommended"
 		}
+		label := fmt.Sprintf("%d %s %s%s", i+1, opt.Key, opt.Label, mark)
+		useStyles()
 		lines = append(lines, screenLine{
-			text: plainText(fmt.Sprintf("%d %s %s%s", i+1, opt.Key, opt.Label, mark)),
+			text: optionButton.Render(label),
 			hits: []hit{{kind: hitOption, n: i}},
 		})
 	}
 	for _, link := range it.Links {
-		lines = append(lines, screenLine{text: plainText("link: " + link)})
+		lines = append(lines, linkLine(link))
 	}
 	deadline := "-"
 	if it.Deadline != nil {
@@ -840,12 +1085,12 @@ func (m *Model) freeTextLine() string {
 }
 
 func rowText(it decide.Item, now time.Time) string {
-	deadline := "-"
-	if it.Deadline != nil {
-		deadline = it.Deadline.Format(time.RFC3339)
-	}
 	question := strings.Join(strings.Fields(it.Question), " ")
-	return fmt.Sprintf("%s %s %s %s %s", it.ID, it.Owner, question, age(now.Sub(it.CreatedAt)), deadline)
+	text := fmt.Sprintf("%s %s %s %s", it.ID, question, it.Owner, age(now.Sub(it.CreatedAt)))
+	if it.Deadline != nil {
+		text += " due " + it.Deadline.Format(time.RFC3339)
+	}
+	return text
 }
 
 func age(d time.Duration) string {
