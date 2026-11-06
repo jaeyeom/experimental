@@ -256,8 +256,9 @@ func TestListSuccessStatusContextIsNotPending(t *testing.T) {
 		{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"},
 		{Context: "ci/circleci", State: "SUCCESS"},
 	}
+	cfg := &config.Config{Settings: config.SettingsConfig{RequiredChecks: []string{"ci", "ci/circleci"}}}
 	output := captureStdout(t, func() {
-		if err := listMergeablePRs(client, &config.Config{}); err != nil {
+		if err := listMergeablePRs(client, cfg); err != nil {
 			t.Fatalf("listMergeablePRs() error = %v", err)
 		}
 	})
@@ -545,6 +546,131 @@ func (g *ghAttempts) Execute(cmd string, args ...string) (string, error) {
 
 func (g *ghAttempts) ExecuteWithStdin(_ string, cmd string, args ...string) (string, error) {
 	return g.Execute(cmd, args...)
+}
+
+func TestListCIIgnoresOptionalFailure(t *testing.T) {
+	output := listCIOutput(t, []string{"ci"}, nil, models.StatusCheck{
+		Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS",
+	}, models.StatusCheck{Context: "optional", State: "FAILURE"})
+	if !strings.Contains(output, "CI: PASS") || strings.Contains(output, "CI: FAIL") {
+		t.Fatalf("list verdict:\n%s", output)
+	}
+	if !strings.Contains(output, "other: optional") {
+		t.Fatalf("output missing other line:\n%s", output)
+	}
+}
+
+func TestListCIRequiredFailureStillListsOptional(t *testing.T) {
+	output := listCIOutput(t, []string{"ci"}, nil, models.StatusCheck{
+		Name: "ci", Status: "COMPLETED", Conclusion: "FAILURE",
+	}, models.StatusCheck{Context: "optional", State: "FAILURE"})
+	if !strings.Contains(output, "CI: FAIL") {
+		t.Fatalf("list verdict:\n%s", output)
+	}
+	if !strings.Contains(output, "other: optional") {
+		t.Fatalf("output missing other line:\n%s", output)
+	}
+}
+
+func TestListCIRequiredPendingIgnoresOptionalFailure(t *testing.T) {
+	output := listCIOutput(t, []string{"ci"}, nil, models.StatusCheck{
+		Name: "ci", Status: "IN_PROGRESS",
+	}, models.StatusCheck{Context: "optional", State: "FAILURE"})
+	if !strings.Contains(output, "CI: PENDING") || strings.Contains(output, "CI: FAIL") {
+		t.Fatalf("list verdict:\n%s", output)
+	}
+	if !strings.Contains(output, "other: optional") {
+		t.Fatalf("output missing other line:\n%s", output)
+	}
+}
+
+func TestListCIEmptyRequiredIsNone(t *testing.T) {
+	output := listCIOutput(t, nil, nil, models.StatusCheck{Context: "optional", State: "FAILURE"})
+	if !strings.Contains(output, "CI: NONE") || strings.Contains(output, "CI: FAIL") {
+		t.Fatalf("list verdict:\n%s", output)
+	}
+	if !strings.Contains(output, "other: optional") {
+		t.Fatalf("output missing other line:\n%s", output)
+	}
+}
+
+func TestListCIUsesRepoRequiredChecks(t *testing.T) {
+	lint := []string{"lint"}
+	output := listCIOutput(t, []string{"ci"}, map[string]config.RepoSettings{
+		"acme/widgets": {RequiredChecks: &lint},
+	}, models.StatusCheck{
+		Name: "ci", Status: "COMPLETED", Conclusion: "FAILURE",
+	}, models.StatusCheck{
+		Name: "lint", Status: "COMPLETED", Conclusion: "SUCCESS",
+	}, models.StatusCheck{Context: "optional", State: "FAILURE"})
+	if !strings.Contains(output, "CI: PASS") || strings.Contains(output, "CI: FAIL") {
+		t.Fatalf("list used the global required list:\n%s", output)
+	}
+	if !strings.Contains(output, "other: ci, optional") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestListCIOptionalPendingDoesNotChangeVerdict(t *testing.T) {
+	output := listCIOutput(t, []string{"ci"}, nil, models.StatusCheck{
+		Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS",
+	}, models.StatusCheck{Context: "optional", State: "PENDING"})
+	if !strings.Contains(output, "CI: PASS") || strings.Contains(output, "CI: PENDING") {
+		t.Fatalf("list verdict:\n%s", output)
+	}
+	if strings.Contains(output, "other:") {
+		t.Fatalf("pending optional was listed as a failure:\n%s", output)
+	}
+}
+
+func TestListCIMissingRequiredIsFail(t *testing.T) {
+	output := listCIOutput(t, []string{"ci", "lint"}, nil, models.StatusCheck{
+		Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS",
+	})
+	if !strings.Contains(output, "CI: FAIL") {
+		t.Fatalf("missing required check was not a failure:\n%s", output)
+	}
+	if strings.Contains(output, "other:") {
+		t.Fatalf("missing required check was printed as other:\n%s", output)
+	}
+}
+
+func TestMergeStillSkipsOptionalFailure(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	pr := mergeFixture("Ship this", "https://github.com/acme/widgets/pull/1")
+	pr.StatusCheckRollup = []models.StatusCheck{
+		{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Context: "optional", State: "FAILURE"},
+	}
+	client := &fakeMergeClient{prs: []models.PullRequest{pr}}
+	cfg := &config.Config{Settings: config.SettingsConfig{RequiredChecks: []string{"ci"}}}
+	output := captureStdout(t, func() {
+		if err := mergePRs(client, cfg); err != nil {
+			t.Fatalf("mergePRs() error = %v", err)
+		}
+	})
+	if len(client.merged) != 0 {
+		t.Fatalf("merged = %v, want none", client.merged)
+	}
+	if !strings.Contains(output, "Skipping: CI checks failed") {
+		t.Fatalf("merge ignored ChecksStatus:\n%s", output)
+	}
+}
+
+func listCIOutput(t *testing.T, required []string, repos map[string]config.RepoSettings, checks ...models.StatusCheck) string {
+	t.Helper()
+	pr := mergeFixture("Ship this", "https://github.com/acme/widgets/pull/1")
+	pr.StatusCheckRollup = checks
+	client := &fakeMergeClient{prs: []models.PullRequest{pr}}
+	cfg := &config.Config{
+		Settings:     config.SettingsConfig{RequiredChecks: required},
+		RepoSettings: repos,
+	}
+	return captureStdout(t, func() {
+		if err := listMergeablePRs(client, cfg); err != nil {
+			t.Fatalf("listMergeablePRs() error = %v", err)
+		}
+	})
 }
 
 func (g *ghAttempts) ExecuteSeparated(string, ...string) (string, string, error) {

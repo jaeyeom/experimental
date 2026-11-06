@@ -120,6 +120,7 @@ func setupLogging() *slog.Logger {
 }
 
 // printCIStatus prints CI check status details for a pull request.
+// merge uses this with ChecksStatus. list uses printListCI.
 func printCIStatus(pr *models.PullRequest) {
 	switch pr.ChecksStatus() {
 	case models.ChecksPass:
@@ -135,6 +136,25 @@ func printCIStatus(pr *models.PullRequest) {
 		fmt.Printf("         CI: PENDING (%d checks still running)\n", len(pending))
 	case models.ChecksNone:
 		fmt.Printf("         CI: NONE (no checks configured)\n")
+	}
+}
+
+// printListCI prints the list verdict for the pull request's required checks.
+// Failing entries outside that list are printed on an other line.
+func printListCI(pr *models.PullRequest, required []string) {
+	ci := pr.ListCIStatus(required)
+	switch ci.Status {
+	case models.ChecksPass:
+		fmt.Printf("         CI: PASS (%d/%d checks passed)\n", len(required), len(required))
+	case models.ChecksFail:
+		fmt.Printf("         CI: FAIL (%d failed)\n", ci.Failed)
+	case models.ChecksPending:
+		fmt.Printf("         CI: PENDING (%d checks still running)\n", ci.Pending)
+	case models.ChecksNone:
+		fmt.Printf("         CI: NONE (no checks configured)\n")
+	}
+	if len(ci.Others) > 0 {
+		fmt.Printf("         other: %s\n", strings.Join(ci.Others, ", "))
 	}
 }
 
@@ -164,7 +184,7 @@ func listMergeablePRs(githubClient mergeClient, cfg *config.Config) error {
 		fmt.Printf("  %s\n", pr.Title)
 		fmt.Printf("         URL: %s\n", pr.URL)
 		fmt.Printf("         Branch: %s\n", pr.HeadRefName)
-		printCIStatus(pr)
+		printListCI(pr, requiredChecksFor(cfg, pr))
 		if label, blocked := pr.BlocksMerge(blockLabelsFor(cfg, pr)); blocked {
 			fmt.Printf("         Blocked: label %q prevents merge\n", label)
 		}
@@ -309,6 +329,17 @@ func logMergeScan(cfg *config.Config, prs []models.PullRequest, msg string, attr
 
 func formatBracketList(items []string) string {
 	return "[" + strings.Join(items, " ") + "]"
+}
+
+// requiredChecksFor returns the effective required_checks for the pull request's repository.
+// An unparseable URL uses the global list.
+func requiredChecksFor(cfg *config.Config, pr *models.PullRequest) []string {
+	owner, repo, ok := ownerRepoFromPullURL(pr.URL)
+	if !ok {
+		return cfg.Settings.RequiredChecks
+	}
+	settings, _ := cfg.EffectiveSettings(owner, repo)
+	return settings.RequiredChecks
 }
 
 // blockLabelsFor returns the block labels for the pull request's repository.
