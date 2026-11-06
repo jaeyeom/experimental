@@ -211,6 +211,127 @@ func TestOpenAboveListsOpenPullsAboveNearestFirst(t *testing.T) {
 	}
 }
 
+func TestInNativeStackEmptyIsNotAnError(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"stacks?pull_request=11": `[]`,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.InNativeStack("acme", "widgets", 11)
+	if err != nil {
+		t.Fatalf("InNativeStack() error = %v", err)
+	}
+	if got {
+		t.Fatal("InNativeStack() = true, want false")
+	}
+}
+
+func TestInNativeStackContainsPullRequest(t *testing.T) {
+	body := `[{"pull_requests":[{"number":10,"state":"open"},{"number":11,"state":"open"}]}]`
+	exec := &routeExec{route: map[string]string{
+		"stacks?pull_request=11": body,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.InNativeStack("acme", "widgets", 11)
+	if err != nil {
+		t.Fatalf("InNativeStack() error = %v", err)
+	}
+	if !got {
+		t.Fatal("InNativeStack() = false, want true")
+	}
+	above, err := client.OpenAbove("acme", "widgets", 11)
+	if err != nil {
+		t.Fatalf("OpenAbove() error = %v", err)
+	}
+	if above != nil {
+		t.Fatalf("OpenAbove() = %+v, want none at the top of the stack", above)
+	}
+}
+
+func TestInNativeStackKeepsListError(t *testing.T) {
+	exec := &routeExec{fail: map[string]error{
+		"stacks?pull_request=11": errors.New("down"),
+	}}
+	client := NewClientWithExecutor(exec)
+	_, err := client.InNativeStack("acme", "widgets", 11)
+	if err == nil || !strings.Contains(err.Error(), "list stacks") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestOpenByBaseAndHeadQueryPulls(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"base=topic-a": `[{"number":11,"state":"open","head":{"ref":"topic-b"},"base":{"ref":"topic-a"}}]`,
+		"head=":        `[{"number":10,"state":"open","head":{"ref":"topic-a"},"base":{"ref":"other"}}]`,
+	}}
+	client := NewClientWithExecutor(exec)
+	byBase, err := client.OpenByBase("acme", "widgets", "topic-a")
+	if err != nil {
+		t.Fatalf("OpenByBase() error = %v", err)
+	}
+	if len(byBase) != 1 || byBase[0].Number != 11 || byBase[0].HeadRefName != "topic-b" || byBase[0].BaseRefName != "topic-a" {
+		t.Fatalf("by base = %+v", byBase)
+	}
+	if !strings.Contains(exec.calls[0], "state=open") || !strings.Contains(exec.calls[0], "base=topic-a") {
+		t.Fatalf("call = %s", exec.calls[0])
+	}
+	byHead, err := client.OpenByHead("acme", "widgets", "topic-a")
+	if err != nil {
+		t.Fatalf("OpenByHead() error = %v", err)
+	}
+	if len(byHead) != 1 || byHead[0].Number != 10 || byHead[0].HeadRefName != "topic-a" {
+		t.Fatalf("by head = %+v", byHead)
+	}
+	if !strings.Contains(exec.calls[1], "state=open") || !strings.Contains(exec.calls[1], "head=acme%3Atopic-a") {
+		t.Fatalf("call = %s", exec.calls[1])
+	}
+}
+
+func TestLoadPullRequestReadsBaseHeadAndDefaultBranch(t *testing.T) {
+	defaultBranch := "default-ref"
+	exec := &routeExec{route: map[string]string{
+		"defaultBranchRef": fmt.Sprintf(`{
+			"data": {"repository": {
+				"defaultBranchRef": {"name": %q},
+				"pullRequest": {
+					"id": "PR_NODE",
+					"baseRefName": "topic-a",
+					"headRefName": "topic-b"
+				}
+			}}
+		}`, defaultBranch),
+	}}
+	client := NewClientWithExecutor(exec)
+	pr, err := client.LoadPullRequest("acme/widgets#11")
+	if err != nil {
+		t.Fatalf("LoadPullRequest() error = %v", err)
+	}
+	if pr.BaseRefName != "topic-a" || pr.HeadRefName != "topic-b" || pr.DefaultBranch != defaultBranch {
+		t.Fatalf("pr = %+v", pr)
+	}
+	call := exec.calls[0]
+	for _, field := range []string{"baseRefName", "headRefName", "defaultBranchRef"} {
+		if !strings.Contains(call, field) {
+			t.Errorf("query missing %s: %s", field, call)
+		}
+	}
+}
+
+func TestLoadPullRequestAllowsEmptyDefaultBranch(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"defaultBranchRef": `{
+			"data": {"repository": {"defaultBranchRef": null, "pullRequest": {"id": "PR_NODE"}}}
+		}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	pr, err := client.LoadPullRequest("acme/widgets#11")
+	if err != nil {
+		t.Fatalf("LoadPullRequest() error = %v", err)
+	}
+	if pr.DefaultBranch != "" || pr.BaseRefName != "" {
+		t.Fatalf("pr = %+v", pr)
+	}
+}
+
 func TestFailureEvidenceReadsFailedJobLog(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"check-runs": `{"check_runs":[
