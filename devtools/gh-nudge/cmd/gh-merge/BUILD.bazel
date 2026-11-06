@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "circleci.go",
+        "dequeue.go",
         "main.go",
         "queue.go",
         "rca.go",

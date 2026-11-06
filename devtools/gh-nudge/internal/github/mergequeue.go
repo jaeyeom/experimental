@@ -156,6 +156,13 @@ mutation($id: ID!) {
   }
 }`
 
+const dequeuePullRequestMutation = `
+mutation($id: ID!) {
+  dequeuePullRequest(input: {id: $id}) {
+    mergeQueueEntry { id }
+  }
+}`
+
 // LoadPullRequest reads the pull request state used by queue and watch.
 func (c *Client) LoadPullRequest(raw string) (QueuePullRequest, error) {
 	ref, err := ParsePullRef(raw)
@@ -175,6 +182,15 @@ func (c *Client) LoadPullRequest(raw string) (QueuePullRequest, error) {
 		return QueuePullRequest{}, fmt.Errorf("load pull request %s: %w", ref.Raw, err)
 	}
 	return pr, nil
+}
+
+// DequeuePullRequest calls the dequeuePullRequest GraphQL mutation.
+func (c *Client) DequeuePullRequest(nodeID string) error {
+	body, callErr := c.graphqlQuery(dequeuePullRequestMutation, []string{"-f", "id=" + nodeID})
+	if err := graphqlCallError("dequeue pull request", body, callErr); err != nil {
+		return err
+	}
+	return nil
 }
 
 // EnqueuePullRequest calls the enqueuePullRequest GraphQL mutation.

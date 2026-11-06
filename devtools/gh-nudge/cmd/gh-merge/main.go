@@ -35,6 +35,9 @@
 //
 //	# Post an RCA marker for the latest removal
 //	gh-merge rca acme/widgets#12 --class flake --file body.md
+//
+//	# Remove one pull request from the merge queue
+//	gh-merge dequeue acme/widgets#12
 package main
 
 import (
@@ -71,7 +74,7 @@ const (
 
 func registerFlags() {
 	flag.StringVar(&configPath, "config", "", "Path to config file")
-	flag.BoolVar(&dryRun, "dry-run", false, "Dry run mode (don't actually merge or enqueue)")
+	flag.BoolVar(&dryRun, "dry-run", false, dryRunHelp())
 	flag.BoolVar(&deleteBranch, "d", false, "Delete branch after merge")
 	flag.BoolVar(&verbose, "v", false, "Verbose output")
 	flag.BoolVar(&force, "force", false, "Merge even if CI checks have failed or are pending")
@@ -88,6 +91,7 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "  queue   %s\n", queueCommandHelp())
 		fmt.Fprintf(os.Stderr, "  watch   %s\n", watchCommandHelp())
 		fmt.Fprintf(os.Stderr, "  rca     %s\n", rcaCommandHelp())
+		fmt.Fprintf(os.Stderr, "  dequeue %s\n", dequeueCommandHelp())
 	}
 }
 
@@ -361,6 +365,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], rcaUsage())
 			os.Exit(1)
 		}
+	case "dequeue":
+		cmdErr = dequeueCommand(githubClient, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		flag.Usage()

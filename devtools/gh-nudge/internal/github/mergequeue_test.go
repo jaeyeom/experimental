@@ -128,6 +128,22 @@ func TestLoadPullRequestParsesQueueState(t *testing.T) {
 	}
 }
 
+func TestDequeuePullRequestUsesMutation(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"dequeuePullRequest": `{"data":{"dequeuePullRequest":{"mergeQueueEntry":{"id":"MQ"}}}}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	if err := client.DequeuePullRequest("PR_NODE"); err != nil {
+		t.Fatalf("DequeuePullRequest() error = %v", err)
+	}
+	if len(exec.calls) != 1 || !strings.Contains(exec.calls[0], "dequeuePullRequest") || !strings.Contains(exec.calls[0], "id=PR_NODE") {
+		t.Fatalf("call = %s", exec.calls)
+	}
+	if strings.Contains(exec.calls[0], "pullRequestId") {
+		t.Fatalf("call = %s", exec.calls[0])
+	}
+}
+
 func TestEnqueuePullRequestUsesMutation(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"enqueuePullRequest": `{"data":{"enqueuePullRequest":{"mergeQueueEntry":{"id":"MQ"}}}}`,
