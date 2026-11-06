@@ -45,6 +45,15 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y lcov
 
+    - name: Install Pkl
+      run: |
+        set -eu
+        tmp=$(mktemp)
+        trap 'rm -f "$tmp"' EXIT INT TERM
+        curl -fsSL -o "$tmp" https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-amd64
+        sudo install -m 755 "$tmp" /usr/local/bin/pkl
+        pkl --version
+
     - name: Run tests with coverage
       run: |
         mkdir -p coverage
