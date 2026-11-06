@@ -122,6 +122,89 @@ func (pr *PullRequest) PendingChecks() []StatusCheck {
 	return pending
 }
 
+// ListCI is the gh-merge list verdict for a required_checks list.
+// Status is PASS, FAIL, PENDING, or NONE.
+// Failed counts required names that failed or are missing.
+// Pending counts required names that are still running.
+// Others lists failing rollup entries that are not required, in rollup order.
+type ListCI struct {
+	Status  string
+	Failed  int
+	Pending int
+	Others  []string
+}
+
+// ListCIStatus scores only required check names.
+// A rollup entry matches by check-run name, or by context when name is empty.
+// An empty required list is NONE. A missing or failed required name is FAIL.
+// Pending required names are PENDING when none failed or are missing.
+// Every required name that is neither failed nor pending is PASS.
+func (pr *PullRequest) ListCIStatus(required []string) ListCI {
+	others := otherFailures(pr.StatusCheckRollup, required)
+	if len(required) == 0 {
+		return ListCI{Status: ChecksNone, Others: others}
+	}
+	byName := rollupByName(pr.StatusCheckRollup)
+	result := ListCI{Status: ChecksPass, Others: others}
+	for _, name := range required {
+		check, ok := byName[name]
+		if !ok || check.failed() {
+			result.Failed++
+			result.Status = ChecksFail
+			continue
+		}
+		if check.incomplete() {
+			result.Pending++
+		}
+	}
+	if result.Status == ChecksFail {
+		result.Pending = 0
+		return result
+	}
+	if result.Pending > 0 {
+		result.Status = ChecksPending
+	}
+	return result
+}
+
+func rollupByName(checks []StatusCheck) map[string]StatusCheck {
+	byName := make(map[string]StatusCheck, len(checks))
+	for _, check := range checks {
+		name := check.rollupName()
+		if name == "" {
+			continue
+		}
+		byName[name] = check
+	}
+	return byName
+}
+
+func otherFailures(checks []StatusCheck, required []string) []string {
+	requiredNames := make(map[string]struct{}, len(required))
+	for _, name := range required {
+		requiredNames[name] = struct{}{}
+	}
+	var names []string
+	for _, check := range checks {
+		name := check.rollupName()
+		if name == "" || !check.failed() {
+			continue
+		}
+		if _, ok := requiredNames[name]; ok {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+func (c StatusCheck) rollupName() string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.Context
+}
+
 // HasLabel reports whether the pull request has a label with the given name.
 func (pr *PullRequest) HasLabel(name string) bool {
 	for _, label := range pr.Labels {
