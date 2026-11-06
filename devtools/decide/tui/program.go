@@ -62,7 +62,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.chord {
+			if _, ok := keyRune(msg); !ok {
+				m.expireChord(m.chordSeq)
+				return m, nil
+			}
+			return m.updateKey(msg)
+		}
+		if msg.Type == tea.KeyUp {
+			m.pickerArrow(-1)
+			return m, nil
+		}
+		if msg.Type == tea.KeyDown {
+			m.pickerArrow(1)
+			return m, nil
+		}
 		return m.updateKey(msg)
+	case chordTimeoutMsg:
+		m.expireChord(int(msg))
+		return m, nil
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 	case reloadMsg:
@@ -95,7 +113,17 @@ func (m *Model) updateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+type chordTimeoutMsg int
+
+func (m *Model) scheduleChord() tea.Cmd {
+	seq := m.chordSeq
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return chordTimeoutMsg(seq)
+	})
+}
+
 func (m *Model) applyRune(r rune) tea.Cmd {
+	seq := m.chordSeq
 	quit, err := m.Key(r)
 	if err != nil {
 		m.runErr = err
@@ -103,6 +131,9 @@ func (m *Model) applyRune(r rune) tea.Cmd {
 	}
 	if quit {
 		return tea.Quit
+	}
+	if m.chord && m.chordSeq != seq {
+		return m.scheduleChord()
 	}
 	return nil
 }
