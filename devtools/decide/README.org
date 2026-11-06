@@ -1,6 +1,19 @@
 #+TITLE: decide
 #+DATE: 2026-11-05
 
+* Status
+
+~decide status~ stores agent rows in the decide state directory, in
+~status.json~, separate from the decision ledger.
+
+- ~decide status set --agent <name> [--state working|idle|paused|blocked] "<text>"~
+  writes one row. A new row with no ~--state~ is ~working~. A later set
+  with no ~--state~ keeps the stored state.
+- ~decide status list [--json]~ prints each name, state, age, and text.
+  ~--json~ is an object with an ~agents~ array. Each agent includes
+  ~updatedAt~.
+- ~decide status clear --agent <name>~ removes that one row.
+
 * Notify
 
 After a relay answer is saved, ~notifyTemplate~ runs as a shell command.
