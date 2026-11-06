@@ -1060,22 +1060,30 @@ func (m *Model) navSelected(i int) bool {
 	return i == m.folder
 }
 
-func (m *Model) navText(i int) string {
-	if i >= len(Folders) {
-		if m.navSelected(i) {
-			return "[Status]"
-		}
-		return "Status"
+func (m *Model) navName(i int) string {
+	name := "Status"
+	if i < len(Folders) {
+		name = Folders[i].Name
 	}
-	name := Folders[i].Name
 	if m.navSelected(i) {
-		name = "[" + name + "]"
+		return "[" + name + "]"
 	}
-	count := 0
-	if i < len(m.counts) {
-		count = m.counts[i]
+	return name
+}
+
+func (m *Model) navCount(i int) int {
+	if i < 0 || i >= len(m.counts) {
+		return 0
 	}
-	return fmt.Sprintf("%s %d", name, count)
+	return m.counts[i]
+}
+
+func (m *Model) navText(i int) string {
+	name := m.navName(i)
+	if i >= len(Folders) {
+		return name
+	}
+	return fmt.Sprintf("%s %d", name, m.navCount(i))
 }
 
 func (m *Model) folderTabLine(width int) screenLine {
@@ -1098,15 +1106,52 @@ func (m *Model) folderTabLine(width int) screenLine {
 	return fitLine(screenLine{text: b.String(), hits: hits}, width)
 }
 
+// folderCountMin is wide enough for 1, 12, and 123 to end in one column.
+const folderCountMin = 3
+
 func (m *Model) sidebarLines() []screenLine {
-	lines := make([]screenLine, m.navLen())
-	for i := 0; i < m.navLen(); i++ {
+	n := m.navLen()
+	names := make([]string, n)
+	nameW := 0
+	countW := folderCountMin
+	for i := 0; i < n; i++ {
+		names[i] = m.navName(i)
+		if w := lipgloss.Width(names[i]); w > nameW {
+			nameW = w
+		}
+		if i >= len(Folders) {
+			continue
+		}
+		if w := lipgloss.Width(fmt.Sprintf("%d", m.navCount(i))); w > countW {
+			countW = w
+		}
+	}
+	lines := make([]screenLine, n)
+	for i := 0; i < n; i++ {
+		count := ""
+		if i < len(Folders) {
+			count = fmt.Sprintf("%d", m.navCount(i))
+		}
 		lines[i] = screenLine{
-			text: m.navText(i),
+			text: padRight(names[i], nameW) + " " + padLeft(count, countW),
 			hits: []hit{{kind: hitFolder, n: i}},
 		}
 	}
 	return lines
+}
+
+func padLeft(s string, width int) string {
+	if w := lipgloss.Width(s); w < width {
+		return strings.Repeat(" ", width-w) + s
+	}
+	return s
+}
+
+func padRight(s string, width int) string {
+	if w := lipgloss.Width(s); w < width {
+		return s + strings.Repeat(" ", width-w)
+	}
+	return s
 }
 
 func (m *Model) layoutBudget() (int, int) {

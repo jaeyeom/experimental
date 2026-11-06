@@ -229,6 +229,96 @@ func TestStatusFolderIsSelectable(t *testing.T) {
 	}
 }
 
+func TestFolderCountsShareAColumn(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := decide.Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.counts = []int{1, 12, 123, 0}
+	m.width = 120
+	m.height = 24
+
+	assertFolderCountColumn(t, m)
+
+	m.folder = 2
+	assertFolderCountColumn(t, m)
+	done := m.sidebarLines()[2].text
+	if !strings.HasPrefix(done, "[Done]") || strings.Contains(m.sidebarLines()[0].text, "[Inbox]") {
+		t.Fatalf("selection did not stay on Done\n%s", done)
+	}
+
+	m.mode = modeStatus
+	assertFolderCountColumn(t, m)
+	status := m.sidebarLines()[len(Folders)].text
+	if !strings.HasPrefix(status, "[Status]") {
+		t.Fatalf("status row %q", status)
+	}
+
+	m.mode = modeList
+	m.folder = 0
+	m.width = 70
+	view := m.View()
+	if screenRow(view, "[Inbox]") != screenRow(view, "Status") || screenRow(view, "Withdrawn") != screenRow(view, "[Inbox]") {
+		t.Fatalf("narrow folders are not one row\n%s", view)
+	}
+	for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status"} {
+		if !strings.Contains(view, name) {
+			t.Fatalf("narrow row missing %s\n%s", name, view)
+		}
+	}
+}
+
+func assertFolderCountColumn(t *testing.T, m *Model) {
+	t.Helper()
+	lines := m.sidebarLines()
+	if len(lines) != len(Folders)+1 {
+		t.Fatalf("sidebar rows %d", len(lines))
+	}
+	ends := make([]int, len(Folders))
+	width := 0
+	for i, count := range []string{"1", "12", "123", "0"} {
+		text := lines[i].text
+		name := Folders[i].Name
+		if m.navSelected(i) {
+			name = "[" + name + "]"
+		}
+		if !strings.HasPrefix(text, name) {
+			t.Fatalf("row %d %q does not start with %q", i, text, name)
+		}
+		at := strings.LastIndex(text, count)
+		if at < 0 || at+len(count) != len(strings.TrimRight(text, " ")) {
+			t.Fatalf("row %d count %s in %q", i, count, text)
+		}
+		ends[i] = at + len(count)
+		if lipgloss.Width(text) > width {
+			width = lipgloss.Width(text)
+		}
+	}
+	for i := 1; i < len(ends); i++ {
+		if ends[i] != ends[0] {
+			t.Fatalf("count end %d vs %d\n%q\n%q", ends[i], ends[0], lines[i].text, lines[0].text)
+		}
+	}
+	status := lines[len(Folders)].text
+	if strings.TrimRight(status, " ") != statusName(m) {
+		t.Fatalf("status count %q", status)
+	}
+	if lipgloss.Width(status) != width || ends[0] != width {
+		t.Fatalf("status width %d row width %d count end %d %q", lipgloss.Width(status), width, ends[0], status)
+	}
+}
+
+func statusName(m *Model) string {
+	if m.mode == modeStatus {
+		return "[Status]"
+	}
+	return "Status"
+}
+
 func TestEnterClearsUnread(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -1971,7 +2061,7 @@ func TestGmailLayoutNarrowAndWide(t *testing.T) {
 		m.height = 24
 		view := m.View()
 		for _, needle := range []string{
-			"[Inbox] 1", "Answered 0", "Done 1", "Withdrawn 0",
+			"[Inbox]", "Answered", "Done", "Withdrawn",
 			item.ID, "go https://ex.test/a", "ada", "1d",
 			"due " + deadline.Format(time.RFC3339),
 			"? help",
