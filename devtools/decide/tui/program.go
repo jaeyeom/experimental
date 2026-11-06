@@ -1,23 +1,10 @@
 package tui
 
 import (
-	"errors"
-	"fmt"
-	"io"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-// inputMsg is one key from the existing reader. Pointer input is a bubbletea
-// mouse message so Shift+Enter parsing stays in the reader.
-type inputMsg struct {
-	ev termEvent
-}
-
-type readDoneMsg struct {
-	err error
-}
 
 type reloadMsg struct{}
 
@@ -75,10 +62,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateKey(msg)
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
-	case inputMsg:
-		return m.updateInput(msg.ev)
-	case readDoneMsg:
-		return m.updateReadDone(msg.err)
 	case reloadMsg:
 		return m.updateReload()
 	default:
@@ -141,28 +124,6 @@ func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) updateInput(ev termEvent) (tea.Model, tea.Cmd) {
-	if ev.shiftEnter {
-		m.ShiftEnter()
-		return m, nil
-	}
-	if ev.shiftTab {
-		m.ShiftTab()
-		return m, nil
-	}
-	if cmd := m.applyRune(ev.key); cmd != nil {
-		return m, cmd
-	}
-	return m, nil
-}
-
-func (m *Model) updateReadDone(err error) (tea.Model, tea.Cmd) {
-	if err != nil && !errors.Is(err, io.EOF) {
-		m.runErr = fmt.Errorf("read decide inbox key: %w", err)
-	}
-	return m, tea.Quit
-}
-
 func (m *Model) updateReload() (tea.Model, tea.Cmd) {
 	if err := m.Reload(); err != nil {
 		m.runErr = err
@@ -179,39 +140,4 @@ func (m *Model) scheduleReload() tea.Cmd {
 	return tea.Tick(interval, func(time.Time) tea.Msg {
 		return reloadMsg{}
 	})
-}
-
-func mouseMessage(ev termEvent) tea.MouseMsg {
-	msg := tea.MouseMsg{
-		X:      ev.x - 1,
-		Y:      ev.y - 1,
-		Action: tea.MouseActionPress,
-		Button: tea.MouseButtonLeft,
-	}
-	if !ev.press {
-		msg.Action = tea.MouseActionRelease
-	}
-	switch ev.wheel {
-	case 1:
-		msg.Button = tea.MouseButtonWheelDown
-	case -1:
-		msg.Button = tea.MouseButtonWheelUp
-	}
-	return msg
-}
-
-func forwardInputs(p *tea.Program, events <-chan termEvent, readErr <-chan error) {
-	for {
-		select {
-		case ev := <-events:
-			if ev.mouse {
-				p.Send(mouseMessage(ev))
-				continue
-			}
-			p.Send(inputMsg{ev: ev})
-		case err := <-readErr:
-			p.Send(readDoneMsg{err: err})
-			return
-		}
-	}
 }

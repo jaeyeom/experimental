@@ -24,7 +24,7 @@ type Options struct {
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
 // including writes from another process. The screen is a bubbletea program.
-// The existing reader still feeds keys. Pointer input is a bubbletea mouse message.
+// Bubbletea reads keys and mouse input.
 func Run(opts Options) error {
 	if opts.Interval <= 0 {
 		opts.Interval = DefaultInterval
@@ -37,28 +37,14 @@ func Run(opts Options) error {
 	if rows := termRows(opts.In); rows > 0 {
 		m.height = rows
 	}
-	restore, raw, err := makeRaw(opts.In)
-	if err != nil {
-		return err
-	}
-	defer restore()
-	if raw {
-		if _, err := io.WriteString(opts.Out, mouseOn+modifyOn); err != nil {
-			return fmt.Errorf("enable decide mouse: %w", err)
-		}
-		defer func() { _, _ = io.WriteString(opts.Out, modifyOff+mouseOff) }()
-	}
 
 	p := tea.NewProgram(m,
-		tea.WithInput(nil),
+		tea.WithInput(opts.In),
 		tea.WithOutput(opts.Out),
 		tea.WithAltScreen(),
 		tea.WithoutSignalHandler(),
+		tea.WithMouseCellMotion(),
 	)
-	events := make(chan termEvent, 8)
-	readErr := make(chan error, 1)
-	go readEvents(opts.In, events, readErr)
-	go forwardInputs(p, events, readErr)
 
 	final, err := p.Run()
 	if err != nil {

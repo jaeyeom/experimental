@@ -874,7 +874,7 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 		got = append(got, append([]string(nil), argv...))
 		return nil
 	}
-	press(t, m, "c]\t")
+	press(t, m, "c\t\t")
 	if m.note != "" || m.target != 0 || len(got) != 0 {
 		t.Fatalf("typing note %q target %d sends %d", m.note, m.target, len(got))
 	}
@@ -1010,15 +1010,12 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 	if !strings.Contains(focused, "compose › …_  Enter send · Esc cancel · Tab target") {
 		t.Fatalf("focused empty =\n%s", focused)
 	}
-	press(t, m, "hi]")
-	if m.note != "hi" || m.target != 1 || !strings.Contains(m.View(), "compose › hi_") || !strings.Contains(m.View(), "to: beta ▸") {
-		t.Fatalf("focused keys note %q target %d\n%s", m.note, m.target, m.View())
-	}
-	if _, err := m.Key('['); err != nil {
-		t.Fatal(err)
-	}
+	press(t, m, "hi")
 	if _, err := m.Key('\t'); err != nil {
 		t.Fatal(err)
+	}
+	if m.note != "hi" || m.target != 1 || !strings.Contains(m.View(), "compose › hi_") || !strings.Contains(m.View(), "to: beta ▸") {
+		t.Fatalf("focused keys note %q target %d\n%s", m.note, m.target, m.View())
 	}
 	m.ShiftTab()
 	if m.note != "hi" || m.target != 0 {
@@ -1053,38 +1050,6 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 	press(t, m, "cagain\r")
 	if m.note != "again" || m.status != "boom" || strings.Contains(m.status, "failed") || strings.Contains(m.View(), "pane-secret") {
 		t.Fatalf("failure note %q status %q\n%s", m.note, m.status, m.View())
-	}
-}
-
-func TestShiftTabSequence(t *testing.T) {
-	r, w := io.Pipe()
-	t.Cleanup(func() { _ = w.Close() })
-	events := make(chan termEvent, 4)
-	errCh := make(chan error, 1)
-	go readEvents(r, events, errCh)
-	if _, err := w.Write([]byte("\x1b[Z\x1b[9;2u")); err != nil {
-		t.Fatal(err)
-	}
-	first := <-events
-	second := <-events
-	if !first.shiftTab || !second.shiftTab || first.key == '[' || second.key == '[' {
-		t.Fatalf("sequences = %+v %+v", first, second)
-	}
-}
-
-func TestShiftEnterSequence(t *testing.T) {
-	r, w := io.Pipe()
-	t.Cleanup(func() { _ = w.Close() })
-	events := make(chan termEvent, 2)
-	errCh := make(chan error, 1)
-	go readEvents(r, events, errCh)
-	if _, err := w.Write([]byte("\x1b[13;2u\x1b[27;2;13~")); err != nil {
-		t.Fatal(err)
-	}
-	first := <-events
-	second := <-events
-	if !first.shiftEnter || !second.shiftEnter {
-		t.Fatalf("sequences = %+v %+v", first, second)
 	}
 }
 
@@ -1342,44 +1307,6 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	}
 	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" || m.folder != 0 {
 		t.Fatalf("option click = %+v folder %d", got.Answer, m.folder)
-	}
-}
-
-func TestReaderMouseBecomesBubbleTeaMessage(t *testing.T) {
-	r, w := io.Pipe()
-	t.Cleanup(func() { _ = w.Close() })
-	events := make(chan termEvent, 2)
-	errCh := make(chan error, 1)
-	go readEvents(r, events, errCh)
-	if _, err := w.Write([]byte("\x1b[<0;4;5M\x1b[<65;1;1M")); err != nil {
-		t.Fatal(err)
-	}
-	click := mouseMessage(<-events)
-	wheel := mouseMessage(<-events)
-	if click.X != 3 || click.Y != 4 || click.Button != tea.MouseButtonLeft || click.Action != tea.MouseActionPress {
-		t.Fatalf("click = %+v", click)
-	}
-	if wheel.X != 0 || wheel.Y != 0 || wheel.Button != tea.MouseButtonWheelDown || wheel.Action != tea.MouseActionPress {
-		t.Fatalf("wheel = %+v", wheel)
-	}
-}
-
-func TestSGRClickAndWheel(t *testing.T) {
-	r, w := io.Pipe()
-	t.Cleanup(func() { _ = w.Close() })
-	events := make(chan termEvent, 2)
-	errCh := make(chan error, 1)
-	go readEvents(r, events, errCh)
-	if _, err := w.Write([]byte("\x1b[<0;4;5M\x1b[<65;1;1M")); err != nil {
-		t.Fatal(err)
-	}
-	click := <-events
-	wheel := <-events
-	if !click.mouse || !click.press || click.x != 4 || click.y != 5 || click.wheel != 0 {
-		t.Fatalf("click = %+v", click)
-	}
-	if !wheel.mouse || wheel.wheel != 1 {
-		t.Fatalf("wheel = %+v", wheel)
 	}
 }
 
@@ -1692,12 +1619,20 @@ func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
 		t.Fatalf("focused keys triggered an answer: %+v", got)
 	}
 	m = updateRune(t, m, ']')
-	if m.note != "A?1" || m.target != 1 || !strings.Contains(m.View(), "to: beta ▸") {
-		t.Fatalf("target cycle note %q target %d\n%s", m.note, m.target, m.View())
+	if m.note != "A?1]" || m.target != 0 || strings.Contains(m.View(), "to: beta ▸") {
+		t.Fatalf("bracket note %q target %d\n%s", m.note, m.target, m.View())
+	}
+	m = updateRune(t, m, '\x7f')
+	if m.note != "A?1" {
+		t.Fatalf("backspace note %q", m.note)
 	}
 	m = updateRune(t, m, '\t')
-	if m.note != "A?1" || m.target != 0 || !strings.Contains(m.View(), "to: alpha ▸") {
+	if m.note != "A?1" || m.target != 1 || !strings.Contains(m.View(), "to: beta ▸") {
 		t.Fatalf("tab cycle note %q target %d\n%s", m.note, m.target, m.View())
+	}
+	m.ShiftTab()
+	if m.note != "A?1" || m.target != 0 || !strings.Contains(m.View(), "to: alpha ▸") {
+		t.Fatalf("shift tab note %q target %d\n%s", m.note, m.target, m.View())
 	}
 	m = updateRune(t, m, '\x1b')
 	if m.composing || m.noteField.Focused() || m.note != "A?1" {
@@ -1745,6 +1680,82 @@ func TestRunIsBubbleTeaProgram(t *testing.T) {
 	if !strings.Contains(out.String(), "[Inbox]") {
 		t.Fatalf("bubbletea view = %q", out.String())
 	}
+	if strings.Contains(out.String(), "\x1b[>4;2m") {
+		t.Fatalf("startup requested modifyOtherKeys:\n%s", out.String())
+	}
+}
+
+func TestRunComposeInsertsTypedText(t *testing.T) {
+	dir := t.TempDir()
+	r, w := io.Pipe()
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(Options{
+			Dir:      dir,
+			In:       r,
+			Out:      &out,
+			Interval: time.Hour,
+			Targets:  []Target{{Name: "alpha", Pane: "pane-1"}},
+		})
+	}()
+	if _, err := w.Write([]byte("cHello? [A]")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := w.Write([]byte{0x1b}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := w.Write([]byte{'q'}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("inbox did not quit")
+	}
+	view := out.String()
+	if !strings.Contains(view, "Hello? [A]") {
+		t.Fatalf("compose field = %q", view)
+	}
+	if strings.Contains(view, "\x1b[>4;2m") || strings.Contains(view, "shortcuts") {
+		t.Fatalf("startup or overlay = %q", view)
+	}
+}
+
+func TestRunMouseClickIsMouseMsg(t *testing.T) {
+	dir := t.TempDir()
+	r, w := io.Pipe()
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(Options{Dir: dir, In: r, Out: &out, Interval: time.Hour})
+	}()
+	if _, err := w.Write([]byte("\x1b[<0;1;1Mq")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("inbox did not quit")
+	}
+	view := out.String()
+	if strings.Contains(view, "<0;1;1M") || strings.Contains(view, "\x1b[>4;2m") {
+		t.Fatalf("mouse bytes were typed:\n%s", view)
+	}
 }
 
 func TestProgramShiftKeysDriveCompose(t *testing.T) {
@@ -1756,8 +1767,7 @@ func TestProgramShiftKeysDriveCompose(t *testing.T) {
 		t.Fatalf("shift tab target %d note %q", m.target, m.note)
 	}
 	m.composing = true
-	next, _ = m.Update(inputMsg{ev: termEvent{shiftEnter: true}})
-	m = next.(*Model)
+	m.ShiftEnter()
 	if m.note != "\n" {
 		t.Fatalf("shift enter note %q", m.note)
 	}
