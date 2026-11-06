@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
@@ -274,6 +277,125 @@ func TestParentDecideEnvDoesNotOverrideNotify(t *testing.T) {
 			t.Fatalf("notify log = %#v, want %#v", got, want)
 		}
 	}
+}
+
+func TestNotifyExportsQuestionAndLabel(t *testing.T) {
+	t.Run("option", func(t *testing.T) {
+		dump := setupNotifyDump(t)
+		id := askChoice(t, "Ship the change?\ndetails", "--notify-pane", "pane-9")
+		if _, stderr, code := runCLI("answer", id, "a"); code != 0 {
+			t.Fatalf("answer code = %d\n%s", code, stderr)
+		}
+		item := showJSON(t, id)
+		if item.Answer == nil || item.Answer.Value != "a" {
+			t.Fatalf("answer = %+v", item.Answer)
+		}
+		assertNotifyDump(t, dump, item, "Ship the change?", "Ship it")
+	})
+
+	t.Run("free text", func(t *testing.T) {
+		dump := setupNotifyDump(t)
+		raw := "say \"hi\"\n$(uname)"
+		id := askChoice(t, "first line only\nsecond line", "--free-text", "--notify-pane", "pane-9")
+		if _, stderr, code := runCLI("answer", id, raw); code != 0 {
+			t.Fatalf("answer code = %d\n%s", code, stderr)
+		}
+		item := showJSON(t, id)
+		if item.Answer == nil || item.Answer.Value != raw {
+			t.Fatalf("answer = %+v", item.Answer)
+		}
+		assertNotifyDump(t, dump, item, "first line only", "")
+		if strings.Contains(readDump(t, dump, "DECIDE_QUESTION"), "second line") {
+			t.Fatal("question included the next line")
+		}
+	})
+
+	t.Run("long question", func(t *testing.T) {
+		dump := setupNotifyDump(t)
+		head := strings.Repeat("Q", 199) + "한" + "TAIL"
+		id := askChoice(t, head+"\nnext-line", "--notify-pane", "pane-9")
+		if _, stderr, code := runCLI("answer", id, "a"); code != 0 {
+			t.Fatalf("answer code = %d\n%s", code, stderr)
+		}
+		want := strings.Repeat("Q", 199) + "한"
+		if utf8.RuneCountInString(want) != 200 {
+			t.Fatalf("question rune count %d", utf8.RuneCountInString(want))
+		}
+		item := showJSON(t, id)
+		assertNotifyDump(t, dump, item, want, "Ship it")
+	})
+}
+
+func setupNotifyDump(t *testing.T) string {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, name := range []string{
+		"DECIDE_ID", "DECIDE_ANSWER", "DECIDE_ANSWER_LABEL", "DECIDE_OWNER",
+		"DECIDE_PANE", "DECIDE_KIND", "DECIDE_QUESTION", "DECIDE_ANSWERED_AT",
+		"DECIDE_ANSWERED_BY",
+	} {
+		t.Setenv(name, "stale")
+	}
+	dump := t.TempDir()
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	for _, name := range []string{
+		"DECIDE_ID", "DECIDE_ANSWER", "DECIDE_ANSWER_LABEL", "DECIDE_OWNER",
+		"DECIDE_PANE", "DECIDE_KIND", "DECIDE_QUESTION", "DECIDE_ANSWERED_AT",
+		"DECIDE_ANSWERED_BY",
+	} {
+		fmt.Fprintf(&b, "printf '%%s' \"$%s\" > '%s'\n", name, filepath.Join(dump, name))
+	}
+	fmt.Fprintf(&b, "printf '%%s' \"$1\" > '%s'\n", filepath.Join(dump, "arg"))
+	installNotifierScript(t, b.String())
+	writeNotifyConfig(t, "notifier '{answer}'", "default-pane")
+	return dump
+}
+
+func askChoice(t *testing.T, question string, extra ...string) string {
+	t.Helper()
+	args := []string{
+		"ask", "--owner", "ada", "--kind", "relay",
+		"--option", "a:Ship it", "--option", "b:Later", "--rec", "a",
+	}
+	args = append(args, extra...)
+	args = append(args, question)
+	stdout, stderr, code := runCLI(args...)
+	if code != 0 {
+		t.Fatalf("ask code = %d\n%s", code, stderr)
+	}
+	return strings.TrimSpace(stdout)
+}
+
+func assertNotifyDump(t *testing.T, dump string, item decide.Item, question, label string) {
+	t.Helper()
+	want := map[string]string{
+		"DECIDE_ID":           item.ID,
+		"DECIDE_ANSWER":       item.Answer.Value,
+		"DECIDE_ANSWER_LABEL": label,
+		"DECIDE_OWNER":        "ada",
+		"DECIDE_PANE":         "pane-9",
+		"DECIDE_KIND":         "relay",
+		"DECIDE_QUESTION":     question,
+		"DECIDE_ANSWERED_AT":  item.AnsweredAt.Format(time.RFC3339),
+		"DECIDE_ANSWERED_BY":  "human",
+		"arg":                 "{answer}",
+	}
+	for name, value := range want {
+		if got := readDump(t, dump, name); got != value {
+			t.Fatalf("%s = %q, want %q", name, got, value)
+		}
+	}
+}
+
+func readDump(t *testing.T, dump, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dump, name))
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(data)
 }
 
 func TestNotifyFailureKeepsAnswer(t *testing.T) {

@@ -4,10 +4,22 @@
 * Notify
 
 After a relay answer is saved, ~notifyTemplate~ runs as a shell command.
-The four environment variables are how a template reads the answer.
-The template reads ~"$DECIDE_ID"~, ~"$DECIDE_ANSWER"~, ~"$DECIDE_OWNER"~,
-and ~"$DECIDE_PANE"~: the item id, the saved answer, the item owner, and
-the notify pane. An item pane overrides the config pane.
+The environment is how a template reads the answer. Nothing is written
+into the command string.
+
+- ~DECIDE_ID~ is the item id.
+- ~DECIDE_ANSWER~ is the saved answer. An option answer is the option key.
+  A multi-line free-text answer is stored unchanged, including quotes.
+- ~DECIDE_ANSWER_LABEL~ is the chosen option's label. It is empty for free text.
+- ~DECIDE_OWNER~ is the item owner.
+- ~DECIDE_PANE~ is the notify pane. An item pane overrides the config pane.
+- ~DECIDE_KIND~ is the item kind, ~relay~ or ~type-in~.
+- ~DECIDE_QUESTION~ is the first line of the question, at most 200 characters.
+  The next line is not included, and a character is not split.
+- ~DECIDE_ANSWERED_AT~ is ~answeredAt~ in RFC3339.
+- ~DECIDE_ANSWERED_BY~ is the stored ~answeredBy~, for example ~human~.
+
+A parent value of the same name does not win.
 
 ~{id}~, ~{answer}~, ~{owner}~, and ~{pane}~ are not substituted. Braces
 are not replaced. An old ~notifyTemplate~ that still uses those braces
