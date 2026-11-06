@@ -44,6 +44,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdInbox(args[1:], stdout, stderr)
 	case "status":
 		return cmdStatus(args[1:], stdout, stderr)
+	case "targets":
+		return cmdTargets(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -71,7 +73,35 @@ func usage(w io.Writer) {
   decide status list [--json]
   decide status clear --agent <name>
   decide status clear --resource <name>
+  decide targets [--json]
 `)
+}
+
+func cmdTargets(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("targets", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print recipients as JSON")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 0 {
+		return fail(stderr, fmt.Errorf("decide targets does not take arguments"), 2)
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	targets := cfg.Targets
+	if targets == nil {
+		targets = []decide.ConfigTarget{}
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, targets)
+	}
+	for _, tg := range targets {
+		fmt.Fprintln(stdout, tg.Name)
+	}
+	return 0
 }
 
 func cmdStatus(args []string, stdout, stderr io.Writer) int {

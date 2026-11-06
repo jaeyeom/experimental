@@ -716,6 +716,44 @@ func notifyLog(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
+func TestTargetsJSONOmitsTemplates(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "notify-template-secret"
+	body := []byte(`{"notifyTemplate":"` + secret + `","sendTemplate":"send-template-secret","targets":[{"name":"alpha","pane":"pane-a"},{"name":"beta","pane":"pane-b"}]}` + "\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLI("targets", "--json")
+	if code != 0 {
+		t.Fatalf("targets code = %d\n%s", code, stderr)
+	}
+	if strings.Contains(stdout, secret) || strings.Contains(stdout, "send-template-secret") {
+		t.Fatalf("templates leaked\n%s", stdout)
+	}
+	var targets []decide.ConfigTarget
+	if err := json.Unmarshal([]byte(stdout), &targets); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if len(targets) != 2 || targets[0].Name != "alpha" || targets[0].Pane != "pane-a" || targets[1].Name != "beta" {
+		t.Fatalf("targets = %+v", targets)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	stdout, stderr, code = runCLI("targets", "--json")
+	if code != 0 {
+		t.Fatalf("empty code = %d\n%s", code, stderr)
+	}
+	if stdout != "[]\n" {
+		t.Fatalf("empty targets = %q", stdout)
+	}
+}
+
 func TestStatusSetListAndClearAgent(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
