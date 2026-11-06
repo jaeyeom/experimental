@@ -1987,8 +1987,8 @@ func TestWindowSizeFitsEveryPanel(t *testing.T) {
 	for _, width := range []int{60, 80, 120, 200} {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
 		view = m.View()
-		lines := strings.Split(strings.TrimSuffix(view, "\n"), "\n")
-		if len(lines) != 24 {
+		lines := strings.Split(view, "\n")
+		if strings.HasSuffix(view, "\n") || len(lines) != 24 {
 			t.Fatalf("width %d height %d\n%s", width, len(lines), view)
 		}
 		for i, line := range lines {
@@ -2011,6 +2011,75 @@ func TestWindowSizeFitsEveryPanel(t *testing.T) {
 		if !sidebarBesideList(view, item.ID) {
 			t.Fatalf("width %d sidebar is not beside the list\n%s", width, view)
 		}
+	}
+}
+
+func TestViewHeightKeepsTopBorder(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question: "ship it?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range []tea.WindowSizeMsg{
+		{Width: 60, Height: 20},
+		{Width: 80, Height: 24},
+		{Width: 120, Height: 40},
+	} {
+		m.Update(size)
+		for _, help := range []bool{false, true} {
+			m.help = help
+			view := m.View()
+			if strings.HasSuffix(view, "\n") {
+				t.Fatalf("%dx%d help %v ends with a newline", size.Width, size.Height, help)
+			}
+			lines := strings.Split(view, "\n")
+			if len(lines) != size.Height {
+				t.Fatalf("%dx%d help %v lines %d", size.Width, size.Height, help, len(lines))
+			}
+			for i, line := range lines {
+				if got := lipgloss.Width(line); got > size.Width {
+					t.Fatalf("%dx%d line %d width %d", size.Width, size.Height, i, got)
+				}
+			}
+			if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[len(lines)-1], "└") {
+				t.Fatalf("%dx%d borders\n%s", size.Width, size.Height, view)
+			}
+			statusAt := -1
+			for i, line := range lines {
+				if strings.Contains(visibleLine(line), "gi/ga") {
+					statusAt = i
+				}
+			}
+			if statusAt <= 0 || statusAt >= len(lines)-1 {
+				t.Fatalf("%dx%d help %v status row %d\n%s", size.Width, size.Height, help, statusAt, view)
+			}
+		}
+	}
+
+	m.help = false
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 1})
+	short := m.View()
+	if strings.HasSuffix(short, "\n") || len(strings.Split(short, "\n")) != 1 {
+		t.Fatalf("height 1 view %q", short)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 2})
+	borders := strings.Split(m.View(), "\n")
+	if strings.HasSuffix(m.View(), "\n") || len(borders) != 2 || !strings.Contains(borders[0], "┌") || !strings.Contains(borders[1], "└") {
+		t.Fatalf("height 2 view\n%s", m.View())
+	}
+	m.width = 0
+	m.height = 0
+	plain := m.View()
+	if strings.HasSuffix(plain, "\n") || !strings.Contains(plain, "ship it?") {
+		t.Fatalf("unmeasured view\n%s", plain)
 	}
 }
 
