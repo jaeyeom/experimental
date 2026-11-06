@@ -880,19 +880,23 @@ any_failed=false
 ANSIBLE_RUN_LOG="$LOG_DIR/ensure_sh.ansible.log"
 ANSIBLE_RUN_STATUS="$LOG_DIR/ensure_sh.ansible.status"
 
-# The Ansible command module has no controlling terminal, so a skill
-# prompt there cannot be answered. Review in this shell after herdr.yml
-# upgrades the binary. pre_approve_urls stays URL-only.
-# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
-if any_arg_imports setup-herdr.yml $playbooks; then
-    approve_herdr_skill "$(dirname "$0")" "$flags" "$playbooks" || exit 1
-fi
-
-# factory.yml may upgrade the binary whose skill text is hashed. Review in
-# this shell after that upgrade. pre_approve_urls stays URL-only.
-# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
-if any_arg_imports setup-factory.yml $playbooks; then
-    approve_factory_skill "$(dirname "$0")" "$flags" "$playbooks" || exit 1
+# One -K stays on this loop. Do not run herdr.yml or factory.yml first:
+# those preliminary playbooks prompt for become again. When this run will
+# review skill text afterward, skip in-playbook apply-text. A direct
+# ansible-playbook run does not pass the var, so an unapproved skill still
+# fails that task. --check and -C do not defer and do not review.
+_skill_check=0
+# shellcheck disable=SC2086  # Intentional word splitting — flags never contain spaces
+for _skill_flag in $flags; do
+    case "$_skill_flag" in
+        --check|-C) _skill_check=1 ;;
+    esac
+done
+if [ "$_skill_check" -eq 0 ]; then
+    # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+    if any_arg_imports setup-herdr.yml $playbooks || any_arg_imports setup-factory.yml $playbooks; then
+        flags="$flags -e setup_dev_defer_skill_apply=true"
+    fi
 fi
 
 # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
@@ -928,6 +932,21 @@ for playbook in $playbooks; do
     fi
 done
 
-if [ "$any_failed" = true ]; then
+# The command module has no controlling terminal. The loop already installed
+# the binaries. Review here and write with apply-text, which does not use
+# become. A declined review fails this script. A playbook failure still
+# fails it after this follow-up; the follow-up does not clear that failure.
+# pre_approve_urls stays URL-only and already ran.
+_skill_follow_rc=0
+# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+if any_arg_imports setup-herdr.yml $playbooks; then
+    approve_herdr_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1
+fi
+# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+if [ "$_skill_follow_rc" -eq 0 ] && any_arg_imports setup-factory.yml $playbooks; then
+    approve_factory_skill "$(dirname "$0")" "$flags" || _skill_follow_rc=1
+fi
+
+if [ "$any_failed" = true ] || [ "$_skill_follow_rc" -ne 0 ]; then
     exit 1
 fi

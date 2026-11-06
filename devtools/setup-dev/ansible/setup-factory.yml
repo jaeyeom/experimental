@@ -88,11 +88,24 @@
         - factory_skill_output.rc | default(1) == 0
         - (factory_skill_output.stdout | default('') | trim | length) > 0
 
+    # ensure.sh passes setup_dev_defer_skill_apply so it can review in a
+    # shell that has a terminal and write the file afterward. This task
+    # warns and does not run apply-text in that case. A direct
+    # ansible-playbook run leaves the var unset, so a new or changed skill
+    # fails the install task below and prints the review-text command.
+    - name: Warn when ensure.sh will write the factory agent skill
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping factory skill apply-text because ensure.sh will
+          review and write it after the playbooks.
+      when:
+        - setup_dev_defer_skill_apply | default(false) | bool
+        - factory_skill_command_check.rc == 0
+        - factory_skill_output.rc | default(1) == 0
+        - (factory_skill_output.stdout | default('') | trim | length) > 0
+
     # apply-text writes the raw `factory skill` bytes when they match the
-    # stored approval. Stdout is `updated` or `unchanged`. ensure.sh reviews
-    # the text before this playbook. A direct ansible-playbook run has no
-    # terminal here, so a new or changed skill fails this task and prints
-    # the review-text command.
+    # stored approval. Stdout is `updated` or `unchanged`.
     - name: Install the factory agent skill
       ansible.builtin.command:
         argv:
@@ -107,6 +120,7 @@
       register: factory_skill_apply
       changed_when: (factory_skill_apply.stdout | trim) == "updated"
       when:
+        - not (setup_dev_defer_skill_apply | default(false) | bool)
         - factory_skill_command_check.rc == 0
         - factory_skill_output.rc | default(1) == 0
         - (factory_skill_output.stdout | default('') | trim | length) > 0

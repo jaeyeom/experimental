@@ -103,7 +103,7 @@ sh_test(
     data = [
         "ensure.sh",
         "factory_skill_approve.sh",
-        "playbook_resume.sh",
+        "setup-factory.yml",
         "verified-run",
     ],
 )
@@ -114,7 +114,7 @@ sh_test(
     data = [
         "ensure.sh",
         "herdr_skill_approve.sh",
-        "playbook_resume.sh",
+        "setup-herdr.yml",
         "verified-run",
     ],
 )
