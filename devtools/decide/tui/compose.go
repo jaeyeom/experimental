@@ -59,11 +59,8 @@ func (m *Model) composeKey(r rune) (bool, error) {
 	case '\b', '\x7f':
 		m.editNote(r)
 		return false, nil
-	case '\t', ']':
+	case '\t':
 		m.cycleTarget(1)
-		return false, nil
-	case '[':
-		m.cycleTarget(-1)
 		return false, nil
 	}
 	if r >= ' ' {

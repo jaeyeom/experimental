@@ -1,12 +1,5 @@
 package tui
 
-import (
-	"io"
-	"strconv"
-	"strings"
-	"time"
-)
-
 const (
 	hitNone = iota
 	hitFolder
@@ -17,11 +10,6 @@ const (
 	hitMarkDone
 	hitTarget
 	hitCompose
-
-	mouseOn   = "\x1b[?1000h\x1b[?1006h"
-	mouseOff  = "\x1b[?1000l\x1b[?1006l"
-	modifyOn  = "\x1b[>4;2m"
-	modifyOff = "\x1b[>4;0m"
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -30,16 +18,6 @@ type hit struct {
 	kind   int
 	n      int
 	x0, x1 int
-}
-
-type termEvent struct {
-	key        rune
-	x, y       int
-	wheel      int
-	mouse      bool
-	press      bool
-	shiftEnter bool
-	shiftTab   bool
 }
 
 // Click handles one left-button press at 1-based screen coordinates.
@@ -151,145 +129,4 @@ func (m *Model) showFolder(n int) error {
 	m.folder = n
 	m.cursor = 0
 	return m.Reload()
-}
-
-func parseSGR(seq string) (button, x, y int, press, ok bool) {
-	body, found := strings.CutPrefix(seq, "\x1b[<")
-	if !found || len(body) < 2 {
-		return 0, 0, 0, false, false
-	}
-	last := body[len(body)-1]
-	if last != 'M' && last != 'm' {
-		return 0, 0, 0, false, false
-	}
-	parts := strings.Split(body[:len(body)-1], ";")
-	if len(parts) != 3 {
-		return 0, 0, 0, false, false
-	}
-	button, err1 := strconv.Atoi(parts[0])
-	x, err2 := strconv.Atoi(parts[1])
-	y, err3 := strconv.Atoi(parts[2])
-	if err1 != nil || err2 != nil || err3 != nil {
-		return 0, 0, 0, false, false
-	}
-	return button, x, y, last == 'M', true
-}
-
-func readEvents(in io.Reader, events chan<- termEvent, readErr chan<- error) {
-	buf := make([]byte, 1)
-	for {
-		n, err := in.Read(buf)
-		if n == 1 {
-			if buf[0] == 0x1b {
-				readEscape(in, events)
-			} else {
-				events <- termEvent{key: rune(buf[0])}
-			}
-		}
-		if err != nil {
-			readErr <- err
-			return
-		}
-	}
-}
-
-func readEscape(in io.Reader, events chan<- termEvent) {
-	next, ok := readByteWait(in, 50*time.Millisecond)
-	if !ok || next != '[' {
-		events <- termEvent{key: 0x1b}
-		if ok {
-			events <- termEvent{key: rune(next)}
-		}
-		return
-	}
-	third, ok := readByteWait(in, 50*time.Millisecond)
-	if !ok {
-		events <- termEvent{key: 0x1b}
-		events <- termEvent{key: '['}
-		return
-	}
-	if third != '<' {
-		readCSI(in, third, events)
-		return
-	}
-	seq := []byte{0x1b, '[', '<'}
-	for len(seq) < 40 {
-		b, ok := readByteWait(in, 50*time.Millisecond)
-		if !ok {
-			break
-		}
-		seq = append(seq, b)
-		if b == 'M' || b == 'm' {
-			button, x, y, press, parsed := parseSGR(string(seq))
-			if parsed {
-				events <- termEvent{x: x, y: y, wheel: wheelOf(button, press), mouse: true, press: press}
-			}
-			return
-		}
-	}
-	events <- termEvent{key: 0x1b}
-}
-
-func readCSI(in io.Reader, first byte, events chan<- termEvent) {
-	seq := []byte{first}
-	if !csiFinal(first) {
-		for len(seq) < 40 {
-			b, ok := readByteWait(in, 50*time.Millisecond)
-			if !ok {
-				break
-			}
-			seq = append(seq, b)
-			if csiFinal(b) {
-				break
-			}
-		}
-	}
-	if !csiFinal(seq[len(seq)-1]) {
-		emitBytes(events, seq)
-		return
-	}
-	switch string(seq) {
-	case "13;2u", "27;2;13~":
-		events <- termEvent{shiftEnter: true}
-	case "Z", "1;2Z", "9;2u", "27;2;9~":
-		events <- termEvent{shiftTab: true}
-	default:
-		emitBytes(events, seq)
-	}
-}
-
-func csiFinal(b byte) bool {
-	return b >= 0x40 && b <= 0x7e
-}
-
-func emitBytes(events chan<- termEvent, seq []byte) {
-	events <- termEvent{key: 0x1b}
-	events <- termEvent{key: '['}
-	for _, b := range seq {
-		events <- termEvent{key: rune(b)}
-	}
-}
-
-func wheelOf(button int, press bool) int {
-	base := button &^ (4 | 8 | 16 | 32)
-	if !press || (base != 64 && base != 65) {
-		return 0
-	}
-	if base == 65 {
-		return 1
-	}
-	return -1
-}
-
-func readByteWait(in io.Reader, d time.Duration) (byte, bool) {
-	if dl, ok := in.(interface{ SetReadDeadline(time.Time) error }); ok {
-		_ = dl.SetReadDeadline(time.Now().Add(d))
-		defer func() { _ = dl.SetReadDeadline(time.Time{}) }()
-	}
-	var buf [1]byte
-	n, err := in.Read(buf[:])
-	if err != nil || n != 1 {
-		return 0, false
-	}
-	return buf[0], true
 }
