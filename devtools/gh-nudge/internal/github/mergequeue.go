@@ -69,8 +69,9 @@ type StackPR struct {
 
 // FailureEvidence is the highest-ranked failing check run or commit status.
 // Name and TargetURL identify that evidence. CheckRunURL and JobURL are set
-// when a check run wins. Log is the Actions failing-step log when TargetURL
-// is a GitHub Actions job URL.
+// when a check run wins. A status winner keeps CheckRunURL empty unless a
+// check run link contains /workflows/, which a legacy CircleCI target needs.
+// Log is the Actions failing-step log when TargetURL is a GitHub Actions job URL.
 type FailureEvidence struct {
 	Name        string
 	TargetURL   string
@@ -658,7 +659,33 @@ func pickFailure(checks []checkRunJSON, statuses []statusJSON) (failureChoice, b
 			targetURL: status.TargetURL,
 		})
 	}
+	if found && best.checkHTML == "" && !strings.Contains(best.targetURL, "/workflows/") {
+		best.checkHTML = relatedWorkflowLink(checks, best.name)
+	}
 	return best, found
+}
+
+func relatedWorkflowLink(checks []checkRunJSON, name string) string {
+	fallback := ""
+	for _, run := range checks {
+		link := ""
+		for _, candidate := range []string{run.DetailsURL, run.HTMLURL} {
+			if strings.Contains(candidate, "/workflows/") {
+				link = candidate
+				break
+			}
+		}
+		if link == "" {
+			continue
+		}
+		if run.Name == name {
+			return link
+		}
+		if fallback == "" {
+			fallback = link
+		}
+	}
+	return fallback
 }
 
 func rankCheck(conclusion string) int {

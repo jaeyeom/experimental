@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -960,6 +961,65 @@ settings:
 	if _, err := LoadConfig(configPath); err == nil {
 		t.Fatal("LoadConfig() error = nil, want invalid failure_log_pattern")
 	}
+}
+
+func TestDefaultFailureLogPatternMatchesTimestampPrefix(t *testing.T) {
+	re := regexp.MustCompile(DefaultFailureLogPattern)
+	for _, line := range []string{"ERROR: setup failed", "(12:34:56) ERROR: setup failed"} {
+		if !re.MatchString(line) {
+			t.Errorf("pattern missed %q", line)
+		}
+	}
+}
+
+func TestLoadConfigCircleCILog(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("github:\n  repos:\n    - repo1\nsettings: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Settings.CircleCILog != CircleCILogAuto {
+		t.Fatalf("circleci_log = %q", cfg.Settings.CircleCILog)
+	}
+	if err := os.WriteFile(configPath, []byte("github:\n  repos:\n    - repo1\nsettings:\n  circleci_log: nope\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("LoadConfig() error = nil, want invalid circleci_log")
+	}
+}
+
+func TestCircleCILogCommentMentionsUnsandboxed(t *testing.T) {
+	data, err := os.ReadFile(circleConfigPkl(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "circleci_log") || !strings.Contains(text, "unsandboxed environment") {
+		t.Fatalf("config comment = %s", text)
+	}
+}
+
+func circleConfigPkl(t *testing.T) string {
+	t.Helper()
+	candidates := []string{"../../pkl/Config.pkl"}
+	if dir := os.Getenv("TEST_SRCDIR"); dir != "" {
+		candidates = append(candidates,
+			filepath.Join(dir, "_main", "devtools/gh-nudge/pkl/Config.pkl"),
+			filepath.Join(dir, "devtools/gh-nudge/pkl/Config.pkl"),
+		)
+	}
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	t.Fatal("Config.pkl not found")
+	return ""
 }
 
 func TestConvertPklConfigBlockMergeLabels(t *testing.T) {

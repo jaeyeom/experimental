@@ -59,6 +59,14 @@ type SettingsConfig struct {
 
 	// Lines of a CircleCI failing step that match this regular expression are
 	// printed with the log tail. An invalid pattern fails config load.
-	// The default matches a line that starts with ERROR:.
+	// The default matches a line that starts with ERROR: and a timestamp
+	// prefix such as (12:34:56) ERROR:.
 	FailureLogPattern string `pkl:"failure_log_pattern"`
+
+	// How gh-merge reads CircleCI logs: auto, api, or cli.
+	// auto uses the HTTP API when CIRCLE_TOKEN is set, and the circleci CLI otherwise.
+	// api keeps the HTTP path. cli uses the CLI even when a token is set and does
+	// not call the HTTP API.
+	// The CLI may read its token from the system keyring and then needs an unsandboxed environment.
+	CircleciLog string `pkl:"circleci_log"`
 }

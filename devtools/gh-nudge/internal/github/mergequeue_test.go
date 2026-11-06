@@ -303,6 +303,39 @@ func TestFailureEvidenceRanksChecksAndStatuses(t *testing.T) {
 	}
 }
 
+func TestFailureEvidenceLegacyCircleTargetKeepsWorkflowLink(t *testing.T) {
+	const sha = "abc123"
+	const workflow = "https://app.circleci.com/pipelines/github/acme/widgets/42/workflows/11111111-1111-1111-1111-111111111111"
+	exec := &routeExec{route: map[string]string{
+		"check-runs": `{
+			"check_runs":[{
+				"name":"build",
+				"conclusion":"success",
+				"html_url":"https://github.com/acme/widgets/runs/3",
+				"details_url":"` + workflow + `"
+			}]
+		}`,
+		"commits/" + sha + "/status": `{
+			"statuses":[{
+				"context":"ci/circleci",
+				"state":"failure",
+				"target_url":"https://circleci.com/gh/acme/widgets/4242"
+			}]
+		}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.FailureEvidence("acme", "widgets", sha)
+	if err != nil {
+		t.Fatalf("FailureEvidence() error = %v", err)
+	}
+	if got.Name != "ci/circleci" || got.TargetURL != "https://circleci.com/gh/acme/widgets/4242" {
+		t.Fatalf("chosen = %s %s", got.Name, got.TargetURL)
+	}
+	if got.CheckRunURL != workflow {
+		t.Fatalf("check run = %s", got.CheckRunURL)
+	}
+}
+
 func TestLandedFirstPicksEarliestMerged(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"commits/deadbeef/pulls": `[
