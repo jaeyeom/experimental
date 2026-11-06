@@ -197,6 +197,17 @@ settings {
   // Refuse when earlier flake or infra requeues are greater than this.
   max_requeues = 2
 }
+
+// gh-merge only. One entry per <owner>/<repo>.
+// A set field replaces settings. An omitted field inherits.
+// An explicit empty list does not inherit. gh-nudge ignores this mapping.
+repo_settings {
+  ["<owner>/<repo>"] {
+    required_checks {
+      "lint"
+    }
+  }
+}
 #+end_src
 
 **** Benefits of Pkl
@@ -273,6 +284,12 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
       - "connection reset"
     rca_marker: "RCA {event_id} class={class}"  # {class} is our-code, flake, or infra
     max_requeues: 2
+  # gh-merge only. A set field replaces settings for <owner>/<repo>.
+  # An omitted field inherits. An empty list does not inherit.
+  repo_settings:
+    "<owner>/<repo>":
+      required_checks:
+        - "lint"
 #+end_src
 
 *Note*: YAML support may be deprecated in a future release. Consider migrating

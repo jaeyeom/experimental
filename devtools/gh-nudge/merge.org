@@ -74,8 +74,21 @@ Please see [[file:README.org][README.org]] file for the full configuration.
 ~gh-merge~ loads ~-config~ when it is set, otherwise ~GH_MERGE_CONFIG~,
 otherwise ~$HOME/.config/gh-merge/config.pkl~ when that file exists,
 otherwise the ~gh-nudge~ default at ~$HOME/.config/gh-nudge/config.pkl~.
-~gh-nudge~ itself still uses only that default. The relevant sections for
-GitHub integration are:
+~gh-nudge~ itself still uses only that default.
+
+~repo_settings~ overrides the global settings for one ~<owner>/<repo>~ key.
+~queue~, ~watch~, and ~rca~ use the entry for the target repository. ~list~
+and ~merge~ use the entry for the pull request they are handling.
+A field set on the entry replaces the global field. A field left unset
+inherits it. An explicit empty list is set, and it does not inherit.
+~github.repos~ is unchanged. Empty effective ~required_checks~ still makes
+~queue~ refuse unless ~--allow-no-required-checks~ is set, including when the
+entry sets that list to empty and the global list is not. Readiness text
+includes ~settings from: <owner>/<repo>~ or ~settings from: global~. ~queue
+-json~ adds ~settingsFrom~. ~watch -json~ and ~rca -json~ include ~config~ and
+~settingsFrom~.
+
+The relevant sections for GitHub integration are:
 
 #+begin_src pkl
 github {
@@ -92,6 +105,16 @@ settings {
   // --force does not override a block label.
   block_merge_labels {
     "do-not-merge"
+  }
+}
+
+// A set field replaces settings for this repository. An omitted field inherits.
+// An empty list does not inherit. The key is <owner>/<repo>.
+repo_settings {
+  ["<owner>/<repo>"] {
+    required_checks {
+      "lint"
+    }
   }
 }
 #+end_src

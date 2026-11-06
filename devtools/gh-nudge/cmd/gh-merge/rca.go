@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -37,9 +38,6 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read rca file: %w", err)
 	}
-	if cfg.Settings.RCAMarker == "" {
-		return errors.New("rca_marker is empty")
-	}
 	ref, err := resolvePullRef(parsed.ref)
 	if err != nil {
 		return err
@@ -47,6 +45,10 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	pr, err := client.LoadPullRequest(ref)
 	if err != nil {
 		return fmt.Errorf("load pull request %s: %w", ref, err)
+	}
+	cfg = cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo)
+	if cfg.Settings.RCAMarker == "" {
+		return errors.New("rca_marker is empty")
 	}
 	event, ok := latestRemoval(pr.Events)
 	if !ok {
@@ -56,7 +58,29 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	if err := client.CommentOnPullRequest(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number, body); err != nil {
 		return fmt.Errorf("comment on %s: %w", pr.Ref.Raw, err)
 	}
-	fmt.Printf("Commented on %s.\n", pr.Ref.Raw)
+	return printRCAResult(pr.Ref.Raw, cfg)
+}
+
+type rcaJSONResult struct {
+	PullRequest  string `json:"pullRequest"`
+	Config       string `json:"config"`
+	SettingsFrom string `json:"settingsFrom"`
+}
+
+func printRCAResult(ref string, cfg *config.Config) error {
+	if !jsonOutput {
+		fmt.Printf("Commented on %s.\n", ref)
+		return nil
+	}
+	encoded, err := json.MarshalIndent(rcaJSONResult{
+		PullRequest:  ref,
+		Config:       cfg.Path,
+		SettingsFrom: settingsSource(cfg),
+	}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode rca result: %w", err)
+	}
+	fmt.Printf("%s\n", encoded)
 	return nil
 }
 

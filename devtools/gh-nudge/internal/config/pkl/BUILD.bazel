@@ -7,6 +7,7 @@ go_library(
         "Config.pkl.go",
         "GitHubConfig.pkl.go",
         "LabelAgeConfig.pkl.go",
+        "RepoSettings.pkl.go",
         "SettingsConfig.pkl.go",
         "SlackConfig.pkl.go",
         "init.pkl.go",
