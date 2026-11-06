@@ -621,7 +621,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Answer != nil || !strings.Contains(m.View(), "0  answer: _ Esc to cancel") {
+	if got.Answer != nil || !strings.Contains(m.View(), "0  answer:") || !strings.Contains(m.View(), cursorOn) || !strings.Contains(m.View(), "Esc to cancel") {
 		t.Fatalf("click submitted or hid the cursor\n%s", m.View())
 	}
 	press(t, m, "1\r")
@@ -668,7 +668,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 		t.Fatalf("esc focus %v draft %q answer %+v", m.answerFocus, m.draft, got.Answer)
 	}
 	press(t, m, "0")
-	if !strings.Contains(m.View(), "answer: keep_") {
+	if !strings.Contains(m.View(), "answer: keep") || !strings.Contains(m.View(), cursorOn) {
 		t.Fatalf("draft was dropped\n%s", m.View())
 	}
 	if err := m.Click(1, screenRow(m.View(), "keep draft?")); err != nil {
@@ -2499,4 +2499,251 @@ func (l *lockedBuf) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.b.String()
+}
+
+func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	var words strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&words, "word%d ", i)
+	}
+	question := words.String()
+	label := "this option label is long enough to wrap inside the frame"
+	link := "https://example.com/" + strings.Repeat("p", 40) + "/tailtoken"
+	mustCreate(t, led, &decide.Item{
+		Question:  question,
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  true,
+		Options:   []decide.Option{{Key: "a", Label: label}},
+		Links:     []string{link},
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 60
+	m.height = 20
+	list := m.View()
+	if strings.Count(list, "\n")+1 != 20 {
+		t.Fatalf("list lines %d", strings.Count(list, "\n")+1)
+	}
+	if !strings.Contains(list, "…") {
+		t.Fatalf("list did not ellipsize the question\n%s", list)
+	}
+
+	m.height = 14
+	press(t, m, "o")
+	view := m.View()
+	assertFrame(t, view, 60, 14)
+	if !strings.Contains(view, "word0") || strings.Contains(view, "tailtoken") {
+		t.Fatalf("open item did not start at the question\n%s", view)
+	}
+	if strings.Contains(visibleLine(lineContaining(view, "word0")), "…") {
+		t.Fatalf("question was clipped\n%s", view)
+	}
+	word0 := screenRow(view, "word0")
+	word12 := screenRow(view, "word12")
+	if word12 == 0 || word12 <= word0 {
+		t.Fatalf("word12 row %d word0 row %d\n%s", word12, word0, view)
+	}
+	if screenRow(view, "this option") == 0 || screenRow(view, "frame") == 0 {
+		t.Fatalf("option label did not wrap\n%s", view)
+	}
+	if screenRow(view, "this option") == screenRow(view, "frame") {
+		t.Fatalf("option label stayed on one line\n%s", view)
+	}
+
+	for m.scroll < 40 && strings.Contains(m.View(), "word0") {
+		m.Wheel(true)
+	}
+	scrolled := m.View()
+	assertFrame(t, scrolled, 60, 14)
+	if !strings.Contains(scrolled, "tailtoken") {
+		t.Fatalf("scroll did not reveal the link\n%s", scrolled)
+	}
+	if strings.Contains(scrolled, "word0") {
+		t.Fatalf("scroll left the question top in view\n%s", scrolled)
+	}
+	row := screenRow(scrolled, "tailtoken")
+	line := strings.Split(scrolled, "\n")[row-1]
+	if err := m.Click(visibleCol(line, "tailtoken"), row); err != nil {
+		t.Fatal(err)
+	}
+	if m.status != link {
+		t.Fatalf("link status %q", m.status)
+	}
+}
+
+func TestFocusedTextShowsACursor(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question:  "cursor item",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		FreeText:  true,
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	m.Targets = []Target{{Name: "alpha", Pane: "p"}}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 80
+	m.height = 24
+	press(t, m, "c")
+	if strings.Contains(draftArea(m.View()), cursorOn) {
+		t.Fatalf("recipient focus drew a text cursor\n%s", m.View())
+	}
+	press(t, m, "\t")
+	if !strings.Contains(draftArea(m.View()), cursorOn) {
+		t.Fatalf("empty message has no cursor\n%s", m.View())
+	}
+	press(t, m, "Hi")
+	draft := draftArea(m.View())
+	if !strings.Contains(visibleLine(draft), "Hi") || !strings.Contains(draft, cursorOn) {
+		t.Fatalf("cursor not after Hi\n%s", m.View())
+	}
+	assertFrame(t, m.View(), 80, 24)
+
+	press(t, m, "\t")
+	if strings.Contains(draftArea(m.View()), cursorOn) {
+		t.Fatalf("send focus kept the text cursor\n%s", m.View())
+	}
+
+	press(t, m, "\x1b")
+	press(t, m, "o0")
+	if !strings.Contains(m.View(), cursorOn) || strings.Contains(m.View(), "answer: _") {
+		t.Fatalf("free text cursor\n%s", m.View())
+	}
+	press(t, m, "Z")
+	if !strings.Contains(visibleLine(lineContaining(m.View(), "answer:")), "Z") {
+		t.Fatalf("free text\n%s", m.View())
+	}
+
+	press(t, m, "\x1be")
+	if m.mode != modeOutcome || !strings.Contains(m.View(), cursorOn) {
+		t.Fatalf("outcome cursor mode %v\n%s", m.mode, m.View())
+	}
+	press(t, m, "Ok")
+	if !strings.Contains(visibleLine(lineContaining(m.View(), "outcome:")), "Ok") {
+		t.Fatalf("outcome text\n%s", m.View())
+	}
+}
+
+func TestComposeBoxesFollowFocusAndFit(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question:  "box item",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	m.Targets = []Target{{Name: "alpha", Pane: "p"}, {Name: "beta", Pane: "q"}}
+	m.runSend = func([]string) error { return nil }
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range [][2]int{{60, 20}, {80, 24}, {120, 40}} {
+		m.width = size[0]
+		m.height = size[1]
+		press(t, m, "c")
+		view := m.View()
+		assertFrame(t, view, size[0], size[1])
+		tops := borderRows(view, "┌")
+		if len(tops) < 4 {
+			t.Fatalf("size %v borders %d\n%s", size, len(tops), view)
+		}
+		if !borderHighlighted(strings.Split(view, "\n")[tops[1]]) {
+			t.Fatalf("size %v recipient box not highlighted\n%s", size, view)
+		}
+		press(t, m, "\t")
+		view = m.View()
+		tops = borderRows(view, "┌")
+		if len(tops) < 4 || !borderHighlighted(strings.Split(view, "\n")[tops[2]]) {
+			t.Fatalf("size %v text box not highlighted\n%s", size, view)
+		}
+		press(t, m, "Hi\r")
+		if !strings.Contains(m.note, "\n") {
+			t.Fatalf("enter did not insert a newline %q", m.note)
+		}
+		press(t, m, "\t")
+		view = m.View()
+		tops = borderRows(view, "┌")
+		if len(tops) < 4 || !borderHighlighted(strings.Split(view, "\n")[tops[3]]) {
+			t.Fatalf("size %v send box not highlighted\n%s", size, view)
+		}
+		if borderHighlighted(strings.Split(view, "\n")[tops[1]]) {
+			t.Fatalf("size %v recipient stayed highlighted\n%s", size, view)
+		}
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+		m = next.(*Model)
+		if m.composeFocus != focusText {
+			t.Fatalf("shift tab focus %d", m.composeFocus)
+		}
+		press(t, m, "\t\r")
+		if m.status != "sent to alpha" {
+			t.Fatalf("send status %q", m.status)
+		}
+	}
+}
+
+func assertFrame(t *testing.T, view string, width, height int) {
+	t.Helper()
+	if strings.HasSuffix(view, "\n") {
+		t.Fatalf("trailing newline")
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) != height {
+		t.Fatalf("lines %d want %d\n%s", len(lines), height, view)
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got > width {
+			t.Fatalf("line %d width %d\n%s", i, got, line)
+		}
+	}
+	if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[len(lines)-1], "└") {
+		t.Fatalf("outer border\n%s", view)
+	}
+}
+
+func lineContaining(view, needle string) string {
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, needle) {
+			return line
+		}
+	}
+	return ""
+}
+
+func draftArea(view string) string {
+	lines := strings.Split(view, "\n")
+	tops := borderRows(view, "┌")
+	if len(tops) < 4 {
+		return view
+	}
+	return strings.Join(lines[tops[2]:tops[3]], "\n")
+}
+
+func borderRows(view, mark string) []int {
+	var rows []int
+	for i, line := range strings.Split(view, "\n") {
+		if strings.Contains(visibleLine(line), mark) {
+			rows = append(rows, i)
+		}
+	}
+	return rows
+}
+
+func borderHighlighted(line string) bool {
+	return strings.Contains(line, boldOn) && strings.Contains(visibleLine(line), "┌")
 }
