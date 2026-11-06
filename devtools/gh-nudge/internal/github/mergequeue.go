@@ -252,6 +252,22 @@ func (c *Client) LandedFirst(owner, repo, sha string, self int) (StackPR, bool, 
 	return earliestMerged(pulls, self)
 }
 
+// CommentOnPullRequest posts one issue comment on the pull request.
+func (c *Client) CommentOnPullRequest(owner, repo string, number int, body string) error {
+	payload, err := json.Marshal(struct {
+		Body string `json:"body"`
+	}{Body: body})
+	if err != nil {
+		return fmt.Errorf("encode comment: %w", err)
+	}
+	path := fmt.Sprintf("repos/%s/%s/issues/%d/comments", owner, repo, number)
+	out, err := c.executor.ExecuteWithStdin(string(payload), "gh", "api", "--method", "POST", path, "--input", "-")
+	if err != nil {
+		return fmt.Errorf("comment on %s/%s#%d: %w\n%s", owner, repo, number, err, out)
+	}
+	return nil
+}
+
 // MergeAsync enqueues with PUT merge-async, merge_action=merge_queue, and sha.
 func (c *Client) MergeAsync(owner, repo string, number int, sha string) error {
 	body := fmt.Sprintf("{\"merge_action\":\"merge_queue\",\"sha\":%q}", sha)

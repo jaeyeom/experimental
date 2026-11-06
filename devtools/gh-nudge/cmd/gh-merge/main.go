@@ -32,6 +32,9 @@
 //
 //	# Watch until each pull request merges, is ejected, or times out
 //	gh-merge watch acme/widgets#12
+//
+//	# Post an RCA marker for the latest removal
+//	gh-merge rca acme/widgets#12 --class flake --file body.md
 package main
 
 import (
@@ -84,6 +87,7 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "  merge   Merge eligible PRs\n")
 		fmt.Fprintf(os.Stderr, "  queue   %s\n", queueCommandHelp())
 		fmt.Fprintf(os.Stderr, "  watch   %s\n", watchCommandHelp())
+		fmt.Fprintf(os.Stderr, "  rca     %s\n", rcaCommandHelp())
 	}
 }
 
@@ -349,6 +353,12 @@ func main() {
 		})
 		if errors.Is(cmdErr, errWatchUsage) {
 			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], watchUsage())
+			os.Exit(1)
+		}
+	case "rca":
+		cmdErr = postRCA(githubClient, cfg, args[1:])
+		if errors.Is(cmdErr, errRCAUsage) {
+			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], rcaUsage())
 			os.Exit(1)
 		}
 	default:

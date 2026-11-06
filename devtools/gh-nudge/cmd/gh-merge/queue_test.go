@@ -27,6 +27,9 @@ type fakeQueue struct {
 	downstack    []github.StackPR
 	downCalls    int
 	evidence     github.FailureEvidence
+	comments     []string
+	commentCalls int
+	commentRef   string
 	landed       github.StackPR
 	landedOK     bool
 	mergedAsync  []string
@@ -40,32 +43,37 @@ func (f *fakeQueue) LoadPullRequest(ref string) (github.QueuePullRequest, error)
 	if f.loadErr != nil {
 		return github.QueuePullRequest{}, f.loadErr
 	}
-	if len(f.snapshots) > 0 {
+	var pr github.QueuePullRequest
+	switch {
+	case len(f.snapshots) > 0:
 		index := f.loads - 1
 		if index >= len(f.snapshots) {
 			index = len(f.snapshots) - 1
 		}
-		pr := f.snapshots[index]
-		if pr.Ref.Raw == "" {
-			pr.Ref.Raw = ref
-		}
-		return pr, nil
-	}
-	if f.byRef != nil {
-		pr, ok := f.byRef[ref]
+		pr = f.snapshots[index]
+	case f.byRef != nil:
+		var ok bool
+		pr, ok = f.byRef[ref]
 		if !ok {
 			return github.QueuePullRequest{}, errors.New("unknown pull request")
 		}
-		if pr.Ref.Raw == "" {
-			pr.Ref.Raw = ref
-		}
-		return pr, nil
+	default:
+		pr = f.pr
 	}
-	pr := f.pr
 	if pr.Ref.Raw == "" {
 		pr.Ref.Raw = ref
 	}
+	if len(f.comments) > 0 {
+		pr.Comments = append(append([]string{}, pr.Comments...), f.comments...)
+	}
 	return pr, nil
+}
+
+func (f *fakeQueue) CommentOnPullRequest(owner, repo string, number int, body string) error {
+	f.commentCalls++
+	f.commentRef = fmt.Sprintf("%s/%s#%d", owner, repo, number)
+	f.comments = append(f.comments, body)
+	return nil
 }
 
 func (f *fakeQueue) EnqueuePullRequest(nodeID string) error {
@@ -1262,4 +1270,174 @@ func withCommandStub(t *testing.T, fn func(string, ...string) (string, error)) {
 	prev := runCommand
 	runCommand = fn
 	t.Cleanup(func() { runCommand = prev })
+}
+
+func TestRCAPostsMarkerForLatestRemoval(t *testing.T) {
+	path := writeRCAFile(t, "Investigated the reset.\n")
+	pr := readyPR()
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	pr.Events = []github.QueueEvent{
+		{ID: "OLD", Kind: github.QueueEventRemoved, CreatedAt: base, Reason: "failed_checks"},
+		{ID: "NEW", Kind: github.QueueEventRemoved, CreatedAt: base.Add(time.Hour), Reason: "failed_checks"},
+	}
+	client := &fakeQueue{pr: pr}
+	cfg := rcaConfig()
+	output := captureStdout(t, func() {
+		err := postRCA(client, cfg, []string{"acme/widgets#12", "--class", "flake", "--file", path})
+		if err != nil {
+			t.Fatalf("postRCA() error = %v", err)
+		}
+	})
+	if client.commentCalls != 1 || client.commentRef != "acme/widgets#12" {
+		t.Fatalf("comments = %d ref = %s", client.commentCalls, client.commentRef)
+	}
+	body := client.comments[0]
+	if !strings.Contains(body, "Investigated the reset.") || !strings.Contains(body, "RCA NEW class=flake") {
+		t.Fatalf("comment = %q", body)
+	}
+	if strings.Contains(body, "RCA OLD") {
+		t.Fatalf("comment used an older removal: %q", body)
+	}
+	if !strings.Contains(output, "Commented on acme/widgets#12.") {
+		t.Fatalf("output = %q", output)
+	}
+
+	queueOut := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d\n%s", client.enqueueCalls, queueOut)
+	}
+	if strings.Contains(queueOut, "no RCA comment") {
+		t.Fatalf("queue refused for a missing RCA:\n%s", queueOut)
+	}
+}
+
+func TestRCAOurCodeAndRequeueLimitStillRefuse(t *testing.T) {
+	path := writeRCAFile(t, "We broke it.\n")
+	base := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{
+		{ID: "OLD", Kind: github.QueueEventRemoved, CreatedAt: base, Reason: "failed_checks"},
+		{ID: "ADD", Kind: github.QueueEventAdded, CreatedAt: base.Add(time.Minute)},
+		{ID: "NEW", Kind: github.QueueEventRemoved, CreatedAt: base.Add(time.Hour), Reason: "failed_checks"},
+	}
+	cfg := rcaConfig()
+	limit := 0
+	cfg.Settings.MaxRequeues = &limit
+	client := &fakeQueue{pr: pr}
+	if err := postRCA(client, cfg, []string{"acme/widgets#12", "--class", "our-code", "--file", path}); err != nil {
+		t.Fatalf("postRCA() error = %v", err)
+	}
+	if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil || !strings.Contains(err.Error(), "our-code") {
+		t.Fatalf("queue error = %v, want our-code", err)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+
+	client = &fakeQueue{pr: pr}
+	if err := postRCA(client, cfg, []string{"acme/widgets#12", "--class", "flake", "--file", path}); err != nil {
+		t.Fatalf("postRCA() error = %v", err)
+	}
+	if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil || !strings.Contains(err.Error(), "max_requeues") {
+		t.Fatalf("queue error = %v, want requeue limit", err)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestRCARefusesWithoutPosting(t *testing.T) {
+	path := writeRCAFile(t, "note\n")
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{{
+		ID: "NEW", Kind: github.QueueEventRemoved, CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Reason: "failed_checks",
+	}}
+	tests := []struct {
+		name string
+		args []string
+		cfg  *config.Config
+		pr   github.QueuePullRequest
+	}{
+		{
+			name: "unknown class",
+			args: []string{"acme/widgets#12", "--class", "human", "--file", path},
+			cfg:  rcaConfig(),
+			pr:   pr,
+		},
+		{
+			name: "missing file",
+			args: []string{"acme/widgets#12", "--class", "flake", "--file", path + "-missing"},
+			cfg:  rcaConfig(),
+			pr:   pr,
+		},
+		{
+			name: "empty marker",
+			args: []string{"acme/widgets#12", "--class", "infra", "--file", path},
+			cfg:  queueConfig(),
+			pr:   pr,
+		},
+		{
+			name: "no removal",
+			args: []string{"acme/widgets#12", "--class", "flake", "--file", path},
+			cfg:  rcaConfig(),
+			pr:   readyPR(),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeQueue{pr: tc.pr}
+			if err := postRCA(client, tc.cfg, tc.args); err == nil {
+				t.Fatal("postRCA() error = nil")
+			}
+			if client.commentCalls != 0 {
+				t.Fatalf("commentCalls = %d", client.commentCalls)
+			}
+		})
+	}
+}
+
+func TestRCABareNumberUsesCheckoutRemote(t *testing.T) {
+	dir := initGitRemote(t, "origin", "https://github.com/acme/widgets.git")
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			t.Errorf("gh was called: %v", args)
+			return "", errors.New("gh should not be called")
+		}
+		return defaultRunCommand(name, args...)
+	})
+	t.Chdir(dir)
+	path := writeRCAFile(t, "note\n")
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{{
+		ID: "NEW", Kind: github.QueueEventRemoved, CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+	}}
+	client := &fakeQueue{pr: pr}
+	if err := postRCA(client, rcaConfig(), []string{"12", "--class", "infra", "--file", path}); err != nil {
+		t.Fatalf("postRCA() error = %v", err)
+	}
+	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
+		t.Fatalf("loaded = %v", client.loadedRefs)
+	}
+	if client.commentCalls != 1 || !strings.Contains(client.comments[0], "RCA NEW class=infra") {
+		t.Fatalf("comment = %v", client.comments)
+	}
+}
+
+func rcaConfig() *config.Config {
+	cfg := queueConfig()
+	cfg.Settings.RCAMarker = "RCA {event_id} class={class}"
+	return cfg
+}
+
+func writeRCAFile(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "body.md")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

@@ -1,0 +1,128 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
+)
+
+var errRCAUsage = errors.New("rca usage")
+
+type rcaAPI interface {
+	LoadPullRequest(ref string) (github.QueuePullRequest, error)
+	CommentOnPullRequest(owner, repo string, number int, body string) error
+}
+
+func rcaCommandHelp() string {
+	return "Post an RCA comment for the latest removal (owner/repo#n, a URL, or a bare number)"
+}
+
+func rcaUsage() string {
+	return "rca <owner/repo#n|url|number> --class our-code|flake|infra --file body.md"
+}
+
+func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
+	parsed, err := parseRCAArgs(args)
+	if err != nil {
+		return err
+	}
+	if !validRCAClass(parsed.class) {
+		return errors.New("rca class must be our-code, flake, or infra")
+	}
+	fileBody, err := os.ReadFile(parsed.file)
+	if err != nil {
+		return fmt.Errorf("read rca file: %w", err)
+	}
+	if cfg.Settings.RCAMarker == "" {
+		return errors.New("rca_marker is empty")
+	}
+	ref, err := resolvePullRef(parsed.ref)
+	if err != nil {
+		return err
+	}
+	pr, err := client.LoadPullRequest(ref)
+	if err != nil {
+		return fmt.Errorf("load pull request %s: %w", ref, err)
+	}
+	event, ok := latestRemoval(pr.Events)
+	if !ok {
+		return errors.New("pull request has no removal event")
+	}
+	body := rcaComment(string(fileBody), rcaMarkerLine(cfg.Settings.RCAMarker, event.ID, parsed.class))
+	if err := client.CommentOnPullRequest(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number, body); err != nil {
+		return fmt.Errorf("comment on %s: %w", pr.Ref.Raw, err)
+	}
+	fmt.Printf("Commented on %s.\n", pr.Ref.Raw)
+	return nil
+}
+
+type parsedRCA struct {
+	ref   string
+	class string
+	file  string
+}
+
+func parseRCAArgs(args []string) (parsedRCA, error) {
+	var parsed parsedRCA
+	var refs []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--class" || arg == "--file":
+			if i+1 >= len(args) {
+				return parsedRCA{}, errRCAUsage
+			}
+			i++
+			if arg == "--class" {
+				parsed.class = args[i]
+			} else {
+				parsed.file = args[i]
+			}
+		case strings.HasPrefix(arg, "--class="):
+			parsed.class = strings.TrimPrefix(arg, "--class=")
+		case strings.HasPrefix(arg, "--file="):
+			parsed.file = strings.TrimPrefix(arg, "--file=")
+		case strings.HasPrefix(arg, "-"):
+			return parsedRCA{}, errRCAUsage
+		default:
+			refs = append(refs, arg)
+		}
+	}
+	if len(refs) != 1 {
+		return parsedRCA{}, errRCAUsage
+	}
+	parsed.ref = refs[0]
+	return parsed, nil
+}
+
+func validRCAClass(class string) bool {
+	return class == "our-code" || class == "flake" || class == "infra"
+}
+
+func latestRemoval(events []github.QueueEvent) (github.QueueEvent, bool) {
+	sorted := append([]github.QueueEvent(nil), events...)
+	sortQueueEvents(sorted)
+	var found github.QueueEvent
+	ok := false
+	for _, event := range sorted {
+		if event.Kind != github.QueueEventRemoved {
+			continue
+		}
+		found = event
+		ok = true
+	}
+	return found, ok
+}
+
+func rcaMarkerLine(marker, eventID, class string) string {
+	line := strings.ReplaceAll(marker, "{event_id}", eventID)
+	return strings.ReplaceAll(line, "{class}", class)
+}
+
+func rcaComment(fileBody, markerLine string) string {
+	return strings.TrimRight(fileBody, "\n") + "\n" + markerLine
+}
