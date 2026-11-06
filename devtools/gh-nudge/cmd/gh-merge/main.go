@@ -39,6 +39,10 @@
 //
 //	# Remove one pull request from the merge queue
 //	gh-merge dequeue acme/widgets#12
+//
+//	# A pull request whose base is not the repository's default branch, and
+//	# which is not in a native stack, is refused.
+//	gh-merge queue acme/widgets#11
 package main
 
 import (

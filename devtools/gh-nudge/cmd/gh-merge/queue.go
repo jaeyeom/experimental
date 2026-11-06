@@ -25,6 +25,9 @@ type queueAPI interface {
 	EnqueuePullRequest(nodeID string) error
 	OpenDownstack(owner, repo string, number int) ([]github.StackPR, error)
 	OpenAbove(owner, repo string, number int) ([]github.StackPR, error)
+	InNativeStack(owner, repo string, number int) (bool, error)
+	OpenByBase(owner, repo, base string) ([]github.BranchPull, error)
+	OpenByHead(owner, repo, head string) ([]github.BranchPull, error)
 	FailureEvidence(owner, repo, sha string) (github.FailureEvidence, error)
 	LandedFirst(owner, repo, sha string, self int) (github.StackPR, bool, error)
 	MergeAsync(owner, repo string, number int, sha string) error
@@ -64,8 +67,16 @@ type queueJSONResult struct {
 	StackedAbove     []int    `json:"stackedAbove"`
 }
 
+// baseRefusalDoc describes the queue refusal for a pull request that is not in
+// a native stack and whose base is not the repository's default branch.
+const baseRefusalDoc = "A pull request whose base is not the repository's default branch, and which is not in a native stack, is refused"
+
+// baseRefusalFormat is that refusal. The names come from the pull request
+// and from defaultBranchRef, not from a fixed branch name.
+const baseRefusalFormat = "base is %s, not %s; retarget to %s first"
+
 func queueCommandHelp() string {
-	return "Enqueue one pull request (owner/repo#n, a URL, or a bare number) on the merge queue; refuses a draft"
+	return "Enqueue one pull request (owner/repo#n, a URL, or a bare number) on the merge queue; refuses a draft. " + baseRefusalDoc
 }
 
 func watchCommandHelp() string {
@@ -93,18 +104,17 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	if err != nil {
 		return fmt.Errorf("load pull request %s: %w", resolved, err)
 	}
-	above, err := client.OpenAbove(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number)
+	aboveNumbers, baseProblem, err := reportStackedAbove(client, pr)
 	if err != nil {
-		return fmt.Errorf("stacked above for %s: %w", pr.Ref.Raw, err)
+		return err
 	}
-	aboveNumbers := stackNumbers(above)
 	if !jsonOutput {
 		fmt.Println(stackedAboveLine(aboveNumbers))
 	}
 	if err := printRemovalEvidence(client, cfg, pr); err != nil {
 		return err
 	}
-	problems := append(queueConfigProblems(pr, cfg), preflightProblems(pr, cfg.Settings.BlockMergeLabels, cfg.Settings.RequiredChecks)...)
+	problems := queueProblems(pr, cfg, baseProblem)
 	if len(problems) > 0 {
 		return refuseWithProblems(pr, cfg, aboveNumbers, problems)
 	}
@@ -143,6 +153,140 @@ func stackedAboveLine(numbers []int) string {
 		parts[i] = fmt.Sprintf("#%d", number)
 	}
 	return "stacked above: " + strings.Join(parts, ", ") + ", retarget needed after merge"
+}
+
+func queueProblems(pr github.QueuePullRequest, cfg *config.Config, baseProblem string) []string {
+	problems := append(queueConfigProblems(pr, cfg), preflightProblems(pr, cfg.Settings.BlockMergeLabels, cfg.Settings.RequiredChecks)...)
+	if baseProblem != "" {
+		problems = append(problems, baseProblem)
+	}
+	return problems
+}
+
+func reportStackedAbove(client queueAPI, pr github.QueuePullRequest) ([]int, string, error) {
+	above, err := client.OpenAbove(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number)
+	if err != nil {
+		return nil, "", fmt.Errorf("stacked above for %s: %w", pr.Ref.Raw, err)
+	}
+	native, err := client.InNativeStack(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number)
+	if err != nil {
+		return nil, "", fmt.Errorf("stacked above for %s: %w", pr.Ref.Raw, err)
+	}
+	walked, below, found, err := branchNeighbors(client, pr)
+	if err != nil {
+		return nil, "", err
+	}
+	numbers := mergeStackNumbers(stackNumbers(above), walked)
+	if !refuseNonNativeBase(pr, native) {
+		return numbers, "", nil
+	}
+	return numbers, baseRefusalText(pr, below, found), nil
+}
+
+func mergeStackNumbers(native, walked []int) []int {
+	seen := make(map[int]bool, len(native)+len(walked))
+	out := make([]int, 0, len(native)+len(walked))
+	for _, number := range native {
+		if seen[number] {
+			continue
+		}
+		seen[number] = true
+		out = append(out, number)
+	}
+	for _, number := range walked {
+		if seen[number] {
+			continue
+		}
+		seen[number] = true
+		out = append(out, number)
+	}
+	return out
+}
+
+func refuseNonNativeBase(pr github.QueuePullRequest, native bool) bool {
+	if native || pr.BaseRefName == "" || pr.BaseRefName == pr.DefaultBranch {
+		return false
+	}
+	return true
+}
+
+func baseRefusalText(pr github.QueuePullRequest, below int, found bool) string {
+	msg := fmt.Sprintf(baseRefusalFormat, pr.BaseRefName, pr.DefaultBranch, pr.DefaultBranch)
+	if found {
+		msg += fmt.Sprintf(" (it sits on #%d)", below)
+	}
+	return msg
+}
+
+func branchNeighbors(client queueAPI, pr github.QueuePullRequest) ([]int, int, bool, error) {
+	above, err := branchAbove(client, pr)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	below, found, err := branchBelow(client, pr)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return above, below, found, nil
+}
+
+func branchAbove(client queueAPI, pr github.QueuePullRequest) ([]int, error) {
+	if pr.HeadRefName == "" {
+		return nil, nil
+	}
+	seenNum := map[int]bool{pr.Ref.Number: true}
+	seenHead := map[string]bool{}
+	var numbers []int
+	heads := []string{pr.HeadRefName}
+	for len(heads) > 0 {
+		head := heads[0]
+		heads = heads[1:]
+		if seenHead[head] {
+			continue
+		}
+		seenHead[head] = true
+		pulls, err := client.OpenByBase(pr.Ref.Owner, pr.Ref.Repo, head)
+		if err != nil {
+			return nil, fmt.Errorf("stacked above for %s: %w", pr.Ref.Raw, err)
+		}
+		added, next := openAboveByBranch(pulls, seenNum, seenHead)
+		numbers = append(numbers, added...)
+		heads = append(heads, next...)
+	}
+	return numbers, nil
+}
+
+func openAboveByBranch(pulls []github.BranchPull, seenNum map[int]bool, seenHead map[string]bool) ([]int, []string) {
+	var numbers []int
+	var next []string
+	for _, item := range pulls {
+		if item.State != "open" || seenNum[item.Number] {
+			continue
+		}
+		seenNum[item.Number] = true
+		numbers = append(numbers, item.Number)
+		if item.HeadRefName != "" && !seenHead[item.HeadRefName] {
+			next = append(next, item.HeadRefName)
+		}
+	}
+	return numbers, next
+}
+
+func branchBelow(client queueAPI, pr github.QueuePullRequest) (int, bool, error) {
+	if pr.BaseRefName == "" || pr.BaseRefName == pr.DefaultBranch {
+		return 0, false, nil
+	}
+	pulls, err := client.OpenByHead(pr.Ref.Owner, pr.Ref.Repo, pr.BaseRefName)
+	if err != nil {
+		return 0, false, fmt.Errorf("stacked below for %s: %w", pr.Ref.Raw, err)
+	}
+	for _, item := range pulls {
+		if item.Number == pr.Ref.Number || item.State != "open" {
+			continue
+		}
+		return item.Number, true, nil
+	}
+	return 0, false, nil
 }
 
 func queueConfigProblems(pr github.QueuePullRequest, cfg *config.Config) []string {

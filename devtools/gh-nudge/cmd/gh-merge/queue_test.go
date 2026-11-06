@@ -27,6 +27,12 @@ type fakeQueue struct {
 	downstack    []github.StackPR
 	above        []github.StackPR
 	aboveErr     error
+	native       bool
+	nativeErr    error
+	byBase       map[string][]github.BranchPull
+	byHead       map[string][]github.BranchPull
+	baseErr      error
+	headErr      error
 	downCalls    int
 	evidence     github.FailureEvidence
 	comments     []string
@@ -105,6 +111,33 @@ func (f *fakeQueue) OpenAbove(_, _ string, _ int) ([]github.StackPR, error) {
 		return nil, f.aboveErr
 	}
 	return f.above, nil
+}
+
+func (f *fakeQueue) InNativeStack(_, _ string, _ int) (bool, error) {
+	if f.nativeErr != nil {
+		return false, f.nativeErr
+	}
+	return f.native, nil
+}
+
+func (f *fakeQueue) OpenByBase(_, _, base string) ([]github.BranchPull, error) {
+	if f.baseErr != nil {
+		return nil, f.baseErr
+	}
+	if f.byBase == nil {
+		return nil, nil
+	}
+	return f.byBase[base], nil
+}
+
+func (f *fakeQueue) OpenByHead(_, _, head string) ([]github.BranchPull, error) {
+	if f.headErr != nil {
+		return nil, f.headErr
+	}
+	if f.byHead == nil {
+		return nil, nil
+	}
+	return f.byHead[head], nil
 }
 
 func (f *fakeQueue) FailureEvidence(_, _, _ string) (github.FailureEvidence, error) {
@@ -1184,6 +1217,314 @@ func TestQueueStackedAboveLookupErrorDoesNotEnqueue(t *testing.T) {
 	}
 	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 || client.downCalls != 0 {
 		t.Fatalf("enqueueCalls = %d async = %v downCalls = %d", client.enqueueCalls, client.mergedAsync, client.downCalls)
+	}
+}
+
+func testDefaultBranch() string {
+	return "default-ref"
+}
+
+func chainPR(number int, base, head string) github.QueuePullRequest {
+	pr := readyPR()
+	pr.Ref.Number = number
+	pr.Ref.Raw = fmt.Sprintf("acme/widgets#%d", number)
+	pr.BaseRefName = base
+	pr.HeadRefName = head
+	pr.DefaultBranch = testDefaultBranch()
+	return pr
+}
+
+func branchChainClient() *fakeQueue {
+	defaultBranch := testDefaultBranch()
+	return &fakeQueue{
+		byRef: map[string]github.QueuePullRequest{
+			"acme/widgets#10": chainPR(10, defaultBranch, "topic-a"),
+			"acme/widgets#11": chainPR(11, "topic-a", "topic-b"),
+			"acme/widgets#12": chainPR(12, "topic-b", "topic-c"),
+		},
+		byBase: map[string][]github.BranchPull{
+			"topic-a": {{Number: 11, State: "open", BaseRefName: "topic-a", HeadRefName: "topic-b"}},
+			"topic-b": {{Number: 12, State: "open", BaseRefName: "topic-b", HeadRefName: "topic-c"}},
+		},
+		byHead: map[string][]github.BranchPull{
+			"topic-a": {{Number: 10, State: "open", BaseRefName: defaultBranch, HeadRefName: "topic-a"}},
+			"topic-b": {{Number: 11, State: "open", BaseRefName: "topic-a", HeadRefName: "topic-b"}},
+		},
+	}
+}
+
+func TestQueueRefusesNonNativeBaseAndNamesPullBelow(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	client := branchChainClient()
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), "acme/widgets#11", true)
+		if err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	want := fmt.Sprintf("base is topic-a, not %s; retarget to %s first (it sits on #10)", defaultBranch, defaultBranch)
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Would enqueue") || strings.Contains(output, "Enqueued") {
+		t.Fatalf("refused pull request was enqueued:\n%s", output)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 || client.downCalls != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v downCalls = %d", client.enqueueCalls, client.mergedAsync, client.downCalls)
+	}
+}
+
+func TestQueueDryRunDoesNotBypassNonNativeBase(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	defaultBranch := testDefaultBranch()
+	client := branchChainClient()
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), "acme/widgets#11", false)
+		if err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	want := fmt.Sprintf("base is topic-a, not %s; retarget to %s first (it sits on #10)", defaultBranch, defaultBranch)
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Would enqueue") {
+		t.Fatalf("dry run printed Would enqueue:\n%s", output)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueAllowNoRequiredChecksDoesNotBypassNonNativeBase(t *testing.T) {
+	withAllowNoRequiredChecks(t, true)
+	defaultBranch := testDefaultBranch()
+	client := branchChainClient()
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), "acme/widgets#11", false)
+		if err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	want := fmt.Sprintf("base is topic-a, not %s; retarget to %s first (it sits on #10)", defaultBranch, defaultBranch)
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %s", output)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueBranchWalkPrintsSinglePullAbove(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	pr := chainPR(10, defaultBranch, "topic-a")
+	client := &fakeQueue{
+		pr: pr,
+		byBase: map[string][]github.BranchPull{
+			"topic-a": {{Number: 11, State: "open", BaseRefName: "topic-a", HeadRefName: "topic-b"}},
+		},
+	}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "stacked above: #11, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "#12") {
+		t.Fatalf("output = %s", output)
+	}
+	if client.enqueueCalls != 1 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueBranchWalkListsStackedAboveNearestFirst(t *testing.T) {
+	client := branchChainClient()
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#10", false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "stacked above: #11, #12, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if !strings.Contains(output, "Enqueued acme/widgets#10.") {
+		t.Fatalf("output = %s", output)
+	}
+	if client.enqueueCalls != 1 || len(client.mergedAsync) != 0 || client.downCalls != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v downCalls = %d", client.enqueueCalls, client.mergedAsync, client.downCalls)
+	}
+}
+
+func TestQueueOfMiddleStillRefusesAndNamesBasePull(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	client := branchChainClient()
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), "acme/widgets#11", false)
+		if err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	want := fmt.Sprintf("base is topic-a, not %s; retarget to %s first (it sits on #10)", defaultBranch, defaultBranch)
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %s", output)
+	}
+	if !strings.Contains(output, "stacked above: #12, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueNativeStackIsNotRefusedForBase(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	pr := chainPR(11, "topic-a", "topic-b")
+	client := &fakeQueue{
+		pr:     pr,
+		native: true,
+		above:  []github.StackPR{{Number: 14, State: "open"}},
+	}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if strings.Contains(output, "base is ") {
+		t.Fatalf("native stack was refused:\n%s", output)
+	}
+	if !strings.Contains(output, "stacked above: #14, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if !strings.Contains(output, "Enqueued acme/widgets#11.") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, defaultBranch) && strings.Contains(output, "retarget to") {
+		t.Fatalf("output names a retarget:\n%s", output)
+	}
+	if client.enqueueCalls != 1 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueNonNativeBaseOmitsParentheticalWhenNothingBelow(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	pr := chainPR(11, "topic-a", "topic-b")
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
+		if err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	want := fmt.Sprintf("base is topic-a, not %s; retarget to %s first", defaultBranch, defaultBranch)
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "it sits on") {
+		t.Fatalf("output names a pull request below:\n%s", output)
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v", client.enqueueCalls, client.mergedAsync)
+	}
+}
+
+func TestQueueBranchWalkSkipsClosedAndMergesNativeNumbers(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	pr := chainPR(10, defaultBranch, "topic-a")
+	client := &fakeQueue{
+		pr:    pr,
+		above: []github.StackPR{{Number: 11, State: "open"}},
+		byBase: map[string][]github.BranchPull{
+			"topic-a": {
+				{Number: 11, State: "open", HeadRefName: "topic-b", BaseRefName: "topic-a"},
+				{Number: 9, State: "closed", HeadRefName: "topic-closed", BaseRefName: "topic-a"},
+			},
+			"topic-b": {{Number: 12, State: "open", HeadRefName: "topic-c", BaseRefName: "topic-b"}},
+		},
+	}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "stacked above: #11, #12, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "#9") {
+		t.Fatalf("closed pull request listed:\n%s", output)
+	}
+}
+
+func TestQueueBranchWalkErrorDoesNotEnqueue(t *testing.T) {
+	pr := chainPR(11, "topic-a", "topic-b")
+	client := &fakeQueue{pr: pr, baseErr: errors.New("pull api down")}
+	err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true)
+	if err == nil {
+		t.Fatal("queuePullRequest() error = nil")
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 || client.downCalls != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v downCalls = %d", client.enqueueCalls, client.mergedAsync, client.downCalls)
+	}
+}
+
+func TestQueueNativeStackErrorDoesNotEnqueue(t *testing.T) {
+	pr := readyPR()
+	client := &fakeQueue{pr: pr, nativeErr: errors.New("stack api down")}
+	err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true)
+	if err == nil {
+		t.Fatal("queuePullRequest() error = nil")
+	}
+	if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 || client.downCalls != 0 {
+		t.Fatalf("enqueueCalls = %d async = %v downCalls = %d", client.enqueueCalls, client.mergedAsync, client.downCalls)
+	}
+}
+
+func TestQueueBranchWalkDoesNotReplaceDownstack(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	pr := chainPR(10, defaultBranch, "topic-a")
+	client := &fakeQueue{
+		pr:         pr,
+		enqueueErr: errors.New("this pull request is part of a stack and must be merged sequentially using merge-async"),
+		downstack:  []github.StackPR{{Number: 9, State: "open"}},
+		byBase: map[string][]github.BranchPull{
+			"topic-a": {{Number: 11, State: "open", HeadRefName: "topic-b", BaseRefName: "topic-a"}},
+		},
+	}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, true); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "stacked above: #11, retarget needed after merge") {
+		t.Fatalf("output = %s", output)
+	}
+	if !strings.Contains(output, "- acme/widgets#9") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "- acme/widgets#11") {
+		t.Fatalf("walked pull request was added to the downstack:\n%s", output)
+	}
+	if len(client.mergedAsync) != 1 || !strings.Contains(client.mergedAsync[0], "acme/widgets#10@") {
+		t.Fatalf("async = %v", client.mergedAsync)
+	}
+	if client.downCalls != 1 {
+		t.Fatalf("downCalls = %d", client.downCalls)
+	}
+}
+
+func TestQueueHelpNamesRepositoryDefaultBranch(t *testing.T) {
+	help := queueCommandHelp()
+	if !strings.Contains(help, "repository's default branch") {
+		t.Fatalf("help = %q", help)
+	}
+	if baseRefusalFormat != "base is %s, not %s; retarget to %s first" {
+		t.Fatalf("format = %q", baseRefusalFormat)
+	}
+	if !strings.Contains(baseRefusalDoc, "repository's default branch") {
+		t.Fatalf("doc = %q", baseRefusalDoc)
 	}
 }
 

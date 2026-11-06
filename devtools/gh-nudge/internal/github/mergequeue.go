@@ -57,6 +57,20 @@ type QueuePullRequest struct {
 	// InMergeQueue flickers while a merge is still in progress.
 	// Callers must not treat false by itself as an ejection.
 	InMergeQueue bool
+	// BaseRefName is the pull request base branch.
+	BaseRefName string
+	// HeadRefName is the pull request head branch.
+	HeadRefName string
+	// DefaultBranch is the repository's default branch from defaultBranchRef.
+	DefaultBranch string
+}
+
+// BranchPull is one pull request matched by head or base branch name.
+type BranchPull struct {
+	Number      int
+	State       string
+	HeadRefName string
+	BaseRefName string
 }
 
 // StackPR is one pull request in a stack or a merge batch.
@@ -113,6 +127,7 @@ func parseHashRef(raw string) (string, string, int, bool) {
 const queuePullRequestQuery = `
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
     pullRequest(number: $number) {
       id
       isDraft
@@ -121,6 +136,8 @@ query($owner: String!, $name: String!, $number: Int!) {
       merged
       isInMergeQueue
       headRefOid
+      baseRefName
+      headRefName
       url
       labels(first: 100) { nodes { name } }
       reviewThreads(first: 100) { nodes { isResolved } }
@@ -220,6 +237,57 @@ func (c *Client) OpenAbove(owner, repo string, number int) ([]StackPR, error) {
 		return nil, err
 	}
 	return openAbove(stacks, number), nil
+}
+
+// InNativeStack reports whether the native stacks response contains number.
+// An empty list is not an error and reports false.
+func (c *Client) InNativeStack(owner, repo string, number int) (bool, error) {
+	stacks, err := c.listStacks(owner, repo, number)
+	if err != nil {
+		return false, err
+	}
+	_, _, ok := stackAt(stacks, number)
+	return ok, nil
+}
+
+// OpenByBase returns open pull requests whose base branch is base.
+func (c *Client) OpenByBase(owner, repo, base string) ([]BranchPull, error) {
+	return c.listPullsByRef(owner, repo, "base", base)
+}
+
+// OpenByHead returns open pull requests whose head branch is head.
+func (c *Client) OpenByHead(owner, repo, head string) ([]BranchPull, error) {
+	return c.listPullsByRef(owner, repo, "head", owner+":"+head)
+}
+
+func (c *Client) listPullsByRef(owner, repo, key, value string) ([]BranchPull, error) {
+	query := url.Values{}
+	query.Set("state", "open")
+	query.Set("per_page", "100")
+	query.Set(key, value)
+	path := fmt.Sprintf("repos/%s/%s/pulls?%s", owner, repo, query.Encode())
+	out, err := c.executor.Execute("gh", "api", path)
+	if err != nil {
+		return nil, fmt.Errorf("list pulls for %s/%s: %w", owner, repo, err)
+	}
+	var raw []branchPullJSON
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, fmt.Errorf("parse pulls for %s/%s: %w", owner, repo, err)
+	}
+	return convertBranchPulls(raw), nil
+}
+
+func convertBranchPulls(raw []branchPullJSON) []BranchPull {
+	out := make([]BranchPull, 0, len(raw))
+	for _, item := range raw {
+		out = append(out, BranchPull{
+			Number:      item.Number,
+			State:       item.State,
+			HeadRefName: item.Head.Ref,
+			BaseRefName: item.Base.Ref,
+		})
+	}
+	return out
 }
 
 func (c *Client) listStacks(owner, repo string, number int) ([]stackResponse, error) {
@@ -362,6 +430,9 @@ func graphqlMessages(body []byte) string {
 type queueQueryResponse struct {
 	Data struct {
 		Repository *struct {
+			DefaultBranchRef *struct {
+				Name string `json:"name"`
+			} `json:"defaultBranchRef"`
 			PullRequest *queuePRJSON `json:"pullRequest"`
 		} `json:"repository"`
 	} `json:"data"`
@@ -375,6 +446,8 @@ type queuePRJSON struct {
 	Merged         bool   `json:"merged"`
 	IsInMergeQueue bool   `json:"isInMergeQueue"`
 	HeadRefOid     string `json:"headRefOid"`
+	BaseRefName    string `json:"baseRefName"`
+	HeadRefName    string `json:"headRefName"`
 	URL            string `json:"url"`
 	Labels         struct {
 		Nodes []struct {
@@ -429,10 +502,15 @@ func parseQueuePullRequest(body []byte, ref PullRef) (QueuePullRequest, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return QueuePullRequest{}, fmt.Errorf("parse graphql: %w", err)
 	}
-	if resp.Data.Repository == nil || resp.Data.Repository.PullRequest == nil {
+	repo := resp.Data.Repository
+	if repo == nil || repo.PullRequest == nil {
 		return QueuePullRequest{}, fmt.Errorf("pull request not found")
 	}
-	return convertQueuePR(resp.Data.Repository.PullRequest, ref), nil
+	pr := convertQueuePR(repo.PullRequest, ref)
+	if repo.DefaultBranchRef != nil {
+		pr.DefaultBranch = repo.DefaultBranchRef.Name
+	}
+	return pr, nil
 }
 
 func convertQueuePR(raw *queuePRJSON, ref PullRef) QueuePullRequest {
@@ -442,6 +520,8 @@ func convertQueuePR(raw *queuePRJSON, ref PullRef) QueuePullRequest {
 		Draft:          raw.IsDraft,
 		ReviewDecision: raw.ReviewDecision,
 		HeadSHA:        raw.HeadRefOid,
+		BaseRefName:    raw.BaseRefName,
+		HeadRefName:    raw.HeadRefName,
 		Merged:         raw.Merged || raw.State == "MERGED",
 		InMergeQueue:   raw.IsInMergeQueue,
 	}
@@ -525,6 +605,17 @@ type stackResponse struct {
 type stackPullJSON struct {
 	Number int    `json:"number"`
 	State  string `json:"state"`
+}
+
+type branchPullJSON struct {
+	Number int    `json:"number"`
+	State  string `json:"state"`
+	Head   struct {
+		Ref string `json:"ref"`
+	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
 }
 
 func openBelow(stacks []stackResponse, number int) []StackPR {
