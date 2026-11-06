@@ -37,6 +37,44 @@ type StatusCheck struct {
 	Conclusion  string `json:"conclusion"` // e.g., "SUCCESS", "FAILURE", "NEUTRAL", "SKIPPED"
 	StartedAt   string `json:"startedAt,omitempty"`
 	CompletedAt string `json:"completedAt,omitempty"`
+	// State is a commit status context result: SUCCESS, FAILURE, ERROR,
+	// PENDING, or EXPECTED. A non-empty State means this entry is a status
+	// context. Check runs leave it empty and use Status and Conclusion.
+	State string `json:"state,omitempty"`
+	// Context is the status context name. It is used when Name is empty.
+	Context string `json:"context,omitempty"`
+}
+
+// statusContext reports whether this rollup entry is a commit status context.
+func (c StatusCheck) statusContext() bool {
+	return c.State != ""
+}
+
+func (c StatusCheck) failed() bool {
+	if c.statusContext() {
+		return c.State == "FAILURE" || c.State == "ERROR"
+	}
+	switch c.Conclusion {
+	case "FAILURE", "CANCELLED", "ACTION_REQUIRED":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c StatusCheck) incomplete() bool {
+	if c.statusContext() {
+		return c.State == "PENDING" || c.State == "EXPECTED"
+	}
+	return c.Status != "COMPLETED"
+}
+
+// withContextName copies the check and uses Context as the name when Name is empty.
+func (c StatusCheck) withContextName() StatusCheck {
+	if c.Name == "" && c.statusContext() {
+		c.Name = c.Context
+	}
+	return c
 }
 
 // ChecksStatus returns the overall CI check status for the pull request.
@@ -47,11 +85,10 @@ func (pr *PullRequest) ChecksStatus() string {
 	}
 	hasPending := false
 	for _, check := range pr.StatusCheckRollup {
-		switch check.Conclusion {
-		case "FAILURE", "CANCELLED", "ACTION_REQUIRED":
+		if check.failed() {
 			return ChecksFail
 		}
-		if check.Status != "COMPLETED" {
+		if check.incomplete() {
 			hasPending = true
 		}
 	}
@@ -61,24 +98,25 @@ func (pr *PullRequest) ChecksStatus() string {
 	return ChecksPass
 }
 
-// FailedChecks returns checks with a failing conclusion.
+// FailedChecks returns check runs with a failing conclusion and status
+// contexts whose state is FAILURE or ERROR.
 func (pr *PullRequest) FailedChecks() []StatusCheck {
 	var failed []StatusCheck
 	for _, check := range pr.StatusCheckRollup {
-		switch check.Conclusion {
-		case "FAILURE", "CANCELLED", "ACTION_REQUIRED":
-			failed = append(failed, check)
+		if check.failed() {
+			failed = append(failed, check.withContextName())
 		}
 	}
 	return failed
 }
 
-// PendingChecks returns checks that have not completed yet.
+// PendingChecks returns check runs that have not completed and status
+// contexts whose state is PENDING or EXPECTED.
 func (pr *PullRequest) PendingChecks() []StatusCheck {
 	var pending []StatusCheck
 	for _, check := range pr.StatusCheckRollup {
-		if check.Status != "COMPLETED" {
-			pending = append(pending, check)
+		if check.incomplete() {
+			pending = append(pending, check.withContextName())
 		}
 	}
 	return pending

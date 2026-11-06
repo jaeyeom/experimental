@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -178,6 +179,61 @@ func TestPendingChecks(t *testing.T) {
 		if !names[want] {
 			t.Errorf("expected %q in pending checks", want)
 		}
+	}
+}
+
+func TestStatusContextState(t *testing.T) {
+	const raw = `{"context":"ci/circleci","state":"SUCCESS"}`
+	var decoded StatusCheck
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if decoded.State != "SUCCESS" || decoded.Context != "ci/circleci" {
+		t.Fatalf("decoded = %+v, want state and context kept", decoded)
+	}
+
+	green := StatusCheck{Name: "build", Status: "COMPLETED", Conclusion: "SUCCESS"}
+	success := StatusCheck{Context: "ci/circleci", State: "SUCCESS"}
+	pr := PullRequest{StatusCheckRollup: []StatusCheck{green, success}}
+	if pr.ChecksStatus() != ChecksPass {
+		t.Fatalf("ChecksStatus() = %q, want PASS", pr.ChecksStatus())
+	}
+	if len(pr.PendingChecks()) != 0 {
+		t.Fatalf("PendingChecks() = %+v, want empty", pr.PendingChecks())
+	}
+
+	for _, state := range []string{"PENDING", "EXPECTED"} {
+		waiting := StatusCheck{Context: "ci/" + state, State: state}
+		pr = PullRequest{StatusCheckRollup: []StatusCheck{green, waiting}}
+		if pr.ChecksStatus() != ChecksPending {
+			t.Errorf("state %s ChecksStatus() = %q, want PENDING", state, pr.ChecksStatus())
+		}
+		pending := pr.PendingChecks()
+		if len(pending) != 1 || pending[0].Name != waiting.Context {
+			t.Errorf("state %s PendingChecks() = %+v, want the context", state, pending)
+		}
+	}
+
+	for _, state := range []string{"FAILURE", "ERROR"} {
+		failedContext := StatusCheck{Context: "ci/" + state, State: state}
+		pr = PullRequest{StatusCheckRollup: []StatusCheck{green, failedContext}}
+		if pr.ChecksStatus() != ChecksFail {
+			t.Errorf("state %s ChecksStatus() = %q, want FAIL", state, pr.ChecksStatus())
+		}
+		failed := pr.FailedChecks()
+		if len(failed) != 1 || failed[0].Name != failedContext.Context || failed[0].State != state {
+			t.Errorf("state %s FailedChecks() = %+v, want the context", state, failed)
+		}
+		if len(pr.PendingChecks()) != 0 {
+			t.Errorf("state %s PendingChecks() = %+v, want empty", state, pr.PendingChecks())
+		}
+	}
+
+	named := StatusCheck{Name: "already", Context: "other", State: "FAILURE"}
+	pr = PullRequest{StatusCheckRollup: []StatusCheck{named}}
+	failed := pr.FailedChecks()
+	if len(failed) != 1 || failed[0].Name != "already" {
+		t.Fatalf("FailedChecks() = %+v, want the check-run name kept", failed)
 	}
 }
 
