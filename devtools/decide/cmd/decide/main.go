@@ -48,6 +48,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdTargets(args[1:], stdout, stderr)
 	case "send":
 		return cmdSend(args[1:], stdout, stderr)
+	case "skill":
+		return cmdSkill(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -77,6 +79,7 @@ func usage(w io.Writer) {
   decide status clear --resource <name>
   decide targets [--json]
   decide send --to <name> [--json] <text>
+  decide skill
 `)
 }
 
