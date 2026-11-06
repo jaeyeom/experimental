@@ -907,6 +907,9 @@ settings: {}
 	if len(cfg.Settings.RequiredChecks) != 0 || cfg.Settings.RCAMarker != "" {
 		t.Errorf("expected empty queue gates, got %+v", cfg.Settings)
 	}
+	if cfg.Settings.FailureLogPattern != DefaultFailureLogPattern {
+		t.Errorf("failure_log_pattern = %q, want %q", cfg.Settings.FailureLogPattern, DefaultFailureLogPattern)
+	}
 }
 
 func TestLoadConfigRejectsBadFlakeSignature(t *testing.T) {
@@ -927,6 +930,35 @@ settings:
 	}
 	if _, err := LoadConfig(configPath); err == nil {
 		t.Fatal("LoadConfig() error = nil, want invalid flake signature")
+	}
+}
+
+func TestLoadConfigFailureLogPattern(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configContent := `
+github:
+  repos:
+    - "repo1"
+settings:
+  failure_log_pattern: "^FATAL:"
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Settings.FailureLogPattern != "^FATAL:" {
+		t.Fatalf("failure_log_pattern = %q", cfg.Settings.FailureLogPattern)
+	}
+
+	if err := os.WriteFile(configPath, []byte("github:\n  repos:\n    - repo1\nsettings:\n  failure_log_pattern: \"(\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(configPath); err == nil {
+		t.Fatal("LoadConfig() error = nil, want invalid failure_log_pattern")
 	}
 }
 
@@ -967,6 +999,9 @@ func TestConvertPklConfigMergeQueue(t *testing.T) {
 	}
 	if cfg.Settings.RequeueLimit() != 4 {
 		t.Errorf("max_requeues = %d, want 4", cfg.Settings.RequeueLimit())
+	}
+	if cfg.Settings.FailureLogPattern != DefaultFailureLogPattern {
+		t.Errorf("failure_log_pattern = %q, want default", cfg.Settings.FailureLogPattern)
 	}
 }
 

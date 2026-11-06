@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -246,6 +247,180 @@ func TestQueueRemovalPrintsEvidenceAndFlakeHint(t *testing.T) {
 	if len(client.enqueued) != 0 {
 		t.Errorf("enqueued = %v, want none without an RCA marker", client.enqueued)
 	}
+}
+
+func TestQueueCircleCIPrintsFailedStepAndPattern(t *testing.T) {
+	t.Setenv(circleTokenEnv, "token")
+	logText := "ERROR: setup failed\n"
+	for i := 0; i < 25; i++ {
+		logText += fmt.Sprintf("line %d\n", i)
+	}
+	encoded, err := json.Marshal([]struct {
+		Message string `json:"message"`
+	}{{Message: logText}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	withCircleGet(t, func(_ context.Context, rawURL, token string) ([]byte, error) {
+		if token != "token" {
+			t.Fatalf("token = %q", token)
+		}
+		calls = append(calls, rawURL)
+		switch {
+		case strings.HasSuffix(rawURL, "/project/gh/acme/widgets/pipeline/42"):
+			return []byte(`{"id":"pipe-1"}`), nil
+		case strings.HasSuffix(rawURL, "/pipeline/pipe-1/workflow"):
+			return []byte(`{"items":[{"id":"wf-ok","status":"success"},{"id":"wf-2","status":"failed"}]}`), nil
+		case strings.HasSuffix(rawURL, "/workflow/wf-2/job"):
+			return []byte(`{"items":[{"job_number":7,"status":"success"},{"job_number":8,"status":"failed"}]}`), nil
+		case strings.HasSuffix(rawURL, "/project/gh/acme/widgets/8"):
+			return []byte(`{"steps":[{"actions":[{"status":"success","output_url":"https://circleci.com/output/ok"},{"status":"failed","output_url":"https://circleci.com/output/8"}]}]}`), nil
+		case rawURL == "https://circleci.com/output/8":
+			return encoded, nil
+		default:
+			t.Fatalf("unexpected circleci url %s", rawURL)
+			return nil, nil
+		}
+	})
+
+	pr := removedPR()
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:      "ci/circleci",
+		TargetURL: "https://app.circleci.com/pipelines/github/acme/widgets/42",
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want RCA refusal")
+		}
+	})
+	wantCalls := []string{
+		"https://circleci.com/api/v2/project/gh/acme/widgets/pipeline/42",
+		"https://circleci.com/api/v2/pipeline/pipe-1/workflow",
+		"https://circleci.com/api/v2/workflow/wf-2/job",
+		"https://circleci.com/api/v1.1/project/gh/acme/widgets/8",
+		"https://circleci.com/output/8",
+	}
+	if strings.Join(calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls = %v", calls)
+	}
+	for _, want := range []string{"ci/circleci https://app.circleci.com/pipelines/github/acme/widgets/42", "line 24", "ERROR: setup failed"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "line 0\n") || strings.Contains(output, "Failing step log tail:") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueCircleCIUsesConfiguredPattern(t *testing.T) {
+	t.Setenv(circleTokenEnv, "token")
+	logText := "ERROR: ignore\n"
+	for i := 0; i < 25; i++ {
+		logText += fmt.Sprintf("line %d\n", i)
+	}
+	logText = "FATAL: disk\n" + logText
+	encoded, err := json.Marshal([]struct {
+		Message string `json:"message"`
+	}{{Message: logText}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withCircleGet(t, func(_ context.Context, rawURL, _ string) ([]byte, error) {
+		switch {
+		case strings.HasSuffix(rawURL, "/pipeline/42"):
+			return []byte(`{"id":"pipe-1"}`), nil
+		case strings.HasSuffix(rawURL, "/workflow"):
+			return []byte(`{"items":[{"id":"wf-2","status":"failed"}]}`), nil
+		case strings.HasSuffix(rawURL, "/job"):
+			return []byte(`{"items":[{"job_number":8,"status":"failed"}]}`), nil
+		case strings.HasSuffix(rawURL, "/widgets/8"):
+			return []byte(`{"steps":[{"actions":[{"status":"failed","output_url":"https://circleci.com/output/8"}]}]}`), nil
+		default:
+			return encoded, nil
+		}
+	})
+	pr := removedPR()
+	cfg := queueConfig()
+	cfg.Settings.FailureLogPattern = "^FATAL:"
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:      "ci/circleci",
+		TargetURL: "https://circleci.com/gh/acme/widgets/42",
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil")
+		}
+	})
+	if !strings.Contains(output, "FATAL: disk") || !strings.Contains(output, "line 24") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "ERROR: ignore") {
+		t.Fatalf("pattern did not filter:\n%s", output)
+	}
+}
+
+func TestQueueCircleCIMissingToken(t *testing.T) {
+	t.Setenv(circleTokenEnv, "")
+	withCircleGet(t, func(context.Context, string, string) ([]byte, error) {
+		t.Fatal("circleci request without a token")
+		return nil, nil
+	})
+	pr := removedPR()
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:      "ci/circleci",
+		TargetURL: "https://app.circleci.com/pipelines/github/acme/widgets/42",
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil")
+		}
+	})
+	if !strings.Contains(output, "ci/circleci") || !strings.Contains(output, "log unavailable: no CircleCI token") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Failing step log tail:") {
+		t.Fatalf("empty tail printed:\n%s", output)
+	}
+}
+
+func TestQueueOtherTargetPrintsWhyLogWasNotFetched(t *testing.T) {
+	pr := removedPR()
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:      "jenkins",
+		TargetURL: "https://ci.example/build/1",
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil")
+		}
+	})
+	if !strings.Contains(output, "jenkins https://ci.example/build/1") || !strings.Contains(output, "log unavailable: unsupported target") {
+		t.Fatalf("output = %s", output)
+	}
+	if strings.Contains(output, "Failing step log tail:") {
+		t.Fatalf("empty tail printed:\n%s", output)
+	}
+}
+
+func removedPR() github.QueuePullRequest {
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{{
+		ID:        "EVT1",
+		Kind:      github.QueueEventRemoved,
+		CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		Reason:    "failed_checks",
+		CommitSHA: "deadbeef",
+	}}
+	return pr
+}
+
+func withCircleGet(t *testing.T, fn func(context.Context, string, string) ([]byte, error)) {
+	t.Helper()
+	prev := circleGet
+	circleGet = fn
+	t.Cleanup(func() { circleGet = prev })
 }
 
 func TestQueueRCAGate(t *testing.T) {

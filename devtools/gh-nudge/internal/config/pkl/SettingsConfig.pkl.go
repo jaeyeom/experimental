@@ -56,4 +56,9 @@ type SettingsConfig struct {
 	// gh-merge queue refuses when the timeline count is greater than this.
 	// Zero means no requeue is allowed.
 	MaxRequeues int `pkl:"max_requeues"`
+
+	// Lines of a CircleCI failing step that match this regular expression are
+	// printed with the log tail. An invalid pattern fails config load.
+	// The default matches a line that starts with ERROR:.
+	FailureLogPattern string `pkl:"failure_log_pattern"`
 }

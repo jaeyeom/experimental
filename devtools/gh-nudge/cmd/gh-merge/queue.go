@@ -242,10 +242,11 @@ func printRemovalEvidence(client queueAPI, cfg *config.Config, pr github.QueuePu
 	if err != nil {
 		return fmt.Errorf("failure evidence for %s: %w", pr.Ref.Raw, err)
 	}
-	fmt.Printf("Check run: %s\n", evidence.CheckRunURL)
-	fmt.Printf("Job: %s\n", evidence.JobURL)
-	fmt.Printf("Failing step log tail:\n%s\n", tailText(evidence.Log, logTailLines))
-	hints, err := flakeHints(cfg.Settings.FlakeSignatures, evidence.Log)
+	logText, err := printFailureEvidence(cfg, evidence)
+	if err != nil {
+		return err
+	}
+	hints, err := flakeHints(cfg.Settings.FlakeSignatures, logText)
 	if err != nil {
 		return err
 	}

@@ -84,6 +84,10 @@ class SettingsConfig {
   /// gh-merge queue refuses when the timeline count is greater than this.
   /// Zero means no requeue is allowed.
   max_requeues: Int(this >= 0) = 2
+  /// Lines of a CircleCI failing step that match this regular expression are
+  /// printed with the log tail. An invalid pattern fails config load.
+  /// The default matches a line that starts with ERROR:.
+  failure_log_pattern: String = "^ERROR:"
 }
 
 /// Root configuration
