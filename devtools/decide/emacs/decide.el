@@ -201,6 +201,7 @@ Signal an error when the program exits non-zero."
       (let ((inhibit-read-only t))
         (erase-buffer)
         (insert (decide--item-text item)))
+      (setq-local header-line-format (decide--item-keys-line item))
       (pop-to-buffer (current-buffer)))))
 
 (defun decide--item-text (item)
@@ -226,6 +227,13 @@ Signal an error when the program exits non-zero."
   (mapcar (lambda (opt) (decide--field opt "key"))
           (or (alist-get "options" item nil nil #'equal) nil)))
 
+(defun decide--item-keys-line (item)
+  "Header of the keys that answer or quit ITEM."
+  (let ((keys (decide--option-keys item)))
+    (concat (mapconcat #'identity keys "  ")
+            (if keys "   " "")
+            "0 f free text   q quit")))
+
 (defun decide-answer-option ()
   "Answer the open item with one of its option keys."
   (interactive)
@@ -238,6 +246,21 @@ Signal an error when the program exits non-zero."
     (when (get-buffer "*decide*")
       (decide-refresh))))
 
+(declare-function evil-insert-state "evil" (&optional arg))
+(declare-function evil-hybrid-state "evil" (&optional arg))
+(defvar evil-default-state)
+
+(defun decide--prepare-answer-state ()
+  "Leave the answer buffer ready to type.
+Use hybrid state when evil's default state is hybrid."
+  (cond
+   ((not (fboundp 'evil-insert-state)) nil)
+   ((and (boundp 'evil-default-state)
+         (eq evil-default-state 'hybrid)
+         (fboundp 'evil-hybrid-state))
+    (evil-hybrid-state))
+   (t (evil-insert-state))))
+
 (defun decide-answer-free ()
   "Edit a free-text answer in an ordinary buffer."
   (interactive)
@@ -247,7 +270,8 @@ Signal an error when the program exits non-zero."
     (with-current-buffer (get-buffer-create (format "*decide answer %s*" id))
       (decide-answer-mode)
       (setq decide--item-id id)
-      (pop-to-buffer (current-buffer)))))
+      (pop-to-buffer (current-buffer))
+      (decide--prepare-answer-state))))
 
 (defun decide-answer-send ()
   "Send this buffer as the answer."
@@ -277,6 +301,7 @@ Signal an error when the program exits non-zero."
   (setq-local revert-buffer-function #'decide-list-revert))
 
 (define-key decide-list-mode-map (kbd "g") #'decide-refresh)
+(define-key decide-list-mode-map (kbd "o") #'decide-show)
 (define-key decide-list-mode-map (kbd "RET") #'decide-show)
 (define-key decide-list-mode-map (kbd "c") #'decide-compose)
 (define-key decide-list-mode-map (kbd "s") #'decide-status)
@@ -293,6 +318,7 @@ Signal an error when the program exits non-zero."
 
 (define-key decide-item-mode-map (kbd "o") #'decide-answer-option)
 (define-key decide-item-mode-map (kbd "f") #'decide-answer-free)
+(define-key decide-item-mode-map (kbd "0") #'decide-answer-free)
 (define-key decide-item-mode-map (kbd "q") #'quit-window)
 
 (define-derived-mode decide-answer-mode text-mode "Decide-Answer"
@@ -540,14 +566,28 @@ FIELDS are JSON keys. The third column is the age of updatedAt."
                (kbd "g w") #'decide-list-withdrawn
                (kbd "g s") #'decide-status)))
 
+(defun decide--evil-bind (map bindings)
+  "Bind normal-state BINDINGS on MAP."
+  (apply #'evil-define-key* 'normal map bindings))
+
 (defun decide--evil-setup ()
   "Give the decide modes an emacs initial state, then bind normal-state keys.
 The mode maps win in that initial state.  Normal state still moves by
-line, quits, reverts, and opens a folder."
+line, quits, reverts, and opens a folder.  The list opens an item, and
+the item answers with an option or with free text."
   (dolist (mode '(decide-list-mode decide-item-mode decide-status-mode))
     (evil-set-initial-state mode 'emacs))
   (dolist (map (list decide-list-mode-map decide-item-mode-map decide-status-mode-map))
-    (decide--evil-normal-keys map)))
+    (decide--evil-normal-keys map))
+  (decide--evil-bind
+   decide-list-mode-map
+   (list (kbd "o") #'decide-show
+         (kbd "RET") #'decide-show))
+  (decide--evil-bind
+   decide-item-mode-map
+   (list (kbd "o") #'decide-answer-option
+         (kbd "f") #'decide-answer-free
+         (kbd "0") #'decide-answer-free)))
 
 (with-eval-after-load 'evil
   (decide--evil-setup))

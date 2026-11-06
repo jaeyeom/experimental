@@ -224,6 +224,86 @@
       (should (evil-emacs-state-p))
       (should (eq (key-binding (kbd "g")) #'decide-refresh)))))
 
+(ert-deftest decide-list-o-opens-item-and-shows-keys ()
+  (let ((rows '((("id" . "D-4") ("owner" . "ada") ("question" . "pick"))))
+        (item '(("id" . "D-4")
+                ("owner" . "ada")
+                ("state" . "open")
+                ("kind" . "choice")
+                ("question" . "pick")
+                ("options" . ((("key" . "a") ("label" . "yes"))
+                              (("key" . "b") ("label" . "no")))))))
+    (cl-letf (((symbol-function 'decide--json)
+               (lambda (args)
+                 (if (member "show" args) item rows))))
+      (unwind-protect
+          (progn
+            (decide-list "inbox")
+            (with-current-buffer "*decide*"
+              (decide--goto-id "D-4")
+              (should (eq (key-binding (kbd "o")) #'decide-show))
+              (should (eq (key-binding (kbd "RET")) #'decide-show))
+              (call-interactively (key-binding (kbd "o"))))
+            (with-current-buffer "*decide D-4*"
+              (should (equal header-line-format
+                             "a  b   0 f free text   q quit"))
+              (should (eq (lookup-key decide-item-mode-map (kbd "o"))
+                          #'decide-answer-option))
+              (should (eq (lookup-key decide-item-mode-map (kbd "f"))
+                          #'decide-answer-free))
+              (should (eq (lookup-key decide-item-mode-map (kbd "0"))
+                          #'decide-answer-free))))
+        (dolist (name '("*decide*" "*decide D-4*" "*decide answer D-4*"))
+          (when (get-buffer name)
+            (kill-buffer name)))))))
+
+(ert-deftest decide-evil-open-and-free-text ()
+  (if (not (decide-test--evil-ready-p))
+      (progn
+        (should (eq (lookup-key decide-list-mode-map (kbd "o")) #'decide-show))
+        (should (eq (lookup-key decide-list-mode-map (kbd "RET")) #'decide-show))
+        (should (eq (lookup-key decide-item-mode-map (kbd "o"))
+                    #'decide-answer-option))
+        (should (eq (lookup-key decide-item-mode-map (kbd "f"))
+                    #'decide-answer-free))
+        (should (eq (lookup-key decide-item-mode-map (kbd "0"))
+                    #'decide-answer-free))
+        (should (assq 'evil after-load-alist)))
+    (with-temp-buffer
+      (decide-list-mode)
+      (evil-local-mode 1)
+      (evil-normal-state)
+      (should (eq (key-binding (kbd "o")) #'decide-show))
+      (should (eq (key-binding (kbd "RET")) #'decide-show)))
+    (with-temp-buffer
+      (decide-item-mode)
+      (evil-local-mode 1)
+      (evil-normal-state)
+      (should (eq (key-binding (kbd "o")) #'decide-answer-option))
+      (should (eq (key-binding (kbd "f")) #'decide-answer-free))
+      (should (eq (key-binding (kbd "0")) #'decide-answer-free)))
+    (with-temp-buffer
+      (setq decide--item-id "D-4")
+      (decide-answer-free))
+    (unwind-protect
+        (with-current-buffer "*decide answer D-4*"
+          (should (eq (key-binding (kbd "C-c C-c")) #'decide-answer-send))
+          (should (eq (key-binding (kbd "C-c C-k")) #'decide-answer-cancel))
+          (should (evil-insert-state-p)))
+      (when (get-buffer "*decide answer D-4*")
+        (kill-buffer "*decide answer D-4*")))
+    (decide-test--add-elpa "hybrid-mode.el")
+    (when (require 'hybrid-mode nil t)
+      (with-temp-buffer
+        (setq decide--item-id "D-4")
+        (let ((evil-default-state 'hybrid))
+          (decide-answer-free)))
+      (unwind-protect
+          (with-current-buffer "*decide answer D-4*"
+            (should (evil-hybrid-state-p)))
+        (when (get-buffer "*decide answer D-4*")
+          (kill-buffer "*decide answer D-4*"))))))
+
 (provide 'decide-test)
 
 ;;; decide-test.el ends here
