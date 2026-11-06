@@ -148,6 +148,85 @@ func TestFolderKeysShowEachState(t *testing.T) {
 	}
 }
 
+func TestStatusFolderIsSelectable(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := decide.Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	board, err := decide.OpenStatus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.SetClock(func() time.Time { return now })
+	if _, err := board.SetAgent("alpha", "working", "fixing the inbox"); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	for _, width := range []int{70, 120} {
+		m.width = width
+		m.height = 24
+		m.mode = modeList
+		m.folder = 0
+		view := m.View()
+		for _, name := range []string{"[Inbox]", "Answered", "Done", "Withdrawn", "Status"} {
+			if !strings.Contains(view, name) {
+				t.Fatalf("width %d missing %s\n%s", width, name, view)
+			}
+		}
+		if strings.Contains(view, "[Status]") {
+			t.Fatalf("width %d highlighted Status from the inbox\n%s", width, view)
+		}
+		inbox := screenRow(view, "[Inbox]")
+		status := screenRow(view, "Status")
+		if width < narrowWidth && status != inbox {
+			t.Fatalf("width %d Status left the tab row\n%s", width, view)
+		}
+		if width >= narrowWidth && status == inbox {
+			t.Fatalf("width %d Status shares the Inbox row\n%s", width, view)
+		}
+	}
+	m.width = 120
+	m.height = 24
+	press(t, m, "gs")
+	view := m.View()
+	if m.mode != modeStatus || !strings.Contains(view, "[Status]") || strings.Contains(view, "[Inbox]") {
+		t.Fatalf("gs mode %d\n%s", m.mode, view)
+	}
+	if !strings.Contains(view, "alpha working now fixing the inbox") {
+		t.Fatalf("gs hid the board\n%s", view)
+	}
+	if screenRow(view, "[Status]") == screenRow(view, "Inbox") {
+		t.Fatalf("wide Status is not its own row\n%s", view)
+	}
+	press(t, m, "gi")
+	if m.mode != modeList || m.folder != 0 || !strings.Contains(m.View(), "[Inbox]") || strings.Contains(m.View(), "[Status]") {
+		t.Fatalf("gi mode %d folder %d\n%s", m.mode, m.folder, m.View())
+	}
+	row := screenRow(m.View(), "Status")
+	line := strings.Split(m.View(), "\n")[row-1]
+	if err := m.Click(visibleCol(line, "Status"), row); err != nil || m.mode != modeStatus || !strings.Contains(m.View(), "[Status]") {
+		t.Fatalf("click status mode %d\n%s", m.mode, m.View())
+	}
+	m.width = 70
+	view = m.View()
+	if screenRow(view, "[Status]") != screenRow(view, "Inbox") {
+		t.Fatalf("narrow Status left the tab row\n%s", view)
+	}
+	press(t, m, "gs")
+	if m.mode != modeStatus || !strings.Contains(m.View(), "[Status]") {
+		t.Fatalf("gs again mode %d\n%s", m.mode, m.View())
+	}
+	press(t, m, "ga")
+	if m.mode != modeList || m.folder != 1 || !strings.Contains(m.View(), "[Answered]") || strings.Contains(m.View(), "[Status]") {
+		t.Fatalf("ga from status mode %d folder %d\n%s", m.mode, m.folder, m.View())
+	}
+}
+
 func TestEnterClearsUnread(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -455,7 +534,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 9
+	m.height = 10
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -1220,7 +1299,7 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 9
+	m.height = 10
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
