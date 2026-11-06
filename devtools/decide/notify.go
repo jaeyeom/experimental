@@ -10,13 +10,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 )
 
 // Config is the decide config file. An absent file runs no command.
 // OptionsOnly makes relay asks reject free text unless --free-text is set.
-// NotifyTemplate is a shell command. It reads "$DECIDE_ANSWER", "$DECIDE_ID",
-// "$DECIDE_OWNER", and "$DECIDE_PANE". Those values are not written into the
-// command string. An empty template runs nothing. The example is not a default.
+// NotifyTemplate is a shell command. It reads "$DECIDE_ID", "$DECIDE_ANSWER",
+// "$DECIDE_ANSWER_LABEL", "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND",
+// "$DECIDE_QUESTION", "$DECIDE_ANSWERED_AT", and "$DECIDE_ANSWERED_BY".
+// Those values are not written into the command string. An empty template
+// runs nothing. The example is not a default.
 // SendTemplate is the compose argv template. Empty means
 // `herdr agent prompt {pane}` plus the note as its own argument.
 // The note is not interpolated into sh -c.
@@ -68,8 +72,10 @@ func LoadConfig() (Config, error) {
 
 // Notify runs the configured template after a relay answer is saved.
 // An empty template does nothing. The item notify pane overrides the config pane.
-// "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_OWNER", and "$DECIDE_PANE" hold the
-// fields. The answer is not substituted into the command string.
+// The command reads "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_ANSWER_LABEL",
+// "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND", "$DECIDE_QUESTION",
+// "$DECIDE_ANSWERED_AT", and "$DECIDE_ANSWERED_BY". None of those fields
+// are substituted into the command string.
 func Notify(item *Item, out io.Writer) error {
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -83,20 +89,26 @@ func Notify(item *Item, out io.Writer) error {
 		pane = item.NotifyPane
 	}
 	answer := ""
+	answeredBy := ""
 	if item.Answer != nil {
 		answer = item.Answer.Value
+		answeredBy = item.Answer.AnsweredBy
 	}
-	// The template is operator config. The answer stays in the environment.
+	// The template is operator config. Fields stay in the environment.
 	// Parent values come first. os/exec keeps the last value for a duplicate
-	// key, so the item id, saved answer, owner, and pane override a parent
-	// DECIDE_ID, DECIDE_ANSWER, DECIDE_OWNER, or DECIDE_PANE.
+	// key, so the item values override a parent DECIDE_* variable.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.Command("sh", "-c", cfg.NotifyTemplate) //nolint:gosec // G204: the notify template is operator config; fields are environment variables
 	cmd.Env = append(os.Environ(),
 		"DECIDE_ID="+item.ID,
 		"DECIDE_ANSWER="+answer,
+		"DECIDE_ANSWER_LABEL="+answerLabel(item, answer),
 		"DECIDE_OWNER="+item.Owner,
 		"DECIDE_PANE="+pane,
+		"DECIDE_KIND="+item.Kind,
+		"DECIDE_QUESTION="+questionLine(item.Question),
+		"DECIDE_ANSWERED_AT="+item.AnsweredAt.Format(time.RFC3339),
+		"DECIDE_ANSWERED_BY="+answeredBy,
 	)
 	cmd.Stdout = out
 	cmd.Stderr = out
@@ -104,4 +116,22 @@ func Notify(item *Item, out io.Writer) error {
 		return fmt.Errorf("notify: %w", err)
 	}
 	return nil
+}
+
+func answerLabel(item *Item, answer string) string {
+	for _, opt := range item.Options {
+		if opt.Key == answer {
+			return opt.Label
+		}
+	}
+	return ""
+}
+
+func questionLine(question string) string {
+	line, _, _ := strings.Cut(question, "\n")
+	const limit = 200
+	if utf8.RuneCountInString(line) <= limit {
+		return line
+	}
+	return string([]rune(line)[:limit])
 }
