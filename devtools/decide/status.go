@@ -25,6 +25,11 @@ const (
 	// StatusBlocked means the agent needs a person.
 	StatusBlocked = "blocked"
 
+	// ResourceFree means a shared resource can be taken.
+	ResourceFree = "free"
+	// ResourceBusy means a shared resource is taken.
+	ResourceBusy = "busy"
+
 	statusFile = "status.json"
 	statusLock = "status.lock"
 )
@@ -37,8 +42,17 @@ type AgentStatus struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// ResourceStatus is one shared resource flag.
+type ResourceStatus struct {
+	Name         string    `json:"name"`
+	Availability string    `json:"availability"`
+	Note         string    `json:"note,omitempty"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
 type statusFileData struct {
-	Agents []AgentStatus `json:"agents"`
+	Agents    []AgentStatus    `json:"agents"`
+	Resources []ResourceStatus `json:"resources"`
 }
 
 // Status is the agent and resource board in one decide state directory.
@@ -117,6 +131,54 @@ func (s *Status) ClearAgent(name string) error {
 	})
 }
 
+// SetResource writes one shared-resource flag. note may be empty.
+func (s *Status) SetResource(name, availability, note string) (ResourceStatus, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ResourceStatus{}, fmt.Errorf("decide status resource name is required")
+	}
+	if availability != ResourceFree && availability != ResourceBusy {
+		return ResourceStatus{}, fmt.Errorf("decide status availability %q is invalid", availability)
+	}
+	var saved ResourceStatus
+	err := s.locked(true, func(data *statusFileData) error {
+		saved = ResourceStatus{
+			Name:         name,
+			Availability: availability,
+			Note:         note,
+			UpdatedAt:    s.clock().UTC(),
+		}
+		idx := resourceIndex(data.Resources, name)
+		if idx >= 0 {
+			data.Resources[idx] = saved
+			return nil
+		}
+		data.Resources = append(data.Resources, saved)
+		sortResources(data.Resources)
+		return nil
+	})
+	if err != nil {
+		return ResourceStatus{}, err
+	}
+	return saved, nil
+}
+
+// ClearResource removes one resource. Other rows stay.
+func (s *Status) ClearResource(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("decide status resource name is required")
+	}
+	return s.locked(true, func(data *statusFileData) error {
+		idx := resourceIndex(data.Resources, name)
+		if idx < 0 {
+			return fmt.Errorf("decide status resource %q is not set", name)
+		}
+		data.Resources = append(data.Resources[:idx], data.Resources[idx+1:]...)
+		return nil
+	})
+}
+
 // Agents returns the stored agent rows, sorted by name.
 func (s *Status) Agents() ([]AgentStatus, error) {
 	var out []AgentStatus
@@ -126,6 +188,25 @@ func (s *Status) Agents() ([]AgentStatus, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if out == nil {
+		out = []AgentStatus{}
+	}
+	return out, nil
+}
+
+// Resources returns the stored resource rows, sorted by name.
+func (s *Status) Resources() ([]ResourceStatus, error) {
+	var out []ResourceStatus
+	err := s.locked(false, func(data *statusFileData) error {
+		out = append([]ResourceStatus(nil), data.Resources...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []ResourceStatus{}
 	}
 	return out, nil
 }
@@ -152,6 +233,30 @@ func sortAgents(agents []AgentStatus) {
 	sort.Slice(agents, func(i, j int) bool {
 		return agents[i].Name < agents[j].Name
 	})
+}
+
+func resourceIndex(rows []ResourceStatus, name string) int {
+	for i := range rows {
+		if rows[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func sortResources(rows []ResourceStatus) {
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Name < rows[j].Name
+	})
+}
+
+// ResourceLine is the glance form, "workspace: free (paused)".
+func ResourceLine(row ResourceStatus) string {
+	line := row.Name + ": " + row.Availability
+	if row.Note != "" {
+		line += " (" + row.Note + ")"
+	}
+	return line
 }
 
 func (s *Status) clock() time.Time {
@@ -214,12 +319,18 @@ func loadStatus(path string) (*statusFileData, error) {
 	if data.Agents == nil {
 		data.Agents = []AgentStatus{}
 	}
+	if data.Resources == nil {
+		data.Resources = []ResourceStatus{}
+	}
 	return &data, nil
 }
 
 func saveStatus(dir string, data *statusFileData) error {
 	if data.Agents == nil {
 		data.Agents = []AgentStatus{}
+	}
+	if data.Resources == nil {
+		data.Resources = []ResourceStatus{}
 	}
 	raw, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {

@@ -13,6 +13,11 @@
   ~--json~ is an object with an ~agents~ array. Each agent includes
   ~updatedAt~.
 - ~decide status clear --agent <name>~ removes that one row.
+- ~decide status set --resource <name> free|busy ["<note>"]~ writes a shared
+  resource flag. ~list~ prints ~<name>: free (<note>)~, or ~<name>: free~
+  when the note is empty.
+- ~decide status clear --resource <name>~ removes that one flag.
+  ~--json~ includes a ~resources~ array.
 
 * Notify
 
