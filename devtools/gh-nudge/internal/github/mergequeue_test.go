@@ -287,6 +287,23 @@ func TestLandedFirstPicksEarliestMerged(t *testing.T) {
 	}
 }
 
+func TestCommentOnPullRequestPostsIssueComment(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"issues/12/comments": `{"id":1}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	body := "Investigated the reset.\nRCA EVT class=flake"
+	if err := client.CommentOnPullRequest("acme", "widgets", 12, body); err != nil {
+		t.Fatalf("CommentOnPullRequest() error = %v", err)
+	}
+	if len(exec.calls) != 1 || !strings.Contains(exec.calls[0], "--method POST") || !strings.Contains(exec.calls[0], "repos/acme/widgets/issues/12/comments") {
+		t.Fatalf("call = %s", exec.calls)
+	}
+	if len(exec.stdin) != 1 || !strings.Contains(exec.stdin[0], "Investigated the reset.") || !strings.Contains(exec.stdin[0], "RCA EVT class=flake") {
+		t.Fatalf("stdin = %s", exec.stdin)
+	}
+}
+
 func TestMergeAsyncSendsQueueActionAndSHA(t *testing.T) {
 	exec := &routeExec{route: map[string]string{"merge-async": `{"status":"enqueued"}`}}
 	client := NewClientWithExecutor(exec)

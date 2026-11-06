@@ -6,6 +6,7 @@ go_library(
         "circleci.go",
         "main.go",
         "queue.go",
+        "rca.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/gh-nudge/cmd/gh-merge",
     visibility = ["//visibility:private"],
