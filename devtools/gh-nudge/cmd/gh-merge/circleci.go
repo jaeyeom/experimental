@@ -204,19 +204,33 @@ func circleFailedJobID(body, jobName string) (string, error) {
 	return "", errors.New("circleci workflow has no failed job")
 }
 
+type circleOutputStep struct {
+	Outcome  string `json:"outcome"`
+	Output   string `json:"output"`
+	ExitCode *int   `json:"exit_code"` //nolint:tagliatelle // CircleCI job output uses snake_case
+}
+
 func circleFailedStepText(body string) (string, error) {
 	var parsed struct {
-		Steps []struct {
-			Outcome string `json:"outcome"`
-			Output  string `json:"output"`
-		} `json:"steps"`
+		Steps []circleOutputStep `json:"steps"`
 	}
 	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
 		return "", fmt.Errorf("parse circleci job output: %w", err)
 	}
+	if text := circleStepOutput(parsed.Steps, true); text != "" {
+		return text, nil
+	}
+	return circleStepOutput(parsed.Steps, false), nil
+}
+
+func circleStepOutput(steps []circleOutputStep, onlyFailed bool) string {
 	var text strings.Builder
-	for _, step := range parsed.Steps {
-		if circleStepSucceeded(step.Outcome) {
+	for _, step := range steps {
+		if onlyFailed {
+			if !circleStepFailed(step) {
+				continue
+			}
+		} else if circleStepSucceeded(step.Outcome) || step.Output == "" {
 			continue
 		}
 		text.WriteString(step.Output)
@@ -224,7 +238,23 @@ func circleFailedStepText(body string) (string, error) {
 			text.WriteByte('\n')
 		}
 	}
-	return text.String(), nil
+	return text.String()
+}
+
+func circleStepFailed(step circleOutputStep) bool {
+	return circleActionFailed(step.Outcome, step.ExitCode)
+}
+
+func circleActionFailed(status string, exitCode *int) bool {
+	if exitCode != nil && *exitCode != 0 {
+		return true
+	}
+	switch strings.ToLower(status) {
+	case "failed", "failure", "error", "errored", "timed_out", "timedout", "infrastructure_fail":
+		return true
+	default:
+		return false
+	}
 }
 
 func circleStepSucceeded(outcome string) bool {
@@ -369,6 +399,7 @@ func circleFailedOutput(org, repo string, jobNumber int, token string) (string, 
 		Steps []struct {
 			Actions []struct {
 				Status    string `json:"status"`
+				ExitCode  *int   `json:"exit_code"`  //nolint:tagliatelle // CircleCI API uses snake_case
 				OutputURL string `json:"output_url"` //nolint:tagliatelle // CircleCI API uses snake_case
 			} `json:"actions"`
 		} `json:"steps"`
@@ -378,7 +409,7 @@ func circleFailedOutput(org, repo string, jobNumber int, token string) (string, 
 	}
 	for _, step := range resp.Steps {
 		for _, action := range step.Actions {
-			if strings.EqualFold(action.Status, "failed") && action.OutputURL != "" {
+			if circleActionFailed(action.Status, action.ExitCode) && action.OutputURL != "" {
 				return action.OutputURL, nil
 			}
 		}

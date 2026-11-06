@@ -16,10 +16,11 @@ var errRCAUsage = errors.New("rca usage")
 type rcaAPI interface {
 	LoadPullRequest(ref string) (github.QueuePullRequest, error)
 	CommentOnPullRequest(owner, repo string, number int, body string) error
+	removalAPI
 }
 
 func rcaCommandHelp() string {
-	return "Post an RCA comment for the latest removal (owner/repo#n, a URL, or a bare number)"
+	return "Print the failing step's log tail for the latest removal, then post an RCA comment (owner/repo#n, a URL, or a bare number)"
 }
 
 func rcaUsage() string {
@@ -53,6 +54,11 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	event, ok := latestRemoval(pr.Events)
 	if !ok {
 		return errors.New("pull request has no removal event")
+	}
+	if !jsonOutput {
+		if err := printRemovalEvidence(client, cfg, pr); err != nil {
+			return err
+		}
 	}
 	body := rcaComment(string(fileBody), rcaMarkerLine(cfg.Settings.RCAMarker, event.ID, parsed.class))
 	if err := client.CommentOnPullRequest(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number, body); err != nil {
