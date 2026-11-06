@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -262,5 +263,139 @@ func TestListUsesRepoBlockLabels(t *testing.T) {
 	})
 	if !strings.Contains(output, `Blocked: label "do-not-merge" prevents merge`) {
 		t.Fatalf("list ignored the repository entry:\n%s", output)
+	}
+}
+
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+func TestListLogsEffectiveRepoBlockLabels(t *testing.T) {
+	client := &fakeMergeClient{
+		prs: []models.PullRequest{
+			mergeFixture("Hold this", "https://github.com/acme/widgets/pull/1", "do-not-merge"),
+		},
+	}
+	labels := []string{"do-not-merge"}
+	checks := []string{"lint", "test"}
+	cfg := &config.Config{
+		RepoSettings: map[string]config.RepoSettings{
+			"acme/widgets": {BlockMergeLabels: &labels, RequiredChecks: &checks},
+		},
+	}
+	logs := captureLog(t)
+	output := captureStdout(t, func() {
+		if err := listMergeablePRs(client, cfg); err != nil {
+			t.Fatalf("listMergeablePRs() error = %v", err)
+		}
+	})
+	logText := logs.String()
+	if strings.Contains(logText, "block_merge_labels=[]") {
+		t.Fatalf("startup logged the empty global list as the gate:\n%s", logText)
+	}
+	want := "acme/widgets: block_merge_labels=[do-not-merge] required_checks=2"
+	if !strings.Contains(logText, want) {
+		t.Fatalf("log = %q, want substring %q", logText, want)
+	}
+	if !strings.Contains(output, `Blocked: label "do-not-merge" prevents merge`) {
+		t.Fatalf("output missing blocked line:\n%s", output)
+	}
+}
+
+func TestListKeepsGlobalStartupLogWhenNoRepoSettings(t *testing.T) {
+	client := &fakeMergeClient{
+		prs: []models.PullRequest{
+			mergeFixture("Ship this", "https://github.com/acme/widgets/pull/1"),
+		},
+	}
+	cfg := &config.Config{Settings: config.SettingsConfig{
+		BlockMergeLabels: []string{"do-not-merge", "hold"},
+	}}
+	logs := captureLog(t)
+	if err := listMergeablePRs(client, cfg); err != nil {
+		t.Fatalf("listMergeablePRs() error = %v", err)
+	}
+	logText := logs.String()
+	if !strings.Contains(logText, "block_merge_labels") ||
+		!strings.Contains(logText, "do-not-merge") ||
+		!strings.Contains(logText, "hold") {
+		t.Fatalf("startup log missing the global list:\n%s", logText)
+	}
+	if strings.Contains(logText, "required_checks=") {
+		t.Fatalf("empty repo_settings should keep the global line:\n%s", logText)
+	}
+}
+
+func TestListLogsGlobalValuesForRepoWithoutEntry(t *testing.T) {
+	client := &fakeMergeClient{
+		prs: []models.PullRequest{
+			mergeFixture("Hold this", "https://github.com/acme/widgets/pull/1", "do-not-merge"),
+			mergeFixture("Other", "https://github.com/acme/other/pull/2"),
+			mergeFixture("Again", "https://github.com/acme/widgets/pull/3", "do-not-merge"),
+		},
+	}
+	labels := []string{"do-not-merge"}
+	cfg := &config.Config{
+		Settings: config.SettingsConfig{
+			BlockMergeLabels: []string{"hold"},
+			RequiredChecks:   []string{"ci", "lint"},
+		},
+		RepoSettings: map[string]config.RepoSettings{
+			"acme/widgets": {BlockMergeLabels: &labels},
+		},
+	}
+	logs := captureLog(t)
+	if err := listMergeablePRs(client, cfg); err != nil {
+		t.Fatalf("listMergeablePRs() error = %v", err)
+	}
+	logText := logs.String()
+	wantWidgets := "acme/widgets: block_merge_labels=[do-not-merge] required_checks=2"
+	wantOther := "acme/other: block_merge_labels=[hold] required_checks=2"
+	if !strings.Contains(logText, wantWidgets) || !strings.Contains(logText, wantOther) {
+		t.Fatalf("log = %q, want %q and %q", logText, wantWidgets, wantOther)
+	}
+	if strings.Count(logText, "acme/widgets: block_merge_labels=") != 1 {
+		t.Fatalf("widgets logged more than once:\n%s", logText)
+	}
+}
+
+func TestMergeLogsEffectiveRepoBlockLabels(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	client := &fakeMergeClient{
+		prs: []models.PullRequest{
+			mergeFixture("Hold this", "https://github.com/acme/widgets/pull/1", "do-not-merge"),
+		},
+	}
+	labels := []string{"do-not-merge"}
+	checks := []string{"lint", "test"}
+	cfg := &config.Config{
+		RepoSettings: map[string]config.RepoSettings{
+			"acme/widgets": {BlockMergeLabels: &labels, RequiredChecks: &checks},
+		},
+	}
+	logs := captureLog(t)
+	output := captureStdout(t, func() {
+		if err := mergePRs(client, cfg); err != nil {
+			t.Fatalf("mergePRs() error = %v", err)
+		}
+	})
+	logText := logs.String()
+	if strings.Contains(logText, "block_merge_labels=[]") {
+		t.Fatalf("startup logged the empty global list as the gate:\n%s", logText)
+	}
+	want := "acme/widgets: block_merge_labels=[do-not-merge] required_checks=2"
+	if !strings.Contains(logText, want) {
+		t.Fatalf("log = %q, want substring %q", logText, want)
+	}
+	if !strings.Contains(output, `Skipping: label "do-not-merge" blocks merge`) {
+		t.Fatalf("merge ignored the repository entry:\n%s", output)
+	}
+	if len(client.merged) != 0 {
+		t.Fatalf("merged = %v, want none", client.merged)
 	}
 }
