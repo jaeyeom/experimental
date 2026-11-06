@@ -716,6 +716,76 @@ func notifyLog(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
+func TestStatusSetListAndClearAgent(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	stdout, stderr, code := runCLI("status", "set", "--agent", "alpha", "fixing the inbox")
+	if code != 0 {
+		t.Fatalf("set code = %d\n%s", code, stderr)
+	}
+	if stdout != "alpha working fixing the inbox\n" {
+		t.Fatalf("set out = %q", stdout)
+	}
+
+	stdout, stderr, code = runCLI("status", "set", "--agent", "beta", "--state", "blocked", "needs a look")
+	if code != 0 {
+		t.Fatalf("set beta code = %d\n%s", code, stderr)
+	}
+	stdout, stderr, code = runCLI("status", "set", "--agent", "beta", "still blocked")
+	if code != 0 {
+		t.Fatalf("keep state code = %d\n%s", code, stderr)
+	}
+	if stdout != "beta blocked still blocked\n" {
+		t.Fatalf("kept state = %q", stdout)
+	}
+
+	_, stderr, code = runCLI("status", "set", "--agent", "gamma", "--state", "asleep", "nope")
+	if code == 0 {
+		t.Fatal("invalid state was accepted")
+	}
+
+	stdout, stderr, code = runCLI("status", "list")
+	if code != 0 {
+		t.Fatalf("list code = %d\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "alpha working now fixing the inbox") || !strings.Contains(stdout, "beta blocked now still blocked") || strings.Contains(stdout, "gamma") {
+		t.Fatalf("list = %q", stdout)
+	}
+
+	stdout, stderr, code = runCLI("status", "list", "--json")
+	if code != 0 {
+		t.Fatalf("json code = %d\n%s", code, stderr)
+	}
+	var board struct {
+		Agents []decide.AgentStatus `json:"agents"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &board); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if len(board.Agents) != 2 || board.Agents[0].Name != "alpha" || board.Agents[0].UpdatedAt.IsZero() || board.Agents[1].State != "blocked" {
+		t.Fatalf("agents = %+v", board.Agents)
+	}
+
+	stdout, stderr, code = runCLI("status", "clear", "--agent", "alpha")
+	if code != 0 {
+		t.Fatalf("clear code = %d\n%s", code, stderr)
+	}
+	stdout, stderr, code = runCLI("status", "list", "--json")
+	if code != 0 {
+		t.Fatalf("list after clear code = %d\n%s", code, stderr)
+	}
+	if err := json.Unmarshal([]byte(stdout), &board); err != nil {
+		t.Fatal(err)
+	}
+	if len(board.Agents) != 1 || board.Agents[0].Name != "beta" {
+		t.Fatalf("after clear = %+v", board.Agents)
+	}
+	if _, _, code = runCLI("status", "clear", "--agent", "alpha"); code == 0 {
+		t.Fatal("clearing a missing agent succeeded")
+	}
+}
+
 func runCLI(args ...string) (string, string, int) {
 	var stdout, stderr bytes.Buffer
 	code := run(args, &stdout, &stderr)

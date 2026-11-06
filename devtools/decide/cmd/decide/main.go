@@ -42,6 +42,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdAnswer(args[1:], stdout, stderr)
 	case "inbox":
 		return cmdInbox(args[1:], stdout, stderr)
+	case "status":
+		return cmdStatus(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -64,7 +66,138 @@ func usage(w io.Writer) {
   decide done [--json] <id> <outcome>
   decide answer [--json] <id> <option|text>
   decide inbox
+  decide status set --agent <name> [--state working|idle|paused|blocked] <text>
+  decide status list [--json]
+  decide status clear --agent <name>
 `)
+}
+
+func cmdStatus(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return fail(stderr, fmt.Errorf("decide status requires set, list, or clear"), 2)
+	}
+	switch args[0] {
+	case "set":
+		return cmdStatusSet(args[1:], stdout, stderr)
+	case "list":
+		return cmdStatusList(args[1:], stdout, stderr)
+	case "clear":
+		return cmdStatusClear(args[1:], stdout, stderr)
+	default:
+		return fail(stderr, fmt.Errorf("decide status command %q is unknown", args[0]), 2)
+	}
+}
+
+func cmdStatusSet(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("status set", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	agent := fs.String("agent", "", "agent name")
+	state := fs.String("state", "", "working, idle, paused, or blocked")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if strings.TrimSpace(*agent) == "" {
+		return fail(stderr, fmt.Errorf("decide status set requires --agent"), 2)
+	}
+	text, err := oneArg(fs.Args(), "text")
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	board, err := openStatus()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	row, err := board.SetAgent(*agent, *state, text)
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	fmt.Fprintf(stdout, "%s %s %s\n", row.Name, row.State, row.Text)
+	return 0
+}
+
+func cmdStatusList(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("status list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print the status board as JSON")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if len(fs.Args()) != 0 {
+		return fail(stderr, fmt.Errorf("decide status list does not take arguments"), 2)
+	}
+	board, err := openStatus()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	agents, err := board.Agents()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	if agents == nil {
+		agents = []decide.AgentStatus{}
+	}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, struct {
+			Agents []decide.AgentStatus `json:"agents"`
+		}{Agents: agents})
+	}
+	now := time.Now()
+	for _, row := range agents {
+		fmt.Fprintf(stdout, "%s %s %s %s\n", row.Name, row.State, statusAge(now.Sub(row.UpdatedAt)), row.Text)
+	}
+	return 0
+}
+
+func cmdStatusClear(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("status clear", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	agent := fs.String("agent", "", "agent name")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if strings.TrimSpace(*agent) == "" {
+		return fail(stderr, fmt.Errorf("decide status clear requires --agent"), 2)
+	}
+	if len(fs.Args()) != 0 {
+		return fail(stderr, fmt.Errorf("decide status clear does not take arguments"), 2)
+	}
+	board, err := openStatus()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	if err := board.ClearAgent(*agent); err != nil {
+		return fail(stderr, err, 1)
+	}
+	fmt.Fprintf(stdout, "cleared %s\n", strings.TrimSpace(*agent))
+	return 0
+}
+
+func openStatus() (*decide.Status, error) {
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		return nil, fmt.Errorf("decide directory: %w", err)
+	}
+	board, err := decide.OpenStatus(dir)
+	if err != nil {
+		return nil, fmt.Errorf("open decide status: %w", err)
+	}
+	return board, nil
+}
+
+func statusAge(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	default:
+		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
+	}
 }
 
 func cmdInbox(args []string, stdout, stderr io.Writer) int {
