@@ -239,15 +239,15 @@ func (m *Model) showStatus() error {
 func (m *Model) loadStatus() error {
 	board, err := decide.OpenStatus(m.Dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("open decide status: %w", err)
 	}
 	agents, err := board.Agents()
 	if err != nil {
-		return err
+		return fmt.Errorf("read decide status: %w", err)
 	}
 	resources, err := board.Resources()
 	if err != nil {
-		return err
+		return fmt.Errorf("read decide status: %w", err)
 	}
 	m.agents = agents
 	m.resources = resources

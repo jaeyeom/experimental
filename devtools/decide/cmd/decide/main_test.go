@@ -716,6 +716,64 @@ func notifyLog(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
+func TestSendKeepsTheNoteAsOneArgument(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	bin := filepath.Join(state, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(state, "argv.log")
+	script := "#!/bin/sh\nfor arg in \"$@\"; do printf '%s' \"$arg\" >> '" + logPath + "'; printf '\\0' >> '" + logPath + "'; done\n"
+	if err := os.WriteFile(filepath.Join(bin, "sentinel"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"targets\":[{\"name\":\"alpha\",\"pane\":\"pane-a\"}],\"sendTemplate\":\"sentinel {pane}\"}\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	const note = "hello\nthere"
+	stdout, stderr, code := runCLI("send", "--to", "alpha", "--json", note)
+	if code != 0 {
+		t.Fatalf("send code = %d\n%s", code, stderr)
+	}
+	var sent struct {
+		Name string `json:"name"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &sent); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if sent.Name != "alpha" || sent.Text != note {
+		t.Fatalf("sent = %+v", sent)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := bytes.Split(raw, []byte{0})
+	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) != 2 || string(parts[0]) != "pane-a" || string(parts[1]) != note {
+		t.Fatalf("argv = %#v", parts)
+	}
+
+	if _, _, code = runCLI("send", "--to", "missing", "hi"); code == 0 {
+		t.Fatal("unknown recipient was accepted")
+	}
+	if _, err := os.Stat(filepath.Join(state, "decide", decide.SendsName)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTargetsJSONOmitsTemplates(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -766,7 +824,7 @@ func TestStatusSetListAndClearAgent(t *testing.T) {
 		t.Fatalf("set out = %q", stdout)
 	}
 
-	stdout, stderr, code = runCLI("status", "set", "--agent", "beta", "--state", "blocked", "needs a look")
+	_, stderr, code = runCLI("status", "set", "--agent", "beta", "--state", "blocked", "needs a look")
 	if code != 0 {
 		t.Fatalf("set beta code = %d\n%s", code, stderr)
 	}
@@ -778,7 +836,7 @@ func TestStatusSetListAndClearAgent(t *testing.T) {
 		t.Fatalf("kept state = %q", stdout)
 	}
 
-	_, stderr, code = runCLI("status", "set", "--agent", "gamma", "--state", "asleep", "nope")
+	_, _, code = runCLI("status", "set", "--agent", "gamma", "--state", "asleep", "nope")
 	if code == 0 {
 		t.Fatal("invalid state was accepted")
 	}
@@ -805,7 +863,7 @@ func TestStatusSetListAndClearAgent(t *testing.T) {
 		t.Fatalf("agents = %+v", board.Agents)
 	}
 
-	stdout, stderr, code = runCLI("status", "clear", "--agent", "alpha")
+	_, stderr, code = runCLI("status", "clear", "--agent", "alpha")
 	if code != 0 {
 		t.Fatalf("clear code = %d\n%s", code, stderr)
 	}
