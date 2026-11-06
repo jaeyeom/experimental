@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
@@ -1939,6 +1940,97 @@ func TestGmailLayoutNarrowAndWide(t *testing.T) {
 	if m.status != "sent to alpha" || len(sent) == 0 || sent[len(sent)-1] != "hello" {
 		t.Fatalf("send status %q argv %#v", m.status, sent)
 	}
+}
+
+func TestWindowSizeFitsEveryPanel(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	question := strings.Repeat("Q", 180)
+	owner := strings.Repeat("O", 80)
+	item := mustCreate(t, led, &decide.Item{
+		Question: question,
+		Owner:    owner,
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+	})
+	m := New(dir)
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-1"}}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Key('\r'); err != nil {
+		t.Fatal(err)
+	}
+	m.note = strings.Repeat("D", 120)
+	m.composing = true
+
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	resized, ok := next.(*Model)
+	if !ok || resized != m {
+		t.Fatalf("resize model %T", next)
+	}
+	view := m.View()
+	inboxRow := screenRow(view, "[Inbox]")
+	for _, name := range []string{"Answered", "Done", "Withdrawn"} {
+		if screenRow(view, name) != inboxRow {
+			t.Fatalf("folder %s left the tab row\n%s", name, view)
+		}
+	}
+	if screenRow(view, "1 a Alpha") <= screenRow(view, item.ID) {
+		t.Fatalf("detail is not under the list\n%s", view)
+	}
+	if !lineCuts(view, "QQQQ") || !lineCuts(view, "OOOO") || !lineCuts(view, "DDDD") {
+		t.Fatalf("long fields were not cut\n%s", view)
+	}
+
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	view = m.View()
+	if screenRow(view, "[Inbox]") != screenRow(view, item.ID) {
+		t.Fatalf("wide sidebar is not beside the list\n%s", view)
+	}
+	if screenRow(view, "Answered") == screenRow(view, "[Inbox]") {
+		t.Fatalf("wide folders share one row\n%s", view)
+	}
+
+	for _, width := range []int{60, 80, 120, 200} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+		view = m.View()
+		lines := strings.Split(strings.TrimSuffix(view, "\n"), "\n")
+		if len(lines) != 24 {
+			t.Fatalf("width %d height %d\n%s", width, len(lines), view)
+		}
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width %d line %d display width %d\n%s", width, i, got, line)
+			}
+		}
+		if got, last := lipgloss.Width(lines[0]), lipgloss.Width(lines[len(lines)-1]); got != width || last != width {
+			t.Fatalf("width %d border widths %d %d", width, got, last)
+		}
+		if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[len(lines)-1], "└") {
+			t.Fatalf("width %d missing outer border", width)
+		}
+		if width < narrowWidth {
+			if screenRow(view, "Answered") != screenRow(view, "[Inbox]") {
+				t.Fatalf("width %d folders are not one row\n%s", width, view)
+			}
+			continue
+		}
+		if screenRow(view, "[Inbox]") != screenRow(view, item.ID) {
+			t.Fatalf("width %d sidebar is not beside the list\n%s", width, view)
+		}
+	}
+}
+
+func lineCuts(view, prefix string) bool {
+	for _, line := range strings.Split(view, "\n") {
+		vis := visibleLine(line)
+		if strings.Contains(vis, prefix) && strings.Contains(vis, "…") {
+			return true
+		}
+	}
+	return false
 }
 
 func betweenBox(view, needle string) bool {
