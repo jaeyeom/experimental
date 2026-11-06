@@ -35,6 +35,7 @@ const (
 	modeList = iota
 	modeDetail
 	modeOutcome
+	modeStatus
 )
 
 const (
@@ -90,6 +91,8 @@ type Model struct {
 	free         textinput.Model
 	outcome      textinput.Model
 	noteField    textarea.Model
+	agents       []decide.AgentStatus
+	resources    []decide.ResourceStatus
 }
 
 // New returns an inbox positioned on the open folder.
@@ -195,9 +198,60 @@ func (m *Model) Key(r rune) (bool, error) {
 	switch m.mode {
 	case modeDetail:
 		return m.detailKey(r)
+	case modeStatus:
+		return m.statusKey(r)
 	default:
 		return m.listKey(r)
 	}
+}
+
+func (m *Model) statusKey(r rune) (bool, error) {
+	switch r {
+	case 'q':
+		return true, nil
+	case 'g':
+		m.beginChord()
+	case 'u':
+		m.backToList()
+	case 'j':
+		m.scroll++
+	case 'k':
+		if m.scroll > 0 {
+			m.scroll--
+		}
+	}
+	return false, nil
+}
+
+func (m *Model) showStatus() error {
+	m.composing = false
+	m.answerFocus = false
+	m.mode = modeStatus
+	m.scroll = 0
+	if err := m.loadStatus(); err != nil {
+		m.status = err.Error()
+		return nil
+	}
+	m.status = "status"
+	return nil
+}
+
+func (m *Model) loadStatus() error {
+	board, err := decide.OpenStatus(m.Dir)
+	if err != nil {
+		return err
+	}
+	agents, err := board.Agents()
+	if err != nil {
+		return err
+	}
+	resources, err := board.Resources()
+	if err != nil {
+		return err
+	}
+	m.agents = agents
+	m.resources = resources
+	return nil
 }
 
 func (m *Model) beginChord() {
@@ -216,6 +270,8 @@ func (m *Model) finishChord(r rune) (bool, error) {
 		return false, m.showFolder(2)
 	case 'w':
 		return false, m.showFolder(3)
+	case 's':
+		return false, m.showStatus()
 	default:
 		return false, nil
 	}
@@ -607,7 +663,7 @@ func (m *Model) statusLine() screenLine {
 	if m.chord {
 		return screenLine{text: "g…"}
 	}
-	const hint = "gi/ga/gd/gw  o open  u list  c  tab recipient/text/[Send]  ? help"
+	const hint = "gi/ga/gd/gw/gs  o open  u list  c  tab recipient/text/[Send]  ? help"
 	if m.status == "" {
 		return screenLine{text: hint}
 	}
@@ -619,13 +675,16 @@ func (m *Model) listFocused() bool {
 }
 
 func (m *Model) detailFocused() bool {
-	return m.mode != modeList && !m.composing && !m.answerFocus
+	return m.mode != modeList && m.mode != modeStatus && !m.composing && !m.answerFocus
 }
 
 func (m *Model) mailLines() []screenLine {
 	pane := m.contentWidth()
 	if m.composing {
 		return m.composeScreen(pane)
+	}
+	if m.mode == modeStatus {
+		return m.statusScreen(pane)
 	}
 	if m.mode != modeList {
 		return m.openedScreen(pane)
@@ -637,6 +696,38 @@ func (m *Model) mailLines() []screenLine {
 		return m.stackedList(pane)
 	}
 	return m.columnList(pane)
+}
+
+func (m *Model) statusScreen(width int) []screenLine {
+	now := time.Now()
+	if m.Now != nil {
+		now = m.Now()
+	}
+	lines := make([]screenLine, 0, len(m.agents)+len(m.resources))
+	if len(m.agents) == 0 && len(m.resources) == 0 {
+		lines = append(lines, screenLine{text: "no status"})
+	}
+	useStyles()
+	for _, row := range m.agents {
+		text := fmt.Sprintf("%s %s %s %s", row.Name, row.State, age(now.Sub(row.UpdatedAt)), row.Text)
+		lines = append(lines, screenLine{text: statusStyle(row.UpdatedAt, now).Render(text)})
+	}
+	for _, row := range m.resources {
+		lines = append(lines, screenLine{text: statusStyle(row.UpdatedAt, now).Render(decide.ResourceLine(row))})
+	}
+	_, limit := m.layoutBudget()
+	lines, m.scroll = clipLines(lines, m.scroll, limit)
+	if width > 0 {
+		return fitColumnLines(lines, width)
+	}
+	return lines
+}
+
+func statusStyle(updated, now time.Time) lipgloss.Style {
+	if decide.StatusStale(updated, now) {
+		return detailLine
+	}
+	return plainLine
 }
 
 func (m *Model) unmeasuredList() []screenLine {
@@ -1200,7 +1291,7 @@ func (m *Model) helpLines() []screenLine {
 		"shortcuts",
 		"q quit",
 		"j/k move",
-		"g then i inbox, a answered, d done, w withdrawn",
+		"g then i inbox, a answered, d done, w withdrawn, s status",
 		"o or enter opens    u returns to the list",
 		"c compose",
 		"tab moves recipient, text, [Send]",

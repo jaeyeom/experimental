@@ -32,7 +32,18 @@ const (
 
 	statusFile = "status.json"
 	statusLock = "status.lock"
+
+	// StatusStaleAfter is how long a row can sit before a view dims it.
+	StatusStaleAfter = 5 * time.Minute
 )
+
+// StatusStale reports whether updated is older than StatusStaleAfter at now.
+func StatusStale(updated, now time.Time) bool {
+	if updated.IsZero() {
+		return true
+	}
+	return now.Sub(updated) > StatusStaleAfter
+}
 
 // AgentStatus is one agent's published row.
 type AgentStatus struct {
@@ -70,6 +81,15 @@ func OpenStatus(dir string) (*Status, error) {
 		return nil, fmt.Errorf("create decide directory: %w", err)
 	}
 	return &Status{dir: dir, now: time.Now}, nil
+}
+
+// SetClock replaces the clock used for new timestamps. Tests use it.
+func (s *Status) SetClock(now func() time.Time) {
+	if now == nil {
+		s.now = time.Now
+		return
+	}
+	s.now = now
 }
 
 // SetAgent writes one agent's row. An empty state becomes working for a new
