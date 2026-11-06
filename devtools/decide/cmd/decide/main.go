@@ -46,6 +46,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdStatus(args[1:], stdout, stderr)
 	case "targets":
 		return cmdTargets(args[1:], stdout, stderr)
+	case "send":
+		return cmdSend(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -74,7 +76,53 @@ func usage(w io.Writer) {
   decide status clear --agent <name>
   decide status clear --resource <name>
   decide targets [--json]
+  decide send --to <name> [--json] <text>
 `)
+}
+
+func cmdSend(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("send", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	to := fs.String("to", "", "recipient name")
+	jsonOut := fs.Bool("json", false, "print the sent note as JSON")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	if strings.TrimSpace(*to) == "" {
+		return fail(stderr, fmt.Errorf("decide send requires --to"), 2)
+	}
+	text, err := oneArg(fs.Args(), "text")
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	tg, ok := decide.FindTarget(cfg.Targets, *to)
+	if !ok {
+		return fail(stderr, fmt.Errorf("decide send recipient %q is unknown", *to), 2)
+	}
+	argv := decide.SendArgv(cfg.SendTemplate, tg.Pane, text)
+	if err := decide.RunSend(argv); err != nil {
+		return fail(stderr, err, 1)
+	}
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		return fail(stderr, fmt.Errorf("decide directory: %w", err), 1)
+	}
+	if err := decide.AppendSend(dir, tg.Name, tg.Pane, text); err != nil {
+		return fail(stderr, err, 1)
+	}
+	sent := struct {
+		Name string `json:"name"`
+		Text string `json:"text"`
+	}{Name: tg.Name, Text: text}
+	if *jsonOut {
+		return writeJSON(stdout, stderr, sent)
+	}
+	fmt.Fprintf(stdout, "sent to %s\n", tg.Name)
+	return 0
 }
 
 func cmdTargets(args []string, stdout, stderr io.Writer) int {
