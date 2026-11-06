@@ -426,34 +426,45 @@ func TestFailureEvidenceRanksChecksAndStatuses(t *testing.T) {
 
 func TestFailureEvidenceLegacyCircleTargetKeepsWorkflowLink(t *testing.T) {
 	const sha = "abc123"
-	const workflow = "https://app.circleci.com/pipelines/github/acme/widgets/42/workflows/11111111-1111-1111-1111-111111111111"
-	exec := &routeExec{route: map[string]string{
-		"check-runs": `{
-			"check_runs":[{
-				"name":"build",
-				"conclusion":"success",
-				"html_url":"https://github.com/acme/widgets/runs/3",
-				"details_url":"` + workflow + `"
-			}]
-		}`,
-		"commits/" + sha + "/status": `{
-			"statuses":[{
-				"context":"ci/circleci",
-				"state":"failure",
-				"target_url":"https://circleci.com/gh/acme/widgets/4242"
-			}]
-		}`,
-	}}
-	client := NewClientWithExecutor(exec)
-	got, err := client.FailureEvidence("acme", "widgets", sha)
-	if err != nil {
-		t.Fatalf("FailureEvidence() error = %v", err)
+	const id = "11111111-1111-1111-1111-111111111111"
+	tests := []struct {
+		name     string
+		workflow string
+	}{
+		{name: "plural", workflow: "https://app.circleci.com/pipelines/github/acme/widgets/42/workflows/" + id},
+		{name: "singular", workflow: "https://app.circleci.com/pipelines/github/acme/widgets/42/workflow/" + id},
 	}
-	if got.Name != "ci/circleci" || got.TargetURL != "https://circleci.com/gh/acme/widgets/4242" {
-		t.Fatalf("chosen = %s %s", got.Name, got.TargetURL)
-	}
-	if got.CheckRunURL != workflow {
-		t.Fatalf("check run = %s", got.CheckRunURL)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &routeExec{route: map[string]string{
+				"check-runs": `{
+					"check_runs":[{
+						"name":"build",
+						"conclusion":"success",
+						"html_url":"https://github.com/acme/widgets/runs/3",
+						"details_url":"` + tc.workflow + `"
+					}]
+				}`,
+				"commits/" + sha + "/status": `{
+					"statuses":[{
+						"context":"ci/circleci",
+						"state":"failure",
+						"target_url":"https://circleci.com/gh/acme/widgets/4242"
+					}]
+				}`,
+			}}
+			client := NewClientWithExecutor(exec)
+			got, err := client.FailureEvidence("acme", "widgets", sha)
+			if err != nil {
+				t.Fatalf("FailureEvidence() error = %v", err)
+			}
+			if got.Name != "ci/circleci" || got.TargetURL != "https://circleci.com/gh/acme/widgets/4242" {
+				t.Fatalf("chosen = %s %s", got.Name, got.TargetURL)
+			}
+			if got.CheckRunURL != tc.workflow {
+				t.Fatalf("check run = %s", got.CheckRunURL)
+			}
+		})
 	}
 }
 

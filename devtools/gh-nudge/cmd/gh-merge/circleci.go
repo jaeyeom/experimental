@@ -92,8 +92,7 @@ func circleCLIOnPath() bool {
 func printCircleAPILog(cfg *config.Config, evidence github.FailureEvidence, token string) (string, error) {
 	org, repo, number, ok := circlePipeline(evidence.TargetURL)
 	if !ok {
-		fmt.Println("log unavailable: unrecognized CircleCI pipeline URL")
-		return "", nil
+		return printCircleWorkflowByUUID(cfg, evidence)
 	}
 	body, err := circleStepLog(org, repo, number, token)
 	if err != nil {
@@ -102,17 +101,25 @@ func printCircleAPILog(cfg *config.Config, evidence github.FailureEvidence, toke
 	return printCircleText(cfg, body)
 }
 
+func printCircleWorkflowByUUID(cfg *config.Config, evidence github.FailureEvidence) (string, error) {
+	if !circleCLIOnPath() {
+		fmt.Printf("%s\nworkflow not found\n", evidence.TargetURL)
+		return "", nil
+	}
+	return printCircleCLILog(cfg, evidence)
+}
+
 func printCircleCLILog(cfg *config.Config, evidence github.FailureEvidence) (string, error) {
 	workflowID, ok := circleWorkflowID(evidence)
 	if !ok {
-		fmt.Println("log unavailable: unrecognized CircleCI pipeline URL")
+		fmt.Printf("%s\nworkflow not found\n", evidence.TargetURL)
 		return "", nil
 	}
 	workflowJSON, err := runCommand("circleci", "workflow", "get", workflowID, "--json")
 	if err != nil {
 		return "", fmt.Errorf("circleci workflow get: %w", err)
 	}
-	jobID, err := circleFailedJobID(workflowJSON)
+	jobID, err := circleFailedJobID(workflowJSON, circleContextJob(evidence.Name))
 	if err != nil {
 		return "", fmt.Errorf("circleci workflow get: %w", err)
 	}
@@ -153,7 +160,7 @@ func circleWorkflowID(evidence github.FailureEvidence) (string, bool) {
 	return "", false
 }
 
-var workflowUUIDPattern = regexp.MustCompile(`/workflows/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})`)
+var workflowUUIDPattern = regexp.MustCompile(`/workflows?/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})`)
 
 func workflowUUID(raw string) (string, bool) {
 	if !isCircleURL(raw) {
@@ -166,10 +173,19 @@ func workflowUUID(raw string) (string, bool) {
 	return match[1], true
 }
 
-func circleFailedJobID(body string) (string, error) {
+func circleContextJob(name string) string {
+	const prefix = "ci/circleci: "
+	if !strings.HasPrefix(name, prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(name, prefix)
+}
+
+func circleFailedJobID(body, jobName string) (string, error) {
 	var parsed struct {
 		Jobs []struct {
 			ID      string `json:"id"`
+			Name    string `json:"name"`
 			Outcome string `json:"outcome"`
 		} `json:"jobs"`
 	}
@@ -177,9 +193,13 @@ func circleFailedJobID(body string) (string, error) {
 		return "", fmt.Errorf("parse circleci workflow: %w", err)
 	}
 	for _, job := range parsed.Jobs {
-		if strings.EqualFold(job.Outcome, "failed") && job.ID != "" {
-			return job.ID, nil
+		if !strings.EqualFold(job.Outcome, "failed") || job.ID == "" {
+			continue
 		}
+		if jobName != "" && job.Name != jobName {
+			continue
+		}
+		return job.ID, nil
 	}
 	return "", errors.New("circleci workflow has no failed job")
 }
