@@ -59,9 +59,6 @@ func (m *Model) composeKey(r rune) (bool, error) {
 	case '\b', '\x7f':
 		m.editNote(r)
 		return false, nil
-	case '\t':
-		m.cycleTarget(1)
-		return false, nil
 	}
 	if r >= ' ' {
 		m.editNote(r)
@@ -207,7 +204,7 @@ func (m *Model) composeLine() screenLine {
 		body = "…"
 	}
 	return screenLine{
-		text: "compose › " + body + "_  Enter send · Esc cancel · Tab target",
+		text: "compose › " + body + "_  Enter send · Esc cancel",
 		hits: []hit{{kind: hitCompose}},
 	}
 }

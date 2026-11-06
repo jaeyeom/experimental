@@ -523,12 +523,8 @@ func (m *Model) allLines() []screenLine {
 		lines = m.helpLines()
 	} else {
 		lines = []screenLine{m.folderLine()}
-		if m.mode == modeList {
-			lines = append(lines, m.rowLines()...)
-		} else {
-			lines = append(lines, m.detailLines()...)
-		}
-		lines = append(lines, m.composeLines()...)
+		lines = append(lines, m.boxedBody()...)
+		lines = append(lines, m.boxedCompose()...)
 	}
 	lines = append(lines, screenLine{text: "? help"})
 	if m.status != "" {
@@ -543,6 +539,7 @@ var (
 	folderBar  lipgloss.Style
 	detailLine lipgloss.Style
 	plainLine  lipgloss.Style
+	focusMark  lipgloss.Style
 )
 
 func useStyles() {
@@ -553,7 +550,97 @@ func useStyles() {
 		folderBar = lipgloss.NewStyle().Bold(true)
 		detailLine = lipgloss.NewStyle().Faint(true)
 		plainLine = lipgloss.NewStyle()
+		focusMark = lipgloss.NewStyle().Bold(true)
 	})
+}
+
+func (m *Model) bodyBoxed() bool {
+	return !m.help && !m.composing && !m.answerFocus
+}
+
+func (m *Model) boxedBody() []screenLine {
+	if m.mode == modeList {
+		lines := m.rowLines()
+		if m.composing || m.answerFocus {
+			return lines
+		}
+		return boxLines(lines)
+	}
+	lines := m.detailLines()
+	if m.answerFocus {
+		return boxAnswer(lines)
+	}
+	if m.composing {
+		return lines
+	}
+	return boxLines(lines)
+}
+
+func (m *Model) boxedCompose() []screenLine {
+	lines := m.composeLines()
+	if !m.composing {
+		return lines
+	}
+	return boxLines(lines)
+}
+
+func boxAnswer(lines []screenLine) []screenLine {
+	var out []screenLine
+	for _, line := range lines {
+		if lineHas(line, hitAnswer) {
+			out = append(out, boxLines([]screenLine{line})...)
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+func lineHas(line screenLine, kind int) bool {
+	for _, h := range line.hits {
+		if h.kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func boxLines(lines []screenLine) []screenLine {
+	if len(lines) == 0 {
+		return nil
+	}
+	useStyles()
+	width := 0
+	for _, line := range lines {
+		if n := lipgloss.Width(line.text); n > width {
+			width = n
+		}
+	}
+	rule := strings.Repeat("─", width)
+	out := []screenLine{{text: focusMark.Render("┌" + rule + "┐")}}
+	for _, line := range lines {
+		pad := width - lipgloss.Width(line.text)
+		if pad < 0 {
+			pad = 0
+		}
+		hits := line.hits
+		if len(hits) > 0 {
+			hits = append([]hit(nil), line.hits...)
+			for i := range hits {
+				if hits[i].x1 == 0 {
+					continue
+				}
+				hits[i].x0++
+				hits[i].x1++
+			}
+		}
+		out = append(out, screenLine{
+			text: "│" + line.text + strings.Repeat(" ", pad) + "│",
+			hits: hits,
+		})
+	}
+	out = append(out, screenLine{text: focusMark.Render("└" + rule + "┘")})
+	return out
 }
 
 func (m *Model) helpLines() []screenLine {
@@ -584,15 +671,19 @@ func (m *Model) window(lines []screenLine) []screenLine {
 		m.scroll = 0
 		return lines
 	}
-	head := lines[:1]
-	rest := lines[1:]
+	headN := 1
+	if m.bodyBoxed() && len(lines) > 1 {
+		headN = 2
+	}
+	head := lines[:headN]
+	rest := lines[headN:]
 	tailN := m.pinnedTail()
 	if tailN > len(rest) {
 		tailN = len(rest)
 	}
 	tail := rest[len(rest)-tailN:]
 	rest = rest[:len(rest)-tailN]
-	limit := m.height - 1 - len(tail)
+	limit := m.height - headN - len(tail)
 	if limit < 1 {
 		limit = 1
 	}
@@ -614,6 +705,12 @@ func (m *Model) pinnedTail() int {
 	n := 1
 	if !m.help {
 		n += 2
+		if m.composing {
+			n += 2
+		}
+		if m.bodyBoxed() {
+			n++
+		}
 	}
 	if m.status != "" {
 		n++
