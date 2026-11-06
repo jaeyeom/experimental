@@ -62,7 +62,19 @@ type queueJSONResult struct {
 }
 
 func queueCommandHelp() string {
-	return "Enqueue one pull request on the merge queue; refuses a draft"
+	return "Enqueue one pull request (owner/repo#n, a URL, or a bare number) on the merge queue; refuses a draft"
+}
+
+func watchCommandHelp() string {
+	return "Wait until each pull request merges, is ejected, or times out (owner/repo#n, a URL, or a bare number)"
+}
+
+func queueUsage() string {
+	return "queue <owner/repo#n|url|number>"
+}
+
+func watchUsage() string {
+	return "watch <owner/repo#n|url|number>..."
 }
 
 func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDownstack bool) error {
@@ -596,7 +608,21 @@ func splitOwnerRepo(path string) (string, string, bool) {
 	return owner, repo, true
 }
 
+var errWatchUsage = errors.New("watch usage")
+
 func watchPullRequests(client watchAPI, refs []string, opt watchOptions) error {
+	if len(refs) == 0 {
+		return errWatchUsage
+	}
+	resolved := make([]string, len(refs))
+	for i, ref := range refs {
+		got, err := resolvePullRef(ref)
+		if err != nil {
+			return err
+		}
+		resolved[i] = got
+	}
+	refs = resolved
 	if opt.now == nil {
 		opt.now = time.Now
 	}

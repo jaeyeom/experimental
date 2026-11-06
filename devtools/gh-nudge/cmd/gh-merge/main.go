@@ -36,6 +36,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -82,7 +83,7 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "  list    List mergeable PRs (default)\n")
 		fmt.Fprintf(os.Stderr, "  merge   Merge eligible PRs\n")
 		fmt.Fprintf(os.Stderr, "  queue   %s\n", queueCommandHelp())
-		fmt.Fprintf(os.Stderr, "  watch   Wait until each pull request merges, is ejected, or times out\n")
+		fmt.Fprintf(os.Stderr, "  watch   %s\n", watchCommandHelp())
 	}
 }
 
@@ -336,20 +337,20 @@ func main() {
 		cmdErr = mergePRs(githubClient, cfg)
 	case "queue":
 		if len(args) != 2 {
-			fmt.Fprintf(os.Stderr, "Usage: %s queue <owner/repo#n|url|number>\n", os.Args[0])
+			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], queueUsage())
 			os.Exit(1)
 		}
 		cmdErr = queuePullRequest(githubClient, cfg, args[1], includeDownstack)
 	case "watch":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Usage: %s watch <owner/repo#n|url>...\n", os.Args[0])
-			os.Exit(1)
-		}
 		cmdErr = watchPullRequests(githubClient, args[1:], watchOptions{
 			timeout:  defaultWatchTimeout,
 			interval: defaultWatchInterval,
 			asJSON:   jsonOutput,
 		})
+		if errors.Is(cmdErr, errWatchUsage) {
+			fmt.Fprintf(os.Stderr, "Usage: %s %s\n", os.Args[0], watchUsage())
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		flag.Usage()

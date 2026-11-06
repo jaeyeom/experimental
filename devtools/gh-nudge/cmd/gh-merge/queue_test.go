@@ -675,6 +675,77 @@ func TestQueueAndWatchRunWithoutSlackBlock(t *testing.T) {
 	}
 }
 
+func TestWatchBareNumberUsesCheckoutRemote(t *testing.T) {
+	dir := initGitRemote(t, "origin", "https://github.com/acme/widgets.git")
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		if name == "gh" {
+			t.Errorf("gh was called: %v", args)
+			return "", errors.New("gh should not be called")
+		}
+		return defaultRunCommand(name, args...)
+	})
+	t.Chdir(dir)
+	pr := readyPR()
+	pr.Merged = true
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := watchPullRequests(client, []string{"12"}, watchOptions{timeout: 0}); err != nil {
+			t.Fatalf("watchPullRequests() error = %v", err)
+		}
+	})
+	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
+		t.Fatalf("loaded = %v, want acme/widgets#12", client.loadedRefs)
+	}
+	if !strings.Contains(output, "acme/widgets#12 merged") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestWatchExplicitRefDoesNotLookUpRemote(t *testing.T) {
+	withCommandStub(t, func(name string, args ...string) (string, error) {
+		t.Errorf("unexpected %s %v", name, args)
+		return "", errors.New("unexpected command")
+	})
+	for _, ref := range []string{"acme/widgets#12", "https://github.com/acme/widgets/pull/12"} {
+		t.Run(ref, func(t *testing.T) {
+			pr := readyPR()
+			pr.Merged = true
+			client := &fakeQueue{pr: pr}
+			if err := watchPullRequests(client, []string{ref}, watchOptions{timeout: 0}); err != nil {
+				t.Fatalf("watchPullRequests() error = %v", err)
+			}
+			if len(client.loadedRefs) != 1 || client.loadedRefs[0] != ref {
+				t.Fatalf("loaded = %v, want %s", client.loadedRefs, ref)
+			}
+		})
+	}
+}
+
+func TestWatchNoArgumentPrintsUsageWithoutAPI(t *testing.T) {
+	client := &fakeQueue{pr: readyPR()}
+	err := watchPullRequests(client, nil, watchOptions{})
+	if !errors.Is(err, errWatchUsage) {
+		t.Fatalf("watchPullRequests() error = %v, want usage", err)
+	}
+	if client.loads != 0 || len(client.loadedRefs) != 0 {
+		t.Fatalf("loads = %d refs = %v", client.loads, client.loadedRefs)
+	}
+	for _, help := range []string{queueUsage(), watchUsage()} {
+		for _, part := range []string{"owner/repo#n", "url", "number"} {
+			if !strings.Contains(help, part) {
+				t.Errorf("%q missing %s", help, part)
+			}
+		}
+	}
+	for _, help := range []string{queueCommandHelp(), watchCommandHelp()} {
+		for _, part := range []string{"owner/repo#n", "a URL", "a bare number"} {
+			if !strings.Contains(help, part) {
+				t.Errorf("%q missing %s", help, part)
+			}
+		}
+	}
+}
+
 func TestQueueBareNumberUsesCheckoutRemote(t *testing.T) {
 	dir := initGitRemote(t, "origin", "https://github.com/acme/widgets.git")
 	withCommandStub(t, func(name string, args ...string) (string, error) {
