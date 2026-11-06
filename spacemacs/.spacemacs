@@ -34,6 +34,7 @@
 ;;   Claude Code ................. claude-code.el integration
 ;;   Agent Shell ................. xenodium/agent-shell (ACP)
 ;;   Herdr ....................... emacs-herdr (Herdr TUI in Ghostel)
+;;   Decide ...................... Decision inbox
 ;;   Convenient functions ........ Utility functions
 ;;   Services ................... Background services
 ;;   Git and Project ............. Magit, project management
@@ -2718,6 +2719,20 @@ English streams in at point."
     (require 'herdr nil 'noerror)
     (when (fboundp #'herdr-mode)
       (herdr-mode 1)))
+
+  ;;; Decide
+  ;; decide.el lives in this checkout, beside the Spacemacs directory.
+  ;; ~/.spacemacs-upstream points at spacemacs/.spacemacs there.
+  (let* ((upstream (file-truename "~/.spacemacs-upstream"))
+         (decide-lisp (and (file-exists-p upstream)
+                           (expand-file-name
+                            "../devtools/decide/emacs"
+                            (file-name-directory upstream)))))
+    (when (and decide-lisp (file-directory-p decide-lisp))
+      (add-to-list 'load-path decide-lisp)
+      (require 'decide nil 'noerror)
+      (when (fboundp 'decide-list)
+        (spacemacs/set-leader-keys "o d" 'decide-list))))
 
   ;;; Convenient functions
   (defun my/kill-ring-save-unfilled (start end)
