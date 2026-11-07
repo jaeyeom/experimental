@@ -27,6 +27,17 @@
   :type 'string
   :group 'decide)
 
+(defcustom decide-display-buffer-action '(display-buffer-same-window)
+  "Display action for the list, an open item, and the status board.
+The default reuses the selected window, and `q' returns to the previous
+buffer in that window."
+  :type 'sexp
+  :group 'decide)
+
+(defun decide--display (buffer)
+  "Show BUFFER with `decide-display-buffer-action'."
+  (pop-to-buffer buffer decide-display-buffer-action))
+
 (defconst decide-folders
   '(("inbox" . "open")
     ("answered" . "answered")
@@ -123,7 +134,7 @@ Signal an error when the program exits non-zero."
               (insert "(empty)\n")
             (dolist (item items)
               (insert (decide--list-line item) "\n")))))
-      (pop-to-buffer buf))))
+      (decide--display buf))))
 
 (defun decide-refresh ()
   "Reload the current list."
@@ -211,7 +222,7 @@ Signal an error when the program exits non-zero."
         (erase-buffer)
         (insert (decide--item-text item)))
       (setq-local header-line-format (decide--item-keys-line item))
-      (pop-to-buffer (current-buffer)))))
+      (decide--display (current-buffer)))))
 
 (defun decide--thread-text (item)
   "Thread text of ITEM, oldest first.
@@ -446,7 +457,8 @@ Long lines wrap, so a draft in the thread can be scrolled."
     (with-current-buffer (get-buffer-create "*decide compose*")
       (decide-compose-mode)
       (setq decide--recipient name)
-      (pop-to-buffer (current-buffer)))))
+      (pop-to-buffer (current-buffer))
+      (decide--prepare-answer-state))))
 
 (defun decide-compose-send ()
   "Send this buffer to the chosen recipient."
@@ -642,7 +654,7 @@ FIELDS are JSON keys. The third column is the age of updatedAt."
     (with-current-buffer buf
       (decide-status-mode)
       (decide-status-refresh))
-    (pop-to-buffer buf)
+    (decide--display buf)
     (decide--status-ensure-timer)))
 
 (defun decide-status-revert (&rest _ignore)
@@ -662,31 +674,34 @@ FIELDS are JSON keys. The third column is the age of updatedAt."
 (declare-function evil-set-initial-state "evil" (mode state))
 (declare-function evil-define-key* "evil-core" (state keymap key def &rest bindings))
 
-(defun decide--evil-normal-keys (map)
-  "Bind normal-state motion and folder chords on MAP."
-  (apply #'evil-define-key* 'normal map
-         (list (kbd "j") #'next-line
-               (kbd "k") #'previous-line
-               (kbd "q") #'quit-window
-               (kbd "g r") #'revert-buffer
-               (kbd "g i") #'decide-list-inbox
-               (kbd "g a") #'decide-list-answered
-               (kbd "g d") #'decide-list-done
-               (kbd "g w") #'decide-list-withdrawn
-               (kbd "g s") #'decide-status)))
-
 (defun decide--evil-bind (map bindings)
-  "Bind normal-state BINDINGS on MAP."
-  (apply #'evil-define-key* 'normal map bindings))
+  "Bind BINDINGS on MAP for both normal and motion state."
+  (dolist (state '(normal motion))
+    (apply #'evil-define-key* state map bindings)))
+
+(defun decide--evil-normal-keys (map)
+  "Bind line motion, quit, revert, and folder chords on MAP."
+  (decide--evil-bind
+   map
+   (list (kbd "j") #'next-line
+         (kbd "k") #'previous-line
+         (kbd "q") #'quit-window
+         (kbd "g r") #'revert-buffer
+         (kbd "g i") #'decide-list-inbox
+         (kbd "g a") #'decide-list-answered
+         (kbd "g d") #'decide-list-done
+         (kbd "g w") #'decide-list-withdrawn
+         (kbd "g s") #'decide-status)))
 
 (defun decide--evil-setup ()
-  "Give the decide modes an emacs initial state, then bind normal-state keys.
-The mode maps win in that initial state.  Normal state still moves by
-line, quits, reverts, and opens a folder.  The list opens an item, and
-the item answers with an option or with free text.  r replies and
-y archives a notification.  Both are bound in normal state."
+  "Start the list, item, and status modes in normal state.
+The same keys are bound for motion state.  Answer, reply, and compose
+stay in insert state.  The list opens an item.  The item answers, replies,
+or archives."
   (dolist (mode '(decide-list-mode decide-item-mode decide-status-mode))
-    (evil-set-initial-state mode 'emacs))
+    (evil-set-initial-state mode 'normal))
+  (dolist (mode '(decide-answer-mode decide-reply-mode decide-compose-mode))
+    (evil-set-initial-state mode 'insert))
   (dolist (map (list decide-list-mode-map decide-item-mode-map decide-status-mode-map))
     (decide--evil-normal-keys map))
   (decide--evil-bind
