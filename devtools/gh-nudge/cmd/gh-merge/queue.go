@@ -16,6 +16,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/rcamarker"
 )
 
 const logTailLines = 20
@@ -594,31 +595,11 @@ func requeueAllowed(class string, matched bool, earlier, limit int) error {
 }
 
 func rcaClass(marker, eventID string, comments []string) (string, bool, error) {
-	if marker == "" || !strings.Contains(marker, "{event_id}") || !strings.Contains(marker, "{class}") {
-		return "", false, nil
-	}
-	pattern := regexp.QuoteMeta(marker)
-	pattern = strings.ReplaceAll(pattern, regexp.QuoteMeta("{event_id}"), regexp.QuoteMeta(eventID))
-	pattern = strings.ReplaceAll(pattern, regexp.QuoteMeta("{class}"), `(our-code|flake|infra)`)
-	re, err := regexp.Compile(pattern)
+	class, matched, err := rcamarker.Parse(marker, eventID, comments)
 	if err != nil {
 		return "", false, fmt.Errorf("rca_marker: %w", err)
 	}
-	found := ""
-	for _, comment := range comments {
-		match := re.FindStringSubmatch(comment)
-		if match == nil {
-			continue
-		}
-		if match[1] == "our-code" {
-			return "our-code", true, nil
-		}
-		found = match[1]
-	}
-	if found == "" {
-		return "", false, nil
-	}
-	return found, true, nil
+	return class, matched, nil
 }
 
 func earlierRequeues(marker string, comments []string, events []github.QueueEvent) (int, error) {
