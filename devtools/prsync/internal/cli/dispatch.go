@@ -13,7 +13,6 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
-	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
@@ -128,10 +127,7 @@ func loadDispatchDoc(ctx context.Context, cfg config.Config, exec executor.Execu
 }
 
 func loadFullScan(ctx context.Context, cfg config.Config, exec executor.Executor) (scan.Document, error) {
-	deps := scan.Deps{
-		GH:    gh.NewClient(exec, cfg.GHBin),
-		Herdr: herdr.NewClient(exec, cfg.HerdrBin),
-	}
+	deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
 	doc, err := scan.Run(ctx, deps, cfg, nil, time.Now())
 	return finishScanLoad(doc, err, cfg)
 }
@@ -145,10 +141,7 @@ func loadTargetedDoc(ctx context.Context, cfg config.Config, exec executor.Execu
 		}
 		targets = append(targets, scan.Target{Repo: repo, Number: n})
 	}
-	deps := scan.Deps{
-		GH:    gh.NewClient(exec, cfg.GHBin),
-		Herdr: herdr.NewClient(exec, cfg.HerdrBin),
-	}
+	deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
 	doc, err := scan.RunTargets(ctx, deps, cfg, targets, time.Now())
 	return finishScanLoad(doc, err, cfg)
 }

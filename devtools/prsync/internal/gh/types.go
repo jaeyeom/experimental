@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ErrUnauthenticated is returned when `gh auth status` exits non-zero.
@@ -154,6 +155,19 @@ type ThreadAuthor struct {
 type TeamMember struct {
 	Login string `json:"login"`
 	Type  string `json:"type"`
+}
+
+// MarkerComment is one issue comment that may carry an RCA marker.
+type MarkerComment struct {
+	URL       string
+	Body      string
+	CreatedAt time.Time
+}
+
+// MarkerComments is the head commit time and issue comments for one pull request.
+type MarkerComments struct {
+	HeadCommittedAt time.Time
+	Comments        []MarkerComment
 }
 
 // PathHistory is who authored or reviewed recent commits on one path.

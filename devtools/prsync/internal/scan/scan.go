@@ -20,6 +20,9 @@ const herdrMinVersion = "0.8.0"
 type Deps struct {
 	GH    GH
 	Herdr Herdr
+	// Marker returns the gh-merge rca_marker for one repository.
+	// Nil skips merge-queue-fix.
+	Marker func(owner, repo string) (string, error)
 }
 
 // GH is the GitHub surface scan uses.
@@ -30,6 +33,7 @@ type GH interface {
 	ListOpenPRs(ctx context.Context, repo, author string) ([]gh.PRListItem, error)
 	ViewPR(ctx context.Context, repo string, number int) (gh.PRListItem, error)
 	ReviewThreads(ctx context.Context, owner, repo string, number int) ([]gh.Thread, error)
+	MarkerComments(ctx context.Context, owner, repo string, number int) (gh.MarkerComments, error)
 	ReviewSnapshot(ctx context.Context, repo string, number int) (author string, reviews []gh.LatestReview, err error)
 	TeamMembers(ctx context.Context, org, slug string) ([]gh.TeamMember, error)
 	ChangedFiles(ctx context.Context, repo string, number int) ([]string, error)
@@ -77,7 +81,7 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	}
 	doc.Repos = resolved
 
-	if err := classifyRepos(ctx, deps.GH, cfg, resolved, &doc); err != nil {
+	if err := classifyRepos(ctx, deps.GH, cfg, resolved, deps.Marker, &doc); err != nil {
 		return finish(doc, err)
 	}
 	if err := coverTeams(ctx, deps.GH, cfg, &doc, now); err != nil {
@@ -127,7 +131,7 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 			}
 			return finish(doc, fmt.Errorf("view pr %s#%d: %w", target.Repo, target.Number, err))
 		}
-		classified, err := classifyPR(ctx, deps.GH, cfg, owner, name, target.Repo, item)
+		classified, err := classifyPR(ctx, deps.GH, cfg, owner, name, target.Repo, item, deps.Marker)
 		if err != nil {
 			return finish(doc, err)
 		}
@@ -225,7 +229,7 @@ func resolveRepos(ctx context.Context, client GH, cfg config.Config, override []
 	return found, nil
 }
 
-func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []string, doc *Document) error {
+func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []string, marker func(string, string) (string, error), doc *Document) error {
 	for _, repo := range repos {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("scan: %w", err)
@@ -249,7 +253,7 @@ func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []st
 			if item.StatusCheckError != "" {
 				warn(doc, fmt.Sprintf("ci rollup unavailable for %s#%d: %s", repo, item.Number, item.StatusCheckError))
 			}
-			classified, err := classifyPR(ctx, client, cfg, owner, name, repo, item)
+			classified, err := classifyPR(ctx, client, cfg, owner, name, repo, item, marker)
 			if err != nil {
 				return err
 			}
@@ -259,7 +263,7 @@ func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []st
 	return nil
 }
 
-func classifyPR(ctx context.Context, client GH, cfg config.Config, owner, name, repo string, item gh.PRListItem) (PR, error) {
+func classifyPR(ctx context.Context, client GH, cfg config.Config, owner, name, repo string, item gh.PRListItem, marker func(string, string) (string, error)) (PR, error) {
 	threads, err := client.ReviewThreads(ctx, owner, name, item.Number)
 	if err != nil {
 		return PR{}, fmt.Errorf("%s#%d: %w", repo, item.Number, err)
@@ -290,6 +294,11 @@ func classifyPR(ctx context.Context, client GH, cfg config.Config, owner, name, 
 		Unaddressed:      len(comments) > 0,
 		BlockingComments: comments,
 	}
+	actions, err := mergeQueueActions(ctx, client, marker, owner, name, item.Number)
+	if err != nil {
+		return PR{}, fmt.Errorf("%s#%d: %w", repo, item.Number, err)
+	}
+	out.Actions = actions
 	out.Bucket = Bucket(PRFacts{
 		Unaddressed:    out.Unaddressed,
 		CIState:        ci,

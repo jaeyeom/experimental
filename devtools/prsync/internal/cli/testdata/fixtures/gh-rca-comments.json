@@ -1,0 +1,24 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "committedDate": "2026-01-01T00:00:00Z"
+              }
+            }
+          ]
+        },
+        "comments": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": []
+        }
+      }
+    }
+  }
+}

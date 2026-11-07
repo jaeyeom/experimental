@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/rcasetting"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
@@ -40,10 +41,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 			logStartup(cmd.Context(), "scan", cfg)
-			deps := scan.Deps{
-				GH:    gh.NewClient(exec, cfg.GHBin),
-				Herdr: herdr.NewClient(exec, cfg.HerdrBin),
-			}
+			deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
 			doc, err := scan.Run(cmd.Context(), deps, cfg, repos, time.Now())
 			if scan.Started(doc) {
 				if werr := writeJSON(stdout, doc); werr != nil {
@@ -63,6 +61,15 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().StringArrayVar(&repos, "repo", nil, "replace repos list (repeatable owner/repo)")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "accepted, no-op (stdout is always JSON)")
 	return cmd
+}
+
+func scanDeps(exec executor.Executor, cfg config.Config, h scan.Herdr) scan.Deps {
+	src := &rcasetting.Source{}
+	return scan.Deps{
+		GH:     gh.NewClient(exec, cfg.GHBin),
+		Herdr:  h,
+		Marker: src.For,
+	}
 }
 
 func validateRepoFlags(repos []string) error {

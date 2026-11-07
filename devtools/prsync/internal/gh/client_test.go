@@ -507,6 +507,41 @@ func TestReviewThreads(t *testing.T) {
 	})
 }
 
+func TestMarkerComments(t *testing.T) {
+	t.Parallel()
+
+	body := `{
+		"data":{"repository":{"pullRequest":{
+			"commits":{"nodes":[{"commit":{"committedDate":"2026-01-02T03:04:05Z"}}]},
+			"comments":{
+				"pageInfo":{"hasNextPage":false,"endCursor":null},
+				"nodes":[{"url":"https://example/c","body":"RCA EVT class=our-code","createdAt":"2026-01-03T00:00:00Z"}]
+			}
+		}}}
+	}`
+	mock := newGHMock()
+	mock.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
+		return cfg.Command == testGHBin && isGraphQL(cfg.Args) && !hasCursor(cfg.Args)
+	}).WillSucceed(body, 0).Once().Build()
+
+	got, err := NewClient(mock, testGHBin).MarkerComments(context.Background(), "acme", "widgets", 12)
+	if err != nil {
+		t.Fatalf("MarkerComments() unexpected error: %v", err)
+	}
+	if !got.HeadCommittedAt.Equal(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)) {
+		t.Fatalf("committed = %s", got.HeadCommittedAt)
+	}
+	if len(got.Comments) != 1 || got.Comments[0].URL != "https://example/c" || got.Comments[0].Body != "RCA EVT class=our-code" {
+		t.Fatalf("comments = %+v", got.Comments)
+	}
+	if !got.Comments[0].CreatedAt.Equal(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("created = %s", got.Comments[0].CreatedAt)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCommentPR(t *testing.T) {
 	t.Parallel()
 
