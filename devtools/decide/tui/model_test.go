@@ -112,6 +112,178 @@ func TestInboxShowsOpenItemsInOrderAndBoldsUnread(t *testing.T) {
 	}
 }
 
+func TestInboxColumnsAlignAtTwoWidths(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	short := mustCreate(t, led, &decide.Item{
+		Question:  "short ask",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: now.Add(-3 * 24 * time.Hour),
+	})
+	long := mustCreate(t, led, &decide.Item{
+		Question:  "longer note",
+		Owner:     "beatrice",
+		Kind:      decide.KindTypeIn,
+		State:     decide.StateOpen,
+		TypeText:  "x",
+		Where:     "y",
+		CreatedAt: now.Add(-time.Minute),
+	})
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	for _, width := range []int{70, 120} {
+		m.width = width
+		m.height = 24
+		view := m.View()
+		first := visibleRow(t, view, short.ID)
+		second := visibleRow(t, view, long.ID)
+		a := inboxOffsets(t, first, short.ID, "ada", "3d", "relay", "short ask")
+		b := inboxOffsets(t, second, long.ID, "beatrice", "1m", "type-in", "longer note")
+		if a != b {
+			t.Fatalf("width %d columns %#v vs %#v\n%s\n%s", width, a, b, first, second)
+		}
+		if a.id >= a.requester || a.requester >= a.when || a.when >= a.badge || a.badge >= a.question {
+			t.Fatalf("width %d order %#v\n%s", width, a, first)
+		}
+	}
+}
+
+func TestInboxRowNoColor(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "ship it?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+	})
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 80
+	m.height = 24
+
+	t.Setenv("NO_COLOR", "")
+	colored := rawRow(t, m.View(), item.ID)
+	if !hasColorSequence(colored) {
+		t.Fatalf("row has no color\n%s", colored)
+	}
+
+	t.Setenv("NO_COLOR", "1")
+	plain := rawRow(t, m.View(), item.ID)
+	if hasColorSequence(plain) {
+		t.Fatalf("NO_COLOR row has color\n%s", plain)
+	}
+	vis := visibleLine(plain)
+	for _, needle := range []string{item.ID, "ada", "relay", "ship it?"} {
+		if !strings.Contains(vis, needle) {
+			t.Fatalf("NO_COLOR row missing %q\n%s", needle, vis)
+		}
+	}
+}
+
+type inboxOffset struct {
+	id, requester, when, badge, question int
+}
+
+func inboxOffsets(t *testing.T, row, id, requester, when, badge, question string) inboxOffset {
+	t.Helper()
+	idAt := strings.Index(row, id)
+	if idAt < 0 {
+		t.Fatalf("row missing %q\n%s", id, row)
+	}
+	rest := row[idAt:]
+	at := func(needle string) int {
+		t.Helper()
+		i := strings.Index(rest, needle)
+		if i < 0 {
+			t.Fatalf("row missing %q\n%s", needle, row)
+		}
+		return idAt + i
+	}
+	return inboxOffset{
+		id:        idAt,
+		requester: at(requester),
+		when:      at(when),
+		badge:     at(badge),
+		question:  at(question),
+	}
+}
+
+func visibleRow(t *testing.T, view, id string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		vis := visibleLine(line)
+		if strings.Contains(vis, id) {
+			return vis
+		}
+	}
+	t.Fatalf("view missing %s\n%s", id, view)
+	return ""
+}
+
+func rawRow(t *testing.T, view, id string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(visibleLine(line), id) {
+			return line
+		}
+	}
+	t.Fatalf("view missing %s\n%s", id, view)
+	return ""
+}
+
+func hasColorSequence(s string) bool {
+	for i := 0; i < len(s); {
+		if s[i] != 0x1b || i+1 >= len(s) || s[i+1] != '[' {
+			i++
+			continue
+		}
+		j := i + 2
+		for j < len(s) && ((s[j] >= '0' && s[j] <= '9') || s[j] == ';') {
+			j++
+		}
+		if j >= len(s) || s[j] != 'm' {
+			i++
+			continue
+		}
+		if sgrSetsColor(s[i+2 : j]) {
+			return true
+		}
+		i = j + 1
+	}
+	return false
+}
+
+func sgrSetsColor(params string) bool {
+	if params == "" {
+		return false
+	}
+	for _, p := range strings.Split(params, ";") {
+		if p == "" {
+			continue
+		}
+		n := 0
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return false
+			}
+			n = n*10 + int(r-'0')
+		}
+		if n == 38 || n == 48 || (n >= 30 && n <= 49) || (n >= 90 && n <= 107) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFolderKeysShowEachState(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -2074,7 +2246,7 @@ func TestGmailLayoutNarrowAndWide(t *testing.T) {
 		for _, needle := range []string{
 			"[Inbox]", "Answered", "Done", "Withdrawn",
 			item.ID, "go https://ex.test/a", "ada", "1d",
-			"due " + deadline.Format(time.RFC3339),
+			"relay",
 			"? help",
 		} {
 			if !strings.Contains(view, needle) {
@@ -2540,7 +2712,8 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 
 func rowSelected(view, id string) bool {
 	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(visibleLine(line), "> "+id) {
+		vis := visibleLine(line)
+		if strings.Contains(vis, "> ") && strings.Contains(vis, id) {
 			return true
 		}
 	}

@@ -9,6 +9,7 @@ package tui
 import (
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -1150,7 +1151,11 @@ func (m *Model) unmeasuredList() []screenLine {
 }
 
 func (m *Model) stackedList(pane int) []screenLine {
-	list := m.clipList(m.rowLines(pane))
+	rowW := pane
+	if m.listFocused() && pane >= 2 {
+		rowW = pane - 2
+	}
+	list := m.clipList(m.rowLines(rowW))
 	list = fitPane(list, pane, m.listFocused())
 	return stackRegions(pane, []screenLine{m.folderTabLine(pane)}, list)
 }
@@ -1843,16 +1848,19 @@ func (m *Model) rowLines(width int) []screenLine {
 	if m.Now != nil {
 		now = m.Now()
 	}
+	cells := make([][]string, len(m.items))
+	for i, it := range m.items {
+		cells[i] = inboxCells(it, now)
+	}
+	widths := inboxColumnWidths(cells, width)
+	styles := inboxStyles()
 	lines := make([]screenLine, 0, len(m.items))
 	for i, it := range m.items {
 		marker := "  "
 		if i == m.cursor {
 			marker = "> "
 		}
-		text := marker + rowText(it, now)
-		if width > 0 {
-			text = rowTextFitted(it, now, marker, width)
-		}
+		text := marker + rowMark(it) + paintInboxRow(cells[i], widths, styles)
 		useStyles()
 		if it.Unread {
 			text = unreadRow.Render(text)
@@ -2115,13 +2123,26 @@ func withCursor(text string, col int) string {
 	return string(runes[:col]) + cursorOn + string(runes[col]) + cursorOff + string(runes[col+1:])
 }
 
-func rowText(it decide.Item, now time.Time) string {
-	question := rowSnippet(it)
-	text := fmt.Sprintf("%s%s %s %s %s", rowUnread(it), it.ID, question, it.Owner, age(now.Sub(it.CreatedAt)))
-	if it.Deadline != nil {
-		text += " due " + it.Deadline.Format(time.RFC3339)
+// inboxCells are the list columns: id, requester, relative time, kind or
+// state, then the question.
+func inboxCells(it decide.Item, now time.Time) []string {
+	return []string{it.ID, it.Owner, age(now.Sub(it.CreatedAt)), rowBadge(it), rowSnippet(it)}
+}
+
+// rowBadge is the item kind, or the state when the kind is empty.
+func rowBadge(it decide.Item) string {
+	if it.Kind != "" {
+		return it.Kind
 	}
-	return text
+	return it.State
+}
+
+// rowMark reserves two columns. A notification with no options shows a star.
+func rowMark(it decide.Item) string {
+	if it.Unread && len(it.Options) == 0 {
+		return "* "
+	}
+	return "  "
 }
 
 func rowSnippet(it decide.Item) string {
@@ -2132,57 +2153,152 @@ func rowSnippet(it decide.Item) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-// rowUnread marks a notification that has not been read.
-func rowUnread(it decide.Item) string {
-	if it.Unread && len(it.Options) == 0 {
-		return "* "
+// ANSI palette indexes follow the terminal theme, not a fixed RGB color.
+const (
+	paletteRequester lipgloss.ANSIColor = 6
+	paletteTime      lipgloss.ANSIColor = 8
+	paletteBadge     lipgloss.ANSIColor = 3
+)
+
+// inboxStyles colors the requester, the time, and the kind or state badge.
+// A set NO_COLOR drops those colors and leaves the column text in place.
+func inboxStyles() [5]lipgloss.Style {
+	r := lipgloss.NewRenderer(io.Discard)
+	if os.Getenv("NO_COLOR") != "" {
+		r.SetColorProfile(termenv.Ascii)
+	} else {
+		r.SetColorProfile(termenv.ANSI)
 	}
-	return ""
+	plain := r.NewStyle()
+	return [5]lipgloss.Style{
+		plain,
+		r.NewStyle().Foreground(paletteRequester),
+		r.NewStyle().Foreground(paletteTime).Faint(true),
+		r.NewStyle().Foreground(paletteBadge),
+		plain,
+	}
 }
 
-// rowTextFitted keeps a long snippet and a long owner visible by cutting
-// each with an ellipsis inside width.
-func rowTextFitted(it decide.Item, now time.Time, marker string, width int) string {
-	question := rowSnippet(it)
-	tail := " " + age(now.Sub(it.CreatedAt))
-	if it.Deadline != nil {
-		tail += " due " + it.Deadline.Format(time.RFC3339)
+// inboxGutter is the cursor marker plus the unread mark.
+const inboxGutter = 4
+
+// inboxColumnWidths gives every column one shared width.
+// A long question keeps about half the row, and the metadata columns shrink to match.
+func inboxColumnWidths(rows [][]string, rowWidth int) []int {
+	widths := inboxNaturalWidths(rows)
+	if rowWidth <= 0 {
+		return widths
 	}
-	owner := it.Owner
-	mark := rowUnread(it)
-	full := marker + mark + it.ID + " " + question + " " + owner + tail
-	if lipgloss.Width(full) <= width {
-		return full
-	}
-	fixed := lipgloss.Width(marker+mark+it.ID+tail) + 2
-	remain := width - fixed
-	if remain < 2 {
-		return truncateVisible(full, width)
-	}
-	qBudget := remain / 2
-	oBudget := remain - qBudget
-	qw := lipgloss.Width(question)
-	ow := lipgloss.Width(owner)
-	if qw < qBudget {
-		oBudget += qBudget - qw
-		qBudget = qw
-	}
-	if ow < oBudget {
-		qBudget += oBudget - ow
-		if qBudget > qw {
-			qBudget = qw
+	const cols = 5
+	available := rowWidth - inboxGutter - (cols - 1)
+	if available < cols {
+		for i := range widths {
+			widths[i] = 1
 		}
-		oBudget = ow
+		return widths
 	}
-	q := question
-	if qw > qBudget {
-		q = truncateVisible(question, qBudget)
+	fitInboxWidths(widths, available)
+	return widths
+}
+
+func inboxNaturalWidths(rows [][]string) []int {
+	const cols = 5
+	widths := make([]int, cols)
+	for i := range widths {
+		widths[i] = 1
 	}
-	o := owner
-	if ow > oBudget {
-		o = truncateVisible(owner, oBudget)
+	for _, row := range rows {
+		for i := 0; i < cols && i < len(row); i++ {
+			if w := lipgloss.Width(row[i]); w > widths[i] {
+				widths[i] = w
+			}
+		}
 	}
-	return marker + mark + it.ID + " " + q + " " + o + tail
+	return widths
+}
+
+func fitInboxWidths(widths []int, available int) {
+	metaEnd := len(widths) - 1
+	metaSum := sumWidths(widths[:metaEnd])
+	if metaSum+widths[metaEnd] <= available {
+		return
+	}
+	qBudget := available / 2
+	if qBudget < 1 {
+		qBudget = 1
+	}
+	shrinkTo(widths[:metaEnd], available-qBudget)
+	question := available - sumWidths(widths[:metaEnd])
+	if question > widths[metaEnd] {
+		question = widths[metaEnd]
+	}
+	if question < 1 {
+		question = 1
+	}
+	widths[metaEnd] = question
+}
+
+func sumWidths(widths []int) int {
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	return sum
+}
+
+// shrinkTo reduces widths from the right until they sum to budget.
+func shrinkTo(widths []int, budget int) {
+	if len(widths) == 0 {
+		return
+	}
+	if budget < len(widths) {
+		budget = len(widths)
+	}
+	sum := 0
+	for _, w := range widths {
+		sum += w
+	}
+	overflow := sum - budget
+	for i := len(widths) - 1; i >= 0 && overflow > 0; i-- {
+		spare := widths[i] - 1
+		if spare < 1 {
+			continue
+		}
+		if spare > overflow {
+			widths[i] -= overflow
+			return
+		}
+		overflow -= spare
+		widths[i] = 1
+	}
+}
+
+func paintInboxRow(cells []string, widths []int, styles [5]lipgloss.Style) string {
+	var b strings.Builder
+	for i, width := range widths {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		text := ""
+		if i < len(cells) {
+			text = cells[i]
+		}
+		if lipgloss.Width(text) > width {
+			text = truncateVisible(text, width)
+		}
+		pad := width - lipgloss.Width(text)
+		if pad < 0 {
+			pad = 0
+		}
+		if text != "" && i < len(styles) {
+			text = styles[i].Render(text)
+		}
+		b.WriteString(text)
+		if pad > 0 {
+			b.WriteString(strings.Repeat(" ", pad))
+		}
+	}
+	return b.String()
 }
 
 func age(d time.Duration) string {
