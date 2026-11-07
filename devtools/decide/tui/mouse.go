@@ -12,6 +12,7 @@ const (
 	hitCompose
 	hitSend
 	hitLink
+	hitReply
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
@@ -32,6 +33,10 @@ func (m *Model) Click(x, y int) error {
 		m.draft = m.free.Value()
 		return nil
 	}
+	if m.replyFocus && !m.onHitRow(x, y, hitReply) {
+		m.replyFocus = false
+		return nil
+	}
 	if y < 1 || y > len(m.rows) {
 		return nil
 	}
@@ -45,11 +50,15 @@ func (m *Model) Click(x, y int) error {
 }
 
 func (m *Model) onAnswerRow(x, y int) bool {
+	return m.onHitRow(x, y, hitAnswer)
+}
+
+func (m *Model) onHitRow(x, y, kind int) bool {
 	if y < 1 || y > len(m.rows) {
 		return false
 	}
 	for _, h := range m.rows[y-1] {
-		if h.kind != hitAnswer {
+		if h.kind != kind {
 			continue
 		}
 		if h.x1 == 0 || (x >= h.x0 && x <= h.x1) {
@@ -91,6 +100,9 @@ func (m *Model) hit(h hit) error {
 		return m.answerOption(h.n)
 	case hitAnswer:
 		m.focusAnswer()
+		return nil
+	case hitReply:
+		m.focusReply()
 		return nil
 	case hitSubmit:
 		return m.submitFreeText()

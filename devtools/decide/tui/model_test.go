@@ -513,7 +513,7 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 	if strings.Contains(m.View(), "answer:") {
 		t.Fatalf("options-only item offered a free-text box\n%s", m.View())
 	}
-	press(t, m, "words\r")
+	press(t, m, "zzzz\r")
 	view := m.View()
 	if !strings.Contains(view, "free text is not allowed") {
 		t.Fatalf("free text was not rejected\n%s", view)
@@ -2681,6 +2681,146 @@ func (l *lockedBuf) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.b.String()
+}
+
+func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question:   "what should I send?",
+		Owner:      "ada",
+		Kind:       decide.KindRelay,
+		State:      decide.StateOpen,
+		NotifyPane: "pane-9",
+		Options: []decide.Option{
+			{Key: "draft", Label: "draft a message for me", Recommended: true},
+			{Key: "later", Label: "Later"},
+		},
+	})
+	var words strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&words, "draftword%d ", i)
+	}
+	draft := words.String() + "draftend"
+	replied, err := led.Reply(item.ID, draft, []decide.Option{
+		{Key: "send", Label: "send"},
+		{Key: "edit", Label: "edit"},
+		{Key: "don't send", Label: "don't send"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	note, err := led.Create(&decide.Item{
+		Question: "progress note",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Unread:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(dir)
+	m.width = 36
+	m.height = 12
+	var sent []string
+	m.runSend = func(argv []string) error {
+		sent = append([]string(nil), argv...)
+		return nil
+	}
+	m.SendTemplate = "sentinel {pane}"
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	list := m.View()
+	if !strings.Contains(list, "draftword0") || strings.Contains(list, "what should I send?") {
+		t.Fatalf("list row is not the latest message\n%s", list)
+	}
+	if !strings.Contains(list, "*") || !strings.Contains(list, note.ID) {
+		t.Fatalf("notification has no unread marker\n%s", list)
+	}
+	if strings.Contains(lineContaining(list, replied.ID), "*") {
+		t.Fatalf("a thread that needs an answer was marked as a notification\n%s", list)
+	}
+	if _, err := led.Done(note.ID, "read"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	press(t, m, "o")
+	opened := m.View()
+	if !strings.Contains(opened, "draftword0") || strings.Contains(opened, "draftend") {
+		t.Fatalf("draft did not start wrapped above the fold\n%s", opened)
+	}
+	if strings.Contains(visibleLine(lineContaining(opened, "draftword0")), "…") {
+		t.Fatalf("draft was clipped\n%s", opened)
+	}
+	for m.scroll < 80 && (!strings.Contains(m.View(), "draftend") || !strings.Contains(m.View(), "3 don't send")) {
+		m.Wheel(true)
+	}
+	bottom := m.View()
+	if !strings.Contains(bottom, "draftend") || !strings.Contains(bottom, "1 send") || !strings.Contains(bottom, "3 don't send") {
+		t.Fatalf("options are not at the bottom\n%s", bottom)
+	}
+	if screenRow(bottom, "1 send") < screenRow(bottom, "draftend") {
+		t.Fatalf("options are above the draft\n%s", bottom)
+	}
+	if strings.Contains(bottom, "draftword0") {
+		t.Fatalf("scroll left the draft top in view\n%s", bottom)
+	}
+
+	press(t, m, "1")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "send" {
+		t.Fatalf("answer = %+v state %s", got.Answer, got.State)
+	}
+
+	// The answered thread left the inbox. Reopen a fresh draft to reply with edits.
+	again, err := led.Create(&decide.Item{
+		Question:   "what should I send?",
+		Owner:      "ada",
+		Kind:       decide.KindRelay,
+		State:      decide.StateOpen,
+		NotifyPane: "pane-9",
+		Options:    []decide.Option{{Key: "draft", Label: "draft a message for me"}, {Key: "later", Label: "Later"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Reply(again.ID, draft, []decide.Option{
+		{Key: "send", Label: "send"},
+		{Key: "edit", Label: "edit"},
+		{Key: "don't send", Label: "don't send"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "oredits\r")
+	edited, err := led.Get(again.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := edited.Messages[len(edited.Messages)-1]
+	if edited.State != decide.StateOpen || last.Author != "human" || last.Text != "edits" {
+		t.Fatalf("reply = state %s message %+v", edited.State, last)
+	}
+	if len(edited.Options) != 3 || edited.Options[0].Key != "send" {
+		t.Fatalf("reply cleared the options: %+v", edited.Options)
+	}
+	if len(sent) != 3 || sent[len(sent)-1] != again.ID+"\n"+"edits" {
+		t.Fatalf("notify argv = %#v", sent)
+	}
+	if !strings.Contains(m.View(), "edits") {
+		t.Fatalf("reply is not in the thread view\n%s", m.View())
+	}
 }
 
 func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
