@@ -602,6 +602,10 @@ func (fixtureGH) ReviewThreads(context.Context, string, string, int) ([]gh.Threa
 	return fixtureThreads(), nil
 }
 
+func (fixtureGH) MarkerComments(context.Context, string, string, int) (gh.MarkerComments, error) {
+	return gh.MarkerComments{}, nil
+}
+
 func (fixtureGH) ReviewSnapshot(context.Context, string, int) (string, []gh.LatestReview, error) {
 	return "", nil, nil
 }
@@ -693,6 +697,8 @@ type scriptGH struct {
 	viewCalls     []string
 	threads       map[int][]gh.Thread
 	threadErr     error
+	markers       map[int]gh.MarkerComments
+	markerErr     error
 	threadCalls   map[int]int
 	snapshots     map[string]snapResult
 	members       map[string]memberCall
@@ -755,6 +761,16 @@ func (g *scriptGH) ViewPR(_ context.Context, repo string, number int) (gh.PRList
 		return gh.PRListItem{}, gh.ErrNotFound
 	}
 	return res.item, res.err
+}
+
+func (g *scriptGH) MarkerComments(_ context.Context, _, _ string, number int) (gh.MarkerComments, error) {
+	if g.markerErr != nil {
+		return gh.MarkerComments{}, g.markerErr
+	}
+	if g.markers == nil {
+		return gh.MarkerComments{}, nil
+	}
+	return g.markers[number], nil
 }
 
 func (g *scriptGH) ReviewThreads(_ context.Context, _, _ string, number int) ([]gh.Thread, error) {

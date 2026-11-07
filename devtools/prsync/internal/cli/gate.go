@@ -10,7 +10,6 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
-	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
@@ -71,10 +70,7 @@ func managedTabs(ctx context.Context, cfg config.Config, exec executor.Executor,
 	if cfg.ConcurrencyWaitOn != "managed" {
 		return nil, nil
 	}
-	deps := scan.Deps{
-		GH:    gh.NewClient(exec, cfg.GHBin),
-		Herdr: h,
-	}
+	deps := scanDeps(exec, cfg, h)
 	doc, err := scan.Run(ctx, deps, cfg, nil, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)

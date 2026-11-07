@@ -79,6 +79,27 @@ func TestParseMisses(t *testing.T) {
 	}
 }
 
+func TestMatchExtractsEventAndClass(t *testing.T) {
+	const marker = "RCA {event_id} class={class}"
+	eventID, class, ok, err := Match(marker, "Investigated.\nRCA EVT.1 class=our-code\n")
+	if err != nil {
+		t.Fatalf("Match() error = %v", err)
+	}
+	if !ok || eventID != "EVT.1" || class != "our-code" {
+		t.Fatalf("Match() = %q, %q, %v", eventID, class, ok)
+	}
+	for _, class := range []string{"flake", "infra"} {
+		_, got, ok, err := Match(marker, Render(marker, "EVT", class))
+		if err != nil || !ok || got != class {
+			t.Fatalf("Match(%s) = %q, %v, %v", class, got, ok, err)
+		}
+	}
+	_, _, ok, err = Match(marker, "RCA EVT class=other")
+	if err != nil || ok {
+		t.Fatalf("Match(other) = ok %v, err %v", ok, err)
+	}
+}
+
 func TestRenderCustomMarker(t *testing.T) {
 	const marker = "ENTRY {event_id} class={class}"
 	got := Render(marker, "NEW", "infra")

@@ -30,6 +30,7 @@ const (
 	prSearchJSONFields    = "number,title,url,state,isDraft,closedAt,repository"
 	prStateJSONFields     = "number,title,url,state,isDraft,closedAt"
 	reviewThreadsQuery    = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
+	markerCommentsQuery   = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){commits(last:1){nodes{commit{committedDate}}}comments(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{url body createdAt}}}}}`
 )
 
 // Client shells out to gh_bin through an injected executor.
@@ -330,6 +331,76 @@ func (c *Client) CommentPR(ctx context.Context, repo string, number int, body st
 	return err
 }
 
+// MarkerComments loads issue comments and the head commit time.
+// Hitting 50 comment pages is an error.
+func (c *Client) MarkerComments(ctx context.Context, owner, repo string, number int) (MarkerComments, error) {
+	var out MarkerComments
+	cursor := ""
+	for page := 0; page < maxReviewThreadPages; page++ {
+		pageComments, committed, next, err := c.markerCommentsPage(ctx, owner, repo, number, cursor)
+		if err != nil {
+			return MarkerComments{}, err
+		}
+		if page == 0 {
+			out.HeadCommittedAt = committed
+		}
+		out.Comments = append(out.Comments, pageComments...)
+		if next == "" {
+			if out.Comments == nil {
+				out.Comments = []MarkerComment{}
+			}
+			return out, nil
+		}
+		cursor = next
+	}
+	return MarkerComments{}, fmt.Errorf("marker comments page cap exceeded for %s/%s#%d", owner, repo, number)
+}
+
+func (c *Client) markerCommentsPage(ctx context.Context, owner, repo string, number int, cursor string) ([]MarkerComment, time.Time, string, error) {
+	args := []string{
+		"api", "graphql",
+		"-f", "query=" + markerCommentsQuery,
+		"-F", "owner=" + owner,
+		"-F", "repo=" + repo,
+		"-F", "num=" + strconv.Itoa(number),
+	}
+	if cursor != "" {
+		args = append(args, "-F", "cursor="+cursor)
+	}
+	result, err := c.requireJSON(ctx, defaultCallTimeout, args...)
+	if err != nil {
+		return nil, time.Time{}, "", err
+	}
+	var payload graphqlMarkerComments
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		return nil, time.Time{}, "", fmt.Errorf("decode marker comments: %w", err)
+	}
+	if len(payload.Errors) > 0 {
+		return nil, time.Time{}, "", fmt.Errorf("marker comments graphql: %s", payload.Errors[0].Message)
+	}
+	pr := payload.Data.Repository.PullRequest
+	if pr == nil {
+		return nil, time.Time{}, "", fmt.Errorf("marker comments: pull request %s/%s#%d not found", owner, repo, number)
+	}
+	var committed time.Time
+	if len(pr.Commits.Nodes) > 0 && pr.Commits.Nodes[0].Commit.CommittedDate != nil {
+		committed = *pr.Commits.Nodes[0].Commit.CommittedDate
+	}
+	comments := make([]MarkerComment, 0, len(pr.Comments.Nodes))
+	for _, node := range pr.Comments.Nodes {
+		comments = append(comments, MarkerComment{
+			URL:       node.URL,
+			Body:      node.Body,
+			CreatedAt: node.CreatedAt,
+		})
+	}
+	next := ""
+	if pr.Comments.PageInfo.HasNextPage {
+		next = pr.Comments.PageInfo.EndCursor
+	}
+	return comments, committed, next, nil
+}
+
 // ReviewThreads paginates GraphQL review threads. Hitting 50 pages is an error.
 func (c *Client) ReviewThreads(ctx context.Context, owner, repo string, number int) ([]Thread, error) {
 	var threads []Thread
@@ -416,6 +487,36 @@ func isInaccessible(stderr string) bool {
 		strings.Contains(s, "could not resolve to a repository") ||
 		strings.Contains(s, "not found") ||
 		strings.Contains(s, "archived")
+}
+
+type graphqlMarkerComments struct {
+	Data struct {
+		Repository struct {
+			PullRequest *struct {
+				Commits struct {
+					Nodes []struct {
+						Commit struct {
+							CommittedDate *time.Time `json:"committedDate"`
+						} `json:"commit"`
+					} `json:"nodes"`
+				} `json:"commits"`
+				Comments struct {
+					PageInfo struct {
+						HasNextPage bool   `json:"hasNextPage"`
+						EndCursor   string `json:"endCursor"`
+					} `json:"pageInfo"`
+					Nodes []struct {
+						URL       string    `json:"url"`
+						Body      string    `json:"body"`
+						CreatedAt time.Time `json:"createdAt"`
+					} `json:"nodes"`
+				} `json:"comments"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
 }
 
 type graphqlReviewThreads struct {

@@ -49,6 +49,19 @@ type PR struct {
 	// requests a team that is not skipped. Nil keeps scan JSON identical
 	// when the feature is off.
 	TeamReviewSuggestions []TeamReviewSuggestion `json:"team_review_suggestions,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// Actions lists follow-ups such as merge-queue-fix. Nil when there are none.
+	Actions []Action `json:"actions,omitempty"`
+}
+
+// ActionMergeQueueFix is the scan action for an our-code merge-queue ejection.
+const ActionMergeQueueFix = "merge-queue-fix"
+
+// Action is one follow-up recorded on a pull request.
+type Action struct {
+	Name       string `json:"name"`
+	EventID    string `json:"event_id"` //nolint:tagliatelle // brief outbound contract
+	Class      string `json:"class"`
+	CommentURL string `json:"comment_url"` //nolint:tagliatelle // brief outbound contract
 }
 
 // TeamReviewSuggestion is one requested team and who could cover it.

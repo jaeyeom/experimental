@@ -73,6 +73,9 @@ case "${cmd} ${sub}" in
     # Path history and review threads share `gh api graphql`. The history
     # query names associatedPullRequests; review threads do not.
     case "$*" in
+      *committedDate*)
+        cat "${DIR}/gh-rca-comments.json"
+        ;;
       *associatedPullRequests*)
         cat "${DIR}/gh-path-history.json"
         ;;
