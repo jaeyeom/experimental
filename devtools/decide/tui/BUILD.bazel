@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "compose.go",
+        "link.go",
         "model.go",
         "mouse.go",
         "program.go",
@@ -40,7 +41,10 @@ go_library(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["model_test.go"],
+    srcs = [
+        "link_test.go",
+        "model_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/decide:go_default_library",

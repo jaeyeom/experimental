@@ -2608,7 +2608,7 @@ func updateRune(t *testing.T, m *Model, r rune) *Model {
 
 func screenRow(view, needle string) int {
 	for i, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, needle) {
+		if strings.Contains(visibleLine(line), needle) {
 			return i + 1
 		}
 	}
@@ -2627,14 +2627,8 @@ func press(t *testing.T, m *Model, keys string) {
 func visibleLine(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
-		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
-			i += 2
-			for i < len(s) && s[i] != 'm' {
-				i++
-			}
-			if i < len(s) {
-				i++
-			}
+		if _, next, ok := copyANSI(s, i); ok {
+			i = next
 			continue
 		}
 		b.WriteByte(s[i])
@@ -2959,11 +2953,16 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 	}
 	row := screenRow(scrolled, "tailtoken")
 	line := strings.Split(scrolled, "\n")[row-1]
+	var opened string
+	m.runOpen = func(url string) error {
+		opened = url
+		return nil
+	}
 	if err := m.Click(visibleCol(line, "tailtoken"), row); err != nil {
 		t.Fatal(err)
 	}
-	if m.status != link {
-		t.Fatalf("link status %q", m.status)
+	if m.status != link || opened != link {
+		t.Fatalf("link status %q opened %q", m.status, opened)
 	}
 }
 
