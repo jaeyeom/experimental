@@ -9,6 +9,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
+	"github.com/jaeyeom/experimental/devtools/gh-nudge/rcamarker"
 )
 
 var errRCAUsage = errors.New("rca usage")
@@ -60,7 +61,7 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 			return err
 		}
 	}
-	body := rcaComment(string(fileBody), rcaMarkerLine(cfg.Settings.RCAMarker, event.ID, parsed.class))
+	body := rcaComment(string(fileBody), rcamarker.Render(cfg.Settings.RCAMarker, event.ID, parsed.class))
 	if err := client.CommentOnPullRequest(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number, body); err != nil {
 		return fmt.Errorf("comment on %s: %w", pr.Ref.Raw, err)
 	}
@@ -146,11 +147,6 @@ func latestRemoval(events []github.QueueEvent) (github.QueueEvent, bool) {
 		ok = true
 	}
 	return found, ok
-}
-
-func rcaMarkerLine(marker, eventID, class string) string {
-	line := strings.ReplaceAll(marker, "{event_id}", eventID)
-	return strings.ReplaceAll(line, "{class}", class)
 }
 
 func rcaComment(fileBody, markerLine string) string {
