@@ -284,6 +284,166 @@ func sgrSetsColor(params string) bool {
 	return false
 }
 
+func TestDetailHeaderAlignsAndNoColor(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question: "ship it?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+	})
+	sent, err := led.StartThread("beta", "pane-2", "please look")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 100
+	m.height = 30
+	t.Setenv("NO_COLOR", "")
+
+	// The newest thread is first.
+	press(t, m, "o")
+	threaded := m.View()
+	threadCols := headerColonColumns(t, threaded)
+	if len(threadCols) != 6 {
+		t.Fatalf("thread header rows %d\n%s", len(threadCols), threaded)
+	}
+	for _, col := range threadCols[1:] {
+		if col != threadCols[0] {
+			t.Fatalf("thread colon columns %#v\n%s", threadCols, threaded)
+		}
+	}
+	if !strings.Contains(visibleLine(threaded), "From: human") || !strings.Contains(visibleLine(threaded), "To: beta") {
+		t.Fatalf("thread header\n%s", threaded)
+	}
+	if !hasColorSequence(rawHeaderLine(t, threaded, "From:")) {
+		t.Fatalf("header has no color\n%s", threaded)
+	}
+	if !blankBeforeBody(threaded, "please look") {
+		t.Fatalf("thread header is not separated from the body\n%s", threaded)
+	}
+
+	t.Setenv("NO_COLOR", "1")
+	plain := m.View()
+	for _, line := range headerRawLines(plain) {
+		if hasColorSequence(line) {
+			t.Fatalf("NO_COLOR header has color\n%s", line)
+		}
+	}
+	plainVis := visibleLine(plain)
+	for _, needle := range []string{
+		"From: human",
+		"To: beta",
+		"Kind: " + sent.Kind,
+		"State: " + sent.State,
+		"Created: " + sent.CreatedAt.UTC().Format(time.RFC3339),
+		"Answered:",
+	} {
+		if !strings.Contains(plainVis, needle) {
+			t.Fatalf("NO_COLOR header missing %q\n%s", needle, plainVis)
+		}
+	}
+
+	t.Setenv("NO_COLOR", "")
+	press(t, m, "uj")
+	press(t, m, "o")
+	asked := m.View()
+	askCols := headerColonColumns(t, asked)
+	if len(askCols) != 5 {
+		t.Fatalf("ask header rows %d\n%s", len(askCols), asked)
+	}
+	for _, col := range askCols[1:] {
+		if col != askCols[0] {
+			t.Fatalf("ask colon columns %#v\n%s", askCols, asked)
+		}
+	}
+	if !strings.Contains(visibleLine(asked), "From: ada") || strings.Contains(visibleLine(asked), "To:") {
+		t.Fatalf("ask header\n%s", asked)
+	}
+	if !blankBeforeBody(asked, "ship it?") {
+		t.Fatalf("ask header is not separated from the body\n%s", asked)
+	}
+}
+
+func headerColonColumns(t *testing.T, view string) []int {
+	t.Helper()
+	var cols []int
+	for _, line := range headerVisibleLines(view) {
+		i := strings.Index(line, ":")
+		if i < 0 {
+			t.Fatalf("header line has no colon\n%s", line)
+		}
+		cols = append(cols, i)
+	}
+	return cols
+}
+
+func headerVisibleLines(view string) []string {
+	var lines []string
+	for _, line := range strings.Split(view, "\n") {
+		text := detailText(line)
+		if isHeaderLine(text) {
+			lines = append(lines, text)
+		}
+	}
+	return lines
+}
+
+func headerRawLines(view string) []string {
+	var lines []string
+	for _, line := range strings.Split(view, "\n") {
+		if isHeaderLine(detailText(line)) {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func rawHeaderLine(t *testing.T, view, label string) string {
+	t.Helper()
+	for _, line := range headerRawLines(view) {
+		if strings.Contains(detailText(line), label) {
+			return line
+		}
+	}
+	t.Fatalf("header missing %s\n%s", label, view)
+	return ""
+}
+
+func isHeaderLine(text string) bool {
+	field := strings.TrimSpace(text)
+	for _, label := range []string{"From:", "To:", "Kind:", "State:", "Created:", "Answered:"} {
+		if strings.HasPrefix(field, label) {
+			return true
+		}
+	}
+	return false
+}
+
+func detailText(line string) string {
+	vis := strings.Trim(visibleLine(line), "│")
+	return strings.TrimRight(vis, " ")
+}
+
+func blankBeforeBody(view, body string) bool {
+	lines := strings.Split(view, "\n")
+	bodyAt := -1
+	for i, line := range lines {
+		if strings.Contains(detailText(line), body) {
+			bodyAt = i
+			break
+		}
+	}
+	if bodyAt < 2 {
+		return false
+	}
+	return strings.TrimSpace(detailText(lines[bodyAt-1])) == ""
+}
+
 func TestFolderKeysShowEachState(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -872,8 +1032,15 @@ func TestWheelScrollsOpenItem(t *testing.T) {
 	}
 	m.Wheel(true)
 	top := lineAfterBorder(m.View())
-	if top == item.ID || top != "which way" {
+	if top == item.ID || top != "From: ada" {
 		t.Fatalf("scrolled detail top = %q\n%s", top, m.View())
+	}
+	for m.scroll < 20 && top != "which way" {
+		m.Wheel(true)
+		top = lineAfterBorder(m.View())
+	}
+	if top != "which way" {
+		t.Fatalf("scroll did not reach the question %q\n%s", top, m.View())
 	}
 }
 
@@ -2890,7 +3057,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 
 	m := New(dir)
 	m.width = 36
-	m.height = 12
+	m.height = 20
 	var sent []string
 	m.runSend = func(argv []string) error {
 		sent = append([]string(nil), argv...)
@@ -3068,13 +3235,19 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 	label := "this option label is long enough to wrap inside the frame"
 	link := "https://example.com/" + strings.Repeat("p", 40) + "/tailtoken"
 	mustCreate(t, led, &decide.Item{
-		Question:  question,
-		Owner:     "ada",
-		Kind:      decide.KindRelay,
-		State:     decide.StateOpen,
-		FreeText:  true,
-		Options:   []decide.Option{{Key: "a", Label: label}},
-		Links:     []string{link},
+		Question: question,
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		FreeText: true,
+		Options:  []decide.Option{{Key: "a", Label: label}},
+		Links: []string{
+			link,
+			"https://example.com/more-1",
+			"https://example.com/more-2",
+			"https://example.com/more-3",
+			"https://example.com/more-4",
+		},
 		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
@@ -3091,10 +3264,10 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 		t.Fatalf("list did not ellipsize the question\n%s", list)
 	}
 
-	m.height = 14
+	m.height = 20
 	press(t, m, "o")
 	view := m.View()
-	assertFrame(t, view, 60, 14)
+	assertFrame(t, view, 60, 20)
 	if !strings.Contains(view, "word0") || strings.Contains(view, "tailtoken") {
 		t.Fatalf("open item did not start at the question\n%s", view)
 	}
@@ -3113,11 +3286,16 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 		t.Fatalf("option label stayed on one line\n%s", view)
 	}
 
-	for m.scroll < 40 && strings.Contains(m.View(), "word0") {
+	for strings.Contains(m.View(), "word0") {
+		before := m.scroll
 		m.Wheel(true)
+		_ = m.View()
+		if m.scroll <= before || m.scroll >= 40 {
+			break
+		}
 	}
 	scrolled := m.View()
-	assertFrame(t, scrolled, 60, 14)
+	assertFrame(t, scrolled, 60, 20)
 	if !strings.Contains(scrolled, "tailtoken") {
 		t.Fatalf("scroll did not reveal the link\n%s", scrolled)
 	}
