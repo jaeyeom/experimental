@@ -90,11 +90,19 @@ func circleCLIOnPath() bool {
 }
 
 func printCircleAPILog(cfg *config.Config, evidence github.FailureEvidence, token string) (string, error) {
+	if org, repo, jobNumber, ok := circleJobNumber(evidence.TargetURL); ok {
+		body, err := circleJobLog(org, repo, jobNumber, token)
+		return finishCircleAPILog(cfg, evidence, body, err)
+	}
 	org, repo, number, ok := circlePipeline(evidence.TargetURL)
 	if !ok {
 		return printCircleWorkflowByUUID(cfg, evidence)
 	}
 	body, err := circleStepLog(org, repo, number, token)
+	return finishCircleAPILog(cfg, evidence, body, err)
+}
+
+func finishCircleAPILog(cfg *config.Config, evidence github.FailureEvidence, body string, err error) (string, error) {
 	if err != nil {
 		var missing *noFailedJobError
 		if errors.As(err, &missing) {
@@ -347,14 +355,28 @@ func circlePipeline(raw string) (string, string, int, bool) {
 		}
 		return parts[2], parts[3], number, true
 	}
-	if len(parts) >= 4 && parts[0] == "gh" {
-		number, err := strconv.Atoi(parts[3])
-		if err != nil {
-			return "", "", 0, false
-		}
-		return parts[1], parts[2], number, true
-	}
 	return "", "", 0, false
+}
+
+// circleJobNumber parses a CircleCI v1.1 build link, /gh/<org>/<repo>/<job_number>.
+// The last segment is a job number, not a pipeline number.
+func circleJobNumber(raw string) (string, string, int, bool) {
+	if !isCircleURL(raw) {
+		return "", "", 0, false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", "", 0, false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "gh" {
+		return "", "", 0, false
+	}
+	number, err := strconv.Atoi(parts[3])
+	if err != nil || number <= 0 {
+		return "", "", 0, false
+	}
+	return parts[1], parts[2], number, true
 }
 
 func circleStepLog(org, repo string, number int, token string) (string, error) {
@@ -366,6 +388,37 @@ func circleStepLog(org, repo string, number int, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return circleWorkflowLog(org, repo, workflowID, token)
+}
+
+func circleJobLog(org, repo string, jobNumber int, token string) (string, error) {
+	workflowID, err := circleLatestWorkflow(org, repo, jobNumber, token)
+	if err != nil {
+		return "", err
+	}
+	return circleWorkflowLog(org, repo, workflowID, token)
+}
+
+func circleLatestWorkflow(org, repo string, jobNumber int, token string) (string, error) {
+	raw := fmt.Sprintf(
+		"https://circleci.com/api/v2/project/gh/%s/%s/job/%d",
+		url.PathEscape(org), url.PathEscape(repo), jobNumber,
+	)
+	var resp struct {
+		LatestWorkflow struct {
+			ID string `json:"id"`
+		} `json:"latest_workflow"` //nolint:tagliatelle // CircleCI API uses snake_case
+	}
+	if err := circleJSON(raw, token, &resp); err != nil {
+		return "", err
+	}
+	if resp.LatestWorkflow.ID == "" {
+		return "", errors.New("circleci job response has no latest_workflow id")
+	}
+	return resp.LatestWorkflow.ID, nil
+}
+
+func circleWorkflowLog(org, repo, workflowID, token string) (string, error) {
 	jobNumber, err := circleFailedJob(workflowID, token)
 	if err != nil {
 		return "", err

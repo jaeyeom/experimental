@@ -404,7 +404,7 @@ func TestQueueCircleCIUsesConfiguredPattern(t *testing.T) {
 	cfg.Settings.FailureLogPattern = "^FATAL:"
 	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
 		Name:      "ci/circleci",
-		TargetURL: "https://circleci.com/gh/acme/widgets/42",
+		TargetURL: "https://app.circleci.com/pipelines/github/acme/widgets/42",
 	}}
 	output := captureStdout(t, func() {
 		if err := queuePullRequest(client, cfg, pr.Ref.Raw, false); err == nil {
@@ -416,6 +416,65 @@ func TestQueueCircleCIUsesConfiguredPattern(t *testing.T) {
 	}
 	if strings.Contains(output, "ERROR: ignore") {
 		t.Fatalf("pattern did not filter:\n%s", output)
+	}
+}
+
+func TestQueueCircleCIJobNumberResolvesWorkflow(t *testing.T) {
+	t.Setenv(circleTokenEnv, "token")
+	const workflowID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	const jobLink = "https://circleci.com/gh/acme/widgets/4242"
+	encoded, err := json.Marshal([]struct {
+		Message string `json:"message"`
+	}{{Message: "ERROR: setup failed\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	withCircleGet(t, func(_ context.Context, rawURL, token string) ([]byte, error) {
+		if token != "token" {
+			t.Fatalf("token = %q", token)
+		}
+		calls = append(calls, rawURL)
+		switch rawURL {
+		case "https://circleci.com/api/v2/project/gh/acme/widgets/job/4242":
+			return []byte(`{"latest_workflow":{"id":"` + workflowID + `"}}`), nil
+		case "https://circleci.com/api/v2/workflow/" + workflowID + "/job":
+			return []byte(`{"items":[{"job_number":8,"status":"failed"}]}`), nil
+		case "https://circleci.com/api/v1.1/project/gh/acme/widgets/8":
+			return []byte(`{"steps":[{"actions":[{"status":"failed","output_url":"https://circleci.com/output/8"}]}]}`), nil
+		case "https://circleci.com/output/8":
+			return encoded, nil
+		default:
+			t.Fatalf("unexpected circleci url %s", rawURL)
+			return nil, nil
+		}
+	})
+	pr := removedPR()
+	client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+		Name:      "ci/circleci",
+		TargetURL: jobLink,
+	}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want RCA refusal")
+		}
+	})
+	wantCalls := []string{
+		"https://circleci.com/api/v2/project/gh/acme/widgets/job/4242",
+		"https://circleci.com/api/v2/workflow/" + workflowID + "/job",
+		"https://circleci.com/api/v1.1/project/gh/acme/widgets/8",
+		"https://circleci.com/output/8",
+	}
+	if strings.Join(calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls = %v", calls)
+	}
+	for _, call := range calls {
+		if strings.Contains(call, "/pipeline/") {
+			t.Fatalf("job number treated as a pipeline: %s", call)
+		}
+	}
+	if !strings.Contains(output, "ERROR: setup failed") {
+		t.Fatalf("output = %s", output)
 	}
 }
 
