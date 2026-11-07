@@ -22,6 +22,21 @@
   :group 'external
   :prefix "decide-")
 
+(defface decide-requester
+  '((t :inherit font-lock-type-face))
+  "Face for the requester in the decide list."
+  :group 'decide)
+
+(defface decide-time
+  '((t :inherit shadow))
+  "Face for the relative time in the decide list."
+  :group 'decide)
+
+(defface decide-badge
+  '((t :inherit font-lock-keyword-face))
+  "Face for the kind or state badge in the decide list."
+  :group 'decide)
+
 (defcustom decide-program "decide"
   "Name or path of the decide executable."
   :type 'string
@@ -109,11 +124,28 @@ Signal an error when the program exits non-zero."
   "First line of TEXT."
   (car (split-string (or text "") "\n")))
 
+(defun decide--list-age (created)
+  "Relative age of CREATED, an RFC3339 time, or an empty string."
+  (if (or (null created) (string-empty-p created))
+      ""
+    (decide--age created (current-time))))
+
+(defun decide--badge (item)
+  "ITEM's kind, or its state when the kind is empty."
+  (let ((kind (decide--field item "kind")))
+    (if (string-empty-p kind)
+        (decide--field item "state")
+      kind)))
+
 (defun decide--list-line (item)
-  "One list-buffer line for ITEM."
-  (format "%s  %s  %s"
+  "One list-buffer line for ITEM.
+The requester, relative time, and kind or state badge use their faces."
+  (format "%s  %s  %s  %s  %s"
           (decide--field item "id")
-          (decide--field item "owner")
+          (propertize (decide--field item "owner") 'face 'decide-requester)
+          (propertize (decide--list-age (decide--field item "createdAt"))
+                      'face 'decide-time)
+          (propertize (decide--badge item) 'face 'decide-badge)
           (decide--first-line (decide--field item "question"))))
 
 (defun decide-list (&optional folder)
@@ -240,18 +272,62 @@ An item with no messages shows its question."
        messages
        "\n\n"))))
 
+(defun decide--thread-parties (item)
+  "Requester of ITEM and, when the thread was addressed elsewhere, that recipient.
+A human compose stores the recipient as the owner and the requester as the
+first message author.  The two values are returned as a list."
+  (let* ((owner (decide--field item "owner"))
+         (messages (alist-get "messages" item nil nil #'equal))
+         (author (if messages (decide--field (car messages) "author") "")))
+    (if (or (null messages)
+            (string-empty-p author)
+            (equal author owner))
+        (list owner "")
+      (list author owner))))
+
+(defun decide--header-time (value)
+  "VALUE as UTC RFC3339, or an empty string when it is missing."
+  (if (or (null value) (string-empty-p value))
+      ""
+    (format-time-string "%Y-%m-%dT%H:%M:%SZ" (date-to-time value) t)))
+
+(defun decide--header-rows (item)
+  "Header rows of ITEM as (LABEL . VALUE) pairs.
+To is included only when the thread has a recipient."
+  (let* ((parties (decide--thread-parties item))
+         (rows (list (cons "From" (nth 0 parties))))
+         (to (nth 1 parties)))
+    (unless (string-empty-p to)
+      (setq rows (append rows (list (cons "To" to)))))
+    (append rows
+            (list (cons "Kind" (decide--field item "kind"))
+                  (cons "State" (decide--field item "state"))
+                  (cons "Created" (decide--header-time
+                                   (decide--field item "createdAt")))
+                  (cons "Answered" (decide--header-time
+                                    (decide--field item "answeredAt")))))))
+
+(defun decide--header-lines (item)
+  "Aligned `Label: value' lines for ITEM.  The colons share one column."
+  (let* ((rows (decide--header-rows item))
+         (width (apply #'max (mapcar (lambda (row) (string-width (car row)))
+                                     rows))))
+    (mapcar (lambda (row)
+              (format "%s%s: %s"
+                      (make-string (- width (string-width (car row))) ?\s)
+                      (car row)
+                      (cdr row)))
+            rows)))
+
 (defun decide--item-text (item)
-  "Plain text for an item buffer.
-The thread comes first.  The reply line and the numbered options follow."
-  (let ((parts (list
-                (format "id: %s" (decide--field item "id"))
-                (format "owner: %s" (decide--field item "owner"))
-                (format "state: %s" (decide--field item "state"))
-                (format "kind: %s" (decide--field item "kind"))
-                ""
-                (decide--thread-text item)
-                ""
-                "reply:"))
+  "Text for an item buffer.
+Header rows come first, then a blank line, then the thread.
+The reply line and the numbered options follow."
+  (let ((parts (append (decide--header-lines item)
+                       (list ""
+                             (decide--thread-text item)
+                             ""
+                             "reply:")))
         (n 1))
     (dolist (opt (alist-get "options" item nil nil #'equal))
       (setq parts (append parts
