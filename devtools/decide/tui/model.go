@@ -71,6 +71,8 @@ type Model struct {
 	status       string
 	mode         int
 	draft        string
+	reply        string
+	replyFocus   bool
 	detail       *decide.Item
 	height       int
 	width        int
@@ -171,7 +173,8 @@ func (m *Model) Reload() error {
 // agent row, and c opens compose. In the opened
 // item, j and k move to the next and previous item, and u returns to the
 // list. 1 through 9 answer a relay option, 0 focuses free text on a relay
-// item that allows it, and e asks for an outcome then marks the item done.
+// item that allows it, r focuses a reply, and e asks for an outcome then
+// marks the item done.
 // Enter submits free text only while that row is focused. Esc leaves the
 // row and keeps the unsent draft. In compose, Tab moves from the recipient
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
@@ -187,6 +190,9 @@ func (m *Model) Key(r rune) (bool, error) {
 	}
 	if m.answerFocus {
 		return m.answerKey(r)
+	}
+	if m.replyFocus {
+		return m.replyKey(r)
 	}
 	if m.mode == modeOutcome {
 		return m.outcomeKey(r)
@@ -254,6 +260,7 @@ func (m *Model) composeFromStatus() {
 func (m *Model) showStatus() error {
 	m.composing = false
 	m.answerFocus = false
+	m.replyFocus = false
 	m.mode = modeStatus
 	m.scroll = 0
 	m.agentCursor = 0
@@ -376,12 +383,20 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'e':
 		m.beginOutcome()
 		return false, nil
+	case 'r':
+		m.focusReply()
+		return false, nil
 	case '0':
 		if m.detail != nil && m.detail.FreeText {
 			m.focusAnswer()
 			return false, nil
 		}
 	}
+	return m.detailText(r)
+}
+
+// detailText answers a numbered option or rejects stray free text.
+func (m *Model) detailText(r rune) (bool, error) {
 	if r >= '1' && r <= '9' {
 		return false, m.answerOption(int(r - '1'))
 	}
@@ -465,6 +480,38 @@ func (m *Model) clearNote() {
 	m.noteField.Reset()
 }
 
+func (m *Model) focusReply() {
+	m.replyFocus = true
+	m.answerFocus = false
+	m.free.Blur()
+}
+
+// replyKey edits the reply box. Esc leaves it and keeps the draft.
+func (m *Model) replyKey(r rune) (bool, error) {
+	switch r {
+	case '\x1b':
+		m.replyFocus = false
+		return false, nil
+	case '\r', '\n':
+		return false, m.submitReply()
+	case '\b', '\x7f':
+		m.reply = dropLastRune(m.reply)
+		return false, nil
+	}
+	if r >= ' ' {
+		m.reply += string(r)
+	}
+	return false, nil
+}
+
+func dropLastRune(s string) string {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return ""
+	}
+	return string(runes[:len(runes)-1])
+}
+
 func (m *Model) focusAnswer() {
 	m.answerFocus = true
 	m.composing = false
@@ -534,7 +581,9 @@ func (m *Model) openRow() error {
 	m.detail = &updated
 	m.mode = modeDetail
 	m.draft = ""
+	m.reply = ""
 	m.answerFocus = false
+	m.replyFocus = false
 	m.resetFields()
 	m.scroll = 0
 	m.status = "opened " + id
@@ -598,6 +647,66 @@ func (m *Model) writeAnswer(value string) error {
 	return m.Reload()
 }
 
+// submitReply appends a human message, the same result as decide send --id.
+// The owner pane is notified with the thread id and the text.
+func (m *Model) submitReply() error {
+	if m.detail == nil {
+		return nil
+	}
+	text := m.reply
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	led, err := m.ledger()
+	if err != nil {
+		return err
+	}
+	updated, err := led.Compose(m.detail.ID, text)
+	if err != nil {
+		m.status = err.Error()
+		return nil
+	}
+	if err := m.notifyThread(&updated, text); err != nil {
+		m.status = err.Error()
+	} else {
+		m.status = "replied " + updated.ID
+	}
+	m.detail = &updated
+	m.reply = ""
+	m.replyFocus = false
+	// The new message is last. clipLines clamps this onto that end.
+	m.scroll = 1 << 20
+	return m.Reload()
+}
+
+// notifyThread runs the compose command so the owner pane sees id and text.
+func (m *Model) notifyThread(item *decide.Item, text string) error {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load decide config: %w", err)
+	}
+	pane := item.NotifyPane
+	if strings.TrimSpace(pane) == "" {
+		pane = cfg.NotifyPane
+	}
+	if strings.TrimSpace(pane) == "" {
+		return fmt.Errorf("decide compose pane is empty")
+	}
+	template := m.SendTemplate
+	if strings.TrimSpace(template) == "" {
+		template = cfg.SendTemplate
+	}
+	argv := decide.SendArgv(template, pane, item.ID+"\n"+text)
+	send := m.runSend
+	if send == nil {
+		send = decide.RunSend
+	}
+	if err := send(argv); err != nil {
+		return fmt.Errorf("decide send: %w", err)
+	}
+	return nil
+}
+
 func (m *Model) submitOutcome() error {
 	if m.detail == nil {
 		return nil
@@ -628,7 +737,9 @@ func (m *Model) backToList() {
 	m.mode = modeList
 	m.detail = nil
 	m.draft = ""
+	m.reply = ""
 	m.answerFocus = false
+	m.replyFocus = false
 	m.resetFields()
 	m.scroll = 0
 }
@@ -1581,7 +1692,8 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
-		"1-9 answer  e done        esc back",
+		"1-9 answer  0 free text  r reply  e done",
+		"esc back",
 		"click folder, row, option, target, or [Send]",
 		"wheel scroll",
 		"? or esc close",
@@ -1646,14 +1758,16 @@ func (m *Model) detailLines(width int) []screenLine {
 	}
 	it := m.detail
 	lines := []screenLine{{text: plainText(it.ID)}}
-	lines = append(lines, questionLines(it.Question, width)...)
+	lines = append(lines, m.threadLines(it, width)...)
 	if it.Kind == decide.KindTypeIn {
 		lines = append(lines,
 			screenLine{text: plainText("type: " + it.TypeText)},
 			screenLine{text: plainText("where: " + it.Where)},
 			screenLine{text: plainText("mark done"), hits: []hit{{kind: hitMarkDone}}},
 		)
+		lines = append(lines, m.replyLine())
 	} else {
+		lines = append(lines, m.replyLine())
 		lines = append(lines, m.relayLines(it, width)...)
 	}
 	if m.mode == modeOutcome {
@@ -1664,6 +1778,30 @@ func (m *Model) detailLines(width int) []screenLine {
 		lines = append(lines, screenLine{text: plainText("outcome: " + body)})
 	}
 	return lines
+}
+
+// threadLines shows each message oldest first. The text stays on its own
+// lines so the question still begins where the detail view has always begun.
+func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
+	if len(it.Messages) == 0 {
+		return questionLines(it.Question, width)
+	}
+	var lines []screenLine
+	for _, msg := range it.Messages {
+		lines = append(lines, questionLines(msg.Text, width)...)
+	}
+	return lines
+}
+
+func (m *Model) replyLine() screenLine {
+	body := m.reply
+	if body == "" && !m.replyFocus {
+		body = "___"
+	}
+	if m.replyFocus {
+		body = withCursor(m.reply, len([]rune(m.reply)))
+	}
+	return screenLine{text: plainText("reply: " + body), hits: []hit{{kind: hitReply}}}
 }
 
 func plainText(s string) string {
@@ -1867,28 +2005,45 @@ func withCursor(text string, col int) string {
 }
 
 func rowText(it decide.Item, now time.Time) string {
-	question := strings.Join(strings.Fields(it.Question), " ")
-	text := fmt.Sprintf("%s %s %s %s", it.ID, question, it.Owner, age(now.Sub(it.CreatedAt)))
+	question := rowSnippet(it)
+	text := fmt.Sprintf("%s%s %s %s %s", rowUnread(it), it.ID, question, it.Owner, age(now.Sub(it.CreatedAt)))
 	if it.Deadline != nil {
 		text += " due " + it.Deadline.Format(time.RFC3339)
 	}
 	return text
 }
 
-// rowTextFitted keeps a long question and a long owner visible by cutting
+func rowSnippet(it decide.Item) string {
+	text := it.Question
+	if n := len(it.Messages); n > 0 {
+		text = it.Messages[n-1].Text
+	}
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// rowUnread marks a notification that has not been read.
+func rowUnread(it decide.Item) string {
+	if it.Unread && len(it.Options) == 0 {
+		return "* "
+	}
+	return ""
+}
+
+// rowTextFitted keeps a long snippet and a long owner visible by cutting
 // each with an ellipsis inside width.
 func rowTextFitted(it decide.Item, now time.Time, marker string, width int) string {
-	question := strings.Join(strings.Fields(it.Question), " ")
+	question := rowSnippet(it)
 	tail := " " + age(now.Sub(it.CreatedAt))
 	if it.Deadline != nil {
 		tail += " due " + it.Deadline.Format(time.RFC3339)
 	}
 	owner := it.Owner
-	full := marker + it.ID + " " + question + " " + owner + tail
+	mark := rowUnread(it)
+	full := marker + mark + it.ID + " " + question + " " + owner + tail
 	if lipgloss.Width(full) <= width {
 		return full
 	}
-	fixed := lipgloss.Width(marker+it.ID+tail) + 2
+	fixed := lipgloss.Width(marker+mark+it.ID+tail) + 2
 	remain := width - fixed
 	if remain < 2 {
 		return truncateVisible(full, width)
@@ -1916,7 +2071,7 @@ func rowTextFitted(it decide.Item, now time.Time, marker string, width int) stri
 	if ow > oBudget {
 		o = truncateVisible(owner, oBudget)
 	}
-	return marker + it.ID + " " + q + " " + o + tail
+	return marker + mark + it.ID + " " + q + " " + o + tail
 }
 
 func age(d time.Duration) string {
