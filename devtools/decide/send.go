@@ -67,6 +67,23 @@ func RunSend(argv []string) error {
 	return nil
 }
 
+// NotifyOwner runs the compose command so pane sees the thread id and text.
+// The note is the id, a newline, and text. An empty template uses
+// DefaultSendTemplate. The text stored on the thread is not changed here.
+func NotifyOwner(pane, id, text string) error {
+	if strings.TrimSpace(pane) == "" {
+		return fmt.Errorf("decide compose pane is empty")
+	}
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("decide compose id is empty")
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	return RunSend(SendArgv(cfg.SendTemplate, pane, id+"\n"+text))
+}
+
 // AppendSend records one successful send under dir.
 func AppendSend(dir, name, pane, text string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {

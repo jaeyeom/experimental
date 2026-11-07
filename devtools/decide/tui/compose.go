@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -143,8 +144,23 @@ func (m *Model) sendNote() error {
 		m.status = err.Error()
 		return nil
 	}
+	if err := m.recordThread(tg, m.note); err != nil {
+		m.status = err.Error()
+		return nil
+	}
 	m.clearNote()
 	m.status = "sent to " + tg.Name
+	return nil
+}
+
+func (m *Model) recordThread(tg Target, text string) error {
+	led, err := decide.Open(m.Dir)
+	if err != nil {
+		return fmt.Errorf("open decide ledger: %w", err)
+	}
+	if _, err := led.StartThread(tg.Name, tg.Pane, text); err != nil {
+		return fmt.Errorf("store decide thread: %w", err)
+	}
 	return nil
 }
 

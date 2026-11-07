@@ -46,8 +46,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdStatus(args[1:], stdout, stderr)
 	case "targets":
 		return cmdTargets(args[1:], stdout, stderr)
-	case "send":
-		return cmdSend(args[1:], stdout, stderr)
+	case "send", "reply":
+		return cmdSendOrReply(args, stdout, stderr)
 	case "skill":
 		return cmdSkill(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
@@ -79,24 +79,39 @@ func usage(w io.Writer) {
   decide status clear --resource <name>
   decide targets [--json]
   decide send --to <name> [--json] <text>
+  decide send --id <id> [--json] <text>
+  decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
   decide skill
 `)
+}
+
+func cmdSendOrReply(args []string, stdout, stderr io.Writer) int {
+	if args[0] == "reply" {
+		return cmdReply(args[1:], stdout, stderr)
+	}
+	return cmdSend(args[1:], stdout, stderr)
 }
 
 func cmdSend(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	to := fs.String("to", "", "recipient name")
-	jsonOut := fs.Bool("json", false, "print the sent note as JSON")
+	id := fs.String("id", "", "thread to append a human message")
+	jsonOut := fs.Bool("json", false, "print JSON")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
-	if strings.TrimSpace(*to) == "" {
-		return fail(stderr, fmt.Errorf("decide send requires --to"), 2)
+	hasTo := strings.TrimSpace(*to) != ""
+	hasID := strings.TrimSpace(*id) != ""
+	if hasTo == hasID {
+		return fail(stderr, fmt.Errorf("decide send requires --to or --id"), 2)
 	}
 	text, err := oneArg(fs.Args(), "text")
 	if err != nil {
 		return fail(stderr, err, 2)
+	}
+	if hasID {
+		return cmdCompose(strings.TrimSpace(*id), text, *jsonOut, stdout, stderr)
 	}
 	cfg, err := decide.LoadConfig()
 	if err != nil {
@@ -117,6 +132,13 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if err := decide.AppendSend(dir, tg.Name, tg.Pane, text); err != nil {
 		return fail(stderr, err, 1)
 	}
+	led, err := openLedger()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	if _, err := led.StartThread(tg.Name, tg.Pane, text); err != nil {
+		return fail(stderr, err, 1)
+	}
 	sent := struct {
 		Name string `json:"name"`
 		Text string `json:"text"`
@@ -126,6 +148,65 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "sent to %s\n", tg.Name)
 	return 0
+}
+
+func cmdCompose(id, text string, jsonOut bool, stdout, stderr io.Writer) int {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	var item decide.Item
+	code := withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		got, err := led.Compose(id, text)
+		if err != nil {
+			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
+		}
+		item = got
+		return got, nil
+	})
+	if code != 0 {
+		return code
+	}
+	pane := item.NotifyPane
+	if strings.TrimSpace(pane) == "" {
+		pane = cfg.NotifyPane
+	}
+	if err := decide.NotifyOwner(pane, item.ID, text); err != nil {
+		return fail(stderr, err, 1)
+	}
+	return 0
+}
+
+func cmdReply(args []string, stdout, stderr io.Writer) int {
+	args = hoistFlags(args, map[string]bool{"option": true, "rec": true})
+	fs := flag.NewFlagSet("reply", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print the thread as JSON")
+	rec := fs.String("rec", "", "recommended option key")
+	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
+	var options stringList
+	fs.Var(&options, "option", "option as key:label (repeatable)")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
+		return code
+	}
+	id, text, err := twoArgs(fs.Args(), "id", "text")
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	opts, err := parseOptions([]string(options))
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	if *rec != "" {
+		opts, err = applyRec(opts, *rec)
+		if err != nil {
+			return fail(stderr, err, 2)
+		}
+	}
+	allowFree := len(opts) > 0 && *freeText
+	return withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		return led.Reply(id, text, opts, allowFree)
+	})
 }
 
 func cmdTargets(args []string, stdout, stderr io.Writer) int {
@@ -663,6 +744,33 @@ func parseDeadline(raw string) (*time.Time, error) {
 
 const flagHelp = -1
 
+// hoistFlags moves flags in front of positionals so they parse after an id.
+// valued flags consume the following argument unless the flag contains '='.
+func hoistFlags(args []string, valued map[string]bool) []string {
+	var flags, pos []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			pos = append(pos, args[i+1:]...)
+			break
+		}
+		if a == "-" || !strings.HasPrefix(a, "-") {
+			pos = append(pos, a)
+			continue
+		}
+		flags = append(flags, a)
+		name := strings.TrimLeft(a, "-")
+		if name == "" || strings.Contains(name, "=") {
+			continue
+		}
+		if valued[name] && i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, pos...)
+}
+
 func parseFlags(fs *flag.FlagSet, args []string) int {
 	err := fs.Parse(args)
 	if err == nil {
@@ -744,6 +852,13 @@ func writeShow(w io.Writer, it *decide.Item) {
 	writeField(w, "where", it.Where)
 	writeField(w, "reason", it.Reason)
 	writeField(w, "outcome", it.Outcome)
+	for _, msg := range it.Messages {
+		when := ""
+		if !msg.Time.IsZero() {
+			when = msg.Time.Format(time.RFC3339Nano)
+		}
+		fmt.Fprintf(w, "message: %s %s %s\n", when, msg.Author, msg.Text)
+	}
 }
 
 func writeTime(w io.Writer, name string, t time.Time) {
