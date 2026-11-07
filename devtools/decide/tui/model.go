@@ -88,6 +88,13 @@ type Model struct {
 	answerFocus  bool
 	note         string
 	runSend      func([]string) error
+	runOpen      func(string) error
+	copyClip     func(string) error
+	out          io.Writer
+	linkPick     bool
+	linkURL      string
+	mouseOn      bool
+	mouseSync    bool
 	interval     time.Duration
 	runErr       error
 	free         textinput.Model
@@ -103,6 +110,7 @@ func New(dir string) *Model {
 	return &Model{
 		Dir:       dir,
 		Now:       time.Now,
+		mouseOn:   true,
 		free:      newTextField(),
 		outcome:   newTextField(),
 		noteField: newNoteField(),
@@ -174,7 +182,8 @@ func (m *Model) Reload() error {
 // item, j and k move to the next and previous item, and u returns to the
 // list. 1 through 9 answer a relay option, 0 focuses free text on a relay
 // item that allows it, r focuses a reply, y archives a notification, and e
-// asks for an outcome then marks the item done.
+// asks for an outcome then marks the item done. l opens a link, L copies
+// its URL, and Y copies the current message. M toggles mouse capture.
 // Enter submits free text only while that row is focused. Esc leaves the
 // row and keeps the unsent draft. In compose, Tab moves from the recipient
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
@@ -188,6 +197,9 @@ func (m *Model) Key(r rune) (bool, error) {
 	if m.help {
 		return m.helpKey(r)
 	}
+	if m.linkPick {
+		return m.linkPickKey(r)
+	}
 	if m.answerFocus {
 		return m.answerKey(r)
 	}
@@ -199,6 +211,10 @@ func (m *Model) Key(r rune) (bool, error) {
 	}
 	if m.composing {
 		return m.composeKey(r)
+	}
+	if r == 'M' {
+		m.toggleMouse()
+		return false, nil
 	}
 	if r == '?' {
 		m.help = true
@@ -387,6 +403,14 @@ func (m *Model) detailKey(r rune) (bool, error) {
 		return false, nil
 	case 'y':
 		return false, m.archiveSelected()
+	case 'Y':
+		m.copyCurrentMessage()
+		return false, nil
+	case 'l':
+		return false, m.openSelectedLink()
+	case 'L':
+		m.copyCurrentLink()
+		return false, nil
 	case 'r':
 		m.focusReply()
 		return false, nil
@@ -588,6 +612,8 @@ func (m *Model) openRow() error {
 	m.reply = ""
 	m.answerFocus = false
 	m.replyFocus = false
+	m.linkPick = false
+	m.linkURL = ""
 	m.resetFields()
 	m.scroll = 0
 	m.status = "opened " + id
@@ -783,6 +809,8 @@ func (m *Model) backToList() {
 	m.reply = ""
 	m.answerFocus = false
 	m.replyFocus = false
+	m.linkPick = false
+	m.linkURL = ""
 	m.resetFields()
 	m.scroll = 0
 }
@@ -854,12 +882,15 @@ func (m *Model) narrow() bool {
 }
 
 func (m *Model) statusLine() screenLine {
+	// The mouse label stays in front, and the hint stays the same width, so a
+	// 70-column footer still shows "? help".
+	label := m.mouseLabel()
 	if m.chord {
-		return screenLine{text: "g…"}
+		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
 	}
-	hint := "gi/ga/gd/gw/gs  o open  u list  c  tab recipient/text/[Send]  ? help"
+	hint := label + "gi/ga/gd/gw/gs  o open  u list  c  tab/text/[Send]  ? help"
 	if m.mode == modeStatus {
-		hint = "gi/ga/gd/gw/gs  u list  c  tab recipient/text/[Send]  ? help"
+		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
 	}
 	if m.status == "" {
 		return screenLine{text: hint}
@@ -1492,6 +1523,46 @@ func fitLine(line screenLine, width int) screenLine {
 	return line
 }
 
+// copyANSI returns one CSI or OSC sequence starting at i.
+func copyANSI(text string, i int) (string, int, bool) {
+	if i+1 >= len(text) || text[i] != 0x1b {
+		return "", i, false
+	}
+	switch text[i+1] {
+	case ']':
+		return oscSequence(text, i)
+	case '[':
+		return csiSequence(text, i)
+	default:
+		return "", i, false
+	}
+}
+
+func oscSequence(text string, i int) (string, int, bool) {
+	j := i + 2
+	for j < len(text) {
+		if text[j] == 0x07 {
+			return text[i : j+1], j + 1, true
+		}
+		if text[j] == 0x1b && j+1 < len(text) && text[j+1] == '\\' {
+			return text[i : j+2], j + 2, true
+		}
+		j++
+	}
+	return text[i:], len(text), true
+}
+
+func csiSequence(text string, i int) (string, int, bool) {
+	j := i + 2
+	for j < len(text) && text[j] != 'm' {
+		j++
+	}
+	if j < len(text) {
+		j++
+	}
+	return text[i:j], j, true
+}
+
 func truncateVisible(text string, width int) string {
 	if width <= 0 {
 		return ""
@@ -1503,16 +1574,9 @@ func truncateVisible(text string, width int) string {
 		limit = width
 	}
 	for i := 0; i < len(text); {
-		if text[i] == 0x1b && i+1 < len(text) && text[i+1] == '[' {
-			j := i + 2
-			for j < len(text) && text[j] != 'm' {
-				j++
-			}
-			if j < len(text) {
-				j++
-			}
-			b.WriteString(text[i:j])
-			i = j
+		if seq, next, ok := copyANSI(text, i); ok {
+			b.WriteString(seq)
+			i = next
 			continue
 		}
 		if vis >= limit {
@@ -1736,6 +1800,9 @@ func (m *Model) helpLines() []screenLine {
 		"enter on [Send] sends",
 		"esc keeps the draft",
 		"1-9 answer  0 free text  r reply  y archive  e done",
+		"l opens a link   L copies the link   Y copies the message",
+		"shift+drag selects text",
+		"M toggles mouse capture",
 		"esc back",
 		"click folder, row, option, target, or [Send]",
 		"wheel scroll",
@@ -1754,6 +1821,8 @@ func (m *Model) helpLines() []screenLine {
 			"enter on text inserts a newline",
 			"enter on [Send] sends",
 			"esc keeps the draft",
+			"shift+drag selects text",
+			"M toggles mouse capture",
 			"click folder, target, or [Send]",
 			"wheel scroll",
 			"? or esc close",
@@ -1954,9 +2023,8 @@ func styleLinkChunk(original string, ch textChunk, spans [][]int) screenLine {
 		}
 		frag := original[visStart:visEnd]
 		startCol := lipgloss.Width(original[ch.from:visStart]) + 1
-		b.WriteString("\x1b[4m")
-		b.WriteString(frag)
-		b.WriteString("\x1b[24m")
+		shown := "\x1b[4m" + frag + "\x1b[24m"
+		b.WriteString(termenv.Hyperlink(original[span[0]:span[1]], shown))
 		endCol := startCol + lipgloss.Width(frag) - 1
 		if endCol < startCol {
 			endCol = startCol

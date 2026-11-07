@@ -132,13 +132,29 @@ func (m *Model) applyRune(r rune) tea.Cmd {
 	if quit {
 		return tea.Quit
 	}
+	if m.mouseSync {
+		m.mouseSync = false
+		return m.mouseCommand()
+	}
 	if m.chord && m.chordSeq != seq {
 		return m.scheduleChord()
 	}
 	return nil
 }
 
+func (m *Model) mouseCommand() tea.Cmd {
+	if m.mouseOn {
+		return tea.EnableMouseCellMotion
+	}
+	return tea.DisableMouse
+}
+
 func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Shift+drag is the terminal's selection bypass. Leave it alone.
+	// Capture off lets a plain drag select in the terminal.
+	if !m.mouseOn || msg.Shift {
+		return m, nil
+	}
 	switch msg.Button {
 	case tea.MouseButtonWheelDown:
 		m.Wheel(true)

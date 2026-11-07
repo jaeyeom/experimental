@@ -64,6 +64,7 @@ func prepare(opts Options) (*Model, error) {
 	m := New(opts.Dir)
 	m.Targets = opts.Targets
 	m.SendTemplate = opts.SendTemplate
+	m.out = opts.Out
 	if opts.Now != nil {
 		m.Now = opts.Now
 	}
