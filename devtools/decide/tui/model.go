@@ -173,8 +173,8 @@ func (m *Model) Reload() error {
 // agent row, and c opens compose. In the opened
 // item, j and k move to the next and previous item, and u returns to the
 // list. 1 through 9 answer a relay option, 0 focuses free text on a relay
-// item that allows it, r focuses a reply, and e asks for an outcome then
-// marks the item done.
+// item that allows it, r focuses a reply, y archives a notification, and e
+// asks for an outcome then marks the item done.
 // Enter submits free text only while that row is focused. Esc leaves the
 // row and keeps the unsent draft. In compose, Tab moves from the recipient
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
@@ -351,6 +351,8 @@ func (m *Model) listKey(r rune) (bool, error) {
 		}
 	case 'c':
 		m.focusCompose()
+	case 'y':
+		return false, m.archiveSelected()
 	}
 	return false, nil
 }
@@ -383,6 +385,8 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'e':
 		m.beginOutcome()
 		return false, nil
+	case 'y':
+		return false, m.archiveSelected()
 	case 'r':
 		m.focusReply()
 		return false, nil
@@ -588,6 +592,45 @@ func (m *Model) openRow() error {
 	m.scroll = 0
 	m.status = "opened " + id
 	return m.Reload()
+}
+
+// archiveSelected marks the selected notification done, the same result as
+// decide done. A thread with pending options still needs an answer.
+func (m *Model) archiveSelected() error {
+	if m.folder < 0 || m.folder >= len(Folders) || Folders[m.folder].State != decide.StateOpen {
+		return nil
+	}
+	it, ok := m.selectedItem()
+	if !ok {
+		return nil
+	}
+	if len(it.Options) > 0 {
+		m.status = "needs an answer"
+		return nil
+	}
+	led, err := m.ledger()
+	if err != nil {
+		return err
+	}
+	if _, err := led.Done(it.ID, "archived"); err != nil {
+		m.status = err.Error()
+		return nil
+	}
+	m.status = "done " + it.ID
+	if m.mode == modeDetail {
+		m.backToList()
+	}
+	return m.Reload()
+}
+
+func (m *Model) selectedItem() (decide.Item, bool) {
+	if m.mode == modeDetail && m.detail != nil {
+		return *m.detail, true
+	}
+	if m.mode == modeList && m.cursor >= 0 && m.cursor < len(m.items) {
+		return m.items[m.cursor], true
+	}
+	return decide.Item{}, false
 }
 
 func (m *Model) answerOption(index int) error {
@@ -1692,7 +1735,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
-		"1-9 answer  0 free text  r reply  e done",
+		"1-9 answer  0 free text  r reply  y archive  e done",
 		"esc back",
 		"click folder, row, option, target, or [Send]",
 		"wheel scroll",

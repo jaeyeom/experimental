@@ -2823,6 +2823,73 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 	}
 }
 
+func TestYArchivesANotificationNotAQuestion(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "what should I send?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Options:  []decide.Option{{Key: "draft", Label: "draft a message for me"}},
+	})
+	if _, err := led.Reply(item.ID, "full draft", []decide.Option{
+		{Key: "send", Label: "send"},
+		{Key: "edit", Label: "edit"},
+		{Key: "don't send", Label: "don't send"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	note, err := led.Create(&decide.Item{
+		Question: "progress note",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Unread:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.items) < 2 || m.items[0].ID != note.ID || m.items[1].ID != item.ID {
+		t.Fatalf("inbox order = %+v", m.items)
+	}
+	press(t, m, "jy")
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || len(got.Options) != 3 || got.Options[0].Key != "send" {
+		t.Fatalf("y archived a question: state %s options %+v", got.State, got.Options)
+	}
+	press(t, m, "oy")
+	got, err = led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen {
+		t.Fatalf("y archived an open question: %s", got.State)
+	}
+	press(t, m, "uky")
+	got, err = led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen {
+		t.Fatalf("question changed after leaving it: %s", got.State)
+	}
+	archived, err := led.Get(note.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.State != decide.StateDone || archived.Outcome != "archived" {
+		t.Fatalf("notification = state %s outcome %q", archived.State, archived.Outcome)
+	}
+}
+
 func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
