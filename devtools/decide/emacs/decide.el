@@ -51,11 +51,20 @@
   "Argument list that sends TEXT to recipient NAME."
   (list "send" "--to" name "--json" text))
 
+(defun decide--reply-args (id text)
+  "Argument list that appends TEXT to thread ID and notifies its owner."
+  (list "send" "--id" id "--json" text))
+
+(defun decide--done-args (id outcome)
+  "Argument list that marks ID done with OUTCOME."
+  (list "done" "--json" id outcome))
+
 (defun decide--submit-args (action id text)
   "Argument list for ACTION, or nil when nothing should be sent.
-ACTION is `answer', `send', or `cancel'."
+ACTION is `answer', `send', `reply', or `cancel'."
   (cond ((eq action 'answer) (decide--answer-args id text))
         ((eq action 'send) (decide--send-args id text))
+        ((eq action 'reply) (decide--reply-args id text))
         (t nil)))
 
 (defun decide--command (args)
@@ -204,20 +213,43 @@ Signal an error when the program exits non-zero."
       (setq-local header-line-format (decide--item-keys-line item))
       (pop-to-buffer (current-buffer)))))
 
+(defun decide--thread-text (item)
+  "Thread text of ITEM, oldest first.
+An item with no messages shows its question."
+  (let ((messages (alist-get "messages" item nil nil #'equal)))
+    (if (null messages)
+        (decide--field item "question")
+      (mapconcat
+       (lambda (msg)
+         (let ((author (decide--field msg "author"))
+               (text (decide--field msg "text")))
+           (if (string-empty-p author)
+               text
+             (concat author "\n" text))))
+       messages
+       "\n\n"))))
+
 (defun decide--item-text (item)
-  "Plain text for an item buffer."
+  "Plain text for an item buffer.
+The thread comes first.  The reply line and the numbered options follow."
   (let ((parts (list
                 (format "id: %s" (decide--field item "id"))
                 (format "owner: %s" (decide--field item "owner"))
                 (format "state: %s" (decide--field item "state"))
                 (format "kind: %s" (decide--field item "kind"))
                 ""
-                (decide--field item "question")
-                "")))
+                (decide--thread-text item)
+                ""
+                "reply:"))
+        (n 1))
     (dolist (opt (alist-get "options" item nil nil #'equal))
-      (setq parts (append parts (list (format "%s  %s"
-                                             (decide--field opt "key")
-                                             (decide--field opt "label"))))))
+      (setq parts (append parts
+                          (list (format "%d %s %s"
+                                        n
+                                        (decide--field opt "key")
+                                        (decide--field opt "label")))))
+      (setq n (1+ n)))
+    (setq parts (append parts (list "0 free text")))
     (dolist (link (alist-get "links" item nil nil #'equal))
       (setq parts (append parts (list link))))
     (mapconcat #'identity parts "\n")))
@@ -228,11 +260,11 @@ Signal an error when the program exits non-zero."
           (or (alist-get "options" item nil nil #'equal) nil)))
 
 (defun decide--item-keys-line (item)
-  "Header of the keys that answer or quit ITEM."
+  "Header of the keys that answer, reply, archive, or quit ITEM."
   (let ((keys (decide--option-keys item)))
     (concat (mapconcat #'identity keys "  ")
             (if keys "   " "")
-            "0 f free text   q quit")))
+            "0 f free text   r reply   y archive   q quit")))
 
 (defun decide-answer-option ()
   "Answer the open item with one of its option keys."
@@ -245,6 +277,35 @@ Signal an error when the program exits non-zero."
       (decide--command args))
     (when (get-buffer "*decide*")
       (decide-refresh))))
+
+(defun decide-answer-number ()
+  "Answer with the option numbered by this key."
+  (interactive)
+  (let* ((n (if (numberp last-command-event)
+                (- last-command-event ?0)
+              0))
+         (item (car decide--items))
+         (opt (nth (1- n) (alist-get "options" item nil nil #'equal))))
+    (unless (and decide--item-id opt)
+      (user-error "No option %s" n))
+    (decide--command (decide--answer-args decide--item-id (decide--field opt "key")))
+    (when (get-buffer "*decide*")
+      (decide-refresh))
+    (message "Answered %s" decide--item-id)))
+
+(defun decide-archive ()
+  "Mark this notification done.
+A thread that still has options needs an answer, so it stays open."
+  (interactive)
+  (let ((item (car decide--items)))
+    (unless (and item decide--item-id)
+      (user-error "No item"))
+    (if (alist-get "options" item nil nil #'equal)
+        (message "needs an answer")
+      (decide--command (decide--done-args decide--item-id "archived"))
+      (message "done %s" decide--item-id)
+      (when (get-buffer "*decide*")
+        (decide-refresh)))))
 
 (declare-function evil-insert-state "evil" (&optional arg))
 (declare-function evil-hybrid-state "evil" (&optional arg))
@@ -295,6 +356,39 @@ Use hybrid state when evil's default state is hybrid."
       (decide--command args))
     (kill-buffer (current-buffer))))
 
+(defun decide-reply ()
+  "Edit a reply in an ordinary buffer.
+Sending it appends a human message and notifies the owner pane."
+  (interactive)
+  (unless decide--item-id
+    (user-error "No item"))
+  (let ((id decide--item-id))
+    (with-current-buffer (get-buffer-create (format "*decide reply %s*" id))
+      (decide-reply-mode)
+      (setq decide--item-id id)
+      (pop-to-buffer (current-buffer))
+      (decide--prepare-answer-state))))
+
+(defun decide-reply-send ()
+  "Send this buffer as a reply on the open thread."
+  (interactive)
+  (let ((args (decide--submit-args 'reply decide--item-id (buffer-string)))
+        (id decide--item-id))
+    (when args
+      (decide--command args))
+    (kill-buffer (current-buffer))
+    (when id
+      (let ((buf (get-buffer (format "*decide %s*" id))))
+        (when buf
+          (with-current-buffer buf
+            (decide-item-revert))))
+      (message "Replied %s" id))))
+
+(defun decide-reply-cancel ()
+  "Close this reply buffer and send nothing."
+  (interactive)
+  (kill-buffer (current-buffer)))
+
 (define-derived-mode decide-list-mode special-mode "Decide"
   "List of decision items."
   (setq-local buffer-read-only t)
@@ -312,14 +406,22 @@ Use hybrid state when evil's default state is hybrid."
 (define-key decide-list-mode-map (kbd "q") #'quit-window)
 
 (define-derived-mode decide-item-mode special-mode "Decide-Item"
-  "One decision item."
+  "One decision item.
+Long lines wrap, so a draft in the thread can be scrolled."
   (setq-local buffer-read-only t)
-  (setq-local revert-buffer-function #'decide-item-revert))
+  (setq-local truncate-lines nil)
+  (setq-local revert-buffer-function #'decide-item-revert)
+  (visual-line-mode 1))
 
 (define-key decide-item-mode-map (kbd "o") #'decide-answer-option)
 (define-key decide-item-mode-map (kbd "f") #'decide-answer-free)
 (define-key decide-item-mode-map (kbd "0") #'decide-answer-free)
+(define-key decide-item-mode-map (kbd "r") #'decide-reply)
+(define-key decide-item-mode-map (kbd "y") #'decide-archive)
 (define-key decide-item-mode-map (kbd "q") #'quit-window)
+(dotimes (i 9)
+  (define-key decide-item-mode-map (kbd (number-to-string (1+ i)))
+              #'decide-answer-number))
 
 (define-derived-mode decide-answer-mode text-mode "Decide-Answer"
   "Free-text answer.  `C-c C-c' sends it and `C-c C-k' cancels."
@@ -327,6 +429,13 @@ Use hybrid state when evil's default state is hybrid."
 
 (define-key decide-answer-mode-map (kbd "C-c C-c") #'decide-answer-send)
 (define-key decide-answer-mode-map (kbd "C-c C-k") #'decide-answer-cancel)
+
+(define-derived-mode decide-reply-mode text-mode "Decide-Reply"
+  "Reply on the open thread.  `C-c C-c' sends it and `C-c C-k' cancels."
+  (setq-local header-line-format "C-c C-c send   C-c C-k cancel"))
+
+(define-key decide-reply-mode-map (kbd "C-c C-c") #'decide-reply-send)
+(define-key decide-reply-mode-map (kbd "C-c C-k") #'decide-reply-cancel)
 
 (defun decide-compose ()
   "Compose a note to a recipient from `decide targets --json'."
@@ -574,7 +683,8 @@ FIELDS are JSON keys. The third column is the age of updatedAt."
   "Give the decide modes an emacs initial state, then bind normal-state keys.
 The mode maps win in that initial state.  Normal state still moves by
 line, quits, reverts, and opens a folder.  The list opens an item, and
-the item answers with an option or with free text."
+the item answers with an option or with free text.  r replies and
+y archives a notification.  Both are bound in normal state."
   (dolist (mode '(decide-list-mode decide-item-mode decide-status-mode))
     (evil-set-initial-state mode 'emacs))
   (dolist (map (list decide-list-mode-map decide-item-mode-map decide-status-mode-map))
@@ -587,7 +697,9 @@ the item answers with an option or with free text."
    decide-item-mode-map
    (list (kbd "o") #'decide-answer-option
          (kbd "f") #'decide-answer-free
-         (kbd "0") #'decide-answer-free)))
+         (kbd "0") #'decide-answer-free
+         (kbd "r") #'decide-reply
+         (kbd "y") #'decide-archive)))
 
 (with-eval-after-load 'evil
   (decide--evil-setup))
