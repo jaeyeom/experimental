@@ -33,7 +33,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
-		Short: "Send a review-comment, rebase, or CI-fix prompt to the matched herdr agent",
+		Short: "Send a review-comment, rebase, CI-fix, or merge-queue-fix prompt to the matched herdr agent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := dispatch.WithStatusWriter(cmd.Context(), cmd.ErrOrStderr())

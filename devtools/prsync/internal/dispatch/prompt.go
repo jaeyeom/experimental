@@ -21,6 +21,17 @@ var newlineRun = regexp.MustCompile(`\n{3,}`)
 
 const emptyHint = "(none; investigate from scratch)"
 
+// mergeQueueFixPrompt is sent for a scan merge-queue-fix action.
+// {comment_url} is the RCA comment. The conflict sentence asks for a rebase,
+// regenerated lockfiles, and a push when that is the ejection.
+const mergeQueueFixPrompt = `The merge queue ejected PR #{number} ({url}). State: {state}.
+Read the RCA comment and fix the cause:
+{comment_url}
+
+When the ejection is a merge conflict, rebase onto origin/{base}, regenerate lockfiles, and push.
+
+Do not touch other PRs.`
+
 // Render substitutes prompt template variables with PR fields.
 // Replacement is literal strings.ReplaceAll, longest key first.
 func Render(tmpl string, pr scan.PR, cfg config.Config) string {
@@ -59,6 +70,14 @@ func RenderHint(tmpl string, pr scan.PR, cfg config.Config, hint string) string 
 		hint = emptyHint
 	}
 	return strings.ReplaceAll(out, "{hint}", hint)
+}
+
+// renderMergeQueueFix fills mergeQueueFixPrompt. The comment URL is substituted
+// last so it stays literal.
+func renderMergeQueueFix(pr scan.PR, cfg config.Config) string {
+	action, _ := mergeQueueAction(pr)
+	rendered := Render(mergeQueueFixPrompt, pr, cfg)
+	return strings.ReplaceAll(rendered, "{comment_url}", action.CommentURL)
 }
 
 func formatComments(comments []scan.Comment, cfg config.Config) string {

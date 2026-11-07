@@ -164,6 +164,78 @@ func TestRunDryRunCIFixRendersCIFixTemplate(t *testing.T) {
 	}
 }
 
+func TestRunDryRunMergeQueueFixRendersPrompt(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.Base = "main"
+	commentURL := "https://github.com/acme/widgets/pull/123#issuecomment-9"
+	pr.Actions = []scan.Action{{
+		Name:       scan.ActionMergeQueueFix,
+		EventID:    "EVT",
+		Class:      "our-code",
+		CommentURL: commentURL,
+	}}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{pr}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	prompt := got.Results[0].RenderedPrompt
+	if !strings.Contains(prompt, commentURL) {
+		t.Fatalf("missing RCA comment URL: %q", prompt)
+	}
+	if !strings.Contains(prompt, "fix the cause") {
+		t.Fatalf("missing fix-the-cause: %q", prompt)
+	}
+	if !strings.Contains(prompt, "When the ejection is a merge conflict, rebase onto origin/main, regenerate lockfiles, and push.") {
+		t.Fatalf("missing conflict instructions: %q", prompt)
+	}
+	if strings.Contains(prompt, "unresolved review comments") {
+		t.Fatalf("used comment template: %q", prompt)
+	}
+	if strings.Contains(prompt, "--force-with-lease") {
+		t.Fatalf("used rebase template: %q", prompt)
+	}
+}
+
+func TestRunDryRunCIFixIgnoresMergeQueueAction(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.Actions = []scan.Action{{
+		Name:       scan.ActionMergeQueueFix,
+		CommentURL: "https://github.com/acme/widgets/pull/123#issuecomment-9",
+	}}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   scan.Document{PRs: []scan.PR{pr}},
+		CIFix: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "Fix the failing CI") {
+		t.Fatalf("CI-fix ignored the flag: %q", got.Results[0].RenderedPrompt)
+	}
+}
+
 func TestRunDryRunDoesNotWriteState(t *testing.T) {
 	t.Parallel()
 
@@ -407,6 +479,86 @@ func TestRunLiveDispatchedWritesState(t *testing.T) {
 	}
 	if h.promptN != 1 {
 		t.Fatalf("Prompt calls after dedupe = %d, want 1", h.promptN)
+	}
+}
+
+func TestRunLiveMergeQueueFixWritesSHA(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	pr := fixtureEligiblePR()
+	pr.Unaddressed = false
+	pr.BlockingComments = nil
+	pr.HeadSHA = "abc123def456"
+	pr.Mergeable = "CONFLICTING"
+	pr.Actions = []scan.Action{{
+		Name:       scan.ActionMergeQueueFix,
+		EventID:    "EVT",
+		Class:      "our-code",
+		CommentURL: "https://github.com/acme/widgets/pull/123#issuecomment-9",
+	}}
+	req := Request{Doc: scan.Document{PRs: []scan.PR{pr}}}
+	got, err := Run(context.Background(), h, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+	if !strings.Contains(got.Results[0].RenderedPrompt, "fix the cause") {
+		t.Fatalf("live merge-queue-fix used wrong template: %q", got.Results[0].RenderedPrompt)
+	}
+	st, err := LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if !st.DedupedMergeQueueFix("acme/widgets#123", "abc123def456") {
+		t.Fatalf("state after merge-queue-fix = %#v", st)
+	}
+	if st.Deduped("acme/widgets#123", []string{"PRRC_widget"}) {
+		t.Fatalf("merge-queue-fix must not record comment ids: %#v", st)
+	}
+	if st.DedupedHead("acme/widgets#123", "abc123def456") || st.DedupedCIFix("acme/widgets#123", "abc123def456") {
+		t.Fatalf("merge-queue-fix must not record other SHAs: %#v", st)
+	}
+
+	got2, err := Run(context.Background(), h, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionSkippedDeduped {
+		t.Fatalf("second results = %+v, want skipped_deduped while still conflicting", got2.Results)
+	}
+	if h.promptN != 1 {
+		t.Fatalf("Prompt calls after SHA dedupe = %d, want 1", h.promptN)
+	}
+
+	pr.HeadSHA = "fff000aaa111"
+	req.Doc.PRs[0] = pr
+	got3, err := Run(context.Background(), h, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("third Run() unexpected error: %v", err)
+	}
+	if len(got3.Results) != 1 || got3.Results[0].Action != ActionDispatched {
+		t.Fatalf("changed SHA results = %+v, want dispatched", got3.Results)
+	}
+	if h.promptN != 2 {
+		t.Fatalf("Prompt calls after SHA change = %d, want 2", h.promptN)
+	}
+
+	got4, err := Run(context.Background(), h, store, cfg, Request{
+		Doc:   req.Doc,
+		Force: true,
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("force Run() unexpected error: %v", err)
+	}
+	if len(got4.Results) != 1 || got4.Results[0].Action != ActionDispatched {
+		t.Fatalf("force results = %+v, want dispatched", got4.Results)
+	}
+	if h.promptN != 3 {
+		t.Fatalf("Prompt calls after force = %d, want 3", h.promptN)
 	}
 }
 

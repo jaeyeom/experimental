@@ -340,6 +340,96 @@ func TestEligibleSkipReasons(t *testing.T) {
 			cfg:  func() config.Config { c := config.Defaults(); c.IncludeDrafts = true; return c }(),
 			want: "",
 		},
+		{
+			name: "merge-queue-fix skips addressed gate",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(nil)},
+			cfg:  cfg,
+			want: "",
+		},
+		{
+			name: "merge-queue-fix still skips no tab",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(func(p *scan.PR) { p.Tab = nil })},
+			cfg:  cfg,
+			want: ActionSkippedNoTab,
+		},
+		{
+			name: "merge-queue-fix still skips draft",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(func(p *scan.PR) { p.IsDraft = true })},
+			cfg:  cfg,
+			want: ActionSkippedDraft,
+		},
+		{
+			name: "merge-queue-fix still skips busy",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(func(p *scan.PR) { p.Tab.AgentStatus = "working" })},
+			cfg:  cfg,
+			want: ActionSkippedBusy,
+		},
+		{
+			name: "merge-queue-fix not deduped by comment ids",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(nil)},
+			cfg:  cfg,
+			st:   State{"acme/widgets#123": {DispatchedCommentIDs: []string{"PRRC_widget"}}},
+			want: "",
+		},
+		{
+			name: "merge-queue-fix not deduped by rebase or ci-fix SHA",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(nil)},
+			cfg:  cfg,
+			st:   State{"acme/widgets#123": {DispatchedHeadSHA: "abc123", DispatchedCIFixSHA: "abc123"}},
+			want: "",
+		},
+		{
+			name:       "merge-queue-fix deduped by its SHA",
+			c:          Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(nil)},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}},
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123",
+		},
+		{
+			name: "merge-queue-fix new head is not deduped",
+			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(func(p *scan.PR) { p.HeadSHA = "def456" })},
+			cfg:  cfg,
+			st:   State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}},
+			want: "",
+		},
+		{
+			name: "merge-queue-fix still deduped when conflicting",
+			c: Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(func(p *scan.PR) {
+				p.Mergeable = "CONFLICTING"
+				p.MergeStateStatus = "DIRTY"
+			})},
+			cfg:        cfg,
+			st:         State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}},
+			want:       ActionSkippedDeduped,
+			wantDetail: "recorded at abc123",
+		},
+		{
+			name:  "merge-queue-fix force redispatches same head",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(nil)},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}},
+			force: true,
+			want:  "",
+		},
+		{
+			name:  "ci-fix ignores merge-queue-fix SHA",
+			c:     Candidate{Repo: "acme/widgets", Number: 123, PR: mergeQueuePR(nil)},
+			cfg:   cfg,
+			st:    State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}},
+			ciFix: true,
+			want:  "",
+		},
+		{
+			name: "other action does not skip addressed gate",
+			c: Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(func(p *scan.PR) {
+				p.Unaddressed = false
+				p.BlockingComments = nil
+				p.Actions = []scan.Action{{Name: "other"}}
+			})},
+			cfg:  cfg,
+			want: ActionSkippedAddressed,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -474,4 +564,21 @@ func prWith(edit func(*scan.PR)) *scan.PR {
 		edit(&p)
 	}
 	return &p
+}
+
+func mergeQueuePR(edit func(*scan.PR)) *scan.PR {
+	return prWith(func(p *scan.PR) {
+		p.Unaddressed = false
+		p.BlockingComments = nil
+		p.HeadSHA = "abc123"
+		p.Actions = []scan.Action{{
+			Name:       scan.ActionMergeQueueFix,
+			EventID:    "EVT",
+			Class:      "our-code",
+			CommentURL: "https://github.com/acme/widgets/pull/123#issuecomment-1",
+		}}
+		if edit != nil {
+			edit(p)
+		}
+	})
 }
