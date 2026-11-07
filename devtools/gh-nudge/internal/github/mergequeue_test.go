@@ -128,6 +128,44 @@ func TestLoadPullRequestParsesQueueState(t *testing.T) {
 	}
 }
 
+func TestLoadPullRequestParsesNullBeforeCommitSignals(t *testing.T) {
+	exec := &routeExec{route: map[string]string{
+		"forcePushes": `{
+			"data": {"repository": {"pullRequest": {
+				"id": "PR_NODE",
+				"headRefOid": "abc123",
+				"commits": {"nodes": [{"commit": {
+					"committedDate": "2026-01-02T03:05:05Z",
+					"pushedDate": "2026-01-02T03:06:05Z"
+				}}]},
+				"timelineItems": {"nodes": [
+					{"__typename": "RemovedFromMergeQueueEvent", "id": "EVT", "createdAt": "2026-01-02T03:04:05Z", "reason": "merge_conflict", "beforeCommit": null}
+				]},
+				"forcePushes": {"nodes": [
+					{"createdAt": "2026-01-02T03:07:05Z"}
+				]}
+			}}}
+		}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	pr, err := client.LoadPullRequest("acme/widgets#12")
+	if err != nil {
+		t.Fatalf("LoadPullRequest() error = %v", err)
+	}
+	if len(pr.Events) != 1 || pr.Events[0].CommitSHA != "" || pr.Events[0].Reason != "merge_conflict" {
+		t.Fatalf("events = %+v", pr.Events)
+	}
+	if !pr.HeadCommittedAt.Equal(time.Date(2026, 1, 2, 3, 5, 5, 0, time.UTC)) {
+		t.Fatalf("committed = %s", pr.HeadCommittedAt)
+	}
+	if !pr.HeadPushedAt.Equal(time.Date(2026, 1, 2, 3, 6, 5, 0, time.UTC)) {
+		t.Fatalf("pushed = %s", pr.HeadPushedAt)
+	}
+	if len(pr.ForcePushedAt) != 1 || !pr.ForcePushedAt[0].Equal(time.Date(2026, 1, 2, 3, 7, 5, 0, time.UTC)) {
+		t.Fatalf("force pushes = %v", pr.ForcePushedAt)
+	}
+}
+
 func TestDequeuePullRequestUsesMutation(t *testing.T) {
 	exec := &routeExec{route: map[string]string{
 		"dequeuePullRequest": `{"data":{"dequeuePullRequest":{"mergeQueueEntry":{"id":"MQ"}}}}`,

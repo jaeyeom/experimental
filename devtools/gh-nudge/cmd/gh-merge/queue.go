@@ -533,16 +533,48 @@ func refuseRCA(pr github.QueuePullRequest, settings config.SettingsConfig) error
 	if err != nil {
 		return err
 	}
-	if matched && class == "our-code" && event.CommitSHA != "" && event.CommitSHA != pr.HeadSHA {
-		fmt.Printf("our-code ejection at %s; head %s pushed since, proceeding\n",
-			event.CreatedAt.Format(time.RFC3339), pr.HeadSHA)
-		return nil
+	if matched && class == "our-code" {
+		moved, decided := ourCodeHeadMoved(pr, event)
+		if decided && moved {
+			fmt.Printf("our-code ejection at %s; head %s pushed since, proceeding\n",
+				event.CreatedAt.Format(time.RFC3339), pr.HeadSHA)
+			return nil
+		}
+		// A null beforeCommit has no SHA to compare. Missing force-push and
+		// commit dates cannot prove the head is unchanged, so do not use the
+		// our-code refusal for that case.
+		if !decided {
+			return errors.New("head change could not be decided")
+		}
 	}
 	earlier, err := earlierRequeues(settings.RCAMarker, pr.Comments, pr.Events)
 	if err != nil {
 		return err
 	}
 	return requeueAllowed(class, matched, earlier, settings.RequeueLimit())
+}
+
+// ourCodeHeadMoved reports whether the head changed after an our-code removal.
+// A beforeCommit SHA decides the comparison. When that SHA is absent, a
+// HeadRefForcePushedEvent after the removal, or a head committedDate or
+// pushedDate after the removal, counts as a change. decided is false when
+// neither of those comparisons is available.
+func ourCodeHeadMoved(pr github.QueuePullRequest, event github.QueueEvent) (moved, decided bool) {
+	if event.CommitSHA != "" {
+		return event.CommitSHA != pr.HeadSHA, true
+	}
+	for _, at := range pr.ForcePushedAt {
+		if at.After(event.CreatedAt) {
+			return true, true
+		}
+	}
+	if pr.HeadCommittedAt.After(event.CreatedAt) || pr.HeadPushedAt.After(event.CreatedAt) {
+		return true, true
+	}
+	if pr.HeadCommittedAt.IsZero() && pr.HeadPushedAt.IsZero() {
+		return false, false
+	}
+	return false, true
 }
 
 func requeueAllowed(class string, matched bool, earlier, limit int) error {

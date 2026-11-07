@@ -63,6 +63,12 @@ type QueuePullRequest struct {
 	HeadRefName string
 	// DefaultBranch is the repository's default branch from defaultBranchRef.
 	DefaultBranch string
+	// HeadCommittedAt is the head commit committedDate. Zero when the query has none.
+	HeadCommittedAt time.Time
+	// HeadPushedAt is the head commit pushedDate. Zero when the query has none.
+	HeadPushedAt time.Time
+	// ForcePushedAt is each HeadRefForcePushedEvent createdAt, oldest first.
+	ForcePushedAt []time.Time
 }
 
 // BranchPull is one pull request matched by head or base branch name.
@@ -153,6 +159,8 @@ query($owner: String!, $name: String!, $number: Int!) {
       commits(last: 1) {
         nodes {
           commit {
+            committedDate
+            pushedDate
             statusCheckRollup {
               contexts(first: 100) {
                 nodes {
@@ -170,6 +178,11 @@ query($owner: String!, $name: String!, $number: Int!) {
           __typename
           ... on AddedToMergeQueueEvent { id createdAt }
           ... on RemovedFromMergeQueueEvent { id createdAt reason beforeCommit { oid } }
+        }
+      }
+      forcePushes: timelineItems(last: 100, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) {
+        nodes {
+          ... on HeadRefForcePushedEvent { createdAt }
         }
       }
     }
@@ -472,6 +485,8 @@ type queuePRJSON struct {
 	Commits struct {
 		Nodes []struct {
 			Commit struct {
+				CommittedDate     *time.Time `json:"committedDate"`
+				PushedDate        *time.Time `json:"pushedDate"`
 				StatusCheckRollup *struct {
 					Contexts struct {
 						Nodes []queueCheckJSON `json:"nodes"`
@@ -488,6 +503,13 @@ type queuePRJSON struct {
 	TimelineItems struct {
 		Nodes []queueEventJSON `json:"nodes"`
 	} `json:"timelineItems"`
+	ForcePushes struct {
+		Nodes []forcePushJSON `json:"nodes"`
+	} `json:"forcePushes"`
+}
+
+type forcePushJSON struct {
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type queueCheckJSON struct {
@@ -544,11 +566,45 @@ func convertQueuePR(raw *queuePRJSON, ref PullRef) QueuePullRequest {
 		}
 	}
 	pr.Checks = checksFrom(raw)
+	pr.HeadCommittedAt, pr.HeadPushedAt = headCommitTimes(raw)
+	pr.ForcePushedAt = forcePushTimes(raw.ForcePushes.Nodes)
 	for _, comment := range raw.Comments.Nodes {
 		pr.Comments = append(pr.Comments, comment.Body)
 	}
 	pr.Events = eventsFrom(raw.TimelineItems.Nodes)
 	return pr
+}
+
+func headCommitTimes(raw *queuePRJSON) (time.Time, time.Time) {
+	if len(raw.Commits.Nodes) == 0 {
+		return time.Time{}, time.Time{}
+	}
+	commit := raw.Commits.Nodes[0].Commit
+	var committed, pushed time.Time
+	if commit.CommittedDate != nil {
+		committed = *commit.CommittedDate
+	}
+	if commit.PushedDate != nil {
+		pushed = *commit.PushedDate
+	}
+	return committed, pushed
+}
+
+func forcePushTimes(nodes []forcePushJSON) []time.Time {
+	if len(nodes) == 0 {
+		return nil
+	}
+	times := make([]time.Time, 0, len(nodes))
+	for _, node := range nodes {
+		if node.CreatedAt.IsZero() {
+			continue
+		}
+		times = append(times, node.CreatedAt)
+	}
+	sort.SliceStable(times, func(i, j int) bool {
+		return times[i].Before(times[j])
+	})
+	return times
 }
 
 func checksFrom(raw *queuePRJSON) []QueueCheck {
