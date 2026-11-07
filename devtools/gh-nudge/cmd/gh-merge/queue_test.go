@@ -2717,7 +2717,7 @@ func TestRCAOurCodeAndRequeueLimitStillRefuse(t *testing.T) {
 	pr.Events = []github.QueueEvent{
 		{ID: "OLD", Kind: github.QueueEventRemoved, CreatedAt: base, Reason: "failed_checks"},
 		{ID: "ADD", Kind: github.QueueEventAdded, CreatedAt: base.Add(time.Minute)},
-		{ID: "NEW", Kind: github.QueueEventRemoved, CreatedAt: base.Add(time.Hour), Reason: "failed_checks"},
+		{ID: "NEW", Kind: github.QueueEventRemoved, CreatedAt: base.Add(time.Hour), Reason: "failed_checks", CommitSHA: pr.HeadSHA},
 	}
 	cfg := rcaConfig()
 	limit := 0
@@ -2784,6 +2784,66 @@ func TestOurCodeMovedHeadEnqueues(t *testing.T) {
 		t.Fatalf("output = %q, want %q", output, want)
 	}
 	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestOurCodeNullBeforeCommitForcePushEnqueues(t *testing.T) {
+	pr := readyPR()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "", at)}
+	pr.Comments = []string{"RCA EVT class=our-code"}
+	pr.ForcePushedAt = []time.Time{at.Add(time.Minute)}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	want := "our-code ejection at 2026-01-02T03:04:05Z; head abc123 pushed since, proceeding"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want %q", output, want)
+	}
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestOurCodeNullBeforeCommitLaterHeadDateEnqueues(t *testing.T) {
+	pr := readyPR()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "", at)}
+	pr.Comments = []string{"RCA EVT class=our-code"}
+	pr.HeadCommittedAt = at.Add(time.Minute)
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	want := "our-code ejection at 2026-01-02T03:04:05Z; head abc123 pushed since, proceeding"
+	if !strings.Contains(output, want) {
+		t.Fatalf("output = %q, want %q", output, want)
+	}
+	if client.enqueueCalls != 1 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestOurCodeNullBeforeCommitUndecidedDoesNotRefuseOurCode(t *testing.T) {
+	pr := readyPR()
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "", at)}
+	pr.Comments = []string{"RCA EVT class=our-code"}
+	client := &fakeQueue{pr: pr}
+	err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false)
+	if err == nil || !strings.Contains(err.Error(), "head change could not be decided") {
+		t.Fatalf("queue error = %v, want head change could not be decided", err)
+	}
+	if strings.Contains(err.Error(), "RCA class is our-code") {
+		t.Fatalf("queue error = %v, used the our-code refusal", err)
+	}
+	if client.enqueueCalls != 0 {
 		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
 	}
 }
