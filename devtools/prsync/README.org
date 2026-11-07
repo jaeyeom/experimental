@@ -505,13 +505,19 @@ Live send (~--go~) writes ~state_file~ on ~dispatched~ /
 ~dispatched_timeout~. Gate / serial / wait: [[*Live dispatch][Live dispatch]].
 A second live run against the same unaddressed comment ids is
 ~skipped_deduped~. The prompt always goes to the PR's existing herdr
-tab (no new worktree).
+tab (no new worktree). A scan ~merge-queue-fix~ action, with neither
+~--rebase~ nor ~--ci-fix~, sends that prompt instead and skips the
+unaddressed-comment gate. The prompt points at the RCA comment URL and
+asks the tab to fix the cause. When the ejection is a merge conflict,
+it asks for a rebase, regenerated lockfiles, and a push. The same head
+is not prompted again until the head changes.
 
 | Mode | Flag | Done when | Notes |
 |------+------+-----------+-------|
 | comments (default) | (none) | listed threads addressed | Dedupe on unaddressed comment ids |
 | rebase | ~--rebase~ | recorded ~dispatched_head_sha~ equals the current head, and merge state is not ~BEHIND~, ~DIRTY~, or ~UNKNOWN~, and ~mergeable~ is not ~CONFLICTING~ | A new head is a fresh decision. ~BEHIND~, ~DIRTY~, ~UNKNOWN~, and ~mergeable~ ~CONFLICTING~ retry even when the recorded sha matches. ~--all~ sends to every PR with a ready tab (auto-picking behind PRs is a follow-up). Missing ~merge_state_status~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, merge_state=<status>~ |
 | CI-fix | ~--ci-fix~ | recorded ~dispatched_ci_fix_sha~ equals the current head, and ~ci_state~ is not ~failing~ | A new head is a fresh decision, including ~pending~, ~none~, and ~green~. A still-red check retries on the same head. ~--hint~ is a starting point the agent must verify; omit it to investigate from scratch. Caller chooses ~--ci-fix~ — ~prsync~ does not triage. Missing ~ci_state~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, ci_state=<status>~ |
+| merge-queue-fix | (none; scan action ~merge-queue-fix~) | recorded ~dispatched_merge_queue_fix_sha~ equals the current head | Same draft, tab, agent, and busy gate as the other modes. Skips the unaddressed-comment gate. Not prompted again until the head changes, including when the pull request is still conflicting. ~--rebase~ and ~--ci-fix~ keep their own prompts. ~--force~ re-dispatches. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>~ |
 
 Cannot combine ~--rebase~ and ~--ci-fix~; rebase first, then CI-fix. If
 you also re-trigger CI, do that last (a new commit invalidates it).

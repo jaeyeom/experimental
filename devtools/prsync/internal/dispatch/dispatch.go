@@ -105,12 +105,16 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 }
 
 // Evaluate returns the skip action for a candidate, or a zero Action if eligible.
-// Rebase and CI-fix modes skip the unaddressed-comment gate. A rebase is
-// deduped only when dispatched_head_sha equals the current head and the PR is
-// not behind, dirty, unknown, or mergeable CONFLICTING. A CI-fix is deduped
-// only when dispatched_ci_fix_sha equals the current head and CI is not
-// failing. A skipped rebase or CI-fix sets Detail to the recorded SHA and
-// status. force skips comment, rebase, and CI-fix dedupe.
+// Rebase, CI-fix, and a scan merge-queue-fix action skip the unaddressed-comment
+// gate. --rebase and --ci-fix keep their own prompts when that action is also
+// present. A rebase is deduped only when dispatched_head_sha equals the current
+// head and the PR is not behind, dirty, unknown, or mergeable CONFLICTING. A
+// CI-fix is deduped only when dispatched_ci_fix_sha equals the current head and
+// CI is not failing. A merge-queue-fix is deduped when
+// dispatched_merge_queue_fix_sha equals the current head, and is not prompted
+// again until the head changes. A skipped rebase or CI-fix sets Detail to the
+// recorded SHA and status. A skipped merge-queue-fix sets Detail to the
+// recorded SHA. force skips comment, rebase, CI-fix, and merge-queue-fix dedupe.
 func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) Item {
 	item := skipReason(c, cfg, st, rebase, ciFix, force)
 	item.Repo = c.Repo
@@ -124,8 +128,9 @@ func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force b
 	}
 	pr := *c.PR
 	key := prKey(c.Repo, c.Number)
+	queueFix := mergeQueueFixMode(pr, rebase, ciFix)
 	switch {
-	case !rebase && !ciFix && !pr.Unaddressed:
+	case !rebase && !ciFix && !queueFix && !pr.Unaddressed:
 		return Item{Action: ActionSkippedAddressed}
 	case pr.IsDraft && !cfg.IncludeDrafts:
 		return Item{Action: ActionSkippedDraft}
@@ -152,9 +157,31 @@ func dedupeDetail(st State, key string, pr scan.PR, rebase, ciFix bool) string {
 		return fmt.Sprintf("recorded at %s, merge_state=%s", entry.DispatchedHeadSHA, pr.MergeStateStatus)
 	case ciFix:
 		return fmt.Sprintf("recorded at %s, ci_state=%s", entry.DispatchedCIFixSHA, pr.CIState)
-	default:
-		return ""
 	}
+	if mergeQueueFixMode(pr, rebase, ciFix) {
+		return fmt.Sprintf("recorded at %s", entry.DispatchedMergeQueueFixSHA)
+	}
+	return ""
+}
+
+// mergeQueueAction returns the scan merge-queue-fix action, if the PR has one.
+func mergeQueueAction(pr scan.PR) (scan.Action, bool) {
+	for _, action := range pr.Actions {
+		if action.Name == scan.ActionMergeQueueFix {
+			return action, true
+		}
+	}
+	return scan.Action{}, false
+}
+
+// mergeQueueFixMode reports whether this candidate is dispatched as a
+// merge-queue-fix. Explicit rebase and CI-fix modes keep their own prompts.
+func mergeQueueFixMode(pr scan.PR, rebase, ciFix bool) bool {
+	if rebase || ciFix {
+		return false
+	}
+	_, ok := mergeQueueAction(pr)
+	return ok
 }
 
 func skipDeduped(st State, key string, pr scan.PR, rebase, ciFix, force bool) bool {
@@ -166,9 +193,11 @@ func skipDeduped(st State, key string, pr scan.PR, rebase, ciFix, force bool) bo
 		return rebaseDeduped(st, key, pr)
 	case ciFix:
 		return ciFixDeduped(st, key, pr)
-	default:
-		return st.Deduped(key, commentIDs(pr))
 	}
+	if mergeQueueFixMode(pr, rebase, ciFix) {
+		return st.DedupedMergeQueueFix(key, pr.HeadSHA)
+	}
+	return st.Deduped(key, commentIDs(pr))
 }
 
 // rebaseDeduped reports whether a prior rebase dispatch on this head is
@@ -339,6 +368,8 @@ func recordDispatch(st State, c Candidate, req Request, now time.Time) {
 		st.RecordCIFix(key, c.PR.HeadSHA, now)
 	case req.Rebase:
 		st.RecordHead(key, c.PR.HeadSHA, now)
+	case mergeQueueFixMode(*c.PR, req.Rebase, req.CIFix):
+		st.RecordMergeQueueFix(key, c.PR.HeadSHA, now)
 	default:
 		st.Record(key, commentIDs(*c.PR), now)
 	}
@@ -347,7 +378,7 @@ func recordDispatch(st State, c Candidate, req Request, now time.Time) {
 func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, req Request, clock Clock, sleeper Sleeper) Item {
 	pr := *c.PR
 	pane := *pr.Tab.PaneID
-	rendered := RenderHint(promptTemplate(cfg, req), pr, cfg, req.Hint)
+	rendered := renderPrompt(cfg, req, pr)
 	item := Item{Repo: c.Repo, Number: c.Number}
 	deadline := clock.Now().Add(cfg.DispatchTimeout)
 	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
@@ -600,19 +631,21 @@ func evaluateDry(c Candidate, cfg config.Config, st State, req Request) Item {
 	pr := *c.PR
 	r.Action = ActionWouldDispatch
 	r.PaneID = *pr.Tab.PaneID
-	r.RenderedPrompt = RenderHint(promptTemplate(cfg, req), pr, cfg, req.Hint)
+	r.RenderedPrompt = renderPrompt(cfg, req, pr)
 	return r
 }
 
-func promptTemplate(cfg config.Config, req Request) string {
+func renderPrompt(cfg config.Config, req Request, pr scan.PR) string {
 	switch {
 	case req.CIFix:
-		return cfg.CIFixPromptTemplate
+		return RenderHint(cfg.CIFixPromptTemplate, pr, cfg, req.Hint)
 	case req.Rebase:
-		return cfg.RebasePromptTemplate
-	default:
-		return cfg.PromptTemplate
+		return RenderHint(cfg.RebasePromptTemplate, pr, cfg, req.Hint)
 	}
+	if mergeQueueFixMode(pr, req.Rebase, req.CIFix) {
+		return renderMergeQueueFix(pr, cfg)
+	}
+	return RenderHint(cfg.PromptTemplate, pr, cfg, req.Hint)
 }
 
 func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, doc *Document) error {

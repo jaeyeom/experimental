@@ -177,6 +177,77 @@ func TestDedupeCIFixChangedSHA(t *testing.T) {
 	}
 }
 
+func TestRecordMergeQueueFixPreservesOtherFields(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	st.RecordCIFix("acme/widgets#123", "ci-sha", at)
+	st.RecordPosted("acme/widgets#123", "post-sha", "/ci", at)
+	st.RecordMergeQueueFix("acme/widgets#123", "mq-sha", at)
+	got := st["acme/widgets#123"]
+	if !reflect.DeepEqual(got.DispatchedCommentIDs, []string{"PRRC_a"}) {
+		t.Fatalf("comment ids = %v, want preserved", got.DispatchedCommentIDs)
+	}
+	if got.DispatchedHeadSHA != "abc123" {
+		t.Fatalf("head SHA = %q, want preserved", got.DispatchedHeadSHA)
+	}
+	if got.DispatchedCIFixSHA != "ci-sha" {
+		t.Fatalf("CI-fix SHA = %q, want preserved", got.DispatchedCIFixSHA)
+	}
+	if got.PostedHeadSHA != "post-sha" || got.PostedBody != "/ci" {
+		t.Fatalf("posted = {%q %q}, want preserved", got.PostedHeadSHA, got.PostedBody)
+	}
+	if got.DispatchedMergeQueueFixSHA != "mq-sha" {
+		t.Fatalf("merge-queue-fix SHA = %q, want mq-sha", got.DispatchedMergeQueueFixSHA)
+	}
+}
+
+func TestRecordPreservesMergeQueueFixSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{}
+	at := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.RecordMergeQueueFix("acme/widgets#123", "mq-sha", at)
+	st.Record("acme/widgets#123", []string{"PRRC_a"}, at)
+	st.RecordHead("acme/widgets#123", "abc123", at)
+	st.RecordCIFix("acme/widgets#123", "ci-sha", at)
+	st.RecordPosted("acme/widgets#123", "post-sha", "/ci", at)
+	got := st["acme/widgets#123"]
+	if got.DispatchedMergeQueueFixSHA != "mq-sha" {
+		t.Fatalf("merge-queue-fix SHA = %q, want preserved", got.DispatchedMergeQueueFixSHA)
+	}
+}
+
+func TestDedupeMergeQueueFixSameSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}}
+	if !st.DedupedMergeQueueFix("acme/widgets#123", "abc123") {
+		t.Fatal("same merge-queue-fix SHA must be deduped")
+	}
+}
+
+func TestDedupeMergeQueueFixChangedSHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}}
+	if st.DedupedMergeQueueFix("acme/widgets#123", "def456") {
+		t.Fatal("changed merge-queue-fix SHA must not be deduped")
+	}
+}
+
+func TestDedupeMergeQueueFixEmptySHA(t *testing.T) {
+	t.Parallel()
+
+	st := State{"acme/widgets#123": {DispatchedMergeQueueFixSHA: "abc123"}}
+	if st.DedupedMergeQueueFix("acme/widgets#123", "") {
+		t.Fatal("empty current SHA must not be deduped")
+	}
+}
+
 func TestDedupeCIFixEmptySHA(t *testing.T) {
 	t.Parallel()
 
