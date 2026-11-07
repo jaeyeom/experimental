@@ -3,6 +3,7 @@ package decide
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -507,6 +508,288 @@ func readResult(t *testing.T, path string) string {
 		t.Fatalf("read result: %v", err)
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func TestOpenMigratesItemsWithoutDroppingFields(t *testing.T) {
+	dir := t.TempDir()
+	created := time.Date(2026, 11, 5, 1, 0, 0, 0, time.UTC)
+	answeredAt := time.Date(2026, 11, 5, 2, 0, 0, 0, time.UTC)
+	deadline := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	kept := Item{
+		ID:       "D-001",
+		Question: "ship it?",
+		Options: []Option{
+			{Key: "a", Label: "Yes", Recommended: true},
+			{Key: "b", Label: "No"},
+		},
+		FreeText:   true,
+		Owner:      "ada",
+		Links:      []string{"https://example.com/a"},
+		Deadline:   &deadline,
+		Kind:       KindRelay,
+		State:      StateAnswered,
+		CreatedAt:  created,
+		AnsweredAt: answeredAt,
+		Answer:     &Answer{Value: "a", AnsweredBy: "human"},
+		Unread:     true,
+		NotifyPane: "pane-9",
+		Outcome:    "kept",
+		TypeText:   "exact",
+		Where:      "box",
+		Reason:     "because",
+	}
+	plain := Item{
+		ID:        "D-002",
+		Question:  "only ask",
+		Owner:     "bea",
+		Kind:      KindTypeIn,
+		State:     StateOpen,
+		CreatedAt: created,
+	}
+	already := Item{
+		ID:        "D-003",
+		Question:  "threaded",
+		Owner:     "ada",
+		Kind:      KindRelay,
+		State:     StateOpen,
+		CreatedAt: created,
+		Messages:  []Message{{Author: "ada", Time: created, Text: "threaded"}},
+	}
+	body, err := json.MarshalIndent(store{Next: 4, Items: []Item{kept, plain, already}}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ledgerName), append(body, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	led, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Get("D-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertItemEqual(t, got, kept)
+	if len(got.Messages) != 2 {
+		t.Fatalf("messages = %+v", got.Messages)
+	}
+	if got.Messages[0].Author != "ada" || got.Messages[0].Text != "ship it?" || !got.Messages[0].Time.Equal(created) {
+		t.Fatalf("ask message = %+v", got.Messages[0])
+	}
+	if len(got.Messages[0].Options) != 2 || got.Messages[0].Options[0].Key != "a" || !got.Messages[0].Options[0].Recommended {
+		t.Fatalf("ask options = %+v", got.Messages[0].Options)
+	}
+	if got.Messages[1].Author != "human" || got.Messages[1].Text != "a" || !got.Messages[1].Time.Equal(answeredAt) || len(got.Messages[1].Options) != 0 {
+		t.Fatalf("answer message = %+v", got.Messages[1])
+	}
+	plainGot, err := led.Get("D-002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plainGot.Question != "only ask" || len(plainGot.Messages) != 1 || plainGot.Messages[0].Author != "bea" || plainGot.Messages[0].Text != "only ask" {
+		t.Fatalf("plain = %+v", plainGot)
+	}
+	threaded, err := led.Get("D-003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threaded.Messages) != 1 || threaded.Messages[0].Text != "threaded" {
+		t.Fatalf("existing thread = %+v", threaded.Messages)
+	}
+
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := again.Get("D-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Messages) != 2 || second.Outcome != "kept" || second.NotifyPane != "pane-9" {
+		t.Fatalf("second open = %+v", second)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ledgerName)) //nolint:gosec // test ledger
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, needle := range []string{`"outcome": "kept"`, `"notifyPane": "pane-9"`, `"question": "ship it?"`, "https://example.com/a"} {
+		if !bytes.Contains(data, []byte(needle)) {
+			t.Fatalf("ledger missing %s\n%s", needle, data)
+		}
+	}
+}
+
+func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
+	led, _ := openTemp(t)
+	when := time.Date(2026, 11, 6, 3, 4, 5, 0, time.UTC)
+	led.now = func() time.Time { return when }
+	item, err := led.Create(&Item{
+		Question: "draft?",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		Options: []Option{
+			{Key: "draft", Label: "draft a message for me", Recommended: true},
+			{Key: "later", Label: "Later"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(item.Messages) != 1 || item.Messages[0].Author != "ada" || item.Messages[0].Text != "draft?" || len(item.Messages[0].Options) != 2 {
+		t.Fatalf("ask thread = %+v", item.Messages)
+	}
+	answered, err := led.Answer(item.ID, "draft")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answered.State != StateAnswered || answered.Answer == nil || answered.Answer.Value != "draft" {
+		t.Fatalf("answer = %+v", answered.Answer)
+	}
+	if len(answered.Messages) != 2 || answered.Messages[1].Author != "human" || answered.Messages[1].Text != "draft" {
+		t.Fatalf("answer message = %+v", answered.Messages)
+	}
+
+	const draft = "Hello \"there\"\nplease send this draft"
+	opts := []Option{
+		{Key: "send", Label: "send", Recommended: true},
+		{Key: "edit", Label: "edit"},
+		{Key: "don't send", Label: "don't send"},
+	}
+	replied, err := led.Reply(item.ID, draft, opts, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replied.State != StateOpen || !replied.Unread || replied.FreeText {
+		t.Fatalf("reply state %s unread %v free %v", replied.State, replied.Unread, replied.FreeText)
+	}
+	if replied.Question != "draft?" || replied.Answer == nil || replied.Answer.Value != "draft" {
+		t.Fatalf("original ask was dropped: %+v", replied)
+	}
+	if len(replied.Options) != 3 || replied.Options[0].Key != "send" || !replied.Options[0].Recommended || replied.Options[2].Key != "don't send" {
+		t.Fatalf("options = %+v", replied.Options)
+	}
+	last := replied.Messages[len(replied.Messages)-1]
+	if last.Author != "ada" || last.Text != draft || len(last.Options) != 3 {
+		t.Fatalf("draft message = %+v", last)
+	}
+	if replied.Messages[0].Options[0].Key != "draft" {
+		t.Fatalf("original options = %+v", replied.Messages[0].Options)
+	}
+	if _, err := led.Answer(item.ID, "nope"); err == nil {
+		t.Fatal("free text was accepted")
+	}
+	sent, err := led.Answer(item.ID, "send")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.State != StateAnswered || sent.Answer == nil || sent.Answer.Value != "send" {
+		t.Fatalf("send answer = %+v", sent.Answer)
+	}
+	human := sent.Messages[len(sent.Messages)-1]
+	if human.Author != "human" || human.Text != "send" {
+		t.Fatalf("send message = %+v", human)
+	}
+
+	note, err := led.Reply(item.ID, "shipped", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if note.State != StateOpen || !note.Unread || len(note.Options) != 0 {
+		t.Fatalf("notification = state %s unread %v options %+v", note.State, note.Unread, note.Options)
+	}
+	if note.Messages[len(note.Messages)-1].Text != "shipped" || len(note.Messages[len(note.Messages)-1].Options) != 0 {
+		t.Fatalf("notification message = %+v", note.Messages[len(note.Messages)-1])
+	}
+	done, err := led.Done(item.ID, "sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.State != StateDone || done.Outcome != "sent" {
+		t.Fatalf("done = %+v", done)
+	}
+	edited, err := led.Compose(item.ID, "please change the subject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.State != StateDone || edited.Outcome != "sent" {
+		t.Fatalf("compose changed the done thread: %+v", edited)
+	}
+	if edited.Messages[len(edited.Messages)-1].Author != "human" || edited.Messages[len(edited.Messages)-1].Text != "please change the subject" {
+		t.Fatalf("compose message = %+v", edited.Messages[len(edited.Messages)-1])
+	}
+	back, err := led.Reply(item.ID, "more", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.State != StateOpen || !back.Unread || back.Outcome != "sent" {
+		t.Fatalf("reopened = state %s unread %v outcome %q", back.State, back.Unread, back.Outcome)
+	}
+
+	openItem, err := led.Create(&Item{
+		Question: "or else",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		FreeText: true,
+		Options:  []Option{{Key: "a", Label: "A", Recommended: true}, {Key: "b", Label: "B"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Answer(openItem.ID, "a"); err != nil {
+		t.Fatal(err)
+	}
+	raw := "  say \"hi\"  "
+	freed, err := led.Reply(openItem.ID, "type it", []Option{{Key: "a", Label: "A", Recommended: true}, {Key: "b", Label: "B"}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !freed.FreeText || freed.State != StateOpen {
+		t.Fatalf("free reply = %+v", freed)
+	}
+	typed, err := led.Answer(openItem.ID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typed.Answer == nil || typed.Answer.Value != raw || typed.Messages[len(typed.Messages)-1].Text != raw {
+		t.Fatalf("free answer = %+v", typed.Answer)
+	}
+
+	withdrawn, err := led.Create(&Item{Question: "stop", Owner: "ada", Kind: KindRelay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Withdraw(withdrawn.ID, "no"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Reply(withdrawn.ID, "later", nil, false); err == nil {
+		t.Fatal("reply on a withdrawn thread was accepted")
+	}
+	if _, err := led.Compose(withdrawn.ID, "later"); err == nil {
+		t.Fatal("compose on a withdrawn thread was accepted")
+	}
+	if _, err := led.Compose(item.ID, "   "); err == nil {
+		t.Fatal("empty compose was accepted")
+	}
+}
+
+func TestStartThreadStoresTheHumanNote(t *testing.T) {
+	led, _ := openTemp(t)
+	const note = "hello\nthere"
+	got, err := led.StartThread("alpha", "pane-a", note)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Owner != "alpha" || got.NotifyPane != "pane-a" || got.Question != note || got.State != StateOpen {
+		t.Fatalf("thread = %+v", got)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Author != "human" || got.Messages[0].Text != note {
+		t.Fatalf("message = %+v", got.Messages)
+	}
+	if _, err := led.StartThread(" ", "pane-a", note); err == nil {
+		t.Fatal("empty owner was accepted")
+	}
 }
 
 func openTemp(t *testing.T) (*Ledger, string) {

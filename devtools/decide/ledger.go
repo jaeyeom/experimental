@@ -50,16 +50,26 @@ type Option struct {
 	Recommended bool   `json:"recommended"`
 }
 
+// Message is one entry in a thread. Author is "human" or an agent name.
+// Options are present only when that message asks for a choice.
+type Message struct {
+	Author  string    `json:"author"`
+	Time    time.Time `json:"time"`
+	Text    string    `json:"text"`
+	Options []Option  `json:"options,omitempty"`
+}
+
 // Answer is set only when an item has been answered.
 type Answer struct {
 	Value      string `json:"value"`
 	AnsweredBy string `json:"answeredBy"`
 }
 
-// Item is one stored decision.
+// Item is one stored decision, kept as a thread of messages.
 type Item struct {
 	ID          string     `json:"id"`
 	Question    string     `json:"question"`
+	Messages    []Message  `json:"messages,omitempty"`
 	Options     []Option   `json:"options,omitempty"`
 	FreeText    bool       `json:"freeText"`
 	Owner       string     `json:"owner"`
@@ -131,6 +141,7 @@ func (l *Ledger) Create(item *Item) (Item, error) {
 		stored.CreatedAt = l.clock()
 	}
 	normalizeTimes(&stored)
+	ensureMessages(&stored)
 	err := l.locked(true, func(st *store) error {
 		stored.ID = st.allocID()
 		st.Items = append(st.Items, stored)
@@ -243,6 +254,113 @@ func (l *Ledger) Answer(id, value string) (Item, error) {
 		it.State = StateAnswered
 		it.AnsweredAt = l.clock().UTC()
 		it.Answer = &Answer{Value: stored, AnsweredBy: "human"}
+		ensureMessages(it)
+		it.Messages = append(it.Messages, Message{
+			Author: "human",
+			Time:   it.AnsweredAt,
+			Text:   stored,
+		})
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+// StartThread stores a human compose addressed to owner.
+// pane is the owner's notify pane. text is the first message and the question.
+func (l *Ledger) StartThread(owner, pane, text string) (Item, error) {
+	if strings.TrimSpace(owner) == "" {
+		return Item{}, fmt.Errorf("decide owner is empty")
+	}
+	if strings.TrimSpace(text) == "" {
+		return Item{}, fmt.Errorf("decide text is empty")
+	}
+	now := l.clock().UTC()
+	return l.Create(&Item{
+		Question:   text,
+		Owner:      owner,
+		Kind:       KindRelay,
+		NotifyPane: pane,
+		CreatedAt:  now,
+		Messages: []Message{{
+			Author: "human",
+			Time:   now,
+			Text:   text,
+		}},
+	})
+}
+
+// Compose appends a human message on id.
+// An answered or done thread still takes the message. A withdrawn thread is refused.
+// text is stored unchanged.
+func (l *Ledger) Compose(id, text string) (Item, error) {
+	if strings.TrimSpace(text) == "" {
+		return Item{}, fmt.Errorf("decide text is empty")
+	}
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if it.State == StateWithdrawn {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		ensureMessages(it)
+		it.Messages = append(it.Messages, Message{
+			Author: "human",
+			Time:   l.clock().UTC(),
+			Text:   text,
+		})
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+// Reply appends an agent message. The author is the thread owner.
+// No options leaves a notification: the thread is open, unread, and has no
+// pending options. Options return it to the inbox as needing an answer.
+// freeText is stored only when options are present. text is stored unchanged.
+// An answered or done thread returns to the inbox. A withdrawn thread is refused.
+func (l *Ledger) Reply(id, text string, options []Option, freeText bool) (Item, error) {
+	if strings.TrimSpace(text) == "" {
+		return Item{}, fmt.Errorf("decide text is empty")
+	}
+	if err := oneRecommended(options); err != nil {
+		return Item{}, err
+	}
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		if it.State == StateWithdrawn {
+			return fmt.Errorf("decide item %s is %s", id, it.State)
+		}
+		ensureMessages(it)
+		msg := Message{
+			Author: it.Owner,
+			Time:   l.clock().UTC(),
+			Text:   text,
+		}
+		if len(options) > 0 {
+			msg.Options = append([]Option(nil), options...)
+			it.Options = append([]Option(nil), options...)
+			it.FreeText = freeText
+		} else {
+			it.Options = nil
+		}
+		it.Messages = append(it.Messages, msg)
+		it.State = StateOpen
+		it.Unread = true
 		updated = *it
 		return nil
 	})
@@ -302,6 +420,12 @@ func (l *Ledger) locked(write bool, fn func(*store) error) (err error) {
 	st, err := load(filepath.Join(l.dir, ledgerName))
 	if err != nil {
 		return err
+	}
+	migrated := migrateStore(st)
+	if migrated {
+		if err = save(l.dir, st); err != nil {
+			return err
+		}
 	}
 	if err = fn(st); err != nil {
 		return err
@@ -495,8 +619,20 @@ func validate(item *Item) error {
 	default:
 		return fmt.Errorf("decide state %q is invalid", item.State)
 	}
+	if err := oneRecommended(item.Options); err != nil {
+		return err
+	}
+	for i := range item.Messages {
+		if err := oneRecommended(item.Messages[i].Options); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func oneRecommended(opts []Option) error {
 	recommended := 0
-	for _, opt := range item.Options {
+	for _, opt := range opts {
 		if opt.Recommended {
 			recommended++
 		}
@@ -523,6 +659,14 @@ func cloneItem(src *Item) Item {
 		a := *src.Answer
 		item.Answer = &a
 	}
+	if src.Messages != nil {
+		item.Messages = append([]Message(nil), src.Messages...)
+		for i := range item.Messages {
+			if src.Messages[i].Options != nil {
+				item.Messages[i].Options = append([]Option(nil), src.Messages[i].Options...)
+			}
+		}
+	}
 	return item
 }
 
@@ -535,4 +679,50 @@ func normalizeTimes(item *Item) {
 		t := item.Deadline.UTC()
 		item.Deadline = &t
 	}
+	for i := range item.Messages {
+		item.Messages[i].Time = item.Messages[i].Time.UTC()
+	}
+}
+
+// ensureMessages fills a thread from the stored ask and answer.
+// A thread that already has messages is left as stored.
+func ensureMessages(it *Item) {
+	if len(it.Messages) > 0 {
+		return
+	}
+	msg := Message{
+		Author: it.Owner,
+		Time:   it.CreatedAt.UTC(),
+		Text:   it.Question,
+	}
+	if len(it.Options) > 0 {
+		msg.Options = append([]Option(nil), it.Options...)
+	}
+	it.Messages = []Message{msg}
+	if it.Answer == nil {
+		return
+	}
+	author := it.Answer.AnsweredBy
+	if author == "" {
+		author = "human"
+	}
+	it.Messages = append(it.Messages, Message{
+		Author: author,
+		Time:   it.AnsweredAt.UTC(),
+		Text:   it.Answer.Value,
+	})
+}
+
+// migrateStore gives every item without messages a thread.
+// It reports whether the ledger changed.
+func migrateStore(st *store) bool {
+	changed := false
+	for i := range st.Items {
+		if len(st.Items[i].Messages) > 0 {
+			continue
+		}
+		ensureMessages(&st.Items[i])
+		changed = true
+	}
+	return changed
 }

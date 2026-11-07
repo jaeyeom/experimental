@@ -1022,6 +1022,17 @@ func TestComposeEnterSendsSeparateArguments(t *testing.T) {
 	if rec.Target != "inbox" || rec.Pane != "pane-1" || rec.Text != text {
 		t.Fatalf("record = %+v", rec)
 	}
+	led, err := decide.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := led.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(items[0].Messages) != 1 || items[0].Messages[0].Author != "human" || items[0].Messages[0].Text != text || items[0].Owner != "inbox" || items[0].NotifyPane != "pane-1" {
+		t.Fatalf("thread = %+v", items)
+	}
 }
 
 func TestComposeFailureKeepsText(t *testing.T) {

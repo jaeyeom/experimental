@@ -772,6 +772,187 @@ func TestSendKeepsTheNoteAsOneArgument(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(state, "decide", decide.SendsName)); err != nil {
 		t.Fatal(err)
 	}
+	started := showThreads(t)
+	if len(started) != 1 || len(started[0].Messages) != 1 || started[0].Messages[0].Author != "human" || started[0].Messages[0].Text != note || started[0].Owner != "alpha" {
+		t.Fatalf("thread = %+v", started)
+	}
+}
+
+func TestDraftReplyReturnsToInbox(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	id := askDraft(t)
+	if code := answer(t, id, "draft"); code != 0 {
+		t.Fatalf("answer code = %d", code)
+	}
+	openList, _, code := runCLI("list")
+	if code != 0 || strings.Contains(openList, id) {
+		t.Fatalf("answered item stayed in the inbox\n%s", openList)
+	}
+	const draft = "Hello \"there\"\nplease send this draft"
+	stdout, stderr, code := runCLI(
+		"reply", id,
+		"--option", "send:send",
+		"--option", "edit:edit",
+		"--option", "don't send:don't send",
+		"--rec", "send",
+		draft,
+	)
+	if code != 0 {
+		t.Fatalf("reply code = %d\n%s\n%s", code, stderr, stdout)
+	}
+	got := showJSON(t, id)
+	if got.State != decide.StateOpen || !got.Unread {
+		t.Fatalf("state %s unread %v", got.State, got.Unread)
+	}
+	if got.Question != "what should I send?" || got.Answer == nil || got.Answer.Value != "draft" || got.NotifyPane != "pane-9" {
+		t.Fatalf("ask was dropped: %+v", got)
+	}
+	if !optionKeys(got.Options, "send", "edit", "don't send") || !recommendedKey(got.Options, "send") {
+		t.Fatalf("options = %+v", got.Options)
+	}
+	if !hasMessage(got.Messages, "ada", "what should I send?") || !hasMessage(got.Messages, "human", "draft") || !hasMessage(got.Messages, "ada", draft) {
+		t.Fatalf("messages = %+v", got.Messages)
+	}
+	inbox, _, code := runCLI("list")
+	if code != 0 || !strings.Contains(inbox, id) {
+		t.Fatalf("thread did not return to the inbox\n%s", inbox)
+	}
+	if code := answer(t, id, "send"); code != 0 {
+		t.Fatalf("answer send code = %d", code)
+	}
+	sent := showJSON(t, id)
+	if sent.State != decide.StateAnswered || sent.Answer == nil || sent.Answer.Value != "send" || sent.Answer.AnsweredBy != "human" {
+		t.Fatalf("send = %+v", sent.Answer)
+	}
+	last := sent.Messages[len(sent.Messages)-1]
+	if last.Author != "human" || last.Text != "send" {
+		t.Fatalf("send message = %+v", last)
+	}
+
+	id2 := askDraft(t)
+	if code := answer(t, id2, "draft"); code != 0 {
+		t.Fatal(code)
+	}
+	if _, stderr, code := runCLI(
+		"reply", id2,
+		"--option", "send:send",
+		"--option", "edit:edit",
+		"--option", "don't send:don't send",
+		"--rec", "send",
+		draft,
+	); code != 0 {
+		t.Fatalf("reply code = %d\n%s", code, stderr)
+	}
+	bin := filepath.Join(state, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(state, "argv.log")
+	script := "#!/bin/sh\nfor arg in \"$@\"; do printf '%s' \"$arg\" >> '" + logPath + "'; printf '\\0' >> '" + logPath + "'; done\n"
+	if err := os.WriteFile(filepath.Join(bin, "sentinel"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	cfgDir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"sendTemplate\":\"sentinel {pane}\"}\n")
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const edits = "shorten the first line"
+	if _, stderr, code := runCLI("send", "--id", id2, edits); code != 0 {
+		t.Fatalf("send --id code = %d\n%s", code, stderr)
+	}
+	edited := showJSON(t, id2)
+	if edited.State != decide.StateOpen || !optionKeys(edited.Options, "send", "edit", "don't send") {
+		t.Fatalf("edits changed the pending answer: state %s options %+v", edited.State, edited.Options)
+	}
+	editMsg := edited.Messages[len(edited.Messages)-1]
+	if editMsg.Author != "human" || editMsg.Text != edits {
+		t.Fatalf("edit message = %+v", editMsg)
+	}
+	if !hasMessage(edited.Messages, "ada", draft) {
+		t.Fatalf("draft was dropped: %+v", edited.Messages)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := bytes.Split(raw, []byte{0})
+	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) != 2 || string(parts[0]) != "pane-9" || string(parts[1]) != id2+"\n"+edits {
+		t.Fatalf("argv = %#v", parts)
+	}
+}
+
+func askDraft(t *testing.T) string {
+	t.Helper()
+	stdout, stderr, code := runCLI(
+		"ask", "--owner", "ada", "--kind", "relay",
+		"--option", "draft:draft a message for me",
+		"--option", "later:Later",
+		"--rec", "later",
+		"--notify-pane", "pane-9",
+		"what should I send?",
+	)
+	if code != 0 {
+		t.Fatalf("ask code = %d\n%s", code, stderr)
+	}
+	return strings.TrimSpace(stdout)
+}
+
+func showThreads(t *testing.T) []decide.Item {
+	t.Helper()
+	dir, err := decide.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	led, err := decide.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := led.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return items
+}
+
+func hasMessage(msgs []decide.Message, author, text string) bool {
+	for _, msg := range msgs {
+		if msg.Author == author && msg.Text == text {
+			return true
+		}
+	}
+	return false
+}
+
+func optionKeys(opts []decide.Option, keys ...string) bool {
+	if len(opts) != len(keys) {
+		return false
+	}
+	for i := range keys {
+		if opts[i].Key != keys[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func recommendedKey(opts []decide.Option, key string) bool {
+	for _, opt := range opts {
+		if opt.Key == key {
+			return opt.Recommended
+		}
+	}
+	return false
 }
 
 func TestTargetsJSONOmitsTemplates(t *testing.T) {
