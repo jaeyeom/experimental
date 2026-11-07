@@ -1878,6 +1878,8 @@ func (m *Model) detailLines(width int) []screenLine {
 	}
 	it := m.detail
 	lines := []screenLine{{text: plainText(it.ID)}}
+	lines = append(lines, headerLines(it)...)
+	lines = append(lines, screenLine{})
 	lines = append(lines, m.threadLines(it, width)...)
 	if it.Kind == decide.KindTypeIn {
 		lines = append(lines,
@@ -1898,6 +1900,66 @@ func (m *Model) detailLines(width int) []screenLine {
 		lines = append(lines, screenLine{text: plainText("outcome: " + body)})
 	}
 	return lines
+}
+
+// threadParties is the requester and, when the thread was addressed to
+// someone else, that recipient. A human compose stores the recipient as
+// the owner and the requester as the first message author.
+func threadParties(it *decide.Item) (from, to string) {
+	from = it.Owner
+	if len(it.Messages) == 0 {
+		return from, ""
+	}
+	author := it.Messages[0].Author
+	if author == "" || author == it.Owner {
+		return from, ""
+	}
+	return author, it.Owner
+}
+
+func headerTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// headerLines is the metadata block above the item body.
+// Labels share one column so the colons line up.
+func headerLines(it *decide.Item) []screenLine {
+	from, to := threadParties(it)
+	rows := []struct{ label, value string }{{"From", from}}
+	if to != "" {
+		rows = append(rows, struct{ label, value string }{"To", to})
+	}
+	rows = append(rows,
+		struct{ label, value string }{"Kind", it.Kind},
+		struct{ label, value string }{"State", it.State},
+		struct{ label, value string }{"Created", headerTime(it.CreatedAt)},
+		struct{ label, value string }{"Answered", headerTime(it.AnsweredAt)},
+	)
+	width := 0
+	for _, row := range rows {
+		if n := lipgloss.Width(row.label); n > width {
+			width = n
+		}
+	}
+	labelStyle := headerLabelStyle()
+	lines := make([]screenLine, 0, len(rows))
+	for _, row := range rows {
+		pad := width - lipgloss.Width(row.label)
+		if pad < 0 {
+			pad = 0
+		}
+		label := strings.Repeat(" ", pad) + row.label
+		text := labelStyle.Render(label+":") + " " + row.value
+		lines = append(lines, screenLine{text: text})
+	}
+	return lines
+}
+
+func headerLabelStyle() lipgloss.Style {
+	return paletteRenderer().NewStyle().Foreground(paletteMuted).Faint(true)
 }
 
 // threadLines shows each message oldest first. The text stays on its own
@@ -2158,17 +2220,40 @@ const (
 	paletteRequester lipgloss.ANSIColor = 6
 	paletteTime      lipgloss.ANSIColor = 8
 	paletteBadge     lipgloss.ANSIColor = 3
+	paletteMuted     lipgloss.ANSIColor = 8
 )
 
-// inboxStyles colors the requester, the time, and the kind or state badge.
-// A set NO_COLOR drops those colors and leaves the column text in place.
-func inboxStyles() [5]lipgloss.Style {
+var (
+	paletteMu       sync.Mutex
+	paletteCached   *lipgloss.Renderer
+	paletteNoColor  string
+	paletteCacheSet bool
+)
+
+// paletteRenderer uses the terminal ANSI palette, or no color when NO_COLOR is set.
+func paletteRenderer() *lipgloss.Renderer {
+	noColor := os.Getenv("NO_COLOR")
+	paletteMu.Lock()
+	defer paletteMu.Unlock()
+	if paletteCacheSet && paletteNoColor == noColor {
+		return paletteCached
+	}
 	r := lipgloss.NewRenderer(io.Discard)
-	if os.Getenv("NO_COLOR") != "" {
+	if noColor != "" {
 		r.SetColorProfile(termenv.Ascii)
 	} else {
 		r.SetColorProfile(termenv.ANSI)
 	}
+	paletteCached = r
+	paletteNoColor = noColor
+	paletteCacheSet = true
+	return r
+}
+
+// inboxStyles colors the requester, the time, and the kind or state badge.
+// A set NO_COLOR drops those colors and leaves the column text in place.
+func inboxStyles() [5]lipgloss.Style {
+	r := paletteRenderer()
 	plain := r.NewStyle()
 	return [5]lipgloss.Style{
 		plain,
