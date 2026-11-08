@@ -37,6 +37,16 @@
   "Face for the kind or state badge in the decide list."
   :group 'decide)
 
+(defface decide-human
+  '((t :inherit font-lock-function-name-face))
+  "Face for a human author in a thread message."
+  :group 'decide)
+
+(defface decide-agent
+  '((t :inherit font-lock-variable-name-face))
+  "Face for an agent author in a thread message."
+  :group 'decide)
+
 (defcustom decide-program "decide"
   "Name or path of the decide executable."
   :type 'string
@@ -256,21 +266,58 @@ The requester, relative time, and kind or state badge use their faces."
       (setq-local header-line-format (decide--item-keys-line item))
       (decide--display (current-buffer)))))
 
+(defun decide--option-badges (msg)
+  "Option keys of MSG, or an empty string."
+  (mapconcat (lambda (opt) (decide--field opt "key"))
+             (alist-get "options" msg nil nil #'equal)
+             " "))
+
+(defun decide--message-header (msg latest)
+  "One header line for MSG.  LATEST marks the newest message.
+The author uses `decide-human' or `decide-agent', and the time uses
+`decide-time'."
+  (let* ((author (decide--field msg "author"))
+         (face (if (equal author "human") 'decide-human 'decide-agent))
+         (age (decide--list-age (decide--field msg "time")))
+         (badges (decide--option-badges msg))
+         (parts nil))
+    (unless (string-empty-p author)
+      (setq parts (append parts (list (propertize author 'face face)))))
+    (unless (string-empty-p age)
+      (setq parts (append parts (list (propertize age 'face 'decide-time)))))
+    (unless (string-empty-p badges)
+      (setq parts (append parts
+                          (list (propertize badges 'face 'decide-badge)))))
+    (when latest
+      (setq parts (append parts (list "latest"))))
+    (mapconcat #'identity parts "  ")))
+
+(defun decide--indent-body (text)
+  "Indent each line of TEXT under a message header."
+  (mapconcat (lambda (line) (concat "  " line))
+             (split-string (or text "") "\n")
+             "\n"))
+
 (defun decide--thread-text (item)
   "Thread text of ITEM, oldest first.
-An item with no messages shows its question."
+Each message is a block: a header, then an indented body.  A horizontal
+rule separates one message from the next.  An item with no messages shows
+its question."
   (let ((messages (alist-get "messages" item nil nil #'equal)))
     (if (null messages)
         (decide--field item "question")
-      (mapconcat
-       (lambda (msg)
-         (let ((author (decide--field msg "author"))
-               (text (decide--field msg "text")))
-           (if (string-empty-p author)
-               text
-             (concat author "\n" text))))
-       messages
-       "\n\n"))))
+      (let ((last (1- (length messages)))
+            (i 0)
+            (parts nil))
+        (dolist (msg messages)
+          (when (> i 0)
+            (setq parts (append parts (list "────────"))))
+          (setq parts (append parts
+                              (list (decide--message-header msg (= i last))
+                                    (decide--indent-body
+                                     (decide--field msg "text")))))
+          (setq i (1+ i)))
+        (mapconcat #'identity parts "\n")))))
 
 (defun decide--thread-parties (item)
   "Requester of ITEM and, when the thread was addressed elsewhere, that recipient.

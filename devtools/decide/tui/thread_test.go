@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
@@ -196,6 +197,105 @@ func seedTUIThread(t *testing.T, dir string) (string, []decide.Message) {
 		t.Fatalf("seed = %+v", got.Messages)
 	}
 	return got.ID, append([]decide.Message(nil), got.Messages...)
+}
+
+func TestThreadMessagesAreBlocks(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("NO_COLOR", "")
+
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	long := strings.Repeat("word ", 30)
+	mustCreate(t, led, &decide.Item{
+		Question: "root ask",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		Messages: []decide.Message{
+			{Author: "ada", Time: now.Add(-10 * 24 * time.Hour), Text: "root ask"},
+			{
+				Author: "human",
+				Time:   now.Add(-2 * time.Hour),
+				Text:   long,
+				Options: []decide.Option{
+					{Key: "keep", Label: "Keep"},
+					{Key: "drop", Label: "Drop"},
+				},
+			},
+			{Author: "ada", Time: now.Add(-3 * time.Minute), Text: "newest note"},
+		},
+	})
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	m.width = 40
+	m.height = 24
+	press(t, m, "o")
+	view := m.View()
+	assertFrame(t, view, 40, 24)
+	vis := visibleLine(view)
+	if strings.Count(vis, "────") < 2 {
+		t.Fatalf("rules = %d\n%s", strings.Count(vis, "────"), view)
+	}
+	for _, needle := range []string{"ada  10d", "human  2h  keep drop", "ada  3m  latest", "  root ask", "  newest note"} {
+		if !strings.Contains(vis, needle) {
+			t.Fatalf("missing %q\n%s", needle, vis)
+		}
+	}
+	if strings.Count(vis, "latest") != 1 {
+		t.Fatalf("latest count\n%s", vis)
+	}
+	middle := visibleLine(lineContaining(view, "human"))
+	if !strings.Contains(middle, "keep") || !strings.Contains(middle, "2h") {
+		t.Fatalf("middle header %q", middle)
+	}
+	if strings.Contains(visibleLine(lineContaining(view, "10d")), "latest") {
+		t.Fatalf("oldest marked latest\n%s", vis)
+	}
+	humanColor := authorSGR(view, "2h", "human")
+	agentColor := authorSGR(view, "10d", "ada")
+	if humanColor == "" || agentColor == "" || humanColor == agentColor {
+		t.Fatalf("author colors human %q agent %q", humanColor, agentColor)
+	}
+
+	t.Setenv("NO_COLOR", "1")
+	plain := m.View()
+	assertFrame(t, plain, 40, 24)
+	if hasColorSequence(plain) {
+		t.Fatalf("NO_COLOR view has color\n%s", plain)
+	}
+	plainVis := visibleLine(plain)
+	for _, needle := range []string{"ada  10d", "human  2h  keep drop", "latest", "────", "  root ask"} {
+		if !strings.Contains(plainVis, needle) {
+			t.Fatalf("NO_COLOR missing %q\n%s", needle, plainVis)
+		}
+	}
+}
+
+// authorSGR is the color sequence applied to author on the line that shows marker.
+func authorSGR(view, marker, author string) string {
+	for _, line := range strings.Split(view, "\n") {
+		if !strings.Contains(visibleLine(line), marker) {
+			continue
+		}
+		i := strings.Index(line, author)
+		if i < 0 {
+			return ""
+		}
+		start := strings.LastIndex(line[:i], "\x1b[")
+		if start < 0 {
+			return ""
+		}
+		end := strings.Index(line[start:], "m")
+		if end < 0 {
+			return ""
+		}
+		return line[start : start+end+1]
+	}
+	return ""
 }
 
 func assertTUIAppended(t *testing.T, dir, id string, before []decide.Message, author, text string) {
