@@ -89,7 +89,7 @@ const baseRefusalDoc = "A pull request whose base is not the repository's defaul
 const baseRefusalFormat = "base is %s, not %s; retarget to %s first"
 
 func queueCommandHelp() string {
-	return "Enqueue one pull request (owner/repo#n, a URL, or a bare number) on the merge queue; refuses a draft. " + baseRefusalDoc
+	return "Enqueue one pull request (owner/repo#n, a URL, or a bare number) on the merge queue; refuses a draft. " + baseRefusalDoc + " --when-green waits only for pending required checks (timeout defaults to 2h)."
 }
 
 func watchCommandHelp() string {
@@ -97,8 +97,24 @@ func watchCommandHelp() string {
 }
 
 func timeoutHelp() string {
-	return "How long watch waits before it reports timeout (Go duration, default 30m)"
+	return "How long watch waits, and how long queue --when-green waits when set (Go duration). Watch defaults to 30m. queue --when-green defaults to 2h"
 }
+
+func whenGreenHelp() string {
+	return "Wait for pending required checks on the current head, then enqueue (timeout defaults to 2h)"
+}
+
+const (
+	defaultWhenGreenTimeout = 2 * time.Hour
+	whenGreenInitialDelay   = 15 * time.Second
+	whenGreenMaxDelay       = time.Minute
+)
+
+var (
+	whenGreenTimeout = defaultWhenGreenTimeout
+	whenGreenNow     = time.Now
+	whenGreenSleep   = time.Sleep
+)
 
 func queueUsage() string {
 	return "queue <owner/repo#n|url|number>"
@@ -109,35 +125,50 @@ func watchUsage() string {
 }
 
 func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDownstack bool) error {
-	resolved, err := resolvePullRef(ref)
+	pr, cfg, above, baseProblem, err := prepareQueue(client, cfg, ref)
 	if err != nil {
-		return err
-	}
-	pr, err := client.LoadPullRequest(resolved)
-	if err != nil {
-		return fmt.Errorf("load pull request %s: %w", resolved, err)
-	}
-	cfg = cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo)
-	aboveNumbers, baseProblem, err := reportStackedAbove(client, pr)
-	if err != nil {
-		return err
-	}
-	if !jsonOutput {
-		fmt.Println(stackedAboveLine(aboveNumbers))
-	}
-	if err := printRemovalEvidence(client, cfg, pr); err != nil {
 		return err
 	}
 	problems := queueProblems(pr, cfg, baseProblem)
+	if whenGreen && pendingOnly(pr.Checks, cfg.Settings.RequiredChecks, problems) {
+		return waitForPendingChecks(client, pr, cfg, above, problems, includeDownstack)
+	}
+	return finishQueue(client, pr, cfg, above, problems, includeDownstack)
+}
+
+func prepareQueue(client queueAPI, cfg *config.Config, ref string) (github.QueuePullRequest, *config.Config, []int, string, error) {
+	resolved, err := resolvePullRef(ref)
+	if err != nil {
+		return github.QueuePullRequest{}, nil, nil, "", err
+	}
+	pr, err := client.LoadPullRequest(resolved)
+	if err != nil {
+		return github.QueuePullRequest{}, nil, nil, "", fmt.Errorf("load pull request %s: %w", resolved, err)
+	}
+	cfg = cfg.ForRepository(pr.Ref.Owner, pr.Ref.Repo)
+	above, baseProblem, err := reportStackedAbove(client, pr)
+	if err != nil {
+		return github.QueuePullRequest{}, nil, nil, "", err
+	}
+	if !jsonOutput {
+		fmt.Println(stackedAboveLine(above))
+	}
+	if err := printRemovalEvidence(client, cfg, pr); err != nil {
+		return github.QueuePullRequest{}, nil, nil, "", err
+	}
+	return pr, cfg, above, baseProblem, nil
+}
+
+func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
 	if len(problems) > 0 {
-		return refuseWithProblems(pr, cfg, aboveNumbers, problems)
+		return refuseWithProblems(pr, cfg, above, problems)
 	}
 	if err := refuseRCA(pr, cfg.Settings); err != nil {
 		return err
 	}
 	lines := readyLines(pr, cfg.Settings)
 	if dryRun {
-		return writeQueueResult(pr, cfg, lines, aboveNumbers, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
+		return writeQueueResult(pr, cfg, lines, above, "would-enqueue", fmt.Sprintf("Would enqueue %s.\n", pr.Ref.Raw))
 	}
 	kind, err := enqueuePR(client, pr, includeDownstack)
 	if err != nil {
@@ -147,7 +178,127 @@ func queuePullRequest(client queueAPI, cfg *config.Config, ref string, includeDo
 	if kind == enqueueAsync {
 		text = fmt.Sprintf("Enqueued %s with merge-async.\n", pr.Ref.Raw)
 	}
-	return writeQueueResult(pr, cfg, lines, aboveNumbers, "enqueued", text)
+	return writeQueueResult(pr, cfg, lines, above, "enqueued", text)
+}
+
+func waitForPendingChecks(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
+	if err := refuseRCA(pr, cfg.Settings); err != nil {
+		return err
+	}
+	if dryRun {
+		return writeQueueResult(pr, cfg, problems, above, "would-wait", fmt.Sprintf("Would wait for %s.\n", pr.Ref.Raw))
+	}
+	return pollUntilGreen(client, pr, cfg, above, includeDownstack)
+}
+
+const (
+	waitPoll = iota
+	waitEnqueue
+	waitAbort
+)
+
+func pollUntilGreen(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, includeDownstack bool) error {
+	head := pr.HeadSHA
+	deadline := whenGreenNow().Add(queueWaitTimeout())
+	delay := whenGreenInitialDelay
+	for {
+		if err := sleepUntilPoll(deadline, delay); err != nil {
+			return abortQueue(pr, cfg, above, "timeout")
+		}
+		delay = nextWhenGreenDelay(delay)
+		next, err := client.LoadPullRequest(pr.Ref.Raw)
+		if err != nil {
+			if wait, ok := watchTransientWait(err, delay); ok {
+				delay = wait
+				continue
+			}
+			return fmt.Errorf("load pull request %s: %w", pr.Ref.Raw, err)
+		}
+		action, reason, freshAbove, err := classifyReload(client, cfg, next, head)
+		if err != nil {
+			return err
+		}
+		if freshAbove != nil {
+			above = freshAbove
+		}
+		switch action {
+		case waitEnqueue:
+			return finishQueue(client, next, cfg, above, nil, includeDownstack)
+		case waitAbort:
+			return abortQueue(next, cfg, above, reason)
+		}
+		pr = next
+	}
+}
+
+func queueWaitTimeout() time.Duration {
+	return whenGreenTimeout
+}
+
+func sleepUntilPoll(deadline time.Time, delay time.Duration) error {
+	now := whenGreenNow()
+	if !now.Before(deadline) {
+		return errQueueWaitTimeout
+	}
+	if delay <= 0 {
+		delay = whenGreenInitialDelay
+	}
+	if remaining := deadline.Sub(now); delay > remaining {
+		delay = remaining
+	}
+	whenGreenSleep(delay)
+	if !whenGreenNow().Before(deadline) {
+		return errQueueWaitTimeout
+	}
+	return nil
+}
+
+var errQueueWaitTimeout = errors.New("timeout")
+
+func nextWhenGreenDelay(current time.Duration) time.Duration {
+	if current <= 0 {
+		return whenGreenInitialDelay
+	}
+	next := current * 2
+	if next > whenGreenMaxDelay {
+		return whenGreenMaxDelay
+	}
+	return next
+}
+
+func classifyReload(client queueAPI, cfg *config.Config, pr github.QueuePullRequest, head string) (int, string, []int, error) {
+	if reason, failed := failedRequiredReason(pr.Checks, cfg.Settings.RequiredChecks); failed {
+		return waitAbort, reason, nil, nil
+	}
+	if pr.HeadSHA != head {
+		return waitAbort, "head SHA changed", nil, nil
+	}
+	if pr.ReviewDecision != "APPROVED" {
+		return waitAbort, "pull request is not approved", nil, nil
+	}
+	if pr.UnresolvedThreads > 0 {
+		return waitAbort, "unresolved review thread", nil, nil
+	}
+	above, baseProblem, err := reportStackedAbove(client, pr)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	problems := queueProblems(pr, cfg, baseProblem)
+	if len(problems) == 0 {
+		return waitEnqueue, "", above, nil
+	}
+	if pendingOnly(pr.Checks, cfg.Settings.RequiredChecks, problems) {
+		return waitPoll, "", above, nil
+	}
+	return waitAbort, strings.Join(problems, "; "), above, nil
+}
+
+func abortQueue(pr github.QueuePullRequest, cfg *config.Config, above []int, reason string) error {
+	text := fmt.Sprintf("Not enqueueing %s: %s\n", pr.Ref.Raw, reason)
+	if err := writeQueueResult(pr, cfg, []string{reason}, above, reason, text); err != nil {
+		return err
+	}
+	return fmt.Errorf("not enqueueing %s: %s", pr.Ref.Raw, reason)
 }
 
 func stackNumbers(prs []github.StackPR) []int {
@@ -502,10 +653,7 @@ func requiredCheckProblems(checks []github.QueueCheck, required []string) []stri
 	if len(required) == 0 {
 		return nil
 	}
-	byName := make(map[string]github.QueueCheck, len(checks))
-	for _, check := range checks {
-		byName[check.Name] = check
-	}
+	byName := checksByName(checks)
 	var problems []string
 	for _, name := range required {
 		check, ok := byName[name]
@@ -516,13 +664,86 @@ func requiredCheckProblems(checks []github.QueueCheck, required []string) []stri
 		if check.Green {
 			continue
 		}
-		detail := check.Conclusion
-		if detail == "" {
-			detail = "not green"
-		}
-		problems = append(problems, fmt.Sprintf("required check %q is not green (%s)", name, detail))
+		problems = append(problems, requiredCheckProblem(name, check.Conclusion))
 	}
 	return problems
+}
+
+func checksByName(checks []github.QueueCheck) map[string]github.QueueCheck {
+	byName := make(map[string]github.QueueCheck, len(checks))
+	for _, check := range checks {
+		byName[check.Name] = check
+	}
+	return byName
+}
+
+func requiredCheckProblem(name, conclusion string) string {
+	detail := conclusion
+	if detail == "" {
+		detail = "not green"
+	}
+	return fmt.Sprintf("required check %q is not green (%s)", name, detail)
+}
+
+// checkConclusionKind classifies a required check conclusion.
+// Success is SUCCESS. Failure is FAILURE, CANCELLED, TIMED_OUT, or ACTION_REQUIRED.
+// Every other conclusion, including an empty one, is pending.
+func checkConclusionKind(conclusion string) string {
+	switch strings.ToUpper(strings.TrimSpace(conclusion)) {
+	case "SUCCESS":
+		return "success"
+	case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED":
+		return "failure"
+	default:
+		return "pending"
+	}
+}
+
+func pendingOnly(checks []github.QueueCheck, required, problems []string) bool {
+	if len(problems) == 0 || len(required) == 0 {
+		return false
+	}
+	byName := checksByName(checks)
+	pending := make(map[string]struct{}, len(required))
+	for _, name := range required {
+		check, ok := byName[name]
+		if !ok {
+			return false
+		}
+		switch checkConclusionKind(check.Conclusion) {
+		case "success":
+			continue
+		case "failure":
+			return false
+		default:
+			pending[requiredCheckProblem(name, check.Conclusion)] = struct{}{}
+		}
+	}
+	if len(pending) == 0 {
+		return false
+	}
+	for _, problem := range problems {
+		if _, ok := pending[problem]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func failedRequiredReason(checks []github.QueueCheck, required []string) (string, bool) {
+	byName := checksByName(checks)
+	var reasons []string
+	for _, name := range required {
+		check, ok := byName[name]
+		if !ok || checkConclusionKind(check.Conclusion) != "failure" {
+			continue
+		}
+		reasons = append(reasons, fmt.Sprintf("required check %q failed (%s)", name, check.Conclusion))
+	}
+	if len(reasons) == 0 {
+		return "", false
+	}
+	return strings.Join(reasons, "; "), true
 }
 
 func refuseRCA(pr github.QueuePullRequest, settings config.SettingsConfig) error {

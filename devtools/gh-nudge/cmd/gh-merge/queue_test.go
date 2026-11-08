@@ -45,11 +45,15 @@ type fakeQueue struct {
 	mergedAsync  []string
 	loads        int
 	snapshots    []github.QueuePullRequest
+	loadErrs     []error
 }
 
 func (f *fakeQueue) LoadPullRequest(ref string) (github.QueuePullRequest, error) {
 	f.loads++
 	f.loadedRefs = append(f.loadedRefs, ref)
+	if index := f.loads - 1; index < len(f.loadErrs) && f.loadErrs[index] != nil {
+		return github.QueuePullRequest{}, f.loadErrs[index]
+	}
 	if f.loadErr != nil {
 		return github.QueuePullRequest{}, f.loadErr
 	}
@@ -3664,5 +3668,417 @@ func TestRCAJSONUsesRepoMarker(t *testing.T) {
 	err := postRCA(&fakeQueue{pr: pr}, cfg, []string{"acme/widgets#12", "--class", "flake", "--file", path})
 	if err == nil || err.Error() != "rca_marker is empty" {
 		t.Fatalf("postRCA() error = %v", err)
+	}
+}
+
+func pendingWidgets() github.QueuePullRequest {
+	pr := readyPR()
+	pr.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: ""}}
+	return pr
+}
+
+func withWhenGreenWait(t *testing.T, timeout time.Duration) *[]time.Duration {
+	t.Helper()
+	prevFlag := whenGreen
+	prevTimeout := whenGreenTimeout
+	prevNow := whenGreenNow
+	prevSleep := whenGreenSleep
+	whenGreen = true
+	whenGreenTimeout = timeout
+	var slept []time.Duration
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	whenGreenNow = func() time.Time { return now }
+	whenGreenSleep = func(d time.Duration) {
+		slept = append(slept, d)
+		now = now.Add(d)
+	}
+	t.Cleanup(func() {
+		whenGreen = prevFlag
+		whenGreenTimeout = prevTimeout
+		whenGreenNow = prevNow
+		whenGreenSleep = prevSleep
+	})
+	return &slept
+}
+
+func TestWhenGreenTimeoutDefaultsToTwoHours(t *testing.T) {
+	if defaultWhenGreenTimeout != 2*time.Hour {
+		t.Fatalf("defaultWhenGreenTimeout = %s", defaultWhenGreenTimeout)
+	}
+	if !strings.Contains(whenGreenHelp(), "2h") || !strings.Contains(queueCommandHelp(), "--when-green") {
+		t.Fatalf("help = %q / %q", whenGreenHelp(), queueCommandHelp())
+	}
+	if !strings.Contains(timeoutHelp(), "2h") || !strings.Contains(timeoutHelp(), "30m") {
+		t.Fatalf("timeout help = %q", timeoutHelp())
+	}
+}
+
+func TestCheckConclusionKind(t *testing.T) {
+	pending := []string{"", "PENDING", "EXPECTED", "QUEUED", "IN_PROGRESS", "WAITING", "NEUTRAL", "SKIPPED"}
+	for _, conclusion := range pending {
+		if got := checkConclusionKind(conclusion); got != "pending" {
+			t.Errorf("checkConclusionKind(%q) = %s, want pending", conclusion, got)
+		}
+	}
+	for _, conclusion := range []string{"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "failure"} {
+		if got := checkConclusionKind(conclusion); got != "failure" {
+			t.Errorf("checkConclusionKind(%q) = %s, want failure", conclusion, got)
+		}
+	}
+	if got := checkConclusionKind("success"); got != "success" {
+		t.Fatalf("checkConclusionKind(success) = %s", got)
+	}
+}
+
+func TestNextWhenGreenDelayBacksOff(t *testing.T) {
+	delay := whenGreenInitialDelay
+	var got []time.Duration
+	for range 4 {
+		got = append(got, delay)
+		delay = nextWhenGreenDelay(delay)
+	}
+	want := []time.Duration{15 * time.Second, 30 * time.Second, time.Minute, time.Minute}
+	if len(got) != len(want) {
+		t.Fatalf("delays = %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("delays = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestQueueWhenGreenEnqueuesOnceChecksPass(t *testing.T) {
+	slept := withWhenGreenWait(t, time.Hour)
+	first := pendingWidgets()
+	second := first
+	second.Checks = []github.QueueCheck{{Name: "ci", Green: true, Conclusion: "SUCCESS"}}
+	client := &fakeQueue{snapshots: []github.QueuePullRequest{first, second}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), first.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if client.enqueueCalls != 1 || len(client.enqueued) != 1 || client.enqueued[0] != first.NodeID {
+		t.Fatalf("enqueued = %v calls = %d", client.enqueued, client.enqueueCalls)
+	}
+	if client.loads != 2 {
+		t.Fatalf("loads = %d, want 2", client.loads)
+	}
+	if !strings.Contains(output, "Enqueued acme/widgets#12.") {
+		t.Fatalf("output = %s", output)
+	}
+	if len(*slept) != 1 || (*slept)[0] != whenGreenInitialDelay {
+		t.Fatalf("sleeps = %v", *slept)
+	}
+}
+
+func TestQueueWhenGreenAbortsWithoutEnqueue(t *testing.T) {
+	first := pendingWidgets()
+	tests := []struct {
+		name   string
+		mutate func(*github.QueuePullRequest)
+		want   string
+	}{
+		{
+			name: "failure",
+			mutate: func(pr *github.QueuePullRequest) {
+				pr.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: "FAILURE"}}
+			},
+			want: `required check "ci" failed (FAILURE)`,
+		},
+		{
+			name: "head SHA",
+			mutate: func(pr *github.QueuePullRequest) {
+				pr.HeadSHA = "def456"
+			},
+			want: "head SHA changed",
+		},
+		{
+			name: "approval",
+			mutate: func(pr *github.QueuePullRequest) {
+				pr.ReviewDecision = "CHANGES_REQUESTED"
+			},
+			want: "pull request is not approved",
+		},
+		{
+			name: "unresolved thread",
+			mutate: func(pr *github.QueuePullRequest) {
+				pr.UnresolvedThreads = 1
+			},
+			want: "unresolved review thread",
+		},
+		{
+			name: "draft appears",
+			mutate: func(pr *github.QueuePullRequest) {
+				pr.Draft = true
+			},
+			want: "pull request is a draft",
+		},
+		{
+			name: "missing check",
+			mutate: func(pr *github.QueuePullRequest) {
+				pr.Checks = nil
+			},
+			want: `required check "ci" is missing`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			withWhenGreenWait(t, time.Hour)
+			second := first
+			tc.mutate(&second)
+			client := &fakeQueue{snapshots: []github.QueuePullRequest{first, second}}
+			var err error
+			output := captureStdout(t, func() {
+				err = queuePullRequest(client, queueConfig(), first.Ref.Raw, false)
+			})
+			if err == nil {
+				t.Fatal("queuePullRequest() error = nil, want abort")
+			}
+			if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+				t.Fatalf("enqueued = %v async = %v", client.enqueued, client.mergedAsync)
+			}
+			if !strings.Contains(output, tc.want) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("output = %s\nerr = %v", output, err)
+			}
+		})
+	}
+}
+
+func TestQueueWhenGreenJSONReportsAbortReason(t *testing.T) {
+	withWhenGreenWait(t, time.Hour)
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = false })
+	first := pendingWidgets()
+	second := first
+	second.HeadSHA = "def456"
+	client := &fakeQueue{snapshots: []github.QueuePullRequest{first, second}}
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), first.Ref.Raw, false)
+		if err == nil || !strings.Contains(err.Error(), "head SHA changed") {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	var got queueJSONResult
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\n%s", err, output)
+	}
+	if got.Result != "head SHA changed" || got.PullRequest != "acme/widgets#12" {
+		t.Fatalf("result = %+v", got)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	}
+}
+
+func TestQueueWhenGreenDryRunDoesNotPoll(t *testing.T) {
+	slept := withWhenGreenWait(t, time.Hour)
+	withMergeFlags(t, true, false, false)
+	t.Run("would-wait", func(t *testing.T) {
+		client := &fakeQueue{pr: pendingWidgets()}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		if client.loads != 1 || len(*slept) != 0 || client.enqueueCalls != 0 {
+			t.Fatalf("loads = %d sleeps = %v enqueued = %v", client.loads, *slept, client.enqueued)
+		}
+		if !strings.Contains(output, "Would wait for acme/widgets#12.") {
+			t.Fatalf("output = %s", output)
+		}
+	})
+	t.Run("would-enqueue", func(t *testing.T) {
+		client := &fakeQueue{pr: readyPR()}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		if client.loads != 1 || client.enqueueCalls != 0 {
+			t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+		}
+		if !strings.Contains(output, "Would enqueue acme/widgets#12.") || strings.Contains(output, "Would wait") {
+			t.Fatalf("output = %s", output)
+		}
+	})
+	t.Run("json would-wait", func(t *testing.T) {
+		jsonOutput = true
+		t.Cleanup(func() { jsonOutput = false })
+		client := &fakeQueue{pr: pendingWidgets()}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		var got queueJSONResult
+		if err := json.Unmarshal([]byte(output), &got); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v\n%s", err, output)
+		}
+		if got.Result != "would-wait" {
+			t.Fatalf("result = %+v", got)
+		}
+		if client.loads != 1 || client.enqueueCalls != 0 {
+			t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+		}
+	})
+}
+
+func TestQueuePendingRefusesImmediatelyWithoutWhenGreen(t *testing.T) {
+	if whenGreen {
+		t.Fatal("whenGreen leaked from another test")
+	}
+	client := &fakeQueue{pr: pendingWidgets()}
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false)
+		if err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	if client.loads != 1 || client.enqueueCalls != 0 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+	if !strings.Contains(output, `required check "ci" is not green (not green)`) {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueWhenGreenRefusesOtherProblemsImmediately(t *testing.T) {
+	tests := []struct {
+		name string
+		pr   github.QueuePullRequest
+		want string
+	}{
+		{name: "draft", pr: func() github.QueuePullRequest {
+			pr := pendingWidgets()
+			pr.Draft = true
+			return pr
+		}(), want: "pull request is a draft"},
+		{name: "failure", pr: func() github.QueuePullRequest {
+			pr := readyPR()
+			pr.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: "FAILURE"}}
+			return pr
+		}(), want: `required check "ci" is not green (FAILURE)`},
+		{name: "missing", pr: func() github.QueuePullRequest {
+			pr := readyPR()
+			pr.Checks = nil
+			return pr
+		}(), want: `required check "ci" is missing`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			slept := withWhenGreenWait(t, time.Hour)
+			client := &fakeQueue{pr: tc.pr}
+			output := captureStdout(t, func() {
+				err := queuePullRequest(client, queueConfig(), tc.pr.Ref.Raw, false)
+				if err == nil {
+					t.Fatal("queuePullRequest() error = nil, want refusal")
+				}
+			})
+			if client.loads != 1 || len(*slept) != 0 || client.enqueueCalls != 0 {
+				t.Fatalf("loads = %d sleeps = %v enqueued = %v", client.loads, *slept, client.enqueued)
+			}
+			if !strings.Contains(output, tc.want) {
+				t.Fatalf("output = %s", output)
+			}
+		})
+	}
+}
+
+func TestQueueWhenGreenRefusesRCABeforeWaiting(t *testing.T) {
+	slept := withWhenGreenWait(t, time.Hour)
+	pr := pendingWidgets()
+	pr.Events = []github.QueueEvent{{
+		ID:        "EVT1",
+		Kind:      github.QueueEventRemoved,
+		CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		Reason:    "failed_checks",
+	}}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
+		if err == nil || !strings.Contains(err.Error(), "no RCA comment") {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if client.loads != 1 || len(*slept) != 0 || client.enqueueCalls != 0 {
+		t.Fatalf("loads = %d sleeps = %v enqueued = %v", client.loads, *slept, client.enqueued)
+	}
+	if strings.Contains(output, "Would wait") || strings.Contains(output, "Enqueued") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueWhenGreenRetriesTransientLoad(t *testing.T) {
+	withWhenGreenWait(t, time.Hour)
+	first := pendingWidgets()
+	success := first
+	success.Checks = []github.QueueCheck{{Name: "ci", Green: true, Conclusion: "SUCCESS"}}
+	client := &fakeQueue{
+		snapshots: []github.QueuePullRequest{first, first, success},
+		loadErrs:  []error{nil, errors.New("http 502"), nil},
+	}
+	if err := queuePullRequest(client, queueConfig(), first.Ref.Raw, false); err != nil {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if client.loads != 3 || client.enqueueCalls != 1 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+}
+
+func TestQueueWhenGreenHardLoadErrorDoesNotEnqueue(t *testing.T) {
+	withWhenGreenWait(t, time.Hour)
+	first := pendingWidgets()
+	client := &fakeQueue{
+		snapshots: []github.QueuePullRequest{first, first},
+		loadErrs:  []error{nil, errors.New("boom")},
+	}
+	err := queuePullRequest(client, queueConfig(), first.Ref.Raw, false)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if client.loads != 2 || client.enqueueCalls != 0 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+}
+
+func TestQueueWhenGreenTimesOut(t *testing.T) {
+	slept := withWhenGreenWait(t, 20*time.Second)
+	client := &fakeQueue{pr: pendingWidgets()}
+	var err error
+	output := captureStdout(t, func() {
+		err = queuePullRequest(client, queueConfig(), "acme/widgets#12", false)
+	})
+	if err == nil || !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueued = %v", client.enqueued)
+	}
+	if !strings.Contains(output, "Not enqueueing acme/widgets#12: timeout") {
+		t.Fatalf("output = %s", output)
+	}
+	if len(*slept) != 2 || (*slept)[0] != 15*time.Second || (*slept)[1] != 5*time.Second {
+		t.Fatalf("sleeps = %v", *slept)
+	}
+}
+
+func TestQueueWhenGreenBackoffWhileStillPending(t *testing.T) {
+	slept := withWhenGreenWait(t, time.Hour)
+	first := pendingWidgets()
+	second := first
+	second.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: "IN_PROGRESS"}}
+	third := first
+	third.Checks = []github.QueueCheck{{Name: "ci", Green: true, Conclusion: "SUCCESS"}}
+	client := &fakeQueue{snapshots: []github.QueuePullRequest{first, second, third}}
+	if err := queuePullRequest(client, queueConfig(), first.Ref.Raw, false); err != nil {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if client.enqueueCalls != 1 || client.loads != 3 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+	if len(*slept) != 2 || (*slept)[0] != 15*time.Second || (*slept)[1] != 30*time.Second {
+		t.Fatalf("sleeps = %v", *slept)
 	}
 }

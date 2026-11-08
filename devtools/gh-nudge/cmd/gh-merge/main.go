@@ -30,6 +30,10 @@
 //	# Preview an enqueue. A draft is refused and nothing is enqueued.
 //	gh-merge --dry-run queue 12
 //
+//	# Wait for pending required checks on the current head, then enqueue.
+//	# The wait timeout is a Go duration and defaults to 2h. --timeout overrides it.
+//	gh-merge queue --when-green acme/widgets#12
+//
 //	# Watch until each pull request merges, is ejected, or times out.
 //	# --timeout is a Go duration and defaults to 30m. watch does not read stdin.
 //	gh-merge watch --timeout 30m acme/widgets#12
@@ -74,6 +78,7 @@ var (
 	includeDownstack      bool
 	jsonOutput            bool
 	allowNoRequiredChecks bool
+	whenGreen             bool
 	watchTimeout          = defaultWatchTimeout
 )
 
@@ -91,6 +96,7 @@ func registerFlags() {
 	flag.BoolVar(&includeDownstack, "include-downstack", false, "Also enqueue open pull requests below a stack")
 	flag.BoolVar(&jsonOutput, "json", false, "Print queue, watch, and rca results as JSON")
 	flag.DurationVar(&watchTimeout, "timeout", defaultWatchTimeout, timeoutHelp())
+	flag.BoolVar(&whenGreen, "when-green", false, whenGreenHelp())
 	flag.BoolVar(&allowNoRequiredChecks, "allow-no-required-checks", false, "Queue even when required_checks is empty or the repository is not configured")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [command]\n\n", os.Args[0])
@@ -104,6 +110,16 @@ func registerFlags() {
 		fmt.Fprintf(os.Stderr, "  rca     %s\n", rcaCommandHelp())
 		fmt.Fprintf(os.Stderr, "  dequeue %s\n", dequeueCommandHelp())
 	}
+}
+
+// applyQueueTimeoutFlag uses --timeout for queue --when-green when the flag is set.
+// The queue wait otherwise stays at its own default, not the watch default.
+func applyQueueTimeoutFlag() {
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "timeout" {
+			whenGreenTimeout = watchTimeout
+		}
+	})
 }
 
 // setupLogging configures the logger with the appropriate level.
@@ -495,6 +511,7 @@ func configFileExists(path string) bool {
 func main() {
 	registerFlags()
 	flag.Parse()
+	applyQueueTimeoutFlag()
 
 	// Setup logging
 	setupLogging()

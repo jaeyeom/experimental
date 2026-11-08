@@ -55,7 +55,21 @@ the label that blocks it.
 
 ~gh-merge queue~ checks one pull request, prints removal evidence when the
 latest merge-queue timeline event is a removal, and then calls
-~enqueuePullRequest~. It does not classify the failure or write the RCA
+~enqueuePullRequest~. ~--when-green~ waits only when every preflight problem
+is a required check still pending on the current head. It polls with backoff
+and enqueues once those checks pass. The wait timeout is a Go duration and
+defaults to 2h; ~--timeout~ overrides it. Pending conclusions are an empty
+conclusion, PENDING, EXPECTED, QUEUED, IN_PROGRESS, and WAITING. FAILURE,
+CANCELLED, TIMED_OUT, and ACTION_REQUIRED refuse immediately. A missing
+check, draft, block label, missing approval, unresolved thread, base or stack
+refusal, or RCA refusal also refuses immediately. The wait records the head
+SHA and reloads the pull request between polls. A transient load error
+retries until the timeout. The wait aborts without enqueueing when a required
+check fails, the head SHA changes, approval is lost, an unresolved thread
+appears, another preflight problem appears, or the timeout is reached.
+~--dry-run~ does not poll: pending checks report ~would-wait~, and a green
+pull request still reports ~would-enqueue~. ~--json~ includes that result.
+Queue does not classify the failure or write the RCA
 comment. ~required_checks~, ~flake_signatures~, ~rca_marker~, and
 ~max_requeues~ come from config. Empty ~required_checks~ makes ~queue~ refuse
 unless ~--allow-no-required-checks~ is set. That flag does not skip a draft,
