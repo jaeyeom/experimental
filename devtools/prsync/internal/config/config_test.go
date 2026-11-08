@@ -630,6 +630,10 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "unknown signal", body: "team_cover_signals=codeowners,vibes\n", key: "team_cover_signals"},
 		{name: "negative history days", body: "team_cover_history_days=-1\n", key: "team_cover_history_days"},
 		{name: "negative active days", body: "team_cover_active_days=-3\n", key: "team_cover_active_days"},
+		{name: "bad dedupe ttl", body: "dedupe_ttl=tomorrow\n", key: "dedupe_ttl"},
+		{name: "negative dedupe ttl", body: "dedupe_ttl=-1s\n", key: "dedupe_ttl"},
+		{name: "negative dedupe scans", body: "dedupe_scans=-1\n", key: "dedupe_scans"},
+		{name: "bad dedupe scans", body: "dedupe_scans=1.5\n", key: "dedupe_scans"},
 		{name: "missing exclude file", body: "team_cover_exclude_logins=@/no/such/exclude\n", key: "team_cover_exclude_logins"},
 	}
 	for _, tc := range tests {
@@ -659,6 +663,23 @@ func TestKeyErrorMessage(t *testing.T) {
 	want := "key title_id_pattern: error parsing regexp: missing closing ]: `[A-Z+`"
 	if got != want {
 		t.Fatalf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestLoadDedupeWindow(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "dedupe_ttl=12h\ndedupe_scans=4\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.DedupeTTL != 12*time.Hour {
+		t.Fatalf("DedupeTTL = %s, want 12h", got.DedupeTTL)
+	}
+	if got.DedupeScans != 4 {
+		t.Fatalf("DedupeScans = %d, want 4", got.DedupeScans)
 	}
 }
 
@@ -715,6 +736,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.StateFile != "~/.config/prsync/state.json" {
 		t.Fatalf("StateFile = %q", got.StateFile)
+	}
+	if got.DedupeTTL != 24*time.Hour || got.DedupeScans != 0 {
+		t.Fatalf("dedupe ttl=%s scans=%d", got.DedupeTTL, got.DedupeScans)
 	}
 	if !regexp.MustCompile(`Address the unresolved review comments`).MatchString(got.PromptTemplate) {
 		t.Fatalf("PromptTemplate missing built-in text: %q", got.PromptTemplate)

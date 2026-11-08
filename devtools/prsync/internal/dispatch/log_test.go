@@ -89,16 +89,16 @@ func TestRunLogsDedupeOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() unexpected error: %v", err)
 	}
-	if len(got.Results) != 1 || got.Results[0].Action != ActionSkippedDeduped {
-		t.Fatalf("results = %+v, want skipped_deduped", got.Results)
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedUnresolved {
+		t.Fatalf("results = %+v, want dispatched_unresolved", got.Results)
 	}
 	recs := logRecords(t, buf)
 	result, ok := logByMsg(recs, "result")
 	if !ok {
 		t.Fatalf("missing result in %v", logMsgs(recs))
 	}
-	if result["action"] != ActionSkippedDeduped {
-		t.Fatalf("result.action = %v, want skipped_deduped", result["action"])
+	if result["action"] != ActionDispatchedUnresolved {
+		t.Fatalf("result.action = %v, want dispatched_unresolved", result["action"])
 	}
 	if hasLog(recs, "dispatch_send") {
 		t.Fatalf("deduped skip logged dispatch_send: %v", logMsgs(recs))

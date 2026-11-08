@@ -42,7 +42,8 @@
     {
       "repo": "acme/widgets",
       "number": 204,
-      "action": "skipped_deduped"
+      "action": "dispatched_unresolved",
+      "detail": "recorded at 2026-01-01T09:00:00Z"
     }
   ]
 }

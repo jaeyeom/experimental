@@ -130,8 +130,18 @@
 # bodies append: … [truncated, see <thread url>]
 # comment_body_max_chars=4000
 
-# Written only on live send (dispatched / dispatched_timeout). Never
-# written on a transient blocked settlement.
+# How long the same unaddressed comment ids stay deduped. Go duration.
+# 0 expires immediately. Default 24h.
+# dedupe_ttl=24h
+
+# Later live evaluations of those ids that expire dedupe. 0 means the
+# count does not expire it. Default 0. Whichever of ttl and scans comes
+# first re-dispatches.
+# dedupe_scans=0
+
+# Written on live dispatched / dispatched_timeout, and when a later
+# live evaluation records an unresolved scan count. Never written on a
+# transient blocked settlement. Dry-run does not write.
 # state_file=~/.config/prsync/state.json
 
 # Report-only. When true, scan suggests individual reviewers for each

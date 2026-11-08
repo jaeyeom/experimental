@@ -170,7 +170,9 @@ Environment variables are not expanded.
 | ~ci_only_checks~ | empty | When set, this list wins: only matching checks feed ~ci_state~. Same glob rules as ~ci_ignore_checks~. |
 | ~dispatch_include_drafts~ | ~false~ | When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts. |
 | ~dispatch_wait_until~ | ~idle done~ | Whitespace-separated settle tokens, passed as ~herdr agent prompt --until~. At least one required. |
-| ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written only on live ~dispatched~ / ~dispatched_timeout~. |
+| ~state_file~ | =$HOME/.config/prsync/state.json= | Dispatch audit / dedupe log. Written on live ~dispatched~ / ~dispatched_timeout~, and when a later live evaluation records an unresolved scan count. |
+| ~dedupe_ttl~ | ~24h~ | Go duration. The same unaddressed comment ids stay deduped until this age. ~0~ expires immediately. |
+| ~dedupe_scans~ | ~0~ | Later evaluations of those ids that expire dedupe, whichever comes first with ~dedupe_ttl~. ~0~ means the count does not expire it. |
 | ~dry_run~ | ~true~ | ~--go~ overrides to live. |
 | ~comment_strip_patterns~ | empty | One RE2 pattern per line (blank lines and ~#~ comments ignored). Inline, or ~@/path~ (tilde expanded). Matches are removed from each comment body before ~comment_link_max_chars~ and ~comment_body_max_chars~. After a removal, trailing whitespace is trimmed and runs of 3+ newlines become one blank line. An empty body is rendered as ~(boilerplate only; see <thread url>)~; the comment is still listed. Does not change unresolved threads, eligibility, or the dedupe key. An invalid pattern is a config error naming the key and the line. An unreadable ~@file~ is a config error naming the key. |
 | ~comment_link_max_chars~ | ~500~ | Rewrite ~[label](url)~ to ~label~ when ~len(url)~ exceeds this. ~0~ disables. Length only, not host. Applied after ~comment_strip_patterns~. |
@@ -505,9 +507,16 @@ prsync dispatch --config ./prsync.config --pr acme/widgets#123
 #+END_SRC
 
 Live send (~--go~) writes ~state_file~ on ~dispatched~ /
-~dispatched_timeout~. Gate / serial / wait: [[*Live dispatch][Live dispatch]].
-A second live run against the same unaddressed comment ids is
-~skipped_deduped~. The prompt always goes to the PR's existing herdr
+~dispatched_timeout~, and when a later evaluation of the same
+unaddressed comment ids is still inside the dedupe window. That later
+run does not send. Its action is ~dispatched_unresolved~ and ~detail~
+includes the recorded time. ~prsync scan~ sets ~dispatch~ to that same
+marker. The window is ~dedupe_ttl~ (default 24h) or ~dedupe_scans~
+later evaluations, whichever comes first. ~dedupe_scans~ of 0 does not
+expire by count. A new unaddressed comment id is a fresh dispatch.
+~--force~ re-dispatches immediately. When the window expires, dispatch
+sends again and refreshes ~dispatched_at~ and the scan count. Gate /
+serial / wait: [[*Live dispatch][Live dispatch]]. The prompt always goes to the PR's existing herdr
 tab (no new worktree). A scan ~merge-queue-fix~ action, with neither
 ~--rebase~ nor ~--ci-fix~, sends that prompt instead and skips the
 unaddressed-comment gate. The prompt points at the RCA comment URL and
@@ -517,7 +526,7 @@ is not prompted again until the head changes.
 
 | Mode | Flag | Done when | Notes |
 |------+------+-----------+-------|
-| comments (default) | (none) | listed threads addressed | Dedupe on unaddressed comment ids |
+| comments (default) | (none) | listed threads addressed | Dedupe on unaddressed comment ids until ~dedupe_ttl~ or ~dedupe_scans~, whichever comes first. While the window holds the action is ~dispatched_unresolved~ (not ~skipped_deduped~) and ~detail~ includes the recorded time. ~scan~ shows that marker on the pull request. |
 | rebase | ~--rebase~ | recorded ~dispatched_head_sha~ equals the current head, and merge state is not ~BEHIND~, ~DIRTY~, or ~UNKNOWN~, and ~mergeable~ is not ~CONFLICTING~ | A new head is a fresh decision. ~BEHIND~, ~DIRTY~, ~UNKNOWN~, and ~mergeable~ ~CONFLICTING~ retry even when the recorded sha matches. ~--all~ sends to every PR with a ready tab (auto-picking behind PRs is a follow-up). Missing ~merge_state_status~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, merge_state=<status>~ |
 | CI-fix | ~--ci-fix~ | recorded ~dispatched_ci_fix_sha~ equals the current head, and ~ci_state~ is not ~failing~ | A new head is a fresh decision, including ~pending~, ~none~, and ~green~. A still-red check retries on the same head. ~--hint~ is a starting point the agent must verify; omit it to investigate from scratch. Caller chooses ~--ci-fix~ — ~prsync~ does not triage. Missing ~ci_state~ keeps head-SHA dedupe. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>, ci_state=<status>~ |
 | merge-queue-fix | (none; scan action ~merge-queue-fix~) | recorded ~dispatched_merge_queue_fix_sha~ equals the current head | Same draft, tab, agent, and busy gate as the other modes. Skips the unaddressed-comment gate. Not prompted again until the head changes, including when the pull request is still conflicting. ~--rebase~ and ~--ci-fix~ keep their own prompts. ~--force~ re-dispatches. ~skipped_deduped~ sets ~detail~ to ~recorded at <sha>~ |

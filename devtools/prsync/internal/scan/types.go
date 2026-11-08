@@ -51,6 +51,10 @@ type PR struct {
 	TeamReviewSuggestions []TeamReviewSuggestion `json:"team_review_suggestions,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// Actions lists follow-ups such as merge-queue-fix. Nil when there are none.
 	Actions []Action `json:"actions,omitempty"`
+	// Dispatch is dispatched_unresolved when a prior comment dispatch still
+	// covers these unaddressed ids. Omitted otherwise. Rebase, CI-fix, and
+	// merge-queue-fix stay skipped_deduped on dispatch, not in this field.
+	Dispatch string `json:"dispatch,omitempty"`
 }
 
 // ActionMergeQueueFix is the scan action for an our-code merge-queue ejection.
