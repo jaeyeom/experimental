@@ -2450,6 +2450,56 @@ func threadNote(t *testing.T, dir, text string) string {
 	return ""
 }
 
+func TestComposeCursorStaysOnALongLine(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("NO_COLOR", "1")
+
+	dir := t.TempDir()
+	m := New(dir)
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-a"}}
+	m.width = 100
+	m.height = 40
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "c\t")
+	if m.composeFocus != focusText || !m.noteField.Focused() {
+		t.Fatalf("focus %d focused %v", m.composeFocus, m.noteField.Focused())
+	}
+	const n = 1500
+	press(t, m, strings.Repeat("a", n))
+	if m.noteField.Value() != strings.Repeat("a", n) || len([]rune(m.note)) != n {
+		t.Fatalf("value len %d note len %d", len([]rune(m.noteField.Value())), len([]rune(m.note)))
+	}
+	if m.status == "sent to alpha" || !m.composing {
+		t.Fatalf("status %q composing %v", m.status, m.composing)
+	}
+	wrap := composeDraftWidth(m.contentWidth()-2, true)
+	if wrap < 2 || n%wrap == 0 {
+		t.Fatalf("panel width %d divides %d", wrap, n)
+	}
+	row, col, ok := cursorCell(m.draftLines(wrap))
+	wantRow, wantCol := n/wrap, n%wrap
+	if !ok || row != wantRow || col != wantCol || (row == 0 && col == 0) {
+		t.Fatalf("cursor row %d col %d ok %v want %d,%d wrap %d", row, col, ok, wantRow, wantCol, wrap)
+	}
+	if !strings.Contains(m.View(), cursorOn) {
+		t.Fatal("view has no cursor")
+	}
+}
+
+func cursorCell(lines []screenLine) (row, col int, ok bool) {
+	for i, line := range lines {
+		idx := strings.Index(line.text, cursorOn)
+		if idx < 0 {
+			continue
+		}
+		return i, lipgloss.Width(line.text[:idx]), true
+	}
+	return 0, 0, false
+}
+
 func openLedger(t *testing.T, dir string) *decide.Ledger {
 	t.Helper()
 	led, err := decide.Open(dir)
