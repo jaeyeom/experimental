@@ -423,13 +423,13 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	return m.detailText(r)
 }
 
-// detailText answers a numbered option or rejects stray free text.
+// detailText answers a numbered option. Any other printable key is unbound.
 func (m *Model) detailText(r rune) (bool, error) {
 	if r >= '1' && r <= '9' {
 		return false, m.answerOption(int(r - '1'))
 	}
-	if r >= ' ' && (m.detail == nil || !m.detail.FreeText) {
-		return false, m.typeFree(r)
+	if r >= ' ' {
+		m.status = "unknown key, ? for help"
 	}
 	return false, nil
 }
@@ -671,16 +671,6 @@ func (m *Model) submitFreeText() error {
 		return nil
 	}
 	return m.writeAnswer(m.draft)
-}
-
-func (m *Model) typeFree(r rune) error {
-	if m.detail == nil || !m.detail.FreeText {
-		m.status = "free text is not allowed"
-		return nil
-	}
-	m.draft += string(r)
-	m.status = ""
-	return nil
 }
 
 func (m *Model) writeAnswer(value string) error {
