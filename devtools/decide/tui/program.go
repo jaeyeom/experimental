@@ -3,6 +3,7 @@ package tui
 import (
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -69,12 +70,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.updateKey(msg)
 		}
-		if msg.Type == tea.KeyUp {
-			m.pickerArrow(-1)
-			return m, nil
-		}
-		if msg.Type == tea.KeyDown {
-			m.pickerArrow(1)
+		if m.handleScrollKey(msg) {
 			return m, nil
 		}
 		return m.updateKey(msg)
@@ -185,6 +181,94 @@ func (m *Model) updateReload() (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, m.scheduleReload()
+}
+
+func scrollKeyType(t tea.KeyType) bool {
+	switch t {
+	case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
+		return true
+	default:
+		return false
+	}
+}
+
+// handleScrollKey scrolls an open item, or leaves the key with a focused
+// field. Up and down still move a focused recipient list.
+func (m *Model) handleScrollKey(k tea.KeyMsg) bool {
+	if !scrollKeyType(k.Type) {
+		return false
+	}
+	if m.editingText() {
+		m.applyEditorKey(k)
+		return true
+	}
+	if m.itemScroll() {
+		m.scrollNav(k)
+		return true
+	}
+	if k.Type == tea.KeyUp || k.Type == tea.KeyDown {
+		delta := 1
+		if k.Type == tea.KeyUp {
+			delta = -1
+		}
+		m.pickerArrow(delta)
+		return true
+	}
+	return false
+}
+
+func (m *Model) itemScroll() bool {
+	return m.mode == modeDetail && !m.help && !m.composing && !m.answerFocus && !m.replyFocus && !m.linkPick
+}
+
+func (m *Model) editingText() bool {
+	if m.replyFocus || m.answerFocus {
+		return true
+	}
+	if m.mode == modeOutcome {
+		return true
+	}
+	return m.composing && m.composeFocus == focusText
+}
+
+func (m *Model) applyEditorKey(k tea.KeyMsg) {
+	switch {
+	case m.composing && m.composeFocus == focusText:
+		m.pullNote()
+		if !m.noteField.Focused() {
+			m.noteField.Focus()
+		}
+		updated, _ := m.noteField.Update(k)
+		m.noteField = updated
+		m.note = m.noteField.Value()
+	case m.answerFocus:
+		m.editFieldMsg(&m.free, k)
+	case m.mode == modeOutcome:
+		m.editFieldMsg(&m.outcome, k)
+	}
+}
+
+func (m *Model) editFieldMsg(field *textinput.Model, k tea.KeyMsg) {
+	updated, _ := field.Update(k)
+	*field = updated
+	m.draft = field.Value()
+}
+
+func (m *Model) scrollNav(k tea.KeyMsg) {
+	switch k.Type {
+	case tea.KeyUp:
+		m.Wheel(false)
+	case tea.KeyDown:
+		m.Wheel(true)
+	case tea.KeyPgUp:
+		m.scrollPage(false)
+	case tea.KeyPgDown:
+		m.scrollPage(true)
+	case tea.KeyHome:
+		m.scrollHome()
+	case tea.KeyEnd:
+		m.scrollEnd()
+	}
 }
 
 func (m *Model) scheduleReload() tea.Cmd {
