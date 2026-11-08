@@ -62,7 +62,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.width = msg.Width
 		}
 		return m, nil
+	case editorDoneMsg:
+		m.finishExternalEdit(msg.err)
+		return m, nil
 	case tea.KeyMsg:
+		if cmd, ok := m.handleEditorKey(msg); ok {
+			return m, cmd
+		}
 		if m.chord {
 			if _, ok := keyRune(msg); !ok {
 				m.expireChord(m.chordSeq)

@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "compose.go",
+        "editor.go",
         "link.go",
         "model.go",
         "mouse.go",
@@ -42,6 +43,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "editor_test.go",
         "link_test.go",
         "model_test.go",
         "thread_test.go",
