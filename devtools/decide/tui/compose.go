@@ -131,7 +131,15 @@ func (m *Model) sendNote() error {
 		return nil
 	}
 	tg := m.Targets[m.target]
-	argv := decide.SendArgv(m.SendTemplate, tg.Pane, m.note)
+	text := m.note
+	// The thread id has to exist before the pane note is built.
+	item, err := m.recordThread(tg, text)
+	if err != nil {
+		m.status = err.Error()
+		return nil
+	}
+	note := decide.DeliveryNote(item.ID, "human", text)
+	argv := decide.SendArgv(m.SendTemplate, tg.Pane, note)
 	send := m.runSend
 	if send == nil {
 		send = decide.RunSend
@@ -140,11 +148,7 @@ func (m *Model) sendNote() error {
 		m.status = err.Error()
 		return nil
 	}
-	if err := decide.AppendSend(m.Dir, tg.Name, tg.Pane, m.note); err != nil {
-		m.status = err.Error()
-		return nil
-	}
-	if err := m.recordThread(tg, m.note); err != nil {
+	if err := decide.AppendSend(m.Dir, tg.Name, tg.Pane, text); err != nil {
 		m.status = err.Error()
 		return nil
 	}
@@ -153,15 +157,16 @@ func (m *Model) sendNote() error {
 	return nil
 }
 
-func (m *Model) recordThread(tg Target, text string) error {
+func (m *Model) recordThread(tg Target, text string) (decide.Item, error) {
 	led, err := decide.Open(m.Dir)
 	if err != nil {
-		return fmt.Errorf("open decide ledger: %w", err)
+		return decide.Item{}, fmt.Errorf("open decide ledger: %w", err)
 	}
-	if _, err := led.StartThread(tg.Name, tg.Pane, text); err != nil {
-		return fmt.Errorf("store decide thread: %w", err)
+	item, err := led.StartThread(tg.Name, tg.Pane, text)
+	if err != nil {
+		return decide.Item{}, fmt.Errorf("store decide thread: %w", err)
 	}
-	return nil
+	return item, nil
 }
 
 // sendArgv builds the compose command. Tests compare the inbox argv

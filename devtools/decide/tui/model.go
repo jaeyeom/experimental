@@ -750,7 +750,7 @@ func (m *Model) writeAnswer(value string) error {
 }
 
 // submitReply appends a human message, the same result as decide send --id.
-// The owner pane is notified with the thread id and the text.
+// The owner pane receives the thread header, the original text, and the reply hint.
 func (m *Model) submitReply() error {
 	if m.detail == nil {
 		return nil
@@ -781,7 +781,8 @@ func (m *Model) submitReply() error {
 	return m.Reload()
 }
 
-// notifyThread runs the compose command so the owner pane sees id and text.
+// notifyThread runs the compose command so the owner pane sees the
+// thread header, the original text, and the reply hint.
 func (m *Model) notifyThread(item *decide.Item, text string) error {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
@@ -798,7 +799,7 @@ func (m *Model) notifyThread(item *decide.Item, text string) error {
 	if strings.TrimSpace(template) == "" {
 		template = cfg.SendTemplate
 	}
-	argv := decide.SendArgv(template, pane, item.ID+"\n"+text)
+	argv := decide.SendArgv(template, pane, decide.DeliveryNote(item.ID, "human", text))
 	send := m.runSend
 	if send == nil {
 		send = decide.RunSend

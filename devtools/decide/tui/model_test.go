@@ -1669,12 +1669,12 @@ func TestComposeEnterSendsSeparateArguments(t *testing.T) {
 	if _, err := m.Key('\r'); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"herdr", "agent", "prompt", "pane-1", text}
-	if len(got) != len(want) {
+	prefix := []string{"herdr", "agent", "prompt", "pane-1"}
+	if len(got) != len(prefix)+1 {
 		t.Fatalf("argv = %#v", got)
 	}
-	for i := range want {
-		if got[i] != want[i] {
+	for i := range prefix {
+		if got[i] != prefix[i] {
 			t.Fatalf("argv = %#v", got)
 		}
 	}
@@ -1712,6 +1712,9 @@ func TestComposeEnterSendsSeparateArguments(t *testing.T) {
 	}
 	if len(items) != 1 || len(items[0].Messages) != 1 || items[0].Messages[0].Author != "human" || items[0].Messages[0].Text != text || items[0].Owner != "inbox" || items[0].NotifyPane != "pane-1" {
 		t.Fatalf("thread = %+v", items)
+	}
+	if got[len(got)-1] != decide.DeliveryNote(items[0].ID, "human", text) {
+		t.Fatalf("note = %q", got[len(got)-1])
 	}
 }
 
@@ -1767,7 +1770,7 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "j\t note\t\r")
-	if len(got) != 1 || len(got[0]) != 5 || got[0][3] != "pane-2" || got[0][4] != " note" {
+	if len(got) != 1 || len(got[0]) != 5 || got[0][3] != "pane-2" || got[0][4] != threadNote(t, dir, " note") {
 		t.Fatalf("keyboard send = %#v", got)
 	}
 
@@ -1794,7 +1797,7 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 	if err := m.Click(visibleCol(sendLine, "[Send]"), sendRow); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"tool", "pane-1", "note-b"}
+	want := []string{"tool", "pane-1", threadNote(t, dir, "note-b")}
 	if len(got) != 2 || len(got[1]) != len(want) {
 		t.Fatalf("click send = %#v", got)
 	}
@@ -1833,7 +1836,7 @@ func TestShiftEnterDoesNotSend(t *testing.T) {
 	if _, err := m.Key('\r'); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || got != "say \"hi\"\n" {
+	if calls != 1 || got != threadNote(t, dir, "say \"hi\"\n") {
 		t.Fatalf("calls %d text %q", calls, got)
 	}
 }
@@ -1916,7 +1919,7 @@ func TestComposeHintKeysAndStatus(t *testing.T) {
 	if m.status != "sent to alpha" || strings.Contains(m.View(), "pane-secret") {
 		t.Fatalf("status %q\n%s", m.status, m.View())
 	}
-	if len(got) == 0 || got[len(got)-1] != "hi\n" {
+	if len(got) == 0 || got[len(got)-1] != threadNote(t, dir, "hi\n") {
 		t.Fatalf("argv = %#v", got)
 	}
 
@@ -2340,6 +2343,113 @@ func sameLines(got, want []string) bool {
 	return true
 }
 
+func TestPaneDeliveryUsesTheThreadNote(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("NO_COLOR", "1")
+
+	dir := t.TempDir()
+	draft := "line one\nline two"
+	m := New(dir)
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-a"}}
+	m.SendTemplate = "herdr agent prompt {pane}"
+	var note string
+	var during decide.Item
+	m.runSend = func(argv []string) error {
+		note = argv[len(argv)-1]
+		led, err := decide.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, err := led.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 1 {
+			t.Fatalf("threads during send = %+v", items)
+		}
+		during = items[0]
+		return nil
+	}
+	m.composing = true
+	m.composeFocus = focusSend
+	m.note = draft
+	if _, err := m.Key('\r'); err != nil {
+		t.Fatal(err)
+	}
+	if len(during.Messages) != 1 || during.Messages[0].Author != "human" || during.Messages[0].Text != draft {
+		t.Fatalf("stored during send = %+v", during.Messages)
+	}
+	assertPaneNote(t, note, during.ID, draft)
+	data, err := os.ReadFile(filepath.Join(dir, sendsName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec sendRecord
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(data))), &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Target != "alpha" || rec.Pane != "pane-a" || rec.Text != draft {
+		t.Fatalf("history = %+v", rec)
+	}
+
+	replyModel := New(dir)
+	replyModel.SendTemplate = "herdr agent prompt {pane}"
+	var replyNote string
+	replyModel.runSend = func(argv []string) error {
+		replyNote = argv[len(argv)-1]
+		return nil
+	}
+	if err := replyModel.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, replyModel, "o")
+	press(t, replyModel, "rfollow up\r")
+	assertPaneNote(t, replyNote, during.ID, "follow up")
+	led, err := decide.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Get(during.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got.Messages[len(got.Messages)-1]
+	if last.Author != "human" || last.Text != "follow up" {
+		t.Fatalf("reply stored %+v", last)
+	}
+}
+
+func assertPaneNote(t *testing.T, note, id, text string) {
+	t.Helper()
+	header := "[decide " + id + " from human]\n"
+	hint := "\n" + `Reply in this thread: decide reply ` + id + ` "..." (add --option key:label for a follow-up question; decide done ` + id + ` "outcome" when finished). Do not answer only in your terminal.`
+	if note != header+text+hint {
+		t.Fatalf("note = %q", note)
+	}
+}
+
+func threadNote(t *testing.T, dir, text string) string {
+	t.Helper()
+	led, err := decide.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := led.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		for _, msg := range it.Messages {
+			if msg.Author == "human" && msg.Text == text {
+				return decide.DeliveryNote(it.ID, "human", text)
+			}
+		}
+	}
+	t.Fatalf("no human message %q", text)
+	return ""
+}
+
 func openLedger(t *testing.T, dir string) *decide.Ledger {
 	t.Helper()
 	led, err := decide.Open(dir)
@@ -2521,7 +2631,7 @@ func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
 	if m.status != "sent to alpha" || m.note != "" || m.noteField.Value() != "" || m.composing {
 		t.Fatalf("status %q note %q field %q composing %v", m.status, m.note, m.noteField.Value(), m.composing)
 	}
-	if len(sent) == 0 || sent[len(sent)-1] != "A?1" || strings.Contains(m.View(), "pane-secret") {
+	if len(sent) == 0 || sent[len(sent)-1] != threadNote(t, dir, "A?1") || strings.Contains(m.View(), "pane-secret") {
 		t.Fatalf("argv %#v\n%s", sent, m.View())
 	}
 }
@@ -2796,7 +2906,7 @@ func TestGmailLayoutNarrowAndWide(t *testing.T) {
 	if err := m.Click(visibleCol(line, "[Send]"), row); err != nil {
 		t.Fatal(err)
 	}
-	if m.status != "sent to alpha" || len(sent) == 0 || sent[len(sent)-1] != "hello" {
+	if m.status != "sent to alpha" || len(sent) == 0 || sent[len(sent)-1] != threadNote(t, dir, "hello") {
 		t.Fatalf("send status %q argv %#v", m.status, sent)
 	}
 }
@@ -3182,7 +3292,7 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 		t.Fatalf("restored focus %d target %d note %q\n%s", m.composeFocus, m.target, m.note, m.View())
 	}
 	press(t, m, "\t\t\r")
-	want := sendArgv("", "pane-b", "one\ntwo")
+	want := sendArgv("", "pane-b", threadNote(t, dir, "one\ntwo"))
 	if m.status != "sent to beta" || len(sent) != 1 || strings.Join(sent[0], "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("sent %#v want %#v status %q", sent, want, m.status)
 	}
@@ -3200,7 +3310,7 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 	if err := m.Click(visibleCol(line, "[Send]"), row); err != nil {
 		t.Fatal(err)
 	}
-	want = sendArgv("", "pane-a", "keep\nme")
+	want = sendArgv("", "pane-a", threadNote(t, dir, "keep\nme"))
 	if len(sent) != 2 || strings.Join(sent[1], "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("click sent %#v want %#v", sent, want)
 	}
@@ -3478,7 +3588,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 	if len(edited.Options) != 3 || edited.Options[0].Key != "send" {
 		t.Fatalf("reply cleared the options: %+v", edited.Options)
 	}
-	if len(sent) != 3 || sent[len(sent)-1] != again.ID+"\n"+"edits" {
+	if len(sent) != 3 || sent[len(sent)-1] != decide.DeliveryNote(again.ID, "human", "edits") {
 		t.Fatalf("notify argv = %#v", sent)
 	}
 	if !strings.Contains(m.View(), "edits") {
