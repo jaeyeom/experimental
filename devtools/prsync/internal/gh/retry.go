@@ -23,6 +23,13 @@ const ghRetryAttempts = 3
 // ghRetryBackoffs are the waits before the second and third attempts.
 var ghRetryBackoffs = []time.Duration{2 * time.Second, 8 * time.Second}
 
+// ghListHTTPRetryAttempts is the open-PR list budget for HTTP 502, 503, and 504.
+// Five attempts wait 2s, 8s, 32s, then about 60s.
+const ghListHTTPRetryAttempts = 5
+
+// ghListHTTPRetryBackoffs are the waits before attempts 2 through 5 of that list query.
+var ghListHTTPRetryBackoffs = []time.Duration{2 * time.Second, 8 * time.Second, 32 * time.Second, 60 * time.Second}
+
 var transientHTTPRE = regexp.MustCompile(`(?i)\bhttp\s+50[234]\b`)
 
 type outputCheck func(*executor.ExecutionResult) error
@@ -41,9 +48,20 @@ func (c *Client) execute(ctx context.Context, timeout time.Duration, args ...str
 	return c.executeChecked(ctx, timeout, nil, args...)
 }
 
+// ghRetryPolicy lengthens the HTTP 502/503/504 budget for one call.
+// A zero value keeps the three-attempt budget for every transient kind.
+type ghRetryPolicy struct {
+	httpAttempts int
+	httpBackoffs []time.Duration
+}
+
 func (c *Client) executeChecked(ctx context.Context, timeout time.Duration, check outputCheck, args ...string) (*executor.ExecutionResult, error) {
+	return c.executeRetry(ctx, timeout, check, ghRetryPolicy{}, args...)
+}
+
+func (c *Client) executeRetry(ctx context.Context, timeout time.Duration, check outputCheck, policy ghRetryPolicy, args ...string) (*executor.ExecutionResult, error) {
 	var lastErr error
-	for attempt := 1; attempt <= ghRetryAttempts; attempt++ {
+	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, runErr(c.bin, err)
 		}
@@ -57,11 +75,12 @@ func (c *Client) executeChecked(ctx context.Context, timeout time.Duration, chec
 			return result, failErr
 		}
 		lastErr = failErr
-		if attempt == ghRetryAttempts {
+		limit, backoffs := policy.budget(kind)
+		if attempt >= limit {
 			break
 		}
-		wait := c.retryWait(attempt, kind, attemptText(result, execErr))
-		c.logRetry(ctx, attempt+1, wait, failErr)
+		wait := c.retryWait(backoffs, attempt, kind, attemptText(result, execErr))
+		c.logRetry(ctx, attempt+1, limit, wait, failErr)
 		if err := c.sleepForRetry(ctx, wait); err != nil {
 			return nil, runErr(c.bin, err)
 		}
@@ -69,7 +88,14 @@ func (c *Client) executeChecked(ctx context.Context, timeout time.Duration, chec
 	return nil, fmt.Errorf("transient upstream error: %w", lastErr)
 }
 
-func (c *Client) retryWait(failedAttempt int, kind transientKind, text string) time.Duration {
+func (p ghRetryPolicy) budget(kind transientKind) (int, []time.Duration) {
+	if kind == transientHTTP && p.httpAttempts > ghRetryAttempts && len(p.httpBackoffs) > 0 {
+		return p.httpAttempts, p.httpBackoffs
+	}
+	return ghRetryAttempts, ghRetryBackoffs
+}
+
+func (c *Client) retryWait(backoffs []time.Duration, failedAttempt int, kind transientKind, text string) time.Duration {
 	if kind == transientSecondary {
 		if d, ok := c.parseRetryAfter(text); ok {
 			return d
@@ -79,10 +105,10 @@ func (c *Client) retryWait(failedAttempt int, kind transientKind, text string) t
 	if idx < 0 {
 		idx = 0
 	}
-	if idx >= len(ghRetryBackoffs) {
-		return ghRetryBackoffs[len(ghRetryBackoffs)-1]
+	if idx >= len(backoffs) {
+		return backoffs[len(backoffs)-1]
 	}
-	return ghRetryBackoffs[idx]
+	return backoffs[idx]
 }
 
 func (c *Client) sleepForRetry(ctx context.Context, d time.Duration) error {
@@ -93,14 +119,14 @@ func (c *Client) sleepForRetry(ctx context.Context, d time.Duration) error {
 	return sleep(ctx, d)
 }
 
-func (c *Client) logRetry(ctx context.Context, nextAttempt int, wait time.Duration, err error) {
+func (c *Client) logRetry(ctx context.Context, nextAttempt, maxAttempts int, wait time.Duration, err error) {
 	if c.errOut != nil {
 		fmt.Fprintf(c.errOut, "prsync: retrying gh after transient error (attempt %d/%d, waiting %s): %v\n",
-			nextAttempt, ghRetryAttempts, wait, err)
+			nextAttempt, maxAttempts, wait, err)
 	}
 	runlog.FromContext(ctx).Warn("gh retry",
 		"attempt", nextAttempt,
-		"max_attempts", ghRetryAttempts,
+		"max_attempts", maxAttempts,
 		"wait", wait.String(),
 		"err", err.Error(),
 	)
