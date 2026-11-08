@@ -1182,7 +1182,7 @@ func formatCells(cells []string, widths []int) string {
 
 func statusStyle(updated, now time.Time) lipgloss.Style {
 	if decide.StatusStale(updated, now) {
-		return detailLine
+		return staleLine
 	}
 	return plainLine
 }
@@ -1647,6 +1647,7 @@ var (
 	styleOnce    sync.Once
 	unreadRow    lipgloss.Style
 	detailLine   lipgloss.Style
+	staleLine    lipgloss.Style
 	plainLine    lipgloss.Style
 	focusMark    lipgloss.Style
 	optionButton lipgloss.Style
@@ -1657,7 +1658,9 @@ func useStyles() {
 		// ANSI bold is stable in tests and on a real terminal.
 		lipgloss.SetColorProfile(termenv.ANSI)
 		unreadRow = lipgloss.NewStyle().Bold(true)
-		detailLine = lipgloss.NewStyle().Faint(true)
+		// Detail text is plain. Stale status rows keep their own faint style.
+		detailLine = lipgloss.NewStyle()
+		staleLine = lipgloss.NewStyle().Faint(true)
 		plainLine = lipgloss.NewStyle()
 		focusMark = lipgloss.NewStyle().Bold(true)
 		optionButton = lipgloss.NewStyle().Reverse(true)
@@ -2010,7 +2013,7 @@ func headerLines(it *decide.Item) []screenLine {
 }
 
 func headerLabelStyle() lipgloss.Style {
-	return paletteRenderer().NewStyle().Foreground(paletteMuted).Faint(true)
+	return paletteStyle(loadColors().Muted, paletteMuted)
 }
 
 // threadLines shows each message as its own block, oldest first.
@@ -2051,23 +2054,23 @@ func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
 }
 
 // messageHeader is one line: author, relative time, option keys, and latest.
-// Human and agent authors use two theme colors. The time is dim.
+// Human and agent authors use two theme colors. The time uses the time color.
 func messageHeader(msg decide.Message, now time.Time, latest, current bool) string {
+	colors := loadColors()
 	r := paletteRenderer()
-	authorStyle := r.NewStyle().Foreground(paletteAgent)
+	authorStyle := paletteStyle(colors.Agent, paletteAgent)
 	if msg.Author == "human" {
-		authorStyle = r.NewStyle().Foreground(paletteHuman)
+		authorStyle = paletteStyle(colors.Human, paletteHuman)
 	}
 	var parts []string
 	if msg.Author != "" {
 		parts = append(parts, authorStyle.Render(msg.Author))
 	}
 	if !msg.Time.IsZero() {
-		ageStyle := r.NewStyle().Foreground(paletteTime).Faint(true)
-		parts = append(parts, ageStyle.Render(age(now.Sub(msg.Time))))
+		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(age(now.Sub(msg.Time))))
 	}
 	if badges := optionBadges(msg.Options); badges != "" {
-		parts = append(parts, r.NewStyle().Foreground(paletteBadge).Render(badges))
+		parts = append(parts, paletteStyle(colors.Badge, paletteBadge).Render(badges))
 	}
 	if latest {
 		parts = append(parts, "latest")
@@ -2323,13 +2326,14 @@ func rowSnippet(it decide.Item) string {
 }
 
 // ANSI palette indexes follow the terminal theme, not a fixed RGB color.
+// Muted body text is ANSI 7. Relative time stays ANSI 8. Neither is faint.
 const (
 	paletteRequester lipgloss.ANSIColor = 6
 	paletteHuman     lipgloss.ANSIColor = 6
 	paletteAgent     lipgloss.ANSIColor = 2
 	paletteTime      lipgloss.ANSIColor = 8
 	paletteBadge     lipgloss.ANSIColor = 3
-	paletteMuted     lipgloss.ANSIColor = 8
+	paletteMuted     lipgloss.ANSIColor = 7
 )
 
 var (
@@ -2337,6 +2341,7 @@ var (
 	paletteCached   *lipgloss.Renderer
 	paletteNoColor  string
 	paletteCacheSet bool
+	trueCached      *lipgloss.Renderer
 )
 
 // paletteRenderer uses the terminal ANSI palette, or no color when NO_COLOR is set.
@@ -2359,16 +2364,53 @@ func paletteRenderer() *lipgloss.Renderer {
 	return r
 }
 
+// trueColorRenderer keeps a hex palette override at its RGB value.
+func trueColorRenderer() *lipgloss.Renderer {
+	paletteMu.Lock()
+	defer paletteMu.Unlock()
+	if trueCached != nil {
+		return trueCached
+	}
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.TrueColor)
+	trueCached = r
+	return r
+}
+
+// loadColors reads palette overrides. A missing or unreadable config keeps defaults.
+func loadColors() decide.Colors {
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return decide.Colors{}
+	}
+	return cfg.Colors
+}
+
+// paletteStyle paints one palette entry. An override is an ANSI index or a
+// hex color. A hex color keeps its RGB. An empty override uses fallback.
+func paletteStyle(override string, fallback lipgloss.ANSIColor) lipgloss.Style {
+	color := strings.TrimSpace(override)
+	r := paletteRenderer()
+	if color == "" {
+		return r.NewStyle().Foreground(fallback)
+	}
+	if strings.HasPrefix(color, "#") && os.Getenv("NO_COLOR") == "" {
+		r = trueColorRenderer()
+	}
+	return r.NewStyle().Foreground(lipgloss.Color(color))
+}
+
 // inboxStyles colors the requester, the time, and the kind or state badge.
 // A set NO_COLOR drops those colors and leaves the column text in place.
 func inboxStyles() [5]lipgloss.Style {
+	colors := loadColors()
 	r := paletteRenderer()
 	plain := r.NewStyle()
 	return [5]lipgloss.Style{
 		plain,
-		r.NewStyle().Foreground(paletteRequester),
-		r.NewStyle().Foreground(paletteTime).Faint(true),
-		r.NewStyle().Foreground(paletteBadge),
+		paletteStyle(colors.Requester, paletteRequester),
+		paletteStyle(colors.Time, paletteTime),
+		paletteStyle(colors.Badge, paletteBadge),
 		plain,
 	}
 }

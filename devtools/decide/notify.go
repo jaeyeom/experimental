@@ -29,12 +29,27 @@ import (
 // SendTemplate is the compose argv template. Empty means
 // `herdr agent prompt {pane}` plus the note as its own argument.
 // The note is not interpolated into sh -c.
+// Colors overrides inbox palette entries. Each value is an ANSI index
+// such as "7" or a hex color such as "#b0b0b0". A missing key keeps
+// the default for that entry.
 type Config struct {
 	NotifyTemplate string         `json:"notifyTemplate"`
 	NotifyPane     string         `json:"notifyPane"`
 	OptionsOnly    bool           `json:"optionsOnly"`
 	SendTemplate   string         `json:"sendTemplate,omitempty"`
 	Targets        []ConfigTarget `json:"targets,omitempty"`
+	Colors         Colors         `json:"colors,omitempty"`
+}
+
+// Colors is the inbox palette in decide config. Each field is an ANSI
+// index or a hex color. A missing key keeps the default.
+type Colors struct {
+	Requester string `json:"requester,omitempty"`
+	Human     string `json:"human,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	Time      string `json:"time,omitempty"`
+	Badge     string `json:"badge,omitempty"`
+	Muted     string `json:"muted,omitempty"`
 }
 
 // ConfigTarget is one compose destination. The pane id comes from config.
