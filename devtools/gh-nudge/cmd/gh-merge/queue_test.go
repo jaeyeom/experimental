@@ -1622,6 +1622,134 @@ func TestWatchIgnoresTransientNotInQueue(t *testing.T) {
 	}
 }
 
+type scriptedWatch struct {
+	fakeQueue
+	steps []error
+	pr    github.QueuePullRequest
+	n     int
+}
+
+func (s *scriptedWatch) LoadPullRequest(ref string) (github.QueuePullRequest, error) {
+	s.n++
+	s.loads++
+	s.loadedRefs = append(s.loadedRefs, ref)
+	if len(s.steps) > 0 {
+		idx := s.n - 1
+		if idx >= len(s.steps) {
+			idx = len(s.steps) - 1
+		}
+		if s.steps[idx] != nil {
+			return github.QueuePullRequest{}, s.steps[idx]
+		}
+	}
+	pr := s.pr
+	if pr.Ref.Raw == "" {
+		pr.Ref.Raw = ref
+	}
+	return pr, nil
+}
+
+func watchClock(start time.Time, timeout time.Duration) (*[]time.Duration, watchOptions) {
+	now := start
+	slept := []time.Duration{}
+	return &slept, watchOptions{
+		timeout:  timeout,
+		interval: 15 * time.Second,
+		now:      func() time.Time { return now },
+		sleep: func(d time.Duration) {
+			slept = append(slept, d)
+			now = now.Add(d)
+		},
+	}
+}
+
+func TestWatchRetriesTransientGitHubError(t *testing.T) {
+	merged := readyPR()
+	merged.Merged = true
+	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	rate := errors.New("load pull request acme/widgets#12: gh api graphql: HTTP 403: you have exceeded a secondary rate limit")
+	http502 := errors.New("load pull request acme/widgets#12: gh api graphql: HTTP 502")
+	retryAfter := errors.New("load pull request acme/widgets#12: gh api graphql: HTTP 403: secondary rate limit\nRetry-After: 30")
+	permanent := errors.New("load pull request acme/widgets#12: could not resolve to a PullRequest with the number of 12")
+
+	t.Run("secondary rate limit then merged", func(t *testing.T) {
+		slept, opt := watchClock(start, time.Minute)
+		client := &scriptedWatch{steps: []error{rate, nil}, pr: merged}
+		output := captureStdout(t, func() {
+			if err := watchPullRequests(client, []string{"acme/widgets#12"}, opt); err != nil {
+				t.Fatalf("watchPullRequests() error = %v", err)
+			}
+		})
+		if !strings.Contains(output, "acme/widgets#12 merged") {
+			t.Fatalf("output = %q", output)
+		}
+		if len(*slept) != 1 || (*slept)[0] < 15*time.Second {
+			t.Fatalf("slept = %v, want one backoff of at least 15s", *slept)
+		}
+		if client.n != 2 {
+			t.Fatalf("loads = %d, want 2", client.n)
+		}
+	})
+
+	t.Run("http 502 then merged", func(t *testing.T) {
+		slept, opt := watchClock(start, time.Minute)
+		client := &scriptedWatch{steps: []error{http502, nil}, pr: merged}
+		output := captureStdout(t, func() {
+			if err := watchPullRequests(client, []string{"acme/widgets#12"}, opt); err != nil {
+				t.Fatalf("watchPullRequests() error = %v", err)
+			}
+		})
+		if !strings.Contains(output, "acme/widgets#12 merged") {
+			t.Fatalf("output = %q", output)
+		}
+		if len(*slept) != 1 || (*slept)[0] < 15*time.Second {
+			t.Fatalf("slept = %v, want one backoff of at least 15s", *slept)
+		}
+	})
+
+	t.Run("retry-after", func(t *testing.T) {
+		slept, opt := watchClock(start, time.Minute)
+		client := &scriptedWatch{steps: []error{retryAfter, nil}, pr: merged}
+		if err := watchPullRequests(client, []string{"acme/widgets#12"}, opt); err != nil {
+			t.Fatalf("watchPullRequests() error = %v", err)
+		}
+		if len(*slept) != 1 || (*slept)[0] < 30*time.Second {
+			t.Fatalf("slept = %v, want at least 30s", *slept)
+		}
+	})
+
+	t.Run("permanent error exits", func(t *testing.T) {
+		slept, opt := watchClock(start, time.Minute)
+		client := &scriptedWatch{steps: []error{permanent}, pr: merged}
+		err := watchPullRequests(client, []string{"acme/widgets#12"}, opt)
+		if err == nil || !strings.Contains(err.Error(), "could not resolve") {
+			t.Fatalf("watchPullRequests() error = %v", err)
+		}
+		if len(*slept) != 0 || client.n != 1 {
+			t.Fatalf("slept = %v loads = %d, want no wait", *slept, client.n)
+		}
+	})
+
+	t.Run("deadline still times out", func(t *testing.T) {
+		slept, opt := watchClock(start, 20*time.Second)
+		client := &scriptedWatch{steps: []error{rate}, pr: merged}
+		var err error
+		output := captureStdout(t, func() {
+			err = watchPullRequests(client, []string{"acme/widgets#12"}, opt)
+		})
+		var exit *watchExitError
+		if !errors.As(err, &exit) || exit.code != 5 {
+			t.Fatalf("watchPullRequests() error = %v, want timeout status", err)
+		}
+		if !strings.Contains(output, "acme/widgets#12 timeout") {
+			t.Fatalf("output = %q", output)
+		}
+		if len(*slept) == 0 {
+			t.Fatal("slept = none, want a backoff before the deadline")
+		}
+	})
+}
+
 func TestWatchJSONReportsEachResult(t *testing.T) {
 	ejected := readyPR()
 	ejected.Ref.Raw = "acme/widgets#2"
