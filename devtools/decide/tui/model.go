@@ -86,6 +86,10 @@ type Model struct {
 	composeFocus int
 	chord        bool
 	chordSeq     int
+	editPrefix   bool
+	editor       *externalEdit
+	suspend      func()
+	resume       func()
 	help         bool
 	answerFocus  bool
 	note         string
@@ -186,8 +190,10 @@ func (m *Model) Reload() error {
 // list. 1 through 9 answer a relay
 // option. 0, f, and r focus one composer.
 // Sending it appends a human message. On an open question that text is also
-// the answer. y archives a notification, and e asks for an outcome then
-// marks the item done. l opens a link, L copies its URL, and Y copies the
+// the answer. In a focused composer, ctrl+x then ctrl+e, or ctrl+g alone,
+// opens that draft in an external editor. y archives a notification, and e
+// asks for an outcome then marks the item done. l opens a link, L copies
+// its URL, and Y copies the
 // current message. M toggles mouse capture. Enter submits the composer only
 // while it is focused. Esc leaves it and keeps the unsent draft. In compose,
 // Tab moves from the recipient
@@ -918,6 +924,13 @@ func (m *Model) statusLine() screenLine {
 	label := m.mouseLabel()
 	if m.chord {
 		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
+	}
+	if m.composerFocused() {
+		hint := label + "ctrl+x ctrl+e  ctrl+g  ? help"
+		if m.status == "" {
+			return screenLine{text: hint}
+		}
+		return screenLine{text: m.status + "  " + hint}
 	}
 	hint := label + "gi/ga/gd/gw/gs  o open  u list  c  tab/text/[Send]  ? help"
 	switch m.mode {
@@ -1833,6 +1846,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
+		"ctrl+x ctrl+e or ctrl+g edits the draft",
 		"1-9 answer  0 f r reply  y archive  e done",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",
@@ -1855,6 +1869,7 @@ func (m *Model) helpLines() []screenLine {
 			"enter on text inserts a newline",
 			"enter on [Send] sends",
 			"esc keeps the draft",
+			"ctrl+x ctrl+e or ctrl+g edits the draft",
 			"shift+drag selects text",
 			"M toggles mouse capture",
 			"click folder, target, or [Send]",
