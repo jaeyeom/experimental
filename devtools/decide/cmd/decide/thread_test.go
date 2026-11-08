@@ -229,6 +229,7 @@ func TestEmacsAppendsAndReadsTheStoredThread(t *testing.T) {
 		"decide-stored-keys-share-one-composer",
 		"decide-stored-composer-keeps-a-finished-answer",
 		"decide-stored-thread-blocks",
+		"decide-stored-message-next-and-previous",
 		"decide-stored-item-key-line-names-archive",
 	} {
 		if !strings.Contains(string(out), name) {

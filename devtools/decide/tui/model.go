@@ -79,6 +79,7 @@ type Model struct {
 	width        int
 	counts       []int
 	scroll       int
+	message      int
 	rows         [][]hit
 	target       int
 	composing    bool
@@ -181,7 +182,8 @@ func (m *Model) Reload() error {
 // Status is also a row in the folder list. There, j and k highlight an
 // agent row, and c opens compose. In the opened item, up, down, j, and k
 // scroll one line, page up and page down scroll one page, and home and end
-// jump to the ends. u returns to the list. 1 through 9 answer a relay
+// jump to the ends. n and p move between messages. u returns to the
+// list. 1 through 9 answer a relay
 // option. 0, f, and r focus one composer.
 // Sending it appends a human message. On an open question that text is also
 // the answer. y archives a notification, and e asks for an outcome then
@@ -397,6 +399,12 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'k':
 		m.Wheel(false)
 		return false, nil
+	case 'n':
+		m.moveMessage(1)
+		return false, nil
+	case 'p':
+		m.moveMessage(-1)
+		return false, nil
 	case 'g':
 		m.beginChord()
 		return false, nil
@@ -584,6 +592,43 @@ func (m *Model) outcomeKey(r rune) (bool, error) {
 	return false, nil
 }
 
+// moveMessage selects the next newer message, or the previous older one.
+// The selection stays put at either end. The header then sits at the top
+// of the thread area.
+func (m *Model) moveMessage(delta int) {
+	if m.detail == nil || len(m.detail.Messages) == 0 {
+		return
+	}
+	next := m.message + delta
+	if next < 0 {
+		next = 0
+	}
+	last := len(m.detail.Messages) - 1
+	if next > last {
+		next = last
+	}
+	m.message = next
+	m.scrollToMessage()
+}
+
+func (m *Model) scrollToMessage() {
+	lines := m.detailLines(m.detailInnerWidth(m.contentWidth()))
+	want := m.message + 1
+	for i, line := range lines {
+		if line.header == want {
+			m.scroll = i
+			return
+		}
+	}
+}
+
+func (m *Model) detailInnerWidth(width int) int {
+	if (m.detailFocused() || m.answerFocus) && width >= 2 {
+		return width - 2
+	}
+	return width
+}
+
 func (m *Model) openRow() error {
 	if len(m.items) == 0 {
 		return nil
@@ -607,6 +652,7 @@ func (m *Model) openRow() error {
 	m.linkURL = ""
 	m.resetFields()
 	m.scroll = 0
+	m.message = 0
 	m.status = "opened " + id
 	return m.Reload()
 }
@@ -794,6 +840,7 @@ func (m *Model) backToList() {
 	m.linkURL = ""
 	m.resetFields()
 	m.scroll = 0
+	m.message = 0
 }
 
 func (m *Model) resetFields() {
@@ -806,6 +853,8 @@ func (m *Model) resetFields() {
 type screenLine struct {
 	text string
 	hits []hit
+	// header is 1-based message index when this line is that message's header.
+	header int
 }
 
 // View renders the sidebar, list, detail, compose panel, and status bar.
@@ -875,7 +924,7 @@ func (m *Model) statusLine() screenLine {
 	case modeStatus:
 		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
 	case modeDetail, modeOutcome:
-		hint = label + "gi/ga/gd/gw/gs  o open  u list  y archive  j/k up/down pgup/pgdn home/end  ? help"
+		hint = label + "gi/ga/gd/gw/gs  o open  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
 	}
 	if m.status == "" {
 		return screenLine{text: hint}
@@ -1168,11 +1217,7 @@ func (m *Model) clipList(list []screenLine) []screenLine {
 }
 
 func (m *Model) openedScreen(width int) []screenLine {
-	textW := width
-	if (m.detailFocused() || m.answerFocus) && width >= 2 {
-		textW = width - 2
-	}
-	detail := m.detailLines(textW)
+	detail := m.detailLines(m.detailInnerWidth(width))
 	_, detailN := m.layoutBudget()
 	var scroll int
 	detail, scroll = clipLines(detail, m.scroll, detailN)
@@ -1820,7 +1865,7 @@ func (m *Model) helpLines() []screenLine {
 	if m.mode == modeDetail || m.mode == modeOutcome {
 		for i, line := range text {
 			if line == "j/k move" {
-				text[i] = "j/k up/down line  pgup/pgdn page  home/end"
+				text[i] = "j/k up/down line  pgup/pgdn page  home/end  n/p"
 			}
 		}
 	}
@@ -1979,7 +2024,10 @@ func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
 		if i > 0 {
 			lines = append(lines, screenLine{text: plainText(strings.Repeat("─", ruleWidth))})
 		}
-		lines = append(lines, screenLine{text: messageHeader(msg, now, i == last)})
+		lines = append(lines, screenLine{
+			text:   messageHeader(msg, now, i == last, i == m.message),
+			header: i + 1,
+		})
 		for _, line := range questionLines(msg.Text, bodyWidth) {
 			lines = append(lines, indentLine(line))
 		}
@@ -1989,7 +2037,7 @@ func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
 
 // messageHeader is one line: author, relative time, option keys, and latest.
 // Human and agent authors use two theme colors. The time is dim.
-func messageHeader(msg decide.Message, now time.Time, latest bool) string {
+func messageHeader(msg decide.Message, now time.Time, latest, current bool) string {
 	r := paletteRenderer()
 	authorStyle := r.NewStyle().Foreground(paletteAgent)
 	if msg.Author == "human" {
@@ -2009,7 +2057,11 @@ func messageHeader(msg decide.Message, now time.Time, latest bool) string {
 	if latest {
 		parts = append(parts, "latest")
 	}
-	return strings.Join(parts, "  ")
+	text := strings.Join(parts, "  ")
+	if current {
+		text = r.NewStyle().Reverse(true).Render(text)
+	}
+	return text
 }
 
 func optionBadges(opts []decide.Option) string {

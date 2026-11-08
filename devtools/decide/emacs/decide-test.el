@@ -205,6 +205,8 @@
         (should (eq (lookup-key item-map (kbd "f")) #'decide-reply))
         (should (eq (lookup-key item-map (kbd "0")) #'decide-reply))
         (should (eq (lookup-key item-map (kbd "r")) #'decide-reply))
+        (should (eq (lookup-key item-map (kbd "n")) #'decide-message-next))
+        (should (eq (lookup-key item-map (kbd "p")) #'decide-message-previous))
         (should (eq (lookup-key item-map (kbd "q")) #'quit-window))
         (should (eq (lookup-key item-map (kbd "g r")) #'revert-buffer))
         (should (eq (lookup-key status-map (kbd "j")) #'next-line))
@@ -663,6 +665,59 @@
   (let ((line (decide--item-keys-line
                '(("options" . ((("key" . "a") ("label" . "Yes"))))))))
     (should (string-match-p "y archive" line))))
+
+(defun decide-test--current-header-at-top (author)
+  "The selected window starts on AUTHOR's highlighted header."
+  (let* ((win (get-buffer-window (current-buffer) t))
+         (start (and win (window-start win))))
+    (should start)
+    (should (eq (get-text-property start 'face) 'decide-current))
+    (save-excursion
+      (goto-char start)
+      (should (string-prefix-p
+               author
+               (buffer-substring-no-properties start (line-end-position)))))))
+
+(ert-deftest decide-stored-message-next-and-previous ()
+  "n and p select a message and pin its header to the top."
+  :tags '(decide-stored)
+  (should (eq (lookup-key decide-item-mode-map (kbd "n")) #'decide-message-next))
+  (should (eq (lookup-key decide-item-mode-map (kbd "p")) #'decide-message-previous))
+  (should-not (eq (lookup-key decide-list-mode-map (kbd "n")) #'decide-message-next))
+  (let ((item '(("id" . "D-9")
+                ("owner" . "ada")
+                ("kind" . "relay")
+                ("state" . "open")
+                ("messages" .
+                 ((("author" . "one") ("text" . "alpha"))
+                  (("author" . "two") ("text" . "beta"))
+                  (("author" . "three") ("text" . "gamma")))))))
+    (unwind-protect
+        (with-current-buffer (get-buffer-create "*decide D-9*")
+          (decide-item-mode)
+          (setq decide--items (list item))
+          (setq decide--message 0)
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (decide--item-text item)))
+          (pop-to-buffer (current-buffer))
+          (decide-message-previous)
+          (decide-test--current-header-at-top "one")
+          (decide-message-next)
+          (decide-test--current-header-at-top "two")
+          (decide-message-next)
+          (decide-test--current-header-at-top "three")
+          (decide-message-previous)
+          (decide-test--current-header-at-top "two")
+          (decide-message-previous)
+          (decide-message-previous)
+          (decide-test--current-header-at-top "one")
+          (decide-message-next)
+          (decide-message-next)
+          (decide-message-next)
+          (decide-test--current-header-at-top "three"))
+      (when (get-buffer "*decide D-9*")
+        (kill-buffer "*decide D-9*")))))
 
 (ert-deftest decide-stored-thread-blocks ()
   "Each message is a block with a header, a rule, and the latest mark."
