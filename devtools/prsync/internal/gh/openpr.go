@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -81,12 +82,18 @@ func (c *Client) listOpenPRsShrinking(ctx context.Context, repo, author string) 
 		if err == nil || !isQueryResourceLimit(err) || page <= 1 {
 			return items, err
 		}
-		page = smallerOpenPRPage(page)
+		next := smallerOpenPRPage(page)
+		runlog.FromContext(ctx).Info("open pr search page halved",
+			"failed_page", page,
+			"next_page", next,
+		)
+		page = next
 	}
 }
 
 func (c *Client) listOpenPRSearch(ctx context.Context, repo, author string, page int) ([]PRListItem, error) {
-	result, err := c.executeChecked(ctx, defaultCallTimeout, validJSONOutput, openPRSearchArgs(repo, author, page)...)
+	policy := ghRetryPolicy{httpAttempts: ghListHTTPRetryAttempts, httpBackoffs: ghListHTTPRetryBackoffs}
+	result, err := c.executeRetry(ctx, defaultCallTimeout, validJSONOutput, policy, openPRSearchArgs(repo, author, page)...)
 	if err != nil {
 		return nil, err
 	}
