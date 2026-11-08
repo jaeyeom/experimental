@@ -774,6 +774,70 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	}
 }
 
+func TestComposeAnswersAnOpenQuestion(t *testing.T) {
+	led, _ := openTemp(t)
+	item, err := led.Create(&Item{
+		Question: "root ask",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		Options:  []Option{{Key: "a", Label: "Alpha"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := "say \"hi\"\nnext"
+	got, err := led.Compose(item.ID, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != StateAnswered || got.Answer == nil || got.Answer.Value != text || got.Answer.AnsweredBy != "human" {
+		t.Fatalf("answer = %+v state %s", got.Answer, got.State)
+	}
+	if len(got.Messages) != 2 || got.Messages[0].Text != "root ask" || got.Messages[1].Text != text || got.Messages[1].Author != "human" {
+		t.Fatalf("messages = %+v", got.Messages)
+	}
+	if len(got.Options) != 1 || got.Options[0].Key != "a" {
+		t.Fatalf("options = %+v", got.Options)
+	}
+	later, err := led.Compose(item.ID, "later")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if later.State != StateAnswered || later.Answer == nil || later.Answer.Value != text {
+		t.Fatalf("second compose changed the answer: %+v state %s", later.Answer, later.State)
+	}
+	if later.Messages[len(later.Messages)-1].Text != "later" {
+		t.Fatalf("second message = %+v", later.Messages)
+	}
+
+	note, err := led.Create(&Item{
+		Question: "progress",
+		Owner:    "ada",
+		Kind:     KindRelay,
+		State:    StateOpen,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noted, err := led.Compose(note.ID, "ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noted.State != StateOpen || noted.Answer != nil || noted.Messages[len(noted.Messages)-1].Text != "ping" {
+		t.Fatalf("notification = state %s answer %+v messages %+v", noted.State, noted.Answer, noted.Messages)
+	}
+	if _, err := led.Compose(item.ID, "   "); err == nil {
+		t.Fatal("empty compose was accepted")
+	}
+	withdrawn, err := led.Withdraw(note.ID, "stop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Compose(withdrawn.ID, "nope"); err == nil {
+		t.Fatal("compose on a withdrawn thread was accepted")
+	}
+}
+
 func TestLegacyAnswerKeepsThePreviousAnswer(t *testing.T) {
 	dir := t.TempDir()
 	created := time.Date(2026, 11, 6, 1, 0, 0, 0, time.UTC)

@@ -296,8 +296,11 @@ func (l *Ledger) StartThread(owner, pane, text string) (Item, error) {
 }
 
 // Compose appends a human message on id.
-// An answered or done thread still takes the message. A withdrawn thread is refused.
-// text is stored unchanged.
+// An open relay question also stores text as the answer, unchanged,
+// including quotes and newlines, and marks the thread answered by a human.
+// That includes a question created without free text.
+// An answered, done, or notification thread keeps its answer and state.
+// A withdrawn thread is refused. text is stored unchanged.
 func (l *Ledger) Compose(id, text string) (Item, error) {
 	if strings.TrimSpace(text) == "" {
 		return Item{}, fmt.Errorf("decide text is empty")
@@ -312,11 +315,17 @@ func (l *Ledger) Compose(id, text string) (Item, error) {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		ensureMessages(it)
+		now := l.clock().UTC()
 		it.Messages = append(it.Messages, Message{
 			Author: "human",
-			Time:   l.clock().UTC(),
+			Time:   now,
 			Text:   text,
 		})
+		if openQuestion(it) {
+			it.State = StateAnswered
+			it.AnsweredAt = now
+			it.Answer = &Answer{Value: text, AnsweredBy: "human"}
+		}
 		updated = *it
 		return nil
 	})
@@ -370,6 +379,12 @@ func (l *Ledger) Reply(id, text string, options []Option, freeText bool) (Item, 
 		return Item{}, err
 	}
 	return updated, nil
+}
+
+// openQuestion is a relay thread still waiting for a human answer.
+// A notification has no options and does not allow free text.
+func openQuestion(it *Item) bool {
+	return it.Kind == KindRelay && it.State == StateOpen && (len(it.Options) > 0 || it.FreeText)
 }
 
 // Select returns items in state. Deadline order is soonest first, then items

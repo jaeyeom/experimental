@@ -222,8 +222,16 @@ func TestEmacsAppendsAndReadsTheStoredThread(t *testing.T) {
 	if err != nil {
 		t.Fatalf("emacs: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "decide-stored-answer-appends") || !strings.Contains(string(out), "decide-stored-reply-appends") || !strings.Contains(string(out), "decide-stored-compose-appends") {
-		t.Fatalf("emacs output did not run the stored-thread tests\n%s", out)
+	for _, name := range []string{
+		"decide-stored-answer-appends",
+		"decide-stored-reply-appends",
+		"decide-stored-compose-appends",
+		"decide-stored-keys-share-one-composer",
+		"decide-stored-composer-keeps-a-finished-answer",
+	} {
+		if !strings.Contains(string(out), name) {
+			t.Fatalf("emacs output did not run %s\n%s", name, out)
+		}
 	}
 }
 

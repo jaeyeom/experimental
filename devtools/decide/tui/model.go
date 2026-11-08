@@ -181,12 +181,13 @@ func (m *Model) Reload() error {
 // Status is also a row in the folder list. There, j and k highlight an
 // agent row, and c opens compose. In the opened
 // item, j and k move to the next and previous item, and u returns to the
-// list. 1 through 9 answer a relay option, 0 focuses free text on a relay
-// item that allows it, r focuses a reply, y archives a notification, and e
-// asks for an outcome then marks the item done. l opens a link, L copies
-// its URL, and Y copies the current message. M toggles mouse capture.
-// Enter submits free text only while that row is focused. Esc leaves the
-// row and keeps the unsent draft. In compose, Tab moves from the recipient
+// list. 1 through 9 answer a relay option. 0, f, and r focus one composer.
+// Sending it appends a human message. On an open question that text is also
+// the answer. y archives a notification, and e asks for an outcome then
+// marks the item done. l opens a link, L copies its URL, and Y copies the
+// current message. M toggles mouse capture. Enter submits the composer only
+// while it is focused. Esc leaves it and keeps the unsent draft. In compose,
+// Tab moves from the recipient
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
 // [Send] sends. Printable keys type into a focused field. ? opens the
 // shortcut overlay only when no text field is focused, and Esc or ? closes
@@ -412,14 +413,9 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'L':
 		m.copyCurrentLink()
 		return false, nil
-	case 'r':
+	case 'r', '0', 'f':
 		m.focusReply()
 		return false, nil
-	case '0':
-		if m.detail != nil && m.detail.FreeText {
-			m.focusAnswer()
-			return false, nil
-		}
 	}
 	return m.detailText(r)
 }
@@ -1804,7 +1800,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
-		"1-9 answer  0 free text  r reply  y archive  e done",
+		"1-9 answer  0 f r reply  y archive  e done",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",
 		"M toggles mouse capture",
@@ -2143,28 +2139,7 @@ func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 		deadline = it.Deadline.Format(time.RFC3339)
 	}
 	lines = append(lines, screenLine{text: plainText("deadline: " + deadline)})
-	if it.FreeText && m.mode == modeDetail {
-		lines = append(lines, screenLine{
-			text: plainText(m.freeTextLine()),
-			hits: []hit{{kind: hitAnswer}},
-		})
-	}
 	return lines
-}
-
-func (m *Model) freeTextLine() string {
-	body := m.draft
-	if body == "" && !m.answerFocus {
-		body = "___"
-	}
-	if m.answerFocus {
-		body = withCursor(m.draft, m.free.Position())
-	}
-	line := "0  answer: " + body
-	if m.answerFocus {
-		line += " Esc to cancel"
-	}
-	return line
 }
 
 // cursorOn and cursorOff mark one reversed column at the caret.
