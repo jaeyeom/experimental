@@ -1268,6 +1268,27 @@ func watchTransient(text string) bool {
 		return true
 	case strings.Contains(lower, "timeout"), strings.Contains(lower, "timed out"):
 		return true
+	case watchConnectionFailure(lower):
+		return true
+	default:
+		return false
+	}
+}
+
+// watchConnectionFailure reports a connect or read failure that never reached HTTP.
+// DNS, refused, reset, TLS handshake, and EOF errors use the same backoff as HTTP 502.
+func watchConnectionFailure(lower string) bool {
+	switch {
+	case strings.Contains(lower, "no such host"):
+		return true
+	case strings.Contains(lower, "connection refused"):
+		return true
+	case strings.Contains(lower, "connection reset"):
+		return true
+	case strings.Contains(lower, "tls handshake"), strings.Contains(lower, "tls: handshake"):
+		return true
+	case strings.Contains(lower, "eof"):
+		return true
 	default:
 		return false
 	}

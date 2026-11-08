@@ -1734,6 +1734,56 @@ func TestWatchRetriesTransientGitHubError(t *testing.T) {
 		}
 	})
 
+	t.Run("connection failure then merged", func(t *testing.T) {
+		failures := []error{
+			errors.New("Get \"https://api.github.com/graphql\": dial tcp: lookup api.github.com: no such host"),
+			errors.New("Get \"https://api.github.com/graphql\": dial tcp 127.0.0.1:443: connect: connection refused"),
+			errors.New("Get \"https://api.github.com/graphql\": read tcp: connection reset by peer"),
+			errors.New("Get \"https://api.github.com/graphql\": remote error: tls: handshake failure"),
+			errors.New("Get \"https://api.github.com/graphql\": unexpected EOF"),
+			errors.New("EOF"),
+		}
+		for _, failure := range failures {
+			t.Run(failure.Error(), func(t *testing.T) {
+				slept, opt := watchClock(start, time.Minute)
+				client := &scriptedWatch{steps: []error{failure, nil}, pr: merged}
+				output := captureStdout(t, func() {
+					if err := watchPullRequests(client, []string{"acme/widgets#12"}, opt); err != nil {
+						t.Fatalf("watchPullRequests() error = %v", err)
+					}
+				})
+				if !strings.Contains(output, "acme/widgets#12 merged") {
+					t.Fatalf("output = %q", output)
+				}
+				if len(*slept) != 1 || (*slept)[0] < 15*time.Second {
+					t.Fatalf("slept = %v, want one backoff of at least 15s", *slept)
+				}
+				if client.n != 2 {
+					t.Fatalf("loads = %d, want 2", client.n)
+				}
+			})
+		}
+	})
+
+	t.Run("http status stays permanent", func(t *testing.T) {
+		for _, failure := range []error{
+			errors.New("gh api graphql: HTTP 401"),
+			errors.New("gh api graphql: HTTP 404"),
+		} {
+			t.Run(failure.Error(), func(t *testing.T) {
+				slept, opt := watchClock(start, time.Minute)
+				client := &scriptedWatch{steps: []error{failure}, pr: merged}
+				err := watchPullRequests(client, []string{"acme/widgets#12"}, opt)
+				if err == nil || !strings.Contains(err.Error(), failure.Error()) {
+					t.Fatalf("watchPullRequests() error = %v", err)
+				}
+				if len(*slept) != 0 || client.n != 1 {
+					t.Fatalf("slept = %v loads = %d, want no poll", *slept, client.n)
+				}
+			})
+		}
+	})
+
 	t.Run("deadline still times out", func(t *testing.T) {
 		slept, opt := watchClock(start, 20*time.Second)
 		client := &scriptedWatch{steps: []error{rate}, pr: merged}
