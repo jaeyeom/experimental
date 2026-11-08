@@ -388,21 +388,13 @@ func setupNotifyDump(t *testing.T) string {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	for _, name := range []string{
-		"DECIDE_ID", "DECIDE_ANSWER", "DECIDE_ANSWER_LABEL", "DECIDE_OWNER",
-		"DECIDE_PANE", "DECIDE_KIND", "DECIDE_QUESTION", "DECIDE_ANSWERED_AT",
-		"DECIDE_ANSWERED_BY",
-	} {
+	for _, name := range notifyEnvNames() {
 		t.Setenv(name, "stale")
 	}
 	dump := t.TempDir()
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
-	for _, name := range []string{
-		"DECIDE_ID", "DECIDE_ANSWER", "DECIDE_ANSWER_LABEL", "DECIDE_OWNER",
-		"DECIDE_PANE", "DECIDE_KIND", "DECIDE_QUESTION", "DECIDE_ANSWERED_AT",
-		"DECIDE_ANSWERED_BY",
-	} {
+	for _, name := range notifyEnvNames() {
 		fmt.Fprintf(&b, "printf '%%s' \"$%s\" > '%s'\n", name, filepath.Join(dump, name))
 	}
 	fmt.Fprintf(&b, "printf '%%s' \"$1\" > '%s'\n", filepath.Join(dump, "arg"))
@@ -429,22 +421,44 @@ func askChoice(t *testing.T, question string, extra ...string) string {
 func assertNotifyDump(t *testing.T, dump string, item decide.Item, question, label string) {
 	t.Helper()
 	want := map[string]string{
-		"DECIDE_ID":           item.ID,
-		"DECIDE_ANSWER":       item.Answer.Value,
-		"DECIDE_ANSWER_LABEL": label,
-		"DECIDE_OWNER":        "ada",
-		"DECIDE_PANE":         "pane-9",
-		"DECIDE_KIND":         "relay",
-		"DECIDE_QUESTION":     question,
-		"DECIDE_ANSWERED_AT":  item.AnsweredAt.Format(time.RFC3339),
-		"DECIDE_ANSWERED_BY":  "human",
-		"arg":                 "{answer}",
+		"DECIDE_ID":            item.ID,
+		"DECIDE_ANSWER":        item.Answer.Value,
+		"DECIDE_ANSWER_LABEL":  label,
+		"DECIDE_OWNER":         "ada",
+		"DECIDE_PANE":          "pane-9",
+		"DECIDE_KIND":          "relay",
+		"DECIDE_QUESTION":      question,
+		"DECIDE_ANSWERED_AT":   item.AnsweredAt.Format(time.RFC3339),
+		"DECIDE_ANSWERED_BY":   "human",
+		"DECIDE_THREAD_HEADER": threadHeader(item.ID, "human"),
+		"DECIDE_REPLY_HINT":    replyHint(item.ID),
+		"arg":                  "{answer}",
 	}
 	for name, value := range want {
 		if got := readDump(t, dump, name); got != value {
 			t.Fatalf("%s = %q, want %q", name, got, value)
 		}
 	}
+}
+
+func notifyEnvNames() []string {
+	return []string{
+		"DECIDE_ID", "DECIDE_ANSWER", "DECIDE_ANSWER_LABEL", "DECIDE_OWNER",
+		"DECIDE_PANE", "DECIDE_KIND", "DECIDE_QUESTION", "DECIDE_ANSWERED_AT",
+		"DECIDE_ANSWERED_BY", "DECIDE_THREAD_HEADER", "DECIDE_REPLY_HINT",
+	}
+}
+
+func threadHeader(id, author string) string {
+	return "[decide " + id + " from " + author + "]"
+}
+
+func replyHint(id string) string {
+	return `Reply in this thread: decide reply ` + id + ` "..." (add --option key:label for a follow-up question; decide done ` + id + ` "outcome" when finished). Do not answer only in your terminal.`
+}
+
+func deliveredNote(id, text string) string {
+	return threadHeader(id, "human") + "\n" + text + "\n" + replyHint(id)
 }
 
 func readDump(t *testing.T, dump, name string) string {
@@ -725,7 +739,8 @@ func TestSendKeepsTheNoteAsOneArgument(t *testing.T) {
 		t.Fatal(err)
 	}
 	logPath := filepath.Join(state, "argv.log")
-	script := "#!/bin/sh\nfor arg in \"$@\"; do printf '%s' \"$arg\" >> '" + logPath + "'; printf '\\0' >> '" + logPath + "'; done\n"
+	markPath := filepath.Join(state, "thread-at-delivery")
+	script := sendCaptureScript(logPath, markPath)
 	if err := os.WriteFile(filepath.Join(bin, "sentinel"), []byte(script), 0o755); err != nil { //nolint:gosec // test sentinel script
 		t.Fatal(err)
 	}
@@ -762,8 +777,15 @@ func TestSendKeepsTheNoteAsOneArgument(t *testing.T) {
 	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
 		parts = parts[:len(parts)-1]
 	}
-	if len(parts) != 2 || string(parts[0]) != "pane-a" || string(parts[1]) != note {
+	if len(parts) != 2 || string(parts[0]) != "pane-a" || string(parts[1]) != deliveredNote("D-001", note) {
 		t.Fatalf("argv = %#v", parts)
+	}
+	gotNote := string(parts[1])
+	if strings.Contains(gotNote, "$DECIDE_THREAD_HEADER") || strings.Contains(gotNote, "$DECIDE_REPLY_HINT") {
+		t.Fatalf("note left the variables literal: %q", gotNote)
+	}
+	if mark := readDump(t, state, "thread-at-delivery"); strings.TrimSpace(mark) != "present" {
+		t.Fatalf("thread at delivery = %q", mark)
 	}
 
 	if _, _, code = runCLI("send", "--to", "missing", "hi"); code == 0 {
@@ -836,16 +858,6 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 	if code := answer(t, id2, "draft"); code != 0 {
 		t.Fatal(code)
 	}
-	if _, stderr, code := runCLI(
-		"reply", id2,
-		"--option", "send:send",
-		"--option", "edit:edit",
-		"--option", "don't send:don't send",
-		"--rec", "send",
-		draft,
-	); code != 0 {
-		t.Fatalf("reply code = %d\n%s", code, stderr)
-	}
 	bin := filepath.Join(state, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -856,6 +868,19 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
+	if _, stderr, code := runCLI(
+		"reply", id2,
+		"--option", "send:send",
+		"--option", "edit:edit",
+		"--option", "don't send:don't send",
+		"--rec", "send",
+		draft,
+	); code != 0 {
+		t.Fatalf("reply code = %d\n%s", code, stderr)
+	}
+	if _, err := os.Stat(logPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("reply delivered to a pane: %v", err)
+	}
 	cfgDir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -887,9 +912,35 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
 		parts = parts[:len(parts)-1]
 	}
-	if len(parts) != 2 || string(parts[0]) != "pane-9" || string(parts[1]) != id2+"\n"+edits {
+	if len(parts) != 2 || string(parts[0]) != "pane-9" || string(parts[1]) != deliveredNote(id2, edits) {
 		t.Fatalf("argv = %#v", parts)
 	}
+	gotNote := string(parts[1])
+	if strings.Contains(gotNote, "$DECIDE_THREAD_HEADER") || strings.Contains(gotNote, "$DECIDE_REPLY_HINT") {
+		t.Fatalf("note left the variables literal: %q", gotNote)
+	}
+}
+
+func sendCaptureScript(logPath, markPath string) string {
+	return `#!/bin/sh
+note=
+for arg in "$@"; do
+  printf '%s' "$arg" >> '` + logPath + `'
+  printf '\0' >> '` + logPath + `'
+  note=$arg
+done
+header=$(printf '%s\n' "$note" | head -n 1)
+prefix='[decide '
+suffix=' from human]'
+id=${header#"$prefix"}
+id=${id%"$suffix"}
+ledger="$XDG_STATE_HOME/decide/ledger.json"
+if grep -F -q "\"id\": \"$id\"" "$ledger"; then
+  printf 'present\n' > '` + markPath + `'
+else
+  printf 'absent\n' > '` + markPath + `'
+fi
+`
 }
 
 func askDraft(t *testing.T) string {

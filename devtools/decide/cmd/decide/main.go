@@ -121,22 +121,24 @@ func cmdSend(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return fail(stderr, fmt.Errorf("decide send recipient %q is unknown", *to), 2)
 	}
-	argv := decide.SendArgv(cfg.SendTemplate, tg.Pane, text)
-	if err := decide.RunSend(argv); err != nil {
-		return fail(stderr, err, 1)
-	}
 	dir, err := decide.DefaultDir()
 	if err != nil {
 		return fail(stderr, fmt.Errorf("decide directory: %w", err), 1)
-	}
-	if err := decide.AppendSend(dir, tg.Name, tg.Pane, text); err != nil {
-		return fail(stderr, err, 1)
 	}
 	led, err := openLedger()
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
-	if _, err := led.StartThread(tg.Name, tg.Pane, text); err != nil {
+	item, err := led.StartThread(tg.Name, tg.Pane, text)
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	note := decide.DeliveryNote(item.ID, "human", text)
+	argv := decide.SendArgv(cfg.SendTemplate, tg.Pane, note)
+	if err := decide.RunSend(argv); err != nil {
+		return fail(stderr, err, 1)
+	}
+	if err := decide.AppendSend(dir, tg.Name, tg.Pane, text); err != nil {
 		return fail(stderr, err, 1)
 	}
 	sent := struct {

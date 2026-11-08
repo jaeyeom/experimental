@@ -62,6 +62,12 @@ into the command string.
   The next line is not included, and a character is not split.
 - ~DECIDE_ANSWERED_AT~ is ~answeredAt~ in RFC3339.
 - ~DECIDE_ANSWERED_BY~ is the stored ~answeredBy~, for example ~human~.
+- ~DECIDE_THREAD_HEADER~ is one line such as ~[decide D-123 from human]~,
+  with the thread id and the author.
+- ~DECIDE_REPLY_HINT~ is one line such as
+  ~Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.~
+
+An empty ~notifyTemplate~ runs nothing. There is no default notify command.
 
 A parent value of the same name does not win.
 
