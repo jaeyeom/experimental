@@ -202,8 +202,9 @@
         (should (eq (lookup-key list-map (kbd "g s")) #'decide-status))
         (should (eq (lookup-key item-map (kbd "j")) #'next-line))
         (should (eq (lookup-key item-map (kbd "k")) #'previous-line))
-        (should (eq (lookup-key item-map (kbd "f")) #'decide-answer-free))
-        (should (eq (lookup-key item-map (kbd "0")) #'decide-answer-free))
+        (should (eq (lookup-key item-map (kbd "f")) #'decide-reply))
+        (should (eq (lookup-key item-map (kbd "0")) #'decide-reply))
+        (should (eq (lookup-key item-map (kbd "r")) #'decide-reply))
         (should (eq (lookup-key item-map (kbd "q")) #'quit-window))
         (should (eq (lookup-key item-map (kbd "g r")) #'revert-buffer))
         (should (eq (lookup-key status-map (kbd "j")) #'next-line))
@@ -269,13 +270,16 @@
               (call-interactively (key-binding (kbd "o"))))
             (with-current-buffer "*decide D-4*"
               (should (equal header-line-format
-                             "a  b   0 f free text   r reply   y archive   q quit"))
+                             "a  b   0 f r reply   y archive   q quit"))
+              (should-not (string-match-p "free text" header-line-format))
               (should (eq (lookup-key decide-item-mode-map (kbd "o"))
                           #'decide-answer-option))
               (should (eq (lookup-key decide-item-mode-map (kbd "f"))
-                          #'decide-answer-free))
+                          #'decide-reply))
               (should (eq (lookup-key decide-item-mode-map (kbd "0"))
-                          #'decide-answer-free))))
+                          #'decide-reply))
+              (should (eq (lookup-key decide-item-mode-map (kbd "r"))
+                          #'decide-reply))))
         (dolist (name '("*decide*" "*decide D-4*" "*decide answer D-4*"))
           (when (get-buffer name)
             (kill-buffer name)))))))
@@ -288,9 +292,11 @@
         (should (eq (lookup-key decide-item-mode-map (kbd "o"))
                     #'decide-answer-option))
         (should (eq (lookup-key decide-item-mode-map (kbd "f"))
-                    #'decide-answer-free))
+                    #'decide-reply))
         (should (eq (lookup-key decide-item-mode-map (kbd "0"))
-                    #'decide-answer-free))
+                    #'decide-reply))
+        (should (eq (lookup-key decide-item-mode-map (kbd "r"))
+                    #'decide-reply))
         (should (assq 'evil after-load-alist)))
     (with-temp-buffer
       (decide-list-mode)
@@ -303,29 +309,30 @@
       (evil-local-mode 1)
       (evil-normal-state)
       (should (eq (key-binding (kbd "o")) #'decide-answer-option))
-      (should (eq (key-binding (kbd "f")) #'decide-answer-free))
-      (should (eq (key-binding (kbd "0")) #'decide-answer-free)))
+      (should (eq (key-binding (kbd "f")) #'decide-reply))
+      (should (eq (key-binding (kbd "0")) #'decide-reply))
+      (should (eq (key-binding (kbd "r")) #'decide-reply)))
     (with-temp-buffer
       (setq decide--item-id "D-4")
-      (decide-answer-free))
+      (decide-reply))
     (unwind-protect
-        (with-current-buffer "*decide answer D-4*"
-          (should (eq (key-binding (kbd "C-c C-c")) #'decide-answer-send))
-          (should (eq (key-binding (kbd "C-c C-k")) #'decide-answer-cancel))
+        (with-current-buffer "*decide reply D-4*"
+          (should (eq (key-binding (kbd "C-c C-c")) #'decide-reply-send))
+          (should (eq (key-binding (kbd "C-c C-k")) #'decide-reply-cancel))
           (should (evil-insert-state-p)))
-      (when (get-buffer "*decide answer D-4*")
-        (kill-buffer "*decide answer D-4*")))
+      (when (get-buffer "*decide reply D-4*")
+        (kill-buffer "*decide reply D-4*")))
     (decide-test--add-elpa "hybrid-mode.el")
     (when (require 'hybrid-mode nil t)
       (with-temp-buffer
         (setq decide--item-id "D-4")
         (let ((evil-default-state 'hybrid))
-          (decide-answer-free)))
+          (decide-reply)))
       (unwind-protect
-          (with-current-buffer "*decide answer D-4*"
+          (with-current-buffer "*decide reply D-4*"
             (should (evil-hybrid-state-p)))
-        (when (get-buffer "*decide answer D-4*")
-          (kill-buffer "*decide answer D-4*"))))
+        (when (get-buffer "*decide reply D-4*")
+          (kill-buffer "*decide reply D-4*"))))
     (cl-letf (((symbol-function 'decide--json)
                (lambda (_args) '((("name" . "ada")))))
               ((symbol-function 'completing-read)
@@ -607,6 +614,64 @@
       (insert "compose note")
       (decide-reply-send))
     (decide-test--assert-stored id "compose note")))
+
+(defun decide-test--open-question ()
+  "Store an open relay question that does not allow free text.  Return the id."
+  (decide-test--use-program)
+  (string-trim
+   (decide--command
+    '("ask" "--owner" "ada" "--kind" "relay"
+      "--option" "a:Alpha" "--option" "b:Beta" "--rec" "a"
+      "--notify-pane" "pane-9" "root ask"))))
+
+(defun decide-test--open-composer (id key)
+  "Press KEY in item ID and return the composer buffer."
+  (decide-show-id id)
+  (with-current-buffer (get-buffer (format "*decide %s*" id))
+    (let ((cmd (key-binding (kbd key))))
+      (should (eq cmd #'decide-reply))
+      (call-interactively cmd)))
+  (get-buffer (format "*decide reply %s*" id)))
+
+(defun decide-test--answer-value (item)
+  "Stored answer value of ITEM, or an empty string."
+  (decide--field (alist-get "answer" item nil nil #'equal) "value"))
+
+(ert-deftest decide-stored-keys-share-one-composer ()
+  "0, f, and r open one composer and record the answer on an open question."
+  :tags '(decide-stored)
+  (dolist (key '("0" "f" "r"))
+    (let* ((id (decide-test--open-question))
+           (text (format "note-%s" key))
+           (buf (decide-test--open-composer id key)))
+      (with-current-buffer buf
+        (should (eq major-mode 'decide-reply-mode))
+        (insert text)
+        (decide-reply-send))
+      (let ((item (decide--json (list "show" "--json" id))))
+        (should (equal (decide--field item "state") "answered"))
+        (should (equal (decide-test--answer-value item) text))
+        (should (equal (decide--field (alist-get "answer" item nil nil #'equal)
+                                      "answeredBy")
+                       "human"))
+        (should (equal (decide-test--texts id)
+                       (list "root ask" text)))))))
+
+(ert-deftest decide-stored-composer-keeps-a-finished-answer ()
+  "On a thread that is not waiting, the composer only appends."
+  :tags '(decide-stored)
+  (let* ((id (decide-test--open-question))
+         (buf nil))
+    (decide--command (list "answer" id "a"))
+    (setq buf (decide-test--open-composer id "r"))
+    (with-current-buffer buf
+      (insert "later note")
+      (decide-reply-send))
+    (let ((item (decide--json (list "show" "--json" id))))
+      (should (equal (decide--field item "state") "answered"))
+      (should (equal (decide-test--answer-value item) "a"))
+      (should (equal (decide-test--texts id)
+                     (list "root ask" "a" "later note"))))))
 
 (provide 'decide-test)
 

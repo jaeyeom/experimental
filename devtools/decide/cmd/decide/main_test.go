@@ -897,8 +897,8 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 		t.Fatalf("send --id code = %d\n%s", code, stderr)
 	}
 	edited := showJSON(t, id2)
-	if edited.State != decide.StateOpen || !optionKeys(edited.Options, "send", "edit", "don't send") {
-		t.Fatalf("edits changed the pending answer: state %s options %+v", edited.State, edited.Options)
+	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != edits || edited.Answer.AnsweredBy != "human" || !optionKeys(edited.Options, "send", "edit", "don't send") {
+		t.Fatalf("edit answer = state %s answer %+v options %+v", edited.State, edited.Answer, edited.Options)
 	}
 	editMsg := edited.Messages[len(edited.Messages)-1]
 	if editMsg.Author != "human" || editMsg.Text != edits {

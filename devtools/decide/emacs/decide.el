@@ -336,7 +336,6 @@ The reply line and the numbered options follow."
                                         (decide--field opt "key")
                                         (decide--field opt "label")))))
       (setq n (1+ n)))
-    (setq parts (append parts (list "0 free text")))
     (dolist (link (alist-get "links" item nil nil #'equal))
       (setq parts (append parts (list link))))
     (mapconcat #'identity parts "\n")))
@@ -351,7 +350,7 @@ The reply line and the numbered options follow."
   (let ((keys (decide--option-keys item)))
     (concat (mapconcat #'identity keys "  ")
             (if keys "   " "")
-            "0 f free text   r reply   y archive   q quit")))
+            "0 f r reply   y archive   q quit")))
 
 (defun decide-answer-option ()
   "Answer the open item with one of its option keys."
@@ -410,16 +409,9 @@ Use hybrid state when evil's default state is hybrid."
    (t (evil-insert-state))))
 
 (defun decide-answer-free ()
-  "Edit a free-text answer in an ordinary buffer."
+  "Open the same composer as `decide-reply'."
   (interactive)
-  (unless decide--item-id
-    (user-error "No item"))
-  (let ((id decide--item-id))
-    (with-current-buffer (get-buffer-create (format "*decide answer %s*" id))
-      (decide-answer-mode)
-      (setq decide--item-id id)
-      (pop-to-buffer (current-buffer))
-      (decide--prepare-answer-state))))
+  (decide-reply))
 
 (defun decide-answer-send ()
   "Send this buffer as the answer."
@@ -501,8 +493,8 @@ Long lines wrap, so a draft in the thread can be scrolled."
   (visual-line-mode 1))
 
 (define-key decide-item-mode-map (kbd "o") #'decide-answer-option)
-(define-key decide-item-mode-map (kbd "f") #'decide-answer-free)
-(define-key decide-item-mode-map (kbd "0") #'decide-answer-free)
+(define-key decide-item-mode-map (kbd "f") #'decide-reply)
+(define-key decide-item-mode-map (kbd "0") #'decide-reply)
 (define-key decide-item-mode-map (kbd "r") #'decide-reply)
 (define-key decide-item-mode-map (kbd "y") #'decide-archive)
 (define-key decide-item-mode-map (kbd "q") #'quit-window)
@@ -787,8 +779,8 @@ or archives."
   (decide--evil-bind
    decide-item-mode-map
    (list (kbd "o") #'decide-answer-option
-         (kbd "f") #'decide-answer-free
-         (kbd "0") #'decide-answer-free
+         (kbd "f") #'decide-reply
+         (kbd "0") #'decide-reply
          (kbd "r") #'decide-reply
          (kbd "y") #'decide-archive)))
 

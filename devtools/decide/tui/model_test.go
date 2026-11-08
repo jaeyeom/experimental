@@ -826,7 +826,7 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "\r0custom words")
-	if !strings.Contains(m.View(), "answer: custom words") {
+	if !strings.Contains(m.View(), "reply: custom words") {
 		t.Fatalf("text box missing draft\n%s", m.View())
 	}
 	press(t, m, "\r")
@@ -838,11 +838,12 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 		t.Fatalf("free text = %+v state %s", got.Answer, got.State)
 	}
 
+	press(t, m, "u")
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "j\r")
-	if strings.Contains(m.View(), "answer:") {
+	press(t, m, "\r")
+	if strings.Contains(m.View(), "0  answer:") || strings.Contains(m.View(), "answer:") {
 		t.Fatalf("options-only item offered a free-text box\n%s", m.View())
 	}
 	press(t, m, "zzzz\r")
@@ -1120,18 +1121,18 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	press(t, m, "\r")
 	view := m.View()
 	opt := strings.Index(view, "2 b Beta")
-	zero := strings.Index(view, "0  answer:")
-	if opt < 0 || zero < opt || strings.Contains(view, "\n10 ") {
-		t.Fatalf("free text is not last row 0\n%s", view)
+	zero := strings.Index(view, "reply:")
+	if opt < 0 || zero < 0 || strings.Contains(view, "\n10 ") || strings.Contains(view, "0  answer:") {
+		t.Fatalf("composer is not the only text row\n%s", view)
 	}
-	if err := m.Click(1, screenRow(view, "0  answer:")); err != nil {
+	if err := m.Click(1, screenRow(view, "reply:")); err != nil {
 		t.Fatal(err)
 	}
 	got, err := led.Get(two.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Answer != nil || !strings.Contains(m.View(), "0  answer:") || !strings.Contains(m.View(), cursorOn) || !strings.Contains(m.View(), "Esc to cancel") {
+	if got.Answer != nil || !m.replyFocus || !strings.Contains(m.View(), "reply:") || !strings.Contains(m.View(), cursorOn) {
 		t.Fatalf("click submitted or hid the cursor\n%s", m.View())
 	}
 	press(t, m, "1\r")
@@ -1143,12 +1144,13 @@ func TestFreeTextIsRowZero(t *testing.T) {
 		t.Fatalf("focused 1 = %+v", got.Answer)
 	}
 
+	press(t, m, "u")
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
 	press(t, m, "\r")
 	view = m.View()
-	if strings.Contains(view, "\n10 ") || !strings.Contains(view, "9 i Choice") || !strings.Contains(view, "0  answer:") {
+	if strings.Contains(view, "\n10 ") || !strings.Contains(view, "9 i Choice") || !strings.Contains(view, "reply:") || strings.Contains(view, "0  answer:") {
 		t.Fatalf("nine options = %s", view)
 	}
 	press(t, m, "0")
@@ -1156,7 +1158,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Answer != nil || !m.answerFocus {
+	if got.Answer != nil || !m.replyFocus {
 		t.Fatalf("0 submitted a nine-option item: %+v", got.Answer)
 	}
 	if _, err := m.Key('\x1b'); err != nil {
@@ -1174,11 +1176,11 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.answerFocus || m.draft != "keep" || got.Answer != nil {
-		t.Fatalf("esc focus %v draft %q answer %+v", m.answerFocus, m.draft, got.Answer)
+	if m.replyFocus || m.reply != "keep" || got.Answer != nil {
+		t.Fatalf("esc focus %v draft %q answer %+v", m.replyFocus, m.reply, got.Answer)
 	}
 	press(t, m, "0")
-	if !strings.Contains(m.View(), "answer: keep") || !strings.Contains(m.View(), cursorOn) {
+	if !strings.Contains(m.View(), "reply: keep") || !strings.Contains(m.View(), cursorOn) {
 		t.Fatalf("draft was dropped\n%s", m.View())
 	}
 	if err := m.Click(1, screenRow(m.View(), "keep draft?")); err != nil {
@@ -1188,8 +1190,8 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.answerFocus || m.draft != "keep" || got.Answer != nil {
-		t.Fatalf("outside click focus %v draft %q answer %+v", m.answerFocus, m.draft, got.Answer)
+	if m.replyFocus || m.reply != "keep" || got.Answer != nil {
+		t.Fatalf("outside click focus %v draft %q answer %+v", m.replyFocus, m.reply, got.Answer)
 	}
 	press(t, m, "1")
 	got, err = led.Get(escItem.ID)
@@ -1261,11 +1263,11 @@ func TestClickAnswersOptionAndFreeText(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := m.View()
-	if err := m.Click(1, screenRow(view, "answer:")); err != nil {
+	if err := m.Click(1, screenRow(view, "reply:")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(m.View(), "answer") {
-		t.Fatalf("free text was not focused\n%s", m.View())
+	if !m.replyFocus || !strings.Contains(m.View(), "reply:") {
+		t.Fatalf("composer was not focused\n%s", m.View())
 	}
 	press(t, m, "custom words\r")
 	got, err = led.Get(free.ID)
@@ -1816,23 +1818,23 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	if _, err := m.Key('\x1b'); err != nil {
 		t.Fatal(err)
 	}
-	m = updateMouseAt(t, m, 1, screenRow(m.View(), "0  answer:"), tea.MouseButtonLeft)
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "reply:"), tea.MouseButtonLeft)
 	got, err = led.Get(relay.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !m.answerFocus || m.folder != 0 || got.Answer != nil {
-		t.Fatalf("answer focus %v folder %d answer %+v", m.answerFocus, m.folder, got.Answer)
+	if !m.replyFocus || m.folder != 0 || got.Answer != nil {
+		t.Fatalf("reply focus %v folder %d answer %+v", m.replyFocus, m.folder, got.Answer)
 	}
 	m = updateMouseAt(t, m, 1, screenRow(m.View(), "1 a Alpha"), tea.MouseButtonLeft)
 	got, err = led.Get(relay.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.answerFocus || m.folder != 0 || got.Answer != nil {
-		t.Fatalf("focused option click focus %v folder %d answer %+v", m.answerFocus, m.folder, got.Answer)
+	if m.replyFocus || m.folder != 0 || got.Answer != nil {
+		t.Fatalf("focused option click focus %v folder %d answer %+v", m.replyFocus, m.folder, got.Answer)
 	}
-	m = updateMouseAt(t, m, 1, screenRow(m.View(), "0  answer:"), tea.MouseButtonLeft)
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "reply:"), tea.MouseButtonLeft)
 	idRow := screenRow(m.View(), relay.ID)
 	m = updateMouseAt(t, m, 1, idRow, tea.MouseButtonLeft)
 	if m.folder != 0 || !strings.Contains(m.View(), "ship it?") {
@@ -2054,14 +2056,14 @@ func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
 
 	m = updateRune(t, m, '\r')
 	m = updateRune(t, m, '0')
-	if !m.answerFocus || !m.free.Focused() {
-		t.Fatal("free text is not a focused text input")
+	if !m.replyFocus {
+		t.Fatal("composer is not focused")
 	}
 	for _, r := range "A?1" {
 		m = updateRune(t, m, r)
 	}
-	if m.draft != "A?1" || m.free.Value() != "A?1" || m.help || m.cursor != cursor {
-		t.Fatalf("free text draft %q help %v cursor %d", m.draft, m.help, m.cursor)
+	if m.reply != "A?1" || m.help || m.cursor != cursor {
+		t.Fatalf("composer draft %q help %v cursor %d", m.reply, m.help, m.cursor)
 	}
 	got, err := led.Get(relay.ID)
 	if err != nil {
@@ -2070,13 +2072,13 @@ func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
 	if got.Answer != nil || m.mode != modeDetail {
 		t.Fatalf("focused keys triggered an answer: %+v mode %d", got.Answer, m.mode)
 	}
-	if !strings.Contains(m.View(), "0  answer:") {
-		t.Fatalf("free text is not row 0\n%s", m.View())
+	if !strings.Contains(m.View(), "reply:") || strings.Contains(m.View(), "0  answer:") {
+		t.Fatalf("composer is not the only text row\n%s", m.View())
 	}
 
 	m = updateRune(t, m, '\x1b')
-	if m.answerFocus || m.draft != "A?1" {
-		t.Fatalf("esc focus %v draft %q", m.answerFocus, m.draft)
+	if m.replyFocus || m.reply != "A?1" {
+		t.Fatalf("esc focus %v draft %q", m.replyFocus, m.reply)
 	}
 	m = updateRune(t, m, '1')
 	got, err = led.Get(relay.ID)
@@ -2364,8 +2366,8 @@ func TestFocusedElementHasOneBorder(t *testing.T) {
 		m = updateRune(t, m, r)
 	}
 	view = m.View()
-	if !m.answerFocus || m.draft != "H1?" || m.help || strings.Count(view, "┌") != 1 || !betweenBox(view, "answer:") || betweenBox(view, item.ID) {
-		t.Fatalf("answer note %q focus %v help %v\n%s", m.draft, m.answerFocus, m.help, view)
+	if !m.replyFocus || m.reply != "H1?" || m.help || strings.Contains(view, "0  answer:") || !strings.Contains(view, "reply: H1?") {
+		t.Fatalf("composer note %q focus %v help %v\n%s", m.reply, m.replyFocus, m.help, view)
 	}
 	got, err = led.Get(item.ID)
 	if err != nil {
@@ -3143,8 +3145,8 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := edited.Messages[len(edited.Messages)-1]
-	if edited.State != decide.StateOpen || last.Author != "human" || last.Text != "edits" {
-		t.Fatalf("reply = state %s message %+v", edited.State, last)
+	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != "edits" || edited.Answer.AnsweredBy != "human" || last.Author != "human" || last.Text != "edits" {
+		t.Fatalf("reply = state %s answer %+v message %+v", edited.State, edited.Answer, last)
 	}
 	if len(edited.Options) != 3 || edited.Options[0].Key != "send" {
 		t.Fatalf("reply cleared the options: %+v", edited.Options)
@@ -3247,6 +3249,7 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 			"https://example.com/more-2",
 			"https://example.com/more-3",
 			"https://example.com/more-4",
+			"https://example.com/more-5",
 		},
 		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
 	})
@@ -3358,12 +3361,12 @@ func TestFocusedTextShowsACursor(t *testing.T) {
 
 	press(t, m, "\x1b")
 	press(t, m, "o0")
-	if !strings.Contains(m.View(), cursorOn) || strings.Contains(m.View(), "answer: _") {
-		t.Fatalf("free text cursor\n%s", m.View())
+	if !m.replyFocus || !strings.Contains(m.View(), cursorOn) || strings.Contains(m.View(), "answer:") {
+		t.Fatalf("reply cursor\n%s", m.View())
 	}
 	press(t, m, "Z")
-	if !strings.Contains(visibleLine(lineContaining(m.View(), "answer:")), "Z") {
-		t.Fatalf("free text\n%s", m.View())
+	if !strings.Contains(visibleLine(lineContaining(m.View(), "reply:")), "Z") {
+		t.Fatalf("reply text\n%s", m.View())
 	}
 
 	press(t, m, "\x1be")
