@@ -43,6 +43,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "color_test.go",
         "editor_test.go",
         "link_test.go",
         "model_test.go",
