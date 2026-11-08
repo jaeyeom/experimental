@@ -330,6 +330,8 @@ func TestQueueCircleCIPrintsFailedStepAndPattern(t *testing.T) {
 			return []byte(`{"id":"pipe-1"}`), nil
 		case strings.HasSuffix(rawURL, "/pipeline/pipe-1/workflow"):
 			return []byte(`{"items":[{"id":"wf-ok","status":"success"},{"id":"wf-2","status":"failed"}]}`), nil
+		case strings.HasSuffix(rawURL, "/workflow/wf-ok/job"):
+			return []byte(`{"items":[{"job_number":1,"status":"success"}]}`), nil
 		case strings.HasSuffix(rawURL, "/workflow/wf-2/job"):
 			return []byte(`{"items":[{"job_number":7,"status":"success"},{"job_number":8,"status":"failed"}]}`), nil
 		case strings.HasSuffix(rawURL, "/project/gh/acme/widgets/8"):
@@ -355,6 +357,7 @@ func TestQueueCircleCIPrintsFailedStepAndPattern(t *testing.T) {
 	wantCalls := []string{
 		"https://circleci.com/api/v2/project/gh/acme/widgets/pipeline/42",
 		"https://circleci.com/api/v2/pipeline/pipe-1/workflow",
+		"https://circleci.com/api/v2/workflow/wf-ok/job",
 		"https://circleci.com/api/v2/workflow/wf-2/job",
 		"https://circleci.com/api/v1.1/project/gh/acme/widgets/8",
 		"https://circleci.com/output/8",
@@ -749,6 +752,106 @@ func TestQueueCircleTokenKeepsPipelineListing(t *testing.T) {
 	})
 	if !strings.Contains(output, "ERROR: setup failed") {
 		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueCirclePipelineCollectsFailedJobs(t *testing.T) {
+	const pipeline = "https://app.circleci.com/pipelines/github/acme/widgets/42"
+	tests := []struct {
+		name      string
+		check     string
+		workflows string
+		jobs      map[string]string
+		wantJob   string
+		wantLog   string
+		absentLog string
+	}{
+		{
+			name:      "later workflow",
+			check:     "ci/circleci",
+			workflows: `{"items":[{"id":"wf-empty","name":"setup","status":"failed"},{"id":"wf-real","name":"test","status":"failed"}]}`,
+			jobs: map[string]string{
+				"wf-empty": `{"items":[{"job_number":7,"name":"setup","status":"success"}]}`,
+				"wf-real":  `{"items":[{"job_number":9,"name":"unit","status":"failed"}]}`,
+			},
+			wantJob:   "9",
+			wantLog:   "ERROR: second workflow",
+			absentLog: "no failed job",
+		},
+		{
+			name:      "job name",
+			check:     "ci/circleci: unit",
+			workflows: `{"items":[{"id":"wf-a","name":"lint-wf","status":"failed"},{"id":"wf-b","name":"test-wf","status":"failed"}]}`,
+			jobs: map[string]string{
+				"wf-a": `{"items":[{"job_number":7,"name":"lint","status":"failed"}]}`,
+				"wf-b": `{"items":[{"job_number":8,"name":"unit","status":"failed"}]}`,
+			},
+			wantJob:   "8",
+			wantLog:   "ERROR: unit job",
+			absentLog: "ERROR: lint job",
+		},
+		{
+			name:      "workflow name",
+			check:     "ci/circleci: build",
+			workflows: `{"items":[{"id":"wf-test","name":"test","status":"failed"},{"id":"wf-build","name":"build","status":"failed"}]}`,
+			jobs: map[string]string{
+				"wf-test":  `{"items":[{"job_number":4,"name":"unit","status":"failed"}]}`,
+				"wf-build": `{"items":[{"job_number":3,"name":"compile","status":"failed"}]}`,
+			},
+			wantJob:   "3",
+			wantLog:   "ERROR: build workflow",
+			absentLog: "ERROR: test workflow",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(circleTokenEnv, "token")
+			var fetched []string
+			withCircleGet(t, func(_ context.Context, rawURL, token string) ([]byte, error) {
+				if token != "token" {
+					t.Fatalf("token = %q", token)
+				}
+				switch {
+				case strings.HasSuffix(rawURL, "/project/gh/acme/widgets/pipeline/42"):
+					return []byte(`{"id":"pipe-1"}`), nil
+				case strings.HasSuffix(rawURL, "/pipeline/pipe-1/workflow"):
+					return []byte(tc.workflows), nil
+				case strings.Contains(rawURL, "/workflow/") && strings.HasSuffix(rawURL, "/job"):
+					id := strings.TrimSuffix(strings.TrimPrefix(rawURL, "https://circleci.com/api/v2/workflow/"), "/job")
+					body, ok := tc.jobs[id]
+					if !ok {
+						t.Fatalf("unexpected workflow jobs %s", rawURL)
+					}
+					return []byte(body), nil
+				case strings.Contains(rawURL, "/project/gh/acme/widgets/"):
+					job := strings.TrimPrefix(rawURL, "https://circleci.com/api/v1.1/project/gh/acme/widgets/")
+					fetched = append(fetched, job)
+					return []byte(`{"steps":[{"actions":[{"status":"failed","output_url":"https://circleci.com/output/` + job + `"}]}]}`), nil
+				case strings.HasPrefix(rawURL, "https://circleci.com/output/"):
+					job := strings.TrimPrefix(rawURL, "https://circleci.com/output/")
+					return []byte(`[{"message":"` + tc.wantLog + ` for ` + job + `\n"}]`), nil
+				default:
+					t.Fatalf("unexpected circleci url %s", rawURL)
+					return nil, nil
+				}
+			})
+			pr := removedPR()
+			client := &fakeQueue{pr: pr, evidence: github.FailureEvidence{
+				Name:      tc.check,
+				TargetURL: pipeline,
+			}}
+			output := captureStdout(t, func() {
+				if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+					t.Fatal("queuePullRequest() error = nil")
+				}
+			})
+			if strings.Join(fetched, ",") != tc.wantJob {
+				t.Fatalf("fetched jobs = %v, want %s", fetched, tc.wantJob)
+			}
+			if !strings.Contains(output, tc.wantLog) || strings.Contains(output, tc.absentLog) {
+				t.Fatalf("output = %s", output)
+			}
+		})
 	}
 }
 
@@ -1397,6 +1500,8 @@ func TestNoFailedJobContinues(t *testing.T) {
 				return []byte(`{"id":"pipe-1"}`), nil
 			case strings.HasSuffix(rawURL, "/workflow"):
 				return []byte(`{"items":[{"id":"` + workflowID + `","status":"success"}]}`), nil
+			case strings.Contains(rawURL, "/job"):
+				return []byte(`{"items":[{"job_number":8,"status":"success"}]}`), nil
 			default:
 				t.Fatalf("unexpected circleci url %s", rawURL)
 				return nil, nil
