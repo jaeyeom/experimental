@@ -6,17 +6,20 @@ const (
 	ActionDispatched        = "dispatched"
 	ActionDispatchedTimeout = "dispatched_timeout"
 	ActionDispatchedBlocked = "dispatched_blocked"
-	ActionSkippedNoTab      = "skipped_no_tab"
-	ActionSkippedNoAgent    = "skipped_no_agent"
-	ActionSkippedBusy       = "skipped_busy"
-	ActionSkippedDeduped    = "skipped_deduped"
-	ActionSkippedDraft      = "skipped_draft"
-	ActionSkippedStalled    = "skipped_stalled"
-	ActionSkippedAddressed  = "skipped_addressed"
-	ActionSkippedNotFound   = "skipped_not_found"
-	ActionQueued            = "queued"
-	ActionGateTimeout       = "gate_timeout"
-	ActionFailed            = "failed"
+	// ActionDispatchedUnresolved means the same unaddressed comments were
+	// already sent and the dedupe window still holds. It does not send again.
+	ActionDispatchedUnresolved = "dispatched_unresolved"
+	ActionSkippedNoTab         = "skipped_no_tab"
+	ActionSkippedNoAgent       = "skipped_no_agent"
+	ActionSkippedBusy          = "skipped_busy"
+	ActionSkippedDeduped       = "skipped_deduped"
+	ActionSkippedDraft         = "skipped_draft"
+	ActionSkippedStalled       = "skipped_stalled"
+	ActionSkippedAddressed     = "skipped_addressed"
+	ActionSkippedNotFound      = "skipped_not_found"
+	ActionQueued               = "queued"
+	ActionGateTimeout          = "gate_timeout"
+	ActionFailed               = "failed"
 )
 
 // Document is the outbound dispatch JSON document.

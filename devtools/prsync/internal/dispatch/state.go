@@ -54,6 +54,7 @@ type Entry struct {
 	PostedHeadSHA              string   `json:"posted_head_sha,omitempty"`                //nolint:tagliatelle // brief outbound contract
 	PostedBody                 string   `json:"posted_body,omitempty"`                    //nolint:tagliatelle // brief outbound contract
 	DispatchedAt               string   `json:"dispatched_at"`                            //nolint:tagliatelle // brief outbound contract
+	DedupeScanCount            int      `json:"dedupe_scan_count,omitempty"`              //nolint:tagliatelle // brief outbound contract
 }
 
 // FileStore loads dispatch state from a JSON file.
@@ -209,6 +210,19 @@ func (s State) Record(key string, commentIDs []string, at time.Time) {
 	}
 }
 
+// NoteUnresolvedScan counts one later evaluation of the same unaddressed ids.
+func (s State) NoteUnresolvedScan(key string) {
+	if s == nil {
+		return
+	}
+	entry, ok := s[key]
+	if !ok {
+		return
+	}
+	entry.DedupeScanCount++
+	s[key] = entry
+}
+
 // DedupedHead reports whether the current head SHA matches the last rebase send.
 // An empty SHA is never treated as a match.
 func (s State) DedupedHead(key, sha string) bool {
@@ -231,6 +245,7 @@ func (s State) RecordHead(key, sha string, at time.Time) {
 		PostedHeadSHA:              prev.PostedHeadSHA,
 		PostedBody:                 prev.PostedBody,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
+		DedupeScanCount:            prev.DedupeScanCount,
 	}
 }
 
@@ -256,6 +271,7 @@ func (s State) RecordCIFix(key, sha string, at time.Time) {
 		PostedHeadSHA:              prev.PostedHeadSHA,
 		PostedBody:                 prev.PostedBody,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
+		DedupeScanCount:            prev.DedupeScanCount,
 	}
 }
 
@@ -281,6 +297,7 @@ func (s State) RecordMergeQueueFix(key, sha string, at time.Time) {
 		PostedHeadSHA:              prev.PostedHeadSHA,
 		PostedBody:                 prev.PostedBody,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
+		DedupeScanCount:            prev.DedupeScanCount,
 	}
 }
 
@@ -306,6 +323,7 @@ func (s State) RecordPosted(key, sha, body string, at time.Time) {
 		PostedHeadSHA:              sha,
 		PostedBody:                 body,
 		DispatchedAt:               at.UTC().Format(time.RFC3339),
+		DedupeScanCount:            prev.DedupeScanCount,
 	}
 }
 

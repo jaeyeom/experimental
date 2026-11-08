@@ -123,9 +123,15 @@ type Config struct {
 	WaitUntil            []string
 	DispatchTimeout      time.Duration
 	StateFile            string
-	DryRun               bool
-	CommentLinkMaxChars  int
-	CommentBodyMaxChars  int
+	// DedupeTTL is how long the same unaddressed comment ids stay deduped.
+	// Zero expires immediately.
+	DedupeTTL time.Duration
+	// DedupeScans is how many later evaluations of those ids expire dedupe.
+	// Zero means the scan count does not expire it.
+	DedupeScans         int
+	DryRun              bool
+	CommentLinkMaxChars int
+	CommentBodyMaxChars int
 	// CommentStripPatterns are removed from each comment body before link
 	// stripping and the body cap. Empty means no stripping.
 	CommentStripPatterns []*regexp.Regexp
@@ -198,6 +204,7 @@ func Defaults() Config {
 		WaitUntil:                []string{"idle", "done"},
 		DispatchTimeout:          1800000 * time.Millisecond,
 		StateFile:                "~/.config/prsync/state.json",
+		DedupeTTL:                24 * time.Hour,
 		DryRun:                   true,
 		CommentLinkMaxChars:      500,
 		CommentBodyMaxChars:      4000,
@@ -373,6 +380,8 @@ func applyKey(cfg *Config, key, val string) error {
 		return applyWaitUntil(cfg, val)
 	case "state_file":
 		cfg.StateFile = val
+	case "dedupe_ttl", "dedupe_scans":
+		return applyDedupe(cfg, key, val)
 	case "dry_run":
 		return applyDryRun(cfg, val)
 	default:
@@ -699,6 +708,27 @@ func applyWaitUntil(cfg *Config, val string) error {
 		return &KeyError{Key: "dispatch_wait_until", Reason: "at least one token required"}
 	}
 	cfg.WaitUntil = fields
+	return nil
+}
+
+func applyDedupe(cfg *Config, key, val string) error {
+	switch key {
+	case "dedupe_ttl":
+		d, err := time.ParseDuration(val)
+		if err != nil {
+			return &KeyError{Key: key, Reason: "not a duration"}
+		}
+		if d < 0 {
+			return &KeyError{Key: key, Reason: "must be >= 0"}
+		}
+		cfg.DedupeTTL = d
+	case "dedupe_scans":
+		n, err := parseNonNegativeInt(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.DedupeScans = n
+	}
 	return nil
 }
 

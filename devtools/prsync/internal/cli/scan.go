@@ -12,6 +12,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/rcasetting"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
@@ -42,8 +43,12 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			}
 			logStartup(cmd.Context(), "scan", cfg)
 			deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
-			doc, err := scan.Run(cmd.Context(), deps, cfg, repos, time.Now())
+			now := time.Now()
+			doc, err := scan.Run(cmd.Context(), deps, cfg, repos, now)
 			if scan.Started(doc) {
+				if aerr := annotateUnresolved(&doc, cfg, now); aerr != nil && err == nil {
+					err = aerr
+				}
 				if werr := writeJSON(stdout, doc); werr != nil {
 					return werr
 				}
@@ -151,7 +156,19 @@ func writeJSON(w io.Writer, doc scan.Document) error {
 	return nil
 }
 
+func annotateUnresolved(doc *scan.Document, cfg config.Config, now time.Time) error {
+	st, err := dispatch.LoadFile(cfg.StateFile)
+	if err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+	dispatch.MarkUnresolved(doc, st, cfg, now)
+	return nil
+}
+
 func scanExit(err error, cfg config.Config) error {
+	if errors.Is(err, dispatch.ErrCorruptState) {
+		return &ExitError{Code: ExitUsage, Err: err}
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return &ExitError{Code: ExitPrecondition, Err: errors.New("interrupted")}
 	}

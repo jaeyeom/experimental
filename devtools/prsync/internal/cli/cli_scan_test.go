@@ -172,6 +172,9 @@ func TestScanHerdrMissingDegrades(t *testing.T) {
 
 func writeScanConfig(t *testing.T, body string) string {
 	t.Helper()
+	if !strings.Contains(body, "state_file=") {
+		body += "state_file=" + filepath.Join(t.TempDir(), "state.json") + "\n"
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "prsync.config")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

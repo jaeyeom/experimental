@@ -114,15 +114,19 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 // dispatched_merge_queue_fix_sha equals the current head, and is not prompted
 // again until the head changes. A skipped rebase or CI-fix sets Detail to the
 // recorded SHA and status. A skipped merge-queue-fix sets Detail to the
-// recorded SHA. force skips comment, rebase, CI-fix, and merge-queue-fix dedupe.
-func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) Item {
-	item := skipReason(c, cfg, st, rebase, ciFix, force)
+// recorded SHA. Comment dedupe holds while the same unaddressed ids are
+// inside dedupe_ttl and, when dedupe_scans is non-zero, under that many
+// later evaluations. That hold is dispatched_unresolved, does not send, and
+// sets Detail to the recorded time. force skips comment, rebase, CI-fix, and
+// merge-queue-fix dedupe.
+func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool, now time.Time) Item {
+	item := skipReason(c, cfg, st, rebase, ciFix, force, now)
 	item.Repo = c.Repo
 	item.Number = c.Number
 	return item
 }
 
-func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool) Item {
+func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool, now time.Time) Item {
 	if c.PR == nil {
 		return Item{Action: ActionSkippedNotFound}
 	}
@@ -140,10 +144,51 @@ func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force b
 		return Item{Action: ActionSkippedNoAgent}
 	case !readyStatus(pr.Tab.AgentStatus):
 		return Item{Action: ActionSkippedBusy}
-	case skipDeduped(st, key, pr, rebase, ciFix, force):
-		return Item{Action: ActionSkippedDeduped, Detail: dedupeDetail(st, key, pr, rebase, ciFix)}
 	default:
+		if action, detail := dedupeAction(st, key, pr, rebase, ciFix, force, now, cfg); action != "" {
+			return Item{Action: action, Detail: detail}
+		}
 		return Item{}
+	}
+}
+
+// commentWindowOpen reports whether these unaddressed ids are still inside
+// the dedupe window. A dedupe_scans of 0 does not expire by scan count.
+// The returned time is dispatched_at.
+func commentWindowOpen(st State, key string, commentIDs []string, now time.Time, ttl time.Duration, scanLimit int) (bool, string) {
+	if !st.Deduped(key, commentIDs) {
+		return false, ""
+	}
+	entry := st[key]
+	at, err := time.Parse(time.RFC3339, entry.DispatchedAt)
+	if err != nil {
+		return false, ""
+	}
+	if !now.Before(at.Add(ttl)) {
+		return false, ""
+	}
+	if scanLimit > 0 && entry.DedupeScanCount >= scanLimit {
+		return false, ""
+	}
+	return true, entry.DispatchedAt
+}
+
+// MarkUnresolved sets Dispatch to dispatched_unresolved on pull requests
+// whose unaddressed comment ids are still inside the dedupe window.
+func MarkUnresolved(doc *scan.Document, st State, cfg config.Config, now time.Time) {
+	if doc == nil {
+		return
+	}
+	for i := range doc.PRs {
+		pr := &doc.PRs[i]
+		if !pr.Unaddressed {
+			continue
+		}
+		open, _ := commentWindowOpen(st, prKey(pr.Repo, pr.Number), commentIDs(*pr), now, cfg.DedupeTTL, cfg.DedupeScans)
+		if !open {
+			continue
+		}
+		pr.Dispatch = ActionDispatchedUnresolved
 	}
 }
 
@@ -184,20 +229,32 @@ func mergeQueueFixMode(pr scan.PR, rebase, ciFix bool) bool {
 	return ok
 }
 
-func skipDeduped(st State, key string, pr scan.PR, rebase, ciFix, force bool) bool {
+func dedupeAction(st State, key string, pr scan.PR, rebase, ciFix, force bool, now time.Time, cfg config.Config) (string, string) {
 	if force {
-		return false
+		return "", ""
 	}
 	switch {
 	case rebase:
-		return rebaseDeduped(st, key, pr)
+		if rebaseDeduped(st, key, pr) {
+			return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
+		}
+		return "", ""
 	case ciFix:
-		return ciFixDeduped(st, key, pr)
+		if ciFixDeduped(st, key, pr) {
+			return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
+		}
+		return "", ""
 	}
 	if mergeQueueFixMode(pr, rebase, ciFix) {
-		return st.DedupedMergeQueueFix(key, pr.HeadSHA)
+		if st.DedupedMergeQueueFix(key, pr.HeadSHA) {
+			return ActionSkippedDeduped, dedupeDetail(st, key, pr, rebase, ciFix)
+		}
+		return "", ""
 	}
-	return st.Deduped(key, commentIDs(pr))
+	if open, at := commentWindowOpen(st, key, commentIDs(pr), now, cfg.DedupeTTL, cfg.DedupeScans); open {
+		return ActionDispatchedUnresolved, fmt.Sprintf("recorded at %s", at)
+	}
+	return "", ""
 }
 
 // rebaseDeduped reports whether a prior rebase dispatch on this head is
@@ -256,18 +313,18 @@ func Run(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req 
 		return doc, err
 	}
 	if cfg.DryRun {
-		return runDry(ctx, h, store, cfg, req, cands, doc)
+		return runDry(ctx, h, store, cfg, req, cands, doc, now)
 	}
 	return runLive(ctx, h, store, cfg, req, now, cands, doc)
 }
 
-func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, cands []Candidate, doc Document) (Document, error) {
+func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, cands []Candidate, doc Document, now time.Time) (Document, error) {
 	st, err := loadState(store)
 	if err != nil {
 		return doc, err
 	}
 	for _, c := range cands {
-		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req))
+		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req, now))
 	}
 	if err := annotateGate(ctx, h, cfg, req, &doc); err != nil {
 		return doc, err
@@ -303,62 +360,83 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 	sleeper := Sleeper(realSleeper{})
 	timedOut := false
 	for i, c := range cands {
-		if err := ctx.Err(); err != nil {
-			doc.Results = append(doc.Results, failItem(c, err))
-			return doc, fmt.Errorf("dispatch: %w", err)
-		}
-		item := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force)
-		if item.Action != "" {
-			logResult(ctx, item)
-			doc.Results = append(doc.Results, item)
-			continue
-		}
-		res, err := Wait(ctx, h, gateConfig(cfg, c.Repo), req.RunnerPane, matched, clock, sleeper)
-		if errors.Is(err, ErrTimeout) {
-			item := gateTimeoutItem(c, res.Busy, req.Doc)
-			logResult(ctx, item)
-			doc.Results = append(doc.Results, item)
-			queueRest(ctx, &doc, cands, i+1)
-			return doc, fmt.Errorf("%w: %s", ErrTimeout, item.Detail)
-		}
-		if err != nil {
-			failed := failItem(c, err)
-			logResult(ctx, failed)
-			doc.Results = append(doc.Results, failed)
-			return doc, err
-		}
-		runlog.FromContext(ctx).Info("dispatch_send",
-			"repo", c.Repo,
-			"number", c.Number,
-			"pane_id", *c.PR.Tab.PaneID,
-		)
-		item = sendPrompt(ctx, h, cfg, c, req, clock, sleeper)
-		logResult(ctx, item)
-		doc.Results = append(doc.Results, item)
-		if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
-			recordDispatch(st, c, req, now)
-			if err := saveState(store, st); err != nil {
-				return doc, err
-			}
-		}
-		if item.Action == ActionDispatchedTimeout {
-			timedOut = true
-		}
-		if item.Action == ActionDispatchedBlocked {
-			queueRest(ctx, &doc, cands, i+1)
-			return doc, nil
-		}
-		if item.Action == ActionFailed {
-			if err := ctx.Err(); err != nil {
-				return doc, fmt.Errorf("dispatch: %w", err)
-			}
-			return doc, fmt.Errorf("%w: %s", ErrFailed, item.Detail)
+		var step liveStep
+		doc, step = dispatchCandidate(ctx, h, store, cfg, req, now, st, matched, clock, sleeper, cands, i, c, doc)
+		timedOut = timedOut || step.timedOut
+		if step.done {
+			return doc, step.err
 		}
 	}
 	if timedOut {
 		return doc, ErrSettleTimeout
 	}
 	return doc, nil
+}
+
+// liveStep is the control result of one candidate. done stops the batch.
+type liveStep struct {
+	done     bool
+	err      error
+	timedOut bool
+}
+
+func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time, st State, matched map[string]struct{}, clock Clock, sleeper Sleeper, cands []Candidate, i int, c Candidate, doc Document) (Document, liveStep) {
+	if err := ctx.Err(); err != nil {
+		doc.Results = append(doc.Results, failItem(c, err))
+		return doc, liveStep{done: true, err: fmt.Errorf("dispatch: %w", err)}
+	}
+	item := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force, now)
+	if item.Action != "" {
+		logResult(ctx, item)
+		doc.Results = append(doc.Results, item)
+		if item.Action == ActionDispatchedUnresolved {
+			st.NoteUnresolvedScan(prKey(c.Repo, c.Number))
+			if err := saveState(store, st); err != nil {
+				return doc, liveStep{done: true, err: err}
+			}
+		}
+		return doc, liveStep{}
+	}
+	res, err := Wait(ctx, h, gateConfig(cfg, c.Repo), req.RunnerPane, matched, clock, sleeper)
+	if errors.Is(err, ErrTimeout) {
+		item = gateTimeoutItem(c, res.Busy, req.Doc)
+		logResult(ctx, item)
+		doc.Results = append(doc.Results, item)
+		queueRest(ctx, &doc, cands, i+1)
+		return doc, liveStep{done: true, err: fmt.Errorf("%w: %s", ErrTimeout, item.Detail)}
+	}
+	if err != nil {
+		failed := failItem(c, err)
+		logResult(ctx, failed)
+		doc.Results = append(doc.Results, failed)
+		return doc, liveStep{done: true, err: err}
+	}
+	runlog.FromContext(ctx).Info("dispatch_send",
+		"repo", c.Repo,
+		"number", c.Number,
+		"pane_id", *c.PR.Tab.PaneID,
+	)
+	item = sendPrompt(ctx, h, cfg, c, req, clock, sleeper)
+	logResult(ctx, item)
+	doc.Results = append(doc.Results, item)
+	if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
+		recordDispatch(st, c, req, now)
+		if err := saveState(store, st); err != nil {
+			return doc, liveStep{done: true, err: err}
+		}
+	}
+	step := liveStep{timedOut: item.Action == ActionDispatchedTimeout}
+	if item.Action == ActionDispatchedBlocked {
+		queueRest(ctx, &doc, cands, i+1)
+		return doc, liveStep{done: true}
+	}
+	if item.Action == ActionFailed {
+		if err := ctx.Err(); err != nil {
+			return doc, liveStep{done: true, err: fmt.Errorf("dispatch: %w", err)}
+		}
+		return doc, liveStep{done: true, err: fmt.Errorf("%w: %s", ErrFailed, item.Detail)}
+	}
+	return doc, step
 }
 
 func gateConfig(cfg config.Config, repo string) config.Config {
@@ -630,8 +708,8 @@ func saveState(store StateStore, st State) error {
 	return nil
 }
 
-func evaluateDry(c Candidate, cfg config.Config, st State, req Request) Item {
-	r := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force)
+func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time.Time) Item {
+	r := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force, now)
 	if r.Action != "" {
 		return r
 	}

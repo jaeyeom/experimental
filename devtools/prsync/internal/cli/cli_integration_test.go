@@ -48,8 +48,24 @@ func TestDispatchGoThenDeduped(t *testing.T) {
 		t.Fatalf("second --go exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
 	got = decodeDispatch(t, stdout.Bytes())
-	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionSkippedDeduped {
-		t.Fatalf("second results = %+v, want skipped_deduped", got.Results)
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionDispatchedUnresolved {
+		t.Fatalf("second results = %+v, want dispatched_unresolved", got.Results)
+	}
+	if !strings.Contains(got.Results[0].Detail, "recorded at ") {
+		t.Fatalf("detail = %q, want recorded time", got.Results[0].Detail)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Execute(context.Background(), []string{"scan", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("scan exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"dispatch": "dispatched_unresolved"`) {
+		t.Fatalf("scan = %s, want dispatched_unresolved marker", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "skipped_deduped") {
+		t.Fatalf("scan = %s, unresolved marker must not be skipped_deduped", stdout.String())
 	}
 
 	restore = swapStdin(t, string(raw))

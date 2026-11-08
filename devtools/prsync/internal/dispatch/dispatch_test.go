@@ -474,8 +474,11 @@ func TestRunLiveDispatchedWritesState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Run() unexpected error: %v", err)
 	}
-	if len(got2.Results) != 1 || got2.Results[0].Action != ActionSkippedDeduped {
-		t.Fatalf("second results = %+v, want skipped_deduped", got2.Results)
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionDispatchedUnresolved {
+		t.Fatalf("second results = %+v, want dispatched_unresolved", got2.Results)
+	}
+	if got2.Results[0].Detail != "recorded at 2026-01-01T09:00:00Z" {
+		t.Fatalf("detail = %q, want recorded time", got2.Results[0].Detail)
 	}
 	if h.promptN != 1 {
 		t.Fatalf("Prompt calls after dedupe = %d, want 1", h.promptN)
@@ -1399,6 +1402,196 @@ func TestRunRecordsEveryInputPR(t *testing.T) {
 	}
 	if actions["acme/missing#1"] != ActionSkippedNotFound {
 		t.Fatalf("actions = %v", actions)
+	}
+}
+
+func TestUnresolvedCommentDedupeExpires(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ttl", func(t *testing.T) {
+		t.Parallel()
+		cfg, store := liveCfg(t)
+		cfg.DedupeTTL = 24 * time.Hour
+		h := idleScript()
+		pr := fixtureEligiblePR()
+		req := Request{Doc: scan.Document{PRs: []scan.PR{pr}}}
+
+		got := mustDispatchRun(t, h, store, cfg, req, fixtureNow)
+		if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+			t.Fatalf("first = %+v, want dispatched", got.Results)
+		}
+		entry := mustLoadState(t, store)["acme/widgets#123"]
+		if !slices.Equal(entry.DispatchedCommentIDs, []string{"PRRC_widget"}) {
+			t.Fatalf("ids = %v, want PRRC_widget", entry.DispatchedCommentIDs)
+		}
+		if entry.DispatchedAt != "2026-01-01T09:00:00Z" || entry.DedupeScanCount != 0 {
+			t.Fatalf("entry = %#v", entry)
+		}
+
+		inside := fixtureNow.Add(time.Hour)
+		got = mustDispatchRun(t, h, store, cfg, req, inside)
+		if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedUnresolved {
+			t.Fatalf("inside window = %+v, want dispatched_unresolved", got.Results)
+		}
+		if got.Results[0].Detail != "recorded at 2026-01-01T09:00:00Z" {
+			t.Fatalf("detail = %q, want recorded time", got.Results[0].Detail)
+		}
+		if h.promptN != 1 {
+			t.Fatalf("prompts inside window = %d, want 1", h.promptN)
+		}
+		doc := scan.Document{PRs: []scan.PR{pr}}
+		MarkUnresolved(&doc, mustLoadState(t, store), cfg, inside)
+		if doc.PRs[0].Dispatch != ActionDispatchedUnresolved {
+			t.Fatalf("scan marker = %q, want dispatched_unresolved", doc.PRs[0].Dispatch)
+		}
+
+		later := fixtureNow.Add(24 * time.Hour)
+		got = mustDispatchRun(t, h, store, cfg, req, later)
+		if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+			t.Fatalf("after ttl = %+v, want dispatched", got.Results)
+		}
+		if h.promptN != 2 {
+			t.Fatalf("prompts after ttl = %d, want 2", h.promptN)
+		}
+		entry = mustLoadState(t, store)["acme/widgets#123"]
+		if entry.DispatchedAt != later.UTC().Format(time.RFC3339) || entry.DedupeScanCount != 0 {
+			t.Fatalf("refreshed entry = %#v", entry)
+		}
+	})
+
+	t.Run("scans", func(t *testing.T) {
+		t.Parallel()
+		cfg, store := liveCfg(t)
+		cfg.DedupeTTL = 24 * time.Hour
+		cfg.DedupeScans = 2
+		h := idleScript()
+		pr := fixtureEligiblePR()
+		req := Request{Doc: scan.Document{PRs: []scan.PR{pr}}}
+		mustDispatchRun(t, h, store, cfg, req, fixtureNow)
+		mustUnresolved(t, h, store, cfg, req, fixtureNow)
+		mustUnresolved(t, h, store, cfg, req, fixtureNow)
+		if h.promptN != 1 {
+			t.Fatalf("prompts during scans = %d, want 1", h.promptN)
+		}
+		if got := mustLoadState(t, store)["acme/widgets#123"].DedupeScanCount; got != 2 {
+			t.Fatalf("scan count = %d, want 2", got)
+		}
+		later := fixtureNow.Add(time.Hour)
+		got := mustDispatchRun(t, h, store, cfg, req, later)
+		if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+			t.Fatalf("after scans = %+v, want dispatched", got.Results)
+		}
+		entry := mustLoadState(t, store)["acme/widgets#123"]
+		if entry.DedupeScanCount != 0 || entry.DispatchedAt != later.UTC().Format(time.RFC3339) {
+			t.Fatalf("refreshed entry = %#v", entry)
+		}
+	})
+
+	t.Run("new comment id", func(t *testing.T) {
+		t.Parallel()
+		cfg, store := liveCfg(t)
+		cfg.DedupeTTL = 24 * time.Hour
+		h := idleScript()
+		pr := fixtureEligiblePR()
+		req := Request{Doc: scan.Document{PRs: []scan.PR{pr}}}
+		mustDispatchRun(t, h, store, cfg, req, fixtureNow)
+		pr.BlockingComments[0].CommentID = "PRRC_new"
+		req.Doc.PRs[0] = pr
+		got := mustDispatchRun(t, h, store, cfg, req, fixtureNow.Add(time.Hour))
+		if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+			t.Fatalf("new id = %+v, want dispatched", got.Results)
+		}
+		entry := mustLoadState(t, store)["acme/widgets#123"]
+		if !slices.Equal(entry.DispatchedCommentIDs, []string{"PRRC_new"}) || entry.DedupeScanCount != 0 {
+			t.Fatalf("entry = %#v", entry)
+		}
+	})
+
+	t.Run("rebase", func(t *testing.T) {
+		t.Parallel()
+		assertModeStaysDeduped(t, func(pr *scan.PR) Request {
+			pr.Unaddressed = false
+			pr.BlockingComments = nil
+			pr.HeadSHA = "abc123def456"
+			pr.MergeStateStatus = "CLEAN"
+			return Request{Doc: scan.Document{PRs: []scan.PR{*pr}}, Rebase: true}
+		})
+	})
+
+	t.Run("ci-fix", func(t *testing.T) {
+		t.Parallel()
+		assertModeStaysDeduped(t, func(pr *scan.PR) Request {
+			pr.Unaddressed = false
+			pr.BlockingComments = nil
+			pr.HeadSHA = "abc123def456"
+			pr.CIState = "green"
+			return Request{Doc: scan.Document{PRs: []scan.PR{*pr}}, CIFix: true}
+		})
+	})
+
+	t.Run("merge-queue-fix", func(t *testing.T) {
+		t.Parallel()
+		assertModeStaysDeduped(t, func(pr *scan.PR) Request {
+			pr.Unaddressed = false
+			pr.BlockingComments = nil
+			pr.HeadSHA = "abc123def456"
+			pr.Actions = []scan.Action{{
+				Name:       scan.ActionMergeQueueFix,
+				EventID:    "EVT",
+				Class:      "our-code",
+				CommentURL: "https://github.com/acme/widgets/pull/123#issuecomment-9",
+			}}
+			return Request{Doc: scan.Document{PRs: []scan.PR{*pr}}}
+		})
+	})
+}
+
+func idleScript() *scriptHerdr {
+	return &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+}
+
+func mustDispatchRun(t *testing.T, h *scriptHerdr, store FileStore, cfg config.Config, req Request, now time.Time) Document {
+	t.Helper()
+	got, err := Run(context.Background(), h, store, cfg, req, now)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	return got
+}
+
+func mustLoadState(t *testing.T, store FileStore) State {
+	t.Helper()
+	st, err := LoadFile(store.Path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	return st
+}
+
+func mustUnresolved(t *testing.T, h *scriptHerdr, store FileStore, cfg config.Config, req Request, now time.Time) {
+	t.Helper()
+	got := mustDispatchRun(t, h, store, cfg, req, now)
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatchedUnresolved {
+		t.Fatalf("results = %+v, want dispatched_unresolved", got.Results)
+	}
+}
+
+func assertModeStaysDeduped(t *testing.T, build func(*scan.PR) Request) {
+	t.Helper()
+	cfg, store := liveCfg(t)
+	h := idleScript()
+	pr := fixtureEligiblePR()
+	req := build(&pr)
+	got := mustDispatchRun(t, h, store, cfg, req, fixtureNow)
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("first = %+v, want dispatched", got.Results)
+	}
+	got = mustDispatchRun(t, h, store, cfg, req, fixtureNow)
+	if len(got.Results) != 1 || got.Results[0].Action != ActionSkippedDeduped {
+		t.Fatalf("second = %+v, want skipped_deduped", got.Results)
+	}
+	if h.promptN != 1 {
+		t.Fatalf("prompts = %d, want 1", h.promptN)
 	}
 }
 

@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
@@ -319,8 +320,12 @@ func TestEligibleSkipReasons(t *testing.T) {
 			name: "deduped",
 			c:    Candidate{Repo: "acme/widgets", Number: 123, PR: prWith(nil)},
 			cfg:  cfg,
-			st:   State{"acme/widgets#123": {DispatchedCommentIDs: []string{"PRRC_widget"}}},
-			want: ActionSkippedDeduped,
+			st: State{"acme/widgets#123": {
+				DispatchedCommentIDs: []string{"PRRC_widget"},
+				DispatchedAt:         "2026-01-01T09:00:00Z",
+			}},
+			want:       ActionDispatchedUnresolved,
+			wantDetail: "recorded at 2026-01-01T09:00:00Z",
 		},
 		{
 			name: "eligible idle",
@@ -431,10 +436,11 @@ func TestEligibleSkipReasons(t *testing.T) {
 			want: ActionSkippedAddressed,
 		},
 	}
+	now := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase, tc.ciFix, tc.force)
+			got := Evaluate(tc.c, tc.cfg, tc.st, tc.rebase, tc.ciFix, tc.force, now)
 			if got.Action != tc.want {
 				t.Fatalf("action = %q, want %q", got.Action, tc.want)
 			}
