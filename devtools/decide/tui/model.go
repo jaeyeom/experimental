@@ -128,8 +128,10 @@ func newNoteField() textarea.Model {
 	field.Prompt = ""
 	field.ShowLineNumbers = false
 	field.Placeholder = ""
-	// A wide field keeps the caret column on the logical line. The view
-	// wraps separately to the panel width.
+	field.CharLimit = 0
+	// MaxWidth 0 removes the 500-column clamp before SetWidth. The view
+	// wraps the logical line in wrapIndexed.
+	field.MaxWidth = 0
 	field.SetWidth(4096)
 	return field
 }
