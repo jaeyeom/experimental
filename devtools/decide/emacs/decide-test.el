@@ -543,6 +543,71 @@
     (should (string-match-p "Answered: 2026-11-02T03:04:05Z" thread-text))
     (should (string-match-p "Answered: 2026-11-02T03:04:05Z\n\nhuman" thread-text))))
 
+(defun decide-test--use-program ()
+  "Point `decide-program' at DECIDE_PROGRAM."
+  (let ((program (getenv "DECIDE_PROGRAM")))
+    (unless (and program (not (string-empty-p program)))
+      (ert-skip "DECIDE_PROGRAM is not set"))
+    (setq decide-program program)))
+
+(defun decide-test--seed-thread ()
+  "Store a root ask, a human note, and an agent draft.  Return the id."
+  (decide-test--use-program)
+  (let ((id (string-trim
+             (decide--command
+              '("ask" "--owner" "ada" "--kind" "relay"
+                "--option" "y:Yes" "--option" "n:No" "--rec" "y"
+                "--free-text" "--notify-pane" "pane-9" "root ask")))))
+    (decide--command (list "answer" id "human note"))
+    (decide--command
+     (list "reply" id "agent draft"
+           "--option" "keep:Keep" "--option" "drop:Drop" "--rec" "keep"))
+    id))
+
+(defun decide-test--texts (id)
+  "Message texts of stored thread ID, in order."
+  (let ((item (decide--json (list "show" "--json" id))))
+    (mapcar (lambda (msg) (decide--field msg "text"))
+            (or (alist-get "messages" item nil nil #'equal) '()))))
+
+(defun decide-test--assert-stored (id new-text)
+  "Assert ID still has the seeded texts followed by NEW-TEXT."
+  (should (equal (decide-test--texts id)
+                 (list "root ask" "human note" "agent draft" new-text))))
+
+(ert-deftest decide-stored-answer-appends ()
+  "Answering from the answer buffer appends and keeps the thread."
+  :tags '(decide-stored)
+  (let ((id (decide-test--seed-thread)))
+    (with-current-buffer (get-buffer-create (format "*decide answer %s*" id))
+      (decide-answer-mode)
+      (setq decide--item-id id)
+      (insert "keep")
+      (decide-answer-send))
+    (decide-test--assert-stored id "keep")))
+
+(ert-deftest decide-stored-reply-appends ()
+  "Sending the reply buffer appends a human message and keeps the thread."
+  :tags '(decide-stored)
+  (let ((id (decide-test--seed-thread)))
+    (with-current-buffer (get-buffer-create (format "*decide reply %s*" id))
+      (decide-reply-mode)
+      (setq decide--item-id id)
+      (insert "please edit")
+      (decide-reply-send))
+    (decide-test--assert-stored id "please edit")))
+
+(ert-deftest decide-stored-compose-appends ()
+  "The reply command is the compose path and only appends."
+  :tags '(decide-stored)
+  (let ((id (decide-test--seed-thread)))
+    (with-current-buffer (get-buffer-create (format "*decide reply %s*" id))
+      (decide-reply-mode)
+      (setq decide--item-id id)
+      (insert "compose note")
+      (decide-reply-send))
+    (decide-test--assert-stored id "compose note")))
+
 (provide 'decide-test)
 
 ;;; decide-test.el ends here

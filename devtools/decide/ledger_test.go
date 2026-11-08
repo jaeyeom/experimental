@@ -774,6 +774,52 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	}
 }
 
+func TestLegacyAnswerKeepsThePreviousAnswer(t *testing.T) {
+	dir := t.TempDir()
+	created := time.Date(2026, 11, 6, 1, 0, 0, 0, time.UTC)
+	answeredAt := time.Date(2026, 11, 6, 2, 0, 0, 0, time.UTC)
+	item := Item{
+		ID:       "D-001",
+		Question: "root ask",
+		Options: []Option{
+			{Key: "send", Label: "Send", Recommended: true},
+			{Key: "edit", Label: "Edit"},
+		},
+		FreeText:   true,
+		Owner:      "ada",
+		Kind:       KindRelay,
+		State:      StateAnswered,
+		CreatedAt:  created,
+		AnsweredAt: answeredAt,
+		Answer:     &Answer{Value: "human note", AnsweredBy: "human"},
+	}
+	body, err := json.MarshalIndent(store{Next: 2, Items: []Item{item}}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ledgerName), append(body, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	led, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	led.now = func() time.Time { return answeredAt.Add(time.Hour) }
+	got, err := led.Answer("D-001", "send")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 3 {
+		t.Fatalf("messages = %+v", got.Messages)
+	}
+	if got.Messages[0].Text != "root ask" || got.Messages[1].Author != "human" || got.Messages[1].Text != "human note" || got.Messages[2].Text != "send" {
+		t.Fatalf("messages = %+v", got.Messages)
+	}
+	if len(got.Messages[0].Options) != 2 || got.Messages[0].Options[0].Key != "send" {
+		t.Fatalf("root options = %+v", got.Messages[0].Options)
+	}
+}
+
 func TestStartThreadStoresTheHumanNote(t *testing.T) {
 	led, _ := openTemp(t)
 	const note = "hello\nthere"

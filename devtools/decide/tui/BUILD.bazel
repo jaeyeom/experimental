@@ -44,6 +44,7 @@ go_test(
     srcs = [
         "link_test.go",
         "model_test.go",
+        "thread_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

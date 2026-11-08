@@ -24,7 +24,15 @@ go_binary(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_test.go",
+        "thread_test.go",
+    ],
+    data = [
+        "//devtools/decide/emacs:decide.el",
+        "//devtools/decide/emacs:decide-test.el",
+    ],
     embed = [":go_default_library"],
+    tags = ["no-sandbox"],
     deps = ["//devtools/decide:go_default_library"],
 )

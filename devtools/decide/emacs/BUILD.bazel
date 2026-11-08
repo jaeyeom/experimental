@@ -1,0 +1,4 @@
+exports_files([
+    "decide.el",
+    "decide-test.el",
+])
