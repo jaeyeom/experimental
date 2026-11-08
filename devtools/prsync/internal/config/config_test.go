@@ -677,6 +677,12 @@ func TestDefaults(t *testing.T) {
 	if got.ConcurrencyWaitOn != "any" {
 		t.Fatalf("ConcurrencyWaitOn = %q", got.ConcurrencyWaitOn)
 	}
+	if !got.ConcurrencyIgnoreBlocked {
+		t.Fatal("ConcurrencyIgnoreBlocked default is not true")
+	}
+	if got.ConcurrencyCwd != "any" {
+		t.Fatalf("ConcurrencyCwd = %q", got.ConcurrencyCwd)
+	}
 	if got.GatePoll != 2000*time.Millisecond {
 		t.Fatalf("GatePoll = %s", got.GatePoll)
 	}

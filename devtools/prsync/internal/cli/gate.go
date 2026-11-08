@@ -59,7 +59,10 @@ func evaluateGate(ctx context.Context, cfg config.Config, exec executor.Executor
 	if err != nil {
 		return dispatch.Result{}, err
 	}
-	res, err := dispatch.Check(ctx, h, cfg.ConcurrencyWaitOn, runner, matched)
+	if cfg.ConcurrencyCwd == "checkout" && cfg.Checkout == "" {
+		cfg.Checkout = dispatch.CheckoutOfCWD()
+	}
+	res, err := dispatch.GateCheck(ctx, h, cfg, runner, matched)
 	if err != nil {
 		return dispatch.Result{}, fmt.Errorf("gate: %w", err)
 	}

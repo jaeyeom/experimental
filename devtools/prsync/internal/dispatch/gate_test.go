@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -110,6 +111,115 @@ func TestCheckManagedBusyWhenMatched(t *testing.T) {
 	}
 }
 
+func TestBlockedDoesNotHoldTheGate(t *testing.T) {
+	t.Parallel()
+
+	const repo = "acme/widgets"
+	checkout := t.TempDir()
+	outside := t.TempDir()
+	cfg := config.Defaults()
+	cfg.ConcurrencyWaitOn = "any"
+	cfg.Checkout = checkout
+
+	blocked := blockedAgent("w2:pB", "w2:tB")
+	got, err := GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{blocked}}}, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Safe {
+		t.Fatalf("%s blocked safe = false, busy=%+v", repo, got.Busy)
+	}
+
+	working := workingAgent("w2:pW", "w2:tW")
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{working}}}, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Safe || len(got.Busy) != 1 || got.Busy[0].Status != "working" {
+		t.Fatalf("working = safe %v busy %+v", got.Safe, got.Busy)
+	}
+
+	cfg.ConcurrencyIgnoreBlocked = false
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{blocked}}}, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Safe || len(got.Busy) != 1 || got.Busy[0].Status != "blocked" {
+		t.Fatalf("ignore false = safe %v busy %+v", got.Safe, got.Busy)
+	}
+
+	cfg = config.Defaults()
+	cfg.ConcurrencyWaitOn = "managed"
+	matched := map[string]struct{}{"w2:tB": {}}
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{blocked}}}, cfg, "", matched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Safe {
+		t.Fatalf("managed blocked safe = false, busy=%+v", got.Busy)
+	}
+	cfg.ConcurrencyIgnoreBlocked = false
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{blocked}}}, cfg, "", matched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Safe {
+		t.Fatal("managed ignore false left the gate safe")
+	}
+
+	cfg = config.Defaults()
+	cfg.ConcurrencyCwd = "checkout"
+	cfg.Checkout = checkout
+	outsideAgent := workingAgent("w2:pOut", "w2:tOut")
+	outsideAgent.Cwd = outside
+	outsideAgent.ForegroundCwd = outside
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{outsideAgent}}}, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Safe {
+		t.Fatalf("outside checkout safe = false, busy=%+v", got.Busy)
+	}
+	byCwd := workingAgent("w2:pIn", "w2:tIn")
+	byCwd.Cwd = filepath.Join(checkout, "src")
+	byCwd.ForegroundCwd = outside
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{byCwd}}}, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Safe {
+		t.Fatal("cwd inside the checkout left the gate safe")
+	}
+	byFg := workingAgent("w2:pFg", "w2:tFg")
+	byFg.Cwd = outside
+	byFg.ForegroundCwd = filepath.Join(checkout, "cmd")
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{byFg}}}, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Safe {
+		t.Fatal("foreground_cwd inside the checkout left the gate safe")
+	}
+	runner := workingAgent("w2:pRun", "w2:tRun")
+	runner.Cwd = checkout
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{runner}}}, cfg, "w2:pRun", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Safe {
+		t.Fatalf("runner pane held the gate, busy=%+v", got.Busy)
+	}
+	blockedInside := blockedAgent("w2:pBlk", "w2:tBlk")
+	blockedInside.Cwd = checkout
+	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{blockedInside}}}, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Safe {
+		t.Fatalf("blocked inside checkout held the gate, busy=%+v", got.Busy)
+	}
+}
+
 func TestCheckBlockedIsBusy(t *testing.T) {
 	t.Parallel()
 
@@ -118,14 +228,8 @@ func TestCheckBlockedIsBusy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() unexpected error: %v", err)
 	}
-	if got.Safe {
-		t.Fatal("safe = true, want false while an agent is blocked awaiting the user")
-	}
-	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
-		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
-	}
-	if got.Busy[0].Status != "blocked" {
-		t.Fatalf("busy status = %q, want blocked", got.Busy[0].Status)
+	if !got.Safe {
+		t.Fatalf("safe = false, want true; a blocked agent does not hold the gate; busy=%+v", got.Busy)
 	}
 }
 
@@ -151,8 +255,8 @@ func TestCheckManagedBusyWhenMatchedBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() unexpected error: %v", err)
 	}
-	if got.Safe {
-		t.Fatal("safe = true, want false when a matched tab is blocked")
+	if !got.Safe {
+		t.Fatalf("safe = false, want true; a matched blocked tab does not hold the gate; busy=%+v", got.Busy)
 	}
 }
 
@@ -271,6 +375,7 @@ func TestWaitFlipsBlockedToIdle(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
 	sleeper := &fakeSleeper{clock: clock}
 	cfg := config.Defaults()
+	cfg.ConcurrencyIgnoreBlocked = false
 	cfg.GatePoll = time.Millisecond
 	cfg.GateTimeout = 50 * time.Millisecond
 
@@ -296,6 +401,7 @@ func TestWaitBlockedTimeoutStaysBusy(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
 	sleeper := &fakeSleeper{clock: clock}
 	cfg := config.Defaults()
+	cfg.ConcurrencyIgnoreBlocked = false
 	cfg.GatePoll = time.Millisecond
 	cfg.GateTimeout = 3 * time.Millisecond
 
@@ -327,6 +433,7 @@ func TestWaitBlockedWritesStatusOnce(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(0, 0).UTC()}
 	sleeper := &fakeSleeper{clock: clock}
 	cfg := config.Defaults()
+	cfg.ConcurrencyIgnoreBlocked = false
 	cfg.GatePoll = time.Millisecond
 	cfg.GateTimeout = 50 * time.Millisecond
 	var buf bytes.Buffer

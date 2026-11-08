@@ -98,14 +98,22 @@ var repoPattern = regexp.MustCompile(`^[^/\s]+/[^/\s]+$`)
 
 // Config is the resolved prsync configuration.
 type Config struct {
-	Repos                []string
-	Author               string
-	TitleIDPattern       *regexp.Regexp
-	TabLabelTemplate     string
-	HerdrBin             string
-	GHBin                string
-	JiraBin              string
-	ConcurrencyWaitOn    string
+	Repos             []string
+	Author            string
+	TitleIDPattern    *regexp.Regexp
+	TabLabelTemplate  string
+	HerdrBin          string
+	GHBin             string
+	JiraBin           string
+	ConcurrencyWaitOn string
+	// ConcurrencyIgnoreBlocked is true when a blocked agent does not hold
+	// the gate. False keeps the older behavior: blocked holds the gate.
+	ConcurrencyIgnoreBlocked bool
+	// ConcurrencyCwd is any or checkout. any does not look at directories.
+	ConcurrencyCwd string
+	// Checkout is the dispatch repo's checkout. It is not a file key.
+	// checkout mode counts an agent only when cwd or foreground_cwd is inside it.
+	Checkout             string
 	GatePoll             time.Duration
 	GateTimeout          time.Duration
 	PromptTemplate       string
@@ -174,26 +182,28 @@ func (e *KeyError) Error() string {
 // Defaults returns the built-in configuration.
 func Defaults() Config {
 	return Config{
-		TitleIDPattern:       regexp.MustCompile(`[A-Z]+-[0-9]+`),
-		TabLabelTemplate:     "{id}",
-		HerdrBin:             "herdr",
-		GHBin:                "gh",
-		JiraBin:              "jira",
-		ConcurrencyWaitOn:    "any",
-		GatePoll:             2000 * time.Millisecond,
-		GateTimeout:          1800000 * time.Millisecond,
-		PromptTemplate:       defaultPromptTemplate,
-		RebasePromptTemplate: defaultRebasePromptTemplate,
-		CIFixPromptTemplate:  defaultCIFixPromptTemplate,
-		WaitUntil:            []string{"idle", "done"},
-		DispatchTimeout:      1800000 * time.Millisecond,
-		StateFile:            "~/.config/prsync/state.json",
-		DryRun:               true,
-		CommentLinkMaxChars:  500,
-		CommentBodyMaxChars:  4000,
-		TeamCoverPerTeam:     1,
-		TeamCoverSignals:     []string{"codeowners", "history", "load"},
-		TeamCoverHistoryDays: 90,
+		TitleIDPattern:           regexp.MustCompile(`[A-Z]+-[0-9]+`),
+		TabLabelTemplate:         "{id}",
+		HerdrBin:                 "herdr",
+		GHBin:                    "gh",
+		JiraBin:                  "jira",
+		ConcurrencyWaitOn:        "any",
+		ConcurrencyIgnoreBlocked: true,
+		ConcurrencyCwd:           "any",
+		GatePoll:                 2000 * time.Millisecond,
+		GateTimeout:              1800000 * time.Millisecond,
+		PromptTemplate:           defaultPromptTemplate,
+		RebasePromptTemplate:     defaultRebasePromptTemplate,
+		CIFixPromptTemplate:      defaultCIFixPromptTemplate,
+		WaitUntil:                []string{"idle", "done"},
+		DispatchTimeout:          1800000 * time.Millisecond,
+		StateFile:                "~/.config/prsync/state.json",
+		DryRun:                   true,
+		CommentLinkMaxChars:      500,
+		CommentBodyMaxChars:      4000,
+		TeamCoverPerTeam:         1,
+		TeamCoverSignals:         []string{"codeowners", "history", "load"},
+		TeamCoverHistoryDays:     90,
 	}
 }
 
@@ -242,8 +252,8 @@ func (c Config) Validate() error {
 	if c.JiraBin == "" {
 		return &KeyError{Key: "jira_bin", Reason: "must be non-empty"}
 	}
-	if c.ConcurrencyWaitOn != "any" && c.ConcurrencyWaitOn != "managed" {
-		return &KeyError{Key: "concurrency_wait_on", Reason: fmt.Sprintf("invalid value %q", c.ConcurrencyWaitOn)}
+	if err := validateConcurrency(c); err != nil {
+		return err
 	}
 	if c.GatePoll < time.Millisecond {
 		return &KeyError{Key: "gate_poll_ms", Reason: "must be >= 1"}
@@ -264,6 +274,16 @@ func (c Config) Validate() error {
 		if !repoPattern.MatchString(repo) {
 			return &KeyError{Key: "repos", Reason: fmt.Sprintf("invalid repo %q", repo)}
 		}
+	}
+	return nil
+}
+
+func validateConcurrency(c Config) error {
+	if c.ConcurrencyWaitOn != "any" && c.ConcurrencyWaitOn != "managed" {
+		return &KeyError{Key: "concurrency_wait_on", Reason: fmt.Sprintf("invalid value %q", c.ConcurrencyWaitOn)}
+	}
+	if c.ConcurrencyCwd != "any" && c.ConcurrencyCwd != "checkout" {
+		return &KeyError{Key: "concurrency_cwd", Reason: fmt.Sprintf("invalid value %q", c.ConcurrencyCwd)}
 	}
 	return nil
 }
@@ -341,8 +361,8 @@ func applyKey(cfg *Config, key, val string) error {
 		cfg.TabLabelTemplate = val
 	case "herdr_bin", "gh_bin", "jira_bin":
 		applyBin(cfg, key, val)
-	case "concurrency_wait_on":
-		cfg.ConcurrencyWaitOn = val
+	case "concurrency_wait_on", "concurrency_ignore_blocked", "concurrency_cwd":
+		return applyConcurrency(cfg, key, val)
 	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms":
 		return applyMillis(cfg, key, val)
 	case "dispatch_prompt_template", "rebase_prompt_template", "ci_fix_prompt_template":
@@ -357,6 +377,18 @@ func applyKey(cfg *Config, key, val string) error {
 		return applyDryRun(cfg, val)
 	default:
 		return applyOtherKey(cfg, key, val)
+	}
+	return nil
+}
+
+func applyConcurrency(cfg *Config, key, val string) error {
+	switch key {
+	case "concurrency_wait_on":
+		cfg.ConcurrencyWaitOn = val
+	case "concurrency_ignore_blocked":
+		return applyIgnoreBlocked(cfg, val)
+	case "concurrency_cwd":
+		cfg.ConcurrencyCwd = val
 	}
 	return nil
 }
@@ -640,6 +672,15 @@ func applyPrompt(cfg *Config, key, val string) error {
 	default:
 		cfg.PromptTemplate = text
 	}
+	return nil
+}
+
+func applyIgnoreBlocked(cfg *Config, val string) error {
+	b, err := parseBool("concurrency_ignore_blocked", val)
+	if err != nil {
+		return err
+	}
+	cfg.ConcurrencyIgnoreBlocked = b
 	return nil
 }
 
