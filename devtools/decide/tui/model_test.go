@@ -323,7 +323,7 @@ func TestDetailHeaderAlignsAndNoColor(t *testing.T) {
 	if !hasColorSequence(rawHeaderLine(t, threaded, "From:")) {
 		t.Fatalf("header has no color\n%s", threaded)
 	}
-	if !blankBeforeBody(threaded, "please look") {
+	if !strings.Contains(visibleLine(threaded), "please look") || !blankBeforeBody(threaded, "human  ") {
 		t.Fatalf("thread header is not separated from the body\n%s", threaded)
 	}
 
@@ -364,7 +364,7 @@ func TestDetailHeaderAlignsAndNoColor(t *testing.T) {
 	if !strings.Contains(visibleLine(asked), "From: ada") || strings.Contains(visibleLine(asked), "To:") {
 		t.Fatalf("ask header\n%s", asked)
 	}
-	if !blankBeforeBody(asked, "ship it?") {
+	if !strings.Contains(visibleLine(asked), "ship it?") || !blankBeforeBody(asked, "ada  ") {
 		t.Fatalf("ask header is not separated from the body\n%s", asked)
 	}
 }
@@ -3282,6 +3282,15 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 	if word12 == 0 || word12 <= word0 {
 		t.Fatalf("word12 row %d word0 row %d\n%s", word12, word0, view)
 	}
+	for screenRow(m.View(), "frame") == 0 {
+		before := m.scroll
+		m.Wheel(true)
+		_ = m.View()
+		if m.scroll <= before {
+			break
+		}
+	}
+	view = m.View()
 	if screenRow(view, "this option") == 0 || screenRow(view, "frame") == 0 {
 		t.Fatalf("option label did not wrap\n%s", view)
 	}

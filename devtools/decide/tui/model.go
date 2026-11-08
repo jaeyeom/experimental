@@ -1958,17 +1958,87 @@ func headerLabelStyle() lipgloss.Style {
 	return paletteRenderer().NewStyle().Foreground(paletteMuted).Faint(true)
 }
 
-// threadLines shows each message oldest first. The text stays on its own
-// lines so the question still begins where the detail view has always begun.
+// threadLines shows each message as its own block, oldest first.
+// A rule separates messages. The header is the author, a relative time,
+// option badges when that message asked a question, and latest on the newest.
+// The body is indented under that header.
 func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
 	if len(it.Messages) == 0 {
 		return questionLines(it.Question, width)
 	}
+	now := time.Now()
+	if m.Now != nil {
+		now = m.Now()
+	}
+	ruleWidth := width
+	if ruleWidth < 1 {
+		ruleWidth = 8
+	}
+	bodyWidth := width
+	if width > 2 {
+		bodyWidth = width - 2
+	}
 	var lines []screenLine
-	for _, msg := range it.Messages {
-		lines = append(lines, questionLines(msg.Text, width)...)
+	last := len(it.Messages) - 1
+	for i, msg := range it.Messages {
+		if i > 0 {
+			lines = append(lines, screenLine{text: plainText(strings.Repeat("─", ruleWidth))})
+		}
+		lines = append(lines, screenLine{text: messageHeader(msg, now, i == last)})
+		for _, line := range questionLines(msg.Text, bodyWidth) {
+			lines = append(lines, indentLine(line))
+		}
 	}
 	return lines
+}
+
+// messageHeader is one line: author, relative time, option keys, and latest.
+// Human and agent authors use two theme colors. The time is dim.
+func messageHeader(msg decide.Message, now time.Time, latest bool) string {
+	r := paletteRenderer()
+	authorStyle := r.NewStyle().Foreground(paletteAgent)
+	if msg.Author == "human" {
+		authorStyle = r.NewStyle().Foreground(paletteHuman)
+	}
+	var parts []string
+	if msg.Author != "" {
+		parts = append(parts, authorStyle.Render(msg.Author))
+	}
+	if !msg.Time.IsZero() {
+		ageStyle := r.NewStyle().Foreground(paletteTime).Faint(true)
+		parts = append(parts, ageStyle.Render(age(now.Sub(msg.Time))))
+	}
+	if badges := optionBadges(msg.Options); badges != "" {
+		parts = append(parts, r.NewStyle().Foreground(paletteBadge).Render(badges))
+	}
+	if latest {
+		parts = append(parts, "latest")
+	}
+	return strings.Join(parts, "  ")
+}
+
+func optionBadges(opts []decide.Option) string {
+	if len(opts) == 0 {
+		return ""
+	}
+	keys := make([]string, len(opts))
+	for i, opt := range opts {
+		keys[i] = opt.Key
+	}
+	return strings.Join(keys, " ")
+}
+
+func indentLine(line screenLine) screenLine {
+	line.text = "  " + line.text
+	for i := range line.hits {
+		if line.hits[i].x0 > 0 {
+			line.hits[i].x0 += 2
+		}
+		if line.hits[i].x1 > 0 {
+			line.hits[i].x1 += 2
+		}
+	}
+	return line
 }
 
 func (m *Model) replyLine() screenLine {
@@ -2193,6 +2263,8 @@ func rowSnippet(it decide.Item) string {
 // ANSI palette indexes follow the terminal theme, not a fixed RGB color.
 const (
 	paletteRequester lipgloss.ANSIColor = 6
+	paletteHuman     lipgloss.ANSIColor = 6
+	paletteAgent     lipgloss.ANSIColor = 2
 	paletteTime      lipgloss.ANSIColor = 8
 	paletteBadge     lipgloss.ANSIColor = 3
 	paletteMuted     lipgloss.ANSIColor = 8

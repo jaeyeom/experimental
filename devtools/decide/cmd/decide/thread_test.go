@@ -228,6 +228,7 @@ func TestEmacsAppendsAndReadsTheStoredThread(t *testing.T) {
 		"decide-stored-compose-appends",
 		"decide-stored-keys-share-one-composer",
 		"decide-stored-composer-keeps-a-finished-answer",
+		"decide-stored-thread-blocks",
 	} {
 		if !strings.Contains(string(out), name) {
 			t.Fatalf("emacs output did not run %s\n%s", name, out)
