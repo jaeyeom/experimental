@@ -47,6 +47,11 @@
   "Face for an agent author in a thread message."
   :group 'decide)
 
+(defface decide-current
+  '((t :inverse-video t))
+  "Face for the current message header."
+  :group 'decide)
+
 (defcustom decide-program "decide"
   "Name or path of the decide executable."
   :type 'string
@@ -73,6 +78,8 @@ buffer in that window."
 (defvar decide--folder "inbox")
 (defvar-local decide--items nil)
 (defvar-local decide--item-id nil)
+(defvar-local decide--message nil
+  "Index of the current thread message, or nil outside an item.")
 (defvar-local decide--recipient nil)
 (defvar decide--status-timer nil)
 
@@ -260,6 +267,7 @@ The requester, relative time, and kind or state badge use their faces."
       (decide-item-mode)
       (setq decide--item-id id)
       (setq decide--items (list item))
+      (setq decide--message 0)
       (let ((inhibit-read-only t))
         (erase-buffer)
         (insert (decide--item-text item)))
@@ -272,15 +280,16 @@ The requester, relative time, and kind or state badge use their faces."
              (alist-get "options" msg nil nil #'equal)
              " "))
 
-(defun decide--message-header (msg latest)
+(defun decide--message-header (msg latest &optional current)
   "One header line for MSG.  LATEST marks the newest message.
 The author uses `decide-human' or `decide-agent', and the time uses
-`decide-time'."
+`decide-time'.  CURRENT marks the selected message."
   (let* ((author (decide--field msg "author"))
          (face (if (equal author "human") 'decide-human 'decide-agent))
          (age (decide--list-age (decide--field msg "time")))
          (badges (decide--option-badges msg))
-         (parts nil))
+         (parts nil)
+         (line nil))
     (unless (string-empty-p author)
       (setq parts (append parts (list (propertize author 'face face)))))
     (unless (string-empty-p age)
@@ -290,7 +299,10 @@ The author uses `decide-human' or `decide-agent', and the time uses
                           (list (propertize badges 'face 'decide-badge)))))
     (when latest
       (setq parts (append parts (list "latest"))))
-    (mapconcat #'identity parts "  ")))
+    (setq line (mapconcat #'identity parts "  "))
+    (if current
+        (propertize line 'face 'decide-current)
+      line)))
 
 (defun decide--indent-body (text)
   "Indent each line of TEXT under a message header."
@@ -313,7 +325,10 @@ its question."
           (when (> i 0)
             (setq parts (append parts (list "────────"))))
           (setq parts (append parts
-                              (list (decide--message-header msg (= i last))
+                              (list (decide--message-header
+                                     msg (= i last)
+                                     (and (numberp decide--message)
+                                          (= i decide--message)))
                                     (decide--indent-body
                                      (decide--field msg "text")))))
           (setq i (1+ i)))
@@ -425,6 +440,44 @@ The reply line and the numbered options follow."
     (when (get-buffer "*decide*")
       (decide-refresh))
     (message "Answered %s" decide--item-id)))
+
+(defun decide-message-next ()
+  "Select the next newer message and show its header at the top."
+  (interactive)
+  (decide--shift-message 1))
+
+(defun decide-message-previous ()
+  "Select the previous older message and show its header at the top."
+  (interactive)
+  (decide--shift-message -1))
+
+(defun decide--shift-message (delta)
+  "Move the current message by DELTA and keep it inside the thread."
+  (let ((n (length (alist-get "messages" (car decide--items) nil nil #'equal))))
+    (unless (> n 0)
+      (user-error "No message"))
+    (unless (numberp decide--message)
+      (setq decide--message 0))
+    (setq decide--message (max 0 (min (1- n) (+ decide--message delta))))
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (insert (decide--item-text (car decide--items))))
+    (decide--scroll-current-message)))
+
+(defun decide--scroll-current-message ()
+  "Put the current message header at the top of the window."
+  (goto-char (point-min))
+  (let (found)
+    (while (and (not found) (not (eobp)))
+      (if (eq (get-text-property (point) 'face) 'decide-current)
+          (setq found (line-beginning-position))
+        (forward-line 1)))
+    (unless found
+      (setq found (point-min)))
+    (goto-char found)
+    (let ((win (get-buffer-window (current-buffer) t)))
+      (when win
+        (set-window-start win found)))))
 
 (defun decide-archive ()
   "Mark this notification done.
@@ -544,6 +597,8 @@ Long lines wrap, so a draft in the thread can be scrolled."
 (define-key decide-item-mode-map (kbd "0") #'decide-reply)
 (define-key decide-item-mode-map (kbd "r") #'decide-reply)
 (define-key decide-item-mode-map (kbd "y") #'decide-archive)
+(define-key decide-item-mode-map (kbd "n") #'decide-message-next)
+(define-key decide-item-mode-map (kbd "p") #'decide-message-previous)
 (define-key decide-item-mode-map (kbd "q") #'quit-window)
 (dotimes (i 9)
   (define-key decide-item-mode-map (kbd (number-to-string (1+ i)))
@@ -829,7 +884,9 @@ or archives."
          (kbd "f") #'decide-reply
          (kbd "0") #'decide-reply
          (kbd "r") #'decide-reply
-         (kbd "y") #'decide-archive)))
+         (kbd "y") #'decide-archive
+         (kbd "n") #'decide-message-next
+         (kbd "p") #'decide-message-previous)))
 
 (with-eval-after-load 'evil
   (decide--evil-setup))

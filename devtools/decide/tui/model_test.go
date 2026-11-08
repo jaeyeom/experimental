@@ -1258,6 +1258,132 @@ func TestItemViewScrollKeys(t *testing.T) {
 	}
 }
 
+func TestItemViewMessageKeys(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	older := mustCreate(t, led, &decide.Item{
+		Question:  "older-item",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	thread := mustCreate(t, led, &decide.Item{
+		Question:  "thread",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC),
+		Messages: []decide.Message{
+			{Author: "one", Text: "alpha"},
+			{Author: "two", Text: "beta"},
+			{Author: "three", Text: "gamma"},
+		},
+	})
+	m := New(dir)
+	m.height = 5
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if m.cursor != 0 || m.items[0].ID != thread.ID {
+		t.Fatalf("cursor %d id %s", m.cursor, m.items[0].ID)
+	}
+	press(t, m, "n")
+	if m.cursor != 0 || m.mode != modeList || m.detail != nil || m.items[1].ID != older.ID {
+		t.Fatalf("list n moved cursor %d mode %d", m.cursor, m.mode)
+	}
+	press(t, m, "o")
+	if m.detail == nil || m.detail.ID != thread.ID || m.message != 0 {
+		t.Fatalf("opened message %d id %v", m.message, m.detail)
+	}
+
+	press(t, m, "n")
+	assertMessageTop(t, m, 1, "two")
+	scroll := m.scroll
+	press(t, m, "j")
+	if m.message != 1 || m.scroll != scroll+1 || m.detail.ID != thread.ID {
+		t.Fatalf("j message %d scroll %d want %d", m.message, m.scroll, scroll+1)
+	}
+	press(t, m, "n")
+	assertMessageTop(t, m, 2, "three")
+	press(t, m, "p")
+	assertMessageTop(t, m, 1, "two")
+	press(t, m, "p")
+	assertMessageTop(t, m, 0, "one")
+	press(t, m, "p")
+	assertMessageTop(t, m, 0, "one")
+	press(t, m, "nnn")
+	assertMessageTop(t, m, 2, "three")
+
+	m.width = 120
+	m.height = 16
+	footer := m.View()
+	for _, needle := range []string{"n/p", "? help"} {
+		if !strings.Contains(footer, needle) {
+			t.Fatalf("footer missing %q\n%s", needle, footer)
+		}
+	}
+	press(t, m, "?")
+	help := m.View()
+	for _, needle := range []string{"n/p", "? help"} {
+		if !strings.Contains(help, needle) {
+			t.Fatalf("help missing %q\n%s", needle, help)
+		}
+	}
+	press(t, m, "?u")
+	list := m.View()
+	if m.mode != modeList || m.cursor != 0 || strings.Contains(list, "n/p") || !strings.Contains(list, "? help") {
+		t.Fatalf("list footer\n%s", list)
+	}
+}
+
+func assertMessageTop(t *testing.T, m *Model, index int, author string) {
+	t.Helper()
+	view := m.View()
+	top := lineAfterBorder(view)
+	if m.message != index || !strings.Contains(top, author) {
+		t.Fatalf("message %d top %q want %d %s\n%s", m.message, top, index, author, view)
+	}
+	raw := rawLineAfterBorder(view)
+	if !strings.Contains(raw, "\x1b[7m") || !strings.Contains(visibleLine(raw), author) {
+		t.Fatalf("header %q is not highlighted\n%s", author, raw)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		vis := visibleLine(line)
+		if strings.Contains(vis, author) {
+			continue
+		}
+		for _, other := range []string{"one", "two", "three"} {
+			if strings.Contains(vis, other) && strings.Contains(line, "\x1b[7m") {
+				t.Fatalf("%s is highlighted\n%s", other, line)
+			}
+		}
+	}
+}
+
+func rawLineAfterBorder(view string) string {
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		if strings.Contains(visibleLine(line), "┌") && i+1 < len(lines) {
+			return lines[i+1]
+		}
+	}
+	if len(lines) > 1 {
+		return lines[1]
+	}
+	return ""
+}
+
 func lineAfterBorder(view string) string {
 	lines := strings.Split(view, "\n")
 	for i, line := range lines {
