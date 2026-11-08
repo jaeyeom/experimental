@@ -994,6 +994,13 @@ func watchOne(client watchAPI, ref string, opt watchOptions) (string, error) {
 	for {
 		pr, err := client.LoadPullRequest(ref)
 		if err != nil {
+			if wait, ok := watchTransientWait(err, opt.interval); ok {
+				if !opt.now().Before(deadline) {
+					return "timeout", nil
+				}
+				opt.sleep(wait)
+				continue
+			}
 			return "", fmt.Errorf("watch %s: %w", ref, err)
 		}
 		// isInMergeQueue false is not enough: it flickers during a merge.
@@ -1013,6 +1020,57 @@ func watchOne(client watchAPI, ref string, opt watchOptions) (string, error) {
 		}
 		opt.sleep(opt.interval)
 	}
+}
+
+var watchTransientHTTP = regexp.MustCompile(`(?i)\bhttp\s+50[24]\b`)
+
+func watchTransientWait(err error, interval time.Duration) (time.Duration, bool) {
+	if err == nil || !watchTransient(err.Error()) {
+		return 0, false
+	}
+	wait := interval
+	if wait <= 0 {
+		wait = defaultWatchInterval
+	}
+	if retryAfter, ok := watchRetryAfter(err.Error()); ok && retryAfter > wait {
+		wait = retryAfter
+	}
+	return wait, true
+}
+
+func watchTransient(text string) bool {
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "secondary rate limit"), strings.Contains(lower, "secondary rate-limit"):
+		return true
+	case watchTransientHTTP.MatchString(lower):
+		return true
+	case strings.Contains(lower, "timeout"), strings.Contains(lower, "timed out"):
+		return true
+	default:
+		return false
+	}
+}
+
+func watchRetryAfter(text string) (time.Duration, bool) {
+	const key = "retry-after"
+	i := strings.Index(strings.ToLower(text), key)
+	if i < 0 {
+		return 0, false
+	}
+	rest := strings.TrimLeft(strings.TrimSpace(text[i+len(key):]), ":= \t")
+	if rest == "" {
+		return 0, false
+	}
+	field := rest
+	if cut := strings.IndexAny(rest, " \t\r\n"); cut >= 0 {
+		field = rest[:cut]
+	}
+	seconds, convErr := strconv.Atoi(field)
+	if convErr != nil || seconds < 0 {
+		return 0, false
+	}
+	return time.Duration(seconds) * time.Second, true
 }
 
 func watchSettings(cfg *config.Config, ref string) (string, string) {
