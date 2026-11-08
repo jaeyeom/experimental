@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "client.go",
+        "openpr.go",
         "retry.go",
         "teamcover.go",
         "types.go",

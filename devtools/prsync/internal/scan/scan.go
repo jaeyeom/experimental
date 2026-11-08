@@ -93,10 +93,10 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	return finish(doc, nil)
 }
 
-// RunTargets classifies targets with gh pr view and review threads for those
-// PRs only, then matches herdr tabs. It does not search repositories or list
-// every open PR. A missing PR is omitted. An inaccessible repository is
-// recorded and its PRs are omitted. Other view errors are fatal.
+// RunTargets classifies targets with one pull-request view and review threads
+// for those PRs only, then matches herdr tabs. It does not search repositories
+// or list every open PR. A missing PR is omitted. An inaccessible repository
+// is recorded and its PRs are omitted. Other view errors are fatal.
 func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Target, now time.Time) (Document, error) {
 	doc := emptyDocument(now)
 	if err := deps.GH.AuthStatus(ctx); err != nil {

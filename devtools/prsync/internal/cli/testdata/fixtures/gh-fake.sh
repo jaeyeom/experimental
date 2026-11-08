@@ -70,14 +70,40 @@ case "${cmd} ${sub}" in
     exit 0
     ;;
   "api graphql")
-    # Path history and review threads share `gh api graphql`. The history
-    # query names associatedPullRequests; review threads do not.
+    # Path history, review threads, the open-PR search, and the single-PR
+    # view share `gh api graphql`. The history query names
+    # associatedPullRequests. Review threads do not name requestedReviewer.
     case "$*" in
       *committedDate*)
         cat "${DIR}/gh-rca-comments.json"
         ;;
       *associatedPullRequests*)
         cat "${DIR}/gh-path-history.json"
+        ;;
+      *requestedReviewer*)
+        case "$*" in
+          *'search(query:'*)
+            if [ -n "${GH_FAKE_LIST_FAIL-}" ]; then
+              printf '%s\n' "gh-fake: pr list should not run" >&2
+              exit 1
+            fi
+            cat "${DIR}/gh-open-pr-search.json"
+            ;;
+          *)
+            if [ -n "${GH_FAKE_VIEW_LOG-}" ]; then
+              printf '%s\n' "$*" >> "${GH_FAKE_VIEW_LOG}"
+            fi
+            case "$*" in
+              *'num=123'*)
+                cat "${DIR}/gh-open-pr-view.json"
+                ;;
+              *)
+                printf '%s\n' "GraphQL: Could not resolve to a PullRequest." >&2
+                exit 1
+                ;;
+            esac
+            ;;
+        esac
         ;;
       *)
         cat "${DIR}/gh-review-threads.json"
