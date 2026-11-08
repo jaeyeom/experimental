@@ -19,18 +19,11 @@ const (
 	defaultCallTimeout     = 60 * time.Second
 	maxReviewThreadPages   = 50
 	rollupFetchConcurrency = 4
-	// prListJSONFields omits statusCheckRollup and latestReviews. One search
-	// page that includes the rollup exceeds GitHub's GraphQL resource limit
-	// once many open PRs each carry a large check rollup, and the gateway
-	// answers 502 or 504. state is a scalar on each pull request already
-	// loaded, so it adds no node and no second request.
-	prListJSONFields      = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
-	prViewJSONFields      = prListJSONFields + ",latestReviews,statusCheckRollup"
-	statusCheckJSONFields = "statusCheckRollup"
-	prSearchJSONFields    = "number,title,url,state,isDraft,closedAt,repository"
-	prStateJSONFields     = "number,title,url,state,isDraft,closedAt"
-	reviewThreadsQuery    = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
-	markerCommentsQuery   = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){commits(last:1){nodes{commit{committedDate}}}comments(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{url body createdAt}}}}}`
+	statusCheckJSONFields  = "statusCheckRollup"
+	prSearchJSONFields     = "number,title,url,state,isDraft,closedAt,repository"
+	prStateJSONFields      = "number,title,url,state,isDraft,closedAt"
+	reviewThreadsQuery     = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id isResolved comments(last:1){nodes{id author{login} path line url body}}}}}}}`
+	markerCommentsQuery    = `query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$num){commits(last:1){nodes{commit{committedDate}}}comments(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{url body createdAt}}}}}`
 )
 
 // Client shells out to gh_bin through an injected executor.
@@ -135,29 +128,14 @@ func (c *Client) SearchAuthoredPRs(ctx context.Context, author, query string) ([
 	return items, nil
 }
 
-// ListOpenPRs runs `gh pr list` for one repo. 404/archived become ErrInaccessible.
+// ListOpenPRs loads one author's open pull requests in repo.
+// The search is our GraphQL query, not `gh pr list --json reviewRequests`,
+// because GitHub CLI always selects requestedReviewer.organization.
+// 404 and archived repositories become ErrInaccessible.
 func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRListItem, error) {
-	result, err := c.executeChecked(ctx, defaultCallTimeout, validJSONOutput,
-		"pr", "list", "--repo", repo, "--author", author, "--state", "open",
-		"--limit", "1000", "--json", prListJSONFields)
+	prs, err := c.listOpenPRsShrinking(ctx, repo, author)
 	if err != nil {
 		return nil, err
-	}
-	if result.ExitCode != 0 {
-		if isInaccessible(result.Stderr) {
-			return nil, fmt.Errorf("%w: %s", ErrInaccessible, strings.TrimSpace(result.Stderr))
-		}
-		return nil, &ProcError{ExitCode: result.ExitCode, Stdout: result.Output, Stderr: result.Stderr}
-	}
-	var prs []PRListItem
-	if err := json.Unmarshal([]byte(result.Output), &prs); err != nil {
-		return nil, fmt.Errorf("decode pr list: %w", err)
-	}
-	if prs == nil {
-		prs = []PRListItem{}
-	}
-	for i := range prs {
-		prs[i].State = NormalizePRState(prs[i].State)
 	}
 	if len(prs) == 0 {
 		return prs, nil
@@ -169,8 +147,11 @@ func (c *Client) ListOpenPRs(ctx context.Context, repo, author string) ([]PRList
 }
 
 // fillStatusChecks loads each pull request's rollup with its own view.
-// A per-PR failure sets StatusCheckError and leaves the rollup nil.
-// A primary rate limit or a canceled context fails the whole list.
+// The search page omits the rollup: one page that includes it exceeds
+// GitHub's resource limit once many open PRs carry a large rollup, and the
+// gateway answers 502 or 504. A per-PR failure sets StatusCheckError and
+// leaves the rollup nil. A primary rate limit or a canceled context fails
+// the whole list.
 func (c *Client) fillStatusChecks(ctx context.Context, repo string, items []PRListItem) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -244,20 +225,13 @@ func (c *Client) statusChecks(ctx context.Context, repo string, number int) ([]S
 	return payload.StatusCheckRollup, nil
 }
 
-// ViewPR runs `gh pr view <number> --repo <repo> --json` for one pull request,
-// including latestReviews and statusCheckRollup. A missing pull request is
-// ErrNotFound. A missing or archived repository is ErrInaccessible.
+// ViewPR loads one pull request, including review requests, latestReviews,
+// and statusCheckRollup. Review requests use the same fragment as the open-PR
+// search, so the query does not select requestedReviewer.organization.
+// A missing pull request is ErrNotFound. A missing or archived repository
+// is ErrInaccessible.
 func (c *Client) ViewPR(ctx context.Context, repo string, number int) (PRListItem, error) {
-	raw, err := c.prViewJSON(ctx, repo, number, prViewJSONFields)
-	if err != nil {
-		return PRListItem{}, err
-	}
-	var item PRListItem
-	if err := json.Unmarshal([]byte(raw), &item); err != nil {
-		return PRListItem{}, fmt.Errorf("decode pr view: %w", err)
-	}
-	item.State = NormalizePRState(item.State)
-	return item, nil
+	return c.viewOpenPR(ctx, repo, number)
 }
 
 // NormalizePRState maps GitHub's OPEN, CLOSED, and MERGED values to

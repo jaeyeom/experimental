@@ -131,11 +131,9 @@ func TestSearchOpenPRRepos(t *testing.T) {
 func TestListOpenPRs(t *testing.T) {
 	t.Parallel()
 
-	const jsonFields = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
-
 	t.Run("parses list", func(t *testing.T) {
 		t.Parallel()
-		body := `[{
+		body := openPRSearchJSON(`{
 			"number":123,
 			"title":"[PROJ-123] Fix the widget",
 			"url":"https://github.com/acme/widgets/pull/123",
@@ -147,15 +145,13 @@ func TestListOpenPRs(t *testing.T) {
 			"mergeStateStatus":"BEHIND",
 			"isDraft":false,
 			"reviewDecision":"APPROVED",
-			"reviewRequests":[{"__typename":"User","login":"reviewer"}],
-			"latestReviews":[{"author":{"login":"reviewer"},"state":"APPROVED","submittedAt":"2026-01-01T00:00:00Z"}],
-			"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]
-		}]`
+			"reviewRequests":{"nodes":[
+				{"requestedReviewer":{"__typename":"User","login":"reviewer"}},
+				{"requestedReviewer":{"__typename":"Team","name":"Widgets","slug":"widgets"}}
+			]}
+		}`)
 		mock := newGHMock()
-		mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
-			"--repo", "acme/widgets", "--author", "alice", "--state", "open",
-			"--limit", "1000", "--json", jsonFields).
-			WillSucceed(body, 0).Build()
+		expectOpenPRSearch(mock, "acme/widgets", "alice", openPRSearchPage).WillSucceed(body, 0).Build()
 		expectStatusChecks(mock, 123, `{"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}`).Once().Build()
 		got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
 		if err != nil {
@@ -164,8 +160,14 @@ func TestListOpenPRs(t *testing.T) {
 		if len(got) != 1 || got[0].Number != 123 || got[0].Title == "" || got[0].IsDraft {
 			t.Fatalf("ListOpenPRs() = %+v", got)
 		}
-		if got[0].ReviewDecision != "APPROVED" || len(got[0].ReviewRequests) != 1 {
+		if got[0].ReviewDecision != "APPROVED" || len(got[0].ReviewRequests) != 2 {
 			t.Fatalf("reviews = %+v", got[0])
+		}
+		if got[0].ReviewRequests[0].Type != "User" || got[0].ReviewRequests[0].Login != "reviewer" {
+			t.Fatalf("user request = %+v", got[0].ReviewRequests[0])
+		}
+		if got[0].ReviewRequests[1].Type != "Team" || got[0].ReviewRequests[1].Slug != "widgets" {
+			t.Fatalf("team request = %+v", got[0].ReviewRequests[1])
 		}
 		if got[0].HeadRefOid != "abc123def456" {
 			t.Fatalf("HeadRefOid = %q, want abc123def456", got[0].HeadRefOid)
@@ -193,9 +195,7 @@ func TestListOpenPRs(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 				mock := newGHMock()
-				mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
-					"--repo", "acme/gone", "--author", "alice", "--state", "open",
-					"--limit", "1000", "--json", jsonFields).
+				expectOpenPRSearch(mock, "acme/gone", "alice", openPRSearchPage).
 					WillFail(tc.stderr, 1).Build()
 				_, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/gone", "alice")
 				if !errors.Is(err, ErrInaccessible) {
@@ -208,9 +208,7 @@ func TestListOpenPRs(t *testing.T) {
 	t.Run("http 403 primary rate limit is fatal", func(t *testing.T) {
 		t.Parallel()
 		mock := newGHMock()
-		mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
-			"--repo", "acme/widgets", "--author", "alice", "--state", "open",
-			"--limit", "1000", "--json", jsonFields).
+		expectOpenPRSearch(mock, "acme/widgets", "alice", openPRSearchPage).
 			WillFail("HTTP 403: API rate limit exceeded", 1).Once().Build()
 		_, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
 		if err == nil {
@@ -228,33 +226,141 @@ func TestListOpenPRs(t *testing.T) {
 	})
 }
 
-func TestViewPR(t *testing.T) {
+func TestOpenPRQueriesOmitOrganization(t *testing.T) {
 	t.Parallel()
 
-	const jsonFields = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests,latestReviews,statusCheckRollup"
-	body := `{
+	for _, query := range []string{openPRSearchQuery, openPRViewQuery} {
+		if strings.Contains(strings.ToLower(query), "organization") {
+			t.Fatalf("query selects organization: %s", query)
+		}
+		if !strings.Contains(query, "requestedReviewer") {
+			t.Fatalf("query = %s, want requestedReviewer", query)
+		}
+		team, ok := inlineFragment(query, "Team")
+		if !ok {
+			t.Fatalf("query = %s, want a Team fragment", query)
+		}
+		if strings.Contains(strings.ToLower(team), "organization") || strings.Contains(team, "login") {
+			t.Fatalf("Team fragment = %q, want name and slug only", team)
+		}
+		if !strings.Contains(team, "name") || !strings.Contains(team, "slug") {
+			t.Fatalf("Team fragment = %q, want name and slug", team)
+		}
+		user, ok := inlineFragment(query, "User")
+		if !ok || !strings.Contains(user, "login") {
+			t.Fatalf("User fragment = %q, want login", user)
+		}
+	}
+	if openPRSearchPage >= 1000 {
+		t.Fatalf("openPRSearchPage = %d, want below 1000", openPRSearchPage)
+	}
+}
+
+func TestListOpenPRsShrinksPageAfterResourceLimit(t *testing.T) {
+	t.Parallel()
+
+	body := openPRSearchJSON(`{
 		"number":123,
 		"title":"[PROJ-123] Fix the widget",
 		"url":"https://github.com/acme/widgets/pull/123",
-		"state":"CLOSED",
-		"baseRefName":"main",
-		"headRefName":"fix-widget",
-		"headRefOid":"abc123def456",
-		"mergeable":"MERGEABLE",
-		"mergeStateStatus":"BEHIND",
-		"isDraft":false,
-		"reviewDecision":"APPROVED",
-		"reviewRequests":[{"__typename":"User","login":"reviewer"}],
-		"latestReviews":[{"author":{"login":"reviewer"},"state":"APPROVED","submittedAt":"2026-01-01T00:00:00Z"}],
-		"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]
+		"state":"OPEN",
+		"reviewRequests":{"nodes":[
+			{"requestedReviewer":{"__typename":"User","login":"reviewer"}},
+			{"requestedReviewer":{"__typename":"Team","name":"Platform Reviewers","slug":"platform-reviewers"}}
+		]}
+	}`)
+	mock := newGHMock()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", openPRSearchPage).
+		WillFail("GraphQL: Resource limits for this query exceeded", 1).Once().Build()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", smallerOpenPRPage(openPRSearchPage)).
+		WillSucceed(body, 0).Once().Build()
+	expectStatusChecks(mock, 123, `{"statusCheckRollup":[]}`).Once().Build()
+	client, probe := newProbedClient(t, mock)
+	got, err := client.ListOpenPRs(probe.ctx(), "acme/widgets", "alice")
+	if err != nil {
+		t.Fatalf("ListOpenPRs() unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Number != 123 {
+		t.Fatalf("ListOpenPRs() = %+v, want PR 123", got)
+	}
+	if len(got[0].ReviewRequests) != 2 {
+		t.Fatalf("review requests = %+v", got[0].ReviewRequests)
+	}
+	user := got[0].ReviewRequests[0]
+	team := got[0].ReviewRequests[1]
+	if user.Type != "User" || "User:"+user.Login != "User:reviewer" {
+		t.Fatalf("user = %+v, want User:reviewer", user)
+	}
+	if team.Type != "Team" || team.Name != "Platform Reviewers" || "Team:"+team.Slug != "Team:platform-reviewers" {
+		t.Fatalf("team = %+v, want Team:platform-reviewers", team)
+	}
+	if len(probe.waits) != 0 {
+		t.Fatalf("waits = %v, want no transient backoff", probe.waits)
+	}
+	var pages []string
+	for _, cfg := range mock.Executions() {
+		joined := strings.Join(cfg.Args, " ")
+		if strings.Contains(joined, "requestedReviewer") && strings.Contains(strings.ToLower(joined), "organization") {
+			t.Fatalf("query selects organization: %s", joined)
+		}
+		if !isOpenPRSearchArgs(cfg.Args) {
+			continue
+		}
+		for _, arg := range cfg.Args {
+			if strings.HasPrefix(arg, "first=") {
+				pages = append(pages, arg)
+			}
+		}
+	}
+	wantPages := []string{
+		"first=" + strconv.Itoa(openPRSearchPage),
+		"first=" + strconv.Itoa(smallerOpenPRPage(openPRSearchPage)),
+	}
+	if !slices.Equal(pages, wantPages) {
+		t.Fatalf("pages = %v, want %v", pages, wantPages)
+	}
+}
+
+func inlineFragment(query, typeName string) (string, bool) {
+	marker := "on " + typeName + "{"
+	i := strings.Index(query, marker)
+	if i < 0 {
+		return "", false
+	}
+	rest := query[i+len(marker):]
+	end := strings.IndexByte(rest, '}')
+	if end < 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+func TestViewPR(t *testing.T) {
+	t.Parallel()
+
+	body := `{
+		"data":{"repository":{"pullRequest":{
+			"number":123,
+			"title":"[PROJ-123] Fix the widget",
+			"url":"https://github.com/acme/widgets/pull/123",
+			"state":"CLOSED",
+			"baseRefName":"main",
+			"headRefName":"fix-widget",
+			"headRefOid":"abc123def456",
+			"mergeable":"MERGEABLE",
+			"mergeStateStatus":"BEHIND",
+			"isDraft":false,
+			"reviewDecision":"APPROVED",
+			"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"reviewer"}}]},
+			"latestReviews":{"nodes":[{"author":{"login":"reviewer"},"state":"APPROVED","submittedAt":"2026-01-01T00:00:00Z"}]},
+			"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]
+		}}}
 	}`
 
 	t.Run("parses one pull request", func(t *testing.T) {
 		t.Parallel()
 		mock := newGHMock()
-		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "123",
-			"--repo", "acme/widgets", "--json", jsonFields).
-			WillSucceed(body, 0).Build()
+		expectOpenPRView(t, mock, "acme/widgets", 123).WillSucceed(body, 0).Build()
 		got, err := NewClient(mock, testGHBin).ViewPR(context.Background(), "acme/widgets", 123)
 		if err != nil {
 			t.Fatalf("ViewPR() unexpected error: %v", err)
@@ -264,6 +370,15 @@ func TestViewPR(t *testing.T) {
 		}
 		if got.State != "closed" {
 			t.Fatalf("State = %q, want closed", got.State)
+		}
+		if len(got.ReviewRequests) != 1 || got.ReviewRequests[0].Login != "reviewer" {
+			t.Fatalf("review requests = %+v", got.ReviewRequests)
+		}
+		if len(got.LatestReviews) != 1 || got.LatestReviews[0].Author.Login != "reviewer" {
+			t.Fatalf("latest reviews = %+v", got.LatestReviews)
+		}
+		if len(got.StatusCheckRollup) != 1 || got.StatusCheckRollup[0].Name != "ci" {
+			t.Fatalf("rollup = %+v", got.StatusCheckRollup)
 		}
 		if calls := len(mock.Executions()); calls != 1 {
 			t.Fatalf("calls = %d, want 1", calls)
@@ -284,9 +399,7 @@ func TestViewPR(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 				mock := newGHMock()
-				mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "9",
-					"--repo", "acme/widgets", "--json", jsonFields).
-					WillFail(tc.stderr, 1).Build()
+				expectOpenPRView(t, mock, "acme/widgets", 9).WillFail(tc.stderr, 1).Build()
 				_, err := NewClient(mock, testGHBin).ViewPR(context.Background(), "acme/widgets", 9)
 				if !errors.Is(err, ErrNotFound) {
 					t.Fatalf("ViewPR() error = %v, want ErrNotFound", err)
@@ -304,8 +417,7 @@ func TestViewPR(t *testing.T) {
 	t.Run("inaccessible repository", func(t *testing.T) {
 		t.Parallel()
 		mock := newGHMock()
-		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "9",
-			"--repo", "acme/gone", "--json", jsonFields).
+		expectOpenPRView(t, mock, "acme/gone", 9).
 			WillFail("Could not resolve to a Repository with the name 'acme/gone'.", 1).Build()
 		_, err := NewClient(mock, testGHBin).ViewPR(context.Background(), "acme/gone", 9)
 		if !errors.Is(err, ErrInaccessible) {
@@ -576,7 +688,7 @@ func TestCommentPR(t *testing.T) {
 	})
 }
 
-const retryListBody = `[{"number":7}]`
+const retryListBody = `{"data":{"search":{"nodes":[{"number":7}]}}}`
 
 func TestListOpenPRsRetriesTransientFailure(t *testing.T) {
 	t.Parallel()
@@ -833,7 +945,7 @@ func TestListOpenPRsAttachesRollup(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectPRList(mock).WillSucceed(`[{"number":123}]`, 0).Once().Build()
+	expectPRList(mock).WillSucceed(openPRSearchJSON(`{"number":123}`), 0).Once().Build()
 	expectStatusChecks(mock, 123, `{"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}`).Once().Build()
 	got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
 	if err != nil {
@@ -854,7 +966,7 @@ func TestListOpenPRsFillsRollupsInListOrder(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectPRList(mock).WillSucceed(`[{"number":7},{"number":9}]`, 0).Once().Build()
+	expectPRList(mock).WillSucceed(openPRSearchJSON(`{"number":7}`, `{"number":9}`), 0).Once().Build()
 	expectStatusChecks(mock, 7, `{"statusCheckRollup":[{"name":"alpha","status":"COMPLETED","conclusion":"SUCCESS"}]}`).Once().Build()
 	expectStatusChecks(mock, 9, `{"statusCheckRollup":[{"name":"beta","status":"COMPLETED","conclusion":"FAILURE"}]}`).Once().Build()
 	got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
@@ -876,7 +988,7 @@ func TestListOpenPRsEmptySkipsRollup(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectPRList(mock).WillSucceed(`[]`, 0).Once().Build()
+	expectPRList(mock).WillSucceed(openPRSearchJSON(), 0).Once().Build()
 	got, err := NewClient(mock, testGHBin).ListOpenPRs(context.Background(), "acme/widgets", "alice")
 	if err != nil {
 		t.Fatalf("ListOpenPRs() unexpected error: %v", err)
@@ -895,7 +1007,7 @@ func TestListOpenPRsRollupFailureKeepsTheList(t *testing.T) {
 	t.Run("http 502", func(t *testing.T) {
 		t.Parallel()
 		mock := newGHMock()
-		expectPRList(mock).WillSucceed(`[{"number":7},{"number":9}]`, 0).Once().Build()
+		expectPRList(mock).WillSucceed(openPRSearchJSON(`{"number":7}`, `{"number":9}`), 0).Once().Build()
 		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
 			"--repo", "acme/widgets", "--json", "statusCheckRollup").
 			WillFail("HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)", 1).Times(3).Build()
@@ -916,7 +1028,7 @@ func TestListOpenPRsRollupFailureKeepsTheList(t *testing.T) {
 		}
 		lists, views := 0, 0
 		for _, cfg := range mock.Executions() {
-			if len(cfg.Args) > 0 && cfg.Args[0] == "pr" && len(cfg.Args) > 1 && cfg.Args[1] == "list" {
+			if isOpenPRSearchArgs(cfg.Args) {
 				lists++
 			}
 			if len(cfg.Args) > 1 && cfg.Args[0] == "pr" && cfg.Args[1] == "view" && len(cfg.Args) > 2 && cfg.Args[2] == "7" {
@@ -931,7 +1043,7 @@ func TestListOpenPRsRollupFailureKeepsTheList(t *testing.T) {
 	t.Run("resource limit", func(t *testing.T) {
 		t.Parallel()
 		mock := newGHMock()
-		expectPRList(mock).WillSucceed(`[{"number":7}]`, 0).Once().Build()
+		expectPRList(mock).WillSucceed(openPRSearchJSON(`{"number":7}`), 0).Once().Build()
 		mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
 			"--repo", "acme/widgets", "--json", "statusCheckRollup").
 			WillFail("GraphQL: Resource limits for this query exceeded", 1).Once().Build()
@@ -958,7 +1070,7 @@ func TestListOpenPRsRollupPrimaryRateLimitIsFatal(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectPRList(mock).WillSucceed(`[{"number":7}]`, 0).Once().Build()
+	expectPRList(mock).WillSucceed(openPRSearchJSON(`{"number":7}`), 0).Once().Build()
 	mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
 		"--repo", "acme/widgets", "--json", "statusCheckRollup").
 		WillFail("HTTP 403: API rate limit exceeded", 1).Once().Build()
@@ -981,7 +1093,7 @@ func TestListOpenPRsRollupCanceledIsFatal(t *testing.T) {
 	t.Parallel()
 
 	mock := newGHMock()
-	expectPRList(mock).WillSucceed(`[{"number":7}]`, 0).Once().Build()
+	expectPRList(mock).WillSucceed(openPRSearchJSON(`{"number":7}`), 0).Once().Build()
 	mock.ExpectCommandWithArgs(testGHBin, "pr", "view", "7",
 		"--repo", "acme/widgets", "--json", "statusCheckRollup").
 		WillError(context.Canceled).Once().Build()
@@ -1040,10 +1152,33 @@ func (p *ghRetryProbe) ctx() context.Context {
 }
 
 func expectPRList(mock *executor.MockExecutor) *executor.MockExpectationBuilder {
-	const jsonFields = "number,title,url,state,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,isDraft,reviewDecision,reviewRequests"
-	return mock.ExpectCommandWithArgs(testGHBin, "pr", "list",
-		"--repo", "acme/widgets", "--author", "alice", "--state", "open",
-		"--limit", "1000", "--json", jsonFields)
+	return expectOpenPRSearch(mock, "acme/widgets", "alice", openPRSearchPage)
+}
+
+func expectOpenPRSearch(mock *executor.MockExecutor, repo, author string, page int) *executor.MockExpectationBuilder {
+	return mock.ExpectCommandWithArgs(testGHBin, openPRSearchArgs(repo, author, page)...)
+}
+
+func expectOpenPRView(t *testing.T, mock *executor.MockExecutor, repo string, number int) *executor.MockExpectationBuilder {
+	t.Helper()
+	args, err := openPRViewArgs(repo, number)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mock.ExpectCommandWithArgs(testGHBin, args...)
+}
+
+func openPRSearchJSON(nodes ...string) string {
+	return `{"data":{"search":{"nodes":[` + strings.Join(nodes, ",") + `]}}}`
+}
+
+func isOpenPRSearchArgs(args []string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, "search(query:$q") {
+			return true
+		}
+	}
+	return false
 }
 
 func expectStatusChecks(mock *executor.MockExecutor, number int, body string) *executor.MockExpectationBuilder {

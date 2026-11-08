@@ -535,10 +535,10 @@ func TestDispatchPRFetchesOnlyTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := string(raw)
-	if !strings.Contains(log, "pr view 123 --repo acme/widgets") {
+	if !strings.Contains(log, "num=123") || !strings.Contains(log, "owner=acme") || !strings.Contains(log, "repo=widgets") {
 		t.Fatalf("view log = %q", log)
 	}
-	if !strings.Contains(log, "pr view 9 --repo acme/missing") {
+	if !strings.Contains(log, "num=9") || !strings.Contains(log, "repo=missing") {
 		t.Fatalf("view log = %q", log)
 	}
 }
@@ -569,7 +569,7 @@ func TestDispatchEmptyStdinPRFetchesTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "pr view 123 --repo acme/widgets") {
+	if !strings.Contains(string(raw), "num=123") || !strings.Contains(string(raw), "repo=widgets") {
 		t.Fatalf("view log = %q", raw)
 	}
 }
@@ -618,7 +618,7 @@ func TestDispatchStdinDoesNotViewPRs(t *testing.T) {
 		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
 	if _, err := os.Stat(viewLog); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatal("gh pr view ran despite a stdin scan document")
+		t.Fatal("pull request view ran despite a stdin scan document")
 	}
 }
 

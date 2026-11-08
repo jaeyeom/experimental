@@ -52,7 +52,7 @@ func (e *ProcError) Error() string {
 	return fmt.Sprintf("exit %d", e.ExitCode)
 }
 
-// PRListItem is one row from `gh pr list --json`.
+// PRListItem is one pull request from the open-PR search or a single-PR view.
 type PRListItem struct {
 	Number            int            `json:"number"`
 	Title             string         `json:"title"`
