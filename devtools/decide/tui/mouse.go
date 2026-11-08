@@ -82,6 +82,47 @@ func (m *Model) Wheel(down bool) {
 	}
 }
 
+// scrollPage moves by one viewport of the open item. clipLines stops the
+// result at the top and the bottom.
+func (m *Model) scrollPage(down bool) {
+	if m.help {
+		return
+	}
+	n := m.threadPage()
+	if down {
+		m.scroll += n
+		return
+	}
+	if m.scroll > n {
+		m.scroll -= n
+		return
+	}
+	m.scroll = 0
+}
+
+func (m *Model) threadPage() int {
+	_, n := m.layoutBudget()
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func (m *Model) scrollHome() {
+	if m.help {
+		return
+	}
+	m.scroll = 0
+}
+
+func (m *Model) scrollEnd() {
+	if m.help {
+		return
+	}
+	// clipLines clamps this onto the last viewport.
+	m.scroll = 1 << 20
+}
+
 func (m *Model) hit(h hit) error {
 	if m.hitCompose(h) {
 		return nil

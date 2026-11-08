@@ -1045,6 +1045,161 @@ func TestWheelScrollsOpenItem(t *testing.T) {
 	}
 }
 
+func TestItemViewScrollKeys(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	body := strings.Repeat("scroll-line\n", 40) + "thread-bottom"
+	first := mustCreate(t, led, &decide.Item{
+		Question:  body,
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC),
+	})
+	other := mustCreate(t, led, &decide.Item{
+		Question:  "other-item",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	m.height = 16
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "o")
+	if m.detail == nil || m.detail.ID != first.ID || m.cursor != 0 {
+		t.Fatalf("opened cursor %d", m.cursor)
+	}
+	if top := lineAfterBorder(m.View()); top != first.ID {
+		t.Fatalf("detail top = %q\n%s", top, m.View())
+	}
+
+	m.Wheel(true)
+	wheelScroll := m.scroll
+	wheelTop := lineAfterBorder(m.View())
+	if wheelScroll < 1 || wheelTop == first.ID {
+		t.Fatalf("wheel scroll %d top %q", wheelScroll, wheelTop)
+	}
+	reset := func() {
+		t.Helper()
+		m.scroll = 0
+		if top := lineAfterBorder(m.View()); top != first.ID || m.scroll != 0 {
+			t.Fatalf("reset top %q scroll %d", top, m.scroll)
+		}
+	}
+	sameLine := func(key string) {
+		t.Helper()
+		top := lineAfterBorder(m.View())
+		if m.scroll != wheelScroll || top != wheelTop {
+			t.Fatalf("%s scroll %d top %q want %d %q", key, m.scroll, top, wheelScroll, wheelTop)
+		}
+		if m.cursor != 0 || m.detail == nil || m.detail.ID != first.ID || strings.Contains(m.View(), other.Question) {
+			t.Fatalf("%s opened another item cursor %d\n%s", key, m.cursor, m.View())
+		}
+	}
+
+	reset()
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	sameLine("down")
+	reset()
+	m.Update(runeKey('j'))
+	sameLine("j")
+
+	m.scroll = wheelScroll
+	m.View()
+	m.Wheel(false)
+	upScroll := m.scroll
+	upTop := lineAfterBorder(m.View())
+	backUp := func(key string, msg tea.Msg) {
+		t.Helper()
+		m.scroll = wheelScroll
+		m.View()
+		m.Update(msg)
+		top := lineAfterBorder(m.View())
+		if m.scroll != upScroll || top != upTop {
+			t.Fatalf("%s scroll %d top %q want %d %q", key, m.scroll, top, upScroll, upTop)
+		}
+		if m.detail == nil || m.detail.ID != first.ID || m.cursor != 0 {
+			t.Fatalf("%s opened another item", key)
+		}
+	}
+	backUp("up", tea.KeyMsg{Type: tea.KeyUp})
+	backUp("k", runeKey('k'))
+
+	m.scroll = 0
+	m.View()
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(runeKey('k'))
+	m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.scroll != 0 || lineAfterBorder(m.View()) != first.ID {
+		t.Fatalf("top stop scroll %d top %q", m.scroll, lineAfterBorder(m.View()))
+	}
+
+	page := m.threadPage()
+	m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m.View()
+	if m.scroll != page {
+		t.Fatalf("pgdn scroll %d page %d", m.scroll, page)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	if m.scroll != 0 || lineAfterBorder(m.View()) != first.ID {
+		t.Fatalf("home scroll %d top %q", m.scroll, lineAfterBorder(m.View()))
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	view := m.View()
+	if !strings.Contains(view, "thread-bottom") {
+		t.Fatalf("end missed the bottom\n%s", view)
+	}
+	end := m.scroll
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.View()
+	m.Update(runeKey('j'))
+	m.View()
+	if m.scroll != end || m.detail == nil || m.detail.ID != first.ID {
+		t.Fatalf("bottom stop scroll %d id %v", m.scroll, m.detail)
+	}
+
+	m.width = 120
+	footer := m.View()
+	for _, needle := range []string{"j/k up/down pgup/pgdn home/end", "? help"} {
+		if !strings.Contains(footer, needle) {
+			t.Fatalf("footer missing %q\n%s", needle, footer)
+		}
+	}
+	press(t, m, "?")
+	help := m.View()
+	for _, needle := range []string{"j/k up/down line", "pgup/pgdn page", "home/end", "? help"} {
+		if !strings.Contains(help, needle) {
+			t.Fatalf("help missing %q\n%s", needle, help)
+		}
+	}
+	press(t, m, "?")
+
+	m.scroll = wheelScroll
+	m.View()
+	press(t, m, "r")
+	if !m.replyFocus {
+		t.Fatal("reply is not focused")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if m.scroll != wheelScroll || m.reply != "" || m.detail == nil || m.detail.ID != first.ID {
+		t.Fatalf("focused text scroll %d reply %q", m.scroll, m.reply)
+	}
+}
+
 func lineAfterBorder(view string) string {
 	lines := strings.Split(view, "\n")
 	for i, line := range lines {
@@ -2741,29 +2896,17 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 	if m.mode == modeList || !strings.Contains(m.View(), "open-third") || strings.Contains(m.View(), "[Inbox]") {
 		t.Fatalf("enter view\n%s", m.View())
 	}
+	openedID := third.ID
 	press(t, m, "j")
-	if m.mode == modeList || m.cursor != 1 || !strings.Contains(m.View(), "open-second") || strings.Contains(m.View(), "open-third") {
-		t.Fatalf("j cursor %d\n%s", m.cursor, m.View())
-	}
-	press(t, m, "j")
-	if m.cursor != 2 || !strings.Contains(m.View(), "open-first") {
-		t.Fatalf("j end cursor %d\n%s", m.cursor, m.View())
-	}
-	press(t, m, "j")
-	if m.cursor != 2 || !strings.Contains(m.View(), first.ID) {
-		t.Fatalf("j wrapped cursor %d\n%s", m.cursor, m.View())
-	}
-	press(t, m, "kk")
-	if m.cursor != 0 || !strings.Contains(m.View(), "open-third") {
-		t.Fatalf("k cursor %d\n%s", m.cursor, m.View())
+	if m.mode == modeList || m.cursor != 0 || m.detail == nil || m.detail.ID != openedID || strings.Contains(m.View(), "open-second") {
+		t.Fatalf("j left the item cursor %d\n%s", m.cursor, m.View())
 	}
 	press(t, m, "k")
-	if m.cursor != 0 {
-		t.Fatalf("k wrapped to %d", m.cursor)
+	if m.cursor != 0 || m.detail == nil || m.detail.ID != openedID {
+		t.Fatalf("k left the item cursor %d", m.cursor)
 	}
-	press(t, m, "j")
 	press(t, m, "u")
-	if m.mode != modeList || m.cursor != 1 || !rowSelected(m.View(), second.ID) {
+	if m.mode != modeList || m.cursor != 0 || !rowSelected(m.View(), third.ID) || !strings.Contains(m.View(), first.ID) || !strings.Contains(m.View(), second.ID) {
 		t.Fatalf("u restored cursor %d\n%s", m.cursor, m.View())
 	}
 

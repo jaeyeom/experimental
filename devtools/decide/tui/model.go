@@ -179,9 +179,10 @@ func (m *Model) Reload() error {
 // g starts a folder chord, c opens compose, and q quits. A second key of
 // i, a, d, w, or s opens Inbox, Answered, Done, Withdrawn, or Status.
 // Status is also a row in the folder list. There, j and k highlight an
-// agent row, and c opens compose. In the opened
-// item, j and k move to the next and previous item, and u returns to the
-// list. 1 through 9 answer a relay option. 0, f, and r focus one composer.
+// agent row, and c opens compose. In the opened item, up, down, j, and k
+// scroll one line, page up and page down scroll one page, and home and end
+// jump to the ends. u returns to the list. 1 through 9 answer a relay
+// option. 0, f, and r focus one composer.
 // Sending it appends a human message. On an open question that text is also
 // the answer. y archives a notification, and e asks for an outcome then
 // marks the item done. l opens a link, L copies its URL, and Y copies the
@@ -391,9 +392,11 @@ func (m *Model) detailKey(r rune) (bool, error) {
 		m.backToList()
 		return false, nil
 	case 'j':
-		return false, m.openRelative(1)
+		m.Wheel(true)
+		return false, nil
 	case 'k':
-		return false, m.openRelative(-1)
+		m.Wheel(false)
+		return false, nil
 	case 'g':
 		m.beginChord()
 		return false, nil
@@ -579,15 +582,6 @@ func (m *Model) outcomeKey(r rune) (bool, error) {
 		m.status = "outcome"
 	}
 	return false, nil
-}
-
-func (m *Model) openRelative(delta int) error {
-	next := m.cursor + delta
-	if next < 0 || next >= len(m.items) {
-		return nil
-	}
-	m.cursor = next
-	return m.openRow()
 }
 
 func (m *Model) openRow() error {
@@ -891,7 +885,7 @@ func (m *Model) statusLine() screenLine {
 	case modeStatus:
 		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
 	case modeDetail, modeOutcome:
-		hint = label + "gi/ga/gd/gw/gs  o open  u list  y archive  c  tab/text/[Send]  ? help"
+		hint = label + "gi/ga/gd/gw/gs  o open  u list  y archive  j/k up/down pgup/pgdn home/end  ? help"
 	}
 	if m.status == "" {
 		return screenLine{text: hint}
@@ -1831,6 +1825,13 @@ func (m *Model) helpLines() []screenLine {
 			"click folder, target, or [Send]",
 			"wheel scroll",
 			"? or esc close",
+		}
+	}
+	if m.mode == modeDetail || m.mode == modeOutcome {
+		for i, line := range text {
+			if line == "j/k move" {
+				text[i] = "j/k up/down line  pgup/pgdn page  home/end"
+			}
 		}
 	}
 	lines := make([]screenLine, len(text))
