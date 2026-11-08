@@ -486,7 +486,7 @@ func TestDispatchGoBlockedGateTimeoutExit4(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
 	ghBin, herdrBin := fixtureBins(t)
 	statePath := filepath.Join(t.TempDir(), "state.json")
-	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath, "gate_timeout_ms=50")
+	cfgPath := writeLiveConfig(t, ghBin, herdrBin, statePath, "gate_timeout_ms=50", "concurrency_ignore_blocked=false")
 	raw := mustScanJSON(t, stdinEligibleDoc())
 	restore := swapStdin(t, string(raw))
 	defer restore()

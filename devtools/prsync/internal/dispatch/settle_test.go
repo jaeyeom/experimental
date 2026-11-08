@@ -193,6 +193,7 @@ func TestGateDebounceTreatsBlockedAsBusyUnlikeSettleUntilIdle(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.ConcurrencyWaitOn = "any"
+	cfg.ConcurrencyIgnoreBlocked = false
 	cfg.GatePoll = time.Millisecond
 	cfg.GateTimeout = 50 * time.Millisecond
 	clock := &fakeClock{now: fixtureNow}

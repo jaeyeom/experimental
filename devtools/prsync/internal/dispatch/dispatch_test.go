@@ -1257,6 +1257,7 @@ func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.ConcurrencyIgnoreBlocked = false
 	blocked := fixtureEligiblePR()
 	blocked.Number = 99
 	blocked.Tab.TabID = "w2:tBlocked"

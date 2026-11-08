@@ -109,6 +109,7 @@ func TestRunLiveLogsBlockedGateTimeout(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.ConcurrencyIgnoreBlocked = false
 	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pX", "w2:tX")}}}
 	buf, ctx := withLog(t)
 	got, err := Run(ctx, h, store, cfg, Request{

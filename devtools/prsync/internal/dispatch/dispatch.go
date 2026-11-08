@@ -313,7 +313,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 			doc.Results = append(doc.Results, item)
 			continue
 		}
-		res, err := Wait(ctx, h, cfg, req.RunnerPane, matched, clock, sleeper)
+		res, err := Wait(ctx, h, gateConfig(cfg, c.Repo), req.RunnerPane, matched, clock, sleeper)
 		if errors.Is(err, ErrTimeout) {
 			item := gateTimeoutItem(c, res.Busy, req.Doc)
 			logResult(ctx, item)
@@ -359,6 +359,13 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 		return doc, ErrSettleTimeout
 	}
 	return doc, nil
+}
+
+func gateConfig(cfg config.Config, repo string) config.Config {
+	if cfg.ConcurrencyCwd == "checkout" && cfg.Checkout == "" {
+		cfg.Checkout = checkoutOfRepo(repo)
+	}
+	return cfg
 }
 
 func recordDispatch(st State, c Candidate, req Request, now time.Time) {
@@ -649,7 +656,7 @@ func renderPrompt(cfg config.Config, req Request, pr scan.PR) string {
 }
 
 func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, doc *Document) error {
-	res, err := Check(ctx, h, cfg.ConcurrencyWaitOn, req.RunnerPane, MatchedTabs(req.Doc))
+	res, err := GateCheck(ctx, h, cfg, req.RunnerPane, MatchedTabs(req.Doc))
 	if err != nil {
 		return fmt.Errorf("gate: %w", err)
 	}

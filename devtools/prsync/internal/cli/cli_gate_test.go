@@ -33,10 +33,29 @@ func TestGateSafeWhenIdle(t *testing.T) {
 	}
 }
 
-func TestGateBusyWhenBlocked(t *testing.T) {
+func TestGateSafeWhenBlockedByDefault(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
 	ghBin, herdrBin := fixtureBins(t)
 	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeGate(t, stdout.Bytes())
+	if !got.Safe {
+		t.Fatalf("safe = false, want true; busy=%v", got.Busy)
+	}
+	if len(got.Busy) != 0 {
+		t.Fatalf("busy = %+v, want none", got.Busy)
+	}
+}
+
+func TestGateBusyWhenBlocked(t *testing.T) {
+	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
+	ghBin, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\nconcurrency_ignore_blocked=false\n")
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
