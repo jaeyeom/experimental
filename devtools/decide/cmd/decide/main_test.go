@@ -19,6 +19,9 @@ import (
 // TestMain points config and state at temporary directories so a CLI test
 // cannot run the live notify command. A test may still override either variable.
 func TestMain(m *testing.M) {
+	if os.Getenv("DECIDE_TEST_CHILD") == "1" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	cfg, err := os.MkdirTemp("", "decide-cli-config")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cli config dir: %v\n", err)

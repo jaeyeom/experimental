@@ -251,10 +251,12 @@ func (l *Ledger) Answer(id, value string) (Item, error) {
 				return fmt.Errorf("decide answer %q is not an option", stored)
 			}
 		}
+		// Capture a legacy thread before replacing the answer. Otherwise the
+		// rebuild treats the new answer as the previous one and drops it.
+		ensureMessages(it)
 		it.State = StateAnswered
 		it.AnsweredAt = l.clock().UTC()
 		it.Answer = &Answer{Value: stored, AnsweredBy: "human"}
-		ensureMessages(it)
 		it.Messages = append(it.Messages, Message{
 			Author: "human",
 			Time:   it.AnsweredAt,
