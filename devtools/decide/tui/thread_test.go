@@ -199,6 +199,64 @@ func seedTUIThread(t *testing.T, dir string) (string, []decide.Message) {
 	return got.ID, append([]decide.Message(nil), got.Messages...)
 }
 
+func TestItemViewFooterNamesArchive(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	note := mustCreate(t, led, &decide.Item{
+		Question:  "shipped",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC),
+	})
+	question := mustCreate(t, led, &decide.Item{
+		Question:  "which way",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		Options:   []decide.Option{{Key: "a", Label: "Alpha"}},
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	m.width = 120
+	m.height = 30
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "o")
+	view := m.View()
+	if !strings.Contains(view, "y archive") || !strings.Contains(view, "? help") {
+		t.Fatalf("item footer\n%s", view)
+	}
+	press(t, m, "?")
+	help := m.View()
+	if !strings.Contains(help, "y archive") {
+		t.Fatalf("item help\n%s", help)
+	}
+	press(t, m, "?")
+	press(t, m, "y")
+	got, err := led.Get(note.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateDone || got.Outcome != "archived" {
+		t.Fatalf("notification = state %s outcome %q", got.State, got.Outcome)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "oy")
+	got, err = led.Get(question.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateOpen || m.status != "needs an answer" {
+		t.Fatalf("question state %s status %q", got.State, m.status)
+	}
+}
+
 func TestThreadMessagesAreBlocks(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("NO_COLOR", "")

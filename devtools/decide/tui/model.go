@@ -879,15 +879,19 @@ func (m *Model) narrow() bool {
 }
 
 func (m *Model) statusLine() screenLine {
-	// The mouse label stays in front, and the hint stays the same width, so a
-	// 70-column footer still shows "? help".
+	// The mouse label stays in front. The list and status hints stay the same
+	// width, so a 70-column footer still shows "? help". An open item also
+	// names y archive.
 	label := m.mouseLabel()
 	if m.chord {
 		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
 	}
 	hint := label + "gi/ga/gd/gw/gs  o open  u list  c  tab/text/[Send]  ? help"
-	if m.mode == modeStatus {
+	switch m.mode {
+	case modeStatus:
 		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
+	case modeDetail, modeOutcome:
+		hint = label + "gi/ga/gd/gw/gs  o open  u list  y archive  c  tab/text/[Send]  ? help"
 	}
 	if m.status == "" {
 		return screenLine{text: hint}

@@ -657,6 +657,13 @@
         (should (equal (decide-test--texts id)
                        (list "root ask" text)))))))
 
+(ert-deftest decide-stored-item-key-line-names-archive ()
+  "The item key line names y archive."
+  :tags '(decide-stored)
+  (let ((line (decide--item-keys-line
+               '(("options" . ((("key" . "a") ("label" . "Yes"))))))))
+    (should (string-match-p "y archive" line))))
+
 (ert-deftest decide-stored-thread-blocks ()
   "Each message is a block with a header, a rule, and the latest mark."
   :tags '(decide-stored)
