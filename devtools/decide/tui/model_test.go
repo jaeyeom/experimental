@@ -801,6 +801,64 @@ func TestDetailOneAnswersFirstOption(t *testing.T) {
 	}
 }
 
+func TestItemViewIgnoresUnboundKeys(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "decide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "decide", "config.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "pick one",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		State:    decide.StateOpen,
+		FreeText: false,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+		Messages: []decide.Message{{Author: "ada", Text: "pick one"}},
+	})
+	before, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "ox")
+	view := m.View()
+	if m.status != "unknown key, ? for help" || strings.Contains(view, "free text is not allowed") {
+		t.Fatalf("status %q\n%s", m.status, view)
+	}
+	if m.replyFocus || m.reply != "" {
+		t.Fatalf("unbound key opened the composer reply %q\n%s", m.reply, view)
+	}
+	got, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != before.State || got.Answer != nil || len(got.Messages) != len(before.Messages) || got.Messages[0].Text != before.Messages[0].Text {
+		t.Fatalf("thread changed: %+v", got)
+	}
+	press(t, m, "0")
+	if !m.replyFocus || !strings.Contains(m.View(), "reply:") {
+		t.Fatalf("0 did not open the composer focus %v\n%s", m.replyFocus, m.View())
+	}
+	press(t, m, "\x1b1")
+	got, err = led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateAnswered || got.Answer == nil || got.Answer.Value != "a" {
+		t.Fatalf("option 1 = %+v state %s", got.Answer, got.State)
+	}
+}
+
 func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
@@ -848,8 +906,8 @@ func TestDetailFreeTextSubmitsOnlyWhenSet(t *testing.T) {
 	}
 	press(t, m, "zzzz\r")
 	view := m.View()
-	if !strings.Contains(view, "free text is not allowed") {
-		t.Fatalf("free text was not rejected\n%s", view)
+	if !strings.Contains(view, "unknown key, ? for help") || strings.Contains(view, "free text is not allowed") {
+		t.Fatalf("unbound key status\n%s", view)
 	}
 	denied, err := led.Get(closed.ID)
 	if err != nil {
