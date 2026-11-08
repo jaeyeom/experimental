@@ -98,7 +98,7 @@ func printCircleAPILog(cfg *config.Config, evidence github.FailureEvidence, toke
 	if !ok {
 		return printCircleWorkflowByUUID(cfg, evidence)
 	}
-	body, err := circleStepLog(org, repo, number, token)
+	body, err := circleStepLog(org, repo, number, token, evidence.Name)
 	return finishCircleAPILog(cfg, evidence, body, err)
 }
 
@@ -379,16 +379,27 @@ func circleJobNumber(raw string) (string, string, int, bool) {
 	return parts[1], parts[2], number, true
 }
 
-func circleStepLog(org, repo string, number int, token string) (string, error) {
+func circleStepLog(org, repo string, number int, token, checkName string) (string, error) {
 	pipelineID, err := circlePipelineID(org, repo, number, token)
 	if err != nil {
 		return "", err
 	}
-	workflowID, err := circleFailedWorkflow(pipelineID, token)
+	jobs, emptyWorkflow, err := circlePipelineFailedJobs(pipelineID, token)
 	if err != nil {
 		return "", err
 	}
-	return circleWorkflowLog(org, repo, workflowID, token)
+	if len(jobs) == 0 {
+		if emptyWorkflow != "" {
+			return "", &noFailedJobError{workflow: emptyWorkflow}
+		}
+		return "", errors.New("circleci pipeline has no failed workflow")
+	}
+	chosen := selectCircleFailedJob(jobs, circleContextJob(checkName))
+	outputURL, err := circleFailedOutput(org, repo, chosen.jobNumber, token)
+	if err != nil {
+		return "", err
+	}
+	return circleOutputText(outputURL, token)
 }
 
 func circleJobLog(org, repo string, jobNumber int, token string) (string, error) {
@@ -447,42 +458,96 @@ func circlePipelineID(org, repo string, number int, token string) (string, error
 	return resp.ID, nil
 }
 
-func circleFailedWorkflow(pipelineID, token string) (string, error) {
+type circleFailedJobRef struct {
+	workflowName string
+	jobNumber    int
+	jobName      string
+}
+
+func circlePipelineFailedJobs(pipelineID, token string) ([]circleFailedJobRef, string, error) {
 	raw := "https://circleci.com/api/v2/pipeline/" + url.PathEscape(pipelineID) + "/workflow"
 	var resp struct {
 		Items []struct {
 			ID     string `json:"id"`
+			Name   string `json:"name"`
 			Status string `json:"status"`
 		} `json:"items"`
 	}
 	if err := circleJSON(raw, token, &resp); err != nil {
-		return "", err
+		return nil, "", err
 	}
+	var jobs []circleFailedJobRef
+	firstFailed := ""
 	for _, item := range resp.Items {
-		if strings.EqualFold(item.Status, "failed") && item.ID != "" {
-			return item.ID, nil
+		if item.ID == "" {
+			continue
 		}
+		if strings.EqualFold(item.Status, "failed") && firstFailed == "" {
+			firstFailed = item.ID
+		}
+		found, err := circleWorkflowFailedJobs(item.ID, item.Name, token)
+		if err != nil {
+			return nil, "", err
+		}
+		jobs = append(jobs, found...)
 	}
-	return "", errors.New("circleci pipeline has no failed workflow")
+	if len(jobs) > 0 {
+		return jobs, "", nil
+	}
+	return nil, firstFailed, nil
 }
 
-func circleFailedJob(workflowID, token string) (int, error) {
+func circleWorkflowFailedJobs(workflowID, workflowName, token string) ([]circleFailedJobRef, error) {
 	raw := "https://circleci.com/api/v2/workflow/" + url.PathEscape(workflowID) + "/job"
 	var resp struct {
 		Items []struct {
 			JobNumber int    `json:"job_number"` //nolint:tagliatelle // CircleCI API uses snake_case
+			Name      string `json:"name"`
 			Status    string `json:"status"`
 		} `json:"items"`
 	}
 	if err := circleJSON(raw, token, &resp); err != nil {
-		return 0, err
+		return nil, err
 	}
+	var jobs []circleFailedJobRef
 	for _, item := range resp.Items {
-		if strings.EqualFold(item.Status, "failed") && item.JobNumber > 0 {
-			return item.JobNumber, nil
+		if !strings.EqualFold(item.Status, "failed") || item.JobNumber <= 0 {
+			continue
+		}
+		jobs = append(jobs, circleFailedJobRef{
+			workflowName: workflowName,
+			jobNumber:    item.JobNumber,
+			jobName:      item.Name,
+		})
+	}
+	return jobs, nil
+}
+
+func selectCircleFailedJob(jobs []circleFailedJobRef, name string) circleFailedJobRef {
+	if name != "" {
+		for _, job := range jobs {
+			if job.jobName == name {
+				return job
+			}
+		}
+		for _, job := range jobs {
+			if job.workflowName == name {
+				return job
+			}
 		}
 	}
-	return 0, &noFailedJobError{workflow: workflowID}
+	return jobs[0]
+}
+
+func circleFailedJob(workflowID, token string) (int, error) {
+	jobs, err := circleWorkflowFailedJobs(workflowID, "", token)
+	if err != nil {
+		return 0, err
+	}
+	if len(jobs) == 0 {
+		return 0, &noFailedJobError{workflow: workflowID}
+	}
+	return jobs[0].jobNumber, nil
 }
 
 func circleFailedOutput(org, repo string, jobNumber int, token string) (string, error) {
