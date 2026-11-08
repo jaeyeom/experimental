@@ -40,6 +40,9 @@ func postRCA(client rcaAPI, cfg *config.Config, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read rca file: %w", err)
 	}
+	if strings.TrimSpace(string(fileBody)) == "" {
+		return errors.New("rca file is empty")
+	}
 	ref, err := resolvePullRef(parsed.ref)
 	if err != nil {
 		return err

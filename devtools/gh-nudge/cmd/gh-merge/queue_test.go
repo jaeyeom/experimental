@@ -3053,6 +3053,46 @@ func TestRCARefusesWithoutPosting(t *testing.T) {
 	}
 }
 
+func TestRCARefusesEmptyFileWithoutPosting(t *testing.T) {
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{{
+		ID: "NEW", Kind: github.QueueEventRemoved, CreatedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Reason: "failed_checks",
+	}}
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "empty", body: ""},
+		{name: "whitespace", body: " \t\n\n  \t"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeRCAFile(t, tc.body)
+			client := &fakeQueue{pr: pr}
+			err := postRCA(client, rcaConfig(), []string{"acme/widgets#12", "--class", "flake", "--file", path})
+			if err == nil {
+				t.Fatal("postRCA() error = nil, want empty file")
+			}
+			if client.commentCalls != 0 {
+				t.Fatalf("commentCalls = %d, want 0", client.commentCalls)
+			}
+		})
+	}
+
+	path := writeRCAFile(t, "Investigated the reset.\n")
+	client := &fakeQueue{pr: pr}
+	if err := postRCA(client, rcaConfig(), []string{"acme/widgets#12", "--class", "flake", "--file", path}); err != nil {
+		t.Fatalf("postRCA() error = %v", err)
+	}
+	if client.commentCalls != 1 {
+		t.Fatalf("commentCalls = %d, want 1", client.commentCalls)
+	}
+	body := client.comments[0]
+	if !strings.Contains(body, "Investigated the reset.") || !strings.Contains(body, "RCA NEW class=flake") {
+		t.Fatalf("comment = %q", body)
+	}
+}
+
 func TestRCABareNumberUsesCheckoutRemote(t *testing.T) {
 	dir := initGitRemote(t, "origin", "https://github.com/acme/widgets.git")
 	withCommandStub(t, func(name string, args ...string) (string, error) {
