@@ -12,10 +12,14 @@ import (
 
 // Open opens the SQLite database at path in WAL mode with a 5 second busy
 // timeout. The pragmas are part of the DSN, so every pooled connection gets
-// them.
-func Open(path string) (*sql.DB, error) {
+// them. Each of params is appended to the DSN as another query parameter,
+// such as "_pragma=foreign_keys(1)" or "_txlock=immediate".
+func Open(path string, params ...string) (*sql.DB, error) {
 	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() +
 		"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	for _, p := range params {
+		dsn += "&" + p
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)

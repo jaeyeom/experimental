@@ -1,9 +1,32 @@
 package sqlitedb
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 )
+
+func TestOpenExtraParams(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"), "_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	// Hold one connection so the query below runs on a second one.
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	var fk int
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("PRAGMA foreign_keys: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys = %d, want 1", fk)
+	}
+}
 
 func TestOpen(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
