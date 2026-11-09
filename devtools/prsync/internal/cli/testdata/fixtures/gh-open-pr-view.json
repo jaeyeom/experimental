@@ -41,13 +41,17 @@
             }
           ]
         },
-        "statusCheckRollup": [
-          {
-            "name": "ci",
-            "status": "COMPLETED",
-            "conclusion": "SUCCESS"
+        "statusCheckRollup": {
+          "contexts": {
+            "nodes": [
+              {
+                "name": "ci",
+                "status": "COMPLETED",
+                "conclusion": "SUCCESS"
+              }
+            ]
           }
-        ]
+        }
       }
     }
   }

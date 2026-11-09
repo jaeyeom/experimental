@@ -39,7 +39,7 @@ const openPRSearchQuery = `query($q:String!,$first:Int!){search(query:$q,type:IS
 
 const openPRViewQuery = `query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$num){` +
 	openPRScalarFields + ` ` + reviewerSelection +
-	` latestReviews(first:100){nodes{author{login} state submittedAt}} statusCheckRollup{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}`
+	` latestReviews(first:100){nodes{author{login} state submittedAt}} statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}`
 
 func openPRSearchArgs(repo, author string, page int) []string {
 	return []string{
@@ -190,20 +190,28 @@ func decodeGraphQLData(raw, prefix string) (json.RawMessage, error) {
 }
 
 type gqlPR struct {
-	Number            int               `json:"number"`
-	Title             string            `json:"title"`
-	URL               string            `json:"url"`
-	State             string            `json:"state"`
-	BaseRefName       string            `json:"baseRefName"`
-	HeadRefName       string            `json:"headRefName"`
-	HeadRefOid        string            `json:"headRefOid"`
-	Mergeable         string            `json:"mergeable"`
-	MergeStateStatus  string            `json:"mergeStateStatus"`
-	IsDraft           bool              `json:"isDraft"`
-	ReviewDecision    nullableString    `json:"reviewDecision"`
-	ReviewRequests    gqlReviewRequests `json:"reviewRequests"`
-	LatestReviews     *gqlLatestReviews `json:"latestReviews"`
-	StatusCheckRollup []gqlStatusCheck  `json:"statusCheckRollup"`
+	Number            int                  `json:"number"`
+	Title             string               `json:"title"`
+	URL               string               `json:"url"`
+	State             string               `json:"state"`
+	BaseRefName       string               `json:"baseRefName"`
+	HeadRefName       string               `json:"headRefName"`
+	HeadRefOid        string               `json:"headRefOid"`
+	Mergeable         string               `json:"mergeable"`
+	MergeStateStatus  string               `json:"mergeStateStatus"`
+	IsDraft           bool                 `json:"isDraft"`
+	ReviewDecision    nullableString       `json:"reviewDecision"`
+	ReviewRequests    gqlReviewRequests    `json:"reviewRequests"`
+	LatestReviews     *gqlLatestReviews    `json:"latestReviews"`
+	StatusCheckRollup gqlStatusCheckRollup `json:"statusCheckRollup"`
+}
+
+// gqlStatusCheckRollup is statusCheckRollup.contexts.nodes.
+// CheckRun and StatusContext belong to that union.
+type gqlStatusCheckRollup struct {
+	Contexts struct {
+		Nodes []gqlStatusCheck `json:"nodes"`
+	} `json:"contexts"`
 }
 
 type gqlReviewRequests struct {
@@ -268,7 +276,7 @@ func (p *gqlPR) toPRListItem() PRListItem {
 		IsDraft:           p.IsDraft,
 		ReviewDecision:    string(p.ReviewDecision),
 		ReviewRequests:    reviewReqsFrom(p.ReviewRequests),
-		StatusCheckRollup: statusChecksFrom(p.StatusCheckRollup),
+		StatusCheckRollup: statusChecksFrom(p.StatusCheckRollup.Contexts.Nodes),
 	}
 	if p.LatestReviews != nil {
 		item.LatestReviews = latestReviewsFrom(p.LatestReviews.Nodes)

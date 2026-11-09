@@ -226,6 +226,51 @@ func TestListOpenPRs(t *testing.T) {
 	})
 }
 
+func TestOpenPRViewQueryNestsStatusChecks(t *testing.T) {
+	t.Parallel()
+
+	const nested = `statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}`
+	if !strings.Contains(openPRViewQuery, nested) {
+		t.Fatalf("query = %s", openPRViewQuery)
+	}
+	if strings.Contains(openPRViewQuery, "statusCheckRollup{... on CheckRun") || strings.Contains(openPRViewQuery, "statusCheckRollup{... on StatusContext") {
+		t.Fatalf("fragments are direct selections of statusCheckRollup: %s", openPRViewQuery)
+	}
+	if strings.Contains(openPRSearchQuery, "statusCheckRollup") {
+		t.Fatalf("search query = %s", openPRSearchQuery)
+	}
+}
+
+func TestDecodeOpenPRViewStatusChecks(t *testing.T) {
+	t.Parallel()
+
+	raw := `{
+		"data":{"repository":{"pullRequest":{
+			"number":123,
+			"state":"OPEN",
+			"statusCheckRollup":{"contexts":{"nodes":[
+				{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},
+				{"context":"ci/circleci: unit","state":"FAILURE"}
+			]}}
+		}}}
+	}`
+	got, err := decodeOpenPRView(raw)
+	if err != nil {
+		t.Fatalf("decodeOpenPRView() error = %v", err)
+	}
+	if len(got.StatusCheckRollup) != 2 {
+		t.Fatalf("rollup = %+v", got.StatusCheckRollup)
+	}
+	check := got.StatusCheckRollup[0]
+	if check.Name != "ci" || check.Status != "COMPLETED" || check.Conclusion != "SUCCESS" {
+		t.Fatalf("check run = %+v", check)
+	}
+	status := got.StatusCheckRollup[1]
+	if status.Context != "ci/circleci: unit" || status.State != "FAILURE" || status.Name != "" {
+		t.Fatalf("status context = %+v", status)
+	}
+}
+
 func TestOpenPRQueriesOmitOrganization(t *testing.T) {
 	t.Parallel()
 
@@ -399,7 +444,7 @@ func TestViewPR(t *testing.T) {
 			"reviewDecision":"APPROVED",
 			"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"reviewer"}}]},
 			"latestReviews":{"nodes":[{"author":{"login":"reviewer"},"state":"APPROVED","submittedAt":"2026-01-01T00:00:00Z"}]},
-			"statusCheckRollup":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]
+			"statusCheckRollup":{"contexts":{"nodes":[{"name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}}
 		}}}
 	}`
 
