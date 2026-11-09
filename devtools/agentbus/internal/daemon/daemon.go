@@ -11,8 +11,15 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
+
+// Config chooses daemon behavior that the skeleton left open.
+type Config struct {
+	// RetentionDays is how many daily log files to keep. Zero uses the default.
+	RetentionDays int
+}
 
 // Request is one client call. Later issues add operations besides ping.
 type Request struct {
@@ -27,11 +34,27 @@ type Response struct {
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
 // dirs.StateDir so registry, queue, and log state have a place that
-// survives a later start.
-func Serve(ctx context.Context, dirs paths.Dirs) error {
+// survives a later start. The daemon is the only writer of the event log.
+func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	if err := os.MkdirAll(dirs.StateDir, 0o755); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
+	lg := eventlog.Open(dirs.StateDir)
+	lg.RetentionDays = cfg.RetentionDays
+	started := false
+	defer func() {
+		if !started {
+			return
+		}
+		stopErr := lg.Append(eventlog.Event{
+			Event:  eventlog.EventStop,
+			Actor:  "daemon",
+			Detail: "shutdown",
+		})
+		if stopErr != nil && err == nil {
+			err = fmt.Errorf("log stop: %w", stopErr)
+		}
+	}()
 	pidPath := filepath.Join(dirs.StateDir, "daemon.pid")
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
 		return fmt.Errorf("record daemon pid: %w", err)
@@ -49,6 +72,14 @@ func Serve(ctx context.Context, dirs paths.Dirs) error {
 	}
 	defer ln.Close()
 	defer os.Remove(dirs.SocketPath)
+	if err := lg.Append(eventlog.Event{
+		Event:  eventlog.EventStart,
+		Actor:  "daemon",
+		Detail: "listening",
+	}); err != nil {
+		return fmt.Errorf("log start: %w", err)
+	}
+	started = true
 
 	go func() {
 		<-ctx.Done()

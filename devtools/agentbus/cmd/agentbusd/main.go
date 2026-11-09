@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
@@ -24,11 +26,37 @@ func run(env []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
+	days, err := retentionDays(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
-	if err := daemon.Serve(ctx, dirs); err != nil && !errors.Is(err, context.Canceled) {
+	if err := daemon.Serve(ctx, dirs, daemon.Config{RetentionDays: days}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
 	return 0
+}
+
+// retentionDays reads AGENTBUS_LOG_RETENTION_DAYS. Unset means the default.
+func retentionDays(env []string) (int, error) {
+	days := 0
+	for _, entry := range env {
+		key, val, ok := strings.Cut(entry, "=")
+		if !ok || key != "AGENTBUS_LOG_RETENTION_DAYS" {
+			continue
+		}
+		if val == "" {
+			days = 0
+			continue
+		}
+		n, err := strconv.Atoi(val)
+		if err != nil || n <= 0 {
+			return 0, errors.New("AGENTBUS_LOG_RETENTION_DAYS must be a positive number of days")
+		}
+		days = n
+	}
+	return days, nil
 }

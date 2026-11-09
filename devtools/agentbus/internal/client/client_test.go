@@ -44,7 +44,7 @@ func serveForTest() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := daemon.Serve(ctx, dirs); err != nil {
+	if err := daemon.Serve(ctx, dirs, daemon.Config{}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -119,7 +119,16 @@ func stopDaemon(t *testing.T, stateDir string) {
 	pid := daemonPID(t, stateDir)
 	if err := unix.Kill(pid, unix.SIGTERM); err != nil {
 		t.Errorf("stop daemon: %v", err)
+		return
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := unix.Kill(pid, 0); err != nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("daemon %d did not exit", pid)
 }
 
 func daemonPID(t *testing.T, stateDir string) int {
