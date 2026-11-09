@@ -1,6 +1,7 @@
 package mailbox
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -58,13 +59,50 @@ func (m *Mailbox) walk(id string, seen map[string]bool, parts *[]string) {
 	}
 }
 
-// Status prints the delivery state of one message.
-func (m *Mailbox) Status(id string) (string, error) {
+// Status flushes the message's queue, then prints its state and how long it waited.
+func (m *Mailbox) Status(ctx context.Context, id string) (string, error) {
 	msg, err := m.get(id)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("id: %s\nstate: %s\n", msg.ID, msg.State), nil
+	if err := m.flushHandle(ctx, msg.Handle); err != nil {
+		return "", err
+	}
+	msg, err = m.get(id)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("id: %s\nstate: %s\nwaited: %s\n", msg.ID, msg.State, m.waited(msg)), nil
+}
+
+// Held lists queued messages in send order, with how long each has waited.
+func (m *Mailbox) Held() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pending := make([]message, 0)
+	for _, msg := range m.msgs {
+		if terminal(msg.State) {
+			continue
+		}
+		pending = append(pending, msg)
+	}
+	sortMessages(pending)
+	lines := make([]string, 0, len(pending))
+	for _, msg := range pending {
+		lines = append(lines, fmt.Sprintf("held %s to %s waited %s", msg.ID, msg.To, m.waited(msg)))
+	}
+	return lines
+}
+
+func (m *Mailbox) waited(msg message) string {
+	end := m.now()
+	switch {
+	case msg.ClosedAt != nil:
+		end = *msg.ClosedAt
+	case msg.DeliveredAt != nil:
+		end = *msg.DeliveredAt
+	}
+	return waitString(end.Sub(msg.SentAt))
 }
 
 func formatMessage(msg message) string {

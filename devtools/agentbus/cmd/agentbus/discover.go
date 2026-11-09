@@ -23,6 +23,13 @@ func cmdList(ctx context.Context, args, env []string, stdout, stderr io.Writer) 
 		return 1
 	}
 	printRows(stdout, resp.Rows)
+	if resp.Text == "" {
+		return 0
+	}
+	if len(resp.Rows) > 0 {
+		fmt.Fprintln(stdout)
+	}
+	fmt.Fprint(stdout, resp.Text)
 	return 0
 }
 
