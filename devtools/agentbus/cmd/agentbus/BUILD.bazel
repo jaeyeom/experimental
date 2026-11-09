@@ -7,7 +7,9 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/agentbus/internal/client:go_default_library",
+        "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
 
@@ -21,4 +23,5 @@ go_test(
     name = "go_default_test",
     srcs = ["main_test.go"],
     embed = [":go_default_library"],
+    deps = ["//devtools/agentbus/internal/eventlog:go_default_library"],
 )

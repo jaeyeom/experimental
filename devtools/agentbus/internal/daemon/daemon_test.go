@@ -7,9 +7,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
@@ -34,11 +36,30 @@ func TestServePingAndStateSurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestServeLogsStartAndStopForALaterReader(t *testing.T) {
+	dirs := paths.Dirs{
+		SocketPath: filepath.Join(shortDir(t), "daemon.sock"),
+		StateDir:   filepath.Join(t.TempDir(), "state"),
+	}
+	stop := start(t, dirs)
+	stop()
+	lines, err := eventlog.Open(dirs.StateDir).Read(eventlog.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("log lines = %q", lines)
+	}
+	if !strings.Contains(lines[0], `"event":"start"`) || !strings.Contains(lines[1], `"event":"stop"`) {
+		t.Fatalf("log lines = %q", lines)
+	}
+}
+
 func start(t *testing.T, dirs paths.Dirs) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
-	go func() { errc <- Serve(ctx, dirs) }()
+	go func() { errc <- Serve(ctx, dirs, Config{}) }()
 	deadline := time.Now().Add(2 * time.Second)
 	for ping(dirs.SocketPath) != nil {
 		if time.Now().After(deadline) {
