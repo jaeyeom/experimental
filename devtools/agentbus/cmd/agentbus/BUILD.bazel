@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["main.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbus",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//devtools/agentbus/internal/client:go_default_library",
+        "//devtools/agentbus/internal/paths:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "agentbus",
+    embed = [":go_default_library"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["main_test.go"],
+    embed = [":go_default_library"],
+)
