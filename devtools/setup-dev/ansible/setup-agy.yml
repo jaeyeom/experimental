@@ -1,0 +1,100 @@
+---
+- import_playbook: agy.yml
+
+- name: Setup Antigravity CLI (agy) settings
+  hosts: all
+  vars:
+    agy_settings_dir: "{{ ansible_facts['env']['HOME'] }}/.gemini/antigravity-cli"
+    agy_settings_file: "{{ agy_settings_dir }}/settings.json"
+    # Rules apply inside and outside the terminal sandbox, so only commands
+    # that cannot write files, run code, or change remote state belong here.
+    # command(<prefix>) matches word by word: "command(git log)" matches
+    # "git log --oneline" but not "git logx".
+    agy_allowed_commands:
+      - "command(cat)"
+      - "command(column)"
+      - "command(cut)"
+      - "command(gh issue list)"
+      - "command(gh issue status)"
+      - "command(gh issue view)"
+      - "command(gh pr checks)"
+      - "command(gh pr diff)"
+      - "command(gh pr list)"
+      - "command(gh pr status)"
+      - "command(gh pr view)"
+      - "command(gh release list)"
+      - "command(gh release view)"
+      - "command(gh repo view)"
+      # No "git branch": it can delete branches with -D.
+      - "command(git blame)"
+      - "command(git diff)"
+      - "command(git log)"
+      - "command(git ls-files)"
+      - "command(git ls-tree)"
+      - "command(git rev-parse)"
+      - "command(git show)"
+      - "command(git status)"
+      - "command(go env)"
+      - "command(go version)"
+      - "command(grep)"
+      - "command(head)"
+      - "command(jq)"
+      - "command(ls)"
+      - "command(pwd)"
+      - "command(tail)"
+      - "command(uniq)"
+      - "command(wc)"
+      - "command(which)"
+  tasks:
+    - name: Include guard for setup-agy playbook
+      block:
+        - name: Stop early if the setup-agy playbook is already included
+          meta: end_play
+          when: setup_agy_playbook_imported is defined
+        - name: Ensure the setup-agy playbook is not included
+          set_fact:
+            setup_agy_playbook_imported: true
+          when: setup_agy_playbook_imported is not defined
+
+    - name: Create agy settings directory
+      file:
+        path: "{{ agy_settings_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if agy settings.json exists
+      stat:
+        path: "{{ agy_settings_file }}"
+      register: agy_settings_stat
+
+    - name: Create empty agy settings.json if not exists
+      copy:
+        content: "{}"
+        dest: "{{ agy_settings_file }}"
+        mode: "0600"
+      when: not agy_settings_stat.stat.exists
+
+    - name: Read current agy settings.json
+      slurp:
+        src: "{{ agy_settings_file }}"
+      register: agy_settings_raw
+
+    # Union the allow list so rules saved from agy's permission prompts and
+    # the other settings keys (e.g. trustedWorkspaces) are kept.
+    - name: Compute merged agy settings
+      vars:
+        agy_current: "{{ agy_settings_raw.content | b64decode | from_json }}"
+        agy_current_allow: "{{ (agy_current.permissions | default({})).allow | default([]) }}"
+      set_fact:
+        agy_current_settings: "{{ agy_current }}"
+        agy_desired_settings: >-
+          {{ agy_current | combine({'permissions': {'allow':
+          agy_current_allow + (agy_allowed_commands | reject('in', agy_current_allow) | list)}},
+          recursive=True) }}
+
+    - name: Update agy settings.json if allow list changed
+      copy:
+        content: "{{ agy_desired_settings | to_nice_json(indent=2) }}\n"
+        dest: "{{ agy_settings_file }}"
+        mode: "0600"
+      when: agy_current_settings != agy_desired_settings

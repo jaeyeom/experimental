@@ -2203,6 +2203,7 @@ sh_test(
         "rg.yml",
         "rustup.yml",
         "sed.yml",
+        "setup-agy.yml",
         "setup-cargo.yml",
         "setup-devtools.yml",
         "setup-direnv.yml",
@@ -2743,6 +2744,23 @@ sh_test(
         "gather-facts.yml",
         "semgrep.yml",
         "uv.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
+    name = "setup-agy_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["setup-agy.yml"],
+    data = [
+        "agy.yml",
+        "curl.yml",
+        "setup-agy.yml",
+        "setup-shell-profile.yml",
+        "setup-user-bin-directory.yml",
     ],
     tags = [
         "ansible",
@@ -4601,6 +4619,7 @@ test_suite(
         ":rustup_syntax_test",
         ":sed_syntax_test",
         ":semgrep_syntax_test",
+        ":setup-agy_syntax_test",
         ":setup-bazel_syntax_test",
         ":setup-cargo_syntax_test",
         ":setup-cc-tools_syntax_test",
