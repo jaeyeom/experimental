@@ -30,6 +30,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		hint       string
 		force      bool
 		readStdin  bool
+		suffix     string
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
@@ -37,7 +38,11 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := dispatch.WithStatusWriter(cmd.Context(), cmd.ErrOrStderr())
-			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin)
+			var promptSuffix *string
+			if cmd.Flags().Changed("prompt-suffix") {
+				promptSuffix = &suffix
+			}
+			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin, promptSuffix)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -48,11 +53,12 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&ciFix, "ci-fix", false, "dispatch a CI-fix prompt (skips the unaddressed-comment gate)")
 	cmd.Flags().StringVar(&hint, "hint", "", "non-authoritative CI failure hint (requires --ci-fix)")
 	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
+	cmd.Flags().StringVar(&suffix, "prompt-suffix", "", "text appended after a blank line to every prompt (overrides dispatch_prompt_suffix)")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan, or fetch --pr targets)")
 	return cmd
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, ciFix bool, hint string, force, readStdin bool) error {
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, ciFix bool, hint string, force, readStdin bool, promptSuffix *string) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -73,6 +79,9 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 	}
 	if goLive {
 		cfg.DryRun = false
+	}
+	if promptSuffix != nil {
+		cfg.PromptSuffix = *promptSuffix
 	}
 	logStartup(ctx, "dispatch", cfg)
 	doc, err := loadDispatchDoc(ctx, cfg, exec, readStdin, prs)

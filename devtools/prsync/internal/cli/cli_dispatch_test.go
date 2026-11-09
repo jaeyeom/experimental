@@ -407,6 +407,39 @@ func TestDispatchCIFixAddressedWouldDispatch(t *testing.T) {
 	}
 }
 
+func TestDispatchPromptSuffixFlagOverridesConfig(t *testing.T) {
+	_, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, strings.Join([]string{
+		"herdr_bin=" + herdrBin,
+		"author=alice",
+		"state_file=" + filepath.Join(t.TempDir(), "state.json"),
+		"dispatch_prompt_suffix=\"NOTICE: from config\"",
+	}, "\n")+"\n")
+	doc := stdinEligibleDoc()
+	doc.PRs[0].Unaddressed = false
+	doc.PRs[0].BlockingComments = nil
+	raw := mustScanJSON(t, doc)
+	restore := swapStdin(t, string(raw))
+	defer restore()
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"dispatch", "--stdin", "--rebase", "--prompt-suffix", "NOTICE: from flag", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := decodeDispatch(t, stdout.Bytes())
+	if len(got.Results) != 1 || got.Results[0].Action != dispatch.ActionWouldDispatch {
+		t.Fatalf("results = %+v, want would_dispatch", got.Results)
+	}
+	prompt := got.Results[0].RenderedPrompt
+	if !strings.HasSuffix(prompt, "\n\nNOTICE: from flag") {
+		t.Fatalf("rendered_prompt does not end with flag suffix: %q", prompt)
+	}
+	if strings.Contains(prompt, "from config") {
+		t.Fatalf("config suffix not overridden: %q", prompt)
+	}
+}
+
 func TestDispatchCIFixAndRebase(t *testing.T) {
 	t.Parallel()
 

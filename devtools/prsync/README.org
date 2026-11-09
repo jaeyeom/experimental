@@ -74,7 +74,7 @@ Optional: copy [[file:prsync.config.example][prsync.config.example]] to ~./prsyn
 #+BEGIN_EXAMPLE
 prsync scan     [--config PATH] [--repo owner/repo ...] [--json]
 prsync tabs     --orphans [--config PATH] [--json] [--stdin] [--close-merged] [--go] [--force]
-prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--force] [--stdin]
+prsync dispatch [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--rebase] [--ci-fix] [--hint TEXT] [--prompt-suffix TEXT] [--force] [--stdin]
 prsync comment  [--config PATH] [--pr owner/repo#N ...] [--all] [--go] [--stdin] [--allow-duplicate] --body TEXT
 prsync gate     [--config PATH]
 prsync logs     [--path]
@@ -95,6 +95,7 @@ prsync version
 | ~--rebase~ | dispatch | Rebase-in-place prompt; skips the unaddressed-comment gate |
 | ~--ci-fix~ | dispatch | CI-fix prompt; skips the unaddressed-comment gate. Mutually exclusive with ~--rebase~ |
 | ~--hint TEXT~ | dispatch | Non-authoritative CI failure hint (requires ~--ci-fix~). The agent must verify it |
+| ~--prompt-suffix TEXT~ | dispatch | Append TEXT after a blank line to every prompt. Overrides ~dispatch_prompt_suffix~ for this run |
 | ~--force~ | dispatch, tabs | dispatch: re-dispatch even if dedupe would skip. tabs: allow ~--close-merged~ when every orphan is ~no_pr~ or ~unknown~ |
 | ~--stdin~ | tabs, dispatch, comment | Read a scan document from a pipe or redirected file. Absent a document: tabs self-resolve; comment and bare dispatch self-scan; ~dispatch --pr~ fetches those PRs |
 | ~--body TEXT~ | comment | Comment body to post (required) |
@@ -166,6 +167,7 @@ Environment variables are not expanded.
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~ ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{state}~ ~{comments}~. ~{state}~ is ~open~, ~closed~, or ~merged~ (empty when unrecognized). Unknown placeholders are left literal. |
 | ~rebase_prompt_template~ | built-in | Same substitution. Used only with ~dispatch --rebase~. |
 | ~ci_fix_prompt_template~ | built-in | Same substitution, plus ~{hint}~. Used only with ~dispatch --ci-fix~. |
+| ~dispatch_prompt_suffix~ | empty | Plain text appended after a blank line to every rendered dispatch prompt: comment, rebase, CI-fix, and merge-queue-fix. Empty leaves prompts unchanged. ~--prompt-suffix~ overrides it. Not part of the dedupe key, so changing only the suffix does not resend a prompt that was already dispatched. |
 | ~ci_ignore_checks~ | empty | Comma-separated path globs (~path.Match~, case-sensitive; ~*~ does not cross ~/~). Dropped from ~ci_state~ when ~ci_only_checks~ is empty. Matched against each CheckRun ~name~ and StatusContext ~context~. An invalid glob is a config error naming this key. |
 | ~ci_only_checks~ | empty | When set, this list wins: only matching checks feed ~ci_state~. Same glob rules as ~ci_ignore_checks~. |
 | ~dispatch_include_drafts~ | ~false~ | When true, ~dispatch~ may send to draft PRs. ~scan~ always includes drafts. |
