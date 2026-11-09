@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	executor "github.com/jaeyeom/go-cmdexec"
@@ -33,6 +34,8 @@ type Client struct {
 	errOut io.Writer
 	sleep  func(ctx context.Context, d time.Duration) error
 	now    func() time.Time
+	// openPRPage is the open-PR search page once halved; zero means openPRSearchPage.
+	openPRPage atomic.Int32
 }
 
 // NewClient returns a gh adapter that invokes bin via exec.

@@ -50,9 +50,12 @@ func (c *Client) execute(ctx context.Context, timeout time.Duration, args ...str
 
 // ghRetryPolicy lengthens the HTTP 502/503/504 budget for one call.
 // A zero value keeps the three-attempt budget for every transient kind.
+// nextHTTPArgs, when set, returns the args for the attempt after an
+// HTTP 502/503/504, so a call can shrink its request before the retry.
 type ghRetryPolicy struct {
 	httpAttempts int
 	httpBackoffs []time.Duration
+	nextHTTPArgs func(ctx context.Context, failErr error) []string
 }
 
 func (c *Client) executeChecked(ctx context.Context, timeout time.Duration, check outputCheck, args ...string) (*executor.ExecutionResult, error) {
@@ -78,6 +81,9 @@ func (c *Client) executeRetry(ctx context.Context, timeout time.Duration, check 
 		limit, backoffs := policy.budget(kind)
 		if attempt >= limit {
 			break
+		}
+		if kind == transientHTTP && policy.nextHTTPArgs != nil {
+			args = policy.nextHTTPArgs(ctx, failErr)
 		}
 		wait := c.retryWait(backoffs, attempt, kind, attemptText(result, execErr))
 		c.logRetry(ctx, attempt+1, limit, wait, failErr)
