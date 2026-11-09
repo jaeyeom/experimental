@@ -305,7 +305,7 @@ This project follows Test Driven Development practices. To contribute:
 4. Submit a pull request
 
 #+begin_src shell
-  # Run formatter, tests and linter
+  # make format, make test, and make lint run the repo-root targets
   make format test lint
 #+end_src
 
