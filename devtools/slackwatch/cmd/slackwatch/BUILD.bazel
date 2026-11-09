@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "main.go",
         "serve.go",
+        "slackapi.go",
         "watch.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch",
@@ -30,6 +31,7 @@ go_test(
     srcs = [
         "main_test.go",
         "serve_test.go",
+        "slackapi_test.go",
         "watch_test.go",
     ],
     embed = [":go_default_library"],

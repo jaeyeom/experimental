@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/slackwatch"
 	"github.com/slack-go/slack"
@@ -119,5 +120,63 @@ func TestHandleSocketEvent(t *testing.T) {
 				t.Errorf("acked = %q, want [env-1]", a.acked)
 			}
 		})
+	}
+}
+
+// fakeSweeper reports each sweep on a channel.
+type fakeSweeper struct {
+	swept chan struct{}
+}
+
+func (f *fakeSweeper) Sweep(context.Context) error {
+	f.swept <- struct{}{}
+	return nil
+}
+
+func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)) }
+
+func TestRunSweepsOnTrigger(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &fakeSweeper{swept: make(chan struct{})}
+	trigger := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		runSweeps(ctx, s, trigger, time.Hour, discardLogger())
+		close(done)
+	}()
+	trigger <- struct{}{}
+	select {
+	case <-s.swept:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no sweep after a trigger")
+	}
+	cancel()
+	<-done
+}
+
+func TestRunSweepsOnInterval(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &fakeSweeper{swept: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		runSweeps(ctx, s, nil, time.Millisecond, discardLogger())
+		close(done)
+	}()
+	for range 2 {
+		select {
+		case <-s.swept:
+		case <-time.After(5 * time.Second):
+			t.Fatal("no sweep on the interval")
+		}
+	}
+	cancel()
+	// Let a sweep that started before the cancel finish.
+	for {
+		select {
+		case <-s.swept:
+			continue
+		case <-done:
+		}
+		break
 	}
 }

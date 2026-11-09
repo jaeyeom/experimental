@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func useFakeCatchUp(t *testing.T) *fakeCatchUp {
 	t.Helper()
 	f := &fakeCatchUp{}
 	old := newCatchUp
-	newCatchUp = func(slackwatch.Config) (catchUpper, error) { return f, nil }
+	newCatchUp = func(slackwatch.Config, *slackwatch.Store, io.Writer) (catchUpper, error) { return f, nil }
 	t.Cleanup(func() { newCatchUp = old })
 	return f
 }
