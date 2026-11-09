@@ -45,6 +45,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.ExcerptLimit != 300 {
 		t.Errorf("ExcerptLimit = %d", cfg.ExcerptLimit)
 	}
+	if cfg.NotifyTimeout.Duration != 30*time.Second {
+		t.Errorf("NotifyTimeout = %v", cfg.NotifyTimeout)
+	}
 	if want := "/xdg/state/slackwatch/slackwatch.db"; cfg.DBPath != want {
 		t.Errorf("DBPath = %q, want %q", cfg.DBPath, want)
 	}
@@ -64,6 +67,7 @@ func TestLoadConfigOverrides(t *testing.T) {
 	path := writeFile(t, "config.json", `{
 		"notifyTemplate": "notify",
 		"livenessTemplate": "alive",
+		"notifyTimeout": "10s",
 		"targets": {"ops": "pane:1"},
 		"fallbackTarget": "ops",
 		"footerPattern": "^-- (\\S+)$",
@@ -87,6 +91,9 @@ func TestLoadConfigOverrides(t *testing.T) {
 	}
 	if cfg.ReopenWindow.Duration != 48*time.Hour {
 		t.Errorf("ReopenWindow = %v", cfg.ReopenWindow)
+	}
+	if cfg.NotifyTimeout.Duration != 10*time.Second {
+		t.Errorf("NotifyTimeout = %v", cfg.NotifyTimeout)
 	}
 	if !cfg.NotifySelf || cfg.ExcerptLimit != 50 || cfg.DBPath != "/tmp/x.db" ||
 		cfg.TokenFile != "/tmp/tokens" || cfg.Targets["ops"] != "pane:1" ||

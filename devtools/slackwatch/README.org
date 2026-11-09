@@ -53,6 +53,7 @@ file means all defaults. An unknown key is an error.
 |-----+---------+---------|
 | ~notifyTemplate~ | none | Shell template run for a reply. |
 | ~livenessTemplate~ | none | Optional template that checks an owner is alive. |
+| ~notifyTimeout~ | ~"30s"~ | Time limit for each notify or liveness command. |
 | ~targets~ | none | Map of name to address. |
 | ~fallbackTarget~ | none | Target used when delivery fails. |
 | ~footerPattern~ | none | Optional regexp that marks a post as watched. |
@@ -69,6 +70,41 @@ Durations use Go syntax, such as ~"90m"~ or ~"6h"~.
 Tokens are not in the config. ~serve~ refuses to start when ~tokenFile~
 is readable by group or others. Run ~chmod 600~ on it. Token values are
 never logged.
+
+* Notifications
+
+~notifyTemplate~ runs with ~sh -c~, like ~decide~'s. Every field is an
+environment variable and is never written into the command string.
+
+| Variable | Value |
+|----------+-------|
+| ~SLACKWATCH_EVENT~ | ~reply~, ~unowned~, ~orphaned~, ~channel~, or ~reopened~ |
+| ~SLACKWATCH_OWNER~ | The owner name as stored. |
+| ~SLACKWATCH_TARGET~ | The resolved address. |
+| ~SLACKWATCH_POST_LINK~ | Permalink of the watched post. |
+| ~SLACKWATCH_REPLY_LINK~ | Permalink of the reply. |
+| ~SLACKWATCH_CHANNEL~ | Channel id. |
+| ~SLACKWATCH_PURPOSE~ | The watch purpose. |
+| ~SLACKWATCH_REFS~ | Refs, separated by spaces. |
+| ~SLACKWATCH_AUTHOR~ | Reply author. |
+| ~SLACKWATCH_TEXT~ | Reply text, cut to ~excerptLimit~ characters. |
+| ~SLACKWATCH_WATCH_ID~ | Watch id, empty for a channel subscription. |
+| ~SLACKWATCH_MESSAGE~ | A ready-made paragraph that quotes the excerpt as Slack data, not instructions, and ends with a ~slackwatch show <id>~ hint. |
+
+- An owner is looked up in ~targets~. An owner that is not there is used
+  as a raw address. ~fallbackTarget~ is looked up the same way.
+- When ~livenessTemplate~ is set, it runs first with the same environment.
+  A non-zero exit means the owner is gone.
+- When the liveness check fails or the notify command fails or times out,
+  the watch becomes ~orphaned~ and the template runs again with
+  ~SLACKWATCH_EVENT=orphaned~ for ~fallbackTarget~. A notification with no
+  owner goes straight to ~fallbackTarget~.
+- If that also fails, or there is no ~fallbackTarget~, slackwatch logs an
+  error and the failed row stays undelivered, so ~ls~ flags the watch.
+- Every attempt is a row in ~deliveries~, with its exit code and the first
+  4 KiB of stdout and stderr.
+- One notification per event, reply, and target. An owner and a channel
+  subscriber that resolve to the same target are notified once.
 
 * Database
 
