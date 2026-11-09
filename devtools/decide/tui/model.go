@@ -182,11 +182,13 @@ func (m *Model) Reload() error {
 	return nil
 }
 
-// Key applies one key. In the list, j and k move, o or Enter opens the row,
-// g starts a folder chord, c opens compose, and q quits. A second key of
-// i, a, d, w, or s opens Inbox, Answered, Done, Withdrawn, or Status.
-// Status is also a row in the folder list. There, j and k highlight an
-// agent row, and c opens compose. In the opened item, up, down, j, and k
+// Key applies one key. In the list, j and k move one row and keep that row
+// visible. G jumps to the last row. g starts a folder chord, and a second g
+// jumps to the first row. o or Enter opens the row, c opens compose, and q
+// quits. A second key of i, a, d, w, or s opens Inbox, Answered, Done,
+// Withdrawn, or Status. Status is also a row in the folder list. There, j
+// and k highlight an agent row and keep it visible, and c opens compose.
+// In the opened item, up, down, j, and k
 // scroll one line, page up and page down scroll one page, and home and end
 // jump to the ends. n and p move between messages. u returns to the
 // list. 1 through 9 answer a relay
@@ -255,6 +257,8 @@ func (m *Model) statusKey(r rune) (bool, error) {
 		m.moveAgent(1)
 	case 'k':
 		m.moveAgent(-1)
+	case 'G':
+		m.jumpList(m.listLen() - 1)
 	case 'c':
 		m.composeFromStatus()
 	}
@@ -267,10 +271,113 @@ func (m *Model) moveAgent(delta int) {
 		return
 	}
 	next := m.agentCursor + delta
-	if next < 0 || next >= n {
-		return
+	if next < 0 {
+		next = 0
+	}
+	if next >= n {
+		next = n - 1
 	}
 	m.agentCursor = next
+	m.revealAgentCursor()
+}
+
+func (m *Model) listLen() int {
+	if m.mode == modeStatus {
+		return len(m.agents)
+	}
+	return len(m.items)
+}
+
+func (m *Model) moveList(delta int) {
+	if m.mode == modeStatus {
+		m.moveAgent(delta)
+		return
+	}
+	n := len(m.items)
+	if n == 0 {
+		return
+	}
+	next := m.cursor + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= n {
+		next = n - 1
+	}
+	m.cursor = next
+	m.revealListCursor()
+}
+
+func (m *Model) jumpList(index int) {
+	n := m.listLen()
+	if n == 0 {
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= n {
+		index = n - 1
+	}
+	if m.mode == modeStatus {
+		m.agentCursor = index
+		m.revealAgentCursor()
+		return
+	}
+	m.cursor = index
+	m.revealListCursor()
+}
+
+func (m *Model) revealListCursor() {
+	n := len(m.items)
+	if n == 0 {
+		m.scroll = 0
+		return
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor >= n {
+		m.cursor = n - 1
+	}
+	limit, _ := m.layoutBudget()
+	m.scroll = revealRow(m.scroll, m.cursor, limit)
+}
+
+func (m *Model) revealAgentCursor() {
+	if len(m.agents) == 0 {
+		return
+	}
+	m.clampAgentCursor()
+	_, limit := m.layoutBudget()
+	// The agent table starts with a header row.
+	m.scroll = revealRow(m.scroll, m.agentCursor+1, limit)
+}
+
+func revealRow(scroll, row, limit int) int {
+	if limit <= 0 {
+		return scroll
+	}
+	if row < scroll {
+		return row
+	}
+	if row >= scroll+limit {
+		return row - limit + 1
+	}
+	return scroll
+}
+
+func (m *Model) listPage() int {
+	var n int
+	if m.mode == modeStatus {
+		_, n = m.layoutBudget()
+	} else {
+		n, _ = m.layoutBudget()
+	}
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 func (m *Model) composeFromStatus() {
@@ -348,6 +455,11 @@ func (m *Model) finishChord(r rune) (bool, error) {
 		return false, m.showFolder(3)
 	case 's':
 		return false, m.showStatus()
+	case 'g':
+		if m.mode == modeList || m.mode == modeStatus {
+			m.jumpList(0)
+		}
+		return false, nil
 	default:
 		return false, nil
 	}
@@ -365,13 +477,11 @@ func (m *Model) listKey(r rune) (bool, error) {
 	case 'q':
 		return true, nil
 	case 'j':
-		if m.cursor < len(m.items)-1 {
-			m.cursor++
-		}
+		m.moveList(1)
 	case 'k':
-		if m.cursor > 0 {
-			m.cursor--
-		}
+		m.moveList(-1)
+	case 'G':
+		m.jumpList(m.listLen() - 1)
 	case 'g':
 		m.beginChord()
 	case 'o', '\r', '\n':
@@ -850,6 +960,7 @@ func (m *Model) backToList() {
 	m.resetFields()
 	m.scroll = 0
 	m.message = 0
+	m.revealListCursor()
 }
 
 func (m *Model) resetFields() {
@@ -1843,7 +1954,7 @@ func (m *Model) helpLines() []screenLine {
 	text := []string{
 		"shortcuts",
 		"q quit",
-		"j/k move",
+		"j/k move  pgup/pgdn  home/end  gg/G",
 		"g then i inbox, a answered, d done, w withdrawn, s status",
 		"o or enter opens    u returns to the list",
 		"c compose",
@@ -1866,7 +1977,7 @@ func (m *Model) helpLines() []screenLine {
 		text = []string{
 			"shortcuts",
 			"q quit",
-			"j/k move",
+			"j/k move  pgup/pgdn  home/end  gg/G",
 			"g then i inbox, a answered, d done, w withdrawn, s status",
 			"u returns to the list",
 			"c compose",
@@ -1885,7 +1996,7 @@ func (m *Model) helpLines() []screenLine {
 	}
 	if m.mode == modeDetail || m.mode == modeOutcome {
 		for i, line := range text {
-			if line == "j/k move" {
+			if strings.HasPrefix(line, "j/k move") {
 				text[i] = "j/k up/down line  pgup/pgdn page  home/end  n/p"
 			}
 		}
