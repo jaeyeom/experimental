@@ -1,0 +1,3 @@
+# Agent worktrees under .claude/worktrees contain bazel-* symlinks that
+# //... would otherwise follow into another output base.
+.claude
