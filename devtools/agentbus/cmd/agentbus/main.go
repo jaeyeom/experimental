@@ -41,6 +41,10 @@ func run(ctx context.Context, args, env []string, stdout, stderr io.Writer) int 
 		return cmdWhoami(ctx, args[1:], env, stdout, stderr)
 	case "release":
 		return cmdRelease(ctx, args[1:], env, stdout, stderr)
+	case "list":
+		return cmdList(ctx, args[1:], env, stdout, stderr)
+	case "search":
+		return cmdSearch(ctx, args[1:], env, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "agentbus: unknown command %q\n", args[0])
 		return 2

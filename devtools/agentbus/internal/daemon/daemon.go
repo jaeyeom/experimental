@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
@@ -24,15 +25,31 @@ type Config struct {
 	RetentionDays int
 	// Adapters identify callers and report liveness. Empty means nobody can register.
 	Adapters []adapter.Adapter
+	// PollInterval is how often the daemon refreshes adapter inventories.
+	// Zero uses two seconds. Names do not expire on this timer.
+	PollInterval time.Duration
 }
 
 // Request is one client call. The daemon stamps identity from Env.
 type Request struct {
-	Op   string   `json:"op"`
-	Name string   `json:"name,omitempty"`
-	When string   `json:"when,omitempty"`
-	To   string   `json:"to,omitempty"`
-	Env  []string `json:"env,omitempty"`
+	Op    string   `json:"op"`
+	Name  string   `json:"name,omitempty"`
+	When  string   `json:"when,omitempty"`
+	To    string   `json:"to,omitempty"`
+	Query string   `json:"query,omitempty"`
+	Env   []string `json:"env,omitempty"`
+}
+
+// AgentRow is one list or search result. An empty Name means the bus
+// did not assign a logical name.
+type AgentRow struct {
+	Name      string `json:"name,omitempty"`
+	When      string `json:"when,omitempty"`
+	Liveness  string `json:"liveness,omitempty"`
+	Transport string `json:"transport,omitempty"`
+	Handle    string `json:"handle,omitempty"`
+	Label     string `json:"label,omitempty"`
+	Title     string `json:"title,omitempty"`
 }
 
 // NameRecord is one registered name returned to the client.
@@ -49,6 +66,7 @@ type Response struct {
 	Name   string       `json:"name,omitempty"`
 	Handle string       `json:"handle,omitempty"`
 	Names  []NameRecord `json:"names,omitempty"`
+	Rows   []AgentRow   `json:"rows,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -105,6 +123,7 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	started = true
 
+	go reg.Poll(ctx, cfg.PollInterval)
 	go func() {
 		<-ctx.Done()
 		ln.Close()
@@ -149,6 +168,10 @@ func (s *server) dispatch(req Request) Response {
 		return s.whoami(req)
 	case "release":
 		return s.release(req)
+	case "list":
+		return s.list()
+	case "search":
+		return s.search(req)
 	default:
 		return Response{Error: "unknown op"}
 	}
@@ -180,6 +203,41 @@ func (s *server) whoami(req Request) Response {
 		out = append(out, NameRecord{Name: name.Name, Handle: name.Handle, When: name.When})
 	}
 	return Response{OK: true, Handle: handle, Names: out}
+}
+
+func (s *server) list() Response {
+	rows, err := s.reg.List(s.ctx)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Rows: agentRows(rows)}
+}
+
+func (s *server) search(req Request) Response {
+	rows, err := s.reg.Search(s.ctx, req.Query)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Rows: agentRows(rows)}
+}
+
+func agentRows(in []registry.Row) []AgentRow {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AgentRow, len(in))
+	for i, row := range in {
+		out[i] = AgentRow{
+			Name:      row.Name,
+			When:      row.When,
+			Liveness:  row.Liveness,
+			Transport: row.Transport,
+			Handle:    row.Handle,
+			Label:     row.Label,
+			Title:     row.Title,
+		}
+	}
+	return out
 }
 
 func (s *server) release(req Request) Response {
