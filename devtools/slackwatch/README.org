@@ -7,8 +7,41 @@
 replies to whoever owns each post. One binary is both the server
 (~slackwatch serve~) and the CLI. It never posts, reacts, or edits.
 
-This is a skeleton. ~serve~ checks the config and the token file, opens
-the database, and then stops. The Slack connection comes later.
+~serve~ is still a skeleton. It checks the config and the token file,
+opens the database, and then stops. The Slack connection comes later.
+
+* Watch commands
+
+The CLI writes the database directly, so the server does not have to be
+running.
+
+| Command | Does |
+|---------+------|
+| ~add <post> [--owner T] [--purpose S] [--ref R ...] [--until DATE] [--source SRC]~ | Watch a post. ~SRC~ is ~outbox~, ~hook~, or ~manual~ (default). |
+| ~claim <post> --owner T [--purpose S] [--ref R ...]~ | Take an ~unowned~ or ~orphaned~ watch and open it. |
+| ~done <post> [--reason S]~ | Close a watch. |
+| ~snooze <post> --until DATE~ | Keep a watch open until ~DATE~. |
+| ~ack <post>~ | Mark every stored reply acknowledged. |
+| ~ls [--owner T] [--state S] [--unacked] [--json]~ | One row per watch. |
+| ~show <post> [--json]~ | A watch with its posts, replies, and reactions. |
+
+~<post>~ is a Slack permalink, a channel and ts (~C0123 1700000000.000100~),
+or a watch id. ~DATE~ is ~YYYY-MM-DD~ (through the end of that local day),
+RFC 3339, or a duration such as ~72h~.
+
+- A thread reply is watched on its parent thread, and several posts in one
+  thread share one watch. A reply permalink carries ~?thread_ts=~. A
+  channel and ts pair is taken as a top-level post unless that ts is
+  already registered as a reply.
+- A post in an IM channel (id starting with ~D~) makes a ~dm~ watch.
+- ~since_ts~ is the earliest registered post. Older thread traffic is
+  never notified.
+- ~add~ again for a watched post updates only the flags given. A new watch
+  is ~open~ with ~--owner~ and ~unowned~ without it.
+- After registering, ~add~ catches up on the watch when a token is
+  available. Without a token it skips catch-up quietly.
+- ~ls~ counts unacknowledged replies by others and flags a watch that has an
+  undelivered notification.
 
 * Config
 

@@ -5,7 +5,9 @@ go_library(
     name = "go_default_library",
     srcs = [
         "config.go",
+        "post.go",
         "store.go",
+        "watch.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/slackwatch",
     visibility = ["//visibility:public"],
@@ -17,7 +19,9 @@ go_test(
     size = "small",
     srcs = [
         "config_test.go",
+        "post_test.go",
         "store_test.go",
+        "watch_test.go",
     ],
     embed = [":go_default_library"],
 )

@@ -111,6 +111,11 @@ CREATE TABLE status (
 );
 INSERT INTO status (id) VALUES (1);
 `,
+	// A delivery with delivered = 0 flags its watch in ls.
+	`
+ALTER TABLE deliveries ADD COLUMN watch_id INTEGER REFERENCES watches (id) ON DELETE SET NULL;
+CREATE INDEX deliveries_watch ON deliveries (watch_id, delivered);
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each
@@ -181,15 +186,15 @@ func (s *Store) Close() error {
 
 // Reply is one message in a watched thread or DM. WatchID 0 means none.
 type Reply struct {
-	Channel  string
-	TS       string
-	WatchID  int64
-	Author   string
-	Text     string
-	ThreadTS string
-	EditedAt string
-	IsSelf   bool
-	Acked    bool
+	Channel  string `json:"channel"`
+	TS       string `json:"ts"`
+	WatchID  int64  `json:"watchId"`
+	Author   string `json:"author"`
+	Text     string `json:"text"`
+	ThreadTS string `json:"threadTs"`
+	EditedAt string `json:"editedAt,omitempty"`
+	IsSelf   bool   `json:"isSelf"`
+	Acked    bool   `json:"acked"`
 }
 
 // AddReply stores r. A reply already stored under the same (channel, ts)
