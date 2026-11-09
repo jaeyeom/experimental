@@ -8,8 +8,14 @@ permissions:
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'codelab/flutter/**'
+      - 'my-ts-project/**'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - 'codelab/flutter/**'
+      - 'my-ts-project/**'
 
 concurrency:
   group: "pages"
