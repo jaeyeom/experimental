@@ -116,6 +116,13 @@ INSERT INTO status (id) VALUES (1);
 ALTER TABLE deliveries ADD COLUMN watch_id INTEGER REFERENCES watches (id) ON DELETE SET NULL;
 CREATE INDEX deliveries_watch ON deliveries (watch_id, delivered);
 `,
+	// reply_ts dedupes notifications per (event, reply_ts, target). output
+	// holds the command's truncated stdout and stderr.
+	`
+ALTER TABLE deliveries ADD COLUMN reply_ts TEXT NOT NULL DEFAULT '';
+ALTER TABLE deliveries ADD COLUMN output TEXT NOT NULL DEFAULT '';
+CREATE INDEX deliveries_dedupe ON deliveries (event, reply_ts, target, delivered);
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

@@ -24,6 +24,7 @@ const (
 	DefaultQuietExpiry   = 336 * time.Hour
 	DefaultReopenWindow  = 720 * time.Hour
 	DefaultExcerptLimit  = 300
+	DefaultNotifyTimeout = 30 * time.Second
 )
 
 // Config is ~/.config/slackwatch/config.json. Tokens are never stored here.
@@ -31,6 +32,7 @@ const (
 type Config struct {
 	NotifyTemplate   string            `json:"notifyTemplate"`
 	LivenessTemplate string            `json:"livenessTemplate"`
+	NotifyTimeout    Duration          `json:"notifyTimeout"`
 	Targets          map[string]string `json:"targets"`
 	FallbackTarget   string            `json:"fallbackTarget"`
 	FooterPattern    Regexp            `json:"footerPattern"`
@@ -142,6 +144,7 @@ func defaultConfig() Config {
 		QuietExpiry:   Duration{DefaultQuietExpiry},
 		ReopenWindow:  Duration{DefaultReopenWindow},
 		ExcerptLimit:  DefaultExcerptLimit,
+		NotifyTimeout: Duration{DefaultNotifyTimeout},
 		DBPath:        DefaultDBPath(),
 	}
 }

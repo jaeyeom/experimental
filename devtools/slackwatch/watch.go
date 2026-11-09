@@ -351,6 +351,8 @@ func (s *Store) AckWatch(id int64) (int64, error) {
 
 // ListWatches returns one summary per watch matching f, ordered by id.
 // Unacked counts replies by others that are not yet acknowledged.
+// Undelivered is set when a failed delivery has no later successful one
+// for the same reply, such as a fallback.
 func (s *Store) ListWatches(f WatchFilter) ([]WatchSummary, error) {
 	rows, err := s.db.Query(`
 SELECT `+watchCols+`,
@@ -358,7 +360,9 @@ SELECT `+watchCols+`,
 	(SELECT COUNT(*) FROM replies r WHERE r.watch_id = w.id AND r.acked = 0 AND r.is_self = 0),
 	COALESCE((SELECT author FROM replies r WHERE r.watch_id = w.id ORDER BY `+tsOrderDesc+` LIMIT 1), ''),
 	COALESCE((SELECT ts FROM replies r WHERE r.watch_id = w.id ORDER BY `+tsOrderDesc+` LIMIT 1), ''),
-	EXISTS (SELECT 1 FROM deliveries d WHERE d.watch_id = w.id AND d.delivered = 0)
+	EXISTS (SELECT 1 FROM deliveries d WHERE d.watch_id = w.id AND d.delivered = 0
+		AND NOT EXISTS (SELECT 1 FROM deliveries l WHERE l.watch_id = d.watch_id
+			AND l.reply_ts = d.reply_ts AND l.delivered = 1 AND l.id > d.id))
 FROM watches w
 WHERE (?1 = '' OR owner = ?1) AND (?2 = '' OR state = ?2)
 ORDER BY id`, f.Owner, f.State)
