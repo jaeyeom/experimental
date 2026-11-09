@@ -28,13 +28,16 @@ type Binding struct {
 
 // Registry persists name ownership in the daemon state directory.
 type Registry struct {
-	dir      string
-	names    map[string]record
-	adapters []adapter.Adapter
-	log      *eventlog.Log
-	broken   map[string]bool
-	tested   bool
-	mu       sync.Mutex
+	dir           string
+	names         map[string]record
+	adapters      []adapter.Adapter
+	log           *eventlog.Log
+	broken        map[string]bool
+	tested        bool
+	snaps         map[string][]adapter.Agent
+	invBroken     map[string]bool
+	haveInventory bool
+	mu            sync.Mutex
 }
 
 // record is one name binding. There is no deadline field.

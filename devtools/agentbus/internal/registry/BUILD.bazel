@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["registry.go"],
+    srcs = [
+        "discover.go",
+        "registry.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/registry",
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = [
@@ -13,7 +16,10 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["registry_test.go"],
+    srcs = [
+        "discover_test.go",
+        "registry_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
