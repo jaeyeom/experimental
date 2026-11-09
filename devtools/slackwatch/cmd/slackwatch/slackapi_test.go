@@ -87,6 +87,37 @@ func TestSlackReaderHistory(t *testing.T) {
 	}
 }
 
+func TestSlackReaderHistoryLatestReply(t *testing.T) {
+	r := fakeSlackAPI(t, func(string, *http.Request) (int, string) {
+		return 200, `{"ok":true,"messages":[{"type":"message","user":"U9","text":"q","ts":"2.000100","thread_ts":"2.000100","latest_reply":"4.000100"}]}`
+	})
+	got, err := r.History(context.Background(), "C2", "1.000100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].LatestReply != "4.000100" {
+		t.Errorf("History = %+v, want latest_reply 4.000100", got)
+	}
+}
+
+func TestSlackReaderChannelID(t *testing.T) {
+	r := fakeSlackAPI(t, func(method string, req *http.Request) (int, string) {
+		if method != "conversations.list" || req.Form.Get("types") != "public_channel,private_channel" {
+			t.Errorf("unexpected call %s %v", method, req.Form)
+		}
+		if req.Form.Get("cursor") == "" {
+			return 200, `{"ok":true,"channels":[{"id":"C1","name":"general"}],"response_metadata":{"next_cursor":"p2"}}`
+		}
+		return 200, `{"ok":true,"channels":[{"id":"C2","name":"deploys"}],"response_metadata":{"next_cursor":""}}`
+	})
+	if id, err := r.ChannelID(context.Background(), "deploys"); err != nil || id != "C2" {
+		t.Errorf("ChannelID(deploys) = %q, %v, want C2", id, err)
+	}
+	if _, err := r.ChannelID(context.Background(), "missing"); err == nil {
+		t.Error("ChannelID(missing) succeeded")
+	}
+}
+
 func TestSlackReaderSearch(t *testing.T) {
 	r := fakeSlackAPI(t, func(method string, req *http.Request) (int, string) {
 		if method != "search.messages" || req.Form.Get("query") != "from:me" || req.Form.Get("sort") != "timestamp" {

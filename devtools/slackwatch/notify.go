@@ -175,14 +175,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	return nil
 }
 
-// target resolves name through the targets map. An unknown name is used
-// as a raw address.
-func (n *Notifier) target(name string) string {
-	if t, ok := n.Config.Targets[name]; ok {
-		return t
-	}
-	return name
-}
+func (n *Notifier) target(name string) string { return n.Config.Target(name) }
 
 func (n *Notifier) env(note Notification, target string) []string {
 	text := excerpt(note.Text, n.Config.ExcerptLimit)

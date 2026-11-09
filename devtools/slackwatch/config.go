@@ -45,6 +45,15 @@ type Config struct {
 	TokenFile        string            `json:"tokenFile"`
 }
 
+// Target resolves name through the targets map. An unknown name is used
+// as a raw address.
+func (c Config) Target(name string) string {
+	if t, ok := c.Targets[name]; ok {
+		return t
+	}
+	return name
+}
+
 // Duration is a time.Duration written in JSON as a string such as "6h".
 type Duration struct {
 	time.Duration

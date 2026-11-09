@@ -7,15 +7,16 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 )
 
 // Fetched is a message read from the Slack Web API with its reactions.
-// Each reaction's TS is the message ts.
+// Each reaction's TS is the message ts. LatestReply is the ts of a thread
+// parent's latest reply, as conversations.history reports it.
 type Fetched struct {
 	Message
-	Reactions []Reaction
+	Reactions   []Reaction
+	LatestReply string
 }
 
 // SlackReader is the read-only Slack Web API that catch-up uses. Each
@@ -104,12 +105,11 @@ func (c *CatchUp) catchUpSearch(ctx context.Context) error {
 		return err
 	}
 	if cursor == "" {
-		cursor = strconv.FormatInt(c.Proc.Now().Add(-searchLookback).Unix(), 10) + ".000000"
+		cursor = unixTS(c.Proc.Now().Add(-searchLookback))
 	}
-	whole, _, _ := strings.Cut(cursor, ".")
-	sec, err := strconv.ParseInt(whole, 10, 64)
+	sec, err := tsSeconds(cursor)
 	if err != nil {
-		return fmt.Errorf("search cursor %q: %w", cursor, err)
+		return fmt.Errorf("search cursor: %w", err)
 	}
 	// after: is a whole day in the searcher's time zone and excludes that
 	// day. Go back two days and filter on ts.
@@ -187,11 +187,16 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// Run catches up every watch that can still get a reply, then runs the
-// search. A failing watch does not stop the others. The errors are
-// joined.
+// Run catches up every watch that can still get a reply and every active
+// subscription, then runs the search. A failing watch or subscription does
+// not stop the others. The errors are joined.
 func (c *CatchUp) Run(ctx context.Context) error {
-	watches, err := c.Proc.Store.catchUpWatches(c.Proc.Now(), c.Proc.Config.ReopenWindow.Duration)
+	now := c.Proc.Now()
+	watches, err := c.Proc.Store.catchUpWatches(now, c.Proc.Config.ReopenWindow.Duration)
+	if err != nil {
+		return err
+	}
+	subs, err := c.Proc.Store.ListSubs()
 	if err != nil {
 		return err
 	}
@@ -201,6 +206,14 @@ func (c *CatchUp) Run(ctx context.Context) error {
 			return fmt.Errorf("catch up: %w", err)
 		}
 		errs = append(errs, c.CatchUpWatch(ctx, w))
+	}
+	for _, s := range subs {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("catch up: %w", err)
+		}
+		if s.active(now) {
+			errs = append(errs, c.CatchUpSub(ctx, s))
+		}
 	}
 	errs = append(errs, c.catchUpSearch(ctx))
 	return errors.Join(errs...)
