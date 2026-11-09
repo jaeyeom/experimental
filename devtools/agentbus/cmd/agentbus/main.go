@@ -30,7 +30,13 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 	if len(args) == 0 {
 		return ensure(env, stderr)
 	}
+	return dispatchCommand(ctx, args, env, stdin, stdout, stderr)
+}
+
+func dispatchCommand(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch args[0] {
+	case "install", "install-hooks", "hook":
+		return dispatchSetup(ctx, args, env, stdin, stdout, stderr)
 	case "log":
 		return cmdLog(ctx, args[1:], env, stdout, stderr)
 	case "register":
@@ -55,6 +61,20 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 		return cmdThread(ctx, args[1:], env, stdout, stderr)
 	case "status":
 		return cmdStatus(ctx, args[1:], env, stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "agentbus: unknown command %q\n", args[0])
+		return 2
+	}
+}
+
+func dispatchSetup(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	switch args[0] {
+	case "install":
+		return cmdInstall(ctx, args[1:], env, stdout, stderr)
+	case "install-hooks":
+		return cmdInstallHooks(ctx, args[1:], env, stdout, stderr)
+	case "hook":
+		return cmdHook(ctx, args[1:], env, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "agentbus: unknown command %q\n", args[0])
 		return 2
