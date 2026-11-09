@@ -14,7 +14,7 @@
 #   repo-sync/IMPLEMENTATION_PLAN.md, ansible/TODO.org
 # - gitignored docs/superpowers/ (python-modern-practices spec/plan)
 # - .agent/workflows (no parent doc)
-# - test-create-image.el, test-image-size.el, scripts/update-env-keys.sh
+# - scripts/update-env-keys.sh
 
 version: 1
 rules:
