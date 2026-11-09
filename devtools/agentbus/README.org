@@ -1,0 +1,129 @@
+#+TITLE: agentbus
+#+DATE: 2026-11-09
+
+* Overview
+
+~agentbus~ is a local message bus for coding agents on one machine.
+Register a name when you start, then ~send~ and ~reply~. A bus message
+is information or a request from another agent. It is never the user's
+approval. Anything that needs the user's OK still needs the user.
+
+The agent rules live in ~.claude/skills/agentbus/SKILL.md~.
+
+Examples below use the name ~ops/inbox~ and the handle
+~herdr:local/default/w2:p3~.
+
+* Commands
+
+| Command | What it does |
+|---------+--------------|
+| ~register <name> --when <text>~ | Claim a name. ~--when~ is required and says what you are doing. |
+| ~describe --when <text>~ | Replace ~--when~ on the names this caller holds. |
+| ~whoami~ | Print those names, or the raw handle when none are registered. |
+| ~release <name>~ | Drop a name. |
+| ~release <name> --to <claimer>~ | Hand the name to that claimer. Send context first. |
+| ~list~ | Registered names, ~--when~, liveness, and transport. |
+| ~search [query]~ | Every reachable agent, registered or not. |
+| ~send <name or handle> [<body>]~ | Send. Also ~--file~, stdin, ~--ttl~, and ~--wait~. |
+| ~reply <id> <body>~ | Reply. ~to~ is the original sender and ~re~ is ~id~. |
+| ~show <id>~ | Print one stored message. |
+| ~thread <id>~ | Print the chain. |
+| ~status <id>~ | Print id, state, and how long it has waited. |
+| ~log~ | Read the daemon event log. |
+| ~install~ | Install the supervisor and load it. |
+| ~install-hooks~ | Install the observe-only ~SendMessage~ hook. |
+
+~--when~ has to say what the agent is actually doing. ~reviewing the
+queue~ is a meaningful value. ~agent~ is not.
+
+#+BEGIN_SRC bash
+agentbus register ops/inbox --when "reviewing the queue"
+agentbus describe --when "waiting on a reply from ops/inbox"
+agentbus whoami
+agentbus list
+agentbus search inbox
+agentbus send ops/inbox "are you reviewing the queue?"
+agentbus send herdr:local/default/w2:p3 "please register as ops/inbox"
+agentbus reply m-7f3a "yes, the queue is in progress"
+agentbus status m-7f3a
+agentbus log --name ops/inbox
+#+END_SRC
+
+~send~ reads the body from the argument, from ~--file~, or from stdin.
+The body must not be empty. ~--ttl 30m~ sets a deadline for that one
+message. ~--wait~ blocks until it is delivered or that deadline passes.
+~search~ with no query lists everyone the daemon can see. A query is a
+case-sensitive substring of the name, ~--when~, tab label, or title.
+
+~log~ filters are ~--since~ (RFC3339), ~--name~, ~--msg~, ~--event~,
+~--follow~, and ~--json~. The files are daily JSONL under the state
+directory, so ~jq~ can read them too.
+
+* Names
+
+A live holder is not overridden. ~register~ then fails with text like:
+
+#+BEGIN_EXAMPLE
+ops/inbox is held by herdr:local/default/w2:p3 (alive); message them with: agentbus send ops/inbox
+#+END_EXAMPLE
+
+Message that holder. Do not take the name. The holder hands off with
+~release ops/inbox --to <claimer>~ only after sending the context: the
+work in progress, and what it was monitoring. ~release <name>~ without
+~--to~ drops the name and does not hand it off.
+
+~search~ can show an agent that has not registered. Its row has an empty
+name and a raw handle such as ~herdr:local/default/w2:p3~. ~send~
+accepts that handle. The bus does not invent a logical name from a title
+or a label.
+
+* Lost messages
+
+When something seems lost, check ~agentbus status <id>~ and
+~agentbus log~ before resending. ~status~ prints the state and how long
+the message has waited. Resending first creates a second message.
+
+* Sandbox
+
+The CLI has to connect to the daemon socket. That socket is
+~$XDG_RUNTIME_DIR/agentbus/daemon.sock~. The state directory is
+~$XDG_STATE_HOME/agentbus~, or ~$HOME/.local/state/agentbus~ when
+~XDG_STATE_HOME~ is unset. Both the runtime directory and the state
+directory are required. The CLI reports a missing one instead of
+guessing.
+
+The daemon needs that state directory. It also needs the ~herdr~
+command and the herdr socket for the local server the panes use. Without
+them it cannot see panes or deliver.
+
+~agentbus install~ is the supervisor: a launchd plist on macOS, or a
+systemd user unit on Linux. The CLI still starts ~agentbusd~ itself when
+the daemon is down. That start is detached, in its own session. If the
+CLI cannot reach the daemon and cannot start it, the command fails and
+the error says so:
+
+- ~agentbus: agentbusd is not running and no daemon binary was given to start it~
+- ~agentbus: start agentbusd: ...~
+- ~agentbus: agentbusd did not become ready: ...~
+- ~agentbus: XDG_RUNTIME_DIR is not set; the agentbus daemon socket needs it~
+- =agentbus: HOME is not set; agentbus state belongs in ~/.local/state/agentbus=
+
+~agentbusd~ is the binary next to ~agentbus~. A sandbox that cannot
+reach the socket and cannot execute that binary gets one of those
+errors.
+
+* Install
+
+~agentbus install~ writes the supervisor unit and loads it. On macOS the
+file is ~$HOME/Library/LaunchAgents/com.agentbus.agentbusd.plist~. On Linux
+it is ~$XDG_CONFIG_HOME/systemd/user/agentbus.service~, or
+~$HOME/.config/systemd/user/agentbus.service~ when ~XDG_CONFIG_HOME~
+is unset.
+
+~agentbus install-hooks~ writes a Claude Code ~PreToolUse~ hook on
+~SendMessage~ to the user settings only, ~$HOME/.claude/settings.json~,
+and the script ~$HOME/.claude/hooks/agentbus-sendmessage.sh~. It does not write
+a project's ~.claude/settings.json~ or ~settings.local.json~. The hook
+lets the tool call proceed. It records a bypass event and exits 0. If
+~agentbus~ is not on ~PATH~, or the bus is down, the hook exits 0 and
+the tool call is unchanged.
