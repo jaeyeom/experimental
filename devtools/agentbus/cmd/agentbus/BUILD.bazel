@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "discover.go",
+        "envelope.go",
         "main.go",
         "registry.go",
     ],
@@ -28,6 +29,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "discover_test.go",
+        "envelope_test.go",
         "main_test.go",
         "registry_test.go",
     ],

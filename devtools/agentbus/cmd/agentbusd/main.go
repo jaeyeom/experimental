@@ -33,11 +33,17 @@ func run(env []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
+	inline, err := inlineBytes(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
 		RetentionDays: days,
 		Adapters:      []adapter.Adapter{&herdr.Adapter{}},
+		InlineBytes:   inline,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
@@ -64,4 +70,23 @@ func retentionDays(env []string) (int, error) {
 		days = n
 	}
 	return days, nil
+}
+
+// inlineBytes reads AGENTBUS_INLINE_BYTES. Unset means the default.
+func inlineBytes(env []string) (int, error) {
+	for _, entry := range env {
+		key, val, ok := strings.Cut(entry, "=")
+		if !ok || key != "AGENTBUS_INLINE_BYTES" {
+			continue
+		}
+		if val == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(val)
+		if err != nil || n <= 0 {
+			return 0, errors.New("AGENTBUS_INLINE_BYTES must be a positive number of bytes")
+		}
+		return n, nil
+	}
+	return 0, nil
 }

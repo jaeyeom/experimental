@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,17 +175,26 @@ func mustCmd(t *testing.T, args, env []string) (string, string) {
 }
 
 func runCmd(args, env []string) (int, string, string) {
+	return runCmdIn(args, env, strings.NewReader(""))
+}
+
+func runCmdIn(args, env []string, stdin io.Reader) (int, string, string) {
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), args, env, &stdout, &stderr)
+	code := run(context.Background(), args, env, stdin, &stdout, &stderr)
 	return code, stdout.String(), stderr.String()
 }
 
 func startBus(t *testing.T, dirs paths.Dirs, ad adapter.Adapter) func() {
 	t.Helper()
+	return startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}})
+}
+
+func startDaemon(t *testing.T, dirs paths.Dirs, cfg daemon.Config) func() {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
-		errc <- daemon.Serve(ctx, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}})
+		errc <- daemon.Serve(ctx, dirs, cfg)
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for {

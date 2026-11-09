@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "mailbox.go",
+        "render.go",
+        "view.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox",
+    visibility = ["//devtools/agentbus:__subpackages__"],
+    deps = [
+        "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/registry:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["render_test.go"],
+    embed = [":go_default_library"],
+)

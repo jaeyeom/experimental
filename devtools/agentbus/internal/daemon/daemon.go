@@ -15,6 +15,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
 )
@@ -28,6 +29,9 @@ type Config struct {
 	// PollInterval is how often the daemon refreshes adapter inventories.
 	// Zero uses two seconds. Names do not expire on this timer.
 	PollInterval time.Duration
+	// InlineBytes is the largest body pasted in full. Zero uses the default.
+	// A longer or unsafe body is stored and delivered as a preview.
+	InlineBytes int
 }
 
 // Request is one client call. The daemon stamps identity from Env.
@@ -37,6 +41,7 @@ type Request struct {
 	When  string   `json:"when,omitempty"`
 	To    string   `json:"to,omitempty"`
 	Query string   `json:"query,omitempty"`
+	Body  string   `json:"body,omitempty"`
 	Env   []string `json:"env,omitempty"`
 }
 
@@ -67,6 +72,8 @@ type Response struct {
 	Handle string       `json:"handle,omitempty"`
 	Names  []NameRecord `json:"names,omitempty"`
 	Rows   []AgentRow   `json:"rows,omitempty"`
+	State  string       `json:"state,omitempty"`
+	Text   string       `json:"text,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -78,11 +85,11 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	lg := eventlog.Open(dirs.StateDir)
 	lg.RetentionDays = cfg.RetentionDays
-	reg, err := registry.Open(dirs.StateDir, cfg.Adapters, lg)
+	reg, box, err := openState(dirs.StateDir, cfg, lg)
 	if err != nil {
-		return fmt.Errorf("open registry: %w", err)
+		return err
 	}
-	srv := &server{ctx: ctx, reg: reg}
+	srv := &server{ctx: ctx, reg: reg, box: box}
 	started := false
 	defer func() {
 		if !started {
@@ -141,9 +148,22 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 }
 
+func openState(dir string, cfg Config, lg *eventlog.Log) (*registry.Registry, *mailbox.Mailbox, error) {
+	reg, err := registry.Open(dir, cfg.Adapters, lg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open registry: %w", err)
+	}
+	box, err := mailbox.Open(dir, reg, cfg.Adapters, lg, cfg.InlineBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open mailbox: %w", err)
+	}
+	return reg, box, nil
+}
+
 type server struct {
 	ctx context.Context
 	reg *registry.Registry
+	box *mailbox.Mailbox
 }
 
 func (s *server) handle(conn net.Conn) {
@@ -153,10 +173,10 @@ func (s *server) handle(conn net.Conn) {
 		write(conn, Response{Error: "bad request"})
 		return
 	}
-	write(conn, s.dispatch(req))
+	write(conn, s.dispatch(req, peerPID(conn)))
 }
 
-func (s *server) dispatch(req Request) Response {
+func (s *server) dispatch(req Request, pid int) Response {
 	switch req.Op {
 	case "ping":
 		return Response{OK: true}
@@ -172,6 +192,16 @@ func (s *server) dispatch(req Request) Response {
 		return s.list()
 	case "search":
 		return s.search(req)
+	case "send":
+		return s.send(req, pid)
+	case "reply":
+		return s.reply(req, pid)
+	case "show":
+		return s.show(req)
+	case "thread":
+		return s.thread(req)
+	case "status":
+		return s.status(req)
 	default:
 		return Response{Error: "unknown op"}
 	}
@@ -238,6 +268,46 @@ func agentRows(in []registry.Row) []AgentRow {
 		}
 	}
 	return out
+}
+
+func (s *server) send(req Request, pid int) Response {
+	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: result.ID, State: result.State}
+}
+
+func (s *server) reply(req Request, pid int) Response {
+	result, err := s.box.Reply(s.ctx, req.Env, pid, req.Name, req.Body)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: result.ID, State: result.State}
+}
+
+func (s *server) show(req Request) Response {
+	text, err := s.box.Show(req.Name)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: req.Name, Text: text}
+}
+
+func (s *server) thread(req Request) Response {
+	text, err := s.box.Thread(req.Name)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: req.Name, Text: text}
+}
+
+func (s *server) status(req Request) Response {
+	text, err := s.box.Status(req.Name)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: req.Name, Text: text}
 }
 
 func (s *server) release(req Request) Response {

@@ -23,10 +23,10 @@ func main() {
 func runProcess() int {
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
-	return run(ctx, os.Args[1:], os.Environ(), os.Stdout, os.Stderr)
+	return run(ctx, os.Args[1:], os.Environ(), os.Stdin, os.Stdout, os.Stderr)
 }
 
-func run(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
+func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return ensure(env, stderr)
 	}
@@ -45,6 +45,16 @@ func run(ctx context.Context, args, env []string, stdout, stderr io.Writer) int 
 		return cmdList(ctx, args[1:], env, stdout, stderr)
 	case "search":
 		return cmdSearch(ctx, args[1:], env, stdout, stderr)
+	case "send":
+		return cmdSend(ctx, args[1:], env, stdin, stdout, stderr)
+	case "reply":
+		return cmdReply(ctx, args[1:], env, stdout, stderr)
+	case "show":
+		return cmdShow(ctx, args[1:], env, stdout, stderr)
+	case "thread":
+		return cmdThread(ctx, args[1:], env, stdout, stderr)
+	case "status":
+		return cmdStatus(ctx, args[1:], env, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "agentbus: unknown command %q\n", args[0])
 		return 2
