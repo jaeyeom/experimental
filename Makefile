@@ -145,7 +145,16 @@ generate-ansible:
 generate-pkl:
 	$(MAKE) -C devtools/gh-nudge generate-pkl
 
-check-generated: generate-ansible generate-pkl
+# Fail when a generator adds an untracked file under GENERATED_PATHS or
+# changes a pre-existing untracked file there. An unchanged pre-existing
+# untracked file is not a failure.
+check-generated:
+	@mkdir -p .tmp
+	@git ls-files --others --exclude-standard -- $(GENERATED_PATHS) | sort | while IFS= read -r f; do \
+		[ -n "$$f" ] || continue; \
+		printf '%s\t%s\n' "$$(git hash-object "$$f")" "$$f"; \
+	done > .tmp/check-generated-before
+	@$(MAKE) generate-ansible generate-pkl
 	@STATUS=0; \
 	if ! git diff --quiet -- $(GENERATED_PATHS); then \
 		STALE=$$(git diff --cached --name-only -- $(GENERATED_PATHS)); \
@@ -160,10 +169,14 @@ check-generated: generate-ansible generate-pkl
 			git diff --name-only -- $(GENERATED_PATHS); \
 		fi; \
 	fi; \
-	UNTRACKED=$$(git ls-files --others --exclude-standard -- $(GENERATED_PATHS)); \
-	if [ -n "$$UNTRACKED" ]; then \
+	git ls-files --others --exclude-standard -- $(GENERATED_PATHS) | sort | while IFS= read -r f; do \
+		[ -n "$$f" ] || continue; \
+		printf '%s\t%s\n' "$$(git hash-object "$$f")" "$$f"; \
+	done > .tmp/check-generated-after; \
+	CHANGED=$$(awk -F '\t' 'FILENAME == ARGV[1] { if ($$2 != "") old[$$2] = $$1; next } $$2 == "" { next } { if (!($$2 in old)) { print $$2; bad = 1 } else if (old[$$2] != $$1) { print $$2; bad = 1 } } END { exit bad ? 1 : 0 }' .tmp/check-generated-before .tmp/check-generated-after); \
+	if [ $$? -ne 0 ]; then \
 		echo "Error: Untracked generated files found. Stage or remove them:"; \
-		echo "$$UNTRACKED"; \
+		echo "$$CHANGED"; \
 		STATUS=1; \
 	fi; \
 	exit $$STATUS
