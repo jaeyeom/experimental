@@ -5,6 +5,8 @@ go_library(
     srcs = [
         "discover.go",
         "envelope.go",
+        "hook.go",
+        "install.go",
         "main.go",
         "registry.go",
     ],
@@ -30,6 +32,7 @@ go_test(
     srcs = [
         "discover_test.go",
         "envelope_test.go",
+        "install_test.go",
         "main_test.go",
         "queue_test.go",
         "registry_test.go",

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
@@ -36,16 +37,20 @@ type Config struct {
 
 // Request is one client call. The daemon stamps identity from Env.
 type Request struct {
-	Op    string   `json:"op"`
-	Name  string   `json:"name,omitempty"`
-	When  string   `json:"when,omitempty"`
-	To    string   `json:"to,omitempty"`
-	Query string   `json:"query,omitempty"`
-	Body  string   `json:"body,omitempty"`
-	Env   []string `json:"env,omitempty"`
-	TTL   string   `json:"ttl,omitempty"`
-	Wait  bool     `json:"wait,omitempty"`
+	Op      string   `json:"op"`
+	Name    string   `json:"name,omitempty"`
+	When    string   `json:"when,omitempty"`
+	To      string   `json:"to,omitempty"`
+	Query   string   `json:"query,omitempty"`
+	Body    string   `json:"body,omitempty"`
+	Env     []string `json:"env,omitempty"`
+	TTL     string   `json:"ttl,omitempty"`
+	Wait    bool     `json:"wait,omitempty"`
+	Session string   `json:"session,omitempty"`
 }
+
+// bypassPreview is how many bytes of a SendMessage body a bypass event keeps.
+const bypassPreview = 200
 
 // AgentRow is one list or search result. An empty Name means the bus
 // did not assign a logical name.
@@ -91,7 +96,7 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	if err != nil {
 		return err
 	}
-	srv := &server{ctx: ctx, reg: reg, box: box}
+	srv := &server{ctx: ctx, reg: reg, box: box, log: lg}
 	started := false
 	defer func() {
 		if !started {
@@ -167,6 +172,7 @@ type server struct {
 	ctx context.Context
 	reg *registry.Registry
 	box *mailbox.Mailbox
+	log *eventlog.Log
 }
 
 func (s *server) handle(conn net.Conn) {
@@ -205,9 +211,47 @@ func (s *server) dispatch(req Request, pid int) Response {
 		return s.thread(req)
 	case "status":
 		return s.status(req)
+	case "bypass":
+		return s.bypass(req)
 	default:
 		return Response{Error: "unknown op"}
 	}
+}
+
+// bypass records an observe-only SendMessage. The tool call already proceeded.
+func (s *server) bypass(req Request) Response {
+	actor := strings.TrimSpace(req.Session)
+	if actor == "" {
+		actor = "unknown"
+	}
+	detail := preview(req.Body, bypassPreview)
+	if detail == "" {
+		detail = "bypass"
+	}
+	if err := s.log.Append(eventlog.Event{
+		Event:  eventlog.EventBypass,
+		Actor:  actor,
+		Name:   strings.TrimSpace(req.Name),
+		Detail: detail,
+	}); err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true}
+}
+
+// preview keeps at most limit bytes and marks a cut with an ellipsis.
+func preview(body string, limit int) string {
+	if len(body) <= limit {
+		return body
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(body[cut]) {
+		cut--
+	}
+	if cut == 0 {
+		cut = limit
+	}
+	return body[:cut] + "…"
 }
 
 func (s *server) register(req Request) Response {
