@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["fake.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake",
+    visibility = ["//devtools/agentbus:__subpackages__"],
+    deps = ["//devtools/agentbus/internal/adapter:go_default_library"],
+)
