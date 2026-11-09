@@ -2,14 +2,23 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["daemon.go"],
+    srcs = [
+        "daemon.go",
+        "peer.go",
+        "peer_darwin.go",
+        "peer_linux.go",
+        "peer_other.go",
+        "peer_unix.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon",
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/mailbox:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
 

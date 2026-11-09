@@ -122,6 +122,26 @@ func (r *Registry) Describe(ctx context.Context, env []string, when string) ([]s
 	return names, nil
 }
 
+// NamesOf returns the logical names held by handle, in name order.
+// An empty slice means the handle is not registered. The bus does not
+// invent a name for it.
+func (r *Registry) NamesOf(handle string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.heldBy(handle)
+}
+
+// Resolve returns the handle for a registered name or a raw handle.
+func (r *Registry) Resolve(target string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	handle, err := r.resolveClaimer(target)
+	if err != nil {
+		return "", fmt.Errorf("%s is not registered; try agentbus search", target)
+	}
+	return handle, nil
+}
+
 // WhoAmI returns the stamped handle and the names that handle holds.
 func (r *Registry) WhoAmI(ctx context.Context, env []string) (string, []Binding, error) {
 	r.mu.Lock()

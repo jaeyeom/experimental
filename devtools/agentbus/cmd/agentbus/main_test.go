@@ -14,7 +14,7 @@ import (
 
 func TestRunFailsLoudlyWithoutRuntimeDir(t *testing.T) {
 	var stderr bytes.Buffer
-	code := run(context.Background(), nil, []string{"HOME=/Users/me"}, io.Discard, &stderr)
+	code := run(context.Background(), nil, []string{"HOME=/Users/me"}, strings.NewReader(""), io.Discard, &stderr)
 	if code == 0 {
 		t.Fatal("run exited 0")
 	}
@@ -25,7 +25,7 @@ func TestRunFailsLoudlyWithoutRuntimeDir(t *testing.T) {
 
 func TestRunRejectsCommands(t *testing.T) {
 	var stderr bytes.Buffer
-	code := run(context.Background(), []string{"send"}, []string{"XDG_RUNTIME_DIR=/tmp", "HOME=/Users/me"}, io.Discard, &stderr)
+	code := run(context.Background(), []string{"send"}, []string{"XDG_RUNTIME_DIR=/tmp", "HOME=/Users/me"}, strings.NewReader(""), io.Discard, &stderr)
 	if code != 2 {
 		t.Fatalf("run = %d, stderr %q", code, stderr.String())
 	}
@@ -41,7 +41,7 @@ func TestLogReadsTheFileWithoutADaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code := run(context.Background(), []string{"log", "--json", "--name", "alpha"}, []string{"XDG_STATE_HOME=" + stateHome}, &stdout, &stderr)
+	code := run(context.Background(), []string{"log", "--json", "--name", "alpha"}, []string{"XDG_STATE_HOME=" + stateHome}, strings.NewReader(""), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run = %d, stderr %q", code, stderr.String())
 	}
@@ -53,7 +53,7 @@ func TestLogReadsTheFileWithoutADaemon(t *testing.T) {
 	}
 
 	stdout.Reset()
-	code = run(context.Background(), []string{"log", "--since", "2026-11-09T03:04:06Z"}, []string{"XDG_STATE_HOME=" + stateHome}, &stdout, &stderr)
+	code = run(context.Background(), []string{"log", "--since", "2026-11-09T03:04:06Z"}, []string{"XDG_STATE_HOME=" + stateHome}, strings.NewReader(""), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("filtered run = %d, stderr %q", code, stderr.String())
 	}
