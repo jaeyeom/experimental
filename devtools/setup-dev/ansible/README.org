@@ -214,6 +214,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - profile-cloudflare-dev.yml
 - profile-emacs-daily.yml
 - profile-minimal.yml
+- setup-agy.yml
 - setup-bazel.yml
 - setup-cargo.yml
 - setup-cc-tools.yml
