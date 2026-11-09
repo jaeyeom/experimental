@@ -1,0 +1,56 @@
+#+TITLE: slackwatch
+#+DATE: 2026-11-09
+
+* Overview
+
+~slackwatch~ tracks Slack posts made on a user's behalf and pushes
+replies to whoever owns each post. One binary is both the server
+(~slackwatch serve~) and the CLI. It never posts, reacts, or edits.
+
+This is a skeleton. ~serve~ checks the config and the token file, opens
+the database, and then stops. The Slack connection comes later.
+
+* Config
+
+The config is ~${XDG_CONFIG_HOME:-~/.config}/slackwatch/config.json~.
+~--config <path>~ or ~SLACKWATCH_CONFIG~ overrides that path. A missing
+file means all defaults. An unknown key is an error.
+
+| Key | Default | Meaning |
+|-----+---------+---------|
+| ~notifyTemplate~ | none | Shell template run for a reply. |
+| ~livenessTemplate~ | none | Optional template that checks an owner is alive. |
+| ~targets~ | none | Map of name to address. |
+| ~fallbackTarget~ | none | Target used when delivery fails. |
+| ~footerPattern~ | none | Optional regexp that marks a post as watched. |
+| ~notifySelf~ | ~false~ | Also notify for the token owner's own replies. |
+| ~sweepInterval~ | ~"6h"~ | Time between slow sweeps. |
+| ~quietExpiry~ | ~"336h"~ | An open watch with no reply for this long closes. |
+| ~reopenWindow~ | ~"720h"~ | A reply this soon after a watch closes reopens it. |
+| ~excerptLimit~ | ~300~ | Maximum characters of reply text in a notification. |
+| ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
+| ~tokenFile~ | none | File that holds the Slack tokens. |
+
+Durations use Go syntax, such as ~"90m"~ or ~"6h"~.
+
+Tokens are not in the config. ~serve~ refuses to start when ~tokenFile~
+is readable by group or others. Run ~chmod 600~ on it. Token values are
+never logged.
+
+* Database
+
+SQLite in WAL mode, so the server and the CLI can open the same file at
+once. Each open applies any pending migrations. ~PRAGMA user_version~
+records how many have run.
+
+| Table | Holds |
+|-------+-------|
+| ~watches~ | One watched thread or DM. Unique per ~(channel, thread_ts)~. |
+| ~watch_posts~ | The registered posts under a watch. |
+| ~replies~ | Replies seen in watched threads. Unique per ~(channel, ts)~. |
+| ~reactions~ | Reactions on watched posts. |
+| ~inbound~ | DMs and mentions addressed to the user. |
+| ~subs~ | Channel subscriptions. |
+| ~cursors~ | Last seen ts per scope. |
+| ~deliveries~ | Notify attempts, delivered or not. |
+| ~status~ | One heartbeat row for the server. |
