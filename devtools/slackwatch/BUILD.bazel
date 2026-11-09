@@ -5,6 +5,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "config.go",
+        "events.go",
         "notify.go",
         "post.go",
         "store.go",
@@ -20,6 +21,7 @@ go_test(
     size = "small",
     srcs = [
         "config_test.go",
+        "events_test.go",
         "notify_test.go",
         "post_test.go",
         "store_test.go",

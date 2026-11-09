@@ -393,6 +393,9 @@ func printDetail(w io.Writer, d slackwatch.WatchDetail) {
 		if r.Acked {
 			marks = append(marks, "acked")
 		}
+		if r.Deleted {
+			marks = append(marks, "deleted")
+		}
 		fmt.Fprintf(w, "  %s %s %s [%s]: %s\n", r.TS, tsTime(r.TS), r.Author, strings.Join(marks, ","), r.Text)
 	}
 	fmt.Fprintf(w, "reactions (%d):\n", len(d.Reactions))

@@ -164,3 +164,28 @@ func TestCheckTokenFile(t *testing.T) {
 		t.Fatal("missing token file should be rejected")
 	}
 }
+
+func TestLoadTokens(t *testing.T) {
+	good := writeFile(t, "tokens", `{"appToken": "xapp-1", "userToken": "xoxp-2"}`, 0o600)
+	got, err := LoadTokens(good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AppToken != "xapp-1" || got.UserToken != "xoxp-2" {
+		t.Errorf("tokens = %+v", got)
+	}
+	for name, body := range map[string]string{
+		"raw":     "xoxp-secret",
+		"missing": `{"appToken": "xapp-secret"}`,
+		"unknown": `{"appToken": "xapp-secret", "userToken": "xoxp-secret", "bot": "x"}`,
+	} {
+		_, err := LoadTokens(writeFile(t, "tokens-"+name, body, 0o600))
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if strings.Contains(err.Error(), "secret") {
+			t.Errorf("%s: error leaks token: %v", name, err)
+		}
+	}
+}

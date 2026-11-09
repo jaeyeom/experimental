@@ -21,6 +21,7 @@ const (
 	SourceOutbox = "outbox"
 	SourceHook   = "hook"
 	SourceManual = "manual"
+	SourceFooter = "footer"
 )
 
 // ErrNoWatch means no watch matches the given post or id.
@@ -410,13 +411,13 @@ func (s *Store) ShowWatch(id int64) (WatchDetail, error) {
 	err = s.queryEach(func(rows *sql.Rows) error {
 		var r Reply
 		var watchID sql.NullInt64
-		if err := rows.Scan(&r.Channel, &r.TS, &watchID, &r.Author, &r.Text, &r.ThreadTS, &r.EditedAt, &r.IsSelf, &r.Acked); err != nil {
+		if err := rows.Scan(&r.Channel, &r.TS, &watchID, &r.Author, &r.Text, &r.ThreadTS, &r.EditedAt, &r.IsSelf, &r.Acked, &r.Deleted); err != nil {
 			return err //nolint:wrapcheck // Wrapped by queryEach.
 		}
 		r.WatchID = watchID.Int64
 		d.Replies = append(d.Replies, r)
 		return nil
-	}, `SELECT channel, ts, watch_id, author, text, thread_ts, edited_at, is_self, acked
+	}, `SELECT channel, ts, watch_id, author, text, thread_ts, edited_at, is_self, acked, deleted
 FROM replies WHERE watch_id = ? ORDER BY `+tsOrder, id)
 	if err != nil {
 		return WatchDetail{}, err
