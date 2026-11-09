@@ -462,7 +462,7 @@ func TestFailureEvidenceRanksChecksAndStatuses(t *testing.T) {
 	}
 }
 
-func TestFailureEvidenceLegacyCircleTargetKeepsWorkflowLink(t *testing.T) {
+func TestFailureEvidenceStatusTargetSkipsCheckRunLink(t *testing.T) {
 	const sha = "abc123"
 	const id = "11111111-1111-1111-1111-111111111111"
 	tests := []struct {
@@ -499,10 +499,43 @@ func TestFailureEvidenceLegacyCircleTargetKeepsWorkflowLink(t *testing.T) {
 			if got.Name != "ci/circleci" || got.TargetURL != "https://circleci.com/gh/acme/widgets/4242" {
 				t.Fatalf("chosen = %s %s", got.Name, got.TargetURL)
 			}
-			if got.CheckRunURL != tc.workflow {
+			if got.CheckRunURL != "" {
 				t.Fatalf("check run = %s", got.CheckRunURL)
 			}
 		})
+	}
+}
+
+func TestFailureEvidenceEmptyStatusTargetUsesCheckRun(t *testing.T) {
+	const sha = "abc123"
+	const workflow = "https://app.circleci.com/pipelines/github/acme/widgets/42/workflows/11111111-1111-1111-1111-111111111111"
+	exec := &routeExec{route: map[string]string{
+		"check-runs": `{
+			"check_runs":[{
+				"name":"build",
+				"conclusion":"cancelled",
+				"html_url":"https://github.com/acme/widgets/runs/9",
+				"details_url":"` + workflow + `"
+			}]
+		}`,
+		"commits/" + sha + "/status": `{
+			"statuses":[{
+				"context":"ci/circleci: unit",
+				"state":"failure",
+				"target_url":""
+			}]
+		}`,
+	}}
+	client := NewClientWithExecutor(exec)
+	got, err := client.FailureEvidence("acme", "widgets", sha)
+	if err != nil {
+		t.Fatalf("FailureEvidence() error = %v", err)
+	}
+	if got.Name != "ci/circleci: unit" || got.TargetURL != "" {
+		t.Fatalf("chosen = %s %s", got.Name, got.TargetURL)
+	}
+	if got.CheckRunURL != workflow {
+		t.Fatalf("check run = %s", got.CheckRunURL)
 	}
 }
 
@@ -536,7 +569,7 @@ func TestFailureEvidenceKeepsFailingStatusDescriptions(t *testing.T) {
 	if got.Name != "ci/tests" || got.TargetURL != "https://example.com/tests" {
 		t.Fatalf("chosen = %s %s", got.Name, got.TargetURL)
 	}
-	if got.CheckRunURL != workflow {
+	if got.CheckRunURL != "" {
 		t.Fatalf("check run = %s", got.CheckRunURL)
 	}
 	want := []CommitStatus{

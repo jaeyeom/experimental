@@ -485,6 +485,116 @@ func TestQueueCircleCIJobNumberResolvesWorkflow(t *testing.T) {
 	}
 }
 
+func TestQueueRemovalResolvesStatusTargetNotCancelledCheck(t *testing.T) {
+	t.Setenv(circleTokenEnv, "token")
+	const workflowID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	const otherWorkflow = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	const otherURL = "https://app.circleci.com/pipelines/github/acme/widgets/42/workflows/" + otherWorkflow
+	const jobLink = "https://circleci.com/gh/acme/widgets/4242"
+	encoded, err := json.Marshal([]struct {
+		Message string `json:"message"`
+	}{{Message: "ERROR: unit failed\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	withCircleGet(t, func(_ context.Context, rawURL, token string) ([]byte, error) {
+		if token != "token" {
+			t.Fatalf("token = %q", token)
+		}
+		calls = append(calls, rawURL)
+		switch rawURL {
+		case "https://circleci.com/api/v2/project/gh/acme/widgets/job/4242":
+			return []byte(`{"latest_workflow":{"id":"` + workflowID + `"}}`), nil
+		case "https://circleci.com/api/v2/workflow/" + workflowID + "/job":
+			return []byte(`{"items":[{"job_number":8,"status":"failed"}]}`), nil
+		case "https://circleci.com/api/v1.1/project/gh/acme/widgets/8":
+			return []byte(`{"steps":[{"actions":[{"status":"failed","output_url":"https://circleci.com/output/8"}]}]}`), nil
+		case "https://circleci.com/output/8":
+			return encoded, nil
+		default:
+			t.Fatalf("unexpected circleci url %s", rawURL)
+			return nil, nil
+		}
+	})
+	pr := removedPR()
+	gh := github.NewClientWithExecutor(ghRoute{routes: map[string]string{
+		"check-runs": `{
+			"check_runs":[{
+				"name":"build",
+				"conclusion":"cancelled",
+				"html_url":"https://github.com/acme/widgets/runs/9",
+				"details_url":"` + otherURL + `"
+			}]
+		}`,
+		"commits/deadbeef/status": `{
+			"statuses":[{
+				"context":"ci/circleci: unit",
+				"state":"failure",
+				"target_url":"` + jobLink + `"
+			}]
+		}`,
+	}})
+	client := &rankedQueue{fakeQueue: &fakeQueue{pr: pr}, gh: gh}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want RCA refusal")
+		}
+	})
+	wantCalls := []string{
+		"https://circleci.com/api/v2/project/gh/acme/widgets/job/4242",
+		"https://circleci.com/api/v2/workflow/" + workflowID + "/job",
+		"https://circleci.com/api/v1.1/project/gh/acme/widgets/8",
+		"https://circleci.com/output/8",
+	}
+	if strings.Join(calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls = %v", calls)
+	}
+	for _, call := range calls {
+		if strings.Contains(call, otherWorkflow) {
+			t.Fatalf("requested the cancelled check run workflow: %s", call)
+		}
+	}
+	if !strings.Contains(output, "ERROR: unit failed") || strings.Contains(output, "no failed job") || strings.Contains(output, otherWorkflow) {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+type ghRoute struct {
+	routes map[string]string
+}
+
+func (g ghRoute) Execute(_ string, args ...string) (string, error) {
+	joined := strings.Join(args, " ")
+	best := ""
+	for key := range g.routes {
+		if strings.Contains(joined, key) && len(key) > len(best) {
+			best = key
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("unexpected gh call: %s", joined)
+	}
+	return g.routes[best], nil
+}
+
+func (g ghRoute) ExecuteWithStdin(_, _ string, _ ...string) (string, error) {
+	return "", errors.New("unexpected gh stdin")
+}
+
+type rankedQueue struct {
+	*fakeQueue
+	gh *github.Client
+}
+
+func (q *rankedQueue) FailureEvidence(owner, repo, sha string) (github.FailureEvidence, error) {
+	evidence, err := q.gh.FailureEvidence(owner, repo, sha)
+	if err != nil {
+		return github.FailureEvidence{}, fmt.Errorf("failure evidence: %w", err)
+	}
+	return evidence, nil
+}
+
 func TestQueueCircleCIMissingToken(t *testing.T) {
 	t.Setenv(circleTokenEnv, "")
 	withCircleCLI(t, false)

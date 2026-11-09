@@ -98,10 +98,11 @@ type CommitStatus struct {
 
 // FailureEvidence is the highest-ranked failing check run or commit status.
 // Name and TargetURL identify that evidence. CheckRunURL and JobURL are set
-// when a check run wins. A status winner keeps CheckRunURL empty unless a
-// check run link contains /workflow/ or /workflows/, which a legacy CircleCI target needs.
-// Log is the Actions failing-step log when TargetURL is a GitHub Actions job URL.
-// Statuses lists commit statuses in state failure or error, with descriptions.
+// when a check run wins. A status that already has a target URL keeps
+// CheckRunURL empty. A check-run link is copied only when that target URL is
+// empty. Log is the Actions failing-step log when TargetURL is a GitHub
+// Actions job URL. Statuses lists commit statuses in state failure or error,
+// with descriptions.
 type FailureEvidence struct {
 	Name        string
 	TargetURL   string
@@ -815,7 +816,7 @@ func pickFailure(checks []checkRunJSON, statuses []statusJSON) (failureChoice, b
 			targetURL: status.TargetURL,
 		})
 	}
-	if found && best.checkHTML == "" && !hasCircleWorkflowPath(best.targetURL) {
+	if found && best.checkHTML == "" && best.targetURL == "" {
 		best.checkHTML = relatedWorkflowLink(checks, best.name)
 	}
 	return best, found
