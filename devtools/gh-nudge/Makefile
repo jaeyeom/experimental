@@ -6,22 +6,16 @@ all:
 	$(MAKE) test lint install
 
 format:
-	gofumpt -w .
+	$(MAKE) -C ../.. format
 
 test:
-	go test -v ./...
+	$(MAKE) -C ../.. test
 
 lint:
-	GOPACKAGESDRIVER= golangci-lint run ./...
+	$(MAKE) -C ../.. lint
 
 install:
-	go install \
-		./cmd/gh-codeowners \
-		./cmd/gh-merge \
-		./cmd/gh-nudge \
-		./cmd/gh-pr-review \
-		./cmd/gh-slack \
-		./cmd/gh-storage
+	$(MAKE) -C ../.. install
 
 PKL_GEN_FILES := internal/config/pkl/Config.pkl.go
 

@@ -42,23 +42,25 @@ lint: lint-golangci lint-ruff lint-mypy lint-shellcheck check-spacemacs
 # available, it still runs lint checks.
 fix: fix-golangci fix-ruff lint-mypy lint-shellcheck check-spacemacs
 
+INSTALL_CMDS := \
+	./devtools/claude-usage/cmd/claude-usage \
+	./devtools/devcheck/cmd/devcheck \
+	./devtools/docsync/cmd/docsync \
+	./devtools/gh-nudge/cmd/gh-codeowners \
+	./devtools/gh-nudge/cmd/gh-merge \
+	./devtools/gh-nudge/cmd/gh-nudge \
+	./devtools/gh-nudge/cmd/gh-pr-review \
+	./devtools/gh-nudge/cmd/gh-slack \
+	./devtools/gh-nudge/cmd/gh-storage \
+	./devtools/linters/cmd/org-lint \
+	./devtools/linters/cmd/pkgvar \
+	./devtools/linters/cmd/unnecessary-interface-assertion-linter \
+	./devtools/prsync/cmd/prsync \
+	./devtools/rename-jira-keys/cmd/rename-jira-keys \
+	./devtools/reviewpush/cmd/review-and-push-loop
+
 install:
-	GOPACKAGESDRIVER= go install \
-		./devtools/claude-usage/cmd/claude-usage \
-		./devtools/devcheck/cmd/devcheck \
-		./devtools/docsync/cmd/docsync \
-		./devtools/gh-nudge/cmd/gh-codeowners \
-		./devtools/gh-nudge/cmd/gh-merge \
-		./devtools/gh-nudge/cmd/gh-nudge \
-		./devtools/gh-nudge/cmd/gh-pr-review \
-		./devtools/gh-nudge/cmd/gh-slack \
-		./devtools/gh-nudge/cmd/gh-storage \
-		./devtools/linters/cmd/org-lint \
-		./devtools/linters/cmd/pkgvar \
-		./devtools/linters/cmd/unnecessary-interface-assertion-linter \
-		./devtools/prsync/cmd/prsync \
-		./devtools/rename-jira-keys/cmd/rename-jira-keys \
-		./devtools/reviewpush/cmd/review-and-push-loop
+	GOPACKAGESDRIVER= go install $(INSTALL_CMDS)
 
 # Go targets
 .PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files

@@ -35,7 +35,7 @@ bazel run //devtools/repo-sync/cmd/repo-sync:repo-sync
 # Or use the Makefile shortcuts
 cd devtools/repo-sync
 make build
-make install  # Copies binary to bin/repo-sync
+make install  # Runs the repo-root install
 #+END_SRC
 
 ** Quick Start

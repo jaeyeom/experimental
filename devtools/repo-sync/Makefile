@@ -33,10 +33,8 @@ format:
 lint:
 	cd ../.. && make lint
 
-# Copy binary to local bin directory for convenience
-install: build
-	mkdir -p bin/
-	cp bazel-bin/devtools/repo-sync/cmd/repo-sync/repo-sync_/repo-sync bin/repo-sync
+install:
+	$(MAKE) -C ../.. install
 
 # Help
 help:
