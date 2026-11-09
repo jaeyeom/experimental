@@ -61,27 +61,22 @@ install:
 		./devtools/reviewpush/cmd/review-and-push-loop
 
 # Go targets
-.PHONY: lint-golangci fix-golangci verify-golangci-config verify-oserrorsgodernize check-bazel-go-files
+.PHONY: lint-golangci fix-golangci verify-golangci-config check-bazel-go-files
 GOLANGCI_CONFIG_HASH_FILE := .tmp/golangci.yml.hash
 
-# oserrorsgodernize must be built against golang.org/x/tools >= v0.50.0
-# (Go 1.27.2 export data v5; see #387. v0.49.0 fixed "package without types", #283).
-# pkgvar links this module's golang.org/x/tools v0.40.0, which cannot import
-# Go 1.27 export data. go vet loads packages itself. An empty GOPACKAGESDRIVER
-# keeps Bazel from taking over package loading (#416).
-lint-golangci: verify-golangci-config verify-oserrorsgodernize
+# oserrorsgodernize is the module tool github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize.
+# pkgvar is a separate vettool: go vet accepts one -vettool per invocation.
+# An empty GOPACKAGESDRIVER keeps Bazel from taking over package loading (#416).
+lint-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run ./...
 	mkdir -p .tmp
 	GOPACKAGESDRIVER= go build -o .tmp/pkgvar ./devtools/linters/cmd/pkgvar
 	GOPACKAGESDRIVER= go vet -vettool=$(CURDIR)/.tmp/pkgvar ./...
-	oserrorsgodernize ./...
+	GOPACKAGESDRIVER= go tool oserrorsgodernize ./...
 
-fix-golangci: verify-golangci-config verify-oserrorsgodernize
+fix-golangci: verify-golangci-config
 	GOPACKAGESDRIVER= golangci-lint run --fix ./...
-	oserrorsgodernize --fix ./...
-
-verify-oserrorsgodernize:
-	@./check-oserrorsgodernize.sh
+	GOPACKAGESDRIVER= go tool oserrorsgodernize --fix ./...
 
 verify-golangci-config:
 	@CURRENT_HASH=$$(shasum -a 256 .golangci.yml | cut -d' ' -f1); \
