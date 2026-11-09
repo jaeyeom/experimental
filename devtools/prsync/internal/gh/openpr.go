@@ -17,9 +17,10 @@ import (
 // It is not a rate-limit quota error and is not a transient HTTP failure.
 var errQueryResourceLimit = errors.New("resource limits for this query exceeded")
 
-// openPRSearchPage is the first search page. It is below the old --limit 1000
-// cap and at GitHub's maximum of 100 nodes for one search connection.
-// A resource-limit error retries with a smaller page. Later pages are not walked.
+// openPRSearchPage is the first search page size. It is below the old
+// --limit 1000 cap and at GitHub's maximum of 100 nodes for one search
+// connection. A resource-limit error or an HTTP 502/503/504 retries the same
+// cursor with a smaller page, and the walk keeps that size for later pages.
 const openPRSearchPage = 100
 
 // openPRScalarFields are the pull-request scalars both queries load.
@@ -34,20 +35,24 @@ const openPRScalarFields = "number title url state baseRefName headRefName headR
 // not select organization, which is what pushes the search over the limit.
 const reviewerSelection = `reviewRequests(first:100){nodes{requestedReviewer{__typename ... on User{login} ... on Bot{login} ... on Team{name slug}}}}`
 
-const openPRSearchQuery = `query($q:String!,$first:Int!){search(query:$q,type:ISSUE,first:$first){nodes{... on PullRequest{` +
+const openPRSearchQuery = `query($q:String!,$first:Int!,$after:String){search(query:$q,type:ISSUE,first:$first,after:$after){issueCount pageInfo{hasNextPage endCursor} nodes{... on PullRequest{` +
 	openPRScalarFields + ` ` + reviewerSelection + `}}}}`
 
 const openPRViewQuery = `query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$num){` +
 	openPRScalarFields + ` ` + reviewerSelection +
 	` latestReviews(first:100){nodes{author{login} state submittedAt}} statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}`
 
-func openPRSearchArgs(repo, author string, page int) []string {
-	return []string{
+func openPRSearchArgs(repo, author string, page int, after string) []string {
+	args := []string{
 		"api", "graphql",
 		"-f", "query=" + openPRSearchQuery,
 		"-F", "q=" + openPRSearchText(repo, author),
 		"-F", "first=" + strconv.Itoa(page),
 	}
+	if after != "" {
+		args = append(args, "-F", "after="+after)
+	}
+	return args
 }
 
 func openPRSearchText(repo, author string) string {
@@ -98,34 +103,71 @@ func (c *Client) halveOpenPRPage(ctx context.Context, reason string) int {
 	return next
 }
 
+// listOpenPRsShrinking walks every search page with the cursor. Pull requests
+// are deduplicated by number in case results shift during the walk. A walk
+// that ends with fewer pull requests than issueCount logs a warning.
 func (c *Client) listOpenPRsShrinking(ctx context.Context, repo, author string) ([]PRListItem, error) {
+	items := []PRListItem{}
+	seen := map[int]bool{}
+	after := ""
 	for {
-		items, err := c.listOpenPRSearch(ctx, repo, author)
+		page, err := c.listOpenPRPageShrinking(ctx, repo, author, after)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range page.items {
+			if !seen[item.Number] {
+				seen[item.Number] = true
+				items = append(items, item)
+			}
+		}
+		if !page.hasNextPage {
+			if len(items) < page.issueCount {
+				runlog.FromContext(ctx).Warn("open pr search incomplete",
+					"repo", repo,
+					"got", len(items),
+					"issue_count", page.issueCount,
+				)
+			}
+			return items, nil
+		}
+		if page.endCursor == "" || page.endCursor == after {
+			return nil, fmt.Errorf("open pr search %s: next page has no new cursor", repo)
+		}
+		after = page.endCursor
+	}
+}
+
+// listOpenPRPageShrinking loads the page after the cursor. A resource-limit
+// error retries the same cursor with a halved page.
+func (c *Client) listOpenPRPageShrinking(ctx context.Context, repo, author, after string) (openPRSearchResult, error) {
+	for {
+		page, err := c.listOpenPRSearch(ctx, repo, author, after)
 		if err == nil || !isQueryResourceLimit(err) || c.currentOpenPRPage() <= 1 {
-			return items, err
+			return page, err
 		}
 		c.halveOpenPRPage(ctx, "resource limit")
 	}
 }
 
-// listOpenPRSearch runs the search at the current page. An HTTP 502, 503, or
-// 504 halves the page before the next retry: a large search often times out
-// on GitHub's side where a smaller page succeeds.
-func (c *Client) listOpenPRSearch(ctx context.Context, repo, author string) ([]PRListItem, error) {
+// listOpenPRSearch runs the search at the current page size. An HTTP 502,
+// 503, or 504 halves the page before the next retry on the same cursor: a
+// large search often times out on GitHub's side where a smaller page succeeds.
+func (c *Client) listOpenPRSearch(ctx context.Context, repo, author, after string) (openPRSearchResult, error) {
 	policy := ghRetryPolicy{
 		httpAttempts: ghListHTTPRetryAttempts,
 		httpBackoffs: ghListHTTPRetryBackoffs,
 		nextHTTPArgs: func(ctx context.Context, failErr error) []string {
 			reason := transientHTTPRE.FindString(strings.ToLower(failErr.Error()))
-			return openPRSearchArgs(repo, author, c.halveOpenPRPage(ctx, reason))
+			return openPRSearchArgs(repo, author, c.halveOpenPRPage(ctx, reason), after)
 		},
 	}
-	result, err := c.executeRetry(ctx, defaultCallTimeout, validJSONOutput, policy, openPRSearchArgs(repo, author, c.currentOpenPRPage())...)
+	result, err := c.executeRetry(ctx, defaultCallTimeout, validJSONOutput, policy, openPRSearchArgs(repo, author, c.currentOpenPRPage(), after)...)
 	if err != nil {
-		return nil, err
+		return openPRSearchResult{}, err
 	}
 	if result.ExitCode != 0 {
-		return nil, graphqlExecError(result)
+		return openPRSearchResult{}, graphqlExecError(result)
 	}
 	return decodeOpenPRSearch(result.Output)
 }
@@ -363,19 +405,32 @@ func statusChecksFrom(checks []gqlStatusCheck) []StatusCheck {
 	return out
 }
 
-func decodeOpenPRSearch(raw string) ([]PRListItem, error) {
+// openPRSearchResult is one page of the open-PR search.
+type openPRSearchResult struct {
+	items       []PRListItem
+	issueCount  int
+	hasNextPage bool
+	endCursor   string
+}
+
+func decodeOpenPRSearch(raw string) (openPRSearchResult, error) {
 	const prefix = "decode pr list"
 	data, err := decodeGraphQLData(raw, prefix)
 	if err != nil {
-		return nil, err
+		return openPRSearchResult{}, err
 	}
 	var payload struct {
 		Search struct {
+			IssueCount int `json:"issueCount"`
+			PageInfo   struct {
+				HasNextPage bool           `json:"hasNextPage"`
+				EndCursor   nullableString `json:"endCursor"`
+			} `json:"pageInfo"`
 			Nodes []*gqlPR `json:"nodes"`
 		} `json:"search"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, fmt.Errorf("%s: %w", prefix, err)
+		return openPRSearchResult{}, fmt.Errorf("%s: %w", prefix, err)
 	}
 	items := make([]PRListItem, 0, len(payload.Search.Nodes))
 	for _, node := range payload.Search.Nodes {
@@ -384,7 +439,12 @@ func decodeOpenPRSearch(raw string) ([]PRListItem, error) {
 		}
 		items = append(items, node.toPRListItem())
 	}
-	return items, nil
+	return openPRSearchResult{
+		items:       items,
+		issueCount:  payload.Search.IssueCount,
+		hasNextPage: payload.Search.PageInfo.HasNextPage,
+		endCursor:   string(payload.Search.PageInfo.EndCursor),
+	}, nil
 }
 
 type gqlViewData struct {
