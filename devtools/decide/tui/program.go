@@ -212,6 +212,10 @@ func (m *Model) handleScrollKey(k tea.KeyMsg) bool {
 		m.scrollNav(k)
 		return true
 	}
+	if m.listNavKey(k) {
+		m.listNav(k)
+		return true
+	}
 	if k.Type == tea.KeyUp || k.Type == tea.KeyDown {
 		delta := 1
 		if k.Type == tea.KeyUp {
@@ -221,6 +225,31 @@ func (m *Model) handleScrollKey(k tea.KeyMsg) bool {
 		return true
 	}
 	return false
+}
+
+func (m *Model) listNavKey(k tea.KeyMsg) bool {
+	if m.help || m.composing || m.linkPick || (m.mode != modeList && m.mode != modeStatus) {
+		return false
+	}
+	switch k.Type {
+	case tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) listNav(k tea.KeyMsg) {
+	switch k.Type {
+	case tea.KeyPgUp:
+		m.moveList(-m.listPage())
+	case tea.KeyPgDown:
+		m.moveList(m.listPage())
+	case tea.KeyHome:
+		m.jumpList(0)
+	case tea.KeyEnd:
+		m.jumpList(m.listLen() - 1)
+	}
 }
 
 func (m *Model) itemScroll() bool {

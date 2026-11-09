@@ -1258,6 +1258,235 @@ func TestItemViewScrollKeys(t *testing.T) {
 	}
 }
 
+func TestListCursorStaysVisible(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	base := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	const rows = 12
+	for i := 0; i < rows; i++ {
+		created := base.Add(time.Duration(rows-i) * time.Hour)
+		mustCreate(t, led, &decide.Item{
+			Question:  fmt.Sprintf("open-%02d", i),
+			Owner:     "ada",
+			Kind:      decide.KindRelay,
+			State:     decide.StateOpen,
+			CreatedAt: created,
+		})
+		mustCreate(t, led, &decide.Item{
+			Question:  fmt.Sprintf("done-%02d", i),
+			Owner:     "ada",
+			Kind:      decide.KindRelay,
+			State:     decide.StateDone,
+			CreatedAt: created,
+		})
+	}
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	board, err := decide.OpenStatus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.SetClock(func() time.Time { return now })
+	for i := 0; i < rows; i++ {
+		if _, err := board.SetAgent(fmt.Sprintf("agent-%02d", i), "working", "busy"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := New(dir)
+	m.Now = func() time.Time { return now }
+	m.Targets = []Target{{Name: "agent-00", Pane: "pane-a"}}
+	m.width = 100
+	m.height = 10
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertListFollowsCursor(t, m, "open")
+	press(t, m, "gd")
+	if m.folder != 2 {
+		t.Fatalf("folder = %d", m.folder)
+	}
+	assertListFollowsCursor(t, m, "done")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	view := m.View()
+	visible := countVisible(view, "done-")
+	for range visible {
+		m.Update(runeKey('j'))
+	}
+	kept := fmt.Sprintf("done-%02d", m.cursor)
+	if !rowHasCursor(m.View(), kept) {
+		t.Fatalf("before open\n%s", m.View())
+	}
+	press(t, m, "o")
+	if m.mode != modeDetail {
+		t.Fatal("row did not open")
+	}
+	if _, err := m.Key('u'); err != nil {
+		t.Fatal(err)
+	}
+	if m.mode != modeList || !rowHasCursor(m.View(), kept) {
+		t.Fatalf("u hid the cursor row\n%s", m.View())
+	}
+
+	press(t, m, "gi")
+	if m.folder != 0 || !strings.Contains(m.View(), "open-00") {
+		t.Fatalf("gi folder %d\n%s", m.folder, m.View())
+	}
+	cursor := m.cursor
+	m.Update(runeKey('g'))
+	m.Update(runeKey('h'))
+	if m.chord || m.folder != 0 || m.cursor != cursor {
+		t.Fatalf("gh cursor %d chord %v folder %d", m.cursor, m.chord, m.folder)
+	}
+
+	press(t, m, "gs")
+	if m.mode != modeStatus {
+		t.Fatal("status did not open")
+	}
+	statusView := m.View()
+	if !strings.Contains(statusView, "agent-00") || strings.Contains(statusView, "agent-11") {
+		t.Fatalf("status window\n%s", statusView)
+	}
+	shown := countVisible(statusView, "agent-")
+	if shown < 1 || shown >= rows {
+		t.Fatalf("shown agents %d\n%s", shown, statusView)
+	}
+	for range shown {
+		m.Update(runeKey('j'))
+	}
+	later := fmt.Sprintf("agent-%02d", m.agentCursor)
+	highlight := lineContaining(m.View(), "\x1b[7m")
+	if !strings.Contains(highlight, later) || !strings.Contains(m.View(), later) {
+		t.Fatalf("status highlight %q want %s\n%s", highlight, later, m.View())
+	}
+	if later == "agent-00" {
+		t.Fatalf("j did not reveal a later agent\n%s", m.View())
+	}
+	for m.agentCursor > 0 {
+		m.Update(runeKey('k'))
+	}
+	highlight = lineContaining(m.View(), "\x1b[7m")
+	if !strings.Contains(highlight, "agent-00") || !strings.Contains(m.View(), "agent-00") {
+		t.Fatalf("k off the top\n%s", m.View())
+	}
+
+	press(t, m, "?")
+	help := m.View()
+	for _, needle := range []string{"j/k move", "pgup/pgdn", "home/end", "gg/G", "g then i inbox"} {
+		if !strings.Contains(help, needle) {
+			t.Fatalf("status help missing %q\n%s", needle, help)
+		}
+	}
+	press(t, m, "?")
+	press(t, m, "gi?")
+	help = m.View()
+	for _, needle := range []string{"j/k move", "pgup/pgdn", "home/end", "gg/G", "g then i inbox"} {
+		if !strings.Contains(help, needle) {
+			t.Fatalf("list help missing %q\n%s", needle, help)
+		}
+	}
+	press(t, m, "?")
+
+	m.status = ""
+	m.width = 70
+	if !strings.Contains(m.View(), "? help") {
+		t.Fatalf("footer at 70\n%s", m.View())
+	}
+
+	m.width = 100
+	press(t, m, "c\t")
+	if !m.composing || m.composeFocus != focusText {
+		t.Fatalf("text focus %d composing %v", m.composeFocus, m.composing)
+	}
+	listCursor := m.cursor
+	m.Update(runeKey('j'))
+	m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m.Update(runeKey('G'))
+	if m.cursor != listCursor || m.note != "jG" || m.folder != 0 {
+		t.Fatalf("focused text cursor %d note %q folder %d", m.cursor, m.note, m.folder)
+	}
+}
+
+func assertListFollowsCursor(t *testing.T, m *Model, prefix string) {
+	t.Helper()
+	first := prefix + "-00"
+	last := fmt.Sprintf("%s-%02d", prefix, 11)
+	view := m.View()
+	if !strings.Contains(view, first) || strings.Contains(view, last) || !rowHasCursor(view, first) {
+		t.Fatalf("initial %s window\n%s", prefix, view)
+	}
+	visible := countVisible(view, prefix+"-")
+	if visible < 1 || visible >= 12 {
+		t.Fatalf("%s visible %d\n%s", prefix, visible, view)
+	}
+	for range visible {
+		m.Update(runeKey('j'))
+	}
+	later := fmt.Sprintf("%s-%02d", prefix, visible)
+	view = m.View()
+	if m.cursor != visible || !rowHasCursor(view, later) || strings.Contains(view, first) {
+		t.Fatalf("%s j cursor %d\n%s", prefix, m.cursor, view)
+	}
+	for m.cursor > 0 {
+		m.Update(runeKey('k'))
+	}
+	if m.cursor != 0 || !rowHasCursor(m.View(), first) {
+		t.Fatalf("%s k cursor %d\n%s", prefix, m.cursor, m.View())
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.cursor != visible || !rowHasCursor(m.View(), later) {
+		t.Fatalf("%s pgdn cursor %d\n%s", prefix, m.cursor, m.View())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.cursor != 0 || !rowHasCursor(m.View(), first) {
+		t.Fatalf("%s pgup cursor %d\n%s", prefix, m.cursor, m.View())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if m.cursor != 11 || !rowHasCursor(m.View(), last) {
+		t.Fatalf("%s end cursor %d\n%s", prefix, m.cursor, m.View())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	if m.cursor != 0 || !rowHasCursor(m.View(), first) {
+		t.Fatalf("%s home cursor %d\n%s", prefix, m.cursor, m.View())
+	}
+	press(t, m, "G")
+	if m.cursor != 11 || m.chord || !rowHasCursor(m.View(), last) {
+		t.Fatalf("%s G cursor %d chord %v\n%s", prefix, m.cursor, m.chord, m.View())
+	}
+	press(t, m, "gg")
+	if m.cursor != 0 || m.chord || !rowHasCursor(m.View(), first) {
+		t.Fatalf("%s gg cursor %d chord %v\n%s", prefix, m.cursor, m.chord, m.View())
+	}
+	cursor := m.cursor
+	before := m.scroll
+	m.Wheel(true)
+	if m.cursor != cursor || m.scroll == before {
+		t.Fatalf("%s wheel cursor %d scroll %d", prefix, m.cursor, m.scroll)
+	}
+	m.Update(runeKey('j'))
+	if !rowHasCursor(m.View(), prefix+"-01") {
+		t.Fatalf("%s j after wheel\n%s", prefix, m.View())
+	}
+}
+
+func countVisible(view, prefix string) int {
+	n := 0
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(visibleLine(line), prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func rowHasCursor(view, needle string) bool {
+	line := lineContaining(view, needle)
+	return strings.Contains(visibleLine(line), ">")
+}
+
 func TestItemViewMessageKeys(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
 	cfg := t.TempDir()
