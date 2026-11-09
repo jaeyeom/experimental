@@ -435,6 +435,135 @@ func TestListOpenPRsHalvesPageOnHTTP502(t *testing.T) {
 	}
 }
 
+func TestListOpenPRsWalksPagesAfterHTTP502(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 100).
+		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 50).
+		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 25).
+		WillSucceed(openPRSearchPageJSON(56, "c1", prNodes(1, 25)...), 0).Once().Build()
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 25, "c1").
+		WillSucceed(openPRSearchPageJSON(56, "c2", prNodes(26, 25)...), 0).Once().Build()
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 25, "c2").
+		WillSucceed(openPRSearchPageJSON(56, "", prNodes(51, 6)...), 0).Once().Build()
+	client, probe := newProbedClient(t, mock)
+	got, err := client.listOpenPRsShrinking(probe.ctx(), "acme/widgets", "alice")
+	if err != nil {
+		t.Fatalf("listOpenPRsShrinking() unexpected error: %v", err)
+	}
+	if want := prNumbers(1, 56); !slices.Equal(itemNumbers(got), want) {
+		t.Fatalf("numbers = %v, want %v", itemNumbers(got), want)
+	}
+	if afters := searchAfters(mock); !slices.Equal(afters, []string{"", "", "", "after=c1", "after=c2"}) {
+		t.Fatalf("afters = %v, want the previous endCursor on pages 2 and 3", afters)
+	}
+	if strings.Contains(probe.logs.String(), "open pr search incomplete") {
+		t.Fatalf("log = %s, want no incomplete warning", probe.logs.String())
+	}
+}
+
+func TestListOpenPRsRetriesSameCursorAfterHTTP502(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 100).
+		WillSucceed(openPRSearchPageJSON(6, "c1", prNodes(1, 2)...), 0).Once().Build()
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 100, "c1").
+		WillFail("HTTP 502: 502 Bad Gateway", 1).Once().Build()
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 50, "c1").
+		WillSucceed(openPRSearchPageJSON(6, "c2", prNodes(3, 2)...), 0).Once().Build()
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 50, "c2").
+		WillSucceed(openPRSearchPageJSON(6, "", prNodes(5, 2)...), 0).Once().Build()
+	client, probe := newProbedClient(t, mock)
+	got, err := client.listOpenPRsShrinking(probe.ctx(), "acme/widgets", "alice")
+	if err != nil {
+		t.Fatalf("listOpenPRsShrinking() unexpected error: %v", err)
+	}
+	if want := prNumbers(1, 6); !slices.Equal(itemNumbers(got), want) {
+		t.Fatalf("numbers = %v, want %v", itemNumbers(got), want)
+	}
+	if pages := searchPages(mock); !slices.Equal(pages, []string{"first=100", "first=100", "first=50", "first=50"}) {
+		t.Fatalf("pages = %v, want the halved page kept for page 3", pages)
+	}
+	if afters := searchAfters(mock); !slices.Equal(afters, []string{"", "after=c1", "after=c1", "after=c2"}) {
+		t.Fatalf("afters = %v, want the retry on the same cursor", afters)
+	}
+}
+
+func TestListOpenPRsWarnsWhenWalkIsIncomplete(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	expectOpenPRSearch(mock, "acme/widgets", "alice", 100).
+		WillSucceed(openPRSearchPageJSON(4, "c1", prNodes(1, 2)...), 0).Once().Build()
+	expectOpenPRSearchAfter(mock, "acme/widgets", "alice", 100, "c1").
+		WillSucceed(openPRSearchPageJSON(4, "", prNodes(2, 2)...), 0).Once().Build()
+	client, probe := newProbedClient(t, mock)
+	got, err := client.listOpenPRsShrinking(probe.ctx(), "acme/widgets", "alice")
+	if err != nil {
+		t.Fatalf("listOpenPRsShrinking() unexpected error: %v", err)
+	}
+	if want := prNumbers(1, 3); !slices.Equal(itemNumbers(got), want) {
+		t.Fatalf("numbers = %v, want %v deduplicated", itemNumbers(got), want)
+	}
+	var line string
+	for _, l := range strings.Split(probe.logs.String(), "\n") {
+		if strings.Contains(l, `"msg":"open pr search incomplete"`) {
+			line = l
+		}
+	}
+	if !strings.Contains(line, `"level":"WARN"`) ||
+		!strings.Contains(line, `"repo":"acme/widgets"`) ||
+		!strings.Contains(line, `"got":3`) ||
+		!strings.Contains(line, `"issue_count":4`) {
+		t.Fatalf("log = %s, want a warn line with got 3 and issue_count 4", probe.logs.String())
+	}
+}
+
+func prNodes(first, n int) []string {
+	nodes := make([]string, n)
+	for i := range nodes {
+		nodes[i] = `{"number":` + strconv.Itoa(first+i) + `}`
+	}
+	return nodes
+}
+
+func prNumbers(first, last int) []int {
+	var out []int
+	for n := first; n <= last; n++ {
+		out = append(out, n)
+	}
+	return out
+}
+
+func itemNumbers(items []PRListItem) []int {
+	out := make([]int, len(items))
+	for i, item := range items {
+		out[i] = item.Number
+	}
+	return out
+}
+
+func searchAfters(mock *executor.MockExecutor) []string {
+	var afters []string
+	for _, cfg := range mock.Executions() {
+		if !isOpenPRSearchArgs(cfg.Args) {
+			continue
+		}
+		after := ""
+		for _, arg := range cfg.Args {
+			if strings.HasPrefix(arg, "after=") {
+				after = arg
+			}
+		}
+		afters = append(afters, after)
+	}
+	return afters
+}
+
 func searchPages(mock *executor.MockExecutor) []string {
 	var pages []string
 	for _, cfg := range mock.Executions() {
@@ -1298,7 +1427,11 @@ func expectPRList(mock *executor.MockExecutor) *executor.MockExpectationBuilder 
 }
 
 func expectOpenPRSearch(mock *executor.MockExecutor, repo, author string, page int) *executor.MockExpectationBuilder {
-	return mock.ExpectCommandWithArgs(testGHBin, openPRSearchArgs(repo, author, page)...)
+	return expectOpenPRSearchAfter(mock, repo, author, page, "")
+}
+
+func expectOpenPRSearchAfter(mock *executor.MockExecutor, repo, author string, page int, after string) *executor.MockExpectationBuilder {
+	return mock.ExpectCommandWithArgs(testGHBin, openPRSearchArgs(repo, author, page, after)...)
 }
 
 func expectOpenPRView(t *testing.T, mock *executor.MockExecutor, repo string, number int) *executor.MockExpectationBuilder {
@@ -1312,6 +1445,16 @@ func expectOpenPRView(t *testing.T, mock *executor.MockExecutor, repo string, nu
 
 func openPRSearchJSON(nodes ...string) string {
 	return `{"data":{"search":{"nodes":[` + strings.Join(nodes, ",") + `]}}}`
+}
+
+// openPRSearchPageJSON is one search page. An empty endCursor ends the walk.
+func openPRSearchPageJSON(issueCount int, endCursor string, nodes ...string) string {
+	pageInfo := `{"hasNextPage":false,"endCursor":null}`
+	if endCursor != "" {
+		pageInfo = `{"hasNextPage":true,"endCursor":"` + endCursor + `"}`
+	}
+	return `{"data":{"search":{"issueCount":` + strconv.Itoa(issueCount) +
+		`,"pageInfo":` + pageInfo + `,"nodes":[` + strings.Join(nodes, ",") + `]}}}`
 }
 
 func isOpenPRSearchArgs(args []string) bool {
