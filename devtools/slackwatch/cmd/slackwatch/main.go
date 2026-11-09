@@ -35,16 +35,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	configPath := slackwatch.ConfigPath(*configFlag)
 	switch args[0] {
-	case "serve":
-		return cmdServe(configPath, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
-	default:
+	}
+	cmd, ok := commands[args[0]]
+	if !ok {
 		fmt.Fprintf(stderr, "slackwatch: unknown command %q\n", args[0])
 		usage(stderr)
 		return 2
 	}
+	return cmd(configPath, args[1:], stdout, stderr)
+}
+
+var commands = map[string]func(configPath string, args []string, stdout, stderr io.Writer) int{
+	"serve":  cmdServe,
+	"add":    cmdAdd,
+	"claim":  cmdClaim,
+	"done":   cmdDone,
+	"snooze": cmdSnooze,
+	"ack":    cmdAck,
+	"ls":     cmdLs,
+	"show":   cmdShow,
 }
 
 func usage(w io.Writer) {
@@ -53,7 +65,20 @@ func usage(w io.Writer) {
 
 Commands:
   slackwatch serve    run the watcher (Socket Mode, catch-up, sweep)
+  slackwatch add <post> [--owner T] [--purpose S] [--ref R ...] [--until DATE] [--source outbox|hook|manual]
+                      watch a post; a thread reply is watched on its parent thread
+  slackwatch claim <post> --owner T [--purpose S] [--ref R ...]
+                      take an unowned or orphaned watch
+  slackwatch done <post> [--reason S]
+  slackwatch snooze <post> --until DATE
+  slackwatch ack <post>
+                      mark every stored reply acknowledged
+  slackwatch ls [--owner T] [--state S] [--unacked] [--json]
+  slackwatch show <post> [--json]
   slackwatch help     show this help
+
+<post> is a Slack permalink, a channel and ts, or a watch id.
+DATE is YYYY-MM-DD (through the end of that day), RFC 3339, or a duration such as 72h.
 `)
 }
 
