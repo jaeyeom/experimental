@@ -26,23 +26,23 @@ func TestTUIAppendsOnAThreeMessageThread(t *testing.T) {
 		dir := t.TempDir()
 		id, before := seedTUIThread(t, dir)
 		m := openThread(t, dir)
-		press(t, m, "rmore\r")
+		press(t, m, "0more\r")
 		assertTUIAppended(t, dir, id, before, "human", "more")
 	})
 	t.Run("compose", func(t *testing.T) {
 		dir := t.TempDir()
 		id, before := seedTUIThread(t, dir)
 		m := openThread(t, dir)
-		press(t, m, "rnote\r")
+		press(t, m, "0note\r")
 		assertTUIAppended(t, dir, id, before, "human", "note")
 	})
 }
 
-func TestZeroAndRTypeOneHumanMessage(t *testing.T) {
+func TestZeroTypesOneHumanMessage(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	t.Run("open question", func(t *testing.T) {
-		for _, key := range []string{"0", "r", "f"} {
+		for _, key := range []string{"0"} {
 			t.Run(key, func(t *testing.T) {
 				dir := t.TempDir()
 				led := openLedger(t, dir)
@@ -64,7 +64,7 @@ func TestZeroAndRTypeOneHumanMessage(t *testing.T) {
 				m := openThread(t, dir)
 				press(t, m, "?")
 				help := m.View()
-				if strings.Contains(help, "free text") || !strings.Contains(help, "0 f r reply") || !strings.Contains(help, "r reply") {
+				if strings.Contains(help, "free text") || !strings.Contains(help, "0 reply") || strings.Contains(help, "r reply") {
 					t.Fatalf("help lists two typing actions\n%s", help)
 				}
 				press(t, m, "?")
@@ -377,5 +377,83 @@ func assertTUIAppended(t *testing.T, dir, id string, before []decide.Message, au
 	last := got.Messages[len(got.Messages)-1]
 	if last.Author != author || last.Text != text {
 		t.Fatalf("new message = %+v", last)
+	}
+}
+
+func TestOnlyZeroFocusesReplyInItemView(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	mustCreate(t, led, &decide.Item{
+		Question: "root ask",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}},
+		Messages: []decide.Message{{Author: "ada", Text: "root ask"}},
+	})
+	m := openThread(t, dir)
+	m.width = 160
+	for _, key := range []string{"r", "f"} {
+		press(t, m, key)
+		if m.replyFocus {
+			t.Fatalf("%q focused the reply box", key)
+		}
+	}
+	m.status = ""
+	footer := lineContaining(m.View(), "? help")
+	if !strings.Contains(footer, "0 reply") || strings.Contains(footer, "r reply") || strings.Contains(footer, "f reply") {
+		t.Fatalf("footer %q", footer)
+	}
+	press(t, m, "?")
+	help := m.View()
+	if !strings.Contains(help, "0 reply") || strings.Contains(help, "f r") || strings.Contains(help, "r reply") {
+		t.Fatalf("help\n%s", help)
+	}
+	press(t, m, "?")
+	press(t, m, "0")
+	if !m.replyFocus {
+		t.Fatal("0 did not focus the reply box")
+	}
+}
+
+func TestOptionsRenderNumberedWithoutKeyBadges(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("NO_COLOR", "")
+	writeColorConfig(t, cfg, "{}\n")
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	opts := []decide.Option{
+		{Key: "y", Label: "Archive it"},
+		{Key: "k", Label: "Keep it", Recommended: true},
+	}
+	mustCreate(t, led, &decide.Item{
+		Question: "root ask",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		Options:  opts,
+		Messages: []decide.Message{{Author: "ada", Text: "root ask", Options: opts}},
+	})
+	m := openThread(t, dir)
+	m.width = 120
+	m.height = 40
+	view := m.View()
+	vis := visibleLine(view)
+	for _, needle := range []string{"1  Archive it", "2  Keep it (recommended)"} {
+		if !strings.Contains(vis, needle) {
+			t.Fatalf("missing %q\n%s", needle, vis)
+		}
+	}
+	for _, bad := range []string{"1 y ", "2 k ", " recommended "} {
+		if strings.Contains(vis, bad) {
+			t.Fatalf("view has %q\n%s", bad, vis)
+		}
+	}
+	badge, _, _ := strings.Cut(paletteStyle("", paletteBadge).Render("y"), "y")
+	for _, key := range []string{"y", "k"} {
+		if strings.Contains(view, badge+key) {
+			t.Fatalf("option key %q uses the badge style\n%q", key, view)
+		}
 	}
 }

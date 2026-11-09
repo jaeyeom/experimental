@@ -192,7 +192,7 @@ func (m *Model) Reload() error {
 // scroll one line, page up and page down scroll one page, and home and end
 // jump to the ends. n and p move between messages. u returns to the
 // list. 1 through 9 answer a relay
-// option. 0, f, and r focus one composer.
+// option. 0 focuses the composer.
 // Sending it appends a human message. On an open question that text is also
 // the answer. In a focused composer, ctrl+x then ctrl+e, or ctrl+g alone,
 // opens that draft in an external editor. y archives a notification, and e
@@ -542,7 +542,7 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'L':
 		m.copyCurrentLink()
 		return false, nil
-	case 'r', '0', 'f':
+	case '0':
 		m.focusReply()
 		return false, nil
 	}
@@ -1034,7 +1034,7 @@ func (m *Model) narrow() bool {
 func (m *Model) statusLine() screenLine {
 	// The mouse label stays in front. The list and status hints stay the same
 	// width, so a 70-column footer still shows "? help". An open item also
-	// names y archive.
+	// names y archive and 0 reply.
 	label := m.mouseLabel()
 	if m.chord {
 		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
@@ -1051,7 +1051,7 @@ func (m *Model) statusLine() screenLine {
 	case modeStatus:
 		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
 	case modeDetail, modeOutcome:
-		hint = label + "gi/ga/gd/gw/gs  o open  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
+		hint = label + "gi/ga/gd/gw/gs  0 reply  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
 	}
 	if m.status == "" {
 		return screenLine{text: hint}
@@ -1964,7 +1964,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on [Send] sends",
 		"esc keeps the draft",
 		"ctrl+x ctrl+e or ctrl+g edits the draft",
-		"1-9 answer  0 f r reply  y archive  e done",
+		"1-9 answer  0 reply  y archive  e done",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",
 		"M toggles mouse capture",
@@ -2132,7 +2132,7 @@ func headerLabelStyle() lipgloss.Style {
 
 // threadLines shows each message as its own block, oldest first.
 // A rule separates messages. The header is the author, a relative time,
-// option badges when that message asked a question, and latest on the newest.
+// dim option keys when that message asked a question, and latest on the newest.
 // The body is indented under that header.
 func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
 	if len(it.Messages) == 0 {
@@ -2183,8 +2183,8 @@ func messageHeader(msg decide.Message, now time.Time, latest, current bool) stri
 	if !msg.Time.IsZero() {
 		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(age(now.Sub(msg.Time))))
 	}
-	if badges := optionBadges(msg.Options); badges != "" {
-		parts = append(parts, paletteStyle(colors.Badge, paletteBadge).Render(badges))
+	if keys := optionKeys(msg.Options); keys != "" {
+		parts = append(parts, paletteStyle(colors.Time, paletteTime).Render(keys))
 	}
 	if latest {
 		parts = append(parts, "latest")
@@ -2196,7 +2196,9 @@ func messageHeader(msg decide.Message, now time.Time, latest, current bool) stri
 	return text
 }
 
-func optionBadges(opts []decide.Option) string {
+// optionKeys lists the option keys as dim plain text. Answers use 1-9, so
+// the keys must not look like shortcuts.
+func optionKeys(opts []decide.Option) string {
 	if len(opts) == 0 {
 		return ""
 	}
@@ -2369,9 +2371,9 @@ func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 		}
 		mark := ""
 		if opt.Recommended {
-			mark = " recommended"
+			mark = " (recommended)"
 		}
-		label := fmt.Sprintf("%d %s %s%s", i+1, opt.Key, opt.Label, mark)
+		label := fmt.Sprintf("%d  %s%s", i+1, opt.Label, mark)
 		useStyles()
 		for _, ch := range wrapIndexed(label, width) {
 			lines = append(lines, screenLine{
