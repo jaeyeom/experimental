@@ -57,6 +57,7 @@ type msgState struct {
 	watched bool   // the message or its thread has a watch
 	thread  *Watch // the watch on the message's thread, if threaded
 	dm      *Watch // the latest active dm watch before a top-level DM
+	subs    []Sub  // the subscriptions to the message's channel
 }
 
 // Inbound kinds as stored in the inbound table.
@@ -80,6 +81,7 @@ type decision struct {
 	watch  Watch
 	notify bool
 	kind   string // inbound kind
+	subs   []Sub  // subscriptions to notify, besides act
 }
 
 // classify decides what to do with m. It does not touch the store.
@@ -87,6 +89,17 @@ func classify(m Message, st msgState, self string, cfg Config, now time.Time) de
 	if st.seen {
 		return decision{}
 	}
+	d := classifyAct(m, st, self, cfg, now)
+	isSelf := m.User == self
+	for _, s := range st.subs {
+		if s.active(now) && (!isSelf || s.IncludeSelf) {
+			d.subs = append(d.subs, s)
+		}
+	}
+	return d
+}
+
+func classifyAct(m Message, st msgState, self string, cfg Config, now time.Time) decision {
 	isSelf := m.User == self
 	if d, ok := classifyWatched(m, st, isSelf, cfg, now); ok {
 		return d
@@ -137,6 +150,15 @@ func (p *Processor) HandleMessage(ctx context.Context, m Message) error {
 	}
 	now := p.Now()
 	d := classify(m, st, p.Self, p.Config, now)
+	notified, err := p.apply(ctx, m, d, now)
+	if err != nil {
+		return err
+	}
+	return p.notifySubs(ctx, m, d.subs, notified)
+}
+
+// apply carries out d.act and returns the target it notified, if any.
+func (p *Processor) apply(ctx context.Context, m Message, d decision, now time.Time) (string, error) {
 	switch d.act {
 	case actReply, actReopen:
 		return p.storeReply(ctx, m, d, now)
@@ -144,39 +166,88 @@ func (p *Processor) HandleMessage(ctx context.Context, m Message) error {
 		w, created, err := p.Store.AddWatch(PostRef{Channel: m.Channel, TS: m.TS, ThreadTS: m.ThreadTS},
 			WatchUpdate{Source: ptr(SourceFooter)}, now)
 		if err != nil || !created {
-			return err
+			return "", err
 		}
-		return p.notify(ctx, p.note(EventUnowned, w, m))
+		return "", p.notify(ctx, p.note(EventUnowned, w, m))
 	case actInbound:
-		return p.Store.addInbound(m, d.kind)
+		return "", p.Store.addInbound(m, d.kind)
 	}
-	return nil
+	return "", nil
 }
 
-func (p *Processor) storeReply(ctx context.Context, m Message, d decision, now time.Time) error {
-	added, err := p.Store.AddReply(Reply{
-		Channel: m.Channel, TS: m.TS, WatchID: d.watch.ID, Author: m.User, Text: m.Text,
-		ThreadTS: m.ThreadTS, IsSelf: m.User == p.Self,
-	})
+func (p *Processor) storeReply(ctx context.Context, m Message, d decision, now time.Time) (string, error) {
+	added, err := p.Store.AddReply(p.reply(m, d.watch.ID))
 	if err != nil || !added {
-		return err
+		return "", err
 	}
 	event := EventReply
 	if d.act == actReopen {
 		event = EventReopened
 		if err := p.Store.reopenWatch(d.watch.ID); err != nil {
-			return err
+			return "", err
 		}
 	} else if d.watch.State == StateUnowned {
 		event = EventUnowned
 	}
 	if _, err := p.Store.DB().Exec(`UPDATE watches SET last_activity = ? WHERE id = ?`, now.Unix(), d.watch.ID); err != nil {
-		return fmt.Errorf("update last_activity of watch %d: %w", d.watch.ID, err)
+		return "", fmt.Errorf("update last_activity of watch %d: %w", d.watch.ID, err)
 	}
 	if !d.notify {
+		return "", nil
+	}
+	target := p.Config.Target(d.watch.Owner)
+	if d.watch.Owner == "" {
+		target = p.Config.Target(p.Config.FallbackTarget)
+	}
+	return target, p.notify(ctx, p.note(event, d.watch, m))
+}
+
+func (p *Processor) reply(m Message, watchID int64) Reply {
+	return Reply{
+		Channel: m.Channel, TS: m.TS, WatchID: watchID, Author: m.User, Text: m.Text,
+		ThreadTS: m.ThreadTS, IsSelf: m.User == p.Self,
+	}
+}
+
+// notifySubs stores m as a channel message and notifies each subscriber
+// once per target. A target in notified already got m as a watch reply.
+func (p *Processor) notifySubs(ctx context.Context, m Message, subs []Sub, notified string) error {
+	if len(subs) == 0 {
 		return nil
 	}
-	return p.notify(ctx, p.note(event, d.watch, m))
+	// A row already stored as a watch reply keeps its watch.
+	if _, err := p.Store.AddReply(p.reply(m, 0)); err != nil {
+		return err
+	}
+	done := map[string]bool{}
+	if notified != "" {
+		done[notified] = true
+	}
+	thread := m.ThreadTS
+	if thread == "" {
+		thread = m.TS
+	}
+	for _, s := range subs {
+		target := p.Config.Target(s.Owner)
+		if done[target] {
+			continue
+		}
+		done[target] = true
+		if err := p.notify(ctx, Notification{
+			Event:     EventChannel,
+			Owner:     s.Owner,
+			Channel:   m.Channel,
+			ReplyTS:   m.TS,
+			PostLink:  permalink(p.TeamURL, m.Channel, thread, ""),
+			ReplyLink: permalink(p.TeamURL, m.Channel, m.TS, m.ThreadTS),
+			Purpose:   s.Purpose,
+			Author:    m.User,
+			Text:      m.Text,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Processor) notify(ctx context.Context, note Notification) error {
@@ -262,7 +333,12 @@ func (s *Store) messageState(m Message) (msgState, error) {
 	if st.seen {
 		return st, nil
 	}
-	_, err := findWatchID(s.db, PostRef{Channel: m.Channel, TS: m.TS, ThreadTS: m.ThreadTS})
+	subs, err := s.channelSubs(m.Channel)
+	if err != nil {
+		return msgState{}, err
+	}
+	st.subs = subs
+	_, err = findWatchID(s.db, PostRef{Channel: m.Channel, TS: m.TS, ThreadTS: m.ThreadTS})
 	switch {
 	case err == nil:
 		st.watched = true

@@ -70,6 +70,26 @@ func (r slackReader) Search(ctx context.Context, query string) ([]slackwatch.Fet
 	}
 }
 
+// ChannelID finds a channel by name with conversations.list.
+func (r slackReader) ChannelID(ctx context.Context, name string) (string, error) {
+	p := &slack.GetConversationsParameters{ExcludeArchived: true, Limit: pageLimit, Types: []string{"public_channel", "private_channel"}}
+	for {
+		channels, next, err := r.api.GetConversationsContext(ctx, p)
+		if err != nil {
+			return "", apiError("conversations.list", err)
+		}
+		for _, c := range channels {
+			if c.Name == name {
+				return c.ID, nil
+			}
+		}
+		if next == "" {
+			return "", fmt.Errorf("no channel named #%s", name)
+		}
+		p.Cursor = next
+	}
+}
+
 func apiError(method string, err error) error {
 	if rl, ok := errors.AsType[*slack.RateLimitedError](err); ok {
 		return &slackwatch.RateLimitError{RetryAfter: rl.RetryAfter}
@@ -85,7 +105,7 @@ func appendFetched(out []slackwatch.Fetched, channel string, msgs []slack.Messag
 		}
 		f := slackwatch.Fetched{Message: slackwatch.Message{
 			Channel: channel, TS: m.Timestamp, ThreadTS: m.ThreadTimestamp, User: messageAuthor(m.User, m.BotID), Text: m.Text,
-		}}
+		}, LatestReply: m.LatestReply}
 		for _, r := range m.Reactions {
 			for _, u := range r.Users {
 				f.Reactions = append(f.Reactions, slackwatch.Reaction{TS: m.Timestamp, User: u, Name: r.Name})

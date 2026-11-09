@@ -32,6 +32,13 @@ Each new message is handled by the first rule that matches.
    ~inbound~ without a notification.
 6. Anything else is dropped.
 
+Separately from these rules, a top-level message or thread reply in a
+subscribed channel is stored and notifies each subscriber as ~channel~.
+The token owner's own messages are skipped unless the subscription has
+~--include-self~. A subscriber whose target already got the message as a
+watch notification under rules 1 to 3 is not notified again. A
+mention in a subscribed channel is still stored in ~inbound~.
+
 Messages are deduplicated on channel and ts. Edits update the stored
 text, deletes mark a reply deleted, and reactions on watched posts and
 replies are stored for ~show~. None of these notify.
@@ -50,13 +57,18 @@ watch when a token is available. A sweep:
    messages to them (~to:me~), and mentions of them, after the search
    cursor (initially one day back). This finds footer posts and inbound
    messages missed while ~serve~ was down.
-3. Closes watches past their deadline, without notifying.
+3. Catches up every subscription whose ~until~ has not passed, after its
+   cursor (initially the time of ~sub~): ~conversations.history~ for
+   top-level messages, plus ~conversations.replies~ for threads whose
+   ~latest_reply~ is after the cursor. Thread parents are looked for up
+   to 7 days before the cursor.
+4. Closes watches past their deadline, without notifying.
 
 Fetched messages go through the same rules as live events and are
 deduplicated on channel and ts, so overlap with events is harmless.
 Reactions on fetched watched posts and replies are stored. A cursor
 advances only after its batch is stored. A ~429~ waits out ~Retry-After~
-and retries. One failing watch is logged and does not stop the others.
+and retries. One failing watch or subscription is logged and does not stop the others.
 
 A watch's deadline is ~until~ when set. Otherwise it is ~quietExpiry~
 after the later of its creation and its latest reply by someone other
@@ -95,6 +107,22 @@ RFC 3339, or a duration such as ~72h~.
   available. Without a token it skips catch-up quietly.
 - ~ls~ counts unacknowledged replies by others and flags a watch that has an
   undelivered notification.
+
+* Channel subscriptions
+
+| Command | Does |
+|---------+------|
+| ~sub <channel> --owner T [--purpose S] [--until DATE] [--include-self]~ | Notify ~T~ of every new message in a channel. |
+| ~unsub <channel> [--owner T]~ | Remove the channel's subscriptions, or only ~T~'s. |
+| ~subs [--json]~ | List subscriptions. |
+
+~<channel>~ is a channel id or ~#name~. A name is resolved with
+~conversations.list~, which needs ~tokenFile~, and the id is stored.
+There is one subscription per channel and owner; ~sub~ again replaces its
+purpose, ~until~, and ~--include-self~. Subscriptions do not expire on
+quiet. They end with ~unsub~ or ~--until~. A subscriber that fails the
+liveness check or the notify command gets the same fallback and
+undelivered handling as a watch owner.
 
 * Config
 
@@ -175,7 +203,7 @@ records how many have run.
 |-------+-------|
 | ~watches~ | One watched thread or DM. Unique per ~(channel, thread_ts)~. |
 | ~watch_posts~ | The registered posts under a watch. |
-| ~replies~ | Replies seen in watched threads. Unique per ~(channel, ts)~. |
+| ~replies~ | Replies seen in watched threads, and messages in subscribed channels (no watch). Unique per ~(channel, ts)~. |
 | ~reactions~ | Reactions on watched posts. |
 | ~inbound~ | DMs and mentions addressed to the user. |
 | ~subs~ | Channel subscriptions. |

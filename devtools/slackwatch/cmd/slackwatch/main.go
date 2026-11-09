@@ -57,6 +57,9 @@ var commands = map[string]func(configPath string, args []string, stdout, stderr 
 	"ack":    cmdAck,
 	"ls":     cmdLs,
 	"show":   cmdShow,
+	"sub":    cmdSub,
+	"unsub":  cmdUnsub,
+	"subs":   cmdSubs,
 }
 
 func usage(w io.Writer) {
@@ -75,9 +78,14 @@ Commands:
                       mark every stored reply acknowledged
   slackwatch ls [--owner T] [--state S] [--unacked] [--json]
   slackwatch show <post> [--json]
+  slackwatch sub <channel> --owner T [--purpose S] [--until DATE] [--include-self]
+                      notify T of every new message in a channel
+  slackwatch unsub <channel> [--owner T]
+  slackwatch subs [--json]
   slackwatch help     show this help
 
 <post> is a Slack permalink, a channel and ts, or a watch id.
+<channel> is a channel id or #name.
 DATE is YYYY-MM-DD (through the end of that day), RFC 3339, or a duration such as 72h.
 `)
 }
