@@ -6,6 +6,10 @@
   vars:
     agy_settings_dir: "{{ ansible_facts['env']['HOME'] }}/.gemini/antigravity-cli"
     agy_settings_file: "{{ agy_settings_dir }}/settings.json"
+    # "auto" has a model evaluate commands that need to run outside the
+    # terminal sandbox and pause only on risky or irreversible ones;
+    # sandboxed commands are approved by default.
+    agy_agent_mode: "auto"
     # Rules apply inside and outside the terminal sandbox, so only commands
     # that cannot write files, run code, or change remote state belong here.
     # command(<prefix>) matches word by word: "command(git log)" matches
@@ -88,11 +92,11 @@
       set_fact:
         agy_current_settings: "{{ agy_current }}"
         agy_desired_settings: >-
-          {{ agy_current | combine({'permissions': {'allow':
+          {{ agy_current | combine({'agentMode': agy_agent_mode, 'permissions': {'allow':
           agy_current_allow + (agy_allowed_commands | reject('in', agy_current_allow) | list)}},
           recursive=True) }}
 
-    - name: Update agy settings.json if allow list changed
+    - name: Update agy settings.json if agent mode or allow list changed
       copy:
         content: "{{ agy_desired_settings | to_nice_json(indent=2) }}\n"
         dest: "{{ agy_settings_file }}"
