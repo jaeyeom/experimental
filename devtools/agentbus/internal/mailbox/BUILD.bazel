@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "mailbox.go",
+        "queue.go",
         "render.go",
         "view.go",
     ],

@@ -30,22 +30,32 @@ const (
 	timeLayout = "2006-01-02T15:04:05.000Z07:00"
 )
 
-// Result is the id and initial delivery state of a send or reply.
+// Result is the id and delivery state of a send or reply.
 type Result struct {
 	ID    string
 	State string
 }
 
+// Options controls one send. A zero TTL does not expire.
+// Wait blocks until the message is delivered or expired.
+type Options struct {
+	TTL  time.Duration
+	Wait bool
+}
+
 type message struct {
-	ID        string    `json:"id"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	Re        string    `json:"re,omitempty"`
-	SentAt    time.Time `json:"sentAt"`
-	Body      string    `json:"body"`
-	Replyable bool      `json:"replyable"`
-	State     string    `json:"state"`
-	Handle    string    `json:"handle"`
+	ID          string     `json:"id"`
+	From        string     `json:"from"`
+	To          string     `json:"to"`
+	Re          string     `json:"re,omitempty"`
+	SentAt      time.Time  `json:"sentAt"`
+	Body        string     `json:"body"`
+	Replyable   bool       `json:"replyable"`
+	State       string     `json:"state"`
+	Handle      string     `json:"handle"`
+	Deadline    *time.Time `json:"deadline,omitempty"`
+	DeliveredAt *time.Time `json:"deliveredAt,omitempty"`
+	ClosedAt    *time.Time `json:"closedAt,omitempty"`
 }
 
 type file struct {
@@ -53,16 +63,23 @@ type file struct {
 }
 
 // Mailbox persists messages in the daemon state directory.
+// The queue is FIFO per resolved handle. A held front blocks later
+// messages to that handle.
 type Mailbox struct {
 	dir      string
 	reg      *registry.Registry
-	set      *adapter.Set
 	log      *eventlog.Log
 	inline   int
 	now      func() time.Time
 	mu       sync.Mutex
+	cv       *sync.Cond
 	msgs     map[string]message
+	queue    map[string][]string
+	inflight map[string]bool
 	adapters []adapter.Adapter
+	broken   map[string]string
+	prep     sync.Once
+	prepErr  error
 }
 
 // Open loads messages. A missing file is an empty mailbox.
@@ -75,21 +92,24 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 	if err != nil {
 		return nil, err
 	}
-	return &Mailbox{
+	box := &Mailbox{
 		dir:      dir,
 		reg:      reg,
-		set:      &adapter.Set{Adapters: adapters, Log: log},
 		log:      log,
 		inline:   inline,
 		now:      time.Now,
 		msgs:     msgs,
+		queue:    rebuild(msgs),
+		inflight: map[string]bool{},
 		adapters: adapters,
-	}, nil
+	}
+	box.cv = sync.NewCond(&box.mu)
+	return box, nil
 }
 
-// Send stores a message and delivers its envelope.
+// Send stores a message and queues it for the resolved handle.
 // target is a logical name or a raw handle. from is stamped here.
-func (m *Mailbox) Send(ctx context.Context, env []string, peerPID int, target, body string) (Result, error) {
+func (m *Mailbox) Send(ctx context.Context, env []string, peerPID int, target, body string, opt Options) (Result, error) {
 	if body == "" {
 		return Result{}, errors.New("message body is required")
 	}
@@ -111,7 +131,7 @@ func (m *Mailbox) Send(ctx context.Context, env []string, peerPID int, target, b
 	if err != nil {
 		return Result{}, err
 	}
-	return m.storeAndDeliver(ctx, msg)
+	return m.enqueue(ctx, msg, opt)
 }
 
 // Reply sends to the original from and sets re to id.
@@ -136,7 +156,7 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	if err != nil {
 		return Result{}, err
 	}
-	return m.storeAndDeliver(ctx, msg)
+	return m.enqueue(ctx, msg, Options{})
 }
 
 func (m *Mailbox) newMessage(from, to, re, body string, replyable bool, handle string) (message, error) {
@@ -154,49 +174,6 @@ func (m *Mailbox) newMessage(from, to, re, body string, replyable bool, handle s
 		Replyable: replyable,
 		Handle:    handle,
 	}, nil
-}
-
-func (m *Mailbox) storeAndDeliver(ctx context.Context, msg message) (Result, error) {
-	msg.State = m.deliver(ctx, msg)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.msgs[msg.ID] = msg
-	if err := m.logEvent(eventlog.Event{
-		Event:  eventlog.EventSend,
-		Actor:  msg.From,
-		MsgID:  msg.ID,
-		Name:   msg.To,
-		Detail: "stored",
-	}); err != nil {
-		return Result{}, err
-	}
-	if msg.State == "delivered" {
-		if err := m.logEvent(eventlog.Event{
-			Event:  eventlog.EventDelivered,
-			Actor:  msg.From,
-			MsgID:  msg.ID,
-			Name:   msg.To,
-			Detail: "accepted",
-		}); err != nil {
-			return Result{}, err
-		}
-	}
-	if err := m.save(); err != nil {
-		return Result{}, err
-	}
-	return Result{ID: msg.ID, State: msg.State}, nil
-}
-
-func (m *Mailbox) deliver(ctx context.Context, msg message) string {
-	text := render(msg, m.preview(msg.Body))
-	result, err := m.set.Deliver(ctx, msg.Handle, text)
-	if err != nil {
-		return "held: " + err.Error()
-	}
-	if result == adapter.ResultAccepted {
-		return "delivered"
-	}
-	return "held: no adapter accepted delivery"
 }
 
 func (m *Mailbox) preview(body string) bool {

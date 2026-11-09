@@ -1,0 +1,533 @@
+package mailbox
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+)
+
+const (
+	stateDelivered = "delivered"
+	stateExpired   = "expired"
+	// defaultPoll matches the registry inventory interval.
+	defaultPoll = 2 * time.Second
+	waitTick    = 15 * time.Millisecond
+)
+
+type outcome struct {
+	accepted bool
+	tried    bool
+	reason   string
+	target   string
+}
+
+// Poll delivers queued mail immediately, then again on each tick.
+// A non-positive interval uses defaultPoll. An empty queue logs nothing.
+func (m *Mailbox) Poll(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = defaultPoll
+	}
+	m.flushQuiet(ctx)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.flushQuiet(ctx)
+		}
+	}
+}
+
+func (m *Mailbox) enqueue(ctx context.Context, msg message, opt Options) (Result, error) {
+	if opt.TTL > 0 {
+		deadline := m.now().UTC().Add(opt.TTL)
+		msg.Deadline = &deadline
+	}
+	if err := m.store(msg); err != nil {
+		return Result{}, err
+	}
+	if err := m.flushHandle(ctx, msg.Handle); err != nil {
+		return Result{}, err
+	}
+	if !opt.Wait {
+		return m.resultOf(msg.ID)
+	}
+	return m.wait(ctx, msg.ID, msg.Handle)
+}
+
+func (m *Mailbox) wait(ctx context.Context, id, handle string) (Result, error) {
+	for {
+		if err := m.flushHandle(ctx, handle); err != nil {
+			return Result{}, err
+		}
+		result, err := m.resultOf(id)
+		if err != nil {
+			return Result{}, err
+		}
+		if terminal(result.State) || ctx.Err() != nil {
+			return result, nil
+		}
+		timer := time.NewTimer(waitTick)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return m.resultOf(id)
+		case <-timer.C:
+		}
+	}
+}
+
+func (m *Mailbox) store(msg message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.msgs[msg.ID] = msg
+	m.queue[msg.Handle] = append(m.queue[msg.Handle], msg.ID)
+	if err := m.logEvent(eventlog.Event{
+		Event:  eventlog.EventSend,
+		Actor:  msg.From,
+		MsgID:  msg.ID,
+		Name:   msg.To,
+		Detail: "stored",
+	}); err != nil {
+		return err
+	}
+	return m.save()
+}
+
+func (m *Mailbox) resultOf(id string) (Result, error) {
+	msg, err := m.get(id)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{ID: msg.ID, State: msg.State}, nil
+}
+
+func (m *Mailbox) flushQuiet(ctx context.Context) {
+	if err := m.flushAll(ctx); err != nil {
+		_ = m.logEvent(eventlog.Event{
+			Event:  eventlog.EventAdapterError,
+			Actor:  "agentbus",
+			Detail: "queue flush failed",
+			Reason: err.Error(),
+		})
+	}
+}
+
+func (m *Mailbox) flushAll(ctx context.Context) error {
+	var first error
+	for _, handle := range m.handles() {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err := m.flushHandle(ctx, handle); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func (m *Mailbox) handles() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.queue))
+	for handle := range m.queue {
+		out = append(out, handle)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (m *Mailbox) flushHandle(ctx context.Context, handle string) error {
+	if handle == "" {
+		return nil
+	}
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		cont, err := m.step(ctx, handle)
+		if err != nil || !cont {
+			return err
+		}
+	}
+}
+
+// step attempts the front message.
+// The mailbox lock is not held across State, Deliver, or the expiry notice.
+func (m *Mailbox) step(ctx context.Context, handle string) (bool, error) {
+	m.mu.Lock()
+	id, ok := m.front(handle)
+	if !ok {
+		m.mu.Unlock()
+		return false, nil
+	}
+	if m.inflight[id] {
+		for m.inflight[id] {
+			m.cv.Wait()
+		}
+		m.mu.Unlock()
+		return true, nil
+	}
+	msg := m.msgs[id]
+	if m.expired(msg) {
+		cont, err := m.finishExpire(ctx, handle, msg)
+		return cont, err
+	}
+	m.inflight[id] = true
+	m.mu.Unlock()
+
+	outcome := m.attempt(ctx, msg)
+
+	m.mu.Lock()
+	delete(m.inflight, id)
+	m.cv.Broadcast()
+	if !m.stillFront(handle, id) {
+		m.mu.Unlock()
+		return true, nil
+	}
+	if outcome.accepted {
+		err := m.markDelivered(id)
+		m.mu.Unlock()
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if m.expired(m.msgs[id]) {
+		return m.finishExpire(ctx, handle, m.msgs[id])
+	}
+	if err := m.holdFront(id, outcome); err != nil {
+		m.mu.Unlock()
+		return false, err
+	}
+	err := m.holdTail(handle)
+	m.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (m *Mailbox) finishExpire(ctx context.Context, handle string, msg message) (bool, error) {
+	m.pop(handle)
+	closed, err := m.markExpired(msg)
+	m.mu.Unlock()
+	if err != nil {
+		return false, err
+	}
+	m.notifyExpired(ctx, closed)
+	return true, nil
+}
+
+func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
+	if err := m.prepare(ctx); err != nil {
+		return outcome{reason: "unreachable", target: "unreachable"}
+	}
+	state, ad, err := m.observe(ctx, msg.Handle)
+	if err != nil || ad == nil || !canDeliver(state) {
+		return m.holdOutcome(state, err)
+	}
+	text := render(msg, m.preview(msg.Body))
+	result, err := ad.Deliver(ctx, msg.Handle, text)
+	if err != nil {
+		return outcome{tried: true, reason: err.Error(), target: string(state)}
+	}
+	switch result {
+	case adapter.ResultAccepted:
+		return outcome{accepted: true, tried: true, target: string(state)}
+	case adapter.ResultRefusedRetryable:
+		return outcome{tried: true, reason: "transport refused", target: string(adapter.StateBlocked)}
+	default:
+		return outcome{tried: true, reason: "transport failed", target: string(state)}
+	}
+}
+
+func (m *Mailbox) holdOutcome(state adapter.State, err error) outcome {
+	if err != nil {
+		return outcome{reason: "unreachable", target: "unreachable"}
+	}
+	return outcome{reason: holdReason(state), target: string(state)}
+}
+
+func (m *Mailbox) observe(ctx context.Context, handle string) (adapter.State, adapter.Adapter, error) {
+	var fallback adapter.State
+	var sawErr error
+	for _, item := range m.adapters {
+		if m.isBroken(item.Name()) {
+			continue
+		}
+		state, err := item.State(ctx, handle)
+		if err != nil {
+			sawErr = err
+			continue
+		}
+		if state == adapter.StateGone || state == adapter.StateUnknown {
+			fallback = prefer(fallback, state)
+			continue
+		}
+		return state, item, nil
+	}
+	if fallback == "" && sawErr != nil {
+		return "", nil, sawErr
+	}
+	if fallback == "" {
+		fallback = adapter.StateGone
+	}
+	return fallback, nil, nil
+}
+
+func prefer(current, next adapter.State) adapter.State {
+	if current == "" || next == adapter.StateUnknown {
+		return next
+	}
+	return current
+}
+
+func canDeliver(state adapter.State) bool {
+	switch state {
+	case adapter.StateIdle, adapter.StateWorking, adapter.StateDone:
+		return true
+	default:
+		return false
+	}
+}
+
+func holdReason(state adapter.State) string {
+	switch state {
+	case adapter.StateBlocked, adapter.StateNoAgent, adapter.StateUnknown, adapter.StateGone:
+		return string(state)
+	default:
+		if state == "" {
+			return string(adapter.StateGone)
+		}
+		return string(state)
+	}
+}
+
+func (m *Mailbox) prepare(ctx context.Context) error {
+	m.prep.Do(func() {
+		m.prepErr = m.runSelfTests(ctx)
+	})
+	return m.prepErr
+}
+
+func (m *Mailbox) runSelfTests(ctx context.Context) error {
+	broken := map[string]string{}
+	for _, item := range m.adapters {
+		err := item.SelfTest(ctx)
+		if err == nil {
+			continue
+		}
+		broken[item.Name()] = err.Error()
+		if logErr := m.logEvent(eventlog.Event{
+			Event:  eventlog.EventAdapterError,
+			Actor:  "agentbus",
+			Name:   item.Name(),
+			Detail: "self-test failed",
+			Reason: err.Error(),
+		}); logErr != nil {
+			return fmt.Errorf("log adapter_error: %w", logErr)
+		}
+	}
+	m.mu.Lock()
+	m.broken = broken
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Mailbox) isBroken(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.broken[name]
+	return ok
+}
+
+func (m *Mailbox) markDelivered(id string) error {
+	msg := m.msgs[id]
+	now := m.now().UTC()
+	msg.State = stateDelivered
+	msg.DeliveredAt = &now
+	msg.ClosedAt = &now
+	m.msgs[id] = msg
+	m.pop(msg.Handle)
+	if err := m.logEvent(eventlog.Event{
+		Event:  eventlog.EventDelivered,
+		Actor:  msg.From,
+		MsgID:  msg.ID,
+		Name:   msg.To,
+		Detail: "accepted",
+	}); err != nil {
+		return err
+	}
+	return m.save()
+}
+
+func (m *Mailbox) markExpired(msg message) (message, error) {
+	now := m.now().UTC()
+	msg.State = stateExpired
+	msg.ClosedAt = &now
+	m.msgs[msg.ID] = msg
+	if err := m.logEvent(eventlog.Event{
+		Event:  eventlog.EventExpired,
+		Actor:  msg.From,
+		MsgID:  msg.ID,
+		Name:   msg.To,
+		Detail: "waited " + waitString(now.Sub(msg.SentAt)),
+		Reason: "ttl",
+	}); err != nil {
+		return msg, err
+	}
+	if err := m.save(); err != nil {
+		return msg, err
+	}
+	return msg, nil
+}
+
+func (m *Mailbox) holdFront(id string, outcome outcome) error {
+	msg := m.msgs[id]
+	next := "held: " + outcome.reason
+	prev := msg.State
+	msg.State = next
+	m.msgs[id] = msg
+	switch {
+	case outcome.tried && strings.HasPrefix(prev, "held:"):
+		if err := m.logChange(msg, eventlog.EventRetry, outcome); err != nil {
+			return err
+		}
+	case prev != next:
+		if err := m.logChange(msg, eventlog.EventHeld, outcome); err != nil {
+			return err
+		}
+	default:
+		return nil
+	}
+	return m.save()
+}
+
+func (m *Mailbox) logChange(msg message, name string, outcome outcome) error {
+	return m.logEvent(eventlog.Event{
+		Event:       name,
+		Actor:       msg.From,
+		MsgID:       msg.ID,
+		Name:        msg.To,
+		Detail:      "waited " + waitString(m.now().Sub(msg.SentAt)),
+		Reason:      outcome.reason,
+		TargetState: outcome.target,
+	})
+}
+
+func (m *Mailbox) holdTail(handle string) error {
+	ids := m.queue[handle]
+	if len(ids) < 2 {
+		return nil
+	}
+	changed := false
+	for _, id := range ids[1:] {
+		msg := m.msgs[id]
+		const next = "held: waiting for an earlier message"
+		if msg.State == next {
+			continue
+		}
+		msg.State = next
+		m.msgs[id] = msg
+		changed = true
+		if err := m.logEvent(eventlog.Event{
+			Event:       eventlog.EventHeld,
+			Actor:       msg.From,
+			MsgID:       msg.ID,
+			Name:        msg.To,
+			Detail:      "waited " + waitString(m.now().Sub(msg.SentAt)),
+			Reason:      "waiting for an earlier message",
+			TargetState: "queued",
+		}); err != nil {
+			return err
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return m.save()
+}
+
+// notifyExpired tells a reachable sender directly. It does not queue
+// the notice, and it skips anonymous or unreachable senders.
+func (m *Mailbox) notifyExpired(ctx context.Context, msg message) {
+	if strings.HasPrefix(msg.From, "anon:") {
+		return
+	}
+	handle, err := m.reg.Resolve(msg.From)
+	if err != nil {
+		return
+	}
+	if err := m.prepare(ctx); err != nil {
+		return
+	}
+	state, ad, err := m.observe(ctx, handle)
+	if err != nil || ad == nil || !canDeliver(state) {
+		return
+	}
+	text := fmt.Sprintf("agentbus: message %s to %s expired\n", msg.ID, msg.To)
+	_, _ = ad.Deliver(ctx, handle, text)
+}
+
+func (m *Mailbox) front(handle string) (string, bool) {
+	ids := m.queue[handle]
+	if len(ids) == 0 {
+		return "", false
+	}
+	return ids[0], true
+}
+
+func (m *Mailbox) stillFront(handle, id string) bool {
+	front, ok := m.front(handle)
+	return ok && front == id
+}
+
+func (m *Mailbox) pop(handle string) {
+	ids := m.queue[handle]
+	if len(ids) <= 1 {
+		delete(m.queue, handle)
+		return
+	}
+	m.queue[handle] = ids[1:]
+}
+
+func (m *Mailbox) expired(msg message) bool {
+	return msg.Deadline != nil && !m.now().Before(*msg.Deadline)
+}
+
+func terminal(state string) bool {
+	return state == stateDelivered || state == stateExpired
+}
+
+func rebuild(msgs map[string]message) map[string][]string {
+	pending := make([]message, 0, len(msgs))
+	for _, msg := range msgs {
+		if terminal(msg.State) {
+			continue
+		}
+		pending = append(pending, msg)
+	}
+	sort.Slice(pending, func(i, j int) bool {
+		return messageBefore(pending[i], pending[j])
+	})
+	queue := map[string][]string{}
+	for _, msg := range pending {
+		queue[msg.Handle] = append(queue[msg.Handle], msg.ID)
+	}
+	return queue
+}
+
+func waitString(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	return d.Round(time.Millisecond).String()
+}

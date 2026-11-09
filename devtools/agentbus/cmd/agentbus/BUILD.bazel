@@ -31,6 +31,7 @@ go_test(
         "discover_test.go",
         "envelope_test.go",
         "main_test.go",
+        "queue_test.go",
         "registry_test.go",
     ],
     embed = [":go_default_library"],

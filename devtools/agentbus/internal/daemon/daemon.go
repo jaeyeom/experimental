@@ -43,6 +43,8 @@ type Request struct {
 	Query string   `json:"query,omitempty"`
 	Body  string   `json:"body,omitempty"`
 	Env   []string `json:"env,omitempty"`
+	TTL   string   `json:"ttl,omitempty"`
+	Wait  bool     `json:"wait,omitempty"`
 }
 
 // AgentRow is one list or search result. An empty Name means the bus
@@ -131,6 +133,7 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	started = true
 
 	go reg.Poll(ctx, cfg.PollInterval)
+	go box.Poll(ctx, cfg.PollInterval)
 	go func() {
 		<-ctx.Done()
 		ln.Close()
@@ -240,7 +243,11 @@ func (s *server) list() Response {
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true, Rows: agentRows(rows)}
+	text := ""
+	if lines := s.box.Held(); len(lines) > 0 {
+		text = strings.Join(lines, "\n") + "\n"
+	}
+	return Response{OK: true, Rows: agentRows(rows), Text: text}
 }
 
 func (s *server) search(req Request) Response {
@@ -271,11 +278,26 @@ func agentRows(in []registry.Row) []AgentRow {
 }
 
 func (s *server) send(req Request, pid int) Response {
-	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body)
+	ttl, err := positiveDuration(req.TTL)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	result, err := s.box.Send(s.ctx, req.Env, pid, req.Name, req.Body, mailbox.Options{TTL: ttl, Wait: req.Wait})
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
 	return Response{OK: true, Name: result.ID, State: result.State}
+}
+
+func positiveDuration(raw string) (time.Duration, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil || d <= 0 {
+		return 0, errors.New("ttl must be a positive duration")
+	}
+	return d, nil
 }
 
 func (s *server) reply(req Request, pid int) Response {
@@ -303,7 +325,7 @@ func (s *server) thread(req Request) Response {
 }
 
 func (s *server) status(req Request) Response {
-	text, err := s.box.Status(req.Name)
+	text, err := s.box.Status(s.ctx, req.Name)
 	if err != nil {
 		return Response{Error: err.Error()}
 	}

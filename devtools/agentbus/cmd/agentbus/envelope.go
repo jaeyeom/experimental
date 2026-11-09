@@ -7,12 +7,13 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 )
 
 func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	target, body, file, err := parseSend(args)
+	target, body, file, ttl, wait, err := parseSend(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
 		return 2
@@ -37,7 +38,7 @@ func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, s
 		}
 		body = string(data)
 	}
-	return finishSend(ctx, env, daemon.Request{Op: "send", Name: target, Body: body, Env: env}, stdout, stderr)
+	return finishSend(ctx, env, daemon.Request{Op: "send", Name: target, Body: body, Env: env, TTL: ttl, Wait: wait}, stdout, stderr)
 }
 
 func cmdReply(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
@@ -95,13 +96,58 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, stdout, s
 	return 0
 }
 
-func parseSend(args []string) (string, string, string, error) {
+func parseSend(args []string) (string, string, string, string, bool, error) {
+	wait, rest, err := takeBool(args, "--wait")
+	if err != nil {
+		return "", "", "", "", false, err
+	}
+	ttl, rest, ttlFound, err := takeFlag(rest, "--ttl")
+	if err != nil {
+		return "", "", "", "", false, err
+	}
+	if ttlFound {
+		if err := positiveTTL(ttl); err != nil {
+			return "", "", "", "", false, err
+		}
+	}
+	target, body, file, err := parseSendArgs(rest)
+	if err != nil {
+		return "", "", "", "", false, err
+	}
+	return target, body, file, ttl, wait, nil
+}
+
+func positiveTTL(raw string) error {
+	d, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil || d <= 0 {
+		return errors.New("--ttl needs a positive duration, for example 30m")
+	}
+	return nil
+}
+
+func takeBool(args []string, flagName string) (bool, []string, error) {
+	var rest []string
+	found := false
+	for _, arg := range args {
+		if arg != flagName {
+			rest = append(rest, arg)
+			continue
+		}
+		if found {
+			return true, nil, fmt.Errorf("%s given twice", flagName)
+		}
+		found = true
+	}
+	return found, rest, nil
+}
+
+func parseSendArgs(args []string) (string, string, string, error) {
 	file, rest, found, err := takeFlag(args, "--file")
 	if err != nil {
 		return "", "", "", err
 	}
 	if len(rest) < 1 || strings.HasPrefix(rest[0], "-") {
-		return "", "", "", errors.New("usage: agentbus send <name|handle> [<body>] [--file <path>]")
+		return "", "", "", errors.New("usage: agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait]")
 	}
 	if found {
 		if strings.TrimSpace(file) == "" {

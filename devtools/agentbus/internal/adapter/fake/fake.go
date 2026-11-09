@@ -22,6 +22,8 @@ type Adapter struct {
 	InventoryAgents []adapter.Agent
 	Calls           int
 	LastText        string
+	// Texts is every paste, in delivery order.
+	Texts []string
 }
 
 // Name is the adapter name recorded on adapter_error.
@@ -86,6 +88,7 @@ func (a *Adapter) State(_ context.Context, handle string) (adapter.State, error)
 func (a *Adapter) Deliver(_ context.Context, handle, text string) (adapter.Result, error) {
 	a.Calls++
 	a.LastText = text
+	a.Texts = append(a.Texts, text)
 	if result, ok := a.Result[handle]; ok {
 		return result, nil
 	}
