@@ -1,0 +1,15 @@
+name: Setup Pkl
+description: Install Pkl 0.32.2
+
+runs:
+  using: composite
+  steps:
+    - name: Install Pkl 0.32.2
+      shell: sh
+      run: |
+        set -eu
+        tmp=$(mktemp)
+        trap 'rm -f "$tmp"' EXIT INT TERM
+        curl -fsSL -o "$tmp" https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-amd64
+        sudo install -m 755 "$tmp" /usr/local/bin/pkl
+        pkl --version

@@ -131,7 +131,7 @@ rules:
     docs:
       - path: README.org
         section: "* Getting Started"
-        why: "CI go test + golangci-lint"
+        why: "the job runs make check with Go 1.26.10"
       - path: SECURITY.md
         section: "## Security Practices"
         why: "automated testing via CI"
