@@ -6,8 +6,10 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon",
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = [
+        "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
+        "//devtools/agentbus/internal/registry:go_default_library",
     ],
 )
 

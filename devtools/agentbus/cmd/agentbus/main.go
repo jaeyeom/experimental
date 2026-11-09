@@ -30,11 +30,21 @@ func run(ctx context.Context, args, env []string, stdout, stderr io.Writer) int 
 	if len(args) == 0 {
 		return ensure(env, stderr)
 	}
-	if args[0] == "log" {
+	switch args[0] {
+	case "log":
 		return cmdLog(ctx, args[1:], env, stdout, stderr)
+	case "register":
+		return cmdRegister(ctx, args[1:], env, stdout, stderr)
+	case "describe":
+		return cmdDescribe(ctx, args[1:], env, stdout, stderr)
+	case "whoami":
+		return cmdWhoami(ctx, args[1:], env, stdout, stderr)
+	case "release":
+		return cmdRelease(ctx, args[1:], env, stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "agentbus: unknown command %q\n", args[0])
+		return 2
 	}
-	fmt.Fprintf(stderr, "agentbus: commands are not available yet\n")
-	return 2
 }
 
 func ensure(env []string, stderr io.Writer) int {

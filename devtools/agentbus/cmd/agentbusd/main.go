@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"golang.org/x/sys/unix"
@@ -33,7 +35,10 @@ func run(env []string, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
-	if err := daemon.Serve(ctx, dirs, daemon.Config{RetentionDays: days}); err != nil && !errors.Is(err, context.Canceled) {
+	if err := daemon.Serve(ctx, dirs, daemon.Config{
+		RetentionDays: days,
+		Adapters:      []adapter.Adapter{&herdr.Adapter{}},
+	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
