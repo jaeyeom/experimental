@@ -24,17 +24,6 @@ rules:
       - path: README.org
         section: "** GNU Make"
         why: "make check/test/lint/format/fix/coverage targets"
-      - path: README.org
-        section: "* Development Workflow"
-        why: "run make check before requesting a commit"
-      - path: CLAUDE.md
-        section: "## Automation & Workflow"
-        why: "always run make check; use make format"
-      - path: CLAUDE.md
-        section: "## Temp File Handling"
-        why: "golangci-lint config hash is cached under .tmp/"
-      - path: AGENTS.md
-        why: "make check before signaling completion"
 
   - match: [".gitignore"]
     docs:
