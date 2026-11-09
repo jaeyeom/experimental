@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
 )
 
 const (
@@ -433,18 +435,14 @@ func graphqlMessages(body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
-	var resp struct {
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || len(resp.Errors) == 0 {
+	_, messages, err := ghcli.ParseEnvelope(string(body))
+	if err != nil || len(messages) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(resp.Errors))
-	for _, item := range resp.Errors {
-		if item.Message != "" {
-			parts = append(parts, item.Message)
+	parts := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if msg != "" {
+			parts = append(parts, msg)
 		}
 	}
 	return strings.Join(parts, "; ")

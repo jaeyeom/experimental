@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/ghcli"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
@@ -154,17 +155,13 @@ func isQueryResourceLimitText(text string) bool {
 	return strings.Contains(strings.ToLower(text), errQueryResourceLimit.Error())
 }
 
-type gqlError struct {
-	Message string `json:"message"`
-}
-
-func graphqlErrorsError(prefix string, errs []gqlError) error {
-	if len(errs) == 0 {
+func graphqlErrorsError(prefix string, messages []string) error {
+	if len(messages) == 0 {
 		return nil
 	}
-	parts := make([]string, 0, len(errs))
-	for _, item := range errs {
-		if msg := strings.TrimSpace(item.Message); msg != "" {
+	parts := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if msg != "" {
 			parts = append(parts, msg)
 		}
 	}
@@ -178,23 +175,18 @@ func graphqlErrorsError(prefix string, errs []gqlError) error {
 	return fmt.Errorf("%s: %s", prefix, message)
 }
 
-type gqlEnvelope struct {
-	Data   *json.RawMessage `json:"data"`
-	Errors []gqlError       `json:"errors"`
-}
-
 func decodeGraphQLData(raw, prefix string) (json.RawMessage, error) {
-	var envelope gqlEnvelope
-	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+	data, messages, err := ghcli.ParseEnvelope(raw)
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}
-	if err := graphqlErrorsError(prefix, envelope.Errors); err != nil {
+	if err := graphqlErrorsError(prefix, messages); err != nil {
 		return nil, err
 	}
-	if envelope.Data == nil {
+	if len(data) == 0 {
 		return nil, fmt.Errorf("%s: missing data", prefix)
 	}
-	return *envelope.Data, nil
+	return data, nil
 }
 
 type gqlPR struct {
