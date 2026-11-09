@@ -22,9 +22,11 @@ type catchUpper interface {
 	CatchUpWatch(ctx context.Context, w slackwatch.Watch) error
 }
 
-// newCatchUp builds the Slack-backed catch-up that add runs. It is nil
-// until the Slack client exists (#575), and add then skips catch-up.
-var newCatchUp func(cfg slackwatch.Config) (catchUpper, error)
+// newCatchUp builds the Slack-backed catch-up that add runs. Tests replace
+// it with a fake.
+var newCatchUp = func(cfg slackwatch.Config, store *slackwatch.Store, stderr io.Writer) (catchUpper, error) {
+	return slackCatchUp(cfg, store, stderr)
+}
 
 var (
 	states  = []string{slackwatch.StateOpen, slackwatch.StateUnowned, slackwatch.StateOrphaned, slackwatch.StateClosed}
@@ -199,15 +201,15 @@ func cmdAdd(configPath string, args []string, stdout, stderr io.Writer) int {
 		verb = "created"
 	}
 	fmt.Fprintf(stdout, "watch %d %s\n", w.ID, verb)
-	catchUp(cfg, w, stderr)
+	catchUp(cfg, store, w, stderr)
 	return 0
 }
 
-// catchUp runs an immediate catch-up for w. Without a Slack client or a
-// token file it does nothing, so add works offline. A catch-up failure is
-// a warning: the watch is already registered.
-func catchUp(cfg slackwatch.Config, w slackwatch.Watch, stderr io.Writer) {
-	if newCatchUp == nil || cfg.TokenFile == "" {
+// catchUp runs an immediate catch-up for w. Without a token file it does
+// nothing, so add works offline. A catch-up failure is a warning: the
+// watch is already registered.
+func catchUp(cfg slackwatch.Config, store *slackwatch.Store, w slackwatch.Watch, stderr io.Writer) {
+	if cfg.TokenFile == "" {
 		return
 	}
 	if err := slackwatch.CheckTokenFile(cfg.TokenFile); err != nil {
@@ -216,7 +218,7 @@ func catchUp(cfg slackwatch.Config, w slackwatch.Watch, stderr io.Writer) {
 		}
 		return
 	}
-	c, err := newCatchUp(cfg)
+	c, err := newCatchUp(cfg, store, stderr)
 	if err == nil {
 		err = c.CatchUpWatch(context.Background(), w)
 	}

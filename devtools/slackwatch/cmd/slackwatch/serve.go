@@ -61,25 +61,27 @@ func cmdServe(configPath string, args []string, _, stderr io.Writer) int {
 	return 0
 }
 
+// sweeper runs a catch-up and expiry pass. *slackwatch.CatchUp is the
+// real one.
+type sweeper interface {
+	Sweep(ctx context.Context) error
+}
+
 // serve connects through Socket Mode and handles events until ctx ends.
+// Every (re)connect and every sweepInterval triggers a sweep, which runs
+// beside event handling so acks are not delayed.
 func serve(ctx context.Context, cfg slackwatch.Config, store *slackwatch.Store, tokens slackwatch.Tokens, logger *slog.Logger) error {
 	api := slack.New(tokens.UserToken, slack.OptionAppLevelToken(tokens.AppToken))
-	auth, err := api.AuthTestContext(ctx)
+	proc, err := newProcessor(ctx, api, cfg, store, logger)
 	if err != nil {
-		return fmt.Errorf("slack auth.test: %w", err)
+		return err
 	}
-	logger.Info("slackwatch serve: authenticated", "user", auth.UserID, "team", auth.TeamID)
-	proc := &slackwatch.Processor{
-		Store:    store,
-		Notifier: &slackwatch.Notifier{Store: store, Config: cfg, Logger: logger},
-		Config:   cfg,
-		Self:     auth.UserID,
-		TeamURL:  auth.URL,
-		Now:      time.Now,
-	}
+	logger.Info("slackwatch serve: authenticated", "user", proc.Self)
 	client := socketmode.New(api)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	sweeps := make(chan struct{}, 1)
+	go runSweeps(ctx, &slackwatch.CatchUp{Slack: slackReader{api: api}, Proc: proc}, sweeps, cfg.SweepInterval.Duration, logger)
 	done := make(chan error, 1)
 	go func() { done <- client.RunContext(ctx) }()
 	for {
@@ -90,7 +92,34 @@ func serve(ctx context.Context, cfg slackwatch.Config, store *slackwatch.Store, 
 			}
 			return nil
 		case evt := <-client.Events:
+			if evt.Type == socketmode.EventTypeConnected {
+				select {
+				case sweeps <- struct{}{}:
+				default: // A sweep is already pending.
+				}
+			}
 			handleSocketEvent(ctx, client, proc, evt, logger)
+		}
+	}
+}
+
+// runSweeps sweeps on each trigger and every interval until ctx ends.
+// Errors are logged; the next sweep retries.
+func runSweeps(ctx context.Context, s sweeper, trigger <-chan struct{}, interval time.Duration, logger *slog.Logger) {
+	if interval <= 0 {
+		interval = slackwatch.DefaultSweepInterval
+	}
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-trigger:
+		case <-tick.C:
+		}
+		if err := s.Sweep(ctx); err != nil {
+			logger.Error("slackwatch serve: sweep", "error", err)
 		}
 	}
 }
@@ -142,17 +171,13 @@ func dispatch(ctx context.Context, h eventHandler, inner any) error {
 
 func dispatchMessage(ctx context.Context, h eventHandler, ev *slackevents.MessageEvent) error {
 	var err error
-	switch ev.SubType {
-	case "", "thread_broadcast", "bot_message", "file_share", "me_message":
-		user := ev.User
-		if user == "" {
-			user = ev.BotID
-		}
+	switch {
+	case newMessageSubtype(ev.SubType):
 		err = h.HandleMessage(ctx, slackwatch.Message{
 			Channel: ev.Channel, ChannelType: ev.ChannelType, TS: ev.TimeStamp,
-			ThreadTS: ev.ThreadTimeStamp, User: user, Text: ev.Text,
+			ThreadTS: ev.ThreadTimeStamp, User: messageAuthor(ev.User, ev.BotID), Text: ev.Text,
 		})
-	case "message_changed":
+	case ev.SubType == "message_changed":
 		if ev.Message == nil {
 			return nil
 		}
@@ -164,11 +189,29 @@ func dispatchMessage(ctx context.Context, h eventHandler, ev *slackevents.Messag
 			m.EditedTS = ev.Message.Edited.Timestamp
 		}
 		err = h.HandleEdit(m)
-	case "message_deleted":
+	case ev.SubType == "message_deleted":
 		err = h.HandleDelete(ev.Channel, ev.DeletedTimeStamp)
 	}
 	if err != nil {
 		return fmt.Errorf("handle message %s/%s: %w", ev.Channel, ev.TimeStamp, err)
 	}
 	return nil
+}
+
+// newMessageSubtype reports whether a message subtype is a new message
+// that events and catch-up classify. Others, such as joins, are ignored.
+func newMessageSubtype(subtype string) bool {
+	switch subtype {
+	case "", "thread_broadcast", "bot_message", "file_share", "me_message":
+		return true
+	}
+	return false
+}
+
+// messageAuthor is the user, or the bot id for a bot message.
+func messageAuthor(user, botID string) string {
+	if user == "" {
+		return botID
+	}
+	return user
 }

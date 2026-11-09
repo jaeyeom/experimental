@@ -7,8 +7,8 @@
 replies to whoever owns each post. One binary is both the server
 (~slackwatch serve~) and the CLI. It never posts, reacts, or edits.
 
-~serve~ connects through Slack Socket Mode and handles live events.
-Catch-up after downtime and quiet expiry come later.
+~serve~ connects through Slack Socket Mode and handles live events. It
+catches up on missed traffic and closes quiet watches in a periodic sweep.
 
 * Events
 
@@ -35,6 +35,33 @@ Each new message is handled by the first rule that matches.
 Messages are deduplicated on channel and ts. Edits update the stored
 text, deletes mark a reply deleted, and reactions on watched posts and
 replies are stored for ~show~. None of these notify.
+
+* Catch-up and expiry
+
+~serve~ sweeps after every Socket Mode connect (so on start and on each
+reconnect) and every ~sweepInterval~. ~add~ also catches up its one
+watch when a token is available. A sweep:
+
+1. Catches up every watch that is not closed, or was closed within
+   ~reopenWindow~: ~conversations.replies~ for a thread watch and
+   ~conversations.history~ for a ~dm~ watch, after the watch's cursor
+   (initially its ~since_ts~).
+2. Runs ~search.messages~ for the token owner's own posts (~from:me~),
+   messages to them (~to:me~), and mentions of them, after the search
+   cursor (initially one day back). This finds footer posts and inbound
+   messages missed while ~serve~ was down.
+3. Closes watches past their deadline, without notifying.
+
+Fetched messages go through the same rules as live events and are
+deduplicated on channel and ts, so overlap with events is harmless.
+Reactions on fetched watched posts and replies are stored. A cursor
+advances only after its batch is stored. A ~429~ waits out ~Retry-After~
+and retries. One failing watch is logged and does not stop the others.
+
+A watch's deadline is ~until~ when set. Otherwise it is ~quietExpiry~
+after the later of its creation and its latest reply by someone other
+than the token owner. The token owner's own replies update
+~last_activity~ but do not keep a watch open.
 
 * Watch commands
 
@@ -85,7 +112,7 @@ file means all defaults. An unknown key is an error.
 | ~footerPattern~ | none | Optional regexp that marks a post as watched. |
 | ~notifySelf~ | ~false~ | Also notify for the token owner's own replies. |
 | ~sweepInterval~ | ~"6h"~ | Time between slow sweeps. |
-| ~quietExpiry~ | ~"336h"~ | An open watch with no reply for this long closes. |
+| ~quietExpiry~ | ~"336h"~ | A watch with no reply from others for this long closes. |
 | ~reopenWindow~ | ~"720h"~ | A reply this soon after a watch closes reopens it. |
 | ~excerptLimit~ | ~300~ | Maximum characters of reply text in a notification. |
 | ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
