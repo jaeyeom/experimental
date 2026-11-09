@@ -683,6 +683,23 @@ func TestLoadDedupeWindow(t *testing.T) {
 	}
 }
 
+func TestLoadDispatchPromptSuffix(t *testing.T) {
+	t.Parallel()
+
+	if got := Defaults().PromptSuffix; got != "" {
+		t.Fatalf("default PromptSuffix = %q, want empty", got)
+	}
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "dispatch_prompt_suffix=\"NOTICE: x\"\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.PromptSuffix != "NOTICE: x" {
+		t.Fatalf("PromptSuffix = %q, want NOTICE: x", got.PromptSuffix)
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	t.Parallel()
 	got := Defaults()

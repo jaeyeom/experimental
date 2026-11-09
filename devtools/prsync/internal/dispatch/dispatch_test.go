@@ -236,6 +236,87 @@ func TestRunDryRunCIFixIgnoresMergeQueueAction(t *testing.T) {
 	}
 }
 
+func TestRunDryRunPromptSuffixEndsEveryPromptKind(t *testing.T) {
+	t.Parallel()
+
+	addressed := fixtureEligiblePR()
+	addressed.Unaddressed = false
+	addressed.BlockingComments = nil
+	mergeQueue := addressed
+	mergeQueue.Actions = []scan.Action{{
+		Name:       scan.ActionMergeQueueFix,
+		CommentURL: "https://github.com/acme/widgets/pull/123#issuecomment-9",
+	}}
+	tests := []struct {
+		name string
+		pr   scan.PR
+		req  Request
+		body string
+	}{
+		{name: "comment", pr: fixtureEligiblePR(), body: "unresolved review comments"},
+		{name: "rebase", pr: addressed, req: Request{Rebase: true}, body: "--force-with-lease"},
+		{name: "ci-fix", pr: addressed, req: Request{CIFix: true}, body: "Fix the failing CI"},
+		{name: "merge-queue-fix", pr: mergeQueue, body: "fix the cause"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := config.Defaults()
+			cfg.PromptSuffix = "NOTICE: x"
+			store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+			h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+			req := tt.req
+			req.Doc = scan.Document{PRs: []scan.PR{tt.pr}}
+			got, err := Run(context.Background(), h, store, cfg, req, fixtureNow)
+			if err != nil {
+				t.Fatalf("Run() unexpected error: %v", err)
+			}
+			if len(got.Results) != 1 || got.Results[0].Action != ActionWouldDispatch {
+				t.Fatalf("results = %+v, want would_dispatch", got.Results)
+			}
+			prompt := got.Results[0].RenderedPrompt
+			if !strings.Contains(prompt, tt.body) {
+				t.Fatalf("wrong prompt kind, missing %q: %q", tt.body, prompt)
+			}
+			if !strings.HasSuffix(prompt, "\n\nNOTICE: x") {
+				t.Fatalf("prompt does not end with suffix: %q", prompt)
+			}
+			if strings.HasSuffix(prompt, "\n\n\nNOTICE: x") {
+				t.Fatalf("suffix not separated by exactly one blank line: %q", prompt)
+			}
+		})
+	}
+}
+
+func TestRunLivePromptSuffixChangeStillDeduped(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	cfg.PromptSuffix = "NOTICE: x"
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	req := Request{Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}}}
+	got, err := Run(context.Background(), h, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionDispatched {
+		t.Fatalf("results = %+v, want dispatched", got.Results)
+	}
+
+	cfg.PromptSuffix = "NOTICE: y"
+	got2, err := Run(context.Background(), h, store, cfg, req, fixtureNow)
+	if err != nil {
+		t.Fatalf("second Run() unexpected error: %v", err)
+	}
+	if len(got2.Results) != 1 || got2.Results[0].Action != ActionDispatchedUnresolved {
+		t.Fatalf("second results = %+v, want dispatched_unresolved", got2.Results)
+	}
+	if h.promptN != 1 {
+		t.Fatalf("Prompt calls after suffix change = %d, want 1", h.promptN)
+	}
+}
+
 func TestRunDryRunDoesNotWriteState(t *testing.T) {
 	t.Parallel()
 

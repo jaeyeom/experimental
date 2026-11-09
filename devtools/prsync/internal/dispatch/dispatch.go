@@ -720,7 +720,17 @@ func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time
 	return r
 }
 
+// renderPrompt renders the prompt body and appends dispatch_prompt_suffix
+// after a blank line when it is set.
 func renderPrompt(cfg config.Config, req Request, pr scan.PR) string {
+	body := renderPromptBody(cfg, req, pr)
+	if cfg.PromptSuffix == "" {
+		return body
+	}
+	return body + "\n\n" + cfg.PromptSuffix
+}
+
+func renderPromptBody(cfg config.Config, req Request, pr scan.PR) string {
 	switch {
 	case req.CIFix:
 		return RenderHint(cfg.CIFixPromptTemplate, pr, cfg, req.Hint)

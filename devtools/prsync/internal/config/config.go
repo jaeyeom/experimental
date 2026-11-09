@@ -119,10 +119,13 @@ type Config struct {
 	PromptTemplate       string
 	RebasePromptTemplate string
 	CIFixPromptTemplate  string
-	IncludeDrafts        bool
-	WaitUntil            []string
-	DispatchTimeout      time.Duration
-	StateFile            string
+	// PromptSuffix is appended after a blank line to every rendered dispatch
+	// prompt. Empty leaves prompts unchanged. It is not part of dedupe.
+	PromptSuffix    string
+	IncludeDrafts   bool
+	WaitUntil       []string
+	DispatchTimeout time.Duration
+	StateFile       string
 	// DedupeTTL is how long the same unaddressed comment ids stay deduped.
 	// Zero expires immediately.
 	DedupeTTL time.Duration
@@ -415,6 +418,9 @@ func applyBin(cfg *Config, key, val string) {
 
 func applyOtherKey(cfg *Config, key, val string) error {
 	switch key {
+	case "dispatch_prompt_suffix":
+		cfg.PromptSuffix = val
+		return nil
 	case "comment_link_max_chars", "comment_body_max_chars", "comment_strip_patterns":
 		return applyCommentKey(cfg, key, val)
 	case "ci_ignore_checks", "ci_only_checks":

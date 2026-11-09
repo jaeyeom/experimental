@@ -75,6 +75,13 @@
 # Empty {hint} becomes "(none; investigate from scratch)".
 # ci_fix_prompt_template=
 
+# Plain text appended after a blank line to every dispatch prompt
+# (comment, rebase, CI-fix, merge-queue-fix). Empty (the default) leaves
+# prompts unchanged. `prsync dispatch --prompt-suffix TEXT` overrides it.
+# Not part of the dedupe key: changing only the suffix does not resend
+# prompts that were already dispatched.
+# dispatch_prompt_suffix=
+
 # Comma-separated path globs (path.Match: * does not cross /) matched
 # against each CheckRun name and StatusContext context.
 # When ci_only_checks is set, it wins and only those checks feed
