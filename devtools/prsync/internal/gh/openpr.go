@@ -76,25 +76,51 @@ func smallerOpenPRPage(page int) int {
 	return next
 }
 
+// currentOpenPRPage is the search page for the next list call. A page that
+// was halved stays halved for the rest of the client's run.
+func (c *Client) currentOpenPRPage() int {
+	if page := int(c.openPRPage.Load()); page > 0 {
+		return page
+	}
+	return openPRSearchPage
+}
+
+// halveOpenPRPage halves the search page, logs why, and returns the new page.
+func (c *Client) halveOpenPRPage(ctx context.Context, reason string) int {
+	page := c.currentOpenPRPage()
+	next := smallerOpenPRPage(page)
+	c.openPRPage.Store(int32(next)) //nolint:gosec // next is at most openPRSearchPage
+	runlog.FromContext(ctx).Info("open pr search page halved",
+		"failed_page", page,
+		"next_page", next,
+		"reason", reason,
+	)
+	return next
+}
+
 func (c *Client) listOpenPRsShrinking(ctx context.Context, repo, author string) ([]PRListItem, error) {
-	page := openPRSearchPage
 	for {
-		items, err := c.listOpenPRSearch(ctx, repo, author, page)
-		if err == nil || !isQueryResourceLimit(err) || page <= 1 {
+		items, err := c.listOpenPRSearch(ctx, repo, author)
+		if err == nil || !isQueryResourceLimit(err) || c.currentOpenPRPage() <= 1 {
 			return items, err
 		}
-		next := smallerOpenPRPage(page)
-		runlog.FromContext(ctx).Info("open pr search page halved",
-			"failed_page", page,
-			"next_page", next,
-		)
-		page = next
+		c.halveOpenPRPage(ctx, "resource limit")
 	}
 }
 
-func (c *Client) listOpenPRSearch(ctx context.Context, repo, author string, page int) ([]PRListItem, error) {
-	policy := ghRetryPolicy{httpAttempts: ghListHTTPRetryAttempts, httpBackoffs: ghListHTTPRetryBackoffs}
-	result, err := c.executeRetry(ctx, defaultCallTimeout, validJSONOutput, policy, openPRSearchArgs(repo, author, page)...)
+// listOpenPRSearch runs the search at the current page. An HTTP 502, 503, or
+// 504 halves the page before the next retry: a large search often times out
+// on GitHub's side where a smaller page succeeds.
+func (c *Client) listOpenPRSearch(ctx context.Context, repo, author string) ([]PRListItem, error) {
+	policy := ghRetryPolicy{
+		httpAttempts: ghListHTTPRetryAttempts,
+		httpBackoffs: ghListHTTPRetryBackoffs,
+		nextHTTPArgs: func(ctx context.Context, failErr error) []string {
+			reason := transientHTTPRE.FindString(strings.ToLower(failErr.Error()))
+			return openPRSearchArgs(repo, author, c.halveOpenPRPage(ctx, reason))
+		},
+	}
+	result, err := c.executeRetry(ctx, defaultCallTimeout, validJSONOutput, policy, openPRSearchArgs(repo, author, c.currentOpenPRPage())...)
 	if err != nil {
 		return nil, err
 	}
