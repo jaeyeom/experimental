@@ -123,6 +123,10 @@ ALTER TABLE deliveries ADD COLUMN reply_ts TEXT NOT NULL DEFAULT '';
 ALTER TABLE deliveries ADD COLUMN output TEXT NOT NULL DEFAULT '';
 CREATE INDEX deliveries_dedupe ON deliveries (event, reply_ts, target, delivered);
 `,
+	// A deleted reply keeps its row so a replayed event stays deduped.
+	`
+ALTER TABLE replies ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each
@@ -202,6 +206,7 @@ type Reply struct {
 	EditedAt string `json:"editedAt,omitempty"`
 	IsSelf   bool   `json:"isSelf"`
 	Acked    bool   `json:"acked"`
+	Deleted  bool   `json:"deleted,omitempty"`
 }
 
 // AddReply stores r. A reply already stored under the same (channel, ts)

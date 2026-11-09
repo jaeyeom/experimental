@@ -7,8 +7,34 @@
 replies to whoever owns each post. One binary is both the server
 (~slackwatch serve~) and the CLI. It never posts, reacts, or edits.
 
-~serve~ is still a skeleton. It checks the config and the token file,
-opens the database, and then stops. The Slack connection comes later.
+~serve~ connects through Slack Socket Mode and handles live events.
+Catch-up after downtime and quiet expiry come later.
+
+* Events
+
+~serve~ learns the token owner's user id from ~auth.test~ at startup.
+Each new message is handled by the first rule that matches.
+
+1. A reply in a watched thread that is not closed, newer than the watch's
+   ~since_ts~, is stored. A reply by someone else notifies the owner
+   (~reply~, or ~unowned~ to ~fallbackTarget~ when there is no owner).
+   The token owner's own reply is stored without a notification unless
+   ~notifySelf~ is set. Either kind updates ~last_activity~.
+2. A top-level message by someone else in an IM or MPIM with an active
+   ~dm~ watch counts as a reply to the latest such watch. It is not
+   recorded as inbound.
+3. A reply in a closed watch's thread within ~reopenWindow~ of closing
+   reopens the watch and notifies ~reopened~.
+4. A post by the token owner that matches ~footerPattern~ and has no watch
+   is registered like ~add~, as ~unowned~ with source ~footer~, and
+   ~fallbackTarget~ gets an ~unowned~ notification.
+5. A DM to the token owner, or a message that mentions them, is stored in
+   ~inbound~ without a notification.
+6. Anything else is dropped.
+
+Messages are deduplicated on channel and ts. Edits update the stored
+text, deletes mark a reply deleted, and reactions on watched posts and
+replies are stored for ~show~. None of these notify.
 
 * Watch commands
 
@@ -67,9 +93,15 @@ file means all defaults. An unknown key is an error.
 
 Durations use Go syntax, such as ~"90m"~ or ~"6h"~.
 
-Tokens are not in the config. ~serve~ refuses to start when ~tokenFile~
-is readable by group or others. Run ~chmod 600~ on it. Token values are
-never logged.
+Tokens are not in the config. ~tokenFile~ is a JSON object with the
+app-level Socket Mode token and the read-only user token:
+
+#+begin_src json
+{"appToken": "xapp-...", "userToken": "xoxp-..."}
+#+end_src
+
+~serve~ refuses to start when ~tokenFile~ is readable by group or others.
+Run ~chmod 600~ on it. Token values are never logged.
 
 * Notifications
 

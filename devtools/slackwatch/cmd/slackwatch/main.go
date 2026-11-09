@@ -82,26 +82,6 @@ DATE is YYYY-MM-DD (through the end of that day), RFC 3339, or a duration such a
 `)
 }
 
-func cmdServe(configPath string, args []string, _, stderr io.Writer) int {
-	if len(args) != 0 {
-		fmt.Fprintln(stderr, "slackwatch serve: takes no arguments")
-		return 2
-	}
-	cfg, err := slackwatch.LoadConfig(configPath)
-	if err != nil {
-		return fail(stderr, err)
-	}
-	if err := slackwatch.CheckTokenFile(cfg.TokenFile); err != nil {
-		return fail(stderr, err)
-	}
-	store, err := slackwatch.OpenStore(cfg.DBPath)
-	if err != nil {
-		return fail(stderr, err)
-	}
-	defer store.Close()
-	return fail(stderr, errors.New("serve: Slack connection is not implemented yet"))
-}
-
 func fail(stderr io.Writer, err error) int {
 	fmt.Fprintf(stderr, "slackwatch: %v\n", err)
 	return 1

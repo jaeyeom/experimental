@@ -66,7 +66,7 @@ func TestServeConfigFromEnv(t *testing.T) {
 	t.Setenv("SLACKWATCH_CONFIG", writeConfig(t, dir, 0o600))
 	var stdout, stderr bytes.Buffer
 	run([]string{"serve"}, &stdout, &stderr)
-	if strings.Contains(stderr.String(), "token file") {
+	if strings.Contains(stderr.String(), "readable by group or others") || strings.Contains(stderr.String(), "xoxp-secret") {
 		t.Errorf("0600 token file rejected: %q", stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(dir, "state", "slackwatch.db")); err != nil {

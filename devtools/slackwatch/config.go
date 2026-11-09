@@ -171,6 +171,29 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
+// Tokens are the Slack tokens in the token file, a JSON object such as
+// {"appToken": "xapp-...", "userToken": "xoxp-..."}. AppToken is the
+// app-level token for Socket Mode and UserToken the read-only user token.
+type Tokens struct {
+	AppToken  string `json:"appToken"`
+	UserToken string `json:"userToken"`
+}
+
+// LoadTokens reads the token file. Errors never include its contents.
+func LoadTokens(path string) (Tokens, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Tokens{}, fmt.Errorf("read token file: %w", err)
+	}
+	var t Tokens
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&t) != nil || t.AppToken == "" || t.UserToken == "" {
+		return Tokens{}, fmt.Errorf(`token file %s must be a JSON object with only "appToken" and "userToken"`, path)
+	}
+	return t, nil
+}
+
 // CheckTokenFile returns an error unless path names a regular file that
 // group and others cannot read. It never reads the file contents.
 func CheckTokenFile(path string) error {
