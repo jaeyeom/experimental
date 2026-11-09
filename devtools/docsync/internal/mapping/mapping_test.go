@@ -31,8 +31,8 @@ rules:
 	if m.Version != 1 {
 		t.Fatalf("Version = %d, want 1", m.Version)
 	}
-	if m.Root != dir {
-		t.Fatalf("Root = %q, want %q", m.Root, dir)
+	if want := filepath.Clean(dir); m.Root != want {
+		t.Fatalf("Root = %q, want %q", m.Root, want)
 	}
 	if len(m.Rules) != 2 {
 		t.Fatalf("len(Rules) = %d, want 2", len(m.Rules))
