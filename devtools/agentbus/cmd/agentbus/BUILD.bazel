@@ -2,11 +2,15 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["main.go"],
+    srcs = [
+        "main.go",
+        "registry.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbus",
     visibility = ["//visibility:private"],
     deps = [
         "//devtools/agentbus/internal/client:go_default_library",
+        "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
@@ -21,7 +25,17 @@ go_binary(
 
 go_test(
     name = "go_default_test",
-    srcs = ["main_test.go"],
+    srcs = [
+        "main_test.go",
+        "registry_test.go",
+    ],
     embed = [":go_default_library"],
-    deps = ["//devtools/agentbus/internal/eventlog:go_default_library"],
+    deps = [
+        "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/agentbus/internal/adapter/fake:go_default_library",
+        "//devtools/agentbus/internal/client:go_default_library",
+        "//devtools/agentbus/internal/daemon:go_default_library",
+        "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/paths:go_default_library",
+    ],
 )

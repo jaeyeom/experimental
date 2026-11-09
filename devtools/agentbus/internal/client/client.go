@@ -55,26 +55,35 @@ func Ensure(ctx context.Context, dirs paths.Dirs, daemonBin string, env []string
 }
 
 func ping(ctx context.Context, socketPath string) error {
-	dialer := net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "unix", socketPath)
+	resp, err := Call(ctx, socketPath, daemon.Request{Op: "ping"})
 	if err != nil {
-		return fmt.Errorf("connect to %s: %w", socketPath, err)
-	}
-	defer conn.Close()
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-	}
-	if err := json.NewEncoder(conn).Encode(daemon.Request{Op: "ping"}); err != nil {
-		return fmt.Errorf("ping: %w", err)
-	}
-	var resp daemon.Response
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		return fmt.Errorf("ping response: %w", err)
+		return err
 	}
 	if !resp.OK {
 		return fmt.Errorf("ping rejected: %s", resp.Error)
 	}
 	return nil
+}
+
+// Call sends one request to a daemon that is already listening.
+func Call(ctx context.Context, socketPath string, req daemon.Request) (daemon.Response, error) {
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "unix", socketPath)
+	if err != nil {
+		return daemon.Response{}, fmt.Errorf("connect to %s: %w", socketPath, err)
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return daemon.Response{}, fmt.Errorf("write request: %w", err)
+	}
+	var resp daemon.Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return daemon.Response{}, fmt.Errorf("read response: %w", err)
+	}
+	return resp, nil
 }
 
 func startDetached(bin string, env []string) error {

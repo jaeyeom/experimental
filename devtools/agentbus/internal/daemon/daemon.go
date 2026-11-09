@@ -10,26 +10,45 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
 )
 
 // Config chooses daemon behavior that the skeleton left open.
 type Config struct {
 	// RetentionDays is how many daily log files to keep. Zero uses the default.
 	RetentionDays int
+	// Adapters identify callers and report liveness. Empty means nobody can register.
+	Adapters []adapter.Adapter
 }
 
-// Request is one client call. Later issues add operations besides ping.
+// Request is one client call. The daemon stamps identity from Env.
 type Request struct {
-	Op string `json:"op"`
+	Op   string   `json:"op"`
+	Name string   `json:"name,omitempty"`
+	When string   `json:"when,omitempty"`
+	To   string   `json:"to,omitempty"`
+	Env  []string `json:"env,omitempty"`
+}
+
+// NameRecord is one registered name returned to the client.
+type NameRecord struct {
+	Name   string `json:"name"`
+	Handle string `json:"handle"`
+	When   string `json:"when,omitempty"`
 }
 
 // Response is the daemon's reply to one request.
 type Response struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK     bool         `json:"ok"`
+	Error  string       `json:"error,omitempty"`
+	Name   string       `json:"name,omitempty"`
+	Handle string       `json:"handle,omitempty"`
+	Names  []NameRecord `json:"names,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -41,6 +60,11 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	lg := eventlog.Open(dirs.StateDir)
 	lg.RetentionDays = cfg.RetentionDays
+	reg, err := registry.Open(dirs.StateDir, cfg.Adapters, lg)
+	if err != nil {
+		return fmt.Errorf("open registry: %w", err)
+	}
+	srv := &server{ctx: ctx, reg: reg}
 	started := false
 	defer func() {
 		if !started {
@@ -94,22 +118,76 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 			}
 			return fmt.Errorf("accept: %w", err)
 		}
-		handle(conn)
+		srv.handle(conn)
 	}
 }
 
-func handle(conn net.Conn) {
+type server struct {
+	ctx context.Context
+	reg *registry.Registry
+}
+
+func (s *server) handle(conn net.Conn) {
 	defer conn.Close()
 	var req Request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		write(conn, Response{Error: "bad request"})
 		return
 	}
-	if req.Op != "ping" {
-		write(conn, Response{Error: "unknown op"})
-		return
+	write(conn, s.dispatch(req))
+}
+
+func (s *server) dispatch(req Request) Response {
+	switch req.Op {
+	case "ping":
+		return Response{OK: true}
+	case "register":
+		return s.register(req)
+	case "describe":
+		return s.describe(req)
+	case "whoami":
+		return s.whoami(req)
+	case "release":
+		return s.release(req)
+	default:
+		return Response{Error: "unknown op"}
 	}
-	write(conn, Response{OK: true})
+}
+
+func (s *server) register(req Request) Response {
+	handle, err := s.reg.Register(s.ctx, req.Env, req.Name, req.When)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: req.Name, Handle: handle}
+}
+
+func (s *server) describe(req Request) Response {
+	names, err := s.reg.Describe(s.ctx, req.Env, req.When)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: strings.Join(names, "\n")}
+}
+
+func (s *server) whoami(req Request) Response {
+	handle, names, err := s.reg.WhoAmI(s.ctx, req.Env)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	out := make([]NameRecord, 0, len(names))
+	for _, name := range names {
+		out = append(out, NameRecord{Name: name.Name, Handle: name.Handle, When: name.When})
+	}
+	return Response{OK: true, Handle: handle, Names: out}
+}
+
+func (s *server) release(req Request) Response {
+	claimer, err := s.reg.Release(s.ctx, req.Env, req.Name, req.To)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: req.Name, Handle: claimer}
 }
 
 func write(conn net.Conn, resp Response) {

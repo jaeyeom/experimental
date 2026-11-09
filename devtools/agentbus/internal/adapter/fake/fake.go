@@ -4,19 +4,24 @@ package fake
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 )
 
 // Adapter returns the states and delivery results it was given.
 // A non-nil SelfTestErr marks this adapter broken.
+// PaneHandles, when non-nil, identifies the caller from HERDR_PANE_ID.
+// InventoryAgents, when non-nil, is the inventory instead of Reach.
 type Adapter struct {
-	AdapterName string
-	SelfTestErr error
-	Reach       map[string]adapter.State
-	Result      map[string]adapter.Result
-	Calls       int
-	LastText    string
+	AdapterName     string
+	SelfTestErr     error
+	Reach           map[string]adapter.State
+	Result          map[string]adapter.Result
+	PaneHandles     map[string]string
+	InventoryAgents []adapter.Agent
+	Calls           int
+	LastText        string
 }
 
 // Name is the adapter name recorded on adapter_error.
@@ -24,6 +29,9 @@ func (a *Adapter) Name() string { return a.AdapterName }
 
 // Inventory lists the handles this fake can reach.
 func (a *Adapter) Inventory(context.Context) ([]adapter.Agent, error) {
+	if a.InventoryAgents != nil {
+		return a.InventoryAgents, nil
+	}
 	out := make([]adapter.Agent, 0, len(a.Reach))
 	for handle, state := range a.Reach {
 		out = append(out, adapter.Agent{Handle: handle, Status: string(state)})
@@ -31,8 +39,20 @@ func (a *Adapter) Inventory(context.Context) ([]adapter.Agent, error) {
 	return out, nil
 }
 
-// Identify returns the only handle when there is exactly one.
-func (a *Adapter) Identify(context.Context, []string) (string, error) {
+// Identify returns the caller. PaneHandles uses HERDR_PANE_ID.
+// Otherwise the only Reach handle is the caller.
+func (a *Adapter) Identify(_ context.Context, env []string) (string, error) {
+	if a.PaneHandles != nil {
+		pane := envValue(env, "HERDR_PANE_ID")
+		if pane == "" {
+			return "", errors.New("HERDR_PANE_ID is not set")
+		}
+		handle, ok := a.PaneHandles[pane]
+		if !ok || handle == "" {
+			return "", errors.New("herdr pane " + pane + " is not in the agent list")
+		}
+		return handle, nil
+	}
 	if len(a.Reach) != 1 {
 		return "", errors.New("fake adapter cannot identify the caller")
 	}
@@ -41,6 +61,16 @@ func (a *Adapter) Identify(context.Context, []string) (string, error) {
 		handle = candidate
 	}
 	return handle, nil
+}
+
+func envValue(env []string, key string) string {
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && name == key {
+			return value
+		}
+	}
+	return ""
 }
 
 // State reports a configured handle, or gone.
