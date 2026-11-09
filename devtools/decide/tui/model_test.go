@@ -782,8 +782,8 @@ func TestDetailOneAnswersFirstOption(t *testing.T) {
 	view := m.View()
 	for _, needle := range []string{
 		"ship it?",
-		"1 a Alpha recommended",
-		"2 b Beta",
+		"1  Alpha (recommended)",
+		"2  Beta",
 		"https://example.test/spec",
 		deadline.Format(time.RFC3339),
 	} {
@@ -1246,7 +1246,7 @@ func TestItemViewScrollKeys(t *testing.T) {
 
 	m.scroll = wheelScroll
 	m.View()
-	press(t, m, "r")
+	press(t, m, "0")
 	if !m.replyFocus {
 		t.Fatal("reply is not focused")
 	}
@@ -1688,7 +1688,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 
 	press(t, m, "\r")
 	view := m.View()
-	opt := strings.Index(view, "2 b Beta")
+	opt := strings.Index(view, "2  Beta")
 	zero := strings.Index(view, "reply:")
 	if opt < 0 || zero < 0 || strings.Contains(view, "\n10 ") || strings.Contains(view, "0  answer:") {
 		t.Fatalf("composer is not the only text row\n%s", view)
@@ -1718,7 +1718,7 @@ func TestFreeTextIsRowZero(t *testing.T) {
 	}
 	press(t, m, "\r")
 	view = m.View()
-	if strings.Contains(view, "\n10 ") || !strings.Contains(view, "9 i Choice") || !strings.Contains(view, "reply:") || strings.Contains(view, "0  answer:") {
+	if strings.Contains(view, "\n10 ") || !strings.Contains(view, "9  Choice") || !strings.Contains(view, "reply:") || strings.Contains(view, "0  answer:") {
 		t.Fatalf("nine options = %s", view)
 	}
 	press(t, m, "0")
@@ -1813,7 +1813,7 @@ func TestClickAnswersOptionAndFreeText(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "\r")
-	if err := m.Click(1, screenRow(m.View(), "1 a Alpha")); err != nil {
+	if err := m.Click(1, screenRow(m.View(), "1  Alpha")); err != nil {
 		t.Fatal(err)
 	}
 	got, err := led.Get(relay.ID)
@@ -2397,7 +2397,7 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	if !m.replyFocus || m.folder != 0 || got.Answer != nil {
 		t.Fatalf("reply focus %v folder %d answer %+v", m.replyFocus, m.folder, got.Answer)
 	}
-	m = updateMouseAt(t, m, 1, screenRow(m.View(), "1 a Alpha"), tea.MouseButtonLeft)
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "1  Alpha"), tea.MouseButtonLeft)
 	got, err = led.Get(relay.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -2411,7 +2411,7 @@ func TestBubbleTeaMouseMessages(t *testing.T) {
 	if m.folder != 0 || !strings.Contains(m.View(), "ship it?") {
 		t.Fatalf("focused outside click folder %d\n%s", m.folder, m.View())
 	}
-	m = updateMouseAt(t, m, 1, screenRow(m.View(), "1 a Alpha"), tea.MouseButtonLeft)
+	m = updateMouseAt(t, m, 1, screenRow(m.View(), "1  Alpha"), tea.MouseButtonLeft)
 	got, err = led.Get(relay.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -2633,7 +2633,7 @@ func TestPaneDeliveryUsesTheThreadNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, replyModel, "o")
-	press(t, replyModel, "rfollow up\r")
+	press(t, replyModel, "0follow up\r")
 	assertPaneNote(t, replyNote, during.ID, "follow up")
 	led, err := decide.Open(dir)
 	if err != nil {
@@ -3167,7 +3167,7 @@ func TestGmailLayoutNarrowAndWide(t *testing.T) {
 	}
 	press(t, m, "o")
 	opened := m.View()
-	if strings.Contains(opened, "[Inbox]") || strings.Contains(opened, "done already") || !strings.Contains(opened, "1 a Alpha") {
+	if strings.Contains(opened, "[Inbox]") || strings.Contains(opened, "done already") || !strings.Contains(opened, "1  Alpha") {
 		t.Fatalf("opened view =\n%s", opened)
 	}
 	press(t, m, "u")
@@ -3810,14 +3810,14 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 	if strings.Contains(visibleLine(lineContaining(opened, "draftword0")), "…") {
 		t.Fatalf("draft was clipped\n%s", opened)
 	}
-	for m.scroll < 80 && (!strings.Contains(m.View(), "draftend") || !strings.Contains(m.View(), "3 don't send")) {
+	for m.scroll < 80 && (!strings.Contains(m.View(), "draftend") || !strings.Contains(m.View(), "3  don't send")) {
 		m.Wheel(true)
 	}
 	bottom := m.View()
-	if !strings.Contains(bottom, "draftend") || !strings.Contains(bottom, "1 send") || !strings.Contains(bottom, "3 don't send") {
+	if !strings.Contains(bottom, "draftend") || !strings.Contains(bottom, "1  send") || !strings.Contains(bottom, "3  don't send") {
 		t.Fatalf("options are not at the bottom\n%s", bottom)
 	}
-	if screenRow(bottom, "1 send") < screenRow(bottom, "draftend") {
+	if screenRow(bottom, "1  send") < screenRow(bottom, "draftend") {
 		t.Fatalf("options are above the draft\n%s", bottom)
 	}
 	if strings.Contains(bottom, "draftword0") {
@@ -3855,7 +3855,7 @@ func TestThreadViewShowsTheDraftAndReplies(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "oredits\r")
+	press(t, m, "o0edits\r")
 	edited, err := led.Get(again.ID)
 	if err != nil {
 		t.Fatal(err)

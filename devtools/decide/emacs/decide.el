@@ -274,7 +274,7 @@ The requester, relative time, and kind or state badge use their faces."
       (setq-local header-line-format (decide--item-keys-line item))
       (decide--display (current-buffer)))))
 
-(defun decide--option-badges (msg)
+(defun decide--option-keys-text (msg)
   "Option keys of MSG, or an empty string."
   (mapconcat (lambda (opt) (decide--field opt "key"))
              (alist-get "options" msg nil nil #'equal)
@@ -283,20 +283,20 @@ The requester, relative time, and kind or state badge use their faces."
 (defun decide--message-header (msg latest &optional current)
   "One header line for MSG.  LATEST marks the newest message.
 The author uses `decide-human' or `decide-agent', and the time uses
-`decide-time'.  CURRENT marks the selected message."
+`decide-time'.  Option keys are dim, not badges, because answers use
+the option numbers.  CURRENT marks the selected message."
   (let* ((author (decide--field msg "author"))
          (face (if (equal author "human") 'decide-human 'decide-agent))
          (age (decide--list-age (decide--field msg "time")))
-         (badges (decide--option-badges msg))
+         (keys (decide--option-keys-text msg))
          (parts nil)
          (line nil))
     (unless (string-empty-p author)
       (setq parts (append parts (list (propertize author 'face face)))))
     (unless (string-empty-p age)
       (setq parts (append parts (list (propertize age 'face 'decide-time)))))
-    (unless (string-empty-p badges)
-      (setq parts (append parts
-                          (list (propertize badges 'face 'decide-badge)))))
+    (unless (string-empty-p keys)
+      (setq parts (append parts (list (propertize keys 'face 'shadow)))))
     (when latest
       (setq parts (append parts (list "latest"))))
     (setq line (mapconcat #'identity parts "  "))
@@ -393,10 +393,13 @@ The reply line and the numbered options follow."
         (n 1))
     (dolist (opt (alist-get "options" item nil nil #'equal))
       (setq parts (append parts
-                          (list (format "%d %s %s"
+                          (list (format "%d  %s%s"
                                         n
-                                        (decide--field opt "key")
-                                        (decide--field opt "label")))))
+                                        (decide--field opt "label")
+                                        (if (alist-get "recommended" opt
+                                                       nil nil #'equal)
+                                            " (recommended)"
+                                          "")))))
       (setq n (1+ n)))
     (dolist (link (alist-get "links" item nil nil #'equal))
       (setq parts (append parts (list link))))
