@@ -21,7 +21,7 @@ go_test(
     # The SDK is on PATH when the sandbox has no system go. analysistest
     # loads packages with the go command.
     data = glob(["testdata/**"]) + [
-        "@go_default_sdk//:files",  # keep
+        "@go_sdk//:files",  # keep
     ],
     deps = [
         ":go_default_library",

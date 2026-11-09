@@ -39,20 +39,8 @@ The Go module path is =github.com/jaeyeom/experimental=. You will need:
 
 - [[https://bazel.build/install/bazelisk][Bazelisk]] (pinned via =.bazeliskrc=) — primary build and test driver.
 - =goimports= — Go formatting.
-- =golangci-lint=, =oserrorsgodernize=, =ruff=, =mypy=, =shellcheck=, =semgrep= — linters (run by =make lint= / =make check=).
+- =golangci-lint=, =ruff=, =mypy=, =shellcheck=, =semgrep= — linters (run by =make lint= / =make check=).
 - =uv= — Python lockfile tool (`uv.lock`; checked by =make check=).
-
-=oserrorsgodernize= must be built with the current Go toolchain against
-=golang.org/x/tools= v0.50.0 or newer. Go 1.27 fatals with =package without
-types= on older analyzers (see [[https://github.com/jaeyeom/experimental/issues/283][#283]]).
-Go 1.27.2 writes export data version 5, which =x/tools= older than v0.50.0
-cannot decode (see [[https://github.com/jaeyeom/experimental/issues/387][#387]]).
-=make lint= checks this. Reinstall after upgrading Go:
-
-#+begin_src sh
-go install github.com/jaeyeom/godernize/oserrors/cmd/oserrorsgodernize@latest
-# or: cd devtools/setup-dev/ansible && ./ensure.sh oserrorsgodernize
-#+end_src
 
 Clone the repo and run the test suite to verify your setup:
 

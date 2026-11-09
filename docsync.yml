@@ -75,12 +75,6 @@ rules:
         section: "** GNU Make"
         why: "make check-semgrep is part of make check"
 
-  - match: ["check-oserrorsgodernize.sh"]
-    docs:
-      - path: README.org
-        section: "* Getting Started"
-        why: "oserrorsgodernize must be built against golang.org/x/tools >= v0.50.0"
-
   - match: ["check-bazel-src-files.sh"]
     docs:
       - path: README.org
