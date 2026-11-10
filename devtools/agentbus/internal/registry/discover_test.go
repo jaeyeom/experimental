@@ -163,6 +163,10 @@ func (a *notifyAdapter) State(context.Context, string) (adapter.State, error) {
 	return adapter.StateGone, nil
 }
 
+func (a *notifyAdapter) ComposerEmpty(context.Context, string) (bool, string, error) {
+	return true, "", nil
+}
+
 func (a *notifyAdapter) Deliver(context.Context, string, string) (adapter.Result, error) {
 	return adapter.ResultFailed, nil
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"unicode"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 )
@@ -97,6 +98,104 @@ func (a *Adapter) State(ctx context.Context, raw string) (adapter.State, error) 
 	return adapter.StateGone, nil
 }
 
+// composerMatchers reads the input box from a visible screen, per agent
+// kind. ok is false when the screen does not parse.
+var composerMatchers = map[string]func(screen string) (empty, ok bool){
+	"claude": claudeComposerEmpty,
+}
+
+// ComposerEmpty reads the pane's visible screen and parses the composer.
+// A kind with no matcher cannot be read, so it holds while the pane is
+// focused, where the user may be typing.
+func (a *Adapter) ComposerEmpty(ctx context.Context, raw string) (bool, string, error) {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return false, adapter.HoldDraftUnknown, err
+	}
+	if machine != "local" {
+		return false, adapter.HoldDraftUnknown, fmt.Errorf("herdr handle %s is not local", raw)
+	}
+	agents, err := a.agents(ctx)
+	if err != nil {
+		return false, adapter.HoldDraftUnknown, err
+	}
+	for _, item := range agents {
+		if item.PaneID != pane {
+			continue
+		}
+		match, ok := composerMatchers[item.Agent]
+		if !ok {
+			if item.Focused {
+				return false, adapter.HoldFocused, nil
+			}
+			return true, "", nil
+		}
+		stdout, stderr, code, err := a.exec(ctx, []string{"agent", "read", pane, "--source", "visible"})
+		if err != nil {
+			return false, adapter.HoldDraftUnknown, err
+		}
+		if code != 0 {
+			return false, adapter.HoldDraftUnknown, fmt.Errorf("herdr agent read: exit %d: %s", code, firstText(stderr, stdout))
+		}
+		empty, ok := match(stdout)
+		switch {
+		case !ok:
+			return false, adapter.HoldDraftUnknown, nil
+		case !empty:
+			return false, adapter.HoldDraft, nil
+		default:
+			return true, "", nil
+		}
+	}
+	return false, adapter.HoldDraftUnknown, nil
+}
+
+// promptMarker starts Claude Code's input line.
+const promptMarker = "❯"
+
+// claudeComposerEmpty finds Claude Code's input box: the lines between the
+// last two horizontal rules, the first starting with the prompt marker.
+// The shell-mode marker "!" always counts as a draft.
+func claudeComposerEmpty(screen string) (empty, ok bool) {
+	lines := strings.Split(screen, "\n")
+	bottom := lastRule(lines, len(lines))
+	if bottom < 0 {
+		return false, false
+	}
+	top := lastRule(lines, bottom)
+	if top < 0 || top+1 >= bottom {
+		return false, false
+	}
+	box := lines[top+1 : bottom]
+	switch {
+	case strings.HasPrefix(box[0], "!"):
+		return false, true
+	case !strings.HasPrefix(box[0], promptMarker):
+		return false, false
+	}
+	box[0] = strings.TrimPrefix(box[0], promptMarker)
+	for _, line := range box {
+		if !blank(line) {
+			return false, true
+		}
+	}
+	return true, true
+}
+
+func lastRule(lines []string, before int) int {
+	for i := before - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" && strings.Trim(line, "─") == "" {
+			return i
+		}
+	}
+	return -1
+}
+
+func blank(s string) bool {
+	return strings.TrimFunc(s, unicode.IsSpace) == ""
+}
+
 // Deliver runs `herdr agent prompt` and does not wait for the agent to finish.
 func (a *Adapter) Deliver(ctx context.Context, raw, text string) (adapter.Result, error) {
 	machine, _, pane, err := parseHandle(raw)
@@ -144,6 +243,7 @@ type listedAgent struct {
 	Agent   string `json:"agent"`
 	Status  string `json:"agent_status"`   //nolint:tagliatelle // herdr wire format
 	Title   string `json:"terminal_title"` //nolint:tagliatelle // herdr wire format
+	Focused bool   `json:"focused"`
 	Session struct {
 		Value string `json:"value"`
 	} `json:"agent_session"` //nolint:tagliatelle // herdr wire format

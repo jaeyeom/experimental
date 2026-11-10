@@ -24,6 +24,16 @@ type Adapter struct {
 	LastText        string
 	// Texts is every paste, in delivery order.
 	Texts []string
+	// Composer, when non-nil, answers ComposerEmpty. Otherwise it is empty.
+	Composer func(handle string) (empty bool, reason string, err error)
+}
+
+// ComposerEmpty calls Composer, or reports an empty composer.
+func (a *Adapter) ComposerEmpty(_ context.Context, handle string) (bool, string, error) {
+	if a.Composer == nil {
+		return true, "", nil
+	}
+	return a.Composer(handle)
 }
 
 // Name is the adapter name recorded on adapter_error.

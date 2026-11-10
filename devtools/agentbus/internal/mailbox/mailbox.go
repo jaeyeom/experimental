@@ -54,6 +54,7 @@ type message struct {
 	State       string     `json:"state"`
 	Handle      string     `json:"handle"`
 	Deadline    *time.Time `json:"deadline,omitempty"`
+	HeldAt      *time.Time `json:"heldAt,omitempty"`
 	DeliveredAt *time.Time `json:"deliveredAt,omitempty"`
 	ClosedAt    *time.Time `json:"closedAt,omitempty"`
 }

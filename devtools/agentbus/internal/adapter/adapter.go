@@ -45,13 +45,25 @@ type Agent struct {
 	Title     string
 }
 
+// Hold reasons ComposerEmpty reports when a paste would mix with user input.
+const (
+	HoldDraft        = "user draft in composer"
+	HoldDraftUnknown = "draft-unknown"
+	HoldFocused      = "pane focused"
+)
+
 // Adapter is one transport. Identify reads the caller's environment.
 // The caller does not type its own handle.
+//
+// ComposerEmpty is a paste precondition: delivery needs an empty
+// composer. When it is not empty, or cannot be read, it reports false
+// and a hold reason.
 type Adapter interface {
 	Name() string
 	Inventory(ctx context.Context) ([]Agent, error)
 	Identify(ctx context.Context, env []string) (string, error)
 	State(ctx context.Context, handle string) (State, error)
+	ComposerEmpty(ctx context.Context, handle string) (empty bool, reason string, err error)
 	Deliver(ctx context.Context, handle, text string) (Result, error)
 	SelfTest(ctx context.Context) error
 }
