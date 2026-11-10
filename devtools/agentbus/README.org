@@ -77,8 +77,9 @@ or ~[]~ when none are. Each object has these fields, which are stable:
 ~gone~ is ~dead~, and ~unreachable~ is ~unknown~. When the daemon cannot
 be reached, ~list --json~ prints nothing on stdout and exits non-zero.
 
-~log~ filters are ~--since~ (RFC3339), ~--name~, ~--msg~, ~--event~,
-~--follow~, and ~--json~. The files are daily JSONL under the state
+~log~ filters are ~--since~, ~--name~, ~--msg~, ~--event~, ~--follow~,
+and ~--json~. ~--since~ takes a duration ago (~30m~, ~6h~, ~2d~,
+~1d12h~), an RFC3339 time, or a ~YYYY-MM-DD~ date at local midnight. The files are daily JSONL under the state
 directory, so ~jq~ can read them too.
 
 * Names

@@ -117,7 +117,9 @@ func commands() []command {
 			name:    "log",
 			summary: "Read the daemon event log.",
 			usage:   "agentbus log [flags]",
-			flags: "--since <time>   include events at or after this RFC3339 time (default: all)\n" +
+			flags: "--since <time>   include events at or after this time: a duration ago\n" +
+				"                 (30m, 6h, 2d, 1d12h), an RFC3339 time, or a YYYY-MM-DD\n" +
+				"                 date at local midnight (default: all)\n" +
 				"--name <name>    include events for this name (default: all)\n" +
 				"--msg <id>       include events for this message id (default: all)\n" +
 				"--event <type>   include events of this type (default: all)\n" +

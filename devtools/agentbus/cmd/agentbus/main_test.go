@@ -61,3 +61,71 @@ func TestLogReadsTheFileWithoutADaemon(t *testing.T) {
 		t.Fatalf("since filter stdout = %q", stdout.String())
 	}
 }
+
+func TestParseSince(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		in   string
+		want time.Time
+	}{
+		{"30m", now.Add(-30 * time.Minute)},
+		{"6h", now.Add(-6 * time.Hour)},
+		{"1h30m", now.Add(-90 * time.Minute)},
+		{"2d", now.Add(-48 * time.Hour)},
+		{"1d12h", now.Add(-36 * time.Hour)},
+		{"2026-11-09T13:00:00Z", time.Date(2026, 11, 9, 13, 0, 0, 0, time.UTC)},
+		{"2026-11-09T13:00:00+09:00", time.Date(2026, 11, 9, 4, 0, 0, 0, time.UTC)},
+		{"2026-11-09", time.Date(2026, 11, 9, 0, 0, 0, 0, time.Local)},
+	}
+	for _, tt := range tests {
+		got, err := parseSince(tt.in, now)
+		if err != nil {
+			t.Errorf("parseSince(%q) error: %v", tt.in, err)
+			continue
+		}
+		if !got.Equal(tt.want) {
+			t.Errorf("parseSince(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+	for _, in := range []string{"0", "0d", "-1h", "-1d", "6x", "", "d", "1d-1h", "2026-13-01"} {
+		_, err := parseSince(in, now)
+		if err == nil {
+			t.Errorf("parseSince(%q) succeeded", in)
+			continue
+		}
+		if msg := err.Error(); !strings.Contains(msg, "30m, 6h, 2d") || !strings.Contains(msg, "RFC3339") {
+			t.Errorf("parseSince(%q) error %q does not name the formats", in, msg)
+		}
+	}
+}
+
+func TestLogSinceAcceptsADuration(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	orig := logNow
+	logNow = func() time.Time { return now }
+	t.Cleanup(func() { logNow = orig })
+
+	stateHome := t.TempDir()
+	lg := eventlog.Open(filepath.Join(stateHome, "agentbus"))
+	for id, when := range map[string]time.Time{"old": now.Add(-7 * time.Hour), "new": now.Add(-5 * time.Hour)} {
+		if err := lg.Append(eventlog.Event{Time: when, Event: eventlog.EventSend, Actor: "cli", Name: "alpha", MsgID: id, Detail: "hello"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"log", "--json", "--since", "6h"}, []string{"XDG_STATE_HOME=" + stateHome}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run = %d, stderr %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"msg_id":"new"`) || strings.Contains(stdout.String(), `"msg_id":"old"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"log", "--since", "6x"}, []string{"XDG_STATE_HOME=" + stateHome}, strings.NewReader(""), &stdout, &stderr)
+	want := `agentbus log: --since "6x": want a duration like 30m, 6h, 2d, or an RFC3339 time like 2026-11-09T13:00:00Z`
+	if code != 2 || !strings.Contains(stderr.String(), want) {
+		t.Fatalf("run = %d, stderr %q", code, stderr.String())
+	}
+}
