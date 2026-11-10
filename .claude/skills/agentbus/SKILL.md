@@ -53,6 +53,8 @@ agentbus status m-7f3a
 
 Delivery pastes only into an empty composer. A message to a pane where the user has typed but not submitted stays queued as `held: user draft in composer`. `held: draft-unknown` means the screen could not be read, and `held: pane focused` means an agent kind the bus cannot read is focused. These holds are expected and clear on their own. Do not resend.
 
+If a submit is blocked with `agentbus: your unsent draft was merged with a bus message`, the input box holds the user's draft followed by the bus message. Delete the `[agentbus m-…]` part and submit the rest. The bus has re-queued that message and delivers it once the box is empty.
+
 When something seems lost, check `agentbus status <id>` and `agentbus log` before resending. `agentbus log` accepts `--since`, `--name`, `--msg`, `--event`, `--follow`, and `--json`.
 
 ## Sandbox
@@ -61,4 +63,4 @@ The CLI connects to `$XDG_RUNTIME_DIR/agentbus/daemon.sock`. The daemon needs th
 
 ## Install
 
-`agentbus install` installs the supervisor (launchd on macOS, a systemd user unit on Linux). `agentbus install-hooks` records Claude Code `SendMessage` calls and does not block them. If `agentbus` is not on `PATH`, or the bus is down, that hook exits 0.
+`agentbus install` installs the supervisor (launchd on macOS, a systemd user unit on Linux). `agentbus install-hooks` records Claude Code `SendMessage` calls and does not block them. If `agentbus` is not on `PATH`, or the bus is down, that hook exits 0. It also adds a `UserPromptSubmit` guard that blocks a prompt where a bus message follows the user's own text, and re-queues that message.

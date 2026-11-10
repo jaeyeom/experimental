@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -39,6 +40,11 @@ func TestInstallHooksLeavesProjectSettings(t *testing.T) {
       {
         "matcher": "Bash",
         "hooks": [{"type": "command", "command": "/tmp/other"}]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{"type": "command", "command": "/tmp/user-prompt"}]
       }
     ]
   }
@@ -79,6 +85,11 @@ func TestInstallHooksLeavesProjectSettings(t *testing.T) {
 	}
 	if sendMessageCommands(t, doc) != 1 || !hasBashHook(t, doc) {
 		t.Fatalf("settings = %#v", doc)
+	}
+	promptScript := filepath.Join(home, ".claude", "hooks", promptHookScriptName)
+	assertMode(t, promptScript, 0o755)
+	if got := promptCommands(t, doc); !reflect.DeepEqual(got, []string{"/tmp/user-prompt", promptScript}) {
+		t.Fatalf("UserPromptSubmit commands = %q", got)
 	}
 }
 
@@ -385,6 +396,23 @@ func countMatchers(t *testing.T, doc map[string]any, matcher string) int {
 		}
 	}
 	return n
+}
+
+func promptCommands(t *testing.T, doc map[string]any) []string {
+	t.Helper()
+	hooks, _ := doc["hooks"].(map[string]any)
+	entries, _ := hooks["UserPromptSubmit"].([]any)
+	var out []string
+	for _, item := range entries {
+		entry, _ := item.(map[string]any)
+		list, _ := entry["hooks"].([]any)
+		for _, raw := range list {
+			hook, _ := raw.(map[string]any)
+			command, _ := hook["command"].(string)
+			out = append(out, command)
+		}
+	}
+	return out
 }
 
 func installedPath(home string) string {

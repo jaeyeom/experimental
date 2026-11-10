@@ -23,6 +23,9 @@ const (
 	launchdLabel    = "com.agentbus.agentbusd"
 	systemdUnitName = "agentbus.service"
 	hookScriptName  = "agentbus-sendmessage.sh"
+	// promptHookScriptName is the UserPromptSubmit guard against a bus
+	// message merged into a user draft.
+	promptHookScriptName = "agentbus-userpromptsubmit.sh"
 )
 
 // hookScript is the PreToolUse command. It stays a thin POSIX wrapper so a
@@ -34,6 +37,18 @@ if ! command -v agentbus >/dev/null 2>&1; then
   exit 0
 fi
 agentbus hook || exit 0
+exit 0
+`
+
+// promptHookScript is the UserPromptSubmit command. Without agentbus the
+// prompt goes through. agentbus prompt-hook prints the block decision.
+const promptHookScript = `#!/bin/sh
+# Block a Claude Code prompt where a bus message was pasted after a user draft.
+set -eu
+if ! command -v agentbus >/dev/null 2>&1; then
+  exit 0
+fi
+agentbus prompt-hook || exit 0
 exit 0
 `
 
@@ -88,17 +103,22 @@ func cmdInstallHooks(_ context.Context, args, env []string, stdout, stderr io.Wr
 		fmt.Fprintf(stderr, "agentbus install-hooks: %s\n", err)
 		return 1
 	}
-	scriptPath, err := writeHookScript(home)
+	scriptPath, err := writeHookScript(home, hookScriptName, hookScript)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus install-hooks: %s\n", err)
+		return 1
+	}
+	promptPath, err := writeHookScript(home, promptHookScriptName, promptHookScript)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus install-hooks: %s\n", err)
 		return 1
 	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	if err := mergeUserSettings(settingsPath, scriptPath); err != nil {
+	if err := mergeUserSettings(settingsPath, scriptPath, promptPath); err != nil {
 		fmt.Fprintf(stderr, "agentbus install-hooks: %s\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "installed hook %s\n", scriptPath)
+	fmt.Fprintf(stdout, "installed hook %s\ninstalled hook %s\n", scriptPath, promptPath)
 	return 0
 }
 
@@ -282,20 +302,23 @@ func systemctlEnable(ctx context.Context, unitPath string) error {
 	return nil
 }
 
-func writeHookScript(home string) (string, error) {
-	path := filepath.Join(home, ".claude", "hooks", hookScriptName)
-	if err := writeAtomic(path, []byte(hookScript), 0o755); err != nil {
+func writeHookScript(home, name, body string) (string, error) {
+	path := filepath.Join(home, ".claude", "hooks", name)
+	if err := writeAtomic(path, []byte(body), 0o755); err != nil {
 		return "", err
 	}
 	return path, nil
 }
 
-func mergeUserSettings(path, command string) error {
+func mergeUserSettings(path, sendCommand, promptCommand string) error {
 	doc, err := readSettings(path)
 	if err != nil {
 		return err
 	}
-	if err := addSendMessageHook(doc, command); err != nil {
+	if err := addSendMessageHook(doc, sendCommand); err != nil {
+		return err
+	}
+	if err := addPromptHook(doc, promptCommand); err != nil {
 		return err
 	}
 	data, err := encodeSettings(doc)
@@ -355,7 +378,7 @@ func addSendMessageHook(doc map[string]any, command string) error {
 		if matcher != "SendMessage" {
 			continue
 		}
-		upsertCommand(entry, command)
+		upsertCommand(entry, command, hookScriptName)
 		pre[i] = entry
 		hooks["PreToolUse"] = pre
 		return nil
@@ -369,28 +392,59 @@ func addSendMessageHook(doc map[string]any, command string) error {
 	return nil
 }
 
-func upsertCommand(entry map[string]any, command string) {
-	var hooks []any
-	if raw, ok := entry["hooks"].([]any); ok {
-		hooks = raw
+// addPromptHook adds the UserPromptSubmit guard once. UserPromptSubmit
+// has no matcher, so an entry that already runs the script is updated
+// and other entries are left alone.
+func addPromptHook(doc map[string]any, command string) error {
+	hooks, err := ensureObject(doc, "hooks")
+	if err != nil {
+		return err
 	}
+	entries, err := ensureList(hooks, "UserPromptSubmit")
+	if err != nil {
+		return err
+	}
+	for _, item := range entries {
+		entry, ok := item.(map[string]any)
+		if ok && updateCommand(entry, command, promptHookScriptName) {
+			return nil
+		}
+	}
+	hooks["UserPromptSubmit"] = append(entries, map[string]any{
+		"hooks": []any{
+			map[string]any{"type": "command", "command": command},
+		},
+	})
+	return nil
+}
+
+func upsertCommand(entry map[string]any, command, script string) {
+	if updateCommand(entry, command, script) {
+		return
+	}
+	hooks, _ := entry["hooks"].([]any)
+	entry["hooks"] = append(hooks, map[string]any{
+		"type":    "command",
+		"command": command,
+	})
+}
+
+// updateCommand points a hook that runs script at command.
+func updateCommand(entry map[string]any, command, script string) bool {
+	hooks, _ := entry["hooks"].([]any)
 	for _, item := range hooks {
 		hook, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
 		current, _ := hook["command"].(string)
-		if current == command || strings.HasSuffix(current, "/"+hookScriptName) {
+		if current == command || strings.HasSuffix(current, "/"+script) {
 			hook["type"] = "command"
 			hook["command"] = command
-			entry["hooks"] = hooks
-			return
+			return true
 		}
 	}
-	entry["hooks"] = append(hooks, map[string]any{
-		"type":    "command",
-		"command": command,
-	})
+	return false
 }
 
 func ensureObject(parent map[string]any, key string) (map[string]any, error) {

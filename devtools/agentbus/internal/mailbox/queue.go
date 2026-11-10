@@ -3,6 +3,7 @@ package mailbox
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -213,6 +214,58 @@ func (m *Mailbox) step(ctx context.Context, handle string) (bool, error) {
 		return false, err
 	}
 	return false, nil
+}
+
+// Requeue puts a delivered message back in its queue, in send order.
+// The prompt hook calls it when Claude Code blocked a submit that merged
+// the message into a user draft. The input box still holds both, so the
+// message waits as a draft hold. A message that is still queued is left
+// as it is. actor is who reported the merge.
+func (m *Mailbox) Requeue(id, actor string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for m.inflight[id] {
+		m.cv.Wait()
+	}
+	msg, ok := m.msgs[id]
+	switch {
+	case !ok:
+		return fmt.Errorf("unknown message %s", id)
+	case msg.State == stateExpired:
+		return fmt.Errorf("message %s expired", id)
+	case msg.State != stateDelivered:
+		return nil
+	}
+	now := m.now().UTC()
+	msg.State = "held: " + adapter.HoldDraft
+	msg.HeldAt = &now
+	msg.DeliveredAt = nil
+	msg.ClosedAt = nil
+	m.msgs[id] = msg
+	m.insert(msg)
+	if err := m.logEvent(eventlog.Event{
+		Event:  eventlog.EventRequeued,
+		Actor:  actor,
+		MsgID:  msg.ID,
+		Name:   msg.To,
+		Detail: "prompt blocked: merged into a user draft",
+	}); err != nil {
+		return err
+	}
+	return m.save()
+}
+
+// insert queues msg for its handle in send order.
+func (m *Mailbox) insert(msg message) {
+	ids := m.queue[msg.Handle]
+	at := len(ids)
+	for i, other := range ids {
+		if messageBefore(msg, m.msgs[other]) {
+			at = i
+			break
+		}
+	}
+	m.queue[msg.Handle] = slices.Insert(ids, at, msg.ID)
 }
 
 func (m *Mailbox) finishExpire(ctx context.Context, handle string, msg message) (bool, error) {
