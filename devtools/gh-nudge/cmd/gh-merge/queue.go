@@ -78,6 +78,7 @@ type queueJSONResult struct {
 	Result           string   `json:"result"`
 	StackedAbove     []int    `json:"stackedAbove"`
 	SettingsFrom     string   `json:"settingsFrom"`
+	Gate             string   `json:"gate"`
 }
 
 // baseRefusalDoc describes the queue refusal for a pull request that is not in
@@ -159,11 +160,20 @@ func prepareQueue(client queueAPI, cfg *config.Config, ref string) (github.Queue
 	return pr, cfg, above, baseProblem, nil
 }
 
-func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
+// queuePreflight runs every gate that queue and queue -dry-run share, on the
+// same loaded data, before either branches on dryRun.
+func queuePreflight(pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string) error {
+	if !jsonOutput {
+		fmt.Println(gateLine(pr, cfg.Settings))
+	}
 	if len(problems) > 0 {
 		return refuseWithProblems(pr, cfg, above, problems)
 	}
-	if err := refuseRCA(pr, cfg.Settings); err != nil {
+	return refuseRCA(pr, cfg.Settings)
+}
+
+func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
+	if err := queuePreflight(pr, cfg, above, problems); err != nil {
 		return err
 	}
 	lines := readyLines(pr, cfg.Settings)
@@ -182,7 +192,8 @@ func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config
 }
 
 func waitForPendingChecks(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
-	if err := refuseRCA(pr, cfg.Settings); err != nil {
+	// problems are only pending required checks here; the wait handles them.
+	if err := queuePreflight(pr, cfg, above, nil); err != nil {
 		return err
 	}
 	if dryRun {
@@ -568,6 +579,7 @@ func writeQueueResult(pr github.QueuePullRequest, cfg *config.Config, lines []st
 			Result:           result,
 			StackedAbove:     above,
 			SettingsFrom:     settingsSource(cfg),
+			Gate:             gateLine(pr, cfg.Settings),
 		}, "", "  ")
 		if err != nil {
 			return fmt.Errorf("encode queue result: %w", err)
@@ -772,6 +784,27 @@ func refuseRCA(pr github.QueuePullRequest, settings config.SettingsConfig) error
 		return err
 	}
 	return requeueAllowed(class, matched, earlier, settings.RequeueLimit())
+}
+
+// gateLine names the latest queue event the RCA gate decides from and, for a
+// removal, the RCA marker found for it.
+func gateLine(pr github.QueuePullRequest, settings config.SettingsConfig) string {
+	event, ok := latestQueueEvent(pr.Events)
+	if !ok {
+		return "latest queue event: none"
+	}
+	line := fmt.Sprintf("latest queue event: %s %s at %s", event.Kind, event.ID, event.CreatedAt.Format(time.RFC3339))
+	if event.Kind != github.QueueEventRemoved {
+		return line
+	}
+	class, matched, err := rcaClass(settings.RCAMarker, event.ID, pr.Comments)
+	switch {
+	case err != nil:
+		return line + "; RCA: " + err.Error()
+	case !matched:
+		return line + "; RCA: none"
+	}
+	return fmt.Sprintf("%s; RCA: %s (matched)", line, class)
 }
 
 // ourCodeHeadMoved reports whether the PR head changed after an our-code
