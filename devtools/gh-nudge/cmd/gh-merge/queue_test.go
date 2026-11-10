@@ -4521,3 +4521,142 @@ func TestDequeueWarnsWhenRemovalNeverAppears(t *testing.T) {
 		}
 	}
 }
+
+func withMergeableWait(t *testing.T) *[]time.Duration {
+	t.Helper()
+	prevNow, prevSleep := mergeableNow, mergeableSleep
+	var slept []time.Duration
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	mergeableNow = func() time.Time { return now }
+	mergeableSleep = func(d time.Duration) {
+		slept = append(slept, d)
+		now = now.Add(d)
+	}
+	t.Cleanup(func() { mergeableNow, mergeableSleep = prevNow, prevSleep })
+	return &slept
+}
+
+func mergeableSnapshots(states ...string) []github.QueuePullRequest {
+	out := make([]github.QueuePullRequest, len(states))
+	for i, state := range states {
+		out[i] = readyPR()
+		out[i].Mergeable = state
+	}
+	return out
+}
+
+func TestQueueDryRunWaitsForUnknownMergeable(t *testing.T) {
+	slept := withMergeableWait(t)
+	withMergeFlags(t, true, false, false)
+	client := &fakeQueue{snapshots: mergeableSnapshots("UNKNOWN", "UNKNOWN", "MERGEABLE")}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if !strings.Contains(output, "Would enqueue acme/widgets#12.") {
+		t.Fatalf("output = %s", output)
+	}
+	if client.loads != 3 || client.enqueueCalls != 0 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+	if len(*slept) != 2 || (*slept)[0] != 2*time.Second || (*slept)[1] != 4*time.Second {
+		t.Fatalf("sleeps = %v", *slept)
+	}
+}
+
+func TestQueueRefusesConflictAfterUnknownMergeable(t *testing.T) {
+	for _, dry := range []bool{true, false} {
+		t.Run(fmt.Sprintf("dry=%v", dry), func(t *testing.T) {
+			withMergeableWait(t)
+			withMergeFlags(t, dry, false, false)
+			client := &fakeQueue{snapshots: mergeableSnapshots("UNKNOWN", "CONFLICTING")}
+			output := captureStdout(t, func() {
+				if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err == nil {
+					t.Fatal("queuePullRequest() error = nil, want refusal")
+				}
+			})
+			if !strings.Contains(output, "- pull request has merge conflicts") {
+				t.Fatalf("output = %s", output)
+			}
+			if client.enqueueCalls != 0 || strings.Contains(output, "Would enqueue") {
+				t.Fatalf("enqueued = %v output = %s", client.enqueued, output)
+			}
+		})
+	}
+}
+
+func TestQueueRefusesStillUnknownMergeable(t *testing.T) {
+	slept := withMergeableWait(t)
+	withMergeFlags(t, true, false, false)
+	client := &fakeQueue{snapshots: mergeableSnapshots("UNKNOWN")}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	if !strings.Contains(output, "- mergeable state still UNKNOWN after 60s; GitHub has not computed it yet, retry later") {
+		t.Fatalf("output = %s", output)
+	}
+	var total time.Duration
+	for _, d := range *slept {
+		total += d
+	}
+	if total > 60*time.Second || total < 50*time.Second {
+		t.Fatalf("total sleep = %s, sleeps = %v", total, *slept)
+	}
+	for i := 1; i < len(*slept)-1; i++ {
+		if (*slept)[i] < (*slept)[i-1] {
+			t.Fatalf("sleeps shrink before the last one: %v", *slept)
+		}
+	}
+}
+
+func TestQueueRefusesConflictWithoutWaiting(t *testing.T) {
+	slept := withMergeableWait(t)
+	client := &fakeQueue{snapshots: mergeableSnapshots("CONFLICTING")}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	if !strings.Contains(output, "- pull request has merge conflicts") {
+		t.Fatalf("output = %s", output)
+	}
+	if len(*slept) != 0 || client.loads != 1 || client.enqueueCalls != 0 {
+		t.Fatalf("sleeps = %v loads = %d enqueued = %v", *slept, client.loads, client.enqueued)
+	}
+}
+
+func TestQueueWhenGreenTreatsStillUnknownMergeableAsPending(t *testing.T) {
+	withMergeableWait(t)
+	withWhenGreenWait(t, time.Hour)
+	// One load, six re-reads within the 60s preflight budget, then one
+	// when-green reload that sees MERGEABLE.
+	states := []string{"UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "UNKNOWN", "MERGEABLE"}
+	client := &fakeQueue{snapshots: mergeableSnapshots(states...)}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if client.enqueueCalls != 1 || client.loads != len(states) {
+		t.Fatalf("loads = %d enqueued = %v output = %s", client.loads, client.enqueued, output)
+	}
+}
+
+func TestQueueWhenGreenAbortsOnConflictWhileWaiting(t *testing.T) {
+	withMergeableWait(t)
+	withWhenGreenWait(t, time.Hour)
+	snapshots := mergeableSnapshots("MERGEABLE", "CONFLICTING")
+	snapshots[0].Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: ""}}
+	client := &fakeQueue{snapshots: snapshots}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want abort")
+		}
+	})
+	if !strings.Contains(output, "Not enqueueing acme/widgets#12: pull request has merge conflicts") || client.enqueueCalls != 0 {
+		t.Fatalf("enqueued = %v output = %s", client.enqueued, output)
+	}
+}

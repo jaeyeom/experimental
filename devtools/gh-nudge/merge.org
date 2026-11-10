@@ -72,7 +72,12 @@ pull request still reports ~would-enqueue~. ~--json~ includes that result.
 ~queue~ and ~queue --dry-run~ run one shared preflight and print the same
 gate line, for example
 ~latest queue event: removed <id> at <time>; RCA: flake (matched)~.
-~--json~ includes it as ~gate~. ~gh-merge dequeue~ polls
+~--json~ includes it as ~gate~. The shared preflight also reads GitHub's
+~mergeable~. CONFLICTING refuses with ~pull request has merge conflicts~.
+UNKNOWN is re-read after 2s, 4s, 8s, then every 16s, for up to 60s, and
+refuses if it is still UNKNOWN. With ~--when-green~, a still-UNKNOWN state is
+pending instead, and the wait aborts if it turns CONFLICTING.
+~gh-merge dequeue~ polls
 the timeline for up to 30s until the removal appears, then prints
 ~Dequeued~. If the removal does not appear, it also warns that ~queue~
 checks may be stale, and still exits 0.

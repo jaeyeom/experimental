@@ -245,7 +245,9 @@ func readyPullRequests(cfg *config.Config, fetched []models.PullRequest, refresh
 }
 
 func resolveListPullRequest(pr models.PullRequest, refresh func(string) (string, error), sleep func(time.Duration)) (models.PullRequest, error) {
-	state, err := resolveMergeable(pr.Mergeable, pr.URL, refresh, sleep)
+	// Two refreshes, a second apart, after the list payload.
+	poll := mergeablePoll{first: time.Second, max: time.Second, budget: 2 * time.Second, sleep: sleep}
+	state, err := resolveMergeable(pr.Mergeable, pr.URL, refresh, poll)
 	if err != nil {
 		return pr, err
 	}
@@ -253,21 +255,47 @@ func resolveListPullRequest(pr models.PullRequest, refresh func(string) (string,
 	return pr, nil
 }
 
-// resolveMergeable treats the list payload as the first attempt.
-// UNKNOWN is refreshed at most twice more, about a second apart, for three attempts.
-func resolveMergeable(state, prURL string, refresh func(string) (string, error), sleep func(time.Duration)) (string, error) {
+// mergeablePoll bounds how resolveMergeable re-reads an UNKNOWN state.
+// Delays start at first and double up to max. The total wait stays within
+// budget, measured with now, or by the summed sleeps when now is nil.
+type mergeablePoll struct {
+	first, max, budget time.Duration
+	now                func() time.Time
+	sleep              func(time.Duration)
+}
+
+// resolveMergeable treats state as the first attempt and refreshes it while
+// it is UNKNOWN and the poll budget allows.
+func resolveMergeable(state, prURL string, refresh func(string) (string, error), poll mergeablePoll) (string, error) {
 	if refresh == nil {
 		return state, nil
 	}
-	for refreshes := 0; state == "UNKNOWN" && refreshes < 2; refreshes++ {
-		if sleep != nil {
-			sleep(time.Second)
+	var start time.Time
+	if poll.now != nil {
+		start = poll.now()
+	}
+	var slept time.Duration
+	delay := poll.first
+	for state == "UNKNOWN" {
+		elapsed := slept
+		if poll.now != nil {
+			elapsed = poll.now().Sub(start)
 		}
+		remaining := poll.budget - elapsed
+		if remaining <= 0 {
+			break
+		}
+		delay = min(delay, remaining)
+		if poll.sleep != nil {
+			poll.sleep(delay)
+		}
+		slept += delay
 		next, err := refresh(prURL)
 		if err != nil {
 			return "", fmt.Errorf("failed to read mergeable state: %w", err)
 		}
 		state = next
+		delay = min(2*delay, poll.max)
 	}
 	return state, nil
 }
