@@ -5,11 +5,23 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 )
 
 var errDequeueUsage = errors.New("dequeue usage")
+
+const (
+	dequeueSettleTimeout = 30 * time.Second
+	dequeueInitialDelay  = time.Second
+	dequeueMaxDelay      = 8 * time.Second
+)
+
+var (
+	dequeueNow   = time.Now
+	dequeueSleep = time.Sleep
+)
 
 type dequeueAPI interface {
 	LoadPullRequest(ref string) (github.QueuePullRequest, error)
@@ -75,6 +87,38 @@ func dequeuePullRequest(client dequeueAPI, ref string) error {
 	if err := client.DequeuePullRequest(pr.NodeID); err != nil {
 		return fmt.Errorf("dequeue %s: %w", pr.Ref.Raw, err)
 	}
+	seen := waitForRemoval(client, resolved, pr.Events)
 	fmt.Printf("Dequeued %s.\n", pr.Ref.Raw)
+	if !seen {
+		fmt.Printf("Warning: the timeline for %s does not show the removal yet; queue checks may be stale\n", pr.Ref.Raw)
+	}
 	return nil
+}
+
+// waitForRemoval polls the timeline until it shows a removal that was not in
+// before, so a queue run right after dequeue sees it. GitHub can lag behind
+// the mutation. It reports false if the removal is not seen in time.
+func waitForRemoval(client dequeueAPI, ref string, before []github.QueueEvent) bool {
+	known := make(map[string]bool, len(before))
+	for _, event := range before {
+		known[event.ID] = true
+	}
+	deadline := dequeueNow().Add(dequeueSettleTimeout)
+	delay := dequeueInitialDelay
+	for {
+		now := dequeueNow()
+		if !now.Before(deadline) {
+			return false
+		}
+		dequeueSleep(min(delay, deadline.Sub(now)))
+		delay = min(delay*2, dequeueMaxDelay)
+		pr, err := client.LoadPullRequest(ref)
+		if err != nil {
+			continue
+		}
+		event, ok := latestQueueEvent(pr.Events)
+		if ok && event.Kind == github.QueueEventRemoved && !known[event.ID] {
+			return true
+		}
+	}
 }

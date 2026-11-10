@@ -69,6 +69,13 @@ check fails, the head SHA changes, approval is lost, an unresolved thread
 appears, another preflight problem appears, or the timeout is reached.
 ~--dry-run~ does not poll: pending checks report ~would-wait~, and a green
 pull request still reports ~would-enqueue~. ~--json~ includes that result.
+~queue~ and ~queue --dry-run~ run one shared preflight and print the same
+gate line, for example
+~latest queue event: removed <id> at <time>; RCA: flake (matched)~.
+~--json~ includes it as ~gate~. ~gh-merge dequeue~ polls
+the timeline for up to 30s until the removal appears, then prints
+~Dequeued~. If the removal does not appear, it also warns that ~queue~
+checks may be stale, and still exits 0.
 Queue does not classify the failure or write the RCA
 comment. ~required_checks~, ~flake_signatures~, ~rca_marker~, and
 ~max_requeues~ come from config. Empty ~required_checks~ makes ~queue~ refuse

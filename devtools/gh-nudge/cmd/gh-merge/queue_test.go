@@ -3564,6 +3564,7 @@ func TestRCABareNumberUsesCheckoutRemote(t *testing.T) {
 
 func TestDequeueRemovesQueuedPullRequest(t *testing.T) {
 	withMergeFlags(t, false, false, false)
+	withDequeueClock(t)
 	pr := readyPR()
 	pr.InMergeQueue = true
 	client := &fakeQueue{pr: pr}
@@ -3627,6 +3628,7 @@ func TestDequeueBareNumberUsesCheckoutRemote(t *testing.T) {
 		return defaultRunCommand(name, args...)
 	})
 	t.Chdir(dir)
+	withDequeueClock(t)
 	pr := readyPR()
 	pr.InMergeQueue = true
 	client := &fakeQueue{pr: pr}
@@ -3635,8 +3637,10 @@ func TestDequeueBareNumberUsesCheckoutRemote(t *testing.T) {
 			t.Fatalf("dequeueCommand() error = %v", err)
 		}
 	})
-	if len(client.loadedRefs) != 1 || client.loadedRefs[0] != "acme/widgets#12" {
-		t.Fatalf("loaded = %v", client.loadedRefs)
+	for _, ref := range client.loadedRefs {
+		if ref != "acme/widgets#12" {
+			t.Fatalf("loaded = %v", client.loadedRefs)
+		}
 	}
 	if client.dequeueCalls != 1 || !strings.Contains(output, "Dequeued acme/widgets#12.") {
 		t.Fatalf("calls = %d output = %q", client.dequeueCalls, output)
@@ -4285,5 +4289,235 @@ func TestQueueWhenGreenBackoffWhileStillPending(t *testing.T) {
 	}
 	if len(*slept) != 2 || (*slept)[0] != 15*time.Second || (*slept)[1] != 30*time.Second {
 		t.Fatalf("sleeps = %v", *slept)
+	}
+}
+
+func gateLineOf(t *testing.T, output string) string {
+	t.Helper()
+	var found []string
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "latest queue event:") {
+			found = append(found, line)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("gate lines = %q, want exactly one in:\n%s", found, output)
+	}
+	return found[0]
+}
+
+func TestQueueGateLine(t *testing.T) {
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	settings := rcaConfig().Settings
+	tests := []struct {
+		name     string
+		events   []github.QueueEvent
+		comments []string
+		want     string
+	}{
+		{name: "no events", want: "latest queue event: none"},
+		{
+			name:   "added",
+			events: []github.QueueEvent{{ID: "A1", Kind: github.QueueEventAdded, CreatedAt: at}},
+			want:   "latest queue event: added A1 at 2026-01-02T03:04:05Z",
+		},
+		{
+			name:   "removed without RCA",
+			events: []github.QueueEvent{ourCodeRemoval("EVT", "", at)},
+			want:   "latest queue event: removed EVT at 2026-01-02T03:04:05Z; RCA: none",
+		},
+		{
+			name:     "removed with flake RCA",
+			events:   []github.QueueEvent{ourCodeRemoval("EVT", "", at)},
+			comments: []string{"RCA EVT class=flake"},
+			want:     "latest queue event: removed EVT at 2026-01-02T03:04:05Z; RCA: flake (matched)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := readyPR()
+			pr.Events = tt.events
+			pr.Comments = tt.comments
+			if got := gateLine(pr, settings); got != tt.want {
+				t.Fatalf("gateLine() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestQueueDryRunAndRealRunShareThePreflight(t *testing.T) {
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	removal := func(pr *github.QueuePullRequest, comment string) {
+		pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "", at)}
+		if comment != "" {
+			pr.Comments = []string{comment}
+		}
+	}
+	tests := []struct {
+		name    string
+		edit    func(*github.QueuePullRequest)
+		wantErr string
+	}{
+		{name: "problems", edit: func(pr *github.QueuePullRequest) { pr.Draft = true }, wantErr: "refusing to enqueue acme/widgets#12"},
+		{name: "missing RCA", edit: func(pr *github.QueuePullRequest) { removal(pr, "") }, wantErr: "no RCA comment for that removal"},
+		{name: "our-code without a new head", edit: func(pr *github.QueuePullRequest) {
+			removal(pr, "RCA EVT class=our-code")
+			pr.HeadCommittedAt = at.Add(-time.Hour)
+		}, wantErr: "unchanged since"},
+		{name: "requeue limit", edit: func(pr *github.QueuePullRequest) {
+			pr.Events = []github.QueueEvent{
+				{ID: "A0", Kind: github.QueueEventAdded, CreatedAt: at.Add(-3 * time.Minute)},
+				ourCodeRemoval("R1", "", at.Add(-2*time.Minute)),
+				{ID: "A1", Kind: github.QueueEventAdded, CreatedAt: at.Add(-time.Minute)},
+				ourCodeRemoval("EVT", "", at),
+			}
+			pr.Comments = []string{"RCA EVT class=flake"}
+		}, wantErr: "greater than max_requeues"},
+		{name: "no refusal", edit: func(pr *github.QueuePullRequest) { removal(pr, "RCA EVT class=flake") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var errs, gates [2]string
+			for i, dry := range []bool{true, false} {
+				withMergeFlags(t, dry, false, false)
+				pr := readyPR()
+				tt.edit(&pr)
+				cfg := rcaConfig()
+				limit := 0
+				cfg.Settings.MaxRequeues = &limit
+				client := &fakeQueue{pr: pr}
+				var err error
+				output := captureStdout(t, func() {
+					err = queuePullRequest(client, cfg, pr.Ref.Raw, false)
+				})
+				if err != nil {
+					errs[i] = err.Error()
+				}
+				gates[i] = gateLineOf(t, output)
+				wantCalls := 0
+				if !dry && tt.wantErr == "" {
+					wantCalls = 1
+				}
+				if client.enqueueCalls != wantCalls {
+					t.Fatalf("dry=%v enqueueCalls = %d, want %d", dry, client.enqueueCalls, wantCalls)
+				}
+			}
+			if errs[0] != errs[1] {
+				t.Fatalf("dry run error %q, real run error %q", errs[0], errs[1])
+			}
+			if !strings.Contains(errs[0], tt.wantErr) || (tt.wantErr == "" && errs[0] != "") {
+				t.Fatalf("error = %q, want %q", errs[0], tt.wantErr)
+			}
+			if gates[0] != gates[1] {
+				t.Fatalf("dry run gate %q, real run gate %q", gates[0], gates[1])
+			}
+		})
+	}
+}
+
+func TestQueueJSONIncludesGate(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = false })
+	pr := readyPR()
+	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))}
+	pr.Comments = []string{"RCA EVT class=infra"}
+	client := &fakeQueue{pr: pr}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	// Removal evidence is printed before the JSON document.
+	_, doc, ok := strings.Cut(output, "{")
+	if !ok {
+		t.Fatalf("no JSON in %q", output)
+	}
+	var got queueJSONResult
+	if err := json.Unmarshal([]byte("{"+doc), &got); err != nil {
+		t.Fatalf("decode %q: %v", output, err)
+	}
+	want := "latest queue event: removed EVT at 2026-01-02T03:04:05Z; RCA: infra (matched)"
+	if got.Gate != want {
+		t.Fatalf("gate = %q, want %q", got.Gate, want)
+	}
+}
+
+func withDequeueClock(t *testing.T) *[]time.Duration {
+	t.Helper()
+	prevNow, prevSleep := dequeueNow, dequeueSleep
+	now := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	var slept []time.Duration
+	dequeueNow = func() time.Time { return now }
+	dequeueSleep = func(d time.Duration) {
+		slept = append(slept, d)
+		now = now.Add(d)
+	}
+	t.Cleanup(func() { dequeueNow, dequeueSleep = prevNow, prevSleep })
+	return &slept
+}
+
+func queuedPR() github.QueuePullRequest {
+	pr := readyPR()
+	pr.InMergeQueue = true
+	pr.Events = []github.QueueEvent{{ID: "A1", Kind: github.QueueEventAdded, CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}
+	return pr
+}
+
+func TestDequeueWaitsForRemovalBeforeQueueDryRun(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	slept := withDequeueClock(t)
+	before := queuedPR()
+	lagging := before
+	lagging.InMergeQueue = false
+	removed := lagging
+	removed.Events = append(append([]github.QueueEvent{}, before.Events...),
+		ourCodeRemoval("EVT", "", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)))
+	client := &fakeQueue{snapshots: []github.QueuePullRequest{before, lagging, removed}}
+	output := captureStdout(t, func() {
+		if err := dequeueCommand(client, []string{"acme/widgets#12"}); err != nil {
+			t.Fatalf("dequeueCommand() error = %v", err)
+		}
+	})
+	if client.loads != 3 || len(*slept) != 2 {
+		t.Fatalf("loads = %d sleeps = %v", client.loads, *slept)
+	}
+	if !strings.Contains(output, "Dequeued acme/widgets#12.") || strings.Contains(output, "Warning") {
+		t.Fatalf("output = %q", output)
+	}
+
+	withMergeFlags(t, true, false, false)
+	var err error
+	captureStdout(t, func() {
+		err = queuePullRequest(client, rcaConfig(), "acme/widgets#12", false)
+	})
+	if err == nil || !strings.Contains(err.Error(), "no RCA comment for that removal") {
+		t.Fatalf("queue -dry-run error = %v, want no RCA comment for that removal", err)
+	}
+}
+
+func TestDequeueWarnsWhenRemovalNeverAppears(t *testing.T) {
+	withMergeFlags(t, false, false, false)
+	slept := withDequeueClock(t)
+	client := &fakeQueue{pr: queuedPR()}
+	output := captureStdout(t, func() {
+		if err := dequeueCommand(client, []string{"acme/widgets#12"}); err != nil {
+			t.Fatalf("dequeueCommand() error = %v", err)
+		}
+	})
+	var total time.Duration
+	for _, d := range *slept {
+		total += d
+	}
+	if total != dequeueSettleTimeout {
+		t.Fatalf("slept %v in total (%v), want %v", total, *slept, dequeueSettleTimeout)
+	}
+	for _, want := range []string{
+		"Dequeued acme/widgets#12.",
+		"Warning: the timeline for acme/widgets#12 does not show the removal yet; queue checks may be stale",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output = %q, want %q", output, want)
+		}
 	}
 }
