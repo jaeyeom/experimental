@@ -181,7 +181,9 @@ func (m *Model) composeBody() []screenLine {
 	pickerLines := m.pickerLines()
 	pickerBox, textLines := composeBoxHeights(len(pickerLines), budget)
 	picker := windowLines(pickerLines, m.target, pickerBox-2)
-	draft := windowDraft(m.draftLines(composeDraftWidth(width-2, m.composeFocus == focusText)), textLines)
+	wrap := composeDraftWidth(width-2, m.composeFocus == focusText)
+	draft, first := windowDraft(m.draftLines(wrap), textLines)
+	draft = fieldRows(draft, hitNote, first, 0, wrap)
 	return stackRegions(width,
 		panelBox(picker, width, m.composeFocus == focusRecipient),
 		panelBox(draft, width, m.composeFocus == focusText),
@@ -228,11 +230,13 @@ func composeDraftWidth(inner int, textFocus bool) int {
 	return inner
 }
 
-// windowDraft keeps the caret line on screen and pads the message to limit rows.
-func windowDraft(draft []screenLine, limit int) []screenLine {
+// windowDraft keeps the caret line on screen and pads the message to limit
+// rows. It also returns the index of the first row shown.
+func windowDraft(draft []screenLine, limit int) ([]screenLine, int) {
 	if limit < 1 {
 		limit = 1
 	}
+	start := 0
 	if len(draft) > limit {
 		cursor := 0
 		for i, line := range draft {
@@ -241,16 +245,13 @@ func windowDraft(draft []screenLine, limit int) []screenLine {
 				break
 			}
 		}
-		start := cursor - limit + 1
-		if start < 0 {
-			start = 0
-		}
+		start = max(cursor-limit+1, 0)
 		draft = draft[start : start+limit]
 	}
 	for len(draft) < limit {
 		draft = append(draft, screenLine{})
 	}
-	return draft
+	return draft, start
 }
 
 func (m *Model) composeStack(width int) []screenLine {
@@ -261,6 +262,7 @@ func (m *Model) composeStack(width int) []screenLine {
 	for len(picker)+len(draft)+1 < minH {
 		draft = append(draft, screenLine{})
 	}
+	draft = fieldRows(draft, hitNote, 0, 0, width)
 	lines := make([]screenLine, 0, len(picker)+len(draft)+1)
 	lines = append(lines, picker...)
 	lines = append(lines, draft...)

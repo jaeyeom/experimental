@@ -2065,8 +2065,9 @@ func (m *Model) detailLines(width int) []screenLine {
 	}
 	if m.mode == modeOutcome {
 		const label = "outcome: "
-		body := fieldLines(m.draft, &m.outcome, m.outcome.Focused(), width-len(label))
-		lines = append(lines, labeledLines(label, body, hitNone)...)
+		wrap := width - len(label)
+		body := fieldLines(m.draft, &m.outcome, m.outcome.Focused(), wrap)
+		lines = append(lines, labeledLines(label, body, hitOutcome, wrap)...)
 	}
 	return lines
 }
@@ -2225,16 +2226,17 @@ func indentLine(line screenLine) screenLine {
 
 func (m *Model) replyLines(width int) []screenLine {
 	const label = "reply: "
+	wrap := width - len(label)
 	body := []screenLine{{text: "___"}}
 	if m.reply != "" || m.replyFocus {
-		body = fieldLines(m.reply, &m.replyField, m.replyFocus, width-len(label))
+		body = fieldLines(m.reply, &m.replyField, m.replyFocus, wrap)
 	}
-	return labeledLines(label, body, hitReply)
+	return labeledLines(label, body, hitReply, wrap)
 }
 
 // labeledLines puts label before the first composer line and lines the
-// rest up under it. Every line is a hit of kind unless kind is hitNone.
-func labeledLines(label string, body []screenLine, kind int) []screenLine {
+// rest up under it. Every line is a composer row of hit kind.
+func labeledLines(label string, body []screenLine, kind, wrap int) []screenLine {
 	pad := strings.Repeat(" ", len(label))
 	out := make([]screenLine, len(body))
 	for i, line := range body {
@@ -2243,11 +2245,8 @@ func labeledLines(label string, body []screenLine, kind int) []screenLine {
 			prefix = label
 		}
 		out[i] = screenLine{text: plainText(prefix + line.text)}
-		if kind != hitNone {
-			out[i].hits = []hit{{kind: kind}}
-		}
 	}
-	return out
+	return fieldRows(out, kind, 0, len(label), wrap)
 }
 
 func plainText(s string) string {

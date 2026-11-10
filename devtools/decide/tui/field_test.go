@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -200,5 +201,131 @@ func TestComposerHintsListEditingKeys(t *testing.T) {
 		if !strings.Contains(help, needle) {
 			t.Fatalf("help missing %q\n%s", needle, help)
 		}
+	}
+}
+
+func TestClickCursor(t *testing.T) {
+	long := "abcdefghijklmnopqrstuvwxy"
+	ten := "l0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9"
+	tests := []struct {
+		name              string
+		text              string
+		width, row, col   int
+		wantLine, wantCol int
+	}{
+		// A 4-row box scrolled by 5 shows visual row 5 on its first row.
+		{"scrolled", ten, 10, 5 + 1, 1, 6, 1},
+		{"wrapped row 0", long, 10, 0, 3, 0, 3},
+		{"wrapped row 1", long, 10, 1, 3, 0, 13},
+		{"wrapped row 2", long, 10, 2, 3, 0, 23},
+		{"scrolled and wrapped", "aa\n" + long + "\nbb", 10, 2 + 1, 3, 1, 23},
+		{"word wrap skips the break", "hello world foo", 8, 1, 2, 0, 8},
+		{"past end of line", "abc\ndef", 10, 0, 9, 0, 3},
+		{"past end of wrapped row", long, 10, 2, 9, 0, 25},
+		{"below last line", "abc\ndef", 10, 5, 0, 1, 3},
+		{"empty", "", 10, 0, 4, 0, 0},
+		{"wide rune first cell", "a漢b", 10, 0, 1, 0, 1},
+		{"wide rune second cell", "a漢b", 10, 0, 2, 0, 1},
+		{"after wide rune", "a漢b", 10, 0, 3, 0, 2},
+		{"left border", "abc\ndef", 10, 1, -1, 1, 0},
+		{"above the text", "abc\ndef", 10, -1, 2, 0, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line, col := clickCursor(tt.text, tt.width, tt.row, tt.col)
+			if line != tt.wantLine || col != tt.wantCol {
+				t.Fatalf("clickCursor = %d,%d, want %d,%d", line, col, tt.wantLine, tt.wantCol)
+			}
+		})
+	}
+}
+
+// clickOn clicks off columns right of where needle starts on screen.
+func clickOn(t *testing.T, m *Model, needle string, off int) {
+	t.Helper()
+	view := m.View()
+	row := screenRow(view, needle)
+	if row == 0 {
+		t.Fatalf("no %q on screen\n%s", needle, visibleLine(view))
+	}
+	line := strings.Split(view, "\n")[row-1]
+	if err := m.Click(visibleCol(line, needle)+off, row); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClickMovesUnfocusedReplyCursor(t *testing.T) {
+	m, _, _ := composerModel(t, composerReply)
+	m.width, m.height = 80, 30
+	press(t, m, "abc")
+	sendKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlJ})
+	press(t, m, "def\x1b")
+	if m.replyFocus {
+		t.Fatal("esc kept the reply focused")
+	}
+	clickOn(t, m, "def", 1)
+	if !m.replyFocus {
+		t.Fatal("click did not focus the reply")
+	}
+	press(t, m, "X")
+	if m.reply != "abc\ndXef" {
+		t.Fatalf("reply %q, want the X after d", m.reply)
+	}
+}
+
+func TestClickReplyPrefixClampsToLineStart(t *testing.T) {
+	m, _, _ := composerModel(t, composerReply)
+	m.width, m.height = 80, 30
+	press(t, m, "abc")
+	if err := m.Click(1, screenRow(m.View(), "reply: abc")); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "X")
+	if m.reply != "Xabc" {
+		t.Fatalf("reply %q, want X at the start", m.reply)
+	}
+}
+
+func TestClickMovesOutcomeCursor(t *testing.T) {
+	m, _, _ := composerModel(t, composerOutcome)
+	m.width, m.height = 80, 30
+	press(t, m, "shipped it")
+	clickOn(t, m, "shipped it", 4)
+	press(t, m, "X")
+	if m.draft != "shipXped it" {
+		t.Fatalf("outcome %q", m.draft)
+	}
+}
+
+func TestClickMovesScrolledNoteCursor(t *testing.T) {
+	m, _, _ := composerModel(t, composerNote)
+	m.width, m.height = 80, 16
+	for i := range 20 {
+		if i > 0 {
+			sendKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlJ})
+		}
+		press(t, m, fmt.Sprintf("n%02d", i))
+	}
+	if screenRow(m.View(), "n00") != 0 {
+		t.Fatalf("note box did not scroll\n%s", visibleLine(m.View()))
+	}
+	clickOn(t, m, "n17", 1)
+	press(t, m, "X")
+	if !strings.Contains(m.note, "\nnX17\n") {
+		t.Fatalf("note %q, want X inside n17", m.note)
+	}
+
+	// The unfocused box shows its top rows.
+	press(t, m, "\t")
+	if _, ok := m.composerKind(); ok {
+		t.Fatal("tab kept the note focused")
+	}
+	clickOn(t, m, "n01", 2)
+	if got, ok := m.composerKind(); !ok || got != composerNote {
+		t.Fatalf("click focused %v %v, want the note", got, ok)
+	}
+	press(t, m, "Y")
+	if !strings.Contains(m.note, "\nn0Y1\n") {
+		t.Fatalf("note %q, want Y inside n01", m.note)
 	}
 }
