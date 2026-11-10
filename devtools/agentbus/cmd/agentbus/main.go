@@ -36,25 +36,38 @@ var (
 )
 
 func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 && isHelpFlag(args[0]) {
+		printUsage(stdout)
+		return 0
+	}
+	if len(args) > 0 && args[0] == "help" {
+		return cmdHelp(args[1:], stdout, stderr)
+	}
+	var cmd command
+	if len(args) > 0 {
+		var ok bool
+		if cmd, ok = findCommand(args[0]); !ok {
+			return unknownCommand(args[0], stderr)
+		}
+		// Only the first argument counts, so a body word such as --help is still sent.
+		if len(args) > 1 && isHelpFlag(args[1]) {
+			printCommandHelp(stdout, cmd)
+			return 0
+		}
+	}
+	if len(args) == 0 || !localCommands[args[0]] {
+		cfg, err := hubSettings(env)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus: %s\n", err)
+			return 1
+		}
+		if cfg.Hub != "" {
+			return runOnHub(ctx, cfg, args, env, stdin, stdout, stderr)
+		}
+	}
 	if len(args) == 0 {
 		printUsage(stdout)
 		return ensureDaemon(env, stderr)
-	}
-	if isHelpFlag(args[0]) {
-		printUsage(stdout)
-		return 0
-	}
-	if args[0] == "help" {
-		return cmdHelp(args[1:], stdout, stderr)
-	}
-	cmd, ok := findCommand(args[0])
-	if !ok {
-		return unknownCommand(args[0], stderr)
-	}
-	// Only the first argument counts, so a body word such as --help is still sent.
-	if len(args) > 1 && isHelpFlag(args[1]) {
-		printCommandHelp(stdout, cmd)
-		return 0
 	}
 	return cmd.run(ctx, args[1:], env, stdin, stdout, stderr)
 }

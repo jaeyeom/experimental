@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,5 +89,17 @@ func TestClassify(t *testing.T) {
 				t.Fatalf("Error() = %q, want %q", err.Error(), want)
 			}
 		})
+	}
+}
+
+func TestRunIOStreamsStdinAndOutput(t *testing.T) {
+	bin := writeScript(t, "cat; echo err >&2; exit 4\n")
+	var stdout, stderr strings.Builder
+	res, err := RunIO(context.Background(), strings.NewReader("in\n"), &stdout, &stderr, bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "in\n" || stderr.String() != "err\n" || res.Code != 4 {
+		t.Fatalf("RunIO = %+v, stdout %q, stderr %q", res, stdout.String(), stderr.String())
 	}
 }

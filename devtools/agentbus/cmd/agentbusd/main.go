@@ -40,6 +40,9 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
                           herdr:<machine>/<session>/<pane> handles reach
                           any saved machine
   remote_timeout = "5s"   bound on each call to another machine (default: 5s)
+  hub = "me@hub"          this machine uses the daemon on this ssh target,
+                          so agentbusd refuses to start (AGENTBUS_HUB
+                          overrides it)
 
 Example:
   agentbusd
@@ -78,6 +81,10 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
+	if hub := hubTarget(env, cfg); hub != "" {
+		fmt.Fprintf(stderr, "agentbusd: this machine uses the hub %s; run the daemon there\n", hub)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
@@ -89,6 +96,17 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// hubTarget is AGENTBUS_HUB, or the config's hub. Non-empty means the
+// daemon belongs on the hub, not here.
+func hubTarget(env []string, cfg config.Config) string {
+	for _, entry := range env {
+		if key, val, ok := strings.Cut(entry, "="); ok && key == "AGENTBUS_HUB" && strings.TrimSpace(val) != "" {
+			return strings.TrimSpace(val)
+		}
+	}
+	return cfg.Hub
 }
 
 // retentionDays reads AGENTBUS_LOG_RETENTION_DAYS. Unset means the default.

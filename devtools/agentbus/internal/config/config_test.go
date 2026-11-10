@@ -23,6 +23,18 @@ remote_timeout = "3s"
 	}
 }
 
+func TestParseHub(t *testing.T) {
+	got, err := Parse(`hub = "me@hub"   # ssh target that runs agentbus
+machine = "linux2"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Hub != "me@hub" || got.Machine != "linux2" {
+		t.Fatalf("Parse = %+v", got)
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	got, err := Parse("\n# nothing\n")
 	if err != nil || !reflect.DeepEqual(got, Config{}) {
@@ -43,6 +55,10 @@ func TestParseErrors(t *testing.T) {
 		{"\nremote_timeout = \"soon\"\n", "line 2: remote_timeout must be a positive duration"},
 		{"remote_timeout = 5\n", "line 1: remote_timeout must be a positive duration"},
 		{"machines\n", "line 1: want key = value"},
+		{"hub = \"\"\n", "line 1: hub must be a non-empty string"},
+		{"hub = \"-oProxyCommand=x\"\n", "line 1: hub must not start with -"},
+		{"machine = \"local\"\n", "line 1: machine must name this machine, not local"},
+		{"machine = \"a/b\"\n", "line 1: machine must not contain /"},
 	} {
 		_, err := Parse(tt.in)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {

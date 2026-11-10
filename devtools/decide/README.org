@@ -94,3 +94,31 @@ A parent value of the same name does not win.
 ~{id}~, ~{answer}~, ~{owner}~, and ~{pane}~ are not substituted. Braces
 are not replaced. An old ~notifyTemplate~ that still uses those braces
 runs the command and does not insert the answer.
+
+* Hub mode: a second machine
+
+One machine, the hub, holds the ledger. A second machine can run the
+same ~decide~ commands against it over ssh. Set the hub in
+~$XDG_CONFIG_HOME/decide/config.json~ on the second machine, or set
+~DECIDE_HUB~, which wins:
+
+#+begin_src json
+{"hub": "me@hub", "hubTimeout": "5s"}
+#+end_src
+
+Then every command except ~help~ and ~skill~ runs as
+~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> decide <args>~, with
+each argument quoted. ~hubTimeout~ is the connect timeout (default 5s).
+stdout, stderr, and the exit code come back unchanged, and the local
+ledger is never read or created. ~decide inbox~ refuses; run it on the
+hub.
+
+The hub needs an SSH key the agent holds, because ~BatchMode=yes~ never
+asks for a passphrase; ~decide~ on its ~PATH~ for a non-interactive ssh
+command; and a POSIX login shell (sh, bash, or zsh). The call has a
+deadline of twice the connect timeout until the hub's shell starts, so
+a locked key cannot hang it. A hub that cannot be reached fails with
+~decide: hub me@hub unreachable: host unreachable~ when a one-second
+TCP connect to its SSH port fails, or with
+~... unreachable: authentication locked (unlock your SSH/gpg agent)~
+when the host answers.

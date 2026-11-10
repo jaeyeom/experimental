@@ -173,6 +173,51 @@ agents and prints one warning line per machine on stderr, and still
 exits 0. Each machine is flushed on its own, so a slow machine does not
 hold up local delivery.
 
+* Hub mode: a second machine
+
+One machine, the hub, runs agentbusd. A second machine reaches it over
+ssh and runs the same ~agentbus~ commands against the hub's daemon, so
+there is one bus. On the second machine, set the hub and this machine's
+herdr label as the hub knows it:
+
+#+begin_src toml
+hub = "me@hub"          # ssh target that runs agentbus (AGENTBUS_HUB overrides it)
+machine = "linux2"      # this machine's herdr saved-machine label on the hub
+remote_timeout = "5s"   # ssh connect timeout (default 5s)
+#+end_src
+
+Then every command except ~help~ and ~install-hooks~ runs as
+~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> agentbus <args>~,
+with each argument quoted. stdout, stderr, and the exit code come back
+unchanged. ~send~ forwards stdin, and reads a ~--file~ path here and
+sends its content, so the hub never needs the path. Commands that
+identify the caller (~register~, ~describe~, ~whoami~, ~release~,
+~send~, ~reply~) send ~herdr:<machine>/<session>/<pane>~ for this pane
+as ~AGENTBUS_AS_HANDLE~. The hub trusts it only when ~SSH_CONNECTION~
+shows the command came over ssh, and replies go back through
+~herdr --machine <machine>~. ~agentbus install~ and agentbusd refuse.
+
+The hub must be reachable without a prompt:
+
+- an SSH key the agent holds, because ~BatchMode=yes~ never asks for a
+  passphrase;
+- ~agentbus~ on the hub's ~PATH~ for a non-interactive ssh command, and
+  ~XDG_RUNTIME_DIR~ set there, for example in ~~/.zshenv~;
+- a POSIX login shell (sh, bash, or zsh) on the hub, which runs the
+  quoted command;
+- this machine saved in the hub's herdr as ~machine~.
+
+The hub's shell writes a ready line before agentbus starts. Until it
+does, the call has a deadline of twice the connect timeout, which kills
+ssh if a locked key makes it hang. After that the command runs as long
+as it needs, so ~log --follow~ and ~send --wait~ work. A hub that
+cannot be reached fails the command with
+~agentbus: hub me@hub unreachable: host unreachable~ when a one-second
+TCP connect to its SSH port fails, or with
+~... unreachable: authentication locked (unlock your SSH/gpg agent)~
+when the host answers. agentbus never falls back to a local daemon. The
+installed hooks exit 0 on this error.
+
 * Lost messages
 
 When something seems lost, check ~agentbus status <id>~ and

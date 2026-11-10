@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -62,21 +63,27 @@ type Result struct {
 // the whole group is killed, so a hung ssh child cannot outlive the call.
 // A non-nil error means the process did not start.
 func Run(ctx context.Context, name string, args ...string) (Result, error) {
+	var stdout, stderr bytes.Buffer
+	res, err := RunIO(ctx, nil, &stdout, &stderr, name, args...)
+	res.Stdout = stdout.String()
+	res.Stderr = stderr.String()
+	return res, err
+}
+
+// RunIO is Run with the caller's stdin, stdout, and stderr. The Result
+// carries Code and TimedOut; its Stdout and Stderr stay empty.
+func RunIO(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, name string, args ...string) (Result, error) {
 	// The caller names the binary, such as herdr or ssh, and passes an
 	// argument list, not a shell line.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	cmd := exec.CommandContext(ctx, name, args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	setProcessGroup(cmd)
 	cmd.WaitDelay = waitDelay
 	err := cmd.Run()
-	res := Result{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
-	}
+	res := Result{TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded)}
 	if err == nil {
 		return res, nil
 	}

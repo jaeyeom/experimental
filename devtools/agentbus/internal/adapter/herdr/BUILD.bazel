@@ -15,6 +15,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "herdr_test.go",
+        "hub_test.go",
         "remote_test.go",
     ],
     embed = [":go_default_library"],
