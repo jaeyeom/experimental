@@ -13,15 +13,22 @@ const (
 	hitSend
 	hitLink
 	hitReply
+	hitOutcome
+	hitNote
 )
 
 // hit is one clickable span on a screen row. x0 and x1 are 1-based columns.
 // x1 == 0 means the whole row.
+//
+// A composer row (hitReply, hitOutcome, hitNote) takes the whole row. Its
+// n is the visual row of the wrapped text, x0 is where the row starts, pad
+// is the label width before the text, and wrap is the wrap width.
 type hit struct {
-	kind   int
-	n      int
-	x0, x1 int
-	url    string
+	kind      int
+	n         int
+	x0, x1    int
+	url       string
+	pad, wrap int
 }
 
 // Click handles one left-button press at 1-based screen coordinates.
@@ -32,8 +39,15 @@ func (m *Model) Click(x, y int) error {
 		m.free.Blur()
 		return nil
 	}
-	if m.replyFocus && !m.onHitRow(x, y, hitReply) {
+	field, onField := m.fieldRow(y)
+	if m.replyFocus && field.kind != hitReply {
 		m.replyFocus = false
+		if !onField {
+			return nil
+		}
+	}
+	if onField {
+		m.clickField(field, x)
 		return nil
 	}
 	if y < 1 || y > len(m.rows) {
@@ -46,6 +60,60 @@ func (m *Model) Click(x, y int) error {
 		return m.hit(h)
 	}
 	return nil
+}
+
+// fieldRow is the composer hit on screen row y, if any.
+func (m *Model) fieldRow(y int) (hit, bool) {
+	if y < 1 || y > len(m.rows) {
+		return hit{}, false
+	}
+	for _, h := range m.rows[y-1] {
+		if fieldComposer(h.kind) != composerNone {
+			return h, true
+		}
+	}
+	return hit{}, false
+}
+
+func fieldComposer(kind int) composerKind {
+	switch kind {
+	case hitReply:
+		return composerReply
+	case hitOutcome:
+		return composerOutcome
+	case hitNote:
+		return composerNote
+	default:
+		return composerNone
+	}
+}
+
+// clickField focuses the composer under h and puts its cursor at screen
+// column x. The draft takes the field's value first, so the next sync
+// does not reload the field and move the cursor to the end.
+func (m *Model) clickField(h hit, x int) {
+	switch h.kind {
+	case hitReply:
+		m.focusReply()
+	case hitNote:
+		m.answerFocus = false
+		m.composeFocus = focusText
+	}
+	field, text := m.fieldFor(fieldComposer(h.kind))
+	syncField(field, *text)
+	*text = field.Value()
+	line, col := clickCursor(*text, h.wrap, h.n, x-h.x0-h.pad)
+	setFieldCursor(field, line, col)
+	field.Focus()
+}
+
+// fieldRows marks lines as rows of a composer of hit kind. lines[0] shows
+// visual row first of the wrapped text.
+func fieldRows(lines []screenLine, kind, first, pad, wrap int) []screenLine {
+	for i := range lines {
+		lines[i].hits = []hit{{kind: kind, n: first + i, x0: 1, x1: 1, pad: pad, wrap: wrap}}
+	}
+	return lines
 }
 
 func (m *Model) onAnswerRow(x, y int) bool {
@@ -140,9 +208,6 @@ func (m *Model) hit(h hit) error {
 		return m.answerOption(h.n)
 	case hitAnswer:
 		m.focusAnswer()
-		return nil
-	case hitReply:
-		m.focusReply()
 		return nil
 	case hitSubmit:
 		return m.submitFreeText()
