@@ -34,8 +34,8 @@ unknown name or an empty note sends nothing.
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that
 file and run ~M-x decide-list~. It calls ~decide list --json~ and
-~decide show --json~. ~o~ answers with an option key. ~f~ opens a
-normal buffer for free text. ~C-c C-c~ sends that buffer and
+~decide show --json~. ~o~ answers with an option key. ~0~ opens a
+normal buffer to reply with free text. ~C-c C-c~ sends that buffer and
 ~C-c C-k~ closes it without answering.
 
 ~c~ composes a note. The recipient comes from ~decide targets --json~.

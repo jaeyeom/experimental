@@ -226,7 +226,7 @@ func TestEmacsAppendsAndReadsTheStoredThread(t *testing.T) {
 		"decide-stored-answer-appends",
 		"decide-stored-reply-appends",
 		"decide-stored-compose-appends",
-		"decide-stored-keys-share-one-composer",
+		"decide-stored-zero-opens-composer",
 		"decide-stored-composer-keeps-a-finished-answer",
 		"decide-stored-thread-blocks",
 		"decide-stored-message-next-and-previous",
