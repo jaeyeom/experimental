@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,6 +131,126 @@ func TestQueueHoldsThenDeliversAndSurvivesRestart(t *testing.T) {
 	code, stdout, stderr := runCmd([]string{"send", "eng/reviewer", "refused-body"}, env("p1"))
 	if code != 0 || !strings.Contains(stdout, "held: transport refused") {
 		t.Fatalf("refusal = %d %q %q", code, stdout, stderr)
+	}
+}
+
+func TestQueueHoldsForUserDraft(t *testing.T) {
+	runtime := shortRuntime(t)
+	base := []string{
+		"XDG_RUNTIME_DIR=" + runtime,
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := "herdr:local/default/w1:p1"
+	target := "herdr:local/default/w1:p2"
+	var mu sync.Mutex
+	composer := map[string][]string{} // handle -> hold reasons for the next reads; "" is empty
+	setComposer := func(handle string, reasons ...string) {
+		mu.Lock()
+		defer mu.Unlock()
+		composer[handle] = reasons
+	}
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{sender: adapter.StateIdle, target: adapter.StateIdle},
+		Result:      map[string]adapter.Result{sender: adapter.ResultAccepted, target: adapter.ResultAccepted},
+		PaneHandles: map[string]string{"p1": sender, "p2": target},
+		InventoryAgents: []adapter.Agent{
+			{Handle: sender, PaneID: "p1", SessionID: "default", Status: "idle"},
+			{Handle: target, PaneID: "p2", SessionID: "default", Status: "idle"},
+		},
+		Composer: func(handle string) (bool, string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			reasons := composer[handle]
+			if len(reasons) == 0 {
+				return true, "", nil
+			}
+			reason := reasons[0]
+			if len(reasons) > 1 {
+				composer[handle] = reasons[1:]
+			}
+			return reason == "", reason, nil
+		},
+	}
+	stop := startDaemon(t, dirs, daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
+	defer stop()
+	env := append(append([]string{}, base...), "HERDR_PANE_ID=p1")
+	mustCmd(t, []string{"register", "eng/reviewer", "--when", "reviews"}, append(append([]string{}, base...), "HERDR_PANE_ID=p2"))
+
+	sendHeld := func(body, want string) string {
+		t.Helper()
+		out, _ := mustCmd(t, []string{"send", "eng/reviewer", body}, env)
+		id, state, _ := strings.Cut(strings.TrimSpace(out), " ")
+		if state != want {
+			t.Fatalf("send %s = %q, want state %q", body, out, want)
+		}
+		status, _ := mustCmd(t, []string{"status", id}, base)
+		if !strings.Contains(status, "state: "+want) {
+			t.Fatalf("status = %q, want %q", status, want)
+		}
+		return id
+	}
+
+	// Draft present: no paste, no retry, then delivery with the hold duration.
+	setComposer(target, adapter.HoldDraft)
+	draftID := sendHeld("draft-body", "held: "+adapter.HoldDraft)
+	mustCmd(t, []string{"status", draftID}, base)
+	if len(ad.Texts) != 0 {
+		t.Fatalf("pasted over a draft: %q", ad.Texts)
+	}
+	if logHas(t, dirs, eventlog.EventRetry, draftID) {
+		t.Fatal("a draft hold counted as a retry")
+	}
+	if !logHas(t, dirs, eventlog.EventHeld, adapter.HoldDraft) {
+		t.Fatal("hold start was not logged")
+	}
+	setComposer(target)
+	status, _ := mustCmd(t, []string{"status", draftID}, base)
+	if !strings.Contains(status, "state: delivered") || !textsContain(ad.Texts, "draft-body") {
+		t.Fatalf("after draft cleared: status %q texts %q", status, ad.Texts)
+	}
+	if !logHas(t, dirs, eventlog.EventDelivered, "after hold of") {
+		t.Fatal("delivery did not log the hold duration")
+	}
+	if !logHas(t, dirs, eventlog.EventDeliverAttempt, "composer-empty-at-check") {
+		t.Fatal("deliver_attempt detail=composer-empty-at-check missing")
+	}
+
+	// The adapter cannot tell, or the pane is focused.
+	for _, reason := range []string{adapter.HoldDraftUnknown, adapter.HoldFocused} {
+		setComposer(target, reason)
+		id := sendHeld(reason+"-body", "held: "+reason)
+		setComposer(target)
+		if status, _ := mustCmd(t, []string{"status", id}, base); !strings.Contains(status, "state: delivered") {
+			t.Fatalf("after %s: status %q", reason, status)
+		}
+	}
+
+	// Race: empty at the check, a draft at the pre-paste re-read.
+	before := len(ad.Texts)
+	setComposer(target, "", adapter.HoldDraft)
+	raceID := sendHeld("race-body", "held: "+adapter.HoldDraft)
+	if len(ad.Texts) != before {
+		t.Fatalf("pasted while the user typed: %q", ad.Texts)
+	}
+	setComposer(target)
+	status, _ = mustCmd(t, []string{"status", raceID}, base)
+	if !strings.Contains(status, "state: delivered") || len(ad.Texts) != before+1 {
+		t.Fatalf("after race: status %q texts %q", status, ad.Texts)
+	}
+
+	// TTL still applies to a draft hold, and the sender is told.
+	setComposer(target, adapter.HoldDraft)
+	expired, _ := mustCmd(t, []string{"send", "--ttl", "200ms", "--wait", "eng/reviewer", "ttl-body"}, env)
+	expiredID, state, _ := strings.Cut(strings.TrimSpace(expired), " ")
+	if state != "expired" || textsContain(ad.Texts, "ttl-body") ||
+		!textsContain(ad.Texts, "message "+expiredID+" to eng/reviewer expired") {
+		t.Fatalf("ttl send = %q texts %q", expired, ad.Texts)
 	}
 }
 

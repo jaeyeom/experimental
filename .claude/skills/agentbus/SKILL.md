@@ -51,6 +51,8 @@ agentbus status m-7f3a
 
 `send` also takes `--file`, stdin, `--ttl 30m`, and `--wait`.
 
+Delivery pastes only into an empty composer. A message to a pane where the user has typed but not submitted stays queued as `held: user draft in composer`. `held: draft-unknown` means the screen could not be read, and `held: pane focused` means an agent kind the bus cannot read is focused. These holds are expected and clear on their own. Do not resend.
+
 When something seems lost, check `agentbus status <id>` and `agentbus log` before resending. `agentbus log` accepts `--since`, `--name`, `--msg`, `--event`, `--follow`, and `--json`.
 
 ## Sandbox

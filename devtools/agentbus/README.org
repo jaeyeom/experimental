@@ -77,6 +77,31 @@ name and a raw handle such as ~herdr:local/default/w2:p3~. ~send~
 accepts that handle. The bus does not invent a logical name from a title
 or a label.
 
+* Delivery and user drafts
+
+Paste delivery requires an *empty composer*. This is an adapter
+precondition, alongside "not blocked" and "has an agent". If the
+composer cannot be read, it counts as not empty. A hold for a user draft
+is temporary and expected. It never counts as a retry.
+
+The herdr adapter reads the pane with ~herdr agent read <pane> --source
+visible~ and parses the input box per agent kind. Claude Code is the
+only kind it parses now. The message stays queued, and ~status~ shows
+one of these:
+
+- ~held: user draft in composer~: the user has typed text and not
+  submitted it, or the box is in ~!~ shell mode.
+- ~held: draft-unknown~: the screen did not parse or could not be read.
+- ~held: pane focused~: an agent kind with no parser, while the pane is
+  focused. It is delivered once the pane is unfocused. A pane whose box
+  can be parsed is delivered even while focused.
+
+The composer is read again right before the paste. A draft that
+appeared in between holds the message until the next pass. The
+~deliver_attempt~ event with ~detail=composer-empty-at-check~ shows the
+check ran. The race narrows but cannot close. ~delivered~ logs how long
+the message was held. ~--ttl~ still applies to a held message.
+
 * Lost messages
 
 When something seems lost, check ~agentbus status <id>~ and

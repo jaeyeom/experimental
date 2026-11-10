@@ -234,7 +234,23 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 	if err != nil || ad == nil || !canDeliver(state) {
 		return m.holdOutcome(state, err)
 	}
+	if reason, held := composerHold(ctx, ad, msg.Handle); held {
+		return outcome{reason: reason, target: string(state)}
+	}
 	text := render(msg, m.preview(msg.Body))
+	// Re-read right before the paste: a draft that appeared since the
+	// check means the user is typing. The race narrows but cannot close.
+	if reason, held := composerHold(ctx, ad, msg.Handle); held {
+		return outcome{reason: reason, target: string(state)}
+	}
+	_ = m.logEvent(eventlog.Event{
+		Event:       eventlog.EventDeliverAttempt,
+		Actor:       msg.From,
+		MsgID:       msg.ID,
+		Name:        msg.To,
+		Detail:      "composer-empty-at-check",
+		TargetState: string(state),
+	})
 	result, err := ad.Deliver(ctx, msg.Handle, text)
 	if err != nil {
 		return outcome{tried: true, reason: err.Error(), target: string(state)}
@@ -246,6 +262,21 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 		return outcome{tried: true, reason: "transport refused", target: string(adapter.StateBlocked)}
 	default:
 		return outcome{tried: true, reason: "transport failed", target: string(state)}
+	}
+}
+
+// composerHold reports a hold reason when the composer is not empty.
+// A composer that cannot be read counts as not empty. A draft hold is
+// not a tried delivery, so it never counts as a retry.
+func composerHold(ctx context.Context, ad adapter.Adapter, handle string) (string, bool) {
+	empty, reason, err := ad.ComposerEmpty(ctx, handle)
+	switch {
+	case err != nil || (!empty && reason == ""):
+		return adapter.HoldDraftUnknown, true
+	case !empty:
+		return reason, true
+	default:
+		return "", false
 	}
 }
 
@@ -357,12 +388,16 @@ func (m *Mailbox) markDelivered(id string) error {
 	msg.ClosedAt = &now
 	m.msgs[id] = msg
 	m.pop(msg.Handle)
+	detail := "accepted"
+	if msg.HeldAt != nil {
+		detail += " after hold of " + waitString(now.Sub(*msg.HeldAt))
+	}
 	if err := m.logEvent(eventlog.Event{
 		Event:  eventlog.EventDelivered,
 		Actor:  msg.From,
 		MsgID:  msg.ID,
 		Name:   msg.To,
-		Detail: "accepted",
+		Detail: detail,
 	}); err != nil {
 		return err
 	}
@@ -395,6 +430,7 @@ func (m *Mailbox) holdFront(id string, outcome outcome) error {
 	next := "held: " + outcome.reason
 	prev := msg.State
 	msg.State = next
+	m.markHeld(&msg)
 	m.msgs[id] = msg
 	switch {
 	case outcome.tried && strings.HasPrefix(prev, "held:"):
@@ -409,6 +445,14 @@ func (m *Mailbox) holdFront(id string, outcome outcome) error {
 		return nil
 	}
 	return m.save()
+}
+
+// markHeld records when the hold started, so delivery can log its duration.
+func (m *Mailbox) markHeld(msg *message) {
+	if msg.HeldAt == nil {
+		now := m.now().UTC()
+		msg.HeldAt = &now
+	}
 }
 
 func (m *Mailbox) logChange(msg message, name string, outcome outcome) error {
@@ -436,6 +480,7 @@ func (m *Mailbox) holdTail(handle string) error {
 			continue
 		}
 		msg.State = next
+		m.markHeld(&msg)
 		m.msgs[id] = msg
 		changed = true
 		if err := m.logEvent(eventlog.Event{
@@ -471,6 +516,17 @@ func (m *Mailbox) notifyExpired(ctx context.Context, msg message) {
 	}
 	state, ad, err := m.observe(ctx, handle)
 	if err != nil || ad == nil || !canDeliver(state) {
+		return
+	}
+	if reason, held := composerHold(ctx, ad, handle); held {
+		_ = m.logEvent(eventlog.Event{
+			Event:  eventlog.EventDeliverAttempt,
+			Actor:  "agentbus",
+			MsgID:  msg.ID,
+			Name:   msg.From,
+			Detail: "expiry notice not sent",
+			Reason: reason,
+		})
 		return
 	}
 	text := fmt.Sprintf("agentbus: message %s to %s expired\n", msg.ID, msg.To)
