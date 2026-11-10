@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr/herdrtest"
+	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 
@@ -128,25 +128,5 @@ func TestInventoryAddsConfiguredMachines(t *testing.T) {
 	}
 	if len(agents) != 1 || agents[0].Handle != "herdr:local/default/w2:p3" {
 		t.Fatalf("inventory with m2 down = %+v", agents)
-	}
-}
-
-func TestMachineStatusUp(t *testing.T) {
-	cases := []struct {
-		name, stdout, stderr string
-		want                 bool
-	}{
-		{"reachable", `[{"id":"x","label":"linux","status":"reachable","error":null}]`, "", true},
-		{"auth status on a live host", `[{"label":"m2","status":"auth_required","error":"locked"}]`, "", true},
-		{"unreachable", `[{"label":"m2","status":"unreachable","error":"connect failed"}]`, "", false},
-		{"disabled", `[{"label":"m2","status":"disabled","error":null}]`, "", false},
-		{"empty status", `[{"label":"m2","status":""}]`, "", false},
-		{"unparsed text with a down marker", "machine m2 is offline", "", false},
-		{"unparsed text without a marker", "ok", "", true},
-	}
-	for _, tc := range cases {
-		if got := machineStatusUp(tc.stdout, tc.stderr); got != tc.want {
-			t.Errorf("%s: machineStatusUp = %v, want %v", tc.name, got, tc.want)
-		}
 	}
 }

@@ -150,12 +150,14 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 	}
 }
 
-// MatchedTabs collects tab IDs from a scan document, including tabs with a nil pane_id.
+// MatchedTabs collects tab keys (scan.TabKey) from a scan document,
+// including tabs with a nil pane_id. A tab on another machine keys as
+// <tab id>@<machine>, so it never matches a local tab with the same id.
 func MatchedTabs(doc scan.Document) map[string]struct{} {
 	out := make(map[string]struct{})
 	for _, pr := range doc.PRs {
 		if pr.Tab != nil && pr.Tab.TabID != "" {
-			out[pr.Tab.TabID] = struct{}{}
+			out[scan.TabKey(pr.Tab.Machine, pr.Tab.TabID)] = struct{}{}
 		}
 	}
 	return out
@@ -344,7 +346,7 @@ func isBusy(agent herdr.Agent, policy gatePolicy) bool {
 		return false
 	}
 	if policy.waitOn == "managed" {
-		_, ok := policy.matched[agent.TabID]
+		_, ok := policy.matched[scan.TabKey(agent.Machine, agent.TabID)]
 		return ok
 	}
 	return true

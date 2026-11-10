@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "herdr.go",
         "pgroup_other.go",
         "pgroup_unix.go",
         "remotecall.go",
@@ -49,6 +50,9 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["remotecall_test.go"],
+    srcs = [
+        "herdr_test.go",
+        "remotecall_test.go",
+    ],
     embed = [":go_default_library"],
 )

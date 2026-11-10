@@ -73,8 +73,14 @@ func scanDeps(exec executor.Executor, cfg config.Config, h scan.Herdr) scan.Deps
 	return scan.Deps{
 		GH:     gh.NewClient(exec, cfg.GHBin),
 		Herdr:  h,
+		Remote: func(machine string) scan.Herdr { return machineHerdr(exec, cfg, machine) },
 		Marker: src.For,
 	}
+}
+
+// machineHerdr is the herdr client for one of cfg.Machines.
+func machineHerdr(exec executor.Executor, cfg config.Config, machine string) *herdr.Client {
+	return herdr.NewClient(exec, cfg.HerdrBin).OnMachine(machine, cfg.MachineTimeout)
 }
 
 func validateRepoFlags(repos []string) error {

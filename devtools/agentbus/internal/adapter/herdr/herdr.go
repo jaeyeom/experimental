@@ -24,18 +24,6 @@ const DefaultTimeout = 5 * time.Second
 // probeTimeout bounds `herdr machine status`, which classifies a failure.
 const probeTimeout = 2 * time.Second
 
-// downMarkers in `herdr machine status` output mean the host is down.
-var downMarkers = []string{
-	"unreachable",
-	"offline",
-	"disconnected",
-	"disabled",
-	"refused",
-	"no route",
-	"could not resolve",
-	`"down"`,
-}
-
 // Exec runs one herdr invocation. args do not include the herdr binary.
 // A non-nil error means the process did not start. A non-zero code is herdr's.
 type Exec func(ctx context.Context, args []string) (stdout, stderr string, code int, err error)
@@ -416,35 +404,8 @@ func (a *Adapter) probe(machine string) remotecall.Probe {
 		if err != nil || code != 0 || probeCtx.Err() != nil {
 			return false
 		}
-		return machineStatusUp(stdout, stderr)
+		return remotecall.HerdrMachineUp(stdout, stderr)
 	}
-}
-
-// machineStatusUp reports whether `herdr machine status <m> --json` says the
-// host answered. herdr prints [{"id", "label", "status", "error"}] with status
-// "reachable" for a host it reached. Any status other than a down status
-// counts as answered, so an auth failure on a live host still reads as up.
-// Output that does not parse falls back to looking for down markers.
-func machineStatusUp(stdout, stderr string) bool {
-	var machines []struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &machines); err == nil && len(machines) > 0 {
-		status := strings.ToLower(machines[0].Status)
-		for _, marker := range downMarkers {
-			if strings.Trim(marker, `"`) == status {
-				return false
-			}
-		}
-		return status != ""
-	}
-	text := strings.ToLower(stdout + "\n" + stderr)
-	for _, marker := range downMarkers {
-		if strings.Contains(text, marker) {
-			return false
-		}
-	}
-	return true
 }
 
 func (a *Adapter) run(ctx context.Context, args []string) (string, string, int, error) {

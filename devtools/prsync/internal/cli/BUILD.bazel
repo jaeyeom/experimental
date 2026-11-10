@@ -40,6 +40,7 @@ go_test(
         "cli_gate_test.go",
         "cli_integration_test.go",
         "cli_log_test.go",
+        "cli_machines_test.go",
         "cli_scan_test.go",
         "cli_tabs_test.go",
         "cli_test.go",
@@ -47,6 +48,7 @@ go_test(
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
+        "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/dispatch:go_default_library",
         "//devtools/prsync/internal/runlog:go_default_library",

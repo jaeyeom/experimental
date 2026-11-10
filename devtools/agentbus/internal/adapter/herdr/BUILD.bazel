@@ -21,7 +21,7 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
-        "//devtools/agentbus/internal/adapter/herdr/herdrtest:go_default_library",
+        "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
     ],
 )

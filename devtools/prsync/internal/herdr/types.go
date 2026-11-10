@@ -45,6 +45,9 @@ type Tab struct {
 	Label       string `json:"label"`
 	AgentStatus string `json:"agent_status"` //nolint:tagliatelle // herdr/brief wire format
 	PaneCount   int    `json:"pane_count"`   //nolint:tagliatelle // herdr/brief wire format
+	// Machine is the saved herdr machine the tab was listed on. Empty is
+	// the local server. herdr does not send it.
+	Machine string `json:"-"`
 }
 
 // Agent is one herdr agent from `herdr agent list`.
@@ -57,6 +60,9 @@ type Agent struct {
 	ForegroundCwd  string `json:"foreground_cwd"`   //nolint:tagliatelle // herdr/brief wire format
 	StateChangeSeq int    `json:"state_change_seq"` //nolint:tagliatelle // herdr/brief wire format
 	Revision       int    `json:"revision"`
+	// Machine is the saved herdr machine the agent was listed on. Empty is
+	// the local server. herdr does not send it.
+	Machine string `json:"-"`
 }
 
 // Pane is the focused or addressed pane from `herdr pane current`.

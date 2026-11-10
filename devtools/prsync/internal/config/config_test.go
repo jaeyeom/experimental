@@ -683,6 +683,33 @@ func TestLoadDedupeWindow(t *testing.T) {
 	}
 }
 
+func TestLoadMachines(t *testing.T) {
+	t.Parallel()
+
+	def := Defaults()
+	if len(def.Machines) != 0 || def.MachineTimeout != 5*time.Second {
+		t.Fatalf("defaults Machines=%q MachineTimeout=%s", def.Machines, def.MachineTimeout)
+	}
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "machines=\"linux2, m3 linux2\"\nmachine_timeout_ms=1500\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !slices.Equal(got.Machines, []string{"linux2", "m3"}) {
+		t.Fatalf("Machines = %q", got.Machines)
+	}
+	if got.MachineTimeout != 1500*time.Millisecond {
+		t.Fatalf("MachineTimeout = %s", got.MachineTimeout)
+	}
+
+	mustWrite(t, path, "machines=local\n")
+	var keyErr *KeyError
+	if _, err := Load(path); !errors.As(err, &keyErr) || keyErr.Key != "machines" {
+		t.Fatalf("Load(machines=local) error = %v, want machines key error", err)
+	}
+}
+
 func TestLoadDispatchPromptSuffix(t *testing.T) {
 	t.Parallel()
 

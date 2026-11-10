@@ -45,6 +45,10 @@ type PR struct {
 	Unaddressed      bool      `json:"unaddressed"`
 	BlockingComments []Comment `json:"blocking_comments"` //nolint:tagliatelle // brief outbound contract
 	Tab              *Tab      `json:"tab"`
+	// TabUnknown is set when Tab is nil only because a configured herdr
+	// machine could not be searched. Dispatch skips the PR this run
+	// instead of treating it as having no tab. Omitted otherwise.
+	TabUnknown string `json:"tab_unknown,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// TeamReviewSuggestions is set only when team_cover is on and this PR
 	// requests a team that is not skipped. Nil keeps scan JSON identical
 	// when the feature is off.
@@ -101,4 +105,11 @@ type Tab struct {
 	WorkspaceID string  `json:"workspace_id"` //nolint:tagliatelle // brief outbound contract
 	Label       string  `json:"label"`
 	AgentStatus string  `json:"agent_status"` //nolint:tagliatelle // brief outbound contract
+	// Machine is the saved herdr machine the tab is on. Omitted for the
+	// local server.
+	Machine string `json:"machine,omitempty"`
 }
+
+// TabUnknownMachineUnreachable is PR.TabUnknown when the PR matched no tab
+// on any reachable machine and some configured machine was unreachable.
+const TabUnknownMachineUnreachable = "machine unreachable"

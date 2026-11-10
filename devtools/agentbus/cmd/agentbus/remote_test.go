@@ -8,10 +8,10 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr/herdrtest"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 

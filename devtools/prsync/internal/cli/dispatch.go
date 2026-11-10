@@ -97,6 +97,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		CIFix:      ciFix,
 		Hint:       hint,
 		Force:      force,
+		Remote:     func(machine string) dispatch.Herdr { return machineHerdr(exec, cfg, machine) },
 	}, time.Now())
 	if writeErr := writeDispatchJSON(stdout, out); writeErr != nil {
 		return writeErr
