@@ -10,11 +10,11 @@ all:
 	$(MAKE) generate-ansible generate-pkl
 	$(MAKE) format
 	$(MAKE) fix
-	$(MAKE) test check-semgrep check-bazel-go-files check-org-lint-tests
+	$(MAKE) test check-semgrep check-gitleaks check-bazel-go-files check-org-lint-tests
 
 check:
 	$(MAKE) check-uv-lock check-generated
-	$(MAKE) check-format test lint check-semgrep check-bazel-go-files check-org-lint-tests
+	$(MAKE) check-format test lint check-semgrep check-gitleaks check-bazel-go-files check-org-lint-tests
 
 format: format-whitespace
 	goimports -w .
@@ -226,3 +226,14 @@ check-semgrep:
 		exit 1; \
 	fi
 	@semgrep scan --error --config auto --config .semgrep
+
+# Gitleaks targets
+.PHONY: check-gitleaks
+check-gitleaks:
+	@if ! command -v gitleaks >/dev/null 2>&1; then \
+		echo "Error: gitleaks is required for make check"; \
+		echo "Install with:"; \
+		echo "  cd devtools/setup-dev/ansible && ./ensure.sh gitleaks"; \
+		exit 1; \
+	fi
+	@gitleaks git --redact --no-banner .
