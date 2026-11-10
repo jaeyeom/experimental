@@ -1337,6 +1337,67 @@ func TestRunLiveGateTimeoutQueuesRest(t *testing.T) {
 	}
 }
 
+func TestRunLiveDirtyCheckoutIsGateUnsafe(t *testing.T) {
+	t.Parallel()
+
+	cfg, store := liveCfg(t)
+	cfg.Checkout = gitRepo(t)
+	cfg.GateTimeout = time.Hour
+	cfg.DispatchTimeout = time.Hour
+	writeTestFile(t, filepath.Join(cfg.Checkout, "staged.txt"), "x\n")
+	runGit(t, cfg.Checkout, "add", "staged.txt")
+	pr2 := fixtureEligiblePR()
+	pr2.Number = 124
+	pr3 := fixtureEligiblePR()
+	pr3.Number = 125
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR(), pr2, pr3}},
+	}, fixtureNow)
+	if !errors.Is(err, ErrDirtyTree) {
+		t.Fatalf("error = %v, want ErrDirtyTree", err)
+	}
+	if len(got.Results) != 3 {
+		t.Fatalf("results = %+v, want 3", got.Results)
+	}
+	if got.Results[0].Action != ActionGateUnsafe || got.Results[0].Number != 123 || got.Results[0].Detail != "dirty tree: 1 files" {
+		t.Fatalf("first = %+v, want gate_unsafe #123 with dirty tree detail", got.Results[0])
+	}
+	for _, r := range got.Results[1:] {
+		if r.Action != ActionQueued {
+			t.Fatalf("later = %+v, want queued", r)
+		}
+	}
+	if h.promptN != 0 {
+		t.Fatalf("Prompt calls = %d, want 0 on a dirty checkout", h.promptN)
+	}
+	if _, err := os.Stat(store.Path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("state file written on a dirty checkout")
+	}
+}
+
+func TestRunDryRunDirtyCheckoutAnnotatesWouldDispatch(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Checkout = gitRepo(t)
+	writeTestFile(t, filepath.Join(cfg.Checkout, "a.txt"), "changed\n")
+	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	got, err := Run(context.Background(), h, store, cfg, Request{
+		Doc: scan.Document{PRs: []scan.PR{fixtureEligiblePR()}},
+	}, fixtureNow)
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(got.Results) != 1 || got.Results[0].Action != ActionWouldDispatch || got.Results[0].Detail != "dirty tree: 1 files" {
+		t.Fatalf("results = %+v, want would_dispatch with dirty tree detail", got.Results)
+	}
+	if h.promptN != 0 {
+		t.Fatalf("Prompt calls = %d, want 0 on dry-run", h.promptN)
+	}
+}
+
 func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
 	t.Parallel()
 

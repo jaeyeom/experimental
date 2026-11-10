@@ -203,7 +203,10 @@ commented in [[file:prsync.config.example][prsync.config.example]].
    stderr names it, e.g. ~waiting on w2:tC — blocked awaiting your
    input~. If it still holds at ~gate_timeout_ms~, the current PR is
    ~gate_timeout~ and the rest are ~queued~ (exit 4, no prompt, no
-   state write).
+   state write). A dirty dispatch checkout (see [[*gate][gate]]) does not
+   wait: the current PR is ~gate_unsafe~ with the reason as ~detail~,
+   the rest are ~queued~ (exit 1, no prompt, no state write). A dry run
+   puts the same reason on each ~would_dispatch~ row.
 2. *Send* — ~herdr agent prompt <pane_id> <prompt> --wait --until idle
    --until done --timeout …~ (tokens from ~dispatch_wait_until~). From
    a non-~working~ pane, herdr must observe ~working~ or ~blocked~
@@ -621,6 +624,23 @@ agent is in that set only when ~concurrency_ignore_blocked~ is ~false~.
 }
 #+END_SRC
 
+The gate is also unsafe (exit 1) when the dispatch checkout is dirty,
+in every ~concurrency_cwd~ mode. The checkout is the git toplevel of
+the current directory when its origin is a configured repo (for
+~dispatch~, the repo being dispatched); if there is none, the check is
+skipped. ~reason~ is one of ~dirty tree: rebase in progress~, ~dirty
+tree: merge in progress~, or ~dirty tree: N files~ (staged or unstaged
+tracked paths; untracked files do not count). A clean tree omits
+~reason~:
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [],
+  "reason": "dirty tree: 2 files"
+}
+#+END_SRC
+
 Self-exclusion uses ~HERDR_PANE_ID~ only. If that env var is empty,
 ~gate~ does not call ~herdr pane current~ (that would drop the focused
 pane under cron).
@@ -694,7 +714,7 @@ CI uses fixture binaries, not live herdr.
 | Code | Meaning |
 |------+---------|
 |    0 | Success |
-|    1 | ~gate~ only: busy set is non-empty |
+|    1 | ~gate~: busy set is non-empty or the dispatch checkout is dirty; ~dispatch --go~: dirty dispatch checkout (~gate_unsafe~) |
 |    2 | Usage, config, or flag error |
 |    3 | Missing tool, auth failure, herdr too old, or mid-loop dispatch failure |
 |    4 | Live dispatch timed out waiting on the gate or settle |

@@ -11,7 +11,8 @@ import (
 const (
 	// ExitOK is a successful run.
 	ExitOK = 0
-	// ExitUnsafe is gate only: busy set non-empty.
+	// ExitUnsafe is an unsafe gate: busy set non-empty, or a dirty
+	// dispatch checkout (gate and live dispatch).
 	ExitUnsafe = 1
 	// ExitUsage is usage, config, or flag errors.
 	ExitUsage = 2

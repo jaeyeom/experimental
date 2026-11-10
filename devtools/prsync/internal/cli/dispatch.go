@@ -233,6 +233,9 @@ func dispatchExit(err error, cfg config.Config) error {
 	if errors.Is(err, dispatch.ErrCorruptState) {
 		return &ExitError{Code: ExitUsage, Err: err}
 	}
+	if errors.Is(err, dispatch.ErrDirtyTree) {
+		return &ExitError{Code: ExitUnsafe, Err: err}
+	}
 	if errors.Is(err, dispatch.ErrTimeout) {
 		return &ExitError{Code: ExitGateTimeout, Err: err}
 	}

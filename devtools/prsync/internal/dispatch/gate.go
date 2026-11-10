@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,10 @@ const settleDebouncePolls = 3
 // ErrTimeout is returned when Wait expires with a non-empty busy set.
 var ErrTimeout = errors.New("gate timeout")
 
+// ErrDirtyTree is returned when Wait finds the dispatch checkout dirty.
+// It does not poll: a dirty tree is unsafe at once.
+var ErrDirtyTree = errors.New("gate unsafe")
+
 // Clock is the injected clock for Wait.
 type Clock interface {
 	Now() time.Time
@@ -55,9 +60,11 @@ type Herdr interface {
 }
 
 // Result is the outbound gate JSON document.
+// Reason is set when the dispatch checkout is dirty; Safe is then false.
 type Result struct {
-	Safe bool   `json:"safe"`
-	Busy []Busy `json:"busy"`
+	Safe   bool   `json:"safe"`
+	Busy   []Busy `json:"busy"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // Busy is one agent that holds the gate.
@@ -94,6 +101,9 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 	log.Info("gate_wait_start", "wait_on", cfg.ConcurrencyWaitOn, "runner_pane", runnerPane)
 	defer func() {
 		args := []any{"safe", res.Safe, "busy_count", len(res.Busy)}
+		if res.Reason != "" {
+			args = append(args, "reason", res.Reason)
+		}
 		if len(res.Busy) > 0 {
 			args = append(args, "tab_id", res.Busy[0].TabID, "agent_status", res.Busy[0].Status)
 		}
@@ -112,6 +122,9 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 		res, err = snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs))
 		if err != nil {
 			return res, err
+		}
+		if res.Reason != "" {
+			return res, ErrDirtyTree
 		}
 		if res.Safe {
 			held++
@@ -178,7 +191,62 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy) (Result, error) {
 		return Result{}, fmt.Errorf("agent list: %w", err)
 	}
 	busy := busySet(agents, policy)
-	return Result{Safe: len(busy) == 0, Busy: busy}, nil
+	res := Result{Safe: len(busy) == 0, Busy: busy}
+	if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {
+		res.Safe = false
+		res.Reason = reason
+	}
+	return res, nil
+}
+
+// dirtyTreeReason describes why checkout is unsafe to dispatch into: a
+// rebase or merge in progress, or staged or unstaged changes to tracked
+// paths. Untracked files do not count. It is empty for a clean tree and
+// when checkout is empty or not a git work tree.
+func dirtyTreeReason(ctx context.Context, checkout string) string {
+	if checkout == "" {
+		return ""
+	}
+	gitDir, err := gitOutput(ctx, checkout, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return ""
+	}
+	gitDir = strings.TrimSpace(gitDir)
+	switch {
+	case pathExists(filepath.Join(gitDir, "rebase-merge")) || pathExists(filepath.Join(gitDir, "rebase-apply")):
+		return "dirty tree: rebase in progress"
+	case pathExists(filepath.Join(gitDir, "MERGE_HEAD")):
+		return "dirty tree: merge in progress"
+	}
+	out, err := gitOutput(ctx, checkout, "status", "--porcelain=v1", "-z", "--untracked-files=no", "--no-renames")
+	if err != nil {
+		return ""
+	}
+	n := 0
+	for _, entry := range strings.Split(out, "\x00") {
+		if entry != "" {
+			n++
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("dirty tree: %d files", n)
+}
+
+func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...) //nolint:gosec // G204: fixed git binary with an argument list, not a shell
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return string(out), nil
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func busySet(agents []herdr.Agent, policy gatePolicy) []Busy {
@@ -195,12 +263,18 @@ func busySet(agents []herdr.Agent, policy gatePolicy) []Busy {
 // checkoutOfRepo is the git toplevel of the current directory when its
 // origin is repo. An unknown checkout is empty.
 func checkoutOfRepo(repo string) string {
+	return CheckoutOfRepos([]string{repo})
+}
+
+// CheckoutOfRepos is the git toplevel of the current directory when its
+// origin is one of repos. An unknown checkout is empty.
+func CheckoutOfRepos(repos []string) string {
 	top := CheckoutOfCWD()
-	if top == "" || repo == "" {
+	if top == "" {
 		return ""
 	}
 	got, err := scan.GitHubRepoFromCWD(top)
-	if err != nil || got != repo {
+	if err != nil || got == "" || !slices.Contains(repos, got) {
 		return ""
 	}
 	return top
