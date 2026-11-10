@@ -1,0 +1,141 @@
+---
+# Schedule fork-keeper (jaeyeom/experimental#598): keep personal forks
+# rebased on upstream with a threat-only review of upstream changes.
+#
+# Opt-in for one designated machine. That machine needs `gh` signed in with
+# push rights to the forks; the reviewing agent runs without them. Enable it
+# with:
+#
+#   ansible-playbook setup-fork-keeper.yml -e fork_keeper_cron_enabled=true
+#
+# With the default (false) the playbook removes the cron entry and installs
+# nothing else.
+- import_playbook: gather-facts.yml
+- import_playbook: setup-user-bin-directory.yml
+- import_playbook: git.yml
+- import_playbook: jq.yml
+- import_playbook: gh.yml
+
+- name: Schedule fork-keeper
+  hosts: all
+  vars:
+    fork_keeper_cron_enabled: false
+    # Daily at 06:17 local time.
+    fork_keeper_cron_minute: "17"
+    fork_keeper_cron_hour: "6"
+    fork_keeper_cron_weekday: "*"
+    fork_keeper_home: "{{ ansible_facts['env']['HOME'] }}"
+    fork_keeper_install_dir: "{{ fork_keeper_home }}/.local/share/fork-keeper"
+    fork_keeper_config_file: "{{ fork_keeper_home }}/.config/fork-keeper/forks.json"
+    fork_keeper_log_file: "{{ fork_keeper_home }}/.cache/fork-keeper/cron.log"
+    # review-range.sh and validate-verdict.sh come from the claude-toolbox
+    # checkout that setup-claude-toolbox.yml also maintains. Its path does
+    # not change with the plugin version and does not depend on which agent
+    # runs the review.
+    fork_keeper_toolbox_repo: jaeyeom/claude-toolbox
+    fork_keeper_toolbox_checkout: "{{ fork_keeper_home }}/.cache/claude-toolbox"
+    fork_keeper_scripts_dir: "{{ fork_keeper_toolbox_checkout }}/plugins/fork-keeper/skills/fork-keeper/scripts"
+    fork_keeper_path: "{{ user_bin_directory }}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    # Replaced per fork: {out} is the agent's output directory and {branch}
+    # the fork's default branch.
+    fork_keeper_agent:
+      - claude
+      - -p
+      - "/fork-keeper:fork-keeper sync --out {out} -b {branch}"
+    fork_keeper_forks:
+      - name: emacs-herdr
+        repo: jaeyeom/emacs-herdr
+        upstream_url: https://github.com/baongoc124/emacs-herdr.git
+        branch: main
+        agent: "{{ fork_keeper_agent }}"
+      - name: Githooks
+        repo: jaeyeom/Githooks
+        upstream_url: https://github.com/gabyx/Githooks.git
+        branch: main
+        agent: "{{ fork_keeper_agent }}"
+  tasks:
+    - name: Include guard for setup-fork-keeper playbook
+      block:
+        - name: Stop early if the setup-fork-keeper playbook is already included
+          meta: end_play
+          when: setup_fork_keeper_playbook_imported is defined
+        - name: Ensure the setup-fork-keeper playbook is not included
+          set_fact:
+            setup_fork_keeper_playbook_imported: true
+          when: setup_fork_keeper_playbook_imported is not defined
+
+    - name: Check if crontab is available
+      shell: command -v crontab
+      register: fork_keeper_crontab_check
+      failed_when: false
+      changed_when: false
+      check_mode: false
+
+    - name: Remove the fork-keeper cron entry on machines that are not designated
+      ansible.builtin.cron:
+        name: fork-keeper
+        state: absent
+      when:
+        - not (fork_keeper_cron_enabled | bool)
+        - fork_keeper_crontab_check.rc == 0
+
+    - name: Install and schedule fork-keeper
+      when: fork_keeper_cron_enabled | bool
+      block:
+        - name: Fail when crontab is not available
+          ansible.builtin.fail:
+            msg: fork_keeper_cron_enabled is true, but this machine has no crontab.
+          when: fork_keeper_crontab_check.rc != 0
+
+        - name: Clone or update the claude-toolbox checkout
+          ansible.builtin.git:
+            repo: "https://github.com/{{ fork_keeper_toolbox_repo }}"
+            dest: "{{ fork_keeper_toolbox_checkout }}"
+            depth: 1
+
+        - name: Check that the fork-keeper helper scripts exist
+          ansible.builtin.stat:
+            path: "{{ fork_keeper_scripts_dir }}/{{ item }}"
+          loop:
+            - review-range.sh
+            - validate-verdict.sh
+          register: fork_keeper_helpers
+          failed_when: not fork_keeper_helpers.stat.exists
+
+        - name: Create fork-keeper directories
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            mode: "0700"
+          loop:
+            - "{{ fork_keeper_install_dir }}"
+            - "{{ fork_keeper_config_file | dirname }}"
+            - "{{ fork_keeper_log_file | dirname }}"
+
+        - name: Install the fork-keeper scheduler scripts
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../../fork-keeper/{{ item }}"
+            dest: "{{ fork_keeper_install_dir }}/{{ item }}"
+            mode: "0755"
+          loop:
+            - fork-keeper.sh
+            - tripwires.sh
+
+        - name: Write the fork-keeper fork list
+          ansible.builtin.copy:
+            content: "{{ {'forks': fork_keeper_forks} | to_nice_json(indent=2) }}\n"
+            dest: "{{ fork_keeper_config_file }}"
+            mode: "0600"
+
+        - name: Schedule fork-keeper with cron
+          ansible.builtin.cron:
+            name: fork-keeper
+            minute: "{{ fork_keeper_cron_minute }}"
+            hour: "{{ fork_keeper_cron_hour }}"
+            weekday: "{{ fork_keeper_cron_weekday }}"
+            job: >-
+              PATH='{{ fork_keeper_path }}'
+              FORK_KEEPER_CONFIG='{{ fork_keeper_config_file }}'
+              FORK_KEEPER_SCRIPTS='{{ fork_keeper_scripts_dir }}'
+              '{{ fork_keeper_install_dir }}/fork-keeper.sh'
+              >>'{{ fork_keeper_log_file }}' 2>&1

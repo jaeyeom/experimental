@@ -238,6 +238,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-factory.yml
 - setup-fira-code.yml
 - setup-fira-code-nerd-font.yml
+- setup-fork-keeper.yml
 - setup-ghostty.yml
 - setup-git.yml
 - setup-go-tools.yml

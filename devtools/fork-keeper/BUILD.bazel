@@ -1,0 +1,28 @@
+# testdata/claude-toolbox holds pinned copies of review-range.sh and
+# validate-verdict.sh from jaeyeom/claude-toolbox
+# plugins/fork-keeper/skills/fork-keeper/scripts at commit ea7bc3a, so the
+# tests exercise the real contract without network access. At runtime
+# fork-keeper.sh reads them from FORK_KEEPER_SCRIPTS instead. Refresh these
+# copies whenever the contract changes.
+
+sh_test(
+    name = "tripwires_test",
+    srcs = ["tripwires_test.sh"],
+    data = [
+        "testdata/claude-toolbox/review-range.sh",
+        "testlib.sh",
+        "tripwires.sh",
+    ],
+)
+
+sh_test(
+    name = "fork_keeper_test",
+    srcs = ["fork_keeper_test.sh"],
+    data = [
+        "fork-keeper.sh",
+        "testdata/claude-toolbox/review-range.sh",
+        "testdata/claude-toolbox/validate-verdict.sh",
+        "testlib.sh",
+        "tripwires.sh",
+    ],
+)
