@@ -201,6 +201,14 @@ func (s *server) dispatch(req Request, pid int) Response {
 		return s.list()
 	case "search":
 		return s.search(req)
+	default:
+		return s.dispatchMessage(req, pid)
+	}
+}
+
+// dispatchMessage handles the message and hook ops.
+func (s *server) dispatchMessage(req Request, pid int) Response {
+	switch req.Op {
 	case "send":
 		return s.send(req, pid)
 	case "reply":
@@ -213,6 +221,8 @@ func (s *server) dispatch(req Request, pid int) Response {
 		return s.status(req)
 	case "bypass":
 		return s.bypass(req)
+	case "requeue":
+		return s.requeue(req)
 	default:
 		return Response{Error: "unknown op"}
 	}
@@ -237,6 +247,19 @@ func (s *server) bypass(req Request) Response {
 		return Response{Error: err.Error()}
 	}
 	return Response{OK: true}
+}
+
+// requeue puts back a delivered message that a UserPromptSubmit hook
+// blocked because it was merged into a user draft.
+func (s *server) requeue(req Request) Response {
+	actor := strings.TrimSpace(req.Session)
+	if actor == "" {
+		actor = "unknown"
+	}
+	if err := s.box.Requeue(req.Name, actor); err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Name: req.Name}
 }
 
 // preview keeps at most limit bytes and marks a cut with an ellipsis.

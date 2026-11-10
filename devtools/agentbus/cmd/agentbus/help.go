@@ -132,7 +132,7 @@ func commands() []command {
 		},
 		{
 			name:    "install-hooks",
-			summary: "Install the observe-only SendMessage hook.",
+			summary: "Install the observe-only SendMessage hook and the merged-draft prompt guard.",
 			usage:   "agentbus install-hooks",
 			example: "agentbus install-hooks",
 			run:     noStdin(cmdInstallHooks),
@@ -143,6 +143,13 @@ func commands() []command {
 			usage:   "agentbus hook < hook-input.json",
 			example: "agentbus hook < hook-input.json",
 			run:     cmdHook,
+		},
+		{
+			name:    "prompt-hook",
+			summary: "Block a Claude Code prompt where a bus message was pasted after a user draft, and re-queue it. The install-hooks script runs it.",
+			usage:   "agentbus prompt-hook < hook-input.json",
+			example: "agentbus prompt-hook < hook-input.json",
+			run:     cmdPromptHook,
 		},
 	}
 }

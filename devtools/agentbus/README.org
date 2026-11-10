@@ -31,7 +31,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
 | ~install~ | Install the supervisor and load it. |
-| ~install-hooks~ | Install the observe-only ~SendMessage~ hook. |
+| ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
 ~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
 ~agentbus help <command>~ or ~agentbus <command> --help~ prints that
@@ -109,6 +109,17 @@ appeared in between holds the message until the next pass. The
 check ran. The race narrows but cannot close. ~delivered~ logs how long
 the message was held. ~--ttl~ still applies to a held message.
 
+The prompt guard from ~agentbus install-hooks~ catches what the race
+lets through. A Claude Code prompt with an envelope header
+(~[agentbus m-~) after other text is a bus message pasted into a user
+draft. The guard blocks that submit. Claude Code keeps the whole text in
+the input box, and the block reason tells the user to delete the
+~[agentbus m-…]~ part and submit again. The bus re-queues the message by
+its id, logs a ~requeued~ event, and holds it as ~held: user draft in
+composer~ until the box is empty. If the bus cannot re-queue it, the
+reason says so, and the copy in the input box is the only one. A prompt
+that starts with the envelope is a clean delivery and passes.
+
 * Lost messages
 
 When something seems lost, check ~agentbus status <id>~ and
@@ -159,3 +170,11 @@ a project's ~.claude/settings.json~ or ~settings.local.json~. The hook
 lets the tool call proceed. It records a bypass event and exits 0. If
 ~agentbus~ is not on ~PATH~, or the bus is down, the hook exits 0 and
 the tool call is unchanged.
+
+The same command writes a ~UserPromptSubmit~ hook, the script
+~$HOME/.claude/hooks/agentbus-userpromptsubmit.sh~, which runs
+~agentbus prompt-hook~. It blocks a prompt only when an agentbus
+envelope follows other text, as described under "Delivery and user
+drafts". If ~agentbus~ is not on ~PATH~, the prompt goes through.
+Running ~install-hooks~ again updates both entries in place. Other
+hooks and settings are kept.

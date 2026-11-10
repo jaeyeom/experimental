@@ -32,6 +32,7 @@ const (
 	EventDelivered      = "delivered"
 	EventHeld           = "held"
 	EventRetry          = "retry"
+	EventRequeued       = "requeued"
 	EventExpired        = "expired"
 	EventRejected       = "rejected"
 	EventAdapterError   = "adapter_error"
@@ -357,7 +358,7 @@ func knownEvent(name string) bool {
 	switch name {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
 		EventSend, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
-		EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop:
+		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop:
 		return true
 	default:
 		return false
