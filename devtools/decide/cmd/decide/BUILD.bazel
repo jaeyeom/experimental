@@ -30,6 +30,7 @@ go_test(
     srcs = [
         "hub_test.go",
         "main_test.go",
+        "snooze_test.go",
         "thread_test.go",
     ],
     data = [

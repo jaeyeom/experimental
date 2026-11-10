@@ -49,6 +49,23 @@ configured targets and no error shows. A note to a bus name runs
 inbox also go through ~agentbus send~. When the send fails the draft
 stays and no thread is kept.
 
+* Snooze
+
+~b~ in the inbox list or an open item snoozes it: ~1h~, ~3h~, ~tomorrow
+9:00~, ~next Monday 9:00~, or a custom time. A snoozed item keeps its
+state and is hidden from every folder but Snoozed (~g~ then ~z~), which
+sorts by wake time. It comes back, unread, at that time or as soon as a
+message lands on its thread, such as an agent ~decide reply~. In
+Snoozed, ~b~ also offers ~unsnooze~.
+
+- ~decide snooze <id> <when>~ takes ~2h30m~, ~HH:MM~ (today, or tomorrow
+  once passed), ~YYYY-MM-DD HH:MM~, or ~mon 9:00~, in local time. A done
+  or withdrawn item is refused.
+- ~decide unsnooze <id>~ returns it now.
+- ~decide list~ hides snoozed items. ~--snoozed~ lists only them, and
+  ~decide inbox --snoozed~ opens on that folder. ~show~ prints
+  ~snoozed until:~ and ~--json~ carries ~snoozedUntil~ and ~snoozedAt~.
+
 * Emacs
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that

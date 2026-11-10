@@ -23,6 +23,8 @@ type Options struct {
 	SendTemplate string
 	Agentbus     bool
 	BusRunner    BusRunner
+	// Snoozed opens on the Snoozed folder.
+	Snoozed bool
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -72,6 +74,9 @@ func prepare(opts Options) (*Model, error) {
 	m.out = opts.Out
 	if opts.Now != nil {
 		m.Now = opts.Now
+	}
+	if opts.Snoozed {
+		m.folder = snoozedFolder
 	}
 	if err := m.Reload(); err != nil {
 		return nil, err

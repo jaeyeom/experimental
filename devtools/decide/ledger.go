@@ -100,6 +100,10 @@ type Item struct {
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
 	// BusMessage is the agentbus message id of a note sent to a bus name.
 	BusMessage string `json:"busMessage,omitempty"`
+	// SnoozedUntil hides the item until that time. SnoozedAt is when the
+	// snooze was set. A new message on the thread clears both.
+	SnoozedUntil *time.Time `json:"snoozedUntil,omitempty"`
+	SnoozedAt    *time.Time `json:"snoozedAt,omitempty"`
 }
 
 // Ledger is the on-disk decision store for one directory.
@@ -134,6 +138,15 @@ func Open(dir string) (*Ledger, error) {
 		return nil, fmt.Errorf("create decide directory: %w", err)
 	}
 	return &Ledger{dir: dir, now: time.Now}, nil
+}
+
+// SetClock replaces the clock used for timestamps and snooze wake-ups.
+// A nil clock is time.Now.
+func (l *Ledger) SetClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	l.now = now
 }
 
 // Create stores item and assigns the next id. Ids start at D-001 and are
@@ -280,6 +293,7 @@ func (l *Ledger) Answer(id, value string) (Item, error) {
 			msg.Text = keyLabel(stored, label)
 		}
 		it.Messages = append(it.Messages, msg)
+		wakeOnMessage(it)
 		updated = *it
 		return nil
 	})
@@ -382,6 +396,7 @@ func (l *Ledger) Compose(id, text string) (Item, error) {
 			it.AnsweredAt = now
 			it.Answer = &Answer{Value: text, AnsweredBy: "human"}
 		}
+		wakeOnMessage(it)
 		updated = *it
 		return nil
 	})
@@ -428,6 +443,7 @@ func (l *Ledger) Reply(id, text string, options []Option, freeText bool) (Item, 
 		it.Messages = append(it.Messages, msg)
 		it.State = StateOpen
 		it.Unread = true
+		wakeOnMessage(it)
 		updated = *it
 		return nil
 	})
@@ -443,8 +459,9 @@ func openQuestion(it *Item) bool {
 	return it.Kind == KindRelay && it.State == StateOpen && (len(it.Options) > 0 || it.FreeText)
 }
 
-// Select returns items in state. Deadline order is soonest first, then items
-// with no deadline, then newest created time. An empty state means open.
+// Select returns items in state that are not snoozed. Deadline order is
+// soonest first, then items with no deadline, then newest created time.
+// An empty state means open.
 func Select(items []Item, state string) ([]Item, error) {
 	if state == "" {
 		state = StateOpen
@@ -456,7 +473,7 @@ func Select(items []Item, state string) ([]Item, error) {
 	}
 	out := make([]Item, 0)
 	for _, it := range items {
-		if it.State == state {
+		if it.State == state && !it.Snoozed() {
 			out = append(out, it)
 		}
 	}
@@ -495,6 +512,9 @@ func (l *Ledger) locked(write bool, fn func(*store) error) (err error) {
 		return err
 	}
 	migrated := migrateStore(st)
+	if wakeStore(st, l.clock()) {
+		migrated = true
+	}
 	if migrated {
 		if err = save(l.dir, st); err != nil {
 			return err
@@ -606,6 +626,7 @@ func (l *Ledger) finish(id, state, text string) (Item, error) {
 			return fmt.Errorf("decide item %s is %s", id, it.State)
 		}
 		it.State = state
+		clearSnooze(it)
 		now := l.clock().UTC()
 		switch state {
 		case StateWithdrawn:
@@ -778,6 +799,8 @@ func cloneItem(src *Item) Item {
 		a := *src.Answer
 		item.Answer = &a
 	}
+	item.SnoozedUntil = cloneTime(src.SnoozedUntil)
+	item.SnoozedAt = cloneTime(src.SnoozedAt)
 	if src.Messages != nil {
 		item.Messages = append([]Message(nil), src.Messages...)
 		for i := range item.Messages {
@@ -787,6 +810,14 @@ func cloneItem(src *Item) Item {
 		}
 	}
 	return item
+}
+
+func cloneTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	c := *t
+	return &c
 }
 
 func normalizeTimes(item *Item) {
