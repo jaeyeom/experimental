@@ -21,7 +21,7 @@ func TestClientsAppendOnAThreeMessageThread(t *testing.T) {
 		if code := answer(t, id, "keep"); code != 0 {
 			t.Fatal(code)
 		}
-		assertAppended(t, id, before, "human", "keep")
+		assertAppended(t, id, before, "human", "keep: Keep")
 	})
 	t.Run("reply", func(t *testing.T) {
 		id, before := seedCLIThread(t)

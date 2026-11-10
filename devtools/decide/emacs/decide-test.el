@@ -639,7 +639,7 @@
       (setq decide--item-id id)
       (insert "keep")
       (decide-answer-send))
-    (decide-test--assert-stored id "keep")))
+    (decide-test--assert-stored id "keep: Keep")))
 
 (ert-deftest decide-stored-reply-appends ()
   "Sending the reply buffer appends a human message and keeps the thread."
@@ -821,7 +821,7 @@
       (should (equal (decide--field item "state") "answered"))
       (should (equal (decide-test--answer-value item) "a"))
       (should (equal (decide-test--texts id)
-                     (list "root ask" "a" "later note"))))))
+                     (list "root ask" "a: Alpha" "later note"))))))
 
 (provide 'decide-test)
 

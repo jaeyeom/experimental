@@ -21,7 +21,7 @@ func TestTUIAppendsOnAThreeMessageThread(t *testing.T) {
 			t.Fatal(err)
 		}
 		press(t, m, "o1")
-		assertTUIAppended(t, dir, id, before, "human", "keep")
+		assertTUIAppended(t, dir, id, before, "human", "keep: Keep")
 	})
 	t.Run("reply", func(t *testing.T) {
 		dir := t.TempDir()
@@ -512,6 +512,24 @@ func TestForwardPrefillsTheSelectedMessage(t *testing.T) {
 	press(t, m, "hi")
 	if m.note != want+"hi" {
 		t.Fatalf("cursor is not after the prefill: %q", m.note)
+	}
+}
+
+func TestForwardQuotesTheAnswerLabel(t *testing.T) {
+	led := openLedger(t, t.TempDir())
+	item := mustCreate(t, led, &decide.Item{
+		Question: "pick",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		Options:  []decide.Option{{Key: "a", Label: "Alpha"}, {Key: "b", Label: "Beta"}},
+	})
+	answered, err := led.Answer(item.ID, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	note := forwardPrefill(&answered, -1)
+	if !strings.Contains(note, "> a: Alpha\n") {
+		t.Fatalf("prefill does not quote the label\n%s", note)
 	}
 }
 

@@ -73,7 +73,8 @@ into the command string.
 - ~DECIDE_ID~ is the item id.
 - ~DECIDE_ANSWER~ is the saved answer. An option answer is the option key.
   A multi-line free-text answer is stored unchanged, including quotes.
-- ~DECIDE_ANSWER_LABEL~ is the chosen option's label. It is empty for free text.
+- ~DECIDE_ANSWER_LABEL~ is the label the chosen option had when it was
+  answered. A later follow-up does not change it. It is empty for free text.
 - ~DECIDE_OWNER~ is the item owner.
 - ~DECIDE_PANE~ is the notify pane. An item pane overrides the config pane.
 - ~DECIDE_KIND~ is the item kind, ~relay~ or ~type-in~.

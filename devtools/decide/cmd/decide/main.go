@@ -850,7 +850,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 	writeTime(w, "doneAt", it.DoneAt)
 	writeTime(w, "withdrawnAt", it.WithdrawnAt)
 	if it.Answer != nil {
-		fmt.Fprintf(w, "answer: %s\n", it.Answer.Value)
+		fmt.Fprintf(w, "answer: %s\n", decide.AnswerText(it))
 		fmt.Fprintf(w, "answeredBy: %s\n", it.Answer.AnsweredBy)
 	}
 	writeField(w, "notifyPane", it.NotifyPane)
