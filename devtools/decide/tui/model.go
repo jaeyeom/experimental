@@ -93,6 +93,7 @@ type Model struct {
 	help         bool
 	answerFocus  bool
 	note         string
+	forward      string
 	runSend      func([]string) error
 	runOpen      func(string) error
 	copyClip     func(string) error
@@ -524,12 +525,6 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'g':
 		m.beginChord()
 		return false, nil
-	case 'c':
-		m.focusCompose()
-		return false, nil
-	case 'e':
-		m.beginOutcome()
-		return false, nil
 	case 'y':
 		return false, m.archiveSelected()
 	case 'Y':
@@ -540,14 +535,32 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'L':
 		m.copyCurrentLink()
 		return false, nil
-	case '0':
-		m.focusReply()
-		return false, nil
 	case '/':
 		m.beginSearch()
 		return false, nil
 	}
+	if m.detailComposer(r) {
+		return false, nil
+	}
 	return m.detailText(r)
+}
+
+// detailComposer opens the composer an item-view key names: c compose,
+// f forward, e outcome, or 0 reply.
+func (m *Model) detailComposer(r rune) bool {
+	switch r {
+	case 'c':
+		m.focusCompose()
+	case 'f':
+		m.forwardItem()
+	case 'e':
+		m.beginOutcome()
+	case '0':
+		m.focusReply()
+	default:
+		return false
+	}
+	return true
 }
 
 // detailText answers a numbered option. Any other printable key is unbound.
@@ -596,7 +609,13 @@ func (m *Model) focusCompose() {
 	m.noteField.Blur()
 }
 
+// blurCompose leaves the compose box and keeps the draft. A forward's
+// draft is discarded with its prefill.
 func (m *Model) blurCompose() {
+	if m.forward != "" {
+		m.clearNote()
+		return
+	}
 	if m.noteField.Focused() {
 		m.note = m.noteField.Value()
 	}
@@ -612,6 +631,7 @@ func (m *Model) insertNoteNewline() {
 
 func (m *Model) clearNote() {
 	m.note = ""
+	m.forward = ""
 	m.composing = false
 	m.composeFocus = focusRecipient
 	m.noteField.Blur()
@@ -1010,7 +1030,8 @@ func (m *Model) narrow() bool {
 func (m *Model) statusLine() screenLine {
 	// The mouse label stays in front. The list and status hints stay the same
 	// width, so a 70-column footer still shows "? help". An open item also
-	// names y archive and 0 reply.
+	// names y archive, 0 reply, and f forward. It leaves the folder keys to
+	// ? help so a 120-column footer still fits.
 	if m.searching {
 		return m.searchPrompt()
 	}
@@ -1030,7 +1051,7 @@ func (m *Model) statusLine() screenLine {
 	case modeStatus:
 		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
 	case modeDetail, modeOutcome:
-		hint = label + "gi/ga/gd/gw/gs  0 reply  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
+		hint = label + "0 reply  f forward  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
 	}
 	text := hint
 	if m.status != "" {
@@ -1955,7 +1976,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
-		"1-9 answer  0 reply  y archive  e done",
+		"1-9 answer  0 reply  f forward  y archive  e done",
 		"/ filters the list, empty enter clears",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",
@@ -2124,6 +2145,9 @@ func headerLines(it *decide.Item) []screenLine {
 		label := strings.Repeat(" ", pad) + row.label
 		text := labelStyle.Render(label+":") + " " + row.value
 		lines = append(lines, screenLine{text: text})
+	}
+	if it.ForwardedFrom != "" {
+		lines = append(lines, screenLine{text: plainText("forwarded from " + it.ForwardedFrom)})
 	}
 	return lines
 }

@@ -88,6 +88,8 @@ type Item struct {
 	Where       string     `json:"where,omitempty"`
 	Reason      string     `json:"reason,omitempty"`
 	Outcome     string     `json:"outcome,omitempty"`
+	// ForwardedFrom is the item id a forwarded thread was started from.
+	ForwardedFrom string `json:"forwardedFrom,omitempty"`
 }
 
 // Ledger is the on-disk decision store for one directory.
@@ -274,6 +276,12 @@ func (l *Ledger) Answer(id, value string) (Item, error) {
 // StartThread stores a human compose addressed to owner.
 // pane is the owner's notify pane. text is the first message and the question.
 func (l *Ledger) StartThread(owner, pane, text string) (Item, error) {
+	return l.ForwardThread("", owner, pane, text)
+}
+
+// ForwardThread is StartThread for a note forwarded from item from.
+// An empty from starts a plain thread.
+func (l *Ledger) ForwardThread(from, owner, pane, text string) (Item, error) {
 	if strings.TrimSpace(owner) == "" {
 		return Item{}, fmt.Errorf("decide owner is empty")
 	}
@@ -282,11 +290,12 @@ func (l *Ledger) StartThread(owner, pane, text string) (Item, error) {
 	}
 	now := l.clock().UTC()
 	return l.Create(&Item{
-		Question:   text,
-		Owner:      owner,
-		Kind:       KindRelay,
-		NotifyPane: pane,
-		CreatedAt:  now,
+		Question:      text,
+		Owner:         owner,
+		Kind:          KindRelay,
+		NotifyPane:    pane,
+		CreatedAt:     now,
+		ForwardedFrom: from,
 		Messages: []Message{{
 			Author: "human",
 			Time:   now,

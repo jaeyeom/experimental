@@ -575,6 +575,31 @@ func TestShowPrintsTypeInTextAndWhere(t *testing.T) {
 	}
 }
 
+func TestShowPrintsForwardedFrom(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+	led, err := decide.Open(filepath.Join(dir, "decide"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := led.ForwardThread("D-123", "alpha", "pane-a", "fwd note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runCLI("show", item.ID)
+	if code != 0 {
+		t.Fatalf("show code = %d\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "forwarded from D-123\n") {
+		t.Fatalf("show missing forwarded from\n%s", stdout)
+	}
+	plain := askTypeIn(t, "exact phrase", "the reply box")
+	stdout, _, _ = runCLI("show", plain)
+	if strings.Contains(stdout, "forwarded from") {
+		t.Fatalf("plain show names a source\n%s", stdout)
+	}
+}
+
 func askRelay(t *testing.T, extra []string, question string) string {
 	t.Helper()
 	args := relayArgs(question)
