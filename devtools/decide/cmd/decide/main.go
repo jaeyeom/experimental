@@ -425,6 +425,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		Out:          stdout,
 		Targets:      inboxTargets(cfg),
 		SendTemplate: cfg.SendTemplate,
+		Agentbus:     cfg.Recipients.Agentbus,
 	}); err != nil {
 		return fail(stderr, err, 1)
 	}

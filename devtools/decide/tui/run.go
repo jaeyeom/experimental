@@ -11,7 +11,8 @@ import (
 // Options configure Run. In and Out default to the caller. Interval defaults
 // to DefaultInterval. Targets and SendTemplate come from decide config.
 // An empty SendTemplate is `herdr agent prompt {pane}` plus the note as its
-// own argument.
+// own argument. Agentbus adds `agentbus list --json` names to the
+// recipients. BusRunner runs agentbus and defaults to ExecAgentbus.
 type Options struct {
 	Dir          string
 	In           io.Reader
@@ -20,6 +21,8 @@ type Options struct {
 	Now          func() time.Time
 	Targets      []Target
 	SendTemplate string
+	Agentbus     bool
+	BusRunner    BusRunner
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -64,6 +67,8 @@ func prepare(opts Options) (*Model, error) {
 	m := New(opts.Dir)
 	m.Targets = opts.Targets
 	m.SendTemplate = opts.SendTemplate
+	m.busOn = opts.Agentbus
+	m.busRun = opts.BusRunner
 	m.out = opts.Out
 	if opts.Now != nil {
 		m.Now = opts.Now

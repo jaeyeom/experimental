@@ -30,6 +30,25 @@ Plain output is one name per line. ~--json~ is an array of ~name~ and
 through the same command the inbox uses. The text is one argument. An
 unknown name or an empty note sends nothing.
 
+In the inbox compose box the recipient list is a dropdown of at most
+eight rows, and at most a third of the screen. Typing filters it by name
+or ~when~ text, ignoring case. ~Backspace~ widens it, ~Esc~ clears the
+filter, and a second ~Esc~ leaves compose. ~↑~/~↓~ or ~C-p~/~C-n~ move
+and ~Enter~ picks. A list longer than the dropdown shows the match count
+and groups names by prefix.
+
+With ~"recipients": {"agentbus": true}~ in the config (off by default)
+the list adds the names from ~agentbus list --json~ after the configured
+targets, with their ~when~ text and liveness. Dead names come last. A
+configured target whose pane a bus name holds is shown once, as the bus
+name. The listing is cached for 30 seconds. If ~agentbus~ is missing,
+the daemon is down, or the call takes over 500ms, the list holds only the
+configured targets and no error shows. A note to a bus name runs
+~agentbus send <name> <note>~. The thread pane is ~agentbus:<name>~ and
+~busMessage~ is the bus message id. Replies in that thread from the
+inbox also go through ~agentbus send~. When the send fails the draft
+stays and no thread is kept.
+
 * Emacs
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that

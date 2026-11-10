@@ -39,6 +39,14 @@ type Config struct {
 	SendTemplate   string         `json:"sendTemplate,omitempty"`
 	Targets        []ConfigTarget `json:"targets,omitempty"`
 	Colors         Colors         `json:"colors,omitempty"`
+	Recipients     Recipients     `json:"recipients,omitempty"`
+}
+
+// Recipients chooses extra compose recipients. Agentbus adds the names
+// from `agentbus list --json` to the configured targets. It is off by
+// default.
+type Recipients struct {
+	Agentbus bool `json:"agentbus,omitempty"`
 }
 
 // Colors is the inbox palette in decide config. Each field is an ANSI
