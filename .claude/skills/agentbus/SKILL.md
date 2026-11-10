@@ -63,4 +63,4 @@ The CLI connects to `$XDG_RUNTIME_DIR/agentbus/daemon.sock`. The daemon needs th
 
 ## Install
 
-`agentbus install` installs the supervisor (launchd on macOS, a systemd user unit on Linux). `agentbus install-hooks` records Claude Code `SendMessage` calls and does not block them. If `agentbus` is not on `PATH`, or the bus is down, that hook exits 0. It also adds a `UserPromptSubmit` guard that blocks a prompt where a bus message follows the user's own text, and re-queues that message.
+`agentbus install` installs the supervisor (launchd on macOS, a systemd user unit on Linux). `agentbus install-hooks` records Claude Code `SendMessage` calls and does not block them. When the recipient holds a bus name, the hook adds a hint such as `This recipient is coord/primary on agentbus. Next time use: agentbus send coord/primary "..."` to your context; use `agentbus send` for that recipient next time. The bypass event records that name as `resolved`. If `agentbus` is not on `PATH`, or the bus is down, that hook exits 0. It also adds a `UserPromptSubmit` guard that blocks a prompt where a bus message follows the user's own text, and re-queues that message.

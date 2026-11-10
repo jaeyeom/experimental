@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -16,8 +17,10 @@ import (
 const hookTimeout = time.Second
 
 // cmdHook records one Claude Code SendMessage and always exits 0.
-// Stdout stays empty so the tool call proceeds with no decision.
-func cmdHook(ctx context.Context, args, env []string, stdin io.Reader, _, _ io.Writer) int {
+// It never prints a decision, so the tool call proceeds. When the bus
+// maps the target to a bus name, stdout carries a hint for the agent.
+// Otherwise, and on any daemon error, stdout stays empty.
+func cmdHook(ctx context.Context, args, env []string, stdin io.Reader, stdout, _ io.Writer) int {
 	if len(args) != 0 {
 		return 0
 	}
@@ -35,13 +38,30 @@ func cmdHook(ctx context.Context, args, env []string, stdin io.Reader, _, _ io.W
 	}
 	callCtx, cancel := context.WithTimeout(ctx, hookTimeout)
 	defer cancel()
-	_, _ = dialDaemon(callCtx, dirs.SocketPath, daemon.Request{
+	resp, err := dialDaemon(callCtx, dirs.SocketPath, daemon.Request{
 		Op:      "bypass",
 		Name:    target,
 		Body:    body,
 		Session: session,
 	})
+	if err != nil || !resp.OK || resp.Name == "" {
+		return 0
+	}
+	if out, err := json.Marshal(busHint(resp.Name)); err == nil {
+		fmt.Fprintf(stdout, "%s\n", out)
+	}
 	return 0
+}
+
+// busHint is PreToolUse output with additionalContext and no
+// permissionDecision, so Claude Code shows the hint and runs the call.
+func busHint(name string) map[string]any {
+	return map[string]any{
+		"hookSpecificOutput": map[string]string{
+			"hookEventName":     "PreToolUse",
+			"additionalContext": fmt.Sprintf("This recipient is %s on agentbus. Next time use: agentbus send %s \"...\"", name, name),
+		},
+	}
 }
 
 // parseHook reads the Claude Code hook stdin. session_id, to/recipient/target,

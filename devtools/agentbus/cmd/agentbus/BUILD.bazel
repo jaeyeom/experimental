@@ -35,6 +35,7 @@ go_test(
         "discover_test.go",
         "envelope_test.go",
         "help_test.go",
+        "hook_test.go",
         "install_test.go",
         "main_test.go",
         "prompthook_test.go",

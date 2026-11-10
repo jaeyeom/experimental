@@ -45,12 +45,14 @@ const (
 const timeLayout = "2006-01-02T15:04:05.000Z07:00"
 
 // Event is one log record. Empty optional fields are left out of the line.
+// Resolved is the bus name a bypass target maps to.
 type Event struct {
 	Time        time.Time
 	Event       string
 	MsgID       string
 	Actor       string
 	Name        string
+	Resolved    string
 	Detail      string
 	Reason      string
 	TargetState string
@@ -79,6 +81,7 @@ type record struct {
 	MsgID       string `json:"msg_id,omitempty"` //nolint:tagliatelle // event log contract
 	Actor       string `json:"actor"`
 	Name        string `json:"name,omitempty"`
+	Resolved    string `json:"resolved,omitempty"`
 	Detail      string `json:"detail,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	TargetState string `json:"target_state,omitempty"` //nolint:tagliatelle // event log contract
@@ -171,6 +174,7 @@ func Parse(line string) (Event, error) {
 		MsgID:       rec.MsgID,
 		Actor:       rec.Actor,
 		Name:        rec.Name,
+		Resolved:    rec.Resolved,
 		Detail:      rec.Detail,
 		Reason:      rec.Reason,
 		TargetState: rec.TargetState,
@@ -189,6 +193,7 @@ func Format(line string) (string, error) {
 	b.WriteString(ev.Event)
 	writeField(&b, "actor", ev.Actor)
 	writeField(&b, "name", ev.Name)
+	writeField(&b, "resolved", ev.Resolved)
 	writeField(&b, "msg", ev.MsgID)
 	writeField(&b, "detail", ev.Detail)
 	writeField(&b, "reason", ev.Reason)
@@ -377,6 +382,7 @@ func encode(e Event, now time.Time) ([]byte, time.Time, error) {
 		MsgID:       e.MsgID,
 		Actor:       e.Actor,
 		Name:        e.Name,
+		Resolved:    e.Resolved,
 		Detail:      e.Detail,
 		Reason:      e.Reason,
 		TargetState: e.TargetState,

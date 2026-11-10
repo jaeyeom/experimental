@@ -144,7 +144,7 @@ func commands() []command {
 		},
 		{
 			name:    "hook",
-			summary: "Record one Claude Code SendMessage call. The install-hooks script runs it.",
+			summary: "Record one Claude Code SendMessage call, and hint the bus name when the recipient holds one. The install-hooks script runs it.",
 			usage:   "agentbus hook < hook-input.json",
 			example: "agentbus hook < hook-input.json",
 			run:     cmdHook,
