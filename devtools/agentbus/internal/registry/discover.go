@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -52,13 +53,49 @@ func (r *Registry) Poll(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// pollOnce reads inventories without holding r.mu, so a slow machine
+// does not hold up name lookups while it answers.
 func (r *Registry) pollOnce(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
 	r.mu.Lock()
+	ads, err := r.usable(ctx)
+	r.mu.Unlock()
+	if err != nil {
+		return
+	}
+	agents := make([][]adapter.Agent, len(ads))
+	errs := make([]error, len(ads))
+	for i, ad := range ads {
+		agents[i], errs[i] = ad.Inventory(ctx)
+	}
+	r.mu.Lock()
 	defer r.mu.Unlock()
-	_ = r.refresh(ctx)
+	r.initInventory()
+	for i, ad := range ads {
+		if err := r.storeInventory(ad.Name(), agents[i], errs[i]); err != nil {
+			return
+		}
+	}
+	r.haveInventory = true
+}
+
+// Warnings returns the inventory warnings from the last refresh, such as
+// a configured machine that could not be reached.
+func (r *Registry) Warnings() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	names := make([]string, 0, len(r.warnings))
+	for name := range r.warnings {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var out []string
+	for _, name := range names {
+		out = append(out, r.warnings[name]...)
+	}
+	return out
 }
 
 // List returns registered names with --when, liveness, and transport.
@@ -113,14 +150,10 @@ func (r *Registry) refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if r.snaps == nil {
-		r.snaps = map[string][]adapter.Agent{}
-	}
-	if r.invBroken == nil {
-		r.invBroken = map[string]bool{}
-	}
+	r.initInventory()
 	for _, ad := range ads {
-		if err := r.refreshOne(ctx, ad); err != nil {
+		agents, invErr := ad.Inventory(ctx)
+		if err := r.storeInventory(ad.Name(), agents, invErr); err != nil {
 			return err
 		}
 	}
@@ -128,13 +161,32 @@ func (r *Registry) refresh(ctx context.Context) error {
 	return nil
 }
 
-func (r *Registry) refreshOne(ctx context.Context, ad adapter.Adapter) error {
-	agents, err := ad.Inventory(ctx)
-	if err != nil {
-		return r.noteInventoryError(ad.Name(), err)
+func (r *Registry) initInventory() {
+	if r.snaps == nil {
+		r.snaps = map[string][]adapter.Agent{}
 	}
-	r.invBroken[ad.Name()] = false
-	r.snaps[ad.Name()] = append([]adapter.Agent(nil), agents...)
+	if r.invBroken == nil {
+		r.invBroken = map[string]bool{}
+	}
+	if r.warnings == nil {
+		r.warnings = map[string][]string{}
+	}
+}
+
+// storeInventory keeps one adapter's agents. An InventoryWarning keeps
+// the agents it came with and records its lines. The caller holds r.mu.
+func (r *Registry) storeInventory(name string, agents []adapter.Agent, invErr error) error {
+	var warn *adapter.InventoryWarning
+	switch {
+	case errors.As(invErr, &warn):
+		r.warnings[name] = append([]string(nil), warn.Lines...)
+	case invErr != nil:
+		return r.noteInventoryError(name, invErr)
+	default:
+		delete(r.warnings, name)
+	}
+	r.invBroken[name] = false
+	r.snaps[name] = append([]adapter.Agent(nil), agents...)
 	return nil
 }
 

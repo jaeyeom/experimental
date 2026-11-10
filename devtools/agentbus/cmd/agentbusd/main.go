@@ -13,6 +13,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"golang.org/x/sys/unix"
@@ -29,9 +30,16 @@ Flags:
 Environment:
   XDG_RUNTIME_DIR              required; the socket is $XDG_RUNTIME_DIR/agentbus/daemon.sock
   XDG_STATE_HOME               state directory parent (default: $HOME/.local/state)
-  HOME                         required when XDG_STATE_HOME is unset
+  XDG_CONFIG_HOME              config directory parent (default: $HOME/.config)
+  HOME                         required when XDG_STATE_HOME or XDG_CONFIG_HOME is unset
   AGENTBUS_LOG_RETENTION_DAYS  daily log files to keep (default: 30)
   AGENTBUS_INLINE_BYTES        largest body pasted in full (default: 4096)
+
+Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
+  machines = ["linux2"]   saved herdr machines whose agents search lists;
+                          herdr:<machine>/<session>/<pane> handles reach
+                          any saved machine
+  remote_timeout = "5s"   bound on each call to another machine (default: 5s)
 
 Example:
   agentbusd
@@ -65,11 +73,16 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
+	cfg, err := config.Load(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
 		RetentionDays: days,
-		Adapters:      []adapter.Adapter{&herdr.Adapter{}},
+		Adapters:      []adapter.Adapter{&herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}},
 		InlineBytes:   inline,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)

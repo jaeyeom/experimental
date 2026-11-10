@@ -1,38 +1,90 @@
-// Package herdr is the v1 agentbus adapter for a local herdr server.
+// Package herdr is the agentbus adapter for herdr. It reaches the local
+// server and saved herdr machines through `herdr --machine`.
 package herdr
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
+
+// localMachine is the machine part of a handle on the local herdr server.
+const localMachine = "local"
+
+// DefaultTimeout bounds one call to another machine when Timeout is zero.
+const DefaultTimeout = 5 * time.Second
+
+// probeTimeout bounds `herdr machine status`, which classifies a failure.
+const probeTimeout = 2 * time.Second
+
+// downMarkers in `herdr machine status` output mean the host is down.
+var downMarkers = []string{
+	"unreachable",
+	"offline",
+	"disconnected",
+	"disabled",
+	"refused",
+	"no route",
+	"could not resolve",
+	`"down"`,
+}
 
 // Exec runs one herdr invocation. args do not include the herdr binary.
 // A non-nil error means the process did not start. A non-zero code is herdr's.
 type Exec func(ctx context.Context, args []string) (stdout, stderr string, code int, err error)
 
 // Adapter talks to herdr through recorded or live command output.
+// Machines are the saved herdr machines Inventory adds to the local one.
+// Timeout bounds each call to another machine; zero uses DefaultTimeout.
 type Adapter struct {
-	Run Exec
+	Run      Exec
+	Machines []string
+	Timeout  time.Duration
 }
 
 // Name is the adapter name used when a self-test fails.
 func (a *Adapter) Name() string { return "herdr" }
 
-// Inventory reads `herdr agent list` and tab labels from `herdr tab list`.
+// Inventory reads `herdr agent list` and tab labels from `herdr tab list`,
+// locally and then on each of Machines. A machine that cannot be listed
+// adds a line to an *adapter.InventoryWarning returned with the rest.
 func (a *Adapter) Inventory(ctx context.Context) ([]adapter.Agent, error) {
-	agents, err := a.agents(ctx)
+	out, err := a.inventoryOf(ctx, localMachine)
 	if err != nil {
 		return nil, err
 	}
-	labels, err := a.tabLabels(ctx)
+	var warnings []string
+	for _, machine := range a.Machines {
+		agents, err := a.inventoryOf(ctx, machine)
+		if ue := remotecall.AsUnreachable(err); ue != nil {
+			warnings = append(warnings, ue.Error())
+			continue
+		}
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("machine %s: %v", machine, err))
+			continue
+		}
+		out = append(out, agents...)
+	}
+	if len(warnings) > 0 {
+		return out, &adapter.InventoryWarning{Lines: warnings}
+	}
+	return out, nil
+}
+
+func (a *Adapter) inventoryOf(ctx context.Context, machine string) ([]adapter.Agent, error) {
+	agents, err := a.agents(ctx, machine)
+	if err != nil {
+		return nil, err
+	}
+	labels, err := a.tabLabels(ctx, machine)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +92,7 @@ func (a *Adapter) Inventory(ctx context.Context) ([]adapter.Agent, error) {
 	for _, item := range agents {
 		session := item.Session.Value
 		out = append(out, adapter.Agent{
-			Handle:    handle(session, item.PaneID),
+			Handle:    handle(machine, session, item.PaneID),
 			PaneID:    item.PaneID,
 			TabID:     item.TabID,
 			TabLabel:  labels[item.TabID],
@@ -60,7 +112,7 @@ func (a *Adapter) Identify(ctx context.Context, env []string) (string, error) {
 	if pane == "" {
 		return "", errors.New("HERDR_PANE_ID is not set")
 	}
-	agents, err := a.agents(ctx)
+	agents, err := a.agents(ctx, localMachine)
 	if err != nil {
 		return "", err
 	}
@@ -71,21 +123,19 @@ func (a *Adapter) Identify(ctx context.Context, env []string) (string, error) {
 		if item.Session.Value == "" {
 			return "", fmt.Errorf("herdr pane %s has no agent session id", pane)
 		}
-		return handle(item.Session.Value, pane), nil
+		return handle(localMachine, item.Session.Value, pane), nil
 	}
 	return "", fmt.Errorf("herdr pane %s is not in the agent list", pane)
 }
 
-// State maps herdr's agent status. v1 accepts the local machine only.
+// State maps herdr's agent status on the handle's machine. A machine that
+// cannot be reached is a *remotecall.UnreachableError.
 func (a *Adapter) State(ctx context.Context, raw string) (adapter.State, error) {
 	machine, _, pane, err := parseHandle(raw)
 	if err != nil {
 		return adapter.StateUnknown, err
 	}
-	if machine != "local" {
-		return adapter.StateUnknown, fmt.Errorf("herdr handle %s is not local", raw)
-	}
-	agents, err := a.agents(ctx)
+	agents, err := a.agents(ctx, machine)
 	if err != nil {
 		return adapter.StateUnknown, err
 	}
@@ -112,10 +162,7 @@ func (a *Adapter) ComposerEmpty(ctx context.Context, raw string) (bool, string, 
 	if err != nil {
 		return false, adapter.HoldDraftUnknown, err
 	}
-	if machine != "local" {
-		return false, adapter.HoldDraftUnknown, fmt.Errorf("herdr handle %s is not local", raw)
-	}
-	agents, err := a.agents(ctx)
+	agents, err := a.agents(ctx, machine)
 	if err != nil {
 		return false, adapter.HoldDraftUnknown, err
 	}
@@ -130,7 +177,7 @@ func (a *Adapter) ComposerEmpty(ctx context.Context, raw string) (bool, string, 
 			}
 			return true, "", nil
 		}
-		stdout, stderr, code, err := a.exec(ctx, []string{"agent", "read", pane, "--source", "visible"})
+		stdout, stderr, code, err := a.exec(ctx, machine, []string{"agent", "read", pane, "--source", "visible"})
 		if err != nil {
 			return false, adapter.HoldDraftUnknown, err
 		}
@@ -202,10 +249,7 @@ func (a *Adapter) Deliver(ctx context.Context, raw, text string) (adapter.Result
 	if err != nil {
 		return adapter.ResultFailed, err
 	}
-	if machine != "local" {
-		return adapter.ResultFailed, fmt.Errorf("herdr handle %s is not local", raw)
-	}
-	stdout, stderr, code, err := a.exec(ctx, []string{"agent", "prompt", pane, text})
+	stdout, stderr, code, err := a.exec(ctx, machine, []string{"agent", "prompt", pane, text})
 	if err != nil {
 		return adapter.ResultFailed, err
 	}
@@ -214,27 +258,20 @@ func (a *Adapter) Deliver(ctx context.Context, raw, text string) (adapter.Result
 
 // SelfTest requires `herdr agent list` to return a parseable agent list.
 func (a *Adapter) SelfTest(ctx context.Context) error {
-	if _, err := a.agents(ctx); err != nil {
+	if _, err := a.agents(ctx, localMachine); err != nil {
 		return fmt.Errorf("herdr agent list: %w", err)
 	}
 	return nil
 }
 
-// RunLive executes the herdr binary on PATH.
+// RunLive executes the herdr binary on PATH. Cancelling ctx kills herdr
+// and the ssh it may have started.
 func RunLive(ctx context.Context, args []string) (string, string, int, error) {
-	cmd := exec.CommandContext(ctx, "herdr", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err == nil {
-		return stdout.String(), stderr.String(), 0, nil
+	res, err := remotecall.Run(ctx, "herdr", args...)
+	if err != nil {
+		return "", "", -1, fmt.Errorf("run herdr: %w", err)
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return stdout.String(), stderr.String(), exitErr.ExitCode(), nil
-	}
-	return stdout.String(), stderr.String(), -1, fmt.Errorf("run herdr: %w", err)
+	return res.Stdout, res.Stderr, res.Code, nil
 }
 
 type listedAgent struct {
@@ -249,8 +286,8 @@ type listedAgent struct {
 	} `json:"agent_session"` //nolint:tagliatelle // herdr wire format
 }
 
-func (a *Adapter) agents(ctx context.Context) ([]listedAgent, error) {
-	stdout, stderr, code, err := a.exec(ctx, []string{"agent", "list"})
+func (a *Adapter) agents(ctx context.Context, machine string) ([]listedAgent, error) {
+	stdout, stderr, code, err := a.exec(ctx, machine, []string{"agent", "list"})
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +305,8 @@ func (a *Adapter) agents(ctx context.Context) ([]listedAgent, error) {
 	return env.Result.Agents, nil
 }
 
-func (a *Adapter) tabLabels(ctx context.Context) (map[string]string, error) {
-	stdout, stderr, code, err := a.exec(ctx, []string{"tab", "list"})
+func (a *Adapter) tabLabels(ctx context.Context, machine string) (map[string]string, error) {
+	stdout, stderr, code, err := a.exec(ctx, machine, []string{"tab", "list"})
 	if err != nil {
 		return nil, err
 	}
@@ -294,12 +331,82 @@ func (a *Adapter) tabLabels(ctx context.Context) (map[string]string, error) {
 	return labels, nil
 }
 
-func (a *Adapter) exec(ctx context.Context, args []string) (string, string, int, error) {
-	run := a.Run
-	if run == nil {
-		run = RunLive
+// exec runs one herdr call on machine. Every call path goes through it.
+// A call to another machine runs as `herdr --machine <machine> <args>`
+// under Timeout, and a failure that means the machine cannot be reached
+// is a *remotecall.UnreachableError. Other failures are herdr's, as for
+// a local call.
+func (a *Adapter) exec(ctx context.Context, machine string, args []string) (string, string, int, error) {
+	if machine == localMachine {
+		return a.run(ctx, args)
 	}
-	return run(ctx, args)
+	callCtx, cancel := context.WithTimeout(ctx, a.timeout())
+	defer cancel()
+	stdout, stderr, code, err := a.run(callCtx, append([]string{"--machine", machine}, args...))
+	timedOut := callCtx.Err() != nil && ctx.Err() == nil
+	if err != nil && !timedOut {
+		return stdout, stderr, code, err
+	}
+	res := remotecall.Result{Stdout: stdout, Stderr: stderr, Code: code, TimedOut: timedOut}
+	if ue := remotecall.Classify(ctx, machine, res, a.probe(machine)); ue != nil {
+		return stdout, stderr, code, fmt.Errorf("herdr %s: %w", strings.Join(args[:min(2, len(args))], " "), ue)
+	}
+	return stdout, stderr, code, nil
+}
+
+// probe asks `herdr machine status`, which never prompts, whether the
+// machine's host answers.
+func (a *Adapter) probe(machine string) remotecall.Probe {
+	return func(ctx context.Context) bool {
+		probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+		defer cancel()
+		stdout, stderr, code, err := a.run(probeCtx, []string{"machine", "status", machine, "--json"})
+		if err != nil || code != 0 || probeCtx.Err() != nil {
+			return false
+		}
+		return machineStatusUp(stdout, stderr)
+	}
+}
+
+// machineStatusUp reports whether `herdr machine status <m> --json` says the
+// host answered. herdr prints [{"id", "label", "status", "error"}] with status
+// "reachable" for a host it reached. Any status other than a down status
+// counts as answered, so an auth failure on a live host still reads as up.
+// Output that does not parse falls back to looking for down markers.
+func machineStatusUp(stdout, stderr string) bool {
+	var machines []struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &machines); err == nil && len(machines) > 0 {
+		status := strings.ToLower(machines[0].Status)
+		for _, marker := range downMarkers {
+			if strings.Trim(marker, `"`) == status {
+				return false
+			}
+		}
+		return status != ""
+	}
+	text := strings.ToLower(stdout + "\n" + stderr)
+	for _, marker := range downMarkers {
+		if strings.Contains(text, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *Adapter) run(ctx context.Context, args []string) (string, string, int, error) {
+	if a.Run == nil {
+		return RunLive(ctx, args)
+	}
+	return a.Run(ctx, args)
+}
+
+func (a *Adapter) timeout() time.Duration {
+	if a.Timeout > 0 {
+		return a.Timeout
+	}
+	return DefaultTimeout
 }
 
 func mapStatus(kind, status string) adapter.State {
@@ -333,8 +440,8 @@ func mapPrompt(code int, stdout, stderr string) adapter.Result {
 	return adapter.ResultFailed
 }
 
-func handle(session, pane string) string {
-	return "herdr:local/" + session + "/" + pane
+func handle(machine, session, pane string) string {
+	return "herdr:" + machine + "/" + session + "/" + pane
 }
 
 func parseHandle(raw string) (machine, session, pane string, err error) {

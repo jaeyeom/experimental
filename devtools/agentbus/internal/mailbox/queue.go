@@ -10,6 +10,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 
 const (
@@ -110,28 +111,59 @@ func (m *Mailbox) resultOf(id string) (Result, error) {
 	return Result{ID: msg.ID, State: msg.State}, nil
 }
 
+// flushQuiet starts a flush for each machine that is not already
+// flushing, and does not wait for it. A slow or hung machine holds up only
+// its own handles: the next tick skips it and flushes the others.
+// Errors are logged.
 func (m *Mailbox) flushQuiet(ctx context.Context) {
-	if err := m.flushAll(ctx); err != nil {
-		_ = m.logEvent(eventlog.Event{
-			Event:  eventlog.EventAdapterError,
-			Actor:  "agentbus",
-			Detail: "queue flush failed",
-			Reason: err.Error(),
-		})
+	for machine, handles := range byMachine(m.handles()) {
+		if !m.startFlush(machine) {
+			continue
+		}
+		go func() {
+			defer m.endFlush(machine)
+			for _, handle := range handles {
+				if ctx.Err() != nil {
+					return
+				}
+				if err := m.flushHandle(ctx, handle); err != nil {
+					_ = m.logEvent(eventlog.Event{
+						Event:  eventlog.EventAdapterError,
+						Actor:  "agentbus",
+						Detail: "queue flush failed",
+						Reason: err.Error(),
+					})
+				}
+			}
+		}()
 	}
 }
 
-func (m *Mailbox) flushAll(ctx context.Context) error {
-	var first error
-	for _, handle := range m.handles() {
-		if ctx.Err() != nil {
-			return nil
-		}
-		if err := m.flushHandle(ctx, handle); err != nil && first == nil {
-			first = err
-		}
+func (m *Mailbox) startFlush(machine string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.flushing[machine] {
+		return false
 	}
-	return first
+	m.flushing[machine] = true
+	return true
+}
+
+func (m *Mailbox) endFlush(machine string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.flushing, machine)
+}
+
+// byMachine groups handles by the part before the first "/", such as
+// herdr:local or herdr:m2. Order within a group is kept.
+func byMachine(handles []string) map[string][]string {
+	groups := map[string][]string{}
+	for _, handle := range handles {
+		machine, _, _ := strings.Cut(handle, "/")
+		groups[machine] = append(groups[machine], handle)
+	}
+	return groups
 }
 
 func (m *Mailbox) handles() []string {
@@ -305,6 +337,9 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 		TargetState: string(state),
 	})
 	result, err := ad.Deliver(ctx, msg.Handle, text)
+	if ue := remotecall.AsUnreachable(err); ue != nil {
+		return unreachableOutcome(ue)
+	}
 	if err != nil {
 		return outcome{tried: true, reason: err.Error(), target: string(state)}
 	}
@@ -323,7 +358,9 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 // not a tried delivery, so it never counts as a retry.
 func composerHold(ctx context.Context, ad adapter.Adapter, handle string) (string, bool) {
 	empty, reason, err := ad.ComposerEmpty(ctx, handle)
-	switch {
+	switch ue := remotecall.AsUnreachable(err); {
+	case ue != nil:
+		return ue.Error(), true
 	case err != nil || (!empty && reason == ""):
 		return adapter.HoldDraftUnknown, true
 	case !empty:
@@ -333,7 +370,16 @@ func composerHold(ctx context.Context, ad adapter.Adapter, handle string) (strin
 	}
 }
 
+// unreachableOutcome holds a message for a machine that cannot be
+// reached. It is not a tried delivery, so it never counts as a retry.
+func unreachableOutcome(ue *remotecall.UnreachableError) outcome {
+	return outcome{reason: ue.Error(), target: "unreachable"}
+}
+
 func (m *Mailbox) holdOutcome(state adapter.State, err error) outcome {
+	if ue := remotecall.AsUnreachable(err); ue != nil {
+		return unreachableOutcome(ue)
+	}
 	if err != nil {
 		return outcome{reason: "unreachable", target: "unreachable"}
 	}

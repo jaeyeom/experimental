@@ -14,6 +14,7 @@ go_library(
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",
+        "//devtools/pkg/remotecall:go_default_library",
     ],
 )
 

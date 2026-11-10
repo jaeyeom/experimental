@@ -88,6 +88,13 @@ func cmdSearch(ctx context.Context, args, env []string, stdout, stderr io.Writer
 		return 1
 	}
 	printRows(stdout, resp.Rows)
+	// Text is one warning per machine that could not be listed. The
+	// search still succeeds with the agents it found.
+	for _, line := range strings.Split(strings.TrimSuffix(resp.Text, "\n"), "\n") {
+		if line != "" {
+			fmt.Fprintf(stderr, "agentbus: %s\n", line)
+		}
+	}
 	return 0
 }
 

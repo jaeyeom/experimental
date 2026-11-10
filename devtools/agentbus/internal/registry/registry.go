@@ -36,6 +36,7 @@ type Registry struct {
 	tested        bool
 	snaps         map[string][]adapter.Agent
 	invBroken     map[string]bool
+	warnings      map[string][]string
 	haveInventory bool
 	mu            sync.Mutex
 }
@@ -353,7 +354,8 @@ const (
 
 func judge(ctx context.Context, ad adapter.Adapter, handle string) live {
 	agents, invErr := ad.Inventory(ctx)
-	if invErr == nil && sessionReplaced(handle, agents) {
+	var warn *adapter.InventoryWarning
+	if (invErr == nil || errors.As(invErr, &warn)) && sessionReplaced(handle, agents) {
 		return liveGone
 	}
 	state, err := ad.State(ctx, handle)
@@ -370,9 +372,10 @@ func judge(ctx context.Context, ad adapter.Adapter, handle string) live {
 	}
 }
 
-// sessionReplaced is true when the pane is occupied by a different session.
+// sessionReplaced is true when the pane is occupied by a different session
+// on the same machine. Pane ids repeat across machines.
 func sessionReplaced(handle string, agents []adapter.Agent) bool {
-	scheme, session, pane, ok := splitHandle(handle)
+	_, session, pane, ok := splitHandle(handle)
 	if !ok {
 		return false
 	}
@@ -381,7 +384,8 @@ func sessionReplaced(handle string, agents []adapter.Agent) bool {
 			return false
 		}
 	}
-	prefix := scheme + ":"
+	machine, _, _ := strings.Cut(handle, "/")
+	prefix := machine + "/"
 	for _, agent := range agents {
 		if agent.PaneID == "" || agent.PaneID != pane || agent.SessionID == "" || agent.SessionID == session {
 			continue

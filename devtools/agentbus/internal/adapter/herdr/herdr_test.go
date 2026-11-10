@@ -98,9 +98,6 @@ func TestHerdrMapsRecordedCommands(t *testing.T) {
 	if gone != adapter.StateGone {
 		t.Fatalf("missing pane = %q", gone)
 	}
-	if _, err := ad.Deliver(context.Background(), "herdr:remote/default/w2:p3", "no"); err == nil {
-		t.Fatal("remote handle was accepted")
-	}
 }
 
 const rule = "──────────────────────────────────────────"

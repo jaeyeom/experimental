@@ -249,7 +249,7 @@ func isSystemdPlain(r rune) bool {
 
 func supervisorEnv(env []string) [][2]string {
 	var out [][2]string
-	for _, key := range []string{"HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME"} {
+	for _, key := range []string{"HOME", "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME"} {
 		if val := envGet(env, key); val != "" {
 			out = append(out, [2]string{key, val})
 		}

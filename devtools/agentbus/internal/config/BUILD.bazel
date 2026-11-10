@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["config.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/config",
+    visibility = ["//devtools/agentbus:__subpackages__"],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["config_test.go"],
+    embed = [":go_default_library"],
+)

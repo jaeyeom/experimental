@@ -326,7 +326,11 @@ func (s *server) search(req Request) Response {
 	if err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true, Rows: agentRows(rows)}
+	text := ""
+	if lines := s.reg.Warnings(); len(lines) > 0 {
+		text = strings.Join(lines, "\n") + "\n"
+	}
+	return Response{OK: true, Rows: agentRows(rows), Text: text}
 }
 
 func agentRows(in []registry.Row) []AgentRow {

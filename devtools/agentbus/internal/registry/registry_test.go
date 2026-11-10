@@ -231,3 +231,15 @@ func TestLookupSkipsAPaneHeldInTwoSessions(t *testing.T) {
 		t.Fatalf("handle = %q", got)
 	}
 }
+
+func TestSessionReplacedComparesTheMachine(t *testing.T) {
+	// Pane ids repeat across machines: a local w1:p1 in another session
+	// does not replace m2's w1:p1.
+	local := adapter.Agent{Handle: "herdr:local/other/w1:p1", PaneID: "w1:p1", SessionID: "other"}
+	if sessionReplaced("herdr:m2/default/w1:p1", []adapter.Agent{local}) {
+		t.Fatal("a local pane replaced a remote session")
+	}
+	if !sessionReplaced("herdr:local/default/w1:p1", []adapter.Agent{local}) {
+		t.Fatal("a new local session did not replace the old one")
+	}
+}
