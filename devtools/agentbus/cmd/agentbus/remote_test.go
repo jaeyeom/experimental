@@ -178,6 +178,37 @@ func TestSearchIncludesConfiguredMachines(t *testing.T) {
 	}
 }
 
+// TestHubModeCallerRegistersAndGetsRepliesOnItsMachine runs the hub side:
+// the commands arrive over ssh with the caller's remote handle.
+func TestHubModeCallerRegistersAndGetsRepliesOnItsMachine(t *testing.T) {
+	bus := startRemoteBus(t, 5*time.Second, time.Hour)
+	hubEnv := append(append([]string{}, bus.base...),
+		"SSH_CONNECTION=10.0.0.2 50000 10.0.0.1 22",
+		"AGENTBUS_AS_HANDLE="+remoteTarget)
+	mustCmd(t, []string{"register", "eng/remote", "--when", "runs on m2"}, hubEnv)
+	out, _ := mustCmd(t, []string{"list", "--json"}, bus.base)
+	if !strings.Contains(out, `"handle":"`+remoteTarget+`"`) {
+		t.Fatalf("list = %s", out)
+	}
+
+	id, state := sendID(t, hubEnv, "herdr:local/default/w1:p1", "question")
+	if state != "delivered" {
+		t.Fatalf("send state = %q", state)
+	}
+	bus.fake.Argv()
+	mustCmd(t, []string{"reply", id, "answer"}, bus.env("w1:p1"))
+	if !textsContain(bus.fake.Argv(), "--machine m2 agent prompt w2:p3 ") {
+		t.Fatal("the reply did not go back through --machine m2")
+	}
+
+	// Without ssh, the handle is not trusted.
+	spoof := append(append([]string{}, bus.base...), "AGENTBUS_AS_HANDLE="+remoteTarget)
+	code, _, stderr := runCmd([]string{"register", "eng/spoof", "--when", "x"}, spoof)
+	if code == 0 {
+		t.Fatalf("register with an untrusted handle succeeded: %q", stderr)
+	}
+}
+
 func TestNameOnUnreachableMachineIsNotReleased(t *testing.T) {
 	bus := startRemoteBus(t, 5*time.Second, time.Hour)
 	mustCmd(t, []string{"register", "eng/remote", "--when", "runs on m2"}, bus.env("w1:p1"))

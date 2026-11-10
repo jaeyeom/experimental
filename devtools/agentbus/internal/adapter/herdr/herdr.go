@@ -107,7 +107,14 @@ func (a *Adapter) inventoryOf(ctx context.Context, machine string) ([]adapter.Ag
 
 // Identify builds herdr:local/<session>/<pane> from HERDR_PANE_ID.
 // The pane's agent session id comes from herdr, not from the caller.
+//
+// A command that arrived in hub mode carries its caller in
+// AGENTBUS_AS_HANDLE, a handle on another machine. It is trusted only
+// when SSH_CONNECTION shows the command came over ssh.
 func (a *Adapter) Identify(ctx context.Context, env []string) (string, error) {
+	if raw := envValue(env, AsHandleEnv); raw != "" {
+		return hubCaller(env, raw)
+	}
 	pane := envValue(env, "HERDR_PANE_ID")
 	if pane == "" {
 		return "", errors.New("HERDR_PANE_ID is not set")
@@ -126,6 +133,51 @@ func (a *Adapter) Identify(ctx context.Context, env []string) (string, error) {
 		return handle(localMachine, item.Session.Value, pane), nil
 	}
 	return "", fmt.Errorf("herdr pane %s is not in the agent list", pane)
+}
+
+// AsHandleEnv names the hub-mode caller handle in a command's environment.
+const AsHandleEnv = "AGENTBUS_AS_HANDLE"
+
+func hubCaller(env []string, raw string) (string, error) {
+	if envValue(env, "SSH_CONNECTION") == "" {
+		return "", fmt.Errorf("%s is only trusted over ssh, from a hub-mode call", AsHandleEnv)
+	}
+	machine, _, _, err := parseHandle(raw)
+	if err != nil {
+		return "", err
+	}
+	if machine == localMachine {
+		return "", fmt.Errorf("%s %q must name a remote machine", AsHandleEnv, raw)
+	}
+	return raw, nil
+}
+
+// LocalHandle is the handle of the caller's pane on the local herdr
+// server, herdr:local/<session>/<pane>.
+func LocalHandle(ctx context.Context, env []string) (string, error) {
+	return (&Adapter{}).Identify(ctx, without(env, AsHandleEnv))
+}
+
+// OnMachine rewrites a herdr:local/... handle to herdr:<machine>/....
+func OnMachine(raw, machine string) (string, error) {
+	m, session, pane, err := parseHandle(raw)
+	if err != nil {
+		return "", err
+	}
+	if m != localMachine {
+		return "", fmt.Errorf("handle %q is not local", raw)
+	}
+	return handle(machine, session, pane), nil
+}
+
+func without(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		if name, _, _ := strings.Cut(entry, "="); name != key {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 // State maps herdr's agent status on the handle's machine. A machine that

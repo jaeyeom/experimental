@@ -40,6 +40,11 @@ type Config struct {
 	Targets        []ConfigTarget `json:"targets,omitempty"`
 	Colors         Colors         `json:"colors,omitempty"`
 	Recipients     Recipients     `json:"recipients,omitempty"`
+	// Hub is an ssh target. When set, commands run on that machine's
+	// ledger instead of this one. DECIDE_HUB overrides it.
+	Hub string `json:"hub,omitempty"`
+	// HubTimeout is the ssh connect timeout in hub mode, such as "5s".
+	HubTimeout string `json:"hubTimeout,omitempty"`
 }
 
 // Recipients chooses extra compose recipients. Agentbus adds the names

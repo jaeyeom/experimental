@@ -7,6 +7,7 @@ go_library(
         "envelope.go",
         "help.go",
         "hook.go",
+        "hub.go",
         "install.go",
         "main.go",
         "prompthook.go",
@@ -15,10 +16,13 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbus",
     visibility = ["//visibility:private"],
     deps = [
+        "//devtools/agentbus/internal/adapter/herdr:go_default_library",
         "//devtools/agentbus/internal/client:go_default_library",
+        "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
+        "//devtools/pkg/hubcall:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -36,6 +40,7 @@ go_test(
         "envelope_test.go",
         "help_test.go",
         "hook_test.go",
+        "hub_test.go",
         "install_test.go",
         "main_test.go",
         "prompthook_test.go",
@@ -53,6 +58,7 @@ go_test(
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
+        "//devtools/pkg/hubcall/sshtest:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
     ],
 )

@@ -47,6 +47,31 @@ func TestRunRejectsArguments(t *testing.T) {
 	}
 }
 
+func TestRunRefusesInHubMode(t *testing.T) {
+	config := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(config, "agentbus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(config, "agentbus", "config.toml"), []byte("hub = \"me@hub\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := t.TempDir()
+	for _, env := range [][]string{
+		{"XDG_CONFIG_HOME=" + config},
+		{"XDG_CONFIG_HOME=" + t.TempDir(), "AGENTBUS_HUB=me@hub"},
+	} {
+		var stderr bytes.Buffer
+		env = append(env, "XDG_RUNTIME_DIR=/tmp", "HOME=/Users/me", "XDG_STATE_HOME="+state)
+		code := run(nil, env, io.Discard, &stderr)
+		if code != 1 || !strings.Contains(stderr.String(), "agentbusd: this machine uses the hub me@hub; run the daemon there") {
+			t.Fatalf("code %d, stderr %q", code, stderr.String())
+		}
+	}
+	if entries, _ := os.ReadDir(state); len(entries) != 0 {
+		t.Fatalf("hub mode created local state: %v", entries)
+	}
+}
+
 func TestRunRejectsBadConfig(t *testing.T) {
 	config := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(config, "agentbus"), 0o755); err != nil {

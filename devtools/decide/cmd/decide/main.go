@@ -23,6 +23,13 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	if code, done := maybeRunOnHub(args, stdout, stderr); done {
+		return code
+	}
+	return runLocal(args, stdout, stderr)
+}
+
+func runLocal(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return 2

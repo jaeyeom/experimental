@@ -214,9 +214,18 @@ Handles:
   herdr:<machine>/<session>/<pane>  <machine> is local, or a herdr saved-machine
                                     label or id, reached with herdr --machine.
 
-Config ($XDG_CONFIG_HOME/agentbus/config.toml, read by agentbusd):
+Config ($XDG_CONFIG_HOME/agentbus/config.toml):
   machines = ["linux2"]   saved machines whose agents search lists
-  remote_timeout = "5s"   bound on each call to another machine
+  remote_timeout = "5s"   bound on each call to another machine, and the
+                          ssh connect timeout in hub mode
+  hub = "me@hub"          hub mode: run every command on this ssh target
+                          (AGENTBUS_HUB overrides it); install refuses
+  machine = "linux2"      this machine's herdr label on the hub, so a
+                          hub-mode caller is herdr:linux2/<session>/<pane>
+
+In hub mode a hub that cannot be reached fails the command with
+"agentbus: hub <target> unreachable: <cause>". It never falls back to a
+local daemon.
 
 A message to a machine that cannot be reached is held, not failed, with
 "held: machine <m> unreachable: host unreachable" or

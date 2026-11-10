@@ -5,6 +5,8 @@
 //
 //	machines = ["linux2"]   # saved herdr machines to include
 //	remote_timeout = "5s"   # bound on each call to another machine
+//	hub = "me@hub"          # run every command on this ssh target
+//	machine = "linux2"      # this machine's herdr label on the hub
 package config
 
 import (
@@ -24,6 +26,12 @@ type Config struct {
 	// RemoteTimeout bounds each call to another machine. Zero is the
 	// adapter's default.
 	RemoteTimeout time.Duration
+	// Hub is an ssh target. When set, commands run there instead of
+	// against a local daemon. AGENTBUS_HUB overrides it.
+	Hub string
+	// Machine is this machine's herdr label as the hub knows it. Hub
+	// mode builds the caller's herdr:<machine>/<session>/<pane> from it.
+	Machine string
 }
 
 // Path is $XDG_CONFIG_HOME/agentbus/config.toml, or
@@ -101,10 +109,42 @@ func parseLine(cfg *Config, line string) error {
 			return errors.New("remote_timeout must be a positive duration, such as \"5s\"")
 		}
 		cfg.RemoteTimeout = d
+	case "hub", "machine":
+		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
 	}
 	return nil
+}
+
+// parseHubKey reads hub or machine.
+func parseHubKey(cfg *Config, key, value string) error {
+	name, err := parseName(key, value)
+	if err != nil {
+		return err
+	}
+	switch {
+	case key == "hub" && strings.HasPrefix(name, "-"):
+		return errors.New("hub must not start with -")
+	case key == "hub":
+		cfg.Hub = name
+	case name == "local":
+		return errors.New("machine must name this machine, not local")
+	case strings.Contains(name, "/"):
+		return errors.New("machine must not contain /")
+	default:
+		cfg.Machine = name
+	}
+	return nil
+}
+
+// parseName reads one non-empty string followed by an optional comment.
+func parseName(key, value string) (string, error) {
+	raw, rest, ok := parseString(value)
+	if !ok || raw == "" || !blankOrComment(rest) {
+		return "", fmt.Errorf("%s must be a non-empty string, such as \"linux2\"", key)
+	}
+	return raw, nil
 }
 
 // parseList reads ["a", "b"] followed by an optional comment.
