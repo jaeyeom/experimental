@@ -398,6 +398,9 @@ func TestOnlyZeroFocusesReplyInItemView(t *testing.T) {
 		if m.replyFocus {
 			t.Fatalf("%q focused the reply box", key)
 		}
+		if m.composing {
+			press(t, m, "\x1b")
+		}
 	}
 	m.status = ""
 	footer := lineContaining(m.View(), "? help")
@@ -455,5 +458,165 @@ func TestOptionsRenderNumberedWithoutKeyBadges(t *testing.T) {
 		if strings.Contains(view, badge+key) {
 			t.Fatalf("option key %q uses the badge style\n%q", key, view)
 		}
+	}
+}
+
+func seedForward(t *testing.T, dir string, msgs []decide.Message, links []string) decide.Item {
+	t.Helper()
+	led := openLedger(t, dir)
+	return mustCreate(t, led, &decide.Item{
+		Question: "ship the release?",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+		Links:    links,
+		Messages: msgs,
+	})
+}
+
+func forwardModel(t *testing.T, dir string) (*Model, *[]string) {
+	t.Helper()
+	m := openThread(t, dir)
+	m.Targets = []Target{{Name: "alpha", Pane: "pane-1"}, {Name: "beta", Pane: "pane-2"}}
+	var sent []string
+	m.runSend = func(argv []string) error {
+		sent = append([]string(nil), argv...)
+		return nil
+	}
+	m.width = 120
+	m.height = 30
+	return m, &sent
+}
+
+func TestForwardPrefillsTheSelectedMessage(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	at := func(h int) time.Time { return time.Date(2026, 11, 5, h, 0, 0, 0, time.UTC) }
+	item := seedForward(t, dir, []decide.Message{
+		{Author: "ada", Time: at(1), Text: "ship the release?"},
+		{Author: "human", Time: at(2), Text: "second line\nmore"},
+		{Author: "ada", Time: at(3), Text: "third"},
+	}, []string{"https://ex.test/pr/1"})
+	m, _ := forwardModel(t, dir)
+	press(t, m, "n")
+	press(t, m, "f")
+	want := "Forwarded from " + item.ID + " (owner: ada)\n" +
+		"> ship the release?\n" +
+		"> human 2026-11-05T02:00:00Z\n" +
+		"> second line\n" +
+		"> more\n" +
+		"Link: https://ex.test/pr/1\n"
+	if !m.composing || m.composeFocus != focusText || m.note != want {
+		t.Fatalf("composing %v focus %d note\n%q\nwant\n%q", m.composing, m.composeFocus, m.note, want)
+	}
+	press(t, m, "hi")
+	if m.note != want+"hi" {
+		t.Fatalf("cursor is not after the prefill: %q", m.note)
+	}
+}
+
+func TestForwardWithoutMessagesOrLinks(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	item := mustCreate(t, led, &decide.Item{
+		Question: "plain ask",
+		Owner:    "ada",
+		Kind:     decide.KindRelay,
+	})
+	m, _ := forwardModel(t, dir)
+	// Create threads the question as the first message, so drop it.
+	m.detail.Messages = nil
+	press(t, m, "f")
+	want := "Forwarded from " + item.ID + " (owner: ada)\n> plain ask\n"
+	if m.note != want {
+		t.Fatalf("note %q want %q", m.note, want)
+	}
+}
+
+func TestForwardTruncatesALongMessage(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	long := strings.Repeat("x", 5000)
+	seedForward(t, dir, []decide.Message{{Author: "ada", Text: long}}, nil)
+	m, _ := forwardModel(t, dir)
+	press(t, m, "f")
+	if len(m.note) > 2500 || !strings.Contains(m.note, "…") {
+		t.Fatalf("long note is %d bytes\n%.200s", len(m.note), m.note)
+	}
+}
+
+func TestForwardSendRecordsTheSource(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	item := seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
+	m, sent := forwardModel(t, dir)
+	press(t, m, "f")
+	press(t, m, "please look")
+	m.ShiftTab()
+	press(t, m, "j\t\t\r")
+	if m.composing || m.status != "sent to beta" {
+		t.Fatalf("composing %v status %q", m.composing, m.status)
+	}
+	items, err := openLedger(t, dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fwd *decide.Item
+	for i := range items {
+		if items[i].ID != item.ID {
+			fwd = &items[i]
+		}
+	}
+	if fwd == nil || fwd.ForwardedFrom != item.ID || fwd.Owner != "beta" || !strings.HasSuffix(fwd.Question, "please look") {
+		t.Fatalf("forwarded thread = %+v", fwd)
+	}
+	note := (*sent)[len(*sent)-1]
+	if !strings.Contains(note, "Fwd "+item.ID) || note != decide.ForwardNote(fwd.ID, item.ID, "human", fwd.Question) {
+		t.Fatalf("note = %q", note)
+	}
+	press(t, m, "c")
+	if m.note != "" {
+		t.Fatalf("compose after a forward kept %q", m.note)
+	}
+	press(t, m, "\x1b")
+
+	m.detail = fwd
+	m.mode = modeDetail
+	if !strings.Contains(m.View(), "forwarded from "+item.ID) {
+		t.Fatalf("header misses the source\n%s", m.View())
+	}
+}
+
+func TestForwardEscDiscardsThePrefill(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
+	m, sent := forwardModel(t, dir)
+	press(t, m, "f\x1b")
+	if m.composing || m.note != "" || m.noteField.Value() != "" {
+		t.Fatalf("composing %v note %q", m.composing, m.note)
+	}
+	press(t, m, "c")
+	if m.note != "" || strings.Contains(m.View(), "Forwarded from") {
+		t.Fatalf("draft left behind\n%s", m.View())
+	}
+	press(t, m, "\x1b")
+	if len(*sent) != 0 {
+		t.Fatalf("sent %q", *sent)
+	}
+}
+
+func TestForwardHints(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	seedForward(t, dir, []decide.Message{{Author: "ada", Text: "ship the release?"}}, nil)
+	m, _ := forwardModel(t, dir)
+	footer := lineContaining(m.View(), "? help")
+	if !strings.Contains(footer, "f forward") {
+		t.Fatalf("footer %q", footer)
+	}
+	press(t, m, "?")
+	if !strings.Contains(m.View(), "f forward") {
+		t.Fatalf("help\n%s", m.View())
 	}
 }

@@ -824,6 +824,9 @@ func writeShow(w io.Writer, it *decide.Item) {
 	fmt.Fprintf(w, "id: %s\n", it.ID)
 	fmt.Fprintf(w, "question: %s\n", it.Question)
 	fmt.Fprintf(w, "owner: %s\n", it.Owner)
+	if it.ForwardedFrom != "" {
+		fmt.Fprintf(w, "forwarded from %s\n", it.ForwardedFrom)
+	}
 	fmt.Fprintf(w, "kind: %s\n", it.Kind)
 	fmt.Fprintf(w, "state: %s\n", it.State)
 	fmt.Fprintf(w, "freeText: %t\n", it.FreeText)

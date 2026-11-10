@@ -133,6 +133,9 @@ func (m *Model) sendNote() error {
 		return nil
 	}
 	note := decide.DeliveryNote(item.ID, "human", text)
+	if m.forward != "" {
+		note = decide.ForwardNote(item.ID, m.forward, "human", text)
+	}
 	argv := decide.SendArgv(m.SendTemplate, tg.Pane, note)
 	send := m.runSend
 	if send == nil {
@@ -156,11 +159,73 @@ func (m *Model) recordThread(tg Target, text string) (decide.Item, error) {
 	if err != nil {
 		return decide.Item{}, fmt.Errorf("open decide ledger: %w", err)
 	}
-	item, err := led.StartThread(tg.Name, tg.Pane, text)
+	item, err := led.ForwardThread(m.forward, tg.Name, tg.Pane, text)
 	if err != nil {
 		return decide.Item{}, fmt.Errorf("store decide thread: %w", err)
 	}
 	return item, nil
+}
+
+// forwardItem opens compose on the viewed item with its context quoted.
+// The cursor waits on the empty line after the quote.
+func (m *Model) forwardItem() {
+	if m.detail == nil {
+		return
+	}
+	m.focusCompose()
+	m.forward = m.detail.ID
+	m.note = forwardPrefill(m.detail, m.message)
+	m.composeFocus = focusText
+	m.pullNote()
+	m.noteField.Focus()
+}
+
+// forwardQuoteLimit caps the quoted message so the draft stays editable.
+const forwardQuoteLimit = 2000
+
+// forwardPrefill quotes the question, message msg (or the latest when msg
+// is out of range), and the first link of it.
+func forwardPrefill(it *decide.Item, msg int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Forwarded from %s (owner: %s)\n", it.ID, it.Owner)
+	line, rest, _ := strings.Cut(it.Question, "\n")
+	question := clipRunes(line, 200)
+	if question != line || strings.TrimSpace(rest) != "" {
+		question += "…"
+	}
+	quote(&b, question)
+	if n := len(it.Messages); n > 0 {
+		if msg < 0 || msg >= n {
+			msg = n - 1
+		}
+		m := it.Messages[msg]
+		quote(&b, strings.TrimSpace(m.Author+" "+headerTime(m.Time)))
+		text := m.Text
+		if clipped := clipRunes(text, forwardQuoteLimit); clipped != text {
+			text = clipped + "…"
+		}
+		quote(&b, text)
+	}
+	if links := itemLinks(it); len(links) > 0 {
+		b.WriteString("Link: " + links[0] + "\n")
+	}
+	return b.String()
+}
+
+// quote writes each line of text prefixed with "> ".
+func quote(b *strings.Builder, text string) {
+	for _, line := range strings.Split(text, "\n") {
+		b.WriteString("> " + line + "\n")
+	}
+}
+
+// clipRunes keeps the first n runes of s.
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // sendArgv builds the compose command. Tests compare the inbox argv

@@ -902,6 +902,55 @@ func TestStartThreadStoresTheHumanNote(t *testing.T) {
 	}
 }
 
+func TestForwardThreadRecordsTheSource(t *testing.T) {
+	led, dir := openTemp(t)
+	got, err := led.ForwardThread("D-123", "alpha", "pane-a", "fwd note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ForwardedFrom != "D-123" || got.Owner != "alpha" || got.Question != "fwd note" {
+		t.Fatalf("thread = %+v", got)
+	}
+	stored, err := led.Get(got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ForwardedFrom != "D-123" {
+		t.Fatalf("stored = %+v", stored)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ledgerName)) //nolint:gosec // test ledger
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"forwardedFrom": "D-123"`)) {
+		t.Fatalf("ledger missing forwardedFrom\n%s", data)
+	}
+	plain, err := led.StartThread("alpha", "pane-a", "plain note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.ForwardedFrom != "" {
+		t.Fatalf("plain thread = %+v", plain)
+	}
+	data, err = os.ReadFile(filepath.Join(dir, ledgerName)) //nolint:gosec // test ledger
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(data, []byte(`"forwardedFrom"`)) != 1 {
+		t.Fatalf("plain thread wrote forwardedFrom\n%s", data)
+	}
+}
+
+func TestForwardNoteNamesTheSource(t *testing.T) {
+	note := ForwardNote("D-124", "D-123", "human", "hello")
+	if !strings.Contains(note, "Fwd D-123") || !strings.Contains(note, "D-124") || !strings.Contains(note, "hello") {
+		t.Fatalf("note = %q", note)
+	}
+	if strings.Contains(DeliveryNote("D-124", "human", "hello"), "Fwd") {
+		t.Fatal("plain note names a source")
+	}
+}
+
 func openTemp(t *testing.T) (*Ledger, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -944,6 +993,7 @@ func itemForMark(mark string) *Item {
 	item.NotifyPane = "pane-" + mark
 	item.TypeText = "exact-" + mark
 	item.Where = "where-" + mark
+	item.ForwardedFrom = "D-0" + mark
 	return item
 }
 
@@ -953,7 +1003,8 @@ func assertItemEqual(t *testing.T, got, want Item) {
 		got.Owner != want.Owner || got.Kind != want.Kind || got.State != want.State ||
 		got.Unread != want.Unread || got.NotifyPane != want.NotifyPane ||
 		got.TypeText != want.TypeText || got.Where != want.Where ||
-		got.Reason != want.Reason || got.Outcome != want.Outcome {
+		got.Reason != want.Reason || got.Outcome != want.Outcome ||
+		got.ForwardedFrom != want.ForwardedFrom {
 		t.Fatalf("item fields\ngot  %+v\nwant %+v", got, want)
 	}
 	if !got.CreatedAt.Equal(want.CreatedAt) || !got.AnsweredAt.Equal(want.AnsweredAt) ||

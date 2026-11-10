@@ -151,6 +151,12 @@ func DeliveryNote(id, author, text string) string {
 	return threadHeader(id, author) + "\n" + text + "\n" + replyHint(id)
 }
 
+// ForwardNote is DeliveryNote for a thread forwarded from item from.
+// The header names the source so the agent can reply in context.
+func ForwardNote(id, from, author, text string) string {
+	return threadHeader(id, author) + " Fwd " + from + "\n" + text + "\n" + replyHint(id)
+}
+
 func threadHeader(id, author string) string {
 	return "[decide " + id + " from " + author + "]"
 }
