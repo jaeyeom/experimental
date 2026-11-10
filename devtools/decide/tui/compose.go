@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
@@ -58,11 +59,6 @@ func (m *Model) composeKey(r rune) (bool, error) {
 		return false, nil
 	case '\r', '\n':
 		return m.composeEnter()
-	case '\b', '\x7f':
-		if m.composeFocus == focusText {
-			m.editNote(r)
-		}
-		return false, nil
 	}
 	if m.composeFocus == focusRecipient && (r == 'j' || r == 'k') {
 		delta := 1
@@ -72,9 +68,7 @@ func (m *Model) composeKey(r rune) (bool, error) {
 		m.moveTarget(delta)
 		return false, nil
 	}
-	if m.composeFocus == focusText && r >= ' ' {
-		m.editNote(r)
-	}
+	m.typeRune(r)
 	return false, nil
 }
 
@@ -325,11 +319,18 @@ func (m *Model) pickerLines() []screenLine {
 }
 
 func (m *Model) draftLines(width int) []screenLine {
-	text := m.note
+	focused := m.composing && m.composeFocus == focusText && m.noteField.Focused()
+	return fieldLines(m.note, &m.noteField, focused, width)
+}
+
+// fieldLines wraps a composer's text to width. When focused it draws the
+// caret where the field's cursor is.
+func fieldLines(text string, field *textarea.Model, focused bool, width int) []screenLine {
 	row, col := -1, 0
-	if m.composing && m.composeFocus == focusText && m.noteField.Focused() {
-		row = m.noteField.Line()
-		col = m.noteField.LineInfo().CharOffset
+	if focused {
+		syncField(field, text)
+		row = field.Line()
+		col = field.LineInfo().CharOffset
 	}
 	if text == "" {
 		line := ""

@@ -3,7 +3,6 @@ package tui
 import (
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -13,8 +12,10 @@ func runeKey(r rune) tea.KeyMsg {
 	switch r {
 	case '\x1b':
 		return tea.KeyMsg{Type: tea.KeyEsc}
-	case '\r', '\n':
+	case '\r':
 		return tea.KeyMsg{Type: tea.KeyEnter}
+	case '\n':
+		return tea.KeyMsg{Type: tea.KeyCtrlJ}
 	case '\t':
 		return tea.KeyMsg{Type: tea.KeyTab}
 	case '\b', '\x7f':
@@ -66,20 +67,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishExternalEdit(msg.err)
 		return m, nil
 	case tea.KeyMsg:
-		if cmd, ok := m.handleEditorKey(msg); ok {
-			return m, cmd
-		}
-		if m.chord {
-			if _, ok := keyRune(msg); !ok {
-				m.expireChord(m.chordSeq)
-				return m, nil
-			}
-			return m.updateKey(msg)
-		}
-		if m.handleScrollKey(msg) {
-			return m, nil
-		}
-		return m.updateKey(msg)
+		return m.updateKeyMsg(msg)
 	case chordTimeoutMsg:
 		m.expireChord(int(msg))
 		return m, nil
@@ -90,6 +78,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+// updateKeyMsg routes one key: the external-editor prefix, then composer
+// editing keys, then chords, scrolling, and rune shortcuts.
+func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if cmd, ok := m.handleEditorKey(msg); ok {
+		return m, cmd
+	}
+	if isEditKey(msg) && m.editComposerKey(msg) {
+		return m, nil
+	}
+	if m.chord {
+		if _, ok := keyRune(msg); !ok {
+			m.expireChord(m.chordSeq)
+			return m, nil
+		}
+		return m.updateKey(msg)
+	}
+	if m.handleScrollKey(msg) {
+		return m, nil
+	}
+	return m.updateKey(msg)
 }
 
 func (m *Model) updateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -204,8 +214,7 @@ func (m *Model) handleScrollKey(k tea.KeyMsg) bool {
 	if !scrollKeyType(k.Type) {
 		return false
 	}
-	if m.editingText() {
-		m.applyEditorKey(k)
+	if m.editComposerKey(k) {
 		return true
 	}
 	if m.itemScroll() {
@@ -254,39 +263,6 @@ func (m *Model) listNav(k tea.KeyMsg) {
 
 func (m *Model) itemScroll() bool {
 	return m.mode == modeDetail && !m.help && !m.composing && !m.answerFocus && !m.replyFocus && !m.linkPick
-}
-
-func (m *Model) editingText() bool {
-	if m.replyFocus || m.answerFocus {
-		return true
-	}
-	if m.mode == modeOutcome {
-		return true
-	}
-	return m.composing && m.composeFocus == focusText
-}
-
-func (m *Model) applyEditorKey(k tea.KeyMsg) {
-	switch {
-	case m.composing && m.composeFocus == focusText:
-		m.pullNote()
-		if !m.noteField.Focused() {
-			m.noteField.Focus()
-		}
-		updated, _ := m.noteField.Update(k)
-		m.noteField = updated
-		m.note = m.noteField.Value()
-	case m.answerFocus:
-		m.editFieldMsg(&m.free, k)
-	case m.mode == modeOutcome:
-		m.editFieldMsg(&m.outcome, k)
-	}
-}
-
-func (m *Model) editFieldMsg(field *textinput.Model, k tea.KeyMsg) {
-	updated, _ := field.Update(k)
-	*field = updated
-	m.draft = field.Value()
 }
 
 func (m *Model) scrollNav(k tea.KeyMsg) {

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -16,6 +17,7 @@ const (
 	composerNone composerKind = iota
 	composerReply
 	composerAnswer
+	composerOutcome
 	composerNote
 )
 
@@ -62,21 +64,20 @@ func (e *externalEdit) SetStdout(w io.Writer) { e.stdout = w }
 func (e *externalEdit) SetStderr(w io.Writer) { e.stderr = w }
 
 func (m *Model) composerFocused() bool {
-	if m.help || m.linkPick {
-		return false
-	}
-	if m.replyFocus || m.answerFocus {
-		return true
-	}
-	return m.composing && m.composeFocus == focusText
+	_, ok := m.composerKind()
+	return ok
 }
 
 func (m *Model) composerKind() (composerKind, bool) {
 	switch {
+	case m.help || m.linkPick:
+		return composerNone, false
 	case m.replyFocus:
 		return composerReply, true
 	case m.answerFocus:
 		return composerAnswer, true
+	case m.mode == modeOutcome:
+		return composerOutcome, true
 	case m.composing && m.composeFocus == focusText:
 		return composerNote, true
 	default:
@@ -84,33 +85,59 @@ func (m *Model) composerKind() (composerKind, bool) {
 	}
 }
 
-func (m *Model) composerText(kind composerKind) string {
+// fieldFor is the field behind a composer and the draft string it edits.
+func (m *Model) fieldFor(kind composerKind) (*textarea.Model, *string) {
 	switch kind {
 	case composerReply:
-		return m.reply
+		return &m.replyField, &m.reply
 	case composerAnswer:
-		return m.free.Value()
+		return &m.free, &m.draft
+	case composerOutcome:
+		return &m.outcome, &m.draft
 	case composerNote:
-		m.pullNote()
-		return m.note
+		return &m.noteField, &m.note
 	default:
-		return ""
+		return nil, nil
 	}
 }
 
-func (m *Model) setComposerText(kind composerKind, text string) {
-	switch kind {
-	case composerReply:
-		m.reply = text
-	case composerAnswer:
-		m.draft = text
-		m.free.SetValue(text)
-		m.free.Focus()
-	case composerNote:
-		m.note = text
-		m.noteField.SetValue(text)
-		m.noteField.Focus()
+// composerField is the focused composer's field and draft, or nil.
+func (m *Model) composerField() (*textarea.Model, *string) {
+	kind, _ := m.composerKind()
+	return m.fieldFor(kind)
+}
+
+// editComposerKey applies k to the focused composer. It reports false
+// when no composer is focused.
+func (m *Model) editComposerKey(k tea.KeyMsg) bool {
+	field, text := m.composerField()
+	if field == nil {
+		return false
 	}
+	syncField(field, *text)
+	field.Focus()
+	editField(field, k)
+	*text = field.Value()
+	return true
+}
+
+func (m *Model) composerText(kind composerKind) string {
+	field, text := m.fieldFor(kind)
+	if field == nil {
+		return ""
+	}
+	syncField(field, *text)
+	return *text
+}
+
+func (m *Model) setComposerText(kind composerKind, text string) {
+	field, draft := m.fieldFor(kind)
+	if field == nil {
+		return
+	}
+	*draft = text
+	field.SetValue(text)
+	field.Focus()
 }
 
 // handleEditorKey starts an external edit from a focused composer.

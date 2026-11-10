@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "compose.go",
         "editor.go",
+        "field.go",
         "link.go",
         "model.go",
         "mouse.go",
@@ -18,8 +19,8 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//devtools/decide:go_default_library",
+        "@com_github_charmbracelet_bubbles//key:go_default_library",
         "@com_github_charmbracelet_bubbles//textarea:go_default_library",
-        "@com_github_charmbracelet_bubbles//textinput:go_default_library",
         "@com_github_charmbracelet_bubbletea//:go_default_library",
         "@com_github_charmbracelet_lipgloss//:go_default_library",
         "@com_github_muesli_termenv//:go_default_library",
@@ -46,6 +47,7 @@ go_test(
     srcs = [
         "color_test.go",
         "editor_test.go",
+        "field_test.go",
         "link_test.go",
         "model_test.go",
         "search_test.go",
