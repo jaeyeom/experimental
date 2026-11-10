@@ -49,17 +49,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 var commands = map[string]func(configPath string, args []string, stdout, stderr io.Writer) int{
-	"serve":  cmdServe,
-	"add":    cmdAdd,
-	"claim":  cmdClaim,
-	"done":   cmdDone,
-	"snooze": cmdSnooze,
-	"ack":    cmdAck,
-	"ls":     cmdLs,
-	"show":   cmdShow,
-	"sub":    cmdSub,
-	"unsub":  cmdUnsub,
-	"subs":   cmdSubs,
+	"serve":   cmdServe,
+	"add":     cmdAdd,
+	"claim":   cmdClaim,
+	"done":    cmdDone,
+	"snooze":  cmdSnooze,
+	"ack":     cmdAck,
+	"ls":      cmdLs,
+	"show":    cmdShow,
+	"sub":     cmdSub,
+	"unsub":   cmdUnsub,
+	"subs":    cmdSubs,
+	"status":  cmdStatus,
+	"inbound": cmdInbound,
 }
 
 func usage(w io.Writer) {
@@ -82,6 +84,10 @@ Commands:
                       notify T of every new message in a channel
   slackwatch unsub <channel> [--owner T]
   slackwatch subs [--json]
+  slackwatch status [--json]
+                      server heartbeat; exits 1 when down, stale, or undelivered
+  slackwatch inbound [--since DUR|DATE] [--json]
+                      recorded DMs and mentions
   slackwatch help     show this help
 
 <post> is a Slack permalink, a channel and ts, or a watch id.

@@ -10,6 +10,32 @@ replies to whoever owns each post. One binary is both the server
 ~serve~ connects through Slack Socket Mode and handles live events. It
 catches up on missed traffic and closes quiet watches in a periodic sweep.
 
+What it does not do:
+
+- It never posts, reacts, or edits. The Slack token is read only, and
+  posting stays with whatever tool you already use.
+- It knows nothing about terminals, agent runtimes, or workspaces. Every
+  integration is a config value: a notify template and its targets.
+
+* Slack app setup
+
+Create a Slack app for your workspace and install it for yourself.
+
+1. Under *OAuth & Permissions*, add these *user token* scopes, all read
+   only: ~channels:history~, ~groups:history~, ~im:history~,
+   ~mpim:history~, ~users:read~, ~channels:read~, ~groups:read~,
+   ~im:read~, ~mpim:read~, ~search:read~, ~reactions:read~. Do not add
+   ~chat:write~.
+2. Under *Socket Mode*, turn Socket Mode on.
+3. Under *Basic Information*, create an app-level token with the
+   ~connections:write~ scope. It starts with ~xapp-~.
+4. Under *Event Subscriptions*, turn events on and subscribe to these
+   events *on behalf of users*: ~message.channels~, ~message.groups~,
+   ~message.im~, ~message.mpim~, ~reaction_added~.
+5. Install the app and copy the user OAuth token. It starts with ~xoxp-~.
+6. Put both tokens in the token file (see [[*Config][Config]]) and run
+   ~chmod 600~ on it.
+
 * Events
 
 ~serve~ learns the token owner's user id from ~auth.test~ at startup.
@@ -124,6 +150,56 @@ quiet. They end with ~unsub~ or ~--until~. A subscriber that fails the
 liveness check or the notify command gets the same fallback and
 undelivered handling as a watch owner.
 
+* Server status and inbound messages
+
+| Command | Does |
+|---------+------|
+| ~serve~ | Run the server: Socket Mode, catch-up, and the sweep. |
+| ~status [--json]~ | Show the server heartbeat. |
+| ~inbound [--since WHEN] [--json]~ | List recorded DMs and mentions, oldest first. |
+
+~serve~ writes a heartbeat to the ~status~ row when it starts, on every
+connection change, event, catch-up, and sweep, and at least once a
+minute. The row holds the pid, the start time, the connection state
+(~connected~, ~reconnecting~, or ~down~), the last event time, the time
+and result of the last catch-up (after a connect) and the last periodic
+sweep, and the count of undelivered notifications. ~serve~ marks itself
+~down~ when it exits.
+
+~status~ reports ~stale~ when the heartbeat is older than twice its
+interval, which means ~serve~ died or hung without marking itself
+down. It exits 1 when the server is ~down~ or ~stale~ or any
+notification is undelivered, and 0 otherwise (~reconnecting~ included),
+so a script can check it:
+
+#+begin_src sh
+slackwatch status >/dev/null || notify-send slackwatch "$(slackwatch status)"
+#+end_src
+
+A notification is undelivered when its last attempt failed, for a watch
+or a channel subscription alike. ~ls~ flags only the watches; ~status~
+counts both. Inspect the attempts in the ~deliveries~ table.
+
+~WHEN~ is a duration back from now (~24h~), a ~YYYY-MM-DD~
+date (from the start of that local day), or RFC 3339. Without it,
+~inbound~ lists everything. The ~--json~ form is an array of objects
+with ~channel~, ~ts~, ~author~, ~text~, and ~kind~ (~dm~ or ~mention~).
+
+** Running as a systemd user service
+
+[[file:contrib/slackwatch.service][contrib/slackwatch.service]] is an example user unit. It restarts on
+failure and logs to the journal. It holds no token: it points at the
+config, and the config points at the token file.
+
+#+begin_src sh
+cp contrib/slackwatch.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now slackwatch.service
+journalctl --user -u slackwatch.service -f
+#+end_src
+
+Edit the binary and config paths in ~ExecStart~ to match your install.
+
 * Config
 
 The config is ~${XDG_CONFIG_HOME:-~/.config}/slackwatch/config.json~.
@@ -192,6 +268,40 @@ environment variable and is never written into the command string.
   4 KiB of stdout and stderr.
 - One notification per event, reply, and target. An owner and a channel
   subscriber that resolve to the same target are notified once.
+
+Example templates. A desktop popup, where every target is the same
+machine:
+
+#+begin_src json
+{
+  "notifyTemplate": "notify-send \"slackwatch $SLACKWATCH_EVENT\" \"$SLACKWATCH_MESSAGE\"",
+  "fallbackTarget": "me"
+}
+#+end_src
+
+A file per target, so each owner reads its own inbox:
+
+#+begin_src json
+{
+  "notifyTemplate": "printf '%s\\n\\n' \"$SLACKWATCH_MESSAGE\" >> \"$HOME/slackwatch-$SLACKWATCH_TARGET.txt\"",
+  "targets": {"agent-1": "agent-1", "me": "me"},
+  "fallbackTarget": "me"
+}
+#+end_src
+
+** Delivery guarantees
+
+- A reply to an open watch is notified to its owner or, if that fails,
+  to ~fallbackTarget~. Replies that arrive while ~serve~ is
+  down are found by the catch-up after it reconnects.
+- A notification is never dropped silently. If neither the owner nor
+  the fallback gets it, an error is logged, the row stays undelivered,
+  ~ls~ flags the watch, and ~status~ exits 1 with the count.
+- A delivered notification is not sent again, but a crash between
+  running the command and recording it can repeat one. Write templates
+  that tolerate a repeat.
+- Acks, reactions, edits, and deletes never notify. The token owner's
+  own replies notify only with ~notifySelf~.
 
 * Database
 

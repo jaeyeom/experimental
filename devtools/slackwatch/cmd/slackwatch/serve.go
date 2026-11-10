@@ -78,10 +78,13 @@ func serve(ctx context.Context, cfg slackwatch.Config, store *slackwatch.Store, 
 	}
 	logger.Info("slackwatch serve: authenticated", "user", proc.Self)
 	client := socketmode.New(api)
+	hb := newHeartbeat(store, slackwatch.DefaultHeartbeatInterval, logger, time.Now)
+	defer hb.stop() // Deferred first, so it runs after cancel.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go hb.run(ctx)
 	sweeps := make(chan struct{}, 1)
-	go runSweeps(ctx, &slackwatch.CatchUp{Slack: slackReader{api: api}, Proc: proc}, sweeps, cfg.SweepInterval.Duration, logger)
+	go runSweeps(ctx, &slackwatch.CatchUp{Slack: slackReader{api: api}, Proc: proc}, sweeps, cfg.SweepInterval.Duration, hb.swept, logger)
 	done := make(chan error, 1)
 	go func() { done <- client.RunContext(ctx) }()
 	for {
@@ -92,6 +95,7 @@ func serve(ctx context.Context, cfg slackwatch.Config, store *slackwatch.Store, 
 			}
 			return nil
 		case evt := <-client.Events:
+			hb.socketEvent(evt.Type)
 			if evt.Type == socketmode.EventTypeConnected {
 				select {
 				case sweeps <- struct{}{}:
@@ -104,23 +108,29 @@ func serve(ctx context.Context, cfg slackwatch.Config, store *slackwatch.Store, 
 }
 
 // runSweeps sweeps on each trigger and every interval until ctx ends.
-// Errors are logged; the next sweep retries.
-func runSweeps(ctx context.Context, s sweeper, trigger <-chan struct{}, interval time.Duration, logger *slog.Logger) {
+// Each result goes to done, with catchUp set for a triggered sweep (a
+// connect). Errors are logged; the next sweep retries.
+func runSweeps(ctx context.Context, s sweeper, trigger <-chan struct{}, interval time.Duration, done func(catchUp bool, err error), logger *slog.Logger) {
 	if interval <= 0 {
 		interval = slackwatch.DefaultSweepInterval
 	}
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
+	var catchUp bool
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-trigger:
+			catchUp = true
 		case <-tick.C:
+			catchUp = false
 		}
-		if err := s.Sweep(ctx); err != nil {
+		err := s.Sweep(ctx)
+		if err != nil {
 			logger.Error("slackwatch serve: sweep", "error", err)
 		}
+		done(catchUp, err)
 	}
 }
 

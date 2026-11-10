@@ -127,6 +127,18 @@ CREATE INDEX deliveries_dedupe ON deliveries (event, reply_ts, target, delivered
 	`
 ALTER TABLE replies ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
 `,
+	// The serve heartbeat. heartbeat_interval is in seconds, so status
+	// can tell a stale row without knowing the server's config.
+	`
+ALTER TABLE status ADD COLUMN heartbeat_interval INTEGER;
+ALTER TABLE status ADD COLUMN connection TEXT NOT NULL DEFAULT '';
+ALTER TABLE status ADD COLUMN last_event_at INTEGER;
+ALTER TABLE status ADD COLUMN last_catchup_at INTEGER;
+ALTER TABLE status ADD COLUMN last_catchup_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE status ADD COLUMN last_sweep_at INTEGER;
+ALTER TABLE status ADD COLUMN last_sweep_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE status ADD COLUMN undelivered INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each
