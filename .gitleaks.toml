@@ -1,0 +1,11 @@
+# gitleaks configuration. gitleaks loads this file automatically when it
+# scans the repository root, e.g. `gitleaks git --redact .` or
+# `gitleaks dir --redact .`.
+#
+# The baseline scan of the full history and the tracked tree found no leaks,
+# so there are no allowlists yet. Add each future allowlist entry as narrowly
+# as possible (path or regex), with a comment saying why it is a false
+# positive. Never allowlist a real credential; rotate it instead.
+
+[extend]
+useDefault = true
