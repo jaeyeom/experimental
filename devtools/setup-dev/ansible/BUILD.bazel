@@ -1219,6 +1219,23 @@ sh_test(
 )
 
 sh_test(
+    name = "gitleaks_syntax_test",
+    srcs = ["test_ansible_syntax.sh"],
+    args = ["gitleaks.yml"],
+    data = [
+        "gather-facts.yml",
+        "gitleaks.yml",
+        "go.yml",
+        "setup-shell-profile.yml",
+        "setup-user-go-bin-directory.yml",
+    ],
+    tags = [
+        "ansible",
+        "local",
+    ],
+)
+
+sh_test(
     name = "gmi_syntax_test",
     srcs = ["test_ansible_syntax.sh"],
     args = ["gmi.yml"],
@@ -4534,6 +4551,7 @@ test_suite(
         ":ghostty_syntax_test",
         ":git_syntax_test",
         ":githooks-cli_syntax_test",
+        ":gitleaks_syntax_test",
         ":gmi_syntax_test",
         ":go_syntax_test",
         ":godef_syntax_test",
