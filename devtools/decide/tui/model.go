@@ -117,6 +117,9 @@ type Model struct {
 	listTotal    int
 	statusTotal  int
 	highlight    string
+	// newMessages counts messages a live refresh added below the view.
+	newMessages int
+	detailGone  bool
 }
 
 // New returns an inbox positioned on the open folder.
@@ -147,6 +150,7 @@ func (m *Model) Reload() error {
 	if err != nil {
 		return fmt.Errorf("list decide ledger: %w", err)
 	}
+	m.refreshDetail(all)
 	m.counts = make([]int, len(Folders))
 	for _, it := range all {
 		for i, folder := range Folders {
@@ -178,8 +182,8 @@ func (m *Model) Reload() error {
 // Withdrawn, or Status. Status is also a row in the folder list. There, j
 // and k highlight an agent row and keep it visible, and c opens compose.
 // In the opened item, up, down, j, and k
-// scroll one line, page up and page down scroll one page, and home and end
-// jump to the ends. n and p move between messages. u returns to the
+// scroll one line, page up and page down scroll one page, home and end
+// jump to the ends, and G jumps to the end. n and p move between messages. u returns to the
 // list. 1 through 9 answer a relay
 // option. 0 focuses the composer.
 // Sending it appends a human message. On an open question that text is also
@@ -538,6 +542,9 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case '/':
 		m.beginSearch()
 		return false, nil
+	case 'G':
+		m.scrollEnd()
+		return false, nil
 	}
 	if m.detailComposer(r) {
 		return false, nil
@@ -721,6 +728,9 @@ func (m *Model) moveMessage(delta int) {
 		next = last
 	}
 	m.message = next
+	if next == last {
+		m.newMessages = 0
+	}
 	m.scrollToMessage()
 }
 
@@ -766,6 +776,8 @@ func (m *Model) openRow() error {
 	m.resetFields()
 	m.scroll = 0
 	m.message = 0
+	m.newMessages = 0
+	m.detailGone = false
 	m.status = "opened " + id
 	return m.Reload()
 }
@@ -956,6 +968,7 @@ func (m *Model) backToList() {
 	m.resetFields()
 	m.scroll = 0
 	m.message = 0
+	m.newMessages = 0
 	m.revealListCursor()
 }
 
@@ -1039,12 +1052,13 @@ func (m *Model) statusLine() screenLine {
 	if m.chord {
 		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
 	}
+	status := m.footerStatus()
 	if kind, ok := m.composerKind(); ok {
 		hint := label + composerHint(kind)
-		if m.status == "" {
+		if status == "" {
 			return screenLine{text: hint}
 		}
-		return screenLine{text: m.status + "  " + hint}
+		return screenLine{text: status + "  " + hint}
 	}
 	hint := label + "gi/ga/gd/gw/gs  o open  u list  c  tab/text/[Send]  ? help"
 	switch m.mode {
@@ -1054,8 +1068,8 @@ func (m *Model) statusLine() screenLine {
 		hint = label + "0 reply  f forward  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
 	}
 	text := hint
-	if m.status != "" {
-		text = m.status + "  " + hint
+	if status != "" {
+		text = status + "  " + hint
 	}
 	// /find shows only when it fits, so a narrow footer keeps "? help".
 	wide := strings.TrimSuffix(text, "? help") + "/find  ? help"
@@ -1353,6 +1367,9 @@ func (m *Model) clipList(list []screenLine) []screenLine {
 func (m *Model) openedScreen(width int) []screenLine {
 	detail := m.detailLines(m.detailInnerWidth(width))
 	_, detailN := m.layoutBudget()
+	if threadEnd(len(detail), m.scroll, detailN) {
+		m.newMessages = 0
+	}
 	var scroll int
 	detail, scroll = clipLines(detail, m.scroll, detailN)
 	m.scroll = scroll
@@ -2013,7 +2030,7 @@ func (m *Model) helpLines() []screenLine {
 	if m.mode == modeDetail || m.mode == modeOutcome {
 		for i, line := range text {
 			if strings.HasPrefix(line, "j/k move") {
-				text[i] = "j/k up/down line  pgup/pgdn page  home/end  n/p"
+				text[i] = "j/k up/down line  pgup/pgdn page  home/end/G  n/p"
 			}
 			if strings.HasPrefix(line, "/ filters") {
 				text[i] = "/ highlights matches, empty enter clears"
