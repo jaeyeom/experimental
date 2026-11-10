@@ -1,8 +1,22 @@
 ---
 - import_playbook: setup-user-bin-directory.yml
 
+# Each agent installs the plugins with its own tooling, gated on its own
+# binary, so no agent depends on another agent's CLI or account.
 - name: Install claude-toolbox plugins
   hosts: all
+  vars:
+    claude_toolbox_repo: jaeyeom/claude-toolbox
+    claude_toolbox_marketplace: claude-toolbox
+    # sandbox-helpers tells Claude Code to retry with
+    # dangerouslyDisableSandbox, so it is Claude Code-only.
+    claude_toolbox_claude_plugins:
+      - git-guardrails
+      - sandbox-helpers
+    claude_toolbox_agent_plugins:
+      - git-guardrails
+    claude_settings_file: "{{ ansible_facts['env']['HOME'] }}/.claude/settings.json"
+    claude_toolbox_checkout: "{{ ansible_facts['env']['HOME'] }}/.cache/claude-toolbox"
   tasks:
     - name: Include guard for setup-claude-toolbox playbook
       block:
@@ -19,27 +33,147 @@
       register: claude_check
       failed_when: false
       changed_when: false
+      check_mode: false
 
-    - name: Add claude-toolbox marketplace
-      command: claude plugin marketplace add jaeyeom/claude-toolbox
-      when: claude_check.rc == 0
-      register: claude_toolbox_marketplace_add
-      changed_when: "'already on disk' not in (claude_toolbox_marketplace_add.stdout | default(''))"
-
-    - name: Update claude-toolbox marketplace
-      command: claude plugin marketplace update claude-toolbox
-      when: claude_check.rc == 0
+    - name: Check if grok is installed
+      shell: command -v grok
+      register: grok_check
+      failed_when: false
       changed_when: false
+      check_mode: false
 
-    - name: Install git-guardrails plugin
-      command: claude plugin install git-guardrails@claude-toolbox
-      when: claude_check.rc == 0
-      changed_when: true
+    - name: Check if agy is installed
+      shell: command -v agy
+      register: agy_check
+      failed_when: false
+      changed_when: false
+      check_mode: false
 
-    - name: Install sandbox-helpers plugin
-      command: claude plugin install sandbox-helpers@claude-toolbox
+    # Claude Code: declare the marketplace and plugins in settings.json.
+    # This is what `claude plugin marketplace add` and `claude plugin
+    # install` write, and needs no sign-in.
+    - name: Declare claude-toolbox plugins in Claude Code settings
       when: claude_check.rc == 0
-      changed_when: true
+      block:
+        - name: Create Claude Code settings directory
+          file:
+            path: "{{ claude_settings_file | dirname }}"
+            state: directory
+            mode: "0755"
+
+        - name: Check if Claude Code settings.json exists
+          stat:
+            path: "{{ claude_settings_file }}"
+          register: claude_toolbox_settings_stat
+
+        - name: Read current Claude Code settings.json
+          slurp:
+            src: "{{ claude_settings_file }}"
+          register: claude_toolbox_settings_raw
+          when: claude_toolbox_settings_stat.stat.exists
+
+        # Plugins the user disabled stay disabled.
+        - name: Compute merged Claude Code settings
+          vars:
+            claude_current: "{{ claude_toolbox_settings_raw.content | default('{}' | b64encode) | b64decode | from_json }}"
+            claude_current_enabled: "{{ claude_current.enabledPlugins | default({}) }}"
+            claude_toolbox_enabled: >-
+              {{ dict(claude_toolbox_claude_plugins
+              | map('regex_replace', '$', '@' ~ claude_toolbox_marketplace)
+              | zip_longest([], fillvalue=true)) }}
+          set_fact:
+            claude_toolbox_current_settings: "{{ claude_current }}"
+            claude_toolbox_desired_settings: >-
+              {{ claude_current | combine({
+              'extraKnownMarketplaces': {claude_toolbox_marketplace: {'source': {'source': 'github', 'repo': claude_toolbox_repo}}},
+              'enabledPlugins': claude_toolbox_enabled | combine(claude_current_enabled)},
+              recursive=True) }}
+
+        - name: Update Claude Code settings.json if plugins are not declared
+          copy:
+            content: "{{ claude_toolbox_desired_settings | to_nice_json(indent=2) }}\n"
+            dest: "{{ claude_settings_file }}"
+            mode: "0600"
+          when: claude_toolbox_current_settings != claude_toolbox_desired_settings
+
+    # The settings above do not download the plugins, so fetch them with the
+    # CLI when it works. A failure here must not fail the play.
+    - name: Fetch claude-toolbox plugins with the claude CLI
+      when: claude_check.rc == 0
+      block:
+        - name: Add claude-toolbox marketplace
+          command: claude plugin marketplace add {{ claude_toolbox_repo }}
+          register: claude_toolbox_marketplace_add
+          changed_when: "'already on disk' not in (claude_toolbox_marketplace_add.stdout | default(''))"
+
+        - name: Update claude-toolbox marketplace
+          command: claude plugin marketplace update {{ claude_toolbox_marketplace }}
+          changed_when: false
+
+        # `claude plugin install` re-enables a disabled plugin, so skip those.
+        - name: Install claude-toolbox plugins for Claude Code
+          command: claude plugin install {{ item }}@{{ claude_toolbox_marketplace }}
+          loop: "{{ claude_toolbox_claude_plugins }}"
+          when: claude_toolbox_desired_settings.enabledPlugins[item ~ '@' ~ claude_toolbox_marketplace]
+          register: claude_toolbox_claude_install
+          changed_when: "'already installed' not in (claude_toolbox_claude_install.stdout | default(''))"
+      rescue:
+        - name: Warn that the claude CLI could not fetch the plugins
+          debug:
+            msg: >-
+              claude plugin commands failed; Claude Code settings.json still
+              declares the plugins. Run `claude plugin install
+              <plugin>@{{ claude_toolbox_marketplace }}` after signing in.
+
+    - name: Install claude-toolbox plugins for Grok
+      when: grok_check.rc == 0
+      block:
+        - name: List installed Grok plugins
+          command: grok plugin list --json
+          register: claude_toolbox_grok_list
+          changed_when: false
+          check_mode: false
+
+        - name: Set installed Grok plugin names
+          set_fact:
+            claude_toolbox_grok_installed: "{{ claude_toolbox_grok_list.stdout | from_json | map(attribute='name') | list }}"
+
+        - name: Install claude-toolbox plugins for Grok
+          command: grok plugin install '{{ claude_toolbox_repo }}#plugins/{{ item }}' --trust
+          loop: "{{ claude_toolbox_agent_plugins }}"
+          when: item not in claude_toolbox_grok_installed
+
+        - name: Update claude-toolbox plugins for Grok
+          command: grok plugin update {{ item }}
+          loop: "{{ claude_toolbox_agent_plugins }}"
+          when: item in claude_toolbox_grok_installed
+          register: claude_toolbox_grok_update
+          changed_when: "'already up to date' not in claude_toolbox_grok_update.stdout"
+
+    # agy installs a Claude-format plugin from a local directory, and
+    # reinstalling the same directory replaces the installed copy.
+    - name: Install claude-toolbox plugins for Antigravity CLI
+      when: agy_check.rc == 0
+      block:
+        - name: Clone or update the claude-toolbox checkout
+          ansible.builtin.git:
+            repo: "https://github.com/{{ claude_toolbox_repo }}"
+            dest: "{{ claude_toolbox_checkout }}"
+            depth: 1
+          register: claude_toolbox_checkout_result
+
+        - name: List installed agy plugins
+          command: agy plugin list --json
+          register: claude_toolbox_agy_list
+          changed_when: false
+          check_mode: false
+
+        - name: Install claude-toolbox plugins for agy
+          vars:
+            agy_installed: "{{ claude_toolbox_agy_list.stdout | from_json | map(attribute='name') | list }}"
+          command: agy plugin install {{ claude_toolbox_checkout }}/plugins/{{ item }}
+          loop: "{{ claude_toolbox_agent_plugins }}"
+          when: item not in agy_installed or claude_toolbox_checkout_result.changed
 
     - name: Remove shims replaced by claude-toolbox plugins
       ansible.builtin.file:
@@ -54,4 +188,4 @@
         - "{{ user_bin_directory }}/gh"
         - "{{ user_shims_bin_directory }}/jira"
         - "{{ user_bin_directory }}/jira"
-      when: claude_check.rc == 0
+      when: claude_check.rc == 0 or grok_check.rc == 0 or agy_check.rc == 0
