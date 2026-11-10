@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
@@ -54,8 +56,8 @@ func TestListSlashFiltersRows(t *testing.T) {
 	}
 
 	press(t, m, "/dep")
-	if view := m.View(); !strings.Contains(view, "/dep") || len(m.items) != 5 {
-		t.Fatalf("prompt did not show the draft\n%s", view)
+	if view := m.View(); !strings.Contains(view, "/dep") || len(m.items) != 3 {
+		t.Fatalf("prompt did not filter as it typed: %v\n%s", itemIDs(m.items), view)
 	}
 	press(t, m, "lo\r")
 	got := strings.Join(itemIDs(m.items), " ")
@@ -209,7 +211,7 @@ func TestSlashInFooterAndHelp(t *testing.T) {
 		}
 		press(t, m, "?")
 		help := m.View()
-		if !strings.Contains(help, "/ ") || !strings.Contains(help, "empty enter clears") {
+		if !strings.Contains(help, "as you type") || !strings.Contains(help, "esc restores") || !strings.Contains(help, "empty enter clears") {
 			t.Fatalf("%s help missing /\n%s", name, help)
 		}
 		press(t, m, "?")
@@ -252,5 +254,244 @@ func TestStatusSlashFiltersAgents(t *testing.T) {
 	press(t, m, "/\r")
 	if view := m.View(); !strings.Contains(view, "beta") || strings.Contains(view, "/deploy") {
 		t.Fatalf("status clear\n%s", view)
+	}
+}
+
+func TestListSearchIsIncremental(t *testing.T) {
+	dir, _ := searchFixture(t)
+	m := New(dir)
+	m.width = 120
+	m.height = 30
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, key := range []string{"/d", "e", "p"} {
+		press(t, m, key)
+		q := m.search
+		counts[q] = len(m.items)
+		if !m.searching || m.filter != q {
+			t.Fatalf("after %q searching %v filter %q", key, m.searching, m.filter)
+		}
+		if header := fmt.Sprintf("inbox  /%s  (%d of 5)", q, len(m.items)); !strings.Contains(m.View(), header) {
+			t.Fatalf("after %q want header %q\n%s", key, header, m.View())
+		}
+	}
+	if counts["dep"] != 3 || counts["de"] < counts["dep"] || counts["d"] < counts["de"] {
+		t.Fatalf("counts %v", counts)
+	}
+	useStyles()
+	if view := m.View(); !strings.Contains(view, searchMatch.Render("dep")) || !strings.Contains(view, searchMatch.Render("Dep")) {
+		t.Fatalf("rows do not highlight the match\n%q", view)
+	}
+	press(t, m, "\x7f")
+	if len(m.items) != counts["de"] || m.filter != "de" {
+		t.Fatalf("backspace kept %v filter %q", itemIDs(m.items), m.filter)
+	}
+	press(t, m, "p\r")
+	if m.searching || m.filter != "dep" || len(m.items) != 3 {
+		t.Fatalf("enter changed the result: searching %v filter %q items %v", m.searching, m.filter, itemIDs(m.items))
+	}
+}
+
+func TestListSearchCursorFollowsMatches(t *testing.T) {
+	dir, items := searchFixture(t)
+	m := New(dir)
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "G")
+	press(t, m, "/deploy")
+	if m.items[m.cursor].ID != items[0].ID {
+		t.Fatalf("cursor left a matching row: %s", m.items[m.cursor].ID)
+	}
+	press(t, m, "\x7f\x7f\x7f\x7f\x7f\x7flunch")
+	if m.cursor != 0 || len(m.items) != 1 || m.items[0].ID != items[3].ID {
+		t.Fatalf("cursor %d items %v", m.cursor, itemIDs(m.items))
+	}
+}
+
+func TestListSearchEscRestoresState(t *testing.T) {
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	for i := range 20 {
+		owner := "kim"
+		if i%2 == 1 {
+			owner = "lou"
+		}
+		mustCreate(t, led, &decide.Item{
+			Question: fmt.Sprintf("row %02d", i), Owner: owner, Kind: decide.KindRelay, State: decide.StateOpen,
+			CreatedAt: time.Date(2026, 11, 1, i, 0, 0, 0, time.UTC),
+		})
+	}
+	m := New(dir)
+	m.width = 120
+	m.height = 10
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "/kim\r")
+	press(t, m, "G")
+	if len(m.items) != 10 || m.scroll == 0 {
+		t.Fatalf("setup items %d scroll %d", len(m.items), m.scroll)
+	}
+	id, cursor, scroll := m.items[m.cursor].ID, m.cursor, m.scroll
+
+	press(t, m, "/lou")
+	if m.filter != "lou" || m.scroll == scroll && m.items[m.cursor].ID == id {
+		t.Fatalf("typing did not change the list: filter %q", m.filter)
+	}
+	press(t, m, "\x1b")
+	if m.searching || m.filter != "kim" || len(m.items) != 10 || m.cursor != cursor || m.items[m.cursor].ID != id || m.scroll != scroll {
+		t.Fatalf("esc filter %q items %d cursor %d/%d scroll %d/%d", m.filter, len(m.items), m.cursor, cursor, m.scroll, scroll)
+	}
+	if !strings.Contains(m.View(), "inbox  /kim  (10 of 20)") {
+		t.Fatalf("header after esc\n%s", m.View())
+	}
+
+	press(t, m, "/\x1b")
+	if m.filter != "kim" || len(m.items) != 10 {
+		t.Fatalf("esc on an empty prompt changed the filter %q", m.filter)
+	}
+}
+
+func searchThread(t *testing.T) *Model {
+	t.Helper()
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	var msgs []decide.Message
+	for i := range 10 {
+		text := fmt.Sprintf("body %d\nfiller\nfiller", i)
+		switch i {
+		case 1:
+			text += "\nearly bird"
+		case 8:
+			text += "\nneedle here"
+		}
+		msgs = append(msgs, decide.Message{Author: "ada", Time: time.Date(2026, 11, 1, i, 0, 0, 0, time.UTC), Text: text})
+	}
+	mustCreate(t, led, &decide.Item{Question: "thread", Owner: "ada", Kind: decide.KindRelay, State: decide.StateOpen, Messages: msgs})
+	m := New(dir)
+	m.width = 80
+	m.height = 14
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "o")
+	return m
+}
+
+// matchLine is the first detail line at or after from that paints a match.
+func matchLine(m *Model, from int) int {
+	for i, line := range m.detailLines(m.detailInnerWidth(m.contentWidth())) {
+		if i >= from && line.match {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestItemSearchScrollsFromStart(t *testing.T) {
+	m := searchThread(t)
+	press(t, m, "/body\r")
+	press(t, m, "nnnnn")
+	start, message := m.scroll, m.message
+	if start == 0 || message != 5 {
+		t.Fatalf("setup scroll %d message %d", start, message)
+	}
+	useStyles()
+
+	press(t, m, "/need")
+	if m.highlight != "need" || m.scroll <= start || m.scroll != matchLine(m, start) {
+		t.Fatalf("highlight %q scroll %d start %d", m.highlight, m.scroll, start)
+	}
+	if !strings.Contains(m.View(), searchMatch.Render("need")) {
+		t.Fatalf("match not in view\n%q", m.View())
+	}
+	press(t, m, "\x1b")
+	if m.highlight != "body" || m.scroll != start || m.message != message {
+		t.Fatalf("esc highlight %q scroll %d message %d", m.highlight, m.scroll, m.message)
+	}
+
+	press(t, m, "/early")
+	if m.scroll >= start || m.scroll != matchLine(m, 0) || !strings.Contains(m.View(), searchMatch.Render("early")) {
+		t.Fatalf("no wrap: scroll %d start %d", m.scroll, start)
+	}
+	press(t, m, "\x7f\x7f\x7f\x7f\x7f")
+	if m.highlight != "" || m.scroll != start {
+		t.Fatalf("empty query highlight %q scroll %d", m.highlight, m.scroll)
+	}
+	press(t, m, "early\r")
+	if m.searching || m.highlight != "early" || m.scroll >= start {
+		t.Fatalf("enter searching %v highlight %q scroll %d", m.searching, m.highlight, m.scroll)
+	}
+	press(t, m, "n")
+	if m.message != message+1 || m.highlight != "early" {
+		t.Fatalf("n after enter: message %d highlight %q", m.message, m.highlight)
+	}
+}
+
+func TestSearchPromptAndPickerFilterStaySeparate(t *testing.T) {
+	dir, _ := searchFixture(t)
+	m := New(dir)
+	m.width = 120
+	m.height = 30
+	m.Targets = configuredTargets()
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, m, "/c")
+	if m.composing || m.search != "c" || m.pickFilter != "" {
+		t.Fatalf("c in the prompt: composing %v search %q", m.composing, m.search)
+	}
+	press(t, m, "\x1bc/in")
+	if m.searching || m.pickFilter != "/in" || m.filter != "" {
+		t.Fatalf("/ in the picker: searching %v pick %q filter %q", m.searching, m.pickFilter, m.filter)
+	}
+}
+
+func TestListSearchDebouncesLargeInbox(t *testing.T) {
+	items := make([]decide.Item, 5000)
+	for i := range items {
+		items[i] = decide.Item{ID: fmt.Sprintf("D-%04d", i), Owner: "ada", Question: fmt.Sprintf("question %d", i), State: decide.StateOpen}
+		if i%10 == 0 {
+			items[i].Messages = []decide.Message{{Author: "ada", Text: "a Needle here"}}
+		}
+	}
+	m := New(t.TempDir())
+	clock := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	m.Now = func() time.Time { return clock }
+	m.setFolder(items, "")
+	key := func(r rune) tea.Cmd {
+		t.Helper()
+		_, cmd := m.Update(runeKey(r))
+		if m.runErr != nil {
+			t.Fatal(m.runErr)
+		}
+		return cmd
+	}
+	key('/')
+	for _, r := range "nee" {
+		if cmd := key(r); cmd == nil {
+			t.Fatalf("key %q scheduled no filter pass", r)
+		}
+		clock = clock.Add(10 * time.Millisecond)
+	}
+	if m.filter != "" || len(m.items) != 5000 {
+		t.Fatalf("filtered inside the debounce window: %q %d", m.filter, len(m.items))
+	}
+	sendKeyMsg(t, m, searchTickMsg{})
+	if m.filter != "" {
+		t.Fatalf("tick inside the window filtered %q", m.filter)
+	}
+	clock = clock.Add(searchDebounce)
+	sendKeyMsg(t, m, searchTickMsg{})
+	if m.filter != "nee" || len(m.items) != 500 {
+		t.Fatalf("one pass after the window: %q %d", m.filter, len(m.items))
+	}
+	key('x')
+	key('\r')
+	if m.searching || m.filter != "neex" || len(m.items) != 0 {
+		t.Fatalf("enter did not force the final pass: %q %d", m.filter, len(m.items))
 	}
 }

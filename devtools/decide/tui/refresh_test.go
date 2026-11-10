@@ -217,12 +217,13 @@ func TestLiveRefreshKeepsHighlight(t *testing.T) {
 	press(t, m, "/thi")
 	agentReply(t, led, item.ID, "second wind")
 	reloadTick(t, m)
-	if m.highlight != "second" || !m.searching || m.search != "thi" {
+	if m.highlight != "thi" || !m.searching || m.search != "thi" {
 		t.Fatalf("highlight %q searching %v search %q", m.highlight, m.searching, m.search)
 	}
 	press(t, m, "\x1b")
-	if view := m.View(); !strings.Contains(view, "/second (7)") {
-		t.Fatalf("highlight count did not update\n%s", view)
+	// Enter on /second scrolled to its first match, so read the title line.
+	if title := m.detailLines(80)[0].text; !strings.Contains(title, "/second (7)") {
+		t.Fatalf("highlight count did not update: %q", title)
 	}
 }
 
