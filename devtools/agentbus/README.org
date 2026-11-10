@@ -33,6 +33,13 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~install~ | Install the supervisor and load it. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook. |
 
+~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
+~agentbus help <command>~ or ~agentbus <command> --help~ prints that
+command's flags, their defaults, and an example, without contacting the
+daemon. ~agentbus~ with no arguments prints the command list, then
+starts ~agentbusd~ if needed and prints the daemon status.
+~agentbusd --help~ lists the daemon's environment variables.
+
 ~--when~ has to say what the agent is actually doing. ~reviewing the
 queue~ is a meaningful value. ~agent~ is not.
 

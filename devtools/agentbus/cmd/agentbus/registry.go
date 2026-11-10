@@ -105,7 +105,7 @@ func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)
 		return daemon.Response{}, 1
 	}
-	resp, err := client.Call(ctx, dirs.SocketPath, req)
+	resp, err := dialDaemon(ctx, dirs.SocketPath, req)
 	if err == nil {
 		return resp, 0
 	}
@@ -123,7 +123,7 @@ func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io
 		fmt.Fprintf(stderr, "agentbus: %s\n", err2)
 		return daemon.Response{}, 1
 	}
-	resp, err = client.Call(ctx, dirs.SocketPath, req)
+	resp, err = dialDaemon(ctx, dirs.SocketPath, req)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)
 		return daemon.Response{}, 1

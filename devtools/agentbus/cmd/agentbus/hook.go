@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
@@ -36,7 +35,7 @@ func cmdHook(ctx context.Context, args, env []string, stdin io.Reader, _, _ io.W
 	}
 	callCtx, cancel := context.WithTimeout(ctx, hookTimeout)
 	defer cancel()
-	_, _ = client.Call(callCtx, dirs.SocketPath, daemon.Request{
+	_, _ = dialDaemon(callCtx, dirs.SocketPath, daemon.Request{
 		Op:      "bypass",
 		Name:    target,
 		Body:    body,
