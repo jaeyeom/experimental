@@ -756,18 +756,16 @@ func refuseRCA(pr github.QueuePullRequest, settings config.SettingsConfig) error
 		return err
 	}
 	if matched && class == "our-code" {
+		at := event.CreatedAt.Format(time.RFC3339)
 		moved, decided := ourCodeHeadMoved(pr, event)
-		if decided && moved {
-			fmt.Printf("our-code ejection at %s; head %s pushed since, proceeding\n",
-				event.CreatedAt.Format(time.RFC3339), pr.HeadSHA)
-			return nil
-		}
-		// A null beforeCommit has no SHA to compare. Missing force-push and
-		// commit dates cannot prove the head is unchanged, so do not use the
-		// our-code refusal for that case.
 		if !decided {
-			return errors.New("head change could not be decided")
+			return errors.New("refusing to enqueue: our-code removal; head change could not be decided")
 		}
+		if !moved {
+			return fmt.Errorf("refusing to enqueue: our-code removal and head %s unchanged since %s", pr.HeadSHA, at)
+		}
+		fmt.Printf("our-code ejection at %s; head %s pushed since, proceeding\n", at, pr.HeadSHA)
+		return nil
 	}
 	earlier, err := earlierRequeues(settings.RCAMarker, pr.Comments, pr.Events)
 	if err != nil {
@@ -776,27 +774,30 @@ func refuseRCA(pr github.QueuePullRequest, settings config.SettingsConfig) error
 	return requeueAllowed(class, matched, earlier, settings.RequeueLimit())
 }
 
-// ourCodeHeadMoved reports whether the head changed after an our-code removal.
-// A beforeCommit SHA decides the comparison. When that SHA is absent, a
-// HeadRefForcePushedEvent after the removal, or a head committedDate or
-// pushedDate after the removal, counts as a change. decided is false when
-// neither of those comparisons is available.
+// ourCodeHeadMoved reports whether the PR head changed after an our-code
+// removal. beforeCommit is not used: it names the merge-group commit the queue
+// tested, not the PR head. A HeadRefForcePushedEvent after the removal counts
+// as a change. Otherwise the head pushedDate decides, or committedDate when
+// pushedDate is absent. decided is false when no date is available, or when
+// the head was committed after the removal but pushed before it.
 func ourCodeHeadMoved(pr github.QueuePullRequest, event github.QueueEvent) (moved, decided bool) {
-	if event.CommitSHA != "" {
-		return event.CommitSHA != pr.HeadSHA, true
-	}
 	for _, at := range pr.ForcePushedAt {
 		if at.After(event.CreatedAt) {
 			return true, true
 		}
 	}
-	if pr.HeadCommittedAt.After(event.CreatedAt) || pr.HeadPushedAt.After(event.CreatedAt) {
-		return true, true
+	committedAfter := pr.HeadCommittedAt.After(event.CreatedAt)
+	if !pr.HeadPushedAt.IsZero() {
+		pushedAfter := pr.HeadPushedAt.After(event.CreatedAt)
+		if committedAfter && !pushedAfter {
+			return false, false
+		}
+		return pushedAfter, true
 	}
-	if pr.HeadCommittedAt.IsZero() && pr.HeadPushedAt.IsZero() {
+	if pr.HeadCommittedAt.IsZero() {
 		return false, false
 	}
-	return false, true
+	return committedAfter, true
 }
 
 func requeueAllowed(class string, matched bool, earlier, limit int) error {

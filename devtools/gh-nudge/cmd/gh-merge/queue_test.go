@@ -1422,13 +1422,15 @@ func TestNoFailedJobContinues(t *testing.T) {
 	t.Run("queue our-code", func(t *testing.T) {
 		pr := removedPR()
 		pr.HeadSHA = "deadbeef"
+		pr.HeadCommittedAt = pr.Events[0].CreatedAt.Add(-time.Hour)
 		pr.Comments = []string{"RCA EVT1 class=our-code"}
 		client := &fakeQueue{pr: pr, evidence: noFailedJobEvidence(t, workflowID)}
 		var err error
 		output := captureStdout(t, func() {
 			err = queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false)
 		})
-		if err == nil || err.Error() != "refusing to enqueue: RCA class is our-code" {
+		const want = "refusing to enqueue: our-code removal and head deadbeef unchanged since 2026-01-02T00:00:00Z"
+		if err == nil || err.Error() != want {
 			t.Fatalf("queuePullRequest() error = %v", err)
 		}
 		assertNoFailedJobNote(t, output, workflowID)
@@ -3210,36 +3212,17 @@ func ourCodeRemoval(id, sha string, at time.Time) github.QueueEvent {
 
 func TestOurCodeSameHeadRefuses(t *testing.T) {
 	pr := readyPR()
-	pr.Events = []github.QueueEvent{
-		ourCodeRemoval("EVT", pr.HeadSHA, time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)),
-	}
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", pr.HeadSHA, at)}
+	pr.HeadCommittedAt = at.Add(-time.Hour)
 	pr.Comments = []string{"RCA EVT class=our-code"}
 	client := &fakeQueue{pr: pr}
 	err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false)
-	if err == nil || !strings.Contains(err.Error(), "our-code") {
-		t.Fatalf("queue error = %v, want our-code", err)
+	const want = "refusing to enqueue: our-code removal and head abc123 unchanged since 2026-01-02T03:04:05Z"
+	if err == nil || err.Error() != want {
+		t.Fatalf("queue error = %v, want %q", err, want)
 	}
 	if client.enqueueCalls != 0 {
-		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
-	}
-}
-
-func TestOurCodeMovedHeadEnqueues(t *testing.T) {
-	pr := readyPR()
-	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "deadbeef", at)}
-	pr.Comments = []string{"RCA EVT class=our-code"}
-	client := &fakeQueue{pr: pr}
-	output := captureStdout(t, func() {
-		if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
-			t.Fatalf("queuePullRequest() error = %v", err)
-		}
-	})
-	want := "our-code ejection at 2026-01-02T03:04:05Z; head abc123 pushed since, proceeding"
-	if !strings.Contains(output, want) {
-		t.Fatalf("output = %q, want %q", output, want)
-	}
-	if client.enqueueCalls != 1 {
 		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
 	}
 }
@@ -3304,24 +3287,86 @@ func TestOurCodeNullBeforeCommitUndecidedDoesNotRefuseOurCode(t *testing.T) {
 	}
 }
 
-func TestOurCodeMovedHeadDryRunDoesNotEnqueue(t *testing.T) {
-	withMergeFlags(t, true, false, false)
-	pr := readyPR()
-	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	pr.Events = []github.QueueEvent{ourCodeRemoval("EVT", "deadbeef", at)}
-	pr.Comments = []string{"RCA EVT class=our-code"}
-	client := &fakeQueue{pr: pr}
-	output := captureStdout(t, func() {
-		if err := queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false); err != nil {
-			t.Fatalf("queuePullRequest() error = %v", err)
+func TestOurCodeLatestRemovalHeadChange(t *testing.T) {
+	t1 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	t2 := t1.Add(time.Hour)
+	twoRemovals := func() github.QueuePullRequest {
+		pr := readyPR()
+		pr.Events = []github.QueueEvent{
+			ourCodeRemoval("R1", "mergegroup1", t1),
+			{ID: "A1", Kind: github.QueueEventAdded, CreatedAt: t1.Add(time.Minute)},
+			ourCodeRemoval("R2", "mergegroup2", t2),
 		}
-	})
-	want := "our-code ejection at 2026-01-02T03:04:05Z; head abc123 pushed since, proceeding"
-	if !strings.Contains(output, want) {
-		t.Fatalf("output = %q, want %q", output, want)
+		pr.Comments = []string{"RCA R1 class=our-code", "RCA R2 class=our-code"}
+		pr.HeadCommittedAt = t1.Add(-48 * time.Hour)
+		return pr
 	}
-	if client.enqueueCalls != 0 {
-		t.Fatalf("enqueueCalls = %d", client.enqueueCalls)
+	const unchanged = "refusing to enqueue: our-code removal and head abc123 unchanged since 2026-01-02T04:04:05Z"
+	const undecided = "head change could not be decided"
+	tests := []struct {
+		name    string
+		edit    func(*github.QueuePullRequest)
+		wantErr string
+	}{
+		{name: "two removals on the same head", edit: func(*github.QueuePullRequest) {}, wantErr: unchanged},
+		{name: "force push after the last removal", edit: func(pr *github.QueuePullRequest) {
+			pr.ForcePushedAt = []time.Time{t2.Add(time.Minute)}
+		}},
+		{name: "new commit after the last removal", edit: func(pr *github.QueuePullRequest) {
+			pr.HeadCommittedAt = t2.Add(time.Minute)
+		}},
+		{name: "push between removals only", edit: func(pr *github.QueuePullRequest) {
+			pr.ForcePushedAt = []time.Time{t1.Add(30 * time.Minute)}
+			pr.HeadCommittedAt = t1.Add(29 * time.Minute)
+			pr.HeadPushedAt = t1.Add(30 * time.Minute)
+		}, wantErr: unchanged},
+		{name: "contradictory head dates", edit: func(pr *github.QueuePullRequest) {
+			pr.HeadCommittedAt = t2.Add(time.Minute)
+			pr.HeadPushedAt = t2.Add(-time.Minute)
+		}, wantErr: undecided},
+		{name: "null beforeCommit and no date evidence", edit: func(pr *github.QueuePullRequest) {
+			for i := range pr.Events {
+				pr.Events[i].CommitSHA = ""
+			}
+			pr.HeadCommittedAt = time.Time{}
+		}, wantErr: undecided},
+	}
+	for _, tt := range tests {
+		for _, dry := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s dry=%v", tt.name, dry), func(t *testing.T) {
+				withMergeFlags(t, dry, false, false)
+				pr := twoRemovals()
+				tt.edit(&pr)
+				client := &fakeQueue{pr: pr}
+				var err error
+				output := captureStdout(t, func() {
+					err = queuePullRequest(client, rcaConfig(), pr.Ref.Raw, false)
+				})
+				if tt.wantErr != "" {
+					if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+						t.Fatalf("queue error = %v, want %q", err, tt.wantErr)
+					}
+					if strings.Contains(output, "pushed since") || client.enqueueCalls != 0 {
+						t.Fatalf("enqueueCalls = %d output:\n%s", client.enqueueCalls, output)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("queuePullRequest() error = %v", err)
+				}
+				want := "our-code ejection at 2026-01-02T04:04:05Z; head abc123 pushed since, proceeding"
+				if !strings.Contains(output, want) {
+					t.Fatalf("output = %q, want %q", output, want)
+				}
+				wantCalls := 1
+				if dry {
+					wantCalls = 0
+				}
+				if client.enqueueCalls != wantCalls {
+					t.Fatalf("enqueueCalls = %d, want %d", client.enqueueCalls, wantCalls)
+				}
+			})
+		}
 	}
 }
 
