@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
@@ -71,6 +72,22 @@ func (m *Model) composeKey(r rune) (bool, error) {
 	}
 	m.typeRune(r)
 	return false, nil
+}
+
+// isSendKey reports Alt+Enter or C-s. Either one sends from any focused
+// composer. Bubbletea's raw mode turns off XON/XOFF, so C-s reaches it.
+// Ctrl+Enter is not here: bubbletea v1 cannot tell it from Enter.
+func isSendKey(k tea.KeyMsg) bool {
+	return (k.Type == tea.KeyEnter && k.Alt) || k.Type == tea.KeyCtrlS
+}
+
+// sendComposer sends the draft of composer kind: Tab then Enter in the
+// note composer, Enter in the others.
+func (m *Model) sendComposer(kind composerKind) tea.Cmd {
+	if kind == composerNote {
+		m.advanceCompose()
+	}
+	return m.applyRune('\r')
 }
 
 func (m *Model) composeEnter() (bool, error) {

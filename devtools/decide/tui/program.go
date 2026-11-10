@@ -54,6 +54,9 @@ func (m *Model) Init() tea.Cmd {
 
 // Update drives the existing inbox behavior from bubbletea messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.keyLog != nil {
+		logInput(m.keyLog, msg)
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		if msg.Height > 0 {
@@ -92,6 +95,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if cmd, ok := m.handleEditorKey(msg); ok {
 		return m, cmd
+	}
+	if kind, ok := m.composerKind(); ok && isSendKey(msg) {
+		return m, m.sendComposer(kind)
 	}
 	if isEditKey(msg) && m.editComposerKey(msg) {
 		return m, nil
