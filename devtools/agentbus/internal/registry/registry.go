@@ -142,6 +142,36 @@ func (r *Registry) Resolve(target string) (string, error) {
 	return handle, nil
 }
 
+// Lookup returns the bus name for target, or "" when it names no holder.
+// target is a registered name, a holder's handle, or a holder's pane id.
+// A handle holding several names gives the first. A pane id in two
+// sessions gives "". Lookup reads only the registry, never an adapter.
+func (r *Registry) Lookup(target string) string {
+	if target == "" {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.names[target]; ok {
+		return target
+	}
+	var match string
+	for _, rec := range r.names {
+		_, _, pane, _ := splitHandle(rec.Handle)
+		if rec.Handle != target && pane != target {
+			continue
+		}
+		if match != "" && match != rec.Handle {
+			return ""
+		}
+		match = rec.Handle
+	}
+	if match == "" {
+		return ""
+	}
+	return r.heldBy(match)[0]
+}
+
 // WhoAmI returns the stamped handle and the names that handle holds.
 func (r *Registry) WhoAmI(ctx context.Context, env []string) (string, []Binding, error) {
 	r.mu.Lock()

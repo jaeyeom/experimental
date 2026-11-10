@@ -187,6 +187,23 @@ lets the tool call proceed. It records a bypass event and exits 0. If
 ~agentbus~ is not on ~PATH~, or the bus is down, the hook exits 0 and
 the tool call is unchanged.
 
+When the ~SendMessage~ target is a registered name, or the handle or
+pane id of an agent that holds one, the hook also prints a hint. It
+uses ~hookSpecificOutput.additionalContext~ with no permission
+decision, so Claude Code adds the hint to the agent's context and still
+runs the call:
+
+#+begin_example
+This recipient is coord/primary on agentbus. Next time use: agentbus send coord/primary "..."
+#+end_example
+
+A handle that holds several names gives the first in name order. A pane
+id held in two sessions, or any other target, gives no hint. The bypass
+event keeps the raw target in ~name~ and the bus name in ~resolved~, so
+~agentbus log --event bypass~ shows who should have been addressed. The
+lookup reads only the registry. If the daemon is down, fails, or takes
+longer than one second, the hook prints nothing and exits 0.
+
 The same command writes a ~UserPromptSubmit~ hook, the script
 ~$HOME/.claude/hooks/agentbus-userpromptsubmit.sh~, which runs
 ~agentbus prompt-hook~. It blocks a prompt only when an agentbus

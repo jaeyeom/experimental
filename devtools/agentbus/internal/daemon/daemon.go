@@ -229,6 +229,7 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 }
 
 // bypass records an observe-only SendMessage. The tool call already proceeded.
+// Response.Name is the bus name the target maps to, or empty.
 func (s *server) bypass(req Request) Response {
 	actor := strings.TrimSpace(req.Session)
 	if actor == "" {
@@ -238,15 +239,18 @@ func (s *server) bypass(req Request) Response {
 	if detail == "" {
 		detail = "bypass"
 	}
+	target := strings.TrimSpace(req.Name)
+	resolved := s.reg.Lookup(target)
 	if err := s.log.Append(eventlog.Event{
-		Event:  eventlog.EventBypass,
-		Actor:  actor,
-		Name:   strings.TrimSpace(req.Name),
-		Detail: detail,
+		Event:    eventlog.EventBypass,
+		Actor:    actor,
+		Name:     target,
+		Resolved: resolved,
+		Detail:   detail,
 	}); err != nil {
 		return Response{Error: err.Error()}
 	}
-	return Response{OK: true}
+	return Response{OK: true, Name: resolved}
 }
 
 // requeue puts back a delivered message that a UserPromptSubmit hook

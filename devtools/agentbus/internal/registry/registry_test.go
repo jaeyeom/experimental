@@ -178,3 +178,56 @@ func openReg(t *testing.T, ad *fake.Adapter) *Registry {
 func envPane(pane string) []string {
 	return []string{"HERDR_PANE_ID=" + pane}
 }
+
+func TestLookupNamesTheBusNameForAKnownTarget(t *testing.T) {
+	holder := "herdr:local/default/w1:p1"
+	other := "herdr:local/default/w1:p2"
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{holder: adapter.StateIdle, other: adapter.StateIdle},
+		PaneHandles: map[string]string{"p1": holder, "p2": other},
+	}
+	reg := openReg(t, ad)
+	for _, name := range []string{"coord/primary", "coord/backup"} {
+		if _, err := reg.Register(context.Background(), envPane("p1"), name, "x"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := map[string]string{
+		"coord/primary": "coord/primary",
+		holder:          "coord/backup",
+		"w1:p1":         "coord/backup",
+		other:           "",
+		"w1:p2":         "",
+		"researcher":    "",
+		"":              "",
+	}
+	for target, want := range cases {
+		if got := reg.Lookup(target); got != want {
+			t.Errorf("Lookup(%q) = %q, want %q", target, got, want)
+		}
+	}
+}
+
+func TestLookupSkipsAPaneHeldInTwoSessions(t *testing.T) {
+	first := "herdr:local/a/w1:p1"
+	second := "herdr:local/b/w1:p1"
+	ad := &fake.Adapter{
+		AdapterName: "herdr",
+		Reach:       map[string]adapter.State{first: adapter.StateIdle, second: adapter.StateIdle},
+		PaneHandles: map[string]string{"one": first, "two": second},
+	}
+	reg := openReg(t, ad)
+	if _, err := reg.Register(context.Background(), envPane("one"), "ops/a", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Register(context.Background(), envPane("two"), "ops/b", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := reg.Lookup("w1:p1"); got != "" {
+		t.Fatalf("ambiguous pane = %q", got)
+	}
+	if got := reg.Lookup(second); got != "ops/b" {
+		t.Fatalf("handle = %q", got)
+	}
+}

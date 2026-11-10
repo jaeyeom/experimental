@@ -85,6 +85,28 @@ func TestReadFiltersWithoutStartingDaemon(t *testing.T) {
 	}
 }
 
+func TestBypassKeepsTheResolvedName(t *testing.T) {
+	lg := Open(t.TempDir())
+	if err := lg.Append(Event{Event: EventBypass, Actor: "sess-1", Name: "researcher", Resolved: "coord/primary", Detail: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := lg.Read(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], `"resolved":"coord/primary"`) {
+		t.Fatalf("lines = %q", lines)
+	}
+	ev, err := Parse(lines[0])
+	if err != nil || ev.Resolved != "coord/primary" {
+		t.Fatalf("parse = %+v, %v", ev, err)
+	}
+	text, err := Format(lines[0])
+	if err != nil || !strings.Contains(text, ` name="researcher" resolved="coord/primary"`) {
+		t.Fatalf("format = %q, %v", text, err)
+	}
+}
+
 func TestPruneRemovesFileOlderThanRetention(t *testing.T) {
 	dir := t.TempDir()
 	lg := Open(dir)
