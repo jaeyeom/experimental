@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -689,3 +691,141 @@ func blockedAgent(paneID, tabID string) herdr.Agent {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestGateDirtyTree(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		dirty  func(t *testing.T, dir string)
+		reason string
+	}{
+		{name: "clean", dirty: func(*testing.T, string) {}},
+		{name: "untracked only", dirty: func(t *testing.T, dir string) {
+			writeTestFile(t, filepath.Join(dir, "new.txt"), "new\n")
+		}},
+		{name: "staged", reason: "dirty tree: 1 files", dirty: func(t *testing.T, dir string) {
+			writeTestFile(t, filepath.Join(dir, "new.txt"), "new\n")
+			runGit(t, dir, "add", "new.txt")
+		}},
+		{name: "unstaged", reason: "dirty tree: 1 files", dirty: func(t *testing.T, dir string) {
+			writeTestFile(t, filepath.Join(dir, "a.txt"), "changed\n")
+		}},
+		{name: "staged and unstaged path counts once", reason: "dirty tree: 2 files", dirty: func(t *testing.T, dir string) {
+			writeTestFile(t, filepath.Join(dir, "a.txt"), "staged\n")
+			runGit(t, dir, "add", "a.txt")
+			writeTestFile(t, filepath.Join(dir, "a.txt"), "unstaged\n")
+			writeTestFile(t, filepath.Join(dir, "new.txt"), "new\n")
+			runGit(t, dir, "add", "new.txt")
+		}},
+		{name: "rebase-merge", reason: "dirty tree: rebase in progress", dirty: func(t *testing.T, dir string) {
+			mkdirAll(t, filepath.Join(dir, ".git", "rebase-merge"))
+		}},
+		{name: "rebase-apply", reason: "dirty tree: rebase in progress", dirty: func(t *testing.T, dir string) {
+			mkdirAll(t, filepath.Join(dir, ".git", "rebase-apply"))
+		}},
+		{name: "merge", reason: "dirty tree: merge in progress", dirty: func(t *testing.T, dir string) {
+			writeTestFile(t, filepath.Join(dir, ".git", "MERGE_HEAD"), runGit(t, dir, "rev-parse", "HEAD"))
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := gitRepo(t)
+			tt.dirty(t, dir)
+			cfg := config.Defaults()
+			cfg.ConcurrencyCwd = "any"
+			cfg.Checkout = dir
+			h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+			got, err := GateCheck(context.Background(), h, cfg, "", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Reason != tt.reason {
+				t.Fatalf("reason = %q, want %q", got.Reason, tt.reason)
+			}
+			if got.Safe != (tt.reason == "") {
+				t.Fatalf("safe = %v, want %v", got.Safe, tt.reason == "")
+			}
+			if len(got.Busy) != 0 {
+				t.Fatalf("busy = %+v, want none", got.Busy)
+			}
+		})
+	}
+}
+
+func TestGateSkipsTreeCheckOutsideGit(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Checkout = t.TempDir()
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	got, err := GateCheck(context.Background(), h, cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Safe || got.Reason != "" {
+		t.Fatalf("result = %+v, want safe without reason", got)
+	}
+}
+
+func TestWaitDirtyTreeIsUnsafeImmediately(t *testing.T) {
+	t.Parallel()
+
+	dir := gitRepo(t)
+	writeTestFile(t, filepath.Join(dir, "a.txt"), "changed\n")
+	cfg := config.Defaults()
+	cfg.Checkout = dir
+	clock := &fakeClock{now: fixtureNow}
+	sleeper := &fakeSleeper{clock: clock}
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}}}
+	got, err := Wait(context.Background(), h, cfg, "", nil, clock, sleeper)
+	if !errors.Is(err, ErrDirtyTree) {
+		t.Fatalf("error = %v, want ErrDirtyTree", err)
+	}
+	if got.Safe || got.Reason != "dirty tree: 1 files" {
+		t.Fatalf("result = %+v, want unsafe dirty tree", got)
+	}
+	if sleeper.n != 0 {
+		t.Fatalf("sleeps = %d, want 0", sleeper.n)
+	}
+}
+
+// gitRepo is a temporary git repository with one committed file, a.txt.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q")
+	writeTestFile(t, filepath.Join(dir, "a.txt"), "a\n")
+	runGit(t, dir, "add", "a.txt")
+	runGit(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init")
+	return dir
+}
+
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...) //nolint:gosec // G204: test git helper
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+func writeTestFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}

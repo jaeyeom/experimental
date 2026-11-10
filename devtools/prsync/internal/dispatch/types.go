@@ -19,7 +19,9 @@ const (
 	ActionSkippedNotFound      = "skipped_not_found"
 	ActionQueued               = "queued"
 	ActionGateTimeout          = "gate_timeout"
-	ActionFailed               = "failed"
+	// ActionGateUnsafe means the dispatch checkout is dirty. It does not send.
+	ActionGateUnsafe = "gate_unsafe"
+	ActionFailed     = "failed"
 )
 
 // Document is the outbound dispatch JSON document.

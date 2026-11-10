@@ -297,7 +297,9 @@ func ciFixIncomplete(status string) bool {
 // then blocks on herdr agent prompt --wait, debounce-confirms idle/done, and
 // agent-waits leftover time if the tab resumes working.
 // It writes state on dispatched / dispatched_timeout, and returns ErrTimeout,
-// ErrSettleTimeout, or ErrFailed after emitting partial results. A gate
+// ErrDirtyTree, ErrSettleTimeout, or ErrFailed after emitting partial
+// results. A dirty dispatch checkout emits gate_unsafe for the current PR,
+// without polling, and queued for the rest. A gate
 // timeout emits gate_timeout for the current PR (naming the tab being
 // waited on) and queued for the rest. A blocked settlement does not write
 // dedupe state and stops the batch so a re-run can retry the same comment
@@ -405,6 +407,13 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 		queueRest(ctx, &doc, cands, i+1)
 		return doc, liveStep{done: true, err: fmt.Errorf("%w: %s", ErrTimeout, item.Detail)}
 	}
+	if errors.Is(err, ErrDirtyTree) {
+		item = Item{Repo: c.Repo, Number: c.Number, Action: ActionGateUnsafe, Detail: res.Reason}
+		logResult(ctx, item)
+		doc.Results = append(doc.Results, item)
+		queueRest(ctx, &doc, cands, i+1)
+		return doc, liveStep{done: true, err: fmt.Errorf("%w: %s", ErrDirtyTree, res.Reason)}
+	}
 	if err != nil {
 		failed := failItem(c, err)
 		logResult(ctx, failed)
@@ -439,8 +448,10 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 	return doc, step
 }
 
+// gateConfig resolves the checkout of repo for the gate. The dirty-tree
+// check uses it in every concurrency_cwd mode.
 func gateConfig(cfg config.Config, repo string) config.Config {
-	if cfg.ConcurrencyCwd == "checkout" && cfg.Checkout == "" {
+	if cfg.Checkout == "" {
 		cfg.Checkout = checkoutOfRepo(repo)
 	}
 	return cfg
@@ -748,13 +759,19 @@ func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, 
 	if err != nil {
 		return fmt.Errorf("gate: %w", err)
 	}
-	if res.Safe || len(res.Busy) == 0 {
-		return nil
+	busy := ""
+	if len(res.Busy) > 0 {
+		busy = fmt.Sprintf("gate currently busy: pane %s", res.Busy[0].PaneID)
 	}
-	detail := fmt.Sprintf("gate currently busy: pane %s", res.Busy[0].PaneID)
 	for i := range doc.Results {
-		if doc.Results[i].Action == ActionWouldDispatch {
-			doc.Results[i].Detail = detail
+		item := &doc.Results[i]
+		if item.Action != ActionWouldDispatch {
+			continue
+		}
+		if reason := dirtyTreeReason(ctx, gateConfig(cfg, item.Repo).Checkout); reason != "" {
+			item.Detail = reason
+		} else if busy != "" {
+			item.Detail = busy
 		}
 	}
 	return nil
