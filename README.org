@@ -81,6 +81,10 @@ configuration code generation.
   or generators), include those changes in the commit.
 - Keep the =main= branch history flat — integrate upstream with =git pull
   --rebase= and merge with =git merge --ff-only=.
+- With [[https://github.com/gabyx/Githooks][Githooks]] installed (=git hooks install=), the
+  =.githooks/pre-commit/gitleaks.sh= hook scans staged changes for secrets and
+  blocks the commit on a finding. Resolve a false positive by updating
+  =.gitleaks.toml= or =.gitleaksignore=, not by skipping hooks.
 
 See [[file:CLAUDE.md][CLAUDE.md]] and [[file:AGENTS.md][AGENTS.md]] for the conventions followed by AI assistants and
 automated workflows in this repository.
