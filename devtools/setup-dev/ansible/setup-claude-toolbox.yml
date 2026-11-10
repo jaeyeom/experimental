@@ -17,6 +17,11 @@
       - git-guardrails
     claude_settings_file: "{{ ansible_facts['env']['HOME'] }}/.claude/settings.json"
     claude_toolbox_checkout: "{{ ansible_facts['env']['HOME'] }}/.cache/claude-toolbox"
+    # git-guardrails does not yet fire under agy (hook matcher, plugin root
+    # variable, and input/output JSON differ), so the git and find shims stay
+    # on hosts with agy. Set true once jaeyeom/claude-toolbox#52 is verified
+    # to block forbidden commands inside agy.
+    agy_guardrails_verified: false
   tasks:
     - name: Include guard for setup-claude-toolbox playbook
       block:
@@ -175,7 +180,10 @@
           loop: "{{ claude_toolbox_agent_plugins }}"
           when: item not in agy_installed or claude_toolbox_checkout_result.changed
 
-    - name: Remove shims replaced by claude-toolbox plugins
+    # The git and find shims are shared by every agent on the host, and
+    # git-guardrails replaces them, so keep them while any present agent
+    # cannot run the hook. See jaeyeom/claude-toolbox#52.
+    - name: Remove git and find shims replaced by git-guardrails
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
@@ -184,6 +192,18 @@
         - "{{ user_bin_directory }}/git"
         - "{{ user_shims_bin_directory }}/find"
         - "{{ user_bin_directory }}/find"
+      when:
+        - claude_check.rc == 0 or grok_check.rc == 0 or agy_check.rc == 0
+        - agy_check.rc != 0 or agy_guardrails_verified | bool
+
+    # The gh and jira shims only warn about TLS failures inside the Claude
+    # Code sandbox on macOS, which sandbox-helpers now covers. They guard
+    # nothing for other agents.
+    - name: Remove gh and jira shims replaced by sandbox-helpers
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
         - "{{ user_shims_bin_directory }}/gh"
         - "{{ user_bin_directory }}/gh"
         - "{{ user_shims_bin_directory }}/jira"
