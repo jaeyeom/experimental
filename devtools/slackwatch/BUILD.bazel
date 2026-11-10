@@ -7,8 +7,10 @@ go_library(
         "catchup.go",
         "config.go",
         "events.go",
+        "inbound.go",
         "notify.go",
         "post.go",
+        "status.go",
         "store.go",
         "sub.go",
         "watch.go",
@@ -24,14 +26,18 @@ go_test(
     srcs = [
         "catchup_test.go",
         "config_test.go",
+        "contrib_test.go",
         "events_test.go",
+        "inbound_test.go",
         "notify_test.go",
         "post_test.go",
+        "status_test.go",
         "store_test.go",
         "sub_test.go",
         "watch_test.go",
     ],
     embed = [":go_default_library"],
+    embedsrcs = ["contrib/slackwatch.service"],
 )
 
 org_lint_tests(["README.org"])

@@ -139,9 +139,10 @@ func TestRunSweepsOnTrigger(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &fakeSweeper{swept: make(chan struct{})}
 	trigger := make(chan struct{}, 1)
+	catchUps := make(chan bool, 1)
 	done := make(chan struct{})
 	go func() {
-		runSweeps(ctx, s, trigger, time.Hour, discardLogger())
+		runSweeps(ctx, s, trigger, time.Hour, func(catchUp bool, _ error) { catchUps <- catchUp }, discardLogger())
 		close(done)
 	}()
 	trigger <- struct{}{}
@@ -149,6 +150,9 @@ func TestRunSweepsOnTrigger(t *testing.T) {
 	case <-s.swept:
 	case <-time.After(5 * time.Second):
 		t.Fatal("no sweep after a trigger")
+	}
+	if !<-catchUps {
+		t.Error("a triggered sweep was not reported as a catch-up")
 	}
 	cancel()
 	<-done
@@ -159,7 +163,7 @@ func TestRunSweepsOnInterval(t *testing.T) {
 	s := &fakeSweeper{swept: make(chan struct{})}
 	done := make(chan struct{})
 	go func() {
-		runSweeps(ctx, s, nil, time.Millisecond, discardLogger())
+		runSweeps(ctx, s, nil, time.Millisecond, func(bool, error) {}, discardLogger())
 		close(done)
 	}()
 	for range 2 {

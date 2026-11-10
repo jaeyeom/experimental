@@ -1,0 +1,25 @@
+# Example systemd user unit for slackwatch serve.
+#
+# Install:
+#   cp slackwatch.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now slackwatch.service
+#   journalctl --user -u slackwatch.service -f
+#
+# No secrets live here. The config names the tokenFile, which must be
+# chmod 600. Adjust the binary and config paths to your install.
+
+[Unit]
+Description=slackwatch: push Slack replies to the owners of watched posts
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/slackwatch --config %h/.config/slackwatch/config.json serve
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
