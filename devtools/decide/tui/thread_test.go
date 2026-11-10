@@ -227,14 +227,19 @@ func TestItemViewFooterNamesArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "o")
+	m.status = ""
 	view := m.View()
-	if !strings.Contains(view, "y archive") || !strings.Contains(view, "? help") {
-		t.Fatalf("item footer\n%s", view)
+	for _, want := range []string{"e/y archive", "d outcome", "? help"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("item footer missing %q\n%s", want, view)
+		}
 	}
 	press(t, m, "?")
 	help := m.View()
-	if !strings.Contains(help, "y archive") {
-		t.Fatalf("item help\n%s", help)
+	for _, want := range []string{"e/y archive", "d outcome"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("item help missing %q\n%s", want, help)
+		}
 	}
 	press(t, m, "?")
 	press(t, m, "y")
@@ -638,5 +643,65 @@ func TestForwardHints(t *testing.T) {
 	press(t, m, "?")
 	if !strings.Contains(m.View(), "f forward") {
 		t.Fatalf("help\n%s", m.View())
+	}
+}
+
+func TestEArchivesLikeY(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	dir := t.TempDir()
+	led := openLedger(t, dir)
+	listed := mustCreate(t, led, &decide.Item{
+		Question:  "listed note",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC),
+	})
+	opened := mustCreate(t, led, &decide.Item{
+		Question:  "opened note",
+		Owner:     "ada",
+		Kind:      decide.KindRelay,
+		State:     decide.StateOpen,
+		CreatedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+	})
+	m := New(dir)
+	m.width = 120
+	m.height = 30
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.items) != 2 || m.items[0].ID != listed.ID {
+		t.Fatalf("inbox order = %+v", m.items)
+	}
+
+	press(t, m, "e")
+	got, err := led.Get(listed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateDone || got.Outcome != "archived" {
+		t.Fatalf("list e = state %s outcome %q", got.State, got.Outcome)
+	}
+
+	press(t, m, "o")
+	if m.mode != modeDetail || m.detail == nil || m.detail.ID != opened.ID {
+		t.Fatalf("open mode %d detail %+v", m.mode, m.detail)
+	}
+	press(t, m, "e")
+	got, err = led.Get(opened.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != decide.StateDone || got.Outcome != "archived" {
+		t.Fatalf("item e = state %s outcome %q", got.State, got.Outcome)
+	}
+	if m.mode != modeList {
+		t.Fatalf("item e left mode %d, want the list", m.mode)
+	}
+
+	press(t, m, "gd")
+	if Folders[m.folder].State != decide.StateDone || len(m.items) != 2 {
+		t.Fatalf("g d folder %d items %+v", m.folder, m.items)
 	}
 }

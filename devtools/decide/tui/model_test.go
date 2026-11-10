@@ -949,7 +949,7 @@ func TestDetailTypeInMarkDone(t *testing.T) {
 	if got.State != decide.StateOpen || got.Answer != nil {
 		t.Fatalf("type-in accepted an answer: %+v", got)
 	}
-	press(t, m, "e")
+	press(t, m, "d")
 	if !strings.Contains(m.View(), "outcome:") {
 		t.Fatalf("mark done did not ask for an outcome\n%s", m.View())
 	}
@@ -963,7 +963,7 @@ func TestDetailTypeInMarkDone(t *testing.T) {
 	}
 }
 
-func TestDetailEMarksDone(t *testing.T) {
+func TestDetailDMarksDone(t *testing.T) {
 	dir := t.TempDir()
 	led := openLedger(t, dir)
 	item := mustCreate(t, led, &decide.Item{
@@ -978,8 +978,12 @@ func TestDetailEMarksDone(t *testing.T) {
 		t.Fatal(err)
 	}
 	press(t, m, "\re")
+	if m.mode == modeOutcome || strings.Contains(m.View(), "outcome:") {
+		t.Fatalf("e opened the outcome composer\n%s", m.View())
+	}
+	press(t, m, "d")
 	if !strings.Contains(m.View(), "outcome:") {
-		t.Fatalf("e did not ask for an outcome\n%s", m.View())
+		t.Fatalf("d did not ask for an outcome\n%s", m.View())
 	}
 	press(t, m, "kept\r")
 	got, err := led.Get(item.ID)
@@ -2468,7 +2472,7 @@ func TestInboxRelayAnswerRunsNotifyOnce(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "\retyped it\r")
+	press(t, m, "\rdtyped it\r")
 	if got := notifyLog(t, logPath); !sameLines(got, want) {
 		t.Fatalf("type-in ran notify: %#v", got)
 	}
@@ -2822,7 +2826,7 @@ func TestFocusedTextDoesNotTriggerShortcuts(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = updateRune(t, m, '\r')
-	m = updateRune(t, m, 'e')
+	m = updateRune(t, m, 'd')
 	if m.mode != modeOutcome || !m.outcome.Focused() {
 		t.Fatal("outcome is not a focused text input")
 	}
@@ -4103,7 +4107,7 @@ func TestFocusedTextShowsACursor(t *testing.T) {
 		t.Fatalf("reply text\n%s", m.View())
 	}
 
-	press(t, m, "\x1be")
+	press(t, m, "\x1bd")
 	if m.mode != modeOutcome || !strings.Contains(m.View(), cursorOn) {
 		t.Fatalf("outcome cursor mode %v\n%s", m.mode, m.View())
 	}
@@ -4367,7 +4371,7 @@ func TestStatusComposeFromHighlightedAgent(t *testing.T) {
 			t.Fatalf("status help missing %q\n%s", needle, help)
 		}
 	}
-	for _, banned := range []string{"o or enter opens", "1-9 answer", "e done", "click folder, row, option"} {
+	for _, banned := range []string{"o or enter opens", "1-9 answer", "d outcome", "click folder, row, option"} {
 		if strings.Contains(help, banned) {
 			t.Fatalf("status help contains %q\n%s", banned, help)
 		}

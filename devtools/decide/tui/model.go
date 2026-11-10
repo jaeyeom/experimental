@@ -213,8 +213,9 @@ func (m *Model) Reload() error {
 // option. 0 focuses the composer.
 // Sending it appends a human message. On an open question that text is also
 // the answer. In a focused composer, ctrl+x then ctrl+e, or ctrl+g alone,
-// opens that draft in an external editor. y archives a notification, and e
-// asks for an outcome then marks the item done. l opens a link, L copies
+// opens that draft in an external editor. e or y archives a notification,
+// in the list or the item, and d asks for an outcome then marks the item
+// done. l opens a link, L copies
 // its URL, and Y copies the
 // current message. M toggles mouse capture. Enter submits the composer only
 // while it is focused. Esc leaves it and keeps the unsent draft. In compose,
@@ -516,7 +517,7 @@ func (m *Model) listKey(r rune) (bool, error) {
 		}
 	case 'c':
 		m.focusCompose()
-	case 'y':
+	case 'e', 'y':
 		return false, m.archiveSelected()
 	case 'b':
 		m.beginSnooze()
@@ -556,7 +557,7 @@ func (m *Model) detailKey(r rune) (bool, error) {
 	case 'g':
 		m.beginChord()
 		return false, nil
-	case 'y':
+	case 'e', 'y':
 		return false, m.archiveSelected()
 	case 'b':
 		m.beginSnooze()
@@ -583,14 +584,14 @@ func (m *Model) detailKey(r rune) (bool, error) {
 }
 
 // detailComposer opens the composer an item-view key names: c compose,
-// f forward, e outcome, or 0 reply.
+// f forward, d outcome, or 0 reply.
 func (m *Model) detailComposer(r rune) bool {
 	switch r {
 	case 'c':
 		m.focusCompose()
 	case 'f':
 		m.forwardItem()
-	case 'e':
+	case 'd':
 		m.beginOutcome()
 	case '0':
 		m.focusReply()
@@ -1095,8 +1096,8 @@ func (m *Model) narrow() bool {
 func (m *Model) statusLine() screenLine {
 	// The mouse label stays in front. The list and status hints stay the same
 	// width, so a 70-column footer still shows "? help". An open item also
-	// names y archive, 0 reply, and f forward. It leaves the folder keys to
-	// ? help so a 120-column footer still fits.
+	// names e/y archive, 0 reply, and f forward, and d outcome when it fits.
+	// It leaves the folder keys to ? help so a 120-column footer still fits.
 	if m.searching {
 		return m.searchPrompt()
 	}
@@ -1127,7 +1128,7 @@ func (m *Model) statusLine() screenLine {
 	case modeStatus:
 		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
 	case modeDetail, modeOutcome:
-		hint = label + "0 reply  f forward  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
+		hint = label + "0 reply  f forward  u list  e/y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
 	}
 	text := hint
 	if status != "" {
@@ -1136,12 +1137,16 @@ func (m *Model) statusLine() screenLine {
 	return screenLine{text: m.withOptionalHints(text)}
 }
 
-// withOptionalHints adds /find, then b snooze, before "? help" while
-// each fits, so a narrow footer keeps "? help".
+// withOptionalHints adds d outcome in an open item, then /find, then
+// b snooze, before "? help" while each fits, so a narrow footer keeps
+// "? help".
 func (m *Model) withOptionalHints(text string) string {
 	extras := []string{"/find", "b snooze"}
-	if m.mode == modeStatus {
+	switch m.mode {
+	case modeStatus:
 		extras = extras[:1]
+	case modeDetail, modeOutcome:
+		extras = append([]string{"d outcome"}, extras...)
 	}
 	for _, extra := range extras {
 		wide := strings.TrimSuffix(text, "? help") + extra + "  ? help"
@@ -2067,7 +2072,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
-		"1-9 answer  0 reply  f forward  y archive  e done  b snooze",
+		"1-9 answer  0 reply  f forward  e/y archive  d outcome  b snooze",
 		"/ filters as you type, esc restores, empty enter clears",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",

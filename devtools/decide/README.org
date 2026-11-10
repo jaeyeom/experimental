@@ -49,6 +49,14 @@ configured targets and no error shows. A note to a bus name runs
 inbox also go through ~agentbus send~. When the send fails the draft
 stays and no thread is kept.
 
+* Archive and outcome
+
+~e~ or ~y~ in the inbox list or an open item archives a notification: it
+is marked done with the outcome ~archived~, the same as ~decide done~. An
+item with pending options still needs an answer. In an open item, ~d~
+asks for an outcome, then marks the item done with it. ~g~ then ~d~
+still opens the Done folder.
+
 * Snooze
 
 ~b~ in the inbox list or an open item snoozes it: ~1h~, ~3h~, ~tomorrow

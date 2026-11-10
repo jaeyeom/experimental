@@ -38,7 +38,7 @@ func composerModel(t *testing.T, kind composerKind) (*Model, *decide.Ledger, dec
 	case composerAnswer:
 		m.focusAnswer()
 	case composerOutcome:
-		press(t, m, "e")
+		press(t, m, "d")
 	case composerNote:
 		press(t, m, "c\t")
 	}
