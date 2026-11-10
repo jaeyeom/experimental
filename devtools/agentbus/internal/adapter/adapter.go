@@ -4,6 +4,7 @@ package adapter
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 )
@@ -43,6 +44,17 @@ type Agent struct {
 	Status    string
 	SessionID string
 	Title     string
+}
+
+// InventoryWarning is the error Inventory returns with the agents it
+// could list when some machines could not be listed. Each line names one
+// machine and why, for example "machine m2 unreachable: host unreachable".
+type InventoryWarning struct {
+	Lines []string
+}
+
+func (w *InventoryWarning) Error() string {
+	return strings.Join(w.Lines, "; ")
 }
 
 // Hold reasons ComposerEmpty reports when a paste would mix with user input.

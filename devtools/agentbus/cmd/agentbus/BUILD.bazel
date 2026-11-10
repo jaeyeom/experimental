@@ -41,14 +41,18 @@ go_test(
         "prompthook_test.go",
         "queue_test.go",
         "registry_test.go",
+        "remote_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/adapter/fake:go_default_library",
+        "//devtools/agentbus/internal/adapter/herdr:go_default_library",
+        "//devtools/agentbus/internal/adapter/herdr/herdrtest:go_default_library",
         "//devtools/agentbus/internal/client:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
+        "//devtools/pkg/remotecall:go_default_library",
     ],
 )

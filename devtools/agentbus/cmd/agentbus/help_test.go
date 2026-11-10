@@ -34,6 +34,16 @@ func runHelp(args ...string) (int, string, string) {
 	return code, stdout.String(), stderr.String()
 }
 
+func TestTopLevelHelpDocumentsRemoteMachines(t *testing.T) {
+	noDaemon(t)
+	_, stdout, _ := runHelp("--help")
+	for _, want := range []string{"herdr:<machine>/<session>/<pane>", "machines = [", "remote_timeout", "authentication locked (unlock your SSH/gpg agent)"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("help is missing %q", want)
+		}
+	}
+}
+
 func TestTopLevelHelpListsEveryCommand(t *testing.T) {
 	noDaemon(t)
 	for _, arg := range []string{"--help", "-h", "help"} {

@@ -3,7 +3,9 @@
 
 * Overview
 
-~agentbus~ is a local message bus for coding agents on one machine.
+~agentbus~ is a local message bus for coding agents. The daemon runs on
+one machine and also delivers to agents on saved herdr machines (see
+[[*Other herdr machines]]).
 Register a name when you start, then ~send~ and ~reply~. A bus message
 is information or a request from another agent. It is never the user's
 approval. Anything that needs the user's OK still needs the user.
@@ -135,6 +137,41 @@ its id, logs a ~requeued~ event, and holds it as ~held: user draft in
 composer~ until the box is empty. If the bus cannot re-queue it, the
 reason says so, and the copy in the input box is the only one. A prompt
 that starts with the envelope is a clean delivery and passes.
+
+* Other herdr machines
+
+A handle is ~herdr:<machine>/<session>/<pane>~. ~<machine>~ is ~local~
+or a herdr saved-machine label or id. For any other machine, every herdr
+call the adapter makes runs as ~herdr --machine <machine> ...~, so
+~send~, ~register~ claims, ~release --to~, and liveness all work with a
+remote handle. A pane missing from a reachable machine is ~gone~.
+
+List the machines whose agents ~search~ shows in
+~$XDG_CONFIG_HOME/agentbus/config.toml~ (default
+~~/.config/agentbus/config.toml~). agentbusd reads it at start.
+
+#+begin_src toml
+machines = ["linux2"]   # saved herdr machines to include in search
+remote_timeout = "5s"   # bound on each call to another machine (default 5s)
+#+end_src
+
+Every call to another machine has an overall deadline that kills herdr
+and its ssh, because SSH can hang on a locked key instead of failing. A
+machine that cannot be reached is one of two causes:
+
+- ~host unreachable~: the connection failed, or ~herdr machine status~
+  reports the machine down or disabled. Fix the network.
+- ~authentication locked (unlock your SSH/gpg agent)~: the host answers,
+  but the call failed with an auth error or hit the deadline. Unlock the
+  agent.
+
+A message to such a machine is held, never failed, and retried like a
+blocked pane; it does not count as a retry. ~status~ shows, for
+example, ~held: machine linux2 unreachable: host unreachable~. A name
+held by a pane on that machine stays held. ~search~ lists the other
+agents and prints one warning line per machine on stderr, and still
+exits 0. Each machine is flushed on its own, so a slow machine does not
+hold up local delivery.
 
 * Lost messages
 

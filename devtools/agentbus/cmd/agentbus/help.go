@@ -199,7 +199,8 @@ func printUsage(w io.Writer) {
 	}
 	fmt.Fprint(w, `Usage: agentbus [command] [arguments]
 
-agentbus is a local message bus for coding agents on one machine.
+agentbus is a local message bus for coding agents. The daemon runs on one
+machine and also delivers to agents on saved herdr machines.
 With no command, it prints this help and starts agentbusd if it is down.
 
 Commands:
@@ -209,6 +210,18 @@ Commands:
 	}
 	fmt.Fprintf(w, "  %-*s  %s\n", width, "help", "Print help for a command.")
 	fmt.Fprint(w, `
+Handles:
+  herdr:<machine>/<session>/<pane>  <machine> is local, or a herdr saved-machine
+                                    label or id, reached with herdr --machine.
+
+Config ($XDG_CONFIG_HOME/agentbus/config.toml, read by agentbusd):
+  machines = ["linux2"]   saved machines whose agents search lists
+  remote_timeout = "5s"   bound on each call to another machine
+
+A message to a machine that cannot be reached is held, not failed, with
+"held: machine <m> unreachable: host unreachable" or
+"held: machine <m> unreachable: authentication locked (unlock your SSH/gpg agent)".
+
 Global flags:
   -h, --help  Print this help. After a command, print that command's help.
 

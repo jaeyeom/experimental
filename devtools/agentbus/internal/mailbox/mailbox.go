@@ -77,6 +77,7 @@ type Mailbox struct {
 	msgs     map[string]message
 	queue    map[string][]string
 	inflight map[string]bool
+	flushing map[string]bool
 	adapters []adapter.Adapter
 	broken   map[string]string
 	prep     sync.Once
@@ -102,6 +103,7 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 		msgs:     msgs,
 		queue:    rebuild(msgs),
 		inflight: map[string]bool{},
+		flushing: map[string]bool{},
 		adapters: adapters,
 	}
 	box.cv = sync.NewCond(&box.mu)

@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
+        "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
