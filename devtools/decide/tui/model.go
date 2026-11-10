@@ -1,9 +1,9 @@
 // Package tui is the keyboard inbox for decide.
 //
 // decide inbox is a bubbletea program. The list, folders, and detail view are
-// lipgloss. Free text and the type-in outcome field are bubbles text inputs.
-// The compose box is a bubbles textarea. It sends a note to a configured pane.
-// No pane id is built in.
+// lipgloss. Every compose box (reply, free text, outcome, and the note
+// sent to a configured pane) is a bubbles textarea with one shared Emacs
+// keymap. No pane id is built in.
 package tui
 
 import (
@@ -11,13 +11,13 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/muesli/termenv"
@@ -103,8 +103,9 @@ type Model struct {
 	mouseSync    bool
 	interval     time.Duration
 	runErr       error
-	free         textinput.Model
-	outcome      textinput.Model
+	replyField   textarea.Model
+	free         textarea.Model
+	outcome      textarea.Model
 	noteField    textarea.Model
 	agents       []decide.AgentStatus
 	resources    []decide.ResourceStatus
@@ -120,34 +121,14 @@ type Model struct {
 // New returns an inbox positioned on the open folder.
 func New(dir string) *Model {
 	return &Model{
-		Dir:       dir,
-		Now:       time.Now,
-		mouseOn:   true,
-		free:      newTextField(),
-		outcome:   newTextField(),
-		noteField: newNoteField(),
+		Dir:        dir,
+		Now:        time.Now,
+		mouseOn:    true,
+		replyField: newComposerField(),
+		free:       newComposerField(),
+		outcome:    newComposerField(),
+		noteField:  newComposerField(),
 	}
-}
-
-func newNoteField() textarea.Model {
-	field := textarea.New()
-	field.Prompt = ""
-	field.ShowLineNumbers = false
-	field.Placeholder = ""
-	field.CharLimit = 0
-	// MaxWidth 0 removes the 500-column clamp before SetWidth. The view
-	// wraps the logical line in wrapIndexed.
-	field.MaxWidth = 0
-	field.SetWidth(4096)
-	return field
-}
-
-func newTextField() textinput.Model {
-	field := textinput.New()
-	field.Prompt = ""
-	field.CharLimit = 0
-	field.Width = 0
-	return field
 }
 
 // Reload reads the current folder from disk. The cursor stays on the same id
@@ -209,7 +190,9 @@ func (m *Model) Reload() error {
 // while it is focused. Esc leaves it and keeps the unsent draft. In compose,
 // Tab moves from the recipient
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
-// [Send] sends. Printable keys type into a focused field. ? opens the
+// [Send] sends. Printable keys type into a focused field, and the
+// composerKeys Emacs bindings edit it; '\n' (C-j) inserts a newline and
+// only '\r' (Enter) submits. ? opens the
 // shortcut overlay only when no text field is focused, and Esc or ? closes
 // it. / opens a search prompt. Enter filters a list or highlights matches
 // in an open item, an empty Enter clears that, and Esc cancels the prompt.
@@ -584,41 +567,24 @@ func (m *Model) answerKey(r rune) (bool, error) {
 	case '\x1b':
 		m.answerFocus = false
 		m.free.Blur()
-		m.draft = m.free.Value()
 		return false, nil
-	case '\r', '\n':
-		m.draft = m.free.Value()
+	case '\r':
 		return false, m.submitFreeText()
-	case '\b', '\x7f':
-		m.editField(&m.free, r)
-		return false, nil
 	}
-	if r >= ' ' {
-		m.editField(&m.free, r)
-	}
+	m.typeRune(r)
 	return false, nil
 }
 
-func (m *Model) editField(field *textinput.Model, r rune) {
-	updated, _ := field.Update(runeKey(r))
-	*field = updated
-	m.draft = field.Value()
+// typeRune edits the focused composer with a printable rune, Backspace,
+// or '\n' (C-j), which inserts a newline. Other control runes are ignored.
+func (m *Model) typeRune(r rune) {
+	if r >= ' ' || r == '\n' || r == '\b' || r == '\x7f' {
+		m.editComposerKey(runeKey(r))
+	}
 }
 
 func (m *Model) pullNote() {
-	if m.noteField.Value() != m.note {
-		m.noteField.SetValue(m.note)
-	}
-}
-
-func (m *Model) editNote(r rune) {
-	m.pullNote()
-	if !m.noteField.Focused() {
-		m.noteField.Focus()
-	}
-	updated, _ := m.noteField.Update(runeKey(r))
-	m.noteField = updated
-	m.note = m.noteField.Value()
+	syncField(&m.noteField, m.note)
 }
 
 func (m *Model) focusCompose() {
@@ -664,15 +630,10 @@ func (m *Model) replyKey(r rune) (bool, error) {
 	case '\x1b':
 		m.replyFocus = false
 		return false, nil
-	case '\r', '\n':
+	case '\r':
 		return false, m.submitReply()
-	case '\b', '\x7f':
-		m.reply = dropLastRune(m.reply)
-		return false, nil
 	}
-	if r >= ' ' {
-		m.reply += string(r)
-	}
+	m.typeRune(r)
 	return false, nil
 }
 
@@ -714,15 +675,11 @@ func (m *Model) outcomeKey(r rune) (bool, error) {
 			m.status = "opened " + m.detail.ID
 		}
 		return false, nil
-	case '\r', '\n':
-		m.draft = m.outcome.Value()
+	case '\r':
 		return false, m.submitOutcome()
-	case '\b', '\x7f':
-		m.editField(&m.outcome, r)
-		return false, nil
 	}
+	m.typeRune(r)
 	if r >= ' ' {
-		m.editField(&m.outcome, r)
 		m.status = "outcome"
 	}
 	return false, nil
@@ -1061,8 +1018,8 @@ func (m *Model) statusLine() screenLine {
 	if m.chord {
 		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
 	}
-	if m.composerFocused() {
-		hint := label + "ctrl+x ctrl+e  ctrl+g  ? help"
+	if kind, ok := m.composerKind(); ok {
+		hint := label + composerHint(kind)
 		if m.status == "" {
 			return screenLine{text: hint}
 		}
@@ -1998,7 +1955,6 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
-		"ctrl+x ctrl+e or ctrl+g edits the draft",
 		"1-9 answer  0 reply  y archive  e done",
 		"/ filters the list, empty enter clears",
 		"l opens a link   L copies the link   Y copies the message",
@@ -2022,7 +1978,6 @@ func (m *Model) helpLines() []screenLine {
 			"enter on text inserts a newline",
 			"enter on [Send] sends",
 			"esc keeps the draft",
-			"ctrl+x ctrl+e or ctrl+g edits the draft",
 			"/ filters the list, empty enter clears",
 			"shift+drag selects text",
 			"M toggles mouse capture",
@@ -2030,6 +1985,9 @@ func (m *Model) helpLines() []screenLine {
 			"wheel scroll",
 			"? or esc close",
 		}
+	}
+	if i := slices.Index(text, "esc keeps the draft"); i >= 0 {
+		text = slices.Insert(text, i+1, composerHelp...)
 	}
 	if m.mode == modeDetail || m.mode == modeOutcome {
 		for i, line := range text {
@@ -2100,17 +2058,15 @@ func (m *Model) detailLines(width int) []screenLine {
 			screenLine{text: plainText("where: " + it.Where)},
 			screenLine{text: plainText("mark done"), hits: []hit{{kind: hitMarkDone}}},
 		)
-		lines = append(lines, m.replyLine())
+		lines = append(lines, m.replyLines(width)...)
 	} else {
-		lines = append(lines, m.replyLine())
+		lines = append(lines, m.replyLines(width)...)
 		lines = append(lines, m.relayLines(it, width)...)
 	}
 	if m.mode == modeOutcome {
-		body := m.draft
-		if m.outcome.Focused() {
-			body = withCursor(m.draft, m.outcome.Position())
-		}
-		lines = append(lines, screenLine{text: plainText("outcome: " + body)})
+		const label = "outcome: "
+		body := fieldLines(m.draft, &m.outcome, m.outcome.Focused(), width-len(label))
+		lines = append(lines, labeledLines(label, body, hitNone)...)
 	}
 	return lines
 }
@@ -2267,15 +2223,31 @@ func indentLine(line screenLine) screenLine {
 	return line
 }
 
-func (m *Model) replyLine() screenLine {
-	body := m.reply
-	if body == "" && !m.replyFocus {
-		body = "___"
+func (m *Model) replyLines(width int) []screenLine {
+	const label = "reply: "
+	body := []screenLine{{text: "___"}}
+	if m.reply != "" || m.replyFocus {
+		body = fieldLines(m.reply, &m.replyField, m.replyFocus, width-len(label))
 	}
-	if m.replyFocus {
-		body = withCursor(m.reply, len([]rune(m.reply)))
+	return labeledLines(label, body, hitReply)
+}
+
+// labeledLines puts label before the first composer line and lines the
+// rest up under it. Every line is a hit of kind unless kind is hitNone.
+func labeledLines(label string, body []screenLine, kind int) []screenLine {
+	pad := strings.Repeat(" ", len(label))
+	out := make([]screenLine, len(body))
+	for i, line := range body {
+		prefix := pad
+		if i == 0 {
+			prefix = label
+		}
+		out[i] = screenLine{text: plainText(prefix + line.text)}
+		if kind != hitNone {
+			out[i].hits = []hit{{kind: kind}}
+		}
 	}
-	return screenLine{text: plainText("reply: " + body), hits: []hit{{kind: hitReply}}}
+	return out
 }
 
 func plainText(s string) string {

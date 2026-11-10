@@ -30,7 +30,6 @@ func (m *Model) Click(x, y int) error {
 	if m.answerFocus && !m.onAnswerRow(x, y) {
 		m.answerFocus = false
 		m.free.Blur()
-		m.draft = m.free.Value()
 		return nil
 	}
 	if m.replyFocus && !m.onHitRow(x, y, hitReply) {

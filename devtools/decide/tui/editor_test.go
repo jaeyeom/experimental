@@ -52,7 +52,7 @@ func TestComposerExternalEditor(t *testing.T) {
 		t.Fatalf("composer %q focus %v", m.reply, m.replyFocus)
 	}
 	footer := m.View()
-	for _, needle := range []string{"ctrl+x ctrl+e", "ctrl+g", "? help"} {
+	for _, needle := range []string{"C-a/C-e line", "C-k kill"} {
 		if !strings.Contains(footer, needle) {
 			t.Fatalf("footer missing %q\n%s", needle, footer)
 		}
@@ -60,7 +60,7 @@ func TestComposerExternalEditor(t *testing.T) {
 
 	press(t, m, "\x1b?")
 	help := m.View()
-	if !strings.Contains(help, "ctrl+x ctrl+e or ctrl+g edits the draft") {
+	if !strings.Contains(help, "C-x C-e or C-g edits the draft") {
 		t.Fatalf("help missing the editor key\n%s", help)
 	}
 	press(t, m, "?0")
