@@ -593,6 +593,18 @@ fi`,
 		},
 		Imports: []Import{{Playbook: "git"}, {Playbook: "curl"}},
 	},
+	{
+		// Homebrew builds stamp the release version; go install leaves
+		// `gitleaks version` printing a placeholder. The v8 module path is
+		// still zricethezav even though the repo moved to gitleaks/gitleaks.
+		command: "gitleaks",
+		platforms: map[PlatformName]InstallMethod{
+			PlatformDarwin:     BrewInstallMethod{Name: "gitleaks"},
+			PlatformDebianLike: GoInstallMethod{PkgPath: "github.com/zricethezav/gitleaks/v8@latest"},
+			PlatformTermux:     GoInstallMethod{PkgPath: "github.com/zricethezav/gitleaks/v8@latest"},
+		},
+		Imports: nil,
+	},
 	GoTool("godef", "github.com/rogpeppe/godef@latest"),
 	GoTool("godoc", "golang.org/x/tools/cmd/godoc@latest"),
 	GoTool("godoctor", "github.com/godoctor/godoctor@latest"),

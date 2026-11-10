@@ -668,6 +668,23 @@ func TestPrsyncGoTool(t *testing.T) {
 	}
 }
 
+func TestGitleaksTool(t *testing.T) {
+	tool := findPlatformSpecificTool(t, "gitleaks")
+	// Homebrew stamps the release version into the binary, so `gitleaks
+	// version` prints v8.x there. go install leaves the placeholder string.
+	if got, want := tool.platforms[PlatformDarwin], InstallMethod(BrewInstallMethod{Name: "gitleaks"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("gitleaks Darwin method = %#v, want %#v", got, want)
+	}
+	// The v8 go.mod declares github.com/zricethezav/gitleaks/v8;
+	// github.com/gitleaks/gitleaks/v8 fails go install with a path mismatch.
+	want := GoInstallMethod{PkgPath: "github.com/zricethezav/gitleaks/v8@latest"}
+	for _, p := range []PlatformName{PlatformDebianLike, PlatformTermux} {
+		if got := tool.platforms[p]; got != want {
+			t.Errorf("gitleaks %s method = %#v, want %#v", p, got, want)
+		}
+	}
+}
+
 func TestFactoryGoTool(t *testing.T) {
 	tool := findPlatformSpecificTool(t, "factory")
 	method, ok := tool.platforms[PlatformAll].(GoInstallMethod)
