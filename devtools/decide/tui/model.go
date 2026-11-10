@@ -109,6 +109,12 @@ type Model struct {
 	agents       []decide.AgentStatus
 	resources    []decide.ResourceStatus
 	agentCursor  int
+	searching    bool
+	search       string
+	filter       string
+	listTotal    int
+	statusTotal  int
+	highlight    string
 }
 
 // New returns an inbox positioned on the open folder.
@@ -171,9 +177,10 @@ func (m *Model) Reload() error {
 	if err != nil {
 		return fmt.Errorf("select decide folder: %w", err)
 	}
-	m.items = items
+	m.listTotal = len(items)
+	m.items = filterItems(items, m.filter)
 	m.cursor = 0
-	for i, it := range items {
+	for i, it := range m.items {
 		if it.ID == keep {
 			m.cursor = i
 			break
@@ -204,10 +211,14 @@ func (m *Model) Reload() error {
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
 // [Send] sends. Printable keys type into a focused field. ? opens the
 // shortcut overlay only when no text field is focused, and Esc or ? closes
-// it.
+// it. / opens a search prompt. Enter filters a list or highlights matches
+// in an open item, an empty Enter clears that, and Esc cancels the prompt.
 func (m *Model) Key(r rune) (bool, error) {
 	if m.chord {
 		return m.finishChord(r)
+	}
+	if m.searching {
+		return m.searchKey(r)
 	}
 	if m.help {
 		return m.helpKey(r)
@@ -261,6 +272,8 @@ func (m *Model) statusKey(r rune) (bool, error) {
 		m.jumpList(m.listLen() - 1)
 	case 'c':
 		m.composeFromStatus()
+	case '/':
+		m.beginSearch()
 	}
 	return false, nil
 }
@@ -421,8 +434,8 @@ func (m *Model) loadStatus() error {
 	if err != nil {
 		return fmt.Errorf("read decide status: %w", err)
 	}
-	m.agents = agents
-	m.resources = resources
+	m.statusTotal = len(agents) + len(resources)
+	m.agents, m.resources = filterStatus(agents, resources, m.filter)
 	m.clampAgentCursor()
 	return nil
 }
@@ -492,6 +505,8 @@ func (m *Model) listKey(r rune) (bool, error) {
 		m.focusCompose()
 	case 'y':
 		return false, m.archiveSelected()
+	case '/':
+		m.beginSearch()
 	}
 	return false, nil
 }
@@ -544,6 +559,9 @@ func (m *Model) detailKey(r rune) (bool, error) {
 		return false, nil
 	case '0':
 		m.focusReply()
+		return false, nil
+	case '/':
+		m.beginSearch()
 		return false, nil
 	}
 	return m.detailText(r)
@@ -951,6 +969,7 @@ func (m *Model) ledger() (*decide.Ledger, error) {
 func (m *Model) backToList() {
 	m.mode = modeList
 	m.detail = nil
+	m.highlight = ""
 	m.draft = ""
 	m.reply = ""
 	m.answerFocus = false
@@ -1035,6 +1054,9 @@ func (m *Model) statusLine() screenLine {
 	// The mouse label stays in front. The list and status hints stay the same
 	// width, so a 70-column footer still shows "? help". An open item also
 	// names y archive and 0 reply.
+	if m.searching {
+		return m.searchPrompt()
+	}
 	label := m.mouseLabel()
 	if m.chord {
 		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
@@ -1053,10 +1075,16 @@ func (m *Model) statusLine() screenLine {
 	case modeDetail, modeOutcome:
 		hint = label + "gi/ga/gd/gw/gs  0 reply  u list  y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
 	}
-	if m.status == "" {
-		return screenLine{text: hint}
+	text := hint
+	if m.status != "" {
+		text = m.status + "  " + hint
 	}
-	return screenLine{text: m.status + "  " + hint}
+	// /find shows only when it fits, so a narrow footer keeps "? help".
+	wide := strings.TrimSuffix(text, "? help") + "/find  ? help"
+	if w := m.contentWidth(); w <= 0 || lipgloss.Width(wide) <= w {
+		text = wide
+	}
+	return screenLine{text: text}
 }
 
 func (m *Model) listFocused() bool {
@@ -1110,7 +1138,7 @@ func (m *Model) statusScreen(width int) []screenLine {
 	}
 	var lines []screenLine
 	if len(m.agents) == 0 && len(m.resources) == 0 {
-		lines = append(lines, screenLine{text: "no status"})
+		lines = append(lines, screenLine{text: m.emptyText("no status")})
 	} else {
 		useStyles()
 		if len(m.agents) > 0 {
@@ -1125,6 +1153,7 @@ func (m *Model) statusScreen(width int) []screenLine {
 	}
 	_, limit := m.layoutBudget()
 	lines, m.scroll = clipLines(lines, m.scroll, limit)
+	lines = m.withFilterHeader(lines)
 	if width > 0 {
 		return fitColumnLines(lines, width)
 	}
@@ -1303,7 +1332,7 @@ func statusStyle(updated, now time.Time) lipgloss.Style {
 
 func (m *Model) unmeasuredList() []screenLine {
 	sidebar := m.sidebarLines()
-	list := m.clipList(m.rowLines(0))
+	list := m.withFilterHeader(m.clipList(m.rowLines(0)))
 	if m.listFocused() {
 		list = boxLines(list)
 	}
@@ -1315,7 +1344,7 @@ func (m *Model) stackedList(pane int) []screenLine {
 	if m.listFocused() && pane >= 2 {
 		rowW = pane - 2
 	}
-	list := m.clipList(m.rowLines(rowW))
+	list := m.withFilterHeader(m.clipList(m.rowLines(rowW)))
 	list = fitPane(list, pane, m.listFocused())
 	return stackRegions(pane, []screenLine{m.folderTabLine(pane)}, list)
 }
@@ -1327,7 +1356,7 @@ func (m *Model) columnList(pane int) []screenLine {
 	if m.listFocused() && listW >= 2 {
 		listInner = listW - 2
 	}
-	list := m.clipList(m.rowLines(listInner))
+	list := m.withFilterHeader(m.clipList(m.rowLines(listInner)))
 	cols := [][]screenLine{
 		fitColumnLines(sidebar, sideW),
 		fitPane(list, listW, m.listFocused()),
@@ -1519,6 +1548,9 @@ func (m *Model) layoutBudget() (int, int) {
 		frame = 2
 	}
 	chrome := folderChrome + 1 + frame
+	if _, ok := m.filterHeader(); ok {
+		chrome++
+	}
 	box := 0
 	if !m.composing && (m.listFocused() || m.detailFocused()) {
 		box = 2
@@ -1765,6 +1797,7 @@ var (
 	plainLine    lipgloss.Style
 	focusMark    lipgloss.Style
 	optionButton lipgloss.Style
+	searchMatch  lipgloss.Style
 )
 
 func useStyles() {
@@ -1778,6 +1811,8 @@ func useStyles() {
 		plainLine = lipgloss.NewStyle()
 		focusMark = lipgloss.NewStyle().Bold(true)
 		optionButton = lipgloss.NewStyle().Reverse(true)
+		// Black on yellow reads the same on light and dark terminals.
+		searchMatch = lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(0)).Background(lipgloss.ANSIColor(3))
 	})
 }
 
@@ -1965,6 +2000,7 @@ func (m *Model) helpLines() []screenLine {
 		"esc keeps the draft",
 		"ctrl+x ctrl+e or ctrl+g edits the draft",
 		"1-9 answer  0 reply  y archive  e done",
+		"/ filters the list, empty enter clears",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",
 		"M toggles mouse capture",
@@ -1987,6 +2023,7 @@ func (m *Model) helpLines() []screenLine {
 			"enter on [Send] sends",
 			"esc keeps the draft",
 			"ctrl+x ctrl+e or ctrl+g edits the draft",
+			"/ filters the list, empty enter clears",
 			"shift+drag selects text",
 			"M toggles mouse capture",
 			"click folder, target, or [Send]",
@@ -1999,6 +2036,9 @@ func (m *Model) helpLines() []screenLine {
 			if strings.HasPrefix(line, "j/k move") {
 				text[i] = "j/k up/down line  pgup/pgdn page  home/end  n/p"
 			}
+			if strings.HasPrefix(line, "/ filters") {
+				text[i] = "/ highlights matches, empty enter clears"
+			}
 		}
 	}
 	lines := make([]screenLine, len(text))
@@ -2010,7 +2050,7 @@ func (m *Model) helpLines() []screenLine {
 
 func (m *Model) rowLines(width int) []screenLine {
 	if len(m.items) == 0 {
-		return []screenLine{{text: "(empty)"}}
+		return []screenLine{{text: m.emptyText("(empty)")}}
 	}
 	now := time.Now()
 	if m.Now != nil {
@@ -2045,10 +2085,15 @@ func (m *Model) detailLines(width int) []screenLine {
 		return []screenLine{{text: "(empty)"}}
 	}
 	it := m.detail
-	lines := []screenLine{{text: plainText(it.ID)}}
+	re := searchPattern(m.highlight)
+	title := it.ID
+	if re != nil {
+		title += fmt.Sprintf("  /%s (%d)", m.highlight, highlightCount(it, re))
+	}
+	lines := []screenLine{{text: plainText(title)}}
 	lines = append(lines, headerLines(it)...)
 	lines = append(lines, screenLine{})
-	lines = append(lines, m.threadLines(it, width)...)
+	lines = append(lines, m.threadLines(it, width, re)...)
 	if it.Kind == decide.KindTypeIn {
 		lines = append(lines,
 			screenLine{text: plainText("type: " + it.TypeText)},
@@ -2134,9 +2179,9 @@ func headerLabelStyle() lipgloss.Style {
 // A rule separates messages. The header is the author, a relative time,
 // dim option keys when that message asked a question, and latest on the newest.
 // The body is indented under that header.
-func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
+func (m *Model) threadLines(it *decide.Item, width int, re *regexp.Regexp) []screenLine {
 	if len(it.Messages) == 0 {
-		return questionLines(it.Question, width)
+		return questionLines(it.Question, width, re)
 	}
 	now := time.Now()
 	if m.Now != nil {
@@ -2160,7 +2205,7 @@ func (m *Model) threadLines(it *decide.Item, width int) []screenLine {
 			text:   messageHeader(msg, now, i == last, i == m.message),
 			header: i + 1,
 		})
-		for _, line := range questionLines(msg.Text, bodyWidth) {
+		for _, line := range questionLines(msg.Text, bodyWidth, re) {
 			lines = append(lines, indentLine(line))
 		}
 	}
@@ -2240,11 +2285,12 @@ func plainText(s string) string {
 
 var urlPattern = regexp.MustCompile(`https?://[^[:space:]]+`)
 
-func questionLines(q string, width int) []screenLine {
+// questionLines wraps q. A non-nil re marks its matches.
+func questionLines(q string, width int, re *regexp.Regexp) []screenLine {
 	parts := strings.Split(q, "\n")
 	lines := make([]screenLine, 0, len(parts))
 	for _, part := range parts {
-		lines = append(lines, linkLines(part, width)...)
+		lines = append(lines, linkLines(part, width, re)...)
 	}
 	return lines
 }
@@ -2306,17 +2352,21 @@ func wrapIndexed(s string, width int) []textChunk {
 	return out
 }
 
-func linkLines(part string, width int) []screenLine {
+func linkLines(part string, width int, re *regexp.Regexp) []screenLine {
 	chunks := wrapIndexed(part, width)
 	spans := urlPattern.FindAllStringIndex(part, -1)
+	var matches [][]int
+	if re != nil {
+		matches = re.FindAllStringIndex(part, -1)
+	}
 	lines := make([]screenLine, 0, len(chunks))
 	for _, ch := range chunks {
-		lines = append(lines, styleLinkChunk(part, ch, spans))
+		lines = append(lines, styleLinkChunk(part, ch, spans, matches))
 	}
 	return lines
 }
 
-func styleLinkChunk(original string, ch textChunk, spans [][]int) screenLine {
+func styleLinkChunk(original string, ch textChunk, spans, matches [][]int) screenLine {
 	if ch.from >= ch.to {
 		return screenLine{text: plainText("")}
 	}
@@ -2336,7 +2386,7 @@ func styleLinkChunk(original string, ch textChunk, spans [][]int) screenLine {
 			visEnd = ch.to
 		}
 		if pos < visStart {
-			b.WriteString(plainText(original[pos:visStart]))
+			b.WriteString(paintMatches(original, pos, visStart, matches))
 		}
 		frag := original[visStart:visEnd]
 		startCol := lipgloss.Width(original[ch.from:visStart]) + 1
@@ -2355,7 +2405,7 @@ func styleLinkChunk(original string, ch textChunk, spans [][]int) screenLine {
 		pos = visEnd
 	}
 	if pos < ch.to {
-		b.WriteString(plainText(original[pos:ch.to]))
+		b.WriteString(paintMatches(original, pos, ch.to, matches))
 	}
 	if b.Len() == 0 {
 		return screenLine{text: plainText(ch.text)}
@@ -2383,7 +2433,7 @@ func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
 		}
 	}
 	for _, link := range it.Links {
-		lines = append(lines, linkLines(link, width)...)
+		lines = append(lines, linkLines(link, width, nil)...)
 	}
 	deadline := "-"
 	if it.Deadline != nil {
