@@ -120,6 +120,13 @@ type Model struct {
 	// newMessages counts messages a live refresh added below the view.
 	newMessages int
 	detailGone  bool
+	// busOn adds agentbus names to the recipients. busNames is the
+	// cached listing taken at busAt. busRun replaces ExecAgentbus.
+	busOn      bool
+	busRun     BusRunner
+	busNames   []Target
+	busAt      time.Time
+	pickFilter string
 }
 
 // New returns an inbox positioned on the open folder.
@@ -382,16 +389,10 @@ func (m *Model) listPage() int {
 }
 
 func (m *Model) composeFromStatus() {
-	if m.agentCursor >= 0 && m.agentCursor < len(m.agents) {
-		name := m.agents[m.agentCursor].Name
-		for i, tg := range m.Targets {
-			if tg.Name == name {
-				m.target = i
-				break
-			}
-		}
-	}
 	m.focusCompose()
+	if m.agentCursor >= 0 && m.agentCursor < len(m.agents) {
+		m.selectName(m.agents[m.agentCursor].Name)
+	}
 }
 
 func (m *Model) showStatus() error {
@@ -607,7 +608,18 @@ func (m *Model) pullNote() {
 	syncField(&m.noteField, m.note)
 }
 
+// focusCompose opens the recipient picker with no filter. The bus
+// listing is refreshed when it is stale, and the selection keeps its name.
 func (m *Model) focusCompose() {
+	var name string
+	if cands := m.candidates(); m.target >= 0 && m.target < len(cands) {
+		name = cands[m.target].Name
+	}
+	m.refreshBus()
+	if !m.selectName(name) {
+		m.target = 0
+	}
+	m.pickFilter = ""
 	m.composing = true
 	m.composeFocus = focusRecipient
 	m.answerFocus = false
@@ -914,6 +926,10 @@ func (m *Model) notifyThread(item *decide.Item, text string) error {
 	if strings.TrimSpace(pane) == "" {
 		return fmt.Errorf("decide compose pane is empty")
 	}
+	if name, ok := strings.CutPrefix(pane, busPanePrefix); ok {
+		_, err := m.busSend(name, decide.DeliveryNote(item.ID, "human", text))
+		return err
+	}
 	template := m.SendTemplate
 	if strings.TrimSpace(template) == "" {
 		template = cfg.SendTemplate
@@ -1055,6 +1071,13 @@ func (m *Model) statusLine() screenLine {
 	status := m.footerStatus()
 	if kind, ok := m.composerKind(); ok {
 		hint := label + composerHint(kind)
+		if status == "" {
+			return screenLine{text: hint}
+		}
+		return screenLine{text: status + "  " + hint}
+	}
+	if m.composing && m.composeFocus == focusRecipient {
+		hint := label + pickerHint
 		if status == "" {
 			return screenLine{text: hint}
 		}
@@ -1990,6 +2013,7 @@ func (m *Model) helpLines() []screenLine {
 		"c compose",
 		"tab moves recipient, text, [Send]",
 		"shift+tab moves back",
+		"typing filters recipients  up/down or C-n/C-p move  enter picks",
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
@@ -2013,6 +2037,7 @@ func (m *Model) helpLines() []screenLine {
 			"c compose",
 			"tab moves recipient, text, [Send]",
 			"shift+tab moves back",
+			"typing filters recipients  up/down or C-n/C-p move  enter picks",
 			"enter on text inserts a newline",
 			"enter on [Send] sends",
 			"esc keeps the draft",

@@ -89,6 +89,14 @@ func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if isEditKey(msg) && m.editComposerKey(msg) {
 		return m, nil
 	}
+	switch msg.Type {
+	case tea.KeyCtrlN:
+		m.pickerArrow(1)
+		return m, nil
+	case tea.KeyCtrlP:
+		m.pickerArrow(-1)
+		return m, nil
+	}
 	if m.chord {
 		if _, ok := keyRune(msg); !ok {
 			m.expireChord(m.chordSeq)

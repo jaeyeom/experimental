@@ -1998,7 +1998,8 @@ func TestComposeTargetChangesBeforeSend(t *testing.T) {
 	if _, err := m.Key('c'); err != nil {
 		t.Fatal(err)
 	}
-	press(t, m, "j\t note\t\r")
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	press(t, m, "\t note\t\r")
 	if len(got) != 1 || len(got[0]) != 5 || got[0][3] != "pane-2" || got[0][4] != threadNote(t, dir, " note") {
 		t.Fatalf("keyboard send = %#v", got)
 	}
@@ -3549,13 +3550,19 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 		t.Fatalf("up wrapped to %d", m.target)
 	}
 	press(t, m, "][")
-	if m.target != 0 || m.note != "" {
-		t.Fatalf("brackets target %d note %q", m.target, m.note)
+	if m.target != 0 || m.note != "" || m.pickFilter != "][" {
+		t.Fatalf("brackets target %d note %q filter %q", m.target, m.note, m.pickFilter)
+	}
+	press(t, m, "\x1b")
+	if m.pickFilter != "" || !m.composing {
+		t.Fatalf("esc filter %q composing %v", m.pickFilter, m.composing)
 	}
 	if _, err := m.Key('\r'); err != nil || len(sent) != 0 || !m.composing {
 		t.Fatalf("picker enter sent %d composing %v", len(sent), m.composing)
 	}
-	press(t, m, "j\tone")
+	m.ShiftTab()
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	press(t, m, "\tone")
 	if m.composeFocus != focusText || m.target != 1 || m.note != "one" {
 		t.Fatalf("text focus %d target %d note %q", m.composeFocus, m.target, m.note)
 	}
@@ -3576,7 +3583,9 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 		t.Fatalf("sent %#v want %#v status %q", sent, want, m.status)
 	}
 
-	press(t, m, "ck\tkeep")
+	press(t, m, "c")
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	press(t, m, "\tkeep")
 	if _, err := m.Key('\r'); err != nil {
 		t.Fatal(err)
 	}

@@ -11,10 +11,15 @@ import (
 
 const sendsName = decide.SendsName
 
-// Target is a named pane the compose box can send to.
+// Target is a named pane the compose box can send to. A bus target is
+// an agentbus name: Pane is its handle, When is its --when text, and
+// Dead marks a holder agentbus reports dead.
 type Target struct {
 	Name string
 	Pane string
+	Bus  bool
+	When string
+	Dead bool
 }
 
 type sendRecord struct {
@@ -50,23 +55,19 @@ func (m *Model) ShiftTab() {
 }
 
 func (m *Model) composeKey(r rune) (bool, error) {
+	if r == '\t' {
+		m.advanceCompose()
+		return false, nil
+	}
+	if m.composeFocus == focusRecipient && m.pickerKey(r) {
+		return false, nil
+	}
 	switch r {
 	case '\x1b':
 		m.blurCompose()
 		return false, nil
-	case '\t':
-		m.advanceCompose()
-		return false, nil
 	case '\r', '\n':
 		return m.composeEnter()
-	}
-	if m.composeFocus == focusRecipient && (r == 'j' || r == 'k') {
-		delta := 1
-		if r == 'k' {
-			delta = -1
-		}
-		m.moveTarget(delta)
-		return false, nil
 	}
 	m.typeRune(r)
 	return false, nil
@@ -98,18 +99,6 @@ func (m *Model) advanceCompose() {
 	}
 }
 
-func (m *Model) moveTarget(delta int) {
-	n := len(m.Targets)
-	if n == 0 {
-		return
-	}
-	next := m.target + delta
-	if next < 0 || next >= n {
-		return
-	}
-	m.target = next
-}
-
 func (m *Model) pickerArrow(delta int) {
 	if m.composing && m.composeFocus == focusRecipient {
 		m.moveTarget(delta)
@@ -120,12 +109,15 @@ func (m *Model) sendNote() error {
 	if strings.TrimSpace(m.note) == "" {
 		return nil
 	}
-	if m.target < 0 || m.target >= len(m.Targets) {
+	tg, ok := m.selectedTarget()
+	if !ok {
 		m.status = "no compose target"
 		return nil
 	}
-	tg := m.Targets[m.target]
 	text := m.note
+	if tg.Bus {
+		return m.sendBus(tg, text)
+	}
 	// The thread id has to exist before the pane note is built.
 	item, err := m.recordThread(tg, text)
 	if err != nil {
@@ -243,9 +235,9 @@ func (m *Model) composeBody() []screenLine {
 	if budget < 3 {
 		budget = 3
 	}
-	pickerLines := m.pickerLines()
+	pickerLines, sel := m.pickerLines()
 	pickerBox, textLines := composeBoxHeights(len(pickerLines), budget)
-	picker := windowLines(pickerLines, m.target, pickerBox-2)
+	picker := windowLines(pickerLines, sel, pickerBox-2)
 	wrap := composeDraftWidth(width-2, m.composeFocus == focusText)
 	draft, first := windowDraft(m.draftLines(wrap), textLines)
 	draft = fieldRows(draft, hitNote, first, 0, wrap)
@@ -320,7 +312,7 @@ func windowDraft(draft []screenLine, limit int) ([]screenLine, int) {
 }
 
 func (m *Model) composeStack(width int) []screenLine {
-	picker := m.pickerLines()
+	picker, _ := m.pickerLines()
 	draft := m.draftLines(width)
 	send := m.sendLine()
 	minH := m.composeMinHeight()
@@ -359,30 +351,6 @@ func (m *Model) composeMinHeight() int {
 		return 1
 	}
 	return half
-}
-
-func (m *Model) pickerLines() []screenLine {
-	if len(m.Targets) == 0 {
-		return []screenLine{{text: "(no recipients)"}}
-	}
-	if m.target < 0 || m.target >= len(m.Targets) {
-		m.target = 0
-	}
-	lines := make([]screenLine, 0, len(m.Targets))
-	for i, tg := range m.Targets {
-		label := tg.Name
-		if i == m.target {
-			label = "[" + label + "]"
-		}
-		if m.composeFocus == focusRecipient && i == m.target {
-			label = "> " + label
-		}
-		lines = append(lines, screenLine{
-			text: label,
-			hits: []hit{{kind: hitTarget, n: i}},
-		})
-	}
-	return lines
 }
 
 func (m *Model) draftLines(width int) []screenLine {

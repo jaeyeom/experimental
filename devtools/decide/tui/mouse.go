@@ -227,9 +227,7 @@ func (m *Model) hit(h hit) error {
 func (m *Model) hitCompose(h hit) bool {
 	switch h.kind {
 	case hitTarget:
-		if h.n >= 0 && h.n < len(m.Targets) {
-			m.target = h.n
-		}
+		m.selectTarget(h.n)
 		return true
 	case hitCompose:
 		m.focusCompose()

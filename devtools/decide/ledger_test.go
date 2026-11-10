@@ -1047,3 +1047,49 @@ func sameAnswer(got, want *Answer) bool {
 	}
 	return *got == *want
 }
+
+func TestSetBusMessageStoresTheMessageID(t *testing.T) {
+	led, _ := openTemp(t)
+	item, err := led.StartThread("coord/primary", "agentbus:coord/primary", "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.SetBusMessage(item.ID, "m-7f3a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := led.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BusMessage != "m-7f3a" || stored.BusMessage != "m-7f3a" {
+		t.Fatalf("bus message = %q, stored %q", got.BusMessage, stored.BusMessage)
+	}
+	if _, err := led.SetBusMessage("D-999", "m-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing id err = %v", err)
+	}
+}
+
+func TestDeleteRemovesTheItemAndDoesNotReuseItsID(t *testing.T) {
+	led, _ := openTemp(t)
+	first, err := led.StartThread("alpha", "pane-a", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := led.Delete(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := led.Get(first.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted item err = %v", err)
+	}
+	second, err := led.StartThread("alpha", "pane-a", "two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("id %s was reused", second.ID)
+	}
+	if err := led.Delete(first.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete err = %v", err)
+	}
+}

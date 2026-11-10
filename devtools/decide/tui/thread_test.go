@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
@@ -553,7 +554,8 @@ func TestForwardSendRecordsTheSource(t *testing.T) {
 	press(t, m, "f")
 	press(t, m, "please look")
 	m.ShiftTab()
-	press(t, m, "j\t\t\r")
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	press(t, m, "\t\t\r")
 	if m.composing || m.status != "sent to beta" {
 		t.Fatalf("composing %v status %q", m.composing, m.status)
 	}

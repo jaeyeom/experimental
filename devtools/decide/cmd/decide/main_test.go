@@ -720,6 +720,28 @@ func TestLoadConfigComposeTargets(t *testing.T) {
 	if cfg.SendTemplate != "herdr agent prompt {pane}" {
 		t.Fatalf("template = %q", cfg.SendTemplate)
 	}
+	if cfg.Recipients.Agentbus {
+		t.Fatal("agentbus recipients are on by default")
+	}
+}
+
+func TestLoadConfigAgentbusRecipients(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"recipients\":{\"agentbus\":true}}\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Recipients.Agentbus {
+		t.Fatalf("recipients = %+v", cfg.Recipients)
+	}
 }
 
 func writeOptionsOnlyConfig(t *testing.T) {

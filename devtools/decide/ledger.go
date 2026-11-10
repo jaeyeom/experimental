@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -90,6 +91,8 @@ type Item struct {
 	Outcome     string     `json:"outcome,omitempty"`
 	// ForwardedFrom is the item id a forwarded thread was started from.
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
+	// BusMessage is the agentbus message id of a note sent to a bus name.
+	BusMessage string `json:"busMessage,omitempty"`
 }
 
 // Ledger is the on-disk decision store for one directory.
@@ -301,6 +304,37 @@ func (l *Ledger) ForwardThread(from, owner, pane, text string) (Item, error) {
 			Time:   now,
 			Text:   text,
 		}},
+	})
+}
+
+// SetBusMessage stores the agentbus message id that delivered id.
+func (l *Ledger) SetBusMessage(id, msg string) (Item, error) {
+	var updated Item
+	err := l.locked(true, func(st *store) error {
+		it, err := findItem(st, id)
+		if err != nil {
+			return err
+		}
+		it.BusMessage = msg
+		updated = *it
+		return nil
+	})
+	if err != nil {
+		return Item{}, err
+	}
+	return updated, nil
+}
+
+// Delete removes id. It is for a thread whose first note was never
+// delivered. The id is not reused.
+func (l *Ledger) Delete(id string) error {
+	return l.locked(true, func(st *store) error {
+		i := slices.IndexFunc(st.Items, func(it Item) bool { return it.ID == id })
+		if i < 0 {
+			return fmt.Errorf("%w: %s", ErrNotFound, id)
+		}
+		st.Items = slices.Delete(st.Items, i, i+1)
+		return nil
 	})
 }
 
