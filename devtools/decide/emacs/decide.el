@@ -14,6 +14,7 @@
 ;;; Code:
 
 (require 'json)
+(require 'seq)
 (require 'subr-x)
 (require 'time-date)
 
@@ -76,6 +77,8 @@ buffer in that window."
   "Display name and `decide list --state' value.")
 
 (defvar decide--folder "inbox")
+(defvar decide--filter ""
+  "List filter query.  An empty string shows every row.")
 (defvar-local decide--items nil)
 (defvar-local decide--item-id nil)
 (defvar-local decide--message nil
@@ -165,12 +168,36 @@ The requester, relative time, and kind or state badge use their faces."
           (propertize (decide--badge item) 'face 'decide-badge)
           (decide--first-line (decide--field item "question"))))
 
+(defun decide--item-matches-p (item query)
+  "Non-nil when ITEM's id, owner, question, or a message text has QUERY.
+Case is ignored."
+  (let ((case-fold-search t)
+        (re (regexp-quote query)))
+    (or (seq-some (lambda (key) (string-match-p re (decide--field item key)))
+                  '("id" "owner" "question"))
+        (seq-some (lambda (msg) (string-match-p re (decide--field msg "text")))
+                  (alist-get "messages" item nil nil #'equal)))))
+
+(defun decide--filter-items (items query)
+  "ITEMS that match QUERY.  An empty QUERY keeps every item."
+  (if (string-empty-p (or query ""))
+      items
+    (seq-filter (lambda (item) (decide--item-matches-p item query)) items)))
+
+(defun decide--list-title (folder shown total)
+  "Title line for FOLDER, naming the filter with SHOWN of TOTAL rows."
+  (if (string-empty-p (or decide--filter ""))
+      (format "Decide %s" folder)
+    (format "Decide %s  /%s  (%d of %d)" folder decide--filter shown total)))
+
 (defun decide-list (&optional folder)
-  "Show the FOLDER list.  FOLDER is inbox, answered, done, or withdrawn."
+  "Show the FOLDER list.  FOLDER is inbox, answered, done, or withdrawn.
+The rows follow `decide--filter'."
   (interactive)
   (let* ((folder (or folder decide--folder "inbox"))
          (state (cdr (assoc folder decide-folders)))
-         (items (decide--json (list "list" "--json" "--state" (or state "open")))))
+         (all (decide--json (list "list" "--json" "--state" (or state "open"))))
+         (items (decide--filter-items all decide--filter)))
     (setq decide--folder folder)
     (let ((buf (get-buffer-create "*decide*")))
       (with-current-buffer buf
@@ -178,12 +205,19 @@ The requester, relative time, and kind or state badge use their faces."
         (setq decide--items items)
         (let ((inhibit-read-only t))
           (erase-buffer)
-          (insert (format "Decide %s\n" folder))
+          (insert (decide--list-title folder (length items) (length all)) "\n")
           (if (null items)
-              (insert "(empty)\n")
+              (insert (if all "no matches\n" "(empty)\n"))
             (dolist (item items)
               (insert (decide--list-line item) "\n")))))
       (decide--display buf))))
+
+(defun decide-list-filter (query)
+  "Show only the rows that match QUERY.  An empty QUERY clears the filter.
+Quitting the prompt keeps the current filter."
+  (interactive (list (read-string "Filter (empty clears): ")))
+  (setq decide--filter query)
+  (decide-list decide--folder))
 
 (defun decide-refresh ()
   "Reload the current list."
@@ -579,6 +613,7 @@ Sending it appends a human message and notifies the owner pane."
 (define-key decide-list-mode-map (kbd "g") #'decide-refresh)
 (define-key decide-list-mode-map (kbd "o") #'decide-show)
 (define-key decide-list-mode-map (kbd "RET") #'decide-show)
+(define-key decide-list-mode-map (kbd "/") #'decide-list-filter)
 (define-key decide-list-mode-map (kbd "c") #'decide-compose)
 (define-key decide-list-mode-map (kbd "s") #'decide-status)
 (define-key decide-list-mode-map (kbd "i") #'decide-list-inbox)
@@ -880,7 +915,8 @@ or archives."
   (decide--evil-bind
    decide-list-mode-map
    (list (kbd "o") #'decide-show
-         (kbd "RET") #'decide-show))
+         (kbd "RET") #'decide-show
+         (kbd "/") #'decide-list-filter))
   (decide--evil-bind
    decide-item-mode-map
    (list (kbd "o") #'decide-answer-option

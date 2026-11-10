@@ -10,6 +10,7 @@ go_library(
         "mouse.go",
         "program.go",
         "run.go",
+        "search.go",
         "term_other.go",
         "term_unix.go",
     ],
@@ -47,11 +48,13 @@ go_test(
         "editor_test.go",
         "link_test.go",
         "model_test.go",
+        "search_test.go",
         "thread_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/decide:go_default_library",
         "@com_github_charmbracelet_bubbletea//:go_default_library",
+        "@com_github_charmbracelet_lipgloss//:go_default_library",
     ],
 )
