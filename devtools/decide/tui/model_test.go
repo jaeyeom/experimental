@@ -2063,7 +2063,7 @@ func TestShiftEnterDoesNotSend(t *testing.T) {
 	if m.note != "say \"hi\"\n" {
 		t.Fatalf("note = %q", m.note)
 	}
-	if !strings.Contains(m.View(), "say \"hi\"") || strings.Contains(m.View(), "Enter send") {
+	if !strings.Contains(m.View(), "say \"hi\"") || plainEnterSend(m.View()) {
 		t.Fatalf("view = %s", m.View())
 	}
 	m.composeFocus = focusSend
@@ -2873,7 +2873,7 @@ func TestFocusedComposeDoesNotTriggerShortcuts(t *testing.T) {
 	if m.note != "A?1" || m.noteField.Value() != "A?1" || m.help || m.folder != folder {
 		t.Fatalf("note %q field %q help %v folder %d", m.note, m.noteField.Value(), m.help, m.folder)
 	}
-	if strings.Contains(m.View(), "Enter send") || strings.Contains(m.View(), "to:") {
+	if plainEnterSend(m.View()) || strings.Contains(m.View(), "to:") {
 		t.Fatalf("hint or recipient chips\n%s", m.View())
 	}
 	got, err := led.Get(relay.ID)

@@ -177,7 +177,7 @@ func TestComposerHintsListEditingKeys(t *testing.T) {
 	for kind, send := range map[composerKind]string{
 		composerReply:   "Enter send  Esc cancel",
 		composerOutcome: "Enter send  Esc cancel",
-		composerNote:    "Tab [Send]  Esc cancel",
+		composerNote:    "Alt+Enter send  Tab [Send]  Esc cancel",
 	} {
 		m, _, _ := composerModel(t, kind)
 		m.width = 160

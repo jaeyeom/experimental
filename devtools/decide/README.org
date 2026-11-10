@@ -74,6 +74,35 @@ Snoozed, ~b~ also offers ~unsnooze~.
   ~decide inbox --snoozed~ opens on that folder. ~show~ prints
   ~snoozed until:~ and ~--json~ carries ~snoozedUntil~ and ~snoozedAt~.
 
+* Sending from a composer
+
+~Alt+Enter~ or ~C-s~ sends from every composer: the note, reply, answer,
+and outcome boxes. In the note box it does the same as ~Tab~ to ~[Send]~
+then ~Enter~. ~Enter~ and ~C-j~ keep their meaning: ~C-j~ inserts a
+newline, ~Enter~ inserts one in the note box and sends in the others.
+The inbox runs the terminal in raw mode, which turns off XON/XOFF flow
+control, so ~C-s~ reaches it.
+
+~Ctrl+Enter~ is not bound. The inbox does not turn on xterm
+modifyOtherKeys or the kitty keyboard protocol, so most terminals send
+it as plain ~Enter~. Either mode would also change how ~Shift~ and ~Ctrl~
+letters, or ~Esc~, arrive, and bubbletea v1 does not parse those
+sequences. That waits for a bubbletea v2 change.
+
+To see what a terminal sends, run the inbox with ~DECIDE_KEYDEBUG~ set
+to a log file path, or to ~1~ for ~decide-keys.log~ in the temp
+directory:
+
+#+begin_src sh
+DECIDE_KEYDEBUG=/tmp/decide-keys.log decide inbox
+tail -f /tmp/decide-keys.log  # in another pane
+#+end_src
+
+Each key is one line with its bubbletea type, ~alt~, runes, and name,
+such as ~key type=13 (enter) alt=true runes="" str="alt+enter"~. Input
+bubbletea does not parse is logged with its bytes, such as
+~unknown tea.unknownCSISequenceMsg bytes="\x1b[13;5u"~.
+
 * Emacs
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that

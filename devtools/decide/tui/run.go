@@ -39,6 +39,14 @@ func Run(opts Options) error {
 		return err
 	}
 	m.interval = opts.Interval
+	keyLog, err := openKeyLog()
+	if err != nil {
+		return err
+	}
+	if keyLog != nil {
+		defer keyLog.Close()
+		m.keyLog = keyLog
+	}
 	if rows := termRows(opts.In); rows > 0 {
 		m.height = rows
 	}
