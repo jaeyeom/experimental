@@ -37,7 +37,7 @@ agentbus release ops/inbox --to <claimer>
 
 ## Find an agent
 
-`agentbus list` shows registered names. `agentbus search` shows every reachable agent, registered or not. `send` accepts a raw handle such as `herdr:local/default/w2:p3`. The bus does not invent a name from a title or a label.
+`agentbus list` shows registered names. `agentbus list --json` prints them as a JSON array of `name`, `when`, `liveness` (`alive`, `dead`, or `unknown`), `transport`, and `handle`. `agentbus search` shows every reachable agent, registered or not. `send` accepts a raw handle such as `herdr:local/default/w2:p3`. The bus does not invent a name from a title or a label.
 
 ## Messages
 
