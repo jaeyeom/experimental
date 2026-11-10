@@ -55,7 +55,7 @@ Delivery pastes only into an empty composer. A message to a pane where the user 
 
 If a submit is blocked with `agentbus: your unsent draft was merged with a bus message`, the input box holds the user's draft followed by the bus message. Delete the `[agentbus m-…]` part and submit the rest. The bus has re-queued that message and delivers it once the box is empty.
 
-When something seems lost, check `agentbus status <id>` and `agentbus log` before resending. `agentbus log` accepts `--since`, `--name`, `--msg`, `--event`, `--follow`, and `--json`.
+When something seems lost, check `agentbus status <id>` and `agentbus log` before resending. `agentbus log` accepts `--since`, `--name`, `--msg`, `--event`, `--follow`, and `--json`. `--since` takes a duration ago (`30m`, `6h`, `2d`), an RFC3339 time, or a `YYYY-MM-DD` date.
 
 ## Sandbox
 

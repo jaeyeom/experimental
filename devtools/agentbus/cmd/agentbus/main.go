@@ -3,11 +3,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
@@ -82,10 +85,53 @@ func ensure(env []string, stderr io.Writer) int {
 	return 0
 }
 
+// logNow is the clock --since durations count back from; tests replace it.
+var logNow = time.Now
+
+var errSinceFormat = errors.New("want a duration like 30m, 6h, 2d, or an RFC3339 time like 2026-11-09T13:00:00Z")
+
+// parseSince resolves a --since value: a positive duration before now
+// (time.ParseDuration syntax plus a leading whole-day "Nd" part), an RFC3339
+// time, or a YYYY-MM-DD date meaning local midnight.
+func parseSince(s string, now time.Time) (time.Time, error) {
+	if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return ts, nil
+	}
+	if ts, err := time.ParseInLocation(time.DateOnly, s, time.Local); err == nil {
+		return ts, nil
+	}
+	d, ok := parseDays(s)
+	if !ok || d <= 0 {
+		return time.Time{}, errSinceFormat
+	}
+	return now.Add(-d), nil
+}
+
+// parseDays parses time.ParseDuration syntax with an optional leading "Nd".
+func parseDays(s string) (time.Duration, bool) {
+	var days time.Duration
+	if before, after, found := strings.Cut(s, "d"); found {
+		n, err := strconv.ParseUint(before, 10, 16)
+		if err != nil {
+			return 0, false
+		}
+		days = time.Duration(n) * 24 * time.Hour
+		if after == "" {
+			return days, true
+		}
+		s = after
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d < 0 {
+		return 0, false
+	}
+	return days + d, true
+}
+
 func cmdLog(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("log", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	since := fs.String("since", "", "include events at or after this RFC3339 time")
+	since := fs.String("since", "", "include events at or after this time: a duration ago (30m, 6h, 2d), an RFC3339 time, or a YYYY-MM-DD date")
 	name := fs.String("name", "", "include events for this name")
 	msgID := fs.String("msg", "", "include events for this message id")
 	eventName := fs.String("event", "", "include events of this type")
@@ -100,9 +146,9 @@ func cmdLog(ctx context.Context, args, env []string, stdout, stderr io.Writer) i
 	}
 	filter := eventlog.Filter{Name: *name, MsgID: *msgID, Event: *eventName}
 	if *since != "" {
-		ts, err := time.Parse(time.RFC3339Nano, *since)
+		ts, err := parseSince(*since, logNow())
 		if err != nil {
-			fmt.Fprintf(stderr, "agentbus log: --since: %s\n", err)
+			fmt.Fprintf(stderr, "agentbus log: --since %q: %s\n", *since, err)
 			return 2
 		}
 		filter.Since = ts
