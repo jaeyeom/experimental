@@ -23,6 +23,7 @@ go_library(
     visibility = ["//devtools/prsync:__subpackages__"],
     deps = [
         "//devtools/gh-nudge/rcamarker:go_default_library",
+        "//devtools/pkg/remotecall:go_default_library",
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/gh:go_default_library",
         "//devtools/prsync/internal/herdr:go_default_library",
@@ -38,6 +39,7 @@ go_test(
         "close_test.go",
         "codeowners_test.go",
         "identifier_test.go",
+        "machines_test.go",
         "marker_test.go",
         "match_test.go",
         "number_test.go",
@@ -51,6 +53,7 @@ go_test(
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
+        "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/gh:go_default_library",
         "//devtools/prsync/internal/herdr:go_default_library",

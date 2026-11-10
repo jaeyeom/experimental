@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
@@ -20,6 +21,9 @@ const herdrMinVersion = "0.8.0"
 type Deps struct {
 	GH    GH
 	Herdr Herdr
+	// Remote returns the herdr client for one of config machines. Nil
+	// searches only the local server.
+	Remote func(machine string) Herdr
 	// Marker returns the gh-merge rca_marker for one repository.
 	// Nil skips merge-queue-fix.
 	Marker func(owner, repo string) (string, error)
@@ -87,7 +91,7 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	if err := coverTeams(ctx, deps.GH, cfg, &doc, now); err != nil {
 		return finish(doc, err)
 	}
-	if err := matchTabs(ctx, deps.Herdr, cfg, &doc); err != nil {
+	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {
 		return finish(doc, err)
 	}
 	return finish(doc, nil)
@@ -140,7 +144,7 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 	if err := coverTeams(ctx, deps.GH, cfg, &doc, now); err != nil {
 		return finish(doc, err)
 	}
-	if err := matchTabs(ctx, deps.Herdr, cfg, &doc); err != nil {
+	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {
 		return finish(doc, err)
 	}
 	return finish(doc, nil)
@@ -354,7 +358,12 @@ func formatReviewRequests(reqs []gh.ReviewReq) []string {
 	return out
 }
 
-func matchTabs(ctx context.Context, client Herdr, cfg config.Config, doc *Document) error {
+// matchTabs matches each PR to a tab on the local server or on one of
+// cfg.Machines. A machine that cannot be listed adds one warning. A PR
+// with no tab on any listed machine, while some machine was not listed,
+// gets TabUnknown instead of a no-tab warning: its tab may be there.
+func matchTabs(ctx context.Context, deps Deps, cfg config.Config, doc *Document) error {
+	client := deps.Herdr
 	if err := client.RequireMin(ctx, herdrMinVersion); err != nil {
 		if errors.Is(err, herdr.ErrNotInstalled) {
 			nullTabs(doc)
@@ -375,14 +384,55 @@ func matchTabs(ctx context.Context, client Herdr, cfg config.Config, doc *Docume
 		warn(doc, "herdr unreachable: "+err.Error())
 		return nil
 	}
+	tabs, agents, unreachable := addMachineTabs(ctx, deps.Remote, cfg.Machines, tabs, agents, doc)
 	for i := range doc.PRs {
-		tab, warning := Match(doc.PRs[i].Identifier, doc.PRs[i].Repo, doc.PRs[i].Number, cfg.TabLabelTemplate, tabs, agents)
-		doc.PRs[i].Tab = tab
+		pr := &doc.PRs[i]
+		tab, hits, warning := match(pr.Identifier, pr.Repo, pr.Number, cfg.TabLabelTemplate, tabs, agents)
+		pr.Tab = tab
+		if pr.Identifier != nil && hits == 0 && unreachable {
+			pr.TabUnknown = TabUnknownMachineUnreachable
+			continue
+		}
 		if warning != "" {
 			warn(doc, warning)
 		}
 	}
 	return nil
+}
+
+// addMachineTabs appends the tabs and agents of each machine. A machine
+// that fails either list adds one warning and none of its tabs, and
+// unreachable reports that some machine was not searched.
+func addMachineTabs(ctx context.Context, remote func(string) Herdr, machines []string, tabs []herdr.Tab, agents []herdr.Agent, doc *Document) ([]herdr.Tab, []herdr.Agent, bool) {
+	if remote == nil {
+		return tabs, agents, false
+	}
+	unreachable := false
+	for _, machine := range machines {
+		client := remote(machine)
+		mt, err := client.TabList(ctx)
+		var ma []herdr.Agent
+		if err == nil {
+			ma, err = client.AgentList(ctx)
+		}
+		if err != nil {
+			unreachable = true
+			warn(doc, fmt.Sprintf("machine %s unreachable (%s); its tabs were not searched", machine, unreachableCause(err)))
+			continue
+		}
+		tabs = append(tabs, mt...)
+		agents = append(agents, ma...)
+	}
+	return tabs, agents, unreachable
+}
+
+// unreachableCause is the remotecall cause phrase, or the error text for
+// a herdr failure on a machine that answered.
+func unreachableCause(err error) string {
+	if ue := remotecall.AsUnreachable(err); ue != nil {
+		return ue.Cause
+	}
+	return err.Error()
 }
 
 func nullTabs(doc *Document) {

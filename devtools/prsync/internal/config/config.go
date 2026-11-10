@@ -10,9 +10,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const branchSwitchPreamble = `Get onto this PR's branch before editing:
@@ -98,11 +100,17 @@ var repoPattern = regexp.MustCompile(`^[^/\s]+/[^/\s]+$`)
 
 // Config is the resolved prsync configuration.
 type Config struct {
-	Repos             []string
-	Author            string
-	TitleIDPattern    *regexp.Regexp
-	TabLabelTemplate  string
-	HerdrBin          string
+	Repos            []string
+	Author           string
+	TitleIDPattern   *regexp.Regexp
+	TabLabelTemplate string
+	HerdrBin         string
+	// Machines are saved herdr machines searched for PR tabs in addition
+	// to the local server. Empty means local only.
+	Machines []string
+	// MachineTimeout bounds each herdr call to one of Machines, except
+	// prompt and wait, which use DispatchTimeout.
+	MachineTimeout    time.Duration
 	GHBin             string
 	JiraBin           string
 	ConcurrencyWaitOn string
@@ -194,6 +202,7 @@ func Defaults() Config {
 		TitleIDPattern:           regexp.MustCompile(`[A-Z]+-[0-9]+`),
 		TabLabelTemplate:         "{id}",
 		HerdrBin:                 "herdr",
+		MachineTimeout:           5 * time.Second,
 		GHBin:                    "gh",
 		JiraBin:                  "jira",
 		ConcurrencyWaitOn:        "any",
@@ -373,7 +382,7 @@ func applyKey(cfg *Config, key, val string) error {
 		applyBin(cfg, key, val)
 	case "concurrency_wait_on", "concurrency_ignore_blocked", "concurrency_cwd":
 		return applyConcurrency(cfg, key, val)
-	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms":
+	case "gate_poll_ms", "gate_timeout_ms", "dispatch_timeout_ms", "machine_timeout_ms":
 		return applyMillis(cfg, key, val)
 	case "dispatch_prompt_template", "rebase_prompt_template", "ci_fix_prompt_template":
 		return applyPrompt(cfg, key, val)
@@ -418,6 +427,8 @@ func applyBin(cfg *Config, key, val string) {
 
 func applyOtherKey(cfg *Config, key, val string) error {
 	switch key {
+	case "machines":
+		return applyMachines(cfg, val)
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
 		return nil
@@ -670,7 +681,26 @@ func applyMillis(cfg *Config, key, val string) error {
 		cfg.GateTimeout = d
 	case "dispatch_timeout_ms":
 		cfg.DispatchTimeout = d
+	case "machine_timeout_ms":
+		cfg.MachineTimeout = d
 	}
+	return nil
+}
+
+// applyMachines reads a space- or comma-separated list of saved herdr
+// machines. "local" is reserved for the local server.
+func applyMachines(cfg *Config, val string) error {
+	fields := strings.FieldsFunc(val, func(r rune) bool { return r == ',' || unicode.IsSpace(r) })
+	out := make([]string, 0, len(fields))
+	for _, machine := range fields {
+		if machine == "local" {
+			return &KeyError{Key: "machines", Reason: `"local" is the local server; list only other machines`}
+		}
+		if !slices.Contains(out, machine) {
+			out = append(out, machine)
+		}
+	}
+	cfg.Machines = out
 	return nil
 }
 

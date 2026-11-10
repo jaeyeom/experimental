@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["herdrtest.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/pkg/herdrtest",
+    visibility = ["//visibility:public"],
+)

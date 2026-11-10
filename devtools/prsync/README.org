@@ -156,6 +156,8 @@ Environment variables are not expanded.
 | ~title_id_pattern~ | ~[A-Z]+-[0-9]+~ | First match in the PR title is the identifier. |
 | ~tab_label_template~ | ~{id}~ | Herdr tab label after substituting ~{id}~. Exact, case-sensitive. |
 | ~herdr_bin~ | ~herdr~ | herdr executable. |
+| ~machines~ | empty | Space- or comma-separated saved herdr machines (~herdr --machine <m>~) searched for PR tabs, in addition to the local server. Empty = local only. ~local~ is reserved. See [[*Other herdr machines][Other herdr machines]]. |
+| ~machine_timeout_ms~ | ~5000~ | Bound for each herdr call to one of ~machines~, except ~agent prompt~ and ~agent wait~, which use ~dispatch_timeout_ms~. |
 | ~gh_bin~ | ~gh~ | gh executable. |
 | ~jira_bin~ | ~jira~ | jira executable. Used only for ~jira issue view~ after a live close. |
 | ~concurrency_wait_on~ | ~any~ | ~any~ = every working agent; ~managed~ = working agents on tabs matched in this scan (~managed~ runs a scan). A ~blocked~ agent does not hold the gate. |
@@ -231,6 +233,47 @@ herdr reports ~idle~ (can take ~30 minutes if the agent settles to
 
 ~prsync gate~ is the same busy-set check without debounce — a snapshot,
 not the wait ~dispatch --go~ uses.
+
+** Other herdr machines
+
+With ~machines=linux2~, ~scan~ lists tabs and agents on the local server
+and on each machine (~herdr --machine linux2 tab list~ / ~agent list~),
+and matches each PR over the combined list. A PR whose tab is only on
+~linux2~ is matched like a local one, and its ~tab~ has
+~"machine": "linux2"~. A local tab has no ~machine~ field, so output is
+unchanged when ~machines~ is unset. A tab is keyed as ~<tab_id>@<machine>~
+in warnings and in the ~managed~ gate set, so the same tab id on two
+machines is two tabs. The same label on two machines is ambiguous: a
+warning, ~tab~ is ~null~, and dispatch skips it with ~skipped_no_tab~.
+
+~dispatch~ sends to a remote tab with ~herdr --machine <m> agent
+prompt~, and runs the settle polls and ~agent wait~ there too. Its
+result row has ~machine~. The gate still watches only local agents.
+
+Each call to a machine, other than prompt and wait, has a
+~machine_timeout_ms~ deadline that kills the whole process group, since
+SSH behind ~herdr --machine~ can hang on a locked key instead of
+failing. A machine that fails or times out adds one warning and does
+not fail the scan:
+
+#+BEGIN_EXAMPLE
+machine linux2 unreachable (host unreachable); its tabs were not searched
+machine linux2 unreachable (authentication locked (unlock your SSH/gpg agent)); its tabs were not searched
+#+END_EXAMPLE
+
+~host unreachable~ means the call failed with a network error or
+~herdr machine status linux2 --json~ did not report the host reachable.
+~authentication locked~ means the host answered but the call hit an
+authentication error or the deadline. Any other herdr error is quoted
+instead.
+
+While a machine is unreachable, a PR with an identifier that matches no
+tab on any machine that was searched gets ~"tab_unknown": "machine
+unreachable"~ instead of the no-tab warning: its tab may be on the
+machine that was not searched. ~dispatch~ skips it with
+~skipped_tab_unknown~ this run. A PR that does match a tab on a
+reachable machine is matched as usual; prsync does not hold it back on
+the chance that the unreachable machine has a duplicate.
 
 * Worked examples
 
@@ -312,7 +355,8 @@ prsync scan --config ./prsync.config
 | ~ci_state~ | ~none~ / ~failing~ / ~pending~ / ~green~ / ~unknown~ over the rollup entries selected by ~ci_only_checks~ or ~ci_ignore_checks~. Both empty counts every check. If none remain, the state is ~none~. ~unknown~ means that pull request's rollup view failed. The PR stays in the document, the failure is a ~warnings~ entry, and the command still succeeds. ~unknown~ is not ready and is not a CI failure. |
 | ~bucket~ | ~needs_you~ / ~ready~ / ~waiting~ / ~draft~. ~APPROVED~ with leftover ~review_requests~ is ~needs_you~, not ready to merge |
 | ~is_draft~ | ~scan~ always includes drafts. ~dispatch~ skips them unless ~dispatch_include_drafts~ is true |
-| ~tab~ | ~null~ when no unique herdr tab matches |
+| ~tab~ | ~null~ when no unique herdr tab matches. ~machine~ is present only for a tab on one of ~machines~ |
+| ~tab_unknown~ | Present only as ~machine unreachable~, when ~tab~ is ~null~ because a configured machine could not be searched. See [[*Other herdr machines][Other herdr machines]] |
 | ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~. ~uncovered_teams~ is present only when ~team_cover~ produced suggestion entries. It counts entries whose ~covered_by~ is null, including teams that failed to list members. ~0~ is included. |
 | ~team_review_suggestions~ | Omitted when ~team_cover~ is off, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), and ~error~ when members could not be listed. |
 

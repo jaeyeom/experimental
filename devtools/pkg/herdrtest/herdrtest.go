@@ -14,6 +14,7 @@ import (
 const script = `#!/bin/sh
 d=%DIR%
 echo "$*" >> "$d/argv"
+if [ "$1" = "--version" ]; then echo "herdr 0.8.1"; exit 0; fi
 m=local
 if [ "$1" = "--machine" ]; then m="$2"; shift 2; fi
 if [ "$1 $2" = "machine status" ]; then
@@ -26,9 +27,12 @@ if [ -e "$d/$m.locked" ]; then echo "user@$m: Permission denied (publickey)." >&
 if [ -e "$d/$m.hang" ]; then sleep 30; exit 0; fi
 case "$1 $2" in
 "agent list") cat "$d/$m.agents" ;;
-"tab list") echo '{"result":{"tabs":[{"tab_id":"w2:t1","label":"'"$m"'-tab"}]}}' ;;
-"agent prompt")
+"tab list")
+  if [ -e "$d/$m.tabs" ]; then cat "$d/$m.tabs"; exit 0; fi
+  echo '{"result":{"tabs":[{"tab_id":"w2:t1","label":"'"$m"'-tab"}]}}' ;;
+"agent prompt"|"agent wait")
   if [ -e "$d/$m.prompt-error" ]; then echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1; fi
+  if [ -e "$d/$m.prompt" ]; then cat "$d/$m.prompt"; exit 0; fi
   echo '{"result":{}}' ;;
 "agent read") cat "$d/$m.screen" ;;
 *) echo "unexpected $*" >&2; exit 2 ;;
@@ -39,12 +43,19 @@ esac
 // m ("local" without --machine):
 //
 //   - m.agents is the `agent list` output, and m.screen the `agent read`
-//     output. Every tab is w2:t1, labelled "<m>-tab".
+//     output.
+//   - m.tabs is the `tab list` output. Without it, m has one tab w2:t1,
+//     labelled "<m>-tab".
+//   - m.prompt is the `agent prompt` and `agent wait` output. Without it,
+//     both print an empty result.
 //   - m.down makes m refuse connections and `machine status m` fail.
 //   - m.status-down makes only `machine status m` fail.
 //   - m.hang makes every call to m hang.
 //   - m.locked makes m fail with a publickey error.
-//   - m.prompt-error makes `agent prompt` fail with a herdr error.
+//   - m.prompt-error makes `agent prompt` and `agent wait` fail with a
+//     herdr error.
+//
+// `herdr --version` prints "herdr 0.8.1".
 type Fake struct {
 	t   testing.TB
 	dir string

@@ -29,6 +29,7 @@ go_test(
         "eligible_test.go",
         "gate_test.go",
         "log_test.go",
+        "machines_test.go",
         "prompt_test.go",
         "settle_test.go",
         "state_test.go",
@@ -36,9 +37,11 @@ go_test(
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
+        "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/prsync/internal/config:go_default_library",
         "//devtools/prsync/internal/herdr:go_default_library",
         "//devtools/prsync/internal/runlog:go_default_library",
         "//devtools/prsync/internal/scan:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )

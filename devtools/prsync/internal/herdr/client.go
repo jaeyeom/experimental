@@ -11,21 +11,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 const (
 	defaultCallTimeout = 60 * time.Second
 	promptTimeoutGrace = 5 * time.Second
+	// probeTimeout bounds `herdr machine status`, which classifies a
+	// failed call to another machine.
+	probeTimeout = 2 * time.Second
 )
 
 // Same regex as devtools/setup-dev/ansible/packages_data.go for herdr --version.
 var herdrVersionRe = regexp.MustCompile(`herdr ([0-9.]+)`)
 
-// Client shells out to herdr_bin through an injected executor.
+// Client shells out to herdr_bin through an injected executor. A client
+// from OnMachine talks to a saved herdr machine instead of the local server.
 type Client struct {
-	exec executor.Executor
-	bin  string
+	exec    executor.Executor
+	bin     string
+	machine string
+	timeout time.Duration
 }
 
 // NewClient returns a herdr adapter that invokes bin via exec.
@@ -33,9 +40,30 @@ func NewClient(exec executor.Executor, bin string) *Client {
 	return &Client{exec: exec, bin: bin}
 }
 
+// OnMachine returns a client that runs every call as
+// `herdr --machine <machine> ...`. Calls other than prompt and wait are
+// bounded by timeout. A call that cannot reach the machine fails with a
+// *remotecall.UnreachableError. Tabs and agents it lists carry Machine.
+// Its calls run through remotecall, not the executor, so a deadline kills
+// the whole process group, including a hung ssh child.
+func (c *Client) OnMachine(machine string, timeout time.Duration) *Client {
+	return &Client{exec: c.exec, bin: c.bin, machine: machine, timeout: timeout}
+}
+
+// Machine is the saved herdr machine this client talks to, or empty for
+// the local server.
+func (c *Client) Machine() string { return c.machine }
+
+func (c *Client) callTimeout() time.Duration {
+	if c.machine != "" && c.timeout > 0 {
+		return c.timeout
+	}
+	return defaultCallTimeout
+}
+
 // RequireMin runs `--version` and checks it is at least minimum (e.g. "0.8.0").
 func (c *Client) RequireMin(ctx context.Context, minimum string) error {
-	result, err := c.execute(ctx, defaultCallTimeout, "--version")
+	result, err := c.execute(ctx, c.callTimeout(), "--version")
 	if err != nil {
 		var notFound *executor.ExecutableNotFoundError
 		if errors.As(err, &notFound) {
@@ -64,7 +92,7 @@ func (c *Client) RequireMin(ctx context.Context, minimum string) error {
 
 // TabList runs `herdr tab list` and returns .result.tabs.
 func (c *Client) TabList(ctx context.Context) ([]Tab, error) {
-	raw, err := c.output(ctx, defaultCallTimeout, "tab", "list")
+	raw, err := c.output(ctx, c.callTimeout(), "tab", "list")
 	if err != nil {
 		return nil, err
 	}
@@ -79,12 +107,16 @@ func (c *Client) TabList(ctx context.Context) ([]Tab, error) {
 	if env.Result.Tabs == nil {
 		return nil, fmt.Errorf("%w: tab list missing tabs", ErrDegraded)
 	}
-	return *env.Result.Tabs, nil
+	tabs := *env.Result.Tabs
+	for i := range tabs {
+		tabs[i].Machine = c.machine
+	}
+	return tabs, nil
 }
 
 // TabClose runs `herdr tab close <tabID>`. A missing tab is ErrTabNotFound.
 func (c *Client) TabClose(ctx context.Context, tabID string) error {
-	_, err := c.output(ctx, defaultCallTimeout, "tab", "close", tabID)
+	_, err := c.output(ctx, c.callTimeout(), "tab", "close", tabID)
 	if err == nil {
 		return nil
 	}
@@ -99,7 +131,7 @@ func (c *Client) TabClose(ctx context.Context, tabID string) error {
 
 // AgentList runs `herdr agent list` and returns .result.agents.
 func (c *Client) AgentList(ctx context.Context) ([]Agent, error) {
-	raw, err := c.output(ctx, defaultCallTimeout, "agent", "list")
+	raw, err := c.output(ctx, c.callTimeout(), "agent", "list")
 	if err != nil {
 		return nil, err
 	}
@@ -114,12 +146,16 @@ func (c *Client) AgentList(ctx context.Context) ([]Agent, error) {
 	if env.Result.Agents == nil {
 		return nil, fmt.Errorf("%w: agent list missing agents", ErrDegraded)
 	}
-	return *env.Result.Agents, nil
+	agents := *env.Result.Agents
+	for i := range agents {
+		agents[i].Machine = c.machine
+	}
+	return agents, nil
 }
 
 // PaneCurrent runs `herdr pane current --pane <paneID>`.
 func (c *Client) PaneCurrent(ctx context.Context, paneID string) (Pane, error) {
-	raw, err := c.output(ctx, defaultCallTimeout, "pane", "current", "--pane", paneID)
+	raw, err := c.output(ctx, c.callTimeout(), "pane", "current", "--pane", paneID)
 	if err != nil {
 		return Pane{}, err
 	}
@@ -219,6 +255,9 @@ func (c *Client) output(ctx context.Context, timeout time.Duration, args ...stri
 }
 
 func (c *Client) execute(ctx context.Context, timeout time.Duration, args ...string) (*executor.ExecutionResult, error) {
+	if c.machine != "" {
+		return c.executeRemote(ctx, timeout, args)
+	}
 	result, err := c.exec.Execute(ctx, executor.ToolConfig{
 		Command: c.bin,
 		Args:    args,
@@ -228,6 +267,39 @@ func (c *Client) execute(ctx context.Context, timeout time.Duration, args ...str
 		return nil, fmt.Errorf("run %s: %w", c.bin, err)
 	}
 	return result, nil
+}
+
+// executeRemote runs `herdr --machine <m> <args>` in its own process group
+// under timeout, so a hung ssh child cannot outlive the call. A failure
+// that means the machine cannot be reached is a *remotecall.UnreachableError.
+func (c *Client) executeRemote(ctx context.Context, timeout time.Duration, args []string) (*executor.ExecutionResult, error) {
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	res, err := remotecall.Run(callCtx, c.bin, append([]string{"--machine", c.machine}, args...)...)
+	if err != nil {
+		return nil, fmt.Errorf("run %s: %w", c.bin, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("run %s: %w", c.bin, err)
+	}
+	if ue := remotecall.Classify(ctx, c.machine, res, c.probe()); ue != nil {
+		return nil, fmt.Errorf("herdr %s: %w", strings.Join(args[:min(2, len(args))], " "), ue)
+	}
+	return &executor.ExecutionResult{Output: res.Stdout, Stderr: res.Stderr, ExitCode: res.Code}, nil
+}
+
+// probe asks `herdr machine status`, which never prompts, whether the
+// machine's host answers.
+func (c *Client) probe() remotecall.Probe {
+	return func(ctx context.Context) bool {
+		probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+		defer cancel()
+		res, err := remotecall.Run(probeCtx, c.bin, "machine", "status", c.machine, "--json")
+		if err != nil || res.Code != 0 || res.TimedOut {
+			return false
+		}
+		return remotecall.HerdrMachineUp(res.Stdout, res.Stderr)
+	}
 }
 
 func parseHerdrVersion(text string) (string, bool) {

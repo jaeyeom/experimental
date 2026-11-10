@@ -8,12 +8,22 @@ go_library(
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/herdr",
     visibility = ["//devtools/prsync:__subpackages__"],
-    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
+    deps = [
+        "//devtools/pkg/remotecall:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+    ],
 )
 
 go_test(
     name = "go_default_test",
-    srcs = ["client_test.go"],
+    srcs = [
+        "client_test.go",
+        "remote_test.go",
+    ],
     embed = [":go_default_library"],
-    deps = ["@com_github_jaeyeom_go_cmdexec//:go_default_library"],
+    deps = [
+        "//devtools/pkg/herdrtest:go_default_library",
+        "//devtools/pkg/remotecall:go_default_library",
+        "@com_github_jaeyeom_go_cmdexec//:go_default_library",
+    ],
 )

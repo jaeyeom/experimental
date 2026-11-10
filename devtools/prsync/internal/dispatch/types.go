@@ -10,15 +10,18 @@ const (
 	// already sent and the dedupe window still holds. It does not send again.
 	ActionDispatchedUnresolved = "dispatched_unresolved"
 	ActionSkippedNoTab         = "skipped_no_tab"
-	ActionSkippedNoAgent       = "skipped_no_agent"
-	ActionSkippedBusy          = "skipped_busy"
-	ActionSkippedDeduped       = "skipped_deduped"
-	ActionSkippedDraft         = "skipped_draft"
-	ActionSkippedStalled       = "skipped_stalled"
-	ActionSkippedAddressed     = "skipped_addressed"
-	ActionSkippedNotFound      = "skipped_not_found"
-	ActionQueued               = "queued"
-	ActionGateTimeout          = "gate_timeout"
+	// ActionSkippedTabUnknown means the PR's tab may be on a herdr machine
+	// the scan could not reach. It is not sent this run.
+	ActionSkippedTabUnknown = "skipped_tab_unknown"
+	ActionSkippedNoAgent    = "skipped_no_agent"
+	ActionSkippedBusy       = "skipped_busy"
+	ActionSkippedDeduped    = "skipped_deduped"
+	ActionSkippedDraft      = "skipped_draft"
+	ActionSkippedStalled    = "skipped_stalled"
+	ActionSkippedAddressed  = "skipped_addressed"
+	ActionSkippedNotFound   = "skipped_not_found"
+	ActionQueued            = "queued"
+	ActionGateTimeout       = "gate_timeout"
 	// ActionGateUnsafe means the dispatch checkout is dirty. It does not send.
 	ActionGateUnsafe = "gate_unsafe"
 	ActionFailed     = "failed"
@@ -33,10 +36,13 @@ type Document struct {
 
 // Item is one PR's dispatch outcome.
 type Item struct {
-	Repo           string `json:"repo"`
-	Number         int    `json:"number"`
-	Action         string `json:"action"`
-	PaneID         string `json:"pane_id,omitempty"`         //nolint:tagliatelle // brief outbound contract
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
+	Action string `json:"action"`
+	PaneID string `json:"pane_id,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// Machine is the saved herdr machine of the pane. Omitted for the
+	// local server.
+	Machine        string `json:"machine,omitempty"`
 	RenderedPrompt string `json:"rendered_prompt,omitempty"` //nolint:tagliatelle // brief outbound contract
 	Detail         string `json:"detail,omitempty"`
 }

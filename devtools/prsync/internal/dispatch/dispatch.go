@@ -43,6 +43,10 @@ type Request struct {
 	CIFix      bool
 	Hint       string
 	Force      bool
+	// Remote returns the herdr client for a tab on another machine. The
+	// prompt, wait, and settle polls for such a tab run there. Nil cannot
+	// send to a remote tab.
+	Remote func(machine string) Herdr
 }
 
 // Candidate is one PR considered for dispatch.
@@ -138,6 +142,8 @@ func skipReason(c Candidate, cfg config.Config, st State, rebase, ciFix, force b
 		return Item{Action: ActionSkippedAddressed}
 	case pr.IsDraft && !cfg.IncludeDrafts:
 		return Item{Action: ActionSkippedDraft}
+	case pr.Tab == nil && pr.TabUnknown != "":
+		return Item{Action: ActionSkippedTabUnknown, Detail: "unknown tab (" + pr.TabUnknown + ")"}
 	case pr.Tab == nil:
 		return Item{Action: ActionSkippedNoTab}
 	case pr.Tab.PaneID == nil:
@@ -420,11 +426,11 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 		doc.Results = append(doc.Results, failed)
 		return doc, liveStep{done: true, err: err}
 	}
-	runlog.FromContext(ctx).Info("dispatch_send",
-		"repo", c.Repo,
-		"number", c.Number,
-		"pane_id", *c.PR.Tab.PaneID,
-	)
+	sendArgs := []any{"repo", c.Repo, "number", c.Number, "pane_id", *c.PR.Tab.PaneID}
+	if c.PR.Tab.Machine != "" {
+		sendArgs = append(sendArgs, "machine", c.PR.Tab.Machine)
+	}
+	runlog.FromContext(ctx).Info("dispatch_send", sendArgs...)
 	item = sendPrompt(ctx, h, cfg, c, req, clock, sleeper)
 	logResult(ctx, item)
 	doc.Results = append(doc.Results, item)
@@ -446,6 +452,18 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 		return doc, liveStep{done: true, err: fmt.Errorf("%w: %s", ErrFailed, item.Detail)}
 	}
 	return doc, step
+}
+
+// tabHerdr is the herdr client for tab's machine: h for the local server,
+// or req.Remote for another machine.
+func tabHerdr(h Herdr, req Request, tab scan.Tab) (Herdr, error) {
+	if tab.Machine == "" {
+		return h, nil
+	}
+	if req.Remote == nil {
+		return nil, fmt.Errorf("no herdr client for machine %s", tab.Machine)
+	}
+	return req.Remote(tab.Machine), nil
 }
 
 // gateConfig resolves the checkout of repo for the gate. The dirty-tree
@@ -475,7 +493,13 @@ func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, re
 	pr := *c.PR
 	pane := *pr.Tab.PaneID
 	rendered := renderPrompt(cfg, req, pr)
-	item := Item{Repo: c.Repo, Number: c.Number}
+	item := Item{Repo: c.Repo, Number: c.Number, Machine: pr.Tab.Machine}
+	h, err := tabHerdr(h, req, *pr.Tab)
+	if err != nil {
+		item.Action = ActionFailed
+		item.Detail = err.Error()
+		return item
+	}
 	deadline := clock.Now().Add(cfg.DispatchTimeout)
 	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
 	return finishAgentOutcome(ctx, h, cfg, clock, sleeper, item, pane, rendered, out, deadline)
@@ -633,7 +657,7 @@ func tabLabels(doc scan.Document) map[string]string {
 	out := make(map[string]string)
 	for _, pr := range doc.PRs {
 		if pr.Tab != nil && pr.Tab.TabID != "" && pr.Tab.Label != "" {
-			out[pr.Tab.TabID] = pr.Tab.Label
+			out[scan.TabKey(pr.Tab.Machine, pr.Tab.TabID)] = pr.Tab.Label
 		}
 	}
 	return out
@@ -686,6 +710,9 @@ func logResult(ctx context.Context, item Item) {
 	if item.PaneID != "" {
 		args = append(args, "pane_id", item.PaneID)
 	}
+	if item.Machine != "" {
+		args = append(args, "machine", item.Machine)
+	}
 	if item.Detail != "" {
 		args = append(args, "detail", item.Detail)
 	}
@@ -727,6 +754,7 @@ func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time
 	pr := *c.PR
 	r.Action = ActionWouldDispatch
 	r.PaneID = *pr.Tab.PaneID
+	r.Machine = pr.Tab.Machine
 	r.RenderedPrompt = renderPrompt(cfg, req, pr)
 	return r
 }

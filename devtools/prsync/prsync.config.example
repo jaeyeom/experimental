@@ -21,6 +21,13 @@
 # gh_bin=gh
 # jira_bin=jira
 
+# Saved herdr machines (herdr --machine <m>) searched for PR tabs, in
+# addition to the local server. Space- or comma-separated. Empty = local only.
+# machines=linux2
+# Bound for each herdr call to one of those machines (prompt and wait use
+# dispatch_timeout_ms instead).
+# machine_timeout_ms=5000
+
 # Gate busy-set: any (every working agent) | managed (only working
 # agents on tabs matched to PRs in the current scan; managed runs a scan).
 # A blocked agent does not hold the gate unless concurrency_ignore_blocked
