@@ -18,11 +18,38 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const usage = `Usage: agentbusd
+
+agentbusd is the local agentbus daemon. agentbus starts it on demand, and
+'agentbus install' runs it under launchd or a systemd user unit.
+
+Flags:
+  -h, --help  Print this help.
+
+Environment:
+  XDG_RUNTIME_DIR              required; the socket is $XDG_RUNTIME_DIR/agentbus/daemon.sock
+  XDG_STATE_HOME               state directory parent (default: $HOME/.local/state)
+  HOME                         required when XDG_STATE_HOME is unset
+  AGENTBUS_LOG_RETENTION_DAYS  daily log files to keep (default: 30)
+  AGENTBUS_INLINE_BYTES        largest body pasted in full (default: 4096)
+
+Example:
+  agentbusd
+`
+
 func main() {
-	os.Exit(run(os.Environ(), os.Stderr))
+	os.Exit(run(os.Args[1:], os.Environ(), os.Stdout, os.Stderr))
 }
 
-func run(env []string, stderr io.Writer) int {
+func run(args, env []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		if args[0] == "-h" || args[0] == "--help" {
+			fmt.Fprint(stdout, usage)
+			return 0
+		}
+		fmt.Fprintf(stderr, "agentbusd: unexpected argument %q\nrun 'agentbusd --help' for usage\n", args[0])
+		return 2
+	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)

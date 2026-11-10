@@ -26,59 +26,34 @@ func runProcess() int {
 	return run(ctx, os.Args[1:], os.Environ(), os.Stdin, os.Stdout, os.Stderr)
 }
 
+// Tests replace these so help can prove it never touches the daemon.
+var (
+	ensureDaemon = ensure
+	dialDaemon   = client.Call
+)
+
 func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return ensure(env, stderr)
+		printUsage(stdout)
+		return ensureDaemon(env, stderr)
 	}
-	return dispatchCommand(ctx, args, env, stdin, stdout, stderr)
-}
-
-func dispatchCommand(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	switch args[0] {
-	case "install", "install-hooks", "hook":
-		return dispatchSetup(ctx, args, env, stdin, stdout, stderr)
-	case "log":
-		return cmdLog(ctx, args[1:], env, stdout, stderr)
-	case "register":
-		return cmdRegister(ctx, args[1:], env, stdout, stderr)
-	case "describe":
-		return cmdDescribe(ctx, args[1:], env, stdout, stderr)
-	case "whoami":
-		return cmdWhoami(ctx, args[1:], env, stdout, stderr)
-	case "release":
-		return cmdRelease(ctx, args[1:], env, stdout, stderr)
-	case "list":
-		return cmdList(ctx, args[1:], env, stdout, stderr)
-	case "search":
-		return cmdSearch(ctx, args[1:], env, stdout, stderr)
-	case "send":
-		return cmdSend(ctx, args[1:], env, stdin, stdout, stderr)
-	case "reply":
-		return cmdReply(ctx, args[1:], env, stdout, stderr)
-	case "show":
-		return cmdShow(ctx, args[1:], env, stdout, stderr)
-	case "thread":
-		return cmdThread(ctx, args[1:], env, stdout, stderr)
-	case "status":
-		return cmdStatus(ctx, args[1:], env, stdout, stderr)
-	default:
-		fmt.Fprintf(stderr, "agentbus: unknown command %q\n", args[0])
-		return 2
+	if isHelpFlag(args[0]) {
+		printUsage(stdout)
+		return 0
 	}
-}
-
-func dispatchSetup(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	switch args[0] {
-	case "install":
-		return cmdInstall(ctx, args[1:], env, stdout, stderr)
-	case "install-hooks":
-		return cmdInstallHooks(ctx, args[1:], env, stdout, stderr)
-	case "hook":
-		return cmdHook(ctx, args[1:], env, stdin, stdout, stderr)
-	default:
-		fmt.Fprintf(stderr, "agentbus: unknown command %q\n", args[0])
-		return 2
+	if args[0] == "help" {
+		return cmdHelp(args[1:], stdout, stderr)
 	}
+	cmd, ok := findCommand(args[0])
+	if !ok {
+		return unknownCommand(args[0], stderr)
+	}
+	// Only the first argument counts, so a body word such as --help is still sent.
+	if len(args) > 1 && isHelpFlag(args[1]) {
+		printCommandHelp(stdout, cmd)
+		return 0
+	}
+	return cmd.run(ctx, args[1:], env, stdin, stdout, stderr)
 }
 
 func ensure(env []string, stderr io.Writer) int {
