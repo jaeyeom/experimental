@@ -449,7 +449,7 @@ The reply line and the numbered options follow."
   (let ((keys (decide--option-keys item)))
     (concat (mapconcat #'identity keys "  ")
             (if keys "   " "")
-            "0 f r reply   y archive   q quit")))
+            "0 reply   y archive   q quit")))
 
 (defun decide-answer-option ()
   "Answer the open item with one of its option keys."
@@ -631,9 +631,7 @@ Long lines wrap, so a draft in the thread can be scrolled."
   (visual-line-mode 1))
 
 (define-key decide-item-mode-map (kbd "o") #'decide-answer-option)
-(define-key decide-item-mode-map (kbd "f") #'decide-reply)
 (define-key decide-item-mode-map (kbd "0") #'decide-reply)
-(define-key decide-item-mode-map (kbd "r") #'decide-reply)
 (define-key decide-item-mode-map (kbd "y") #'decide-archive)
 (define-key decide-item-mode-map (kbd "n") #'decide-message-next)
 (define-key decide-item-mode-map (kbd "p") #'decide-message-previous)
@@ -920,9 +918,7 @@ or archives."
   (decide--evil-bind
    decide-item-mode-map
    (list (kbd "o") #'decide-answer-option
-         (kbd "f") #'decide-reply
          (kbd "0") #'decide-reply
-         (kbd "r") #'decide-reply
          (kbd "y") #'decide-archive
          (kbd "n") #'decide-message-next
          (kbd "p") #'decide-message-previous)))
