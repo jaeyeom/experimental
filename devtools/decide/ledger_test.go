@@ -647,7 +647,7 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	if answered.State != StateAnswered || answered.Answer == nil || answered.Answer.Value != "draft" {
 		t.Fatalf("answer = %+v", answered.Answer)
 	}
-	if len(answered.Messages) != 2 || answered.Messages[1].Author != "human" || answered.Messages[1].Text != "draft" {
+	if len(answered.Messages) != 2 || answered.Messages[1].Author != "human" || answered.Messages[1].Text != "draft: draft a message for me" {
 		t.Fatalf("answer message = %+v", answered.Messages)
 	}
 
@@ -688,7 +688,7 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 		t.Fatalf("send answer = %+v", sent.Answer)
 	}
 	human := sent.Messages[len(sent.Messages)-1]
-	if human.Author != "human" || human.Text != "send" {
+	if human.Author != "human" || human.Text != "send: send" {
 		t.Fatalf("send message = %+v", human)
 	}
 
@@ -876,7 +876,7 @@ func TestLegacyAnswerKeepsThePreviousAnswer(t *testing.T) {
 	if len(got.Messages) != 3 {
 		t.Fatalf("messages = %+v", got.Messages)
 	}
-	if got.Messages[0].Text != "root ask" || got.Messages[1].Author != "human" || got.Messages[1].Text != "human note" || got.Messages[2].Text != "send" {
+	if got.Messages[0].Text != "root ask" || got.Messages[1].Author != "human" || got.Messages[1].Text != "human note" || got.Messages[2].Text != "send: Send" {
 		t.Fatalf("messages = %+v", got.Messages)
 	}
 	if len(got.Messages[0].Options) != 2 || got.Messages[0].Options[0].Key != "send" {
@@ -1091,5 +1091,113 @@ func TestDeleteRemovesTheItemAndDoesNotReuseItsID(t *testing.T) {
 	}
 	if err := led.Delete(first.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second delete err = %v", err)
+	}
+}
+
+func TestAnswerStoresTheOptionKeyAndLabel(t *testing.T) {
+	led, _ := openTemp(t)
+	item, err := led.Create(&Item{
+		Question: "pick",
+		Kind:     KindRelay,
+		Owner:    "ada",
+		Options:  []Option{{Key: "a", Label: "Alpha"}, {Key: "b", Label: "Beta"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Answer(item.ID, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.Key != "a" || got.Answer.Label != "Alpha" || got.Answer.Value != "a" {
+		t.Fatalf("answer = %+v", got.Answer)
+	}
+	last := got.Messages[len(got.Messages)-1]
+	if last.Text != "a: Alpha" || last.OptionKey != "a" || last.OptionLabel != "Alpha" {
+		t.Fatalf("answer message = %+v", last)
+	}
+	if text := AnswerText(&got); text != "a: Alpha" {
+		t.Fatalf("AnswerText = %q", text)
+	}
+	replied, err := led.Reply(item.ID, "again?", []Option{{Key: "a", Label: "Changed"}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := AnswerText(&replied); text != "a: Alpha" {
+		t.Fatalf("AnswerText after reply = %q", text)
+	}
+	if label := AnswerLabel(&replied); label != "Alpha" {
+		t.Fatalf("AnswerLabel after reply = %q", label)
+	}
+}
+
+func TestFreeTextAnswerHasNoKeyOrLabel(t *testing.T) {
+	led, _ := openTemp(t)
+	item, err := led.Create(&Item{
+		Question: "say",
+		Kind:     KindRelay,
+		Owner:    "ada",
+		FreeText: true,
+		Options:  []Option{{Key: "a", Label: "Alpha"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Answer(item.ID, "something else")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.Key != "" || got.Answer.Label != "" || got.Answer.Value != "something else" {
+		t.Fatalf("answer = %+v", got.Answer)
+	}
+	last := got.Messages[len(got.Messages)-1]
+	if last.Text != "something else" || last.OptionKey != "" || last.OptionLabel != "" {
+		t.Fatalf("answer message = %+v", last)
+	}
+	if text := AnswerText(&got); text != "something else" {
+		t.Fatalf("AnswerText = %q", text)
+	}
+}
+
+func TestLegacyOptionAnswerRendersTheLabel(t *testing.T) {
+	asked := time.Date(2026, 11, 6, 1, 0, 0, 0, time.UTC)
+	answeredAt := asked.Add(time.Hour)
+	for _, tc := range []struct{ value, want string }{
+		{"b", "b: Beta"},
+		{"z", "z: Zed"},
+		{"c", "c"},
+	} {
+		// The ledger predates the key and label fields. A later reply
+		// replaced the item options, so the asking message wins for b.
+		raw := `{"next": 2, "items": [{
+  "id": "D-001", "question": "pick", "owner": "ada", "kind": "relay",
+  "state": "answered", "freeText": false, "unread": false,
+  "createdAt": "` + asked.Format(time.RFC3339) + `",
+  "answeredAt": "` + answeredAt.Format(time.RFC3339) + `",
+  "options": [{"key": "b", "label": "Later", "recommended": false}, {"key": "z", "label": "Zed", "recommended": false}],
+  "messages": [
+    {"author": "ada", "time": "` + asked.Format(time.RFC3339) + `", "text": "pick",
+     "options": [{"key": "a", "label": "Alpha", "recommended": false}, {"key": "b", "label": "Beta", "recommended": false}]},
+    {"author": "human", "time": "` + answeredAt.Format(time.RFC3339) + `", "text": "` + tc.value + `"},
+    {"author": "ada", "time": "` + answeredAt.Add(time.Hour).Format(time.RFC3339) + `", "text": "again?",
+     "options": [{"key": "b", "label": "Later", "recommended": false}, {"key": "z", "label": "Zed", "recommended": false}]}
+  ],
+  "answer": {"value": "` + tc.value + `", "answeredBy": "human"}
+}]}`
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ledgerName), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		led, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := led.Get("D-001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text := AnswerText(&got); text != tc.want {
+			t.Fatalf("AnswerText(%q) = %q, want %q", tc.value, text, tc.want)
+		}
 	}
 }

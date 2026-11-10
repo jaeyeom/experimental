@@ -600,6 +600,58 @@ func TestShowPrintsForwardedFrom(t *testing.T) {
 	}
 }
 
+func TestShowKeepsTheAnswerLabelAfterAFollowUp(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	id := askChoice(t, "pick one")
+	if _, stderr, code := runCLI("answer", id, "a"); code != 0 {
+		t.Fatalf("answer code = %d\n%s", code, stderr)
+	}
+	if _, stderr, code := runCLI("reply", "--option", "a:Changed", id, "again?"); code != 0 {
+		t.Fatalf("reply code = %d\n%s", code, stderr)
+	}
+	stdout, stderr, code := runCLI("show", id)
+	if code != 0 {
+		t.Fatalf("show code = %d\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "answer: a: Ship it\n") {
+		t.Fatalf("show missing the answer label\n%s", stdout)
+	}
+	raw, stderr, code := runCLI("show", "--json", id)
+	if code != 0 {
+		t.Fatalf("show --json code = %d\n%s", code, stderr)
+	}
+	for _, needle := range []string{`"key": "a"`, `"label": "Ship it"`, `"optionKey": "a"`, `"optionLabel": "Ship it"`} {
+		if !strings.Contains(raw, needle) {
+			t.Fatalf("show --json missing %s\n%s", needle, raw)
+		}
+	}
+	item := decodeItem(t, raw)
+	if item.Answer == nil || item.Answer.Value != "a" || item.Answer.Key != "a" || item.Answer.Label != "Ship it" {
+		t.Fatalf("answer = %+v", item.Answer)
+	}
+}
+
+func TestNotifyLabelComesFromTheStoredAnswer(t *testing.T) {
+	dump := setupNotifyDump(t)
+	item := decide.Item{
+		ID:      "D-001",
+		Owner:   "ada",
+		Kind:    decide.KindRelay,
+		Options: []decide.Option{{Key: "a", Label: "Changed"}},
+		Answer:  &decide.Answer{Value: "a", Key: "a", Label: "Alpha", AnsweredBy: "human"},
+	}
+	var out bytes.Buffer
+	if err := decide.Notify(&item, &out); err != nil {
+		t.Fatalf("notify: %v\n%s", err, out.String())
+	}
+	if got := readDump(t, dump, "DECIDE_ANSWER"); got != "a" {
+		t.Fatalf("DECIDE_ANSWER = %q", got)
+	}
+	if got := readDump(t, dump, "DECIDE_ANSWER_LABEL"); got != "Alpha" {
+		t.Fatalf("DECIDE_ANSWER_LABEL = %q", got)
+	}
+}
+
 func askRelay(t *testing.T, extra []string, question string) string {
 	t.Helper()
 	args := relayArgs(question)
@@ -885,7 +937,7 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 	if !optionKeys(got.Options, "send", "edit", "don't send") || !recommendedKey(got.Options, "send") {
 		t.Fatalf("options = %+v", got.Options)
 	}
-	if !hasMessage(got.Messages, "ada", "what should I send?") || !hasMessage(got.Messages, "human", "draft") || !hasMessage(got.Messages, "ada", draft) {
+	if !hasMessage(got.Messages, "ada", "what should I send?") || !hasMessage(got.Messages, "human", "draft: draft a message for me") || !hasMessage(got.Messages, "ada", draft) {
 		t.Fatalf("messages = %+v", got.Messages)
 	}
 	inbox, _, code := runCLI("list")
@@ -900,7 +952,7 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 		t.Fatalf("send = %+v", sent.Answer)
 	}
 	last := sent.Messages[len(sent.Messages)-1]
-	if last.Author != "human" || last.Text != "send" {
+	if last.Author != "human" || last.Text != "send: send" {
 		t.Fatalf("send message = %+v", last)
 	}
 

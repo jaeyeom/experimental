@@ -134,7 +134,7 @@ func Notify(item *Item, out io.Writer) error {
 	cmd.Env = append(os.Environ(),
 		"DECIDE_ID="+item.ID,
 		"DECIDE_ANSWER="+answer,
-		"DECIDE_ANSWER_LABEL="+answerLabel(item, answer),
+		"DECIDE_ANSWER_LABEL="+AnswerLabel(item),
 		"DECIDE_OWNER="+item.Owner,
 		"DECIDE_PANE="+pane,
 		"DECIDE_KIND="+item.Kind,
@@ -171,15 +171,6 @@ func threadHeader(id, author string) string {
 
 func replyHint(id string) string {
 	return `Reply in this thread: decide reply ` + id + ` "..." (add --option key:label for a follow-up question; decide done ` + id + ` "outcome" when finished). Do not answer only in your terminal.`
-}
-
-func answerLabel(item *Item, answer string) string {
-	for _, opt := range item.Options {
-		if opt.Key == answer {
-			return opt.Label
-		}
-	}
-	return ""
 }
 
 func questionLine(question string) string {

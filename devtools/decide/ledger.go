@@ -53,16 +53,23 @@ type Option struct {
 
 // Message is one entry in a thread. Author is "human" or an agent name.
 // Options are present only when that message asks for a choice.
+// OptionKey and OptionLabel are set on a message that answers with an option.
 type Message struct {
-	Author  string    `json:"author"`
-	Time    time.Time `json:"time"`
-	Text    string    `json:"text"`
-	Options []Option  `json:"options,omitempty"`
+	Author      string    `json:"author"`
+	Time        time.Time `json:"time"`
+	Text        string    `json:"text"`
+	Options     []Option  `json:"options,omitempty"`
+	OptionKey   string    `json:"optionKey,omitempty"`
+	OptionLabel string    `json:"optionLabel,omitempty"`
 }
 
 // Answer is set only when an item has been answered.
+// Value is the option key or the free text. Key and Label are set for an
+// option answer and keep the label the option had when it was picked.
 type Answer struct {
 	Value      string `json:"value"`
+	Key        string `json:"key,omitempty"`
+	Label      string `json:"label,omitempty"`
 	AnsweredBy string `json:"answeredBy"`
 }
 
@@ -262,11 +269,17 @@ func (l *Ledger) Answer(id, value string) (Item, error) {
 		it.State = StateAnswered
 		it.AnsweredAt = l.clock().UTC()
 		it.Answer = &Answer{Value: stored, AnsweredBy: "human"}
-		it.Messages = append(it.Messages, Message{
+		msg := Message{
 			Author: "human",
 			Time:   it.AnsweredAt,
 			Text:   stored,
-		})
+		}
+		if label, ok := optionLabel(it.Options, stored); ok {
+			it.Answer.Key, it.Answer.Label = stored, label
+			msg.OptionKey, msg.OptionLabel = stored, label
+			msg.Text = keyLabel(stored, label)
+		}
+		it.Messages = append(it.Messages, msg)
 		updated = *it
 		return nil
 	})
@@ -623,12 +636,58 @@ func findItem(st *store, id string) (*Item, error) {
 }
 
 func hasOption(it *Item, key string) bool {
-	for _, opt := range it.Options {
+	_, ok := optionLabel(it.Options, key)
+	return ok
+}
+
+func optionLabel(options []Option, key string) (string, bool) {
+	for _, opt := range options {
 		if opt.Key == key {
-			return true
+			return opt.Label, true
 		}
 	}
-	return false
+	return "", false
+}
+
+func keyLabel(key, label string) string {
+	if label == "" {
+		return key
+	}
+	return key + ": " + label
+}
+
+// AnswerLabel is the label of the option it was answered with, or "".
+// An answer stored without a label looks the key up in the options of the
+// latest message at or before the answer, then in the item options.
+func AnswerLabel(it *Item) string {
+	a := it.Answer
+	if a == nil {
+		return ""
+	}
+	if a.Key != "" {
+		return a.Label
+	}
+	for i := len(it.Messages) - 1; i >= 0; i-- {
+		msg := it.Messages[i]
+		if len(msg.Options) == 0 || msg.Time.After(it.AnsweredAt) {
+			continue
+		}
+		if label, ok := optionLabel(msg.Options, a.Value); ok {
+			return label
+		}
+		break
+	}
+	label, _ := optionLabel(it.Options, a.Value)
+	return label
+}
+
+// AnswerText renders the answer of it as "key: label" for an option answer,
+// or as the stored value. It is "" when it has no answer.
+func AnswerText(it *Item) string {
+	if it.Answer == nil {
+		return ""
+	}
+	return keyLabel(it.Answer.Value, AnswerLabel(it))
 }
 
 func before(a, b *Item) bool {
