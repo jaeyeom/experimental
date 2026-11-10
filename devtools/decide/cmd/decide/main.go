@@ -29,24 +29,29 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return runLocal(args, stdout, stderr)
 }
 
+// itemCommands act on one existing item.
+var itemCommands = map[string]func([]string, io.Writer, io.Writer) int{
+	"show":     cmdShow,
+	"withdraw": cmdWithdraw,
+	"done":     cmdDone,
+	"answer":   cmdAnswer,
+	"snooze":   cmdSnooze,
+	"unsnooze": cmdUnsnooze,
+}
+
 func runLocal(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return 2
+	}
+	if cmd, ok := itemCommands[args[0]]; ok {
+		return cmd(args[1:], stdout, stderr)
 	}
 	switch args[0] {
 	case "ask":
 		return cmdAsk(args[1:], stdout, stderr)
 	case "list":
 		return cmdList(args[1:], stdout, stderr)
-	case "show":
-		return cmdShow(args[1:], stdout, stderr)
-	case "withdraw":
-		return cmdWithdraw(args[1:], stdout, stderr)
-	case "done":
-		return cmdDone(args[1:], stdout, stderr)
-	case "answer":
-		return cmdAnswer(args[1:], stdout, stderr)
 	case "inbox":
 		return cmdInbox(args[1:], stdout, stderr)
 	case "status":
@@ -73,12 +78,14 @@ func usage(w io.Writer) {
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--json] <question>
-  decide list [--state open|answered|done|withdrawn] [--json]
+  decide list [--state open|answered|done|withdrawn] [--snoozed] [--json]
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
   decide done [--json] <id> <outcome>
   decide answer [--json] <id> <option|text>
-  decide inbox
+  decide snooze [--json] <id> <2h30m|HH:MM|YYYY-MM-DD HH:MM|mon 9:00>
+  decide unsnooze [--json] <id>
+  decide inbox [--snoozed]
   decide status set --agent <name> [--state working|idle|paused|blocked] <text>
   decide status set --resource <name> free|busy [<note>]
   decide status list [--json]
@@ -412,6 +419,7 @@ func statusAge(d time.Duration) string {
 func cmdInbox(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	snoozed := fs.Bool("snoozed", false, "open on the Snoozed folder")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -433,6 +441,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		Targets:      inboxTargets(cfg),
 		SendTemplate: cfg.SendTemplate,
 		Agentbus:     cfg.Recipients.Agentbus,
+		Snoozed:      *snoozed,
 	}); err != nil {
 		return fail(stderr, err, 1)
 	}
@@ -493,6 +502,7 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print items as JSON")
 	state := fs.String("state", decide.StateOpen, "state to list")
+	snoozed := fs.Bool("snoozed", false, "list only snoozed items, soonest wake first")
 	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
 	}
@@ -511,6 +521,9 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	if *snoozed {
+		selected = decide.SelectSnoozed(items)
+	}
 	if *jsonOut {
 		return writeJSON(stdout, stderr, selected)
 	}
@@ -519,9 +532,47 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 		if it.Deadline != nil {
 			deadline = it.Deadline.Format(time.RFC3339)
 		}
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", it.ID, deadline, it.Owner, it.Question)
+		line := fmt.Sprintf("%s\t%s\t%s\t%s", it.ID, deadline, it.Owner, it.Question)
+		if it.SnoozedUntil != nil {
+			line += "\tsnoozed until " + it.SnoozedUntil.Local().Format(time.RFC3339)
+		}
+		fmt.Fprintln(stdout, line)
 	}
 	return 0
+}
+
+// cmdSnooze hides an item until a time. The time may be split across
+// arguments, so `decide snooze D-1 mon 9:00` needs no quotes.
+func cmdSnooze(args []string, stdout, stderr io.Writer) int {
+	fs, jsonOut, code := itemCmd("snooze", args, stderr)
+	if fs == nil {
+		return code
+	}
+	rest := fs.Args()
+	if len(rest) < 2 || strings.TrimSpace(rest[0]) == "" {
+		return fail(stderr, fmt.Errorf("decide id and time are required"), 2)
+	}
+	until, err := decide.ParseSnooze(strings.Join(rest[1:], " "), time.Now())
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	return withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		return led.Snooze(rest[0], until)
+	})
+}
+
+func cmdUnsnooze(args []string, stdout, stderr io.Writer) int {
+	fs, jsonOut, code := itemCmd("unsnooze", args, stderr)
+	if fs == nil {
+		return code
+	}
+	id, err := oneArg(fs.Args(), "id")
+	if err != nil {
+		return fail(stderr, err, 2)
+	}
+	return withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		return led.Unsnooze(id)
+	})
 }
 
 func cmdShow(args []string, stdout, stderr io.Writer) int {
@@ -856,6 +907,9 @@ func writeShow(w io.Writer, it *decide.Item) {
 	writeTime(w, "answeredAt", it.AnsweredAt)
 	writeTime(w, "doneAt", it.DoneAt)
 	writeTime(w, "withdrawnAt", it.WithdrawnAt)
+	if it.SnoozedUntil != nil {
+		fmt.Fprintf(w, "snoozed until: %s\n", it.SnoozedUntil.Local().Format(time.RFC3339))
+	}
 	if it.Answer != nil {
 		fmt.Fprintf(w, "answer: %s\n", decide.AnswerText(it))
 		fmt.Fprintf(w, "answeredBy: %s\n", it.Answer.AnsweredBy)

@@ -45,15 +45,21 @@ const (
 	focusSend
 )
 
+// snoozedFolder is the index of Snoozed in Folders.
+const snoozedFolder = 1
+
 // narrowWidth is the smallest measured terminal that keeps the sidebar column.
 const narrowWidth = 80
 
-// Folders is the inbox order: open, answered, done, withdrawn.
+// Folders is the inbox order: open, snoozed, answered, done, withdrawn.
+// Snoozed lists snoozed items in any state. The other folders hide them.
 var Folders = []struct {
-	Name  string
-	State string
+	Name    string
+	State   string
+	Snoozed bool
 }{
 	{Name: "Inbox", State: decide.StateOpen},
+	{Name: "Snoozed", Snoozed: true},
 	{Name: "Answered", State: decide.StateAnswered},
 	{Name: "Done", State: decide.StateDone},
 	{Name: "Withdrawn", State: decide.StateWithdrawn},
@@ -139,6 +145,13 @@ type Model struct {
 	busNames   []Target
 	busAt      time.Time
 	pickFilter string
+	// snoozing shows the snooze popup for snoozeItem. snoozeCustom is
+	// the custom row's text and snoozeErr its parse error.
+	snoozing     bool
+	snoozeItem   decide.Item
+	snoozeCursor int
+	snoozeCustom string
+	snoozeErr    string
 }
 
 // New returns an inbox positioned on the open folder.
@@ -170,10 +183,14 @@ func (m *Model) Reload() error {
 	m.counts = make([]int, len(Folders))
 	for _, it := range all {
 		for i, folder := range Folders {
-			if it.State == folder.State {
+			if folder.Snoozed == it.Snoozed() && (folder.Snoozed || it.State == folder.State) {
 				m.counts[i]++
 			}
 		}
+	}
+	if Folders[m.folder].Snoozed {
+		m.setFolder(decide.SelectSnoozed(all), keep)
+		return nil
 	}
 	items, err := decide.Select(all, Folders[m.folder].State)
 	if err != nil {
@@ -185,14 +202,14 @@ func (m *Model) Reload() error {
 
 // Key applies one key. In the list, j and k move one row and keep that row
 // visible. G jumps to the last row. g starts a folder chord, and a second g
-// jumps to the first row. o or Enter opens the row, c opens compose, and q
-// quits. A second key of i, a, d, w, or s opens Inbox, Answered, Done,
-// Withdrawn, or Status. Status is also a row in the folder list. There, j
+// jumps to the first row. o or Enter opens the row, c opens compose, b
+// snoozes the row, and q quits. A second key of i, z, a, d, w, or s opens
+// Inbox, Snoozed, Answered, Done, Withdrawn, or Status. Status is also a row in the folder list. There, j
 // and k highlight an agent row and keep it visible, and c opens compose.
 // In the opened item, up, down, j, and k
 // scroll one line, page up and page down scroll one page, home and end
 // jump to the ends, and G jumps to the end. n and p move between messages. u returns to the
-// list. 1 through 9 answer a relay
+// list. b snoozes the item. 1 through 9 answer a relay
 // option. 0 focuses the composer.
 // Sending it appends a human message. On an open question that text is also
 // the answer. In a focused composer, ctrl+x then ctrl+e, or ctrl+g alone,
@@ -213,6 +230,9 @@ func (m *Model) Reload() error {
 func (m *Model) Key(r rune) (bool, error) {
 	if m.chord {
 		return m.finishChord(r)
+	}
+	if m.snoozing {
+		return m.snoozeKey(r)
 	}
 	if m.searching {
 		return m.searchKey(r)
@@ -451,12 +471,14 @@ func (m *Model) finishChord(r rune) (bool, error) {
 	switch r {
 	case 'i':
 		return false, m.showFolder(0)
+	case 'z':
+		return false, m.showFolder(snoozedFolder)
 	case 'a':
-		return false, m.showFolder(1)
-	case 'd':
 		return false, m.showFolder(2)
-	case 'w':
+	case 'd':
 		return false, m.showFolder(3)
+	case 'w':
+		return false, m.showFolder(4)
 	case 's':
 		return false, m.showStatus()
 	case 'g':
@@ -496,6 +518,8 @@ func (m *Model) listKey(r rune) (bool, error) {
 		m.focusCompose()
 	case 'y':
 		return false, m.archiveSelected()
+	case 'b':
+		m.beginSnooze()
 	case '/':
 		m.beginSearch()
 	}
@@ -534,6 +558,9 @@ func (m *Model) detailKey(r rune) (bool, error) {
 		return false, nil
 	case 'y':
 		return false, m.archiveSelected()
+	case 'b':
+		m.beginSnooze()
+		return false, nil
 	case 'Y':
 		m.copyCurrentMessage()
 		return false, nil
@@ -970,6 +997,7 @@ func (m *Model) ledger() (*decide.Ledger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open decide ledger: %w", err)
 	}
+	led.SetClock(m.Now)
 	return led, nil
 }
 
@@ -1024,8 +1052,12 @@ func (m *Model) View() string {
 
 func (m *Model) allLines() []screenLine {
 	var lines []screenLine
-	if m.help {
-		lines = m.helpLines()
+	if m.help || m.snoozing {
+		if m.help {
+			lines = m.helpLines()
+		} else {
+			lines = m.snoozeLines()
+		}
 		if w := m.contentWidth(); w > 0 {
 			lines = fitColumnLines(lines, w)
 		}
@@ -1069,6 +1101,9 @@ func (m *Model) statusLine() screenLine {
 		return m.searchPrompt()
 	}
 	label := m.mouseLabel()
+	if m.snoozing {
+		return screenLine{text: label + snoozeHint}
+	}
 	if m.chord {
 		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
 	}
@@ -1098,12 +1133,23 @@ func (m *Model) statusLine() screenLine {
 	if status != "" {
 		text = status + "  " + hint
 	}
-	// /find shows only when it fits, so a narrow footer keeps "? help".
-	wide := strings.TrimSuffix(text, "? help") + "/find  ? help"
-	if w := m.contentWidth(); w <= 0 || lipgloss.Width(wide) <= w {
-		text = wide
+	return screenLine{text: m.withOptionalHints(text)}
+}
+
+// withOptionalHints adds /find, then b snooze, before "? help" while
+// each fits, so a narrow footer keeps "? help".
+func (m *Model) withOptionalHints(text string) string {
+	extras := []string{"/find", "b snooze"}
+	if m.mode == modeStatus {
+		extras = extras[:1]
 	}
-	return screenLine{text: text}
+	for _, extra := range extras {
+		wide := strings.TrimSuffix(text, "? help") + extra + "  ? help"
+		if w := m.contentWidth(); w <= 0 || lipgloss.Width(wide) <= w {
+			text = wide
+		}
+	}
+	return text
 }
 
 func (m *Model) listFocused() bool {
@@ -2012,7 +2058,7 @@ func (m *Model) helpLines() []screenLine {
 		"shortcuts",
 		"q quit",
 		"j/k move  pgup/pgdn  home/end  gg/G",
-		"g then i inbox, a answered, d done, w withdrawn, s status",
+		"g then i inbox, z snoozed, a answered, d done, w withdrawn, s status",
 		"o or enter opens    u returns to the list",
 		"c compose",
 		"tab moves recipient, text, [Send]",
@@ -2021,7 +2067,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on text inserts a newline",
 		"enter on [Send] sends",
 		"esc keeps the draft",
-		"1-9 answer  0 reply  f forward  y archive  e done",
+		"1-9 answer  0 reply  f forward  y archive  e done  b snooze",
 		"/ filters as you type, esc restores, empty enter clears",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",
@@ -2036,7 +2082,7 @@ func (m *Model) helpLines() []screenLine {
 			"shortcuts",
 			"q quit",
 			"j/k move  pgup/pgdn  home/end  gg/G",
-			"g then i inbox, a answered, d done, w withdrawn, s status",
+			"g then i inbox, z snoozed, a answered, d done, w withdrawn, s status",
 			"u returns to the list",
 			"c compose",
 			"tab moves recipient, text, [Send]",
@@ -2117,7 +2163,7 @@ func (m *Model) detailLines(width int) []screenLine {
 		title += fmt.Sprintf("  /%s (%d)", m.highlight, highlightCount(it, re))
 	}
 	lines := []screenLine{{text: plainText(title)}}
-	lines = append(lines, headerLines(it)...)
+	lines = append(lines, headerLines(it, m.now().Location())...)
 	lines = append(lines, screenLine{})
 	lines = append(lines, m.threadLines(it, width, re)...)
 	if it.Kind == decide.KindTypeIn {
@@ -2164,7 +2210,7 @@ func headerTime(t time.Time) string {
 
 // headerLines is the metadata block above the item body.
 // Labels share one column so the colons line up.
-func headerLines(it *decide.Item) []screenLine {
+func headerLines(it *decide.Item, loc *time.Location) []screenLine {
 	from, to := threadParties(it)
 	rows := []struct{ label, value string }{{"From", from}}
 	if to != "" {
@@ -2176,6 +2222,9 @@ func headerLines(it *decide.Item) []screenLine {
 		struct{ label, value string }{"Created", headerTime(it.CreatedAt)},
 		struct{ label, value string }{"Answered", headerTime(it.AnsweredAt)},
 	)
+	if it.SnoozedUntil != nil {
+		rows = append(rows, struct{ label, value string }{"Snoozed", "until " + decide.SnoozeLabel(it.SnoozedUntil.In(loc))})
+	}
 	width := 0
 	for _, row := range rows {
 		if n := lipgloss.Width(row.label); n > width {
@@ -2506,8 +2555,13 @@ func withCursor(text string, col int) string {
 
 // inboxCells are the list columns: id, requester, relative time, kind or
 // state, then the question.
+// A snoozed item shows its wake time in place of the age.
 func inboxCells(it decide.Item, now time.Time) []string {
-	return []string{it.ID, it.Owner, age(now.Sub(it.CreatedAt)), rowBadge(it), rowSnippet(it)}
+	when := age(now.Sub(it.CreatedAt))
+	if it.SnoozedUntil != nil {
+		when = "until " + decide.SnoozeLabel(it.SnoozedUntil.In(now.Location()))
+	}
+	return []string{it.ID, it.Owner, when, rowBadge(it), rowSnippet(it)}
 }
 
 // rowBadge is the item kind, or the state when the kind is empty.

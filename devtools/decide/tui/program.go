@@ -96,6 +96,14 @@ func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if isEditKey(msg) && m.editComposerKey(msg) {
 		return m, nil
 	}
+	if m.snoozing && (msg.Type == tea.KeyUp || msg.Type == tea.KeyDown) {
+		delta := 1
+		if msg.Type == tea.KeyUp {
+			delta = -1
+		}
+		m.moveSnooze(delta)
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyCtrlN:
 		m.pickerArrow(1)
@@ -179,7 +187,7 @@ func (m *Model) mouseCommand() tea.Cmd {
 func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Shift+drag is the terminal's selection bypass. Leave it alone.
 	// Capture off lets a plain drag select in the terminal.
-	if !m.mouseOn || msg.Shift {
+	if !m.mouseOn || msg.Shift || m.snoozing {
 		return m, nil
 	}
 	switch msg.Button {

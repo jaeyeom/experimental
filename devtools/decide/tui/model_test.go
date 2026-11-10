@@ -556,7 +556,7 @@ func TestStatusFolderIsSelectable(t *testing.T) {
 		t.Fatalf("gs again mode %d\n%s", m.mode, m.View())
 	}
 	press(t, m, "ga")
-	if m.mode != modeList || m.folder != 1 || !strings.Contains(m.View(), "[Answered]") || strings.Contains(m.View(), "[Status]") {
+	if m.mode != modeList || m.folder != 2 || !strings.Contains(m.View(), "[Answered]") || strings.Contains(m.View(), "[Status]") {
 		t.Fatalf("ga from status mode %d folder %d\n%s", m.mode, m.folder, m.View())
 	}
 }
@@ -570,15 +570,15 @@ func TestFolderCountsShareAColumn(t *testing.T) {
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	m.counts = []int{1, 12, 123, 0}
+	m.counts = []int{1, 12, 123, 0, 7}
 	m.width = 120
 	m.height = 24
 
 	assertFolderCountColumn(t, m)
 
-	m.folder = 2
+	m.folder = 3
 	assertFolderCountColumn(t, m)
-	done := m.sidebarLines()[2].text
+	done := m.sidebarLines()[3].text
 	if !strings.HasPrefix(done, "[Done]") || strings.Contains(m.sidebarLines()[0].text, "[Inbox]") {
 		t.Fatalf("selection did not stay on Done\n%s", done)
 	}
@@ -612,7 +612,7 @@ func assertFolderCountColumn(t *testing.T, m *Model) {
 	}
 	ends := make([]int, len(Folders))
 	width := 0
-	for i, count := range []string{"1", "12", "123", "0"} {
+	for i, count := range []string{"1", "12", "123", "0", "7"} {
 		text := lines[i].text
 		name := Folders[i].Name
 		if m.navSelected(i) {
@@ -1017,7 +1017,7 @@ func TestClickOpensRowSwitchesFolderAndScrolls(t *testing.T) {
 		CreatedAt: time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC),
 	})
 	m := New(dir)
-	m.height = 10
+	m.height = 11
 	if err := m.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -1303,7 +1303,7 @@ func TestListCursorStaysVisible(t *testing.T) {
 
 	assertListFollowsCursor(t, m, "open")
 	press(t, m, "gd")
-	if m.folder != 2 {
+	if m.folder != 3 {
 		t.Fatalf("folder = %d", m.folder)
 	}
 	assertListFollowsCursor(t, m, "done")
@@ -3425,7 +3425,7 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 	view := m.View()
 	row := screenRow(view, "Answered")
 	line := strings.Split(view, "\n")[row-1]
-	if err := m.Click(visibleCol(line, "Answered"), row); err != nil || m.folder != 1 || !strings.Contains(m.View(), answered.ID) {
+	if err := m.Click(visibleCol(line, "Answered"), row); err != nil || m.folder != 2 || !strings.Contains(m.View(), answered.ID) {
 		t.Fatalf("click folder %d\n%s", m.folder, m.View())
 	}
 	press(t, m, "gi")
@@ -3436,19 +3436,19 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 	view = m.View()
 	row = screenRow(view, "Done")
 	line = strings.Split(view, "\n")[row-1]
-	if err := m.Click(visibleCol(line, "Done"), row); err != nil || m.folder != 2 || !strings.Contains(m.View(), done.ID) {
+	if err := m.Click(visibleCol(line, "Done"), row); err != nil || m.folder != 3 || !strings.Contains(m.View(), done.ID) {
 		t.Fatalf("tab click folder %d\n%s", m.folder, m.View())
 	}
 	press(t, m, "ga")
-	if m.folder != 1 || !strings.Contains(m.View(), answered.ID) {
+	if m.folder != 2 || !strings.Contains(m.View(), answered.ID) {
 		t.Fatalf("ga\n%s", m.View())
 	}
 	press(t, m, "gw")
-	if m.folder != 3 || !strings.Contains(m.View(), withdrawn.ID) {
+	if m.folder != 4 || !strings.Contains(m.View(), withdrawn.ID) {
 		t.Fatalf("gw\n%s", m.View())
 	}
 	press(t, m, "gd")
-	if m.folder != 2 || !strings.Contains(m.View(), done.ID) {
+	if m.folder != 3 || !strings.Contains(m.View(), done.ID) {
 		t.Fatalf("gd\n%s", m.View())
 	}
 	press(t, m, "gi")
