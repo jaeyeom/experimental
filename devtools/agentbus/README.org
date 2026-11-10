@@ -22,7 +22,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~whoami~ | Print those names, or the raw handle when none are registered. |
 | ~release <name>~ | Drop a name. |
 | ~release <name> --to <claimer>~ | Hand the name to that claimer. Send context first. |
-| ~list~ | Registered names, ~--when~, liveness, and transport. |
+| ~list [--json]~ | Registered names, ~--when~, liveness, and transport. |
 | ~search [query]~ | Every reachable agent, registered or not. |
 | ~send <name or handle> [<body>]~ | Send. Also ~--file~, stdin, ~--ttl~, and ~--wait~. |
 | ~reply <id> <body>~ | Reply. ~to~ is the original sender and ~re~ is ~id~. |
@@ -61,6 +61,21 @@ The body must not be empty. ~--ttl 30m~ sets a deadline for that one
 message. ~--wait~ blocks until it is delivered or that deadline passes.
 ~search~ with no query lists everyone the daemon can see. A query is a
 case-sensitive substring of the name, ~--when~, tab label, or title.
+
+~list --json~ prints a JSON array with one object per registered name,
+or ~[]~ when none are. Each object has these fields, which are stable:
+
+| Field | Value |
+|-------+-------|
+| ~name~ | The registered name. |
+| ~when~ | Its ~--when~ text. |
+| ~liveness~ | ~alive~, ~dead~, or ~unknown~. |
+| ~transport~ | The adapter that reaches it, such as ~herdr~. |
+| ~handle~ | The holder's raw handle. |
+
+~liveness~ folds the text words: ~alive~ and ~blocked~ are ~alive~,
+~gone~ is ~dead~, and ~unreachable~ is ~unknown~. When the daemon cannot
+be reached, ~list --json~ prints nothing on stdout and exits non-zero.
 
 ~log~ filters are ~--since~ (RFC3339), ~--name~, ~--msg~, ~--event~,
 ~--follow~, and ~--json~. The files are daily JSONL under the state

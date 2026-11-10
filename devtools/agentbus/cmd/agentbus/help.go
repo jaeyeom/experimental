@@ -61,8 +61,11 @@ func commands() []command {
 		{
 			name:    "list",
 			summary: "Registered names, --when, liveness, and transport.",
-			usage:   "agentbus list",
-			example: "agentbus list",
+			usage:   "agentbus list [--json]",
+			flags: "--json  print a JSON array, one object per name, with the fields\n" +
+				"        name, when, liveness (alive, dead, or unknown), transport,\n" +
+				"        and handle; [] when none are registered (default: false, text)",
+			example: "agentbus list --json",
 			run:     noStdin(cmdList),
 		},
 		{

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -9,8 +10,32 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 )
 
+// listEntry is one object of `agentbus list --json`. The field names are
+// stable.
+type listEntry struct {
+	Name      string `json:"name"`
+	When      string `json:"when"`
+	Liveness  string `json:"liveness"`
+	Transport string `json:"transport"`
+	Handle    string `json:"handle"`
+}
+
+// jsonLiveness folds the text liveness words into alive, dead, or unknown.
+// A blocked agent is alive: it is waiting on a prompt.
+func jsonLiveness(word string) string {
+	switch word {
+	case "alive", "blocked":
+		return "alive"
+	case "gone":
+		return "dead"
+	default:
+		return "unknown"
+	}
+}
+
 func cmdList(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
-	if len(args) != 0 {
+	asJSON := len(args) == 1 && args[0] == "--json"
+	if len(args) != 0 && !asJSON {
 		fmt.Fprintf(stderr, "agentbus list: unexpected arguments\n")
 		return 2
 	}
@@ -21,6 +46,20 @@ func cmdList(ctx context.Context, args, env []string, stdout, stderr io.Writer) 
 	if !resp.OK {
 		fmt.Fprintf(stderr, "agentbus: %s\n", resp.Error)
 		return 1
+	}
+	if asJSON {
+		entries := make([]listEntry, 0, len(resp.Rows))
+		for _, row := range resp.Rows {
+			entries = append(entries, listEntry{
+				Name: row.Name, When: row.When, Liveness: jsonLiveness(row.Liveness),
+				Transport: row.Transport, Handle: row.Handle,
+			})
+		}
+		if err := json.NewEncoder(stdout).Encode(entries); err != nil {
+			fmt.Fprintf(stderr, "agentbus: %s\n", err)
+			return 1
+		}
+		return 0
 	}
 	printRows(stdout, resp.Rows)
 	if resp.Text == "" {

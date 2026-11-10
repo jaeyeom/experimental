@@ -78,6 +78,7 @@ func TestCommandHelpListsFlagsWithDefaults(t *testing.T) {
 		{"register", []string{"--when"}},
 		{"describe", []string{"--when"}},
 		{"release", []string{"--to"}},
+		{"list", []string{"--json", "name", "when", "liveness", "transport", "handle", "alive", "dead", "unknown"}},
 		{"send", []string{"--file", "--ttl", "--wait"}},
 		{"log", []string{"--since", "--name", "--msg", "--event", "--follow", "--json"}},
 	} {
