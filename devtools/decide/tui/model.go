@@ -117,6 +117,18 @@ type Model struct {
 	listTotal    int
 	statusTotal  int
 	highlight    string
+	// prior is the state from before /. folderItems and folderText are
+	// the unfiltered folder and its lowercase search text, so typing in
+	// the prompt filters without reading the ledger. A large folder
+	// defers that pass: searchPending marks a query not yet applied,
+	// searchAt is its last keystroke, and searchArmed asks Update for a
+	// tick.
+	prior         searchSnapshot
+	folderItems   []decide.Item
+	folderText    []string
+	searchPending bool
+	searchArmed   bool
+	searchAt      time.Time
 	// newMessages counts messages a live refresh added below the view.
 	newMessages int
 	detailGone  bool
@@ -145,10 +157,7 @@ func New(dir string) *Model {
 // Reload reads the current folder from disk. The cursor stays on the same id
 // when that id is still present.
 func (m *Model) Reload() error {
-	keep := ""
-	if m.cursor >= 0 && m.cursor < len(m.items) {
-		keep = m.items[m.cursor].ID
-	}
+	keep := m.cursorID()
 	led, err := m.ledger()
 	if err != nil {
 		return err
@@ -170,15 +179,7 @@ func (m *Model) Reload() error {
 	if err != nil {
 		return fmt.Errorf("select decide folder: %w", err)
 	}
-	m.listTotal = len(items)
-	m.items = filterItems(items, m.filter)
-	m.cursor = 0
-	for i, it := range m.items {
-		if it.ID == keep {
-			m.cursor = i
-			break
-		}
-	}
+	m.setFolder(items, keep)
 	return nil
 }
 
@@ -206,8 +207,9 @@ func (m *Model) Reload() error {
 // composerKeys Emacs bindings edit it; '\n' (C-j) inserts a newline and
 // only '\r' (Enter) submits. ? opens the
 // shortcut overlay only when no text field is focused, and Esc or ? closes
-// it. / opens a search prompt. Enter filters a list or highlights matches
-// in an open item, an empty Enter clears that, and Esc cancels the prompt.
+// it. / opens a search prompt that filters a list or highlights matches in
+// an open item as you type. Enter keeps the result, an empty Enter clears
+// it, and Esc restores the state from before /.
 func (m *Model) Key(r rune) (bool, error) {
 	if m.chord {
 		return m.finishChord(r)
@@ -1000,6 +1002,8 @@ type screenLine struct {
 	hits []hit
 	// header is 1-based message index when this line is that message's header.
 	header int
+	// match reports that the line paints a search match.
+	match bool
 }
 
 // View renders the sidebar, list, detail, compose panel, and status bar.
@@ -2018,7 +2022,7 @@ func (m *Model) helpLines() []screenLine {
 		"enter on [Send] sends",
 		"esc keeps the draft",
 		"1-9 answer  0 reply  f forward  y archive  e done",
-		"/ filters the list, empty enter clears",
+		"/ filters as you type, esc restores, empty enter clears",
 		"l opens a link   L copies the link   Y copies the message",
 		"shift+drag selects text",
 		"M toggles mouse capture",
@@ -2041,7 +2045,7 @@ func (m *Model) helpLines() []screenLine {
 			"enter on text inserts a newline",
 			"enter on [Send] sends",
 			"esc keeps the draft",
-			"/ filters the list, empty enter clears",
+			"/ filters as you type, esc restores, empty enter clears",
 			"shift+drag selects text",
 			"M toggles mouse capture",
 			"click folder, target, or [Send]",
@@ -2058,7 +2062,7 @@ func (m *Model) helpLines() []screenLine {
 				text[i] = "j/k up/down line  pgup/pgdn page  home/end/G  n/p"
 			}
 			if strings.HasPrefix(line, "/ filters") {
-				text[i] = "/ highlights matches, empty enter clears"
+				text[i] = "/ highlights as you type, esc restores, empty enter clears"
 			}
 		}
 	}
@@ -2083,13 +2087,14 @@ func (m *Model) rowLines(width int) []screenLine {
 	}
 	widths := inboxColumnWidths(cells, width)
 	styles := inboxStyles()
+	re := searchPattern(m.filter)
 	lines := make([]screenLine, 0, len(m.items))
 	for i, it := range m.items {
 		marker := "  "
 		if i == m.cursor {
 			marker = "> "
 		}
-		text := marker + rowMark(it) + paintInboxRow(cells[i], widths, styles)
+		text := marker + rowMark(it) + paintInboxRow(cells[i], widths, styles, re)
 		useStyles()
 		if it.Unread {
 			text = unreadRow.Render(text)
@@ -2447,7 +2452,8 @@ func styleLinkChunk(original string, ch textChunk, spans, matches [][]int) scree
 	if b.Len() == 0 {
 		return screenLine{text: plainText(ch.text)}
 	}
-	return screenLine{text: b.String(), hits: hits}
+	match := slices.ContainsFunc(matches, func(mt []int) bool { return mt[0] < ch.to && mt[1] > ch.from })
+	return screenLine{text: b.String(), hits: hits, match: match}
 }
 
 func (m *Model) relayLines(it *decide.Item, width int) []screenLine {
@@ -2712,7 +2718,8 @@ func shrinkTo(widths []int, budget int) {
 	}
 }
 
-func paintInboxRow(cells []string, widths []int, styles [5]lipgloss.Style) string {
+// paintInboxRow pads each cell to its column. A non-nil re marks matches.
+func paintInboxRow(cells []string, widths []int, styles [5]lipgloss.Style, re *regexp.Regexp) string {
 	var b strings.Builder
 	for i, width := range widths {
 		if i > 0 {
@@ -2730,7 +2737,7 @@ func paintInboxRow(cells []string, widths []int, styles [5]lipgloss.Style) strin
 			pad = 0
 		}
 		if text != "" && i < len(styles) {
-			text = styles[i].Render(text)
+			text = paintCell(text, styles[i], re)
 		}
 		b.WriteString(text)
 		if pad > 0 {

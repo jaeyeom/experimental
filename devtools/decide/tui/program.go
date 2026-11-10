@@ -67,7 +67,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishExternalEdit(msg.err)
 		return m, nil
 	case tea.KeyMsg:
-		return m.updateKeyMsg(msg)
+		next, cmd := m.updateKeyMsg(msg)
+		if tick := m.searchTick(); tick != nil {
+			cmd = tea.Batch(cmd, tick)
+		}
+		return next, cmd
+	case searchTickMsg:
+		m.finishDebounce()
+		return m, nil
 	case chordTimeoutMsg:
 		m.expireChord(int(msg))
 		return m, nil
