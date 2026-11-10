@@ -85,6 +85,7 @@ func TestLoadPullRequestParsesQueueState(t *testing.T) {
 				"id": "PR_NODE",
 				"isDraft": false,
 				"reviewDecision": "APPROVED",
+				"mergeable": "CONFLICTING",
 				"state": "OPEN",
 				"merged": false,
 				"isInMergeQueue": false,
@@ -113,6 +114,9 @@ func TestLoadPullRequestParsesQueueState(t *testing.T) {
 	}
 	if pr.InMergeQueue {
 		t.Error("InMergeQueue = true, want false")
+	}
+	if pr.Mergeable != "CONFLICTING" {
+		t.Errorf("Mergeable = %q, want CONFLICTING", pr.Mergeable)
 	}
 	if pr.UnresolvedThreads != 1 {
 		t.Errorf("unresolved = %d, want 1", pr.UnresolvedThreads)

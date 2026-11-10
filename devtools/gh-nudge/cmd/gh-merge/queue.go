@@ -117,6 +117,28 @@ var (
 	whenGreenSleep   = time.Sleep
 )
 
+const (
+	mergeConflictProblem    = "pull request has merge conflicts"
+	mergeableUnknownProblem = "mergeable state still UNKNOWN after 60s; GitHub has not computed it yet, retry later"
+)
+
+var (
+	mergeableNow   = time.Now
+	mergeableSleep = time.Sleep
+)
+
+// queueMergeablePoll re-reads UNKNOWN after 2s, 4s, 8s, then every 16s,
+// for at most 60s in total.
+func queueMergeablePoll() mergeablePoll {
+	return mergeablePoll{
+		first:  2 * time.Second,
+		max:    16 * time.Second,
+		budget: 60 * time.Second,
+		now:    mergeableNow,
+		sleep:  mergeableSleep,
+	}
+}
+
 func queueUsage() string {
 	return "queue <owner/repo#n|url|number>"
 }
@@ -161,20 +183,54 @@ func prepareQueue(client queueAPI, cfg *config.Config, ref string) (github.Queue
 }
 
 // queuePreflight runs every gate that queue and queue -dry-run share, on the
-// same loaded data, before either branches on dryRun.
-func queuePreflight(pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string) error {
+// same loaded data, before either branches on dryRun. pending is true when
+// --when-green should keep waiting because mergeable is still UNKNOWN.
+func queuePreflight(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string) (pending bool, err error) {
 	if !jsonOutput {
 		fmt.Println(gateLine(pr, cfg.Settings))
 	}
-	if len(problems) > 0 {
-		return refuseWithProblems(pr, cfg, above, problems)
+	state, err := queueMergeable(client, pr, len(problems) == 0)
+	if err != nil {
+		return false, err
 	}
-	return refuseRCA(pr, cfg.Settings)
+	switch {
+	case state == "CONFLICTING":
+		problems = append(problems, mergeConflictProblem)
+	case state == "UNKNOWN" && len(problems) == 0 && !whenGreen:
+		problems = append(problems, mergeableUnknownProblem)
+	}
+	if len(problems) > 0 {
+		return false, refuseWithProblems(pr, cfg, above, problems)
+	}
+	if err := refuseRCA(pr, cfg.Settings); err != nil {
+		return false, err
+	}
+	return state == "UNKNOWN", nil
+}
+
+// queueMergeable re-reads an UNKNOWN mergeable state with backoff. It does
+// not wait when wait is false, since other problems already refuse.
+func queueMergeable(client queueAPI, pr github.QueuePullRequest, wait bool) (string, error) {
+	if !wait {
+		return pr.Mergeable, nil
+	}
+	refresh := func(ref string) (string, error) {
+		next, err := client.LoadPullRequest(ref)
+		if err != nil {
+			return "", fmt.Errorf("load pull request %s: %w", ref, err)
+		}
+		return next.Mergeable, nil
+	}
+	return resolveMergeable(pr.Mergeable, pr.Ref.Raw, refresh, queueMergeablePoll())
 }
 
 func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
-	if err := queuePreflight(pr, cfg, above, problems); err != nil {
+	pending, err := queuePreflight(client, pr, cfg, above, problems)
+	if err != nil {
 		return err
+	}
+	if pending {
+		return waitUntilGreen(client, pr, cfg, above, []string{"mergeable state is UNKNOWN"}, includeDownstack)
 	}
 	lines := readyLines(pr, cfg.Settings)
 	if dryRun {
@@ -193,9 +249,15 @@ func finishQueue(client queueAPI, pr github.QueuePullRequest, cfg *config.Config
 
 func waitForPendingChecks(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
 	// problems are only pending required checks here; the wait handles them.
-	if err := queuePreflight(pr, cfg, above, nil); err != nil {
+	if _, err := queuePreflight(client, pr, cfg, above, nil); err != nil {
 		return err
 	}
+	return waitUntilGreen(client, pr, cfg, above, problems, includeDownstack)
+}
+
+// waitUntilGreen polls until the pending problems clear, or reports that a
+// dry run would wait.
+func waitUntilGreen(client queueAPI, pr github.QueuePullRequest, cfg *config.Config, above []int, problems []string, includeDownstack bool) error {
 	if dryRun {
 		return writeQueueResult(pr, cfg, problems, above, "would-wait", fmt.Sprintf("Would wait for %s.\n", pr.Ref.Raw))
 	}
@@ -290,11 +352,17 @@ func classifyReload(client queueAPI, cfg *config.Config, pr github.QueuePullRequ
 	if pr.UnresolvedThreads > 0 {
 		return waitAbort, "unresolved review thread", nil, nil
 	}
+	if pr.Mergeable == "CONFLICTING" {
+		return waitAbort, mergeConflictProblem, nil, nil
+	}
 	above, baseProblem, err := reportStackedAbove(client, pr)
 	if err != nil {
 		return 0, "", nil, err
 	}
 	problems := queueProblems(pr, cfg, baseProblem)
+	if len(problems) == 0 && pr.Mergeable == "UNKNOWN" {
+		return waitPoll, "", above, nil
+	}
 	if len(problems) == 0 {
 		return waitEnqueue, "", above, nil
 	}

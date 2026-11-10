@@ -45,10 +45,12 @@ type QueueEvent struct {
 
 // QueuePullRequest is the pull request state gh-merge queue and watch need.
 type QueuePullRequest struct {
-	Ref               PullRef
-	NodeID            string
-	Draft             bool
-	ReviewDecision    string
+	Ref            PullRef
+	NodeID         string
+	Draft          bool
+	ReviewDecision string
+	// Mergeable is MERGEABLE, CONFLICTING, or UNKNOWN while GitHub computes it.
+	Mergeable         string
 	Labels            []string
 	HeadSHA           string
 	Checks            []QueueCheck
@@ -150,6 +152,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       id
       isDraft
       reviewDecision
+      mergeable
       state
       merged
       isInMergeQueue
@@ -464,6 +467,7 @@ type queuePRJSON struct {
 	ID             string `json:"id"`
 	IsDraft        bool   `json:"isDraft"`
 	ReviewDecision string `json:"reviewDecision"`
+	Mergeable      string `json:"mergeable"`
 	State          string `json:"state"`
 	Merged         bool   `json:"merged"`
 	IsInMergeQueue bool   `json:"isInMergeQueue"`
@@ -550,6 +554,7 @@ func convertQueuePR(raw *queuePRJSON, ref PullRef) QueuePullRequest {
 		NodeID:         raw.ID,
 		Draft:          raw.IsDraft,
 		ReviewDecision: raw.ReviewDecision,
+		Mergeable:      raw.Mergeable,
 		HeadSHA:        raw.HeadRefOid,
 		BaseRefName:    raw.BaseRefName,
 		HeadRefName:    raw.HeadRefName,
