@@ -178,6 +178,7 @@ Environment variables are not expanded.
 | ~gate_build_tools~ | ~bazel,bazelisk,make,go,cargo,gradle,npm,pnpm~ | Comma-separated build-tool client names for ~build-tool~. A name matches the whole process name or ~argv[0]~ base (a glob with ~*~, ~?~, or ~[~ also works); it is not a substring, so ~go~ does not match ~gopls~. Empty turns the signal off. |
 | ~gate_build_tool_ignore~ | ~*--workspace_directory=*,*A-server.jar*,*--server*~ | Patterns, matched like ~gate_ignore_procs~, for build processes that never count: long-lived build servers that keep the workspace path in ~argv~ while idle. |
 | ~gate_pending_question~ | ~decide~ | ~decide~ holds a tab while a decide item for its pane is answered but not done, or was opened since the round started; ~off~ turns that off. A ~blocked~ tab holds the gate by its status whatever this is set to, unless ~concurrency_ignore_blocked~ is ~true~. |
+| ~gate_lease~ | ~auto~ | ~auto~ reads the agentbus workdir lease of a guarded dispatch checkout, and falls back to the tab signals when ~agentbus~ is missing or the hub is unreachable; ~required~ holds the gate instead when the lease cannot be read; ~off~ never asks agentbus. See [[*Workdir lease][Workdir lease]]. |
 | ~gate_exempt_panes~ | empty | Comma-separated pane-id globs (~w3:p2~) the gate never waits on. |
 | ~gate_exempt_tabs~ | empty | Comma-separated tab-label globs (~pm*,merger~) the gate never waits on: coordinator tabs that never touch the checkout. |
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for ~herdr agent prompt --wait~ (and leftover ~herdr agent wait~). Still ~working~/~blocked~ → ~dispatched_timeout~ (exit 4). |
@@ -250,6 +251,13 @@ herdr reports ~idle~ (can take ~30 minutes if the agent settles to
 
 ~prsync gate~ is the same busy-set check without debounce — a snapshot,
 not the wait ~dispatch --go~ uses.
+
+prsync claims nothing; the dispatched agent claims. For a checkout
+guarded by an agentbus workdir lease (see [[*Workdir lease][Workdir
+lease]]), the gate only reads the lease, and after a successful
+dispatch prsync does not run ~agentbus lease claim~. The agent it
+prompted claims the lease before it changes the checkout, and releases
+it when done.
 
 ** Other herdr machines
 
@@ -811,6 +819,55 @@ check that a pattern works:
   {"pane": "w3:p2", "pid": 4242, "command": "/bin/sh -c \"claude-hud --x\"", "pattern": "claude-hud"}
 ]
 #+END_SRC
+
+*** Workdir lease
+
+When the dispatch checkout is guarded by an agentbus workdir lease
+(listed in agentbus ~lease_checkouts~), the lease, not the tabs,
+decides who may change it. The gate first asks ~agentbus lease status
+--guarded --json --path <checkout>~, which answers from the local
+agentbus config without contacting the daemon or hub, once per ~gate~
+check or ~dispatch --go~ wait. An unguarded checkout makes no lease
+call, and the tab signals above apply as before.
+
+For a guarded checkout the gate reads ~agentbus lease status --path
+<checkout> --json~ on each sample. The checkout holds the gate with
+signal ~lease~ unless the state is ~free~, and the tab signals
+(~working~, ~blocked~, ~background-job~, ~build-tool~,
+~pending-question~, and the remote-tab holds) are not checked. The
+~detail~ names the holder and the bid's end, in local time:
+
+| state | ~detail~ |
+|-------+----------|
+| ~held~ | ~held by pm/foo until 14:20~ (the holder's name, else its handle) |
+| ~paused~ | ~paused by user~ |
+| ~needs-adopt~ | ~needs-adopt by pm/foo~ |
+| ~releasing~ | ~releasing by pm/foo~ |
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "pane_id": "",
+      "tab_id": "",
+      "agent_status": "",
+      "checkout": "/src/repo",
+      "signal": "lease",
+      "detail": "held by pm/foo until 14:20"
+    }
+  ]
+}
+#+END_SRC
+
+The dirty-tree check still applies. When ~agentbus~ is not installed,
+or ~lease status~ fails (the hub is unreachable, say), ~gate_lease=auto~
+falls back to the tab signals and lists ~lease~ under
+~signal_unavailable~ with the ~checkout~ and the error, logged once as
+~gate_lease_unavailable~. With ~gate_lease=required~ the checkout
+holds the gate instead, with ~detail~ ~cannot read the lease: <error>~,
+and the tab signals are checked too. ~gate_lease=off~ never runs
+agentbus.
 
 *** Process patterns
 

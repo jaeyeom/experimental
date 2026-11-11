@@ -81,6 +81,11 @@
 # gate_build_tool_ignore=*--workspace_directory=*,*A-server.jar*,*--server*
 # gate_pending_question=decide
 #
+# The agentbus workdir lease of a guarded dispatch checkout: auto
+# (default) falls back to the tab signals when agentbus cannot be read,
+# required holds the gate instead, off never asks agentbus.
+# gate_lease=auto
+#
 # Tabs the gate never waits on, for coordinator tabs that never touch
 # the checkout: pane-id globs and tab-label globs, comma-separated.
 # build-tool still holds the checkout for a build they start in it.

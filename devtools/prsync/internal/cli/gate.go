@@ -27,6 +27,15 @@ agent at least gate_job_min_age old) or a pending decide question (an
 item for its pane answered but not done, or opened since the round
 started).
 
+A guarded checkout (one in agentbus lease_checkouts, asked locally
+with agentbus lease status --guarded) is decided by its workdir lease
+instead: the gate reads agentbus lease status --path <checkout> --json
+and holds (signal "lease") unless the state is free, with a detail
+such as "held by pm/foo until 14:20", "paused by user", or
+"needs-adopt by pm/foo". The tab signals then do not apply. An
+unguarded checkout makes no lease call. prsync claims nothing; the
+dispatched agent claims.
+
 With machines set, agents on each machine in the tab_machine scope are
 read through herdr --machine. An unreachable machine (signal
 "machine-unreachable") or a remote tab whose signals cannot be read
@@ -52,6 +61,13 @@ Config keys for the gate:
   gate_build_tool_ignore  Patterns, matched like gate_ignore_procs, for
                           build processes that never count.
   gate_pending_question   decide (default) or off.
+  gate_lease              auto (default), off, or required. auto reads
+                          the lease of a guarded checkout and, when
+                          agentbus is missing or the hub is
+                          unreachable, falls back to the tab signals
+                          and lists "lease" under signal_unavailable.
+                          required holds the gate instead. off never
+                          asks agentbus.
   gate_exempt_panes       Pane-id globs the gate never waits on.
   gate_exempt_tabs        Tab-label globs the gate never waits on, e.g.
                           pm*,merger. Listed under "exempt".
@@ -94,8 +110,8 @@ func runGate(ctx context.Context, stdout io.Writer, exec executor.Executor, conf
 }
 
 // gateProbes is what the gate reads beyond herdr agent status: the
-// tab's process tree, the local process table, the decide ledger, and
-// the tab labels for gate_exempt_tabs.
+// tab's process tree, the local process table, the decide ledger, the
+// tab labels for gate_exempt_tabs, and the agentbus lease.
 // Tests replace it so they never read real processes.
 var gateProbes = func(exec executor.Executor, h *herdr.Client) dispatch.Probes {
 	return dispatch.Probes{
@@ -103,6 +119,7 @@ var gateProbes = func(exec executor.Executor, h *herdr.Client) dispatch.Probes {
 		Procs:  dispatch.NewProcessTable(exec),
 		Decide: dispatch.DecideCLI{Exec: exec, Bin: "decide"},
 		Tabs:   h,
+		Lease:  dispatch.AgentbusLease{Exec: exec, Bin: "agentbus"},
 		Self:   os.Getpid(),
 	}
 }

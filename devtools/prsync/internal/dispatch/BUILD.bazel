@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "dispatch.go",
         "gate.go",
+        "lease.go",
         "probes.go",
         "prompt.go",
         "signals.go",
@@ -34,6 +35,7 @@ go_test(
         "gate_idle_test.go",
         "gate_scope_test.go",
         "gate_test.go",
+        "lease_test.go",
         "log_test.go",
         "machines_test.go",
         "probes_test.go",

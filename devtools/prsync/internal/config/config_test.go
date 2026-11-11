@@ -493,7 +493,7 @@ func TestLoadEmptyCICheckGlobs(t *testing.T) {
 
 func TestLoadGateSignals(t *testing.T) {
 	def := Defaults()
-	if def.GatePendingQuestion != "decide" || !slices.Contains(def.GateBuildTools, "bazel") ||
+	if def.GatePendingQuestion != "decide" || def.GateLease != "auto" || !slices.Contains(def.GateBuildTools, "bazel") ||
 		!slices.Contains(def.GateBuildToolIgnore, "*--workspace_directory=*") || !slices.Contains(def.GateIgnoreProcs, "*mcp-server*") {
 		t.Fatalf("defaults = %q %#v %#v %#v", def.GatePendingQuestion, def.GateBuildTools, def.GateBuildToolIgnore, def.GateIgnoreProcs)
 	}
@@ -504,6 +504,7 @@ func TestLoadGateSignals(t *testing.T) {
 		"gate_build_tools=bazel,make",
 		"gate_build_tool_ignore=",
 		"gate_pending_question=off",
+		"gate_lease=required",
 	}, "\n")+"\n")
 	got, err := Load(path)
 	if err != nil {
@@ -515,7 +516,7 @@ func TestLoadGateSignals(t *testing.T) {
 	if want := []string{"bazel", "make"}; !slices.Equal(got.GateBuildTools, want) {
 		t.Fatalf("GateBuildTools = %#v, want %#v", got.GateBuildTools, want)
 	}
-	if len(got.GateBuildToolIgnore) != 0 || got.GatePendingQuestion != "off" {
+	if len(got.GateBuildToolIgnore) != 0 || got.GatePendingQuestion != "off" || got.GateLease != "required" {
 		t.Fatalf("ignore = %#v pending = %q, want empty and off", got.GateBuildToolIgnore, got.GatePendingQuestion)
 	}
 }
@@ -684,6 +685,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "empty jira", body: "jira_bin=\n", key: "jira_bin"},
 		{name: "bad enum", body: "concurrency_wait_on=sometimes\n", key: "concurrency_wait_on"},
 		{name: "bad pending question", body: "gate_pending_question=maybe\n", key: "gate_pending_question"},
+		{name: "bad gate lease", body: "gate_lease=maybe\n", key: "gate_lease"},
 		{name: "bad ignore glob", body: "gate_ignore_procs=[mcp\n", key: "gate_ignore_procs"},
 		{name: "bad job age", body: "gate_job_min_age=soon\n", key: "gate_job_min_age"},
 		{name: "negative job age", body: "gate_job_min_age=-1s\n", key: "gate_job_min_age"},

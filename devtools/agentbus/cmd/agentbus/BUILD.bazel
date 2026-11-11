@@ -76,6 +76,7 @@ go_test(
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
         "//devtools/agentbus/internal/checkout:go_default_library",
         "//devtools/agentbus/internal/client:go_default_library",
+        "//devtools/agentbus/internal/config:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",

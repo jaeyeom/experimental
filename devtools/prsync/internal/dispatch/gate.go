@@ -204,6 +204,7 @@ type gatePolicy struct {
 	buildTools      []string
 	buildToolIgnore []string
 	pendingQuestion string
+	leaseMode       string
 	exemptPanes     []string
 	exemptTabs      []string
 	// machines are the other herdr machines whose tabs are waited on.
@@ -229,6 +230,7 @@ func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]str
 		buildTools:      cfg.GateBuildTools,
 		buildToolIgnore: cfg.GateBuildToolIgnore,
 		pendingQuestion: cfg.GatePendingQuestion,
+		leaseMode:       cfg.GateLease,
 		machines:        gateMachines(cfg, matched),
 	}
 }
@@ -264,9 +266,23 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Re
 		return Result{}, fmt.Errorf("agent list: %w", err)
 	}
 	probes := &snapshotProbes{Probes: probesFrom(ctx), run: run, jobs: make(map[string]struct{})}
-	remote, down := remoteAgents(ctx, policy.machines, probes)
-	busy, exempt, unavailable := busySet(ctx, append(agents, remote...), policy, probes)
-	busy = append(busy, down...)
+	lease := probes.lease(ctx, policy)
+	busy := make([]Busy, 0)
+	var exempt []Exempt
+	var unavailable []Unavailable
+	if !lease.read {
+		// A guarded checkout's lease decides alone; the tab signals
+		// apply to the rest, and when the lease cannot be read.
+		remote, down := remoteAgents(ctx, policy.machines, probes)
+		busy, exempt, unavailable = busySet(ctx, append(agents, remote...), policy, probes)
+		busy = append(busy, down...)
+	}
+	if lease.hold != nil {
+		busy = append(busy, *lease.hold)
+	}
+	if lease.unavailable != nil {
+		unavailable = append(unavailable, *lease.unavailable)
+	}
 	run.prevJobs = probes.jobs
 	res := Result{Safe: len(busy) == 0, Busy: busy, SignalUnavailable: unavailable, Ignored: probes.ignored, Exempt: exempt}
 	if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {

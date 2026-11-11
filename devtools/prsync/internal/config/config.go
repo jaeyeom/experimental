@@ -205,6 +205,10 @@ type Config struct {
 	// decide item for its pane is answered but not done, or was opened
 	// since the round started.
 	GatePendingQuestion string
+	// GateLease is auto, off, or required. auto and required read the
+	// agentbus workdir lease for a guarded checkout; required also
+	// holds the gate when the lease cannot be read.
+	GateLease string
 	// GateExemptPanes are pane-id globs, and GateExemptTabs tab-label
 	// globs, that the gate never waits on.
 	GateExemptPanes []string
@@ -265,6 +269,7 @@ func Defaults() Config {
 		GateBuildTools:           []string{"bazel", "bazelisk", "make", "go", "cargo", "gradle", "npm", "pnpm"},
 		GateBuildToolIgnore:      []string{"*--workspace_directory=*", "*A-server.jar*", "*--server*"},
 		GatePendingQuestion:      "decide",
+		GateLease:                "auto",
 		GateJobMinAge:            10 * time.Second,
 	}
 }
@@ -365,6 +370,9 @@ func validateConcurrency(c Config) error {
 	if c.GatePendingQuestion != "decide" && c.GatePendingQuestion != "off" {
 		return &KeyError{Key: "gate_pending_question", Reason: fmt.Sprintf("invalid value %q", c.GatePendingQuestion)}
 	}
+	if c.GateLease != "auto" && c.GateLease != "off" && c.GateLease != "required" {
+		return &KeyError{Key: "gate_lease", Reason: fmt.Sprintf("invalid value %q", c.GateLease)}
+	}
 	return nil
 }
 
@@ -372,6 +380,9 @@ func applyGateSignal(cfg *Config, key, val string) error {
 	switch key {
 	case "gate_pending_question":
 		cfg.GatePendingQuestion = strings.TrimSpace(val)
+		return nil
+	case "gate_lease":
+		cfg.GateLease = strings.TrimSpace(val)
 		return nil
 	case "gate_job_min_age":
 		d, err := time.ParseDuration(strings.TrimSpace(val))
@@ -533,7 +544,7 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "ci_ignore_checks", "ci_only_checks":
 		return applyCheckGlobs(cfg, key, val)
 	case "gate_ignore_procs", "gate_build_tools", "gate_build_tool_ignore", "gate_pending_question",
-		"gate_job_min_age", "gate_exempt_panes", "gate_exempt_tabs":
+		"gate_lease", "gate_job_min_age", "gate_exempt_panes", "gate_exempt_tabs":
 		return applyGateSignal(cfg, key, val)
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
