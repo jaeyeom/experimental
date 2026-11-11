@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
@@ -39,10 +40,12 @@ Config keys for the gate:
                           A plain pattern matches as a substring; one with
                           *, ?, or [...] is a glob (* matches /).
                           Whitespace around entries is trimmed, so a
-                          pattern cannot contain a comma. Example:
-                            gate_ignore_procs = claude-hud, statusline
-                          Each skipped child is listed under "ignored"
-                          with the pattern that matched.
+                          pattern cannot contain a comma. Each skipped
+                          child is listed under "ignored" with the
+                          pattern that matched. Setting the key replaces
+                          the defaults; to add a pattern, copy this
+                          default line and append it:
+                            gate_ignore_procs = %s
   gate_job_min_age        Minimum child age for a background job (10s).
   gate_build_tools        Build-tool names, matched as the whole process
                           name or argv[0] base (or as globs).
@@ -61,7 +64,7 @@ func newGateCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gate",
 		Short: "Check whether it is safe to start another agent",
-		Long:  gateLong,
+		Long:  fmt.Sprintf(gateLong, strings.Join(config.Defaults().GateIgnoreProcs, ",")),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runGate(cmd.Context(), stdout, exec, configPath)
