@@ -6,7 +6,7 @@
 # push rights to the forks; the reviewing agent runs without them. Enable it
 # with:
 #
-#   ansible-playbook setup-fork-keeper.yml -e fork_keeper_cron_enabled=true
+#   ansible-playbook -i inventory.ini setup-fork-keeper.yml -e fork_keeper_cron_enabled=true
 #
 # With the default (false) the playbook removes the cron entry and installs
 # nothing else.

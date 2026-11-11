@@ -111,7 +111,7 @@ cd devtools/setup-dev/ansible
 Or run the Emacs package playbook directly:
 
 ```bash
-ansible-playbook setup-org-lint-emacs.yml
+ansible-playbook -i inventory.ini setup-org-lint-emacs.yml
 ```
 
 ## CI Integration
