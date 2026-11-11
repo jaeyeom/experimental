@@ -123,7 +123,8 @@ type Config struct {
 	JiraBin           string
 	ConcurrencyWaitOn string
 	// ConcurrencyIgnoreBlocked is true when a blocked agent does not hold
-	// the gate. False keeps the older behavior: blocked holds the gate.
+	// the gate by its status. The default, false, holds the gate for a
+	// blocked agent.
 	ConcurrencyIgnoreBlocked bool
 	// ConcurrencyCwd is any or checkout. any does not look at directories.
 	ConcurrencyCwd string
@@ -242,7 +243,7 @@ func Defaults() Config {
 		GHBin:                    "gh",
 		JiraBin:                  "jira",
 		ConcurrencyWaitOn:        "any",
-		ConcurrencyIgnoreBlocked: true,
+		ConcurrencyIgnoreBlocked: false,
 		ConcurrencyCwd:           "any",
 		GatePoll:                 2000 * time.Millisecond,
 		GateTimeout:              1800000 * time.Millisecond,

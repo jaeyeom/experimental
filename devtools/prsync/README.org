@@ -168,8 +168,8 @@ Environment variables are not expanded.
 | ~skip_jobs~ | empty | Comma-separated machine-wide jobs this run skips. The only job is ~team-cover~. An unknown job is a config error. ~--skip~ overrides it. |
 | ~gh_bin~ | ~gh~ | gh executable. |
 | ~jira_bin~ | ~jira~ | jira executable. Used only for ~jira issue view~ after a live close. |
-| ~concurrency_wait_on~ | ~any~ | ~any~ = every working agent; ~managed~ = working agents on tabs matched in this scan (~managed~ runs a scan). A ~blocked~ agent does not hold the gate. |
-| ~concurrency_ignore_blocked~ | ~true~ | When ~false~, a ~blocked~ agent holds the gate. |
+| ~concurrency_wait_on~ | ~any~ | ~any~ = every ~working~ or ~blocked~ agent; ~managed~ = those on tabs matched in this scan (~managed~ runs a scan). |
+| ~concurrency_ignore_blocked~ | ~false~ | When ~true~, a ~blocked~ status alone does not hold the gate. By default a ~blocked~ agent holds it, with signal ~blocked~ and detail ~blocked awaiting input~. |
 | ~concurrency_cwd~ | ~any~ | ~any~ does not look at directories. ~checkout~ counts an agent only when its ~cwd~ or ~foreground_cwd~ is inside the checkout of the repo being dispatched. The runner pane stays excluded. |
 | ~gate_poll_ms~ | ~2000~ | Poll interval for the concurrency gate and post-send settle. |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4). |
@@ -177,7 +177,7 @@ Environment variables are not expanded.
 | ~gate_job_min_age~ | ~10s~ | A child younger than this (a Go duration such as ~30s~ or ~2m~) is not a ~background-job~. |
 | ~gate_build_tools~ | ~bazel,bazelisk,make,go,cargo,gradle,npm,pnpm~ | Comma-separated build-tool client names for ~build-tool~. A name matches the whole process name or ~argv[0]~ base (a glob with ~*~, ~?~, or ~[~ also works); it is not a substring, so ~go~ does not match ~gopls~. Empty turns the signal off. |
 | ~gate_build_tool_ignore~ | ~*--workspace_directory=*,*A-server.jar*,*--server*~ | Patterns, matched like ~gate_ignore_procs~, for build processes that never count: long-lived build servers that keep the workspace path in ~argv~ while idle. |
-| ~gate_pending_question~ | ~decide~ | ~decide~ holds a tab while a decide item for its pane is answered but not done, or was opened since the round started; ~off~ turns that off. A ~blocked~ status is still governed by ~concurrency_ignore_blocked~. |
+| ~gate_pending_question~ | ~decide~ | ~decide~ holds a tab while a decide item for its pane is answered but not done, or was opened since the round started; ~off~ turns that off. A ~blocked~ tab holds the gate by its status whatever this is set to, unless ~concurrency_ignore_blocked~ is ~true~. |
 | ~gate_exempt_panes~ | empty | Comma-separated pane-id globs (~w3:p2~) the gate never waits on. |
 | ~gate_exempt_tabs~ | empty | Comma-separated tab-label globs (~pm*,merger~) the gate never waits on: coordinator tabs that never touch the checkout. |
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for ~herdr agent prompt --wait~ (and leftover ~herdr agent wait~). Still ~working~/~blocked~ → ~dispatched_timeout~ (exit 4). |
@@ -216,8 +216,8 @@ commented in [[file:prsync.config.example][prsync.config.example]].
 1. *Gate* — wait until no waited-on agent is ~working~ and no
    [[*Busy signals][busy signal]] holds (a background job, a build in
    the checkout, or an open decide question). A ~blocked~
-   agent does not hold the gate unless ~concurrency_ignore_blocked~ is
-   ~false~. A single idle sample is not enough (startup / mid-run flap
+   agent holds the gate too, unless ~concurrency_ignore_blocked~ is
+   ~true~. A single idle sample is not enough (startup / mid-run flap
    still counts as busy). When a ~blocked~ tab does hold the gate,
    stderr names it, e.g. ~waiting on w2:tC — blocked awaiting your
    input~. If it still holds at ~gate_timeout_ms~, the current PR is
@@ -722,8 +722,9 @@ Safe:
 }
 #+END_SRC
 
-Unsafe (exit 1) when a working agent is in the busy set. A blocked
-agent is in that set only when ~concurrency_ignore_blocked~ is ~false~.
+Unsafe (exit 1) when a working or blocked agent is in the busy set. A
+blocked agent is left out only when ~concurrency_ignore_blocked~ is
+~true~; exempt tabs are left out even when blocked.
 ~agent_status~ distinguishes ~working~ (making progress) from ~blocked~
 (awaiting human input):
 
@@ -735,7 +736,8 @@ agent is in that set only when ~concurrency_ignore_blocked~ is ~false~.
       "pane_id": "w2:pC",
       "tab_id": "w2:tC",
       "agent_status": "blocked",
-      "signal": "blocked"
+      "signal": "blocked",
+      "detail": "blocked awaiting input"
     }
   ]
 }
@@ -745,6 +747,12 @@ Each busy entry has ~signal~, the reason it holds the gate (see
 [[*Busy signals][Busy signals]]), and ~detail~ for the signals below.
 
 *** Busy signals
+
+A waited-on tab whose herdr status is ~working~ holds the gate with
+signal ~working~. One that is ~blocked~ holds it with signal ~blocked~
+and ~detail~ ~blocked awaiting input~, whether or not it has a decide
+item and whether or not ~decide~ is installed, unless
+~concurrency_ignore_blocked~ is ~true~.
 
 herdr reports some agents ~idle~ or ~done~ while work keeps running
 for them. The gate also holds a waited-on tab, whatever its status,
@@ -771,7 +779,7 @@ for the first of these that is true:
 
 A tab whose pane id matches ~gate_exempt_panes~, or whose label
 matches ~gate_exempt_tabs~, is skipped by every tab signal, including
-~working~, the same way as the runner pane. It is listed under
+~working~ and ~blocked~, the same way as the runner pane. It is listed under
 ~exempt~ with the rule that matched:
 
 #+BEGIN_SRC json

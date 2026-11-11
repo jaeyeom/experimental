@@ -42,17 +42,17 @@
 # gh-nudge next to the watcher that does not skip.
 # skip_jobs=team-cover
 
-# Gate busy-set: any (every working agent) | managed (only working
-# agents on tabs matched to PRs in the current scan; managed runs a scan).
-# A blocked agent does not hold the gate unless concurrency_ignore_blocked
-# is false. concurrency_cwd=checkout counts an agent only when its cwd
+# Gate busy-set: any (every working or blocked agent) | managed (only
+# those on tabs matched to PRs in the current scan; managed runs a scan).
+# A blocked agent holds the gate unless concurrency_ignore_blocked is
+# true. concurrency_cwd=checkout counts an agent only when its cwd
 # or foreground_cwd is inside the checkout of the repo being dispatched.
 # The default any does not look at directories. The runner pane stays
 # excluded. Live dispatch Wait requires the empty busy set to hold for
 # several consecutive polls; a single idle sample during startup or
 # mid-run flap is still busy. `prsync gate` stays one-shot.
 # concurrency_wait_on=any
-# concurrency_ignore_blocked=true
+# concurrency_ignore_blocked=false
 # concurrency_cwd=any
 
 # An idle or done tab still holds the gate when its agent has a child

@@ -332,3 +332,58 @@ func TestWaitTenTabsWithStatusLineChildrenAreFree(t *testing.T) {
 		t.Fatalf("result = %+v after %d polls, want safe after the debounce", got, h.n)
 	}
 }
+
+// TestBlockedTabWithParkedItemHoldsGate is the #621 regression: a
+// blocked tab holds the gate even when its only decide item predates
+// the round, which pending-question no longer counts.
+func TestBlockedTabWithParkedItemHoldsGate(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	item := DecideItem{ID: "D-17", State: "open", NotifyPane: "w3:p2", CreatedAt: start.Add(-time.Hour)}
+	got := gateAt(t, start, Probes{Decide: &fakeDecide{lists: [][]DecideItem{{item}}}}, blockedAgent("w3:p2", "w3:t2"))
+	if got.Safe || len(got.Busy) != 1 {
+		t.Fatalf("result = %+v, want the blocked tab busy", got)
+	}
+	if b := got.Busy[0]; b.Signal != SignalBlocked || b.Detail != "blocked awaiting input" || b.TabID != "w3:t2" {
+		t.Fatalf("busy = %+v, want signal blocked with detail blocked awaiting input", b)
+	}
+}
+
+func TestBlockedTabHoldsGateWithoutDecide(t *testing.T) {
+	t.Parallel()
+
+	for name, decide := range map[string]DecideSource{
+		"no items":        &fakeDecide{},
+		"decide missing":  &fakeDecide{err: ErrDecideMissing},
+		"no decide probe": nil,
+	} {
+		got := gateWith(t, Probes{Decide: decide}, signalCfg(""), blockedAgent("w3:p2", "w3:t2"))
+		if got.Safe || len(got.Busy) != 1 || got.Busy[0].Signal != SignalBlocked {
+			t.Fatalf("%s: result = %+v, want the blocked tab busy", name, got)
+		}
+	}
+}
+
+func TestBlockedExemptTabIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	cfg := signalCfg("")
+	cfg.GateExemptTabs = []string{"pm*"}
+	p := Probes{Tabs: fakeTabs{{TabID: "w3:t2", Label: "pm"}}}
+	got := gateWith(t, p, cfg, blockedAgent("w3:p2", "w3:t2"))
+	if !got.Safe || len(got.Exempt) != 1 || got.Exempt[0].TabID != "w3:t2" {
+		t.Fatalf("result = %+v, want the blocked pm tab exempt", got)
+	}
+}
+
+func TestBlockedIgnoredWhenOptedOut(t *testing.T) {
+	t.Parallel()
+
+	cfg := signalCfg("")
+	cfg.ConcurrencyIgnoreBlocked = true
+	got := gateWith(t, Probes{}, cfg, blockedAgent("w3:p2", "w3:t2"))
+	if !got.Safe {
+		t.Fatalf("result = %+v, want a blocked tab not held by status with concurrency_ignore_blocked=true", got)
+	}
+}
