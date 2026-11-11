@@ -7,8 +7,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/client"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
@@ -16,9 +18,10 @@ import (
 const tunnelProbeTimeout = 2 * time.Second
 
 // tunnelCommands are the commands that only talk to the daemon, so in
-// hub mode they can run here against the forwarded hub socket. log reads
-// the hub's event log file and still runs over ssh.
+// hub mode they can run here against the forwarded hub socket. log
+// streams the hub's event log through the daemon.
 var tunnelCommands = map[string]bool{
+	"log":         true,
 	"register":    true,
 	"describe":    true,
 	"whoami":      true,
@@ -60,6 +63,9 @@ func tunnelFrom(ctx context.Context) (tunnel, bool) {
 // runHubMode runs cmd here against the hub's daemon over the tunnel when
 // it can, and otherwise runs the whole command on the hub over ssh.
 func runHubMode(ctx context.Context, cfg config.Config, cmd command, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "install" {
+		return cmdInstallTunnel(ctx, cfg, args[1:], env, stdout, stderr)
+	}
 	if len(args) > 0 {
 		if tunnelled, ok := openTunnel(ctx, cfg, args[0], env, stderr); ok {
 			return cmd.run(tunnelled, args[1:], env, stdin, stdout, stderr)
@@ -118,4 +124,26 @@ func dialBus(ctx context.Context, env []string, req daemon.Request) (daemon.Resp
 		return daemon.Response{}, fmt.Errorf("locate the daemon: %w", err)
 	}
 	return dialDaemon(ctx, dirs.SocketPath, req)
+}
+
+// streamLog prints the hub's event log lines that match filter, and with
+// follow keeps printing new ones until ctx ends.
+func (t tunnel) streamLog(ctx context.Context, filter eventlog.Filter, follow bool, emit func(string) error) error {
+	req := daemon.Request{
+		Op:     "log",
+		Name:   filter.Name,
+		MsgID:  filter.MsgID,
+		Event:  filter.Event,
+		Follow: follow,
+	}
+	if !filter.Since.IsZero() {
+		req.Since = filter.Since.Format(time.RFC3339Nano)
+	}
+	err := client.Stream(ctx, t.socket, t.stamp(req), func(resp daemon.Response) error {
+		return emit(resp.Text)
+	})
+	if err != nil {
+		return fmt.Errorf("hub log: %w", err)
+	}
+	return nil
 }

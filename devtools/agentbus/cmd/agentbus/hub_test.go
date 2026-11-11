@@ -203,17 +203,6 @@ func TestHubHooksExitZeroWhenUnreachable(t *testing.T) {
 	}
 }
 
-func TestHubInstallRefuses(t *testing.T) {
-	h := startHub(t, `hub = "me@hub"`)
-	code, _, stderr := h.run(t, "", "install")
-	if code == 0 || !strings.Contains(stderr, "the daemon runs on the hub me@hub") {
-		t.Fatalf("install = %d, stderr %q", code, stderr)
-	}
-	if h.ssh.Read("argv") != "" {
-		t.Fatal("install ran ssh")
-	}
-}
-
 func TestHubHelpStaysLocal(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`)
 	if code, stdout, _ := h.run(t, "", "send", "--help"); code != 0 || !strings.Contains(stdout, "agentbus send") {

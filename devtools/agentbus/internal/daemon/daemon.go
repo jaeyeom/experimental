@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -41,7 +43,8 @@ type Config struct {
 
 // ProtocolVersion is the request format a hub-socket client must speak.
 // A client on another machine may run a different agentbus build.
-const ProtocolVersion = 1
+// Version 2 added the streaming log op.
+const ProtocolVersion = 2
 
 // Request is one client call. The daemon stamps identity from Env, or,
 // on the hub socket, from Handle.
@@ -61,6 +64,12 @@ type Request struct {
 	// Handle is the caller on another machine. The hub socket needs it
 	// and ignores Env.
 	Handle string `json:"handle,omitempty"`
+	// Since, MsgID, Event, and Name filter the log op. Since is RFC3339.
+	Since string `json:"since,omitempty"`
+	MsgID string `json:"msg,omitempty"`
+	Event string `json:"event,omitempty"`
+	// Follow keeps a log stream open for new events.
+	Follow bool `json:"follow,omitempty"`
 }
 
 // bypassPreview is how many bytes of a SendMessage body a bypass event keeps.
@@ -97,6 +106,8 @@ type Response struct {
 	Text   string       `json:"text,omitempty"`
 	// Protocol is the daemon's ProtocolVersion on hub-socket replies.
 	Protocol int `json:"protocol,omitempty"`
+	// End marks the last reply of a log stream that does not follow.
+	End bool `json:"end,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -161,8 +172,10 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	return srv.serve(ctx, ln, hubLn)
 }
 
-// serve handles connections on ln and, when it is not nil, hubLn, one
-// request at a time, until ctx ends.
+// serve handles connections on ln and, when it is not nil, hubLn, each
+// on its own goroutine, until ctx ends. A log stream or a send --wait
+// does not hold up other clients; the registry and mailbox lock their
+// own state. It returns after every connection is done.
 func (s *server) serve(ctx context.Context, ln, hubLn net.Listener) error {
 	conns := make(chan accepted)
 	errc := make(chan error, 2)
@@ -170,6 +183,8 @@ func (s *server) serve(ctx context.Context, ln, hubLn net.Listener) error {
 	if hubLn != nil {
 		go accept(ctx, hubLn, true, conns, errc)
 	}
+	var wg sync.WaitGroup
+	defer wg.Wait()
 	for {
 		select {
 		case <-ctx.Done():
@@ -180,7 +195,15 @@ func (s *server) serve(ctx context.Context, ln, hubLn net.Listener) error {
 			}
 			return err
 		case c := <-conns:
-			s.handle(c.conn, c.hub)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// Shutdown closes the connection, so a client that never
+				// writes a request does not keep Serve from returning.
+				stop := context.AfterFunc(ctx, func() { c.conn.Close() })
+				defer stop()
+				s.handle(c.conn, c.hub)
+			}()
 		}
 	}
 }
@@ -248,37 +271,93 @@ type server struct {
 
 func (s *server) handle(conn net.Conn, hub bool) {
 	defer conn.Close()
+	reply := func(resp Response) error {
+		if hub {
+			resp.Protocol = ProtocolVersion
+		}
+		if err := json.NewEncoder(conn).Encode(resp); err != nil {
+			return fmt.Errorf("write reply: %w", err)
+		}
+		return nil
+	}
 	var req Request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		write(conn, Response{Error: "bad request"})
+		_ = reply(Response{Error: "bad request"})
 		return
 	}
-	if !hub {
-		write(conn, s.dispatch(req, peerPID(conn)))
+	scoped := s
+	if hub {
+		var err error
+		if scoped, err = s.forwarded(req); err != nil {
+			_ = reply(Response{Error: err.Error()})
+			return
+		}
+		req.Env = nil
+	}
+	if req.Op == "log" {
+		scoped.streamLog(conn, req, reply)
 		return
 	}
-	resp := s.forwarded(req, peerPID(conn))
-	resp.Protocol = ProtocolVersion
-	write(conn, resp)
+	_ = reply(scoped.dispatch(req, peerPID(conn)))
 }
 
-// forwarded serves a request from the hub socket. The caller is the
-// request's Handle, never its Env.
-func (s *server) forwarded(req Request, pid int) Response {
+// forwarded checks a request from the hub socket and returns the server
+// scoped to its caller. The caller is the request's Handle, never its Env.
+func (s *server) forwarded(req Request) (*server, error) {
 	if req.Protocol != ProtocolVersion {
-		return Response{Error: fmt.Sprintf("hub daemon speaks protocol %d, this client speaks %d", ProtocolVersion, req.Protocol)}
+		return nil, fmt.Errorf("hub daemon speaks protocol %d, this client speaks %d", ProtocolVersion, req.Protocol)
 	}
 	if req.Handle == "" {
-		return Response{Error: "a request on the hub socket must carry the caller handle"}
+		return nil, errors.New("a request on the hub socket must carry the caller handle")
 	}
 	caller, err := s.hubCaller(req.Handle)
 	if err != nil {
-		return Response{Error: err.Error()}
+		return nil, err
 	}
-	req.Env = nil
 	scoped := *s
 	scoped.ctx = adapter.WithForwardedCaller(s.ctx, caller)
-	return scoped.dispatch(req, pid)
+	return &scoped, nil
+}
+
+// streamLog sends each matching event log line as its own reply. Without
+// Follow it ends with an End reply. With Follow it runs until the client
+// leaves or the daemon stops.
+func (s *server) streamLog(conn net.Conn, req Request, reply func(Response) error) {
+	filter := eventlog.Filter{Name: req.Name, MsgID: req.MsgID, Event: req.Event}
+	if req.Since != "" {
+		ts, err := time.Parse(time.RFC3339Nano, req.Since)
+		if err != nil {
+			_ = reply(Response{Error: fmt.Sprintf("log since %q is not an RFC3339 time", req.Since)})
+			return
+		}
+		filter.Since = ts
+	}
+	emit := func(line string) error { return reply(Response{OK: true, Text: line}) }
+	if !req.Follow {
+		lines, err := s.log.Read(filter)
+		if err != nil {
+			_ = reply(Response{Error: err.Error()})
+			return
+		}
+		for _, line := range lines {
+			if emit(line) != nil {
+				return
+			}
+		}
+		_ = reply(Response{OK: true, End: true})
+		return
+	}
+	ctx, cancel := context.WithCancel(s.ctx)
+	defer cancel()
+	// The client sends nothing after its request, so a read returns only
+	// when it leaves.
+	go func() {
+		_, _ = io.Copy(io.Discard, conn)
+		cancel()
+	}()
+	if err := s.log.Follow(ctx, filter, emit); err != nil {
+		_ = reply(Response{Error: err.Error()})
+	}
 }
 
 func (s *server) dispatch(req Request, pid int) Response {
@@ -509,10 +588,4 @@ func (s *server) release(req Request) Response {
 		return Response{Error: err.Error()}
 	}
 	return Response{OK: true, Name: req.Name, Handle: claimer}
-}
-
-func write(conn net.Conn, resp Response) {
-	if err := json.NewEncoder(conn).Encode(resp); err != nil {
-		return
-	}
 }

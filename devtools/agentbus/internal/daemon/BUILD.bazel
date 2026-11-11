@@ -27,6 +27,7 @@ go_test(
     srcs = [
         "daemon_test.go",
         "hub_test.go",
+        "stream_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

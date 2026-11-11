@@ -7,6 +7,7 @@
 //	remote_timeout = "5s"   # bound on each call to another machine
 //	hub = "me@hub"          # run every command on this ssh target
 //	machine = "linux2"      # this machine's herdr label on the hub
+//	hub_socket = "/run/user/1000/agentbus/hub.sock"  # hub.sock on the hub
 package config
 
 import (
@@ -32,6 +33,9 @@ type Config struct {
 	// Machine is this machine's herdr label as the hub knows it. Hub
 	// mode builds the caller's herdr:<machine>/<session>/<pane> from it.
 	Machine string
+	// HubSocket is the hub daemon's hub.sock path on the hub. agentbus
+	// install in hub mode forwards the local tunnel socket to it.
+	HubSocket string
 }
 
 // Path is $XDG_CONFIG_HOME/agentbus/config.toml, or
@@ -109,7 +113,7 @@ func parseLine(cfg *Config, line string) error {
 			return errors.New("remote_timeout must be a positive duration, such as \"5s\"")
 		}
 		cfg.RemoteTimeout = d
-	case "hub", "machine":
+	case "hub", "machine", "hub_socket":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
@@ -117,8 +121,27 @@ func parseLine(cfg *Config, line string) error {
 	return nil
 }
 
-// parseHubKey reads hub or machine.
+// parseHubSocket reads hub_socket, a path on the hub.
+func parseHubSocket(cfg *Config, value string) error {
+	path, err := parseName("hub_socket", value)
+	switch {
+	case err != nil:
+		return err
+	case !strings.HasPrefix(path, "/"):
+		return errors.New("hub_socket must be an absolute path on the hub")
+	case strings.Contains(path, ":"):
+		// ssh -L separates the two socket paths with a colon.
+		return errors.New("hub_socket must not contain a colon")
+	}
+	cfg.HubSocket = path
+	return nil
+}
+
+// parseHubKey reads hub, machine, or hub_socket.
 func parseHubKey(cfg *Config, key, value string) error {
+	if key == "hub_socket" {
+		return parseHubSocket(cfg, value)
+	}
 	name, err := parseName(key, value)
 	if err != nil {
 		return err

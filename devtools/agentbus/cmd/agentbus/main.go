@@ -166,14 +166,24 @@ func cmdLog(ctx context.Context, args, env []string, stdout, stderr io.Writer) i
 		}
 		filter.Since = ts
 	}
-	dir, err := paths.StateDir(env)
+	emit := logEmitter(stdout, *jsonOut)
+	var err error
+	if t, ok := tunnelFrom(ctx); ok {
+		err = t.streamLog(ctx, filter, *follow, emit)
+	} else {
+		err = readLog(ctx, env, filter, *follow, emit)
+	}
 	if err != nil {
-		fmt.Fprintf(stderr, "agentbus: %s\n", err)
+		fmt.Fprintf(stderr, "agentbus log: %s\n", err)
 		return 1
 	}
-	lg := eventlog.Open(dir)
-	emit := func(line string) error {
-		if *jsonOut {
+	return 0
+}
+
+// logEmitter prints one event log line as JSON or as text.
+func logEmitter(stdout io.Writer, jsonOut bool) func(string) error {
+	return func(line string) error {
+		if jsonOut {
 			if _, err := fmt.Fprintln(stdout, line); err != nil {
 				return fmt.Errorf("write log line: %w", err)
 			}
@@ -188,23 +198,29 @@ func cmdLog(ctx context.Context, args, env []string, stdout, stderr io.Writer) i
 		}
 		return nil
 	}
-	if *follow {
+}
+
+// readLog reads this machine's event log file without a daemon.
+func readLog(ctx context.Context, env []string, filter eventlog.Filter, follow bool, emit func(string) error) error {
+	dir, err := paths.StateDir(env)
+	if err != nil {
+		return fmt.Errorf("locate the log: %w", err)
+	}
+	lg := eventlog.Open(dir)
+	if follow {
 		if err := lg.Follow(ctx, filter, emit); err != nil {
-			fmt.Fprintf(stderr, "agentbus log: %s\n", err)
-			return 1
+			return fmt.Errorf("follow: %w", err)
 		}
-		return 0
+		return nil
 	}
 	lines, err := lg.Read(filter)
 	if err != nil {
-		fmt.Fprintf(stderr, "agentbus log: %s\n", err)
-		return 1
+		return fmt.Errorf("read: %w", err)
 	}
 	for _, line := range lines {
 		if err := emit(line); err != nil {
-			fmt.Fprintf(stderr, "agentbus log: %s\n", err)
-			return 1
+			return err
 		}
 	}
-	return 0
+	return nil
 }

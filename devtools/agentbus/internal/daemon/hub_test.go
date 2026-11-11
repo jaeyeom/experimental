@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"path/filepath"
 	"strings"
@@ -51,8 +52,8 @@ func TestHubSocketNeedsProtocolAndARemoteCallerHandle(t *testing.T) {
 		req  Request
 		want string
 	}{
-		{"old client", Request{Op: "ping", Handle: remote}, "hub daemon speaks protocol 1, this client speaks 0"},
-		{"newer client", Request{Op: "ping", Protocol: 2, Handle: remote}, "hub daemon speaks protocol 1, this client speaks 2"},
+		{"old client", Request{Op: "ping", Handle: remote}, fmt.Sprintf("hub daemon speaks protocol %d, this client speaks 0", ProtocolVersion)},
+		{"newer client", Request{Op: "ping", Protocol: ProtocolVersion + 1, Handle: remote}, fmt.Sprintf("hub daemon speaks protocol %d, this client speaks %d", ProtocolVersion, ProtocolVersion+1)},
 		{"no handle", Request{Op: "ping", Protocol: ProtocolVersion}, "must carry the caller handle"},
 		{"local handle", Request{Op: "ping", Protocol: ProtocolVersion, Handle: "herdr:local/default/w1:p1"}, "must name a remote machine"},
 		{"not herdr", Request{Op: "ping", Protocol: ProtocolVersion, Handle: "fake:x"}, "not a herdr handle"},

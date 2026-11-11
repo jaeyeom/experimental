@@ -85,7 +85,7 @@ func cmdInstall(ctx context.Context, args, env []string, stdout, stderr io.Write
 		fmt.Fprintf(stdout, "wrote %s\n", path)
 		return 0
 	}
-	if err := loadSupervisor(ctx, runtime.GOOS, path); err != nil {
+	if err := loadSupervisor(ctx, runtime.GOOS, path, systemdUnitName); err != nil {
 		fmt.Fprintf(stderr, "agentbus install: wrote %s\n%s\n", path, err)
 		return 1
 	}
@@ -138,14 +138,19 @@ func installSupervisor(goos, home, bin string, env []string) (string, error) {
 }
 
 func supervisorPath(goos, home string, env []string) (string, error) {
+	return unitPath(goos, home, env, launchdLabel, systemdUnitName)
+}
+
+// unitPath is where a launchd job or systemd user unit is written.
+func unitPath(goos, home string, env []string, label, unitName string) (string, error) {
 	switch goos {
 	case "darwin":
 		if home == "" {
 			return "", errors.New("HOME is not set")
 		}
-		return filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist"), nil
+		return filepath.Join(home, "Library", "LaunchAgents", label+".plist"), nil
 	case "linux":
-		return filepath.Join(systemdUserDir(home, env), systemdUnitName), nil
+		return filepath.Join(systemdUserDir(home, env), unitName), nil
 	default:
 		return "", fmt.Errorf("agentbus install supports systemd and launchd, not %s", goos)
 	}
@@ -161,30 +166,38 @@ func systemdUserDir(home string, env []string) string {
 func supervisorBody(goos, bin string, envVars [][2]string) (string, error) {
 	switch goos {
 	case "darwin":
-		return launchdPlist(bin, envVars)
+		return launchdPlist(launchdLabel, []string{bin}, envVars)
 	case "linux":
-		return systemdUnit(bin, envVars), nil
+		return systemdUnit(systemdService{
+			description: "agentbus daemon",
+			exec:        []string{bin},
+			restart:     "on-failure",
+		}, envVars), nil
 	default:
 		return "", fmt.Errorf("agentbus install supports systemd and launchd, not %s", goos)
 	}
 }
 
-func launchdPlist(bin string, envVars [][2]string) (string, error) {
-	escBin, err := xmlEscape(bin)
-	if err != nil {
-		return "", err
-	}
+// launchdPlist is a job that runs args at load and again whenever it exits.
+func launchdPlist(label string, args []string, envVars [][2]string) (string, error) {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>` + launchdLabel + `</string>
+  <string>` + label + `</string>
   <key>ProgramArguments</key>
   <array>
-    <string>` + escBin + `</string>
-  </array>
+`)
+	for _, arg := range args {
+		esc, err := xmlEscape(arg)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "    <string>%s</string>\n", esc)
+	}
+	b.WriteString(`  </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -209,11 +222,28 @@ func launchdPlist(bin string, envVars [][2]string) (string, error) {
 	return b.String(), nil
 }
 
-func systemdUnit(bin string, envVars [][2]string) string {
+// systemdService is the [Service] part of a systemd user unit.
+type systemdService struct {
+	description string
+	// pre, when set, runs before exec.
+	pre     []string
+	exec    []string
+	restart string
+	// restartSec, when set, is the pause before a restart.
+	restartSec string
+}
+
+func systemdUnit(svc systemdService, envVars [][2]string) string {
 	var b strings.Builder
-	b.WriteString("[Unit]\nDescription=agentbus daemon\n\n[Service]\nExecStart=")
-	b.WriteString(systemdValue(bin))
-	b.WriteString("\nRestart=on-failure\n")
+	b.WriteString("[Unit]\nDescription=" + svc.description + "\n\n[Service]\n")
+	if len(svc.pre) > 0 {
+		b.WriteString("ExecStartPre=" + systemdLine(svc.pre) + "\n")
+	}
+	b.WriteString("ExecStart=" + systemdLine(svc.exec) + "\n")
+	b.WriteString("Restart=" + svc.restart + "\n")
+	if svc.restartSec != "" {
+		b.WriteString("RestartSec=" + svc.restartSec + "\n")
+	}
 	for _, kv := range envVars {
 		b.WriteString("Environment=")
 		b.WriteString(kv[0])
@@ -223,6 +253,14 @@ func systemdUnit(bin string, envVars [][2]string) string {
 	}
 	b.WriteString("\n[Install]\nWantedBy=default.target\n")
 	return b.String()
+}
+
+func systemdLine(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = systemdValue(arg)
+	}
+	return strings.Join(quoted, " ")
 }
 
 func systemdValue(s string) string {
@@ -257,12 +295,12 @@ func supervisorEnv(env []string) [][2]string {
 	return out
 }
 
-func loadSupervisor(ctx context.Context, goos, path string) error {
+func loadSupervisor(ctx context.Context, goos, path, unitName string) error {
 	switch goos {
 	case "darwin":
 		return launchctlBootstrap(ctx, path)
 	case "linux":
-		return systemctlEnable(ctx, path)
+		return systemctlEnable(ctx, path, unitName)
 	default:
 		return fmt.Errorf("agentbus install supports systemd and launchd, not %s", goos)
 	}
@@ -283,7 +321,7 @@ func launchctlBootstrap(ctx context.Context, plistPath string) error {
 	return nil
 }
 
-func systemctlEnable(ctx context.Context, unitPath string) error {
+func systemctlEnable(ctx context.Context, unitPath, unitName string) error {
 	if _, err := os.Stat(unitPath); err != nil {
 		return fmt.Errorf("stat unit: %w", err)
 	}
@@ -294,10 +332,10 @@ func systemctlEnable(ctx context.Context, unitPath string) error {
 		return fmt.Errorf("systemctl daemon-reload: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-	enable := exec.CommandContext(ctx, "systemctl", "--user", "enable", "--now", systemdUnitName) //nolint:gosec // G204: fixed systemctl args, no shell
+	enable := exec.CommandContext(ctx, "systemctl", "--user", "enable", "--now", unitName) //nolint:gosec // G204: a unit name this package defines, no shell
 	out, err = enable.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("systemctl enable --now %s: %w (%s)", systemdUnitName, err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("systemctl enable --now %s: %w (%s)", unitName, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
