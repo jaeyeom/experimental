@@ -49,6 +49,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "chord_test.go",
         "color_test.go",
         "editor_test.go",
         "field_test.go",

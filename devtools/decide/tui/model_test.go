@@ -3310,7 +3310,7 @@ func TestViewHeightKeepsTopBorder(t *testing.T) {
 			}
 			statusAt := -1
 			for i, line := range lines {
-				if strings.Contains(visibleLine(line), "gi/ga") {
+				if strings.Contains(visibleLine(line), "g go to") {
 					statusAt = i
 				}
 			}
@@ -3383,7 +3383,7 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 
 	next, cmd := m.Update(runeKey('g'))
 	got, ok := next.(*Model)
-	if cmd == nil || !ok || got != m || !m.chord || !strings.Contains(m.View(), "g…") {
+	if cmd == nil || !ok || got != m || !m.chord || !strings.Contains(m.View(), "go to:") {
 		t.Fatalf("chord %v cmd %v\n%s", m.chord, cmd != nil, m.View())
 	}
 	quit, err := m.Key('q')
@@ -3398,7 +3398,7 @@ func TestOpenItemFullScreenAndCompose(t *testing.T) {
 		t.Fatal("stale timeout canceled the chord")
 	}
 	m.Update(chordTimeoutMsg(m.chordSeq))
-	if m.chord || m.folder != 0 || strings.Contains(m.View(), "g…") {
+	if m.chord || m.folder != 0 || strings.Contains(m.View(), "go to:") {
 		t.Fatalf("timeout folder %d chord %v\n%s", m.folder, m.chord, m.View())
 	}
 	if _, err := m.Key('g'); err != nil {
