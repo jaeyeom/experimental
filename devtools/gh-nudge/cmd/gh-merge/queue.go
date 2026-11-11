@@ -1019,27 +1019,57 @@ func mutationRequiresAsyncMerge(err error) bool {
 		strings.Contains(msg, "sequentially")
 }
 
+// enqueueStack runs after GitHub asked for a stack merge. Stack metadata can
+// lag a retarget, so a pull request on the default branch with no open pull
+// request below it is enqueued with merge-async without --include-downstack.
 func enqueueStack(client queueAPI, pr github.QueuePullRequest, includeDownstack bool) error {
-	below, err := client.OpenDownstack(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number)
+	below, err := openBelowNumbers(client, pr)
 	if err != nil {
-		return fmt.Errorf("open downstack for %s: %w", pr.Ref.Raw, err)
+		return err
 	}
-	if !jsonOutput {
-		fmt.Printf("Open pull requests below %s:\n", pr.Ref.Raw)
-		if len(below) == 0 {
-			fmt.Println("(none)")
+	onDefault := pr.BaseRefName == "" || pr.BaseRefName == pr.DefaultBranch
+	if len(below) == 0 && onDefault {
+		if !jsonOutput {
+			fmt.Printf("no open pull requests below %s; enqueuing with merge-async\n", pr.Ref.Raw)
 		}
-		for _, item := range below {
-			fmt.Printf("- %s/%s#%d\n", pr.Ref.Owner, pr.Ref.Repo, item.Number)
+	} else {
+		if !jsonOutput {
+			fmt.Printf("Open pull requests below %s:\n", pr.Ref.Raw)
+			if len(below) == 0 {
+				fmt.Println("(none)")
+			}
+			for _, number := range below {
+				fmt.Printf("- %s/%s#%d\n", pr.Ref.Owner, pr.Ref.Repo, number)
+			}
 		}
-	}
-	if !includeDownstack {
-		return fmt.Errorf("refusing to enqueue stack %s without --include-downstack", pr.Ref.Raw)
+		if !includeDownstack {
+			return fmt.Errorf("refusing to enqueue stack %s without --include-downstack", pr.Ref.Raw)
+		}
 	}
 	if err := client.MergeAsync(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number, pr.HeadSHA); err != nil {
 		return fmt.Errorf("merge-async %s: %w", pr.Ref.Raw, err)
 	}
 	return nil
+}
+
+// openBelowNumbers lists open pull requests below pr from the native stack,
+// cross-checked against the open pull request whose head is pr's base branch.
+func openBelowNumbers(client queueAPI, pr github.QueuePullRequest) ([]int, error) {
+	downstack, err := client.OpenDownstack(pr.Ref.Owner, pr.Ref.Repo, pr.Ref.Number)
+	if err != nil {
+		return nil, fmt.Errorf("open downstack for %s: %w", pr.Ref.Raw, err)
+	}
+	var native []int
+	for _, item := range downstack {
+		if item.State == "open" {
+			native = append(native, item.Number)
+		}
+	}
+	walked, found, err := branchBelow(client, pr)
+	if err != nil || !found {
+		return native, err
+	}
+	return mergeStackNumbers(native, []int{walked}), nil
 }
 
 var runCommand = defaultRunCommand
