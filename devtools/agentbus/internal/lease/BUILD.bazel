@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "checkin.go",
         "lease.go",
+        "takeover.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/lease",
     visibility = ["//devtools/agentbus:__subpackages__"],
@@ -17,6 +18,7 @@ go_test(
         "checkin_test.go",
         "lease_test.go",
         "release_test.go",
+        "takeover_test.go",
     ],
     embed = [":go_default_library"],
     deps = ["//devtools/agentbus/internal/eventlog:go_default_library"],

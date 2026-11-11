@@ -74,8 +74,10 @@ func CheckInText(checkout string) string {
 
 // Watched lists the agent holders whose pane state Observe needs: those
 // with a waiter queued, and those past their deadline who have not been
-// checked in on yet. The user, and a holder already marked for
-// takeover, are never watched.
+// checked in on yet. A releasing holder counts as held. An adopter of a
+// needs-adopt checkout is watched while someone waits, in case its pane
+// goes gone. The user is never watched, and a holder marked for
+// takeover only while someone still waits.
 func (t *Table) Watched() []Watch {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -83,10 +85,18 @@ func (t *Table) Watched() []Watch {
 	var out []Watch
 	for k, rec := range t.doc.Leases {
 		h := rec.Holder
-		if rec.State != StateHeld || h == nil || h.Handle == UserHolder || !h.TakeoverAt.IsZero() {
+		if h == nil || h.Handle == UserHolder {
 			continue
 		}
-		if len(rec.Queue) > 0 || (!now.Before(h.Deadline) && h.CheckedIn.IsZero()) {
+		waiting := len(rec.Queue) > 0
+		watch := false
+		switch {
+		case rec.State == StateNeedsAdopt, !h.TakeoverAt.IsZero():
+			watch = waiting && takeable(rec.State)
+		case active(rec.State):
+			watch = waiting || (!now.Before(h.Deadline) && h.CheckedIn.IsZero())
+		}
+		if watch {
 			out = append(out, Watch{Checkout: k, Holder: h.Handle})
 		}
 	}
@@ -96,16 +106,31 @@ func (t *Table) Watched() []Watch {
 
 // Observe applies the soft-deadline rules to w's holder, given its pane
 // state p read outside the table lock. It does nothing when w is stale
-// (the holder changed or the lease is not held). Timers are persisted,
-// so a restart resumes them.
+// (the holder changed or the lease is not held). A releasing holder
+// counts as held, so a crashed release does not block the queue. An
+// adopter whose pane is gone is taken over while someone waits. A
+// takeover decided before but not carried out is asked for again.
+// Timers are persisted, so a restart resumes them.
 func (t *Table) Observe(w Watch, p Pane, tm Timing) (Decision, error) {
 	tm = tm.WithDefaults()
 	return t.decide(w.Checkout, func(rec *record, now time.Time) (Decision, []eventlog.Event) {
 		h := rec.Holder
-		if rec.State != StateHeld || h == nil || h.Handle != w.Holder || h.Handle == UserHolder || !h.TakeoverAt.IsZero() {
+		if !takeable(rec.State) || h == nil || h.Handle != w.Holder || h.Handle == UserHolder {
 			return Decision{}, nil
 		}
 		waiting := len(rec.Queue) > 0
+		switch {
+		case !h.TakeoverAt.IsZero():
+			if waiting {
+				return Decision{TakeOver: "takeover pending since " + h.TakeoverAt.Format(time.RFC3339)}, nil
+			}
+			return Decision{}, nil
+		case rec.State == StateNeedsAdopt:
+			if p == PaneGone && waiting {
+				return Decision{TakeOver: "adopter pane gone"}, nil
+			}
+			return Decision{}, nil
+		}
 		if p == PaneGone && waiting {
 			h.TakeoverAt = now
 			return Decision{TakeOver: "pane gone"}, nil
@@ -165,6 +190,11 @@ func (o *observation) pane(p Pane) {
 		// has to be seen again from the start.
 		h.SilentSince = time.Time{}
 	}
+}
+
+// active is a state whose holder gets the soft-deadline rules.
+func active(s State) bool {
+	return s == StateHeld || s == StateReleasing
 }
 
 // decide runs change on a known checkout through update.

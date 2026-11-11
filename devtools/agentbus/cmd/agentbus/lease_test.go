@@ -291,7 +291,7 @@ func TestLeaseHelp(t *testing.T) {
 	if code := cmdLease(context.Background(), nil, helpEnv, &stdout, &stdout); code != 0 {
 		t.Fatalf("lease = %d", code)
 	}
-	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all]", "check", "release", "origin/HEAD", "pull --rebase --prune", "--path", "--json"} {
+	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all]", "check", "release", "origin/HEAD", "pull --rebase --prune", "--path", "--json", "adopt [--force]", "refs/lease-backup/", "lease_ignore_procs"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("lease help is missing %q", want)
 		}

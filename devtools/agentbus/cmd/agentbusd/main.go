@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -56,6 +57,9 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
   lease_idle_grace = "5m" how long a checked-in holder may stay idle and
                           silent, with a waiter queued, before takeover
                           (default: 5m)
+
+When decide is on PATH, a checkout that needs 'agentbus lease adopt' after a
+takeover is put in the user's decide inbox (decide ask --owner agentbus).
 
 Example:
   agentbusd
@@ -110,6 +114,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 			Repeat:   cfg.LeaseCheckinRepeat,
 			Grace:    cfg.LeaseIdleGrace,
 		},
+		Notify: decideNotifier(exec.LookPath, runQuiet, stderr),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1

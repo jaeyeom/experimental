@@ -24,8 +24,9 @@ import (
 type State string
 
 // Lease states, part of the stable status shape. Releasing lasts while
-// the holder's release runs its git steps. Paused is set by a later
-// command (pause).
+// the holder's release runs its git steps. NeedsAdopt follows a
+// takeover, or a claim of a dirty free checkout, until adopt resets the
+// checkout. Paused is set by a later command (pause).
 const (
 	StateFree       State = "free"
 	StateHeld       State = "held"
@@ -51,6 +52,9 @@ const (
 	ResultReleasing = "releasing"
 	ResultReleased  = "released"
 	ResultHeld      = "held"
+	// ResultAdopting: the adopter's process check and cleanup run.
+	ResultAdopting = "adopting"
+	ResultAdopted  = "adopted"
 )
 
 // stateFile is the persisted table in the daemon state directory.
@@ -76,6 +80,10 @@ type Args struct {
 	// PullError is why release's git pull failed, when it did. The
 	// release goes ahead; the error is logged with it.
 	PullError string `json:"pullError,omitempty"`
+	// Backups are the refs adopt saved the leftovers to.
+	Backups []string `json:"backups,omitempty"`
+	// Forced names the processes adopt --force went past.
+	Forced []string `json:"forced,omitempty"`
 }
 
 // Reply is the lease part of a daemon response.
@@ -217,7 +225,11 @@ func (t *Table) Claim(caller string, a Args) (Reply, error) {
 		claim := eventlog.Event{Event: eventlog.EventLeaseClaim, Actor: caller, Detail: claimDetail(d, a)}
 		switch {
 		case rec.Holder == nil:
-			rec.State = StateHeld
+			// A checkout taken over with nobody waiting stays needs-adopt
+			// for the next claim.
+			if rec.State != StateNeedsAdopt {
+				rec.State = StateHeld
+			}
 			if a.Tree != "" {
 				rec.State = StateNeedsAdopt
 			}

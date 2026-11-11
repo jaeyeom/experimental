@@ -117,9 +117,10 @@ func TestObserveTakesOverAfterFiveIdleMinutesWithAWaiter(t *testing.T) {
 	if !strings.Contains(d.TakeOver, "idle") {
 		t.Fatalf("idle 5m = %+v", d)
 	}
-	// The takeover is asked for once.
+	// The takeover is decided once; until the daemon carries it out,
+	// each check asks for it again as pending.
 	c.now = deadline.Add(7 * time.Minute)
-	if d := observe(t, tbl, PaneIdle); d.TakeOver != "" {
+	if d := observe(t, tbl, PaneIdle); !strings.HasPrefix(d.TakeOver, "takeover pending since ") || d.CheckIn != "" {
 		t.Fatalf("second takeover = %+v", d)
 	}
 }

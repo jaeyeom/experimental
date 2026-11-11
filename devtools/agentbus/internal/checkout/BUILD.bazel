@@ -2,7 +2,11 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["checkout.go"],
+    srcs = [
+        "adopt.go",
+        "checkout.go",
+        "procs.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout",
     visibility = ["//devtools/agentbus:__subpackages__"],
 )
@@ -10,7 +14,9 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "adopt_test.go",
         "checkout_test.go",
+        "procs_test.go",
         "release_test.go",
     ],
     embed = [":go_default_library"],

@@ -32,7 +32,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~thread <id>~ | Print the chain. |
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
-| ~lease <claim/extend/leave/status/check/release>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
+| ~lease <claim/extend/leave/status/check/release/adopt>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -310,6 +310,7 @@ agentbus lease leave
 agentbus lease status --all
 agentbus lease check --path src/main.go
 agentbus lease release
+agentbus lease adopt
 #+END_SRC
 
 | Subcommand | What it does |
@@ -320,6 +321,7 @@ agentbus lease release
 | ~status [--all]~ | Holder, deadline, state, and queue. ~--all~ lists every checkout the daemon has seen. |
 | ~check~ | Exit 0 when you hold the lease or the path is not guarded, 1 with a one-line reason when you do not, 3 when it cannot tell. |
 | ~release~ | Holder only. Leave the checkout clean on the default branch and hand it to the next waiter. See [[*Release]]. |
+| ~adopt [--force]~ | The needs-adopt holder, or the user. Save leftovers to a backup ref, then reset the checkout. See [[*Takeover and adopt]]. |
 
 The queue puts the user first, then ~--urgent~ claims, then the rest,
 each in arrival order. Claiming again as the holder or a waiter keeps
@@ -402,12 +404,14 @@ With nobody queued, an overrun holder is checked in on once and then
 left alone. A holder whose pane herdr reports ~gone~ is taken over at
 once when a waiter is queued, without waiting for the bid to end. The
 user's hold is never checked in on. ~extend~ or claiming again resets
-the check-in.
+the check-in. A lease left ~releasing~ by a release that died midway
+gets the same rules as ~held~, so it never blocks the queue; the holder
+can still run ~release~ again.
 
-Takeover itself is not built yet: the daemon logs a ~lease_takeover~
-event with detail ~would take over~ and the reason. Each check-in and
-silent extend is a ~lease_checkin~ or ~lease_auto_extend~ event. The
-timers are kept in ~leases.json~, so they survive a daemon restart.
+Each check-in and silent extend is a ~lease_checkin~ or
+~lease_auto_extend~ event. The timers are kept in ~leases.json~, so
+they survive a daemon restart; a takeover decided but not carried out
+before a restart is carried out on the next check.
 
 The daemon reads the timing from its config:
 
@@ -415,6 +419,68 @@ The daemon reads the timing from its config:
 lease_check_interval = "2m"   # how often, and how far a working holder is extended
 lease_checkin_repeat = "15m"  # least time between check-ins
 lease_idle_grace = "5m"       # idle and silent this long: take over
+#+END_SRC
+
+** Takeover and adopt
+
+A takeover never loses uncommitted work. The daemon runs no git: it
+names a backup ref, ~refs/lease-backup/<UTC time>-<old holder name or
+pane>~, tells the old holder
+
+#+BEGIN_SRC text
+[lease] taken over from you: local:/home/u/src/repo; your uncommitted work will be saved to refs/lease-backup/20261110T094500Z-ops-alice
+#+END_SRC
+
+and grants the first waiter whose pane is not ~gone~ in state
+~needs-adopt~, with a wake message that says to run ~agentbus lease
+adopt~ first. ~check~ refuses everyone, the adopter included, until
+the adopt is done. ~status --json~ carries ~backup_ref~ while the state
+is ~needs-adopt~. When ~decide~ is on the daemon's ~PATH~, the user
+also gets a relay item in the decide inbox (~decide ask --owner
+agentbus~) naming the checkout.
+
+If the adopter's pane goes ~gone~ before it adopts, the lease passes to
+the next waiter, still ~needs-adopt~ with the same backup ref. With
+nobody waiting it stays ~needs-adopt~ with no holder, and the next
+~claim~ gets it.
+
+~lease adopt~ runs on the checkout's machine:
+
+1. *Process check.* Refuse, keeping the lease ~needs-adopt~ with you,
+   while a process still has its working directory inside the checkout
+   (Linux: ~/proc/*/cwd~; macOS: ~lsof~), naming each one, such as
+   ~make (pid 4242)~. Ignored: interactive shells (~sh~, ~bash~, ~zsh~,
+   ~fish~), agent CLIs (~claude~, ~codex~, ~gemini~, and ~node~ or ~bun~
+   running one), editors and pagers (~emacs~, ~vim~, ~nvim~, ~less~),
+   ~agentbus~, and the adopt's own chain of parent processes.
+   ~lease_ignore_procs~ replaces that list. ~adopt --force~ prints the
+   processes and goes on.
+2. *Save leftovers.* When the tree is dirty or a rebase, merge,
+   cherry-pick, or revert is in progress, commit the whole working tree,
+   untracked files included, through a temporary index, to the backup
+   ref. Its parents are ~HEAD~ and the index as it was, and its message
+   records the branch, the operation's state, and the changed files.
+   Then abort the operation; if the abort brings back changes (a
+   rebase's autostash), save those too, as ~<ref>-2~. Ignored files are
+   neither saved nor removed. A ref is never overwritten, never a
+   branch, and ~git stash~ is never used.
+3. *Reset.* ~git reset --hard~, ~git clean -d~, switch to the default
+   branch, and ~git pull --rebase --prune~. A failed pull is reported
+   and the adopt goes ahead; any earlier failure leaves the lease
+   ~needs-adopt~ with you.
+4. The lease becomes ~held~ by you.
+
+The user may always run ~adopt~ from a pane with no agent or from
+outside herdr; the checkout is then held by ~user~, and an agent that
+was to adopt goes back to the front of the queue.
+
+~lease status~ lists the checkout's backup refs; the tool never deletes
+them. Look at one with ~git show <ref>~ or ~git log -p <ref>~, and get
+the files back with ~git restore --source <ref> -- <path>~. Takeovers
+and adopts are ~lease_takeover~ and ~lease_adopt~ events.
+
+#+BEGIN_SRC toml
+lease_ignore_procs = ["sh", "bash", "zsh", "fish", "claude", "codex", "gemini", "emacs", "vim", "nvim", "less", "agentbus"]
 #+END_SRC
 
 * Lost messages

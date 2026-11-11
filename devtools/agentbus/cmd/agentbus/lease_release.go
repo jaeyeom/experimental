@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 )
 
@@ -34,17 +33,7 @@ func leaseRelease(ctx context.Context, f leaseFlags, largs lease.Args, env []str
 		}
 		return 1
 	}
-	call := func(op string) (*lease.Reply, bool) {
-		resp, code := callDaemon(ctx, env, daemon.Request{Op: op, Env: env, Lease: &largs}, stderr)
-		if code != 0 {
-			return nil, false
-		}
-		if !resp.OK || resp.Lease == nil {
-			fmt.Fprintf(stderr, "agentbus lease release: %s\n", resp.Error)
-			return nil, false
-		}
-		return resp.Lease, true
-	}
+	call := leaseCaller(ctx, "release", &largs, env, stderr)
 	if _, ok := call("lease-release-begin"); !ok {
 		return 1
 	}

@@ -12,6 +12,7 @@
 //	lease_check_interval = "2m"   # how often an overrun holder is checked
 //	lease_checkin_repeat = "15m"  # least time between check-ins
 //	lease_idle_grace = "5m"       # idle and silent this long: take over
+//	lease_ignore_procs = ["zsh", "claude"]  # adopt's process check ignores these
 package config
 
 import (
@@ -19,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -53,6 +55,10 @@ type Config struct {
 	// LeaseIdleGrace is how long a checked-in holder may stay idle and
 	// silent before it is taken over. Zero is the default.
 	LeaseIdleGrace time.Duration
+	// LeaseIgnoreProcs are the program names whose working directory in
+	// a checkout does not block lease adopt. Nil means the default list;
+	// a set list replaces it.
+	LeaseIgnoreProcs []string
 }
 
 var errLeaseCheckouts = errors.New(`lease_checkouts must be a list of absolute paths, such as ["/home/u/src/repo"]`)
@@ -126,6 +132,13 @@ func parseLine(cfg *Config, line string) error {
 		return parseDuration(&cfg.LeaseIdleGrace, key, value, "5m")
 	case "lease_checkouts":
 		return parseLeaseCheckouts(cfg, value)
+	case "lease_ignore_procs":
+		names, ok := parseList(value)
+		if !ok || slices.ContainsFunc(names, func(n string) bool { return strings.Contains(n, "/") }) {
+			return errors.New(`lease_ignore_procs must be a list of program names, such as ["zsh", "claude"]`)
+		}
+		cfg.LeaseIgnoreProcs = names
+		return nil
 	case "hub", "machine", "hub_socket":
 		return parseHubKey(cfg, key, value)
 	default:
