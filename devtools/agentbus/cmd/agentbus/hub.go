@@ -35,7 +35,8 @@ var localCommands = map[string]bool{
 	"install-hooks": true,
 	// lease reads lease_checkouts and git here; it refuses hub mode itself.
 	"lease": true,
-	// mem reports this machine's panes and processes.
+	// mem reports this machine's panes and processes, and asks the hub
+	// itself for names and leases.
 	"mem": true,
 	// hibernate reads this machine's panes and processes, and opens
 	// the route to the hub itself for its daemon requests.

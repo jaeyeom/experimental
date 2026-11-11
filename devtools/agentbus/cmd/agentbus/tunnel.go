@@ -41,6 +41,8 @@ var tunnelCommands = map[string]bool{
 	"lease": true,
 	// hibernate, likewise; see hibernateHubRoute.
 	"hibernate": true,
+	// mem, likewise, for names and leases; see memHubBus.
+	"mem": true,
 }
 
 // tunnel is a forwarded hub socket and the caller handle every request

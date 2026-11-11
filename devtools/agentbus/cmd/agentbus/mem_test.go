@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +13,9 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall/sshtest"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
@@ -254,6 +258,181 @@ func TestMemHerdrDown(t *testing.T) {
 	code, _, stderr := runCmd([]string{"mem"}, env)
 	if code == 0 || !strings.Contains(stderr, "herdr") {
 		t.Fatalf("mem = %d, stderr %q; want a herdr error", code, stderr)
+	}
+}
+
+// memHubList is the hub's `list --json`: ops/x on this machine (mac),
+// ops/y on another machine, and ops/z on the hub's own pane with the
+// same session and pane ids as this machine's w1:p2.
+const memHubList = `[
+  {"name":"ops/x","when":"1m","liveness":"alive","transport":"herdr","handle":"herdr:mac/sess-1/w1:p1"},
+  {"name":"ops/y","when":"1m","liveness":"alive","transport":"herdr","handle":"herdr:other/sess-1/w1:p1"},
+  {"name":"ops/z","when":"1m","liveness":"alive","transport":"herdr","handle":"herdr:local/sess-2/w1:p2"}
+]`
+
+// memHubLeases is the hub's `lease status --all --json`: this machine's
+// w1:p2 holds mac:/src/repo, and other machines' panes hold or wait for
+// checkouts too.
+const memHubLeases = `[
+  {"checkout":"mac:/src/repo","state":"held","holder":{"handle":"herdr:mac/sess-2/w1:p2"},"queue":[{"handle":"herdr:other/sess-1/w1:p1"}],"takeover":"ask"},
+  {"checkout":"local:/hub/repo","state":"held","holder":{"handle":"herdr:local/sess-1/w1:p1"}}
+]`
+
+// setupMemHub runs mem on machine "mac" in hub mode against a fake hub
+// over ssh whose agentbus prints memHubList and memHubLeases. Any local
+// daemon call fails the test.
+func setupMemHub(t *testing.T) (*sshtest.Fake, []string) {
+	t.Helper()
+	_, env := setupMem(t, func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
+		t.Errorf("mem in hub mode dialed %s for %s", socket, req.Op)
+		return daemon.Response{}, errors.New("no daemon")
+	})
+	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hub = \"me@hub\"\nmachine = \"mac\"\n"))
+	ssh := sshtest.Install(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "list.json"), []byte(memHubList))
+	writeFile(t, filepath.Join(dir, "leases.json"), []byte(memHubLeases))
+	script := "#!/bin/sh\n" +
+		"case \"$*\" in\n" +
+		"'list --json') cat " + filepath.Join(dir, "list.json") + ";;\n" +
+		"'lease status --all --json') cat " + filepath.Join(dir, "leases.json") + ";;\n" +
+		"*) echo \"unexpected $*\" >&2; exit 2;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(dir, "agentbus"), []byte(script), 0o755); err != nil { //nolint:gosec // test executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return ssh, env
+}
+
+func decodeMem(t *testing.T, stdout string) memJSON {
+	t.Helper()
+	var got memJSON
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("decode %q: %v", stdout, err)
+	}
+	return got
+}
+
+func mustOut(t *testing.T, args, env []string) string {
+	t.Helper()
+	stdout, _ := mustCmd(t, args, env)
+	return stdout
+}
+
+func TestMemHubNamesAndLeasesOverSSH(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Reachable()
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if len(got.Agents) != 2 || len(got.Notes) != 0 {
+		t.Fatalf("mem = %+v, want two rows and no note", got)
+	}
+	first, second := got.Agents[0], got.Agents[1]
+	if first.Pane != "w1:p1" || first.Names == nil || !slices.Equal(*first.Names, []string{"ops/x"}) {
+		t.Fatalf("w1:p1 names = %v, want only this machine's ops/x", first.Names)
+	}
+	if first.Leases == nil || len(*first.Leases) != 0 {
+		t.Fatalf("w1:p1 leases = %+v, want none: the hub's own pane holds local:/hub/repo", first.Leases)
+	}
+	if second.Pane != "w1:p2" || second.Names == nil || len(*second.Names) != 0 {
+		t.Fatalf("w1:p2 names = %v, want none: ops/z is the hub's own pane", second.Names)
+	}
+	if second.Leases == nil || len(*second.Leases) != 1 || (*second.Leases)[0].Role != "holder" || (*second.Leases)[0].Checkout != "mac:/src/repo" {
+		t.Fatalf("w1:p2 leases = %+v, want it to hold mac:/src/repo", second.Leases)
+	}
+
+	stdout := mustOut(t, []string{"mem"}, env)
+	header := strings.SplitN(stdout, "\n", 2)[0]
+	if !strings.Contains(header, "NAMES") || !strings.Contains(header, "LEASE") {
+		t.Fatalf("header = %q, want names and lease columns", header)
+	}
+	if !strings.Contains(stdout, "ops/x") || !strings.Contains(stdout, "holds mac:/src/repo") ||
+		strings.Contains(stdout, "ops/y") || strings.Contains(stdout, "ops/z") || strings.Contains(stdout, "note:") {
+		t.Fatalf("output = %q", stdout)
+	}
+}
+
+func TestMemHubUnreachable(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Write("down", "")
+	ssh.Unreachable()
+	start := time.Now()
+	stdout := mustOut(t, []string{"mem"}, env)
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("mem took %s", took)
+	}
+	if !strings.Contains(stdout, "w1:p1") || !strings.Contains(stdout, "w1:p2") {
+		t.Fatalf("output = %q, want the rows", stdout)
+	}
+	header := strings.SplitN(stdout, "\n", 2)[0]
+	if strings.Contains(header, "NAMES") || strings.Contains(header, "LEASE") {
+		t.Fatalf("header = %q, want no names or lease column", header)
+	}
+	if !strings.Contains(stdout, "note: ") || !strings.Contains(stdout, "me@hub") {
+		t.Fatalf("output = %q, want a note naming the hub", stdout)
+	}
+}
+
+func TestMemHubDeadline(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Write("hang", "")
+	ssh.Reachable()
+	env = append(env, "AGENTBUS_HOOK_TIMEOUT=500ms")
+	start := time.Now()
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if took := time.Since(start); took > 2500*time.Millisecond {
+		t.Fatalf("mem took %s, want the hook deadline", took)
+	}
+	if len(got.Agents) != 2 || got.Agents[0].Names != nil || len(got.Notes) != 1 || !strings.Contains(got.Notes[0], "me@hub") {
+		t.Fatalf("mem = %+v, want rows without names and a note naming the hub", got)
+	}
+}
+
+func TestMemHubOverTheTunnel(t *testing.T) {
+	_, env := setupMem(t, nil)
+	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hub = \"me@hub\"\nmachine = \"mac\"\n"))
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A file stands in for the tunnel socket; the fake dial answers on it.
+	writeFile(t, dirs.TunnelSocketPath, nil)
+	var sockets []string
+	dialDaemon = func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {
+		sockets = append(sockets, socket)
+		switch req.Op {
+		case "ping":
+			return daemon.Response{OK: true, Protocol: daemon.ProtocolVersion}, nil
+		case "list":
+			return daemon.Response{OK: true, Rows: []daemon.AgentRow{
+				{Name: "ops/x", Handle: "herdr:mac/sess-1/w1:p1"},
+				{Name: "ops/y", Handle: "herdr:other/sess-2/w1:p2"},
+			}}, nil
+		case "lease-status":
+			return daemon.Response{OK: true, Lease: &lease.Reply{Leases: []lease.Status{{
+				Checkout: "mac:/src/repo",
+				State:    lease.StateHeld,
+				Holder:   &lease.HolderView{Handle: "herdr:mac/sess-2/w1:p2"},
+			}}}}, nil
+		}
+		return daemon.Response{Error: "unexpected op " + req.Op}, nil
+	}
+	env = append(env, "HERDR_PANE_ID=w1:p2")
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if len(got.Agents) != 2 || len(got.Notes) != 0 {
+		t.Fatalf("mem = %+v", got)
+	}
+	first, second := got.Agents[0], got.Agents[1]
+	if first.Names == nil || !slices.Equal(*first.Names, []string{"ops/x"}) || second.Names == nil || len(*second.Names) != 0 {
+		t.Fatalf("names = %v, %v", first.Names, second.Names)
+	}
+	if second.Leases == nil || len(*second.Leases) != 1 || (*second.Leases)[0].Checkout != "mac:/src/repo" {
+		t.Fatalf("leases = %+v", second.Leases)
+	}
+	for _, socket := range sockets {
+		if socket != dirs.TunnelSocketPath {
+			t.Fatalf("dialled %s, want only the tunnel", socket)
+		}
 	}
 }
 

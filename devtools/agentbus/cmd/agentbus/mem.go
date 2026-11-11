@@ -1,18 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
@@ -26,7 +29,8 @@ var (
 )
 
 // cmdMem reports each local agent pane's memory. It needs herdr; the
-// daemon only adds names and leases, and is never started for it.
+// daemon, or the hub in hub mode, only adds names and leases, and is
+// never started for it.
 func cmdMem(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
 	asJSON := len(args) == 1 && args[0] == "--json"
 	if len(args) != 0 && !asJSON {
@@ -91,7 +95,12 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 		in.Machine, _ = os.Hostname()
 	}
 	if cfg.Hub != "" {
-		in.Notes = append(in.Notes, fmt.Sprintf("hub mode: names and leases are on the hub %s; left out", cfg.Hub))
+		bus, err := memHubBus(ctx, cfg, env)
+		if err != nil {
+			in.Notes = append(in.Notes, fmt.Sprintf("hub %s not reachable (%s); names and leases left out", cfg.Hub, err))
+			return in, nil
+		}
+		in.Bus = bus
 		return in, nil
 	}
 	bus, err := memBus(ctx, env)
@@ -103,17 +112,126 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 	return in, nil
 }
 
-// memBus asks a running daemon for the registered names and the lease
-// table.
-func memBus(ctx context.Context, env []string) (*memreport.Bus, error) {
-	dirs, err := paths.FromEnv(env)
+// memHubBus asks the hub for its names and lease table, over the tunnel
+// when it answers, else over ssh, within the hook deadline so a slow
+// hub never stalls mem. It keeps only this machine's handles, in the
+// herdr:local/... form of the local panes.
+func memHubBus(ctx context.Context, cfg config.Config, env []string) (*memreport.Bus, error) {
+	machine, err := leaseMachine(cfg, env)
 	if err != nil {
-		return nil, fmt.Errorf("locate the daemon: %w", err)
+		return nil, err
 	}
+	total := hubHookTimeout(env)
+	ctx, cancel := context.WithTimeout(ctx, total)
+	defer cancel()
+	var bus *memreport.Bus
+	if routed, ok := openTunnel(ctx, cfg, "mem", env, io.Discard); ok {
+		bus, err = memBus(routed, env)
+	} else {
+		bus, err = memSSHBus(ctx, cfg, total)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return machineBus(bus, machine), nil
+}
+
+// memSSHBus runs the hub's `list --json` and `lease status --all
+// --json` over ssh, side by side.
+func memSSHBus(ctx context.Context, cfg config.Config, total time.Duration) (*memreport.Bus, error) {
+	hub := hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: min(hookConnectTimeout, total), Deadline: total}
+	run := func(args ...string) ([]byte, error) {
+		var stdout, stderr bytes.Buffer
+		code, err := hub.Run(ctx, hubcall.Call{Args: args, Stdout: &stdout, Stderr: &stderr})
+		switch {
+		case err != nil:
+			return nil, fmt.Errorf("%w", err)
+		case ctx.Err() != nil:
+			return nil, fmt.Errorf("agentbus %s: %w", strings.Join(args, " "), ctx.Err())
+		case code != 0:
+			return nil, fmt.Errorf("agentbus %s exited %d: %s", strings.Join(args, " "), code, strings.TrimSpace(stderr.String()))
+		}
+		return stdout.Bytes(), nil
+	}
+	var (
+		listOut []byte
+		listErr error
+		done    = make(chan struct{})
+	)
+	go func() {
+		defer close(done)
+		listOut, listErr = run("list", "--json")
+	}()
+	leaseOut, leaseErr := run("lease", "status", "--all", "--json")
+	<-done
+	if listErr != nil {
+		return nil, listErr
+	}
+	if leaseErr != nil {
+		return nil, leaseErr
+	}
+	var entries []listEntry
+	if err := json.Unmarshal(listOut, &entries); err != nil {
+		return nil, fmt.Errorf("bad list reply: %w", err)
+	}
+	bus := &memreport.Bus{Names: map[string][]string{}}
+	for _, e := range entries {
+		if e.Name != "" {
+			bus.Names[e.Handle] = append(bus.Names[e.Handle], e.Name)
+		}
+	}
+	if err := json.Unmarshal(leaseOut, &bus.Leases); err != nil {
+		return nil, fmt.Errorf("bad lease status reply: %w", err)
+	}
+	return bus, nil
+}
+
+// machineBus keeps the names and lease roles of machine's handles on
+// the hub, rewritten to the herdr:local/... handles of this machine's
+// panes. The hub's own herdr:local/... panes are dropped.
+func machineBus(bus *memreport.Bus, machine string) *memreport.Bus {
+	local := func(handle string) (string, bool) {
+		m, session, pane, err := hubcall.ParseHandle(handle)
+		if err != nil || m != machine {
+			return "", false
+		}
+		return hubcall.Handle(hubcall.LocalMachine, session, pane), true
+	}
+	out := &memreport.Bus{Names: map[string][]string{}}
+	for handle, names := range bus.Names {
+		if l, ok := local(handle); ok {
+			out.Names[l] = append(out.Names[l], names...)
+		}
+	}
+	for _, s := range bus.Leases {
+		if s.Holder != nil {
+			holder := *s.Holder
+			s.Holder = nil
+			if l, ok := local(holder.Handle); ok {
+				holder.Handle = l
+				s.Holder = &holder
+			}
+		}
+		queue := s.Queue
+		s.Queue = nil
+		for _, w := range queue {
+			if l, ok := local(w.Handle); ok {
+				w.Handle = l
+				s.Queue = append(s.Queue, w)
+			}
+		}
+		out.Leases = append(out.Leases, s)
+	}
+	return out
+}
+
+// memBus asks the daemon dialBus reaches, the local one or the hub over
+// the tunnel, for the registered names and the lease table.
+func memBus(ctx context.Context, env []string) (*memreport.Bus, error) {
 	ctx, cancel := context.WithTimeout(ctx, memBusTimeout)
 	defer cancel()
 	ask := func(req daemon.Request) (daemon.Response, error) {
-		resp, err := dialDaemon(ctx, dirs.SocketPath, req)
+		resp, err := dialBus(ctx, env, req)
 		if err != nil {
 			return resp, err
 		}

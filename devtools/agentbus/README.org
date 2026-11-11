@@ -707,9 +707,19 @@ One run makes one ~herdr agent list~ and one ~herdr tab list~ call, one
 ~process-info~ call per agent pane, and one process-table read (~/proc~
 on Linux, one ~ps~ elsewhere). It does not start the daemon: when the
 daemon is down, the names and lease columns (and the JSON fields) are
-left out and a note says why. In hub mode the names and leases live on
-the hub, so they are left out too. When herdr cannot be reached, ~mem~
+left out and a note says why. When herdr cannot be reached, ~mem~
 exits non-zero.
+
+In hub mode the processes and memory are still read here, but the names
+and leases come from the hub: its ~list --json~ and ~lease status --all
+--json~, over the tunnel when it answers, otherwise over ssh (the two
+calls run side by side). Only this machine's handles
+(~herdr:<machine>/...~) are kept and matched to its panes; names and
+leases of other machines and of the hub's own panes are not shown. The
+whole hub lookup gets the hooks' deadline, ~AGENTBUS_HOOK_TIMEOUT~
+(default 3s), so ~mem~ stays quick. When the hub cannot be reached in
+time, or ~machine~ is not set, the columns are left out and a note
+names the hub.
 
 * Hibernate idle agents
 
