@@ -90,6 +90,7 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 	if err != nil {
 		return memreport.Input{}, err
 	}
+	in.Policy = memPolicy(cfg, &in.Notes)
 	in.Machine = cfg.Machine
 	if in.Machine == "" {
 		in.Machine, _ = os.Hostname()
@@ -110,6 +111,24 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 	}
 	in.Bus = bus
 	return in, nil
+}
+
+// memPolicy is the hibernation policy agentbusd runs on this machine.
+// In hub mode no daemon runs here, so it is off, with a note when the
+// config asks for it.
+func memPolicy(cfg config.Config, notes *[]string) *memreport.Policy {
+	p := cfg.Policy()
+	if p.Mode == "off" {
+		return &memreport.Policy{Mode: p.Mode}
+	}
+	if cfg.Hub != "" {
+		*notes = append(*notes, "hibernate_policy does not run in hub mode: it runs in agentbusd, which runs on the hub, not here")
+		return &memreport.Policy{Mode: "off"}
+	}
+	return &memreport.Policy{
+		Mode: p.Mode, BelowBytes: p.Below, TargetBytes: p.Target,
+		MinIdleSeconds: int64(p.MinIdle / time.Second),
+	}
 }
 
 // memHubBus asks the hub for its names and lease table, over the tunnel

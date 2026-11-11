@@ -10,6 +10,7 @@ go_library(
         "peer_linux.go",
         "peer_other.go",
         "peer_unix.go",
+        "policy.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon",
     visibility = ["//devtools/agentbus:__subpackages__"],

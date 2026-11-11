@@ -16,14 +16,22 @@
 //	lease_ignore_procs = ["zsh", "claude"]  # adopt's process check ignores these
 //	hibernate_exempt = ["ops/*"]  # names, handles, or globs hibernate never stops
 //	wake_timeout = "60s"          # how long a woken agent has to get ready
+//	hibernate_policy = "dry-run"  # "on" hibernates under memory pressure; "dry-run" only logs
+//	hibernate_below = "1.5GiB"    # available memory under which the policy acts
+//	hibernate_target = "3GiB"     # available memory at which it stops
+//	hibernate_min_idle = "30m"    # least idle time of an agent it stops
+//	hibernate_interval = "1m"     # how often it reads the available memory
 package config
 
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -71,6 +79,17 @@ type Config struct {
 	// WakeTimeout is how long the daemon waits for a hibernated agent it
 	// relaunched to get ready. Zero is the default, 60s.
 	WakeTimeout time.Duration
+	// HibernatePolicy is hibernate_policy as written when it is "off",
+	// "dry-run", or "on", else empty. Read it through Policy.
+	HibernatePolicy string
+	// HibernateBelow and HibernateTarget are hibernate_below and
+	// hibernate_target in bytes. Zero is unset.
+	HibernateBelow  int64
+	HibernateTarget int64
+	// HibernateMinIdle and HibernateInterval are hibernate_min_idle and
+	// hibernate_interval. Zero is the default.
+	HibernateMinIdle  time.Duration
+	HibernateInterval time.Duration
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
@@ -83,6 +102,48 @@ func (c Config) TakeoverMode() string {
 		return "on"
 	}
 	return "log"
+}
+
+// Policy is the memory-pressure hibernation policy with its defaults.
+type Policy struct {
+	// Mode is "off", "dry-run", or "on".
+	Mode string
+	// Below is the available memory in bytes under which the policy
+	// acts, and Target the available memory at which it stops.
+	Below, Target int64
+	// MinIdle is how long an agent must have been idle.
+	MinIdle time.Duration
+	// Interval is how often the available memory is read.
+	Interval time.Duration
+}
+
+// Policy defaults.
+const (
+	DefaultHibernateMinIdle  = 30 * time.Minute
+	DefaultHibernateInterval = time.Minute
+)
+
+// Policy is the policy the daemon runs. It is off unless
+// hibernate_policy is "dry-run" or "on" and hibernate_below is set. The
+// target defaults to hibernate_below.
+func (c Config) Policy() Policy {
+	p := Policy{
+		Mode:     "off",
+		Below:    c.HibernateBelow,
+		Target:   max(c.HibernateTarget, c.HibernateBelow),
+		MinIdle:  c.HibernateMinIdle,
+		Interval: c.HibernateInterval,
+	}
+	if (c.HibernatePolicy == "dry-run" || c.HibernatePolicy == "on") && c.HibernateBelow > 0 {
+		p.Mode = c.HibernatePolicy
+	}
+	if p.MinIdle <= 0 {
+		p.MinIdle = DefaultHibernateMinIdle
+	}
+	if p.Interval <= 0 {
+		p.Interval = DefaultHibernateInterval
+	}
+	return p
 }
 
 var errLeaseCheckouts = errors.New(`lease_checkouts must be a list of absolute paths, such as ["/home/u/src/repo"]`)
@@ -129,6 +190,12 @@ func Parse(text string) (Config, error) {
 			return Config{}, fmt.Errorf("line %d: %w", i+1, err)
 		}
 	}
+	if cfg.HibernateTarget > 0 && cfg.HibernateTarget < cfg.HibernateBelow {
+		return Config{}, errors.New("hibernate_target must be at least hibernate_below")
+	}
+	if (cfg.HibernatePolicy == "dry-run" || cfg.HibernatePolicy == "on") && cfg.HibernateBelow == 0 {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf(`hibernate_policy = %q needs hibernate_below; using "off"`, cfg.HibernatePolicy))
+	}
 	return cfg, nil
 }
 
@@ -146,8 +213,16 @@ func parseLine(cfg *Config, line string) error {
 	switch key {
 	case "machines":
 		return parseMachines(cfg, value)
-	case "remote_timeout", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout":
+	case "remote_timeout", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
+		"hibernate_min_idle", "hibernate_interval":
 		return parseDurationKey(cfg, key, value)
+	case "hibernate_policy":
+		parseHibernatePolicy(cfg, value)
+		return nil
+	case "hibernate_below":
+		return parseSizeKey(&cfg.HibernateBelow, key, value)
+	case "hibernate_target":
+		return parseSizeKey(&cfg.HibernateTarget, key, value)
 	case "lease_checkouts":
 		return parseLeaseCheckouts(cfg, value)
 	case "lease_takeover":
@@ -197,6 +272,10 @@ func parseDurationKey(cfg *Config, key, value string) error {
 		return parseDuration(&cfg.LeaseCheckinRepeat, key, value, "15m")
 	case "lease_idle_grace":
 		return parseDuration(&cfg.LeaseIdleGrace, key, value, "5m")
+	case "hibernate_min_idle":
+		return parseDuration(&cfg.HibernateMinIdle, key, value, "30m")
+	case "hibernate_interval":
+		return parseDuration(&cfg.HibernateInterval, key, value, "1m")
 	default:
 		return parseDuration(&cfg.WakeTimeout, key, value, "60s")
 	}
@@ -211,6 +290,52 @@ func parseDuration(dst *time.Duration, key, value, example string) error {
 	}
 	*dst = d
 	return nil
+}
+
+// parseHibernatePolicy reads hibernate_policy, "off", "dry-run", or
+// "on". Any other value is a warning and means "off".
+func parseHibernatePolicy(cfg *Config, value string) {
+	raw, rest, ok := parseString(value)
+	if ok && blankOrComment(rest) && (raw == "off" || raw == "dry-run" || raw == "on") {
+		cfg.HibernatePolicy = raw
+		return
+	}
+	cfg.HibernatePolicy = ""
+	cfg.Warnings = append(cfg.Warnings, fmt.Sprintf(`hibernate_policy = %s is not "off", "dry-run", or "on"; using "off"`, value))
+}
+
+// parseSizeKey reads a quoted size into dst.
+func parseSizeKey(dst *int64, key, value string) error {
+	raw, rest, ok := parseString(value)
+	n, err := parseSize(raw)
+	if !ok || !blankOrComment(rest) || err != nil {
+		return fmt.Errorf(`%s must be a size such as "1.5GiB"`, key)
+	}
+	*dst = n
+	return nil
+}
+
+var sizeRE = regexp.MustCompile(`(?i)^(\d+(?:\.\d+)?)\s*([kmgt]ib|b)?$`)
+
+var sizeUnits = map[string]float64{"": 1, "b": 1, "kib": 1 << 10, "mib": 1 << 20, "gib": 1 << 30, "tib": 1 << 40}
+
+// parseSize reads a positive byte count with an optional binary unit,
+// such as "1.5GiB", "512 MiB", or "2048". Unit case is ignored.
+func parseSize(s string) (int64, error) {
+	m := sizeRE.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return 0, fmt.Errorf("size %q: want a number and B, KiB, MiB, GiB, or TiB", s)
+	}
+	n, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, fmt.Errorf("size %q: %w", s, err)
+	}
+	unit := sizeUnits[strings.ToLower(m[2])]
+	bytes := n * unit
+	if bytes < 1 || bytes > math.MaxInt64/2 || (unit == 1 && bytes != math.Trunc(bytes)) {
+		return 0, fmt.Errorf("size %q: out of range", s)
+	}
+	return int64(bytes), nil
 }
 
 // parseLeaseTakeover reads lease_takeover, "log" or "on". Any other

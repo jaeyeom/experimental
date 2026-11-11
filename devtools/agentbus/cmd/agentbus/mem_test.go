@@ -226,6 +226,34 @@ func TestMemText(t *testing.T) {
 	}
 }
 
+func TestMemFooterShowsTheHibernationPolicy(t *testing.T) {
+	_, env := setupMem(t, fakeMemBus)
+	stdout, _ := mustCmd(t, []string{"mem"}, env)
+	if !strings.Contains(stdout, "available; hibernate policy off\n") {
+		t.Fatalf("no config: output = %q, want the policy off", stdout)
+	}
+	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hibernate_policy = \"on\"\nhibernate_below = \"1.5GiB\"\nhibernate_target = \"3GiB\"\n"))
+	stdout, _ = mustCmd(t, []string{"mem"}, env)
+	if !strings.Contains(stdout, "hibernate policy on (below 1.5 GiB, target 3.0 GiB, min idle 30m0s)") {
+		t.Fatalf("output = %q, want the mode and thresholds", stdout)
+	}
+	stdout, _ = mustCmd(t, []string{"mem", "--json"}, env)
+	var got struct {
+		Policy struct {
+			Mode        string `json:"mode"`
+			BelowBytes  int64  `json:"below_bytes"`      //nolint:tagliatelle // mem JSON shape
+			TargetBytes int64  `json:"target_bytes"`     //nolint:tagliatelle // mem JSON shape
+			MinIdle     int64  `json:"min_idle_seconds"` //nolint:tagliatelle // mem JSON shape
+		} `json:"hibernate_policy"` //nolint:tagliatelle // mem JSON shape
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Policy.Mode != "on" || got.Policy.BelowBytes != 1536*mib || got.Policy.TargetBytes != 3072*mib || got.Policy.MinIdle != 1800 {
+		t.Fatalf("hibernate_policy = %+v", got.Policy)
+	}
+}
+
 func TestMemDaemonDown(t *testing.T) {
 	_, env := setupMem(t, func(context.Context, string, daemon.Request) (daemon.Response, error) {
 		return daemon.Response{}, errors.New("connect: no such file")
@@ -370,6 +398,18 @@ func TestMemHubUnreachable(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "note: ") || !strings.Contains(stdout, "me@hub") {
 		t.Fatalf("output = %q, want a note naming the hub", stdout)
+	}
+}
+
+func TestMemHubPolicyIsOffHere(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Write("down", "")
+	ssh.Unreachable()
+	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"),
+		[]byte("hub = \"me@hub\"\nmachine = \"mac\"\nhibernate_policy = \"on\"\nhibernate_below = \"1GiB\"\n"))
+	stdout := mustOut(t, []string{"mem"}, env)
+	if !strings.Contains(stdout, "hibernate policy off") || !strings.Contains(stdout, "note: hibernate_policy does not run") {
+		t.Fatalf("output = %q, want the policy off with a note: no daemon runs here in hub mode", stdout)
 	}
 }
 

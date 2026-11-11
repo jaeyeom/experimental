@@ -145,6 +145,81 @@ func TestParseWakeTimeout(t *testing.T) {
 	}
 }
 
+const gib = 1 << 30
+
+func TestParseHibernatePolicy(t *testing.T) {
+	got, err := Parse(`hibernate_policy = "dry-run"  # only log
+hibernate_below = "1.5GiB"
+hibernate_target = "3 GiB"
+hibernate_min_idle = "45m"
+hibernate_interval = "30s"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Policy{Mode: "dry-run", Below: 3 * gib / 2, Target: 3 * gib, MinIdle: 45 * time.Minute, Interval: 30 * time.Second}
+	if p := got.Policy(); p != want || len(got.Warnings) != 0 {
+		t.Fatalf("Policy() = %+v, warnings %q; want %+v", p, got.Warnings, want)
+	}
+}
+
+func TestPolicyDefaults(t *testing.T) {
+	got, err := Parse("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := got.Policy(); p != (Policy{Mode: "off", MinIdle: 30 * time.Minute, Interval: time.Minute}) {
+		t.Fatalf("no keys: Policy() = %+v", p)
+	}
+	got, err = Parse("hibernate_policy = \"on\"\nhibernate_below = \"512MiB\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := got.Policy(); p.Mode != "on" || p.Below != 512<<20 || p.Target != 512<<20 {
+		t.Fatalf("no target: Policy() = %+v, want the target at hibernate_below", p)
+	}
+}
+
+func TestPolicyIsOffWhenMisconfigured(t *testing.T) {
+	for _, in := range []string{
+		"hibernate_policy = \"yes\"\nhibernate_below = \"1GiB\"\n",
+		"hibernate_policy = \"on\"\n",
+	} {
+		got, err := Parse(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := got.Policy(); p.Mode != "off" || len(got.Warnings) != 1 {
+			t.Errorf("Parse(%q): Policy() = %+v, warnings %q; want off with a warning", in, p, got.Warnings)
+		}
+	}
+}
+
+func TestParseSize(t *testing.T) {
+	for _, tt := range []struct {
+		in   string
+		want int64
+	}{
+		{"1.5GiB", 3 * gib / 2},
+		{"3GiB", 3 * gib},
+		{"512 MiB", 512 << 20},
+		{"64KiB", 64 << 10},
+		{"1TiB", 1 << 40},
+		{"2048", 2048},
+		{"100B", 100},
+		{"1gib", gib},
+	} {
+		if got, err := parseSize(tt.in); err != nil || got != tt.want {
+			t.Errorf("parseSize(%q) = %d, %v; want %d", tt.in, got, err, tt.want)
+		}
+	}
+	for _, in := range []string{"", "GiB", "1.5", "-1GiB", "0GiB", "1GB", "1.5.2GiB", "lots"} {
+		if got, err := parseSize(in); err == nil {
+			t.Errorf("parseSize(%q) = %d, want an error", in, got)
+		}
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	for _, tt := range []struct{ in, want string }{
 		{"colour = \"red\"\n", "line 1: unknown key colour"},
@@ -168,6 +243,11 @@ func TestParseErrors(t *testing.T) {
 		{"lease_checkouts = [\"src/repo\"]\n", "line 1: lease_checkouts must be a list of absolute paths"},
 		{"lease_ignore_procs = \"zsh\"\n", "line 1: lease_ignore_procs must be a list of program names"},
 		{"lease_ignore_procs = [\"/bin/zsh\"]\n", "line 1: lease_ignore_procs must be a list of program names"},
+		{"hibernate_below = \"lots\"\n", "line 1: hibernate_below must be a size"},
+		{"hibernate_target = 3\n", "line 1: hibernate_target must be a size"},
+		{"hibernate_min_idle = \"0s\"\n", "line 1: hibernate_min_idle must be a positive duration"},
+		{"hibernate_interval = \"often\"\n", "line 1: hibernate_interval must be a positive duration"},
+		{"hibernate_below = \"2GiB\"\nhibernate_target = \"1GiB\"\n", "hibernate_target must be at least hibernate_below"},
 	} {
 		_, err := Parse(tt.in)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -165,5 +166,80 @@ func TestWakeOpRelaunchesAndClearsTheRecord(t *testing.T) {
 	}
 	if resp := srv.dispatch(Request{Op: "wake", Name: "ops/x"}, 0); resp.OK || !strings.Contains(resp.Error, "not hibernated") {
 		t.Fatalf("second wake = %+v", resp)
+	}
+}
+
+type fixedMemory int64
+
+func (m fixedMemory) Available(context.Context) (int64, error) { return int64(m), nil }
+
+// busRunner hibernates its targets through the policy's bus, as the
+// real Hibernator does.
+type busRunner struct{ bus hibernate.Bus }
+
+func (r busRunner) Run(ctx context.Context, req hibernate.Request) ([]hibernate.Result, error) {
+	var out []hibernate.Result
+	for _, handle := range req.Targets {
+		if _, err := r.bus.Begin(ctx, hibernate.Record{Handle: handle, RSSBytes: 300 << 20}); err != nil {
+			return nil, fmt.Errorf("begin: %w", err)
+		}
+		if err := r.bus.End(ctx, handle, hibernate.StatusHibernated, ""); err != nil {
+			return nil, fmt.Errorf("end: %w", err)
+		}
+		out = append(out, hibernate.Result{Name: "ops/x", Handle: handle, Outcome: hibernate.OutcomeHibernated, RSSBytes: 300 << 20})
+	}
+	return out, nil
+}
+
+func TestPolicyRunsOnTheDaemonsOwnBus(t *testing.T) {
+	srv, dir := newHibernateServer(t)
+	var bus hibernate.Bus
+	pol := srv.newPolicy(func(b hibernate.Bus) *hibernate.Policy {
+		bus = b
+		return &hibernate.Policy{Mode: hibernate.PolicyOn, Below: 1 << 30, Target: 2 << 30, MinIdle: time.Minute, Memory: fixedMemory(1 << 29), Bus: b, Hibernator: busRunner{bus: b}}
+	})
+	state, err := bus.State(context.Background())
+	if err != nil || len(state.Names[hibAlice]) != 1 {
+		t.Fatalf("state = %+v, %v", state, err)
+	}
+	if err := pol.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	evs := hibernateEvents(t, dir, eventlog.EventPolicyNoCandidate)
+	if len(evs) != 1 || evs[0].Actor == "" || !strings.Contains(evs[0].Detail, "512.0 MiB available") {
+		t.Fatalf("policy_no_candidate events = %+v", evs)
+	}
+	if _, err := (busRunner{bus: bus}).Run(context.Background(), hibernate.Request{Targets: []string{hibAlice}}); err != nil {
+		t.Fatal(err)
+	}
+	if !srv.reg.Hibernated(hibAlice) {
+		t.Fatal("the policy's bus wrote no hibernation record")
+	}
+	if evs := hibernateEvents(t, dir, eventlog.EventHibernated); len(evs) != 1 || evs[0].Name != "ops/x" {
+		t.Fatalf("agent_hibernated events = %+v", evs)
+	}
+	if err := bus.Refused(context.Background(), hibAlice, []string{"agent is working"}); err != nil {
+		t.Fatal(err)
+	}
+	if evs := hibernateEvents(t, dir, eventlog.EventHibernateRefused); len(evs) != 0 {
+		t.Fatalf("the policy logged a refusal on every tick: %+v", evs)
+	}
+}
+
+func TestServeRunsThePolicyOnItsTicks(t *testing.T) {
+	dirs := pathsFor(shortDir(t), t.TempDir())
+	ticks := make(chan time.Time)
+	stop := startWith(t, dirs, Config{
+		PollInterval: time.Hour,
+		PolicyTicks:  ticks,
+		HibernatePolicy: func(b hibernate.Bus) *hibernate.Policy {
+			return &hibernate.Policy{Mode: hibernate.PolicyOn, Below: 1 << 30, Target: 1 << 30, MinIdle: time.Minute, Memory: fixedMemory(1 << 29), Bus: b, Hibernator: busRunner{bus: b}}
+		},
+	})
+	ticks <- time.Now()
+	ticks <- time.Now()
+	stop()
+	if evs := hibernateEvents(t, dirs.StateDir, eventlog.EventPolicyNoCandidate); len(evs) != 1 {
+		t.Fatalf("policy_no_candidate events = %+v", evs)
 	}
 }

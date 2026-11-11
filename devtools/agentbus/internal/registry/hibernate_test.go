@@ -196,3 +196,34 @@ func TestSeenTracksHowLongAnAgentHasBeenInItsState(t *testing.T) {
 		t.Fatal("an agent gone from the inventory is still seen")
 	}
 }
+
+// A woken agent is not hibernated again by the policy until it has been
+// idle hibernate_min_idle again: its idle time starts over at the wake.
+func TestAWokenAgentStartsItsIdleTimeOver(t *testing.T) {
+	reg, ad, alice, _ := hibernateWorld(t)
+	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	reg.Now = func() time.Time { return now }
+	poll := func(after time.Duration, agents ...adapter.Agent) {
+		t.Helper()
+		now = now.Add(after)
+		ad.InventoryAgents = agents
+		reg.pollOnce(context.Background())
+	}
+	idle := adapter.Agent{Handle: alice, PaneID: "w1:p1", Kind: "claude", Status: "idle", StateSeq: 7}
+	poll(0, idle)
+	poll(3*time.Hour, idle)
+	if got := reg.Seen()[alice]; got.For != 3*time.Hour {
+		t.Fatalf("before the hibernation = %+v", got)
+	}
+	// Hibernated: herdr reports the pane with no agent in it.
+	poll(time.Minute, adapter.Agent{Handle: "herdr:local//w1:p1", PaneID: "w1:p1"})
+	if _, ok := reg.Seen()[alice]; ok {
+		t.Fatal("a hibernated agent is still seen")
+	}
+	// Woken in the same session, even with the same state_change_seq.
+	poll(time.Hour, idle)
+	poll(5*time.Minute, idle)
+	if got := reg.Seen()[alice]; got.Status != "idle" || got.For != 5*time.Minute {
+		t.Fatalf("after the wake = %+v, want the idle time started over", got)
+	}
+}

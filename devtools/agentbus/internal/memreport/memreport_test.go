@@ -31,6 +31,31 @@ func TestHumanBytes(t *testing.T) {
 	}
 }
 
+func TestFooterNamesTheHibernationPolicy(t *testing.T) {
+	t.Parallel()
+
+	avail := int64(8 << 30)
+	for _, tt := range []struct {
+		policy *Policy
+		want   string
+	}{
+		{nil, "8.0 GiB available\n"},
+		{&Policy{Mode: "off"}, "8.0 GiB available; hibernate policy off\n"},
+		{
+			&Policy{Mode: "dry-run", BelowBytes: 3 << 29, TargetBytes: 3 << 30, MinIdleSeconds: 1800},
+			"8.0 GiB available; hibernate policy dry-run (below 1.5 GiB, target 3.0 GiB, min idle 30m0s)\n",
+		},
+	} {
+		var buf bytes.Buffer
+		if err := Build(Input{Available: &avail, Policy: tt.policy}).WriteText(&buf); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(buf.String(), tt.want) {
+			t.Errorf("policy %+v: text = %q, want it to end %q", tt.policy, buf.String(), tt.want)
+		}
+	}
+}
+
 func TestBuildKeepsAPaneWhoseProcessInfoFailed(t *testing.T) {
 	t.Parallel()
 
