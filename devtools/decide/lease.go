@@ -23,10 +23,12 @@ const (
 
 // ConfigCheckout maps a status resource name to a checkout path. A
 // checkout guarded by an agentbus lease shows the lease instead of the
-// stored row.
+// stored row. Machine names the agentbus machine that holds the
+// checkout in hub mode; empty means this machine.
 type ConfigCheckout struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name    string `json:"name"`
+	Machine string `json:"machine,omitempty"`
+	Path    string `json:"path"`
 }
 
 // AgentbusRunner runs `agentbus` with args and returns its stdout. An
@@ -55,8 +57,9 @@ func ExecAgentbus(ctx context.Context, args []string) ([]byte, error) {
 
 // leaseStatus is the part of `agentbus lease status --json` decide shows.
 type leaseStatus struct {
-	State  string `json:"state"`
-	Holder *struct {
+	Checkout string `json:"checkout"`
+	State    string `json:"state"`
+	Holder   *struct {
 		Handle   string `json:"handle"`
 		Name     string `json:"name"`
 		Deadline string `json:"deadline"`
@@ -68,18 +71,21 @@ type leaseStatus struct {
 // ResourceView returns the rows to display: stored rows, with each
 // mapped checkout's lease in place of its stored row. An unguarded
 // checkout keeps its stored row. When the lease cannot be read, the
-// stored row stays and is marked Guess.
+// stored row stays and is marked Guess. A checkout with a Machine is
+// looked up as <machine>:<path> in the daemon's lease list, and no
+// lease under that key also marks the stored row Guess.
 func ResourceView(ctx context.Context, stored []ResourceStatus, checkouts []ConfigCheckout, run AgentbusRunner, now time.Time) []ResourceStatus {
 	rows := make([]ResourceStatus, len(stored))
 	for i, row := range stored {
 		row.Source = SourceStored
 		rows[i] = row
 	}
+	list := &leaseList{run: run}
 	for _, c := range checkouts {
 		if strings.TrimSpace(c.Name) == "" || strings.TrimSpace(c.Path) == "" {
 			continue
 		}
-		st, guarded, err := readLease(ctx, run, c.Path)
+		st, guarded, err := list.read(ctx, c)
 		idx := resourceIndex(rows, c.Name)
 		switch {
 		case err != nil && idx >= 0:
@@ -110,6 +116,43 @@ func readLease(ctx context.Context, run AgentbusRunner, path string) (leaseStatu
 		return leaseStatus{}, true, err
 	}
 	return st, true, nil
+}
+
+// leaseList reads `agentbus lease status --all --json` once per view.
+// The --guarded precheck reads this machine's config, so it cannot
+// answer for another machine's checkout.
+type leaseList struct {
+	run    AgentbusRunner
+	loaded bool
+	leases []leaseStatus
+	err    error
+}
+
+// read returns c's lease and whether c is guarded: for a checkout on
+// another machine, from the lease list; otherwise as readLease does.
+func (a *leaseList) read(ctx context.Context, c ConfigCheckout) (leaseStatus, bool, error) {
+	if c.Machine == "" {
+		return readLease(ctx, a.run, c.Path)
+	}
+	st, err := a.find(ctx, c.Machine+":"+c.Path)
+	return st, err == nil, err
+}
+
+// find returns the lease for key, or an error when none is known.
+func (a *leaseList) find(ctx context.Context, key string) (leaseStatus, error) {
+	if !a.loaded {
+		a.loaded = true
+		a.err = runJSON(ctx, a.run, &a.leases, "lease", "status", "--all", "--json")
+	}
+	if a.err != nil {
+		return leaseStatus{}, a.err
+	}
+	for _, st := range a.leases {
+		if st.Checkout == key {
+			return st, nil
+		}
+	}
+	return leaseStatus{}, fmt.Errorf("no lease for %s", key)
 }
 
 func runJSON(ctx context.Context, run AgentbusRunner, out any, args ...string) error {
