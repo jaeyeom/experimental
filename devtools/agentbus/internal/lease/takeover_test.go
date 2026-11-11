@@ -283,3 +283,23 @@ func leaseEventDetails(t *testing.T, dir string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+func TestObserveExtendsAWorkingReleasingHolder(t *testing.T) {
+	c := &clock{now: t0()}
+	tbl := openTable(t, t.TempDir(), c)
+	mustClaim(t, tbl, alice, Args{For: "40m"})
+	mustClaim(t, tbl, bob, Args{For: "20m"})
+	if _, err := tbl.BeginRelease(alice, Args{Checkout: key}); err != nil {
+		t.Fatal(err)
+	}
+	c.now = t0().Add(40 * time.Minute)
+	for i := 0; i < 3; i++ {
+		c.now = c.now.Add(2 * time.Minute)
+		if d := observe(t, tbl, PaneBusy); d.TakeOver != "" {
+			t.Fatalf("tick %d took over a working releasing holder: %+v", i, d)
+		}
+		if got, want := holderDeadline(t, tbl), c.now.Add(2*time.Minute).Format(time.RFC3339); got != want {
+			t.Fatalf("tick %d deadline = %s, want %s", i, got, want)
+		}
+	}
+}
