@@ -65,14 +65,21 @@ func AdoptWakeText(checkout, from, ref string) string {
 		" and resets the checkout. Release with: agentbus lease release"
 }
 
+// NeedsAdoptMark is in every NeedsAdoptNote.
+const NeedsAdoptMark = " and needs adopt "
+
 // NeedsAdoptNote is the note the user gets when a checkout needs adopt.
 func NeedsAdoptNote(tk Takeover) string {
 	who := "nobody is waiting; the next claim gets it, or run 'agentbus lease adopt' from a terminal"
-	if tk.To != "" {
+	switch tk.To {
+	case "":
+	case UserHolder:
+		who = "for your pause; run 'agentbus lease adopt' from a terminal"
+	default:
 		who = "assigned to " + tk.To
 	}
 	return "agentbus lease: " + tk.Lease.Checkout + " was taken over from " + tk.From +
-		" and needs adopt (" + who + "). Leftovers will be saved to " + tk.BackupRef + "."
+		NeedsAdoptMark + "(" + who + "). Leftovers will be saved to " + tk.BackupRef + "."
 }
 
 // TakeOver hands w's checkout from its holder to the first waiter whose
@@ -102,12 +109,12 @@ func (t *Table) TakeOver(w Watch, reason string, gone func(handle string) bool) 
 		for len(rec.Queue) > 0 {
 			next := rec.Queue[0]
 			rec.Queue = rec.Queue[1:]
-			if gone(next.Handle) {
+			if next.Handle != UserHolder && gone(next.Handle) {
 				tk.Skipped = append(tk.Skipped, next.Handle)
 				events = append(events, eventlog.Event{Event: eventlog.EventLeaseSkip, Actor: next.Handle, Detail: "skipped and dropped from the queue", Reason: "pane gone"})
 				continue
 			}
-			rec.Holder = &holder{Handle: next.Handle, Since: now, Deadline: now.Add(next.For), For: next.For, Why: next.Why}
+			rec.Holder = next.holder(now)
 			tk.To = next.Handle
 			events = append(events, eventlog.Event{Event: eventlog.EventLeaseGrant, Actor: next.Handle, Detail: grantDetail(rec)})
 			break

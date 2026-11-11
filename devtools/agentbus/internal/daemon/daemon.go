@@ -50,8 +50,8 @@ type Config struct {
 	// of a ticker at LeaseTiming.Interval.
 	LeaseTicks <-chan time.Time
 	// Notify, when not nil, tells the user that a checkout needs adopt
-	// after a takeover. It runs on the lease watcher and must not block
-	// for long.
+	// after a takeover, or that a queued pause was granted. It runs on
+	// the lease watcher or a request and must not block for long.
 	Notify func(text string)
 }
 
@@ -486,6 +486,8 @@ func (s *server) lease(req Request) Response {
 		return leaseResponse(r, err)
 	case "lease-adopt-begin", "lease-adopt":
 		return s.leaseAdopt(req, args)
+	case "lease-pause", "lease-unshare", "lease-resume-begin", "lease-resume-abort", "lease-resume":
+		return s.leaseUser(req, args)
 	}
 	caller, _, err := s.reg.WhoAmI(s.ctx, req.Env)
 	if err != nil && req.Op != "lease-check" {
@@ -527,13 +529,25 @@ func (s *server) releaseLease(caller string, args lease.Args) (lease.Reply, erro
 	if err != nil {
 		return lease.Reply{}, fmt.Errorf("release: %w", err)
 	}
-	if r.Granted == "" {
-		return r, nil
-	}
-	// A wake that cannot be queued does not undo the grant; the mailbox
-	// logs why.
-	_, _ = s.box.Post(s.ctx, "agentbus", r.Granted, lease.WakeText(args.Checkout, *r.Lease.Holder))
+	s.wake(args.Checkout, r)
 	return r, nil
+}
+
+// wake tells the waiter a release or resume granted the checkout to:
+// an agent by an agentbus message, the user, who has no pane, by a
+// note.
+func (s *server) wake(checkout string, r lease.Reply) {
+	switch r.Granted {
+	case "":
+	case lease.UserHolder:
+		if s.notify != nil {
+			s.notify(lease.PausedNote(checkout))
+		}
+	default:
+		// A wake that cannot be queued does not undo the grant; the
+		// mailbox logs why.
+		_, _ = s.box.Post(s.ctx, "agentbus", r.Granted, lease.WakeText(checkout, *r.Lease.Holder))
+	}
 }
 
 // paneGone reports whether every adapter that answers says handle is
@@ -635,7 +649,7 @@ func (s *server) takeOver(w lease.Watch, reason string) {
 	if tk.FromHeld {
 		_, _ = s.box.Post(s.ctx, "agentbus", tk.From, lease.TakenOverText(w.Checkout, tk.BackupRef))
 	}
-	if tk.To != "" {
+	if tk.To != "" && tk.To != lease.UserHolder {
 		_, _ = s.box.Post(s.ctx, "agentbus", tk.To, lease.AdoptWakeText(w.Checkout, tk.From, tk.BackupRef))
 	}
 	if s.notify != nil {
@@ -690,6 +704,81 @@ func (s *server) adoptCaller(env []string) (string, error) {
 		}
 	}
 	return caller, nil
+}
+
+// leaseUser handles the user's ops: pause, unshare, and resume's begin,
+// abort, and finish. They are refused from a pane that runs an agent.
+func (s *server) leaseUser(req Request, args lease.Args) Response {
+	caller, err := s.adoptCaller(req.Env)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	if caller != lease.UserHolder {
+		verb := strings.TrimPrefix(strings.TrimSuffix(strings.TrimSuffix(req.Op, "-begin"), "-abort"), "lease-")
+		return Response{Error: fmt.Sprintf("lease %s is for the user; %s runs an agent. Run it from a plain terminal pane or outside herdr", verb, caller)}
+	}
+	if req.Op == "lease-pause" || req.Op == "lease-unshare" {
+		if args.With, err = s.withHandles(req.Env, args.With); err != nil {
+			return Response{Error: err.Error()}
+		}
+	}
+	var r lease.Reply
+	switch req.Op {
+	case "lease-pause":
+		if r, err = s.leases.Pause(args); err == nil && r.Asked != "" {
+			// An ask that cannot be queued is logged by the mailbox.
+			_, _ = s.box.Post(s.ctx, "agentbus", r.Asked, lease.PauseAskText(args.Checkout))
+		}
+	case "lease-unshare":
+		r, err = s.leases.Unshare(args)
+	case "lease-resume-begin":
+		r, err = s.leases.BeginResume(args)
+	case "lease-resume-abort":
+		r, err = s.leases.AbortResume(args)
+	default:
+		r, err = s.resumeLease(args)
+	}
+	r.Caller = caller
+	return leaseResponse(r, err)
+}
+
+// resumeLease ends the user's hold and grants and wakes the next live
+// waiter, like releaseLease.
+func (s *server) resumeLease(args lease.Args) (lease.Reply, error) {
+	gone, err := s.goneWaiters(args.Checkout)
+	if err != nil {
+		return lease.Reply{}, err
+	}
+	r, err := s.leases.Resume(args, func(handle string) bool { return gone[handle] })
+	if err != nil {
+		return lease.Reply{}, fmt.Errorf("resume: %w", err)
+	}
+	s.wake(args.Checkout, r)
+	return r, nil
+}
+
+// withHandles resolves pause --with and unshare targets to handles: a
+// registered name, a handle, or a herdr pane id on this machine.
+func (s *server) withHandles(env []string, targets []string) ([]string, error) {
+	out := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if handle, err := s.reg.Resolve(target); err == nil {
+			out = append(out, handle)
+			continue
+		}
+		paneEnv := []string{"HERDR_PANE_ID=" + target}
+		for _, kv := range env {
+			if !strings.HasPrefix(kv, "HERDR_PANE_ID=") && !strings.HasPrefix(kv, "AGENTBUS_AS_HANDLE=") {
+				paneEnv = append(paneEnv, kv)
+			}
+		}
+		handle, _, err := s.reg.WhoAmI(s.ctx, paneEnv)
+		if err != nil {
+			return nil, fmt.Errorf("--with %s is not a registered name, a handle, or an agent pane: %w", target, err)
+		}
+		out = append(out, handle)
+	}
+	return out, nil
 }
 
 func envValue(env []string, key string) string {

@@ -52,6 +52,7 @@ go_test(
         "lease_adopt_test.go",
         "lease_release_test.go",
         "lease_test.go",
+        "lease_user_test.go",
         "main_test.go",
         "prompthook_test.go",
         "queue_test.go",

@@ -78,6 +78,26 @@ adopt [--force]
          recording it, clean, switch to the default branch and pull.
          The lease becomes held by you. status lists the backup refs;
          they are never deleted.
+pause [--with <pane or name>]...
+         the user only (a pane with no agent, or outside herdr; refused
+         from an agent's pane): take the checkout. Free: it is paused,
+         held by "user" with no deadline, never checked in on and never
+         taken over. Held by an agent: you go to the front of the queue
+         and the holder is told "[lease] the user asked for <checkout>;
+         please finish up and release"; the usual check-in rules
+         follow. When it is granted later, decide (if installed) gets
+         a note. --with (repeatable) lets that agent pane (pane id,
+         registered name, or handle) edit under the pause: lease check
+         passes for it, but it cannot release, extend or resume. Pause
+         again to add panes.
+unshare <pane or name>...
+         the user only: take panes off the pause's --with list
+resume [--as-is]
+         the user only: release for the user, with the same clean
+         check, switch and pull; the --with list clears and the next
+         waiter is granted. --as-is skips the switch and pull (a dirty
+         tree is still refused) (default: false). While still queued,
+         resume withdraws the pause.
 
 Every subcommand:
 --path <path>  the checkout (default: the current directory), resolved to
@@ -93,6 +113,19 @@ type leaseFlags struct {
 	why     string
 	all     bool
 	force   bool
+	asIs    bool
+	// with is pause's --with list, or unshare's arguments.
+	with stringList
+}
+
+// stringList is a repeatable string flag.
+type stringList []string
+
+func (l *stringList) String() string { return strings.Join(*l, ",") }
+
+func (l *stringList) Set(v string) error {
+	*l = append(*l, v)
+	return nil
 }
 
 func parseLeaseFlags(sub string, args []string, stderr io.Writer) (leaseFlags, error) {
@@ -112,11 +145,20 @@ func parseLeaseFlags(sub string, args []string, stderr io.Writer) (leaseFlags, e
 		fs.BoolVar(&f.all, "all", false, "every checkout the daemon has seen")
 	case "adopt":
 		fs.BoolVar(&f.force, "force", false, "adopt even when other processes work in the checkout")
+	case "pause":
+		fs.Var(&f.with, "with", "an agent pane or name that may edit under the pause (repeatable)")
+	case "resume":
+		fs.BoolVar(&f.asIs, "as-is", false, "skip the switch to the default branch and the pull")
 	}
 	if err := fs.Parse(args); err != nil {
 		return f, fmt.Errorf("parse flags: %w", err)
 	}
-	if fs.NArg() != 0 {
+	if sub == "unshare" {
+		f.with = fs.Args()
+		if len(f.with) == 0 {
+			return f, errors.New("name a pane or agent to unshare")
+		}
+	} else if fs.NArg() != 0 {
 		return f, errors.New("unexpected arguments")
 	}
 	if (sub == "claim" || sub == "extend") && strings.TrimSpace(f.bid) == "" {
@@ -133,7 +175,7 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 	}
 	sub := args[0]
 	switch sub {
-	case "claim", "extend", "leave", "status", "check", "release", "adopt":
+	case "claim", "extend", "leave", "status", "check", "release", "adopt", "pause", "unshare", "resume":
 	default:
 		fmt.Fprintf(stderr, "agentbus lease: unknown subcommand %q\nrun 'agentbus lease --help' for usage\n", sub)
 		return 2
@@ -159,6 +201,8 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 		return leaseRelease(ctx, f, largs, env, stdout, stderr)
 	case "adopt":
 		return leaseAdopt(ctx, f, largs, env, stdout, stderr)
+	case "resume":
+		return leaseResume(ctx, f, largs, env, stdout, stderr)
 	}
 	resp, code := callDaemon(ctx, env, daemon.Request{Op: "lease-" + sub, Env: env, Lease: &largs}, stderr)
 	if code != 0 {
@@ -207,7 +251,7 @@ func leaseArgs(sub string, f leaseFlags, env []string, stdout, stderr io.Writer)
 		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
 		return lease.Args{}, failed, false
 	}
-	largs := lease.Args{For: f.bid, Urgent: f.urgent, Why: f.why, All: f.all}
+	largs := lease.Args{For: f.bid, Urgent: f.urgent, Why: f.why, All: f.all, With: f.with}
 	if sub != "status" || !f.all {
 		key, code := leaseKey(sub, f, cfg, env, stdout, stderr)
 		if key == "" {
@@ -291,7 +335,18 @@ func printLease(sub string, f leaseFlags, r lease.Reply, env []string, stdout, s
 		}
 		fmt.Fprintln(stdout, line)
 	case lease.ResultQueued:
-		fmt.Fprintf(stdout, "queued, position %d (holder %s)\n", r.Position, holderLabel(s.Holder))
+		line := fmt.Sprintf("queued, position %d (holder %s)", r.Position, holderLabel(s.Holder))
+		if r.Asked != "" {
+			line += "; asked " + r.Asked + " to finish up and release"
+		}
+		fmt.Fprintln(stdout, line)
+		printWith(stdout, s.With)
+	case lease.ResultPaused:
+		fmt.Fprintf(stdout, "paused %s\n", s.Checkout)
+		printWith(stdout, s.With)
+	case lease.ResultUnshared:
+		fmt.Fprintf(stdout, "unshared %s\n", strings.Join(f.with, ", "))
+		printWith(stdout, s.With)
 	case lease.ResultExtended:
 		fmt.Fprintf(stdout, "extended until %s\n", clock(s.Holder.Deadline))
 	case lease.ResultLeft:
@@ -355,6 +410,8 @@ func denyReason(s lease.Status, caller string) string {
 		return s.Checkout + " needs adopt before any change"
 	case s.State == lease.StateNeedsAdopt:
 		return s.Checkout + " needs adopt by " + who(s.Holder.Handle, s.Holder.Name) + "; " + hint
+	case s.Holder.Handle == lease.UserHolder:
+		return s.Checkout + " is paused by the user; " + hint
 	default:
 		return s.Checkout + " is held by " + holderLabel(s.Holder) + "; " + hint
 	}
@@ -391,6 +448,7 @@ func printStatus(w io.Writer, s lease.Status) {
 	if s.BackupRef != "" {
 		fmt.Fprintf(w, "backup: %s\n", s.BackupRef)
 	}
+	printWith(w, s.With)
 	if len(s.Queue) == 0 {
 		return
 	}
@@ -401,6 +459,13 @@ func printStatus(w io.Writer, s lease.Status) {
 			line += ", urgent"
 		}
 		fmt.Fprintln(w, line)
+	}
+}
+
+// printWith prints the panes the user's pause is shared with.
+func printWith(w io.Writer, with []string) {
+	if len(with) > 0 {
+		fmt.Fprintf(w, "with: %s\n", strings.Join(with, ", "))
 	}
 }
 

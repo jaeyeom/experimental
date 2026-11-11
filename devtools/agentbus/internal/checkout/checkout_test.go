@@ -46,6 +46,18 @@ func gitIn(t *testing.T, env []string, dir string, args ...string) {
 	}
 }
 
+func TestBranch(t *testing.T) {
+	env := gitEnv(t)
+	repo := newRepo(t, env)
+	if got, err := Branch(repo, env); err != nil || got != "main" {
+		t.Fatalf("Branch = %q, %v", got, err)
+	}
+	gitIn(t, env, repo, "switch", "-q", "--detach")
+	if got, err := Branch(repo, env); err != nil || got != "detached HEAD" {
+		t.Fatalf("Branch detached = %q, %v", got, err)
+	}
+}
+
 func TestResolve(t *testing.T) {
 	env := gitEnv(t)
 	repo := newRepo(t, env)

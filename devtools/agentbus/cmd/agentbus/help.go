@@ -130,8 +130,8 @@ func commands() []command {
 		},
 		{
 			name:    "lease",
-			summary: "Claim, extend, leave, check, release, or adopt the lease on a guarded checkout; status shows who holds it.",
-			usage:   "agentbus lease <claim|extend|leave|status|check|release|adopt> [flags]",
+			summary: "Claim, extend, leave, check, release, or adopt the lease on a guarded checkout; pause, unshare, or resume it as the user; status shows who holds it.",
+			usage:   "agentbus lease <claim|extend|leave|status|check|release|adopt|pause|unshare|resume> [flags]",
 			flags:   leaseFlagsHelp,
 			example: `agentbus lease claim --for 40m --why "issue 623"`,
 			run:     noStdin(cmdLease),

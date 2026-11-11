@@ -67,7 +67,8 @@ At start agentbusd prints the effective lease_takeover=<mode> to stderr
 and records it in the event log's start event.
 
 When decide is on PATH, a checkout that needs 'agentbus lease adopt' after a
-takeover is put in the user's decide inbox (decide ask --owner agentbus).
+takeover, and a queued 'agentbus lease pause' that is granted, are put in the
+user's decide inbox (decide ask --owner agentbus).
 
 Example:
   agentbusd
