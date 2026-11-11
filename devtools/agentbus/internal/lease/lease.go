@@ -23,8 +23,9 @@ import (
 // State is a checkout's lease state.
 type State string
 
-// Lease states. Paused and Releasing are set by later commands (pause,
-// release); part of the stable status shape.
+// Lease states, part of the stable status shape. Releasing lasts while
+// the holder's release runs its git steps. Paused is set by a later
+// command (pause).
 const (
 	StateFree       State = "free"
 	StateHeld       State = "held"
@@ -46,6 +47,10 @@ const (
 	ResultStatus   = "status"
 	ResultAllowed  = "allowed"
 	ResultDenied   = "denied"
+	// ResultReleasing: the holder's git steps are running.
+	ResultReleasing = "releasing"
+	ResultReleased  = "released"
+	ResultHeld      = "held"
 )
 
 // stateFile is the persisted table in the daemon state directory.
@@ -68,6 +73,9 @@ type Args struct {
 	// Tree is what the CLI found in the checkout's working tree: empty
 	// when clean, else why it needs adopt (dirty, rebase in progress).
 	Tree string `json:"tree,omitempty"`
+	// PullError is why release's git pull failed, when it did. The
+	// release goes ahead; the error is logged with it.
+	PullError string `json:"pullError,omitempty"`
 }
 
 // Reply is the lease part of a daemon response.
@@ -81,6 +89,13 @@ type Reply struct {
 	Lease *Status `json:"lease,omitempty"`
 	// Leases is the status op's answer.
 	Leases []Status `json:"leases,omitempty"`
+	// Granted is the waiter a release handed the checkout to.
+	Granted string `json:"granted,omitempty"`
+	// Skipped are the waiters a release dropped because their pane was
+	// gone.
+	Skipped []string `json:"skipped,omitempty"`
+	// PullError echoes a release's failed pull.
+	PullError string `json:"pullError,omitempty"`
 }
 
 // Status is the stable `lease status --json` shape other tools read.
@@ -294,6 +309,91 @@ func (t *Table) Status(a Args) (Reply, error) {
 		out = append(out, t.view(k, t.doc.Leases[k]))
 	}
 	return Reply{Result: ResultStatus, Leases: out}, nil
+}
+
+// BeginRelease marks the holder's lease releasing while the CLI runs
+// the git steps. Calling it again while releasing is allowed, so a
+// release cut short can be run again.
+func (t *Table) BeginRelease(caller string, a Args) (Reply, error) {
+	return t.holderUpdate(caller, a, func(rec *record) Reply {
+		rec.State = StateReleasing
+		return Reply{Result: ResultReleasing}
+	})
+}
+
+// AbortRelease puts a releasing lease back to held when the git steps
+// could not leave the checkout on the default branch.
+func (t *Table) AbortRelease(caller string, a Args) (Reply, error) {
+	return t.holderUpdate(caller, a, func(rec *record) Reply {
+		if rec.State == StateReleasing {
+			rec.State = StateHeld
+		}
+		return Reply{Result: ResultHeld}
+	})
+}
+
+// Release ends caller's hold and grants the checkout to the first
+// waiter whose pane is not gone, dropping the gone ones. With nobody
+// left the checkout is free. gone runs under the table lock, so it must
+// answer from what the caller already knows.
+func (t *Table) Release(caller string, a Args, gone func(handle string) bool) (Reply, error) {
+	if err := checkCaller(caller); err != nil {
+		return Reply{}, err
+	}
+	return t.update(a.Checkout, func(rec *record, now time.Time) (Reply, []eventlog.Event, error) {
+		if rec.Holder == nil || rec.Holder.Handle != caller {
+			return Reply{}, nil, fmt.Errorf("only the holder can release %s", a.Checkout)
+		}
+		r := Reply{Result: ResultReleased, PullError: a.PullError}
+		events := []eventlog.Event{{Event: eventlog.EventLeaseRelease, Actor: caller, Detail: "released", Reason: a.PullError}}
+		if a.PullError != "" {
+			events[0].Detail = "released; pull failed"
+		}
+		rec.State, rec.Holder = StateFree, nil
+		for len(rec.Queue) > 0 {
+			w := rec.Queue[0]
+			rec.Queue = rec.Queue[1:]
+			if gone(w.Handle) {
+				r.Skipped = append(r.Skipped, w.Handle)
+				events = append(events, eventlog.Event{Event: eventlog.EventLeaseSkip, Actor: w.Handle, Detail: "skipped and dropped from the queue", Reason: "pane gone"})
+				continue
+			}
+			rec.State = StateHeld
+			rec.Holder = &holder{Handle: w.Handle, Since: now, Deadline: now.Add(w.For), For: w.For, Why: w.Why}
+			r.Granted = w.Handle
+			events = append(events, eventlog.Event{Event: eventlog.EventLeaseGrant, Actor: w.Handle, Detail: grantDetail(rec)})
+			break
+		}
+		if len(rec.Queue) == 0 {
+			rec.Queue = nil
+		}
+		return r, events, nil
+	})
+}
+
+// holderUpdate runs change when caller holds the checkout.
+func (t *Table) holderUpdate(caller string, a Args, change func(*record) Reply) (Reply, error) {
+	if err := checkCaller(caller); err != nil {
+		return Reply{}, err
+	}
+	return t.update(a.Checkout, func(rec *record, _ time.Time) (Reply, []eventlog.Event, error) {
+		if rec.Holder == nil || rec.Holder.Handle != caller {
+			return Reply{}, nil, fmt.Errorf("only the holder can release %s", a.Checkout)
+		}
+		return change(rec), nil, nil
+	})
+}
+
+// WakeText is the agentbus message a new holder gets on grant.
+func WakeText(checkout string, h HolderView) string {
+	out := "[lease] granted " + checkout
+	if ts, err := time.Parse(time.RFC3339, h.Deadline); err == nil {
+		out += " until " + ts.Local().Format("15:04")
+	}
+	if h.Why != "" {
+		out += " (for: " + h.Why + ")"
+	}
+	return out + ". Release with: agentbus lease release"
 }
 
 // update runs change on the checkout's record under the lock, records a

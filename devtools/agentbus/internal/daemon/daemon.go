@@ -139,7 +139,7 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	if err != nil {
 		return fmt.Errorf("open leases: %w", err)
 	}
-	srv := &server{ctx: ctx, reg: reg, box: box, log: lg, leases: leases}
+	srv := &server{ctx: ctx, reg: reg, box: box, log: lg, leases: leases, adapters: cfg.Adapters}
 	started := false
 	defer func() {
 		if !started {
@@ -283,6 +283,7 @@ type server struct {
 	box       *mailbox.Mailbox
 	log       *eventlog.Log
 	leases    *lease.Table
+	adapters  []adapter.Adapter
 	hubCaller func(string) (string, error)
 }
 
@@ -448,11 +449,59 @@ func (s *server) lease(req Request) Response {
 	case "lease-check":
 		// A caller herdr cannot name holds nothing.
 		r, err = s.leases.Check(caller, args)
+	case "lease-release-begin":
+		r, err = s.leases.BeginRelease(caller, args)
+	case "lease-release-abort":
+		r, err = s.leases.AbortRelease(caller, args)
+	case "lease-release":
+		r, err = s.releaseLease(caller, args)
 	default:
 		return Response{Error: "unknown op"}
 	}
 	r.Caller = caller
 	return leaseResponse(r, err)
+}
+
+// releaseLease ends caller's hold, grants the next waiter whose pane is
+// not gone, and wakes it with an agentbus message. Pane states are read
+// before the table is locked.
+func (s *server) releaseLease(caller string, args lease.Args) (lease.Reply, error) {
+	st, err := s.leases.Status(lease.Args{Checkout: args.Checkout})
+	if err != nil {
+		return lease.Reply{}, fmt.Errorf("read the lease queue: %w", err)
+	}
+	gone := map[string]bool{}
+	for _, w := range st.Leases[0].Queue {
+		gone[w.Handle] = s.paneGone(w.Handle)
+	}
+	r, err := s.leases.Release(caller, args, func(handle string) bool { return gone[handle] })
+	if err != nil {
+		return lease.Reply{}, fmt.Errorf("release: %w", err)
+	}
+	if r.Granted == "" {
+		return r, nil
+	}
+	// A wake that cannot be queued does not undo the grant; the mailbox
+	// logs why.
+	_, _ = s.box.Post(s.ctx, "agentbus", r.Granted, lease.WakeText(args.Checkout, *r.Lease.Holder))
+	return r, nil
+}
+
+// paneGone reports whether every adapter that answers says handle is
+// gone. An error or an unknown state is not gone.
+func (s *server) paneGone(handle string) bool {
+	answered := false
+	for _, ad := range s.adapters {
+		state, err := ad.State(s.ctx, handle)
+		if err != nil {
+			continue
+		}
+		if state != adapter.StateGone {
+			return false
+		}
+		answered = true
+	}
+	return answered
 }
 
 func leaseResponse(r lease.Reply, err error) Response {

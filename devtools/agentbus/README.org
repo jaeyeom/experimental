@@ -32,7 +32,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~thread <id>~ | Print the chain. |
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
-| ~lease <claim/extend/leave/status/check>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
+| ~lease <claim/extend/leave/status/check/release>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -309,6 +309,7 @@ agentbus lease extend --for 20m
 agentbus lease leave
 agentbus lease status --all
 agentbus lease check --path src/main.go
+agentbus lease release
 #+END_SRC
 
 | Subcommand | What it does |
@@ -318,6 +319,7 @@ agentbus lease check --path src/main.go
 | ~leave~ | Leave the queue. |
 | ~status [--all]~ | Holder, deadline, state, and queue. ~--all~ lists every checkout the daemon has seen. |
 | ~check~ | Exit 0 when you hold the lease or the path is not guarded, 1 with a one-line reason when you do not, 3 when it cannot tell. |
+| ~release~ | Holder only. Leave the checkout clean on the default branch and hand it to the next waiter. See [[*Release]]. |
 
 The queue puts the user first, then ~--urgent~ claims, then the rest,
 each in arrival order. Claiming again as the holder or a waiter keeps
@@ -343,10 +345,39 @@ when the checkout is free. ~name~ is the registered name, or empty.
 
 The daemon keeps lease state in ~leases.json~ in its state directory,
 so a restart keeps holders, queues, and deadlines. Every claim, grant,
-extend, and leave is a ~lease_claim~, ~lease_grant~, ~lease_extend~, or
-~lease_leave~ event in the event log, with the checkout key as its
-name. In hub mode, ~lease~ refuses a guarded path for now; ~check~ on
-an unguarded path still passes.
+extend, leave, release, and skip is a ~lease_claim~, ~lease_grant~,
+~lease_extend~, ~lease_leave~, ~lease_release~, or ~lease_skip~ event
+in the event log, with the checkout key as its name. In hub mode,
+~lease~ refuses a guarded path for now; ~check~ on an unguarded path
+still passes.
+
+** Release
+
+~lease release~ runs its git steps in the CLI, on the checkout's
+machine:
+
+1. Refuse when the tree is dirty (modified, staged, or untracked and
+   not ignored), listing the files. Unpushed commits on a branch are
+   fine.
+2. Refuse when a rebase, merge, cherry-pick, or revert is in progress.
+3. ~git switch~ to the default branch, the one ~origin/HEAD~ points at
+   (set it with ~git remote set-head origin --auto~), then ~git pull
+   --rebase --prune~. A failed pull is reported and the release goes
+   ahead; a pull that stops mid-rebase is aborted so the tree stays
+   clean. A failed switch keeps the lease with you.
+4. Tell the daemon, which grants the next waiter. While the git steps
+   run, the state is ~releasing~.
+
+The daemon grants the first waiter whose pane is not ~gone~ and drops
+the gone ones from the queue. The new holder gets an agentbus message
+from ~agentbus~:
+
+#+BEGIN_SRC text
+[lease] granted local:/home/u/src/repo until 10:40 (for: issue 624). Release with: agentbus lease release
+#+END_SRC
+
+With nobody waiting, the checkout becomes ~free~. A failed pull is
+the ~lease_release~ event's reason.
 
 * Lost messages
 

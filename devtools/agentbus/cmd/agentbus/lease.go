@@ -46,6 +46,14 @@ status [--all]
 check    exit 0 when you hold the lease for --path or --path is not
          guarded, 1 with a one-line reason when you do not, 3 when it
          cannot tell; an unguarded path never contacts the daemon
+release  holder only: refuse a dirty tree (modified, staged, or
+         untracked and not ignored; listed) or a rebase, merge or
+         cherry-pick in progress; unpushed commits are fine. Then
+         switch to the default branch (origin/HEAD) and run git
+         pull --rebase --prune; a failed pull is reported and the
+         release goes ahead. The first waiter whose pane is not gone
+         is granted and woken with an agentbus message; gone waiters
+         are dropped. With nobody waiting the checkout is free.
 
 Every subcommand:
 --path <path>  the checkout (default: the current directory), resolved to
@@ -98,7 +106,7 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 	}
 	sub := args[0]
 	switch sub {
-	case "claim", "extend", "leave", "status", "check":
+	case "claim", "extend", "leave", "status", "check", "release":
 	default:
 		fmt.Fprintf(stderr, "agentbus lease: unknown subcommand %q\nrun 'agentbus lease --help' for usage\n", sub)
 		return 2
@@ -118,6 +126,9 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 	largs, code, ok := leaseArgs(sub, f, env, stdout, stderr)
 	if !ok {
 		return code
+	}
+	if sub == "release" {
+		return leaseRelease(ctx, f, largs, env, stdout, stderr)
 	}
 	resp, code := callDaemon(ctx, env, daemon.Request{Op: "lease-" + sub, Env: env, Lease: &largs}, stderr)
 	if code != 0 {

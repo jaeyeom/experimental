@@ -9,6 +9,9 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["checkout_test.go"],
+    srcs = [
+        "checkout_test.go",
+        "release_test.go",
+    ],
     embed = [":go_default_library"],
 )

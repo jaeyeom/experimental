@@ -10,7 +10,10 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["lease_test.go"],
+    srcs = [
+        "lease_test.go",
+        "release_test.go",
+    ],
     embed = [":go_default_library"],
     deps = ["//devtools/agentbus/internal/eventlog:go_default_library"],
 )
