@@ -520,6 +520,53 @@ func TestLoadGateSignals(t *testing.T) {
 	}
 }
 
+func TestLoadGateIgnoreProcsSplitsOnCommas(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "gate_ignore_procs=a, b ,c\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if want := []string{"a", "b", "c"}; !slices.Equal(got.GateIgnoreProcs, want) {
+		t.Fatalf("GateIgnoreProcs = %#v, want %#v", got.GateIgnoreProcs, want)
+	}
+}
+
+func TestDefaultGateIgnoreProcsCoverStatusLine(t *testing.T) {
+	def := Defaults()
+	for _, want := range []string{"claude-hud", "statusline"} {
+		if !slices.Contains(def.GateIgnoreProcs, want) {
+			t.Fatalf("default GateIgnoreProcs = %#v, want %q", def.GateIgnoreProcs, want)
+		}
+	}
+}
+
+func TestLoadGateJobAgeAndExemptions(t *testing.T) {
+	def := Defaults()
+	if def.GateJobMinAge != 10*time.Second || len(def.GateExemptPanes) != 0 || len(def.GateExemptTabs) != 0 {
+		t.Fatalf("defaults = %s %#v %#v, want 10s and no exemptions", def.GateJobMinAge, def.GateExemptPanes, def.GateExemptTabs)
+	}
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, strings.Join([]string{
+		"gate_job_min_age=1m30s",
+		"gate_exempt_panes=w3:p2, w4:p1",
+		"gate_exempt_tabs=pm*,merger",
+	}, "\n")+"\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.GateJobMinAge != 90*time.Second {
+		t.Fatalf("GateJobMinAge = %s, want 1m30s", got.GateJobMinAge)
+	}
+	if want := []string{"w3:p2", "w4:p1"}; !slices.Equal(got.GateExemptPanes, want) {
+		t.Fatalf("GateExemptPanes = %#v, want %#v", got.GateExemptPanes, want)
+	}
+	if want := []string{"pm*", "merger"}; !slices.Equal(got.GateExemptTabs, want) {
+		t.Fatalf("GateExemptTabs = %#v, want %#v", got.GateExemptTabs, want)
+	}
+}
+
 func TestLoadTeamCover(t *testing.T) {
 	dir := t.TempDir()
 	exclude := filepath.Join(dir, "exclude.txt")
@@ -638,6 +685,9 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad enum", body: "concurrency_wait_on=sometimes\n", key: "concurrency_wait_on"},
 		{name: "bad pending question", body: "gate_pending_question=maybe\n", key: "gate_pending_question"},
 		{name: "bad ignore glob", body: "gate_ignore_procs=[mcp\n", key: "gate_ignore_procs"},
+		{name: "bad job age", body: "gate_job_min_age=soon\n", key: "gate_job_min_age"},
+		{name: "negative job age", body: "gate_job_min_age=-1s\n", key: "gate_job_min_age"},
+		{name: "bad exempt tab glob", body: "gate_exempt_tabs=[pm\n", key: "gate_exempt_tabs"},
 		{name: "zero poll", body: "gate_poll_ms=0\n", key: "gate_poll_ms"},
 		{name: "negative timeout", body: "gate_timeout_ms=-1\n", key: "gate_timeout_ms"},
 		{name: "non integer ms", body: "dispatch_timeout_ms=2s\n", key: "dispatch_timeout_ms"},

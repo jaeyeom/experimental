@@ -17,11 +17,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const gateLong = `Check whether it is safe to start another agent, and print the gate JSON.
+
+An idle tab still holds the gate for a background job (a child of its
+agent at least gate_job_min_age old) or a pending decide question (an
+item for its pane answered but not done, or opened since the round
+started).
+
+Config keys for the gate:
+  gate_ignore_procs       Comma-separated patterns for agent helpers that
+                          are never a background job. Each is checked
+                          against the process name, the argv[0] base, and
+                          the full command line (argv joined by spaces).
+                          A plain pattern matches as a substring; one with
+                          *, ?, or [...] is a glob (* matches /).
+                          Whitespace around entries is trimmed, so a
+                          pattern cannot contain a comma. Example:
+                            gate_ignore_procs = claude-hud, statusline
+                          Each skipped child is listed under "ignored"
+                          with the pattern that matched.
+  gate_job_min_age        Minimum child age for a background job (10s).
+  gate_build_tools        Build-tool names, matched as the whole process
+                          name or argv[0] base (or as globs).
+  gate_build_tool_ignore  Patterns, matched like gate_ignore_procs, for
+                          build processes that never count.
+  gate_pending_question   decide (default) or off.
+  gate_exempt_panes       Pane-id globs the gate never waits on.
+  gate_exempt_tabs        Tab-label globs the gate never waits on, e.g.
+                          pm*,merger. Listed under "exempt".`
+
 func newGateCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	var configPath string
 	cmd := &cobra.Command{
 		Use:   "gate",
 		Short: "Check whether it is safe to start another agent",
+		Long:  gateLong,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runGate(cmd.Context(), stdout, exec, configPath)
@@ -51,13 +81,15 @@ func runGate(ctx context.Context, stdout io.Writer, exec executor.Executor, conf
 }
 
 // gateProbes is what the gate reads beyond herdr agent status: the
-// tab's process tree, the local process table, and the decide ledger.
+// tab's process tree, the local process table, the decide ledger, and
+// the tab labels for gate_exempt_tabs.
 // Tests replace it so they never read real processes.
 var gateProbes = func(exec executor.Executor, h *herdr.Client) dispatch.Probes {
 	return dispatch.Probes{
 		Panes:  h,
 		Procs:  dispatch.NewProcessTable(exec),
 		Decide: dispatch.DecideCLI{Exec: exec, Bin: "decide"},
+		Tabs:   h,
 		Self:   os.Getpid(),
 	}
 }
