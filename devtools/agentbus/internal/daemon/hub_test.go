@@ -10,8 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
 )
 
 func call(t *testing.T, socketPath string, req Request) Response {
@@ -85,5 +88,57 @@ func TestNoHubSocketWithoutHubCaller(t *testing.T) {
 	if conn, err := d.DialContext(ctx, "unix", dirs.HubSocketPath); err == nil {
 		conn.Close()
 		t.Fatal("a daemon without HubCaller listens on the hub socket")
+	}
+}
+
+// A caller on another machine may change leases only on its own
+// machine's checkouts. Read-only ops still see every machine, and local
+// callers keep today's rules.
+func TestHubRefusesARemoteCallersLeaseOnAnotherMachine(t *testing.T) {
+	herdrtest.Install(t).Write("local.agents", `{"result":{"agents":[]}}`)
+	dirs := hubDirs(t)
+	ad := &herdr.Adapter{Machines: []string{"linux2", "laptop"}, Timeout: time.Second}
+	stop := startWith(t, dirs, Config{Adapters: []adapter.Adapter{ad}, HubCaller: herdr.RemoteCaller})
+	defer stop()
+
+	const (
+		linux2 = "herdr:linux2/default/w1:p1"
+		laptop = "herdr:laptop/default/w1:p1"
+	)
+	hub := func(handle, op string, args lease.Args) Response {
+		t.Helper()
+		return call(t, dirs.HubSocketPath, Request{Op: op, Protocol: ProtocolVersion, Handle: handle, Lease: &args})
+	}
+	if resp := hub(laptop, "lease-claim", lease.Args{Checkout: "laptop:/x", For: "40m"}); !resp.OK || resp.Lease.Result != lease.ResultGranted {
+		t.Fatalf("laptop's claim of its own checkout = %+v", resp)
+	}
+	for _, op := range []string{
+		"lease-claim", "lease-extend", "lease-leave",
+		"lease-release-begin", "lease-release-abort", "lease-release",
+		"lease-adopt-begin", "lease-adopt",
+		"lease-pause", "lease-unshare", "lease-resume-begin", "lease-resume-abort", "lease-resume",
+	} {
+		resp := hub(linux2, op, lease.Args{Checkout: "laptop:/x", For: "40m"})
+		if resp.OK || !strings.Contains(resp.Error, "laptop:/x") || !strings.Contains(resp.Error, "machine linux2") {
+			t.Errorf("%s of laptop:/x by linux2 = %+v, want a machine refusal", op, resp)
+		}
+	}
+	if resp := hub(linux2, "lease-claim", lease.Args{Checkout: "linux2:/x", For: "40m"}); !resp.OK || resp.Lease.Result != lease.ResultGranted {
+		t.Fatalf("linux2's claim of its own checkout = %+v", resp)
+	}
+	// check only answers for the caller, so it is not refused.
+	if resp := hub(linux2, "lease-check", lease.Args{Checkout: "laptop:/x"}); !resp.OK || resp.Lease.Result != lease.ResultDenied {
+		t.Fatalf("check of laptop:/x by linux2 = %+v", resp)
+	}
+	if resp := hub(linux2, "lease-status", lease.Args{Checkout: "laptop:/x"}); !resp.OK || resp.Lease.Leases[0].Holder.Handle != laptop {
+		t.Fatalf("status of laptop:/x by linux2 = %+v", resp)
+	}
+	resp := hub(linux2, "lease-status", lease.Args{All: true})
+	if !resp.OK || len(resp.Lease.Leases) != 2 || resp.Lease.Leases[0].Checkout != "laptop:/x" || resp.Lease.Leases[1].Checkout != "linux2:/x" {
+		t.Fatalf("status --all by linux2 = %+v", resp)
+	}
+	// The user on the hub keeps today's rules.
+	if resp := call(t, dirs.SocketPath, Request{Op: "lease-pause", Lease: &lease.Args{Checkout: "laptop:/x"}}); !resp.OK {
+		t.Fatalf("the hub user's pause of laptop:/x = %+v", resp)
 	}
 }

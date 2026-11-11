@@ -363,3 +363,41 @@ func TestLeaseForwardRunsOnTheHubDaemon(t *testing.T) {
 		t.Fatalf("forward of send = %d %q", code, stderr)
 	}
 }
+
+func TestLeaseForwardRefusesAnotherMachinesCheckout(t *testing.T) {
+	h := newHubLeaseWorld(t)
+	// w1:p3 is a plain terminal pane: its caller is the user.
+	plain := strings.Replace(agentsJSON("w1:p1=idle", "w1:p2=idle", "w1:p3=idle"), `"agent":"codex","agent_status":"idle","terminal_title":"title w1:p3"`, `"agent":"","agent_status":"","terminal_title":"title w1:p3"`, 1)
+	h.herdr.Write("linux2.agents", plain)
+	hubEnv := h.startHubDaemon(t)
+	forward := func(handle, req string) daemon.Response {
+		t.Helper()
+		env := append(append([]string{}, hubEnv...), "SSH_CONNECTION=10.0.0.2 5000 10.0.0.1 22", herdr.AsHandleEnv+"="+handle)
+		code, out, stderr := runCmdIn([]string{"lease", "forward"}, env, strings.NewReader(req))
+		if code != 0 {
+			t.Fatalf("forward = %d %q", code, stderr)
+		}
+		var resp daemon.Response
+		if err := json.Unmarshal([]byte(out), &resp); err != nil {
+			t.Fatalf("forward stdout %q: %v", out, err)
+		}
+		return resp
+	}
+	if resp := forward(hubAlice, `{"op":"lease-claim","lease":{"checkout":"laptop:/x","for":"40m"}}`); resp.OK || !strings.Contains(resp.Error, "not on machine linux2") {
+		t.Fatalf("claim of laptop:/x = %+v", resp)
+	}
+	if resp := forward(hubAlice, `{"op":"lease-claim","lease":{"checkout":"linux2:/x","for":"40m"}}`); !resp.OK || resp.Lease.Result != lease.ResultGranted {
+		t.Fatalf("claim of linux2:/x = %+v", resp)
+	}
+	// The user in a plain pane on linux2 is held to linux2's checkouts too.
+	if resp := forward("herdr:linux2/default/w1:p3", `{"op":"lease-pause","lease":{"checkout":"laptop:/x"}}`); resp.OK || !strings.Contains(resp.Error, "not on machine linux2") {
+		t.Fatalf("pause of laptop:/x from a plain pane = %+v", resp)
+	}
+	if resp := forward("herdr:laptop/default/w1:p1", `{"op":"lease-claim","lease":{"checkout":"laptop:/x","for":"40m"}}`); !resp.OK || resp.Lease.Result != lease.ResultGranted {
+		t.Fatalf("laptop's claim of laptop:/x = %+v", resp)
+	}
+	resp := forward(hubAlice, `{"op":"lease-status","lease":{"all":true}}`)
+	if !resp.OK || len(resp.Lease.Leases) != 2 || resp.Lease.Leases[0].Checkout != "laptop:/x" || resp.Lease.Leases[1].Checkout != "linux2:/x" {
+		t.Fatalf("status --all from linux2 = %+v", resp)
+	}
+}
