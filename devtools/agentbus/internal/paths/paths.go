@@ -10,7 +10,13 @@ import (
 // Dirs is where one agentbus instance keeps its socket and state.
 type Dirs struct {
 	SocketPath string
-	StateDir   string
+	// HubSocketPath is where a hub's daemon takes forwarded callers from
+	// other machines. An ssh -L forward points at it.
+	HubSocketPath string
+	// TunnelSocketPath is where a second machine in hub mode finds the
+	// forwarded hub socket.
+	TunnelSocketPath string
+	StateDir         string
 }
 
 // StateDir is $XDG_STATE_HOME/agentbus, or $HOME/.local/state/agentbus when
@@ -41,8 +47,10 @@ func FromEnv(env []string) (Dirs, error) {
 		return Dirs{}, errors.New("XDG_RUNTIME_DIR is not set; the agentbus daemon socket needs it")
 	}
 	return Dirs{
-		SocketPath: filepath.Join(runtime, "agentbus", "daemon.sock"),
-		StateDir:   state,
+		SocketPath:       filepath.Join(runtime, "agentbus", "daemon.sock"),
+		HubSocketPath:    filepath.Join(runtime, "agentbus", "hub.sock"),
+		TunnelSocketPath: filepath.Join(runtime, "agentbus", "tunnel.sock"),
+		StateDir:         state,
 	}, nil
 }
 

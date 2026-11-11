@@ -28,7 +28,9 @@ Flags:
   -h, --help  Print this help.
 
 Environment:
-  XDG_RUNTIME_DIR              required; the socket is $XDG_RUNTIME_DIR/agentbus/daemon.sock
+  XDG_RUNTIME_DIR              required; the socket is $XDG_RUNTIME_DIR/agentbus/daemon.sock,
+                               and callers forwarded from other machines use
+                               $XDG_RUNTIME_DIR/agentbus/hub.sock
   XDG_STATE_HOME               state directory parent (default: $HOME/.local/state)
   XDG_CONFIG_HOME              config directory parent (default: $HOME/.config)
   HOME                         required when XDG_STATE_HOME or XDG_CONFIG_HOME is unset
@@ -91,6 +93,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		RetentionDays: days,
 		Adapters:      []adapter.Adapter{&herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}},
 		InlineBytes:   inline,
+		HubCaller:     herdr.RemoteCaller,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1

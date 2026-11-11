@@ -99,7 +99,13 @@ func (a *Adapter) inventoryOf(ctx context.Context, machine string) ([]adapter.Ag
 // A command that arrived in hub mode carries its caller in
 // AGENTBUS_AS_HANDLE, a handle on another machine. It is trusted only
 // when SSH_CONNECTION shows the command came over ssh.
+//
+// A request on the hub socket carries its caller in ctx, already checked
+// by RemoteCaller. That caller wins over env.
 func (a *Adapter) Identify(ctx context.Context, env []string) (string, error) {
+	if caller, ok := adapter.ForwardedCaller(ctx); ok {
+		return caller, nil
+	}
 	if raw := envValue(env, AsHandleEnv); raw != "" {
 		return hubCaller(env, raw)
 	}
@@ -130,12 +136,22 @@ func hubCaller(env []string, raw string) (string, error) {
 	if envValue(env, "SSH_CONNECTION") == "" {
 		return "", fmt.Errorf("%s is only trusted over ssh, from a hub-mode call", AsHandleEnv)
 	}
+	if _, err := RemoteCaller(raw); err != nil {
+		return "", fmt.Errorf("%s: %w", AsHandleEnv, err)
+	}
+	return raw, nil
+}
+
+// RemoteCaller accepts raw only as herdr:<machine>/<session>/<pane> on
+// a machine other than local: a caller that reached the hub from
+// another machine.
+func RemoteCaller(raw string) (string, error) {
 	machine, _, _, err := parseHandle(raw)
 	if err != nil {
 		return "", err
 	}
 	if machine == localMachine {
-		return "", fmt.Errorf("%s %q must name a remote machine", AsHandleEnv, raw)
+		return "", fmt.Errorf("handle %q must name a remote machine", raw)
 	}
 	return raw, nil
 }

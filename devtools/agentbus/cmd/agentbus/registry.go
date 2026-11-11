@@ -100,6 +100,15 @@ func cmdRelease(ctx context.Context, args, env []string, stdout, stderr io.Write
 }
 
 func callDaemon(ctx context.Context, env []string, req daemon.Request, stderr io.Writer) (daemon.Response, int) {
+	if _, ok := tunnelFrom(ctx); ok {
+		// The hub's daemon: never start or fall back to a local one.
+		resp, err := dialBus(ctx, env, req)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus: hub tunnel: %s\n", err)
+			return daemon.Response{}, 1
+		}
+		return resp, 0
+	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus: %s\n", err)

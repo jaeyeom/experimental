@@ -16,12 +16,12 @@ func TestFromEnv(t *testing.T) {
 		{
 			name: "xdg state home",
 			env:  []string{"XDG_RUNTIME_DIR=/run/user/1", "XDG_STATE_HOME=/var/state"},
-			want: Dirs{SocketPath: "/run/user/1/agentbus/daemon.sock", StateDir: "/var/state/agentbus"},
+			want: Dirs{SocketPath: "/run/user/1/agentbus/daemon.sock", HubSocketPath: "/run/user/1/agentbus/hub.sock", TunnelSocketPath: "/run/user/1/agentbus/tunnel.sock", StateDir: "/var/state/agentbus"},
 		},
 		{
 			name: "home default",
 			env:  []string{"XDG_RUNTIME_DIR=/run/user/1", "HOME=/Users/me"},
-			want: Dirs{SocketPath: "/run/user/1/agentbus/daemon.sock", StateDir: "/Users/me/.local/state/agentbus"},
+			want: Dirs{SocketPath: "/run/user/1/agentbus/daemon.sock", HubSocketPath: "/run/user/1/agentbus/hub.sock", TunnelSocketPath: "/run/user/1/agentbus/tunnel.sock", StateDir: "/Users/me/.local/state/agentbus"},
 		},
 		{
 			name:    "missing runtime",

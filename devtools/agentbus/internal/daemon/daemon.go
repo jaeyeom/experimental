@@ -33,9 +33,18 @@ type Config struct {
 	// InlineBytes is the largest body pasted in full. Zero uses the default.
 	// A longer or unsafe body is stored and delivered as a preview.
 	InlineBytes int
+	// HubCaller checks the caller handle of a request on the hub socket
+	// and returns it. Nil means the daemon does not listen on the hub
+	// socket.
+	HubCaller func(handle string) (string, error)
 }
 
-// Request is one client call. The daemon stamps identity from Env.
+// ProtocolVersion is the request format a hub-socket client must speak.
+// A client on another machine may run a different agentbus build.
+const ProtocolVersion = 1
+
+// Request is one client call. The daemon stamps identity from Env, or,
+// on the hub socket, from Handle.
 type Request struct {
 	Op      string   `json:"op"`
 	Name    string   `json:"name,omitempty"`
@@ -47,6 +56,11 @@ type Request struct {
 	TTL     string   `json:"ttl,omitempty"`
 	Wait    bool     `json:"wait,omitempty"`
 	Session string   `json:"session,omitempty"`
+	// Protocol is the client's ProtocolVersion. The hub socket needs it.
+	Protocol int `json:"protocol,omitempty"`
+	// Handle is the caller on another machine. The hub socket needs it
+	// and ignores Env.
+	Handle string `json:"handle,omitempty"`
 }
 
 // bypassPreview is how many bytes of a SendMessage body a bypass event keeps.
@@ -81,6 +95,8 @@ type Response struct {
 	Rows   []AgentRow   `json:"rows,omitempty"`
 	State  string       `json:"state,omitempty"`
 	Text   string       `json:"text,omitempty"`
+	// Protocol is the daemon's ProtocolVersion on hub-socket replies.
+	Protocol int `json:"protocol,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -116,18 +132,21 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 		return fmt.Errorf("record daemon pid: %w", err)
 	}
 	defer os.Remove(pidPath)
-	if err := os.MkdirAll(filepath.Dir(dirs.SocketPath), 0o755); err != nil {
-		return fmt.Errorf("create socket dir: %w", err)
-	}
-	if err := os.Remove(dirs.SocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove stale socket: %w", err)
-	}
-	ln, err := net.Listen("unix", dirs.SocketPath)
+	ln, err := listen(dirs.SocketPath)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", dirs.SocketPath, err)
+		return err
 	}
 	defer ln.Close()
 	defer os.Remove(dirs.SocketPath)
+	var hubLn net.Listener
+	if cfg.HubCaller != nil && dirs.HubSocketPath != "" {
+		if hubLn, err = listen(dirs.HubSocketPath); err != nil {
+			return err
+		}
+		defer hubLn.Close()
+		defer os.Remove(dirs.HubSocketPath)
+		srv.hubCaller = cfg.HubCaller
+	}
 	if err := lg.Append(eventlog.Event{
 		Event:  eventlog.EventStart,
 		Actor:  "daemon",
@@ -139,20 +158,71 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 
 	go reg.Poll(ctx, cfg.PollInterval)
 	go box.Poll(ctx, cfg.PollInterval)
+	return srv.serve(ctx, ln, hubLn)
+}
+
+// serve handles connections on ln and, when it is not nil, hubLn, one
+// request at a time, until ctx ends.
+func (s *server) serve(ctx context.Context, ln, hubLn net.Listener) error {
+	conns := make(chan accepted)
+	errc := make(chan error, 2)
+	go accept(ctx, ln, false, conns, errc)
+	if hubLn != nil {
+		go accept(ctx, hubLn, true, conns, errc)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case err := <-errc:
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		case c := <-conns:
+			s.handle(c.conn, c.hub)
+		}
+	}
+}
+
+// listen replaces a stale socket at path and listens on it.
+func listen(path string) (net.Listener, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create socket dir: %w", err)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("remove stale socket: %w", err)
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", path, err)
+	}
+	return ln, nil
+}
+
+type accepted struct {
+	conn net.Conn
+	hub  bool
+}
+
+// accept passes each connection on ln to conns until ctx ends.
+func accept(ctx context.Context, ln net.Listener, hub bool, conns chan<- accepted, errc chan<- error) {
 	go func() {
 		<-ctx.Done()
 		ln.Close()
 	}()
-
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("accept: %w", err)
+			errc <- fmt.Errorf("accept: %w", err)
+			return
 		}
-		srv.handle(conn)
+		select {
+		case conns <- accepted{conn: conn, hub: hub}:
+		case <-ctx.Done():
+			conn.Close()
+			return
+		}
 	}
 }
 
@@ -169,20 +239,46 @@ func openState(dir string, cfg Config, lg *eventlog.Log) (*registry.Registry, *m
 }
 
 type server struct {
-	ctx context.Context
-	reg *registry.Registry
-	box *mailbox.Mailbox
-	log *eventlog.Log
+	ctx       context.Context
+	reg       *registry.Registry
+	box       *mailbox.Mailbox
+	log       *eventlog.Log
+	hubCaller func(string) (string, error)
 }
 
-func (s *server) handle(conn net.Conn) {
+func (s *server) handle(conn net.Conn, hub bool) {
 	defer conn.Close()
 	var req Request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		write(conn, Response{Error: "bad request"})
 		return
 	}
-	write(conn, s.dispatch(req, peerPID(conn)))
+	if !hub {
+		write(conn, s.dispatch(req, peerPID(conn)))
+		return
+	}
+	resp := s.forwarded(req, peerPID(conn))
+	resp.Protocol = ProtocolVersion
+	write(conn, resp)
+}
+
+// forwarded serves a request from the hub socket. The caller is the
+// request's Handle, never its Env.
+func (s *server) forwarded(req Request, pid int) Response {
+	if req.Protocol != ProtocolVersion {
+		return Response{Error: fmt.Sprintf("hub daemon speaks protocol %d, this client speaks %d", ProtocolVersion, req.Protocol)}
+	}
+	if req.Handle == "" {
+		return Response{Error: "a request on the hub socket must carry the caller handle"}
+	}
+	caller, err := s.hubCaller(req.Handle)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	req.Env = nil
+	scoped := *s
+	scoped.ctx = adapter.WithForwardedCaller(s.ctx, caller)
+	return scoped.dispatch(req, pid)
 }
 
 func (s *server) dispatch(req Request, pid int) Response {

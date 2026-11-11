@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
 // promptHookTimeout bounds each re-queue call. The daemon may be finishing
@@ -80,13 +79,9 @@ func mergedEnvelopeIDs(prompt string) []string {
 }
 
 func requeue(ctx context.Context, env []string, id, session string) error {
-	dirs, err := paths.FromEnv(env)
-	if err != nil {
-		return fmt.Errorf("the bus is not reachable: %w", err)
-	}
 	callCtx, cancel := context.WithTimeout(ctx, promptHookTimeout)
 	defer cancel()
-	resp, err := dialDaemon(callCtx, dirs.SocketPath, daemon.Request{Op: "requeue", Name: id, Session: session})
+	resp, err := dialBus(callCtx, env, daemon.Request{Op: "requeue", Name: id, Session: session})
 	if err != nil {
 		return errors.New("the bus is not reachable")
 	}

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
 // hookTimeout bounds a bypass record. A down bus returns before this on a refused connect.
@@ -32,13 +31,9 @@ func cmdHook(ctx context.Context, args, env []string, stdin io.Reader, stdout, _
 	if !ok {
 		return 0
 	}
-	dirs, err := paths.FromEnv(env)
-	if err != nil {
-		return 0
-	}
 	callCtx, cancel := context.WithTimeout(ctx, hookTimeout)
 	defer cancel()
-	resp, err := dialDaemon(callCtx, dirs.SocketPath, daemon.Request{
+	resp, err := dialBus(callCtx, env, daemon.Request{
 		Op:      "bypass",
 		Name:    target,
 		Body:    body,

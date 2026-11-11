@@ -57,9 +57,14 @@ func TestServeLogsStartAndStopForALaterReader(t *testing.T) {
 
 func start(t *testing.T, dirs paths.Dirs) func() {
 	t.Helper()
+	return startWith(t, dirs, Config{})
+}
+
+func startWith(t *testing.T, dirs paths.Dirs, cfg Config) func() {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
-	go func() { errc <- Serve(ctx, dirs, Config{}) }()
+	go func() { errc <- Serve(ctx, dirs, cfg) }()
 	deadline := time.Now().Add(2 * time.Second)
 	for ping(dirs.SocketPath) != nil {
 		if time.Now().After(deadline) {
