@@ -13,6 +13,7 @@ go_library(
         "prompthook.go",
         "registry.go",
         "tunnel.go",
+        "tunnelinstall.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbus",
     visibility = ["//visibility:private"],
@@ -49,6 +50,7 @@ go_test(
         "registry_test.go",
         "remote_test.go",
         "tunnel_test.go",
+        "tunnelinstall_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

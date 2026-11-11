@@ -130,7 +130,7 @@ func commands() []command {
 		},
 		{
 			name:    "install",
-			summary: "Install the supervisor and load it.",
+			summary: "Install the supervisor and load it; in hub mode, the tunnel to the hub.",
 			usage:   "agentbus install",
 			example: "agentbus install",
 			run:     noStdin(cmdInstall),

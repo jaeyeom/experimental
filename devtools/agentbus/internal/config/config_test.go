@@ -26,11 +26,12 @@ remote_timeout = "3s"
 func TestParseHub(t *testing.T) {
 	got, err := Parse(`hub = "me@hub"   # ssh target that runs agentbus
 machine = "linux2"
+hub_socket = "/run/user/1000/agentbus/hub.sock"  # on the hub
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Hub != "me@hub" || got.Machine != "linux2" {
+	if got.Hub != "me@hub" || got.Machine != "linux2" || got.HubSocket != "/run/user/1000/agentbus/hub.sock" {
 		t.Fatalf("Parse = %+v", got)
 	}
 }
@@ -59,6 +60,9 @@ func TestParseErrors(t *testing.T) {
 		{"hub = \"-oProxyCommand=x\"\n", "line 1: hub must not start with -"},
 		{"machine = \"local\"\n", "line 1: machine must name this machine, not local"},
 		{"machine = \"a/b\"\n", "line 1: machine must not contain /"},
+		{"hub_socket = \"\"\n", "line 1: hub_socket must be a non-empty string"},
+		{"hub_socket = \"run/hub.sock\"\n", "line 1: hub_socket must be an absolute path"},
+		{"hub_socket = \"/run/a:b.sock\"\n", "line 1: hub_socket must not contain a colon"},
 	} {
 		_, err := Parse(tt.in)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {

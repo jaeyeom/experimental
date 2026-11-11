@@ -14,7 +14,10 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["client_test.go"],
+    srcs = [
+        "client_test.go",
+        "stream_test.go",
+    ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/agentbus/internal/daemon:go_default_library",

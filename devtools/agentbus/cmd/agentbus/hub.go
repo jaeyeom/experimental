@@ -75,10 +75,6 @@ func runOnHub(ctx context.Context, cfg config.Config, args, env []string, stdin 
 	if len(args) > 0 {
 		name = args[0]
 	}
-	if name == "install" {
-		fmt.Fprintf(stderr, "agentbus install: the daemon runs on the hub %s; run agentbus install there\n", cfg.Hub)
-		return 1
-	}
 	call := hubcall.Call{Args: args, Stdout: stdout, Stderr: stderr}
 	// Only these read stdin. ssh would otherwise drain the caller's stdin.
 	if stdinCommands[name] {

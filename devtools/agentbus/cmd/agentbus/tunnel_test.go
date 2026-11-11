@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -192,7 +196,7 @@ func TestTunnelProtocolMismatchFallsBackToSSH(t *testing.T) {
 			var req daemon.Request
 			_ = json.NewDecoder(conn).Decode(&req)
 			got <- req
-			_ = json.NewEncoder(conn).Encode(daemon.Response{Error: "hub daemon speaks protocol 9, this client speaks 1", Protocol: 9})
+			_ = json.NewEncoder(conn).Encode(daemon.Response{Error: "mismatch", Protocol: 9})
 			conn.Close()
 		}
 	}()
@@ -200,7 +204,7 @@ func TestTunnelProtocolMismatchFallsBackToSSH(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("list = %d, stderr %q", code, stderr)
 	}
-	if want := "agentbus: hub daemon speaks protocol 9, this client speaks 1\n"; stderr != want {
+	if want := fmt.Sprintf("agentbus: hub daemon speaks protocol 9, this client speaks %d\n", daemon.ProtocolVersion); stderr != want {
 		t.Fatalf("stderr = %q, want %q", stderr, want)
 	}
 	if args := s.ssh.Lines("agentbus.args"); !slices.Equal(args, []string{"list"}) {
@@ -212,7 +216,7 @@ func TestTunnelProtocolMismatchFallsBackToSSH(t *testing.T) {
 	}
 }
 
-func TestTunnelOnlyCarriesPaneCallsAndDaemonCommands(t *testing.T) {
+func TestTunnelOnlyCarriesPaneCalls(t *testing.T) {
 	s := newTunnelSetup(t)
 	s.startHubDaemon(t)
 	// Outside a herdr pane there is no caller handle for the hub socket.
@@ -223,11 +227,80 @@ func TestTunnelOnlyCarriesPaneCallsAndDaemonCommands(t *testing.T) {
 	if got := s.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"list"}) {
 		t.Fatalf("list outside a pane: hub args = %q", got)
 	}
-	// log reads the hub's event log file, which the tunnel does not carry.
-	if code, _, stderr := s.run(t, s.env, "", "log"); code != 0 {
-		t.Fatalf("log = %d, stderr %q", code, stderr)
+}
+
+func TestTunnelLogReadsTheHubLog(t *testing.T) {
+	s := newTunnelSetup(t)
+	s.startHubDaemon(t)
+	code, stdout, stderr := s.run(t, s.env, "", "log", "--event", "start", "--json")
+	if code != 0 || s.usedSSH() {
+		t.Fatalf("log = %d, stderr %q, ssh %q", code, stderr, s.ssh.Lines("argv"))
 	}
-	if got := s.ssh.Lines("agentbus.args"); !slices.Equal(got, []string{"log"}) {
-		t.Fatalf("log: hub args = %q", got)
+	if lines := strings.Split(strings.TrimSpace(stdout), "\n"); len(lines) != 1 || !strings.Contains(lines[0], `"event":"start"`) {
+		t.Fatalf("log stdout = %q", stdout)
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe to read while a command writes it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n, err := b.buf.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("buffer: %w", err)
+	}
+	return n, nil
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestTunnelLogFollowStreamsWithoutADeadline(t *testing.T) {
+	s := newTunnelSetup(t)
+	s.startHubDaemon(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stdout, stderr syncBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- run(ctx, []string{"log", "--follow", "--event", "bypass"}, s.env, strings.NewReader(""), &stdout, &stderr)
+	}()
+	waitFor := func(what string, ok func() bool) {
+		t.Helper()
+		// Longer than the probe timeout, so a stream with a deadline
+		// would have ended.
+		deadline := time.Now().Add(tunnelProbeTimeout + 2*time.Second)
+		for !ok() {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: stdout %q, stderr %q", what, stdout.String(), stderr.String())
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	time.Sleep(tunnelProbeTimeout + 500*time.Millisecond)
+	// The follow holds its connection; other tunnelled calls still work.
+	if code, _, stderr := s.run(t, s.env, `{"session_id":"s1","tool_input":{"to":"x","message":"hi"}}`, "hook"); code != 0 {
+		t.Fatalf("hook = %d, stderr %q", code, stderr)
+	}
+	waitFor("the bypass did not stream", func() bool { return strings.Contains(stdout.String(), "bypass") })
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("log --follow = %d, stderr %q", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("log --follow did not stop when cancelled")
+	}
+	if s.usedSSH() {
+		t.Fatalf("log --follow ran ssh: %q", s.ssh.Lines("argv"))
 	}
 }

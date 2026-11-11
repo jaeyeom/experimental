@@ -32,7 +32,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~thread <id>~ | Print the chain. |
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
-| ~install~ | Install the supervisor and load it. |
+| ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
 ~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
@@ -186,7 +186,7 @@ machine = "linux2"      # this machine's herdr saved-machine label on the hub
 remote_timeout = "5s"   # ssh connect timeout (default 5s)
 #+end_src
 
-Then every command except ~help~ and ~install-hooks~ runs as
+Then every command except ~help~, ~install~, and ~install-hooks~ runs as
 ~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> agentbus <args>~,
 with each argument quoted. stdout, stderr, and the exit code come back
 unchanged. ~send~ forwards stdin, and reads a ~--file~ path here and
@@ -195,7 +195,8 @@ identify the caller (~register~, ~describe~, ~whoami~, ~release~,
 ~send~, ~reply~) send ~herdr:<machine>/<session>/<pane>~ for this pane
 as ~AGENTBUS_AS_HANDLE~. The hub trusts it only when ~SSH_CONNECTION~
 shows the command came over ssh, and replies go back through
-~herdr --machine <machine>~. ~agentbus install~ and agentbusd refuse.
+~herdr --machine <machine>~. agentbusd refuses to start, and
+~agentbus install~ installs the tunnel below instead of a daemon.
 
 The hub must be reachable without a prompt:
 
@@ -249,29 +250,41 @@ client's environment, so ~AGENTBUS_AS_HANDLE~ plays no part there. The
 local ~daemon.sock~ keeps its rules.
 
 On the second machine, forward that socket to
-~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~ (use the hub's
-~XDG_RUNTIME_DIR~ for the remote side):
+~$XDG_RUNTIME_DIR/agentbus/tunnel.sock~. The client cannot know the
+hub's ~XDG_RUNTIME_DIR~, so name the hub's socket in the config:
+
+#+begin_src toml
+hub_socket = "/run/user/1000/agentbus/hub.sock"  # the hub's $XDG_RUNTIME_DIR/agentbus/hub.sock
+#+end_src
+
+Then run ~agentbus install~ on the second machine. In hub mode it writes
+and loads a tunnel unit instead of a daemon: the launchd job
+~com.agentbus.tunnel~ on macOS, or the systemd user unit
+~agentbus-tunnel.service~ on Linux. Without ~hub_socket~ it refuses and
+says what to set. The unit creates the socket's directory and runs
 
 #+begin_src sh
 ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
   -o StreamLocalBindUnlink=yes -o ServerAliveInterval=30 \
-  -L "$XDG_RUNTIME_DIR/agentbus/tunnel.sock:/run/user/1000/agentbus/hub.sock" hub
+  -L "$XDG_RUNTIME_DIR/agentbus/tunnel.sock:/run/user/1000/agentbus/hub.sock" -- hub
 #+end_src
 
-~StreamLocalBindUnlink=yes~ removes a stale socket left by a dropped
-tunnel before it binds again. Keep it running under your own
-supervisor, such as autossh, launchd, or a systemd user unit;
-~agentbus install~ does not write one yet.
+and starts it again whenever it exits. ~StreamLocalBindUnlink=yes~
+removes a stale socket left by a dropped tunnel before it binds again.
+The ssh path is resolved when you run ~install~, and the unit runs
+without a terminal, so the key must work without a prompt.
 
 While the tunnel socket is there and the hub answers a ping on it in
 this protocol, a command from a herdr pane runs here and sends its
 requests over the socket: ~register~, ~describe~, ~whoami~, ~release~,
-~list~, ~search~, ~send~, ~reply~, ~show~, ~thread~, ~status~, ~hook~,
-and ~prompt-hook~. No ssh login or remote shell starts. Otherwise the
-command uses ssh as above: when the socket is missing or nobody answers
-on it, when the caller is not in a herdr pane, and, after printing the
-version error, when the protocols differ. ~log~ reads the hub's event
-log file, so it always runs over ssh.
+~list~, ~search~, ~send~, ~reply~, ~show~, ~thread~, ~status~, ~log~,
+~hook~, and ~prompt-hook~. No ssh login or remote shell starts. ~log~
+streams the hub's event log from its daemon, and ~log --follow~ and
+~send --wait~ hold their connection without a deadline; the hub daemon
+serves other callers meanwhile. Otherwise the command uses ssh as
+above: when the socket is missing or nobody answers on it, when the
+caller is not in a herdr pane, and, after printing the version error,
+when the protocols differ.
 
 * Lost messages
 

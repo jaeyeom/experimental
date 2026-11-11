@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -84,6 +85,46 @@ func Call(ctx context.Context, socketPath string, req daemon.Request) (daemon.Re
 		return daemon.Response{}, fmt.Errorf("read response: %w", err)
 	}
 	return resp, nil
+}
+
+// Stream sends one request and passes each reply to fn until a reply
+// marks the end. It has no deadline; cancelling ctx is a clean stop. A
+// reply with an error, or a connection that closes before the end, is
+// an error.
+func Stream(ctx context.Context, socketPath string, req daemon.Request, fn func(daemon.Response) error) error {
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("connect to %s: %w", socketPath, err)
+	}
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return fmt.Errorf("write request: %w", err)
+	}
+	dec := json.NewDecoder(conn)
+	for {
+		var resp daemon.Response
+		if err := dec.Decode(&resp); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if errors.Is(err, io.EOF) {
+				return errors.New("the daemon closed the stream")
+			}
+			return fmt.Errorf("read response: %w", err)
+		}
+		if resp.Error != "" {
+			return errors.New(resp.Error)
+		}
+		if resp.End {
+			return nil
+		}
+		if err := fn(resp); err != nil {
+			return err
+		}
+	}
 }
 
 func startDetached(bin string, env []string) error {
