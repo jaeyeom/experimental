@@ -469,29 +469,66 @@ func (m *Model) beginChord() {
 	m.chordSeq++
 }
 
-func (m *Model) finishChord(r rune) (bool, error) {
-	m.chord = false
-	switch r {
-	case 'i':
-		return false, m.showFolder(0)
-	case 'z':
-		return false, m.showFolder(snoozedFolder)
-	case 'a':
-		return false, m.showFolder(2)
-	case 'd':
-		return false, m.showFolder(3)
-	case 'w':
-		return false, m.showFolder(4)
-	case 's':
-		return false, m.showStatus()
-	case 'g':
+// goToChord is one second key after g. The table drives finishChord, the
+// footer menu, and the ? help line, so the three cannot drift.
+type goToChord struct {
+	key  rune
+	name string
+	run  func(m *Model) error
+}
+
+var goToChords = []goToChord{
+	{'i', "inbox", func(m *Model) error { return m.showFolder(0) }},
+	{'z', "snoozed", func(m *Model) error { return m.showFolder(snoozedFolder) }},
+	{'a', "answered", func(m *Model) error { return m.showFolder(2) }},
+	{'d', "done", func(m *Model) error { return m.showFolder(3) }},
+	{'w', "withdrawn", func(m *Model) error { return m.showFolder(4) }},
+	{'s', "status", func(m *Model) error { return m.showStatus() }},
+	{'g', "top", func(m *Model) error {
 		if m.mode == modeList || m.mode == modeStatus {
 			m.jumpList(0)
 		}
-		return false, nil
-	default:
+		return nil
+	}},
+}
+
+// goToMenu is the footer while a g chord is pending. When the full menu is
+// wider than width, it keeps only the keys. A width of 0 means unmeasured.
+func goToMenu(width int) string {
+	names := make([]string, len(goToChords))
+	keys := make([]string, len(goToChords))
+	for i, c := range goToChords {
+		keys[i] = string(c.key)
+		names[i] = keys[i] + " " + c.name
+	}
+	wide := "go to: " + strings.Join(names, " · ") + " · esc cancel"
+	if width <= 0 || lipgloss.Width(wide) <= width {
+		return wide
+	}
+	return "go to: " + strings.Join(keys, " ")
+}
+
+// goToHelp is the ? help line for the g chords.
+func goToHelp() string {
+	names := make([]string, len(goToChords))
+	for i, c := range goToChords {
+		names[i] = string(c.key) + " " + c.name
+	}
+	return "g then " + strings.Join(names, ", ")
+}
+
+func (m *Model) finishChord(r rune) (bool, error) {
+	m.chord = false
+	if r == '\x1b' {
 		return false, nil
 	}
+	for _, c := range goToChords {
+		if c.key == r {
+			return false, c.run(m)
+		}
+	}
+	m.status = "unknown go-to key"
+	return false, nil
 }
 
 func (m *Model) expireChord(seq int) {
@@ -1108,7 +1145,7 @@ func (m *Model) statusLine() screenLine {
 		return screenLine{text: label + snoozeHint}
 	}
 	if m.chord {
-		return screenLine{text: "g…  " + strings.TrimRight(label, " ")}
+		return screenLine{text: goToMenu(m.contentWidth())}
 	}
 	status := m.footerStatus()
 	if kind, ok := m.composerKind(); ok {
@@ -1125,10 +1162,10 @@ func (m *Model) statusLine() screenLine {
 		}
 		return screenLine{text: status + "  " + hint}
 	}
-	hint := label + "gi/ga/gd/gw/gs  o open  u list  c  tab/text/[Send]  ? help"
+	hint := label + "g go to  o open  u list  c  tab/text/[Send]  ? help"
 	switch m.mode {
 	case modeStatus:
-		hint = label + "gi/ga/gd/gw/gs  u list  c  tab/text/[Send]  ? help"
+		hint = label + "g go to  u list  c  tab/text/[Send]  ? help"
 	case modeDetail, modeOutcome:
 		hint = label + "0 reply  f forward  u list  e/y archive  j/k up/down pgup/pgdn home/end  n/p  ? help"
 	}
@@ -1140,8 +1177,8 @@ func (m *Model) statusLine() screenLine {
 }
 
 // withOptionalHints adds d outcome in an open item, then /find, then
-// b snooze, before "? help" while each fits, so a narrow footer keeps
-// "? help".
+// b snooze, then g go to in an open item, before "? help" while each fits,
+// so a narrow footer keeps "? help".
 func (m *Model) withOptionalHints(text string) string {
 	extras := []string{"/find", "b snooze"}
 	switch m.mode {
@@ -1149,6 +1186,7 @@ func (m *Model) withOptionalHints(text string) string {
 		extras = extras[:1]
 	case modeDetail, modeOutcome:
 		extras = append([]string{"d outcome"}, extras...)
+		extras = append(extras, "g go to")
 	}
 	for _, extra := range extras {
 		wide := strings.TrimSuffix(text, "? help") + extra + "  ? help"
@@ -2065,7 +2103,7 @@ func (m *Model) helpLines() []screenLine {
 		"shortcuts",
 		"q quit",
 		"j/k move  pgup/pgdn  home/end  gg/G",
-		"g then i inbox, z snoozed, a answered, d done, w withdrawn, s status",
+		goToHelp(),
 		"o or enter opens    u returns to the list",
 		"c compose",
 		"tab moves recipient, text, [Send]",
@@ -2089,7 +2127,7 @@ func (m *Model) helpLines() []screenLine {
 			"shortcuts",
 			"q quit",
 			"j/k move  pgup/pgdn  home/end  gg/G",
-			"g then i inbox, z snoozed, a answered, d done, w withdrawn, s status",
+			goToHelp(),
 			"u returns to the list",
 			"c compose",
 			"tab moves recipient, text, [Send]",
