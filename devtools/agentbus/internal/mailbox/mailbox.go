@@ -117,6 +117,19 @@ func (m *Mailbox) Send(ctx context.Context, env []string, peerPID int, target, b
 		return Result{}, errors.New("message body is required")
 	}
 	from, replyable := m.stamp(ctx, env, peerPID)
+	return m.send(ctx, from, replyable, target, body, opt)
+}
+
+// Post queues a message the daemon itself sends, such as a lease grant.
+// from names the sender; the message has no reply address.
+func (m *Mailbox) Post(ctx context.Context, from, target, body string) (Result, error) {
+	if body == "" {
+		return Result{}, errors.New("message body is required")
+	}
+	return m.send(ctx, from, false, target, body, Options{})
+}
+
+func (m *Mailbox) send(ctx context.Context, from string, replyable bool, target, body string, opt Options) (Result, error) {
 	handle, err := m.reg.Resolve(target)
 	if err != nil {
 		if logErr := m.logEvent(eventlog.Event{

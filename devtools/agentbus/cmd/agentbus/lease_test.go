@@ -19,15 +19,20 @@ const (
 	leaseAlice = "herdr:local/default/w1:p1"
 	leaseBob   = "herdr:local/default/w1:p2"
 	leaseCarol = "herdr:local/default/w1:p3"
+	// leaseDave's pane identifies as a caller, but herdr reports it gone.
+	leaseDave = "herdr:local/default/w1:p4"
 )
 
-// leaseWorld is a temp git repo listed in lease_checkouts, a fake herdr
-// with three panes, and the env to run agentbus as each pane.
+// leaseWorld is a temp git repo listed in lease_checkouts with a temp
+// bare origin, a fake herdr with three live panes and a gone one, and
+// the env to run agentbus as each pane.
 type leaseWorld struct {
-	repo string
-	base []string
-	dirs paths.Dirs
-	cfg  daemon.Config
+	repo   string
+	origin string
+	base   []string
+	dirs   paths.Dirs
+	cfg    daemon.Config
+	ad     *fake.Adapter
 }
 
 func newLeaseWorld(t *testing.T) *leaseWorld {
@@ -61,6 +66,12 @@ func newLeaseWorld(t *testing.T) *leaseWorld {
 	writeFile(t, filepath.Join(repo, "a.txt"), []byte("a\n"))
 	git("add", "a.txt")
 	git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init")
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	git("clone", "-q", "--bare", repo, origin)
+	git("remote", "add", "origin", origin)
+	git("fetch", "-q", "origin")
+	git("remote", "set-head", "origin", "main")
+	git("branch", "-q", "--set-upstream-to", "origin/main")
 	writeFile(t, filepath.Join(configHome, "agentbus", "config.toml"), []byte(`lease_checkouts = ["`+repo+`"]`+"\n"))
 
 	dirs, err := paths.FromEnv(base)
@@ -74,14 +85,21 @@ func newLeaseWorld(t *testing.T) *leaseWorld {
 			leaseBob:   adapter.StateWorking,
 			leaseCarol: adapter.StateWorking,
 		},
-		PaneHandles: map[string]string{"p1": leaseAlice, "p2": leaseBob, "p3": leaseCarol},
+		Result: map[string]adapter.Result{
+			leaseAlice: adapter.ResultAccepted,
+			leaseBob:   adapter.ResultAccepted,
+			leaseCarol: adapter.ResultAccepted,
+		},
+		PaneHandles: map[string]string{"p1": leaseAlice, "p2": leaseBob, "p3": leaseCarol, "p4": leaseDave},
 	}
 	now := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
 	return &leaseWorld{
-		repo: repo,
-		base: base,
-		dirs: dirs,
-		cfg:  daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour, Now: func() time.Time { return now }},
+		repo:   repo,
+		origin: origin,
+		base:   base,
+		dirs:   dirs,
+		cfg:    daemon.Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour, Now: func() time.Time { return now }},
+		ad:     ad,
 	}
 }
 
@@ -273,7 +291,7 @@ func TestLeaseHelp(t *testing.T) {
 	if code := cmdLease(context.Background(), nil, helpEnv, &stdout, &stdout); code != 0 {
 		t.Fatalf("lease = %d", code)
 	}
-	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all]", "check", "--path", "--json"} {
+	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all]", "check", "release", "origin/HEAD", "pull --rebase --prune", "--path", "--json"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("lease help is missing %q", want)
 		}

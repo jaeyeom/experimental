@@ -1,6 +1,6 @@
-// Package checkout answers the git questions the lease asks on the
-// checkout's machine: which guarded checkout a path belongs to, and
-// whether its working tree is clean.
+// Package checkout runs the lease's git work on the checkout's machine:
+// which guarded checkout a path belongs to, whether its working tree is
+// clean, and release's switch to the default branch and pull.
 package checkout
 
 import (
@@ -16,8 +16,12 @@ import (
 	"time"
 )
 
-// gitTimeout bounds each git call.
-const gitTimeout = 10 * time.Second
+// gitTimeout bounds each local git call. pullTimeout bounds the pull,
+// which talks to the remote.
+const (
+	gitTimeout  = 10 * time.Second
+	pullTimeout = 2 * time.Minute
+)
 
 // Resolve returns the guarded checkout that path belongs to, or "" when
 // path is outside every guarded checkout. A path outside every guarded
@@ -119,12 +123,46 @@ func Inspect(root string, env []string) (Tree, error) {
 	return tree, nil
 }
 
+// SwitchDefault switches root to the default branch, the one
+// origin/HEAD points at, and returns its name.
+func SwitchDefault(root string, env []string) (string, error) {
+	out, err := git(env, root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", fmt.Errorf("find the default branch from origin/HEAD (set it with git remote set-head origin --auto): %w", err)
+	}
+	branch := strings.TrimPrefix(strings.TrimSpace(out), "origin/")
+	if _, err := git(env, root, "switch", "--quiet", branch); err != nil {
+		return "", err
+	}
+	return branch, nil
+}
+
+// Pull runs git pull --rebase --prune on the current branch. When the
+// pull stops in a rebase, the rebase is aborted so the tree stays clean.
+func Pull(root string, env []string) error {
+	_, err := gitWithin(pullTimeout, env, root, "pull", "--quiet", "--rebase", "--prune")
+	if err == nil {
+		return nil
+	}
+	if tree, inspectErr := Inspect(root, env); inspectErr == nil && tree.Operation == "rebase" {
+		if _, abortErr := git(env, root, "rebase", "--abort"); abortErr != nil {
+			return errors.Join(err, abortErr)
+		}
+	}
+	return err
+}
+
 func git(env []string, dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	return gitWithin(gitTimeout, env, dir, args...)
+}
+
+func gitWithin(timeout time.Duration, env []string, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...) //nolint:gosec // G204: fixed git binary, no shell
-	// Status must not take the index lock another process may hold.
-	cmd.Env = append(append([]string{}, env...), "GIT_OPTIONAL_LOCKS=0")
+	// Status must not take the index lock another process may hold, and
+	// a pull must not wait on a credential prompt.
+	cmd.Env = append(append([]string{}, env...), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
