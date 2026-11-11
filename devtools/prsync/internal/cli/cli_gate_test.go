@@ -12,9 +12,27 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
+
+func TestGateHelpListsDefaultIgnoreProcs(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"gate", "--help"}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want 0, stderr=%q", code, stderr.String())
+	}
+	help := strings.Join(strings.Fields(stdout.String()), " ")
+	for _, want := range []string{
+		"replaces the defaults",
+		strings.Join(config.Defaults().GateIgnoreProcs, ","),
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("gate --help missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
 
 func TestGateSafeWhenIdle(t *testing.T) {
 	ghBin, herdrBin := fixtureBins(t)

@@ -67,12 +67,15 @@
 # patterns (whitespace trimmed; a pattern cannot hold a comma), checked
 # against the process name, the argv[0] base, and the full command
 # line. A plain pattern matches as a substring anywhere in one of them;
-# one with *, ?, or [...] is a glob (* matches /). For example:
-#   gate_ignore_procs = claude-hud, statusline
+# one with *, ?, or [...] is a glob (* matches /). Setting
+# gate_ignore_procs replaces the defaults below (shown by
+# `prsync gate --help`); to add a pattern, uncomment the line and append
+# it. claude-http- and *UNIX-LISTEN:*claude-*.sock* cover Claude Code's
+# sandbox socat bridges.
 # Matched children are listed under "ignored" in `prsync gate` output.
 # gate_build_tools are whole names (or globs) of the process name or
 # argv[0] base, not substrings.
-# gate_ignore_procs=caffeinate,gopls,rust-analyzer,clangd,pyright*,*language-server*,*langserver*,*mcp-server*,*mcp_server*,*modelcontextprotocol*,*-mcp,*-mcp *,statusline,status-line,claude-hud
+# gate_ignore_procs=caffeinate,gopls,rust-analyzer,clangd,pyright*,*language-server*,*langserver*,*mcp-server*,*mcp_server*,*modelcontextprotocol*,*-mcp,*-mcp *,statusline,status-line,claude-hud,claude-http-,*UNIX-LISTEN:*claude-*.sock*
 # gate_job_min_age=10s
 # gate_build_tools=bazel,bazelisk,make,go,cargo,gradle,npm,pnpm
 # gate_build_tool_ignore=*--workspace_directory=*,*A-server.jar*,*--server*

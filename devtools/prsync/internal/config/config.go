@@ -269,12 +269,15 @@ func Defaults() Config {
 }
 
 // defaultGateIgnoreProcs are an agent's usual helpers: long-lived
-// servers, and the status-line command it reruns on each UI refresh.
+// servers, the status-line command it reruns on each UI refresh, and
+// the Claude Code sandbox's socat bridges (claude-http-<hex>.sock and
+// other claude-<kind>-<hex>.sock), which live as long as the session.
 var defaultGateIgnoreProcs = []string{
 	"caffeinate", "gopls", "rust-analyzer", "clangd", "pyright*",
 	"*language-server*", "*langserver*",
 	"*mcp-server*", "*mcp_server*", "*modelcontextprotocol*", "*-mcp", "*-mcp *",
 	"statusline", "status-line", "claude-hud",
+	"claude-http-", "*UNIX-LISTEN:*claude-*.sock*",
 }
 
 // Load applies search order, then Validate.

@@ -175,6 +175,49 @@ func TestIgnorePatternSubstringAndGlob(t *testing.T) {
 	}
 }
 
+func TestSandboxBridgeDefaultIgnore(t *testing.T) {
+	t.Parallel()
+
+	bridge := aged(proc(4242, agentPID, "socat", "UNIX-LISTEN:/tmp/claude/claude-http-abc.sock,fork", "TCP:localhost:1"), 5*time.Hour)
+	procs := &fakeProcs{lists: [][]Process{append(baseProcs(), bridge)}}
+	ctx := WithProbes(context.Background(), Probes{Panes: agentPane("w3:p2"), Procs: procs})
+	h := &scriptHerdr{lists: [][]herdr.Agent{{idleAgent("w3:p2", "w3:t2")}}}
+	policy := gatePolicyFrom(signalCfg(""), "", nil)
+	run := &gateRun{waitLoop: true}
+	for i := range 2 {
+		got, err := snapshot(ctx, h, policy, run)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Safe {
+			t.Fatalf("sample %d = %+v, want the sandbox bridge ignored", i, got)
+		}
+		if len(got.Ignored) != 1 || got.Ignored[0].Pattern != "claude-http-" {
+			t.Fatalf("sample %d ignored = %+v, want pattern claude-http-", i, got.Ignored)
+		}
+	}
+}
+
+func TestSandboxBridgeGlobCoversOtherKinds(t *testing.T) {
+	t.Parallel()
+
+	p := proc(4242, agentPID, "socat", "UNIX-LISTEN:/tmp/claude/claude-socks-abc.sock,fork", "TCP:localhost:1")
+	if pattern, ok := matchingPattern(signalCfg("").GateIgnoreProcs, p); !ok || pattern != "*UNIX-LISTEN:*claude-*.sock*" {
+		t.Fatalf("matchingPattern = %q, %v, want the sandbox bridge glob", pattern, ok)
+	}
+}
+
+func TestUnrelatedSocatStillCounts(t *testing.T) {
+	t.Parallel()
+
+	job := aged(proc(4242, agentPID, "socat", "TCP-LISTEN:8080,fork", "TCP:localhost:9090"), 5*time.Hour)
+	procs := &fakeProcs{lists: [][]Process{append(baseProcs(), job)}}
+	got := gateWith(t, Probes{Panes: agentPane("w3:p2"), Procs: procs}, signalCfg(""), idleAgent("w3:p2", "w3:t2"))
+	if got.Safe || len(got.Busy) != 1 || got.Busy[0].Signal != SignalBackgroundJob || len(got.Ignored) != 0 {
+		t.Fatalf("result = %+v, want an unrelated socat to hold", got)
+	}
+}
+
 func TestPendingQuestionParkedItemIsFree(t *testing.T) {
 	t.Parallel()
 

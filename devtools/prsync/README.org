@@ -173,7 +173,7 @@ Environment variables are not expanded.
 | ~concurrency_cwd~ | ~any~ | ~any~ does not look at directories. ~checkout~ counts an agent only when its ~cwd~ or ~foreground_cwd~ is inside the checkout of the repo being dispatched. The runner pane stays excluded. |
 | ~gate_poll_ms~ | ~2000~ | Poll interval for the concurrency gate and post-send settle. |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4). |
-| ~gate_ignore_procs~ | MCP and language servers, ~caffeinate~, status-line commands (~statusline~, ~status-line~, ~claude-hud~) | Comma-separated patterns for an agent's own helpers; see [[*Process patterns][Process patterns]]. A matching child and its children are not a ~background-job~, and are listed under ~ignored~ in the gate JSON. Empty = every child counts. Example: ~gate_ignore_procs = claude-hud, statusline~. See [[*Busy signals][Busy signals]]. |
+| ~gate_ignore_procs~ | MCP and language servers, ~caffeinate~, status-line commands (~statusline~, ~status-line~, ~claude-hud~), Claude Code sandbox bridges (~claude-http-~, ~*UNIX-LISTEN:*claude-*.sock*~); full list in [[*Process patterns][Process patterns]] | Comma-separated patterns for an agent's own helpers; see [[*Process patterns][Process patterns]]. A matching child and its children are not a ~background-job~, and are listed under ~ignored~ in the gate JSON. Setting the key replaces the defaults, so copy them to add one. Empty = every child counts. See [[*Busy signals][Busy signals]]. |
 | ~gate_job_min_age~ | ~10s~ | A child younger than this (a Go duration such as ~30s~ or ~2m~) is not a ~background-job~. |
 | ~gate_build_tools~ | ~bazel,bazelisk,make,go,cargo,gradle,npm,pnpm~ | Comma-separated build-tool client names for ~build-tool~. A name matches the whole process name or ~argv[0]~ base (a glob with ~*~, ~?~, or ~[~ also works); it is not a substring, so ~go~ does not match ~gopls~. Empty turns the signal off. |
 | ~gate_build_tool_ignore~ | ~*--workspace_directory=*,*A-server.jar*,*--server*~ | Patterns, matched like ~gate_ignore_procs~, for build processes that never count: long-lived build servers that keep the workspace path in ~argv~ while idle. |
@@ -815,10 +815,20 @@ joined with spaces).
   ~?~ one character, and ~[...]~ a class (~[!...]~ negated).
   ~claude-hu?~ and ~*claude-hud*~ both match the command above.
 
-To add a helper, append it to the defaults, for example
-~gate_ignore_procs = gopls, *mcp-server*, claude-hud, my-statusline~,
-then run ~prsync gate~: the process should appear under ~ignored~ with
-your pattern.
+Setting ~gate_ignore_procs~ replaces the default list; it does not
+add to it. The defaults (also printed by ~prsync gate --help~) are:
+
+#+BEGIN_EXAMPLE
+gate_ignore_procs = caffeinate,gopls,rust-analyzer,clangd,pyright*,*language-server*,*langserver*,*mcp-server*,*mcp_server*,*modelcontextprotocol*,*-mcp,*-mcp *,statusline,status-line,claude-hud,claude-http-,*UNIX-LISTEN:*claude-*.sock*
+#+END_EXAMPLE
+
+~claude-http-~ and ~*UNIX-LISTEN:*claude-*.sock*~ cover the ~socat~
+bridges Claude Code's sandbox runs for the whole session, such as
+~socat UNIX-LISTEN:/tmp/claude/claude-http-<hex>.sock,fork,reuseaddr TCP:localhost:<port>~.
+
+To add a helper, copy that line into your config and append your
+pattern, then run ~prsync gate~: the process should appear under
+~ignored~ with your pattern.
 
 ~build-tool~ holds the dispatch checkout rather than a tab: a
 build-tool client from ~gate_build_tools~, anywhere on the machine,
