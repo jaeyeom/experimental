@@ -32,7 +32,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~thread <id>~ | Print the chain. |
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
-| ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
+| ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -297,7 +297,7 @@ top-levels that need the lease, in its config:
 lease_checkouts = ["/home/u/src/repo"]
 #+END_SRC
 
-Every ~lease~ subcommand takes ~--path~ (default: the current
+Every ~lease~ subcommand but ~hook~ and ~install-hook~ takes ~--path~ (default: the current
 directory, resolved to its git top-level) and ~--json~. The checkout
 key is ~<machine>:<git top-level>~, such as ~local:/home/u/src/repo~.
 A path outside every guarded checkout, or in a separate repository or
@@ -314,6 +314,7 @@ agentbus lease adopt
 agentbus lease pause --with w1:p2
 agentbus lease unshare w1:p2
 agentbus lease resume --as-is
+agentbus lease install-hook
 #+END_SRC
 
 | Subcommand | What it does |
@@ -328,6 +329,8 @@ agentbus lease resume --as-is
 | ~pause [--with <pane or name>]...~ | The user only. Take the checkout, or go to the front of the queue and ask the holder to release. See [[*User pause and resume]]. |
 | ~unshare <pane or name>...~ | The user only. Take panes off the pause's ~--with~ list. |
 | ~resume [--as-is]~ | The user only. Release for the user. |
+| ~hook~ | The Claude Code ~PreToolUse~ hook. See [[*Enforcement hook]]. |
+| ~install-hook [--write]~ | Print the hook and its settings entry; ~--write~ installs them. |
 
 The queue puts the user first, then ~--urgent~ claims, then the rest,
 each in arrival order. Claiming again as the holder or a waiter keeps
@@ -558,6 +561,63 @@ mistakes; it is not security.
 Pauses, resumes, ~--with~, and unshares are ~lease_pause~,
 ~lease_resume~, ~lease_with~, and ~lease_unshare~ events. The ~with~
 list is kept in ~leases.json~.
+
+** Enforcement hook
+
+~agentbus lease hook~ is a Claude Code ~PreToolUse~ hook that refuses
+changes to a guarded checkout from a pane that does not hold its lease.
+You install it; no command edits your Claude Code settings on its own.
+~agentbus lease install-hook~ prints the script and the settings entry
+and writes nothing. ~agentbus lease install-hook --write~ saves the
+script as ~~/.claude/hooks/agentbus-lease.sh~ and adds this entry to
+~hooks.PreToolUse~ in ~~/.claude/settings.json~, once:
+
+#+BEGIN_SRC json
+{"matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+ "hooks": [{"type": "command", "command": "/home/u/.claude/hooks/agentbus-lease.sh"}]}
+#+END_SRC
+
+What it checks:
+
+- ~Edit~, ~Write~, ~MultiEdit~, and ~NotebookEdit~ on a file inside a
+  guarded checkout.
+- ~Bash~ that runs a git command that changes a checkout: ~checkout~,
+  ~switch~, ~commit~, ~merge~, ~rebase~, ~reset~, ~stash~ (not ~stash
+  list~ or ~show~), ~pull~, ~cherry-pick~, ~revert~, ~am~, ~apply~,
+  ~clean~, ~restore~, ~rm~, ~mv~, ~add~, ~tag~ (not a bare or ~-l~
+  listing), ~branch -d/-D/-m~ (and ~-M~, ~-c~, ~-C~, ~-f~), and
+  ~worktree~ (not ~worktree list~), in the tool's working directory, a
+  ~cd~ or ~pushd~ target, or a ~git -C~, ~--work-tree~, or ~--git-dir~
+  target. The reading is conservative: it splits at ~;~, ~&&~, ~||~,
+  ~|~, ~&~, parentheses, backticks, and newlines, skips ~NAME=value~,
+  ~env~, ~command~, ~exec~, ~nohup~, and ~time~, and reads ~sh -c~ and
+  ~bash -c~ scripts. A git command after a ~cd~ counts in both the
+  ~cd~ target and the starting directory, since a ~cd~ in a pipe or
+  subshell does not last. Read-only git (~status~, ~log~, ~diff~,
+  ~show~, ~fetch~, ...) and any other program pass.
+
+A matched call runs the ~lease check~ logic. When the caller does not
+hold the lease (and is not on the user's ~--with~ list), the call is
+denied with the reason and the hint ~agentbus lease claim --for
+<duration>~. A ~needs-adopt~ checkout is denied to everyone, the
+adopter too, until ~agentbus lease adopt~ succeeds.
+
+It is fast and fails open:
+
+- A path outside every guarded checkout is decided from the local
+  config, with no daemon call.
+- "You hold it" is cached for 30 seconds per pane and checkout in
+  ~$XDG_RUNTIME_DIR/agentbus/lease-cache~. The daemon drops a
+  checkout's cache on ~release~, ~resume~, ~unshare~, and takeover. A
+  denial is never cached.
+- When agentbusd does not answer within 3 seconds, the call is allowed
+  with ~agentbus lease hook: ...; allowing~ on stderr. The hook never
+  starts the daemon. In hub mode it also allows, with a warning, until
+  the lease works in hub mode.
+
+Not covered, by design: ~sed -i~ and other in-place edits by programs,
+shell redirects (~>~, ~>>~, ~tee~), and editors you run yourself. The
+hook guards Claude Code's edit tools and git, not every write.
 
 * Lost messages
 
