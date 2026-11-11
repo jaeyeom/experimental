@@ -40,7 +40,8 @@ merge these PRs and optionally delete the source branch after merging.
   gh-merge queue acme/widgets#12
 
   # A stack whose enqueue answer requires the async API also queues pull
-  # requests below it. That needs an explicit flag.
+  # requests below it. That needs an explicit flag, unless the pull request
+  # targets the default branch and no open pull request is below it.
   gh-merge --include-downstack queue acme/widgets#12
 
   # Wait until each pull request merges, is ejected, or times out.

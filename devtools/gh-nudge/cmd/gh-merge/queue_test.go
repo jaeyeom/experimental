@@ -1289,6 +1289,75 @@ func TestQueueStackUsesMergeAsyncOnlyWithDownstack(t *testing.T) {
 	})
 }
 
+func TestQueueRetargetedStackWithNothingOpenBelow(t *testing.T) {
+	defaultBranch := testDefaultBranch()
+	pr := chainPR(12, defaultBranch, "topic-b")
+	stackErr := errors.New("this pull request is part of a stack and must be merged sequentially using merge-async")
+	const why = "no open pull requests below acme/widgets#12; enqueuing with merge-async"
+
+	tests := []struct {
+		name      string
+		downstack []github.StackPR
+	}{
+		{name: "empty downstack"},
+		{name: "merged pull request below", downstack: []github.StackPR{{Number: 11, State: "merged"}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeQueue{pr: pr, enqueueErr: stackErr, downstack: tc.downstack}
+			output := captureStdout(t, func() {
+				if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+					t.Fatalf("queuePullRequest() error = %v", err)
+				}
+			})
+			if len(client.mergedAsync) != 1 || client.mergedAsync[0] != "acme/widgets#12@abc123" {
+				t.Errorf("mergedAsync = %v, want acme/widgets#12@abc123", client.mergedAsync)
+			}
+			if !strings.Contains(output, why) {
+				t.Errorf("output missing %q:\n%s", why, output)
+			}
+			if !strings.Contains(output, "Enqueued acme/widgets#12 with merge-async.") {
+				t.Errorf("output missing merge-async result:\n%s", output)
+			}
+		})
+	}
+
+	t.Run("open pull request below still refuses", func(t *testing.T) {
+		client := &fakeQueue{pr: pr, enqueueErr: stackErr, downstack: []github.StackPR{{Number: 11, State: "open"}}}
+		output := captureStdout(t, func() {
+			err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false)
+			if err == nil || !strings.Contains(err.Error(), "--include-downstack") {
+				t.Fatalf("queuePullRequest() error = %v, want --include-downstack refusal", err)
+			}
+		})
+		if !strings.Contains(output, "- acme/widgets#11") {
+			t.Errorf("output missing open pull request below:\n%s", output)
+		}
+		if strings.Contains(output, why) {
+			t.Errorf("output has no-downstack line despite an open pull request below:\n%s", output)
+		}
+		if len(client.mergedAsync) != 0 {
+			t.Errorf("mergedAsync = %v, want none", client.mergedAsync)
+		}
+	})
+
+	t.Run("dry run does not refuse", func(t *testing.T) {
+		withMergeFlags(t, true, false, false)
+		client := &fakeQueue{pr: pr, enqueueErr: stackErr}
+		output := captureStdout(t, func() {
+			if err := queuePullRequest(client, queueConfig(), pr.Ref.Raw, false); err != nil {
+				t.Fatalf("queuePullRequest() error = %v", err)
+			}
+		})
+		if !strings.Contains(output, "Would enqueue acme/widgets#12.") {
+			t.Errorf("output = %s", output)
+		}
+		if client.enqueueCalls != 0 || len(client.mergedAsync) != 0 {
+			t.Errorf("enqueueCalls = %d async = %v, want neither API", client.enqueueCalls, client.mergedAsync)
+		}
+	})
+}
+
 func TestQueueOtherEnqueueErrorDoesNotFallBack(t *testing.T) {
 	pr := readyPR()
 	client := &fakeQueue{pr: pr, enqueueErr: errors.New("required status check failed")}
