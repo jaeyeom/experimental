@@ -170,7 +170,7 @@ Environment variables are not expanded.
 | ~jira_bin~ | ~jira~ | jira executable. Used only for ~jira issue view~ after a live close. |
 | ~concurrency_wait_on~ | ~any~ | ~any~ = every ~working~ or ~blocked~ agent; ~managed~ = those on tabs matched in this scan (~managed~ runs a scan). |
 | ~concurrency_ignore_blocked~ | ~false~ | When ~true~, a ~blocked~ status alone does not hold the gate. By default a ~blocked~ agent holds it, with signal ~blocked~ and detail ~blocked awaiting input~. |
-| ~concurrency_cwd~ | ~any~ | ~any~ does not look at directories. ~checkout~ counts an agent only when its ~cwd~ or ~foreground_cwd~ is inside the checkout of the repo being dispatched. The runner pane stays excluded. |
+| ~concurrency_cwd~ | ~any~ | ~any~ counts ~working~ and ~blocked~ agents in any directory; ~background-job~ and ~pending-question~ still need the tab in the checkout (see [[*Busy signals][Busy signals]]). ~checkout~ counts an agent only when its ~cwd~ or ~foreground_cwd~ is inside the checkout of the repo being dispatched. The runner pane stays excluded. |
 | ~gate_poll_ms~ | ~2000~ | Poll interval for the concurrency gate and post-send settle. |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4). |
 | ~gate_ignore_procs~ | MCP and language servers, ~caffeinate~, status-line commands (~statusline~, ~status-line~, ~claude-hud~), Claude Code sandbox bridges (~claude-http-~, ~*UNIX-LISTEN:*claude-*.sock*~); full list in [[*Process patterns][Process patterns]] | Comma-separated patterns for an agent's own helpers; see [[*Process patterns][Process patterns]]. A matching child and its children are not a ~background-job~, and are listed under ~ignored~ in the gate JSON. Setting the key replaces the defaults, so copy them to add one. Empty = every child counts. See [[*Busy signals][Busy signals]]. |
@@ -777,6 +777,19 @@ for the first of these that is true:
    before the round is parked and does not hold the gate.
    ~gate_pending_question=off~ turns it off. When ~decide~ is not
    installed, the gate warns once and checks the other signals.
+
+These two signals hold only a tab that can touch the dispatch checkout.
+When the checkout is known (see the dirty-tree check below), a tab
+whose ~cwd~ and ~foreground_cwd~ are both outside it is not held by a
+pending question, and is held by a background job only when that
+child's own cwd is inside the checkout. So a design tab working in
+another repository does not hold the gate for its long-lived helper.
+Each skip is logged at debug level as ~gate_signal_out_of_checkout~,
+with no output entry. ~working~ and ~blocked~ still hold a tab
+anywhere, as ~concurrency_cwd=any~ says. With no known checkout, both
+signals apply to every waited-on tab. A remote tab follows the same
+rule with its paths on that machine: its ~cwd~ from ~agent list~ and
+the child's ~cwd~ from ~pane process-info~.
 
 A tab whose pane id matches ~gate_exempt_panes~, or whose label
 matches ~gate_exempt_tabs~, is skipped by every tab signal, including
