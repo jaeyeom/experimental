@@ -137,6 +137,16 @@ func commands() []command {
 			run:     runLease,
 		},
 		{
+			name:    "mem",
+			summary: "Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases.",
+			usage:   "agentbus mem [--json]",
+			flags: "--json  print one object: agents (pane, tab, handle, names, state,\n" +
+				"        idle_since, rss_bytes, jobs, leases, session), total_rss_bytes,\n" +
+				"        available_bytes, machine, states, and notes (default: false, text)",
+			example: "agentbus mem",
+			run:     noStdin(cmdMem),
+		},
+		{
 			name:    "install",
 			summary: "Install the supervisor and load it; in hub mode, the tunnel to the hub.",
 			usage:   "agentbus install",

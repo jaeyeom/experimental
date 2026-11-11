@@ -1,0 +1,265 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
+)
+
+const mib = 1024 * 1024
+
+// memAgents is a local herdr agent list: an idle claude in w1:p1, a
+// working codex in w1:p2, and a plain shell in w1:p3.
+const memAgents = `{"result":{"agents":[
+  {"pane_id":"w1:p1","tab_id":"w1:t1","agent":"claude","agent_status":"idle","agent_session":{"agent":"claude","kind":"id","value":"sess-1"}},
+  {"pane_id":"w1:p2","tab_id":"w1:t2","agent":"codex","agent_status":"working","agent_session":{"value":"sess-2"}},
+  {"pane_id":"w1:p3","tab_id":"w1:t3","agent":"","agent_status":"","agent_session":{"value":""}}
+]}}`
+
+const memTabs = `{"result":{"tabs":[
+  {"tab_id":"w1:t1","label":"inbox"},{"tab_id":"w1:t2","label":"build"},{"tab_id":"w1:t3","label":"shell"}
+]}}`
+
+func processInfoJSON(pane string, pids ...int) string {
+	procs := make([]string, len(pids))
+	for i, pid := range pids {
+		procs[i] = `{"pid":` + itoa(pid) + `,"name":"agent","argv":["agent"],"cwd":"/src"}`
+	}
+	return `{"result":{"process_info":{"pane_id":"` + pane + `","shell_pid":1,"foreground_process_group_id":` +
+		itoa(pids[0]) + `,"foreground_processes":[` + strings.Join(procs, ",") + `]}}}`
+}
+
+func itoa(n int) string {
+	b, _ := json.Marshal(n)
+	return string(b)
+}
+
+type fakeTable []procinfo.Process
+
+func (f fakeTable) List(context.Context) ([]procinfo.Process, error) { return f, nil }
+
+type fakeMemory int64
+
+func (f fakeMemory) Available(context.Context) (int64, error) { return int64(f), nil }
+
+func p(pid, ppid int, rss int64, age time.Duration, argv ...string) procinfo.Process {
+	return procinfo.Process{PID: pid, PPID: ppid, RSS: rss, Age: age, Name: argv[0], Argv: argv}
+}
+
+// memTable gives w1:p1 (pid 100) a tree of 471 MiB, larger than w1:p2's
+// single 400 MiB process, though its own root is smaller. pid 101 is an
+// old job; 103 is young and 104 a helper.
+var memTable = fakeTable{
+	p(1, 0, 5*mib, 48*time.Hour, "launchd"),
+	p(100, 1, 300*mib, 3*time.Hour, "claude"),
+	p(101, 100, 50*mib, time.Hour, "sh", "-c", "bazel build //..."),
+	p(102, 101, 100*mib, time.Hour, "bazel", "build", "//..."),
+	p(103, 100, 1*mib, 2*time.Second, "sh", "-c", "ls"),
+	p(104, 100, 20*mib, time.Hour, "node", "/opt/github-mcp-server/index.js"),
+	p(200, 1, 400*mib, 2*time.Hour, "codex"),
+	p(300, 1, 3*mib, 5*time.Hour, "-zsh"),
+}
+
+// fakeMemBus fakes the daemon: ops/x is on w1:p1, and w1:p2 holds a lease
+// that w1:p1 is queued for.
+func fakeMemBus(_ context.Context, _ string, req daemon.Request) (daemon.Response, error) {
+	switch req.Op {
+	case "list":
+		return daemon.Response{OK: true, Rows: []daemon.AgentRow{{Name: "ops/x", Handle: "herdr:local/sess-1/w1:p1"}}}, nil
+	case "lease-status":
+		if req.Lease == nil || !req.Lease.All {
+			return daemon.Response{Error: "want --all"}, nil
+		}
+		return daemon.Response{OK: true, Lease: &lease.Reply{Leases: []lease.Status{{
+			Checkout: "local:/src/repo",
+			State:    lease.StateHeld,
+			Holder:   &lease.HolderView{Handle: "herdr:local/sess-2/w1:p2"},
+			Queue:    []lease.WaiterView{{Handle: "herdr:local/sess-1/w1:p1"}},
+		}}}}, nil
+	}
+	return daemon.Response{Error: "unexpected op " + req.Op}, nil
+}
+
+func setupMem(t *testing.T, dial func(context.Context, string, daemon.Request) (daemon.Response, error)) (*herdrtest.Fake, []string) {
+	t.Helper()
+	fake := herdrtest.Install(t)
+	fake.Write("local.agents", memAgents)
+	fake.Write("local.tabs", memTabs)
+	fake.Write("local.process-info.w1:p1", processInfoJSON("w1:p1", 100))
+	fake.Write("local.process-info.w1:p2", processInfoJSON("w1:p2", 200))
+	fake.Write("local.process-info.w1:p3", processInfoJSON("w1:p3", 300))
+	oldDial, oldProcs, oldMem := dialDaemon, memProcs, memMemory
+	t.Cleanup(func() { dialDaemon, memProcs, memMemory = oldDial, oldProcs, oldMem })
+	dialDaemon = dial
+	memProcs = func() procinfo.Table { return memTable }
+	memMemory = func() procinfo.Memory { return fakeMemory(8 * 1024 * mib) }
+	env := []string{
+		"XDG_RUNTIME_DIR=" + shortRuntime(t),
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	return fake, env
+}
+
+type memJSON struct {
+	Agents []struct {
+		Pane      string           `json:"pane"`
+		Tab       string           `json:"tab"`
+		Handle    string           `json:"handle"`
+		Names     *[]string        `json:"names"`
+		State     string           `json:"state"`
+		IdleSince string           `json:"idle_since"` //nolint:tagliatelle // mem JSON shape
+		RSSBytes  int64            `json:"rss_bytes"`  //nolint:tagliatelle // mem JSON shape
+		Jobs      []map[string]any `json:"jobs"`
+		Leases    *[]struct {
+			Checkout string `json:"checkout"`
+			Role     string `json:"role"`
+		} `json:"leases"`
+		Session string `json:"session"`
+	} `json:"agents"`
+	TotalRSSBytes  int64          `json:"total_rss_bytes"` //nolint:tagliatelle // mem JSON shape
+	AvailableBytes int64          `json:"available_bytes"` //nolint:tagliatelle // mem JSON shape
+	Machine        string         `json:"machine"`
+	States         map[string]int `json:"states"`
+	Notes          []string       `json:"notes"`
+}
+
+func TestMemJSON(t *testing.T) {
+	fake, env := setupMem(t, fakeMemBus)
+	stdout, _ := mustCmd(t, []string{"mem", "--json"}, env)
+	var got memJSON
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("decode %q: %v", stdout, err)
+	}
+	if len(got.Agents) != 2 {
+		t.Fatalf("agents = %+v, want two agent panes and no shell pane", got.Agents)
+	}
+	first, second := got.Agents[0], got.Agents[1]
+	if first.Pane != "w1:p1" || second.Pane != "w1:p2" {
+		t.Fatalf("order = %s, %s; want the larger tree first", first.Pane, second.Pane)
+	}
+	if first.RSSBytes != 471*mib || second.RSSBytes != 400*mib {
+		t.Fatalf("rss = %d, %d; want the whole tree summed", first.RSSBytes, second.RSSBytes)
+	}
+	if first.Tab != "inbox" || first.Handle != "herdr:local/sess-1/w1:p1" || first.Session != "sess-1" || first.State != "idle" || first.IdleSince != "unknown" {
+		t.Fatalf("first = %+v", first)
+	}
+	if first.Names == nil || !slices.Equal(*first.Names, []string{"ops/x"}) || second.Names == nil || len(*second.Names) != 0 {
+		t.Fatalf("names = %v, %v", first.Names, second.Names)
+	}
+	if len(first.Jobs) != 1 || first.Jobs[0]["pid"] != float64(101) || first.Jobs[0]["age_seconds"] != float64(3600) || first.Jobs[0]["command"] != `sh -c "bazel build //..."` {
+		t.Fatalf("jobs = %v, want only the old non-helper child", first.Jobs)
+	}
+	if second.Jobs == nil || len(second.Jobs) != 0 {
+		t.Fatalf("jobs = %v, want []", second.Jobs)
+	}
+	if first.Leases == nil || len(*first.Leases) != 1 || (*first.Leases)[0].Role != "queued" || (*first.Leases)[0].Checkout != "local:/src/repo" {
+		t.Fatalf("leases = %+v", first.Leases)
+	}
+	if second.Leases == nil || len(*second.Leases) != 1 || (*second.Leases)[0].Role != "holder" {
+		t.Fatalf("leases = %+v", second.Leases)
+	}
+	if got.TotalRSSBytes != first.RSSBytes+second.RSSBytes {
+		t.Fatalf("total = %d, want the sum of the rows", got.TotalRSSBytes)
+	}
+	if got.AvailableBytes != 8*1024*mib || got.Machine == "" || got.States["idle"] != 1 || got.States["working"] != 1 || len(got.Notes) != 0 {
+		t.Fatalf("footer = %+v", got)
+	}
+	var infos, lists int
+	for _, argv := range fake.Argv() {
+		switch {
+		case strings.HasPrefix(argv, "pane process-info"):
+			infos++
+			if strings.Contains(argv, "w1:p3") {
+				t.Fatalf("process-info for the shell pane: %q", argv)
+			}
+		case argv == "agent list":
+			lists++
+		}
+	}
+	if lists != 1 || infos != 2 {
+		t.Fatalf("herdr calls: %d agent list, %d process-info; want 1 and 2", lists, infos)
+	}
+}
+
+func TestMemText(t *testing.T) {
+	_, env := setupMem(t, fakeMemBus)
+	stdout, _ := mustCmd(t, []string{"mem"}, env)
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) < 4 {
+		t.Fatalf("output = %q", stdout)
+	}
+	for _, want := range []string{"PANE", "NAMES", "STATE", "RSS", "JOBS", "LEASE"} {
+		if !strings.Contains(lines[0], want) {
+			t.Fatalf("header %q lacks %s", lines[0], want)
+		}
+	}
+	for _, want := range []string{"w1:p1", "inbox", "ops/x", "idle", "471.0 MiB", "queued local:/src/repo"} {
+		if !strings.Contains(lines[1], want) {
+			t.Fatalf("row %q lacks %q", lines[1], want)
+		}
+	}
+	if !strings.Contains(lines[2], "w1:p2") || !strings.Contains(lines[2], "400.0 MiB") || !strings.Contains(lines[2], "holds local:/src/repo") {
+		t.Fatalf("row = %q", lines[2])
+	}
+	if strings.Contains(stdout, "w1:p3") {
+		t.Fatalf("output lists the shell pane: %q", stdout)
+	}
+	footer := lines[len(lines)-1]
+	for _, want := range []string{"871.0 MiB", "2 agents", "idle 1", "working 1", "8.0 GiB available"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer %q lacks %q", footer, want)
+		}
+	}
+}
+
+func TestMemDaemonDown(t *testing.T) {
+	_, env := setupMem(t, func(context.Context, string, daemon.Request) (daemon.Response, error) {
+		return daemon.Response{}, errors.New("connect: no such file")
+	})
+	stdout, _ := mustCmd(t, []string{"mem"}, env)
+	if !strings.Contains(stdout, "w1:p1") || !strings.Contains(stdout, "w1:p2") {
+		t.Fatalf("output = %q, want the rows", stdout)
+	}
+	header := strings.SplitN(stdout, "\n", 2)[0]
+	if strings.Contains(header, "NAMES") || strings.Contains(header, "LEASE") {
+		t.Fatalf("header = %q, want no names or lease column", header)
+	}
+	if !strings.Contains(stdout, "note: ") || !strings.Contains(stdout, "daemon") {
+		t.Fatalf("output = %q, want a note about the daemon", stdout)
+	}
+
+	stdout, _ = mustCmd(t, []string{"mem", "--json"}, env)
+	var got memJSON
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Agents) != 2 || got.Agents[0].Names != nil || got.Agents[0].Leases != nil || len(got.Notes) != 1 {
+		t.Fatalf("json = %s, want rows without names or leases and one note", stdout)
+	}
+}
+
+func TestMemHerdrDown(t *testing.T) {
+	fake, env := setupMem(t, fakeMemBus)
+	fake.Write("local.down", "")
+	code, _, stderr := runCmd([]string{"mem"}, env)
+	if code == 0 || !strings.Contains(stderr, "herdr") {
+		t.Fatalf("mem = %d, stderr %q; want a herdr error", code, stderr)
+	}
+}
+
+func TestMemRejectsArguments(t *testing.T) {
+	_, env := setupMem(t, fakeMemBus)
+	if code, _, _ := runCmd([]string{"mem", "extra"}, env); code != 2 {
+		t.Fatalf("mem extra = %d, want 2", code)
+	}
+}

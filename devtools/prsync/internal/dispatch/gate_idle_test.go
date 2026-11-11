@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 )
 
@@ -169,8 +170,8 @@ func TestIgnorePatternSubstringAndGlob(t *testing.T) {
 		{"claude-hux", false},
 	}
 	for _, tt := range tests {
-		if got := matchProc(tt.pattern, p); got != tt.want {
-			t.Errorf("matchProc(%q) = %v, want %v", tt.pattern, got, tt.want)
+		if got := procinfo.MatchPattern(tt.pattern, p); got != tt.want {
+			t.Errorf("MatchPattern(%q) = %v, want %v", tt.pattern, got, tt.want)
 		}
 	}
 }
@@ -202,8 +203,8 @@ func TestSandboxBridgeGlobCoversOtherKinds(t *testing.T) {
 	t.Parallel()
 
 	p := proc(4242, agentPID, "socat", "UNIX-LISTEN:/tmp/claude/claude-socks-abc.sock,fork", "TCP:localhost:1")
-	if pattern, ok := matchingPattern(signalCfg("").GateIgnoreProcs, p); !ok || pattern != "*UNIX-LISTEN:*claude-*.sock*" {
-		t.Fatalf("matchingPattern = %q, %v, want the sandbox bridge glob", pattern, ok)
+	if pattern, ok := procinfo.MatchingPattern(signalCfg("").GateIgnoreProcs, p); !ok || pattern != "*UNIX-LISTEN:*claude-*.sock*" {
+		t.Fatalf("MatchingPattern = %q, %v, want the sandbox bridge glob", pattern, ok)
 	}
 }
 

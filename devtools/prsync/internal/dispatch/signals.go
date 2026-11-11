@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
@@ -38,22 +36,10 @@ const signalExemptTabs = "exempt-tabs"
 // ErrDecideMissing is returned by a DecideSource when decide is not installed.
 var ErrDecideMissing = errors.New("decide not installed")
 
-// Process is one row of the machine's process table.
-type Process struct {
-	PID  int
-	PPID int
-	// Name is the kernel's process name (comm), or the base of argv[0]
-	// when the platform does not report one separately.
-	Name string
-	Argv []string
-	// Age is how long the process had run when it was listed. It is
-	// negative when unknown; an unknown age counts as old.
-	Age time.Duration
-	// Cwd is the working directory when the listing reports it (a
-	// remote pane's process-info). Otherwise it is empty and read
-	// through ProcessTable.Cwd when needed.
-	Cwd string
-}
+// Process is one row of the machine's process table. Cwd is set when
+// the listing reports it (a remote pane's process-info); otherwise it is
+// read through ProcessTable.Cwd when needed.
+type Process = procinfo.Process
 
 // ProcessTable lists the local processes.
 type ProcessTable interface {
@@ -374,15 +360,15 @@ func (s *snapshotProbes) backgroundJob(ctx context.Context, agent herdr.Agent, p
 	}
 	detail := ""
 	for _, child := range children {
-		if pattern, ok := matchingPattern(policy.ignoreProcs, child); ok {
-			s.noteIgnored(ctx, Ignored{Machine: agent.Machine, Pane: agent.PaneID, PID: child.PID, Command: commandLine(child), Pattern: pattern})
+		if pattern, ok := procinfo.MatchingPattern(policy.ignoreProcs, child); ok {
+			s.noteIgnored(ctx, Ignored{Machine: agent.Machine, Pane: agent.PaneID, PID: child.PID, Command: procinfo.CommandLine(child), Pattern: pattern})
 			continue
 		}
-		if child.Age >= 0 && child.Age < policy.jobMinAge {
+		if !procinfo.OldEnough(child, policy.jobMinAge) {
 			continue
 		}
 		if outside && !insideCheckout(s.childCwd(ctx, child), policy.checkout) {
-			s.noteOutside(ctx, agent, SignalBackgroundJob, "pid "+strconv.Itoa(child.PID)+" "+commandLine(child))
+			s.noteOutside(ctx, agent, SignalBackgroundJob, "pid "+strconv.Itoa(child.PID)+" "+procinfo.CommandLine(child))
 			continue
 		}
 		key := jobKey(agent.Machine, child.PID)
@@ -393,7 +379,7 @@ func (s *snapshotProbes) backgroundJob(ctx context.Context, agent herdr.Agent, p
 		if _, seen := s.run.prevJobs[key]; s.run.waitLoop && !seen {
 			continue
 		}
-		detail = "pid " + strconv.Itoa(child.PID) + " " + ageTag(child.Age) + commandLine(child)
+		detail = "pid " + strconv.Itoa(child.PID) + " " + ageTag(child.Age) + procinfo.CommandLine(child)
 	}
 	return detail, nil
 }
@@ -430,7 +416,7 @@ func (s *snapshotProbes) agentChildren(ctx context.Context, agent herdr.Agent) (
 				out = append(out, Process{PID: fp.PID, PPID: root, Name: fp.Name, Argv: fp.Argv, Age: -1, Cwd: fp.Cwd})
 			}
 		}
-		return sortedByPID(out), nil
+		return procinfo.SortedByPID(out), nil
 	}
 	if root <= 0 {
 		return nil, nil
@@ -439,7 +425,7 @@ func (s *snapshotProbes) agentChildren(ctx context.Context, agent herdr.Agent) (
 	if err != nil {
 		return nil, fmt.Errorf("process table: %w", err)
 	}
-	return childrenOf(procs)[root], nil
+	return procinfo.Children(procs)[root], nil
 }
 
 // childCwd is child's working directory, or empty when unknown.
@@ -497,21 +483,21 @@ func (s *snapshotProbes) buildTool(ctx context.Context, policy gatePolicy) (stri
 		return "", fmt.Errorf("process table: %w", err)
 	}
 	skip := ancestorsOf(procs, s.Self)
-	for _, p := range sortedByPID(procs) {
+	for _, p := range procinfo.SortedByPID(procs) {
 		if _, ok := skip[p.PID]; ok {
 			continue
 		}
 		if !matchAnyName(policy.buildTools, p) {
 			continue
 		}
-		if _, ignored := matchingPattern(policy.buildToolIgnore, p); ignored {
+		if _, ignored := procinfo.MatchingPattern(policy.buildToolIgnore, p); ignored {
 			continue
 		}
 		cwd, err := s.Procs.Cwd(ctx, p.PID)
 		if err != nil || !insideCheckout(cwd, policy.checkout) {
 			continue
 		}
-		return fmt.Sprintf("pid %d %s (cwd %s)", p.PID, commandLine(p), cwd), nil
+		return fmt.Sprintf("pid %d %s (cwd %s)", p.PID, procinfo.CommandLine(p), cwd), nil
 	}
 	return "", nil
 }
@@ -555,23 +541,6 @@ func notifiesPane(notify string, agent herdr.Agent) bool {
 	return ok && session != "" && pane == agent.PaneID
 }
 
-// childrenOf maps each pid to its children, lowest pid first.
-func childrenOf(procs []Process) map[int][]Process {
-	out := make(map[int][]Process)
-	for _, p := range sortedByPID(procs) {
-		if p.PID != p.PPID {
-			out[p.PPID] = append(out[p.PPID], p)
-		}
-	}
-	return out
-}
-
-func sortedByPID(procs []Process) []Process {
-	out := slices.Clone(procs)
-	slices.SortFunc(out, func(a, b Process) int { return a.PID - b.PID })
-	return out
-}
-
 // ancestorsOf is pid and every ancestor of it in procs.
 func ancestorsOf(procs []Process, pid int) map[int]struct{} {
 	out := make(map[int]struct{})
@@ -592,142 +561,26 @@ func ancestorsOf(procs []Process, pid int) map[int]struct{} {
 	return out
 }
 
-// maxCommandLine caps a command line in a hold's detail.
-const maxCommandLine = 160
-
-// commandLine is argv joined by spaces, quoting arguments with
-// whitespace, and cut to maxCommandLine runes.
-func commandLine(p Process) string {
-	if len(p.Argv) == 0 {
-		return p.Name
-	}
-	parts := make([]string, len(p.Argv))
-	for i, arg := range p.Argv {
-		if arg == "" || strings.ContainsAny(arg, " \t\n") {
-			arg = strconv.Quote(arg)
-		}
-		parts[i] = arg
-	}
-	line := strings.Join(parts, " ")
-	if r := []rune(line); len(r) > maxCommandLine {
-		line = string(r[:maxCommandLine]) + "..."
-	}
-	return line
-}
-
-func argv0Base(p Process) string {
-	if len(p.Argv) == 0 {
-		return ""
-	}
-	return filepath.Base(p.Argv[0])
-}
-
 // matchAnyName reports whether a pattern matches p's whole name or
 // argv[0] base, exactly or as a glob.
 func matchAnyName(patterns []string, p Process) bool {
 	for _, pattern := range patterns {
-		re := globRegexp(pattern, true)
-		if re.MatchString(p.Name) || re.MatchString(argv0Base(p)) {
+		re := procinfo.Glob(pattern, true)
+		if re.MatchString(p.Name) || re.MatchString(procinfo.Argv0Base(p)) {
 			return true
 		}
 	}
 	return false
 }
 
-// matchingPattern is the first pattern that matches p (see matchProc).
-func matchingPattern(patterns []string, p Process) (string, bool) {
-	for _, pattern := range patterns {
-		if matchProc(pattern, p) {
-			return pattern, true
-		}
-	}
-	return "", false
-}
-
-// matchProc reports whether pattern appears anywhere in p's name,
-// argv[0] base, or whole command line (argv joined by spaces). A
-// pattern with *, ?, or [ is a glob, where * also matches /.
-func matchProc(pattern string, p Process) bool {
-	fields := []string{p.Name, argv0Base(p), strings.Join(p.Argv, " ")}
-	if !strings.ContainsAny(pattern, "*?[") {
-		return slices.ContainsFunc(fields, func(f string) bool { return strings.Contains(f, pattern) })
-	}
-	re := globRegexp(pattern, false)
-	return slices.ContainsFunc(fields, re.MatchString)
-}
-
 // matchGlob is the first pattern that matches all of s as a glob.
 func matchGlob(patterns []string, s string) (string, bool) {
 	for _, pattern := range patterns {
-		if globRegexp(pattern, true).MatchString(s) {
+		if procinfo.Glob(pattern, true).MatchString(s) {
 			return pattern, true
 		}
 	}
 	return "", false
-}
-
-// globRegexp compiles a glob: * is any run (including /), ? one rune,
-// and [...] a class ([!...] negated). Anchored matches the whole
-// string; otherwise the glob may match anywhere in it.
-func globRegexp(pattern string, anchored bool) *regexp.Regexp {
-	var b strings.Builder
-	if anchored {
-		b.WriteString("^")
-	}
-	runes := []rune(pattern)
-	for i := 0; i < len(runes); i++ {
-		switch r := runes[i]; r {
-		case '*':
-			b.WriteString(".*")
-		case '?':
-			b.WriteString(".")
-		case '[':
-			if class, n := globClass(runes[i:]); n > 0 {
-				b.WriteString(class)
-				i += n - 1
-				continue
-			}
-			b.WriteString(regexp.QuoteMeta("["))
-		default:
-			b.WriteString(regexp.QuoteMeta(string(r)))
-		}
-	}
-	if anchored {
-		b.WriteString("$")
-	}
-	re, err := regexp.Compile(b.String())
-	if err != nil {
-		return regexp.MustCompile(regexp.QuoteMeta(pattern))
-	}
-	return re
-}
-
-// globClass converts the class at the start of runes ("[...]") to a
-// regexp class, and returns how many runes it used, or 0 when the
-// class is not closed.
-func globClass(runes []rune) (string, int) {
-	var b strings.Builder
-	b.WriteString("[")
-	i := 1
-	if i < len(runes) && (runes[i] == '!' || runes[i] == '^') {
-		b.WriteString("^")
-		i++
-	}
-	for start := i; i < len(runes); i++ {
-		switch r := runes[i]; {
-		case r == ']' && i > start:
-			b.WriteString("]")
-			return b.String(), i + 1
-		case r == '\\' && i+1 < len(runes):
-			i++
-			b.WriteString(regexp.QuoteMeta(string(runes[i])))
-		case r == '[' || r == ']' || r == '\\' || r == '^':
-			b.WriteString(`\` + string(r))
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return "", 0
 }
 
 // holdLine is the log line for one hold, e.g.

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
 const branchSwitchPreamble = `Get onto this PR's branch before editing:
@@ -265,25 +267,13 @@ func Defaults() Config {
 		TeamCoverPerTeam:         1,
 		TeamCoverSignals:         []string{"codeowners", "history", "load"},
 		TeamCoverHistoryDays:     90,
-		GateIgnoreProcs:          slices.Clone(defaultGateIgnoreProcs),
+		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           []string{"bazel", "bazelisk", "make", "go", "cargo", "gradle", "npm", "pnpm"},
 		GateBuildToolIgnore:      []string{"*--workspace_directory=*", "*A-server.jar*", "*--server*"},
 		GatePendingQuestion:      "decide",
 		GateLease:                "auto",
-		GateJobMinAge:            10 * time.Second,
+		GateJobMinAge:            procinfo.DefaultJobMinAge,
 	}
-}
-
-// defaultGateIgnoreProcs are an agent's usual helpers: long-lived
-// servers, the status-line command it reruns on each UI refresh, and
-// the Claude Code sandbox's socat bridges (claude-http-<hex>.sock and
-// other claude-<kind>-<hex>.sock), which live as long as the session.
-var defaultGateIgnoreProcs = []string{
-	"caffeinate", "gopls", "rust-analyzer", "clangd", "pyright*",
-	"*language-server*", "*langserver*",
-	"*mcp-server*", "*mcp_server*", "*modelcontextprotocol*", "*-mcp", "*-mcp *",
-	"statusline", "status-line", "claude-hud",
-	"claude-http-", "*UNIX-LISTEN:*claude-*.sock*",
 }
 
 // Load applies search order, then Validate.

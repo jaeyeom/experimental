@@ -35,6 +35,8 @@ var localCommands = map[string]bool{
 	"install-hooks": true,
 	// lease reads lease_checkouts and git here; it refuses hub mode itself.
 	"lease": true,
+	// mem reports this machine's panes and processes.
+	"mem": true,
 }
 
 // stdinCommands read stdin, so hub mode forwards it.
