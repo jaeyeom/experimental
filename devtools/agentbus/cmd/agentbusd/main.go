@@ -16,6 +16,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"golang.org/x/sys/unix"
@@ -62,6 +63,9 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
                           and keeps check-ins, auto-extend and adopt.
                           Missing or any other value is "log", with a
                           warning for an invalid one (default: log)
+  wake_timeout = "60s"    how long a hibernated agent relaunched on
+                          delivery or by 'agentbus wake' has to become idle
+                          or done in its pane (default: 60s)
 
 At start agentbusd prints the effective lease_takeover=<mode> to stderr
 and records it in the event log's start event.
@@ -113,9 +117,11 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()
+	ad := &herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
 		RetentionDays: days,
-		Adapters:      []adapter.Adapter{&herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}},
+		Adapters:      []adapter.Adapter{ad},
+		Waker:         &hibernate.Waker{Panes: ad, Clock: hibernate.RealClock{}, Timeout: cfg.WakeTimeout},
 		InlineBytes:   inline,
 		HubCaller:     herdr.RemoteCaller,
 		LeaseTiming:   leaseTiming(cfg, stderr),

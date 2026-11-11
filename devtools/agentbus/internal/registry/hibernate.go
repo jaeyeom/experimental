@@ -50,6 +50,46 @@ func (r *Registry) EndHibernation(handle, status, reason string) (hibernate.Reco
 	return rec, nil
 }
 
+// FailWake marks handle's record wake-failed with reason, counts the
+// failure, and sets when the next wake may be tried.
+func (r *Registry) FailWake(handle, reason string, retryAt time.Time) (hibernate.Record, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.hibernated[handle]
+	if !ok {
+		return hibernate.Record{}, fmt.Errorf("%s has no hibernation record", handle)
+	}
+	rec.Status = hibernate.StatusWakeFailed
+	rec.Reason = reason
+	rec.Failures++
+	rec.RetryAt = retryAt
+	r.hibernated[handle] = rec
+	if err := r.save(); err != nil {
+		return hibernate.Record{}, err
+	}
+	return rec, nil
+}
+
+// ClearHibernation drops handle's record: the agent woke, or its pane
+// was reused. Its names are active again. No record is not an error.
+func (r *Registry) ClearHibernation(handle string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.hibernated[handle]; !ok {
+		return nil
+	}
+	delete(r.hibernated, handle)
+	return r.save()
+}
+
+// Hibernation is handle's record.
+func (r *Registry) Hibernation(handle string) (hibernate.Record, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec, ok := r.hibernated[handle]
+	return rec, ok
+}
+
 // Hibernations are the hibernation records, by handle.
 func (r *Registry) Hibernations() []hibernate.Record {
 	r.mu.Lock()
@@ -70,7 +110,7 @@ func (r *Registry) Hibernated(handle string) bool {
 
 func (r *Registry) hibernatedLocked(handle string) bool {
 	rec, ok := r.hibernated[handle]
-	return ok && rec.Status == hibernate.StatusHibernated
+	return ok && hibernate.Asleep(rec.Status)
 }
 
 // Names are the registered names by handle.

@@ -215,7 +215,7 @@ func (h *Hibernator) resolve(agents []adapter.Agent, state Reply, targets []stri
 		c, ok := h.agentOf(agents, state, handle)
 		if !ok {
 			reason := "no agent in a pane on this machine"
-			if rec, found := recordOf(state.Records, handle); found && rec.Status == StatusHibernated {
+			if rec, found := recordOf(state.Records, handle); found && Asleep(rec.Status) {
 				reason = "already hibernated"
 			}
 			refused = append(refused, Result{Name: target, Handle: handle, Outcome: OutcomeRefused, Reasons: []string{reason}})

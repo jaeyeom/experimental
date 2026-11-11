@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 )
 
 // The calls here act on a pane of the local herdr server: agentbus
@@ -39,7 +41,11 @@ func (a *Adapter) RunInPane(ctx context.Context, pane, command string) error {
 }
 
 func (a *Adapter) paneCall(ctx context.Context, what string, args []string) (string, error) {
-	stdout, stderr, code, err := a.exec(ctx, localMachine, args)
+	return a.paneCallOn(ctx, localMachine, what, args)
+}
+
+func (a *Adapter) paneCallOn(ctx context.Context, machine, what string, args []string) (string, error) {
+	stdout, stderr, code, err := a.exec(ctx, machine, args)
 	if err != nil {
 		return "", err
 	}
@@ -47,6 +53,51 @@ func (a *Adapter) paneCall(ctx context.Context, what string, args []string) (str
 		return "", fmt.Errorf("herdr %s %s: exit %d: %s", what, args[2], code, firstText(stderr, stdout))
 	}
 	return stdout, nil
+}
+
+// The calls below act on the pane of a handle, on the handle's machine:
+// the daemon wakes a hibernated agent through them, through `herdr
+// --machine <m>` for an agent on another machine.
+
+// PaneProcessInfo is ProcessInfo for the pane of the handle raw.
+func (a *Adapter) PaneProcessInfo(ctx context.Context, raw string) (ProcessInfo, error) {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return ProcessInfo{}, err
+	}
+	return a.processInfoOn(ctx, machine, pane)
+}
+
+// PaneRun is RunInPane for the pane of the handle raw.
+func (a *Adapter) PaneRun(ctx context.Context, raw, command string) error {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return err
+	}
+	_, err = a.paneCallOn(ctx, machine, "pane run", []string{"pane", "run", pane, command})
+	return err
+}
+
+// PaneAgent is the agent herdr lists in the pane of the handle raw, whatever
+// its session. ok is false when herdr lists none there.
+func (a *Adapter) PaneAgent(ctx context.Context, raw string) (adapter.Agent, bool, error) {
+	machine, _, pane, err := parseHandle(raw)
+	if err != nil {
+		return adapter.Agent{}, false, err
+	}
+	agents, err := a.agents(ctx, machine)
+	if err != nil {
+		return adapter.Agent{}, false, err
+	}
+	for _, item := range agents {
+		if item.PaneID == pane {
+			return adapter.Agent{
+				Handle: handle(machine, item.Session.Value, pane), PaneID: pane, TabID: item.TabID,
+				Kind: item.Agent, Status: item.Status, SessionID: item.Session.Value, Title: item.Title, StateSeq: item.StateSeq,
+			}, true, nil
+		}
+	}
+	return adapter.Agent{}, false, nil
 }
 
 // ComposerOf parses the input box of a kind of agent on screen. ok is

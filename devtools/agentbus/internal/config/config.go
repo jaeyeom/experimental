@@ -15,6 +15,7 @@
 //	lease_takeover = "log"        # "on" carries takeovers out; "log" only logs them
 //	lease_ignore_procs = ["zsh", "claude"]  # adopt's process check ignores these
 //	hibernate_exempt = ["ops/*"]  # names, handles, or globs hibernate never stops
+//	wake_timeout = "60s"          # how long a woken agent has to get ready
 package config
 
 import (
@@ -67,6 +68,9 @@ type Config struct {
 	// HibernateExempt are names, handles, or globs over them that
 	// agentbus hibernate never stops.
 	HibernateExempt []string
+	// WakeTimeout is how long the daemon waits for a hibernated agent it
+	// relaunched to get ready. Zero is the default, 60s.
+	WakeTimeout time.Duration
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
@@ -142,14 +146,8 @@ func parseLine(cfg *Config, line string) error {
 	switch key {
 	case "machines":
 		return parseMachines(cfg, value)
-	case "remote_timeout":
-		return parseDuration(&cfg.RemoteTimeout, key, value, "5s")
-	case "lease_check_interval":
-		return parseDuration(&cfg.LeaseCheckInterval, key, value, "2m")
-	case "lease_checkin_repeat":
-		return parseDuration(&cfg.LeaseCheckinRepeat, key, value, "15m")
-	case "lease_idle_grace":
-		return parseDuration(&cfg.LeaseIdleGrace, key, value, "5m")
+	case "remote_timeout", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout":
+		return parseDurationKey(cfg, key, value)
 	case "lease_checkouts":
 		return parseLeaseCheckouts(cfg, value)
 	case "lease_takeover":
@@ -186,6 +184,22 @@ func parseLeaseIgnoreProcs(cfg *Config, value string) error {
 	}
 	cfg.LeaseIgnoreProcs = names
 	return nil
+}
+
+// parseDurationKey reads one of the duration keys.
+func parseDurationKey(cfg *Config, key, value string) error {
+	switch key {
+	case "remote_timeout":
+		return parseDuration(&cfg.RemoteTimeout, key, value, "5s")
+	case "lease_check_interval":
+		return parseDuration(&cfg.LeaseCheckInterval, key, value, "2m")
+	case "lease_checkin_repeat":
+		return parseDuration(&cfg.LeaseCheckinRepeat, key, value, "15m")
+	case "lease_idle_grace":
+		return parseDuration(&cfg.LeaseIdleGrace, key, value, "5m")
+	default:
+		return parseDuration(&cfg.WakeTimeout, key, value, "60s")
+	}
 }
 
 // parseDuration reads a positive duration string into dst.

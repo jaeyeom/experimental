@@ -35,6 +35,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
 | ~mem [--json]~ | Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases. See [[*Memory per agent]]. |
 | ~hibernate <name or handle>...~, ~hibernate --idle-over <d>~ | Stop idle agents on this machine but keep their panes and names. See [[*Hibernate idle agents]]. |
+| ~wake <name or handle>~ | Relaunch a hibernated agent now. A message to it wakes it too. See [[*Wake a hibernated agent]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -750,8 +751,8 @@ stays as ~stop-failed~ and the agent is not killed.
 
 A hibernated handle keeps its names. ~list~ and ~search~ show it as
 ~hibernated~, a claim by another handle is refused as for a live
-holder, and ~send~ queues the message as ~held: hibernated~ and says so.
-~agentbus wake~ and wake-on-delivery are not built yet.
+holder, and a message to it wakes it first; see
+[[*Wake a hibernated agent]].
 
 Output is one line per agent: ~hibernated <name> (<rss> freed)~,
 ~refused <name>: <reasons>~, ~failed <name>: <reason>~, or with
@@ -778,6 +779,52 @@ records: over the tunnel when it answers, else over ssh through
 another machine only for that machine's agents. ~--idle-over~ in hub
 mode needs the hub to poll this machine (~machines~ in the hub's
 config).
+
+* Wake a hibernated agent
+
+When the daemon is about to deliver to a handle that has a hibernation
+record, it first relaunches the agent in its pane. ~agentbus wake <name
+or handle>~ does the same with no message to deliver, prints ~woke
+<name> (<handle>)~, and ignores the backoff below.
+
+1. It reads the pane's processes. When the pane's foreground is not
+   its shell, someone reused the pane: nothing is launched, the record
+   is dropped (so the names are active again), the daemon logs
+   ~agent_wake_skipped~, and the senders of queued messages are told.
+2. It runs ~cd <cwd> && <argv>~ from the record through ~herdr pane
+   run~, in resume form. For Claude Code that is ~--resume <session
+   id>~ right after the program, in place of any ~--resume [id]~,
+   ~-r [id]~, ~--continue~, or ~-c~; every other argument is kept.
+   Other agent kinds have no resume form and fail to wake.
+3. It waits until herdr reports an agent in the pane ~idle~ or ~done~,
+   with the recorded session id when herdr reports one, and the agent
+   process owns the pane's foreground again. ~wake_timeout~ in the
+   daemon's config bounds the wait (default ~60s~).
+4. It drops the record, so ~list~ shows the names alive again, logs
+   ~agent_wake~, and delivers the queued messages in send order.
+
+#+begin_src toml
+wake_timeout = "60s"   # how long a relaunched agent has to get ready
+#+end_src
+
+~send~ does not wait for the wake: it prints ~held: waking~, and the
+message goes out once the agent is ready. Messages sent while a wake is
+in flight queue behind it; a handle never has two wakes at once.
+
+When the relaunch fails or times out, the message stays queued, the
+record stays with status ~wake-failed~ and the error, the daemon logs
+~agent_wake_failed~, and each sender of a queued message gets
+~[agentbus] <name> is hibernated and failed to wake: <error>; your
+message is queued~ in its pane. The next delivery attempt tries again
+only after a backoff of 1m, doubled on each failure in a row up to 1h,
+so a broken session is not relaunched in a loop. Until then the message
+is ~held: wake failed~, and ~agentbus status <id>~ shows ~waiting: wake
+failed: <error>; next try after <time>~.
+
+In hub mode the record lives on the hub, and so does the wake: the
+hub's daemon reaches the pane with ~herdr --machine <machine>~, as it
+does to deliver, so ~agentbus wake~ runs on the hub like ~send~. Any
+caller may wake any agent, since a message would wake it anyway.
 
 * Sandbox
 

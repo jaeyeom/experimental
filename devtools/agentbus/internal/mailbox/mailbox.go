@@ -82,6 +82,12 @@ type Mailbox struct {
 	broken   map[string]string
 	prep     sync.Once
 	prepErr  error
+	// waker relaunches hibernated agents; nil holds their messages.
+	waker Waker
+	// waking is the wake in flight per handle, and wakes every wake
+	// goroutine.
+	waking map[string]*wakeCall
+	wakes  sync.WaitGroup
 }
 
 // Open loads messages. A missing file is an empty mailbox.
@@ -105,6 +111,7 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 		inflight: map[string]bool{},
 		flushing: map[string]bool{},
 		adapters: adapters,
+		waking:   map[string]*wakeCall{},
 	}
 	box.cv = sync.NewCond(&box.mu)
 	return box, nil
