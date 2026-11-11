@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
@@ -52,6 +54,65 @@ func TestServeLogsStartAndStopForALaterReader(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], `"event":"start"`) || !strings.Contains(lines[1], `"event":"stop"`) {
 		t.Fatalf("log lines = %q", lines)
+	}
+}
+
+// slowInventory is an adapter whose inventory is still running when the
+// daemon is told to stop, like a herdr call that has not answered yet.
+type slowInventory struct {
+	fake.Adapter
+	cancelled chan struct{}
+	release   chan struct{}
+}
+
+func (a *slowInventory) Inventory(ctx context.Context) ([]adapter.Agent, error) {
+	<-ctx.Done()
+	a.cancelled <- struct{}{}
+	<-a.release
+	return nil, fmt.Errorf("inventory: %w", ctx.Err())
+}
+
+func TestServeWaitsForTheInventoryPollBeforeReturning(t *testing.T) {
+	dirs := paths.Dirs{
+		SocketPath: filepath.Join(shortDir(t), "daemon.sock"),
+		StateDir:   filepath.Join(t.TempDir(), "state"),
+	}
+	ad := &slowInventory{
+		Adapter:   fake.Adapter{AdapterName: "herdr"},
+		cancelled: make(chan struct{}, 1),
+		release:   make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(ctx, dirs, Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
+	}()
+	for ping(dirs.SocketPath) != nil {
+		select {
+		case err := <-errc:
+			t.Fatalf("Serve: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-ad.cancelled
+	select {
+	case err := <-errc:
+		close(ad.release)
+		t.Fatalf("Serve returned (%v) while the inventory poll was still running", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(ad.release)
+	if err := <-errc; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	lines, err := eventlog.Open(dirs.StateDir).Read(eventlog.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) == 0 || !strings.Contains(lines[len(lines)-1], `"event":"stop"`) {
+		t.Fatalf("stop is not the last event: %q", lines)
 	}
 }
 

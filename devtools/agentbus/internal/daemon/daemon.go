@@ -184,20 +184,28 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	started = true
 
-	go srv.reg.Poll(ctx, cfg.PollInterval)
-	go srv.box.Poll(ctx, cfg.PollInterval)
 	ticks := cfg.LeaseTicks
 	if ticks == nil {
 		ticker := time.NewTicker(srv.timing.Interval)
 		defer ticker.Stop()
 		ticks = ticker.C
 	}
-	// The lease checks end, and are waited for, before Serve logs stop.
+	// The polls and lease checks end, and are waited for, before Serve
+	// logs stop, so an inventory poll cut short by shutdown does not
+	// write the state dir after Serve returns.
 	var watching sync.WaitGroup
 	defer watching.Wait()
 	watchCtx, stopWatching := context.WithCancel(ctx)
 	defer stopWatching()
-	watching.Add(1)
+	watching.Add(3)
+	go func() {
+		defer watching.Done()
+		srv.reg.Poll(watchCtx, cfg.PollInterval)
+	}()
+	go func() {
+		defer watching.Done()
+		srv.box.Poll(watchCtx, cfg.PollInterval)
+	}()
 	go func() {
 		defer watching.Done()
 		srv.watchLeases(watchCtx, ticks)
