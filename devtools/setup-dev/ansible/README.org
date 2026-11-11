@@ -24,12 +24,19 @@ filenames.
   ./ensure.sh [rule]...
 #+end_src
 
-Flags that take a value need =--= before playbook names, or the value is
-treated as a playbook:
+Arguments starting with =-= go to =ansible-playbook=; the others are
+playbook names. These flags read the next argument as their value:
+=-e=/=--extra-vars= (may repeat), =-t=/=--tags=, =--skip-tags=,
+=-l=/=--limit=, and =-i=/=--inventory=. Each value is passed as one
+argument, so spaces, JSON, and =@file= work:
 
 #+begin_src sh
-  ./ensure.sh --tags setup -- profile-cloudflare-dev
+  ./ensure.sh -e foo=bar -e 'msg="hello world"' --tags setup profile-cloudflare-dev
 #+end_src
+
+For any other flag that takes a value, use the joined form
+(~--flag=value~), or the value is treated as a playbook name. Arguments
+after =--= are always playbook names.
 
 When a nested =import_playbook= fails, Ansible stops and =ensure.sh= prints
 the leaf file and task (not only the top-level argument), plus a resume
