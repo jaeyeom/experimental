@@ -60,6 +60,7 @@ go_test(
         "field_test.go",
         "lease_test.go",
         "link_test.go",
+        "machine_test.go",
         "model_test.go",
         "recipients_test.go",
         "refresh_test.go",

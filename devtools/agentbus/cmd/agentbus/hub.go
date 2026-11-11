@@ -100,15 +100,51 @@ func runOnHub(ctx context.Context, cfg config.Config, args, env []string, stdin 
 		call.Env = []string{herdr.AsHandleEnv + "=" + caller}
 	}
 	hub := hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}
+	if hookCommands[name] {
+		return runHookOnHub(ctx, hub, call, env)
+	}
 	code, err := hub.Run(ctx, call)
 	if err == nil {
 		return code
 	}
-	if hookCommands[name] {
-		return 0
-	}
 	fmt.Fprintf(stderr, "agentbus: %s\n", err)
 	return code
+}
+
+// hookTimeoutEnv overrides the hub-mode hook deadline, such as "3s".
+const hookTimeoutEnv = "AGENTBUS_HOOK_TIMEOUT"
+
+// A hook in hub mode connects within hookConnectTimeout and finishes
+// within defaultHookTimeout, so a hung hub never stalls the agent.
+const (
+	hookConnectTimeout = 2 * time.Second
+	defaultHookTimeout = 3 * time.Second
+)
+
+// runHookOnHub runs a hook on the hub under one deadline for the whole
+// call. A hook that cannot reach the hub or does not finish in time
+// exits 0, as it does when the local bus is down.
+func runHookOnHub(ctx context.Context, hub hubcall.Hub, call hubcall.Call, env []string) int {
+	total := hubHookTimeout(env)
+	hub.ConnectTimeout = min(hookConnectTimeout, total)
+	hub.Deadline = total
+	ctx, cancel := context.WithTimeout(ctx, total)
+	defer cancel()
+	code, err := hub.Run(ctx, call)
+	if err != nil || ctx.Err() != nil {
+		return 0
+	}
+	return code
+}
+
+// hubHookTimeout is AGENTBUS_HOOK_TIMEOUT, or defaultHookTimeout when it is
+// unset or not a positive duration. A hook has no stderr to report a
+// bad value on.
+func hubHookTimeout(env []string) time.Duration {
+	if d, err := time.ParseDuration(strings.TrimSpace(envGet(env, hookTimeoutEnv))); err == nil && d > 0 {
+		return d
+	}
+	return defaultHookTimeout
 }
 
 // sendFileOnStdin reads a --file path here and sends its content on

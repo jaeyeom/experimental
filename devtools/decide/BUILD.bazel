@@ -15,6 +15,7 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/decide",
     visibility = ["//visibility:public"],
     deps = [
+        "//devtools/pkg/remotecall:go_default_library",
         "@com_github_google_renameio_v2//:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],

@@ -14,6 +14,7 @@ go_library(
         "//devtools/decide:go_default_library",
         "//devtools/decide/tui:go_default_library",
         "//devtools/pkg/hubcall:go_default_library",
+        "//devtools/pkg/remotecall:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -29,6 +30,7 @@ go_test(
     size = "small",
     srcs = [
         "hub_test.go",
+        "machine_test.go",
         "main_test.go",
         "snooze_test.go",
         "thread_test.go",
@@ -41,6 +43,7 @@ go_test(
     tags = ["no-sandbox"],
     deps = [
         "//devtools/decide:go_default_library",
+        "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/pkg/hubcall/sshtest:go_default_library",
     ],
 )

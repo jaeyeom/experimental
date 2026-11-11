@@ -220,6 +220,13 @@ TCP connect to its SSH port fails, or with
 when the host answers. agentbus never falls back to a local daemon. The
 installed hooks exit 0 on this error.
 
+A hook must not stall the agent, so ~hook~ and ~prompt-hook~ use a
+shorter deadline in hub mode: a 2s connect timeout and 3s for the
+whole call, the remote hook included. ~AGENTBUS_HOOK_TIMEOUT~, such as
+~5s~, sets the whole-call deadline; the connect timeout is the smaller
+of 2s and that value. A hook that runs out of time prints nothing and
+exits 0.
+
 ** Share one SSH connection
 
 Each hub-mode command opens an ssh connection, and the installed hooks

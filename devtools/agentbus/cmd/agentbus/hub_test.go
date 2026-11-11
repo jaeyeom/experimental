@@ -203,6 +203,45 @@ func TestHubHooksExitZeroWhenUnreachable(t *testing.T) {
 	}
 }
 
+func TestHubHooksUseAShortConnectTimeout(t *testing.T) {
+	h := startHub(t, `hub = "me@hub"`, `remote_timeout = "9s"`)
+	if code, _, _ := h.run(t, `{}`, "hook"); code != 0 {
+		t.Fatalf("hook = %d", code)
+	}
+	if argv := h.ssh.Lines("argv"); !slices.Contains(argv, "ConnectTimeout=2") {
+		t.Fatalf("hook ssh argv = %q, want ConnectTimeout=2", argv)
+	}
+}
+
+func TestHubHookTimeoutBoundsTheWholeCall(t *testing.T) {
+	for _, tt := range []struct {
+		name, file, body string
+	}{
+		{"hub never answers", "hang", ""},
+		{"hub hook is slow", "agentbus.sleep", "5"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := startHub(t, `hub = "me@hub"`)
+			h.ssh.Write(tt.file, tt.body)
+			h.ssh.Reachable()
+			env := append(slices.Clone(h.env), "AGENTBUS_HOOK_TIMEOUT=500ms")
+			for _, name := range []string{"hook", "prompt-hook"} {
+				start := time.Now()
+				code, stdout, stderr := h.runEnv(t, env, `{"prompt":"x"}`, name)
+				if took := time.Since(start); took > 2500*time.Millisecond {
+					t.Fatalf("%s took %s", name, took)
+				}
+				if code != 0 || stdout != "" || stderr != "" {
+					t.Fatalf("%s = %d, stdout %q, stderr %q", name, code, stdout, stderr)
+				}
+				if argv := h.ssh.Lines("argv"); !slices.Contains(argv, "ConnectTimeout=1") {
+					t.Fatalf("%s ssh argv = %q, want ConnectTimeout=1", name, argv)
+				}
+			}
+		})
+	}
+}
+
 func TestHubHelpStaysLocal(t *testing.T) {
 	h := startHub(t, `hub = "me@hub"`)
 	if code, stdout, _ := h.run(t, "", "send", "--help"); code != 0 || !strings.Contains(stdout, "agentbus send") {

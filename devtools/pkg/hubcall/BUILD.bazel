@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["hubcall.go"],
+    srcs = [
+        "caller.go",
+        "hubcall.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/pkg/hubcall",
     visibility = ["//visibility:public"],
     deps = ["//devtools/pkg/remotecall:go_default_library"],
@@ -10,9 +13,12 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["hubcall_test.go"],
+    srcs = [
+        "caller_test.go",
+        "hubcall_test.go",
+    ],
+    embed = [":go_default_library"],
     deps = [
-        ":go_default_library",
         "//devtools/pkg/hubcall/sshtest:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
     ],

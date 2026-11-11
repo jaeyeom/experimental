@@ -29,15 +29,18 @@ if [ -e "$d/locked" ]; then echo "user@hub: Permission denied (publickey)." >&2;
 exec sh -c "$cmd"
 `
 
-// toolScript records its arguments, stdin, and AGENTBUS_AS_HANDLE, then
-// prints $dir/<tool>.stdout and $dir/<tool>.stderr and exits with
-// $dir/<tool>.code.
+// toolScript records its arguments, stdin, AGENTBUS_AS_HANDLE, and its
+// whole environment, sleeps for $dir/<tool>.sleep seconds when that file
+// exists, then prints $dir/<tool>.stdout and $dir/<tool>.stderr and
+// exits with $dir/<tool>.code.
 const toolScript = `#!/bin/sh
 d=%DIR%
 t=%TOOL%
 printf '%s\n' "$@" > "$d/$t.args"
 cat > "$d/$t.stdin"
 printf '%s' "$AGENTBUS_AS_HANDLE" > "$d/$t.handle"
+env > "$d/$t.env"
+[ -e "$d/$t.sleep" ] && sleep "$(cat "$d/$t.sleep")"
 [ -e "$d/$t.stdout" ] && cat "$d/$t.stdout"
 [ -e "$d/$t.stderr" ] && cat "$d/$t.stderr" >&2
 exit "$(cat "$d/$t.code" 2>/dev/null || echo 0)"

@@ -437,6 +437,7 @@ func assertNotifyDump(t *testing.T, dump string, item decide.Item, question, lab
 		"DECIDE_ANSWERED_BY":   "human",
 		"DECIDE_THREAD_HEADER": threadHeader(item.ID, "human"),
 		"DECIDE_REPLY_HINT":    replyHint(item.ID),
+		"DECIDE_MACHINE":       "",
 		"arg":                  "{answer}",
 	}
 	for name, value := range want {
@@ -451,6 +452,7 @@ func notifyEnvNames() []string {
 		"DECIDE_ID", "DECIDE_ANSWER", "DECIDE_ANSWER_LABEL", "DECIDE_OWNER",
 		"DECIDE_PANE", "DECIDE_KIND", "DECIDE_QUESTION", "DECIDE_ANSWERED_AT",
 		"DECIDE_ANSWERED_BY", "DECIDE_THREAD_HEADER", "DECIDE_REPLY_HINT",
+		"DECIDE_MACHINE",
 	}
 }
 

@@ -12,17 +12,15 @@ import (
 	"unicode"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 
 // localMachine is the machine part of a handle on the local herdr server.
-const localMachine = "local"
+const localMachine = hubcall.LocalMachine
 
 // DefaultTimeout bounds one call to another machine when Timeout is zero.
 const DefaultTimeout = 5 * time.Second
-
-// probeTimeout bounds `herdr machine status`, which classifies a failure.
-const probeTimeout = 2 * time.Second
 
 // Exec runs one herdr invocation. args do not include the herdr binary.
 // A non-nil error means the process did not start. A non-zero code is herdr's.
@@ -106,8 +104,8 @@ func (a *Adapter) Identify(ctx context.Context, env []string) (string, error) {
 	if caller, ok := adapter.ForwardedCaller(ctx); ok {
 		return caller, nil
 	}
-	if raw := envValue(env, AsHandleEnv); raw != "" {
-		return hubCaller(env, raw)
+	if envValue(env, AsHandleEnv) != "" {
+		return hubcall.TrustedCaller(env, AsHandleEnv) //nolint:wrapcheck // the shared trust rule names the variable
 	}
 	pane := envValue(env, "HERDR_PANE_ID")
 	if pane == "" {
@@ -132,28 +130,11 @@ func (a *Adapter) Identify(ctx context.Context, env []string) (string, error) {
 // AsHandleEnv names the hub-mode caller handle in a command's environment.
 const AsHandleEnv = "AGENTBUS_AS_HANDLE"
 
-func hubCaller(env []string, raw string) (string, error) {
-	if envValue(env, "SSH_CONNECTION") == "" {
-		return "", fmt.Errorf("%s is only trusted over ssh, from a hub-mode call", AsHandleEnv)
-	}
-	if _, err := RemoteCaller(raw); err != nil {
-		return "", fmt.Errorf("%s: %w", AsHandleEnv, err)
-	}
-	return raw, nil
-}
-
 // RemoteCaller accepts raw only as herdr:<machine>/<session>/<pane> on
 // a machine other than local: a caller that reached the hub from
 // another machine.
 func RemoteCaller(raw string) (string, error) {
-	machine, _, _, err := parseHandle(raw)
-	if err != nil {
-		return "", err
-	}
-	if machine == localMachine {
-		return "", fmt.Errorf("handle %q must name a remote machine", raw)
-	}
-	return raw, nil
+	return hubcall.RemoteCaller(raw) //nolint:wrapcheck // the shared rule's message names the handle
 }
 
 // LocalHandle is the handle of the caller's pane on the local herdr
@@ -164,14 +145,7 @@ func LocalHandle(ctx context.Context, env []string) (string, error) {
 
 // OnMachine rewrites a herdr:local/... handle to herdr:<machine>/....
 func OnMachine(raw, machine string) (string, error) {
-	m, session, pane, err := parseHandle(raw)
-	if err != nil {
-		return "", err
-	}
-	if m != localMachine {
-		return "", fmt.Errorf("handle %q is not local", raw)
-	}
-	return handle(machine, session, pane), nil
+	return hubcall.OnMachine(raw, machine) //nolint:wrapcheck // the shared rule's message names the handle
 }
 
 func without(env []string, key string) []string {
@@ -396,32 +370,11 @@ func (a *Adapter) exec(ctx context.Context, machine string, args []string) (stri
 	if machine == localMachine {
 		return a.run(ctx, args)
 	}
-	callCtx, cancel := context.WithTimeout(ctx, a.timeout())
-	defer cancel()
-	stdout, stderr, code, err := a.run(callCtx, append([]string{"--machine", machine}, args...))
-	timedOut := callCtx.Err() != nil && ctx.Err() == nil
-	if err != nil && !timedOut {
-		return stdout, stderr, code, err
-	}
-	res := remotecall.Result{Stdout: stdout, Stderr: stderr, Code: code, TimedOut: timedOut}
-	if ue := remotecall.Classify(ctx, machine, res, a.probe(machine)); ue != nil {
+	stdout, stderr, code, err := remotecall.OnHerdrMachine(ctx, a.run, remotecall.HerdrProbe(a.run, machine), machine, a.timeout(), args)
+	if ue := remotecall.AsUnreachable(err); ue != nil {
 		return stdout, stderr, code, fmt.Errorf("herdr %s: %w", strings.Join(args[:min(2, len(args))], " "), ue)
 	}
-	return stdout, stderr, code, nil
-}
-
-// probe asks `herdr machine status`, which never prompts, whether the
-// machine's host answers.
-func (a *Adapter) probe(machine string) remotecall.Probe {
-	return func(ctx context.Context) bool {
-		probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
-		defer cancel()
-		stdout, stderr, code, err := a.run(probeCtx, []string{"machine", "status", machine, "--json"})
-		if err != nil || code != 0 || probeCtx.Err() != nil {
-			return false
-		}
-		return remotecall.HerdrMachineUp(stdout, stderr)
-	}
+	return stdout, stderr, code, err //nolint:wrapcheck // a start failure is a's own Exec error, as for a local call
 }
 
 func (a *Adapter) run(ctx context.Context, args []string) (string, string, int, error) {
@@ -470,23 +423,11 @@ func mapPrompt(code int, stdout, stderr string) adapter.Result {
 }
 
 func handle(machine, session, pane string) string {
-	return "herdr:" + machine + "/" + session + "/" + pane
+	return hubcall.Handle(machine, session, pane)
 }
 
 func parseHandle(raw string) (machine, session, pane string, err error) {
-	rest, ok := strings.CutPrefix(raw, "herdr:")
-	if !ok {
-		return "", "", "", fmt.Errorf("handle %q is not a herdr handle", raw)
-	}
-	machine, rest, ok = strings.Cut(rest, "/")
-	if !ok || machine == "" {
-		return "", "", "", fmt.Errorf("handle %q is missing a machine", raw)
-	}
-	session, pane, ok = strings.Cut(rest, "/")
-	if !ok || session == "" || pane == "" {
-		return "", "", "", fmt.Errorf("handle %q is missing a session or pane", raw)
-	}
-	return machine, session, pane, nil
+	return hubcall.ParseHandle(raw) //nolint:wrapcheck // the shared parser's message names the handle
 }
 
 func envValue(env []string, key string) string {

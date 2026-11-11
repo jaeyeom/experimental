@@ -997,16 +997,14 @@ func (m *Model) submitReply() error {
 }
 
 // notifyThread runs the compose command so the owner pane sees the
-// thread header, the original text, and the reply hint.
+// thread header, the original text, and the reply hint. A pane on
+// another machine is reached through `--machine`.
 func (m *Model) notifyThread(item *decide.Item, text string) error {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("load decide config: %w", err)
 	}
-	pane := item.NotifyPane
-	if strings.TrimSpace(pane) == "" {
-		pane = cfg.NotifyPane
-	}
+	pane, machine := decide.NotifyTarget(item, cfg)
 	if strings.TrimSpace(pane) == "" {
 		return fmt.Errorf("decide compose pane is empty")
 	}
@@ -1018,7 +1016,7 @@ func (m *Model) notifyThread(item *decide.Item, text string) error {
 	if strings.TrimSpace(template) == "" {
 		template = cfg.SendTemplate
 	}
-	argv := decide.SendArgv(template, pane, decide.DeliveryNote(item.ID, "human", text))
+	argv := decide.MachineArgv(decide.SendArgv(template, pane, decide.DeliveryNote(item.ID, "human", text)), machine)
 	send := m.runSend
 	if send == nil {
 		send = decide.RunSend
