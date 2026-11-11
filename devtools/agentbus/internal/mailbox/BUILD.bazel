@@ -7,12 +7,14 @@ go_library(
         "queue.go",
         "render.go",
         "view.go",
+        "wake.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox",
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
     ],
@@ -23,11 +25,13 @@ go_test(
     srcs = [
         "hibernate_test.go",
         "render_test.go",
+        "wake_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/adapter/fake:go_default_library",
+        "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",
     ],

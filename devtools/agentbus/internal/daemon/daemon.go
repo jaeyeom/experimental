@@ -55,6 +55,10 @@ type Config struct {
 	// after a takeover, or that a queued pause was granted. It runs on
 	// the lease watcher or a request and must not block for long.
 	Notify func(text string)
+	// Waker relaunches a hibernated agent when a message is delivered
+	// to it or `agentbus wake` names it. Nil holds such messages as
+	// hibernated.
+	Waker mailbox.Waker
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -227,6 +231,9 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 		return nil, err
 	}
 	reg.Now = cfg.Now
+	if cfg.Waker != nil {
+		box.SetWaker(cfg.Waker)
+	}
 	leases, err := lease.Open(stateDir, lg, cfg.Now, func(handle string) string {
 		if names := reg.NamesOf(handle); len(names) > 0 {
 			return names[0]
@@ -475,6 +482,8 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 		return s.bypass(req)
 	case "requeue":
 		return s.requeue(req)
+	case "wake":
+		return s.wakeAgent(req)
 	default:
 		if strings.HasPrefix(req.Op, "lease-") {
 			return s.lease(req)

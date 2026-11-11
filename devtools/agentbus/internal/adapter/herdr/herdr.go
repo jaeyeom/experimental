@@ -13,6 +13,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 
@@ -368,7 +369,29 @@ func (p ProcessInfo) ForegroundPIDs() []int {
 // ProcessInfo runs `herdr pane process-info --pane <pane>` on the local
 // server.
 func (a *Adapter) ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error) {
-	stdout, stderr, code, err := a.exec(ctx, localMachine, []string{"pane", "process-info", "--pane", pane})
+	return a.processInfoOn(ctx, localMachine, pane)
+}
+
+// AtShell reports whether the pane's shell has the foreground: the
+// foreground process group is the shell's. When herdr does not name the
+// shell, every foreground process must be a shell by name.
+func (p ProcessInfo) AtShell() bool {
+	if p.ShellPID > 0 {
+		return p.ForegroundProcessGroupID == p.ShellPID
+	}
+	if len(p.ForegroundProcesses) == 0 {
+		return false
+	}
+	for _, fp := range p.ForegroundProcesses {
+		if !procinfo.IsShell(procinfo.Process{PID: fp.PID, Name: fp.Name, Argv: fp.Argv}) {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *Adapter) processInfoOn(ctx context.Context, machine, pane string) (ProcessInfo, error) {
+	stdout, stderr, code, err := a.exec(ctx, machine, []string{"pane", "process-info", "--pane", pane})
 	if err != nil {
 		return ProcessInfo{}, err
 	}

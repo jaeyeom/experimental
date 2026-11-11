@@ -11,6 +11,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 
@@ -41,6 +42,7 @@ func (m *Mailbox) Poll(ctx context.Context, interval time.Duration) {
 		interval = defaultPoll
 	}
 	var flushes sync.WaitGroup
+	defer m.wakes.Wait()
 	defer flushes.Wait()
 	m.flushQuiet(ctx, &flushes)
 	ticker := time.NewTicker(interval)
@@ -323,9 +325,9 @@ func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 	if err := m.prepare(ctx); err != nil {
 		return outcome{reason: "unreachable", target: "unreachable"}
 	}
-	if m.reg.Hibernated(msg.Handle) {
+	if rec, ok := m.reg.Hibernation(msg.Handle); ok && hibernate.Asleep(rec.Status) {
 		// Its pane runs a shell now. The message waits for a wake.
-		return outcome{reason: HoldHibernated, target: HoldHibernated}
+		return m.wakeOutcome(ctx, rec)
 	}
 	state, ad, err := m.observe(ctx, msg.Handle)
 	if err != nil || ad == nil || !canDeliver(state) {
@@ -615,10 +617,19 @@ func (m *Mailbox) holdTail(handle string) error {
 // notifyExpired tells a reachable sender directly. It does not queue
 // the notice, and it skips anonymous or unreachable senders.
 func (m *Mailbox) notifyExpired(ctx context.Context, msg message) {
-	if strings.HasPrefix(msg.From, "anon:") {
+	text := fmt.Sprintf("agentbus: message %s to %s expired\n", msg.ID, msg.To)
+	m.notifySender(ctx, msg.ID, msg.From, text, "expiry notice not sent")
+}
+
+// notifySender pastes text to from, the sender of message id, when it
+// is a reachable agent with an empty composer. It does not queue the
+// notice. unsent is the deliver_attempt detail when the composer holds
+// it back.
+func (m *Mailbox) notifySender(ctx context.Context, id, from, text, unsent string) {
+	if strings.HasPrefix(from, "anon:") {
 		return
 	}
-	handle, err := m.reg.Resolve(msg.From)
+	handle, err := m.reg.Resolve(from)
 	if err != nil {
 		return
 	}
@@ -633,14 +644,13 @@ func (m *Mailbox) notifyExpired(ctx context.Context, msg message) {
 		_ = m.logEvent(eventlog.Event{
 			Event:  eventlog.EventDeliverAttempt,
 			Actor:  "agentbus",
-			MsgID:  msg.ID,
-			Name:   msg.From,
-			Detail: "expiry notice not sent",
+			MsgID:  id,
+			Name:   from,
+			Detail: unsent,
 			Reason: reason,
 		})
 		return
 	}
-	text := fmt.Sprintf("agentbus: message %s to %s expired\n", msg.ID, msg.To)
 	_, _ = ad.Deliver(ctx, handle, text)
 }
 

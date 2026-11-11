@@ -161,6 +161,14 @@ func commands() []command {
 			run:     noStdin(cmdHibernate),
 		},
 		{
+			name: "wake",
+			summary: "Relaunch a hibernated agent in its pane now, with no message to deliver. " +
+				"A message to a hibernated agent wakes it too.",
+			usage:   "agentbus wake <name|handle>",
+			example: "agentbus wake ops/x",
+			run:     noStdin(cmdWake),
+		},
+		{
 			name:    "install",
 			summary: "Install the supervisor and load it; in hub mode, the tunnel to the hub.",
 			usage:   "agentbus install",
@@ -272,6 +280,8 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           emacs, vim, nvim, less, agentbus
   hibernate_exempt = ["ops/*"]
                           names, handles, or globs hibernate never stops
+  wake_timeout = "60s"    read by the daemon: how long a hibernated agent
+                          it relaunches has to become idle or done
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>". It never falls back to a

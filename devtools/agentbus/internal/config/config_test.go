@@ -135,6 +135,16 @@ func TestParseHibernateExempt(t *testing.T) {
 	}
 }
 
+func TestParseWakeTimeout(t *testing.T) {
+	got, err := Parse("wake_timeout = \"90s\"  # slow machine\n")
+	if err != nil || got.WakeTimeout != 90*time.Second {
+		t.Fatalf("Parse = %+v, %v", got, err)
+	}
+	if _, err := Parse("wake_timeout = \"0s\"\n"); err == nil || !strings.Contains(err.Error(), "wake_timeout must be a positive duration") {
+		t.Fatalf("zero: %v", err)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	for _, tt := range []struct{ in, want string }{
 		{"colour = \"red\"\n", "line 1: unknown key colour"},

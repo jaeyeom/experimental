@@ -130,3 +130,65 @@ func TestInventoryCarriesTheStateChangeSeq(t *testing.T) {
 		t.Fatalf("Inventory() = %+v", agents)
 	}
 }
+
+func TestPaneCallsByHandleRunOnTheHandlesMachine(t *testing.T) {
+	var calls []string
+	ad := &Adapter{Run: func(_ context.Context, args []string) (string, string, int, error) {
+		line := strings.Join(args, " ")
+		calls = append(calls, line)
+		switch {
+		case strings.Contains(line, "process-info"):
+			return `{"result":{"process_info":{"shell_pid":7,"foreground_process_group_id":7,"foreground_processes":[{"pid":7,"name":"zsh","argv":["-zsh"],"cwd":"/src"}]}}}`, "", 0, nil
+		case strings.Contains(line, "agent list"):
+			return `{"result":{"agents":[{"pane_id":"w1:p1","agent":"claude","agent_status":"idle","agent_session":{"value":"s1"}}]}}`, "", 0, nil
+		}
+		return `{"result":{}}`, "", 0, nil
+	}}
+	ctx := context.Background()
+	const remote = "herdr:m2/s1/w1:p1"
+	info, err := ad.PaneProcessInfo(ctx, remote)
+	if err != nil || !info.AtShell() {
+		t.Fatalf("PaneProcessInfo() = %+v, %v", info, err)
+	}
+	if err := ad.PaneRun(ctx, remote, "cd /src && claude"); err != nil {
+		t.Fatal(err)
+	}
+	a, ok, err := ad.PaneAgent(ctx, remote)
+	if err != nil || !ok || a.Kind != "claude" || a.Status != "idle" || a.SessionID != "s1" {
+		t.Fatalf("PaneAgent() = %+v, %v, %v", a, ok, err)
+	}
+	if _, ok, err := ad.PaneAgent(ctx, "herdr:local/s9/w9:p9"); err != nil || ok {
+		t.Fatalf("PaneAgent(other pane) = %v, %v", ok, err)
+	}
+	want := []string{
+		"--machine m2 pane process-info --pane w1:p1",
+		"--machine m2 pane run w1:p1 cd /src && claude",
+		"--machine m2 agent list",
+		"agent list",
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls = %q, want %q", calls, want)
+	}
+}
+
+func TestAtShell(t *testing.T) {
+	zsh := ForegroundProcess{PID: 7, Name: "zsh", Argv: []string{"-zsh"}}
+	claude := ForegroundProcess{PID: 100, Name: "2.1.319", Argv: []string{"claude"}}
+	for _, tt := range []struct {
+		name string
+		info ProcessInfo
+		want bool
+	}{
+		{"shell owns the foreground", ProcessInfo{ShellPID: 7, ForegroundProcessGroupID: 7, ForegroundProcesses: []ForegroundProcess{zsh}}, true},
+		{"agent owns it", ProcessInfo{ShellPID: 7, ForegroundProcessGroupID: 100, ForegroundProcesses: []ForegroundProcess{claude}}, false},
+		{"vim owns it", ProcessInfo{ShellPID: 7, ForegroundProcessGroupID: 200, ForegroundProcesses: []ForegroundProcess{{PID: 200, Name: "vim", Argv: []string{"vim"}}}}, false},
+		{"unknown shell pid, shell by name", ProcessInfo{ForegroundProcessGroupID: 7, ForegroundProcesses: []ForegroundProcess{zsh}}, true},
+		{"nothing known", ProcessInfo{}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.info.AtShell(); got != tt.want {
+				t.Fatalf("AtShell() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

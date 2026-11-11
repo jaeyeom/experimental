@@ -6,6 +6,7 @@ go_library(
         "build.go",
         "job.go",
         "mem.go",
+        "shell.go",
         "table.go",
         "tree.go",
     ],
@@ -18,6 +19,7 @@ go_test(
     srcs = [
         "build_test.go",
         "mem_test.go",
+        "shell_test.go",
         "table_test.go",
         "tree_test.go",
     ],

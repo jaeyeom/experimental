@@ -33,6 +33,7 @@ var tunnelCommands = map[string]bool{
 	"show":        true,
 	"thread":      true,
 	"status":      true,
+	"wake":        true,
 	"hook":        true,
 	"prompt-hook": true,
 	// lease runs here even in hub mode and opens the tunnel itself for

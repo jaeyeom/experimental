@@ -18,7 +18,16 @@ const (
 	// StatusStopFailed means the agent did not exit in time. It was not
 	// killed.
 	StatusStopFailed = "stop-failed"
+	// StatusWakeFailed means a relaunch failed or timed out. The agent
+	// is still stopped and keeps its names.
+	StatusWakeFailed = "wake-failed"
 )
+
+// Asleep reports whether a record's agent is stopped and waits for a
+// wake: hibernated, or hibernated with a failed wake.
+func Asleep(status string) bool {
+	return status == StatusHibernated || status == StatusWakeFailed
+}
 
 // Record is what the daemon keeps for a hibernated agent, keyed by
 // Handle: enough to start the same session again in the same pane.
@@ -41,8 +50,13 @@ type Record struct {
 	// RSSBytes is the agent's process-tree RSS just before the stop.
 	RSSBytes int64  `json:"rss_bytes"` //nolint:tagliatelle // record shape
 	Status   string `json:"status"`
-	// Reason is why a stop failed.
+	// Reason is why a stop or the last wake failed.
 	Reason string `json:"reason,omitempty"`
+	// Failures counts the wakes that failed in a row.
+	Failures int `json:"failures,omitempty"`
+	// RetryAt is the earliest time a delivery tries to wake the agent
+	// again after a failed wake.
+	RetryAt time.Time `json:"retry_at,omitzero"` //nolint:tagliatelle // record shape
 }
 
 // Seen is the state the daemon last saw an agent in, and for how long

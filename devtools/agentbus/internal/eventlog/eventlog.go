@@ -72,6 +72,13 @@ const (
 	// EventHibernateRefused is an agent hibernate would not stop, or one
 	// that did not exit in time.
 	EventHibernateRefused = "agent_hibernate_refused"
+	// EventWake is a hibernated agent relaunched in its pane and ready.
+	EventWake = "agent_wake"
+	// EventWakeFailed is a relaunch that failed or timed out.
+	EventWakeFailed = "agent_wake_failed"
+	// EventWakeSkipped is a wake not tried because the pane runs
+	// something other than its shell; the record was dropped.
+	EventWakeSkipped = "agent_wake_skipped"
 )
 
 // timeLayout is RFC 3339 with millisecond precision.
@@ -401,7 +408,7 @@ func knownEvent(name string) bool {
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
-		EventHibernated, EventHibernateRefused:
+		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped:
 		return true
 	default:
 		return false

@@ -72,7 +72,7 @@ func (m *Mailbox) Status(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("id: %s\nstate: %s\nwaited: %s\n", msg.ID, msg.State, m.waited(msg)), nil
+	return fmt.Sprintf("id: %s\nstate: %s\n%swaited: %s\n", msg.ID, msg.State, m.wakeStatus(msg), m.waited(msg)), nil
 }
 
 // Held lists queued messages in send order, with how long each has waited.

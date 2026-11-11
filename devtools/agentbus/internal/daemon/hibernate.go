@@ -119,6 +119,19 @@ func (s *server) logHibernate(ev eventlog.Event) error {
 	return nil
 }
 
+// wakeAgent relaunches a hibernated agent with no message to deliver.
+// The daemon runs the relaunch through its own herdr adapter, which
+// reaches an agent on another machine with `herdr --machine`, so in hub
+// mode the hub wakes any machine's agent. Unlike hibernate, any caller
+// may wake any agent: a message to it would wake it anyway.
+func (s *server) wakeAgent(req Request) Response {
+	handle, err := s.box.Wake(s.ctx, req.Name)
+	if err != nil {
+		return Response{Error: err.Error(), Handle: handle}
+	}
+	return Response{OK: true, Name: req.Name, Handle: handle}
+}
+
 // agentName is handle's first name, else handle.
 func (s *server) agentName(handle string) string {
 	if names := s.reg.NamesOf(handle); len(names) > 0 {

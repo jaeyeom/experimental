@@ -107,6 +107,53 @@ func TestHibernationRecordsSurviveARestart(t *testing.T) {
 	}
 }
 
+func TestAFailedWakeKeepsTheRecordAndTheName(t *testing.T) {
+	reg, ad, alice, _ := hibernateWorld(t)
+	hibernateAlice(t, reg, ad, alice)
+	retry := time.Date(2026, 11, 11, 9, 1, 0, 0, time.UTC)
+	rec, err := reg.FailWake(alice, "relaunched agent not ready within 1m0s", retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Status != hibernate.StatusWakeFailed || rec.Failures != 1 || !rec.RetryAt.Equal(retry) || !strings.Contains(rec.Reason, "not ready") {
+		t.Fatalf("record = %+v", rec)
+	}
+	if rec, _ = reg.FailWake(alice, "again", retry); rec.Failures != 2 {
+		t.Fatalf("second failure = %+v, want 2 failures", rec)
+	}
+	if !reg.Hibernated(alice) {
+		t.Fatal("a wake-failed agent does not count as hibernated")
+	}
+	if got, ok := reg.Hibernation(alice); !ok || got.Status != hibernate.StatusWakeFailed {
+		t.Fatalf("Hibernation(alice) = %+v, %v", got, ok)
+	}
+	if _, err := reg.Register(context.Background(), envPane("p2"), "ops/x", "steal"); err == nil {
+		t.Fatal("claim over a wake-failed agent's name succeeded")
+	}
+}
+
+func TestAWakeClearsTheRecordAndTheNameIsActiveAgain(t *testing.T) {
+	reg, ad, alice, _ := hibernateWorld(t)
+	hibernateAlice(t, reg, ad, alice)
+	if err := reg.ClearHibernation(alice); err != nil {
+		t.Fatal(err)
+	}
+	ad.Reach[alice] = adapter.StateIdle
+	if reg.Hibernated(alice) || len(reg.Hibernations()) != 0 {
+		t.Fatalf("records after the wake = %+v", reg.Hibernations())
+	}
+	rows, err := reg.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Name != "ops/x" || rows[0].Liveness != "alive" {
+		t.Fatalf("list = %+v", rows)
+	}
+	if _, err := reg.FailWake(alice, "x", time.Time{}); err == nil {
+		t.Fatal("FailWake without a record succeeded")
+	}
+}
+
 func TestEndWithoutARecordFails(t *testing.T) {
 	reg, _, alice, _ := hibernateWorld(t)
 	if _, err := reg.EndHibernation(alice, hibernate.StatusHibernated, ""); err == nil {

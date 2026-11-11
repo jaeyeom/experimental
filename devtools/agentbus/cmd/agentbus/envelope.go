@@ -94,8 +94,13 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, stdout, s
 		return 1
 	}
 	fmt.Fprintf(stdout, "%s %s\n", resp.Name, resp.State)
-	if resp.State == "held: "+mailbox.HoldHibernated {
+	switch resp.State {
+	case "held: " + mailbox.HoldHibernated:
 		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; the message is queued until it wakes\n")
+	case "held: " + mailbox.HoldWaking:
+		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; waking it, and the message goes out once it is ready\n")
+	case "held: " + mailbox.HoldWakeFailed:
+		fmt.Fprintf(stderr, "agentbus: the agent is hibernated and its last wake failed; the message is queued until a wake succeeds\n")
 	}
 	return 0
 }

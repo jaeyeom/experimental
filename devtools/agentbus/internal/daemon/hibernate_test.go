@@ -135,3 +135,35 @@ func TestHibernateFromAnotherMachineOnlyForItsOwnAgents(t *testing.T) {
 		t.Fatalf("state from mac = %+v", resp)
 	}
 }
+
+// recordingWaker wakes every agent and records the records it got.
+type recordingWaker struct{ recs []hibernate.Record }
+
+func (w *recordingWaker) Wake(_ context.Context, rec hibernate.Record) error {
+	w.recs = append(w.recs, rec)
+	return nil
+}
+
+func TestWakeOpRelaunchesAndClearsTheRecord(t *testing.T) {
+	srv, dir := newHibernateServer(t)
+	waker := &recordingWaker{}
+	srv.box.SetWaker(waker)
+	srv.dispatch(Request{Op: "hibernate-begin", Hibernate: &hibernate.Args{Record: &hibernate.Record{Handle: hibAlice, Kind: "claude", Session: "s1"}}}, 0)
+	srv.dispatch(Request{Op: "hibernate-end", Hibernate: &hibernate.Args{Handle: hibAlice, Status: hibernate.StatusHibernated}}, 0)
+	resp := srv.dispatch(Request{Op: "wake", Name: "ops/x"}, 0)
+	if !resp.OK || resp.Handle != hibAlice || resp.Name != "ops/x" {
+		t.Fatalf("wake = %+v", resp)
+	}
+	if len(waker.recs) != 1 || waker.recs[0].Session != "s1" {
+		t.Fatalf("woke %+v", waker.recs)
+	}
+	if recs := srv.reg.Hibernations(); len(recs) != 0 {
+		t.Fatalf("records after the wake = %+v", recs)
+	}
+	if evs := hibernateEvents(t, dir, eventlog.EventWake); len(evs) != 1 || evs[0].Name != "ops/x" {
+		t.Fatalf("agent_wake events = %+v", evs)
+	}
+	if resp := srv.dispatch(Request{Op: "wake", Name: "ops/x"}, 0); resp.OK || !strings.Contains(resp.Error, "not hibernated") {
+		t.Fatalf("second wake = %+v", resp)
+	}
+}
