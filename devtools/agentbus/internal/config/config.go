@@ -12,6 +12,7 @@
 //	lease_check_interval = "2m"   # how often an overrun holder is checked
 //	lease_checkin_repeat = "15m"  # least time between check-ins
 //	lease_idle_grace = "5m"       # idle and silent this long: take over
+//	lease_takeover = "log"        # "on" carries takeovers out; "log" only logs them
 //	lease_ignore_procs = ["zsh", "claude"]  # adopt's process check ignores these
 package config
 
@@ -59,6 +60,21 @@ type Config struct {
 	// a checkout does not block lease adopt. Nil means the default list;
 	// a set list replaces it.
 	LeaseIgnoreProcs []string
+	// LeaseTakeover is lease_takeover as written when it is "log" or
+	// "on", else empty. Read it through TakeoverMode.
+	LeaseTakeover string
+	// Warnings are problems that did not fail the load, such as an
+	// invalid lease_takeover.
+	Warnings []string
+}
+
+// TakeoverMode is "on" when lease_takeover is exactly "on", else "log":
+// a missing or invalid key never turns takeover on.
+func (c Config) TakeoverMode() string {
+	if c.LeaseTakeover == "on" {
+		return "on"
+	}
+	return "log"
 }
 
 var errLeaseCheckouts = errors.New(`lease_checkouts must be a list of absolute paths, such as ["/home/u/src/repo"]`)
@@ -132,18 +148,27 @@ func parseLine(cfg *Config, line string) error {
 		return parseDuration(&cfg.LeaseIdleGrace, key, value, "5m")
 	case "lease_checkouts":
 		return parseLeaseCheckouts(cfg, value)
-	case "lease_ignore_procs":
-		names, ok := parseList(value)
-		if !ok || slices.ContainsFunc(names, func(n string) bool { return strings.Contains(n, "/") }) {
-			return errors.New(`lease_ignore_procs must be a list of program names, such as ["zsh", "claude"]`)
-		}
-		cfg.LeaseIgnoreProcs = names
+	case "lease_takeover":
+		parseLeaseTakeover(cfg, value)
 		return nil
+	case "lease_ignore_procs":
+		return parseLeaseIgnoreProcs(cfg, value)
 	case "hub", "machine", "hub_socket":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
 	}
+}
+
+// parseLeaseIgnoreProcs reads lease_ignore_procs, a list of program
+// names.
+func parseLeaseIgnoreProcs(cfg *Config, value string) error {
+	names, ok := parseList(value)
+	if !ok || slices.ContainsFunc(names, func(n string) bool { return strings.Contains(n, "/") }) {
+		return errors.New(`lease_ignore_procs must be a list of program names, such as ["zsh", "claude"]`)
+	}
+	cfg.LeaseIgnoreProcs = names
+	return nil
 }
 
 // parseDuration reads a positive duration string into dst.
@@ -155,6 +180,19 @@ func parseDuration(dst *time.Duration, key, value, example string) error {
 	}
 	*dst = d
 	return nil
+}
+
+// parseLeaseTakeover reads lease_takeover, "log" or "on". Any other
+// value is a warning and means "log", so the daemon still starts with
+// takeover off.
+func parseLeaseTakeover(cfg *Config, value string) {
+	raw, rest, ok := parseString(value)
+	if ok && blankOrComment(rest) && (raw == "log" || raw == "on") {
+		cfg.LeaseTakeover = raw
+		return
+	}
+	cfg.LeaseTakeover = ""
+	cfg.Warnings = append(cfg.Warnings, fmt.Sprintf(`lease_takeover = %s is not "log" or "on"; using "log"`, value))
 }
 
 // parseMachines reads machines, a list of saved-machine labels.

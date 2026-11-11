@@ -16,6 +16,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 )
 
 // leaseUserPane is a herdr pane that runs no agent: the user.
@@ -60,6 +61,7 @@ func TestLeaseTakeoverThenAdoptSavesEverythingAndCleans(t *testing.T) {
 	w := newLeaseWorld(t)
 	ticks := make(chan time.Time)
 	w.cfg.LeaseTicks = ticks
+	w.cfg.LeaseTiming.Takeover = lease.TakeoverOn
 	// The test stops the daemon before it reads the deliveries.
 	stop := sync.OnceFunc(startDaemon(t, w.dirs, w.cfg))
 	defer stop()

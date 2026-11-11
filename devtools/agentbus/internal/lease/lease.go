@@ -104,6 +104,9 @@ type Reply struct {
 	Skipped []string `json:"skipped,omitempty"`
 	// PullError echoes a release's failed pull.
 	PullError string `json:"pullError,omitempty"`
+	// Takeover is the daemon's effective lease_takeover on a status
+	// reply: "log" or "on". An older daemon leaves it empty.
+	Takeover TakeoverMode `json:"takeover,omitempty"`
 }
 
 // Status is the stable `lease status --json` shape other tools read.
@@ -177,12 +180,16 @@ type holder struct {
 	// TakeoverAt is when the daemon decided to take over. Zero means not
 	// yet; it is decided once.
 	TakeoverAt time.Time `json:"takeoverAt,omitzero"`
+	// WouldTakeOverAt is when a takeover was decided but only logged,
+	// because lease_takeover is "log". Zero means not logged yet; it is
+	// logged once per holder until the holder answers.
+	WouldTakeOverAt time.Time `json:"wouldTakeOverAt,omitzero"`
 }
 
 // answered resets the check-in timers: the holder answered with a claim
 // or an extend.
 func (h *holder) answered() {
-	h.CheckedIn, h.SilentSince, h.TakeoverAt = time.Time{}, time.Time{}, time.Time{}
+	h.CheckedIn, h.SilentSince, h.TakeoverAt, h.WouldTakeOverAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}
 }
 
 type waiter struct {

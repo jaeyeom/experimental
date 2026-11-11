@@ -7,7 +7,39 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 )
+
+func TestLeaseTimingTakeoverMode(t *testing.T) {
+	for _, tt := range []struct {
+		text, want, warn string
+	}{
+		{"", "log", ""},
+		{"lease_takeover = \"log\"\n", "log", ""},
+		{"lease_takeover = \"on\"\n", "on", ""},
+		{"lease_takeover = \"maybe\"\n", "log", `agentbusd: config: lease_takeover = "maybe" is not "log" or "on"; using "log"`},
+	} {
+		cfg, err := config.Parse(tt.text)
+		if err != nil {
+			t.Fatalf("Parse(%q) = %v; the daemon must still start", tt.text, err)
+		}
+		var stderr bytes.Buffer
+		tm := leaseTiming(cfg, &stderr)
+		if string(tm.Takeover) != tt.want {
+			t.Errorf("%q: takeover = %q, want %q", tt.text, tm.Takeover, tt.want)
+		}
+		if !strings.Contains(stderr.String(), "agentbusd: lease_takeover="+tt.want+"\n") {
+			t.Errorf("%q: stderr = %q, want the effective mode", tt.text, stderr.String())
+		}
+		if tt.warn != "" && !strings.Contains(stderr.String(), tt.warn) {
+			t.Errorf("%q: stderr = %q, want warning %q", tt.text, stderr.String(), tt.warn)
+		}
+		if tt.warn == "" && strings.Contains(stderr.String(), "config:") {
+			t.Errorf("%q: unexpected warning in %q", tt.text, stderr.String())
+		}
+	}
+}
 
 func TestRunRejectsBadRetention(t *testing.T) {
 	var stderr bytes.Buffer
@@ -31,7 +63,7 @@ func TestHelp(t *testing.T) {
 		if code != 0 || stderr.Len() != 0 {
 			t.Fatalf("%s: code %d, stderr %q", arg, code, stderr.String())
 		}
-		for _, want := range []string{"Usage: agentbusd", "AGENTBUS_LOG_RETENTION_DAYS", "AGENTBUS_INLINE_BYTES", "XDG_RUNTIME_DIR"} {
+		for _, want := range []string{"Usage: agentbusd", "AGENTBUS_LOG_RETENTION_DAYS", "AGENTBUS_INLINE_BYTES", "XDG_RUNTIME_DIR", `lease_takeover = "log"`} {
 			if !strings.Contains(stdout.String(), want) {
 				t.Errorf("%s: stdout is missing %q", arg, want)
 			}

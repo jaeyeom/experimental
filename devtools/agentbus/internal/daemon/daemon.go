@@ -43,7 +43,8 @@ type Config struct {
 	// Now is the lease clock. Nil uses time.Now.
 	Now func() time.Time
 	// LeaseTiming is the soft-deadline timing. Zero fields use the
-	// defaults.
+	// defaults. Its Takeover is lease_takeover: takeovers are carried out
+	// only when it is lease.TakeoverOn, and only logged otherwise.
 	LeaseTiming lease.Timing
 	// LeaseTicks, when not nil, drives the soft-deadline checks instead
 	// of a ticker at LeaseTiming.Interval.
@@ -177,7 +178,7 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	if err := lg.Append(eventlog.Event{
 		Event:  eventlog.EventStart,
 		Actor:  "daemon",
-		Detail: "listening",
+		Detail: "listening; lease_takeover=" + string(srv.timing.Takeover),
 	}); err != nil {
 		return fmt.Errorf("log start: %w", err)
 	}
@@ -472,7 +473,9 @@ func (s *server) lease(req Request) Response {
 	}
 	switch req.Op {
 	case "lease-status":
-		return leaseResponse(s.leases.Status(args))
+		r, err := s.leases.Status(args)
+		r.Takeover = s.timing.Takeover
+		return leaseResponse(r, err)
 	case "lease-adopt-begin", "lease-adopt":
 		return s.leaseAdopt(req, args)
 	}
@@ -583,7 +586,9 @@ func (s *server) watchLeases(ctx context.Context, ticks <-chan time.Time) {
 // checkLeases applies the soft-deadline rules to every watched holder.
 // It reads each pane state with the lease table unlocked, lets the
 // table decide, then sends the check-in and asks for the takeover. A
-// check that fails to save is tried again on the next tick.
+// check that fails to save is tried again on the next tick. With
+// lease_takeover "log" the table never asks for a takeover; it logs a
+// lease_would_take_over event once per holder instead.
 func (s *server) checkLeases() {
 	for _, w := range s.leases.Watched() {
 		if s.ctx.Err() != nil {

@@ -47,10 +47,14 @@ extend --for <duration>
          one check-in only. Takeover tells the old holder "[lease] taken
          over from you: <checkout>; your uncommitted work will be saved
          to <backup ref>" and grants the next waiter as needs-adopt.
+         Takeover runs only with lease_takeover = "on"; with "log" (the
+         default) the daemon only logs lease_would_take_over.
 leave    leave the queue
 status [--all]
          holder, deadline, state, and queue; --all lists every checkout
-         the daemon has seen (default: false, this checkout)
+         the daemon has seen (default: false, this checkout). Ends with
+         "takeover: log" or "takeover: on"; --json has a "takeover"
+         field
 check    exit 0 when you hold the lease for --path or --path is not
          guarded, 1 with a one-line reason when you do not, 3 when it
          cannot tell; an unguarded path never contacts the daemon
@@ -296,16 +300,31 @@ func printLease(sub string, f leaseFlags, r lease.Reply, env []string, stdout, s
 	return 0
 }
 
+// statusJSON is the status --json shape: the stable lease.Status plus
+// the daemon's effective lease_takeover, "log" or "on".
+type statusJSON struct {
+	lease.Status
+	Takeover lease.TakeoverMode `json:"takeover,omitempty"`
+}
+
 // printStatusReply prints status: one object for a checkout, an array
-// for --all, or text.
+// for --all, or text. Each object carries the takeover mode; text ends
+// with it.
 func printStatusReply(f leaseFlags, r lease.Reply, env []string, stdout io.Writer) {
 	switch {
 	case f.jsonOut && f.all:
-		writeJSON(stdout, append([]lease.Status{}, r.Leases...))
+		out := make([]statusJSON, 0, len(r.Leases))
+		for _, s := range r.Leases {
+			out = append(out, statusJSON{Status: s, Takeover: r.Takeover})
+		}
+		writeJSON(stdout, out)
 	case f.jsonOut:
-		writeJSON(stdout, r.Leases[0])
+		writeJSON(stdout, statusJSON{Status: r.Leases[0], Takeover: r.Takeover})
 	default:
 		printStatusText(r, env, stdout)
+		if r.Takeover != "" {
+			fmt.Fprintf(stdout, "takeover: %s\n", r.Takeover)
+		}
 	}
 }
 
