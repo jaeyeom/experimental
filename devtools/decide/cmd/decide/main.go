@@ -63,6 +63,8 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 		return cmdSendOrReply(args, stdout, stderr)
 	case "skill":
 		return cmdSkill(args[1:], stdout, stderr)
+	case "avatars":
+		return cmdAvatars(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stderr)
 		return 0
@@ -97,6 +99,7 @@ func usage(w io.Writer) {
   decide send --id <id> [--json] <text>
   decide reply <id> [--option key:label ...] [--rec key] [--free-text] [--json] <text>
   decide skill
+  decide avatars list [--name <name>]
 `)
 }
 

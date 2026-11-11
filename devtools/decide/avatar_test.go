@@ -3,8 +3,41 @@ package decide
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func writeConfig(t *testing.T, data string) {
+	t.Helper()
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	dir := filepath.Join(cfgHome, "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadConfigAvatarBuiltin(t *testing.T) {
+	writeConfig(t, `{"avatars": [{"match": "coord/primary", "builtin": "owl"}]}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Avatars) != 1 || cfg.Avatars[0].Builtin != "owl" || cfg.Avatars[0].File != "" {
+		t.Errorf("Avatars = %+v, want one owl rule without a file", cfg.Avatars)
+	}
+}
+
+func TestLoadConfigAvatarFileAndBuiltin(t *testing.T) {
+	writeConfig(t, `{"avatars": [{"match": "a", "file": "a.txt", "builtin": "owl"}]}`)
+	_, err := LoadConfig()
+	if err == nil || !strings.Contains(err.Error(), "avatars[0]") {
+		t.Fatalf("err = %v, want an avatars[0] error", err)
+	}
+}
 
 func TestMatchAvatar(t *testing.T) {
 	rules := []AvatarRule{
