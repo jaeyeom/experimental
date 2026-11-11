@@ -103,6 +103,56 @@ such as ~key type=13 (enter) alt=true runes="" str="alt+enter"~. Input
 bubbletea does not parse is logged with its bytes, such as
 ~unknown tea.unknownCSISequenceMsg bytes="\x1b[13;5u"~.
 
+* Avatars
+
+The inbox can show a 10x6 avatar for the other party: in an open item,
+left of the ID and header fields; in compose, left of the recipient
+list, for the selected recipient. Map names to files in
+~$XDG_CONFIG_HOME/decide/config.json~:
+
+#+begin_src json
+{
+  "avatars": [
+    {"match": "coord/primary", "file": "~/avatars/coord.png"},
+    {"match": "pm-*", "file": "avatars/pm.txt"}
+  ],
+  "avatarDefault": true,
+  "avatarMono": "hide"
+}
+#+end_src
+
+- ~avatars~ matches the item owner, compose target, or bus name. An
+  exact ~match~ wins, then the first ~path.Match~ glob. ~file~ may start
+  with =~/= for the home directory and is otherwise relative to the config file. A PNG or WEBP
+  image is drawn as colored characters; any other file is text, and its
+  ANSI colors are kept.
+- ~avatarDefault~ (off by default) shows a built-in round face for names
+  no rule matches.
+- ~avatarMono~ is ~"hide"~ to hide avatars under ~NO_COLOR~ or on a
+  monochrome terminal. Otherwise they show without color.
+
+An open item from ~coord/primary~ then looks like this:
+
+#+begin_example
+┌────────────────────────────────────────────────────────┐
+│  .----.   D-007                                        │
+│ /      \      From: coord/primary                      │
+│|  o  o  |     Kind: relay                              │
+│|  \__/  |    State: open                               │
+│ \      /   Created: 2026-11-10T09:00:00Z               │
+│  '----'   Answered:                                    │
+│                                                        │
+│coord/primary  5m  latest                               │
+│  merge the release branch?                             │
+#+end_example
+
+The avatar is hidden, and the layout is the same as without one, when
+no rule matches and ~avatarDefault~ is off, when the terminal is under
+60 columns, or when fewer than 30 columns would be left beside it. A
+file that cannot be read or decoded is hidden too, and the status line
+shows the error once. Rendered avatars are cached, so moving the
+selection or reloading does not decode the file again.
+
 * Emacs
 
 ~devtools/decide/emacs/decide.el~ is a plain Emacs frontend. Load that

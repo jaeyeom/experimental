@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// AvatarMonoHide is the avatarMono value that hides avatars without color.
+const AvatarMonoHide = "hide"
+
 // AvatarRule maps a TUI name to an avatar file. Match is an exact name or a
 // path.Match glob. LoadConfig makes File absolute: a leading "~" is the
 // home directory and a relative path is relative to the config file.

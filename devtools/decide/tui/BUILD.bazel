@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "avatars.go",
         "compose.go",
         "editor.go",
         "field.go",
@@ -23,6 +24,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//devtools/decide:go_default_library",
+        "//devtools/decide/tui/avatar:go_default_library",
         "@com_github_charmbracelet_bubbles//key:go_default_library",
         "@com_github_charmbracelet_bubbles//textarea:go_default_library",
         "@com_github_charmbracelet_bubbletea//:go_default_library",
@@ -49,6 +51,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "avatarview_test.go",
         "chord_test.go",
         "color_test.go",
         "editor_test.go",
@@ -62,10 +65,13 @@ go_test(
         "snooze_test.go",
         "thread_test.go",
     ],
+    data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [
         "//devtools/decide:go_default_library",
+        "//devtools/decide/tui/avatar:go_default_library",
         "@com_github_charmbracelet_bubbletea//:go_default_library",
         "@com_github_charmbracelet_lipgloss//:go_default_library",
+        "@com_github_muesli_termenv//:go_default_library",
     ],
 )

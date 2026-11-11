@@ -253,8 +253,19 @@ func (m *Model) composeBody() []screenLine {
 		budget = 3
 	}
 	pickerLines, sel := m.pickerLines()
+	av, reserve := m.pickerAvatar(width - 2)
 	pickerBox, textLines := composeBoxHeights(len(pickerLines), budget)
+	if reserve {
+		pickerBox, textLines = composeBoxHeights(max(len(pickerLines), avatarRows), budget)
+		if pickerBox-2 < avatarRows {
+			reserve = false
+			pickerBox, textLines = composeBoxHeights(len(pickerLines), budget)
+		}
+	}
 	picker := windowLines(pickerLines, sel, pickerBox-2)
+	if reserve {
+		picker = besideAvatar(av, picker, width-2-avatarColumn)
+	}
 	wrap := composeDraftWidth(width-2, m.composeFocus == focusText)
 	draft, first := windowDraft(m.draftLines(wrap), textLines)
 	draft = fieldRows(draft, hitNote, first, 0, wrap)
