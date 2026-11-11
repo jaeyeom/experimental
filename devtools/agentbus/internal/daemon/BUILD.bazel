@@ -39,6 +39,7 @@ go_test(
         "takeover_mode_test.go",
         "takeover_test.go",
         "user_test.go",
+        "waiting_test.go",
     ],
     embed = [":go_default_library"],
     deps = [

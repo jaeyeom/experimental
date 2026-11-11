@@ -67,6 +67,9 @@ const (
 	EventLeaseWith = "lease_with"
 	// EventLeaseUnshare takes an agent pane off the user's pause.
 	EventLeaseUnshare = "lease_unshare"
+	// EventLeaseNotifyWaiting tells a holder a new waiter queued behind
+	// it.
+	EventLeaseNotifyWaiting = "lease_notify_waiting"
 	// EventHibernated is an idle agent stopped with its pane kept.
 	EventHibernated = "agent_hibernated"
 	// EventHibernateRefused is an agent hibernate would not stop, or one
@@ -408,6 +411,7 @@ func knownEvent(name string) bool {
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
+		EventLeaseNotifyWaiting,
 		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped:
 		return true
 	default:
