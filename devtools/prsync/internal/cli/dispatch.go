@@ -102,7 +102,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		return err
 	}
 	h := herdr.NewClient(exec, cfg.HerdrBin)
-	ctx = dispatch.WithProbes(ctx, gateProbes(exec, h))
+	ctx = withGateProbes(ctx, exec, cfg, h)
 	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile, Scope: cfg.TabMachine}, cfg, dispatch.Request{
 		Doc:        doc,
 		PRs:        prs,

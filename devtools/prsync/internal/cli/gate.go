@@ -26,6 +26,11 @@ agent at least gate_job_min_age old) or a pending decide question (an
 item for its pane answered but not done, or opened since the round
 started).
 
+With machines set, agents on each machine in the tab_machine scope are
+read through herdr --machine. An unreachable machine (signal
+"machine-unreachable") or a remote tab whose signals cannot be read
+(signal "signal-unavailable") holds the gate.
+
 Config keys for the gate:
   gate_ignore_procs       Comma-separated patterns for agent helpers that
                           are never a background job. Each is checked
@@ -99,6 +104,14 @@ var gateProbes = func(exec executor.Executor, h *herdr.Client) dispatch.Probes {
 	}
 }
 
+// withGateProbes attaches gateProbes, with the agents and panes on each
+// of cfg.Machines read through `herdr --machine`.
+func withGateProbes(ctx context.Context, exec executor.Executor, cfg config.Config, h *herdr.Client) context.Context {
+	p := gateProbes(exec, h)
+	p.Remote = func(machine string) dispatch.RemoteHerdr { return machineHerdr(exec, cfg, machine) }
+	return dispatch.WithProbes(ctx, p)
+}
+
 func evaluateGate(ctx context.Context, cfg config.Config, exec executor.Executor) (dispatch.Result, error) {
 	h := herdr.NewClient(exec, cfg.HerdrBin)
 	if err := h.RequireMin(ctx, "0.8.0"); err != nil {
@@ -115,7 +128,7 @@ func evaluateGate(ctx context.Context, cfg config.Config, exec executor.Executor
 	if cfg.ConcurrencyCwd == "checkout" && cfg.Checkout == "" {
 		cfg.Checkout = dispatch.CheckoutOfCWD()
 	}
-	ctx = dispatch.WithProbes(ctx, gateProbes(exec, h))
+	ctx = withGateProbes(ctx, exec, cfg, h)
 	res, err := dispatch.GateCheck(ctx, h, cfg, runner, matched)
 	if err != nil {
 		return dispatch.Result{}, fmt.Errorf("gate: %w", err)

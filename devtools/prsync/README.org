@@ -265,7 +265,8 @@ warning, ~tab~ is ~null~, and dispatch skips it with ~skipped_no_tab~.
 
 ~dispatch~ sends to a remote tab with ~herdr --machine <m> agent
 prompt~, and runs the settle polls and ~agent wait~ there too. Its
-result row has ~machine~. The gate still watches only local agents.
+result row has ~machine~. The gate watches the agents on each machine
+too; see [[*Remote tabs][Remote tabs]].
 
 Each call to a machine, other than prompt and wait, has a
 ~machine_timeout_ms~ deadline that kills the whole process group, since
@@ -853,8 +854,9 @@ does not block itself. The entry has ~checkout~ instead of a tab:
 
 A signal the gate cannot evaluate (for example ~herdr pane
 process-info~ or ~decide~ fails) is listed under ~signal_unavailable~
-with ~tab_id~, ~pane_id~ (or ~checkout~), ~signal~, and ~error~. It
-does not make the gate unsafe.
+with ~tab_id~, ~pane_id~ (or ~checkout~), ~signal~, and ~error~. For a
+local tab it does not make the gate unsafe; a remote tab is held (see
+[[*Remote tabs][Remote tabs]]).
 
 ~dispatch --go~ waits on these signals like ~working~, with the same
 debounce and ~gate_timeout_ms~; a timeout's ~detail~ names the last
@@ -862,8 +864,6 @@ signal. Each change in the holds is logged as one ~gate_hold~ line, for
 example ~gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 (2m13s) sh
 -c "bazel build ..."~, or ~gate: busy checkout /src/repo: build-tool
 ...~ for the checkout.
-
-The signals cover local agents only, like the rest of the gate.
 
 The gate is also unsafe (exit 1) when the dispatch checkout is dirty,
 in every ~concurrency_cwd~ mode. The checkout is the git toplevel of
@@ -885,6 +885,54 @@ tracked paths; untracked files do not count). A clean tree omits
 Self-exclusion uses ~HERDR_PANE_ID~ only. If that env var is empty,
 ~gate~ does not call ~herdr pane current~ (that would drop the focused
 pane under cron).
+
+*** Remote tabs
+
+With ~machines~ set, the gate also reads ~herdr --machine <m> agent
+list~ on each machine, with the same ~machine_timeout_ms~ deadline as
+~scan~. A run scoped with ~--tab-machine~ (or ~tab_machine~) reads only
+that machine, or none for ~local~; in ~managed~ mode a machine is read
+only when a matched tab is on it. Local agents are always read. A
+remote entry in ~busy~, ~exempt~, ~ignored~, and ~signal_unavailable~
+has ~machine~, and its tab is named ~<tab_id>@<machine>~ in log and
+wait lines.
+
+- ~working~ and ~blocked~ hold the gate as they do locally, with
+  ~concurrency_ignore_blocked~ and the exemptions applied the same way.
+  ~gate_exempt_tabs~ reads that machine's tab labels.
+- ~background-job~ reads ~herdr --machine <m> pane process-info~. The
+  agent's children are the other processes in its pane's foreground
+  process group; their age is unknown, so ~gate_job_min_age~ does not
+  skip them, but the two-sample rule in the wait loop still applies.
+  ~detail~ has no age: ~pid 4242 sh -c "bazel build //..."~.
+- ~pending-question~ matches a decide item whose ~notifyPane~ is the
+  remote handle ~herdr:<m>/<session>/<pane>~ (what agentbus sends in hub
+  mode).
+- ~build-tool~ and the dirty-tree check stay local: they look at the
+  local dispatch checkout.
+
+A remote tab never counts as free unseen. A machine whose agent list
+fails holds the gate with a machine-level entry, logged once per cause
+as ~gate_machine_unreachable~:
+
+#+BEGIN_SRC json
+{
+  "machine": "linux2",
+  "pane_id": "",
+  "tab_id": "",
+  "agent_status": "",
+  "signal": "machine-unreachable",
+  "detail": "host unreachable"
+}
+#+END_SRC
+
+~detail~ is ~host unreachable~, ~authentication locked (unlock your
+SSH/gpg agent)~, or the herdr error, as for ~scan~. Its ~gate_hold~ line
+is ~gate: busy machine linux2: machine-unreachable host unreachable~.
+When a remote tab's signal cannot be read (process-info fails or lists
+no foreground process, or ~decide~ or the tab labels fail), it is listed
+under ~signal_unavailable~ and the tab holds the gate with signal
+~signal-unavailable~ and ~detail~ ~<signal>: <error>~.
 
 ** logs
 

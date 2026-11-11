@@ -60,3 +60,28 @@ func TestScanThenDispatchOnAnotherMachine(t *testing.T) {
 		t.Fatalf("argv = %s, want the prompt on m2", argv)
 	}
 }
+
+// TestGateWatchesOtherMachines runs `prsync gate` with machines=m2: a
+// working agent there holds the gate, and so does m2 being down.
+func TestGateWatchesOtherMachines(t *testing.T) {
+	ghBin, _ := fixtureBins(t)
+	f := herdrtest.Install(t)
+	f.Write("local.agents", `{"result":{"agents":[]}}`)
+	f.Write("m2.agents", `{"result":{"agents":[{"pane_id":"w3:p2","tab_id":"w3:t2","agent":"codex","agent_status":"working"}]}}`)
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin=herdr\nauthor=alice\nrepos=acme/widgets\nmachines=m2\nmachine_timeout_ms=2000\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	got := decodeGate(t, stdout.Bytes())
+	if code != ExitUnsafe || len(got.Busy) != 1 || got.Busy[0].Machine != "m2" || got.Busy[0].Signal != dispatch.SignalWorking {
+		t.Fatalf("exit = %d, gate = %+v, stderr=%q; want m2 working to hold", code, got, stderr.String())
+	}
+
+	f.Write("m2.down", "")
+	stdout.Reset()
+	code = Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	got = decodeGate(t, stdout.Bytes())
+	if code != ExitUnsafe || len(got.Busy) != 1 || got.Busy[0].Signal != dispatch.SignalMachineUnreachable || got.Busy[0].Detail != "host unreachable" {
+		t.Fatalf("exit = %d, gate = %+v; want m2 unreachable to hold", code, got)
+	}
+}

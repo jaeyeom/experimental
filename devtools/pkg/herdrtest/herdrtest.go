@@ -36,6 +36,9 @@ case "$1 $2" in
   if [ -e "$d/$m.prompt" ]; then cat "$d/$m.prompt"; exit 0; fi
   echo '{"result":{}}' ;;
 "agent read") cat "$d/$m.screen" ;;
+"pane process-info")
+  if [ -e "$d/$m.process-info" ]; then cat "$d/$m.process-info"; exit 0; fi
+  echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1 ;;
 *) echo "unexpected $*" >&2; exit 2 ;;
 esac
 `
@@ -49,6 +52,8 @@ esac
 //     labelled "<m>-tab". `tab close` always succeeds.
 //   - m.prompt is the `agent prompt` and `agent wait` output. Without it,
 //     both print an empty result.
+//   - m.process-info is the `pane process-info` output for every pane.
+//     Without it, `pane process-info` fails with a herdr error.
 //   - m.down makes m refuse connections and `machine status m` fail.
 //   - m.status-down makes only `machine status m` fail.
 //   - m.hang makes every call to m hang.

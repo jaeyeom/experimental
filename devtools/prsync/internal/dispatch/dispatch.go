@@ -677,7 +677,7 @@ func gateTimeoutDetail(busy []Busy, labels map[string]string, c Candidate) strin
 	}
 	b := busy[0]
 	name := holdName(b)
-	if label := labels[b.TabID]; label != "" {
+	if label := labels[scan.TabKey(b.Machine, b.TabID)]; label != "" {
 		name = fmt.Sprintf("%s [%s]", name, label)
 	}
 	if extraSignal(b) {
@@ -814,7 +814,7 @@ func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, 
 	busy := ""
 	if len(res.Busy) > 0 {
 		b := res.Busy[0]
-		busy = fmt.Sprintf("gate currently busy: pane %s", b.PaneID)
+		busy = "gate currently busy: pane " + scan.TabKey(b.Machine, b.PaneID)
 		if b.PaneID == "" {
 			busy = "gate currently busy: " + holdName(b)
 		}
