@@ -57,18 +57,20 @@ the label that blocks it.
 ~gh-merge queue~ checks one pull request, prints removal evidence when the
 latest merge-queue timeline event is a removal, and then calls
 ~enqueuePullRequest~. ~--when-green~ waits only when every preflight problem
-is a required check still pending on the current head. It polls with backoff
-and enqueues once those checks pass. The wait timeout is a Go duration and
+is a required check still pending on the current head, or missing because CI
+has not reported it yet (right after a push or base retarget). It polls with
+backoff and enqueues once those checks appear and pass. The wait timeout is a Go duration and
 defaults to 2h; ~--timeout~ overrides it. Pending conclusions are an empty
 conclusion, PENDING, EXPECTED, QUEUED, IN_PROGRESS, and WAITING. FAILURE,
-CANCELLED, TIMED_OUT, and ACTION_REQUIRED refuse immediately. A missing
-check, draft, block label, missing approval, unresolved thread, base or stack
+CANCELLED, TIMED_OUT, and ACTION_REQUIRED refuse immediately. A draft, block label, missing approval, unresolved thread, base or stack
 refusal, or RCA refusal also refuses immediately. The wait records the head
 SHA and reloads the pull request between polls. A transient load error
 retries until the timeout. The wait aborts without enqueueing when a required
 check fails, the head SHA changes, approval is lost, an unresolved thread
-appears, another preflight problem appears, or the timeout is reached.
-~--dry-run~ does not poll: pending checks report ~would-wait~, and a green
+appears, another preflight problem appears, or the timeout is reached. A
+timeout names the required checks still missing or not green. Without
+~--when-green~, a missing check refuses immediately.
+~--dry-run~ does not poll: pending or missing checks report ~would-wait~, and a green
 pull request still reports ~would-enqueue~. ~--json~ includes that result.
 ~queue~ and ~queue --dry-run~ run one shared preflight and print the same
 gate line, for example

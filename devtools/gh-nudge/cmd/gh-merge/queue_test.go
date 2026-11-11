@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -4093,13 +4094,6 @@ func TestQueueWhenGreenAbortsWithoutEnqueue(t *testing.T) {
 			},
 			want: "pull request is a draft",
 		},
-		{
-			name: "missing check",
-			mutate: func(pr *github.QueuePullRequest) {
-				pr.Checks = nil
-			},
-			want: `required check "ci" is missing`,
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -4238,9 +4232,10 @@ func TestQueueWhenGreenRefusesOtherProblemsImmediately(t *testing.T) {
 			pr.Checks = []github.QueueCheck{{Name: "ci", Green: false, Conclusion: "FAILURE"}}
 			return pr
 		}(), want: `required check "ci" is not green (FAILURE)`},
-		{name: "missing", pr: func() github.QueuePullRequest {
+		{name: "missing and not approved", pr: func() github.QueuePullRequest {
 			pr := readyPR()
 			pr.Checks = nil
+			pr.ReviewDecision = "REVIEW_REQUIRED"
 			return pr
 		}(), want: `required check "ci" is missing`},
 	}
@@ -4727,5 +4722,142 @@ func TestQueueWhenGreenAbortsOnConflictWhileWaiting(t *testing.T) {
 	})
 	if !strings.Contains(output, "Not enqueueing acme/widgets#12: pull request has merge conflicts") || client.enqueueCalls != 0 {
 		t.Fatalf("enqueued = %v output = %s", client.enqueued, output)
+	}
+}
+
+func missingWidgets() github.QueuePullRequest {
+	pr := readyPR()
+	pr.Checks = nil
+	return pr
+}
+
+func TestQueueWhenGreenWaitsForMissingCheck(t *testing.T) {
+	slept := withWhenGreenWait(t, time.Hour)
+	first := missingWidgets()
+	second := pendingWidgets()
+	third := readyPR()
+	client := &fakeQueue{snapshots: []github.QueuePullRequest{first, second, third}}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), first.Ref.Raw, false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if client.enqueueCalls != 1 || client.loads != 3 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+	if len(*slept) != 2 {
+		t.Fatalf("sleeps = %v", *slept)
+	}
+	if !strings.Contains(output, "Enqueued acme/widgets#12.") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueWhenGreenKeepsWaitingWhenCheckDisappears(t *testing.T) {
+	withWhenGreenWait(t, time.Hour)
+	first := pendingWidgets()
+	client := &fakeQueue{snapshots: []github.QueuePullRequest{first, missingWidgets(), readyPR()}}
+	if err := queuePullRequest(client, queueConfig(), first.Ref.Raw, false); err != nil {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if client.enqueueCalls != 1 || client.loads != 3 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+}
+
+func TestQueueWhenGreenTimesOutOnMissingCheck(t *testing.T) {
+	withWhenGreenWait(t, 20*time.Second)
+	client := &fakeQueue{pr: missingWidgets()}
+	var err error
+	output := captureStdout(t, func() {
+		err = queuePullRequest(client, queueConfig(), "acme/widgets#12", false)
+	})
+	want := `required check "ci" is missing`
+	if err == nil || !strings.Contains(err.Error(), "timeout") || !strings.Contains(err.Error(), want) {
+		t.Fatalf("queuePullRequest() error = %v", err)
+	}
+	if client.enqueueCalls != 0 {
+		t.Fatalf("enqueued = %v", client.enqueued)
+	}
+	if !strings.Contains(output, "Not enqueueing acme/widgets#12: timeout") || !strings.Contains(output, want) {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueWhenGreenJSONTimeoutOnMissingCheck(t *testing.T) {
+	withWhenGreenWait(t, 20*time.Second)
+	jsonOutput = true
+	t.Cleanup(func() { jsonOutput = false })
+	client := &fakeQueue{pr: missingWidgets()}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want timeout")
+		}
+	})
+	var got queueJSONResult
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v\n%s", err, output)
+	}
+	if got.Result != "timeout" || !slices.Contains(got.Readiness, `required check "ci" is missing`) {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
+func TestQueueMissingCheckRefusesImmediatelyWithoutWhenGreen(t *testing.T) {
+	if whenGreen {
+		t.Fatal("whenGreen leaked from another test")
+	}
+	client := &fakeQueue{pr: missingWidgets()}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err == nil {
+			t.Fatal("queuePullRequest() error = nil, want refusal")
+		}
+	})
+	if client.loads != 1 || client.enqueueCalls != 0 {
+		t.Fatalf("loads = %d enqueued = %v", client.loads, client.enqueued)
+	}
+	if !strings.Contains(output, `required check "ci" is missing`) {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestQueueWhenGreenDryRunWouldWaitForMissingCheck(t *testing.T) {
+	slept := withWhenGreenWait(t, time.Hour)
+	withMergeFlags(t, true, false, false)
+	client := &fakeQueue{pr: missingWidgets()}
+	output := captureStdout(t, func() {
+		if err := queuePullRequest(client, queueConfig(), "acme/widgets#12", false); err != nil {
+			t.Fatalf("queuePullRequest() error = %v", err)
+		}
+	})
+	if client.loads != 1 || len(*slept) != 0 || client.enqueueCalls != 0 {
+		t.Fatalf("loads = %d sleeps = %v enqueued = %v", client.loads, *slept, client.enqueued)
+	}
+	if !strings.Contains(output, "Would wait for acme/widgets#12.") || !strings.Contains(output, `required check "ci" is missing`) {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestPendingOnly(t *testing.T) {
+	required := []string{"ci"}
+	tests := []struct {
+		name   string
+		checks []github.QueueCheck
+		extra  []string
+		want   bool
+	}{
+		{name: "missing", want: true},
+		{name: "pending", checks: []github.QueueCheck{{Name: "ci", Conclusion: "IN_PROGRESS"}}, want: true},
+		{name: "failure", checks: []github.QueueCheck{{Name: "ci", Conclusion: "FAILURE"}}, want: false},
+		{name: "success", checks: []github.QueueCheck{{Name: "ci", Green: true, Conclusion: "SUCCESS"}}, want: false},
+		{name: "missing and not approved", extra: []string{"pull request is not approved"}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			problems := append(requiredCheckProblems(tc.checks, required), tc.extra...)
+			if got := pendingOnly(tc.checks, required, problems); got != tc.want {
+				t.Fatalf("pendingOnly() = %v, want %v (problems %q)", got, tc.want, problems)
+			}
+		})
 	}
 }
