@@ -98,8 +98,33 @@ resume [--as-is]
          waiter is granted. --as-is skips the switch and pull (a dirty
          tree is still refused) (default: false). While still queued,
          resume withdraws the pause.
+hook     the Claude Code PreToolUse hook; reads the hook input on stdin
+         and always exits 0. Edit, Write, MultiEdit and NotebookEdit on
+         a file in a guarded checkout, and Bash running a git command
+         that changes a checkout (checkout, switch, commit, merge,
+         rebase, reset, stash, pull, cherry-pick, revert, am, apply,
+         clean, restore, rm, mv, add, tag, branch -d/-D/-m, worktree)
+         there, after cd or git -C, are denied unless lease check would
+         pass, with its reason and "agentbus lease claim --for
+         <duration>". A needs-adopt checkout is denied to everyone,
+         the adopter too, until adopt. Read-only git and paths outside
+         every guarded checkout pass without contacting the daemon.
+         When the daemon does not answer within 3s, or in hub mode,
+         the call is allowed with a warning on stderr. "You hold it" is
+         cached for 30s per pane and checkout in
+         $XDG_RUNTIME_DIR/agentbus/lease-cache, and dropped on release,
+         resume, unshare and takeover; a denial is never cached. Not
+         covered: sed -i, shell redirects, and editors you run
+         yourself.
+install-hook [--write]
+         print the hook script and the settings entry that runs it
+         (matcher Edit|Write|MultiEdit|NotebookEdit|Bash) and write
+         nothing; --write saves the script as
+         ~/.claude/hooks/agentbus-lease.sh and adds the entry to
+         ~/.claude/settings.json (default: false). No other command
+         edits your settings.
 
-Every subcommand:
+Every subcommand but hook and install-hook:
 --path <path>  the checkout (default: the current directory), resolved to
                its git top-level, which must be in lease_checkouts
 --json         print JSON (default: false, text)`
@@ -165,6 +190,20 @@ func parseLeaseFlags(sub string, args []string, stderr io.Writer) (leaseFlags, e
 		return f, errors.New("--for is required, such as --for 40m")
 	}
 	return f, nil
+}
+
+// runLease runs the lease command: hook reads the Claude Code hook input
+// on stdin; the other subcommands do not read stdin.
+func runLease(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "hook":
+			return leaseHook(ctx, args[1:], env, stdin, stdout, stderr)
+		case "install-hook":
+			return leaseInstallHook(args[1:], env, stdout, stderr)
+		}
+	}
+	return cmdLease(ctx, args, env, stdout, stderr)
 }
 
 func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
@@ -407,7 +446,7 @@ func denyReason(s lease.Status, caller string) string {
 	case s.Holder == nil:
 		return "nobody holds " + s.Checkout + "; " + hint
 	case s.State == lease.StateNeedsAdopt && s.Holder.Handle == caller:
-		return s.Checkout + " needs adopt before any change"
+		return s.Checkout + " needs adopt before any change; run: agentbus lease adopt"
 	case s.State == lease.StateNeedsAdopt:
 		return s.Checkout + " needs adopt by " + who(s.Holder.Handle, s.Holder.Name) + "; " + hint
 	case s.Holder.Handle == lease.UserHolder:

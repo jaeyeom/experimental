@@ -54,6 +54,16 @@ func FromEnv(env []string) (Dirs, error) {
 	}, nil
 }
 
+// LeaseCacheDir is where the lease hook caches "you hold it" answers:
+// lease-cache beside the daemon socket, in the runtime directory. It is
+// empty when SocketPath is.
+func (d Dirs) LeaseCacheDir() string {
+	if d.SocketPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(d.SocketPath), "lease-cache")
+}
+
 func envValues(env []string) map[string]string {
 	values := make(map[string]string, len(env))
 	for _, entry := range env {

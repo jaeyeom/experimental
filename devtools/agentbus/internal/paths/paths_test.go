@@ -53,3 +53,14 @@ func TestFromEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestLeaseCacheDirIsBesideTheSocket(t *testing.T) {
+	t.Parallel()
+	d := Dirs{SocketPath: "/run/user/1/agentbus/daemon.sock"}
+	if got, want := d.LeaseCacheDir(), "/run/user/1/agentbus/lease-cache"; got != want {
+		t.Fatalf("LeaseCacheDir = %q, want %q", got, want)
+	}
+	if got := (Dirs{}).LeaseCacheDir(); got != "" {
+		t.Fatalf("LeaseCacheDir without a socket = %q, want empty", got)
+	}
+}

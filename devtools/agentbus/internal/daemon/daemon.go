@@ -19,6 +19,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/leasecache"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
@@ -141,6 +142,7 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	if err != nil {
 		return err
 	}
+	srv.leaseCache = leasecache.Cache{Dir: dirs.LeaseCacheDir()}
 	started := false
 	defer func() {
 		if !started {
@@ -333,6 +335,9 @@ type server struct {
 	hubCaller func(string) (string, error)
 	timing    lease.Timing
 	notify    func(text string)
+	// leaseCache is the lease hook's cache of "you hold it" answers on
+	// this machine. A change that can take that answer away drops it.
+	leaseCache leasecache.Cache
 }
 
 func (s *server) handle(conn net.Conn, hub bool) {
@@ -529,6 +534,7 @@ func (s *server) releaseLease(caller string, args lease.Args) (lease.Reply, erro
 	if err != nil {
 		return lease.Reply{}, fmt.Errorf("release: %w", err)
 	}
+	s.dropCache(args.Checkout)
 	s.wake(args.Checkout, r)
 	return r, nil
 }
@@ -645,6 +651,7 @@ func (s *server) takeOver(w lease.Watch, reason string) {
 	if err != nil || !tk.Done {
 		return
 	}
+	s.dropCache(w.Checkout)
 	// Messages that cannot be queued are logged by the mailbox.
 	if tk.FromHeld {
 		_, _ = s.box.Post(s.ctx, "agentbus", tk.From, lease.TakenOverText(w.Checkout, tk.BackupRef))
@@ -655,6 +662,13 @@ func (s *server) takeOver(w lease.Watch, reason string) {
 	if s.notify != nil {
 		s.notify(lease.NeedsAdoptNote(tk))
 	}
+}
+
+// dropCache forgets the lease hook's cached answers for checkout: its
+// holder, or a pane the user's pause was shared with, may have just
+// lost it. A cache that cannot be written is left to expire.
+func (s *server) dropCache(checkout string) {
+	_ = s.leaseCache.Drop(checkout)
 }
 
 // goneWaiters reads whether each waiter on checkout has a gone pane,
@@ -730,7 +744,9 @@ func (s *server) leaseUser(req Request, args lease.Args) Response {
 			_, _ = s.box.Post(s.ctx, "agentbus", r.Asked, lease.PauseAskText(args.Checkout))
 		}
 	case "lease-unshare":
-		r, err = s.leases.Unshare(args)
+		if r, err = s.leases.Unshare(args); err == nil {
+			s.dropCache(args.Checkout)
+		}
 	case "lease-resume-begin":
 		r, err = s.leases.BeginResume(args)
 	case "lease-resume-abort":
@@ -753,6 +769,7 @@ func (s *server) resumeLease(args lease.Args) (lease.Reply, error) {
 	if err != nil {
 		return lease.Reply{}, fmt.Errorf("resume: %w", err)
 	}
+	s.dropCache(args.Checkout)
 	s.wake(args.Checkout, r)
 	return r, nil
 }
