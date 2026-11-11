@@ -137,7 +137,7 @@ func SwitchDefault(root string, env []string) (string, error) {
 	return branch, nil
 }
 
-// Branch is the branch root has checked out, or "detached HEAD".
+// Branch is the branch root has checked out, or "(detached at <sha>)".
 func Branch(root string, env []string) (string, error) {
 	out, err := git(env, root, "branch", "--show-current")
 	if err != nil {
@@ -146,7 +146,27 @@ func Branch(root string, env []string) (string, error) {
 	if branch := strings.TrimSpace(out); branch != "" {
 		return branch, nil
 	}
-	return "detached HEAD", nil
+	head, err := Head(root, env)
+	if err != nil {
+		return "", err
+	}
+	return "(detached at " + head + ")", nil
+}
+
+// Head is root's HEAD commit as a short SHA.
+func Head(root string, env []string) (string, error) {
+	out, err := git(env, root, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// IsAncestor reports whether commit a is an ancestor of commit b in
+// root. Any git failure counts as no.
+func IsAncestor(root, a, b string, env []string) bool {
+	_, err := git(env, root, "merge-base", "--is-ancestor", a, b)
+	return err == nil
 }
 
 // Pull runs git pull --rebase --prune on the current branch. When the

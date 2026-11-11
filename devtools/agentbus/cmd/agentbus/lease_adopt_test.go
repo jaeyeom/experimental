@@ -99,7 +99,7 @@ func TestLeaseTakeoverThenAdoptSavesEverythingAndCleans(t *testing.T) {
 	if len(refs) != 1 || !strings.HasSuffix(refs[0], "-herdr-local-default-w1-p4") {
 		t.Fatalf("backup refs = %v", refs)
 	}
-	if !strings.Contains(out, "adopted local:"+w.repo+" on main") || !strings.Contains(out, "saved leftovers to "+refs[0]) {
+	if !strings.Contains(out, "adopted local:"+w.repo+" on main") || !strings.Contains(out, "saved leftovers to "+refs[0]+"\nswitched feature -> main\npulled: already up to date\n") {
 		t.Fatalf("adopt output = %q", out)
 	}
 	for file, want := range map[string]string{"a.txt": "modified", "staged.txt": "staged", "untracked.txt": "untracked"} {

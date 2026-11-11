@@ -109,7 +109,7 @@ func TestLeaseHubTunnelClaimAndReleaseRunGitHere(t *testing.T) {
 	h.pushUpstream(t, "up.txt")
 
 	out := h.mustLease(t, "w1:p1", "release")
-	for _, want := range []string{"released " + key + " on main", "granted to " + hubBob} {
+	for _, want := range []string{"switched feature -> main\n", "pulled: ", "released; granted to " + hubBob} {
 		if !strings.Contains(out, want) {
 			t.Errorf("release output is missing %q:\n%s", want, out)
 		}
@@ -216,7 +216,7 @@ func TestLeaseHubSSHReleaseRunsGitHereAndSendsOnlyFacts(t *testing.T) {
 	h.git(t, h.repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing.git"))
 
 	code, out, stderr := h.lease(t, "w1:p1", "release")
-	if code != 0 || !strings.Contains(out, "released "+key+" on main") || !strings.Contains(stderr, "pull failed") {
+	if code != 0 || !strings.Contains(out, "switched feature -> main\npull failed: ") || !strings.Contains(out, "released; checkout free") {
 		t.Fatalf("release = %d\nstdout %s\nstderr %s", code, out, stderr)
 	}
 	if branch := h.git(t, h.repo, "branch", "--show-current"); branch != "main" {
