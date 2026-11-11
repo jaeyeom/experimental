@@ -37,6 +37,9 @@ var localCommands = map[string]bool{
 	"lease": true,
 	// mem reports this machine's panes and processes.
 	"mem": true,
+	// hibernate reads this machine's panes and processes, and opens
+	// the route to the hub itself for its daemon requests.
+	"hibernate": true,
 }
 
 // stdinCommands read stdin, so hub mode forwards it.

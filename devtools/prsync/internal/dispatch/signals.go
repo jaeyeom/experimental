@@ -367,7 +367,7 @@ func (s *snapshotProbes) backgroundJob(ctx context.Context, agent herdr.Agent, p
 		if !procinfo.OldEnough(child, policy.jobMinAge) {
 			continue
 		}
-		if outside && !insideCheckout(s.childCwd(ctx, child), policy.checkout) {
+		if outside && !procinfo.Inside(s.childCwd(ctx, child), policy.checkout) {
 			s.noteOutside(ctx, agent, SignalBackgroundJob, "pid "+strconv.Itoa(child.PID)+" "+procinfo.CommandLine(child))
 			continue
 		}
@@ -482,24 +482,12 @@ func (s *snapshotProbes) buildTool(ctx context.Context, policy gatePolicy) (stri
 	if err != nil {
 		return "", fmt.Errorf("process table: %w", err)
 	}
-	skip := ancestorsOf(procs, s.Self)
-	for _, p := range procinfo.SortedByPID(procs) {
-		if _, ok := skip[p.PID]; ok {
-			continue
-		}
-		if !matchAnyName(policy.buildTools, p) {
-			continue
-		}
-		if _, ignored := procinfo.MatchingPattern(policy.buildToolIgnore, p); ignored {
-			continue
-		}
-		cwd, err := s.Procs.Cwd(ctx, p.PID)
-		if err != nil || !insideCheckout(cwd, policy.checkout) {
-			continue
-		}
-		return fmt.Sprintf("pid %d %s (cwd %s)", p.PID, procinfo.CommandLine(p), cwd), nil
+	found := procinfo.BuildTools(ctx, procs, policy.buildTools, policy.buildToolIgnore, procinfo.Ancestors(procs, s.Self), policy.checkout, s.Procs.Cwd)
+	if len(found) == 0 {
+		return "", nil
 	}
-	return "", nil
+	p := found[0]
+	return fmt.Sprintf("pid %d %s (cwd %s)", p.PID, procinfo.CommandLine(p), p.Cwd), nil
 }
 
 // pendingItemFor describes the first decide item for agent's pane that
@@ -539,38 +527,6 @@ func notifiesPane(notify string, agent herdr.Agent) bool {
 	}
 	session, pane, ok := strings.Cut(rest, "/")
 	return ok && session != "" && pane == agent.PaneID
-}
-
-// ancestorsOf is pid and every ancestor of it in procs.
-func ancestorsOf(procs []Process, pid int) map[int]struct{} {
-	out := make(map[int]struct{})
-	if pid <= 0 {
-		return out
-	}
-	parent := make(map[int]int, len(procs))
-	for _, p := range procs {
-		parent[p.PID] = p.PPID
-	}
-	for pid > 0 {
-		if _, seen := out[pid]; seen {
-			break
-		}
-		out[pid] = struct{}{}
-		pid = parent[pid]
-	}
-	return out
-}
-
-// matchAnyName reports whether a pattern matches p's whole name or
-// argv[0] base, exactly or as a glob.
-func matchAnyName(patterns []string, p Process) bool {
-	for _, pattern := range patterns {
-		re := procinfo.Glob(pattern, true)
-		if re.MatchString(p.Name) || re.MatchString(procinfo.Argv0Base(p)) {
-			return true
-		}
-	}
-	return false
 }
 
 // matchGlob is the first pattern that matches all of s as a glob.

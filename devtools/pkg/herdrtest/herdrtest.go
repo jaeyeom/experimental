@@ -13,7 +13,7 @@ import (
 // See Fake for the files it reads.
 const script = `#!/bin/sh
 d=%DIR%
-echo "$*" >> "$d/argv"
+printf '%s\n' "$*" >> "$d/argv"
 if [ "$1" = "--version" ]; then echo "herdr 0.8.1"; exit 0; fi
 m=local
 if [ "$1" = "--machine" ]; then m="$2"; shift 2; fi
@@ -36,6 +36,9 @@ case "$1 $2" in
   if [ -e "$d/$m.prompt" ]; then cat "$d/$m.prompt"; exit 0; fi
   echo '{"result":{}}' ;;
 "agent read") cat "$d/$m.screen" ;;
+"pane send-text"|"pane send-keys"|"pane run")
+  if [ "$2" = "send-keys" ] && [ -e "$d/$m.after-keys.$3" ]; then mv "$d/$m.after-keys.$3" "$d/$m.process-info.$3"; fi
+  echo '{"result":{}}' ;;
 "pane process-info")
   if [ "$3" = "--pane" ] && [ -e "$d/$m.process-info.$4" ]; then cat "$d/$m.process-info.$4"; exit 0; fi
   if [ -e "$d/$m.process-info" ]; then cat "$d/$m.process-info"; exit 0; fi
@@ -57,6 +60,10 @@ esac
 //     output for that pane, and m.process-info the output for every
 //     other pane. Without either, `pane process-info` fails with a
 //     herdr error.
+//   - `pane send-text`, `pane send-keys`, and `pane run` succeed. After
+//     `pane send-keys <pane> ...`, m.after-keys.<pane>, when it exists,
+//     becomes m.process-info.<pane>, as when the keys made the pane's
+//     foreground program exit.
 //   - m.down makes m refuse connections and `machine status m` fail.
 //   - m.status-down makes only `machine status m` fail.
 //   - m.hang makes every call to m hang.

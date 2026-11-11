@@ -38,6 +38,8 @@ var tunnelCommands = map[string]bool{
 	// lease runs here even in hub mode and opens the tunnel itself for
 	// its daemon requests; see leaseHubRoute.
 	"lease": true,
+	// hibernate, likewise; see hibernateHubRoute.
+	"hibernate": true,
 }
 
 // tunnel is a forwarded hub socket and the caller handle every request

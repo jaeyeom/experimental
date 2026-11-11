@@ -86,6 +86,7 @@ func (a *Adapter) inventoryOf(ctx context.Context, machine string) ([]adapter.Ag
 			Status:    item.Status,
 			SessionID: session,
 			Title:     item.Title,
+			StateSeq:  item.StateSeq,
 		})
 	}
 	return out, nil
@@ -311,7 +312,9 @@ type listedAgent struct {
 	Status  string `json:"agent_status"`   //nolint:tagliatelle // herdr wire format
 	Title   string `json:"terminal_title"` //nolint:tagliatelle // herdr wire format
 	Focused bool   `json:"focused"`
-	Session struct {
+	// StateSeq is herdr's state_change_seq.
+	StateSeq int64 `json:"state_change_seq"` //nolint:tagliatelle // herdr wire format
+	Session  struct {
 		Value string `json:"value"`
 	} `json:"agent_session"` //nolint:tagliatelle // herdr wire format
 }

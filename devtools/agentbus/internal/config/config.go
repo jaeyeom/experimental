@@ -14,6 +14,7 @@
 //	lease_idle_grace = "5m"       # idle and silent this long: take over
 //	lease_takeover = "log"        # "on" carries takeovers out; "log" only logs them
 //	lease_ignore_procs = ["zsh", "claude"]  # adopt's process check ignores these
+//	hibernate_exempt = ["ops/*"]  # names, handles, or globs hibernate never stops
 package config
 
 import (
@@ -63,6 +64,9 @@ type Config struct {
 	// LeaseTakeover is lease_takeover as written when it is "log" or
 	// "on", else empty. Read it through TakeoverMode.
 	LeaseTakeover string
+	// HibernateExempt are names, handles, or globs over them that
+	// agentbus hibernate never stops.
+	HibernateExempt []string
 	// Warnings are problems that did not fail the load, such as an
 	// invalid lease_takeover.
 	Warnings []string
@@ -153,11 +157,24 @@ func parseLine(cfg *Config, line string) error {
 		return nil
 	case "lease_ignore_procs":
 		return parseLeaseIgnoreProcs(cfg, value)
+	case "hibernate_exempt":
+		return parseHibernateExempt(cfg, value)
 	case "hub", "machine", "hub_socket":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
 	}
+}
+
+// parseHibernateExempt reads hibernate_exempt, a list of names,
+// handles, or globs.
+func parseHibernateExempt(cfg *Config, value string) error {
+	exempt, ok := parseList(value)
+	if !ok {
+		return errors.New(`hibernate_exempt must be a list of names, handles, or globs, such as ["ops/*"]`)
+	}
+	cfg.HibernateExempt = exempt
+	return nil
 }
 
 // parseLeaseIgnoreProcs reads lease_ignore_procs, a list of program

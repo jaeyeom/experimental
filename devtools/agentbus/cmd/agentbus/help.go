@@ -63,7 +63,7 @@ func commands() []command {
 			summary: "Registered names, --when, liveness, and transport.",
 			usage:   "agentbus list [--json]",
 			flags: "--json  print a JSON array, one object per name, with the fields\n" +
-				"        name, when, liveness (alive, dead, or unknown), transport,\n" +
+				"        name, when, liveness (alive, dead, hibernated, or unknown), transport,\n" +
 				"        and handle; [] when none are registered (default: false, text)",
 			example: "agentbus list --json",
 			run:     noStdin(cmdList),
@@ -145,6 +145,20 @@ func commands() []command {
 				"        available_bytes, machine, states, and notes (default: false, text)",
 			example: "agentbus mem",
 			run:     noStdin(cmdMem),
+		},
+		{
+			name: "hibernate",
+			summary: "Stop idle agents on this machine but keep their panes and names. " +
+				"Refuses, naming each failed check, unless the agent is idle or done, shows no dialog, " +
+				"runs no background job or build tool in its cwd, has an empty composer (Claude Code only), " +
+				"holds and waits for no lease, and is not in hibernate_exempt.",
+			usage: "agentbus hibernate <name|handle>... | --idle-over <duration> [--dry-run] [--json]",
+			flags: "--idle-over <d>  every agent the daemon has seen idle or done for at least d\n" +
+				"--dry-run       print \"would hibernate <name> (<rss>)\" and change nothing\n" +
+				"--json          print a JSON array: name, handle, pane, outcome (hibernated,\n" +
+				"                refused, would-hibernate, failed), reasons, rss_bytes, warning",
+			example: "agentbus hibernate --idle-over 2h --dry-run",
+			run:     noStdin(cmdHibernate),
 		},
 		{
 			name:    "install",
@@ -256,6 +270,8 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           does not block lease adopt; replaces the default
                           sh, bash, zsh, fish, claude, codex, gemini,
                           emacs, vim, nvim, less, agentbus
+  hibernate_exempt = ["ops/*"]
+                          names, handles, or globs hibernate never stops
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>". It never falls back to a

@@ -12,17 +12,6 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
-func TestParseLsofCwd(t *testing.T) {
-	t.Parallel()
-
-	if got := parseLsofCwd("p4242\nfcwd\nn/src/repo dir\n"); got != "/src/repo dir" {
-		t.Fatalf("parseLsofCwd() = %q", got)
-	}
-	if got := parseLsofCwd("p4242\n"); got != "" {
-		t.Fatalf("parseLsofCwd() = %q, want empty", got)
-	}
-}
-
 func TestProcFSTable(t *testing.T) {
 	t.Parallel()
 

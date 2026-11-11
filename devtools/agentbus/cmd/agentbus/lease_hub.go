@@ -117,7 +117,7 @@ func (r sshRoute) call(ctx context.Context, req daemon.Request) (daemon.Response
 }
 
 // leaseForward is the hub's end of the ssh route: it reads one lease-*
-// request on stdin, sends it to this machine's daemon with this
+// request, or one hibernate-* request of `agentbus hibernate`, on stdin, sends it to this machine's daemon with this
 // process's environment, where AGENTBUS_AS_HANDLE names the caller and
 // is trusted only over ssh, and prints the daemon's response as JSON. It
 // exits 0 whenever the daemon answered.
@@ -140,10 +140,10 @@ func leaseForward(ctx context.Context, args, env []string, stdin io.Reader, stdo
 	if err := json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&req); err != nil {
 		return fail(fmt.Errorf("read the request: %w", err))
 	}
-	if !strings.HasPrefix(req.Op, "lease-") {
-		return fail(fmt.Errorf("only lease-* requests are forwarded, not %q", req.Op))
+	if !strings.HasPrefix(req.Op, "lease-") && !strings.HasPrefix(req.Op, "hibernate-") {
+		return fail(fmt.Errorf("only lease-* and hibernate-* requests are forwarded, not %q", req.Op))
 	}
-	resp, code := callDaemon(ctx, env, daemon.Request{Op: req.Op, Env: env, Lease: req.Lease}, stderr)
+	resp, code := callDaemon(ctx, env, daemon.Request{Op: req.Op, Env: env, Lease: req.Lease, Hibernate: req.Hibernate}, stderr)
 	if code != 0 {
 		return code
 	}

@@ -67,6 +67,11 @@ const (
 	EventLeaseWith = "lease_with"
 	// EventLeaseUnshare takes an agent pane off the user's pause.
 	EventLeaseUnshare = "lease_unshare"
+	// EventHibernated is an idle agent stopped with its pane kept.
+	EventHibernated = "agent_hibernated"
+	// EventHibernateRefused is an agent hibernate would not stop, or one
+	// that did not exit in time.
+	EventHibernateRefused = "agent_hibernate_refused"
 )
 
 // timeLayout is RFC 3339 with millisecond precision.
@@ -395,7 +400,8 @@ func knownEvent(name string) bool {
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
-		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare:
+		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
+		EventHibernated, EventHibernateRefused:
 		return true
 	default:
 		return false

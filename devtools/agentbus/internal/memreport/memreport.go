@@ -129,7 +129,7 @@ func Build(in Input) Report {
 		}
 		if in.Bus != nil {
 			row.Names = append([]string{}, in.Bus.Names[a.Handle]...)
-			row.Leases = leasesOf(in.Bus.Leases, a.Handle)
+			row.Leases = LeasesOf(in.Bus.Leases, a.Handle)
 		}
 		r.Agents = append(r.Agents, row)
 		r.TotalRSSBytes += row.RSSBytes
@@ -149,7 +149,9 @@ func state(status string) string {
 	return unknown
 }
 
-func leasesOf(table []lease.Status, handle string) []Lease {
+// LeasesOf are the checkouts in table that handle holds or is queued
+// for, in table order.
+func LeasesOf(table []lease.Status, handle string) []Lease {
 	out := []Lease{}
 	for _, s := range table {
 		if s.Holder != nil && s.Holder.Handle == handle {

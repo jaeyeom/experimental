@@ -121,6 +121,20 @@ func TestParseEmpty(t *testing.T) {
 	}
 }
 
+func TestParseHibernateExempt(t *testing.T) {
+	got, err := Parse(`hibernate_exempt = ["ops/*", "herdr:local/s1/w1:p1"]  # never hibernate these
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"ops/*", "herdr:local/s1/w1:p1"}; !reflect.DeepEqual(got.HibernateExempt, want) {
+		t.Fatalf("HibernateExempt = %q, want %q", got.HibernateExempt, want)
+	}
+	if _, err := Parse("hibernate_exempt = \"ops\"\n"); err == nil || !strings.Contains(err.Error(), "hibernate_exempt must be a list") {
+		t.Fatalf("not a list: %v", err)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	for _, tt := range []struct{ in, want string }{
 		{"colour = \"red\"\n", "line 1: unknown key colour"},

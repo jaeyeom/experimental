@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
@@ -496,20 +497,6 @@ func CheckoutOfCWD() string {
 	return strings.TrimSpace(string(out))
 }
 
-// insideCheckout reports whether path is checkout or a directory inside it.
-func insideCheckout(path, checkout string) bool {
-	if path == "" || checkout == "" {
-		return false
-	}
-	path = filepath.Clean(path)
-	checkout = filepath.Clean(checkout)
-	rel, err := filepath.Rel(checkout, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || !strings.HasPrefix(rel, "..")
-}
-
 func gateWaitLine(busy []Busy) string {
 	if len(busy) == 0 {
 		return ""
@@ -569,7 +556,7 @@ func waitedOn(agent herdr.Agent, policy gatePolicy) bool {
 }
 
 func inDispatchCheckout(agent herdr.Agent, checkout string) bool {
-	return insideCheckout(agent.Cwd, checkout) || insideCheckout(agent.ForegroundCwd, checkout)
+	return procinfo.Inside(agent.Cwd, checkout) || procinfo.Inside(agent.ForegroundCwd, checkout)
 }
 
 // holdsGate reports whether status counts toward the busy set.

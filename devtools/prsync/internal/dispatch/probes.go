@@ -65,7 +65,7 @@ func (p psTable) Cwd(ctx context.Context, pid int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cwd := parseLsofCwd(out)
+	cwd := procinfo.ParseLsofCwd(out)
 	if cwd == "" {
 		return "", fmt.Errorf("lsof: no cwd for %d", pid)
 	}
@@ -81,16 +81,6 @@ func (p psTable) run(ctx context.Context, bin string, args ...string) (string, e
 		return "", fmt.Errorf("%s exited %d: %s", bin, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return res.Output, nil
-}
-
-// parseLsofCwd reads the n (name) field of `lsof -Fn` output.
-func parseLsofCwd(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		if name, ok := strings.CutPrefix(line, "n"); ok {
-			return name
-		}
-	}
-	return ""
 }
 
 // DecideCLI lists open decide items with `decide list --json`.

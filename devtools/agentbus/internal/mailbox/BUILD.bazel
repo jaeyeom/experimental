@@ -20,6 +20,15 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["render_test.go"],
+    srcs = [
+        "hibernate_test.go",
+        "render_test.go",
+    ],
     embed = [":go_default_library"],
+    deps = [
+        "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/agentbus/internal/adapter/fake:go_default_library",
+        "//devtools/agentbus/internal/hibernate:go_default_library",
+        "//devtools/agentbus/internal/registry:go_default_library",
+    ],
 )

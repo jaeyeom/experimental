@@ -18,6 +18,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/leasecache"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
@@ -87,6 +88,8 @@ type Request struct {
 	Follow bool `json:"follow,omitempty"`
 	// Lease carries the arguments of the lease-* ops.
 	Lease *lease.Args `json:"lease,omitempty"`
+	// Hibernate carries the arguments of the hibernate-* ops.
+	Hibernate *hibernate.Args `json:"hibernate,omitempty"`
 }
 
 // bypassPreview is how many bytes of a SendMessage body a bypass event keeps.
@@ -127,6 +130,8 @@ type Response struct {
 	End bool `json:"end,omitempty"`
 	// Lease is the answer to a lease-* op.
 	Lease *lease.Reply `json:"lease,omitempty"`
+	// Hibernate is the answer to a hibernate-* op.
+	Hibernate *hibernate.Reply `json:"hibernate,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -221,6 +226,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	if err != nil {
 		return nil, err
 	}
+	reg.Now = cfg.Now
 	leases, err := lease.Open(stateDir, lg, cfg.Now, func(handle string) string {
 		if names := reg.NamesOf(handle); len(names) > 0 {
 			return names[0]
@@ -472,6 +478,9 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 	default:
 		if strings.HasPrefix(req.Op, "lease-") {
 			return s.lease(req)
+		}
+		if strings.HasPrefix(req.Op, "hibernate-") {
+			return s.hibernateOp(req)
 		}
 		return Response{Error: "unknown op"}
 	}
