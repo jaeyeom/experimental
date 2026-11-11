@@ -6,7 +6,21 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 )
+
+func TestDecideArgvOffersAdoptOnlyForANeedsAdoptNote(t *testing.T) {
+	adopt := decideArgv("decide", lease.NeedsAdoptNote(lease.Takeover{From: "a", BackupRef: "refs/lease-backup/x", Lease: lease.Status{Checkout: "local:/repo"}}))
+	if !slices.Contains(adopt, "adopt:I will run agentbus lease adopt") {
+		t.Fatalf("needs-adopt argv = %q", adopt)
+	}
+	note := lease.PausedNote("local:/repo")
+	paused := decideArgv("decide", note)
+	if slices.Contains(paused, "--option") || slices.Contains(paused, "--rec") || paused[len(paused)-1] != note {
+		t.Fatalf("paused argv = %q", paused)
+	}
+}
 
 func TestDecideNotifierIsNilWithoutDecide(t *testing.T) {
 	ran := false

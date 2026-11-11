@@ -32,5 +32,8 @@ go_test(
         "notify_test.go",
     ],
     embed = [":go_default_library"],
-    deps = ["//devtools/agentbus/internal/config:go_default_library"],
+    deps = [
+        "//devtools/agentbus/internal/config:go_default_library",
+        "//devtools/agentbus/internal/lease:go_default_library",
+    ],
 )

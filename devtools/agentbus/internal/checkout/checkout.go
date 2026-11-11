@@ -137,6 +137,18 @@ func SwitchDefault(root string, env []string) (string, error) {
 	return branch, nil
 }
 
+// Branch is the branch root has checked out, or "detached HEAD".
+func Branch(root string, env []string) (string, error) {
+	out, err := git(env, root, "branch", "--show-current")
+	if err != nil {
+		return "", err
+	}
+	if branch := strings.TrimSpace(out); branch != "" {
+		return branch, nil
+	}
+	return "detached HEAD", nil
+}
+
 // Pull runs git pull --rebase --prune on the current branch. When the
 // pull stops in a rebase, the rebase is aborted so the tree stays clean.
 func Pull(root string, env []string) error {

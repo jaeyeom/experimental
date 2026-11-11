@@ -32,7 +32,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~thread <id>~ | Print the chain. |
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
-| ~lease <claim/extend/leave/status/check/release/adopt>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
+| ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -311,6 +311,9 @@ agentbus lease status --all
 agentbus lease check --path src/main.go
 agentbus lease release
 agentbus lease adopt
+agentbus lease pause --with w1:p2
+agentbus lease unshare w1:p2
+agentbus lease resume --as-is
 #+END_SRC
 
 | Subcommand | What it does |
@@ -322,6 +325,9 @@ agentbus lease adopt
 | ~check~ | Exit 0 when you hold the lease or the path is not guarded, 1 with a one-line reason when you do not, 3 when it cannot tell. |
 | ~release~ | Holder only. Leave the checkout clean on the default branch and hand it to the next waiter. See [[*Release]]. |
 | ~adopt [--force]~ | The needs-adopt holder, or the user. Save leftovers to a backup ref, then reset the checkout. See [[*Takeover and adopt]]. |
+| ~pause [--with <pane or name>]...~ | The user only. Take the checkout, or go to the front of the queue and ask the holder to release. See [[*User pause and resume]]. |
+| ~unshare <pane or name>...~ | The user only. Take panes off the pause's ~--with~ list. |
+| ~resume [--as-is]~ | The user only. Release for the user. |
 
 The queue puts the user first, then ~--urgent~ claims, then the rest,
 each in arrival order. Claiming again as the holder or a waiter keeps
@@ -342,7 +348,8 @@ when the checkout is free. ~name~ is the registered name, or empty.
             "deadline": "RFC3339", "why": "..."},
  "queue": [{"handle": "...", "name": "...", "urgent": false,
             "for": "40m", "since": "RFC3339"}],
- "backup_ref": "... (only when there is one)"}
+ "backup_ref": "... (only when there is one)",
+ "with": ["... (panes the user's pause is shared with, when any)"]}
 #+END_SRC
 
 The daemon keeps lease state in ~leases.json~ in its state directory,
@@ -510,6 +517,47 @@ and adopts are ~lease_takeover~ and ~lease_adopt~ events.
 #+BEGIN_SRC toml
 lease_ignore_procs = ["sh", "bash", "zsh", "fish", "claude", "codex", "gemini", "emacs", "vim", "nvim", "less", "agentbus"]
 #+END_SRC
+
+** User pause and resume
+
+The user takes the checkout with ~agentbus lease pause~ and gives it
+back with ~agentbus lease resume~. Both, and ~unshare~, are refused from
+a herdr pane that runs an agent (any state but ~no-agent~) and allowed
+from a plain terminal pane or from outside herdr. This guards against
+mistakes; it is not security.
+
+- ~pause~ on a free checkout makes it ~paused~, held by ~user~ with no
+  deadline.
+- ~pause~ while an agent holds it puts ~user~ at the front of the queue
+  and sends the holder, at once:
+
+  #+BEGIN_SRC text
+  [lease] the user asked for local:/home/u/src/repo; please finish up and release
+  #+END_SRC
+
+  The ask counts as the holder's check-in and its bid ends then, so the
+  check-in rules above follow: a working holder is extended, an idle
+  and silent one is taken over (with ~lease_takeover = "on"~). When the
+  checkout is later granted to the user, the user gets a decide note
+  when decide is on the daemon's ~PATH~.
+- The user's hold is never checked in on and never taken over, with
+  either ~lease_takeover~ mode.
+- ~pause --with <pane or name>~ (repeatable; a herdr pane id, a
+  registered name, or a handle) lets those agent panes edit under the
+  pause: ~check~ passes for them, but they cannot ~release~, ~extend~,
+  or ~resume~. ~pause --with X~ while already paused or queued adds X;
+  ~unshare X~ removes it. ~status~ shows the list as ~with~.
+- ~resume~ is ~release~ for the user: the same clean check, switch to
+  the default branch, and pull, so the next holder starts clean. The
+  ~with~ list clears and the next waiter is granted and woken.
+  ~resume --as-is~ skips the switch and pull, for a checkout the user
+  leaves on a branch on purpose; a dirty tree is still refused.
+  ~resume~ also works after the user adopted. While the user is still
+  queued, ~resume~ withdraws the pause without touching the tree.
+
+Pauses, resumes, ~--with~, and unshares are ~lease_pause~,
+~lease_resume~, ~lease_with~, and ~lease_unshare~ events. The ~with~
+list is kept in ~leases.json~.
 
 * Lost messages
 

@@ -58,6 +58,15 @@ const (
 	// EventLeaseWouldTakeOver is a takeover the daemon decided but did
 	// not carry out because lease_takeover is "log".
 	EventLeaseWouldTakeOver = "lease_would_take_over"
+	// EventLeasePause is the user taking the checkout, at once or queued.
+	EventLeasePause = "lease_pause"
+	// EventLeaseResume is the user giving the checkout back, or withdrawing
+	// a queued pause.
+	EventLeaseResume = "lease_resume"
+	// EventLeaseWith shares the user's pause with an agent pane.
+	EventLeaseWith = "lease_with"
+	// EventLeaseUnshare takes an agent pane off the user's pause.
+	EventLeaseUnshare = "lease_unshare"
 )
 
 // timeLayout is RFC 3339 with millisecond precision.
@@ -385,7 +394,8 @@ func knownEvent(name string) bool {
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
-		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver:
+		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
+		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare:
 		return true
 	default:
 		return false

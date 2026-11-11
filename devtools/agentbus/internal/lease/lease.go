@@ -26,7 +26,7 @@ type State string
 // Lease states, part of the stable status shape. Releasing lasts while
 // the holder's release runs its git steps. NeedsAdopt follows a
 // takeover, or a claim of a dirty free checkout, until adopt resets the
-// checkout. Paused is set by a later command (pause).
+// checkout. Paused is the user's hold, set by pause.
 const (
 	StateFree       State = "free"
 	StateHeld       State = "held"
@@ -55,6 +55,10 @@ const (
 	// ResultAdopting: the adopter's process check and cleanup run.
 	ResultAdopting = "adopting"
 	ResultAdopted  = "adopted"
+	// ResultPaused: the user holds the checkout.
+	ResultPaused   = "paused"
+	ResultResumed  = "resumed"
+	ResultUnshared = "unshared"
 )
 
 // stateFile is the persisted table in the daemon state directory.
@@ -84,6 +88,11 @@ type Args struct {
 	Backups []string `json:"backups,omitempty"`
 	// Forced names the processes adopt --force went past.
 	Forced []string `json:"forced,omitempty"`
+	// With are the handles pause shares the user's hold with, or unshare
+	// takes off.
+	With []string `json:"with,omitempty"`
+	// AsIs is resume --as-is: the git steps were skipped.
+	AsIs bool `json:"asIs,omitempty"`
 }
 
 // Reply is the lease part of a daemon response.
@@ -107,6 +116,8 @@ type Reply struct {
 	// Takeover is the daemon's effective lease_takeover on a status
 	// reply: "log" or "on". An older daemon leaves it empty.
 	Takeover TakeoverMode `json:"takeover,omitempty"`
+	// Asked is the holder a pause asked to finish up and release.
+	Asked string `json:"asked,omitempty"`
 }
 
 // Status is the stable `lease status --json` shape other tools read.
@@ -116,6 +127,8 @@ type Status struct {
 	Holder    *HolderView  `json:"holder,omitempty"`
 	Queue     []WaiterView `json:"queue"`
 	BackupRef string       `json:"backup_ref,omitempty"` //nolint:tagliatelle // stable status shape
+	// With are the agent panes that may edit under the user's pause.
+	With []string `json:"with,omitempty"`
 }
 
 // HolderView is the holder in Status. Times are RFC3339.
@@ -162,6 +175,9 @@ type record struct {
 	Holder    *holder  `json:"holder,omitempty"`
 	Queue     []waiter `json:"queue,omitempty"`
 	BackupRef string   `json:"backup_ref,omitempty"` //nolint:tagliatelle // persisted format
+	// With are the handles the user's pause is shared with. It is kept
+	// while the user waits in the queue and cleared on resume.
+	With []string `json:"with,omitempty"`
 }
 
 type holder struct {
@@ -279,7 +295,7 @@ func (t *Table) Extend(caller string, a Args) (Reply, error) {
 	}
 	return t.update(a.Checkout, func(rec *record, now time.Time) (Reply, []eventlog.Event, error) {
 		if rec.Holder == nil || rec.Holder.Handle != caller {
-			return Reply{}, nil, fmt.Errorf("only the holder can extend the lease on %s", a.Checkout)
+			return Reply{}, nil, notHolder(rec, caller, "extend the lease on", a.Checkout)
 		}
 		rec.Holder.Deadline = now.Add(d)
 		rec.Holder.For = d
@@ -309,10 +325,14 @@ func (t *Table) Leave(caller string, a Args) (Reply, error) {
 }
 
 // Check answers whether caller may change the checkout now: allowed
-// only for the holder of a held lease.
+// only for the holder of a held lease and for the panes the user's
+// pause is shared with.
 func (t *Table) Check(caller string, a Args) (Reply, error) {
 	return t.update(a.Checkout, func(rec *record, _ time.Time) (Reply, []eventlog.Event, error) {
 		if caller != "" && rec.State == StateHeld && rec.Holder != nil && rec.Holder.Handle == caller {
+			return Reply{Result: ResultAllowed}, nil, nil
+		}
+		if caller != "" && rec.sharedWith(caller) {
 			return Reply{Result: ResultAllowed}, nil, nil
 		}
 		return Reply{Result: ResultDenied}, nil, nil
@@ -378,33 +398,53 @@ func (t *Table) Release(caller string, a Args, gone func(handle string) bool) (R
 	}
 	return t.update(a.Checkout, func(rec *record, now time.Time) (Reply, []eventlog.Event, error) {
 		if rec.Holder == nil || rec.Holder.Handle != caller {
-			return Reply{}, nil, fmt.Errorf("only the holder can release %s", a.Checkout)
+			return Reply{}, nil, notHolder(rec, caller, "release", a.Checkout)
 		}
 		r := Reply{Result: ResultReleased, PullError: a.PullError}
 		events := []eventlog.Event{{Event: eventlog.EventLeaseRelease, Actor: caller, Detail: "released", Reason: a.PullError}}
 		if a.PullError != "" {
 			events[0].Detail = "released; pull failed"
 		}
-		rec.State, rec.Holder = StateFree, nil
-		for len(rec.Queue) > 0 {
-			w := rec.Queue[0]
-			rec.Queue = rec.Queue[1:]
-			if gone(w.Handle) {
-				r.Skipped = append(r.Skipped, w.Handle)
-				events = append(events, eventlog.Event{Event: eventlog.EventLeaseSkip, Actor: w.Handle, Detail: "skipped and dropped from the queue", Reason: "pane gone"})
-				continue
-			}
-			rec.State = StateHeld
-			rec.Holder = &holder{Handle: w.Handle, Since: now, Deadline: now.Add(w.For), For: w.For, Why: w.Why}
-			r.Granted = w.Handle
-			events = append(events, eventlog.Event{Event: eventlog.EventLeaseGrant, Actor: w.Handle, Detail: grantDetail(rec)})
-			break
-		}
-		if len(rec.Queue) == 0 {
-			rec.Queue = nil
-		}
+		events = append(events, grantNext(rec, now, gone, &r)...)
 		return r, events, nil
 	})
+}
+
+// grantNext frees rec and grants it to the first waiter whose pane is
+// not gone, dropping the gone ones into r.Skipped. The user, who has no
+// pane, is granted a pause. With nobody left the checkout is free.
+func grantNext(rec *record, now time.Time, gone func(handle string) bool, r *Reply) []eventlog.Event {
+	var events []eventlog.Event
+	rec.State, rec.Holder = StateFree, nil
+	for len(rec.Queue) > 0 {
+		w := rec.Queue[0]
+		rec.Queue = rec.Queue[1:]
+		if w.Handle != UserHolder && gone(w.Handle) {
+			r.Skipped = append(r.Skipped, w.Handle)
+			events = append(events, eventlog.Event{Event: eventlog.EventLeaseSkip, Actor: w.Handle, Detail: "skipped and dropped from the queue", Reason: "pane gone"})
+			continue
+		}
+		rec.State = StateHeld
+		if w.Handle == UserHolder {
+			rec.State = StatePaused
+		}
+		rec.Holder = w.holder(now)
+		r.Granted = w.Handle
+		events = append(events, eventlog.Event{Event: eventlog.EventLeaseGrant, Actor: w.Handle, Detail: grantDetail(rec)})
+		break
+	}
+	if len(rec.Queue) == 0 {
+		rec.Queue = nil
+	}
+	return events
+}
+
+// holder is w granted at now. The user gets no deadline.
+func (w waiter) holder(now time.Time) *holder {
+	if w.Handle == UserHolder {
+		return &holder{Handle: UserHolder, Since: now}
+	}
+	return &holder{Handle: w.Handle, Since: now, Deadline: now.Add(w.For), For: w.For, Why: w.Why}
 }
 
 // holderUpdate runs change when caller holds the checkout.
@@ -414,7 +454,7 @@ func (t *Table) holderUpdate(caller string, a Args, change func(*record) Reply) 
 	}
 	return t.update(a.Checkout, func(rec *record, _ time.Time) (Reply, []eventlog.Event, error) {
 		if rec.Holder == nil || rec.Holder.Handle != caller {
-			return Reply{}, nil, fmt.Errorf("only the holder can release %s", a.Checkout)
+			return Reply{}, nil, notHolder(rec, caller, "release", a.Checkout)
 		}
 		return change(rec), nil, nil
 	})
@@ -477,7 +517,7 @@ func (t *Table) update(checkout string, change func(*record, time.Time) (Reply, 
 }
 
 func (t *Table) view(checkout string, rec *record) Status {
-	s := Status{Checkout: checkout, State: rec.State, Queue: []WaiterView{}, BackupRef: rec.BackupRef}
+	s := Status{Checkout: checkout, State: rec.State, Queue: []WaiterView{}, BackupRef: rec.BackupRef, With: slices.Clone(rec.With)}
 	if h := rec.Holder; h != nil {
 		s.Holder = &HolderView{Handle: h.Handle, Name: t.names(h.Handle), Since: stamp(h.Since), Deadline: stamp(h.Deadline), Why: h.Why}
 	}
@@ -516,6 +556,7 @@ func (r *record) clone() *record {
 		c.Holder = &h
 	}
 	c.Queue = slices.Clone(r.Queue)
+	c.With = slices.Clone(r.With)
 	return &c
 }
 

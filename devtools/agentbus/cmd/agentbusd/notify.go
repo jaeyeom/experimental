@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 )
 
 // decideTimeout bounds one decide call, which runs on the lease watcher.
@@ -13,14 +16,17 @@ const decideTimeout = 10 * time.Second
 
 // decideArgv puts a lease note in the user's decide inbox. `decide send`
 // only writes to an agent recipient's pane, so the note is a relay item
-// the user answers or archives.
+// the user answers or archives. Only a needs-adopt note offers the adopt
+// options; other notes, such as a granted pause, are free text.
 func decideArgv(decide, text string) []string {
-	return []string{
-		decide, "ask", "--owner", "agentbus", "--kind", "relay",
-		"--option", "adopt:I will run agentbus lease adopt",
-		"--option", "later:Leave it for the next claim",
-		"--rec", "adopt", text,
+	argv := []string{decide, "ask", "--owner", "agentbus", "--kind", "relay"}
+	if strings.Contains(text, lease.NeedsAdoptMark) {
+		argv = append(argv,
+			"--option", "adopt:I will run agentbus lease adopt",
+			"--option", "later:Leave it for the next claim",
+			"--rec", "adopt")
 	}
+	return append(argv, text)
 }
 
 // decideNotifier tells the user about lease events through decide, or

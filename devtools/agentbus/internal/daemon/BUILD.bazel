@@ -32,6 +32,7 @@ go_test(
         "stream_test.go",
         "takeover_mode_test.go",
         "takeover_test.go",
+        "user_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
