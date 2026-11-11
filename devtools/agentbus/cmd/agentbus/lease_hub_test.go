@@ -15,6 +15,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall/sshtest"
 )
 
@@ -51,6 +52,39 @@ func newHubLeaseWorld(t *testing.T, configLines ...string) *hubLeaseWorld {
 // tunnel path and returns the hub's own environment.
 func (h *hubLeaseWorld) startHubDaemon(t *testing.T) []string {
 	t.Helper()
+	return h.startHub(t, h.tunnel)
+}
+
+// startHubOverSSH runs the hub's daemon with the tunnel down and puts
+// this test binary first on PATH as the hub's agentbus, so the fake ssh
+// runs the real `agentbus lease forward` against that daemon, in the
+// hub's own environment, as an ssh login would.
+func (h *hubLeaseWorld) startHubOverSSH(t *testing.T) []string {
+	t.Helper()
+	hubEnv := h.startHub(t, "")
+	h.ssh.Reachable()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	words := []string{"exec", "env", "-i", `PATH="$PATH"`, `AGENTBUS_AS_HANDLE="$AGENTBUS_AS_HANDLE"`, "AGENTBUS_TEST_HOOK=1", hubcall.Quote("SSH_CONNECTION=10.0.0.2 5000 10.0.0.1 22")}
+	for _, kv := range hubEnv {
+		words = append(words, hubcall.Quote(kv))
+	}
+	words = append(words, hubcall.Quote(exe), `"$@"`)
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" + strings.Join(words, " ") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "agentbus"), []byte(script), 0o755); err != nil { //nolint:gosec // test executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return hubEnv
+}
+
+// startHub runs the hub's daemon, with its hub socket at hubSocket when
+// set, and returns the hub's own environment.
+func (h *hubLeaseWorld) startHub(t *testing.T, hubSocket string) []string {
+	t.Helper()
 	env := []string{
 		"XDG_RUNTIME_DIR=" + shortRuntime(t),
 		"XDG_STATE_HOME=" + t.TempDir(),
@@ -60,7 +94,9 @@ func (h *hubLeaseWorld) startHubDaemon(t *testing.T) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dirs.HubSocketPath = h.tunnel
+	if hubSocket != "" {
+		dirs.HubSocketPath = hubSocket
+	}
 	ad := &herdr.Adapter{Machines: []string{"linux2"}, Timeout: 5 * time.Second}
 	stop := startDaemon(t, dirs, daemon.Config{
 		Adapters:     []adapter.Adapter{ad},
@@ -137,12 +173,152 @@ func TestLeaseHubPauseFromAnAgentPaneIsRefusedOverTheTunnel(t *testing.T) {
 	}
 }
 
-func TestLeaseHubPauseFromAPlainPaneOverTheTunnel(t *testing.T) {
-	h := newHubLeaseWorld(t)
-	// w1:p3 is a plain terminal pane: no agent runs in it.
+// plainPane makes w1:p3 a plain terminal pane, where no agent runs, as
+// both linux2's herdr and the hub's --machine linux2 calls see it.
+func (h *hubLeaseWorld) plainPane() *hubLeaseWorld {
 	plain := strings.Replace(agentsJSON("w1:p1=idle", "w1:p2=idle", "w1:p3=idle"), `"agent":"codex","agent_status":"idle","terminal_title":"title w1:p3"`, `"agent":"","agent_status":"","terminal_title":"title w1:p3"`, 1)
 	h.herdr.Write("local.agents", plain)
 	h.herdr.Write("linux2.agents", plain)
+	return h
+}
+
+// hubRoutes are the two ways a lease command on linux2 reaches the hub:
+// the tunnel, and ssh to `agentbus lease forward` with the tunnel down.
+var hubRoutes = []struct {
+	name  string
+	start func(h *hubLeaseWorld, t *testing.T) []string
+	ssh   bool
+}{
+	{"tunnel", (*hubLeaseWorld).startHubDaemon, false},
+	{"ssh", (*hubLeaseWorld).startHubOverSSH, true},
+}
+
+func (h *hubLeaseWorld) assertRoute(t *testing.T, ssh bool) {
+	t.Helper()
+	if h.usedSSH() != ssh {
+		t.Fatalf("used ssh = %v, want %v: %q", h.usedSSH(), ssh, h.ssh.Lines("argv"))
+	}
+	if ssh && h.ssh.Read("agentbus.args") != "" {
+		t.Fatalf("ssh ran the fake hub agentbus, not the real one")
+	}
+}
+
+func TestLeaseHubPauseFromAPlainPaneOverSSH(t *testing.T) {
+	h := newHubLeaseWorld(t).plainPane()
+	hubEnv := h.startHubOverSSH(t)
+	if out := h.mustLease(t, "w1:p3", "pause", "--with", "w1:p2"); !strings.Contains(out, "paused linux2:"+h.repo) {
+		t.Fatalf("pause = %q", out)
+	}
+	st := hubStatus(t, hubEnv)
+	if st[0].Holder == nil || st[0].Holder.Handle != lease.UserHolder || !slices.Equal(st[0].With, []string{hubBob}) {
+		t.Fatalf("hub status = %+v", st)
+	}
+	h.assertRoute(t, true)
+}
+
+func TestLeaseHubResumeFromAPlainPane(t *testing.T) {
+	for _, route := range hubRoutes {
+		t.Run(route.name, func(t *testing.T) {
+			h := newHubLeaseWorld(t).plainPane()
+			hubEnv := route.start(h, t)
+			h.mustLease(t, "w1:p3", "pause")
+			if out := h.mustLease(t, "w1:p2", "claim", "--for", "20m"); !strings.HasPrefix(out, "queued, position 1") {
+				t.Fatalf("claim under the pause = %q", out)
+			}
+			h.git(t, h.repo, "switch", "-q", "-c", "feature")
+			h.pushUpstream(t, "up.txt")
+
+			out := h.mustLease(t, "w1:p3", "resume")
+			for _, want := range []string{"switched feature -> main\n", "pulled: ", "resumed; granted to " + hubBob} {
+				if !strings.Contains(out, want) {
+					t.Errorf("resume output is missing %q:\n%s", want, out)
+				}
+			}
+			if branch := h.git(t, h.repo, "branch", "--show-current"); branch != "main" {
+				t.Fatalf("branch after resume = %q", branch)
+			}
+			if _, err := os.Stat(filepath.Join(h.repo, "up.txt")); err != nil {
+				t.Fatalf("resume did not pull here: %v", err)
+			}
+			if st := hubStatus(t, hubEnv); st[0].Holder == nil || st[0].Holder.Handle != hubBob {
+				t.Fatalf("hub status after resume = %+v", st)
+			}
+
+			// With nobody waiting, the checkout becomes free.
+			h.mustLease(t, "w1:p2", "release")
+			h.mustLease(t, "w1:p3", "pause")
+			if out := h.mustLease(t, "w1:p3", "resume"); !strings.Contains(out, "resumed; checkout free") {
+				t.Fatalf("resume with nobody waiting = %q", out)
+			}
+			if st := hubStatus(t, hubEnv); st[0].State != lease.StateFree || st[0].Holder != nil {
+				t.Fatalf("hub status after the second resume = %+v", st)
+			}
+			h.assertRoute(t, route.ssh)
+		})
+	}
+}
+
+func TestLeaseHubAdoptFromAPlainPane(t *testing.T) {
+	noProcs(t)
+	for _, route := range hubRoutes {
+		t.Run(route.name, func(t *testing.T) {
+			h := newHubLeaseWorld(t).plainPane()
+			hubEnv := route.start(h, t)
+			h.dirty(t)
+			if out := h.mustLease(t, "w1:p1", "claim", "--for", "40m"); !strings.Contains(out, "needs-adopt") {
+				t.Fatalf("claim of a dirty tree = %q", out)
+			}
+
+			if out := h.mustLease(t, "w1:p3", "adopt"); !strings.Contains(out, "adopted linux2:"+h.repo) {
+				t.Fatalf("user adopt = %q", out)
+			}
+			st := hubStatus(t, hubEnv)
+			if st[0].State != lease.StateHeld || st[0].Holder == nil || st[0].Holder.Handle != lease.UserHolder || len(st[0].Queue) == 0 || st[0].Queue[0].Handle != hubAlice {
+				t.Fatalf("hub status after the user adopted = %+v", st)
+			}
+			h.assertCleanOnMain(t)
+			if len(h.backupRefs(t)) == 0 {
+				t.Fatal("adopt saved no backup ref here")
+			}
+			h.assertRoute(t, route.ssh)
+		})
+	}
+}
+
+func TestLeaseHubUserOpsFromAnAgentPaneAreRefused(t *testing.T) {
+	noProcs(t)
+	for _, route := range hubRoutes {
+		t.Run(route.name, func(t *testing.T) {
+			h := newHubLeaseWorld(t)
+			hubEnv := route.start(h, t)
+			for _, op := range []string{"pause", "resume"} {
+				if code, _, stderr := h.lease(t, "w1:p1", op); code != 1 || !strings.Contains(stderr, "lease "+op+" is for the user") {
+					t.Fatalf("%s from an agent pane = %d %q", op, code, stderr)
+				}
+			}
+			h.dirty(t)
+			h.mustLease(t, "w1:p1", "claim", "--for", "40m")
+			// bob is not the assigned adopter, and not the user.
+			if code, _, stderr := h.lease(t, "w1:p2", "adopt"); code != 1 || !strings.Contains(stderr, "needs adopt by "+hubAlice) {
+				t.Fatalf("adopt by another agent = %d %q", code, stderr)
+			}
+			if st := h.git(t, h.repo, "status", "--porcelain"); st == "" || len(h.backupRefs(t)) != 0 {
+				t.Fatalf("a refused adopt touched the tree: %q, refs %v", st, h.backupRefs(t))
+			}
+			// alice, the assigned adopter, may adopt.
+			if out := h.mustLease(t, "w1:p1", "adopt"); !strings.Contains(out, "adopted ") {
+				t.Fatalf("adopt by the adopter = %q", out)
+			}
+			if st := hubStatus(t, hubEnv); st[0].State != lease.StateHeld || st[0].Holder == nil || st[0].Holder.Handle != hubAlice {
+				t.Fatalf("hub status after the adopter adopted = %+v", st)
+			}
+			h.assertRoute(t, route.ssh)
+		})
+	}
+}
+
+func TestLeaseHubPauseFromAPlainPaneOverTheTunnel(t *testing.T) {
+	h := newHubLeaseWorld(t).plainPane()
 	hubEnv := h.startHubDaemon(t)
 
 	// A pane id the CLI cannot place here is not looked up on the hub.
@@ -365,10 +541,8 @@ func TestLeaseForwardRunsOnTheHubDaemon(t *testing.T) {
 }
 
 func TestLeaseForwardRefusesAnotherMachinesCheckout(t *testing.T) {
-	h := newHubLeaseWorld(t)
 	// w1:p3 is a plain terminal pane: its caller is the user.
-	plain := strings.Replace(agentsJSON("w1:p1=idle", "w1:p2=idle", "w1:p3=idle"), `"agent":"codex","agent_status":"idle","terminal_title":"title w1:p3"`, `"agent":"","agent_status":"","terminal_title":"title w1:p3"`, 1)
-	h.herdr.Write("linux2.agents", plain)
+	h := newHubLeaseWorld(t).plainPane()
 	hubEnv := h.startHubDaemon(t)
 	forward := func(handle, req string) daemon.Response {
 		t.Helper()
