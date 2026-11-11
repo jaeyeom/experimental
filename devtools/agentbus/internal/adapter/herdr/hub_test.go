@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 )
 
 func TestIdentifyTrustsAHubCallerHandleOnlyOverSSH(t *testing.T) {
@@ -28,6 +30,32 @@ func TestIdentifyTrustsAHubCallerHandleOnlyOverSSH(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("Identify(%q) = %v, want %q", tt.env, err, tt.want)
 		}
+	}
+}
+
+func TestRemoteCallerAcceptsOnlyRemoteHerdrHandles(t *testing.T) {
+	if got, err := RemoteCaller("herdr:linux2/default/w1:p1"); err != nil || got != "herdr:linux2/default/w1:p1" {
+		t.Fatalf("RemoteCaller = %q, %v", got, err)
+	}
+	for raw, want := range map[string]string{
+		"herdr:local/default/w1:p1": "must name a remote machine",
+		"fake:x":                    "not a herdr handle",
+	} {
+		if _, err := RemoteCaller(raw); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("RemoteCaller(%q) = %v, want %q", raw, err, want)
+		}
+	}
+}
+
+func TestIdentifyUsesTheForwardedCallerOverEnv(t *testing.T) {
+	ad := &Adapter{Run: func(_ context.Context, args []string) (string, string, int, error) {
+		t.Fatalf("Identify ran herdr %q", args)
+		return "", "", 1, nil
+	}}
+	ctx := adapter.WithForwardedCaller(context.Background(), "herdr:linux2/default/w1:p1")
+	got, err := ad.Identify(ctx, []string{"HERDR_PANE_ID=w9:p9", "SSH_CONNECTION=x", "AGENTBUS_AS_HANDLE=herdr:m3/default/w3:p3"})
+	if err != nil || got != "herdr:linux2/default/w1:p1" {
+		t.Fatalf("Identify = %q, %v", got, err)
 	}
 }
 

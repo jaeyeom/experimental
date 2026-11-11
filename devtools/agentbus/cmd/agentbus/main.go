@@ -62,7 +62,7 @@ func run(ctx context.Context, args, env []string, stdin io.Reader, stdout, stder
 			return 1
 		}
 		if cfg.Hub != "" {
-			return runOnHub(ctx, cfg, args, env, stdin, stdout, stderr)
+			return runHubMode(ctx, cfg, cmd, args, env, stdin, stdout, stderr)
 		}
 	}
 	if len(args) == 0 {

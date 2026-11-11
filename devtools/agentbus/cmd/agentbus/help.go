@@ -225,7 +225,9 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>". It never falls back to a
-local daemon.
+local daemon. When $XDG_RUNTIME_DIR/agentbus/tunnel.sock is a forward of
+the hub's $XDG_RUNTIME_DIR/agentbus/hub.sock, a call from a herdr pane
+goes over it instead of starting ssh; log still runs over ssh.
 
 A message to a machine that cannot be reached is held, not failed, with
 "held: machine <m> unreachable: host unreachable" or

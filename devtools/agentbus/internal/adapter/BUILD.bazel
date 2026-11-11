@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["adapter.go"],
+    srcs = [
+        "adapter.go",
+        "caller.go",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter",
     visibility = ["//devtools/agentbus:__subpackages__"],
     deps = ["//devtools/agentbus/internal/eventlog:go_default_library"],
