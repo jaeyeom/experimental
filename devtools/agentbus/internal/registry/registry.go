@@ -12,9 +12,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 )
 
 const registryFile = "registry.json"
@@ -38,7 +40,14 @@ type Registry struct {
 	invBroken     map[string]bool
 	warnings      map[string][]string
 	haveInventory bool
-	mu            sync.Mutex
+	// hibernated are the hibernation records by handle.
+	hibernated map[string]hibernate.Record
+	// seen is the state each inventory agent was last seen in, by
+	// handle.
+	seen map[string]seenState
+	// Now is the clock seen times are read from. Nil uses time.Now.
+	Now func() time.Time
+	mu  sync.Mutex
 }
 
 // record is one name binding. There is no deadline field.
@@ -49,20 +58,23 @@ type record struct {
 
 type file struct {
 	Names map[string]record `json:"names"`
+	// Hibernated are the hibernation records by handle.
+	Hibernated map[string]hibernate.Record `json:"hibernated,omitempty"`
 }
 
 // Open loads the registry. A missing file is an empty registry.
 func Open(dir string, adapters []adapter.Adapter, log *eventlog.Log) (*Registry, error) {
-	names, err := load(dir)
+	doc, err := load(dir)
 	if err != nil {
 		return nil, err
 	}
 	return &Registry{
-		dir:      dir,
-		names:    names,
-		adapters: adapters,
-		log:      log,
-		broken:   map[string]bool{},
+		dir:        dir,
+		names:      doc.Names,
+		hibernated: doc.Hibernated,
+		adapters:   adapters,
+		log:        log,
+		broken:     map[string]bool{},
 	}, nil
 }
 
@@ -248,7 +260,7 @@ func (r *Registry) Release(ctx context.Context, env []string, name, to string) (
 func (r *Registry) claim(ctx context.Context, handle, name, when string) error {
 	rec, ok := r.names[name]
 	if ok && rec.Handle != handle {
-		live := r.liveness(ctx, rec.Handle)
+		live := r.claimLiveness(ctx, rec.Handle)
 		if live != "gone" {
 			msg := fmt.Sprintf("%s is held by %s (%s); message them with: agentbus send %s", name, rec.Handle, live, name)
 			if err := r.logEvent(eventlog.Event{
@@ -462,26 +474,29 @@ func validateName(name string) error {
 	return nil
 }
 
-func load(dir string) (map[string]record, error) {
+func load(dir string) (file, error) {
+	doc := file{}
 	data, err := os.ReadFile(filepath.Join(dir, registryFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return map[string]record{}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read registry: %w", err)
-	}
-	var doc file
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("decode registry: %w", err)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return file{}, fmt.Errorf("read registry: %w", err)
+	default:
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return file{}, fmt.Errorf("decode registry: %w", err)
+		}
 	}
 	if doc.Names == nil {
 		doc.Names = map[string]record{}
 	}
-	return doc.Names, nil
+	if doc.Hibernated == nil {
+		doc.Hibernated = map[string]hibernate.Record{}
+	}
+	return doc, nil
 }
 
 func (r *Registry) save() error {
-	doc := file{Names: r.names}
+	doc := file{Names: r.names, Hibernated: r.hibernated}
 	if doc.Names == nil {
 		doc.Names = map[string]record{}
 	}

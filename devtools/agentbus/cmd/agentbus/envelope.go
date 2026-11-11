@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 )
 
 func cmdSend(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -93,6 +94,9 @@ func finishSend(ctx context.Context, env []string, req daemon.Request, stdout, s
 		return 1
 	}
 	fmt.Fprintf(stdout, "%s %s\n", resp.Name, resp.State)
+	if resp.State == "held: "+mailbox.HoldHibernated {
+		fmt.Fprintf(stderr, "agentbus: the agent is hibernated; the message is queued until it wakes\n")
+	}
 	return 0
 }
 

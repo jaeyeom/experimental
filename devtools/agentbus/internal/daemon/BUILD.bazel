@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "daemon.go",
+        "hibernate.go",
         "peer.go",
         "peer_darwin.go",
         "peer_linux.go",
@@ -15,9 +16,11 @@ go_library(
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/leasecache:go_default_library",
         "//devtools/agentbus/internal/mailbox:go_default_library",
+        "//devtools/agentbus/internal/memreport:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
@@ -29,6 +32,7 @@ go_test(
     srcs = [
         "checkin_test.go",
         "daemon_test.go",
+        "hibernate_test.go",
         "hub_test.go",
         "leasecache_test.go",
         "stream_test.go",
@@ -42,6 +46,7 @@ go_test(
         "//devtools/agentbus/internal/adapter/fake:go_default_library",
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/leasecache:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",

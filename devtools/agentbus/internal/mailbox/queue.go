@@ -22,6 +22,9 @@ const (
 	waitTick    = 15 * time.Millisecond
 )
 
+// HoldHibernated is the hold reason of a message to a hibernated agent.
+const HoldHibernated = "hibernated"
+
 type outcome struct {
 	accepted bool
 	tried    bool
@@ -319,6 +322,10 @@ func (m *Mailbox) finishExpire(ctx context.Context, handle string, msg message) 
 func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {
 	if err := m.prepare(ctx); err != nil {
 		return outcome{reason: "unreachable", target: "unreachable"}
+	}
+	if m.reg.Hibernated(msg.Handle) {
+		// Its pane runs a shell now. The message waits for a wake.
+		return outcome{reason: HoldHibernated, target: HoldHibernated}
 	}
 	state, ad, err := m.observe(ctx, msg.Handle)
 	if err != nil || ad == nil || !canDeliver(state) {

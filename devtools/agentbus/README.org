@@ -34,6 +34,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~log~ | Read the daemon event log. |
 | ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
 | ~mem [--json]~ | Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases. See [[*Memory per agent]]. |
+| ~hibernate <name or handle>...~, ~hibernate --idle-over <d>~ | Stop idle agents on this machine but keep their panes and names. See [[*Hibernate idle agents]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -73,12 +74,13 @@ or ~[]~ when none are. Each object has these fields, which are stable:
 |-------+-------|
 | ~name~ | The registered name. |
 | ~when~ | Its ~--when~ text. |
-| ~liveness~ | ~alive~, ~dead~, or ~unknown~. |
+| ~liveness~ | ~alive~, ~dead~, ~hibernated~, or ~unknown~. |
 | ~transport~ | The adapter that reaches it, such as ~herdr~. |
 | ~handle~ | The holder's raw handle. |
 
 ~liveness~ folds the text words: ~alive~ and ~blocked~ are ~alive~,
-~gone~ is ~dead~, and ~unreachable~ is ~unknown~. When the daemon cannot
+~gone~ is ~dead~, ~hibernated~ stays ~hibernated~ (see
+[[*Hibernate idle agents]]), and ~unreachable~ is ~unknown~. When the daemon cannot
 be reached, ~list --json~ prints nothing on stdout and exits non-zero.
 
 ~log~ filters are ~--since~, ~--name~, ~--msg~, ~--event~, ~--follow~,
@@ -707,6 +709,75 @@ daemon is down, the names and lease columns (and the JSON fields) are
 left out and a note says why. In hub mode the names and leases live on
 the hub, so they are left out too. When herdr cannot be reached, ~mem~
 exits non-zero.
+
+* Hibernate idle agents
+
+~agentbus hibernate <name or handle>...~ and ~agentbus hibernate
+--idle-over <d> [--dry-run]~ stop idle agents on this machine but keep
+their herdr panes, their names, and a record of how to start them
+again. ~--idle-over 2h~ picks every agent the daemon has seen ~idle~ or
+~done~ for at least two hours.
+
+#+BEGIN_EXAMPLE
+$ agentbus hibernate --idle-over 2h
+hibernated ops/x (320.0 MiB freed)
+refused ops/y: unsent text in the composer; holds the lease on local:/src/repo
+#+END_EXAMPLE
+
+An agent is stopped only when every check passes. A refusal names each
+check that failed:
+
+| Check | Refused when |
+|-------+--------------|
+| State | herdr's agent state is not ~idle~ or ~done~. |
+| Dialog | The screen shows a permission or question prompt. |
+| Background job | A long-lived child of the agent runs, by the rule of [[*Memory per agent]]. |
+| Build tool | A build-tool client (~bazel~, ~make~, ~go~, ~cargo~, and the rest of prsync's list, shared in ~devtools/pkg/procinfo~) runs with its cwd inside the agent's cwd. |
+| Composer | The input box holds unsent text, or cannot be read. Only Claude Code's is read; any other kind is refused. |
+| Lease | The agent holds a lease or is queued for one. The daemon checks again when it writes the record. |
+| Exempt | A name or the handle matches ~hibernate_exempt = ["ops/*", ...]~ in the config: names, handles, or globs. |
+
+Then hibernate writes a record to the daemon's state, keyed by handle:
+the agent kind, herdr's session id, the cwd and argv of the agent's
+foreground process, the time, the names on the handle, and the RSS of
+its process tree. It types the kind's exit input (~/exit~ and Enter for
+Claude Code, through ~herdr pane send-text~ and ~send-keys~) and waits
+up to 20s for the agent process to leave the pane's foreground. On
+success it prints ~agentbus: hibernated <name>; wakes on the next
+message or 'agentbus wake <name>'~ in the pane's shell and marks the
+record ~hibernated~. When the agent does not exit in time, the record
+stays as ~stop-failed~ and the agent is not killed.
+
+A hibernated handle keeps its names. ~list~ and ~search~ show it as
+~hibernated~, a claim by another handle is refused as for a live
+holder, and ~send~ queues the message as ~held: hibernated~ and says so.
+~agentbus wake~ and wake-on-delivery are not built yet.
+
+Output is one line per agent: ~hibernated <name> (<rss> freed)~,
+~refused <name>: <reasons>~, ~failed <name>: <reason>~, or with
+~--dry-run~, ~would hibernate <name> (<rss>)~. ~--dry-run~ writes no
+record, sends no input, and logs nothing. ~--json~ prints an array of
+objects with ~name~, ~handle~, ~pane~, ~outcome~ (~hibernated~,
+~refused~, ~would-hibernate~, or ~failed~), ~reasons~, ~rss_bytes~, and
+~warning~. The daemon logs ~agent_hibernated~ and
+~agent_hibernate_refused~ (detail ~stop-failed~ for a stop that timed
+out). The exit status is 1 when a stop failed or a named agent was
+refused; refusals under ~--idle-over~ exit 0.
+
+The daemon learns how long an agent has been in its state from its
+inventory polls and herdr's ~state_change_seq~, and keeps it in memory:
+after a daemon restart an agent counts as idle only from then. An agent
+the daemon has not seen is never picked by ~--idle-over~; name it
+instead.
+
+Hibernate stops agents on this machine only. In hub mode it still runs
+here, since it reads this machine's panes and processes, and sends only
+its daemon requests to the hub, which owns the names, leases, and
+records: over the tunnel when it answers, else over ssh through
+~agentbus lease forward~. The hub accepts a record from a caller on
+another machine only for that machine's agents. ~--idle-over~ in hub
+mode needs the hub to poll this machine (~machines~ in the hub's
+config).
 
 * Sandbox
 

@@ -20,12 +20,15 @@ type listEntry struct {
 	Handle    string `json:"handle"`
 }
 
-// jsonLiveness folds the text liveness words into alive, dead, or unknown.
-// A blocked agent is alive: it is waiting on a prompt.
+// jsonLiveness folds the text liveness words into alive, dead,
+// hibernated, or unknown. A blocked agent is alive: it is waiting on a
+// prompt.
 func jsonLiveness(word string) string {
 	switch word {
 	case "alive", "blocked":
 		return "alive"
+	case "hibernated":
+		return "hibernated"
 	case "gone":
 		return "dead"
 	default:

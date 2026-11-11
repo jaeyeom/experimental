@@ -44,6 +44,10 @@ type Agent struct {
 	Status    string
 	SessionID string
 	Title     string
+	// StateSeq is herdr's state_change_seq: it moves on every state
+	// change, so two reads with the same Status and StateSeq saw no
+	// change between them.
+	StateSeq int64
 }
 
 // InventoryWarning is the error Inventory returns with the agents it

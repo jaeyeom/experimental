@@ -187,6 +187,7 @@ func (r *Registry) storeInventory(name string, agents []adapter.Agent, invErr er
 	}
 	r.invBroken[name] = false
 	r.snaps[name] = append([]adapter.Agent(nil), agents...)
+	r.track()
 	return nil
 }
 
@@ -242,6 +243,9 @@ func (r *Registry) searchRows(query string) []Row {
 	query = strings.TrimSpace(query)
 	var rows []Row
 	for _, item := range r.cached() {
+		if r.hibernatedLocked(item.agent.Handle) {
+			item.agent.Status = livenessHibernated
+		}
 		bindings := r.namesFor(item.agent.Handle)
 		if len(bindings) == 0 {
 			rows = appendMatch(rows, query, agentRow(item, Binding{}))
@@ -251,6 +255,7 @@ func (r *Registry) searchRows(query string) []Row {
 			rows = appendMatch(rows, query, agentRow(item, binding))
 		}
 	}
+	rows = append(rows, r.hibernatedRows(query)...)
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Handle != rows[j].Handle {
 			return rows[i].Handle < rows[j].Handle
@@ -343,6 +348,9 @@ func (r *Registry) transport(handle string) string {
 // Blocked is its own list word. Unreachable is the section 4 class
 // for unknown and transport errors; claims still treat it as alive.
 func (r *Registry) displayLiveness(ctx context.Context, handle string) string {
+	if r.hibernatedLocked(handle) {
+		return livenessHibernated
+	}
 	ads, err := r.usable(ctx)
 	if err != nil || len(ads) == 0 {
 		return "unreachable"
@@ -397,6 +405,9 @@ func oneLiveness(ctx context.Context, ad adapter.Adapter, handle string, agents 
 }
 
 func livenessWord(status string) string {
+	if status == livenessHibernated {
+		return livenessHibernated
+	}
 	switch adapter.State(status) {
 	case adapter.StateBlocked:
 		return "blocked"
