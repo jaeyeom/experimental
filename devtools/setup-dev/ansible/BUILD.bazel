@@ -46,6 +46,7 @@ sh_binary(
         "ansible_become.sh",
         "cache_expired.sh",
         "community_general.sh",
+        "ensure_args.sh",
         "factory_skill_approve.sh",
         "herdr_skill_approve.sh",
         "playbook_resume.sh",
@@ -64,6 +65,15 @@ sh_test(
     data = [
         "playbook_resume.sh",
         "spacemacs.yml",
+    ],
+)
+
+sh_test(
+    name = "ensure_args_test",
+    srcs = ["ensure_args_test.sh"],
+    data = [
+        "ensure.sh",
+        "ensure_args.sh",
     ],
 )
 

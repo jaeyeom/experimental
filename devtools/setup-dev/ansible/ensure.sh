@@ -56,6 +56,26 @@ ANSIBLE_GALAXY_CACHE="$CACHE_DIR/ansible-galaxy-collection"
 . "$(dirname "$0")/factory_skill_approve.sh"
 # shellcheck disable=SC1091  # Sourced from the same directory as this script
 . "$(dirname "$0")/ansible_become.sh"
+# shellcheck source=devtools/setup-dev/ansible/ensure_args.sh
+. "$(dirname "$0")/ensure_args.sh"
+
+# Parse arguments: separate ansible-playbook arguments from playbook targets
+# (see ensure_parse_args in ensure_args.sh). These flags read the next
+# argument as their value: -e/--extra-vars (may repeat), -t/--tags,
+# --skip-tags, -l/--limit, and -i/--inventory. Values keep spaces, JSON,
+# and @file intact:
+#   ./ensure.sh -e foo=bar -e 'msg="hello world"' --tags setup all
+# For any other flag that takes a value, use --flag=value, or the value is
+# treated as a playbook name. Arguments after -- are always playbooks.
+# --from is consumed here (not passed to ansible-playbook).
+# It starts at the leaf playbook file's include-guard (first play) so
+# that file's import_playbook lines still run:
+#   ./ensure.sh --from setup-git -- all
+ensure_parse_args "$@" || exit 1
+# From here on, "$@" holds only playbook names, so any_arg_imports and
+# pre_approve_urls never see flag values.
+# shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
+set -- $playbooks
 
 # Detect OS
 OS="$(uname -s)"
@@ -779,45 +799,6 @@ if community_general_needs_repair "$_cg_has_apt" "$_cg_termux" "$OS" \
     touch "$ANSIBLE_GALAXY_CACHE"
 fi
 
-# Parse arguments: separate Ansible flags from playbook targets.
-# Arguments starting with - are treated as Ansible flags; all others are
-# playbook targets.  Use -- to separate flags from playbooks when passing
-# flags that take a value argument:
-#   ./ensure.sh --tags setup -- profile-cloudflare-dev
-# Without --, a flag's value argument would be mistaken for a playbook name.
-# --from is consumed here (not passed to ansible-playbook).
-# It starts at the leaf playbook file's include-guard (first play) so
-# that file's import_playbook lines still run:
-#   ./ensure.sh --from setup-git -- all
-flags=""
-playbooks=""
-from_playbook=""
-_past_separator=false
-_expect_from_value=false
-for _arg in "$@"; do
-    if [ "$_expect_from_value" = true ]; then
-        from_playbook="$_arg"
-        _expect_from_value=false
-        continue
-    fi
-    if [ "$_past_separator" = true ]; then
-        playbooks="$playbooks $_arg"
-    elif [ "$_arg" = "--" ]; then
-        _past_separator=true
-    elif [ "$_arg" = "--from" ]; then
-        _expect_from_value=true
-    else
-        case "$_arg" in
-            -*) flags="$flags $_arg" ;;
-            *) playbooks="$playbooks $_arg" ;;
-        esac
-    fi
-done
-if [ "$_expect_from_value" = true ]; then
-    echo "Error: --from requires a playbook name." >&2
-    exit 1
-fi
-
 from_task=""
 if [ -n "$from_playbook" ]; then
     _from_file=$from_playbook
@@ -862,6 +843,8 @@ if [ -z "$TERMUX_VERSION" ] && [ "$OS" != "Darwin" ]; then
             echo "sudo timestamps are TTY-specific; Ansible runs sudo on a different TTY."
             echo "You will be prompted for your sudo password."
             flags="$flags $_ab_extra"
+            # shellcheck disable=SC2086  # Intentional word splitting — become flags never contain spaces
+            ensure_args_append $_ab_extra
         fi
     else
         echo "Error: Ansible privilege escalation requires a sudo password." >&2
@@ -895,7 +878,7 @@ done
 if [ "$_skill_check" -eq 0 ]; then
     # shellcheck disable=SC2086  # Intentional word splitting — playbook names never contain spaces
     if any_arg_imports setup-herdr.yml $playbooks || any_arg_imports setup-factory.yml $playbooks; then
-        flags="$flags -e setup_dev_defer_skill_apply=true"
+        ensure_args_append -e setup_dev_defer_skill_apply=true
     fi
 fi
 
@@ -910,15 +893,14 @@ for playbook in $playbooks; do
     # Keep live stdout. Record ansible-playbook's status without pipefail:
     # the subshell writes $? after ansible-playbook, then tee displays output.
     if [ -n "$from_task" ]; then
-        # shellcheck disable=SC2086  # Intentional word splitting for flags
+        # eval keeps each quoted word in $ansible_args as one argument.
         (
-            ansible-playbook -i inventory.ini $flags --start-at-task "$from_task" "$playbook"
+            eval "ansible-playbook -i inventory.ini $ansible_args --start-at-task \"\$from_task\" \"\$playbook\""
             echo $? >"$ANSIBLE_RUN_STATUS"
         ) 2>&1 | tee "$ANSIBLE_RUN_LOG"
     else
-        # shellcheck disable=SC2086  # Intentional word splitting for flags
         (
-            ansible-playbook -i inventory.ini $flags "$playbook"
+            eval "ansible-playbook -i inventory.ini $ansible_args \"\$playbook\""
             echo $? >"$ANSIBLE_RUN_STATUS"
         ) 2>&1 | tee "$ANSIBLE_RUN_LOG"
     fi
