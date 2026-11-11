@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["avatar.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/decide/tui/avatar",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_charmbracelet_lipgloss//:go_default_library",
+        "@com_github_muesli_termenv//:go_default_library",
+        "@org_golang_x_image//webp:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    size = "small",
+    srcs = ["avatar_test.go"],
+    data = glob(["testdata/**"]),
+    embed = [":go_default_library"],
+    deps = [
+        "@com_github_charmbracelet_lipgloss//:go_default_library",
+        "@com_github_muesli_termenv//:go_default_library",
+    ],
+)
