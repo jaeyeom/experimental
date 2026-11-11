@@ -326,12 +326,12 @@ func TestLeaseStatusJSONGolden(t *testing.T) {
 	}
 }
 
-func TestLeaseRefusesHubModeForAGuardedPath(t *testing.T) {
+func TestLeaseHubModeWithoutMachineRefusesAGuardedPath(t *testing.T) {
 	w := newLeaseWorld(t)
 	noDaemon(t)
 	env := append(w.as("p1"), hubEnv+"=me@hub")
 	code, _, stderr := runCmd([]string{"lease", "claim", "--for", "1m", "--path", w.repo}, env)
-	if code != 1 || !strings.Contains(stderr, "hub mode") {
+	if code != 1 || !strings.Contains(stderr, "hub mode needs machine") {
 		t.Fatalf("hub claim = %d %q", code, stderr)
 	}
 	code, _, _ = runCmd([]string{"lease", "check", "--path", t.TempDir()}, env)

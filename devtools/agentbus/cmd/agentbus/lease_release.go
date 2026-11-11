@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
@@ -16,7 +15,7 @@ import (
 // a failed switch puts the lease back to held; a failed pull is reported
 // and the release goes ahead.
 func leaseRelease(ctx context.Context, f leaseFlags, largs lease.Args, env []string, stdout, stderr io.Writer) int {
-	root := strings.TrimPrefix(largs.Checkout, localMachine+":")
+	root := checkoutRoot(largs.Checkout)
 	if !cleanTree("release", root, env, stderr) {
 		return 1
 	}
@@ -32,7 +31,7 @@ func leaseRelease(ctx context.Context, f leaseFlags, largs lease.Args, env []str
 // --as-is skips the git steps but still refuses a dirty tree. A user
 // still queued withdraws the pause and the tree is not looked at.
 func leaseResume(ctx context.Context, f leaseFlags, largs lease.Args, env []string, stdout, stderr io.Writer) int {
-	root := strings.TrimPrefix(largs.Checkout, localMachine+":")
+	root := checkoutRoot(largs.Checkout)
 	largs.AsIs = f.asIs
 	call := leaseCaller(ctx, "resume", &largs, env, stderr)
 	begun, ok := call("lease-resume-begin")
@@ -85,7 +84,7 @@ type handOff struct {
 // aborts and the hold stays; a failed pull is reported and the hand-off
 // goes ahead.
 func handBack(h handOff, call func(op string) (*lease.Reply, bool), f leaseFlags, largs *lease.Args, env []string, stdout, stderr io.Writer) int {
-	root := strings.TrimPrefix(largs.Checkout, localMachine+":")
+	root := checkoutRoot(largs.Checkout)
 	var branch string
 	var err error
 	if h.asIs {

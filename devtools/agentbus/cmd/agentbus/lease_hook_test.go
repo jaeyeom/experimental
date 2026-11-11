@@ -211,13 +211,13 @@ func TestLeaseHookFailsOpenAtTheTimeout(t *testing.T) {
 	}
 }
 
-func TestLeaseHookFailsOpenInHubMode(t *testing.T) {
+func TestLeaseHookFailsOpenInHubModeWithoutMachine(t *testing.T) {
 	w := newLeaseWorld(t)
 	calls := countChecks(t)
 	env := append(w.as("p2"), hubEnv+"=me@hub")
 	decision, reason, stderr := w.hook(t, env, "Edit", map[string]any{"file_path": filepath.Join(w.repo, "a.txt")}, w.repo)
 	assertAllowed(t, "hub-mode edit", decision, reason)
-	if !strings.Contains(stderr, "hub mode") || calls.Load() != 0 {
+	if !strings.Contains(stderr, "hub mode needs machine") || calls.Load() != 0 {
 		t.Fatalf("stderr = %q, daemon calls %d", stderr, calls.Load())
 	}
 }

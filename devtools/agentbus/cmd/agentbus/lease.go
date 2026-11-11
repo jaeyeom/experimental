@@ -15,6 +15,8 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/leasecache"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
 // localMachine is the machine part of a checkout key on the hub.
@@ -109,9 +111,10 @@ hook     the Claude Code PreToolUse hook; reads the hook input on stdin
          <duration>". A needs-adopt checkout is denied to everyone,
          the adopter too, until adopt. Read-only git and paths outside
          every guarded checkout pass without contacting the daemon.
-         When the daemon does not answer within 3s, or in hub mode,
-         the call is allowed with a warning on stderr. "You hold it" is
-         cached for 30s per pane and checkout in
+         When the daemon (in hub mode, the hub) does not answer within
+         3s, the call is allowed with a warning on stderr that says why,
+         such as "host unreachable" or "authentication locked". "You
+         hold it" is cached for 30s per pane and checkout in
          $XDG_RUNTIME_DIR/agentbus/lease-cache, and dropped on release,
          resume, unshare and takeover; a denial is never cached. Not
          covered: sed -i, shell redirects, and editors you run
@@ -127,7 +130,15 @@ install-hook [--write]
 Every subcommand but hook and install-hook:
 --path <path>  the checkout (default: the current directory), resolved to
                its git top-level, which must be in lease_checkouts
---json         print JSON (default: false, text)`
+--json         print JSON (default: false, text)
+
+Hub mode (hub and machine set): lease_checkouts, git and the process
+check stay on this machine, and the checkout key is
+<machine>:<top-level>. Only the request and what was found (tree state,
+pull error, backup refs) go to the hub, over the tunnel socket when the
+hub answers there, else over ssh. A hub that cannot be reached fails a
+command with "host unreachable" or "authentication locked"; check and
+hook allow within 3s, with that cause on stderr.`
 
 // leaseFlags is every lease subcommand's flags.
 type leaseFlags struct {
@@ -201,6 +212,9 @@ func runLease(ctx context.Context, args, env []string, stdin io.Reader, stdout, 
 			return leaseHook(ctx, args[1:], env, stdin, stdout, stderr)
 		case "install-hook":
 			return leaseInstallHook(args[1:], env, stdout, stderr)
+		case "forward":
+			// Hidden: the hub's end of a hub-mode lease request over ssh.
+			return leaseForward(ctx, args[1:], env, stdin, stdout, stderr)
 		}
 	}
 	return cmdLease(ctx, args, env, stdout, stderr)
@@ -219,9 +233,9 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 		fmt.Fprintf(stderr, "agentbus lease: unknown subcommand %q\nrun 'agentbus lease --help' for usage\n", sub)
 		return 2
 	}
-	usage, failed := 2, 1
+	usage := 2
 	if sub == "check" {
-		usage, failed = checkUsage, checkError
+		usage = checkUsage
 	}
 	f, err := parseLeaseFlags(sub, args[1:], stderr)
 	if err != nil {
@@ -231,9 +245,43 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
 		return usage
 	}
-	largs, code, ok := leaseArgs(sub, f, env, stdout, stderr)
+	largs, cfg, code, ok := leaseArgs(sub, f, env, stdout, stderr)
 	if !ok {
 		return code
+	}
+	if cfg.Hub != "" {
+		return leaseOnHub(ctx, sub, f, largs, cfg, env, stdout, stderr)
+	}
+	return runLeaseOp(ctx, sub, f, largs, env, stdout, stderr)
+}
+
+// leaseOnHub runs one lease subcommand in hub mode: its local part was
+// done here, and its daemon requests go to the hub.
+func leaseOnHub(ctx context.Context, sub string, f leaseFlags, largs lease.Args, cfg config.Config, env []string, stdout, stderr io.Writer) int {
+	if sub == "check" {
+		return hubCheck(ctx, cfg, f, largs, env, stdout, stderr)
+	}
+	routed, err := leaseHubRoute(ctx, cfg, env, false, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
+		return 1
+	}
+	if sub == "pause" || sub == "unshare" {
+		largs.With = resolveWith(routed, cfg.Machine, largs.With, env)
+	}
+	code := runLeaseOp(routed, sub, f, largs, env, stdout, stderr)
+	if code == 0 && (sub == "release" || sub == "resume" || sub == "unshare") {
+		// The hub drops its own cache; this machine's hook cache is here.
+		dropLocalCache(env, largs.Checkout)
+	}
+	return code
+}
+
+// runLeaseOp runs one lease subcommand against the daemon ctx routes to.
+func runLeaseOp(ctx context.Context, sub string, f leaseFlags, largs lease.Args, env []string, stdout, stderr io.Writer) int {
+	failed := 1
+	if sub == "check" {
+		failed = checkError
 	}
 	switch sub {
 	case "release":
@@ -254,16 +302,54 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 	return printLease(sub, f, *resp.Lease, env, stdout, stderr)
 }
 
+// hubCheck is lease check in hub mode. Like the hook, it gives up within
+// leaseHookTimeout and allows, with the reason on stderr, when the hub
+// cannot be reached.
+func hubCheck(ctx context.Context, cfg config.Config, f leaseFlags, largs lease.Args, env []string, stdout, stderr io.Writer) int {
+	ctx, cancel := context.WithTimeout(ctx, leaseHookTimeout)
+	defer cancel()
+	allow := func(err error) int {
+		fmt.Fprintf(stderr, "agentbus lease check: %s; allowing\n", err)
+		if f.jsonOut {
+			writeJSON(stdout, checkJSON{Allowed: true, Guarded: true, Checkout: largs.Checkout, Reason: err.Error()})
+		}
+		return checkAllowed
+	}
+	routed, err := leaseHubRoute(ctx, cfg, env, true, stderr)
+	if err != nil {
+		return allow(err)
+	}
+	resp, err := dialBus(routed, env, daemon.Request{Op: "lease-check", Env: env, Lease: &largs})
+	if err != nil {
+		return allow(err)
+	}
+	if !resp.OK || resp.Lease == nil {
+		fmt.Fprintf(stderr, "agentbus lease check: %s\n", resp.Error)
+		return checkError
+	}
+	return printCheck(f.jsonOut, *resp.Lease, stdout, stderr)
+}
+
+// dropLocalCache forgets this machine's hook cache for checkout. A cache
+// that cannot be written is left to expire.
+func dropLocalCache(env []string, checkout string) {
+	if dirs, err := paths.FromEnv(env); err == nil {
+		_ = leasecache.Cache{Dir: dirs.LeaseCacheDir()}.Drop(checkout)
+	}
+}
+
 // printStatusText prints each checkout's status and, for a checkout on
 // this machine, its lease backup refs.
 func printStatusText(r lease.Reply, env []string, stdout io.Writer) {
+	cfg, _ := hubSettings(env)
+	machine, _ := leaseMachine(cfg, env)
 	for i, s := range r.Leases {
 		if i > 0 {
 			fmt.Fprintln(stdout)
 		}
 		printStatus(stdout, s)
-		root, local := strings.CutPrefix(s.Checkout, localMachine+":")
-		if !local {
+		root, local := strings.CutPrefix(s.Checkout, machine+":")
+		if machine == "" || !local {
 			continue
 		}
 		// A checkout that is gone or not a repository lists no backups.
@@ -279,8 +365,8 @@ func printStatusText(r lease.Reply, env []string, stdout io.Writer) {
 // leaseArgs does the local part of a lease command: read the config,
 // resolve the checkout, and inspect the tree for a claim. When it is not
 // ok, the command exits with the code it returns; an unguarded check
-// passes here without a daemon call.
-func leaseArgs(sub string, f leaseFlags, env []string, stdout, stderr io.Writer) (lease.Args, int, bool) {
+// passes here without a daemon or hub call.
+func leaseArgs(sub string, f leaseFlags, env []string, stdout, stderr io.Writer) (lease.Args, config.Config, int, bool) {
 	failed := 1
 	if sub == "check" {
 		failed = checkError
@@ -288,33 +374,30 @@ func leaseArgs(sub string, f leaseFlags, env []string, stdout, stderr io.Writer)
 	cfg, err := hubSettings(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
-		return lease.Args{}, failed, false
+		return lease.Args{}, cfg, failed, false
 	}
 	largs := lease.Args{For: f.bid, Urgent: f.urgent, Why: f.why, All: f.all, With: f.with}
 	if sub != "status" || !f.all {
 		key, code := leaseKey(sub, f, cfg, env, stdout, stderr)
 		if key == "" {
-			return lease.Args{}, code, false
+			return lease.Args{}, cfg, code, false
 		}
 		largs.Checkout = key
 	}
-	if cfg.Hub != "" {
-		fmt.Fprintf(stderr, "agentbus lease %s: hub mode is not supported yet\n", sub)
-		return lease.Args{}, failed, false
-	}
 	if sub == "claim" {
-		tree, err := checkout.Inspect(strings.TrimPrefix(largs.Checkout, localMachine+":"), env)
+		tree, err := checkout.Inspect(checkoutRoot(largs.Checkout), env)
 		if err != nil {
 			fmt.Fprintf(stderr, "agentbus lease claim: %s\n", err)
-			return lease.Args{}, failed, false
+			return lease.Args{}, cfg, failed, false
 		}
 		largs.Tree = tree.Reason()
 	}
-	return largs, 0, true
+	return largs, cfg, 0, true
 }
 
-// leaseKey resolves --path to its checkout key. An empty key comes with
-// the exit code: check passes an unguarded path, the rest refuse it.
+// leaseKey resolves --path to its checkout key, <machine>:<top-level>.
+// An empty key comes with the exit code: check passes an unguarded
+// path, the rest refuse it.
 func leaseKey(sub string, f leaseFlags, cfg config.Config, env []string, stdout, stderr io.Writer) (string, int) {
 	path := f.path
 	if path == "" {
@@ -334,7 +417,15 @@ func leaseKey(sub string, f leaseFlags, cfg config.Config, env []string, stdout,
 		return "", 1
 	}
 	if root != "" {
-		return localMachine + ":" + root, 0
+		machine, err := leaseMachine(cfg, env)
+		if err != nil {
+			fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
+			if sub == "check" {
+				return "", checkError
+			}
+			return "", 1
+		}
+		return machine + ":" + root, 0
 	}
 	if sub == "check" {
 		if f.jsonOut {

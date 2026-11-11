@@ -35,6 +35,9 @@ var tunnelCommands = map[string]bool{
 	"status":      true,
 	"hook":        true,
 	"prompt-hook": true,
+	// lease runs here even in hub mode and opens the tunnel itself for
+	// its daemon requests; see leaseHubRoute.
+	"lease": true,
 }
 
 // tunnel is a forwarded hub socket and the caller handle every request
@@ -114,10 +117,14 @@ func openTunnel(ctx context.Context, cfg config.Config, name string, env []strin
 }
 
 // dialBus sends one request to the daemon this command uses: the hub
-// over the tunnel, or the local daemon. It never starts a daemon.
+// over the tunnel or, for lease requests, over ssh; or the local daemon.
+// It never starts a daemon.
 func dialBus(ctx context.Context, env []string, req daemon.Request) (daemon.Response, error) {
 	if t, ok := tunnelFrom(ctx); ok {
 		return dialDaemon(ctx, t.socket, t.stamp(req))
+	}
+	if r, ok := sshRouteFrom(ctx); ok {
+		return r.call(ctx, req)
 	}
 	dirs, err := paths.FromEnv(env)
 	if err != nil {

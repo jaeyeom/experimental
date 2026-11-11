@@ -47,10 +47,10 @@ exit 0
 // leaseHook is the Claude Code PreToolUse hook. It always exits 0. When
 // the tool call would change a guarded checkout this pane does not hold,
 // it prints a deny decision with the reason and the claim hint. A path
-// outside every guarded checkout is decided from the config alone. When
-// the daemon cannot tell within leaseHookTimeout, or in hub mode, it
-// allows the call with a warning on stderr. A "you hold it" answer is
-// cached for leasecache.TTL.
+// outside every guarded checkout is decided from the config alone. In
+// hub mode the daemon is the hub's, over the tunnel or ssh. When the
+// daemon cannot tell within leaseHookTimeout, it allows the call with a
+// warning on stderr. A "you hold it" answer is cached for leasecache.TTL.
 func leaseHook(ctx context.Context, args, env []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	warn := func(format string, a ...any) {
 		fmt.Fprintf(stderr, "agentbus lease hook: "+format+"; allowing\n", a...)
@@ -72,42 +72,59 @@ func leaseHook(ctx context.Context, args, env []string, stdin io.Reader, stdout,
 		warn("%s", err)
 		return 0
 	}
-	keys := guardedKeys(targets, cfg.LeaseCheckouts, env, warn)
-	if len(keys) == 0 {
+	roots := guardedRoots(targets, cfg.LeaseCheckouts, env, warn)
+	if len(roots) == 0 {
 		return 0
 	}
+	machine, err := leaseMachine(cfg, env)
+	if err != nil {
+		warn("%s", err)
+		return 0
+	}
+	keys := make([]string, len(roots))
+	for i, root := range roots {
+		keys[i] = machine + ":" + root
+	}
+	// In hub mode the whole decision, reaching the hub included, is
+	// bounded by leaseHookTimeout.
+	route := func(ctx context.Context) (context.Context, error) { return ctx, nil }
 	if cfg.Hub != "" {
-		warn("hub mode does not check the lease yet")
-		return 0
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, leaseHookTimeout)
+		defer cancel()
+		route = func(ctx context.Context) (context.Context, error) {
+			return leaseHubRoute(ctx, cfg, env, true, io.Discard)
+		}
 	}
-	if reason, denied := hookDecide(ctx, env, keys, warn); denied {
+	if reason, denied := hookDecide(ctx, env, keys, route, warn); denied {
 		printDeny(stdout, reason)
 	}
 	return 0
 }
 
-// guardedKeys returns the checkout keys of the guarded checkouts that
+// guardedRoots returns the top-levels of the guarded checkouts that
 // targets are in, from the local config and git alone. A target it
 // cannot place is warned about and skipped.
-func guardedKeys(targets, guarded, env []string, warn func(string, ...any)) []string {
-	var keys []string
+func guardedRoots(targets, guarded, env []string, warn func(string, ...any)) []string {
+	var roots []string
 	for _, target := range targets {
 		root, err := checkout.Resolve(target, guarded, env)
 		if err != nil {
 			warn("%s", err)
 			continue
 		}
-		if key := localMachine + ":" + root; root != "" && !slices.Contains(keys, key) {
-			keys = append(keys, key)
+		if root != "" && !slices.Contains(roots, root) {
+			roots = append(roots, root)
 		}
 	}
-	return keys
+	return roots
 }
 
-// hookDecide checks each key, from the cache or the daemon, and returns
-// the reason for the first one the caller may not change. A key the
-// daemon cannot decide is warned about and allowed.
-func hookDecide(ctx context.Context, env, keys []string, warn func(string, ...any)) (string, bool) {
+// hookDecide checks each key, from the cache or the daemon that route
+// leads to, and returns the reason for the first one the caller may not
+// change. route runs once, at the first key the cache does not answer.
+// A key the daemon cannot decide is warned about and allowed.
+func hookDecide(ctx context.Context, env, keys []string, route func(context.Context) (context.Context, error), warn func(string, ...any)) (string, bool) {
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		warn("%s", err)
@@ -115,12 +132,19 @@ func hookDecide(ctx context.Context, env, keys []string, warn func(string, ...an
 	}
 	cache := leasecache.Cache{Dir: dirs.LeaseCacheDir()}
 	pane := cachePane(env)
+	var routed context.Context
 	for _, key := range keys {
 		if cache.Allowed(key, pane) {
 			continue
 		}
+		if routed == nil {
+			if routed, err = route(ctx); err != nil {
+				warn("%s", err)
+				return "", false
+			}
+		}
 		started := time.Now()
-		r, err := hookCheck(ctx, env, key)
+		r, err := hookCheck(routed, env, key)
 		if err != nil {
 			warn("%s", err)
 			continue
