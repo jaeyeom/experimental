@@ -102,7 +102,7 @@ func timeoutHelp() string {
 }
 
 func whenGreenHelp() string {
-	return "Wait for pending required checks on the current head, then enqueue (timeout defaults to 2h)"
+	return "Wait for pending or not yet reported required checks on the current head, then enqueue (timeout defaults to 2h)"
 }
 
 const (
@@ -276,7 +276,7 @@ func pollUntilGreen(client queueAPI, pr github.QueuePullRequest, cfg *config.Con
 	delay := whenGreenInitialDelay
 	for {
 		if err := sleepUntilPoll(deadline, delay); err != nil {
-			return abortQueue(pr, cfg, above, "timeout")
+			return abortTimeout(pr, cfg, above)
 		}
 		delay = nextWhenGreenDelay(delay)
 		next, err := client.LoadPullRequest(pr.Ref.Raw)
@@ -370,6 +370,21 @@ func classifyReload(client queueAPI, cfg *config.Config, pr github.QueuePullRequ
 		return waitPoll, "", above, nil
 	}
 	return waitAbort, strings.Join(problems, "; "), above, nil
+}
+
+// abortTimeout reports a timeout and names the required checks still not
+// green on the last loaded snapshot.
+func abortTimeout(pr github.QueuePullRequest, cfg *config.Config, above []int) error {
+	problems := requiredCheckProblems(pr.Checks, cfg.Settings.RequiredChecks)
+	if len(problems) == 0 {
+		return abortQueue(pr, cfg, above, "timeout")
+	}
+	detail := strings.Join(problems, "; ")
+	text := fmt.Sprintf("Not enqueueing %s: timeout (%s)\n", pr.Ref.Raw, detail)
+	if err := writeQueueResult(pr, cfg, append([]string{"timeout"}, problems...), above, "timeout", text); err != nil {
+		return err
+	}
+	return fmt.Errorf("not enqueueing %s: timeout (%s)", pr.Ref.Raw, detail)
 }
 
 func abortQueue(pr github.QueuePullRequest, cfg *config.Config, above []int, reason string) error {
@@ -738,7 +753,7 @@ func requiredCheckProblems(checks []github.QueueCheck, required []string) []stri
 	for _, name := range required {
 		check, ok := byName[name]
 		if !ok {
-			problems = append(problems, fmt.Sprintf("required check %q is missing", name))
+			problems = append(problems, missingCheckProblem(name))
 			continue
 		}
 		if check.Green {
@@ -755,6 +770,10 @@ func checksByName(checks []github.QueueCheck) map[string]github.QueueCheck {
 		byName[check.Name] = check
 	}
 	return byName
+}
+
+func missingCheckProblem(name string) string {
+	return fmt.Sprintf("required check %q is missing", name)
 }
 
 func requiredCheckProblem(name, conclusion string) string {
@@ -779,6 +798,8 @@ func checkConclusionKind(conclusion string) string {
 	}
 }
 
+// pendingOnly reports whether every problem is a required check that is
+// pending or not reported yet, so --when-green can wait for it.
 func pendingOnly(checks []github.QueueCheck, required, problems []string) bool {
 	if len(problems) == 0 || len(required) == 0 {
 		return false
@@ -788,7 +809,8 @@ func pendingOnly(checks []github.QueueCheck, required, problems []string) bool {
 	for _, name := range required {
 		check, ok := byName[name]
 		if !ok {
-			return false
+			pending[missingCheckProblem(name)] = struct{}{}
+			continue
 		}
 		switch checkConclusionKind(check.Conclusion) {
 		case "success":
