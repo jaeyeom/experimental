@@ -82,6 +82,7 @@ go_test(
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
         "//devtools/pkg/herdrtest:go_default_library",
+        "//devtools/pkg/hubcall:go_default_library",
         "//devtools/pkg/hubcall/sshtest:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
     ],

@@ -92,10 +92,13 @@ type Item struct {
 	Answer      *Answer    `json:"answer,omitempty"`
 	Unread      bool       `json:"unread"`
 	NotifyPane  string     `json:"notifyPane,omitempty"`
-	TypeText    string     `json:"typeText,omitempty"`
-	Where       string     `json:"where,omitempty"`
-	Reason      string     `json:"reason,omitempty"`
-	Outcome     string     `json:"outcome,omitempty"`
+	// NotifyMachine is the herdr machine NotifyPane is on, for an item
+	// asked in hub mode from another machine. Empty is this machine.
+	NotifyMachine string `json:"notifyMachine,omitempty"`
+	TypeText      string `json:"typeText,omitempty"`
+	Where         string `json:"where,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	Outcome       string `json:"outcome,omitempty"`
 	// ForwardedFrom is the item id a forwarded thread was started from.
 	ForwardedFrom string `json:"forwardedFrom,omitempty"`
 	// BusMessage is the agentbus message id of a note sent to a bus name.

@@ -232,6 +232,13 @@ into the command string.
   with the thread id and the author.
 - ~DECIDE_REPLY_HINT~ is one line such as
   ~Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.~
+- ~DECIDE_MACHINE~ is the herdr machine ~DECIDE_PANE~ is on, for an
+  item asked in hub mode from another machine. It is empty for a pane on
+  this machine. A template that reaches either kind of pane:
+
+  #+begin_src sh
+  herdr ${DECIDE_MACHINE:+--machine "$DECIDE_MACHINE"} agent prompt "$DECIDE_PANE" "$DECIDE_THREAD_HEADER $DECIDE_ANSWER"
+  #+end_src
 
 An empty ~notifyTemplate~ runs nothing. There is no default notify command.
 
@@ -249,8 +256,29 @@ same ~decide~ commands against it over ssh. Set the hub in
 ~DECIDE_HUB~, which wins:
 
 #+begin_src json
-{"hub": "me@hub", "hubTimeout": "5s"}
+{"hub": "me@hub", "hubTimeout": "5s", "machine": "laptop"}
 #+end_src
+
+~machine~ is this machine's herdr label on the hub, the same label
+agentbus uses; ~DECIDE_MACHINE~ wins over it. An ~ask~ from a herdr
+pane needs it: the ask sends this pane as
+~DECIDE_AS_HANDLE=herdr:<machine>/<session>/<pane>~. The hub trusts that
+handle only when ~SSH_CONNECTION~ is set and the handle names another
+machine, as agentbus does. On the hub, the item stores the caller's
+pane as ~notifyPane~ when ~--notify-pane~ is not given, and the
+caller's machine as ~notifyMachine~ either way, because a bare pane id
+names a pane on the machine the command came from. An ~agentbus:~
+notify pane gets no machine. An ask on the hub itself stores no
+machine, as before.
+
+The hub then reaches that pane through ~herdr --machine <machine>~: the
+built-in compose send (~decide send --id~ and a reply from the inbox)
+puts ~--machine <machine>~ after the send template's program, with a
+5s deadline, and fails with
+~machine <machine> unreachable: host unreachable~ or
+~... authentication locked (unlock your SSH/gpg agent)~ as agentbus
+does. The notify template reads the machine from ~DECIDE_MACHINE~; see
+[[*Notify]].
 
 Then every command except ~help~ and ~skill~ runs as
 ~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> decide <args>~, with

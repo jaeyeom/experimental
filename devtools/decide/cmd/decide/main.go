@@ -184,11 +184,8 @@ func cmdCompose(id, text string, jsonOut bool, stdout, stderr io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	pane := item.NotifyPane
-	if strings.TrimSpace(pane) == "" {
-		pane = cfg.NotifyPane
-	}
-	if err := decide.NotifyOwner(pane, item.ID, text); err != nil {
+	pane, machine := decide.NotifyTarget(&item, cfg)
+	if err := decide.NotifyOwner(pane, machine, item.ID, text); err != nil {
 		return fail(stderr, err, 1)
 	}
 	return 0
@@ -504,6 +501,9 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	item, err := buildAsk(*owner, *kind, *rec, allowFree, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
 	if err != nil {
 		return fail(stderr, err, 2)
+	}
+	if err := notifyHubCaller(&item); err != nil {
+		return fail(stderr, err, 1)
 	}
 	return withItem(stdout, stderr, *jsonOut, true, func(led *decide.Ledger) (decide.Item, error) {
 		return led.Create(&item)
@@ -928,6 +928,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 		fmt.Fprintf(w, "answeredBy: %s\n", it.Answer.AnsweredBy)
 	}
 	writeField(w, "notifyPane", it.NotifyPane)
+	writeField(w, "notifyMachine", it.NotifyMachine)
 	writeField(w, "typeText", it.TypeText)
 	writeField(w, "where", it.Where)
 	writeField(w, "reason", it.Reason)

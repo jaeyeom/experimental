@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 
 const (
@@ -18,6 +22,14 @@ const (
 
 	// SendsName is the send history file inside the state directory.
 	SendsName = "sends.jsonl"
+
+	// MachineTimeout bounds a send to a pane on another machine, as
+	// agentbus bounds each herdr call to another machine.
+	MachineTimeout = 5 * time.Second
+
+	// BusPanePrefix marks a notify pane as an agentbus name, which is
+	// not on any one machine.
+	BusPanePrefix = "agentbus:"
 )
 
 // SendRecord is one line of the send history.
@@ -51,10 +63,26 @@ func SendArgv(template, pane, text string) []string {
 	return append(parts, text)
 }
 
+// MachineArgv puts `--machine machine` after the program in argv, so a
+// herdr command reaches a pane on that machine. An empty machine keeps
+// argv as it is.
+func MachineArgv(argv []string, machine string) []string {
+	if machine == "" || len(argv) == 0 {
+		return argv
+	}
+	return append([]string{argv[0], "--machine", machine}, argv[1:]...)
+}
+
 // RunSend executes argv. The note is already its own argument.
+// An argv from MachineArgv runs under MachineTimeout, and a machine that
+// cannot be reached fails with a *remotecall.UnreachableError in the
+// error chain, as agentbus reports it.
 func RunSend(argv []string) error {
 	if len(argv) == 0 {
 		return fmt.Errorf("decide send: empty command")
+	}
+	if len(argv) >= 3 && argv[1] == "--machine" {
+		return runSendOn(argv[2], argv[0], argv[3:])
 	}
 	// The note is already its own argument. Operator config chooses the program.
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
@@ -67,11 +95,33 @@ func RunSend(argv []string) error {
 	return nil
 }
 
-// NotifyOwner runs the compose command so pane sees the thread header,
-// the original text, and the reply hint. The author is human.
-// An empty template uses DefaultSendTemplate. The text stored on the
-// thread is not changed here.
-func NotifyOwner(pane, id, text string) error {
+// runSendOn runs program with `--machine machine args...` under
+// MachineTimeout. The probe asks herdr whether the machine answers.
+func runSendOn(machine, program string, args []string) error {
+	run := func(ctx context.Context, argv []string) (string, string, int, error) {
+		res, err := remotecall.Run(ctx, program, argv...)
+		return res.Stdout, res.Stderr, res.Code, err //nolint:wrapcheck // OnHerdrMachine reports it
+	}
+	herdr := func(ctx context.Context, argv []string) (string, string, int, error) {
+		res, err := remotecall.Run(ctx, "herdr", argv...)
+		return res.Stdout, res.Stderr, res.Code, err //nolint:wrapcheck // the probe only reads success
+	}
+	probe := remotecall.HerdrProbe(herdr, machine)
+	_, stderr, code, err := remotecall.OnHerdrMachine(context.Background(), run, probe, machine, MachineTimeout, args)
+	if err != nil {
+		return fmt.Errorf("decide send: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("decide send: %s on machine %s: exit %d: %s", program, machine, code, strings.TrimSpace(stderr))
+	}
+	return nil
+}
+
+// NotifyOwner runs the compose command so pane on machine sees the
+// thread header, the original text, and the reply hint. The author is
+// human. An empty machine is this machine. An empty template uses
+// DefaultSendTemplate. The text stored on the thread is not changed here.
+func NotifyOwner(pane, machine, id, text string) error {
 	if strings.TrimSpace(pane) == "" {
 		return fmt.Errorf("decide compose pane is empty")
 	}
@@ -82,7 +132,7 @@ func NotifyOwner(pane, id, text string) error {
 	if err != nil {
 		return err
 	}
-	return RunSend(SendArgv(cfg.SendTemplate, pane, DeliveryNote(id, "human", text)))
+	return RunSend(MachineArgv(SendArgv(cfg.SendTemplate, pane, DeliveryNote(id, "human", text)), machine))
 }
 
 // AppendSend records one successful send under dir.

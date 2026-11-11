@@ -19,16 +19,19 @@ import (
 // NotifyTemplate is a shell command. It reads "$DECIDE_ID", "$DECIDE_ANSWER",
 // "$DECIDE_ANSWER_LABEL", "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND",
 // "$DECIDE_QUESTION", "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY",
-// "$DECIDE_THREAD_HEADER", and "$DECIDE_REPLY_HINT".
+// "$DECIDE_THREAD_HEADER", "$DECIDE_REPLY_HINT", and "$DECIDE_MACHINE".
 // DECIDE_THREAD_HEADER is one line such as "[decide D-123 from human]",
 // with the thread id and the author.
 // DECIDE_REPLY_HINT is one line.
 // Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.
+// DECIDE_MACHINE is the herdr machine DECIDE_PANE is on, empty for
+// this machine.
 // Those values are not written into the command string. An empty template
 // runs nothing. There is no default notify command. The example is not a default.
 // SendTemplate is the compose argv template. Empty means
 // `herdr agent prompt {pane}` plus the note as its own argument.
-// The note is not interpolated into sh -c.
+// The note is not interpolated into sh -c. A pane on another machine
+// gets `--machine <m>` after the template's program.
 // Colors overrides inbox palette entries. Each value is an ANSI index
 // such as "7" or a hex color such as "#b0b0b0". A missing key keeps
 // the default for that entry.
@@ -45,6 +48,10 @@ type Config struct {
 	Hub string `json:"hub,omitempty"`
 	// HubTimeout is the ssh connect timeout in hub mode, such as "5s".
 	HubTimeout string `json:"hubTimeout,omitempty"`
+	// Machine is this machine's herdr label as the hub knows it. Hub
+	// mode sends it with the caller's pane so the hub notifies that pane
+	// through `herdr --machine`. DECIDE_MACHINE overrides it.
+	Machine string `json:"machine,omitempty"`
 	// Avatars maps owner, target, or bus names to avatar files.
 	Avatars []AvatarRule `json:"avatars,omitempty"`
 	// AvatarDefault shows the built-in avatar for unmatched names.
@@ -119,10 +126,12 @@ func LoadConfig() (Config, error) {
 // The command reads "$DECIDE_ID", "$DECIDE_ANSWER", "$DECIDE_ANSWER_LABEL",
 // "$DECIDE_OWNER", "$DECIDE_PANE", "$DECIDE_KIND", "$DECIDE_QUESTION",
 // "$DECIDE_ANSWERED_AT", "$DECIDE_ANSWERED_BY", "$DECIDE_THREAD_HEADER",
-// and "$DECIDE_REPLY_HINT". DECIDE_THREAD_HEADER is one line such as
-// "[decide D-123 from human]", with the thread id and the author.
+// "$DECIDE_REPLY_HINT", and "$DECIDE_MACHINE". DECIDE_THREAD_HEADER is
+// one line such as "[decide D-123 from human]", with the thread id and
+// the author.
 // DECIDE_REPLY_HINT is one line.
 // Reply in this thread: decide reply D-123 "..." (add --option key:label for a follow-up question; decide done D-123 "outcome" when finished). Do not answer only in your terminal.
+// DECIDE_MACHINE is the herdr machine of DECIDE_PANE, empty for this machine.
 // None of those fields are substituted into the command string.
 func Notify(item *Item, out io.Writer) error {
 	cfg, err := LoadConfig()
@@ -132,10 +141,7 @@ func Notify(item *Item, out io.Writer) error {
 	if strings.TrimSpace(cfg.NotifyTemplate) == "" {
 		return nil
 	}
-	pane := cfg.NotifyPane
-	if strings.TrimSpace(item.NotifyPane) != "" {
-		pane = item.NotifyPane
-	}
+	pane, machine := NotifyTarget(item, cfg)
 	answer := ""
 	answeredBy := ""
 	if item.Answer != nil {
@@ -159,6 +165,7 @@ func Notify(item *Item, out io.Writer) error {
 		"DECIDE_ANSWERED_BY="+answeredBy,
 		"DECIDE_THREAD_HEADER="+threadHeader(item.ID, answeredBy),
 		"DECIDE_REPLY_HINT="+replyHint(item.ID),
+		"DECIDE_MACHINE="+machine,
 	)
 	cmd.Stdout = out
 	cmd.Stderr = out
@@ -166,6 +173,16 @@ func Notify(item *Item, out io.Writer) error {
 		return fmt.Errorf("notify: %w", err)
 	}
 	return nil
+}
+
+// NotifyTarget is the pane notifications for item go to and the herdr
+// machine it is on. The item's pane wins over the config pane, which is
+// on this machine, so the machine is empty for it.
+func NotifyTarget(item *Item, cfg Config) (pane, machine string) {
+	if strings.TrimSpace(item.NotifyPane) != "" {
+		return item.NotifyPane, item.NotifyMachine
+	}
+	return cfg.NotifyPane, ""
 }
 
 // DeliveryNote is the single pane argument for a human note.

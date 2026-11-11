@@ -20,7 +20,7 @@ const (
 	// busSendTimeout bounds `agentbus send`, which only queues the note.
 	busSendTimeout = 10 * time.Second
 	// busPanePrefix marks a thread's notify pane as a bus name.
-	busPanePrefix = "agentbus:"
+	busPanePrefix = decide.BusPanePrefix
 	// pickerMaxRows caps the recipient dropdown.
 	pickerMaxRows = 8
 	// whenLimit truncates a bus name's --when text in the dropdown.
