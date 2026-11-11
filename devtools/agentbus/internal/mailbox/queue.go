@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
@@ -30,11 +31,15 @@ type outcome struct {
 
 // Poll delivers queued mail immediately, then again on each tick.
 // A non-positive interval uses defaultPoll. An empty queue logs nothing.
+// Before returning, Poll waits for the flushes it started; they run under
+// ctx, so its end cuts off their remote calls.
 func (m *Mailbox) Poll(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = defaultPoll
 	}
-	m.flushQuiet(ctx)
+	var flushes sync.WaitGroup
+	defer flushes.Wait()
+	m.flushQuiet(ctx, &flushes)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -42,7 +47,7 @@ func (m *Mailbox) Poll(ctx context.Context, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.flushQuiet(ctx)
+			m.flushQuiet(ctx, &flushes)
 		}
 	}
 }
@@ -114,13 +119,13 @@ func (m *Mailbox) resultOf(id string) (Result, error) {
 // flushQuiet starts a flush for each machine that is not already
 // flushing, and does not wait for it. A slow or hung machine holds up only
 // its own handles: the next tick skips it and flushes the others.
-// Errors are logged.
-func (m *Mailbox) flushQuiet(ctx context.Context) {
+// Each flush is added to flushes. Errors are logged.
+func (m *Mailbox) flushQuiet(ctx context.Context, flushes *sync.WaitGroup) {
 	for machine, handles := range byMachine(m.handles()) {
 		if !m.startFlush(machine) {
 			continue
 		}
-		go func() {
+		flushes.Go(func() {
 			defer m.endFlush(machine)
 			for _, handle := range handles {
 				if ctx.Err() != nil {
@@ -135,7 +140,7 @@ func (m *Mailbox) flushQuiet(ctx context.Context) {
 					})
 				}
 			}
-		}()
+		})
 	}
 }
 
