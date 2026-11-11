@@ -153,10 +153,119 @@ func TestItemViewAvatarDefault(t *testing.T) {
 		m.AvatarDefault = true
 		m.avatarProfile = termenv.ANSI
 	})
-	want := avatar.Default(avatarCols, avatarRows, termenv.ANSI)
-	if !strings.Contains(m.View(), want[2]+" ") {
-		t.Fatalf("default avatar missing\n%s", m.View())
+	want := avatar.ForName("a/x", avatarCols, avatarRows, termenv.ANSI)
+	assertAvatarRows(t, m.View(), want)
+}
+
+// assertAvatarRows fails unless every row of av shows in view, in order,
+// each followed by the gutter.
+func assertAvatarRows(t *testing.T, view string, av []string) {
+	t.Helper()
+	lines := viewLines(view)
+	for i, row := range av {
+		if !strings.Contains(lines[2+i], row+" ") {
+			t.Fatalf("avatar row %d %q missing\n%s", i, row, view)
+		}
 	}
+}
+
+func builtinLines(t *testing.T, id string, profile termenv.Profile) []string {
+	t.Helper()
+	lines, err := avatar.Builtin(id, avatarCols, avatarRows, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lines
+}
+
+func TestItemViewAvatarBuiltinRule(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	m := avatarItemModel(t, 100, func(m *Model) {
+		withAvatars(decide.AvatarRule{Match: "a/x", Builtin: "owl"})(m)
+		m.AvatarDefault = true
+	})
+	assertAvatarRows(t, m.View(), builtinLines(t, "owl", termenv.ANSI))
+}
+
+func TestItemViewAvatarBuiltinPrecedence(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	a := writeAvatar(t, "A")
+	exactBuiltin := avatarItemModel(t, 100, withAvatars(
+		decide.AvatarRule{Match: "a/*", File: a},
+		decide.AvatarRule{Match: "a/x", Builtin: "owl"},
+	))
+	assertAvatarRows(t, exactBuiltin.View(), builtinLines(t, "owl", termenv.ANSI))
+
+	exactFile := avatarItemModel(t, 100, withAvatars(
+		decide.AvatarRule{Match: "a/*", Builtin: "owl"},
+		decide.AvatarRule{Match: "a/x", File: a},
+	))
+	if view := exactFile.View(); !strings.Contains(view, "AAAAAAAAAA") {
+		t.Fatalf("exact file rule lost to a glob built-in\n%s", view)
+	}
+
+	firstGlob := avatarItemModel(t, 100, withAvatars(
+		decide.AvatarRule{Match: "a/*", Builtin: "crab"},
+		decide.AvatarRule{Match: "*", Builtin: "owl"},
+	))
+	assertAvatarRows(t, firstGlob.View(), builtinLines(t, "crab", termenv.ANSI))
+}
+
+func TestItemViewAvatarBuiltinUnknown(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	m := avatarItemModel(t, 100, func(m *Model) {
+		withAvatars(decide.AvatarRule{Match: "a/x", Builtin: "no-such-figure"})(m)
+		m.AvatarDefault = true
+	})
+	got := m.View()
+	status := screenRow(got, "avatar for a/x:")
+	if status == 0 {
+		t.Fatalf("no avatar error in the status line\n%s", visibleLine(got))
+	}
+	if !strings.Contains(got, "no-such-figure") {
+		t.Fatalf("status does not name the id\n%s", visibleLine(got))
+	}
+	want := viewLines(avatarItemModel(t, 100, nil).View())
+	for i, line := range viewLines(got) {
+		if i != status-1 && line != want[i] {
+			t.Fatalf("row %d differs\ngot:  %q\nwant: %q", i, line, want[i])
+		}
+	}
+	m.status = ""
+	if strings.Contains(m.View(), "avatar for") {
+		t.Fatal("the avatar error showed twice")
+	}
+}
+
+func TestItemViewAvatarDefaultMonochrome(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	m := avatarItemModel(t, 100, func(m *Model) {
+		m.AvatarDefault = true
+		m.avatarProfile = termenv.TrueColor
+	})
+	plain := avatar.ForName("a/x", avatarCols, avatarRows, termenv.Ascii)
+	assertAvatarRows(t, m.View(), plain)
+	for _, row := range plain {
+		if strings.Contains(row, "\x1b") {
+			t.Fatalf("NO_COLOR avatar row has escapes: %q", row)
+		}
+	}
+
+	hidden := avatarItemModel(t, 100, func(m *Model) {
+		m.AvatarDefault = true
+		m.AvatarMono = decide.AvatarMonoHide
+	})
+	if strings.Contains(hidden.View(), plain[2]) {
+		t.Fatalf("avatarMono hide still shows the built-in under NO_COLOR\n%s", hidden.View())
+	}
+
+	t.Setenv("NO_COLOR", "")
+	ascii := avatarItemModel(t, 100, func(m *Model) {
+		m.AvatarDefault = true
+		m.AvatarMono = decide.AvatarMonoHide
+		m.avatarProfile = termenv.Ascii
+	})
+	checkGolden(t, "item_plain_100.golden", ascii.View())
 }
 
 func TestItemViewAvatarMonochrome(t *testing.T) {

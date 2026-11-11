@@ -2,7 +2,36 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "go_default_library",
-    srcs = ["avatar.go"],
+    srcs = [
+        "avatar.go",
+        "builtin.go",
+    ],
+    embedsrcs = [
+        "builtin/bee.txt",
+        "builtin/bun.txt",
+        "builtin/cactus.txt",
+        "builtin/cat.txt",
+        "builtin/crab.txt",
+        "builtin/fox.txt",
+        "builtin/frog.txt",
+        "builtin/ghost.txt",
+        "builtin/glasses.txt",
+        "builtin/headphones.txt",
+        "builtin/knight-helmet.txt",
+        "builtin/lighthouse.txt",
+        "builtin/mushroom.txt",
+        "builtin/octopus.txt",
+        "builtin/owl.txt",
+        "builtin/penguin.txt",
+        "builtin/planet.txt",
+        "builtin/robot.txt",
+        "builtin/rocket.txt",
+        "builtin/snail.txt",
+        "builtin/teapot.txt",
+        "builtin/tree.txt",
+        "builtin/whale.txt",
+        "builtin/wizard-hat.txt",
+    ],
     importpath = "github.com/jaeyeom/experimental/devtools/decide/tui/avatar",
     visibility = ["//visibility:public"],
     deps = [
@@ -15,7 +44,10 @@ go_library(
 go_test(
     name = "go_default_test",
     size = "small",
-    srcs = ["avatar_test.go"],
+    srcs = [
+        "avatar_test.go",
+        "builtin_test.go",
+    ],
     data = glob(["testdata/**"]),
     embed = [":go_default_library"],
     deps = [

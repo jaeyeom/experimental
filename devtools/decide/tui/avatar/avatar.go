@@ -35,15 +35,6 @@ const sgrReset = "\x1b[0m"
 // cellAspect is a terminal cell's height divided by its width.
 const cellAspect = 2
 
-// defaultText is the built-in avatar: a round face with two dot eyes and a
-// small smile.
-const defaultText = "\x1b[33m  .----.  \x1b[0m\n" +
-	"\x1b[33m /      \\ \x1b[0m\n" +
-	"\x1b[33m|  \x1b[34mo  o\x1b[33m  |\x1b[0m\n" +
-	"\x1b[33m|  \x1b[31m\\__/\x1b[33m  |\x1b[0m\n" +
-	"\x1b[33m \\      / \x1b[0m\n" +
-	"\x1b[33m  '----'  \x1b[0m\n"
-
 // FS is the file access a Renderer needs.
 type FS interface {
 	Stat(name string) (fs.FileInfo, error)
@@ -160,11 +151,6 @@ func (r *Renderer) render(path string, cols, rows int, profile termenv.Profile) 
 		return nil, fmt.Errorf("decode avatar %s: %w", path, err)
 	}
 	return renderImage(img, cols, rows, profile), nil
-}
-
-// Default returns the built-in avatar fit to cols x rows.
-func Default(cols, rows int, profile termenv.Profile) []string {
-	return renderText(defaultText, cols, rows, effectiveProfile(profile))
 }
 
 func effectiveProfile(p termenv.Profile) termenv.Profile {

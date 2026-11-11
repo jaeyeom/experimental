@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"strings"
@@ -44,30 +45,36 @@ func (m *Model) hasAvatar(name string) bool {
 	return m.AvatarDefault
 }
 
-// avatarLines is name's rendered avatar, or nil when it has none. A file
-// that fails to render is hidden for the session, and the status line
-// shows the error once.
+// avatarLines is name's rendered avatar, or nil when it has none. With no
+// matching rule, avatarDefault picks a built-in by name. A file or
+// built-in id that fails to render is hidden for the session, and the
+// status line shows the error once.
 func (m *Model) avatarLines(name string) []string {
 	if !m.hasAvatar(name) {
 		return nil
 	}
 	rule, ok := decide.MatchAvatar(m.Avatars, name)
 	if !ok {
-		return avatar.Default(avatarCols, avatarRows, m.avatarProfile)
+		return avatar.ForName(name, avatarCols, avatarRows, m.avatarProfile)
 	}
-	if m.avatarFailed[rule.File] {
-		return nil
-	}
+	key := rule.File
 	render := avatar.Render
 	if m.avatarRender != nil {
 		render = m.avatarRender.Render
 	}
-	lines, err := render(rule.File, avatarCols, avatarRows, m.avatarProfile)
+	if rule.Builtin != "" {
+		key = "builtin:" + rule.Builtin
+		render = avatar.Builtin
+	}
+	if m.avatarFailed[key] {
+		return nil
+	}
+	lines, err := render(cmp.Or(rule.Builtin, rule.File), avatarCols, avatarRows, m.avatarProfile)
 	if err != nil {
 		if m.avatarFailed == nil {
 			m.avatarFailed = map[string]bool{}
 		}
-		m.avatarFailed[rule.File] = true
+		m.avatarFailed[key] = true
 		m.status = fmt.Sprintf("avatar for %s: %v", name, err)
 		return nil
 	}

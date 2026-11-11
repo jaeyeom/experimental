@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "avatars.go",
         "hub.go",
         "main.go",
         "skill.go",
@@ -13,8 +14,10 @@ go_library(
     deps = [
         "//devtools/decide:go_default_library",
         "//devtools/decide/tui:go_default_library",
+        "//devtools/decide/tui/avatar:go_default_library",
         "//devtools/pkg/hubcall:go_default_library",
         "//devtools/pkg/remotecall:go_default_library",
+        "@com_github_muesli_termenv//:go_default_library",
         "@org_golang_x_sys//unix:go_default_library",
     ],
 )
@@ -29,6 +32,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "avatars_test.go",
         "hub_test.go",
         "machine_test.go",
         "main_test.go",
@@ -43,7 +47,9 @@ go_test(
     tags = ["no-sandbox"],
     deps = [
         "//devtools/decide:go_default_library",
+        "//devtools/decide/tui/avatar:go_default_library",
         "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/pkg/hubcall/sshtest:go_default_library",
+        "@com_github_muesli_termenv//:go_default_library",
     ],
 )

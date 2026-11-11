@@ -54,7 +54,7 @@ type Config struct {
 	Machine string `json:"machine,omitempty"`
 	// Avatars maps owner, target, or bus names to avatar files.
 	Avatars []AvatarRule `json:"avatars,omitempty"`
-	// AvatarDefault shows the built-in avatar for unmatched names.
+	// AvatarDefault shows a built-in avatar, picked by name, for unmatched names.
 	AvatarDefault bool `json:"avatarDefault,omitempty"`
 	// AvatarMono is AvatarMonoHide to hide avatars without color, under
 	// NO_COLOR or a monochrome terminal. Otherwise they show uncolored.
@@ -116,6 +116,9 @@ func LoadConfig() (Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse decide config: %w", err)
+	}
+	if err := checkAvatarRules(cfg.Avatars); err != nil {
+		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, filepath.Dir(path))
 	return cfg, nil

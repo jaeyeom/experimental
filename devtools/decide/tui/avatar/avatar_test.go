@@ -317,24 +317,3 @@ func TestErrors(t *testing.T) {
 		t.Error("unsupported image: want error")
 	}
 }
-
-func TestDefaultGolden(t *testing.T) {
-	want := []string{
-		"  .----.  ",
-		" /      \\ ",
-		"|  o  o  |",
-		"|  \\__/  |",
-		" \\      / ",
-		"  '----'  ",
-	}
-	got := Default(10, 6, termenv.Ascii)
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("Default ascii =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-	t.Setenv("NO_COLOR", "")
-	colored := Default(10, 6, termenv.TrueColor)
-	checkShape(t, colored, 10, 6)
-	if !strings.Contains(strings.Join(colored, ""), "\x1b[") {
-		t.Error("colored default has no escapes")
-	}
-}

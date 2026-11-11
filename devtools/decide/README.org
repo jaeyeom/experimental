@@ -164,7 +164,8 @@ list, for the selected recipient. Map names to files in
 {
   "avatars": [
     {"match": "coord/primary", "file": "~/avatars/coord.png"},
-    {"match": "pm-*", "file": "avatars/pm.txt"}
+    {"match": "pm-*", "file": "avatars/pm.txt"},
+    {"match": "review/*", "builtin": "owl"}
   ],
   "avatarDefault": true,
   "avatarMono": "hide"
@@ -175,32 +176,49 @@ list, for the selected recipient. Map names to files in
   exact ~match~ wins, then the first ~path.Match~ glob. ~file~ may start
   with =~/= for the home directory and is otherwise relative to the config file. A PNG or WEBP
   image is drawn as colored characters; any other file is text, and its
-  ANSI colors are kept.
-- ~avatarDefault~ (off by default) shows a built-in round face for names
-  no rule matches.
+  ANSI colors are kept. A rule may name a built-in figure with
+  ~builtin~ instead of a ~file~; a rule with both is a config error.
+- ~avatarDefault~ (off by default) gives each name no rule matches a
+  built-in figure, picked by the FNV-1a hash of the name mod the number
+  of built-ins (over the sorted ids). The same name always gets the same
+  figure, on every run and machine, with no other config.
 - ~avatarMono~ is ~"hide"~ to hide avatars under ~NO_COLOR~ or on a
   monochrome terminal. Otherwise they show without color.
 
-An open item from ~coord/primary~ then looks like this:
+decide ships 24 original built-in figures, each 10x6 in truecolor
+half-block and box characters with no background fills, so they read on
+light and dark themes: ~bee~, ~bun~, ~cactus~, ~cat~, ~crab~, ~fox~,
+~frog~, ~ghost~, ~glasses~, ~headphones~, ~knight-helmet~,
+~lighthouse~, ~mushroom~, ~octopus~, ~owl~, ~penguin~, ~planet~,
+~robot~, ~rocket~, ~snail~, ~teapot~, ~tree~, ~whale~, and
+~wizard-hat~. Preview them, several per row as the terminal allows,
+and see which one a name gets:
+
+#+begin_src sh
+decide avatars list
+decide avatars list --name coord/primary
+#+end_src
+
+An open item from ~review/docs~ then looks like this (without color):
 
 #+begin_example
 ┌────────────────────────────────────────────────────────┐
-│  .----.   D-007                                        │
-│ /      \      From: coord/primary                      │
-│|  o  o  |     Kind: relay                              │
-│|  \__/  |    State: open                               │
-│ \      /   Created: 2026-11-10T09:00:00Z               │
-│  '----'   Answered:                                    │
+│▗▖      ▗▖ D-007                                        │
+│▐█▀▀▀▀▀▀█▌     From: review/docs                        │
+│▐ (o)(o) ▌     Kind: relay                              │
+│▐   \/   ▌    State: open                               │
+│▐ ▀▄▀▄▀▄ ▌  Created: 2026-11-10T09:00:00Z               │
+│ ▀▘ ▀▀ ▝▀  Answered:                                    │
 │                                                        │
-│coord/primary  5m  latest                               │
+│review/docs  5m  latest                                 │
 │  merge the release branch?                             │
 #+end_example
 
 The avatar is hidden, and the layout is the same as without one, when
 no rule matches and ~avatarDefault~ is off, when the terminal is under
 60 columns, or when fewer than 30 columns would be left beside it. A
-file that cannot be read or decoded is hidden too, and the status line
-shows the error once. Rendered avatars are cached, so moving the
+file that cannot be read or decoded, or an unknown ~builtin~ id, is
+hidden too, and the status line shows the error once. Rendered avatars are cached, so moving the
 selection or reloading does not decode the file again.
 
 * Emacs

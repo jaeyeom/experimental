@@ -18,10 +18,11 @@ import (
 
 // localCommands run on this machine even in hub mode.
 var localCommands = map[string]bool{
-	"help":   true,
-	"-h":     true,
-	"--help": true,
-	"skill":  true,
+	"help":    true,
+	"-h":      true,
+	"--help":  true,
+	"skill":   true,
+	"avatars": true,
 }
 
 // asHandleEnv carries the hub-mode caller's herdr handle to the hub, as

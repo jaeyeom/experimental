@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -10,12 +11,15 @@ import (
 // AvatarMonoHide is the avatarMono value that hides avatars without color.
 const AvatarMonoHide = "hide"
 
-// AvatarRule maps a TUI name to an avatar file. Match is an exact name or a
-// path.Match glob. LoadConfig makes File absolute: a leading "~" is the
-// home directory and a relative path is relative to the config file.
+// AvatarRule maps a TUI name to an avatar file or a built-in figure.
+// Match is an exact name or a path.Match glob. LoadConfig makes File
+// absolute: a leading "~" is the home directory and a relative path is
+// relative to the config file. Builtin is a built-in figure id; a rule
+// may not set both File and Builtin.
 type AvatarRule struct {
-	Match string `json:"match"`
-	File  string `json:"file"`
+	Match   string `json:"match"`
+	File    string `json:"file,omitempty"`
+	Builtin string `json:"builtin,omitempty"`
 }
 
 // MatchAvatar returns the rule for name. An exact match wins over a glob.
@@ -32,6 +36,15 @@ func MatchAvatar(rules []AvatarRule, name string) (AvatarRule, bool) {
 		}
 	}
 	return AvatarRule{}, false
+}
+
+func checkAvatarRules(rules []AvatarRule) error {
+	for i, r := range rules {
+		if r.File != "" && r.Builtin != "" {
+			return fmt.Errorf("decide config: avatars[%d] (%q) sets both file and builtin", i, r.Match)
+		}
+	}
+	return nil
 }
 
 func resolveAvatarFiles(rules []AvatarRule, configDir string) {
