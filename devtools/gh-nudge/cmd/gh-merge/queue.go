@@ -693,11 +693,11 @@ func printRemovalEvidence(client removalAPI, cfg *config.Config, pr github.Queue
 	if err != nil {
 		return fmt.Errorf("failure evidence for %s: %w", pr.Ref.Raw, err)
 	}
-	logText, err := printFailureEvidence(cfg, evidence)
+	report, err := printFailureEvidence(cfg, evidence)
 	if err != nil {
 		return err
 	}
-	hints, err := flakeHints(cfg.Settings.FlakeSignatures, logText)
+	hints, err := flakeHints(cfg.Settings.FlakeSignatures, report.Text)
 	if err != nil {
 		return err
 	}
