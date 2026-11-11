@@ -62,7 +62,9 @@ func TestLeasePauseWhileAnAgentHoldsAsksItToRelease(t *testing.T) {
 		t.Fatalf("queue = %+v", st.Queue)
 	}
 	stop()
-	if len(w.ad.Texts) != 1 || !strings.Contains(w.ad.Texts[0], lease.PauseAskText("local:"+w.repo)) {
+	// Alice was told bob queued, then asked by the user's pause, which
+	// sends no waiting notice of its own.
+	if len(w.ad.Texts) != 2 || !strings.Contains(w.ad.Texts[0], "1 waiting for") || !strings.Contains(w.ad.Texts[1], lease.PauseAskText("local:"+w.repo)) {
 		t.Fatalf("deliveries = %q", w.ad.Texts)
 	}
 }

@@ -130,7 +130,8 @@ func TestReleaseGrantAndSkipAreLogged(t *testing.T) {
 	}
 	var got []string
 	var release eventlog.Event
-	for _, line := range lines[4:] {
+	// The two claims, the grant, and the two waiting notices come first.
+	for _, line := range lines[6:] {
 		ev, err := eventlog.Parse(line)
 		if err != nil {
 			t.Fatal(err)

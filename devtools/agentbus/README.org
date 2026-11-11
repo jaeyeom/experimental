@@ -352,6 +352,22 @@ is granted in state ~needs-adopt~; ~check~ refuses it until it is
 adopted. ~check~ on an unguarded path reads only the local config and
 never contacts the daemon.
 
+When a claim joins the queue of a ~held~ lease, the daemon tells the
+holder once, from ~agentbus~, with the queue length after the claim and
+the waiter's name (or handle), ~--why~, and ~--for~:
+
+#+BEGIN_SRC text
+[lease] 1 waiting for local:/home/u/src/repo: ops/bob (issue 624, for 30m). Release when you can: agentbus lease release
+#+END_SRC
+
+Without ~--why~ the parentheses hold only ~for 30m~. Claiming again
+while queued tells nobody, and a holder granted later is not told about
+waiters already queued. The user's hold is never told, a holder past
+its bid gets the check-in instead (see [[*Soft deadline and check-in]]),
+and the user's own queued ~pause~ sends only its ask. Each notice is a
+~lease_notify_waiting~ event naming the holder, the waiter, and the
+queue length.
+
 ~status --json~ prints this shape, which other tools read and which
 stays stable. ~--all~ prints an array of them. ~state~ is ~free~,
 ~held~, ~paused~, ~releasing~, or ~needs-adopt~. ~holder~ is absent

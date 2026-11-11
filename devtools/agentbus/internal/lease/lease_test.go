@@ -276,6 +276,7 @@ func TestEventsAreLogged(t *testing.T) {
 		eventlog.EventLeaseClaim + " " + alice,
 		eventlog.EventLeaseGrant + " " + alice,
 		eventlog.EventLeaseClaim + " " + bob,
+		eventlog.EventLeaseNotifyWaiting + " " + alice,
 		eventlog.EventLeaseExtend + " " + alice,
 		eventlog.EventLeaseLeave + " " + bob,
 	}

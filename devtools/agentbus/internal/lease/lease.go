@@ -118,6 +118,15 @@ type Reply struct {
 	Takeover TakeoverMode `json:"takeover,omitempty"`
 	// Asked is the holder a pause asked to finish up and release.
 	Asked string `json:"asked,omitempty"`
+	// Waiting is the notice a claim that newly queued sends the holder.
+	// The daemon sends it; it is not part of the reply on the wire.
+	Waiting *Notice `json:"-"`
+}
+
+// Notice is an agentbus message for To.
+type Notice struct {
+	To   string
+	Text string
 }
 
 // Status is the stable `lease status --json` shape other tools read.
@@ -269,6 +278,8 @@ func (t *Table) Claim(caller string, a Args) (Reply, error) {
 			rec.Holder.answered()
 			return Reply{Result: ResultGranted}, []eventlog.Event{claim}, nil
 		}
+		r := Reply{Result: ResultQueued}
+		events := []eventlog.Event{claim}
 		if i := rec.find(caller); i >= 0 {
 			rec.Queue[i].For = d
 			rec.Queue[i].Why = a.Why
@@ -276,11 +287,14 @@ func (t *Table) Claim(caller string, a Args) (Reply, error) {
 		} else {
 			t.doc.Seq++
 			rec.Queue = append(rec.Queue, waiter{Handle: caller, Urgent: a.Urgent, For: d, Why: a.Why, Since: now, Seq: t.doc.Seq})
+			if r.Waiting = t.waitingNotice(rec, a.Checkout, caller, d, a.Why, now); r.Waiting != nil {
+				events = append(events, eventlog.Event{Event: eventlog.EventLeaseNotifyWaiting, Actor: rec.Holder.Handle, Detail: fmt.Sprintf("waiter %s; %d waiting", caller, len(rec.Queue))})
+			}
 		}
 		rec.sortQueue()
-		pos := rec.find(caller) + 1
-		claim.Detail += fmt.Sprintf("; queued, position %d", pos)
-		return Reply{Result: ResultQueued, Position: pos}, []eventlog.Event{claim}, nil
+		r.Position = rec.find(caller) + 1
+		events[0].Detail += fmt.Sprintf("; queued, position %d", r.Position)
+		return r, events, nil
 	})
 }
 
@@ -437,6 +451,24 @@ func grantNext(rec *record, now time.Time, gone func(handle string) bool, r *Rep
 		rec.Queue = nil
 	}
 	return events
+}
+
+// waitingNotice is the message that tells rec's holder caller newly
+// queued behind it, or nil. Only an agent holding a held lease with time
+// left is told: the user is not, and a holder past its deadline gets the
+// check-in instead. The user's own queued claim asks the holder already.
+func (t *Table) waitingNotice(rec *record, checkout, caller string, d time.Duration, why string, now time.Time) *Notice {
+	h := rec.Holder
+	if caller == UserHolder || h.Handle == UserHolder || rec.State != StateHeld || !now.Before(h.Deadline) {
+		return nil
+	}
+	who := cmp.Or(t.names(caller), caller)
+	paren := "for " + Short(d)
+	if why != "" {
+		paren = why + ", " + paren
+	}
+	text := fmt.Sprintf("[lease] %d waiting for %s: %s (%s). Release when you can: agentbus lease release", len(rec.Queue), checkout, who, paren)
+	return &Notice{To: h.Handle, Text: text}
 }
 
 // holder is w granted at now. The user gets no deadline.

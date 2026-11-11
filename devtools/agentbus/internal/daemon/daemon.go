@@ -529,6 +529,7 @@ func (s *server) leaseOp(req Request, args lease.Args) Response {
 	switch req.Op {
 	case "lease-claim":
 		r, err = s.leases.Claim(caller, args)
+		s.tellWaiting(r)
 	case "lease-extend":
 		r, err = s.leases.Extend(caller, args)
 	case "lease-leave":
@@ -581,6 +582,16 @@ func (s *server) remoteCaller(env []string) (string, bool) {
 	}
 	caller := envValue(env, "AGENTBUS_AS_HANDLE")
 	return caller, caller != ""
+}
+
+// tellWaiting sends the holder the notice of a claim that newly queued
+// behind it, if the table made one. It runs after the table is
+// unlocked, so a slow delivery cannot block claims.
+func (s *server) tellWaiting(r lease.Reply) {
+	if r.Waiting != nil {
+		// A notice that cannot be queued is logged by the mailbox.
+		_, _ = s.box.Post(s.ctx, "agentbus", r.Waiting.To, r.Waiting.Text)
+	}
 }
 
 // releaseLease ends caller's hold, grants the next waiter whose pane is

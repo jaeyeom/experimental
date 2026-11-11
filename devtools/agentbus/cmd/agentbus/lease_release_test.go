@@ -85,10 +85,11 @@ func TestLeaseReleaseSwitchesPullsAndWakesTheNextWaiter(t *testing.T) {
 	if code, _, _ := w.lease(t, "p2", "check"); code != 0 {
 		t.Fatalf("new holder check = %d", code)
 	}
-	if len(w.ad.Texts) != 1 {
+	// Alice was told bob queued, then bob was woken.
+	if len(w.ad.Texts) != 2 || !strings.Contains(w.ad.Texts[0], "[lease] 1 waiting for local:"+w.repo+": "+leaseBob+" (issue 624, for 20m).") {
 		t.Fatalf("deliveries = %q", w.ad.Texts)
 	}
-	wake := w.ad.Texts[0]
+	wake := w.ad.Texts[1]
 	if !strings.Contains(wake, "[lease] granted local:"+w.repo+" until ") || !strings.Contains(wake, "(for: issue 624). Release with: agentbus lease release") {
 		t.Fatalf("wake message = %q", wake)
 	}
@@ -116,7 +117,8 @@ func TestLeaseReleaseRefusesADirtyTree(t *testing.T) {
 	if status := w.mustLease(t, "p1", "status"); !strings.Contains(status, "held") || !strings.Contains(status, "holder: "+leaseAlice) {
 		t.Fatalf("status after refused release:\n%s", status)
 	}
-	if len(w.ad.Texts) != 0 {
+	// Only the notice that bob queued.
+	if len(w.ad.Texts) != 1 || !strings.Contains(w.ad.Texts[0], "1 waiting for") {
 		t.Fatalf("deliveries = %q", w.ad.Texts)
 	}
 }
