@@ -100,18 +100,34 @@ Snoozed, ~b~ also offers ~unsnooze~.
 
 * Sending from a composer
 
-~Alt+Enter~ or ~C-s~ sends from every composer: the note, reply, answer,
-and outcome boxes. In the note box it does the same as ~Tab~ to ~[Send]~
-then ~Enter~. ~Enter~ and ~C-j~ keep their meaning: ~C-j~ inserts a
-newline, ~Enter~ inserts one in the note box and sends in the others.
-The inbox runs the terminal in raw mode, which turns off XON/XOFF flow
-control, so ~C-s~ reaches it.
+~Ctrl+Enter~, ~Alt+Enter~, or ~C-s~ sends from every composer: the note,
+reply, answer, and outcome boxes. In the note box it does the same as
+~Tab~ to ~[Send]~ then ~Enter~. ~Enter~ and ~C-j~ keep their meaning:
+~C-j~ inserts a newline, ~Enter~ inserts one in the note box and sends
+in the others. The inbox runs the terminal in raw mode, which turns off
+XON/XOFF flow control, so ~C-s~ reaches it.
 
-~Ctrl+Enter~ is not bound. The inbox does not turn on xterm
-modifyOtherKeys or the kitty keyboard protocol, so most terminals send
-it as plain ~Enter~. Either mode would also change how ~Shift~ and ~Ctrl~
+~Ctrl+Enter~ works where the terminal sends it as its own sequence with
+no keyboard mode switched on: exactly =ESC [27;5;13~= (xterm
+modifyOtherKeys) or =ESC [13;5u= (kitty). The inbox rewrites those two
+sequences to ~Alt+Enter~ before bubbletea parses the input, and every
+other sequence passes through unchanged. When a read stops partway into
+one, the inbox waits up to 25ms for the rest, so a lone ~Esc~ is at most
+that late. The inbox does not turn on modifyOtherKeys or the kitty
+keyboard protocol: either mode would also change how ~Shift~ and ~Ctrl~
 letters, or ~Esc~, arrive, and bubbletea v1 does not parse those
-sequences. That waits for a bubbletea v2 change.
+sequences. A terminal that sends ~Ctrl+Enter~ as plain ~Enter~ or ~C-j~
+gets that key's meaning.
+
+What one terminal sends (herdr, ~TERM=xterm-256color~, no mode switched
+on):
+
+| Key        | Arrives as                                      |
+|------------+-------------------------------------------------|
+| Ctrl+Enter | ="\x1b[27;5;13~"= (xterm modifyOtherKeys form)  |
+| Alt+Enter  | ~alt+enter~                                     |
+| C-j        | ~ctrl+j~                                        |
+| Enter      | ~enter~                                         |
 
 To see what a terminal sends, run the inbox with ~DECIDE_KEYDEBUG~ set
 to a log file path, or to ~1~ for ~decide-keys.log~ in the temp
@@ -123,9 +139,11 @@ tail -f /tmp/decide-keys.log  # in another pane
 #+end_src
 
 Each key is one line with its bubbletea type, ~alt~, runes, and name,
-such as ~key type=13 (enter) alt=true runes="" str="alt+enter"~. Input
-bubbletea does not parse is logged with its bytes, such as
-~unknown tea.unknownCSISequenceMsg bytes="\x1b[13;5u"~.
+such as ~key type=13 (enter) alt=true runes="" str="alt+enter"~. A
+rewritten ~Ctrl+Enter~ adds a line before its ~alt+enter~ key, such as
+~ctrl+enter bytes="\x1b[13;5u" as alt+enter~. Other input bubbletea does
+not parse is logged with its bytes, such as
+~unknown tea.unknownCSISequenceMsg bytes="\x1b[13;2u"~.
 
 * Avatars
 

@@ -76,7 +76,7 @@ func (m *Model) composeKey(r rune) (bool, error) {
 
 // isSendKey reports Alt+Enter or C-s. Either one sends from any focused
 // composer. Bubbletea's raw mode turns off XON/XOFF, so C-s reaches it.
-// Ctrl+Enter is not here: bubbletea v1 cannot tell it from Enter.
+// Ctrl+Enter arrives as Alt+Enter: programInput rewrites its sequences.
 func isSendKey(k tea.KeyMsg) bool {
 	return (k.Type == tea.KeyEnter && k.Alt) || k.Type == tea.KeyCtrlS
 }

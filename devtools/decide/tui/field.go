@@ -31,11 +31,12 @@ func composerKeys() textarea.KeyMap {
 }
 
 // composerHint is the footer while a composer is focused. Enter inserts a
-// newline in the note composer, so it sends with Alt+Enter or from [Send].
+// newline in the note composer, so it sends with Ctrl+Enter, Alt+Enter, or
+// from [Send].
 func composerHint(kind composerKind) string {
 	send := "Enter send"
 	if kind == composerNote {
-		send = "Alt+Enter send  Tab [Send]"
+		send = "Ctrl+Enter / Alt+Enter send  Tab [Send]"
 	}
 	return "C-a/C-e line  C-k kill  C-j newline  C-o open  C-x C-e/C-g editor  " + send + "  Esc cancel"
 }
@@ -45,7 +46,7 @@ var composerHelp = []string{
 	"C-f/C-b/C-n/C-p or arrows move  C-a/C-e line",
 	"C-d delete  C-k kill  C-j newline  C-o open",
 	"C-x C-e or C-g edits the draft",
-	"Alt+Enter or C-s sends the draft",
+	"Ctrl+Enter, Alt+Enter or C-s sends the draft",
 }
 
 // newComposerField is the multi-line field behind every compose box.

@@ -61,15 +61,11 @@ func Run(opts Options) error {
 		m.height = rows
 	}
 
-	p := tea.NewProgram(m,
-		tea.WithInput(opts.In),
-		tea.WithOutput(opts.Out),
-		tea.WithAltScreen(),
-		tea.WithoutSignalHandler(),
-		tea.WithMouseCellMotion(),
-	)
-
-	final, err := p.Run()
+	var inputLog io.Writer
+	if keyLog != nil {
+		inputLog = keyLog
+	}
+	final, err := newProgram(m, opts.In, opts.Out, inputLog).Run()
 	if err != nil {
 		return fmt.Errorf("decide inbox: %w", err)
 	}
@@ -78,6 +74,18 @@ func Run(opts Options) error {
 		return done.runErr
 	}
 	return nil
+}
+
+// newProgram runs m on in and out. Input goes through programInput, so
+// Ctrl+Enter arrives as Alt+Enter. log gets the rewrites for key debug.
+func newProgram(m *Model, in io.Reader, out io.Writer, log io.Writer) *tea.Program {
+	return tea.NewProgram(m,
+		tea.WithInput(programInput(in, log)),
+		tea.WithOutput(out),
+		tea.WithAltScreen(),
+		tea.WithoutSignalHandler(),
+		tea.WithMouseCellMotion(),
+	)
 }
 
 func prepare(opts Options) (*Model, error) {
