@@ -12,6 +12,7 @@ import (
 type fakeLease struct {
 	guarded string
 	status  string
+	all     string
 	err     error
 	calls   [][]string
 }
@@ -23,6 +24,9 @@ func (f *fakeLease) run(_ context.Context, args []string) ([]byte, error) {
 	}
 	if slices.Contains(args, "--guarded") {
 		return []byte(f.guarded), nil
+	}
+	if slices.Contains(args, "--all") {
+		return []byte(f.all), nil
 	}
 	return []byte(f.status), nil
 }
@@ -126,5 +130,111 @@ func TestResourceViewUnreachableDaemonMarksGuess(t *testing.T) {
 	rows := ResourceView(context.Background(), stored, leaseCheckouts, bus.run, time.Now())
 	if len(rows) != 1 || !rows[0].Guess || ResourceLine(rows[0]) != "checkout: free (guess)" {
 		t.Fatalf("rows = %+v", rows)
+	}
+}
+
+// allLeases is `agentbus lease status --all --json` on the hub: mac
+// holds /repo, and the hub's own /repo is free.
+const allLeases = `[
+  {"checkout":"local:/repo","state":"free","queue":[],"takeover":"log"},
+  {"checkout":"mac:/repo","state":"held","holder":{"handle":"%7","name":"pm/foo","since":"","deadline":"","why":""},"queue":[{"handle":"%8","name":"","urgent":false,"for":"","since":""}],"takeover":"log"}
+]`
+
+func TestResourceViewMachineReadsAllLeases(t *testing.T) {
+	bus := &fakeLease{all: allLeases}
+	stored := []ResourceStatus{{Name: "checkout", Availability: ResourceFree, Note: "stale guess"}}
+	checkouts := []ConfigCheckout{{Name: "checkout", Machine: "mac", Path: "/repo"}}
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	rows := ResourceView(context.Background(), stored, checkouts, bus.run, now)
+	if len(rows) != 1 || rows[0].Source != SourceLease || rows[0].Guess {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if got := ResourceLine(rows[0]); got != "checkout: held by pm/foo, 1 queued" {
+		t.Fatalf("line = %q", got)
+	}
+	want := [][]string{{"lease", "status", "--all", "--json"}}
+	if !slices.EqualFunc(bus.calls, want, slices.Equal[[]string]) {
+		t.Fatalf("calls = %q", bus.calls)
+	}
+}
+
+func TestResourceViewMachineReadsAllLeasesOnce(t *testing.T) {
+	bus := &fakeLease{all: allLeases}
+	checkouts := []ConfigCheckout{
+		{Name: "mac", Machine: "mac", Path: "/repo"},
+		{Name: "hub", Machine: "local", Path: "/repo"},
+	}
+	rows := ResourceView(context.Background(), nil, checkouts, bus.run, time.Now())
+	if len(rows) != 2 || ResourceLine(rows[0]) != "hub: free" || ResourceLine(rows[1]) != "mac: held by pm/foo, 1 queued" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if len(bus.calls) != 1 {
+		t.Fatalf("calls = %q", bus.calls)
+	}
+}
+
+func TestResourceViewMachineNoLeaseShowsStoredGuess(t *testing.T) {
+	tests := []struct {
+		name    string
+		machine string
+		path    string
+	}{
+		{"other machine holds the path", "linux", "/repo"},
+		{"no lease for the key", "mac", "/other"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bus := &fakeLease{all: allLeases}
+			stored := []ResourceStatus{{Name: "checkout", Availability: ResourceBusy, Note: "mine"}}
+			checkouts := []ConfigCheckout{{Name: "checkout", Machine: tt.machine, Path: tt.path}}
+			rows := ResourceView(context.Background(), stored, checkouts, bus.run, time.Now())
+			if len(rows) != 1 || rows[0].Source != SourceStored || !rows[0].Guess {
+				t.Fatalf("rows = %+v", rows)
+			}
+			if got := ResourceLine(rows[0]); got != "checkout: busy (mine) (guess)" {
+				t.Fatalf("line = %q", got)
+			}
+		})
+	}
+}
+
+func TestResourceViewMachineNoLeaseNoStoredRow(t *testing.T) {
+	bus := &fakeLease{all: allLeases}
+	checkouts := []ConfigCheckout{{Name: "checkout", Machine: "linux", Path: "/repo"}}
+	if rows := ResourceView(context.Background(), nil, checkouts, bus.run, time.Now()); len(rows) != 0 {
+		t.Fatalf("rows = %+v", rows)
+	}
+}
+
+func TestResourceViewMachineAgentbusUnreachableMarksGuess(t *testing.T) {
+	bus := &fakeLease{err: errors.New("agentbus: daemon not running")}
+	stored := []ResourceStatus{{Name: "checkout", Availability: ResourceFree}}
+	checkouts := []ConfigCheckout{{Name: "checkout", Machine: "mac", Path: "/repo"}}
+	rows := ResourceView(context.Background(), stored, checkouts, bus.run, time.Now())
+	if len(rows) != 1 || !rows[0].Guess || ResourceLine(rows[0]) != "checkout: free (guess)" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if len(bus.calls) != 1 {
+		t.Fatalf("calls = %q", bus.calls)
+	}
+}
+
+func TestResourceViewMixedMachineAndLocal(t *testing.T) {
+	bus := &fakeLease{guarded: guardedRepo, status: `{"checkout":"local:/repo","state":"free","queue":[]}`, all: allLeases}
+	checkouts := []ConfigCheckout{
+		{Name: "here", Path: "/repo"},
+		{Name: "there", Machine: "mac", Path: "/repo"},
+	}
+	rows := ResourceView(context.Background(), nil, checkouts, bus.run, time.Now())
+	if len(rows) != 2 || ResourceLine(rows[0]) != "here: free" || ResourceLine(rows[1]) != "there: held by pm/foo, 1 queued" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	want := [][]string{
+		{"lease", "status", "--guarded", "--json", "--path", "/repo"},
+		{"lease", "status", "--json", "--path", "/repo"},
+		{"lease", "status", "--all", "--json"},
+	}
+	if !slices.EqualFunc(bus.calls, want, slices.Equal[[]string]) {
+		t.Fatalf("calls = %q", bus.calls)
 	}
 }

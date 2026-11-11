@@ -42,9 +42,17 @@ inbox and ~decide.el~ then show that checkout's agentbus workdir lease:
   JSON has ~"source": "stored"~ and ~"guess": true~. Other rows have
   ~"source": "stored"~.
 
-Hub mode does not read the lease on the display machine yet: ~decide
-status list~ runs on the hub, so it uses the hub's ~checkouts~ config and
-the hub's ~agentbus~.
+In hub mode ~decide status list~ runs on the hub, so it uses the hub's
+~checkouts~ config and the hub's ~agentbus~. A plain entry is a checkout
+on the hub itself. For a checkout on another machine that uses the
+agentbus hub, name that machine:
+~{"name": "checkout", "machine": "mac", "path": "/abs/repo"}~. ~decide~
+then runs ~agentbus lease status --all --json~ once and shows the lease
+whose ~checkout~ is ~mac:/abs/repo~, the same text with ~"source":
+"lease"~. The path must be the checkout's git top-level on that machine.
+There is no ~--guarded~ check for such an entry, since it would read the
+hub's config: when no lease is known under that key, or ~agentbus~
+cannot be read, the stored row shows with ~(guess)~.
 
 ~decide targets [--json]~ prints the compose recipients from the config.
 Plain output is one name per line. ~--json~ is an array of ~name~ and
