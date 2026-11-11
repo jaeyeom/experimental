@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
@@ -66,7 +67,8 @@ type Result struct {
 	Busy   []Busy `json:"busy"`
 	Reason string `json:"reason,omitempty"`
 	// SignalUnavailable lists signals that could not be evaluated. They
-	// do not change Safe.
+	// do not change Safe for a local tab; a remote tab is then held
+	// with signal-unavailable.
 	SignalUnavailable []Unavailable `json:"signal_unavailable,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// Ignored lists the agent children skipped by a gate_ignore_procs
 	// pattern, so a pattern can be checked.
@@ -78,7 +80,10 @@ type Result struct {
 
 // Busy is one tab, or the dispatch checkout, that holds the gate.
 // A checkout-level hold (build-tool) has Checkout and no tab or pane.
+// Machine is set for a tab on another herdr machine; a machine-level
+// hold (machine-unreachable) has Machine and no tab or pane.
 type Busy struct {
+	Machine  string `json:"machine,omitempty"`
 	PaneID   string `json:"pane_id"`            //nolint:tagliatelle // brief outbound contract
 	TabID    string `json:"tab_id"`             //nolint:tagliatelle // brief outbound contract
 	Status   string `json:"agent_status"`       //nolint:tagliatelle // brief outbound contract
@@ -201,6 +206,8 @@ type gatePolicy struct {
 	pendingQuestion string
 	exemptPanes     []string
 	exemptTabs      []string
+	// machines are the other herdr machines whose tabs are waited on.
+	machines []string
 }
 
 func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]struct{}) gatePolicy {
@@ -222,7 +229,33 @@ func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]str
 		buildTools:      cfg.GateBuildTools,
 		buildToolIgnore: cfg.GateBuildToolIgnore,
 		pendingQuestion: cfg.GatePendingQuestion,
+		machines:        gateMachines(cfg, matched),
 	}
+}
+
+// gateMachines are the configured machines the gate reads: those in the
+// run's tab_machine scope and, in managed mode, with a matched tab.
+func gateMachines(cfg config.Config, matched map[string]struct{}) []string {
+	var out []string
+	for _, m := range cfg.Machines {
+		if cfg.TabMachine != "" && cfg.TabMachine != m {
+			continue
+		}
+		if cfg.ConcurrencyWaitOn == "managed" && !hasTabOn(matched, m) {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func hasTabOn(matched map[string]struct{}, machine string) bool {
+	for key := range matched {
+		if strings.HasSuffix(key, "@"+machine) {
+			return true
+		}
+	}
+	return false
 }
 
 func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Result, error) {
@@ -230,8 +263,10 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Re
 	if err != nil {
 		return Result{}, fmt.Errorf("agent list: %w", err)
 	}
-	probes := &snapshotProbes{Probes: probesFrom(ctx), run: run, jobs: make(map[int]struct{})}
-	busy, exempt, unavailable := busySet(ctx, agents, policy, probes)
+	probes := &snapshotProbes{Probes: probesFrom(ctx), run: run, jobs: make(map[string]struct{})}
+	remote, down := remoteAgents(ctx, policy.machines, probes)
+	busy, exempt, unavailable := busySet(ctx, append(agents, remote...), policy, probes)
+	busy = append(busy, down...)
 	run.prevJobs = probes.jobs
 	res := Result{Safe: len(busy) == 0, Busy: busy, SignalUnavailable: unavailable, Ignored: probes.ignored, Exempt: exempt}
 	if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {
@@ -239,6 +274,57 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Re
 		res.Reason = reason
 	}
 	return res, nil
+}
+
+// remoteAgents lists the agents on each machine through Probes.Remote,
+// stamped with the machine. A machine whose list cannot be read is a
+// machine-unreachable hold naming the cause, logged as
+// gate_machine_unreachable when the cause changes.
+func remoteAgents(ctx context.Context, machines []string, probes *snapshotProbes) ([]herdr.Agent, []Busy) {
+	var agents []herdr.Agent
+	var down []Busy
+	for _, m := range machines {
+		var client RemoteHerdr
+		if probes.Remote != nil {
+			client = probes.Remote(m)
+		}
+		var list []herdr.Agent
+		err := fmt.Errorf("no herdr client for machine %s", m)
+		if client != nil {
+			list, err = client.AgentList(ctx)
+		}
+		if err != nil {
+			cause := err.Error()
+			if ue := remotecall.AsUnreachable(err); ue != nil {
+				cause = ue.Cause
+			}
+			probes.run.warnUnreachable(ctx, m, cause)
+			down = append(down, Busy{Machine: m, Signal: SignalMachineUnreachable, Detail: cause})
+			continue
+		}
+		delete(probes.run.warnedMachines, m)
+		if probes.remotes == nil {
+			probes.remotes = make(map[string]RemoteHerdr)
+		}
+		probes.remotes[m] = client
+		for _, a := range list {
+			a.Machine = m
+			agents = append(agents, a)
+		}
+	}
+	return agents, down
+}
+
+func (r *gateRun) warnUnreachable(ctx context.Context, machine, cause string) {
+	if last, ok := r.warnedMachines[machine]; ok && last == cause {
+		return
+	}
+	if r.warnedMachines == nil {
+		r.warnedMachines = make(map[string]string)
+	}
+	r.warnedMachines[machine] = cause
+	runlog.FromContext(ctx).Warn("gate_machine_unreachable", "machine", machine, "cause", cause)
+	writeStatus(ctx, fmt.Sprintf("machine %s unreachable (%s); holding the gate for its tabs", machine, cause))
 }
 
 // dirtyTreeReason describes why checkout is unsafe to dispatch into: a
@@ -303,13 +389,13 @@ func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probe
 		if !waitedOn(agent, policy) {
 			continue
 		}
-		ex, ok, miss := probes.exempt(ctx, agent, policy)
-		unavailable = append(unavailable, miss...)
+		ex, ok, missed := probes.exempt(ctx, agent, policy)
+		unavailable = append(unavailable, missed...)
 		if ok {
 			exempt = append(exempt, ex)
 			continue
 		}
-		b := Busy{PaneID: agent.PaneID, TabID: agent.TabID, Status: agent.AgentStatus}
+		b := Busy{Machine: agent.Machine, PaneID: agent.PaneID, TabID: agent.TabID, Status: agent.AgentStatus}
 		if holdsGate(agent.AgentStatus, policy.ignoreBlocked) {
 			b.Signal = agent.AgentStatus
 			if b.Signal == SignalBlocked {
@@ -320,8 +406,14 @@ func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probe
 		}
 		signal, detail, miss := probes.tabSignal(ctx, agent, policy)
 		unavailable = append(unavailable, miss...)
-		if signal != "" {
+		missed = append(missed, miss...)
+		switch {
+		case signal != "":
 			b.Signal, b.Detail = signal, detail
+			out = append(out, b)
+		case agent.Machine != "" && len(missed) > 0:
+			b.Signal = SignalUnavailableHold
+			b.Detail = missed[0].Signal + ": " + missed[0].Error
 			out = append(out, b)
 		}
 	}
@@ -432,20 +524,22 @@ func writeStatus(ctx context.Context, line string) {
 func holdName(b Busy) string {
 	switch {
 	case b.TabID != "":
-		return b.TabID
+		return scan.TabKey(b.Machine, b.TabID)
 	case b.PaneID != "":
-		return b.PaneID
+		return scan.TabKey(b.Machine, b.PaneID)
 	case b.Checkout != "":
 		return "checkout " + b.Checkout
+	case b.Machine != "":
+		return "machine " + b.Machine
 	}
 	return ""
 }
 
 // waitedOn reports whether the gate waits on agent's tab: not the
-// runner pane, inside the checkout in checkout mode, and matched in
-// managed mode.
+// runner pane (a local pane), inside the checkout in checkout mode, and
+// matched in managed mode.
 func waitedOn(agent herdr.Agent, policy gatePolicy) bool {
-	if policy.runnerPane != "" && agent.PaneID == policy.runnerPane {
+	if policy.runnerPane != "" && agent.Machine == "" && agent.PaneID == policy.runnerPane {
 		return false
 	}
 	if policy.cwdMode == "checkout" && !inDispatchCheckout(agent, policy.checkout) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 )
 
 // Gate signals: why a tab or checkout holds the gate.
@@ -22,6 +23,12 @@ const (
 	SignalBackgroundJob   = "background-job"
 	SignalBuildTool       = "build-tool"
 	SignalPendingQuestion = "pending-question"
+	// SignalMachineUnreachable holds the gate for every tab on a
+	// machine whose agent list could not be read.
+	SignalMachineUnreachable = "machine-unreachable"
+	// SignalUnavailableHold holds a remote tab when one of its signals
+	// could not be evaluated: a remote tab never counts as free unseen.
+	SignalUnavailableHold = "signal-unavailable"
 )
 
 // signalExemptTabs is the Unavailable signal when tab labels for
@@ -61,6 +68,14 @@ type TabLister interface {
 	TabList(ctx context.Context) ([]herdr.Tab, error)
 }
 
+// RemoteHerdr is the herdr surface the gate reads on another machine:
+// its agents, and for its tabs the pane process-info and tab labels.
+type RemoteHerdr interface {
+	AgentList(ctx context.Context) ([]herdr.Agent, error)
+	PaneInspector
+	TabLister
+}
+
 // DecideItem is the part of a `decide list --json` item the gate reads.
 type DecideItem struct {
 	ID         string    `json:"id"`
@@ -86,6 +101,11 @@ type Probes struct {
 	Decide DecideSource
 	// Tabs feeds gate_exempt_tabs.
 	Tabs TabLister
+	// Remote returns the herdr client for one of cfg.Machines. The gate
+	// reads the agents on each machine in scope through it, and the
+	// pane process-info and tab labels of their tabs. Without it, a
+	// machine in scope holds the gate.
+	Remote func(machine string) RemoteHerdr
 	// Self is this process. It and its ancestors never hold the gate as
 	// a build tool, so `make` running prsync does not block itself.
 	Self int
@@ -122,6 +142,7 @@ func roundStartFrom(ctx context.Context, fallback time.Time) time.Time {
 
 // Unavailable is a signal the gate could not evaluate.
 type Unavailable struct {
+	Machine  string `json:"machine,omitempty"`
 	TabID    string `json:"tab_id,omitempty"`   //nolint:tagliatelle // brief outbound contract
 	PaneID   string `json:"pane_id,omitempty"`  //nolint:tagliatelle // brief outbound contract
 	Checkout string `json:"checkout,omitempty"` //nolint:tagliatelle // brief outbound contract
@@ -132,6 +153,7 @@ type Unavailable struct {
 // Ignored is a descendant of an idle agent skipped by a
 // gate_ignore_procs pattern, with the pattern that matched.
 type Ignored struct {
+	Machine string `json:"machine,omitempty"`
 	Pane    string `json:"pane"`
 	PID     int    `json:"pid"`
 	Command string `json:"command"`
@@ -141,10 +163,11 @@ type Ignored struct {
 // Exempt is a waited-on tab the gate skipped, with the config rule
 // that exempts it.
 type Exempt struct {
-	PaneID string `json:"pane_id"`         //nolint:tagliatelle // brief outbound contract
-	TabID  string `json:"tab_id"`          //nolint:tagliatelle // brief outbound contract
-	Label  string `json:"label,omitempty"` //nolint:tagliatelle // brief outbound contract
-	Rule   string `json:"rule"`
+	Machine string `json:"machine,omitempty"`
+	PaneID  string `json:"pane_id"`         //nolint:tagliatelle // brief outbound contract
+	TabID   string `json:"tab_id"`          //nolint:tagliatelle // brief outbound contract
+	Label   string `json:"label,omitempty"` //nolint:tagliatelle // brief outbound contract
+	Rule    string `json:"rule"`
 }
 
 // gateRun is state kept across the polls of one gate check or wait.
@@ -155,9 +178,11 @@ type gateRun struct {
 	waitLoop bool
 	// roundStart is when the dispatch round started.
 	roundStart time.Time
-	// prevJobs are the pids that were background-job candidates in the
+	// prevJobs are the jobKeys of the background-job candidates in the
 	// previous sample.
-	prevJobs map[int]struct{}
+	prevJobs map[string]struct{}
+	// warnedMachines is the last unreachable cause logged per machine.
+	warnedMachines map[string]string
 	// loggedIgnored keeps one gate_ignored debug line per process.
 	loggedIgnored map[string]struct{}
 }
@@ -176,13 +201,24 @@ type snapshotProbes struct {
 	itemsErr error
 	itemsOK  bool
 
-	tabs    []herdr.Tab
-	tabsErr error
-	tabsOK  bool
+	// tabs caches each machine's tab listing ("" is local).
+	tabs map[string]tabListing
+	// remotes are the clients of the machines read this sample.
+	remotes map[string]RemoteHerdr
 
-	// jobs are this sample's background-job candidates.
-	jobs    map[int]struct{}
+	// jobs are this sample's background-job candidates, by jobKey.
+	jobs    map[string]struct{}
 	ignored []Ignored
+}
+
+type tabListing struct {
+	tabs []herdr.Tab
+	err  error
+}
+
+// jobKey keeps pids on different machines apart.
+func jobKey(machine string, pid int) string {
+	return machine + "\x00" + strconv.Itoa(pid)
 }
 
 func (s *snapshotProbes) processes(ctx context.Context) ([]Process, error) {
@@ -206,27 +242,43 @@ func (s *snapshotProbes) decideItems(ctx context.Context) ([]DecideItem, error) 
 	return s.items, s.itemsErr
 }
 
-func (s *snapshotProbes) tabList(ctx context.Context) ([]herdr.Tab, error) {
-	if !s.tabsOK {
-		s.tabs, s.tabsErr = s.Tabs.TabList(ctx)
-		s.tabsOK = true
+// tabLister lists machine's tabs, or is nil.
+func (s *snapshotProbes) tabLister(machine string) TabLister {
+	if machine == "" {
+		return s.Tabs
 	}
-	return s.tabs, s.tabsErr
+	if r := s.remotes[machine]; r != nil {
+		return r
+	}
+	return nil
+}
+
+func (s *snapshotProbes) tabList(ctx context.Context, machine string, lister TabLister) ([]herdr.Tab, error) {
+	got, ok := s.tabs[machine]
+	if !ok {
+		got.tabs, got.err = lister.TabList(ctx)
+		if s.tabs == nil {
+			s.tabs = make(map[string]tabListing)
+		}
+		s.tabs[machine] = got
+	}
+	return got.tabs, got.err
 }
 
 // exempt reports whether agent's pane or tab is exempt from the gate.
 func (s *snapshotProbes) exempt(ctx context.Context, agent herdr.Agent, policy gatePolicy) (Exempt, bool, []Unavailable) {
-	out := Exempt{PaneID: agent.PaneID, TabID: agent.TabID}
+	out := Exempt{Machine: agent.Machine, PaneID: agent.PaneID, TabID: agent.TabID}
 	if pattern, ok := matchGlob(policy.exemptPanes, agent.PaneID); ok {
 		out.Rule = "gate_exempt_panes=" + pattern
 		return out, true, nil
 	}
-	if len(policy.exemptTabs) == 0 || s.Tabs == nil {
+	lister := s.tabLister(agent.Machine)
+	if len(policy.exemptTabs) == 0 || lister == nil {
 		return Exempt{}, false, nil
 	}
-	tabs, err := s.tabList(ctx)
+	tabs, err := s.tabList(ctx, agent.Machine, lister)
 	if err != nil {
-		return Exempt{}, false, []Unavailable{{TabID: agent.TabID, PaneID: agent.PaneID, Signal: signalExemptTabs, Error: err.Error()}}
+		return Exempt{}, false, []Unavailable{{Machine: agent.Machine, TabID: agent.TabID, PaneID: agent.PaneID, Signal: signalExemptTabs, Error: err.Error()}}
 	}
 	for _, tab := range tabs {
 		if tab.TabID != agent.TabID || tab.Machine != agent.Machine {
@@ -247,10 +299,10 @@ func (s *snapshotProbes) exempt(ctx context.Context, agent herdr.Agent, policy g
 func (s *snapshotProbes) tabSignal(ctx context.Context, agent herdr.Agent, policy gatePolicy) (string, string, []Unavailable) {
 	var unavailable []Unavailable
 	miss := func(signal string, err error) {
-		unavailable = append(unavailable, Unavailable{TabID: agent.TabID, PaneID: agent.PaneID, Signal: signal, Error: err.Error()})
+		unavailable = append(unavailable, Unavailable{Machine: agent.Machine, TabID: agent.TabID, PaneID: agent.PaneID, Signal: signal, Error: err.Error()})
 	}
-	if s.Panes != nil && s.Procs != nil {
-		detail, err := s.backgroundJob(ctx, agent.PaneID, policy)
+	if s.Panes != nil && (s.Procs != nil || agent.Machine != "") {
+		detail, err := s.backgroundJob(ctx, agent, policy)
 		if err != nil {
 			miss(SignalBackgroundJob, err)
 		} else if detail != "" {
@@ -264,7 +316,7 @@ func (s *snapshotProbes) tabSignal(ctx context.Context, agent herdr.Agent, polic
 		case err != nil:
 			miss(SignalPendingQuestion, err)
 		default:
-			if detail := pendingItemFor(items, agent.PaneID, s.run.roundStart); detail != "" {
+			if detail := pendingItemFor(items, agent, s.run.roundStart); detail != "" {
 				return SignalPendingQuestion, detail, unavailable
 			}
 		}
@@ -278,36 +330,26 @@ func (s *snapshotProbes) tabSignal(ctx context.Context, agent herdr.Agent, polic
 // and, inside a wait loop, was also a candidate in the previous sample.
 // An ignored child is recorded with its pattern; its own children are
 // never looked at.
-func (s *snapshotProbes) backgroundJob(ctx context.Context, paneID string, policy gatePolicy) (string, error) {
-	info, err := s.Panes.PaneProcessInfo(ctx, paneID)
+func (s *snapshotProbes) backgroundJob(ctx context.Context, agent herdr.Agent, policy gatePolicy) (string, error) {
+	children, err := s.agentChildren(ctx, agent)
 	if err != nil {
-		return "", fmt.Errorf("pane process-info: %w", err)
-	}
-	root := info.ForegroundProcessGroupID
-	if root <= 0 && len(info.ForegroundProcesses) > 0 {
-		root = info.ForegroundProcesses[0].PID
-	}
-	if root <= 0 {
-		return "", nil
-	}
-	procs, err := s.processes(ctx)
-	if err != nil {
-		return "", fmt.Errorf("process table: %w", err)
+		return "", err
 	}
 	detail := ""
-	for _, child := range childrenOf(procs)[root] {
+	for _, child := range children {
 		if pattern, ok := matchingPattern(policy.ignoreProcs, child); ok {
-			s.noteIgnored(ctx, Ignored{Pane: paneID, PID: child.PID, Command: commandLine(child), Pattern: pattern})
+			s.noteIgnored(ctx, Ignored{Machine: agent.Machine, Pane: agent.PaneID, PID: child.PID, Command: commandLine(child), Pattern: pattern})
 			continue
 		}
 		if child.Age >= 0 && child.Age < policy.jobMinAge {
 			continue
 		}
-		s.jobs[child.PID] = struct{}{}
+		key := jobKey(agent.Machine, child.PID)
+		s.jobs[key] = struct{}{}
 		if detail != "" {
 			continue
 		}
-		if _, seen := s.run.prevJobs[child.PID]; s.run.waitLoop && !seen {
+		if _, seen := s.run.prevJobs[key]; s.run.waitLoop && !seen {
 			continue
 		}
 		detail = "pid " + strconv.Itoa(child.PID) + " " + ageTag(child.Age) + commandLine(child)
@@ -315,9 +357,53 @@ func (s *snapshotProbes) backgroundJob(ctx context.Context, paneID string, polic
 	return detail, nil
 }
 
+// agentChildren lists the children of the pane's foreground agent. A
+// local agent's come from the process table. A remote agent's are the
+// other members of its foreground process group from `herdr --machine
+// <m> pane process-info`, of unknown age; with no foreground process
+// listed there, they cannot be read.
+func (s *snapshotProbes) agentChildren(ctx context.Context, agent herdr.Agent) ([]Process, error) {
+	panes := s.Panes
+	if agent.Machine != "" {
+		r := s.remotes[agent.Machine]
+		if r == nil {
+			return nil, fmt.Errorf("no herdr client for machine %s", agent.Machine)
+		}
+		panes = r
+	}
+	info, err := panes.PaneProcessInfo(ctx, agent.PaneID)
+	if err != nil {
+		return nil, fmt.Errorf("pane process-info: %w", err)
+	}
+	root := info.ForegroundProcessGroupID
+	if root <= 0 && len(info.ForegroundProcesses) > 0 {
+		root = info.ForegroundProcesses[0].PID
+	}
+	if agent.Machine != "" {
+		if root <= 0 {
+			return nil, fmt.Errorf("pane process-info on %s lists no foreground processes", agent.Machine)
+		}
+		var out []Process
+		for _, fp := range info.ForegroundProcesses {
+			if fp.PID != root {
+				out = append(out, Process{PID: fp.PID, PPID: root, Name: fp.Name, Argv: fp.Argv, Age: -1})
+			}
+		}
+		return sortedByPID(out), nil
+	}
+	if root <= 0 {
+		return nil, nil
+	}
+	procs, err := s.processes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("process table: %w", err)
+	}
+	return childrenOf(procs)[root], nil
+}
+
 func (s *snapshotProbes) noteIgnored(ctx context.Context, ig Ignored) {
 	s.ignored = append(s.ignored, ig)
-	key := ig.Pane + "\x00" + strconv.Itoa(ig.PID) + "\x00" + ig.Pattern
+	key := ig.Machine + "\x00" + ig.Pane + "\x00" + strconv.Itoa(ig.PID) + "\x00" + ig.Pattern
 	if _, ok := s.run.loggedIgnored[key]; ok {
 		return
 	}
@@ -325,7 +411,7 @@ func (s *snapshotProbes) noteIgnored(ctx context.Context, ig Ignored) {
 		s.run.loggedIgnored = make(map[string]struct{})
 	}
 	s.run.loggedIgnored[key] = struct{}{}
-	runlog.FromContext(ctx).Debug("gate_ignored", "pane", ig.Pane, "pid", ig.PID, "command", ig.Command, "pattern", ig.Pattern)
+	runlog.FromContext(ctx).Debug("gate_ignored", "machine", ig.Machine, "pane", ig.Pane, "pid", ig.PID, "command", ig.Command, "pattern", ig.Pattern)
 }
 
 // ageTag is "(2m13s) " for a known age, else empty.
@@ -363,16 +449,16 @@ func (s *snapshotProbes) buildTool(ctx context.Context, policy gatePolicy) (stri
 	return "", nil
 }
 
-// pendingItemFor describes the first decide item for paneID that holds
-// its tab: one answered but not yet done (the agent is about to
+// pendingItemFor describes the first decide item for agent's pane that
+// holds its tab: one answered but not yet done (the agent is about to
 // resume), or one opened after roundStart. An open item from before the
 // round is parked and does not hold.
-func pendingItemFor(items []DecideItem, paneID string, roundStart time.Time) string {
-	if paneID == "" {
+func pendingItemFor(items []DecideItem, agent herdr.Agent, roundStart time.Time) string {
+	if agent.PaneID == "" {
 		return ""
 	}
 	for _, it := range items {
-		if it.NotifyPane != paneID {
+		if !notifiesPane(it.NotifyPane, agent) {
 			continue
 		}
 		switch it.State {
@@ -385,6 +471,21 @@ func pendingItemFor(items []DecideItem, paneID string, roundStart time.Time) str
 		}
 	}
 	return ""
+}
+
+// notifiesPane reports whether a decide notifyPane names agent's pane:
+// the bare pane id for a local agent, or the remote handle
+// herdr:<machine>/<session>/<pane> for an agent on another machine.
+func notifiesPane(notify string, agent herdr.Agent) bool {
+	if agent.Machine == "" {
+		return notify == agent.PaneID
+	}
+	rest, ok := strings.CutPrefix(notify, "herdr:"+agent.Machine+"/")
+	if !ok {
+		return false
+	}
+	session, pane, ok := strings.Cut(rest, "/")
+	return ok && session != "" && pane == agent.PaneID
 }
 
 // childrenOf maps each pid to its children, lowest pid first.
@@ -572,16 +673,21 @@ func holdLine(b Busy) string {
 	if b.Detail != "" {
 		what += " " + b.Detail
 	}
-	if b.TabID == "" && b.PaneID == "" && b.Checkout != "" {
-		return fmt.Sprintf("gate: busy checkout %s: %s", b.Checkout, what)
+	if b.TabID == "" && b.PaneID == "" {
+		switch {
+		case b.Checkout != "":
+			return fmt.Sprintf("gate: busy checkout %s: %s", b.Checkout, what)
+		case b.Machine != "":
+			return fmt.Sprintf("gate: busy machine %s: %s", b.Machine, what)
+		}
 	}
-	return fmt.Sprintf("gate: busy tab %s (pane %s): %s", b.TabID, b.PaneID, what)
+	return fmt.Sprintf("gate: busy tab %s (pane %s): %s", scan.TabKey(b.Machine, b.TabID), b.PaneID, what)
 }
 
 // extraSignal reports whether b holds for a reason other than its herdr status.
 func extraSignal(b Busy) bool {
 	switch b.Signal {
-	case SignalBackgroundJob, SignalBuildTool, SignalPendingQuestion:
+	case SignalBackgroundJob, SignalBuildTool, SignalPendingQuestion, SignalMachineUnreachable, SignalUnavailableHold:
 		return true
 	}
 	return false
