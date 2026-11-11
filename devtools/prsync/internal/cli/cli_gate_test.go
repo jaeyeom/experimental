@@ -53,6 +53,35 @@ func TestGateSafeWhenBlockedByDefault(t *testing.T) {
 	}
 }
 
+func TestGateBusyOnPendingDecideItem(t *testing.T) {
+	t.Setenv("PRSYNC_FAKE_DECIDE_OUT", `[{"id":"D-17","state":"open","notifyPane":"w2:pC"}]`)
+	ghBin, herdrBin := fixtureBins(t)
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
+	if code != ExitUnsafe {
+		t.Fatalf("exit = %d, want %d, stderr=%q stdout=%q", code, ExitUnsafe, stderr.String(), stdout.String())
+	}
+	got := decodeGate(t, stdout.Bytes())
+	if len(got.Busy) != 1 {
+		t.Fatalf("busy = %+v, want one tab", got.Busy)
+	}
+	b := got.Busy[0]
+	if b.PaneID != "w2:pC" || b.Status != "idle" || b.Signal != dispatch.SignalPendingQuestion || b.Detail != "open item D-17" {
+		t.Fatalf("busy = %+v, want idle w2:pC pending-question open item D-17", b)
+	}
+	if !strings.Contains(stdout.String(), `"signal": "pending-question"`) {
+		t.Fatalf("stdout = %s, want the signal field", stdout.String())
+	}
+
+	cfgPath = writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\ngate_pending_question=off\n")
+	stdout.Reset()
+	if code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor()); code != ExitOK {
+		t.Fatalf("gate_pending_question=off exit = %d, want 0; stdout=%q", code, stdout.String())
+	}
+}
+
 func TestGateBusyWhenBlocked(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
 	ghBin, herdrBin := fixtureBins(t)

@@ -173,6 +173,10 @@ Environment variables are not expanded.
 | ~concurrency_cwd~ | ~any~ | ~any~ does not look at directories. ~checkout~ counts an agent only when its ~cwd~ or ~foreground_cwd~ is inside the checkout of the repo being dispatched. The runner pane stays excluded. |
 | ~gate_poll_ms~ | ~2000~ | Poll interval for the concurrency gate and post-send settle. |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4). |
+| ~gate_ignore_procs~ | MCP and language servers, ~caffeinate~ | Comma-separated globs (~*~ also matches ~/~) for an agent's own long-lived helpers. A pattern matches the process name, the base of ~argv[0]~, or the whole command line. A matching process and its children are not a ~background-job~. Empty = every child counts. See [[*Busy signals][Busy signals]]. |
+| ~gate_build_tools~ | ~bazel,bazelisk,make,go,cargo,gradle,npm,pnpm~ | Build-tool client names (globs on the process name or ~argv[0]~ base) for ~build-tool~. Empty turns the signal off. |
+| ~gate_build_tool_ignore~ | ~java,*--workspace_directory=*,*A-server.jar*,*--server*~ | Globs, matched like ~gate_ignore_procs~, for build processes that never count: long-lived build servers that keep the workspace path in ~argv~ while idle. |
+| ~gate_pending_question~ | ~decide~ | ~decide~ holds a tab while an open decide item has its pane as the notify pane; ~off~ turns that off. A ~blocked~ status is still governed by ~concurrency_ignore_blocked~. |
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for ~herdr agent prompt --wait~ (and leftover ~herdr agent wait~). Still ~working~/~blocked~ → ~dispatched_timeout~ (exit 4). |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~ ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{state}~ ~{comments}~. ~{state}~ is ~open~, ~closed~, or ~merged~ (empty when unrecognized). Unknown placeholders are left literal. |
 | ~rebase_prompt_template~ | built-in | Same substitution. Used only with ~dispatch --rebase~. |
@@ -206,7 +210,9 @@ commented in [[file:prsync.config.example][prsync.config.example]].
 
 ~dispatch --go~ does three things, one PR at a time:
 
-1. *Gate* — wait until no waited-on agent is ~working~. A ~blocked~
+1. *Gate* — wait until no waited-on agent is ~working~ and no
+   [[*Busy signals][busy signal]] holds (a background job, a build in
+   the checkout, or an open decide question). A ~blocked~
    agent does not hold the gate unless ~concurrency_ignore_blocked~ is
    ~false~. A single idle sample is not enough (startup / mid-run flap
    still counts as busy). When a ~blocked~ tab does hold the gate,
@@ -725,11 +731,77 @@ agent is in that set only when ~concurrency_ignore_blocked~ is ~false~.
     {
       "pane_id": "w2:pC",
       "tab_id": "w2:tC",
-      "agent_status": "blocked"
+      "agent_status": "blocked",
+      "signal": "blocked"
     }
   ]
 }
 #+END_SRC
+
+Each busy entry has ~signal~, the reason it holds the gate (see
+[[*Busy signals][Busy signals]]), and ~detail~ for the signals below.
+
+*** Busy signals
+
+herdr reports some agents ~idle~ or ~done~ while work keeps running
+for them. The gate also holds a waited-on tab, whatever its status,
+for the first of these that is true:
+
+1. ~background-job~ — the tab's foreground agent (from ~herdr pane
+   process-info~) has a live descendant process that matches none of
+   ~gate_ignore_procs~, such as a background shell or build. The
+   descendants come from =/proc= on Linux and ~ps~ elsewhere.
+   ~detail~ is ~pid 4242 sh -c "bazel build ..."~.
+2. ~pending-question~ — an open item in the decide ledger (~decide list
+   --json~) has the tab's pane as ~notifyPane~. ~detail~ is ~open item
+   D-17~. ~gate_pending_question=off~ turns it off. When ~decide~ is not
+   installed, the gate warns once and checks the other signals.
+
+~build-tool~ holds the dispatch checkout rather than a tab: a
+build-tool client from ~gate_build_tools~, anywhere on the machine,
+whose cwd is the checkout or under it. Long-lived build servers (a
+~java~ process, or any process with ~--workspace_directory=~,
+~A-server.jar~, or ~--server~ in its ~argv~) never count, through
+~gate_build_tool_ignore~; while a build runs, its client is alive. This
+process and its ancestors never count, so a ~make~ that runs ~prsync~
+does not block itself. The entry has ~checkout~ instead of a tab:
+
+#+BEGIN_SRC json
+{
+  "safe": false,
+  "busy": [
+    {
+      "pane_id": "w3:p2",
+      "tab_id": "w3:t2",
+      "agent_status": "idle",
+      "signal": "background-job",
+      "detail": "pid 4242 sh -c \"bazel build //...\""
+    },
+    {
+      "pane_id": "",
+      "tab_id": "",
+      "agent_status": "",
+      "checkout": "/src/repo",
+      "signal": "build-tool",
+      "detail": "pid 5000 bazel build //... (cwd /src/repo)"
+    }
+  ]
+}
+#+END_SRC
+
+A signal the gate cannot evaluate (for example ~herdr pane
+process-info~ or ~decide~ fails) is listed under ~signal_unavailable~
+with ~tab_id~, ~pane_id~ (or ~checkout~), ~signal~, and ~error~. It
+does not make the gate unsafe.
+
+~dispatch --go~ waits on these signals like ~working~, with the same
+debounce and ~gate_timeout_ms~; a timeout's ~detail~ names the last
+signal. Each change in the holds is logged as one ~gate_hold~ line, for
+example ~gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 sh
+-c "bazel build ..."~, or ~gate: busy checkout /src/repo: build-tool
+...~ for the checkout.
+
+The signals cover local agents only, like the rest of the gate.
 
 The gate is also unsafe (exit 1) when the dispatch checkout is dirty,
 in every ~concurrency_cwd~ mode. The checkout is the git toplevel of

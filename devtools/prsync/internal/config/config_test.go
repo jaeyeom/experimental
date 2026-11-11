@@ -491,6 +491,35 @@ func TestLoadEmptyCICheckGlobs(t *testing.T) {
 	}
 }
 
+func TestLoadGateSignals(t *testing.T) {
+	def := Defaults()
+	if def.GatePendingQuestion != "decide" || !slices.Contains(def.GateBuildTools, "bazel") ||
+		!slices.Contains(def.GateBuildToolIgnore, "*--workspace_directory=*") || !slices.Contains(def.GateIgnoreProcs, "*mcp-server*") {
+		t.Fatalf("defaults = %q %#v %#v %#v", def.GatePendingQuestion, def.GateBuildTools, def.GateBuildToolIgnore, def.GateIgnoreProcs)
+	}
+
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, strings.Join([]string{
+		"gate_ignore_procs=node *lsp*, caffeinate",
+		"gate_build_tools=bazel,make",
+		"gate_build_tool_ignore=",
+		"gate_pending_question=off",
+	}, "\n")+"\n")
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if want := []string{"node *lsp*", "caffeinate"}; !slices.Equal(got.GateIgnoreProcs, want) {
+		t.Fatalf("GateIgnoreProcs = %#v, want %#v", got.GateIgnoreProcs, want)
+	}
+	if want := []string{"bazel", "make"}; !slices.Equal(got.GateBuildTools, want) {
+		t.Fatalf("GateBuildTools = %#v, want %#v", got.GateBuildTools, want)
+	}
+	if len(got.GateBuildToolIgnore) != 0 || got.GatePendingQuestion != "off" {
+		t.Fatalf("ignore = %#v pending = %q, want empty and off", got.GateBuildToolIgnore, got.GatePendingQuestion)
+	}
+}
+
 func TestLoadTeamCover(t *testing.T) {
 	dir := t.TempDir()
 	exclude := filepath.Join(dir, "exclude.txt")
@@ -607,6 +636,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "empty gh", body: "gh_bin=\n", key: "gh_bin"},
 		{name: "empty jira", body: "jira_bin=\n", key: "jira_bin"},
 		{name: "bad enum", body: "concurrency_wait_on=sometimes\n", key: "concurrency_wait_on"},
+		{name: "bad pending question", body: "gate_pending_question=maybe\n", key: "gate_pending_question"},
+		{name: "bad ignore glob", body: "gate_ignore_procs=[mcp\n", key: "gate_ignore_procs"},
 		{name: "zero poll", body: "gate_poll_ms=0\n", key: "gate_poll_ms"},
 		{name: "negative timeout", body: "gate_timeout_ms=-1\n", key: "gate_timeout_ms"},
 		{name: "non integer ms", body: "dispatch_timeout_ms=2s\n", key: "dispatch_timeout_ms"},
