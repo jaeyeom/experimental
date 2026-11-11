@@ -116,6 +116,73 @@ func TestServeWaitsForTheInventoryPollBeforeReturning(t *testing.T) {
 	}
 }
 
+// slowDelivery is an adapter whose paste is still running when the
+// daemon is told to stop, like a remote prompt that has not answered yet.
+type slowDelivery struct {
+	fake.Adapter
+	cancelled chan struct{}
+	release   chan struct{}
+}
+
+func (a *slowDelivery) Deliver(ctx context.Context, _, _ string) (adapter.Result, error) {
+	<-ctx.Done()
+	a.cancelled <- struct{}{}
+	<-a.release
+	return adapter.ResultFailed, fmt.Errorf("deliver: %w", ctx.Err())
+}
+
+func TestServeWaitsForAQueueFlushBeforeReturning(t *testing.T) {
+	dirs := paths.Dirs{
+		SocketPath: filepath.Join(shortDir(t), "daemon.sock"),
+		StateDir:   filepath.Join(t.TempDir(), "state"),
+	}
+	const handle = "herdr:m2/default/w2:p3"
+	if err := os.MkdirAll(dirs.StateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	queued := `{"messages":[{"id":"m1","from":"alice","to":"bob","sentAt":"2026-01-01T00:00:00Z","body":"hi","handle":"` + handle + `"}]}`
+	if err := os.WriteFile(filepath.Join(dirs.StateDir, "messages.json"), []byte(queued), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ad := &slowDelivery{
+		Adapter:   fake.Adapter{AdapterName: "herdr", Reach: map[string]adapter.State{handle: adapter.StateIdle}},
+		cancelled: make(chan struct{}, 1),
+		release:   make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- Serve(ctx, dirs, Config{Adapters: []adapter.Adapter{ad}, PollInterval: time.Hour})
+	}()
+	for ping(dirs.SocketPath) != nil {
+		select {
+		case err := <-errc:
+			t.Fatalf("Serve: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-ad.cancelled
+	select {
+	case err := <-errc:
+		close(ad.release)
+		t.Fatalf("Serve returned (%v) while the queue flush was still running", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(ad.release)
+	if err := <-errc; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	lines, err := eventlog.Open(dirs.StateDir).Read(eventlog.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) == 0 || !strings.Contains(lines[len(lines)-1], `"event":"stop"`) {
+		t.Fatalf("stop is not the last event: %q", lines)
+	}
+}
+
 func start(t *testing.T, dirs paths.Dirs) func() {
 	t.Helper()
 	return startWith(t, dirs, Config{})
