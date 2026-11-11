@@ -1,0 +1,56 @@
+{
+  "checkout": "local:/home/u/src/repo",
+  "state": "held",
+  "holder": {
+    "handle": "herdr:local/default/w1:p1",
+    "name": "ops/alice",
+    "since": "2026-11-10T09:00:00Z",
+    "deadline": "2026-11-10T09:40:00Z",
+    "why": "issue 623"
+  },
+  "queue": [
+    {
+      "handle": "herdr:local/default/w1:p3",
+      "name": "",
+      "urgent": true,
+      "for": "1h30m",
+      "since": "2026-11-10T09:00:00Z"
+    },
+    {
+      "handle": "herdr:local/default/w1:p2",
+      "name": "",
+      "urgent": false,
+      "for": "20m",
+      "since": "2026-11-10T09:00:00Z"
+    }
+  ]
+}
+[
+  {
+    "checkout": "local:/home/u/src/repo",
+    "state": "held",
+    "holder": {
+      "handle": "herdr:local/default/w1:p1",
+      "name": "ops/alice",
+      "since": "2026-11-10T09:00:00Z",
+      "deadline": "2026-11-10T09:40:00Z",
+      "why": "issue 623"
+    },
+    "queue": [
+      {
+        "handle": "herdr:local/default/w1:p3",
+        "name": "",
+        "urgent": true,
+        "for": "1h30m",
+        "since": "2026-11-10T09:00:00Z"
+      },
+      {
+        "handle": "herdr:local/default/w1:p2",
+        "name": "",
+        "urgent": false,
+        "for": "20m",
+        "since": "2026-11-10T09:00:00Z"
+      }
+    ]
+  }
+]

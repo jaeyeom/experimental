@@ -129,6 +129,14 @@ func commands() []command {
 			run:     noStdin(cmdLog),
 		},
 		{
+			name:    "lease",
+			summary: "Claim, extend, leave, or check the lease on a guarded checkout; status shows who holds it.",
+			usage:   "agentbus lease <claim|extend|leave|status|check> [flags]",
+			flags:   leaseFlagsHelp,
+			example: `agentbus lease claim --for 40m --why "issue 623"`,
+			run:     noStdin(cmdLease),
+		},
+		{
 			name:    "install",
 			summary: "Install the supervisor and load it; in hub mode, the tunnel to the hub.",
 			usage:   "agentbus install",
@@ -222,6 +230,9 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           (AGENTBUS_HUB overrides it); install refuses
   machine = "linux2"      this machine's herdr label on the hub, so a
                           hub-mode caller is herdr:linux2/<session>/<pane>
+  lease_checkouts = ["/home/u/src/repo"]
+                          this machine's checkouts that need the lease;
+                          lease commands are local-only for now
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>". It never falls back to a

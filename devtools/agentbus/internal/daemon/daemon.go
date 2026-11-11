@@ -18,6 +18,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/mailbox"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/registry"
@@ -39,6 +40,8 @@ type Config struct {
 	// and returns it. Nil means the daemon does not listen on the hub
 	// socket.
 	HubCaller func(handle string) (string, error)
+	// Now is the lease clock. Nil uses time.Now.
+	Now func() time.Time
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -70,6 +73,8 @@ type Request struct {
 	Event string `json:"event,omitempty"`
 	// Follow keeps a log stream open for new events.
 	Follow bool `json:"follow,omitempty"`
+	// Lease carries the arguments of the lease-* ops.
+	Lease *lease.Args `json:"lease,omitempty"`
 }
 
 // bypassPreview is how many bytes of a SendMessage body a bypass event keeps.
@@ -108,6 +113,8 @@ type Response struct {
 	Protocol int `json:"protocol,omitempty"`
 	// End marks the last reply of a log stream that does not follow.
 	End bool `json:"end,omitempty"`
+	// Lease is the answer to a lease-* op.
+	Lease *lease.Reply `json:"lease,omitempty"`
 }
 
 // Serve listens on dirs.SocketPath until ctx is cancelled. It creates
@@ -123,7 +130,16 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	if err != nil {
 		return err
 	}
-	srv := &server{ctx: ctx, reg: reg, box: box, log: lg}
+	leases, err := lease.Open(dirs.StateDir, lg, cfg.Now, func(handle string) string {
+		if names := reg.NamesOf(handle); len(names) > 0 {
+			return names[0]
+		}
+		return ""
+	})
+	if err != nil {
+		return fmt.Errorf("open leases: %w", err)
+	}
+	srv := &server{ctx: ctx, reg: reg, box: box, log: lg, leases: leases}
 	started := false
 	defer func() {
 		if !started {
@@ -266,6 +282,7 @@ type server struct {
 	reg       *registry.Registry
 	box       *mailbox.Mailbox
 	log       *eventlog.Log
+	leases    *lease.Table
 	hubCaller func(string) (string, error)
 }
 
@@ -399,8 +416,50 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 	case "requeue":
 		return s.requeue(req)
 	default:
+		if strings.HasPrefix(req.Op, "lease-") {
+			return s.lease(req)
+		}
 		return Response{Error: "unknown op"}
 	}
+}
+
+// lease handles the lease-* ops. The caller is the stamped handle, as
+// whoami resolves it.
+func (s *server) lease(req Request) Response {
+	var args lease.Args
+	if req.Lease != nil {
+		args = *req.Lease
+	}
+	if req.Op == "lease-status" {
+		return leaseResponse(s.leases.Status(args))
+	}
+	caller, _, err := s.reg.WhoAmI(s.ctx, req.Env)
+	if err != nil && req.Op != "lease-check" {
+		return Response{Error: "identify the lease caller: " + err.Error()}
+	}
+	var r lease.Reply
+	switch req.Op {
+	case "lease-claim":
+		r, err = s.leases.Claim(caller, args)
+	case "lease-extend":
+		r, err = s.leases.Extend(caller, args)
+	case "lease-leave":
+		r, err = s.leases.Leave(caller, args)
+	case "lease-check":
+		// A caller herdr cannot name holds nothing.
+		r, err = s.leases.Check(caller, args)
+	default:
+		return Response{Error: "unknown op"}
+	}
+	r.Caller = caller
+	return leaseResponse(r, err)
+}
+
+func leaseResponse(r lease.Reply, err error) Response {
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	return Response{OK: true, Lease: &r}
 }
 
 // bypass records an observe-only SendMessage. The tool call already proceeded.

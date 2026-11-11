@@ -1,0 +1,504 @@
+// Package lease keeps the agentbus workdir leases: who may change a
+// checkout right now, until when, and who is waiting. The daemon owns
+// one Table. Git and process inspection happen in the CLI on the
+// checkout's machine; the Table only keeps state, persists it, and logs
+// every change.
+package lease
+
+import (
+	"cmp"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+)
+
+// State is a checkout's lease state.
+type State string
+
+// Lease states. Paused and Releasing are set by later commands (pause,
+// release); part of the stable status shape.
+const (
+	StateFree       State = "free"
+	StateHeld       State = "held"
+	StatePaused     State = "paused"
+	StateReleasing  State = "releasing"
+	StateNeedsAdopt State = "needs-adopt"
+)
+
+// UserHolder is the special holder that stands for the user. It queues
+// ahead of every agent.
+const UserHolder = "user"
+
+// Results a Reply carries.
+const (
+	ResultGranted  = "granted"
+	ResultQueued   = "queued"
+	ResultExtended = "extended"
+	ResultLeft     = "left"
+	ResultStatus   = "status"
+	ResultAllowed  = "allowed"
+	ResultDenied   = "denied"
+)
+
+// stateFile is the persisted table in the daemon state directory.
+const stateFile = "leases.json"
+
+// fileVersion is the persisted format version.
+const fileVersion = 1
+
+// Args is the lease part of a daemon request. The CLI fills it on the
+// checkout's machine.
+type Args struct {
+	// Checkout is the checkout key, <machine>:<abs git top-level>.
+	Checkout string `json:"checkout,omitempty"`
+	// For is the time bid, a Go duration such as 40m.
+	For    string `json:"for,omitempty"`
+	Urgent bool   `json:"urgent,omitempty"`
+	Why    string `json:"why,omitempty"`
+	// All asks status for every checkout the daemon has seen.
+	All bool `json:"all,omitempty"`
+	// Tree is what the CLI found in the checkout's working tree: empty
+	// when clean, else why it needs adopt (dirty, rebase in progress).
+	Tree string `json:"tree,omitempty"`
+}
+
+// Reply is the lease part of a daemon response.
+type Reply struct {
+	// Caller is the handle the daemon stamped on the request.
+	Caller string `json:"caller,omitempty"`
+	Result string `json:"result,omitempty"`
+	// Position is the caller's 1-based place in the queue when queued.
+	Position int `json:"position,omitempty"`
+	// Lease is the checkout the request named, after the request.
+	Lease *Status `json:"lease,omitempty"`
+	// Leases is the status op's answer.
+	Leases []Status `json:"leases,omitempty"`
+}
+
+// Status is the stable `lease status --json` shape other tools read.
+type Status struct {
+	Checkout  string       `json:"checkout"`
+	State     State        `json:"state"`
+	Holder    *HolderView  `json:"holder,omitempty"`
+	Queue     []WaiterView `json:"queue"`
+	BackupRef string       `json:"backup_ref,omitempty"` //nolint:tagliatelle // stable status shape
+}
+
+// HolderView is the holder in Status. Times are RFC3339.
+type HolderView struct {
+	Handle   string `json:"handle"`
+	Name     string `json:"name"`
+	Since    string `json:"since"`
+	Deadline string `json:"deadline"`
+	Why      string `json:"why"`
+}
+
+// WaiterView is one queue entry in Status.
+type WaiterView struct {
+	Handle string `json:"handle"`
+	Name   string `json:"name"`
+	Urgent bool   `json:"urgent"`
+	For    string `json:"for"`
+	Since  string `json:"since"`
+}
+
+// Table is every lease the daemon knows, persisted in its state
+// directory. All methods are safe for concurrent use.
+type Table struct {
+	mu    sync.Mutex
+	dir   string
+	doc   file
+	log   *eventlog.Log
+	now   func() time.Time
+	names func(handle string) string
+}
+
+type file struct {
+	Version int `json:"version"`
+	// Seq is the last arrival number given to a claim. It orders the
+	// queue and keeps growing across restarts.
+	Seq    uint64             `json:"seq"`
+	Leases map[string]*record `json:"leases"`
+}
+
+// record is one checkout. A free checkout keeps its record, so status
+// --all lists every checkout ever named.
+type record struct {
+	State     State    `json:"state"`
+	Holder    *holder  `json:"holder,omitempty"`
+	Queue     []waiter `json:"queue,omitempty"`
+	BackupRef string   `json:"backup_ref,omitempty"` //nolint:tagliatelle // persisted format
+}
+
+type holder struct {
+	Handle string    `json:"handle"`
+	Since  time.Time `json:"since"`
+	// Deadline is the soft deadline. Zero means none (the user).
+	Deadline time.Time     `json:"deadline,omitzero"`
+	For      time.Duration `json:"for,omitempty"`
+	Why      string        `json:"why,omitempty"`
+}
+
+type waiter struct {
+	Handle string        `json:"handle"`
+	Urgent bool          `json:"urgent,omitempty"`
+	For    time.Duration `json:"for"`
+	Why    string        `json:"why,omitempty"`
+	Since  time.Time     `json:"since"`
+	Seq    uint64        `json:"seq"`
+}
+
+// Open loads the table from dir. A missing file is an empty table. now
+// is the clock; names returns the registered name of a handle, or "".
+func Open(dir string, log *eventlog.Log, now func() time.Time, names func(handle string) string) (*Table, error) {
+	if now == nil {
+		now = time.Now
+	}
+	if names == nil {
+		names = func(string) string { return "" }
+	}
+	doc, err := load(dir)
+	if err != nil {
+		return nil, err
+	}
+	return &Table{dir: dir, doc: doc, log: log, now: now, names: names}, nil
+}
+
+// Claim grants a free checkout to caller or queues caller. It never
+// blocks. Claiming again as holder or waiter updates For and Why (and
+// Urgent for a waiter) without losing the place.
+func (t *Table) Claim(caller string, a Args) (Reply, error) {
+	if err := checkCaller(caller); err != nil {
+		return Reply{}, err
+	}
+	d, err := bid(a.For)
+	if err != nil {
+		return Reply{}, err
+	}
+	return t.update(a.Checkout, func(rec *record, now time.Time) (Reply, []eventlog.Event, error) {
+		claim := eventlog.Event{Event: eventlog.EventLeaseClaim, Actor: caller, Detail: claimDetail(d, a)}
+		switch {
+		case rec.Holder == nil:
+			rec.State = StateHeld
+			if a.Tree != "" {
+				rec.State = StateNeedsAdopt
+			}
+			rec.Holder = &holder{Handle: caller, Since: now, Deadline: now.Add(d), For: d, Why: a.Why}
+			grant := eventlog.Event{Event: eventlog.EventLeaseGrant, Actor: caller, Detail: grantDetail(rec)}
+			if a.Tree != "" {
+				grant.Reason = a.Tree
+			}
+			return Reply{Result: ResultGranted}, []eventlog.Event{claim, grant}, nil
+		case rec.Holder.Handle == caller:
+			rec.Holder.Deadline = now.Add(d)
+			rec.Holder.For = d
+			rec.Holder.Why = a.Why
+			return Reply{Result: ResultGranted}, []eventlog.Event{claim}, nil
+		}
+		if i := rec.find(caller); i >= 0 {
+			rec.Queue[i].For = d
+			rec.Queue[i].Why = a.Why
+			rec.Queue[i].Urgent = a.Urgent
+		} else {
+			t.doc.Seq++
+			rec.Queue = append(rec.Queue, waiter{Handle: caller, Urgent: a.Urgent, For: d, Why: a.Why, Since: now, Seq: t.doc.Seq})
+		}
+		rec.sortQueue()
+		pos := rec.find(caller) + 1
+		claim.Detail += fmt.Sprintf("; queued, position %d", pos)
+		return Reply{Result: ResultQueued, Position: pos}, []eventlog.Event{claim}, nil
+	})
+}
+
+// Extend moves the holder's soft deadline to now plus For.
+func (t *Table) Extend(caller string, a Args) (Reply, error) {
+	if err := checkCaller(caller); err != nil {
+		return Reply{}, err
+	}
+	d, err := bid(a.For)
+	if err != nil {
+		return Reply{}, err
+	}
+	return t.update(a.Checkout, func(rec *record, now time.Time) (Reply, []eventlog.Event, error) {
+		if rec.Holder == nil || rec.Holder.Handle != caller {
+			return Reply{}, nil, fmt.Errorf("only the holder can extend the lease on %s", a.Checkout)
+		}
+		rec.Holder.Deadline = now.Add(d)
+		rec.Holder.For = d
+		ev := eventlog.Event{Event: eventlog.EventLeaseExtend, Actor: caller, Detail: "until " + rec.Holder.Deadline.Format(time.RFC3339)}
+		return Reply{Result: ResultExtended}, []eventlog.Event{ev}, nil
+	})
+}
+
+// Leave takes caller out of the queue. The holder releases instead.
+func (t *Table) Leave(caller string, a Args) (Reply, error) {
+	if err := checkCaller(caller); err != nil {
+		return Reply{}, err
+	}
+	return t.update(a.Checkout, func(rec *record, _ time.Time) (Reply, []eventlog.Event, error) {
+		if rec.Holder != nil && rec.Holder.Handle == caller {
+			return Reply{}, nil, fmt.Errorf("you hold %s; release it instead of leaving the queue", a.Checkout)
+		}
+		i := rec.find(caller)
+		if i < 0 {
+			return Reply{}, nil, fmt.Errorf("you are not in the queue for %s", a.Checkout)
+		}
+		rec.Queue = slices.Delete(rec.Queue, i, i+1)
+		ev := eventlog.Event{Event: eventlog.EventLeaseLeave, Actor: caller, Detail: fmt.Sprintf("left the queue at position %d", i+1)}
+		return Reply{Result: ResultLeft}, []eventlog.Event{ev}, nil
+	})
+}
+
+// Check answers whether caller may change the checkout now: allowed
+// only for the holder of a held lease.
+func (t *Table) Check(caller string, a Args) (Reply, error) {
+	return t.update(a.Checkout, func(rec *record, _ time.Time) (Reply, []eventlog.Event, error) {
+		if caller != "" && rec.State == StateHeld && rec.Holder != nil && rec.Holder.Handle == caller {
+			return Reply{Result: ResultAllowed}, nil, nil
+		}
+		return Reply{Result: ResultDenied}, nil, nil
+	})
+}
+
+// Status reports one checkout, or with All every checkout seen, sorted
+// by key.
+func (t *Table) Status(a Args) (Reply, error) {
+	if !a.All {
+		r, err := t.update(a.Checkout, func(*record, time.Time) (Reply, []eventlog.Event, error) {
+			return Reply{Result: ResultStatus}, nil, nil
+		})
+		if err != nil {
+			return Reply{}, err
+		}
+		r.Leases = []Status{*r.Lease}
+		r.Lease = nil
+		return r, nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	keys := make([]string, 0, len(t.doc.Leases))
+	for k := range t.doc.Leases {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	out := make([]Status, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, t.view(k, t.doc.Leases[k]))
+	}
+	return Reply{Result: ResultStatus, Leases: out}, nil
+}
+
+// update runs change on the checkout's record under the lock, records a
+// checkout seen for the first time, persists any change, and logs the
+// events change returns. A failed save or change leaves the table as it
+// was.
+func (t *Table) update(checkout string, change func(*record, time.Time) (Reply, []eventlog.Event, error)) (Reply, error) {
+	if err := checkKey(checkout); err != nil {
+		return Reply{}, err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	old, seen := t.doc.Leases[checkout]
+	rec := &record{State: StateFree}
+	if seen {
+		rec = old.clone()
+	}
+	seq := t.doc.Seq
+	r, events, err := change(rec, t.now().UTC())
+	if err != nil {
+		t.doc.Seq = seq
+		return Reply{}, err
+	}
+	if !seen || !rec.equal(old) {
+		t.doc.Leases[checkout] = rec
+		if err := t.save(); err != nil {
+			if seen {
+				t.doc.Leases[checkout] = old
+			} else {
+				delete(t.doc.Leases, checkout)
+			}
+			t.doc.Seq = seq
+			return Reply{}, err
+		}
+	}
+	for _, ev := range events {
+		ev.Name = checkout
+		if err := t.log.Append(ev); err != nil {
+			return Reply{}, fmt.Errorf("log %s: %w", ev.Event, err)
+		}
+	}
+	view := t.view(checkout, rec)
+	r.Lease = &view
+	return r, nil
+}
+
+func (t *Table) view(checkout string, rec *record) Status {
+	s := Status{Checkout: checkout, State: rec.State, Queue: []WaiterView{}, BackupRef: rec.BackupRef}
+	if h := rec.Holder; h != nil {
+		s.Holder = &HolderView{Handle: h.Handle, Name: t.names(h.Handle), Since: stamp(h.Since), Deadline: stamp(h.Deadline), Why: h.Why}
+	}
+	for _, w := range rec.Queue {
+		s.Queue = append(s.Queue, WaiterView{Handle: w.Handle, Name: t.names(w.Handle), Urgent: w.Urgent, For: Short(w.For), Since: stamp(w.Since)})
+	}
+	return s
+}
+
+// rank orders the queue: the user, then urgent claims, then the rest.
+func (w waiter) rank() int {
+	switch {
+	case w.Handle == UserHolder:
+		return 0
+	case w.Urgent:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func (r *record) sortQueue() {
+	slices.SortStableFunc(r.Queue, func(a, b waiter) int {
+		return cmp.Or(cmp.Compare(a.rank(), b.rank()), cmp.Compare(a.Seq, b.Seq))
+	})
+}
+
+func (r *record) find(handle string) int {
+	return slices.IndexFunc(r.Queue, func(w waiter) bool { return w.Handle == handle })
+}
+
+func (r *record) clone() *record {
+	c := *r
+	if r.Holder != nil {
+		h := *r.Holder
+		c.Holder = &h
+	}
+	c.Queue = slices.Clone(r.Queue)
+	return &c
+}
+
+func (r *record) equal(o *record) bool {
+	a, _ := json.Marshal(r)
+	b, _ := json.Marshal(o)
+	return string(a) == string(b)
+}
+
+// Short renders d without trailing zero units: 40m, 1h, 1h30m.
+func Short(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
+}
+
+func stamp(ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.UTC().Format(time.RFC3339)
+}
+
+func claimDetail(d time.Duration, a Args) string {
+	parts := []string{"for " + Short(d)}
+	if a.Urgent {
+		parts = append(parts, "urgent")
+	}
+	if a.Why != "" {
+		parts = append(parts, "why: "+a.Why)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func grantDetail(rec *record) string {
+	detail := string(rec.State)
+	if !rec.Holder.Deadline.IsZero() {
+		detail += " until " + rec.Holder.Deadline.Format(time.RFC3339)
+	}
+	return detail
+}
+
+func bid(raw string) (time.Duration, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, errors.New("--for is required, such as --for 40m")
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("--for %q must be a positive duration, such as 40m", raw)
+	}
+	return d, nil
+}
+
+func checkCaller(caller string) error {
+	if caller == "" {
+		return errors.New("the lease needs a caller handle")
+	}
+	return nil
+}
+
+// checkKey accepts <machine>:<absolute path>.
+func checkKey(key string) error {
+	machine, path, ok := strings.Cut(key, ":")
+	if !ok || machine == "" || strings.Contains(machine, "/") || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("checkout %q must be <machine>:<absolute path>", key)
+	}
+	return nil
+}
+
+func load(dir string) (file, error) {
+	doc := file{Version: fileVersion, Leases: map[string]*record{}}
+	data, err := os.ReadFile(filepath.Join(dir, stateFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return doc, nil
+	}
+	if err != nil {
+		return file{}, fmt.Errorf("read leases: %w", err)
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return file{}, fmt.Errorf("decode leases: %w", err)
+	}
+	if doc.Version != fileVersion {
+		return file{}, fmt.Errorf("leases file version %d, want %d", doc.Version, fileVersion)
+	}
+	if doc.Leases == nil {
+		doc.Leases = map[string]*record{}
+	}
+	return doc, nil
+}
+
+// save writes the table to a temp file and renames it into place, so a
+// crash never leaves a half-written file. The caller holds t.mu.
+func (t *Table) save() error {
+	data, err := json.MarshalIndent(t.doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode leases: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(t.dir, 0o755); err != nil {
+		return fmt.Errorf("create state dir: %w", err)
+	}
+	tmp, err := os.CreateTemp(t.dir, ".leases-*.tmp")
+	if err != nil {
+		return fmt.Errorf("write leases: %w", err)
+	}
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if werr == nil && cerr == nil {
+		if err := os.Rename(tmp.Name(), filepath.Join(t.dir, stateFile)); err != nil {
+			_ = os.Remove(tmp.Name())
+			return fmt.Errorf("replace leases: %w", err)
+		}
+		return nil
+	}
+	_ = os.Remove(tmp.Name())
+	return fmt.Errorf("write leases: %w", errors.Join(werr, cerr))
+}
