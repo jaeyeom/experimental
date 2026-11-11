@@ -18,7 +18,9 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 	"golang.org/x/sys/unix"
 )
 
@@ -66,9 +68,26 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
   wake_timeout = "60s"    how long a hibernated agent relaunched on
                           delivery or by 'agentbus wake' has to become idle
                           or done in its pane (default: 60s)
+  hibernate_policy = "off"
+                          "on" hibernates idle agents on this machine while
+                          its available memory is low; "dry-run" only logs
+                          policy_would_hibernate (default: off)
+  hibernate_below = "1.5GiB"
+                          available memory under which the policy acts;
+                          required for the policy to run
+  hibernate_target = "3GiB"
+                          available memory at which it stops (default:
+                          hibernate_below)
+  hibernate_min_idle = "30m"
+                          least time an agent must have been idle (default: 30m)
+  hibernate_interval = "1m"
+                          how often the available memory is read (default: 1m)
+  hibernate_exempt = ["ops/*"]
+                          names, handles, or globs never hibernated
 
 At start agentbusd prints the effective lease_takeover=<mode> to stderr
-and records it in the event log's start event.
+and records it in the event log's start event. It also prints the
+effective hibernate_policy=<mode> and its thresholds.
 
 When decide is on PATH, a checkout that needs 'agentbus lease adopt' after a
 takeover, and a queued 'agentbus lease pause' that is granted, are put in the
@@ -126,6 +145,10 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		HubCaller:     herdr.RemoteCaller,
 		LeaseTiming:   leaseTiming(cfg, stderr),
 		Notify:        decideNotifier(exec.LookPath, runQuiet, stderr),
+		// The policy runs only in this daemon, so only on a machine that
+		// is not in hub mode: it measures and stops this machine's agents.
+		HibernatePolicy: hibernatePolicy(cfg, stderr),
+		PolicyInterval:  cfg.Policy().Interval,
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
@@ -146,6 +169,38 @@ func leaseTiming(cfg config.Config, stderr io.Writer) lease.Timing {
 		Repeat:   cfg.LeaseCheckinRepeat,
 		Grace:    cfg.LeaseIdleGrace,
 		Takeover: lease.TakeoverMode(mode),
+	}
+}
+
+// hibernatePolicy makes the memory-pressure policy, or is nil when
+// hibernate_policy is off. It prints the effective mode to stderr. The
+// policy reads this machine's memory and stops only this machine's
+// agents, with the same checks as agentbus hibernate.
+func hibernatePolicy(cfg config.Config, stderr io.Writer) func(hibernate.Bus) *hibernate.Policy {
+	p := cfg.Policy()
+	if p.Mode == hibernate.PolicyOff {
+		fmt.Fprintf(stderr, "agentbusd: hibernate_policy=off\n")
+		return nil
+	}
+	fmt.Fprintf(stderr, "agentbusd: hibernate_policy=%s below=%s target=%s min_idle=%s interval=%s\n",
+		p.Mode, memreport.HumanBytes(p.Below), memreport.HumanBytes(p.Target), p.MinIdle, p.Interval)
+	return func(bus hibernate.Bus) *hibernate.Policy {
+		return &hibernate.Policy{
+			Mode: p.Mode, Below: p.Below, Target: p.Target, MinIdle: p.MinIdle,
+			Memory: procinfo.LocalMemory(),
+			Bus:    bus,
+			Hibernator: &hibernate.Hibernator{
+				Panes: &herdr.Adapter{},
+				Bus:   bus,
+				Procs: func(ctx context.Context) ([]procinfo.Process, error) {
+					return procinfo.LocalTable().List(ctx) //nolint:wrapcheck // the hibernator names the process table
+				},
+				Cwd:    procinfo.LocalCwd,
+				Clock:  hibernate.RealClock{},
+				Exempt: cfg.HibernateExempt,
+				Self:   os.Getpid(),
+			},
+		}
 	}
 }
 

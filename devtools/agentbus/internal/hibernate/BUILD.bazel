@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "hibernate.go",
+        "policy.go",
         "record.go",
         "wake.go",
     ],
@@ -12,6 +13,7 @@ go_library(
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
+        "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/memreport:go_default_library",
         "//devtools/pkg/hubcall:go_default_library",
@@ -23,12 +25,14 @@ go_test(
     name = "go_default_test",
     srcs = [
         "hibernate_test.go",
+        "policy_test.go",
         "wake_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
+        "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/pkg/procinfo:go_default_library",
     ],

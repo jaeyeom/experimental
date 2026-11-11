@@ -2,6 +2,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -59,6 +60,12 @@ type Config struct {
 	// to it or `agentbus wake` names it. Nil holds such messages as
 	// hibernated.
 	Waker mailbox.Waker
+	// HibernatePolicy, when not nil, makes the memory-pressure
+	// hibernation policy from the daemon's own hibernate ops. Serve runs
+	// it on PolicyTicks, or every PolicyInterval.
+	HibernatePolicy func(hibernate.Bus) *hibernate.Policy
+	PolicyInterval  time.Duration
+	PolicyTicks     <-chan time.Time
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -221,6 +228,20 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 		defer watching.Done()
 		srv.watchLeases(watchCtx, ticks)
 	}()
+	if cfg.HibernatePolicy != nil {
+		pol := srv.newPolicy(cfg.HibernatePolicy)
+		policyTicks := cfg.PolicyTicks
+		if policyTicks == nil {
+			ticker := time.NewTicker(cmp.Or(cfg.PolicyInterval, time.Minute))
+			defer ticker.Stop()
+			policyTicks = ticker.C
+		}
+		watching.Add(1)
+		go func() {
+			defer watching.Done()
+			pol.Watch(watchCtx, policyTicks)
+		}()
+	}
 	return srv.serve(ctx, ln, hubLn)
 }
 

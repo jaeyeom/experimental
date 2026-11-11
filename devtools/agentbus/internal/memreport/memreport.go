@@ -52,6 +52,18 @@ type Input struct {
 	Available *int64
 	Machine   string
 	Notes     []string
+	// Policy is the hibernation policy for the footer, or nil to leave
+	// it out.
+	Policy *Policy
+}
+
+// Policy is the memory-pressure hibernation policy of this machine.
+type Policy struct {
+	// Mode is off, dry-run, or on. The rest is left out when off.
+	Mode           string `json:"mode"`
+	BelowBytes     int64  `json:"below_bytes,omitempty"`      //nolint:tagliatelle // mem JSON shape
+	TargetBytes    int64  `json:"target_bytes,omitempty"`     //nolint:tagliatelle // mem JSON shape
+	MinIdleSeconds int64  `json:"min_idle_seconds,omitempty"` //nolint:tagliatelle // mem JSON shape
 }
 
 // Job is one long-lived child of an agent. AgeSeconds is -1 when
@@ -94,6 +106,7 @@ type Report struct {
 	Machine        string         `json:"machine"`
 	States         map[string]int `json:"states"`
 	Notes          []string       `json:"notes,omitempty"`
+	Policy         *Policy        `json:"hibernate_policy,omitempty"` //nolint:tagliatelle // mem JSON shape
 	bus            bool
 }
 
@@ -105,6 +118,7 @@ func Build(in Input) Report {
 		Machine:        in.Machine,
 		States:         map[string]int{},
 		Notes:          in.Notes,
+		Policy:         in.Policy,
 		bus:            in.Bus != nil,
 	}
 	for _, a := range in.Agents {
@@ -216,7 +230,8 @@ func (r Report) WriteText(w io.Writer) error {
 	return nil
 }
 
-// footer is the total, the count by state, and the available memory.
+// footer is the total, the count by state, the available memory, and
+// the hibernation policy.
 func (r Report) footer() string {
 	states := make([]string, 0, len(r.States))
 	for _, s := range slices.Sorted(maps.Keys(r.States)) {
@@ -231,9 +246,22 @@ func (r Report) footer() string {
 		line += " (" + strings.Join(states, ", ") + ")"
 	}
 	if r.AvailableBytes == nil {
-		return line + "; available unknown"
+		line += "; available unknown"
+	} else {
+		line += "; " + HumanBytes(*r.AvailableBytes) + " available"
 	}
-	return line + "; " + HumanBytes(*r.AvailableBytes) + " available"
+	return line + r.Policy.footer()
+}
+
+func (p *Policy) footer() string {
+	switch {
+	case p == nil:
+		return ""
+	case p.Mode == "off":
+		return "; hibernate policy off"
+	}
+	return fmt.Sprintf("; hibernate policy %s (below %s, target %s, min idle %s)",
+		p.Mode, HumanBytes(p.BelowBytes), HumanBytes(p.TargetBytes), time.Duration(p.MinIdleSeconds)*time.Second)
 }
 
 func dash(s string) string {

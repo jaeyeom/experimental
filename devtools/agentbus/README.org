@@ -692,7 +692,7 @@ pane is not listed.
 PANE   TAB      NAMES  STATE    SINCE    RSS        JOBS  LEASE
 w1:p1  inbox    ops/x  idle     unknown  471.0 MiB  1     queued local:/src/repo
 w1:p2  build    -      working  unknown  400.0 MiB  0     holds local:/src/repo
-total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available
+total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available; hibernate policy off
 #+END_EXAMPLE
 
 | Column | Value |
@@ -705,13 +705,18 @@ total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available
 | ~JOBS~ | Long-lived background jobs: children of a foreground process that have run at least 10s (an unknown age counts as old) and are not a known helper such as an MCP or language server, a status-line command, or the Claude Code sandbox's socat bridges. This is prsync's ~background-job~ rule, shared in ~devtools/pkg/procinfo~. |
 | ~LEASE~ | The checkouts the handle holds or is queued for. |
 
-The footer has the total agent RSS, the agent count by state, and the
+The footer has the total agent RSS, the agent count by state, the
 available memory: ~MemAvailable~ from ~/proc/meminfo~ on Linux, and free
-plus inactive plus purgeable pages from ~vm_stat~ on macOS.
+plus inactive plus purgeable pages from ~vm_stat~ on macOS, and the
+[[*Hibernate under memory pressure][hibernation policy]] with its
+thresholds, such as ~hibernate policy on (below 1.5 GiB, target 3.0 GiB,
+min idle 30m0s)~.
 
 ~--json~ prints one object with ~agents~, ~total_rss_bytes~,
 ~available_bytes~, ~machine~ (the ~machine~ config label, else the host
-name), ~states~ (count by state), and ~notes~. Each agent has ~pane~,
+name), ~states~ (count by state), ~notes~, and ~hibernate_policy~ (~mode~,
+and unless it is ~off~, ~below_bytes~, ~target_bytes~, and
+~min_idle_seconds~). Each agent has ~pane~,
 ~tab~, ~handle~, ~names~, ~state~, ~idle_since~, ~rss_bytes~, ~jobs~
 (each with ~pid~, ~age_seconds~, -1 when unknown, and ~command~),
 ~leases~ (each with ~checkout~ and ~role~, ~holder~ or ~queued~),
@@ -851,6 +856,60 @@ In hub mode the record lives on the hub, and so does the wake: the
 hub's daemon reaches the pane with ~herdr --machine <machine>~, as it
 does to deliver, so ~agentbus wake~ runs on the hub like ~send~. Any
 caller may wake any agent, since a message would wake it anyway.
+
+* Hibernate under memory pressure
+
+The daemon can hibernate idle agents by itself when the machine runs
+low on memory. It is off unless the config turns it on:
+
+#+begin_src toml
+hibernate_policy = "dry-run"  # "off" (default), "dry-run", or "on"
+hibernate_below = "1.5GiB"    # act when available memory is under this
+hibernate_target = "3GiB"     # stop once it is back at this (default: hibernate_below)
+hibernate_min_idle = "30m"    # least idle time of an agent it stops (default: 30m)
+hibernate_interval = "1m"     # how often it reads available memory (default: 1m)
+hibernate_exempt = ["ops/*"]  # never stopped, as for agentbus hibernate
+#+end_src
+
+Every ~hibernate_interval~ the daemon reads the available memory, as
+~agentbus mem~ does. When it is under ~hibernate_below~, it takes this
+machine's agents it has seen ~idle~ or ~done~ for at least
+~hibernate_min_idle~ and that have no hibernation record, longest idle
+first, and hibernates them one at a time, each through every check of
+[[*Hibernate idle agents]]. A refused agent is skipped quietly. After
+each stop it reads the available memory again, and stops once it is at
+or above ~hibernate_target~ or no agent is left. With ~"dry-run"~ it
+stops nothing and counts each agent's RSS as freed instead.
+
+Sizes are a number and ~B~, ~KiB~, ~MiB~, ~GiB~, or ~TiB~, such as
+~"1.5GiB"~ or ~"512 MiB"~. A ~hibernate_policy~ other than the three
+values, or one without ~hibernate_below~, is off with a warning on
+agentbusd's stderr, which also prints the effective
+~hibernate_policy=<mode>~ at start. A ~hibernate_target~ under
+~hibernate_below~ is a config error.
+
+| Event | Detail |
+|-------+--------|
+| ~policy_hibernate~ | An agent it hibernated: its idle time, RSS, and the available memory before. ~agent_hibernated~ follows as for ~agentbus hibernate~. |
+| ~policy_would_hibernate~ | The same with ~"dry-run"~, once per agent per low episode. |
+| ~policy_no_candidate~ | Memory is low and no agent could be hibernated: once per low episode. |
+
+A low episode lasts from a reading under ~hibernate_below~ to the next
+one at or above it.
+
+A woken agent is not hibernated again right away: the daemon's idle
+time for it starts over when it comes back to its pane, so it must be
+idle ~hibernate_min_idle~ again. As for ~--idle-over~, the idle time is
+kept in memory, so after a daemon restart every agent counts as idle
+only from then.
+
+The policy runs in agentbusd and acts only on the machine it runs on:
+it reads that machine's memory and that machine's herdr panes
+(~herdr:local/...~), with the same hibernator as ~agentbus hibernate~,
+calling the daemon's hibernate ops in process. In hub mode agentbusd
+runs only on the hub, so the policy covers the hub machine's own agents
+and never another machine's; on a machine with ~hub~ set it does not
+run, and ~agentbus mem~ there shows it off with a note.
 
 * Sandbox
 

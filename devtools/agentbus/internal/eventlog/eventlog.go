@@ -82,6 +82,15 @@ const (
 	// EventWakeSkipped is a wake not tried because the pane runs
 	// something other than its shell; the record was dropped.
 	EventWakeSkipped = "agent_wake_skipped"
+	// EventPolicyHibernate is an agent the memory-pressure policy
+	// hibernated.
+	EventPolicyHibernate = "policy_hibernate"
+	// EventPolicyWouldHibernate is one it would have hibernated with
+	// hibernate_policy = "dry-run".
+	EventPolicyWouldHibernate = "policy_would_hibernate"
+	// EventPolicyNoCandidate is low memory with no agent to hibernate,
+	// once per low episode.
+	EventPolicyNoCandidate = "policy_no_candidate"
 )
 
 // timeLayout is RFC 3339 with millisecond precision.
@@ -412,7 +421,8 @@ func knownEvent(name string) bool {
 		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver,
 		EventLeasePause, EventLeaseResume, EventLeaseWith, EventLeaseUnshare,
 		EventLeaseNotifyWaiting,
-		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped:
+		EventHibernated, EventHibernateRefused, EventWake, EventWakeFailed, EventWakeSkipped,
+		EventPolicyHibernate, EventPolicyWouldHibernate, EventPolicyNoCandidate:
 		return true
 	default:
 		return false

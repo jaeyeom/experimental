@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 )
 
 func TestLeaseTimingTakeoverMode(t *testing.T) {
@@ -38,6 +40,43 @@ func TestLeaseTimingTakeoverMode(t *testing.T) {
 		if tt.warn == "" && strings.Contains(stderr.String(), "config:") {
 			t.Errorf("%q: unexpected warning in %q", tt.text, stderr.String())
 		}
+	}
+}
+
+func TestHibernatePolicyIsOffByDefault(t *testing.T) {
+	var stderr bytes.Buffer
+	if hibernatePolicy(config.Config{}, &stderr) != nil {
+		t.Fatal("no hibernate_policy key made a policy")
+	}
+	if !strings.Contains(stderr.String(), "agentbusd: hibernate_policy=off\n") {
+		t.Fatalf("stderr = %q, want the effective mode", stderr.String())
+	}
+}
+
+func TestHibernatePolicyFromConfig(t *testing.T) {
+	cfg, err := config.Parse(`hibernate_policy = "dry-run"
+hibernate_below = "1GiB"
+hibernate_target = "2GiB"
+hibernate_exempt = ["ops/*"]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	build := hibernatePolicy(cfg, &stderr)
+	if build == nil {
+		t.Fatal("dry-run made no policy")
+	}
+	if !strings.Contains(stderr.String(), "agentbusd: hibernate_policy=dry-run below=1.0 GiB target=2.0 GiB min_idle=30m0s interval=1m0s\n") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	pol := build(nil)
+	if pol.Mode != hibernate.PolicyDryRun || pol.Below != 1<<30 || pol.Target != 2<<30 || pol.MinIdle != 30*time.Minute || pol.Memory == nil {
+		t.Fatalf("policy = %+v", pol)
+	}
+	h, ok := pol.Hibernator.(*hibernate.Hibernator)
+	if !ok || h.Machine != "" || len(h.Exempt) != 1 || h.Exempt[0] != "ops/*" || h.Procs == nil || h.Panes == nil {
+		t.Fatalf("hibernator = %+v, want the local one with hibernate_exempt", pol.Hibernator)
 	}
 }
 
