@@ -477,13 +477,22 @@ func (s *server) dispatchMessage(req Request, pid int) Response {
 	}
 }
 
-// lease handles the lease-* ops. The caller is the stamped handle, as
-// whoami resolves it.
+// lease handles the lease-* ops, each only on a checkout sameMachine
+// allows.
 func (s *server) lease(req Request) Response {
 	var args lease.Args
 	if req.Lease != nil {
 		args = *req.Lease
 	}
+	if err := s.sameMachine(req, args.Checkout); err != nil {
+		return Response{Error: err.Error()}
+	}
+	return s.leaseOp(req, args)
+}
+
+// leaseOp runs one lease-* op. The caller is the stamped handle, as
+// whoami resolves it.
+func (s *server) leaseOp(req Request, args lease.Args) Response {
 	switch req.Op {
 	case "lease-status":
 		r, err := s.leases.Status(args)
@@ -520,6 +529,40 @@ func (s *server) lease(req Request) Response {
 	}
 	r.Caller = caller
 	return leaseResponse(r, err)
+}
+
+// sameMachine refuses a lease change by a caller on another machine to
+// a checkout keyed to a machine other than its own: such a caller runs
+// the git and process steps on its own machine only. The user and
+// callers on this machine keep their rules. Status and check change
+// nothing, so they are not refused.
+func (s *server) sameMachine(req Request, checkout string) error {
+	if req.Op == "lease-status" || req.Op == "lease-check" {
+		return nil
+	}
+	caller, remote := s.remoteCaller(req.Env)
+	if !remote {
+		return nil
+	}
+	// A handle is <adapter>:<machine>/..., a checkout key <machine>:<path>.
+	_, rest, _ := strings.Cut(caller, ":")
+	machine, _, _ := strings.Cut(rest, "/")
+	keyMachine, _, _ := strings.Cut(checkout, ":")
+	if machine == "" || keyMachine != machine {
+		return fmt.Errorf("checkout %s is not on machine %s; %s may change leases only on its own machine's checkouts", checkout, machine, caller)
+	}
+	return nil
+}
+
+// remoteCaller returns the handle of a caller on another machine: the
+// hub socket's forwarded caller, or AGENTBUS_AS_HANDLE from `agentbus
+// lease forward`, which identifying the caller trusts only over ssh.
+func (s *server) remoteCaller(env []string) (string, bool) {
+	if caller, ok := adapter.ForwardedCaller(s.ctx); ok {
+		return caller, true
+	}
+	caller := envValue(env, "AGENTBUS_AS_HANDLE")
+	return caller, caller != ""
 }
 
 // releaseLease ends caller's hold, grants the next waiter whose pane is
@@ -781,8 +824,7 @@ func (s *server) resumeLease(args lease.Args) (lease.Reply, error) {
 // caller on another machine has resolved its own pane ids already, so
 // its leftover targets are not looked up as this machine's panes.
 func (s *server) withHandles(env []string, targets []string) ([]string, error) {
-	_, forwarded := adapter.ForwardedCaller(s.ctx)
-	remote := forwarded || envValue(env, "AGENTBUS_AS_HANDLE") != ""
+	_, remote := s.remoteCaller(env)
 	out := make([]string, 0, len(targets))
 	for _, target := range targets {
 		if handle, err := s.reg.Resolve(target); err == nil {
