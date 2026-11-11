@@ -137,7 +137,7 @@ func TestLeaseResumeAsIsLeavesTheBranchAndGrantsTheNextWaiter(t *testing.T) {
 	w.mustLease(t, "p2", "claim", "--for", "20m")
 	w.git(t, w.repo, "switch", "-q", "-c", "feature")
 	out := w.mustLease(t, "p5", "resume", "--as-is")
-	if !strings.Contains(out, "resumed local:"+w.repo+" on feature") || !strings.Contains(out, "granted to "+leaseBob) {
+	if !strings.Contains(out, "kept feature as is; no switch or pull\n") || !strings.Contains(out, "resumed; granted to "+leaseBob) || strings.Contains(out, "pulled") {
 		t.Fatalf("resume --as-is = %q", out)
 	}
 	if branch := w.git(t, w.repo, "branch", "--show-current"); branch != "feature" {
@@ -166,7 +166,7 @@ func TestLeaseResumeSwitchesToTheDefaultBranch(t *testing.T) {
 	w.mustLease(t, "p5", "pause")
 	w.git(t, w.repo, "switch", "-q", "-c", "feature")
 	out := w.mustLease(t, "p5", "resume")
-	if !strings.Contains(out, "on main") || !strings.Contains(out, "the checkout is free") {
+	if !strings.Contains(out, "switched feature -> main\npulled: already up to date\nresumed; checkout free\n") {
 		t.Fatalf("resume = %q", out)
 	}
 	w.assertCleanOnMain(t)

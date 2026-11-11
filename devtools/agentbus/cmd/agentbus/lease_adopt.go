@@ -52,13 +52,10 @@ func leaseAdopt(ctx context.Context, f leaseFlags, largs lease.Args, env []strin
 		fmt.Fprintf(stderr, "agentbus lease adopt: %s\n%s\n", err, stays)
 		return 1
 	}
-	branch, err := checkout.SwitchDefault(root, env)
+	steps, err := switchAndPull(root, env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus lease adopt: %s\n%s\n", err, stays)
 		return 1
-	}
-	if err := checkout.Pull(root, env); err != nil {
-		fmt.Fprintf(stderr, "agentbus lease adopt: pull failed (adopted anyway): %s\n", err)
 	}
 	largs.Backups, largs.Forced = saved, forced
 	r, ok := call("lease-adopt")
@@ -66,16 +63,20 @@ func leaseAdopt(ctx context.Context, f leaseFlags, largs lease.Args, env []strin
 		return 1
 	}
 	if f.jsonOut {
-		writeJSON(stdout, r)
+		writeJSON(stdout, struct {
+			*lease.Reply
+			gitSteps
+		}{r, steps})
 		return 0
 	}
-	fmt.Fprintf(stdout, "adopted %s on %s\n", largs.Checkout, branch)
+	fmt.Fprintf(stdout, "adopted %s on %s\n", largs.Checkout, steps.ToBranch)
 	for _, ref := range saved {
 		fmt.Fprintf(stdout, "saved leftovers to %s\n", ref)
 	}
 	if len(saved) == 0 {
 		fmt.Fprintln(stdout, "nothing to save; the tree was clean")
 	}
+	steps.print(stdout)
 	return 0
 }
 

@@ -72,7 +72,14 @@ release  holder only: refuse a dirty tree (modified, staged, or
          pull --rebase --prune; a failed pull is reported and the
          release goes ahead. The first waiter whose pane is not gone
          is granted and woken with an agentbus message; gone waiters
-         are dropped. With nobody waiting the checkout is free.
+         are dropped. With nobody waiting the checkout is free. It
+         prints one line each for the switch ("switched <from> ->
+         <to>" or "already on <to>"), the pull ("pulled: fast-forward
+         <sha>..<sha>", "pulled: already up to date" or "pull failed:
+         <error>") and who has the checkout now; --json adds
+         from_branch, to_branch, pulled_from, pulled_to, pull_error
+         and granted_to. resume prints the same; adopt prints the
+         switch and pull lines after its backup lines.
 adopt [--force]
          the needs-adopt holder, or the user from a pane with no agent
          or outside herdr: refuse while a process other than a shell,

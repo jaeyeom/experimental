@@ -85,40 +85,117 @@ type handOff struct {
 // goes ahead.
 func handBack(h handOff, call func(op string) (*lease.Reply, bool), f leaseFlags, largs *lease.Args, env []string, stdout, stderr io.Writer) int {
 	root := checkoutRoot(largs.Checkout)
-	var branch string
+	var steps gitSteps
 	var err error
 	if h.asIs {
-		branch, err = checkout.Branch(root, env)
+		steps, err = stayAsIs(root, env)
 	} else {
-		branch, err = checkout.SwitchDefault(root, env)
+		steps, err = switchAndPull(root, env)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus lease %s: %s\nthe lease is still yours\n", h.sub, err)
 		call(h.abortOp)
 		return 1
 	}
-	if !h.asIs {
-		if err := checkout.Pull(root, env); err != nil {
-			largs.PullError = err.Error()
-			fmt.Fprintf(stderr, "agentbus lease %s: pull failed (%s anyway): %s\n", h.sub, h.verb, err)
-		}
-	}
+	largs.PullError = steps.PullErr
 	r, ok := call(h.doneOp)
 	if !ok {
 		return 1
 	}
 	if f.jsonOut {
-		writeJSON(stdout, r)
+		writeJSON(stdout, struct {
+			*lease.Reply
+			gitSteps
+			GrantedTo string `json:"granted_to"` //nolint:tagliatelle // matches the step fields
+		}{r, steps, r.Granted})
 		return 0
 	}
-	fmt.Fprintf(stdout, "%s %s on %s\n", h.verb, largs.Checkout, branch)
+	steps.print(stdout)
 	for _, handle := range r.Skipped {
 		fmt.Fprintf(stdout, "skipped %s (pane gone)\n", handle)
 	}
 	if r.Granted != "" {
-		fmt.Fprintf(stdout, "granted to %s\n", who(r.Granted, r.Lease.Holder.Name))
+		fmt.Fprintf(stdout, "%s; granted to %s\n", h.verb, who(r.Granted, r.Lease.Holder.Name))
 	} else {
-		fmt.Fprintln(stdout, "the checkout is free")
+		fmt.Fprintf(stdout, "%s; checkout free\n", h.verb)
 	}
 	return 0
+}
+
+// gitSteps is what the switch to the default branch and the pull did,
+// for the step lines and --json. The pulled SHAs are short and equal
+// when the pull found nothing new; both are empty when it failed.
+//
+//nolint:tagliatelle // snake_case like the stable status shape
+type gitSteps struct {
+	FromBranch string `json:"from_branch"`
+	ToBranch   string `json:"to_branch"`
+	PulledFrom string `json:"pulled_from,omitempty"`
+	PulledTo   string `json:"pulled_to,omitempty"`
+	PullErr    string `json:"pull_error,omitempty"`
+	// asIs: resume --as-is skipped the switch and the pull.
+	asIs bool
+	// rebased: the pull replayed local commits, so it was no fast-forward.
+	rebased bool
+}
+
+// switchAndPull switches root to the default branch and pulls. A failed
+// switch is an error; a failed pull is recorded in the steps.
+func switchAndPull(root string, env []string) (gitSteps, error) {
+	from, err := checkout.Branch(root, env)
+	if err != nil {
+		return gitSteps{}, fmt.Errorf("read the current branch: %w", err)
+	}
+	to, err := checkout.SwitchDefault(root, env)
+	if err != nil {
+		return gitSteps{}, fmt.Errorf("switch to the default branch: %w", err)
+	}
+	s := gitSteps{FromBranch: from, ToBranch: to}
+	before, err := checkout.Head(root, env)
+	if err == nil {
+		err = checkout.Pull(root, env)
+	}
+	var after string
+	if err == nil {
+		after, err = checkout.Head(root, env)
+	}
+	if err != nil {
+		s.PullErr = err.Error()
+		return s, nil
+	}
+	s.PulledFrom, s.PulledTo = before, after
+	s.rebased = before != after && !checkout.IsAncestor(root, before, after, env)
+	return s, nil
+}
+
+// stayAsIs records the branch resume --as-is leaves checked out.
+func stayAsIs(root string, env []string) (gitSteps, error) {
+	branch, err := checkout.Branch(root, env)
+	if err != nil {
+		return gitSteps{}, fmt.Errorf("read the current branch: %w", err)
+	}
+	return gitSteps{FromBranch: branch, ToBranch: branch, asIs: true}, nil
+}
+
+// print writes one line for the switch and one for the pull.
+func (s gitSteps) print(w io.Writer) {
+	switch {
+	case s.asIs:
+		fmt.Fprintf(w, "kept %s as is; no switch or pull\n", s.FromBranch)
+		return
+	case s.FromBranch == s.ToBranch:
+		fmt.Fprintf(w, "already on %s\n", s.ToBranch)
+	default:
+		fmt.Fprintf(w, "switched %s -> %s\n", s.FromBranch, s.ToBranch)
+	}
+	switch {
+	case s.PullErr != "":
+		fmt.Fprintf(w, "pull failed: %s\n", s.PullErr)
+	case s.PulledFrom == s.PulledTo:
+		fmt.Fprintln(w, "pulled: already up to date")
+	case s.rebased:
+		fmt.Fprintf(w, "pulled: rebased %s -> %s\n", s.PulledFrom, s.PulledTo)
+	default:
+		fmt.Fprintf(w, "pulled: fast-forward %s..%s\n", s.PulledFrom, s.PulledTo)
+	}
 }

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,7 +67,7 @@ func TestLeaseReleaseSwitchesPullsAndWakesTheNextWaiter(t *testing.T) {
 	w.pushUpstream(t, "up.txt")
 
 	out := w.mustLease(t, "p1", "release")
-	for _, want := range []string{"released local:" + w.repo, "on main", "granted to " + leaseBob} {
+	for _, want := range []string{"switched feature -> main\n", "pulled: ", "released; granted to " + leaseBob} {
 		if !strings.Contains(out, want) {
 			t.Errorf("release output is missing %q:\n%s", want, out)
 		}
@@ -147,7 +149,7 @@ func TestLeaseReleaseStillReleasesWhenThePullFails(t *testing.T) {
 	}
 
 	code, stdout, stderr := w.lease(t, "p1", "release")
-	if code != 0 || !strings.Contains(stderr, "pull failed") || !strings.Contains(stdout, "granted to "+leaseBob) {
+	if code != 0 || !strings.Contains(stdout, "already on main\npull failed: ") || !strings.Contains(stdout, "released; granted to "+leaseBob) {
 		t.Fatalf("release with a failed pull = %d\nstdout %s\nstderr %s", code, stdout, stderr)
 	}
 	if status := w.mustLease(t, "p1", "status"); !strings.Contains(status, "holder: "+leaseBob) {
@@ -221,5 +223,108 @@ func TestLeaseReleaseWithoutOriginHeadKeepsTheHold(t *testing.T) {
 	}
 	if status := w.mustLease(t, "p1", "status"); !strings.Contains(status, ": held") {
 		t.Fatalf("status after a failed switch:\n%s", status)
+	}
+}
+
+// releaseReport is the part of release --json that reports the steps.
+//
+//nolint:tagliatelle // snake_case like gitSteps
+type releaseReport struct {
+	Result     string `json:"result"`
+	FromBranch string `json:"from_branch"`
+	ToBranch   string `json:"to_branch"`
+	PulledFrom string `json:"pulled_from"`
+	PulledTo   string `json:"pulled_to"`
+	PullError  string `json:"pull_error"`
+	GrantedTo  string `json:"granted_to"`
+}
+
+func (w *leaseWorld) releaseJSON(t *testing.T, pane string, args ...string) releaseReport {
+	t.Helper()
+	out := w.mustLease(t, pane, append(args, "--json")...)
+	var r releaseReport
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("%v --json = %s: %v", args, out, err)
+	}
+	return r
+}
+
+func TestLeaseReleaseReportsTheSwitchAndTheFastForward(t *testing.T) {
+	w := newLeaseWorld(t)
+	stop := startDaemon(t, w.dirs, w.cfg)
+	defer stop()
+
+	for _, asJSON := range []bool{false, true} {
+		w.mustLease(t, "p1", "claim", "--for", "40m")
+		w.git(t, w.repo, "switch", "-q", "-C", "feature/x")
+		before := w.git(t, w.repo, "rev-parse", "--short", "main")
+		w.pushUpstream(t, "up-"+strconv.FormatBool(asJSON)+".txt")
+		w.git(t, w.repo, "fetch", "-q", "origin")
+		after := w.git(t, w.repo, "rev-parse", "--short", "origin/main")
+
+		if !asJSON {
+			out := w.mustLease(t, "p1", "release")
+			want := "switched feature/x -> main\npulled: fast-forward " + before + ".." + after + "\nreleased; checkout free\n"
+			if out != want {
+				t.Fatalf("release =\n%s\nwant\n%s", out, want)
+			}
+			continue
+		}
+		r := w.releaseJSON(t, "p1", "release")
+		want := releaseReport{Result: "released", FromBranch: "feature/x", ToBranch: "main", PulledFrom: before, PulledTo: after}
+		if r != want {
+			t.Fatalf("release --json = %+v, want %+v", r, want)
+		}
+	}
+}
+
+func TestLeaseReleaseOnTheDefaultBranchUpToDate(t *testing.T) {
+	w := newLeaseWorld(t)
+	stop := startDaemon(t, w.dirs, w.cfg)
+	defer stop()
+	head := w.git(t, w.repo, "rev-parse", "--short", "HEAD")
+
+	w.mustLease(t, "p1", "claim", "--for", "40m")
+	out := w.mustLease(t, "p1", "release")
+	if want := "already on main\npulled: already up to date\nreleased; checkout free\n"; out != want {
+		t.Fatalf("release =\n%s\nwant\n%s", out, want)
+	}
+
+	w.mustLease(t, "p1", "claim", "--for", "40m")
+	w.mustLease(t, "p2", "claim", "--for", "20m")
+	r := w.releaseJSON(t, "p1", "release")
+	want := releaseReport{Result: "released", FromBranch: "main", ToBranch: "main", PulledFrom: head, PulledTo: head, GrantedTo: leaseBob}
+	if r != want {
+		t.Fatalf("release --json = %+v, want %+v", r, want)
+	}
+}
+
+func TestLeaseReleaseFromADetachedHead(t *testing.T) {
+	w := newLeaseWorld(t)
+	stop := startDaemon(t, w.dirs, w.cfg)
+	defer stop()
+	w.mustLease(t, "p1", "claim", "--for", "40m")
+	w.git(t, w.repo, "switch", "-q", "--detach")
+	head := w.git(t, w.repo, "rev-parse", "--short", "HEAD")
+
+	out := w.mustLease(t, "p1", "release")
+	if !strings.HasPrefix(out, "switched (detached at "+head+") -> main\n") {
+		t.Fatalf("release = %q", out)
+	}
+}
+
+func TestLeaseReleaseJSONCarriesThePullError(t *testing.T) {
+	w := newLeaseWorld(t)
+	stop := startDaemon(t, w.dirs, w.cfg)
+	defer stop()
+	w.mustLease(t, "p1", "claim", "--for", "40m")
+	w.mustLease(t, "p2", "claim", "--for", "20m")
+	if err := os.Rename(w.origin, w.origin+".unreachable"); err != nil {
+		t.Fatal(err)
+	}
+
+	r := w.releaseJSON(t, "p1", "release")
+	if r.Result != "released" || r.PullError == "" || r.PulledFrom != "" || r.PulledTo != "" || r.GrantedTo != leaseBob {
+		t.Fatalf("release --json with a failed pull = %+v", r)
 	}
 }

@@ -112,3 +112,29 @@ func TestPullAbortsAConflictedRebase(t *testing.T) {
 		t.Fatalf("tree after a failed pull = %q", tree.Reason())
 	}
 }
+
+func TestIsAncestor(t *testing.T) {
+	env := gitEnv(t)
+	clone, origin := newClone(t, env)
+	before, err := Head(clone, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushUpstream(t, env, origin, "b.txt")
+	if err := Pull(clone, env); err != nil {
+		t.Fatal(err)
+	}
+	after, err := Head(clone, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatalf("pull did not move HEAD from %s", before)
+	}
+	if !IsAncestor(clone, before, after, env) {
+		t.Errorf("%s is not an ancestor of %s", before, after)
+	}
+	if IsAncestor(clone, after, before, env) {
+		t.Errorf("%s is an ancestor of %s", after, before)
+	}
+}

@@ -53,7 +53,11 @@ func TestBranch(t *testing.T) {
 		t.Fatalf("Branch = %q, %v", got, err)
 	}
 	gitIn(t, env, repo, "switch", "-q", "--detach")
-	if got, err := Branch(repo, env); err != nil || got != "detached HEAD" {
+	head, err := Head(repo, env)
+	if err != nil || len(head) < 7 {
+		t.Fatalf("Head = %q, %v", head, err)
+	}
+	if got, err := Branch(repo, env); err != nil || got != "(detached at "+head+")" {
 		t.Fatalf("Branch detached = %q, %v", got, err)
 	}
 }
