@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -362,11 +363,13 @@ func formatReviewRequests(reqs []gh.ReviewReq) []string {
 // cfg.Machines. A machine that cannot be listed adds one warning. A PR
 // with no tab on any listed machine, while some machine was not listed,
 // gets TabUnknown instead of a no-tab warning: its tab may be there.
+// Matching always covers every machine; cfg.TabMachine then marks the PRs
+// owned by another machine OutOfScope and drops their per-PR warnings.
 func matchTabs(ctx context.Context, deps Deps, cfg config.Config, doc *Document) error {
 	client := deps.Herdr
 	if err := client.RequireMin(ctx, herdrMinVersion); err != nil {
 		if errors.Is(err, herdr.ErrNotInstalled) {
-			nullTabs(doc)
+			nullTabs(doc, cfg)
 			warn(doc, "herdr unreachable: "+err.Error())
 			return nil
 		}
@@ -374,40 +377,77 @@ func matchTabs(ctx context.Context, deps Deps, cfg config.Config, doc *Document)
 	}
 	tabs, err := client.TabList(ctx)
 	if err != nil {
-		nullTabs(doc)
+		nullTabs(doc, cfg)
 		warn(doc, "herdr unreachable: "+err.Error())
 		return nil
 	}
 	agents, err := client.AgentList(ctx)
 	if err != nil {
-		nullTabs(doc)
+		nullTabs(doc, cfg)
 		warn(doc, "herdr unreachable: "+err.Error())
 		return nil
 	}
-	tabs, agents, unreachable := addMachineTabs(ctx, deps.Remote, cfg.Machines, tabs, agents, doc)
+	tabs, agents, down := addMachineTabs(ctx, deps.Remote, cfg.Machines, tabs, agents, doc)
 	for i := range doc.PRs {
 		pr := &doc.PRs[i]
 		tab, hits, warning := match(pr.Identifier, pr.Repo, pr.Number, cfg.TabLabelTemplate, tabs, agents)
 		pr.Tab = tab
-		if pr.Identifier != nil && hits == 0 && unreachable {
+		if pr.Identifier != nil && len(hits) == 0 && len(down) > 0 {
 			pr.TabUnknown = TabUnknownMachineUnreachable
+			pr.OutOfScope = outOfScope(cfg, down, true)
 			continue
 		}
-		if warning != "" {
+		pr.OutOfScope = outOfScope(cfg, tabMachines(hits), false)
+		if warning != "" && pr.OutOfScope == "" {
 			warn(doc, warning)
 		}
 	}
 	return nil
 }
 
-// addMachineTabs appends the tabs and agents of each machine. A machine
-// that fails either list adds one warning and none of its tabs, and
-// unreachable reports that some machine was not searched.
-func addMachineTabs(ctx context.Context, remote func(string) Herdr, machines []string, tabs []herdr.Tab, agents []herdr.Agent, doc *Document) ([]herdr.Tab, []herdr.Agent, bool) {
-	if remote == nil {
-		return tabs, agents, false
+// tabMachines names the machines of tabs, local for the local server.
+func tabMachines(tabs []herdr.Tab) []string {
+	var out []string
+	for _, tab := range tabs {
+		machine := tab.Machine
+		if machine == "" {
+			machine = config.LocalMachine
+		}
+		if !slices.Contains(out, machine) {
+			out = append(out, machine)
+		}
 	}
-	unreachable := false
+	return out
+}
+
+// outOfScope is why a PR owned by owners is not in cfg.TabMachine's run,
+// or empty when it is. unknown means owners are the unreachable machines
+// its tab may be on. A PR with no owner belongs to the run that includes
+// untabbed PRs.
+func outOfScope(cfg config.Config, owners []string, unknown bool) string {
+	if cfg.TabMachine == "" || slices.Contains(owners, cfg.TabMachine) {
+		return ""
+	}
+	switch {
+	case unknown:
+		return "tab may be on " + strings.Join(owners, ", ") + " (unreachable)"
+	case len(owners) > 0:
+		return "tab on " + strings.Join(owners, ", ")
+	case cfg.IncludeUntabbed():
+		return ""
+	default:
+		return "no tab"
+	}
+}
+
+// addMachineTabs appends the tabs and agents of each machine. A machine
+// that fails either list adds one warning and none of its tabs, and is
+// returned in down.
+func addMachineTabs(ctx context.Context, remote func(string) Herdr, machines []string, tabs []herdr.Tab, agents []herdr.Agent, doc *Document) ([]herdr.Tab, []herdr.Agent, []string) {
+	if remote == nil {
+		return tabs, agents, nil
+	}
+	var down []string
 	for _, machine := range machines {
 		client := remote(machine)
 		mt, err := client.TabList(ctx)
@@ -416,14 +456,14 @@ func addMachineTabs(ctx context.Context, remote func(string) Herdr, machines []s
 			ma, err = client.AgentList(ctx)
 		}
 		if err != nil {
-			unreachable = true
+			down = append(down, machine)
 			warn(doc, fmt.Sprintf("machine %s unreachable (%s); its tabs were not searched", machine, unreachableCause(err)))
 			continue
 		}
 		tabs = append(tabs, mt...)
 		agents = append(agents, ma...)
 	}
-	return tabs, agents, unreachable
+	return tabs, agents, down
 }
 
 // unreachableCause is the remotecall cause phrase, or the error text for
@@ -435,9 +475,12 @@ func unreachableCause(err error) string {
 	return err.Error()
 }
 
-func nullTabs(doc *Document) {
+// nullTabs clears every tab when the local server cannot be listed. Each
+// PR then counts as untabbed for cfg.TabMachine.
+func nullTabs(doc *Document, cfg config.Config) {
 	for i := range doc.PRs {
 		doc.PRs[i].Tab = nil
+		doc.PRs[i].OutOfScope = outOfScope(cfg, nil, false)
 	}
 }
 

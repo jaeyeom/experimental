@@ -30,6 +30,7 @@ case "$1 $2" in
 "tab list")
   if [ -e "$d/$m.tabs" ]; then cat "$d/$m.tabs"; exit 0; fi
   echo '{"result":{"tabs":[{"tab_id":"w2:t1","label":"'"$m"'-tab"}]}}' ;;
+"tab close") echo '{"result":{}}' ;;
 "agent prompt"|"agent wait")
   if [ -e "$d/$m.prompt-error" ]; then echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1; fi
   if [ -e "$d/$m.prompt" ]; then cat "$d/$m.prompt"; exit 0; fi
@@ -45,7 +46,7 @@ esac
 //   - m.agents is the `agent list` output, and m.screen the `agent read`
 //     output.
 //   - m.tabs is the `tab list` output. Without it, m has one tab w2:t1,
-//     labelled "<m>-tab".
+//     labelled "<m>-tab". `tab close` always succeeds.
 //   - m.prompt is the `agent prompt` and `agent wait` output. Without it,
 //     both print an empty result.
 //   - m.down makes m refuse connections and `machine status m` fail.

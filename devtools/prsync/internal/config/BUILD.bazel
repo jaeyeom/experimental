@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "config.go",
         "parse.go",
+        "scope.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/config",
     visibility = ["//devtools/prsync:__subpackages__"],
@@ -12,6 +13,9 @@ go_library(
 
 go_test(
     name = "go_default_test",
-    srcs = ["config_test.go"],
+    srcs = [
+        "config_test.go",
+        "scope_test.go",
+    ],
     embed = [":go_default_library"],
 )

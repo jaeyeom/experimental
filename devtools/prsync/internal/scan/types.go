@@ -49,6 +49,10 @@ type PR struct {
 	// machine could not be searched. Dispatch skips the PR this run
 	// instead of treating it as having no tab. Omitted otherwise.
 	TabUnknown string `json:"tab_unknown,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// OutOfScope is why the PR belongs to another tab_machine run, such
+	// as "tab on local". Dispatch skips it. Omitted when the PR is in
+	// scope or the run is not scoped.
+	OutOfScope string `json:"out_of_scope,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// TeamReviewSuggestions is set only when team_cover is on and this PR
 	// requests a team that is not skipped. Nil keeps scan JSON identical
 	// when the feature is off.

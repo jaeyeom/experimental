@@ -31,6 +31,7 @@ go_test(
         "log_test.go",
         "machines_test.go",
         "prompt_test.go",
+        "scope_test.go",
         "settle_test.go",
         "state_test.go",
     ],

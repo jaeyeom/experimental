@@ -33,12 +33,16 @@ func writeTab(f *herdrtest.Fake, m, tab, pane, label string) {
 }
 
 // runMachineScan scans PRs #123 (PROJ-123) and #200 (PROJ-200) against the
-// fake herdr, searching m2 as well as the local server.
-func runMachineScan(t *testing.T) Document {
+// fake herdr, searching m2 as well as the local server. Each tweak edits
+// the config first.
+func runMachineScan(t *testing.T, tweaks ...func(*config.Config)) Document {
 	t.Helper()
 	cfg := config.Defaults()
 	cfg.Author = "alice"
 	cfg.Machines = []string{"m2"}
+	for _, tweak := range tweaks {
+		tweak(&cfg)
+	}
 	second := fixturePRs()[0]
 	second.Number = 200
 	second.Title = "[PROJ-200] Fix the gadget"

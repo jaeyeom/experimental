@@ -46,6 +46,7 @@ go_test(
         "orphan_test.go",
         "repo_test.go",
         "scan_test.go",
+        "scope_test.go",
         "summary_test.go",
         "teamcover_test.go",
         "unblock_test.go",

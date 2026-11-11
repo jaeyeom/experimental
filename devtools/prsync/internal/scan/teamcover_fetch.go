@@ -47,7 +47,7 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 }
 
 func coverTeams(ctx context.Context, client GH, cfg config.Config, doc *Document, now time.Time) error {
-	if !cfg.TeamCover {
+	if !cfg.TeamCover || cfg.Skips(config.JobTeamCover) {
 		return nil
 	}
 	cache := newCoverCache(cfg, now)
