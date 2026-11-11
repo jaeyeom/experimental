@@ -90,7 +90,7 @@ type Busy struct {
 }
 
 // Check is a one-shot busy-set evaluation. It does not sleep.
-// A blocked agent does not hold the gate. Directories are not consulted.
+// Working and blocked agents hold the gate. Directories are not consulted.
 func Check(ctx context.Context, h Herdr, waitOn, runnerPane string, matchedTabs map[string]struct{}) (Result, error) {
 	cfg := config.Defaults()
 	cfg.ConcurrencyWaitOn = waitOn
@@ -109,8 +109,9 @@ func GateCheck(ctx context.Context, h Herdr, cfg config.Config, runnerPane strin
 // Wait polls until the busy set stays empty for settleDebouncePolls
 // consecutive samples or cfg.GateTimeout elapses. A single idle/done
 // sample is not safe: startup and mid-run flap still count as busy.
-// By default only a working agent holds the gate. A blocked agent holds
-// it when concurrency_ignore_blocked is false. Progress is logged (and
+// By default working and blocked agents hold the gate; with
+// concurrency_ignore_blocked a blocked agent does not hold it by its
+// status. Progress is logged (and
 // written to WithStatusWriter) when the waited-on tab or status changes.
 func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, matchedTabs map[string]struct{}, clock Clock, sleeper Sleeper) (res Result, err error) {
 	log := runlog.FromContext(ctx)
@@ -311,6 +312,9 @@ func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probe
 		b := Busy{PaneID: agent.PaneID, TabID: agent.TabID, Status: agent.AgentStatus}
 		if holdsGate(agent.AgentStatus, policy.ignoreBlocked) {
 			b.Signal = agent.AgentStatus
+			if b.Signal == SignalBlocked {
+				b.Detail = "blocked awaiting input"
+			}
 			out = append(out, b)
 			continue
 		}

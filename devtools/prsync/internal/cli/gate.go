@@ -19,7 +19,9 @@ import (
 
 const gateLong = `Check whether it is safe to start another agent, and print the gate JSON.
 
-An idle tab still holds the gate for a background job (a child of its
+A working or blocked agent holds the gate (signal "blocked", detail
+"blocked awaiting input"); set concurrency_ignore_blocked = true to let
+a blocked agent pass. An idle tab still holds the gate for a background job (a child of its
 agent at least gate_job_min_age old) or a pending decide question (an
 item for its pane answered but not done, or opened since the round
 started).
@@ -44,7 +46,10 @@ Config keys for the gate:
   gate_pending_question   decide (default) or off.
   gate_exempt_panes       Pane-id globs the gate never waits on.
   gate_exempt_tabs        Tab-label globs the gate never waits on, e.g.
-                          pm*,merger. Listed under "exempt".`
+                          pm*,merger. Listed under "exempt".
+  concurrency_ignore_blocked
+                          false (default) or true. When true, a blocked
+                          status alone does not hold the gate.`
 
 func newGateCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	var configPath string

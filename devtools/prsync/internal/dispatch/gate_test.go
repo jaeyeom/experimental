@@ -113,7 +113,7 @@ func TestCheckManagedBusyWhenMatched(t *testing.T) {
 	}
 }
 
-func TestBlockedDoesNotHoldTheGate(t *testing.T) {
+func TestBlockedHoldsTheGate(t *testing.T) {
 	t.Parallel()
 
 	const repo = "acme/widgets"
@@ -128,8 +128,8 @@ func TestBlockedDoesNotHoldTheGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Safe {
-		t.Fatalf("%s blocked safe = false, busy=%+v", repo, got.Busy)
+	if got.Safe || len(got.Busy) != 1 || got.Busy[0].Status != "blocked" {
+		t.Fatalf("%s blocked = safe %v busy %+v", repo, got.Safe, got.Busy)
 	}
 
 	working := workingAgent("w2:pW", "w2:tW")
@@ -141,13 +141,13 @@ func TestBlockedDoesNotHoldTheGate(t *testing.T) {
 		t.Fatalf("working = safe %v busy %+v", got.Safe, got.Busy)
 	}
 
-	cfg.ConcurrencyIgnoreBlocked = false
+	cfg.ConcurrencyIgnoreBlocked = true
 	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{blocked}}}, cfg, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Safe || len(got.Busy) != 1 || got.Busy[0].Status != "blocked" {
-		t.Fatalf("ignore false = safe %v busy %+v", got.Safe, got.Busy)
+	if !got.Safe {
+		t.Fatalf("ignore true blocked safe = false, busy=%+v", got.Busy)
 	}
 
 	cfg = config.Defaults()
@@ -157,16 +157,16 @@ func TestBlockedDoesNotHoldTheGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Safe {
-		t.Fatalf("managed blocked safe = false, busy=%+v", got.Busy)
+	if got.Safe {
+		t.Fatal("managed blocked left the gate safe")
 	}
-	cfg.ConcurrencyIgnoreBlocked = false
+	cfg.ConcurrencyIgnoreBlocked = true
 	got, err = GateCheck(context.Background(), &scriptHerdr{lists: [][]herdr.Agent{{blocked}}}, cfg, "", matched)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Safe {
-		t.Fatal("managed ignore false left the gate safe")
+	if !got.Safe {
+		t.Fatalf("managed ignore true blocked safe = false, busy=%+v", got.Busy)
 	}
 
 	cfg = config.Defaults()
@@ -217,8 +217,8 @@ func TestBlockedDoesNotHoldTheGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Safe {
-		t.Fatalf("blocked inside checkout held the gate, busy=%+v", got.Busy)
+	if got.Safe {
+		t.Fatal("blocked inside the checkout left the gate safe")
 	}
 }
 
@@ -230,8 +230,8 @@ func TestCheckBlockedIsBusy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() unexpected error: %v", err)
 	}
-	if !got.Safe {
-		t.Fatalf("safe = false, want true; a blocked agent does not hold the gate; busy=%+v", got.Busy)
+	if got.Safe || len(got.Busy) != 1 || got.Busy[0].Signal != SignalBlocked {
+		t.Fatalf("result = %+v, want a blocked agent to hold the gate", got)
 	}
 }
 
@@ -257,8 +257,8 @@ func TestCheckManagedBusyWhenMatchedBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() unexpected error: %v", err)
 	}
-	if !got.Safe {
-		t.Fatalf("safe = false, want true; a matched blocked tab does not hold the gate; busy=%+v", got.Busy)
+	if got.Safe {
+		t.Fatal("safe = true, want a matched blocked tab to hold the gate")
 	}
 }
 

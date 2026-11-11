@@ -34,10 +34,10 @@ func TestGateSafeWhenIdle(t *testing.T) {
 	}
 }
 
-func TestGateSafeWhenBlockedByDefault(t *testing.T) {
+func TestGateSafeWhenBlockedIsIgnored(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
 	ghBin, herdrBin := fixtureBins(t)
-	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\nconcurrency_ignore_blocked=true\n")
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
@@ -85,7 +85,7 @@ func TestGateBusyOnPendingDecideItem(t *testing.T) {
 func TestGateBusyWhenBlocked(t *testing.T) {
 	t.Setenv("HERDR_FAKE_AGENT_STATUS", "blocked")
 	ghBin, herdrBin := fixtureBins(t)
-	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\nconcurrency_ignore_blocked=false\n")
+	cfgPath := writeScanConfig(t, "gh_bin="+ghBin+"\nherdr_bin="+herdrBin+"\nauthor=alice\nrepos=acme/widgets\n")
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"gate", "--config", cfgPath}, &stdout, &stderr, executor.NewBasicExecutor())
@@ -99,8 +99,8 @@ func TestGateBusyWhenBlocked(t *testing.T) {
 	if len(got.Busy) != 1 || got.Busy[0].PaneID != "w2:pC" || got.Busy[0].TabID != "w2:tC" {
 		t.Fatalf("busy = %+v, want [{w2:pC w2:tC}]", got.Busy)
 	}
-	if got.Busy[0].Status != "blocked" {
-		t.Fatalf("busy status = %q, want blocked", got.Busy[0].Status)
+	if b := got.Busy[0]; b.Status != "blocked" || b.Signal != dispatch.SignalBlocked || b.Detail != "blocked awaiting input" {
+		t.Fatalf("busy = %+v, want blocked with signal blocked and detail blocked awaiting input", b)
 	}
 }
 
