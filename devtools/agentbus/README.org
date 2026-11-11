@@ -323,7 +323,7 @@ agentbus lease install-hook
 | ~claim --for <d> [--urgent] [--why <text>]~ | Take a free checkout, or join its queue. Never blocks. Prints ~granted until HH:MM~ or ~queued, position N (holder X, bid ends HH:MM)~. |
 | ~extend --for <d>~ | Holder only. Move the soft deadline to now plus ~--for~. |
 | ~leave~ | Leave the queue. |
-| ~status [--all]~ | Holder, deadline, state, and queue. ~--all~ lists every checkout the daemon has seen. |
+| ~status [--all]~, ~status --guarded~ | Holder, deadline, state, and queue. ~--all~ lists every checkout the daemon has seen. ~--guarded~ only tells whether ~--path~ is in a guarded checkout, from this machine's ~lease_checkouts~, without contacting the daemon or hub; it exits 0 either way, and ~--json~ prints ~{"guarded": true, "checkout": "<key>"}~ or ~{"guarded": false}~. Tools such as prsync use it to skip unguarded checkouts. |
 | ~check~ | Exit 0 when you hold the lease or the path is not guarded, 1 with a one-line reason when you do not, 3 when it cannot tell. |
 | ~release~ | Holder only. Leave the checkout clean on the default branch and hand it to the next waiter. See [[*Release]]. |
 | ~adopt [--force]~ | The needs-adopt holder, or the user. Save leftovers to a backup ref, then reset the checkout. See [[*Takeover and adopt]]. |

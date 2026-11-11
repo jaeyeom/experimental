@@ -52,11 +52,16 @@ extend --for <duration>
          Takeover runs only with lease_takeover = "on"; with "log" (the
          default) the daemon only logs lease_would_take_over.
 leave    leave the queue
-status [--all]
+status [--all | --guarded]
          holder, deadline, state, and queue; --all lists every checkout
          the daemon has seen (default: false, this checkout). Ends with
          "takeover: log" or "takeover: on"; --json has a "takeover"
-         field
+         field. --guarded only tells whether --path is in a guarded
+         checkout, from lease_checkouts on this machine, without
+         contacting the daemon or hub: it prints the checkout key, or
+         "<path> is not in a guarded checkout", and exits 0 either way;
+         --json prints {"guarded": true, "checkout": "<key>"} or
+         {"guarded": false} (default: false)
 check    exit 0 when you hold the lease for --path or --path is not
          guarded, 1 with a one-line reason when you do not, 3 when it
          cannot tell; an unguarded path never contacts the daemon
@@ -148,6 +153,7 @@ type leaseFlags struct {
 	urgent  bool
 	why     string
 	all     bool
+	guarded bool
 	force   bool
 	asIs    bool
 	// with is pause's --with list, or unshare's arguments.
@@ -179,6 +185,7 @@ func parseLeaseFlags(sub string, args []string, stderr io.Writer) (leaseFlags, e
 		fs.StringVar(&f.bid, "for", "", "new bid from now, such as 20m (required)")
 	case "status":
 		fs.BoolVar(&f.all, "all", false, "every checkout the daemon has seen")
+		fs.BoolVar(&f.guarded, "guarded", false, "only tell whether --path is guarded, without contacting the daemon")
 	case "adopt":
 		fs.BoolVar(&f.force, "force", false, "adopt even when other processes work in the checkout")
 	case "pause":
@@ -244,6 +251,13 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 		}
 		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
 		return usage
+	}
+	if f.guarded {
+		if f.all {
+			fmt.Fprintln(stderr, "agentbus lease status: --guarded and --all do not go together")
+			return usage
+		}
+		return leaseGuarded(f, env, stdout, stderr)
 	}
 	largs, cfg, code, ok := leaseArgs(sub, f, env, stdout, stderr)
 	if !ok {
@@ -399,14 +413,10 @@ func leaseArgs(sub string, f leaseFlags, env []string, stdout, stderr io.Writer)
 // An empty key comes with the exit code: check passes an unguarded
 // path, the rest refuse it.
 func leaseKey(sub string, f leaseFlags, cfg config.Config, env []string, stdout, stderr io.Writer) (string, int) {
-	path := f.path
-	if path == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
-			return "", 1
-		}
-		path = wd
+	path, err := leasePath(f)
+	if err != nil {
+		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, err)
+		return "", 1
 	}
 	root, err := checkout.Resolve(path, cfg.LeaseCheckouts, env)
 	if err != nil {
@@ -436,6 +446,62 @@ func leaseKey(sub string, f leaseFlags, cfg config.Config, env []string, stdout,
 	cfgPath, _ := config.Path(env)
 	fmt.Fprintf(stderr, "agentbus lease %s: %s is not in a guarded checkout; list the checkout in lease_checkouts in %s\n", sub, path, cfgPath)
 	return "", 1
+}
+
+// leasePath is --path, or the current directory.
+func leasePath(f leaseFlags) (string, error) {
+	if f.path != "" {
+		return f.path, nil
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("current directory: %w", err)
+	}
+	return wd, nil
+}
+
+type guardedJSON struct {
+	Guarded  bool   `json:"guarded"`
+	Checkout string `json:"checkout,omitempty"`
+}
+
+// leaseGuarded is status --guarded: whether --path is in a guarded
+// checkout, from this machine's config only. It never contacts the
+// daemon or the hub, so a caller can skip unguarded checkouts cheaply.
+func leaseGuarded(f leaseFlags, env []string, stdout, stderr io.Writer) int {
+	fail := func(err error) int {
+		fmt.Fprintf(stderr, "agentbus lease status: %s\n", err)
+		return 1
+	}
+	cfg, err := hubSettings(env)
+	if err != nil {
+		return fail(err)
+	}
+	path, err := leasePath(f)
+	if err != nil {
+		return fail(err)
+	}
+	root, err := checkout.Resolve(path, cfg.LeaseCheckouts, env)
+	if err != nil {
+		return fail(err)
+	}
+	out := guardedJSON{Guarded: root != ""}
+	if out.Guarded {
+		machine, err := leaseMachine(cfg, env)
+		if err != nil {
+			return fail(err)
+		}
+		out.Checkout = machine + ":" + root
+	}
+	switch {
+	case f.jsonOut:
+		writeJSON(stdout, out)
+	case out.Guarded:
+		fmt.Fprintln(stdout, out.Checkout)
+	default:
+		fmt.Fprintf(stdout, "%s is not in a guarded checkout\n", path)
+	}
+	return 0
 }
 
 type checkJSON struct {

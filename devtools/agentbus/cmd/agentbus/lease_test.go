@@ -12,6 +12,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
@@ -198,6 +199,42 @@ func TestLeaseCheckUnguardedPathMakesNoDaemonCall(t *testing.T) {
 	}
 }
 
+func TestLeaseStatusGuardedMakesNoDaemonCall(t *testing.T) {
+	w := newLeaseWorld(t)
+	noDaemon(t)
+	code, stdout, stderr := runCmd([]string{"lease", "status", "--guarded", "--json", "--path", filepath.Join(w.repo, "a.txt")}, w.as("p1"))
+	var got struct {
+		Guarded  bool   `json:"guarded"`
+		Checkout string `json:"checkout"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &got) != nil || !got.Guarded || got.Checkout != "local:"+w.repo {
+		t.Fatalf("guarded status = %d %q %q", code, stdout, stderr)
+	}
+	if code, stdout, _ := runCmd([]string{"lease", "status", "--guarded", "--path", w.repo}, w.as("p1")); code != 0 || stdout != "local:"+w.repo+"\n" {
+		t.Fatalf("guarded status text = %d %q", code, stdout)
+	}
+	outside := t.TempDir()
+	code, stdout, stderr = runCmd([]string{"lease", "status", "--guarded", "--json", "--path", outside}, w.as("p1"))
+	if code != 0 || strings.TrimSpace(stdout) != "{\n  \"guarded\": false\n}" || stderr != "" {
+		t.Fatalf("unguarded status = %d %q %q", code, stdout, stderr)
+	}
+	if code, stdout, _ := runCmd([]string{"lease", "status", "--guarded", "--path", outside}, w.as("p1")); code != 0 || !strings.Contains(stdout, "not in a guarded checkout") {
+		t.Fatalf("unguarded status text = %d %q", code, stdout)
+	}
+	// Hub mode answers from this machine's lease_checkouts too.
+	cfgPath, err := config.Path(w.base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, cfgPath, []byte(`lease_checkouts = ["`+w.repo+`"]`+"\nhub = \"me@hub\"\nmachine = \"m1\"\n"))
+	if code, stdout, stderr := runCmd([]string{"lease", "status", "--guarded", "--path", w.repo}, w.as("p1")); code != 0 || stdout != "m1:"+w.repo+"\n" {
+		t.Fatalf("hub guarded status = %d %q %q", code, stdout, stderr)
+	}
+	if code, _, stderr := runCmd([]string{"lease", "status", "--guarded", "--all"}, w.as("p1")); code != 2 || !strings.Contains(stderr, "--guarded") {
+		t.Fatalf("--guarded --all = %d %q", code, stderr)
+	}
+}
+
 func TestLeaseRefusesAnUnguardedClaim(t *testing.T) {
 	w := newLeaseWorld(t)
 	noDaemon(t)
@@ -346,7 +383,7 @@ func TestLeaseHelp(t *testing.T) {
 	if code := cmdLease(context.Background(), nil, helpEnv, &stdout, &stdout); code != 0 {
 		t.Fatalf("lease = %d", code)
 	}
-	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all]", "check", "release", "origin/HEAD", "pull --rebase --prune", "--path", "--json", "adopt [--force]", "refs/lease-backup/", "lease_ignore_procs", `lease_takeover = "on"`, "takeover: log", "pause [--with", "unshare <pane", "resume [--as-is]", "the user asked for", "hook ", "install-hook [--write]", "sed -i", "lease-cache"} {
+	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all | --guarded]", "check", "release", "origin/HEAD", "pull --rebase --prune", "--path", "--json", "adopt [--force]", "refs/lease-backup/", "lease_ignore_procs", `lease_takeover = "on"`, "takeover: log", "pause [--with", "unshare <pane", "resume [--as-is]", "the user asked for", "hook ", "install-hook [--write]", "sed -i", "lease-cache"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("lease help is missing %q", want)
 		}

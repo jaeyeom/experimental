@@ -105,6 +105,9 @@ type Probes struct {
 	Decide DecideSource
 	// Tabs feeds gate_exempt_tabs.
 	Tabs TabLister
+	// Lease feeds lease (gate_lease): the agentbus workdir lease of a
+	// guarded dispatch checkout.
+	Lease LeaseSource
 	// Remote returns the herdr client for one of cfg.Machines. The gate
 	// reads the agents on each machine in scope through it, and the
 	// pane process-info and tab labels of their tabs. Without it, a
@@ -118,7 +121,7 @@ type Probes struct {
 type probesCtxKey struct{}
 
 // WithProbes attaches the probes the gate uses for background-job,
-// build-tool, pending-question, and tab exemptions.
+// build-tool, pending-question, lease, and tab exemptions.
 func WithProbes(ctx context.Context, p Probes) context.Context {
 	return context.WithValue(ctx, probesCtxKey{}, p)
 }
@@ -192,6 +195,12 @@ type gateRun struct {
 	// loggedOutside keeps one gate_signal_out_of_checkout debug line
 	// per skipped signal.
 	loggedOutside map[string]struct{}
+	// leaseGuarded is whether the dispatch checkout is guarded, once
+	// leaseGuardedKnown.
+	leaseGuarded      bool
+	leaseGuardedKnown bool
+	// leaseWarned is the last lease error logged.
+	leaseWarned string
 }
 
 // snapshotProbes caches one process table, decide listing, and tab
@@ -745,7 +754,7 @@ func holdLine(b Busy) string {
 // extraSignal reports whether b holds for a reason other than its herdr status.
 func extraSignal(b Busy) bool {
 	switch b.Signal {
-	case SignalBackgroundJob, SignalBuildTool, SignalPendingQuestion, SignalMachineUnreachable, SignalUnavailableHold:
+	case SignalBackgroundJob, SignalBuildTool, SignalPendingQuestion, SignalMachineUnreachable, SignalUnavailableHold, SignalLease:
 		return true
 	}
 	return false

@@ -26,6 +26,9 @@ func TestGateHelpListsDefaultIgnoreProcs(t *testing.T) {
 	help := strings.Join(strings.Fields(stdout.String()), " ")
 	for _, want := range []string{
 		"replaces the defaults",
+		"gate_lease auto (default), off, or required",
+		"agentbus lease status --path <checkout> --json",
+		"prsync claims nothing; the dispatched agent claims",
 		strings.Join(config.Defaults().GateIgnoreProcs, ","),
 	} {
 		if !strings.Contains(help, want) {
