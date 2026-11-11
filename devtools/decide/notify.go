@@ -49,6 +49,9 @@ type Config struct {
 	Avatars []AvatarRule `json:"avatars,omitempty"`
 	// AvatarDefault shows the built-in avatar for unmatched names.
 	AvatarDefault bool `json:"avatarDefault,omitempty"`
+	// AvatarMono is AvatarMonoHide to hide avatars without color, under
+	// NO_COLOR or a monochrome terminal. Otherwise they show uncolored.
+	AvatarMono string `json:"avatarMono,omitempty"`
 }
 
 // Recipients chooses extra compose recipients. Agentbus adds the names

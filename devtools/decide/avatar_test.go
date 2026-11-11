@@ -49,7 +49,8 @@ func TestLoadConfigAvatars(t *testing.T) {
     {"match": "b", "file": "avatars/b.txt"},
     {"match": "c", "file": "/abs/c.webp"}
   ],
-  "avatarDefault": true
+  "avatarDefault": true,
+  "avatarMono": "hide"
 }`
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(data), 0o600); err != nil {
 		t.Fatal(err)
@@ -60,6 +61,9 @@ func TestLoadConfigAvatars(t *testing.T) {
 	}
 	if !cfg.AvatarDefault {
 		t.Error("AvatarDefault = false, want true")
+	}
+	if cfg.AvatarMono != AvatarMonoHide {
+		t.Errorf("AvatarMono = %q, want %q", cfg.AvatarMono, AvatarMonoHide)
 	}
 	want := []string{
 		filepath.Join(home, "avatars", "a.png"),
@@ -82,7 +86,7 @@ func TestLoadConfigAvatarDefaultOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.AvatarDefault || len(cfg.Avatars) != 0 {
+	if cfg.AvatarDefault || len(cfg.Avatars) != 0 || cfg.AvatarMono != "" {
 		t.Errorf("cfg = %+v, want no avatars", cfg)
 	}
 }

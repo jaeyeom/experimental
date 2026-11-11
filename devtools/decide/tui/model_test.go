@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -21,6 +22,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	updateGolden = flag.Bool("update", false, "rewrite testdata golden views")
 	dir, err := os.MkdirTemp("", "decide-tui-config")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tui config dir: %v\n", err)

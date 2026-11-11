@@ -6,6 +6,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/muesli/termenv"
 )
 
 // Options configure Run. In and Out default to the caller. Interval defaults
@@ -25,6 +27,11 @@ type Options struct {
 	BusRunner    BusRunner
 	// Snoozed opens on the Snoozed folder.
 	Snoozed bool
+	// Avatars, AvatarDefault, and AvatarMono are the decide config
+	// avatar settings.
+	Avatars       []decide.AvatarRule
+	AvatarDefault bool
+	AvatarMono    string
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -80,6 +87,10 @@ func prepare(opts Options) (*Model, error) {
 	m.busOn = opts.Agentbus
 	m.busRun = opts.BusRunner
 	m.out = opts.Out
+	m.Avatars = opts.Avatars
+	m.AvatarDefault = opts.AvatarDefault
+	m.AvatarMono = opts.AvatarMono
+	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	if opts.Now != nil {
 		m.Now = opts.Now
 	}

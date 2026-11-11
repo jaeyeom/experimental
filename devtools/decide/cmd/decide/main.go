@@ -435,13 +435,16 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 1)
 	}
 	if err := tui.Run(tui.Options{
-		Dir:          dir,
-		In:           os.Stdin,
-		Out:          stdout,
-		Targets:      inboxTargets(cfg),
-		SendTemplate: cfg.SendTemplate,
-		Agentbus:     cfg.Recipients.Agentbus,
-		Snoozed:      *snoozed,
+		Dir:           dir,
+		In:            os.Stdin,
+		Out:           stdout,
+		Targets:       inboxTargets(cfg),
+		SendTemplate:  cfg.SendTemplate,
+		Agentbus:      cfg.Recipients.Agentbus,
+		Snoozed:       *snoozed,
+		Avatars:       cfg.Avatars,
+		AvatarDefault: cfg.AvatarDefault,
+		AvatarMono:    cfg.AvatarMono,
 	}); err != nil {
 		return fail(stderr, err, 1)
 	}

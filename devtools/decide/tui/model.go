@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jaeyeom/experimental/devtools/decide"
+	"github.com/jaeyeom/experimental/devtools/decide/tui/avatar"
 	"github.com/muesli/termenv"
 )
 
@@ -153,6 +154,16 @@ type Model struct {
 	snoozeCursor int
 	snoozeCustom string
 	snoozeErr    string
+	// Avatars, AvatarDefault, and AvatarMono come from decide config.
+	// avatarProfile is the terminal's color profile. avatarRender
+	// replaces the shared renderer. avatarFailed holds files that did
+	// not render.
+	Avatars       []decide.AvatarRule
+	AvatarDefault bool
+	AvatarMono    string
+	avatarProfile termenv.Profile
+	avatarRender  *avatar.Renderer
+	avatarFailed  map[string]bool
 }
 
 // New returns an inbox positioned on the open folder.
@@ -2209,6 +2220,13 @@ func (m *Model) detailLines(width int) []screenLine {
 	}
 	lines := []screenLine{{text: plainText(title)}}
 	lines = append(lines, headerLines(it, m.now().Location())...)
+	if m.avatarFits(width) {
+		// The owner is the other party: the asker, or the recipient of
+		// a thread the human started.
+		if av := m.avatarLines(it.Owner); av != nil {
+			lines = besideAvatar(av, lines, width-avatarColumn)
+		}
+	}
 	lines = append(lines, screenLine{})
 	lines = append(lines, m.threadLines(it, width, re)...)
 	if it.Kind == decide.KindTypeIn {
