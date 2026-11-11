@@ -45,6 +45,10 @@ type Config struct {
 	Hub string `json:"hub,omitempty"`
 	// HubTimeout is the ssh connect timeout in hub mode, such as "5s".
 	HubTimeout string `json:"hubTimeout,omitempty"`
+	// Avatars maps owner, target, or bus names to avatar files.
+	Avatars []AvatarRule `json:"avatars,omitempty"`
+	// AvatarDefault shows the built-in avatar for unmatched names.
+	AvatarDefault bool `json:"avatarDefault,omitempty"`
 }
 
 // Recipients chooses extra compose recipients. Agentbus adds the names
@@ -100,6 +104,7 @@ func LoadConfig() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse decide config: %w", err)
 	}
+	resolveAvatarFiles(cfg.Avatars, filepath.Dir(path))
 	return cfg, nil
 }
 

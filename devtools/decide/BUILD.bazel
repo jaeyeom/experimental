@@ -4,6 +4,7 @@ load("//tools/org-lint:defs.bzl", "org_lint_tests")
 go_library(
     name = "go_default_library",
     srcs = [
+        "avatar.go",
         "ledger.go",
         "notify.go",
         "send.go",
@@ -22,6 +23,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "avatar_test.go",
         "ledger_test.go",
         "snooze_test.go",
     ],

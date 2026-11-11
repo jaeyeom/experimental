@@ -72,6 +72,7 @@ linters:
             - github.com/spf13/cobra
             - github.com/spf13/viper
             - github.com/mattn/go-sqlite3
+            - golang.org/x/image
             - golang.org/x/sys
             - golang.org/x/tools
             - github.com/charmbracelet/bubbletea
