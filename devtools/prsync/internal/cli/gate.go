@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
@@ -49,6 +50,18 @@ func runGate(ctx context.Context, stdout io.Writer, exec executor.Executor, conf
 	return nil
 }
 
+// gateProbes is what the gate reads beyond herdr agent status: the
+// tab's process tree, the local process table, and the decide ledger.
+// Tests replace it so they never read real processes.
+var gateProbes = func(exec executor.Executor, h *herdr.Client) dispatch.Probes {
+	return dispatch.Probes{
+		Panes:  h,
+		Procs:  dispatch.NewProcessTable(exec),
+		Decide: dispatch.DecideCLI{Exec: exec, Bin: "decide"},
+		Self:   os.Getpid(),
+	}
+}
+
 func evaluateGate(ctx context.Context, cfg config.Config, exec executor.Executor) (dispatch.Result, error) {
 	h := herdr.NewClient(exec, cfg.HerdrBin)
 	if err := h.RequireMin(ctx, "0.8.0"); err != nil {
@@ -65,6 +78,7 @@ func evaluateGate(ctx context.Context, cfg config.Config, exec executor.Executor
 	if cfg.ConcurrencyCwd == "checkout" && cfg.Checkout == "" {
 		cfg.Checkout = dispatch.CheckoutOfCWD()
 	}
+	ctx = dispatch.WithProbes(ctx, gateProbes(exec, h))
 	res, err := dispatch.GateCheck(ctx, h, cfg, runner, matched)
 	if err != nil {
 		return dispatch.Result{}, fmt.Errorf("gate: %w", err)

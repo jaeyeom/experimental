@@ -19,6 +19,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	_ = os.Setenv("XDG_STATE_HOME", dir)
+	useFakeGateProbes()
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

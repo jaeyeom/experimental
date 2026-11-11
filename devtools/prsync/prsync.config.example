@@ -55,6 +55,17 @@
 # concurrency_ignore_blocked=true
 # concurrency_cwd=any
 
+# An idle or done tab still holds the gate when its agent has a live
+# child process that matches none of gate_ignore_procs (background-job),
+# or when an open decide item names its pane (pending-question; off
+# turns that off). A build-tool client from gate_build_tools whose cwd is
+# in the checkout holds the checkout (build-tool); gate_build_tool_ignore
+# drops long-lived build servers. Comma-separated globs; * matches /.
+# gate_ignore_procs=caffeinate,gopls,rust-analyzer,clangd,pyright*,*language-server*,*langserver*,*mcp-server*,*mcp_server*,*modelcontextprotocol*,*-mcp,*-mcp *
+# gate_build_tools=bazel,bazelisk,make,go,cargo,gradle,npm,pnpm
+# gate_build_tool_ignore=java,*--workspace_directory=*,*A-server.jar*,*--server*
+# gate_pending_question=decide
+
 # Milliseconds. Parsed as n * time.Millisecond (2000 = 2s, not 2µs).
 # gate_poll_ms=2000
 # gate_timeout_ms=1800000

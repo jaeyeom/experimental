@@ -65,13 +65,22 @@ type Result struct {
 	Safe   bool   `json:"safe"`
 	Busy   []Busy `json:"busy"`
 	Reason string `json:"reason,omitempty"`
+	// SignalUnavailable lists signals that could not be evaluated. They
+	// do not change Safe.
+	SignalUnavailable []Unavailable `json:"signal_unavailable,omitempty"` //nolint:tagliatelle // brief outbound contract
 }
 
-// Busy is one agent that holds the gate.
+// Busy is one tab, or the dispatch checkout, that holds the gate.
+// A checkout-level hold (build-tool) has Checkout and no tab or pane.
 type Busy struct {
-	PaneID string `json:"pane_id"`      //nolint:tagliatelle // brief outbound contract
-	TabID  string `json:"tab_id"`       //nolint:tagliatelle // brief outbound contract
-	Status string `json:"agent_status"` //nolint:tagliatelle // brief outbound contract
+	PaneID   string `json:"pane_id"`            //nolint:tagliatelle // brief outbound contract
+	TabID    string `json:"tab_id"`             //nolint:tagliatelle // brief outbound contract
+	Status   string `json:"agent_status"`       //nolint:tagliatelle // brief outbound contract
+	Checkout string `json:"checkout,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// Signal is working, blocked, background-job, build-tool, or
+	// pending-question. Detail names the process or decide item.
+	Signal string `json:"signal,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // Check is a one-shot busy-set evaluation. It does not sleep.
@@ -87,7 +96,7 @@ func GateCheck(ctx context.Context, h Herdr, cfg config.Config, runnerPane strin
 	if err := h.RequireMin(ctx, herdrMinVersion); err != nil {
 		return Result{}, fmt.Errorf("herdr version: %w", err)
 	}
-	return snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs))
+	return snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), &gateRun{})
 }
 
 // Wait polls until the busy set stays empty for settleDebouncePolls
@@ -105,7 +114,11 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 			args = append(args, "reason", res.Reason)
 		}
 		if len(res.Busy) > 0 {
-			args = append(args, "tab_id", res.Busy[0].TabID, "agent_status", res.Busy[0].Status)
+			b := res.Busy[0]
+			args = append(args, "tab_id", b.TabID, "agent_status", b.Status, "signal", b.Signal)
+			if b.Detail != "" {
+				args = append(args, "detail", b.Detail)
+			}
 		}
 		if err != nil {
 			args = append(args, "error", err.Error())
@@ -118,14 +131,17 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 	start := clock.Now()
 	held := 0
 	lastStatus := ""
+	lastHolds := ""
+	run := &gateRun{}
 	for {
-		res, err = snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs))
+		res, err = snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), run)
 		if err != nil {
 			return res, err
 		}
 		if res.Reason != "" {
 			return res, ErrDirtyTree
 		}
+		lastHolds = logHolds(ctx, res.Busy, lastHolds)
 		if res.Safe {
 			held++
 			if held >= settleDebouncePolls {
@@ -137,7 +153,7 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 			if line != "" && line != lastStatus {
 				lastStatus = line
 				b := res.Busy[0]
-				log.Info("gate_wait", "tab_id", b.TabID, "agent_status", b.Status)
+				log.Info("gate_wait", "tab_id", b.TabID, "agent_status", b.Status, "signal", b.Signal)
 				writeStatus(ctx, line)
 			}
 		}
@@ -164,12 +180,16 @@ func MatchedTabs(doc scan.Document) map[string]struct{} {
 }
 
 type gatePolicy struct {
-	waitOn        string
-	runnerPane    string
-	matched       map[string]struct{}
-	ignoreBlocked bool
-	cwdMode       string
-	checkout      string
+	waitOn          string
+	runnerPane      string
+	matched         map[string]struct{}
+	ignoreBlocked   bool
+	cwdMode         string
+	checkout        string
+	ignoreProcs     []string
+	buildTools      []string
+	buildToolIgnore []string
+	pendingQuestion string
 }
 
 func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]struct{}) gatePolicy {
@@ -178,22 +198,26 @@ func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]str
 		mode = "any"
 	}
 	return gatePolicy{
-		waitOn:        cfg.ConcurrencyWaitOn,
-		runnerPane:    runnerPane,
-		matched:       matched,
-		ignoreBlocked: cfg.ConcurrencyIgnoreBlocked,
-		cwdMode:       mode,
-		checkout:      cfg.Checkout,
+		waitOn:          cfg.ConcurrencyWaitOn,
+		runnerPane:      runnerPane,
+		matched:         matched,
+		ignoreBlocked:   cfg.ConcurrencyIgnoreBlocked,
+		cwdMode:         mode,
+		checkout:        cfg.Checkout,
+		ignoreProcs:     cfg.GateIgnoreProcs,
+		buildTools:      cfg.GateBuildTools,
+		buildToolIgnore: cfg.GateBuildToolIgnore,
+		pendingQuestion: cfg.GatePendingQuestion,
 	}
 }
 
-func snapshot(ctx context.Context, h Herdr, policy gatePolicy) (Result, error) {
+func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Result, error) {
 	agents, err := h.AgentList(ctx)
 	if err != nil {
 		return Result{}, fmt.Errorf("agent list: %w", err)
 	}
-	busy := busySet(agents, policy)
-	res := Result{Safe: len(busy) == 0, Busy: busy}
+	busy, unavailable := busySet(ctx, agents, policy, &snapshotProbes{Probes: probesFrom(ctx), run: run})
+	res := Result{Safe: len(busy) == 0, Busy: busy, SignalUnavailable: unavailable}
 	if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {
 		res.Safe = false
 		res.Reason = reason
@@ -251,15 +275,57 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-func busySet(agents []herdr.Agent, policy gatePolicy) []Busy {
+// busySet is every waited-on tab that holds the gate, each with the
+// first signal that holds it, then the checkout when a build tool runs
+// in it.
+func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probes *snapshotProbes) ([]Busy, []Unavailable) {
 	out := make([]Busy, 0)
+	var unavailable []Unavailable
 	for _, agent := range agents {
-		if !isBusy(agent, policy) {
+		if !waitedOn(agent, policy) {
 			continue
 		}
-		out = append(out, Busy{PaneID: agent.PaneID, TabID: agent.TabID, Status: agent.AgentStatus})
+		b := Busy{PaneID: agent.PaneID, TabID: agent.TabID, Status: agent.AgentStatus}
+		if holdsGate(agent.AgentStatus, policy.ignoreBlocked) {
+			b.Signal = agent.AgentStatus
+			out = append(out, b)
+			continue
+		}
+		signal, detail, miss := probes.tabSignal(ctx, agent, policy)
+		unavailable = append(unavailable, miss...)
+		if signal != "" {
+			b.Signal, b.Detail = signal, detail
+			out = append(out, b)
+		}
 	}
-	return out
+	if probes.Procs != nil && policy.checkout != "" && len(policy.buildTools) > 0 {
+		detail, err := probes.buildTool(ctx, policy)
+		switch {
+		case err != nil:
+			unavailable = append(unavailable, Unavailable{Checkout: policy.checkout, Signal: SignalBuildTool, Error: err.Error()})
+		case detail != "":
+			out = append(out, Busy{Checkout: policy.checkout, Signal: SignalBuildTool, Detail: detail})
+		}
+	}
+	return out, unavailable
+}
+
+// logHolds logs one gate_hold line per hold when the holds differ from
+// last, and returns the holds for the next comparison.
+func logHolds(ctx context.Context, busy []Busy, last string) string {
+	lines := make([]string, len(busy))
+	for i, b := range busy {
+		lines[i] = holdLine(b)
+	}
+	joined := strings.Join(lines, "\n")
+	if joined == last {
+		return last
+	}
+	log := runlog.FromContext(ctx)
+	for i, line := range lines {
+		log.Info("gate_hold", "line", line, "signal", busy[i].Signal)
+	}
+	return joined
 }
 
 // checkoutOfRepo is the git toplevel of the current directory when its
@@ -314,9 +380,9 @@ func gateWaitLine(busy []Busy) string {
 		return ""
 	}
 	b := busy[0]
-	name := b.TabID
-	if name == "" {
-		name = b.PaneID
+	name := holdName(b)
+	if extraSignal(b) {
+		return fmt.Sprintf("waiting on %s — %s %s", name, b.Signal, b.Detail)
 	}
 	if b.Status == "blocked" {
 		return fmt.Sprintf("waiting on %s — blocked awaiting your input", name)
@@ -335,10 +401,23 @@ func writeStatus(ctx context.Context, line string) {
 	_, _ = fmt.Fprintf(w, "prsync: %s\n", line)
 }
 
-func isBusy(agent herdr.Agent, policy gatePolicy) bool {
-	if !holdsGate(agent.AgentStatus, policy.ignoreBlocked) {
-		return false
+// holdName names a hold's tab, pane, or checkout.
+func holdName(b Busy) string {
+	switch {
+	case b.TabID != "":
+		return b.TabID
+	case b.PaneID != "":
+		return b.PaneID
+	case b.Checkout != "":
+		return "checkout " + b.Checkout
 	}
+	return ""
+}
+
+// waitedOn reports whether the gate waits on agent's tab: not the
+// runner pane, inside the checkout in checkout mode, and matched in
+// managed mode.
+func waitedOn(agent herdr.Agent, policy gatePolicy) bool {
 	if policy.runnerPane != "" && agent.PaneID == policy.runnerPane {
 		return false
 	}

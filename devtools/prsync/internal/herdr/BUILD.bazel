@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "client.go",
+        "process.go",
         "types.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/prsync/internal/herdr",
@@ -18,6 +19,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "client_test.go",
+        "process_test.go",
         "remote_test.go",
     ],
     embed = [":go_default_library"],

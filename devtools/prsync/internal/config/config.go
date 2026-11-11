@@ -180,6 +180,20 @@ type Config struct {
 	// many days. Zero disables the filter.
 	TeamCoverActiveDays int
 
+	// GateIgnoreProcs are globs for an agent's long-lived helpers (MCP
+	// and language servers). A descendant of an idle agent that matches
+	// none of them is a background job that holds the gate.
+	GateIgnoreProcs []string
+	// GateBuildTools are build-tool client names. One running with its
+	// cwd in the checkout holds the gate. Empty turns the signal off.
+	GateBuildTools []string
+	// GateBuildToolIgnore are globs for build-tool processes that never
+	// count, such as a long-lived build server.
+	GateBuildToolIgnore []string
+	// GatePendingQuestion is decide or off. decide holds a tab while an
+	// open decide item names its pane as the notify pane.
+	GatePendingQuestion string
+
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
 }
@@ -231,7 +245,18 @@ func Defaults() Config {
 		TeamCoverPerTeam:         1,
 		TeamCoverSignals:         []string{"codeowners", "history", "load"},
 		TeamCoverHistoryDays:     90,
+		GateIgnoreProcs:          slices.Clone(defaultGateIgnoreProcs),
+		GateBuildTools:           []string{"bazel", "bazelisk", "make", "go", "cargo", "gradle", "npm", "pnpm"},
+		GateBuildToolIgnore:      []string{"java", "*--workspace_directory=*", "*A-server.jar*", "*--server*"},
+		GatePendingQuestion:      "decide",
 	}
+}
+
+// defaultGateIgnoreProcs are an agent's usual long-lived helpers.
+var defaultGateIgnoreProcs = []string{
+	"caffeinate", "gopls", "rust-analyzer", "clangd", "pyright*",
+	"*language-server*", "*langserver*",
+	"*mcp-server*", "*mcp_server*", "*modelcontextprotocol*", "*-mcp", "*-mcp *",
 }
 
 // Load applies search order, then Validate.
@@ -314,6 +339,29 @@ func validateConcurrency(c Config) error {
 	}
 	if c.ConcurrencyCwd != "any" && c.ConcurrencyCwd != "checkout" {
 		return &KeyError{Key: "concurrency_cwd", Reason: fmt.Sprintf("invalid value %q", c.ConcurrencyCwd)}
+	}
+	if c.GatePendingQuestion != "decide" && c.GatePendingQuestion != "off" {
+		return &KeyError{Key: "gate_pending_question", Reason: fmt.Sprintf("invalid value %q", c.GatePendingQuestion)}
+	}
+	return nil
+}
+
+func applyGateSignal(cfg *Config, key, val string) error {
+	if key == "gate_pending_question" {
+		cfg.GatePendingQuestion = strings.TrimSpace(val)
+		return nil
+	}
+	patterns, err := splitGlobs(key, val)
+	if err != nil {
+		return err
+	}
+	switch key {
+	case "gate_ignore_procs":
+		cfg.GateIgnoreProcs = patterns
+	case "gate_build_tools":
+		cfg.GateBuildTools = patterns
+	case "gate_build_tool_ignore":
+		cfg.GateBuildToolIgnore = patterns
 	}
 	return nil
 }
@@ -450,6 +498,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyCommentKey(cfg, key, val)
 	case "ci_ignore_checks", "ci_only_checks":
 		return applyCheckGlobs(cfg, key, val)
+	case "gate_ignore_procs", "gate_build_tools", "gate_build_tool_ignore", "gate_pending_question":
+		return applyGateSignal(cfg, key, val)
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
 		"team_cover_history_days", "team_cover_active_days":

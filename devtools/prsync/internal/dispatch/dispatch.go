@@ -675,12 +675,12 @@ func gateTimeoutDetail(busy []Busy, labels map[string]string, c Candidate) strin
 		return fmt.Sprintf("gate timeout; not dispatching %s", target)
 	}
 	b := busy[0]
-	name := b.TabID
-	if name == "" {
-		name = b.PaneID
-	}
+	name := holdName(b)
 	if label := labels[b.TabID]; label != "" {
 		name = fmt.Sprintf("%s [%s]", name, label)
+	}
+	if extraSignal(b) {
+		return fmt.Sprintf("waiting on %s — %s %s; not dispatching %s until it clears", name, b.Signal, b.Detail, target)
 	}
 	if b.Status == "blocked" {
 		return fmt.Sprintf("waiting on %s — blocked awaiting your input; not dispatching %s until it clears", name, target)
@@ -812,7 +812,14 @@ func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, 
 	}
 	busy := ""
 	if len(res.Busy) > 0 {
-		busy = fmt.Sprintf("gate currently busy: pane %s", res.Busy[0].PaneID)
+		b := res.Busy[0]
+		busy = fmt.Sprintf("gate currently busy: pane %s", b.PaneID)
+		if b.PaneID == "" {
+			busy = "gate currently busy: " + holdName(b)
+		}
+		if extraSignal(b) {
+			busy += fmt.Sprintf(" (%s %s)", b.Signal, b.Detail)
+		}
 	}
 	for i := range doc.Results {
 		item := &doc.Results[i]
