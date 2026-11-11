@@ -1,7 +1,6 @@
 package dispatch
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -31,85 +31,12 @@ type procFS struct {
 	root string
 }
 
-func (p procFS) List(context.Context) ([]Process, error) {
-	entries, err := os.ReadDir(p.root)
+func (p procFS) List(ctx context.Context) ([]Process, error) {
+	procs, err := procinfo.ProcFS{Root: p.root}.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", p.root, err)
+		return nil, fmt.Errorf("local processes: %w", err)
 	}
-	uptime := p.uptime()
-	out := make([]Process, 0, len(entries))
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		proc, ok := p.read(pid, uptime)
-		if ok {
-			out = append(out, proc)
-		}
-	}
-	return out, nil
-}
-
-// clockTicks is USER_HZ, the unit of a /proc/<pid>/stat start time.
-// Linux fixes it at 100 on every common architecture.
-const clockTicks = 100
-
-// uptime is the system uptime from <root>/uptime, or negative.
-func (p procFS) uptime() time.Duration {
-	raw, err := os.ReadFile(filepath.Join(p.root, "uptime"))
-	if err != nil {
-		return -1
-	}
-	fields := strings.Fields(string(raw))
-	if len(fields) == 0 {
-		return -1
-	}
-	secs, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return -1
-	}
-	return time.Duration(secs * float64(time.Second))
-}
-
-// read parses <pid>/stat and <pid>/cmdline. A process that exits while
-// it is read is skipped. Age is uptime less the start time (field 22).
-func (p procFS) read(pid int, uptime time.Duration) (Process, bool) {
-	dir := filepath.Join(p.root, strconv.Itoa(pid))
-	stat, err := os.ReadFile(filepath.Join(dir, "stat"))
-	if err != nil {
-		return Process{}, false
-	}
-	// comm may hold spaces and parentheses; it ends at the last ')'.
-	text := string(stat)
-	open, closing := strings.IndexByte(text, '('), strings.LastIndexByte(text, ')')
-	if open < 0 || closing < open {
-		return Process{}, false
-	}
-	fields := strings.Fields(text[closing+1:])
-	if len(fields) < 2 {
-		return Process{}, false
-	}
-	ppid, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return Process{}, false
-	}
-	proc := Process{PID: pid, PPID: ppid, Name: text[open+1 : closing], Age: -1}
-	// fields[0] is field 3 (state), so field 22 (starttime) is fields[19].
-	if len(fields) > 19 && uptime >= 0 {
-		if ticks, err := strconv.ParseInt(fields[19], 10, 64); err == nil {
-			if age := uptime - time.Duration(ticks)*time.Second/clockTicks; age >= 0 {
-				proc.Age = age
-			}
-		}
-	}
-	if raw, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
-		raw = bytes.TrimRight(raw, "\x00")
-		if len(raw) > 0 {
-			proc.Argv = strings.Split(string(raw), "\x00")
-		}
-	}
-	return proc, true
+	return procs, nil
 }
 
 func (p procFS) Cwd(_ context.Context, pid int) (string, error) {
@@ -126,11 +53,11 @@ type psTable struct {
 }
 
 func (p psTable) List(ctx context.Context) ([]Process, error) {
-	out, err := p.run(ctx, "ps", "-A", "-o", "pid=,ppid=,etime=,args=")
+	procs, err := procinfo.PS{Run: p.run}.List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("local processes: %w", err)
 	}
-	return parsePS(out), nil
+	return procs, nil
 }
 
 func (p psTable) Cwd(ctx context.Context, pid int) (string, error) {
@@ -154,58 +81,6 @@ func (p psTable) run(ctx context.Context, bin string, args ...string) (string, e
 		return "", fmt.Errorf("%s exited %d: %s", bin, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return res.Output, nil
-}
-
-// parsePS parses `ps -A -o pid=,ppid=,etime=,args=`. ps joins argv
-// with spaces, so Argv splits on whitespace and Name is the base of
-// argv[0].
-func parsePS(out string) []Process {
-	var procs []Process
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		pid, err1 := strconv.Atoi(fields[0])
-		ppid, err2 := strconv.Atoi(fields[1])
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		proc := Process{PID: pid, PPID: ppid, Age: parseEtime(fields[2])}
-		if len(fields) > 3 {
-			proc.Argv = fields[3:]
-			proc.Name = filepath.Base(fields[3])
-		}
-		procs = append(procs, proc)
-	}
-	return procs
-}
-
-// parseEtime parses ps etime, [[dd-]hh:]mm:ss, or is negative.
-func parseEtime(s string) time.Duration {
-	var days int
-	if d, rest, ok := strings.Cut(s, "-"); ok {
-		n, err := strconv.Atoi(d)
-		if err != nil {
-			return -1
-		}
-		days, s = n, rest
-	}
-	parts := strings.Split(s, ":")
-	if len(parts) < 2 || len(parts) > 3 {
-		return -1
-	}
-	total := time.Duration(days) * 24 * time.Hour
-	unit := time.Second
-	for i := len(parts) - 1; i >= 0; i-- {
-		n, err := strconv.Atoi(parts[i])
-		if err != nil || n < 0 {
-			return -1
-		}
-		total += time.Duration(n) * unit
-		unit *= 60
-	}
-	return total
 }
 
 // parseLsofCwd reads the n (name) field of `lsof -Fn` output.

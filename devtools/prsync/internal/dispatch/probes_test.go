@@ -12,36 +12,6 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
-func TestParsePS(t *testing.T) {
-	t.Parallel()
-
-	out := "    1     0 42-20:59:28 /sbin/launchd\n" +
-		"  100    50 01:02:03 /usr/local/bin/claude\n" +
-		" 4242   100 02:13 sh -c bazel build //...\n" +
-		"\n" +
-		"  777     1 bogus\n"
-	got := parsePS(out)
-	if len(got) != 4 {
-		t.Fatalf("parsePS() = %+v, want 4 rows", got)
-	}
-	job := got[2]
-	if job.PID != 4242 || job.PPID != 100 || job.Name != "sh" || !slices.Equal(job.Argv, []string{"sh", "-c", "bazel", "build", "//..."}) {
-		t.Fatalf("row = %+v", job)
-	}
-	if job.Age != 2*time.Minute+13*time.Second {
-		t.Fatalf("age = %s, want 2m13s", job.Age)
-	}
-	if got[0].Age != 42*24*time.Hour+20*time.Hour+59*time.Minute+28*time.Second || got[1].Age != time.Hour+2*time.Minute+3*time.Second {
-		t.Fatalf("ages = %s %s", got[0].Age, got[1].Age)
-	}
-	if got[1].Name != "claude" {
-		t.Fatalf("name = %q, want base of argv[0]", got[1].Name)
-	}
-	if got[3].PID != 777 || got[3].Name != "" || len(got[3].Argv) != 0 || got[3].Age >= 0 {
-		t.Fatalf("row without args = %+v", got[3])
-	}
-}
-
 func TestParseLsofCwd(t *testing.T) {
 	t.Parallel()
 
@@ -109,7 +79,7 @@ func TestPSTableUsesExecutor(t *testing.T) {
 	t.Parallel()
 
 	mock := executor.NewMockExecutor()
-	mock.ExpectCommandWithArgs("ps", "-A", "-o", "pid=,ppid=,etime=,args=").WillSucceed("  1 0 00:05 init\n", 0).Build()
+	mock.ExpectCommandWithArgs("ps", "-A", "-o", "pid=,ppid=,rss=,etime=,args=").WillSucceed("  1 0 8 00:05 init\n", 0).Build()
 	mock.ExpectCommandWithArgs("lsof", "-a", "-p", "1", "-d", "cwd", "-Fn").WillSucceed("p1\nfcwd\nn/\n", 0).Build()
 	table := psTable{exec: mock}
 	got, err := table.List(context.Background())

@@ -335,6 +335,57 @@ func (a *Adapter) agents(ctx context.Context, machine string) ([]listedAgent, er
 	return env.Result.Agents, nil
 }
 
+// ProcessInfo is a pane's process group from `herdr pane process-info`.
+type ProcessInfo struct {
+	ShellPID                 int                 `json:"shell_pid"`                   //nolint:tagliatelle // herdr wire format
+	ForegroundProcessGroupID int                 `json:"foreground_process_group_id"` //nolint:tagliatelle // herdr wire format
+	ForegroundProcesses      []ForegroundProcess `json:"foreground_processes"`        //nolint:tagliatelle // herdr wire format
+}
+
+// ForegroundProcess is one process in a pane's foreground process group.
+type ForegroundProcess struct {
+	PID  int      `json:"pid"`
+	Name string   `json:"name"`
+	Argv []string `json:"argv"`
+	Cwd  string   `json:"cwd"`
+}
+
+// ForegroundPIDs are the pids of the foreground processes, in herdr's
+// order.
+func (p ProcessInfo) ForegroundPIDs() []int {
+	out := make([]int, 0, len(p.ForegroundProcesses))
+	for _, fp := range p.ForegroundProcesses {
+		if fp.PID > 0 {
+			out = append(out, fp.PID)
+		}
+	}
+	return out
+}
+
+// ProcessInfo runs `herdr pane process-info --pane <pane>` on the local
+// server.
+func (a *Adapter) ProcessInfo(ctx context.Context, pane string) (ProcessInfo, error) {
+	stdout, stderr, code, err := a.exec(ctx, localMachine, []string{"pane", "process-info", "--pane", pane})
+	if err != nil {
+		return ProcessInfo{}, err
+	}
+	if code != 0 {
+		return ProcessInfo{}, fmt.Errorf("herdr pane process-info %s: exit %d: %s", pane, code, firstText(stderr, stdout))
+	}
+	var env struct {
+		Result struct {
+			ProcessInfo *ProcessInfo `json:"process_info"` //nolint:tagliatelle // herdr wire format
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		return ProcessInfo{}, fmt.Errorf("decode pane process-info: %w", err)
+	}
+	if env.Result.ProcessInfo == nil {
+		return ProcessInfo{}, fmt.Errorf("herdr pane process-info %s: no process_info in the reply", pane)
+	}
+	return *env.Result.ProcessInfo, nil
+}
+
 func (a *Adapter) tabLabels(ctx context.Context, machine string) (map[string]string, error) {
 	stdout, stderr, code, err := a.exec(ctx, machine, []string{"tab", "list"})
 	if err != nil {

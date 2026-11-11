@@ -33,6 +33,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
 | ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
+| ~mem [--json]~ | Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases. See [[*Memory per agent]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -661,6 +662,51 @@ hook guards Claude Code's edit tools and git, not every write.
 When something seems lost, check ~agentbus status <id>~ and
 ~agentbus log~ before resending. ~status~ prints the state and how long
 the message has waited. Resending first creates a second message.
+
+* Memory per agent
+
+~agentbus mem [--json]~ shows where memory goes on this machine: one
+row per local herdr pane that has an agent, largest first. A shell-only
+pane is not listed.
+
+#+BEGIN_EXAMPLE
+PANE   TAB      NAMES  STATE    SINCE    RSS        JOBS  LEASE
+w1:p1  inbox    ops/x  idle     unknown  471.0 MiB  1     queued local:/src/repo
+w1:p2  build    -      working  unknown  400.0 MiB  0     holds local:/src/repo
+total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available
+#+END_EXAMPLE
+
+| Column | Value |
+|--------+-------|
+| ~PANE~, ~TAB~ | The herdr pane and its tab label. |
+| ~NAMES~ | The bus names registered on the pane's handle. |
+| ~STATE~ | herdr's agent state: ~idle~, ~done~, ~working~, ~blocked~, or ~unknown~. |
+| ~SINCE~ | When the state last changed. Neither herdr's agent list nor the event log records it yet, so it is ~unknown~. |
+| ~RSS~ | The summed RSS of the pane's foreground processes (from ~herdr pane process-info~) and all their descendants. |
+| ~JOBS~ | Long-lived background jobs: children of a foreground process that have run at least 10s (an unknown age counts as old) and are not a known helper such as an MCP or language server, a status-line command, or the Claude Code sandbox's socat bridges. This is prsync's ~background-job~ rule, shared in ~devtools/pkg/procinfo~. |
+| ~LEASE~ | The checkouts the handle holds or is queued for. |
+
+The footer has the total agent RSS, the agent count by state, and the
+available memory: ~MemAvailable~ from ~/proc/meminfo~ on Linux, and free
+plus inactive plus purgeable pages from ~vm_stat~ on macOS.
+
+~--json~ prints one object with ~agents~, ~total_rss_bytes~,
+~available_bytes~, ~machine~ (the ~machine~ config label, else the host
+name), ~states~ (count by state), and ~notes~. Each agent has ~pane~,
+~tab~, ~handle~, ~names~, ~state~, ~idle_since~, ~rss_bytes~, ~jobs~
+(each with ~pid~, ~age_seconds~, -1 when unknown, and ~command~),
+~leases~ (each with ~checkout~ and ~role~, ~holder~ or ~queued~),
+~session~ (herdr's ~agent_session.value~), and ~error~ when its
+process-info could not be read. Byte counts are integers;
+~available_bytes~ is left out when it cannot be read.
+
+One run makes one ~herdr agent list~ and one ~herdr tab list~ call, one
+~process-info~ call per agent pane, and one process-table read (~/proc~
+on Linux, one ~ps~ elsewhere). It does not start the daemon: when the
+daemon is down, the names and lease columns (and the JSON fields) are
+left out and a note says why. In hub mode the names and leases live on
+the hub, so they are left out too. When herdr cannot be reached, ~mem~
+exits non-zero.
 
 * Sandbox
 
