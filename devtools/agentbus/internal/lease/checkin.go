@@ -30,18 +30,34 @@ const (
 	DefaultIdleGrace     = 5 * time.Minute
 )
 
+// TakeoverMode is whether a decided takeover is carried out.
+type TakeoverMode string
+
+// Takeover modes. Log, the default, only logs a takeover the daemon
+// would carry out; On carries it out.
+const (
+	TakeoverLog TakeoverMode = "log"
+	TakeoverOn  TakeoverMode = "on"
+)
+
 // Timing is the soft-deadline timing. Interval is how often an overrun
 // holder is looked at and how far a busy one is extended. Repeat is the
 // least time between check-ins to a busy holder. Grace is how long a
-// checked-in holder may stay idle and silent before takeover.
+// checked-in holder may stay idle and silent before takeover. Takeover
+// is whether a takeover is carried out or only logged.
 type Timing struct {
 	Interval time.Duration
 	Repeat   time.Duration
 	Grace    time.Duration
+	Takeover TakeoverMode
 }
 
-// WithDefaults fills each zero field with its default.
+// WithDefaults fills each zero field with its default. A Takeover other
+// than TakeoverOn is TakeoverLog.
 func (tm Timing) WithDefaults() Timing {
+	if tm.Takeover != TakeoverOn {
+		tm.Takeover = TakeoverLog
+	}
 	if tm.Interval <= 0 {
 		tm.Interval = DefaultCheckInterval
 	}
@@ -111,6 +127,12 @@ func (t *Table) Watched() []Watch {
 // adopter whose pane is gone is taken over while someone waits. A
 // takeover decided before but not carried out is asked for again.
 // Timers are persisted, so a restart resumes them.
+//
+// With tm.Takeover log, a takeover is never asked for: the first one
+// decided for a holder logs a lease_would_take_over event instead, and
+// the next is logged only after the holder claims or extends, or the
+// holder changes. A pending takeover from a run with takeover on is
+// ignored, so check-ins and auto-extend go on.
 func (t *Table) Observe(w Watch, p Pane, tm Timing) (Decision, error) {
 	tm = tm.WithDefaults()
 	return t.decide(w.Checkout, func(rec *record, now time.Time) (Decision, []eventlog.Event) {
@@ -118,36 +140,67 @@ func (t *Table) Observe(w Watch, p Pane, tm Timing) (Decision, error) {
 		if !takeable(rec.State) || h == nil || h.Handle != w.Holder || h.Handle == UserHolder {
 			return Decision{}, nil
 		}
-		waiting := len(rec.Queue) > 0
-		switch {
-		case !h.TakeoverAt.IsZero():
-			if waiting {
-				return Decision{TakeOver: "takeover pending since " + h.TakeoverAt.Format(time.RFC3339)}, nil
+		d, events := softDeadline(rec, w.Checkout, p, tm, now)
+		if d.TakeOver == "" {
+			return d, events
+		}
+		if tm.Takeover == TakeoverOn {
+			if h.TakeoverAt.IsZero() && rec.State != StateNeedsAdopt {
+				h.TakeoverAt = now
 			}
-			return Decision{}, nil
-		case rec.State == StateNeedsAdopt:
-			if p == PaneGone && waiting {
-				return Decision{TakeOver: "adopter pane gone"}, nil
-			}
-			return Decision{}, nil
+			return d, events
 		}
-		if p == PaneGone && waiting {
-			h.TakeoverAt = now
-			return Decision{TakeOver: "pane gone"}, nil
+		if h.WouldTakeOverAt.IsZero() {
+			h.WouldTakeOverAt = now
+			events = append(events, wouldTakeOver(rec, d.TakeOver))
 		}
-		if now.Before(h.Deadline) {
-			return Decision{}, nil
-		}
-		o := &observation{h: h, checkout: w.Checkout, now: now, tm: tm}
-		if h.CheckedIn.IsZero() {
-			o.checkIn("bid ended at " + h.Deadline.Format(time.RFC3339))
-		}
-		// With nobody waiting: one check-in, then leave the holder be.
-		if waiting {
-			o.pane(p)
-		}
-		return o.d, o.events
+		d.TakeOver = ""
+		return d, events
 	})
+}
+
+// softDeadline applies the soft-deadline rules to rec's holder and returns
+// what to do. It does not mark a takeover decided.
+func softDeadline(rec *record, checkout string, p Pane, tm Timing, now time.Time) (Decision, []eventlog.Event) {
+	h := rec.Holder
+	waiting := len(rec.Queue) > 0
+	switch {
+	case !h.TakeoverAt.IsZero() && tm.Takeover == TakeoverOn:
+		if waiting {
+			return Decision{TakeOver: "takeover pending since " + h.TakeoverAt.Format(time.RFC3339)}, nil
+		}
+		return Decision{}, nil
+	case rec.State == StateNeedsAdopt:
+		if p == PaneGone && waiting {
+			return Decision{TakeOver: "adopter pane gone"}, nil
+		}
+		return Decision{}, nil
+	}
+	if p == PaneGone && waiting {
+		return Decision{TakeOver: "pane gone"}, nil
+	}
+	if now.Before(h.Deadline) {
+		return Decision{}, nil
+	}
+	o := &observation{h: h, checkout: checkout, now: now, tm: tm}
+	if h.CheckedIn.IsZero() {
+		o.checkIn("bid ended at " + h.Deadline.Format(time.RFC3339))
+	}
+	// With nobody waiting: one check-in, then leave the holder be.
+	if waiting {
+		o.pane(p)
+	}
+	return o.d, o.events
+}
+
+// wouldTakeOver is the event for a takeover that lease_takeover "log"
+// keeps from being carried out.
+func wouldTakeOver(rec *record, reason string) eventlog.Event {
+	detail := "takeover log-only; nobody waiting"
+	if len(rec.Queue) > 0 {
+		detail = "takeover log-only; first waiter " + rec.Queue[0].Handle
+	}
+	return eventlog.Event{Event: eventlog.EventLeaseWouldTakeOver, Actor: rec.Holder.Handle, Detail: detail, Reason: reason}
 }
 
 // observation is one Observe of an overrun holder.
@@ -182,7 +235,6 @@ func (o *observation) pane(p Pane) {
 			h.SilentSince = now
 		}
 		if silent := now.Sub(h.SilentSince); silent >= o.tm.Grace {
-			h.TakeoverAt = now
 			o.d.TakeOver = fmt.Sprintf("idle and silent for %s after the check-in", Short(silent.Round(time.Second)))
 		}
 	default:

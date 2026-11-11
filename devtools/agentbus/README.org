@@ -411,7 +411,8 @@ can still run ~release~ again.
 Each check-in and silent extend is a ~lease_checkin~ or
 ~lease_auto_extend~ event. The timers are kept in ~leases.json~, so
 they survive a daemon restart; a takeover decided but not carried out
-before a restart is carried out on the next check.
+before a restart is carried out on the next check. All of this
+takeover runs only with ~lease_takeover = "on"~; see below.
 
 The daemon reads the timing from its config:
 
@@ -419,7 +420,34 @@ The daemon reads the timing from its config:
 lease_check_interval = "2m"   # how often, and how far a working holder is extended
 lease_checkin_repeat = "15m"  # least time between check-ins
 lease_idle_grace = "5m"       # idle and silent this long: take over
+lease_takeover = "log"        # "on" carries out takeovers; "log" (default) only logs them
 #+END_SRC
+
+** Staged rollout: ~lease_takeover~
+
+agentbusd has no config reload, so turning on ~lease_checkouts~ needs a
+restart. ~lease_takeover~ keeps that restart from also turning on
+takeover. It is ~"log"~ by default, and takeover runs only when it is
+exactly ~"on"~. A missing key is ~"log"~; any other value is ~"log"~
+too, with a warning at start naming the key and the value, and the
+daemon still starts.
+
+With ~"log"~, a takeover the daemon would carry out is not: the state,
+the holder, and the queue stay as they are, no backup ref is named, and
+nobody gets a message or a decide note. Instead the daemon logs one
+~lease_would_take_over~ event with the checkout, the holder, the reason,
+and the first waiter. It logs it once per holder: again only after the
+holder claims or extends, the holder changes, or the lease is released.
+A takeover that a run with ~"on"~ decided but did not carry out is not
+carried out either. Everything else stays on: check-ins, silent
+auto-extend, granting a dirty free checkout as ~needs-adopt~, and ~lease
+adopt~ for any ~needs-adopt~ lease, including one left by an earlier run
+with ~"on"~.
+
+The effective mode is visible: agentbusd prints ~lease_takeover=<mode>~
+to stderr at start and records it in the ~start~ event, ~lease status~
+prints ~takeover: log~ or ~takeover: on~, and ~lease status --json~ has
+a top-level ~"takeover"~ field (with ~--all~, on each element).
 
 ** Takeover and adopt
 

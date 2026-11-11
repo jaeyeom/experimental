@@ -30,6 +30,7 @@ go_test(
         "daemon_test.go",
         "hub_test.go",
         "stream_test.go",
+        "takeover_mode_test.go",
         "takeover_test.go",
     ],
     embed = [":go_default_library"],

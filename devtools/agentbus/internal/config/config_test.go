@@ -78,6 +78,38 @@ lease_idle_grace = "3m"
 	}
 }
 
+func TestParseLeaseTakeover(t *testing.T) {
+	for _, tt := range []struct {
+		in, want string
+		warn     bool
+	}{
+		{"", "log", false},
+		{"lease_takeover = \"log\"  # stage one\n", "log", false},
+		{"lease_takeover = \"on\"\n", "on", false},
+		{"lease_takeover = \"maybe\"\n", "log", true},
+		{"lease_takeover = \"ON\"\n", "log", true},
+		{"lease_takeover = on\n", "log", true},
+	} {
+		got, err := Parse(tt.in)
+		if err != nil {
+			t.Fatalf("Parse(%q) = %v; an invalid lease_takeover must not fail the load", tt.in, err)
+		}
+		if mode := got.TakeoverMode(); mode != tt.want {
+			t.Errorf("Parse(%q).TakeoverMode() = %q, want %q", tt.in, mode, tt.want)
+		}
+		if tt.warn != (len(got.Warnings) == 1) {
+			t.Errorf("Parse(%q) warnings = %q, want warning %v", tt.in, got.Warnings, tt.warn)
+		}
+		if tt.warn && (!strings.Contains(got.Warnings[0], "lease_takeover") || !strings.Contains(got.Warnings[0], `"log"`)) {
+			t.Errorf("Parse(%q) warning = %q, want it to name the key and the fallback", tt.in, got.Warnings[0])
+		}
+	}
+	got, _ := Parse("lease_takeover = \"maybe\"\n")
+	if !strings.Contains(got.Warnings[0], "maybe") {
+		t.Errorf("warning = %q, want it to name the value", got.Warnings[0])
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	got, err := Parse("\n# nothing\n")
 	if err != nil || !reflect.DeepEqual(got, Config{}) {

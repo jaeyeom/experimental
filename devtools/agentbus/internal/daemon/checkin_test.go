@@ -66,7 +66,8 @@ func newCheckinWorld(t *testing.T, waiter bool) *checkinWorld {
 	t.Cleanup(cancel)
 	notes := &[]string{}
 	notify := func(text string) { *notes = append(*notes, text) }
-	srv, err := newServer(ctx, dir, Config{Adapters: []adapter.Adapter{ad}, Now: c.Now, Notify: notify}, eventlog.Open(dir))
+	cfg := Config{Adapters: []adapter.Adapter{ad}, Now: c.Now, Notify: notify, LeaseTiming: lease.Timing{Takeover: lease.TakeoverOn}}
+	srv, err := newServer(ctx, dir, cfg, eventlog.Open(dir))
 	if err != nil {
 		t.Fatal(err)
 	}

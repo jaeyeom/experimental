@@ -8,7 +8,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
 )
 
-var timing = Timing{Interval: 2 * time.Minute, Repeat: 15 * time.Minute, Grace: 5 * time.Minute}
+var timing = Timing{Interval: 2 * time.Minute, Repeat: 15 * time.Minute, Grace: 5 * time.Minute, Takeover: TakeoverOn}
 
 // observe runs one check of the holder at c.now with pane state p.
 func observe(t *testing.T, tbl *Table, p Pane) Decision {
@@ -289,13 +289,16 @@ func TestObserveTimersSurviveARestart(t *testing.T) {
 
 func TestTimingDefaults(t *testing.T) {
 	got := Timing{}.WithDefaults()
-	want := Timing{Interval: 2 * time.Minute, Repeat: 15 * time.Minute, Grace: 5 * time.Minute}
+	want := Timing{Interval: 2 * time.Minute, Repeat: 15 * time.Minute, Grace: 5 * time.Minute, Takeover: TakeoverLog}
 	if got != want {
 		t.Fatalf("defaults = %+v", got)
 	}
-	custom := Timing{Interval: time.Minute, Repeat: time.Hour, Grace: time.Second}
+	custom := Timing{Interval: time.Minute, Repeat: time.Hour, Grace: time.Second, Takeover: TakeoverOn}
 	if got := custom.WithDefaults(); got != custom {
 		t.Fatalf("custom = %+v", got)
+	}
+	if got := (Timing{Takeover: "maybe"}).WithDefaults().Takeover; got != TakeoverLog {
+		t.Fatalf("an unknown mode = %q, want log", got)
 	}
 }
 

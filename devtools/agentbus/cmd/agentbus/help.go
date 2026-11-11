@@ -238,6 +238,9 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           often an overrun holder is looked at, least time
                           between check-ins, and idle-and-silent time
                           before takeover
+  lease_takeover = "log"  read by the daemon: "on" carries out takeovers;
+                          "log" (the default, and any invalid value) only
+                          logs lease_would_take_over once per holder
   lease_ignore_procs = ["zsh", "claude"]
                           programs whose working directory in the checkout
                           does not block lease adopt; replaces the default

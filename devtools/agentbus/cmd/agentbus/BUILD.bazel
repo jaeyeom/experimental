@@ -70,6 +70,7 @@ go_test(
         "//devtools/agentbus/internal/client:go_default_library",
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
         "//devtools/pkg/herdrtest:go_default_library",
         "//devtools/pkg/hubcall/sshtest:go_default_library",

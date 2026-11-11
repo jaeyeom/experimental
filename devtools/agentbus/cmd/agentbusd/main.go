@@ -57,6 +57,14 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
   lease_idle_grace = "5m" how long a checked-in holder may stay idle and
                           silent, with a waiter queued, before takeover
                           (default: 5m)
+  lease_takeover = "log"  "on" carries out takeovers; "log" only logs a
+                          lease_would_take_over event, once per holder,
+                          and keeps check-ins, auto-extend and adopt.
+                          Missing or any other value is "log", with a
+                          warning for an invalid one (default: log)
+
+At start agentbusd prints the effective lease_takeover=<mode> to stderr
+and records it in the event log's start event.
 
 When decide is on PATH, a checkout that needs 'agentbus lease adopt' after a
 takeover is put in the user's decide inbox (decide ask --owner agentbus).
@@ -109,17 +117,29 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		Adapters:      []adapter.Adapter{&herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}},
 		InlineBytes:   inline,
 		HubCaller:     herdr.RemoteCaller,
-		LeaseTiming: lease.Timing{
-			Interval: cfg.LeaseCheckInterval,
-			Repeat:   cfg.LeaseCheckinRepeat,
-			Grace:    cfg.LeaseIdleGrace,
-		},
-		Notify: decideNotifier(exec.LookPath, runQuiet, stderr),
+		LeaseTiming:   leaseTiming(cfg, stderr),
+		Notify:        decideNotifier(exec.LookPath, runQuiet, stderr),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1
 	}
 	return 0
+}
+
+// leaseTiming is the lease timing and takeover mode from cfg. It prints
+// the config's warnings and the effective lease_takeover to stderr.
+func leaseTiming(cfg config.Config, stderr io.Writer) lease.Timing {
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(stderr, "agentbusd: config: %s\n", w)
+	}
+	mode := cfg.TakeoverMode()
+	fmt.Fprintf(stderr, "agentbusd: lease_takeover=%s\n", mode)
+	return lease.Timing{
+		Interval: cfg.LeaseCheckInterval,
+		Repeat:   cfg.LeaseCheckinRepeat,
+		Grace:    cfg.LeaseIdleGrace,
+		Takeover: lease.TakeoverMode(mode),
+	}
 }
 
 // hubTarget is AGENTBUS_HUB, or the config's hub. Non-empty means the

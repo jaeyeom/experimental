@@ -55,6 +55,9 @@ const (
 	// EventLeaseAdopt is an adopt that saved a taken-over checkout's
 	// leftovers and reset it.
 	EventLeaseAdopt = "lease_adopt"
+	// EventLeaseWouldTakeOver is a takeover the daemon decided but did
+	// not carry out because lease_takeover is "log".
+	EventLeaseWouldTakeOver = "lease_would_take_over"
 )
 
 // timeLayout is RFC 3339 with millisecond precision.
@@ -382,7 +385,7 @@ func knownEvent(name string) bool {
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
-		EventLeaseTakeover, EventLeaseAdopt:
+		EventLeaseTakeover, EventLeaseAdopt, EventLeaseWouldTakeOver:
 		return true
 	default:
 		return false

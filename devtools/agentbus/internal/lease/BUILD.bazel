@@ -18,6 +18,7 @@ go_test(
         "checkin_test.go",
         "lease_test.go",
         "release_test.go",
+        "takeover_mode_test.go",
         "takeover_test.go",
     ],
     embed = [":go_default_library"],

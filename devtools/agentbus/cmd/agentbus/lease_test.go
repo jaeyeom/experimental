@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/fake"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
@@ -226,6 +228,59 @@ func TestLeaseDirtyFreeCheckoutIsGrantedAsNeedsAdopt(t *testing.T) {
 	}
 }
 
+func TestLeaseStatusShowsTheTakeoverMode(t *testing.T) {
+	for _, tt := range []struct {
+		mode lease.TakeoverMode
+		want string
+	}{
+		{"", "log"},
+		{lease.TakeoverLog, "log"},
+		{lease.TakeoverOn, "on"},
+	} {
+		w := newLeaseWorld(t)
+		w.cfg.LeaseTiming.Takeover = tt.mode
+		stop := startDaemon(t, w.dirs, w.cfg)
+		w.mustLease(t, "p1", "claim", "--for", "40m")
+		if text := w.mustLease(t, "p1", "status"); !strings.Contains(text, "\ntakeover: "+tt.want+"\n") {
+			t.Errorf("mode %q: status =\n%s", tt.mode, text)
+		}
+		if all, _ := mustCmd(t, []string{"lease", "status", "--all"}, w.as("p1")); strings.Count(all, "takeover: ") != 1 || !strings.Contains(all, "takeover: "+tt.want) {
+			t.Errorf("mode %q: status --all =\n%s", tt.mode, all)
+		}
+		var one map[string]any
+		if err := json.Unmarshal([]byte(w.mustLease(t, "p1", "status", "--json")), &one); err != nil || one["takeover"] != tt.want {
+			t.Errorf("mode %q: status --json = %v, %v", tt.mode, one, err)
+		}
+		allJSON, _ := mustCmd(t, []string{"lease", "status", "--all", "--json"}, w.as("p1"))
+		var all []map[string]any
+		if err := json.Unmarshal([]byte(allJSON), &all); err != nil || len(all) != 1 || all[0]["takeover"] != tt.want {
+			t.Errorf("mode %q: status --all --json = %v, %v", tt.mode, all, err)
+		}
+		stop()
+	}
+}
+
+func TestLeaseLogOnlyDirtyFreeCheckoutCanBeAdopted(t *testing.T) {
+	noProcs(t)
+	w := newLeaseWorld(t)
+	w.cfg.LeaseTiming.Takeover = lease.TakeoverLog
+	stop := startDaemon(t, w.dirs, w.cfg)
+	defer stop()
+	w.dirty(t)
+	if out := w.mustLease(t, "p1", "claim", "--for", "40m"); !strings.Contains(out, "needs-adopt") {
+		t.Fatalf("dirty claim = %q", out)
+	}
+	w.mustLease(t, "p1", "adopt")
+	if refs := w.backupRefs(t); len(refs) != 1 {
+		t.Fatalf("backup refs = %v", refs)
+	}
+	status := w.mustLease(t, "p1", "status")
+	if !strings.Contains(status, ": held") || !strings.Contains(status, "holder: "+leaseAlice) || !strings.Contains(status, "takeover: log") {
+		t.Fatalf("status after adopt:\n%s", status)
+	}
+	w.assertCleanOnMain(t)
+}
+
 func TestLeaseStateSurvivesRestart(t *testing.T) {
 	w := newLeaseWorld(t)
 	stop := startDaemon(t, w.dirs, w.cfg)
@@ -291,7 +346,7 @@ func TestLeaseHelp(t *testing.T) {
 	if code := cmdLease(context.Background(), nil, helpEnv, &stdout, &stdout); code != 0 {
 		t.Fatalf("lease = %d", code)
 	}
-	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all]", "check", "release", "origin/HEAD", "pull --rebase --prune", "--path", "--json", "adopt [--force]", "refs/lease-backup/", "lease_ignore_procs"} {
+	for _, want := range []string{"claim --for", "--urgent", "extend", "leave", "status [--all]", "check", "release", "origin/HEAD", "pull --rebase --prune", "--path", "--json", "adopt [--force]", "refs/lease-backup/", "lease_ignore_procs", `lease_takeover = "on"`, "takeover: log"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("lease help is missing %q", want)
 		}
