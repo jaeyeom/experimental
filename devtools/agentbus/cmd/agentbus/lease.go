@@ -38,7 +38,12 @@ const leaseFlagsHelp = `claim --for <duration> [--urgent] [--why <text>]
          A free checkout with a dirty or mid-rebase/merge tree is
          granted as needs-adopt.
 extend --for <duration>
-         holder only: move the soft deadline to now plus --for
+         holder only: move the soft deadline to now plus --for. Also
+         the answer to a check-in: when the bid ends the daemon sends
+         "[lease] your bid on <checkout> ended". With a waiter queued,
+         a holder still working is extended silently; one idle and
+         silent for lease_idle_grace (5m) after the check-in, or whose
+         pane is gone, is taken over. Nobody queued: one check-in only.
 leave    leave the queue
 status [--all]
          holder, deadline, state, and queue; --all lists every checkout

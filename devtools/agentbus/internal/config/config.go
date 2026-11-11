@@ -9,6 +9,9 @@
 //	machine = "linux2"      # this machine's herdr label on the hub
 //	hub_socket = "/run/user/1000/agentbus/hub.sock"  # hub.sock on the hub
 //	lease_checkouts = ["/home/u/src/repo"]  # checkouts the lease guards
+//	lease_check_interval = "2m"   # how often an overrun holder is checked
+//	lease_checkin_repeat = "15m"  # least time between check-ins
+//	lease_idle_grace = "5m"       # idle and silent this long: take over
 package config
 
 import (
@@ -40,6 +43,16 @@ type Config struct {
 	// LeaseCheckouts are this machine's guarded checkouts: absolute
 	// paths of git top-levels that need the lease before a change.
 	LeaseCheckouts []string
+	// LeaseCheckInterval is how often the daemon looks at an overrun
+	// holder, and how far it extends one that is still working. Zero is
+	// the default.
+	LeaseCheckInterval time.Duration
+	// LeaseCheckinRepeat is the least time between two check-ins to a
+	// holder that keeps working. Zero is the default.
+	LeaseCheckinRepeat time.Duration
+	// LeaseIdleGrace is how long a checked-in holder may stay idle and
+	// silent before it is taken over. Zero is the default.
+	LeaseIdleGrace time.Duration
 }
 
 var errLeaseCheckouts = errors.New(`lease_checkouts must be a list of absolute paths, such as ["/home/u/src/repo"]`)
@@ -104,12 +117,13 @@ func parseLine(cfg *Config, line string) error {
 	case "machines":
 		return parseMachines(cfg, value)
 	case "remote_timeout":
-		raw, rest, ok := parseString(value)
-		d, err := time.ParseDuration(raw)
-		if !ok || !blankOrComment(rest) || err != nil || d <= 0 {
-			return errors.New("remote_timeout must be a positive duration, such as \"5s\"")
-		}
-		cfg.RemoteTimeout = d
+		return parseDuration(&cfg.RemoteTimeout, key, value, "5s")
+	case "lease_check_interval":
+		return parseDuration(&cfg.LeaseCheckInterval, key, value, "2m")
+	case "lease_checkin_repeat":
+		return parseDuration(&cfg.LeaseCheckinRepeat, key, value, "15m")
+	case "lease_idle_grace":
+		return parseDuration(&cfg.LeaseIdleGrace, key, value, "5m")
 	case "lease_checkouts":
 		return parseLeaseCheckouts(cfg, value)
 	case "hub", "machine", "hub_socket":
@@ -117,6 +131,16 @@ func parseLine(cfg *Config, line string) error {
 	default:
 		return fmt.Errorf("unknown key %s", key)
 	}
+}
+
+// parseDuration reads a positive duration string into dst.
+func parseDuration(dst *time.Duration, key, value, example string) error {
+	raw, rest, ok := parseString(value)
+	d, err := time.ParseDuration(raw)
+	if !ok || !blankOrComment(rest) || err != nil || d <= 0 {
+		return fmt.Errorf("%s must be a positive duration, such as %q", key, example)
+	}
+	*dst = d
 	return nil
 }
 

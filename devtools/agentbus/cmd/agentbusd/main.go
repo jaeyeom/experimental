@@ -15,6 +15,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"golang.org/x/sys/unix"
 )
@@ -45,6 +46,16 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
   hub = "me@hub"          this machine uses the daemon on this ssh target,
                           so agentbusd refuses to start (AGENTBUS_HUB
                           overrides it)
+  lease_check_interval = "2m"
+                          how often a holder past its lease bid is looked
+                          at, and how far one still working is extended
+                          (default: 2m)
+  lease_checkin_repeat = "15m"
+                          least time between check-ins to a holder that
+                          keeps working (default: 15m)
+  lease_idle_grace = "5m" how long a checked-in holder may stay idle and
+                          silent, with a waiter queued, before takeover
+                          (default: 5m)
 
 Example:
   agentbusd
@@ -94,6 +105,11 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		Adapters:      []adapter.Adapter{&herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}},
 		InlineBytes:   inline,
 		HubCaller:     herdr.RemoteCaller,
+		LeaseTiming: lease.Timing{
+			Interval: cfg.LeaseCheckInterval,
+			Repeat:   cfg.LeaseCheckinRepeat,
+			Grace:    cfg.LeaseIdleGrace,
+		},
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1

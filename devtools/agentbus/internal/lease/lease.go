@@ -160,6 +160,21 @@ type holder struct {
 	Deadline time.Time     `json:"deadline,omitzero"`
 	For      time.Duration `json:"for,omitempty"`
 	Why      string        `json:"why,omitempty"`
+	// CheckedIn is when the last check-in was sent since the holder last
+	// claimed or extended. Zero means none yet.
+	CheckedIn time.Time `json:"checkedIn,omitzero"`
+	// SilentSince is when the holder was first seen idle, with no extend
+	// or release, after a check-in. Zero means the silence timer is off.
+	SilentSince time.Time `json:"silentSince,omitzero"`
+	// TakeoverAt is when the daemon decided to take over. Zero means not
+	// yet; it is decided once.
+	TakeoverAt time.Time `json:"takeoverAt,omitzero"`
+}
+
+// answered resets the check-in timers: the holder answered with a claim
+// or an extend.
+func (h *holder) answered() {
+	h.CheckedIn, h.SilentSince, h.TakeoverAt = time.Time{}, time.Time{}, time.Time{}
 }
 
 type waiter struct {
@@ -216,6 +231,7 @@ func (t *Table) Claim(caller string, a Args) (Reply, error) {
 			rec.Holder.Deadline = now.Add(d)
 			rec.Holder.For = d
 			rec.Holder.Why = a.Why
+			rec.Holder.answered()
 			return Reply{Result: ResultGranted}, []eventlog.Event{claim}, nil
 		}
 		if i := rec.find(caller); i >= 0 {
@@ -248,6 +264,7 @@ func (t *Table) Extend(caller string, a Args) (Reply, error) {
 		}
 		rec.Holder.Deadline = now.Add(d)
 		rec.Holder.For = d
+		rec.Holder.answered()
 		ev := eventlog.Event{Event: eventlog.EventLeaseExtend, Actor: caller, Detail: "until " + rec.Holder.Deadline.Format(time.RFC3339)}
 		return Reply{Result: ResultExtended}, []eventlog.Event{ev}, nil
 	})

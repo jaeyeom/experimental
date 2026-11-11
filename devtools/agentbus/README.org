@@ -379,6 +379,44 @@ from ~agentbus~:
 With nobody waiting, the checkout becomes ~free~. A failed pull is
 the ~lease_release~ event's reason.
 
+** Soft deadline and check-in
+
+The ~--for~ bid is soft: it never cuts anyone off by itself. When a
+holder's bid ends, the daemon sends it a check-in from ~agentbus~:
+
+#+BEGIN_SRC text
+[lease] your bid on local:/home/u/src/repo ended. Run 'agentbus lease extend --for <d>' or 'agentbus lease release'.
+#+END_SRC
+
+Then, every check interval, it reads the holder's herdr state:
+
+- ~working~ or ~blocked~: extend the bid silently by one interval. The
+  check-in is sent again at most every ~lease_checkin_repeat~.
+- ~idle~, ~done~, or ~no-agent~, with no ~extend~ or ~release~ since
+  the check-in: start a silence timer. After ~lease_idle_grace~ of
+  continued idle and silence, take over.
+- ~unknown~ (the machine cannot be reached): never take over; keep
+  waiting. The silence timer starts over.
+
+With nobody queued, an overrun holder is checked in on once and then
+left alone. A holder whose pane herdr reports ~gone~ is taken over at
+once when a waiter is queued, without waiting for the bid to end. The
+user's hold is never checked in on. ~extend~ or claiming again resets
+the check-in.
+
+Takeover itself is not built yet: the daemon logs a ~lease_takeover~
+event with detail ~would take over~ and the reason. Each check-in and
+silent extend is a ~lease_checkin~ or ~lease_auto_extend~ event. The
+timers are kept in ~leases.json~, so they survive a daemon restart.
+
+The daemon reads the timing from its config:
+
+#+BEGIN_SRC toml
+lease_check_interval = "2m"   # how often, and how far a working holder is extended
+lease_checkin_repeat = "15m"  # least time between check-ins
+lease_idle_grace = "5m"       # idle and silent this long: take over
+#+END_SRC
+
 * Lost messages
 
 When something seems lost, check ~agentbus status <id>~ and

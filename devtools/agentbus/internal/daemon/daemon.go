@@ -42,6 +42,12 @@ type Config struct {
 	HubCaller func(handle string) (string, error)
 	// Now is the lease clock. Nil uses time.Now.
 	Now func() time.Time
+	// LeaseTiming is the soft-deadline timing. Zero fields use the
+	// defaults.
+	LeaseTiming lease.Timing
+	// LeaseTicks, when not nil, drives the soft-deadline checks instead
+	// of a ticker at LeaseTiming.Interval.
+	LeaseTicks <-chan time.Time
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -126,20 +132,10 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	lg := eventlog.Open(dirs.StateDir)
 	lg.RetentionDays = cfg.RetentionDays
-	reg, box, err := openState(dirs.StateDir, cfg, lg)
+	srv, err := newServer(ctx, dirs.StateDir, cfg, lg)
 	if err != nil {
 		return err
 	}
-	leases, err := lease.Open(dirs.StateDir, lg, cfg.Now, func(handle string) string {
-		if names := reg.NamesOf(handle); len(names) > 0 {
-			return names[0]
-		}
-		return ""
-	})
-	if err != nil {
-		return fmt.Errorf("open leases: %w", err)
-	}
-	srv := &server{ctx: ctx, reg: reg, box: box, log: lg, leases: leases, adapters: cfg.Adapters}
 	started := false
 	defer func() {
 		if !started {
@@ -183,9 +179,46 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	started = true
 
-	go reg.Poll(ctx, cfg.PollInterval)
-	go box.Poll(ctx, cfg.PollInterval)
+	go srv.reg.Poll(ctx, cfg.PollInterval)
+	go srv.box.Poll(ctx, cfg.PollInterval)
+	ticks := cfg.LeaseTicks
+	if ticks == nil {
+		ticker := time.NewTicker(srv.timing.Interval)
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
+	// The lease checks end, and are waited for, before Serve logs stop.
+	var watching sync.WaitGroup
+	defer watching.Wait()
+	watchCtx, stopWatching := context.WithCancel(ctx)
+	defer stopWatching()
+	watching.Add(1)
+	go func() {
+		defer watching.Done()
+		srv.watchLeases(watchCtx, ticks)
+	}()
 	return srv.serve(ctx, ln, hubLn)
+}
+
+// newServer opens the registry, mailbox, and lease table in stateDir.
+func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Log) (*server, error) {
+	reg, box, err := openState(stateDir, cfg, lg)
+	if err != nil {
+		return nil, err
+	}
+	leases, err := lease.Open(stateDir, lg, cfg.Now, func(handle string) string {
+		if names := reg.NamesOf(handle); len(names) > 0 {
+			return names[0]
+		}
+		return ""
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open leases: %w", err)
+	}
+	return &server{
+		ctx: ctx, reg: reg, box: box, log: lg, leases: leases,
+		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(),
+	}, nil
 }
 
 // serve handles connections on ln and, when it is not nil, hubLn, each
@@ -285,6 +318,7 @@ type server struct {
 	leases    *lease.Table
 	adapters  []adapter.Adapter
 	hubCaller func(string) (string, error)
+	timing    lease.Timing
 }
 
 func (s *server) handle(conn net.Conn, hub bool) {
@@ -502,6 +536,80 @@ func (s *server) paneGone(handle string) bool {
 		answered = true
 	}
 	return answered
+}
+
+// pane reads handle's state for the soft deadline. The first adapter
+// that knows the pane decides. An error or unknown state from any
+// adapter before that is unknown, so an unreachable machine is never
+// taken for gone. Gone needs every adapter to say gone.
+func (s *server) pane(handle string) lease.Pane {
+	gone := false
+	for _, ad := range s.adapters {
+		state, err := ad.State(s.ctx, handle)
+		switch {
+		case err != nil || state == adapter.StateUnknown:
+			return lease.PaneUnknown
+		case state == adapter.StateWorking || state == adapter.StateBlocked:
+			return lease.PaneBusy
+		case state == adapter.StateGone:
+			gone = true
+		default:
+			// idle, done, no-agent
+			return lease.PaneIdle
+		}
+	}
+	if gone {
+		return lease.PaneGone
+	}
+	return lease.PaneUnknown
+}
+
+// watchLeases runs the soft-deadline checks on each tick until ctx ends.
+func (s *server) watchLeases(ctx context.Context, ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			s.checkLeases()
+		}
+	}
+}
+
+// checkLeases applies the soft-deadline rules to every watched holder.
+// It reads each pane state with the lease table unlocked, lets the
+// table decide, then sends the check-in and asks for the takeover. A
+// check that fails to save is tried again on the next tick.
+func (s *server) checkLeases() {
+	for _, w := range s.leases.Watched() {
+		if s.ctx.Err() != nil {
+			return
+		}
+		d, err := s.leases.Observe(w, s.pane(w.Holder), s.timing)
+		if err != nil {
+			continue
+		}
+		if d.CheckIn != "" {
+			// A check-in that cannot be queued is logged by the mailbox.
+			_, _ = s.box.Post(s.ctx, "agentbus", w.Holder, d.CheckIn)
+		}
+		if d.TakeOver != "" {
+			s.takeOver(w, d.TakeOver)
+		}
+	}
+}
+
+// takeOver is called once when w's holder is to be taken over: idle and
+// silent for the grace after a check-in, or gone with a waiter queued.
+// The takeover itself is not built yet; it logs that it would take over.
+func (s *server) takeOver(w lease.Watch, reason string) {
+	_ = s.log.Append(eventlog.Event{
+		Event:  eventlog.EventLeaseTakeover,
+		Actor:  w.Holder,
+		Name:   w.Checkout,
+		Detail: "would take over",
+		Reason: reason,
+	})
 }
 
 func leaseResponse(r lease.Reply, err error) Response {
