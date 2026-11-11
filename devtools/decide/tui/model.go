@@ -238,7 +238,7 @@ func (m *Model) Reload() error {
 // to the text to [Send], Enter inserts a newline in the text, and Enter on
 // [Send] sends. Printable keys type into a focused field, and the
 // composerKeys Emacs bindings edit it; '\n' (C-j) inserts a newline and
-// only '\r' (Enter) submits. Alt+Enter and C-s send from any focused
+// only '\r' (Enter) submits. Ctrl+Enter, Alt+Enter and C-s send from any focused
 // composer; Update handles them before Key. ? opens the
 // shortcut overlay only when no text field is focused, and Esc or ? closes
 // it. / opens a search prompt that filters a list or highlights matches in

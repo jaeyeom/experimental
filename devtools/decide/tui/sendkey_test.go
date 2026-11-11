@@ -117,7 +117,7 @@ func TestComposerHintsListSendKeys(t *testing.T) {
 	m.height = 30
 	m.status = ""
 	footer := visibleLine(lineContaining(m.View(), "C-k kill"))
-	if !strings.Contains(footer, "Alt+Enter send") {
+	if !strings.Contains(footer, "Ctrl+Enter / Alt+Enter send") {
 		t.Fatalf("note footer %q", footer)
 	}
 
@@ -125,7 +125,7 @@ func TestComposerHintsListSendKeys(t *testing.T) {
 	m.height = 60
 	press(t, m, "\x1b?")
 	help := visibleLine(m.View())
-	if !strings.Contains(help, "Alt+Enter or C-s sends the draft") {
+	if !strings.Contains(help, "Ctrl+Enter, Alt+Enter or C-s sends the draft") {
 		t.Fatalf("help missing the send keys\n%s", help)
 	}
 }
@@ -169,10 +169,10 @@ func TestKeyDebugLogsKeyMessages(t *testing.T) {
 	}
 }
 
-// TestRunKeyDebugLogsUnknownSequences feeds the Ctrl+Enter sequences
-// some terminals send through a real program, so the log shows the
-// bytes bubbletea could not parse.
-func TestRunKeyDebugLogsUnknownSequences(t *testing.T) {
+// TestRunKeyDebugLogsCtrlEnter feeds the Ctrl+Enter sequences some
+// terminals send through a real program. The log shows the bytes the
+// input reader turned into Alt+Enter, and the key bubbletea then saw.
+func TestRunKeyDebugLogsCtrlEnter(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "keys.log")
 	t.Setenv("DECIDE_KEYDEBUG", logPath)
 	r, w := io.Pipe()
@@ -181,8 +181,6 @@ func TestRunKeyDebugLogsUnknownSequences(t *testing.T) {
 	go func() {
 		done <- Run(Options{Dir: t.TempDir(), In: r, Out: &out, Interval: time.Hour})
 	}()
-	// One write, so bubbletea reads it once. Its unknown-sequence
-	// message shares the read buffer, and a second read would race.
 	if _, err := w.Write([]byte("\x1b[13;5u\x1b[27;5;13~q")); err != nil {
 		t.Fatal(err)
 	}
@@ -202,12 +200,16 @@ func TestRunKeyDebugLogsUnknownSequences(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`bytes="\x1b[13;5u"`,
-		`bytes="\x1b[27;5;13~"`,
+		`ctrl+enter bytes="\x1b[13;5u" as alt+enter`,
+		`ctrl+enter bytes="\x1b[27;5;13~" as alt+enter`,
+		`key type=13 (enter) alt=true runes="" str="alt+enter"`,
 		`key type=-1 (runes) alt=false runes="q" str="q"`,
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("key log missing %q\n%s", want, body)
 		}
+	}
+	if strings.Contains(string(body), "unknown") {
+		t.Errorf("Ctrl+Enter reached bubbletea as an unknown sequence\n%s", body)
 	}
 }

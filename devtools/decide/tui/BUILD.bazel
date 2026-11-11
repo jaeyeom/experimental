@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "avatars.go",
         "compose.go",
+        "ctrlenter.go",
         "editor.go",
         "field.go",
         "keydebug.go",
@@ -54,6 +55,7 @@ go_test(
         "avatarview_test.go",
         "chord_test.go",
         "color_test.go",
+        "ctrlenter_test.go",
         "editor_test.go",
         "field_test.go",
         "lease_test.go",
