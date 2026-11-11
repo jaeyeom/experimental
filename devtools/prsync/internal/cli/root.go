@@ -30,11 +30,18 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer, exec 
 	return code
 }
 
+// twoWatcherExample splits PR work between a watcher for local tabs and
+// one for tabs on another herdr machine.
+const twoWatcherExample = `  # Two watchers, one per herdr machine (machines=linux2):
+  prsync dispatch --tab-machine local  --untabbed include
+  prsync dispatch --tab-machine linux2 --untabbed exclude --skip team-cover`
+
 func newRoot(stdout io.Writer, exec executor.Executor, logFile **runlog.File) *cobra.Command {
 	var logLevel string
 	root := &cobra.Command{
 		Use:           "prsync",
 		Short:         "Survey open GitHub PRs and match them to herdr agent tabs",
+		Example:       twoWatcherExample,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true

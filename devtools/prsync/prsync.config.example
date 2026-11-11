@@ -28,6 +28,20 @@
 # dispatch_timeout_ms instead).
 # machine_timeout_ms=5000
 
+# Scope a run to PRs whose tab is on one machine (local or one of
+# machines), so two watchers split the PR work without overlap. Matching
+# still searches every machine; PRs owned by another machine are marked
+# out_of_scope and not dispatched. Empty = every machine.
+#   watcher A: prsync dispatch --tab-machine local  --untabbed include
+#   watcher B: prsync dispatch --tab-machine linux2 --untabbed exclude --skip team-cover
+# tab_machine=local
+# Whether PRs with no tab belong to this run: include | exclude. Empty =
+# only the local run includes them.
+# untabbed=include
+# Machine-wide jobs this run skips (comma-separated): team-cover. Run
+# gh-nudge next to the watcher that does not skip.
+# skip_jobs=team-cover
+
 # Gate busy-set: any (every working agent) | managed (only working
 # agents on tabs matched to PRs in the current scan; managed runs a scan).
 # A blocked agent does not hold the gate unless concurrency_ignore_blocked

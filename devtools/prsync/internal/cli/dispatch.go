@@ -31,6 +31,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		force      bool
 		readStdin  bool
 		suffix     string
+		scope      scopeFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "dispatch",
@@ -42,9 +43,11 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if cmd.Flags().Changed("prompt-suffix") {
 				promptSuffix = &suffix
 			}
-			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin, promptSuffix)
+			applyScope := func(cfg *config.Config) error { return scope.apply(cmd, cfg) }
+			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin, promptSuffix, applyScope)
 		},
 	}
+	addScopeFlags(cmd, &scope)
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringArrayVar(&prs, "pr", nil, "fetch only owner/repo#N instead of a full scan (repeatable)")
 	cmd.Flags().BoolVar(&all, "all", false, "dispatch every PR in the scan document")
@@ -58,7 +61,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	return cmd
 }
 
-func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, ciFix bool, hint string, force, readStdin bool, promptSuffix *string) error {
+func validateDispatchFlags(prs []string, all, rebase, ciFix bool, hint string) error {
 	if all && len(prs) > 0 {
 		return &ExitError{Code: ExitUsage, Err: errors.New("cannot combine --pr and --all")}
 	}
@@ -73,9 +76,19 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 			return &ExitError{Code: ExitUsage, Err: err}
 		}
 	}
+	return nil
+}
+
+func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, prs []string, all, goLive, rebase, ciFix bool, hint string, force, readStdin bool, promptSuffix *string, applyScope func(*config.Config) error) error {
+	if err := validateDispatchFlags(prs, all, rebase, ciFix, hint); err != nil {
+		return err
+	}
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if err := applyScope(&cfg); err != nil {
+		return err
 	}
 	if goLive {
 		cfg.DryRun = false
@@ -89,7 +102,7 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		return err
 	}
 	h := herdr.NewClient(exec, cfg.HerdrBin)
-	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile}, cfg, dispatch.Request{
+	out, err := dispatch.Run(ctx, h, dispatch.FileStore{Path: cfg.StateFile, Scope: cfg.TabMachine}, cfg, dispatch.Request{
 		Doc:        doc,
 		PRs:        prs,
 		RunnerPane: h.RunnerPane(ctx),

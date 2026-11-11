@@ -24,10 +24,10 @@ func Match(id *string, repo string, number int, template string, tabs []herdr.Ta
 	return tab, warning
 }
 
-// match is Match that also returns how many tabs carry the label.
-func match(id *string, repo string, number int, template string, tabs []herdr.Tab, agents []herdr.Agent) (*Tab, int, string) {
+// match is Match that also returns the tabs that carry the label.
+func match(id *string, repo string, number int, template string, tabs []herdr.Tab, agents []herdr.Agent) (*Tab, []herdr.Tab, string) {
 	if id == nil {
-		return nil, 0, fmt.Sprintf("%s#%d: no identifier matched title_id_pattern", repo, number)
+		return nil, nil, fmt.Sprintf("%s#%d: no identifier matched title_id_pattern", repo, number)
 	}
 	label := strings.ReplaceAll(template, "{id}", *id)
 	var hits []herdr.Tab
@@ -38,16 +38,16 @@ func match(id *string, repo string, number int, template string, tabs []herdr.Ta
 	}
 	switch len(hits) {
 	case 0:
-		return nil, 0, fmt.Sprintf("%s: identifier matched but no herdr tab labeled '%s'", *id, label)
+		return nil, nil, fmt.Sprintf("%s: identifier matched but no herdr tab labeled '%s'", *id, label)
 	case 1:
 		tab, warning := attachAgent(*id, hits[0], agents)
-		return tab, 1, warning
+		return tab, hits, warning
 	default:
 		ids := make([]string, len(hits))
 		for i, tab := range hits {
 			ids[i] = TabKey(tab.Machine, tab.TabID)
 		}
-		return nil, len(hits), fmt.Sprintf("%s: ambiguous herdr tab label '%s' matches %s", *id, label, strings.Join(ids, ", "))
+		return nil, hits, fmt.Sprintf("%s: ambiguous herdr tab label '%s' matches %s", *id, label, strings.Join(ids, ", "))
 	}
 }
 

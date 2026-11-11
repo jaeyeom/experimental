@@ -12,7 +12,6 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
-	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/jira"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
@@ -28,6 +27,7 @@ func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		closeMerged bool
 		goLive      bool
 		force       bool
+		scope       scopeFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "tabs",
@@ -41,9 +41,11 @@ func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if goLive && !closeMerged {
 				return &ExitError{Code: ExitUsage, Err: errors.New("--go requires --close-merged")}
 			}
-			return runTabsOrphans(cmd.Context(), stdout, exec, configPath, readStdin, closeMerged, goLive, force)
+			applyScope := func(cfg *config.Config) error { return scope.apply(cmd, cfg) }
+			return runTabsOrphans(cmd.Context(), stdout, exec, configPath, readStdin, closeMerged, goLive, force, applyScope)
 		},
 	}
+	addTabMachineFlag(cmd, &scope)
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().BoolVar(&orphans, "orphans", false, "report live-agent tabs with no open/draft PR")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "accepted, no-op (stdout is always JSON)")
@@ -54,10 +56,13 @@ func newTabsCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	return cmd
 }
 
-func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, readStdin, closeMerged, goLive, force bool) error {
+func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executor, configPath string, readStdin, closeMerged, goLive, force bool, applyScope func(*config.Config) error) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if err := applyScope(&cfg); err != nil {
+		return err
 	}
 	if goLive {
 		cfg.DryRun = false
@@ -67,7 +72,7 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 	if err != nil {
 		return err
 	}
-	client := herdr.NewClient(exec, cfg.HerdrBin)
+	client := newTabsHerdr(exec, cfg)
 	jiraClient := jira.NewClient(exec, cfg.JiraBin)
 	deps := scan.OrphanDeps{
 		GH:     gh.NewClient(exec, cfg.GHBin),

@@ -60,7 +60,17 @@ type Entry struct {
 // FileStore loads dispatch state from a JSON file.
 type FileStore struct {
 	Path string
+	// Scope is the tab_machine of a scoped run. Empty means the run lock
+	// is state_file.lock. Otherwise the run lock is
+	// state_file.<scope>.lock, so runs scoped to different machines run
+	// side by side, and each saved entry is merged into the file under
+	// state_file.lock.
+	Scope string
 }
+
+// mergeMu serializes in-process merges; the file lock rejects a second
+// holder in the same process instead of waiting.
+var mergeMu sync.Mutex
 
 // Load implements StateStore.
 func (s FileStore) Load() (State, error) {
@@ -72,14 +82,45 @@ func (s FileStore) Save(st State) error {
 	return SaveFile(s.Path, st)
 }
 
-// AcquireLock creates state_file.lock with O_EXCL + PID. The returned function
-// closes the file and removes the lock. Retry shape matches gh-nudge's
-// DefaultFileLockConfig (~5s). A live holder returns ErrLock.
-func (s FileStore) AcquireLock() (func(), error) {
-	return acquireLockRetry(s.Path+".lock", defaultLockRetry())
+// MergeEntry writes entry under key into the file's current state. An
+// unscoped run already holds state_file.lock; a scoped run takes it for
+// the merge.
+func (s FileStore) MergeEntry(key string, entry Entry) error {
+	merge := func() error {
+		st, err := LoadFile(s.Path)
+		if err != nil {
+			return err
+		}
+		st[key] = entry
+		return SaveFile(s.Path, st)
+	}
+	if s.Scope == "" {
+		return merge()
+	}
+	mergeMu.Lock()
+	defer mergeMu.Unlock()
+	unlock, err := acquireLockRetry(s.Path+".lock", defaultLockRetry())
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return merge()
 }
 
-// WithLock runs fn while holding the exclusive state lock.
+// AcquireLock creates the run lock (state_file.lock, or
+// state_file.<scope>.lock for a scoped run) with O_EXCL + PID. The
+// returned function closes the file and removes the lock. Retry shape
+// matches gh-nudge's DefaultFileLockConfig (~5s). A live holder returns
+// ErrLock.
+func (s FileStore) AcquireLock() (func(), error) {
+	lock := s.Path + ".lock"
+	if s.Scope != "" {
+		lock = s.Path + "." + s.Scope + ".lock"
+	}
+	return acquireLockRetry(lock, defaultLockRetry())
+}
+
+// WithLock runs fn while holding the exclusive run lock.
 func (s FileStore) WithLock(fn func() error) error {
 	unlock, err := s.AcquireLock()
 	if err != nil {

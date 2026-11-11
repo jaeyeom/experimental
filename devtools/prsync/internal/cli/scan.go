@@ -27,6 +27,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		configPath string
 		repos      []string
 		jsonFlag   bool
+		scope      scopeFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -40,6 +41,9 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			cfg, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
+			}
+			if err := scope.apply(cmd, &cfg); err != nil {
+				return err
 			}
 			logStartup(cmd.Context(), "scan", cfg)
 			deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
@@ -65,6 +69,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringArrayVar(&repos, "repo", nil, "replace repos list (repeatable owner/repo)")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "accepted, no-op (stdout is always JSON)")
+	addScopeFlags(cmd, &scope)
 	return cmd
 }
 

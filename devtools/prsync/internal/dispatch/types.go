@@ -13,6 +13,9 @@ const (
 	// ActionSkippedTabUnknown means the PR's tab may be on a herdr machine
 	// the scan could not reach. It is not sent this run.
 	ActionSkippedTabUnknown = "skipped_tab_unknown"
+	// ActionSkippedOutOfScope means the PR belongs to another
+	// tab_machine run. Detail says why, such as "tab on local".
+	ActionSkippedOutOfScope = "skipped_out_of_scope"
 	ActionSkippedNoAgent    = "skipped_no_agent"
 	ActionSkippedBusy       = "skipped_busy"
 	ActionSkippedDeduped    = "skipped_deduped"

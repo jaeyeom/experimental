@@ -73,6 +73,9 @@ type OrphanTab struct {
 	AgentStatus string    `json:"agent_status"` //nolint:tagliatelle // brief outbound contract
 	Bucket      string    `json:"bucket"`
 	PR          *OrphanPR `json:"pr"`
+	// Machine is the herdr machine of a tab_machine run on another
+	// machine. Omitted for the local server.
+	Machine string `json:"machine,omitempty"`
 }
 
 // OrphanPR is the PR that resolves a merged orphan tab. MergedAt is nil for a
@@ -258,7 +261,7 @@ func candidateFromTab(tab herdr.Tab, live map[string]tabSession, openTabs map[st
 	if !ok {
 		return orphanCandidate{}, false
 	}
-	if _, matched := openTabs[tab.TabID]; matched {
+	if _, matched := openTabs[TabKey(tab.Machine, tab.TabID)]; matched {
 		return orphanCandidate{}, false
 	}
 	if number, ok := prNumberLabel(tab.Label); ok {
@@ -383,6 +386,7 @@ func numberOrphan(c orphanCandidate, bucket string, pr *OrphanPR) OrphanTab {
 		AgentStatus: c.status,
 		Bucket:      bucket,
 		PR:          pr,
+		Machine:     c.tab.Machine,
 	}
 }
 
@@ -493,6 +497,7 @@ func classifyCandidate(cfg config.Config, c orphanCandidate, items []gh.PRSearch
 		Label:       c.tab.Label,
 		Ticket:      c.ticket,
 		AgentStatus: c.status,
+		Machine:     c.tab.Machine,
 	}
 	if _, bad := unknown[c.ticket]; bad {
 		orphan.Bucket = BucketUnknown

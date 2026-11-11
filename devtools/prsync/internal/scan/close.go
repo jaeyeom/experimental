@@ -84,6 +84,8 @@ type CloseItem struct {
 	Action      string    `json:"action"`
 	Detail      string    `json:"detail,omitempty"`
 	PR          *OrphanPR `json:"pr,omitempty"`
+	// Machine is the tab's herdr machine. Omitted for the local server.
+	Machine string `json:"machine,omitempty"`
 }
 
 // CloseMerged closes tabs classified as merged orphans. Dry-run never calls
@@ -146,6 +148,7 @@ func baseCloseItem(tab OrphanTab) CloseItem {
 		WorkspaceID: tab.WorkspaceID,
 		Ticket:      tab.Ticket,
 		PR:          tab.PR,
+		Machine:     tab.Machine,
 	}
 }
 

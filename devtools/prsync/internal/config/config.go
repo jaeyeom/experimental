@@ -110,7 +110,15 @@ type Config struct {
 	Machines []string
 	// MachineTimeout bounds each herdr call to one of Machines, except
 	// prompt and wait, which use DispatchTimeout.
-	MachineTimeout    time.Duration
+	MachineTimeout time.Duration
+	// TabMachine scopes a run to PRs whose tab is on this machine: local
+	// or one of Machines. Empty means every machine.
+	TabMachine string
+	// Untabbed is include or exclude for PRs with no tab. Empty means
+	// only the local run includes them.
+	Untabbed string
+	// SkipJobs are machine-wide steps (Jobs) this run does not perform.
+	SkipJobs          []string
 	GHBin             string
 	JiraBin           string
 	ConcurrencyWaitOn string
@@ -274,6 +282,9 @@ func (c Config) Validate() error {
 	if err := validateConcurrency(c); err != nil {
 		return err
 	}
+	if err := validateScope(c); err != nil {
+		return err
+	}
 	if c.GatePoll < time.Millisecond {
 		return &KeyError{Key: "gate_poll_ms", Reason: "must be >= 1"}
 	}
@@ -429,6 +440,9 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	switch key {
 	case "machines":
 		return applyMachines(cfg, val)
+	case "tab_machine", "untabbed", "skip_jobs":
+		applyScopeKey(cfg, key, val)
+		return nil
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
 		return nil

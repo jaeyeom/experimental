@@ -122,9 +122,15 @@ func Candidates(doc scan.Document, prs []string) ([]Candidate, error) {
 // inside dedupe_ttl and, when dedupe_scans is non-zero, under that many
 // later evaluations. That hold is dispatched_unresolved, does not send, and
 // sets Detail to the recorded time. force skips comment, rebase, CI-fix, and
-// merge-queue-fix dedupe.
+// merge-queue-fix dedupe. A PR out of the run's tab_machine scope is
+// skipped_out_of_scope before any other check.
 func Evaluate(c Candidate, cfg config.Config, st State, rebase, ciFix, force bool, now time.Time) Item {
-	item := skipReason(c, cfg, st, rebase, ciFix, force, now)
+	var item Item
+	if c.PR != nil && c.PR.OutOfScope != "" {
+		item = Item{Action: ActionSkippedOutOfScope, Detail: c.PR.OutOfScope}
+	} else {
+		item = skipReason(c, cfg, st, rebase, ciFix, force, now)
+	}
 	item.Repo = c.Repo
 	item.Number = c.Number
 	return item
@@ -399,7 +405,7 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 		doc.Results = append(doc.Results, item)
 		if item.Action == ActionDispatchedUnresolved {
 			st.NoteUnresolvedScan(prKey(c.Repo, c.Number))
-			if err := saveState(store, st); err != nil {
+			if err := saveEntry(store, st, prKey(c.Repo, c.Number)); err != nil {
 				return doc, liveStep{done: true, err: err}
 			}
 		}
@@ -436,7 +442,7 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 	doc.Results = append(doc.Results, item)
 	if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
 		recordDispatch(st, c, req, now)
-		if err := saveState(store, st); err != nil {
+		if err := saveEntry(store, st, prKey(c.Repo, c.Number)); err != nil {
 			return doc, liveStep{done: true, err: err}
 		}
 	}
@@ -734,6 +740,23 @@ func (realSleeper) Sleep(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// entryMerger saves one entry over the store's current state, so runs
+// that do not share a run lock keep each other's entries.
+type entryMerger interface {
+	MergeEntry(key string, entry Entry) error
+}
+
+// saveEntry saves st after a change to key alone.
+func saveEntry(store StateStore, st State, key string) error {
+	if m, ok := store.(entryMerger); ok {
+		if err := m.MergeEntry(key, st[key]); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
+		return nil
+	}
+	return saveState(store, st)
 }
 
 func saveState(store StateStore, st State) error {
