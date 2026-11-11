@@ -36,6 +36,18 @@ hub_socket = "/run/user/1000/agentbus/hub.sock"  # on the hub
 	}
 }
 
+func TestParseLeaseCheckouts(t *testing.T) {
+	got, err := Parse(`lease_checkouts = ["/home/u/src/repo", "/home/u/src/other/"]  # guarded
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/home/u/src/repo", "/home/u/src/other"}
+	if !reflect.DeepEqual(got.LeaseCheckouts, want) {
+		t.Fatalf("LeaseCheckouts = %q, want %q", got.LeaseCheckouts, want)
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	got, err := Parse("\n# nothing\n")
 	if err != nil || !reflect.DeepEqual(got, Config{}) {
@@ -63,6 +75,8 @@ func TestParseErrors(t *testing.T) {
 		{"hub_socket = \"\"\n", "line 1: hub_socket must be a non-empty string"},
 		{"hub_socket = \"run/hub.sock\"\n", "line 1: hub_socket must be an absolute path"},
 		{"hub_socket = \"/run/a:b.sock\"\n", "line 1: hub_socket must not contain a colon"},
+		{"lease_checkouts = \"/a\"\n", "line 1: lease_checkouts must be a list of absolute paths"},
+		{"lease_checkouts = [\"src/repo\"]\n", "line 1: lease_checkouts must be a list of absolute paths"},
 	} {
 		_, err := Parse(tt.in)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {

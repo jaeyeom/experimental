@@ -15,6 +15,7 @@ go_library(
     deps = [
         "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/mailbox:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
         "//devtools/agentbus/internal/registry:go_default_library",

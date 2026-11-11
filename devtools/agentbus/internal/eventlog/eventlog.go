@@ -39,6 +39,10 @@ const (
 	EventBypass         = "bypass"
 	EventStart          = "start"
 	EventStop           = "stop"
+	EventLeaseClaim     = "lease_claim"
+	EventLeaseGrant     = "lease_grant"
+	EventLeaseExtend    = "lease_extend"
+	EventLeaseLeave     = "lease_leave"
 )
 
 // timeLayout is RFC 3339 with millisecond precision.
@@ -363,7 +367,8 @@ func knownEvent(name string) bool {
 	switch name {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
 		EventSend, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
-		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop:
+		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
+		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave:
 		return true
 	default:
 		return false

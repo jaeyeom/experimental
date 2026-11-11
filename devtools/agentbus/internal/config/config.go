@@ -8,6 +8,7 @@
 //	hub = "me@hub"          # run every command on this ssh target
 //	machine = "linux2"      # this machine's herdr label on the hub
 //	hub_socket = "/run/user/1000/agentbus/hub.sock"  # hub.sock on the hub
+//	lease_checkouts = ["/home/u/src/repo"]  # checkouts the lease guards
 package config
 
 import (
@@ -36,7 +37,12 @@ type Config struct {
 	// HubSocket is the hub daemon's hub.sock path on the hub. agentbus
 	// install in hub mode forwards the local tunnel socket to it.
 	HubSocket string
+	// LeaseCheckouts are this machine's guarded checkouts: absolute
+	// paths of git top-levels that need the lease before a change.
+	LeaseCheckouts []string
 }
+
+var errLeaseCheckouts = errors.New(`lease_checkouts must be a list of absolute paths, such as ["/home/u/src/repo"]`)
 
 // Path is $XDG_CONFIG_HOME/agentbus/config.toml, or
 // $HOME/.config/agentbus/config.toml when XDG_CONFIG_HOME is unset.
@@ -96,16 +102,7 @@ func parseLine(cfg *Config, line string) error {
 	value = strings.TrimSpace(value)
 	switch key {
 	case "machines":
-		machines, ok := parseList(value)
-		if !ok {
-			return errors.New("machines must be a list of strings, such as [\"linux2\"]")
-		}
-		for _, m := range machines {
-			if m == "local" {
-				return errors.New("machines must not list local; it is always included")
-			}
-		}
-		cfg.Machines = machines
+		return parseMachines(cfg, value)
 	case "remote_timeout":
 		raw, rest, ok := parseString(value)
 		d, err := time.ParseDuration(raw)
@@ -113,11 +110,44 @@ func parseLine(cfg *Config, line string) error {
 			return errors.New("remote_timeout must be a positive duration, such as \"5s\"")
 		}
 		cfg.RemoteTimeout = d
+	case "lease_checkouts":
+		return parseLeaseCheckouts(cfg, value)
 	case "hub", "machine", "hub_socket":
 		return parseHubKey(cfg, key, value)
 	default:
 		return fmt.Errorf("unknown key %s", key)
 	}
+	return nil
+}
+
+// parseMachines reads machines, a list of saved-machine labels.
+func parseMachines(cfg *Config, value string) error {
+	machines, ok := parseList(value)
+	if !ok {
+		return errors.New("machines must be a list of strings, such as [\"linux2\"]")
+	}
+	for _, m := range machines {
+		if m == "local" {
+			return errors.New("machines must not list local; it is always included")
+		}
+	}
+	cfg.Machines = machines
+	return nil
+}
+
+// parseLeaseCheckouts reads lease_checkouts, a list of absolute paths.
+func parseLeaseCheckouts(cfg *Config, value string) error {
+	paths, ok := parseList(value)
+	if !ok {
+		return errLeaseCheckouts
+	}
+	for i, p := range paths {
+		if !filepath.IsAbs(p) {
+			return errLeaseCheckouts
+		}
+		paths[i] = filepath.Clean(p)
+	}
+	cfg.LeaseCheckouts = paths
 	return nil
 }
 

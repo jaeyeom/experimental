@@ -33,6 +33,8 @@ var identityCommands = map[string]bool{
 // localCommands run on this machine even in hub mode.
 var localCommands = map[string]bool{
 	"install-hooks": true,
+	// lease reads lease_checkouts and git here; it refuses hub mode itself.
+	"lease": true,
 }
 
 // stdinCommands read stdin, so hub mode forwards it.

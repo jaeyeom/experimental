@@ -32,6 +32,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~thread <id>~ | Print the chain. |
 | ~status <id>~ | Print id, state, and how long it has waited. |
 | ~log~ | Read the daemon event log. |
+| ~lease <claim/extend/leave/status/check>~ | Hold the lease on a guarded checkout, or see who holds it. See [[*Workdir lease]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -285,6 +286,67 @@ serves other callers meanwhile. Otherwise the command uses ssh as
 above: when the socket is missing or nobody answers on it, when the
 caller is not in a herdr pane, and, after printing the version error,
 when the protocols differ.
+
+* Workdir lease
+
+Several agents can share one checkout. The lease says who may change
+it right now. Each machine lists its guarded checkouts, the git
+top-levels that need the lease, in its config:
+
+#+BEGIN_SRC toml
+lease_checkouts = ["/home/u/src/repo"]
+#+END_SRC
+
+Every ~lease~ subcommand takes ~--path~ (default: the current
+directory, resolved to its git top-level) and ~--json~. The checkout
+key is ~<machine>:<git top-level>~, such as ~local:/home/u/src/repo~.
+A path outside every guarded checkout, or in a separate repository or
+worktree nested inside one, is not guarded.
+
+#+BEGIN_SRC bash
+agentbus lease claim --for 40m --why "issue 623"
+agentbus lease extend --for 20m
+agentbus lease leave
+agentbus lease status --all
+agentbus lease check --path src/main.go
+#+END_SRC
+
+| Subcommand | What it does |
+|------------+--------------|
+| ~claim --for <d> [--urgent] [--why <text>]~ | Take a free checkout, or join its queue. Never blocks. Prints ~granted until HH:MM~ or ~queued, position N (holder X, bid ends HH:MM)~. |
+| ~extend --for <d>~ | Holder only. Move the soft deadline to now plus ~--for~. |
+| ~leave~ | Leave the queue. |
+| ~status [--all]~ | Holder, deadline, state, and queue. ~--all~ lists every checkout the daemon has seen. |
+| ~check~ | Exit 0 when you hold the lease or the path is not guarded, 1 with a one-line reason when you do not, 3 when it cannot tell. |
+
+The queue puts the user first, then ~--urgent~ claims, then the rest,
+each in arrival order. Claiming again as the holder or a waiter keeps
+the place and updates ~--for~ and ~--why~. A free checkout whose tree
+is dirty, or has a rebase, merge, cherry-pick, or revert in progress,
+is granted in state ~needs-adopt~; ~check~ refuses it until it is
+adopted. ~check~ on an unguarded path reads only the local config and
+never contacts the daemon.
+
+~status --json~ prints this shape, which other tools read and which
+stays stable. ~--all~ prints an array of them. ~state~ is ~free~,
+~held~, ~paused~, ~releasing~, or ~needs-adopt~. ~holder~ is absent
+when the checkout is free. ~name~ is the registered name, or empty.
+
+#+BEGIN_SRC json
+{"checkout": "local:/home/u/src/repo", "state": "held",
+ "holder": {"handle": "...", "name": "...", "since": "RFC3339",
+            "deadline": "RFC3339", "why": "..."},
+ "queue": [{"handle": "...", "name": "...", "urgent": false,
+            "for": "40m", "since": "RFC3339"}],
+ "backup_ref": "... (only when there is one)"}
+#+END_SRC
+
+The daemon keeps lease state in ~leases.json~ in its state directory,
+so a restart keeps holders, queues, and deadlines. Every claim, grant,
+extend, and leave is a ~lease_claim~, ~lease_grant~, ~lease_extend~, or
+~lease_leave~ event in the event log, with the checkout key as its
+name. In hub mode, ~lease~ refuses a guarded path for now; ~check~ on
+an unguarded path still passes.
 
 * Lost messages
 
