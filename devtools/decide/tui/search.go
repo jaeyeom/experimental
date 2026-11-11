@@ -87,7 +87,7 @@ func filterStatus(agents []decide.AgentStatus, resources []decide.ResourceStatus
 	}
 	var keptResources []decide.ResourceStatus
 	for _, row := range resources {
-		if matchesAny(re, row.Name, row.Availability, row.Note) {
+		if matchesAny(re, row.Name, row.Availability, decide.ResourceNote(row)) {
 			keptResources = append(keptResources, row)
 		}
 	}

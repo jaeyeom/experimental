@@ -1,13 +1,10 @@
 package tui
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -33,29 +30,8 @@ const (
 // pickerHint is the footer while the recipient list is focused.
 const pickerHint = "type to filter  ↑/↓ C-n/C-p move  Enter pick  Esc clear/cancel  Tab text"
 
-// BusRunner runs `agentbus` with args and returns its stdout. An error
-// carries agentbus's stderr when it printed one.
-type BusRunner func(ctx context.Context, args []string) ([]byte, error)
-
-// ExecAgentbus runs the agentbus on PATH. A missing binary fails at once.
-func ExecAgentbus(ctx context.Context, args []string) ([]byte, error) {
-	path, err := exec.LookPath("agentbus")
-	if err != nil {
-		return nil, fmt.Errorf("agentbus: %w", err)
-	}
-	cmd := exec.CommandContext(ctx, path, args...)
-	cmd.WaitDelay = 100 * time.Millisecond
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return out, errors.New(msg)
-		}
-		return out, fmt.Errorf("agentbus %s: %w", args[0], err)
-	}
-	return out, nil
-}
+// BusRunner runs `agentbus` with args and returns its stdout.
+type BusRunner = decide.AgentbusRunner
 
 // busAgent is one object of `agentbus list --json`.
 type busAgent struct {
@@ -69,7 +45,7 @@ func (m *Model) busRunner() BusRunner {
 	if m.busRun != nil {
 		return m.busRun
 	}
-	return ExecAgentbus
+	return decide.ExecAgentbus
 }
 
 // refreshBus reloads the bus names when the cache is older than

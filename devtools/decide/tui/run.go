@@ -14,7 +14,9 @@ import (
 // to DefaultInterval. Targets and SendTemplate come from decide config.
 // An empty SendTemplate is `herdr agent prompt {pane}` plus the note as its
 // own argument. Agentbus adds `agentbus list --json` names to the
-// recipients. BusRunner runs agentbus and defaults to ExecAgentbus.
+// recipients. BusRunner runs agentbus and defaults to decide.ExecAgentbus.
+// Checkouts map status resources to checkouts whose lease the status
+// board shows.
 type Options struct {
 	Dir          string
 	In           io.Reader
@@ -32,6 +34,7 @@ type Options struct {
 	Avatars       []decide.AvatarRule
 	AvatarDefault bool
 	AvatarMono    string
+	Checkouts     []decide.ConfigCheckout
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -90,6 +93,7 @@ func prepare(opts Options) (*Model, error) {
 	m.Avatars = opts.Avatars
 	m.AvatarDefault = opts.AvatarDefault
 	m.AvatarMono = opts.AvatarMono
+	m.Checkouts = opts.Checkouts
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	if opts.Now != nil {
 		m.Now = opts.Now

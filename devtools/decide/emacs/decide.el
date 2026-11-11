@@ -804,13 +804,22 @@ FIELDS are JSON keys. The third column is the age of updatedAt."
         (setq stale (append stale (list (decide--stale-p updated now))))))
     (cons rows stale)))
 
+(defun decide--resource-note (entry)
+  "ENTRY's note, ending with (guess) when the lease could not be read."
+  (let ((note (decide--field entry "note")))
+    (if (alist-get "guess" entry nil nil #'equal)
+        (string-trim (concat note " (guess)"))
+      note)))
+
 (defun decide-status-render (board now)
   "Insert BOARD, a status JSON alist, as of NOW."
   (let* ((agents (decide--status-rows
                   (alist-get "agents" board nil nil #'equal)
                   '("name" "state" "text") now))
          (resources (decide--status-rows
-                     (alist-get "resources" board nil nil #'equal)
+                     (mapcar (lambda (entry)
+                               (cons (cons "note" (decide--resource-note entry)) entry))
+                             (alist-get "resources" board nil nil #'equal))
                      '("name" "availability" "note") now)))
     (when (car agents)
       (decide--render-status-table '("agent" "state" "age" "text")

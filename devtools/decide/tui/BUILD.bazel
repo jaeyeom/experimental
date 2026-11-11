@@ -56,6 +56,7 @@ go_test(
         "color_test.go",
         "editor_test.go",
         "field_test.go",
+        "lease_test.go",
         "link_test.go",
         "model_test.go",
         "recipients_test.go",

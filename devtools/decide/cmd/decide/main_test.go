@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1259,6 +1261,61 @@ func TestStatusResourceFreeBusyAndClear(t *testing.T) {
 	stdout, _, code = runCLI("status", "list")
 	if code != 0 || strings.Contains(stdout, "workspace") {
 		t.Fatalf("after clear %d %q", code, stdout)
+	}
+}
+
+func TestStatusListReadsCheckoutLease(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"checkouts": [{"name": "checkout", "path": "/repo"}]}`)
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, code := runCLI("status", "set", "--resource", "checkout", "busy", "mine"); code != 0 {
+		t.Fatalf("set code = %d\n%s", code, stderr)
+	}
+	var busErr error
+	agentbusRun = func(_ context.Context, args []string) ([]byte, error) {
+		if busErr != nil {
+			return nil, busErr
+		}
+		if slices.Contains(args, "--guarded") {
+			return []byte(`{"guarded": true, "checkout": "/repo"}`), nil
+		}
+		return []byte(`{"checkout":"/repo","state":"paused","holder":{"handle":"user"},"queue":[{"handle":"%8"}]}`), nil
+	}
+	t.Cleanup(func() { agentbusRun = decide.ExecAgentbus })
+
+	stdout, stderr, code := runCLI("status", "list")
+	if code != 0 || stdout != "checkout: paused by user, 1 queued\n" {
+		t.Fatalf("list %d %q\n%s", code, stdout, stderr)
+	}
+	stdout, stderr, code = runCLI("status", "list", "--json")
+	if code != 0 {
+		t.Fatalf("json code = %d\n%s", code, stderr)
+	}
+	var board struct {
+		Resources []map[string]any `json:"resources"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &board); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if len(board.Resources) != 1 || board.Resources[0]["source"] != "lease" || board.Resources[0]["availability"] != "busy" || board.Resources[0]["note"] != "paused by user, 1 queued" {
+		t.Fatalf("resources = %+v", board.Resources)
+	}
+
+	busErr = errors.New("agentbus: not found")
+	stdout, _, code = runCLI("status", "list")
+	if code != 0 || stdout != "checkout: busy (mine) (guess)\n" {
+		t.Fatalf("missing agentbus %d %q", code, stdout)
+	}
+	stdout, _, _ = runCLI("status", "list", "--json")
+	if !strings.Contains(stdout, `"source": "stored"`) || !strings.Contains(stdout, `"guess": true`) {
+		t.Fatalf("missing agentbus json %s", stdout)
 	}
 }
 
