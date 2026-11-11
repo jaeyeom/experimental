@@ -126,7 +126,8 @@ type Config struct {
 	// the gate by its status. The default, false, holds the gate for a
 	// blocked agent.
 	ConcurrencyIgnoreBlocked bool
-	// ConcurrencyCwd is any or checkout. any does not look at directories.
+	// ConcurrencyCwd is any or checkout. any counts working and blocked
+	// agents anywhere; idle-tab signals still need the tab in Checkout.
 	ConcurrencyCwd string
 	// Checkout is the dispatch repo's checkout. It is not a file key.
 	// checkout mode counts an agent only when cwd or foreground_cwd is inside it.

@@ -49,6 +49,10 @@ type Process struct {
 	// Age is how long the process had run when it was listed. It is
 	// negative when unknown; an unknown age counts as old.
 	Age time.Duration
+	// Cwd is the working directory when the listing reports it (a
+	// remote pane's process-info). Otherwise it is empty and read
+	// through ProcessTable.Cwd when needed.
+	Cwd string
 }
 
 // ProcessTable lists the local processes.
@@ -185,6 +189,9 @@ type gateRun struct {
 	warnedMachines map[string]string
 	// loggedIgnored keeps one gate_ignored debug line per process.
 	loggedIgnored map[string]struct{}
+	// loggedOutside keeps one gate_signal_out_of_checkout debug line
+	// per skipped signal.
+	loggedOutside map[string]struct{}
 }
 
 // snapshotProbes caches one process table, decide listing, and tab
@@ -295,14 +302,17 @@ func (s *snapshotProbes) exempt(ctx context.Context, agent herdr.Agent, policy g
 
 // tabSignal is the first extra signal that holds agent's tab: a
 // background job, then a pending question. Signals it could not
-// evaluate are returned as unavailable.
+// evaluate are returned as unavailable. When the dispatch checkout is
+// known and the tab is outside it, a pending question does not hold,
+// and a background job holds only when its own cwd is inside it.
 func (s *snapshotProbes) tabSignal(ctx context.Context, agent herdr.Agent, policy gatePolicy) (string, string, []Unavailable) {
 	var unavailable []Unavailable
 	miss := func(signal string, err error) {
 		unavailable = append(unavailable, Unavailable{Machine: agent.Machine, TabID: agent.TabID, PaneID: agent.PaneID, Signal: signal, Error: err.Error()})
 	}
+	outside := policy.checkout != "" && !inDispatchCheckout(agent, policy.checkout)
 	if s.Panes != nil && (s.Procs != nil || agent.Machine != "") {
-		detail, err := s.backgroundJob(ctx, agent, policy)
+		detail, err := s.backgroundJob(ctx, agent, policy, outside)
 		if err != nil {
 			miss(SignalBackgroundJob, err)
 		} else if detail != "" {
@@ -310,27 +320,45 @@ func (s *snapshotProbes) tabSignal(ctx context.Context, agent herdr.Agent, polic
 		}
 	}
 	if s.Decide != nil && policy.pendingQuestion != "off" {
-		items, err := s.decideItems(ctx)
-		switch {
-		case errors.Is(err, ErrDecideMissing):
-		case err != nil:
+		detail, err := s.pendingQuestion(ctx, agent, outside)
+		if err != nil {
 			miss(SignalPendingQuestion, err)
-		default:
-			if detail := pendingItemFor(items, agent, s.run.roundStart); detail != "" {
-				return SignalPendingQuestion, detail, unavailable
-			}
+		} else if detail != "" {
+			return SignalPendingQuestion, detail, unavailable
 		}
 	}
 	return "", "", unavailable
+}
+
+// pendingQuestion describes the decide item that holds agent's tab, or
+// is empty. A tab outside the dispatch checkout is never held, so a
+// decide failure is not an error for it.
+func (s *snapshotProbes) pendingQuestion(ctx context.Context, agent herdr.Agent, outside bool) (string, error) {
+	items, err := s.decideItems(ctx)
+	switch {
+	case errors.Is(err, ErrDecideMissing):
+		return "", nil
+	case err != nil && outside:
+		return "", nil
+	case err != nil:
+		return "", err
+	}
+	detail := pendingItemFor(items, agent, s.run.roundStart)
+	if detail != "" && outside {
+		s.noteOutside(ctx, agent, SignalPendingQuestion, detail)
+		return "", nil
+	}
+	return detail, nil
 }
 
 // backgroundJob describes the first child of the pane's foreground
 // agent that is a background job, or is empty. A child is a job when
 // it matches none of the ignore patterns, is at least the minimum age,
 // and, inside a wait loop, was also a candidate in the previous sample.
-// An ignored child is recorded with its pattern; its own children are
-// never looked at.
-func (s *snapshotProbes) backgroundJob(ctx context.Context, agent herdr.Agent, policy gatePolicy) (string, error) {
+// For a tab outside the dispatch checkout, the child's cwd must also be
+// inside it. An ignored child is recorded with its pattern; its own
+// children are never looked at.
+func (s *snapshotProbes) backgroundJob(ctx context.Context, agent herdr.Agent, policy gatePolicy, outside bool) (string, error) {
 	children, err := s.agentChildren(ctx, agent)
 	if err != nil {
 		return "", err
@@ -342,6 +370,10 @@ func (s *snapshotProbes) backgroundJob(ctx context.Context, agent herdr.Agent, p
 			continue
 		}
 		if child.Age >= 0 && child.Age < policy.jobMinAge {
+			continue
+		}
+		if outside && !insideCheckout(s.childCwd(ctx, child), policy.checkout) {
+			s.noteOutside(ctx, agent, SignalBackgroundJob, "pid "+strconv.Itoa(child.PID)+" "+commandLine(child))
 			continue
 		}
 		key := jobKey(agent.Machine, child.PID)
@@ -386,7 +418,7 @@ func (s *snapshotProbes) agentChildren(ctx context.Context, agent herdr.Agent) (
 		var out []Process
 		for _, fp := range info.ForegroundProcesses {
 			if fp.PID != root {
-				out = append(out, Process{PID: fp.PID, PPID: root, Name: fp.Name, Argv: fp.Argv, Age: -1})
+				out = append(out, Process{PID: fp.PID, PPID: root, Name: fp.Name, Argv: fp.Argv, Age: -1, Cwd: fp.Cwd})
 			}
 		}
 		return sortedByPID(out), nil
@@ -399,6 +431,32 @@ func (s *snapshotProbes) agentChildren(ctx context.Context, agent herdr.Agent) (
 		return nil, fmt.Errorf("process table: %w", err)
 	}
 	return childrenOf(procs)[root], nil
+}
+
+// childCwd is child's working directory, or empty when unknown.
+func (s *snapshotProbes) childCwd(ctx context.Context, child Process) string {
+	if child.Cwd != "" || s.Procs == nil {
+		return child.Cwd
+	}
+	cwd, err := s.Procs.Cwd(ctx, child.PID)
+	if err != nil {
+		return ""
+	}
+	return cwd
+}
+
+// noteOutside logs, once per run, a signal skipped because agent's tab
+// is outside the dispatch checkout.
+func (s *snapshotProbes) noteOutside(ctx context.Context, agent herdr.Agent, signal, detail string) {
+	key := agent.Machine + "\x00" + agent.PaneID + "\x00" + signal + "\x00" + detail
+	if _, ok := s.run.loggedOutside[key]; ok {
+		return
+	}
+	if s.run.loggedOutside == nil {
+		s.run.loggedOutside = make(map[string]struct{})
+	}
+	s.run.loggedOutside[key] = struct{}{}
+	runlog.FromContext(ctx).Debug("gate_signal_out_of_checkout", "machine", agent.Machine, "tab_id", agent.TabID, "pane", agent.PaneID, "signal", signal, "detail", detail, "cwd", agent.Cwd, "foreground_cwd", agent.ForegroundCwd)
 }
 
 func (s *snapshotProbes) noteIgnored(ctx context.Context, ig Ignored) {
