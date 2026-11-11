@@ -26,14 +26,18 @@ go_library(
 go_test(
     name = "go_default_test",
     srcs = [
+        "checkin_test.go",
         "daemon_test.go",
         "hub_test.go",
         "stream_test.go",
     ],
     embed = [":go_default_library"],
     deps = [
+        "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/agentbus/internal/adapter/fake:go_default_library",
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
+        "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/paths:go_default_library",
     ],
 )

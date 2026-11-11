@@ -45,6 +45,13 @@ const (
 	EventLeaseLeave     = "lease_leave"
 	EventLeaseRelease   = "lease_release"
 	EventLeaseSkip      = "lease_skip"
+	// EventLeaseCheckIn is a check-in sent to a holder whose bid ended.
+	EventLeaseCheckIn = "lease_checkin"
+	// EventLeaseAutoExtend is a silent extend of a holder still working.
+	EventLeaseAutoExtend = "lease_auto_extend"
+	// EventLeaseTakeover is a takeover of an idle and silent, or gone,
+	// holder.
+	EventLeaseTakeover = "lease_takeover"
 )
 
 // timeLayout is RFC 3339 with millisecond precision.
@@ -371,7 +378,8 @@ func knownEvent(name string) bool {
 		EventSend, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
-		EventLeaseRelease, EventLeaseSkip:
+		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
+		EventLeaseTakeover:
 		return true
 	default:
 		return false

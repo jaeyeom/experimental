@@ -48,6 +48,19 @@ func TestParseLeaseCheckouts(t *testing.T) {
 	}
 }
 
+func TestParseLeaseTimers(t *testing.T) {
+	got, err := Parse(`lease_check_interval = "1m"   # how often
+lease_checkin_repeat = "10m"
+lease_idle_grace = "3m"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LeaseCheckInterval != time.Minute || got.LeaseCheckinRepeat != 10*time.Minute || got.LeaseIdleGrace != 3*time.Minute {
+		t.Fatalf("Parse = %+v", got)
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	got, err := Parse("\n# nothing\n")
 	if err != nil || !reflect.DeepEqual(got, Config{}) {
@@ -75,6 +88,9 @@ func TestParseErrors(t *testing.T) {
 		{"hub_socket = \"\"\n", "line 1: hub_socket must be a non-empty string"},
 		{"hub_socket = \"run/hub.sock\"\n", "line 1: hub_socket must be an absolute path"},
 		{"hub_socket = \"/run/a:b.sock\"\n", "line 1: hub_socket must not contain a colon"},
+		{"lease_check_interval = \"0s\"\n", "line 1: lease_check_interval must be a positive duration"},
+		{"lease_checkin_repeat = \"often\"\n", "line 1: lease_checkin_repeat must be a positive duration"},
+		{"lease_idle_grace = 5\n", "line 1: lease_idle_grace must be a positive duration"},
 		{"lease_checkouts = \"/a\"\n", "line 1: lease_checkouts must be a list of absolute paths"},
 		{"lease_checkouts = [\"src/repo\"]\n", "line 1: lease_checkouts must be a list of absolute paths"},
 	} {

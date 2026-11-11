@@ -233,6 +233,11 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
   lease_checkouts = ["/home/u/src/repo"]
                           this machine's checkouts that need the lease;
                           lease commands are local-only for now
+  lease_check_interval = "2m", lease_checkin_repeat = "15m",
+  lease_idle_grace = "5m" soft-deadline timing, read by the daemon: how
+                          often an overrun holder is looked at, least time
+                          between check-ins, and idle-and-silent time
+                          before takeover
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>". It never falls back to a
