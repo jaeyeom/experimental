@@ -130,8 +130,8 @@ func commands() []command {
 		},
 		{
 			name:    "lease",
-			summary: "Claim, extend, leave, check, or release the lease on a guarded checkout; status shows who holds it.",
-			usage:   "agentbus lease <claim|extend|leave|status|check|release> [flags]",
+			summary: "Claim, extend, leave, check, release, or adopt the lease on a guarded checkout; status shows who holds it.",
+			usage:   "agentbus lease <claim|extend|leave|status|check|release|adopt> [flags]",
 			flags:   leaseFlagsHelp,
 			example: `agentbus lease claim --for 40m --why "issue 623"`,
 			run:     noStdin(cmdLease),
@@ -238,6 +238,11 @@ Config ($XDG_CONFIG_HOME/agentbus/config.toml):
                           often an overrun holder is looked at, least time
                           between check-ins, and idle-and-silent time
                           before takeover
+  lease_ignore_procs = ["zsh", "claude"]
+                          programs whose working directory in the checkout
+                          does not block lease adopt; replaces the default
+                          sh, bash, zsh, fish, claude, codex, gemini,
+                          emacs, vim, nvim, less, agentbus
 
 In hub mode a hub that cannot be reached fails the command with
 "agentbus: hub <target> unreachable: <cause>". It never falls back to a

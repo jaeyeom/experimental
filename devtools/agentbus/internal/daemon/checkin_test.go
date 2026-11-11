@@ -49,6 +49,8 @@ type checkinWorld struct {
 	ad    *fake.Adapter
 	clock *clock
 	dir   string
+	// notes are the decide notes the daemon sent the user.
+	notes *[]string
 }
 
 func newCheckinWorld(t *testing.T, waiter bool) *checkinWorld {
@@ -62,7 +64,9 @@ func newCheckinWorld(t *testing.T, waiter bool) *checkinWorld {
 	c := &clock{now: ciT0()}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	srv, err := newServer(ctx, dir, Config{Adapters: []adapter.Adapter{ad}, Now: c.Now}, eventlog.Open(dir))
+	notes := &[]string{}
+	notify := func(text string) { *notes = append(*notes, text) }
+	srv, err := newServer(ctx, dir, Config{Adapters: []adapter.Adapter{ad}, Now: c.Now, Notify: notify}, eventlog.Open(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +78,7 @@ func newCheckinWorld(t *testing.T, waiter bool) *checkinWorld {
 			t.Fatal(err)
 		}
 	}
-	return &checkinWorld{srv: srv, ad: ad, clock: c, dir: dir}
+	return &checkinWorld{srv: srv, ad: ad, clock: c, dir: dir, notes: notes}
 }
 
 // at runs one check at deadline+m minutes with alice's pane in state.
@@ -157,7 +161,7 @@ func TestCheckLeasesExtendsAWorkingHolderAndRepeatsAfter15Minutes(t *testing.T) 
 	}
 }
 
-func TestCheckLeasesIdleFiveMinutesWithAWaiterWouldTakeOver(t *testing.T) {
+func TestCheckLeasesIdleFiveMinutesWithAWaiterTakesOver(t *testing.T) {
 	w := newCheckinWorld(t, true)
 	for _, m := range []int{0, 2, 4} {
 		w.at(m, adapter.StateIdle)
@@ -168,7 +172,7 @@ func TestCheckLeasesIdleFiveMinutesWithAWaiterWouldTakeOver(t *testing.T) {
 	w.at(5, adapter.StateDone)
 	w.at(7, adapter.StateNoAgent)
 	evs := w.events(t, eventlog.EventLeaseTakeover)
-	if len(evs) != 1 || evs[0].Detail != "would take over" || evs[0].Actor != ciAlice || !strings.Contains(evs[0].Reason, "idle") {
+	if len(evs) != 1 || !strings.HasPrefix(evs[0].Detail, "taken over; backup refs/lease-backup/") || evs[0].Actor != ciAlice || !strings.Contains(evs[0].Reason, "idle") {
 		t.Fatalf("takeover events = %+v", evs)
 	}
 }
@@ -212,7 +216,7 @@ func TestCheckLeasesWithNoWaiterChecksInOnce(t *testing.T) {
 	}
 }
 
-func TestCheckLeasesGoneWithAWaiterWouldTakeOverAtOnce(t *testing.T) {
+func TestCheckLeasesGoneWithAWaiterTakesOverAtOnce(t *testing.T) {
 	w := newCheckinWorld(t, true)
 	w.at(-30, adapter.StateGone)
 	evs := w.events(t, eventlog.EventLeaseTakeover)

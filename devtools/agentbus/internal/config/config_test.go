@@ -48,6 +48,23 @@ func TestParseLeaseCheckouts(t *testing.T) {
 	}
 }
 
+func TestParseLeaseIgnoreProcs(t *testing.T) {
+	got, err := Parse(`lease_ignore_procs = ["zsh", "claude", "tmux"]  # adopt ignores these
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"zsh", "claude", "tmux"}; !reflect.DeepEqual(got.LeaseIgnoreProcs, want) {
+		t.Fatalf("LeaseIgnoreProcs = %q, want %q", got.LeaseIgnoreProcs, want)
+	}
+	if got, err := Parse("lease_ignore_procs = []\n"); err != nil || got.LeaseIgnoreProcs == nil || len(got.LeaseIgnoreProcs) != 0 {
+		t.Fatalf("empty list = %#v, %v", got.LeaseIgnoreProcs, err)
+	}
+	if got, _ := Parse(""); got.LeaseIgnoreProcs != nil {
+		t.Fatalf("unset = %#v, want nil (the default)", got.LeaseIgnoreProcs)
+	}
+}
+
 func TestParseLeaseTimers(t *testing.T) {
 	got, err := Parse(`lease_check_interval = "1m"   # how often
 lease_checkin_repeat = "10m"
@@ -93,6 +110,8 @@ func TestParseErrors(t *testing.T) {
 		{"lease_idle_grace = 5\n", "line 1: lease_idle_grace must be a positive duration"},
 		{"lease_checkouts = \"/a\"\n", "line 1: lease_checkouts must be a list of absolute paths"},
 		{"lease_checkouts = [\"src/repo\"]\n", "line 1: lease_checkouts must be a list of absolute paths"},
+		{"lease_ignore_procs = \"zsh\"\n", "line 1: lease_ignore_procs must be a list of program names"},
+		{"lease_ignore_procs = [\"/bin/zsh\"]\n", "line 1: lease_ignore_procs must be a list of program names"},
 	} {
 		_, err := Parse(tt.in)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {

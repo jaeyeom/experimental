@@ -41,9 +41,12 @@ extend --for <duration>
          holder only: move the soft deadline to now plus --for. Also
          the answer to a check-in: when the bid ends the daemon sends
          "[lease] your bid on <checkout> ended". With a waiter queued,
-         a holder still working is extended silently; one idle and
-         silent for lease_idle_grace (5m) after the check-in, or whose
-         pane is gone, is taken over. Nobody queued: one check-in only.
+         a holder still working (or releasing) is extended silently;
+         one idle and silent for lease_idle_grace (5m) after the
+         check-in, or whose pane is gone, is taken over. Nobody queued:
+         one check-in only. Takeover tells the old holder "[lease] taken
+         over from you: <checkout>; your uncommitted work will be saved
+         to <backup ref>" and grants the next waiter as needs-adopt.
 leave    leave the queue
 status [--all]
          holder, deadline, state, and queue; --all lists every checkout
@@ -59,6 +62,18 @@ release  holder only: refuse a dirty tree (modified, staged, or
          release goes ahead. The first waiter whose pane is not gone
          is granted and woken with an agentbus message; gone waiters
          are dropped. With nobody waiting the checkout is free.
+adopt [--force]
+         the needs-adopt holder, or the user from a pane with no agent
+         or outside herdr: refuse while a process other than a shell,
+         agent CLI, editor, pager or agentbus (lease_ignore_procs) has
+         its working directory in the checkout, naming them; --force
+         goes on anyway (default: false). Then save any uncommitted
+         work, untracked files included, as a commit on
+         refs/lease-backup/<UTC time>-<old holder> (never a branch or
+         git stash), abort a rebase/merge/cherry-pick/revert after
+         recording it, clean, switch to the default branch and pull.
+         The lease becomes held by you. status lists the backup refs;
+         they are never deleted.
 
 Every subcommand:
 --path <path>  the checkout (default: the current directory), resolved to
@@ -73,6 +88,7 @@ type leaseFlags struct {
 	urgent  bool
 	why     string
 	all     bool
+	force   bool
 }
 
 func parseLeaseFlags(sub string, args []string, stderr io.Writer) (leaseFlags, error) {
@@ -90,6 +106,8 @@ func parseLeaseFlags(sub string, args []string, stderr io.Writer) (leaseFlags, e
 		fs.StringVar(&f.bid, "for", "", "new bid from now, such as 20m (required)")
 	case "status":
 		fs.BoolVar(&f.all, "all", false, "every checkout the daemon has seen")
+	case "adopt":
+		fs.BoolVar(&f.force, "force", false, "adopt even when other processes work in the checkout")
 	}
 	if err := fs.Parse(args); err != nil {
 		return f, fmt.Errorf("parse flags: %w", err)
@@ -111,7 +129,7 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 	}
 	sub := args[0]
 	switch sub {
-	case "claim", "extend", "leave", "status", "check", "release":
+	case "claim", "extend", "leave", "status", "check", "release", "adopt":
 	default:
 		fmt.Fprintf(stderr, "agentbus lease: unknown subcommand %q\nrun 'agentbus lease --help' for usage\n", sub)
 		return 2
@@ -132,8 +150,11 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 	if !ok {
 		return code
 	}
-	if sub == "release" {
+	switch sub {
+	case "release":
 		return leaseRelease(ctx, f, largs, env, stdout, stderr)
+	case "adopt":
+		return leaseAdopt(ctx, f, largs, env, stdout, stderr)
 	}
 	resp, code := callDaemon(ctx, env, daemon.Request{Op: "lease-" + sub, Env: env, Lease: &largs}, stderr)
 	if code != 0 {
@@ -143,7 +164,29 @@ func cmdLease(ctx context.Context, args, env []string, stdout, stderr io.Writer)
 		fmt.Fprintf(stderr, "agentbus lease %s: %s\n", sub, resp.Error)
 		return failed
 	}
-	return printLease(sub, f, *resp.Lease, stdout, stderr)
+	return printLease(sub, f, *resp.Lease, env, stdout, stderr)
+}
+
+// printStatusText prints each checkout's status and, for a checkout on
+// this machine, its lease backup refs.
+func printStatusText(r lease.Reply, env []string, stdout io.Writer) {
+	for i, s := range r.Leases {
+		if i > 0 {
+			fmt.Fprintln(stdout)
+		}
+		printStatus(stdout, s)
+		root, local := strings.CutPrefix(s.Checkout, localMachine+":")
+		if !local {
+			continue
+		}
+		// A checkout that is gone or not a repository lists no backups.
+		if refs, err := checkout.Backups(root, env); err == nil && len(refs) > 0 {
+			fmt.Fprintln(stdout, "backups:")
+			for _, ref := range refs {
+				fmt.Fprintf(stdout, "  %s\n", ref)
+			}
+		}
+	}
 }
 
 // leaseArgs does the local part of a lease command: read the config,
@@ -224,12 +267,12 @@ type checkJSON struct {
 	Reason   string `json:"reason,omitempty"`
 }
 
-func printLease(sub string, f leaseFlags, r lease.Reply, stdout, stderr io.Writer) int {
+func printLease(sub string, f leaseFlags, r lease.Reply, env []string, stdout, stderr io.Writer) int {
 	switch {
 	case sub == "check":
 		return printCheck(f.jsonOut, r, stdout, stderr)
 	case sub == "status":
-		printStatusReply(f, r, stdout)
+		printStatusReply(f, r, env, stdout)
 		return 0
 	case f.jsonOut:
 		writeJSON(stdout, r)
@@ -255,19 +298,14 @@ func printLease(sub string, f leaseFlags, r lease.Reply, stdout, stderr io.Write
 
 // printStatusReply prints status: one object for a checkout, an array
 // for --all, or text.
-func printStatusReply(f leaseFlags, r lease.Reply, stdout io.Writer) {
+func printStatusReply(f leaseFlags, r lease.Reply, env []string, stdout io.Writer) {
 	switch {
 	case f.jsonOut && f.all:
 		writeJSON(stdout, append([]lease.Status{}, r.Leases...))
 	case f.jsonOut:
 		writeJSON(stdout, r.Leases[0])
 	default:
-		for i, s := range r.Leases {
-			if i > 0 {
-				fmt.Fprintln(stdout)
-			}
-			printStatus(stdout, s)
-		}
+		printStatusText(r, env, stdout)
 	}
 }
 

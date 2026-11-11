@@ -48,6 +48,10 @@ type Config struct {
 	// LeaseTicks, when not nil, drives the soft-deadline checks instead
 	// of a ticker at LeaseTiming.Interval.
 	LeaseTicks <-chan time.Time
+	// Notify, when not nil, tells the user that a checkout needs adopt
+	// after a takeover. It runs on the lease watcher and must not block
+	// for long.
+	Notify func(text string)
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -217,7 +221,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	}
 	return &server{
 		ctx: ctx, reg: reg, box: box, log: lg, leases: leases,
-		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(),
+		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(), notify: cfg.Notify,
 	}, nil
 }
 
@@ -319,6 +323,7 @@ type server struct {
 	adapters  []adapter.Adapter
 	hubCaller func(string) (string, error)
 	timing    lease.Timing
+	notify    func(text string)
 }
 
 func (s *server) handle(conn net.Conn, hub bool) {
@@ -465,8 +470,11 @@ func (s *server) lease(req Request) Response {
 	if req.Lease != nil {
 		args = *req.Lease
 	}
-	if req.Op == "lease-status" {
+	switch req.Op {
+	case "lease-status":
 		return leaseResponse(s.leases.Status(args))
+	case "lease-adopt-begin", "lease-adopt":
+		return s.leaseAdopt(req, args)
 	}
 	caller, _, err := s.reg.WhoAmI(s.ctx, req.Env)
 	if err != nil && req.Op != "lease-check" {
@@ -500,13 +508,9 @@ func (s *server) lease(req Request) Response {
 // not gone, and wakes it with an agentbus message. Pane states are read
 // before the table is locked.
 func (s *server) releaseLease(caller string, args lease.Args) (lease.Reply, error) {
-	st, err := s.leases.Status(lease.Args{Checkout: args.Checkout})
+	gone, err := s.goneWaiters(args.Checkout)
 	if err != nil {
-		return lease.Reply{}, fmt.Errorf("read the lease queue: %w", err)
-	}
-	gone := map[string]bool{}
-	for _, w := range st.Leases[0].Queue {
-		gone[w.Handle] = s.paneGone(w.Handle)
+		return lease.Reply{}, err
 	}
 	r, err := s.leases.Release(caller, args, func(handle string) bool { return gone[handle] })
 	if err != nil {
@@ -599,17 +603,89 @@ func (s *server) checkLeases() {
 	}
 }
 
-// takeOver is called once when w's holder is to be taken over: idle and
-// silent for the grace after a check-in, or gone with a waiter queued.
-// The takeover itself is not built yet; it logs that it would take over.
+// takeOver hands w's checkout to the next live waiter as needs-adopt:
+// w's holder was idle and silent for the grace after a check-in, or its
+// pane, or an adopter's, is gone with a waiter queued. The daemon runs
+// no git; it tells the old holder where its work will be saved, wakes
+// the adopter, and notes the user. A takeover that fails to save is
+// asked for again on the next check.
 func (s *server) takeOver(w lease.Watch, reason string) {
-	_ = s.log.Append(eventlog.Event{
-		Event:  eventlog.EventLeaseTakeover,
-		Actor:  w.Holder,
-		Name:   w.Checkout,
-		Detail: "would take over",
-		Reason: reason,
-	})
+	gone, err := s.goneWaiters(w.Checkout)
+	if err != nil {
+		return
+	}
+	tk, err := s.leases.TakeOver(w, reason, func(handle string) bool { return gone[handle] })
+	if err != nil || !tk.Done {
+		return
+	}
+	// Messages that cannot be queued are logged by the mailbox.
+	if tk.FromHeld {
+		_, _ = s.box.Post(s.ctx, "agentbus", tk.From, lease.TakenOverText(w.Checkout, tk.BackupRef))
+	}
+	if tk.To != "" {
+		_, _ = s.box.Post(s.ctx, "agentbus", tk.To, lease.AdoptWakeText(w.Checkout, tk.From, tk.BackupRef))
+	}
+	if s.notify != nil {
+		s.notify(lease.NeedsAdoptNote(tk))
+	}
+}
+
+// goneWaiters reads whether each waiter on checkout has a gone pane,
+// before the table is locked.
+func (s *server) goneWaiters(checkout string) (map[string]bool, error) {
+	st, err := s.leases.Status(lease.Args{Checkout: checkout})
+	if err != nil {
+		return nil, fmt.Errorf("read the lease queue: %w", err)
+	}
+	gone := map[string]bool{}
+	for _, w := range st.Leases[0].Queue {
+		gone[w.Handle] = s.paneGone(w.Handle)
+	}
+	return gone, nil
+}
+
+// leaseAdopt handles the two adopt ops: begin, before the CLI's process
+// check and git steps, and adopt, after them.
+func (s *server) leaseAdopt(req Request, args lease.Args) Response {
+	caller, err := s.adoptCaller(req.Env)
+	if err != nil {
+		return Response{Error: err.Error()}
+	}
+	var r lease.Reply
+	if req.Op == "lease-adopt-begin" {
+		r, err = s.leases.BeginAdopt(caller, args)
+	} else {
+		r, err = s.leases.Adopt(caller, args)
+	}
+	r.Caller = caller
+	return leaseResponse(r, err)
+}
+
+// adoptCaller identifies the caller of an adopt. A caller outside herdr,
+// or in a pane that runs no agent, is the user, who may always adopt.
+func (s *server) adoptCaller(env []string) (string, error) {
+	if envValue(env, "HERDR_PANE_ID") == "" && envValue(env, "AGENTBUS_AS_HANDLE") == "" {
+		return lease.UserHolder, nil
+	}
+	caller, _, err := s.reg.WhoAmI(s.ctx, env)
+	if err != nil {
+		return "", fmt.Errorf("identify the lease caller: %w", err)
+	}
+	for _, ad := range s.adapters {
+		if state, err := ad.State(s.ctx, caller); err == nil && state == adapter.StateNoAgent {
+			return lease.UserHolder, nil
+		}
+	}
+	return caller, nil
+}
+
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 func leaseResponse(r lease.Reply, err error) Response {
