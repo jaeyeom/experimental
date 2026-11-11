@@ -660,6 +660,11 @@ func TestQueueCircleCLIPrintsTailAndTimestampPattern(t *testing.T) {
 				t.Fatalf("args = %v", args)
 			}
 			return `{"jobs":[{"id":"ok-job","outcome":"succeeded"},{"id":"` + jobID + `","outcome":"failed"}]}`, nil
+		case len(args) >= 2 && args[0] == "job" && args[1] == "get":
+			if !circleArgIs(args, jobID) {
+				t.Fatalf("args = %v", args)
+			}
+			return `{"status":"failed"}`, nil
 		case len(args) >= 3 && args[0] == "job" && args[1] == "output" && args[2] == "list":
 			if !circleArgIs(args, jobID) {
 				t.Fatalf("args = %v", args)
@@ -768,6 +773,11 @@ func TestQueueCircleCLILegacyTargetUsesWorkflowUUIDAndJobName(t *testing.T) {
 						t.Fatalf("args = %v", args)
 					}
 					return `{"jobs":[{"id":"` + otherJob + `","name":"lint","outcome":"failed"},{"id":"` + unitJob + `","name":"unit","outcome":"failed"}]}`, nil
+				case len(args) >= 2 && args[0] == "job" && args[1] == "get":
+					if !circleArgIs(args, unitJob) {
+						t.Fatalf("args = %v", args)
+					}
+					return `{"status":"failed"}`, nil
 				case len(args) >= 3 && args[0] == "job" && args[1] == "output" && args[2] == "list":
 					if !circleArgIs(args, unitJob) {
 						t.Fatalf("args = %v", args)
@@ -1455,6 +1465,11 @@ func loadingStepEvidence(t *testing.T) github.FailureEvidence {
 				t.Fatalf("args = %v", args)
 			}
 			return `{"jobs":[{"id":"` + jobID + `","name":"unit","outcome":"failed"}]}`, nil
+		case len(args) >= 2 && args[0] == "job" && args[1] == "get":
+			if !circleArgIs(args, jobID) {
+				t.Fatalf("args = %v", args)
+			}
+			return `{"status":"failed"}`, nil
 		case len(args) >= 3 && args[0] == "job" && args[1] == "output" && args[2] == "list":
 			if !circleArgIs(args, jobID) {
 				t.Fatalf("args = %v", args)

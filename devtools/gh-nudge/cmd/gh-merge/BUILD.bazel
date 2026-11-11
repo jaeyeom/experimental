@@ -30,6 +30,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "circleci_test.go",
         "main_test.go",
         "queue_test.go",
     ],
