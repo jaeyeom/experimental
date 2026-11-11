@@ -52,6 +52,9 @@ type Config struct {
 	// AvatarMono is AvatarMonoHide to hide avatars without color, under
 	// NO_COLOR or a monochrome terminal. Otherwise they show uncolored.
 	AvatarMono string `json:"avatarMono,omitempty"`
+	// Checkouts maps status resource names to checkout paths whose
+	// agentbus lease the status board shows.
+	Checkouts []ConfigCheckout `json:"checkouts,omitempty"`
 }
 
 // Recipients chooses extra compose recipients. Agentbus adds the names

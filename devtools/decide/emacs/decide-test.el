@@ -67,6 +67,26 @@
       (should (= (string-match-p "note" res-header)
                  (string-match-p "paused" workspace))))))
 
+(ert-deftest decide-status-shows-lease-and-guess-rows ()
+  (with-temp-buffer
+    (decide-status-render
+     '(("resources" .
+        ((("name" . "checkout")
+          ("availability" . "busy")
+          ("note" . "held by pm/foo until 14:20, 2 queued")
+          ("source" . "lease")
+          ("updatedAt" . "2026-11-06T12:00:00Z"))
+         (("name" . "other")
+          ("availability" . "busy")
+          ("note" . "mine")
+          ("source" . "stored")
+          ("guess" . t)
+          ("updatedAt" . "2026-11-06T12:00:00Z")))))
+     (date-to-time "2026-11-06T12:00:00Z"))
+    (should (string-match-p "busy +now +held by pm/foo until 14:20, 2 queued"
+                            (decide--test-line "checkout")))
+    (should (string-match-p "mine (guess)" (decide--test-line "other")))))
+
 (defun decide--test-line (needle)
   "Return the first buffer line that contains NEEDLE."
   (save-excursion

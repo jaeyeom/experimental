@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -317,6 +318,9 @@ func setResource(stdout, stderr io.Writer, board *decide.Status, name string, ar
 	return 0
 }
 
+// agentbusRun runs agentbus for the status board. Tests replace it.
+var agentbusRun decide.AgentbusRunner = decide.ExecAgentbus
+
 func cmdStatusList(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -339,13 +343,18 @@ func cmdStatusList(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 1)
 	}
+	cfg, err := decide.LoadConfig()
+	if err != nil {
+		return fail(stderr, err, 1)
+	}
+	now := time.Now()
+	resources = decide.ResourceView(context.Background(), resources, cfg.Checkouts, agentbusRun, now)
 	if *jsonOut {
 		return writeJSON(stdout, stderr, struct {
 			Agents    []decide.AgentStatus    `json:"agents"`
 			Resources []decide.ResourceStatus `json:"resources"`
 		}{Agents: agents, Resources: resources})
 	}
-	now := time.Now()
 	for _, row := range agents {
 		fmt.Fprintf(stdout, "%s %s %s %s\n", row.Name, row.State, statusAge(now.Sub(row.UpdatedAt)), row.Text)
 	}
@@ -445,6 +454,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		Avatars:       cfg.Avatars,
 		AvatarDefault: cfg.AvatarDefault,
 		AvatarMono:    cfg.AvatarMono,
+		Checkouts:     cfg.Checkouts,
 	}); err != nil {
 		return fail(stderr, err, 1)
 	}

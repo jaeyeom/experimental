@@ -22,6 +22,30 @@
 In the inbox, ~g~ then ~s~ opens the same rows. The view reloads on the
 inbox tick. A row older than five minutes is dim.
 
+** Checkout leases
+
+~"checkouts": [{"name": "checkout", "path": "/abs/repo"}]~ in the config
+maps a resource name to a checkout path. ~status list~, ~--json~, the
+inbox and ~decide.el~ then show that checkout's agentbus workdir lease:
+
+- ~decide~ first runs ~agentbus lease status --guarded --path <path>~,
+  which reads only local agentbus config. An unguarded path shows the
+  stored row as before and makes no daemon call.
+- For a guarded path, ~agentbus lease status --json --path <path>~ wins
+  over any stored row for that name. ~list~ prints ~checkout: free~,
+  ~checkout: held by <name> until 14:20~, ~checkout: paused by user~, or
+  ~checkout: needs adopt (backup <ref>)~, plus ~, <n> queued~. In
+  ~--json~ the row has ~"source": "lease"~, ~availability~ ~free~ or
+  ~busy~, and the lease text in ~note~.
+- When ~agentbus~ is missing or the lease cannot be read, the stored row
+  from ~decide status set --resource~ shows with ~(guess)~ after it. Its
+  JSON has ~"source": "stored"~ and ~"guess": true~. Other rows have
+  ~"source": "stored"~.
+
+Hub mode does not read the lease on the display machine yet: ~decide
+status list~ runs on the hub, so it uses the hub's ~checkouts~ config and
+the hub's ~agentbus~.
+
 ~decide targets [--json]~ prints the compose recipients from the config.
 Plain output is one name per line. ~--json~ is an array of ~name~ and
 ~pane~. It does not print the notify template or the send template.

@@ -7,6 +7,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -141,7 +142,7 @@ type Model struct {
 	newMessages int
 	detailGone  bool
 	// busOn adds agentbus names to the recipients. busNames is the
-	// cached listing taken at busAt. busRun replaces ExecAgentbus.
+	// cached listing taken at busAt. busRun replaces decide.ExecAgentbus.
 	busOn      bool
 	busRun     BusRunner
 	busNames   []Target
@@ -164,6 +165,8 @@ type Model struct {
 	avatarProfile termenv.Profile
 	avatarRender  *avatar.Renderer
 	avatarFailed  map[string]bool
+	// Checkouts map status resources to lease-guarded checkouts.
+	Checkouts []decide.ConfigCheckout
 }
 
 // New returns an inbox positioned on the open folder.
@@ -459,6 +462,7 @@ func (m *Model) loadStatus() error {
 	if err != nil {
 		return fmt.Errorf("read decide status: %w", err)
 	}
+	resources = decide.ResourceView(context.Background(), resources, m.Checkouts, m.busRunner(), m.Now())
 	m.statusTotal = len(agents) + len(resources)
 	m.agents, m.resources = filterStatus(agents, resources, m.filter)
 	m.clampAgentCursor()
@@ -1300,7 +1304,7 @@ func (m *Model) resourceTable(width int, now time.Time) []screenLine {
 	headers := []string{"resource", "free/busy", "age", "note"}
 	rows := make([][]string, len(m.resources))
 	for i, row := range m.resources {
-		rows[i] = []string{row.Name, row.Availability, age(now.Sub(row.UpdatedAt)), row.Note}
+		rows[i] = []string{row.Name, row.Availability, age(now.Sub(row.UpdatedAt)), decide.ResourceNote(row)}
 	}
 	return styledStatusRows(headers, rows, width, func(i int) lipgloss.Style {
 		return statusStyle(m.resources[i].UpdatedAt, now)

@@ -59,6 +59,10 @@ type ResourceStatus struct {
 	Availability string    `json:"availability"`
 	Note         string    `json:"note,omitempty"`
 	UpdatedAt    time.Time `json:"updatedAt"`
+	// Source is SourceLease or SourceStored in a ResourceView row. Guess
+	// marks a stored row shown because the lease could not be read.
+	Source string `json:"source,omitempty"`
+	Guess  bool   `json:"guess,omitempty"`
 }
 
 type statusFileData struct {
@@ -270,13 +274,34 @@ func sortResources(rows []ResourceStatus) {
 	})
 }
 
-// ResourceLine is the glance form, "workspace: free (paused)".
+// ResourceLine is the glance form, "workspace: free (paused)". A lease
+// row reads "checkout: held by X until 14:20, 1 queued" or
+// "checkout: free"; a guess ends with " (guess)".
 func ResourceLine(row ResourceStatus) string {
-	line := row.Name + ": " + row.Availability
-	if row.Note != "" {
-		line += " (" + row.Note + ")"
+	line := row.Name + ": "
+	switch {
+	case row.Source == SourceLease && row.Availability == ResourceFree && row.Note != "":
+		line += ResourceFree + ", " + row.Note
+	case row.Source == SourceLease && row.Note != "":
+		line += row.Note
+	default:
+		line += row.Availability
+		if row.Note != "" {
+			line += " (" + row.Note + ")"
+		}
+	}
+	if row.Guess {
+		line += " (guess)"
 	}
 	return line
+}
+
+// ResourceNote is the note column: the note, then "(guess)" on a guess.
+func ResourceNote(row ResourceStatus) string {
+	if !row.Guess {
+		return row.Note
+	}
+	return strings.TrimSpace(row.Note + " (guess)")
 }
 
 func (s *Status) clock() time.Time {
