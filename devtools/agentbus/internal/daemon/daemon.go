@@ -703,9 +703,11 @@ func (s *server) leaseAdopt(req Request, args lease.Args) Response {
 }
 
 // adoptCaller identifies the caller of an adopt. A caller outside herdr,
-// or in a pane that runs no agent, is the user, who may always adopt.
+// or in a pane that runs no agent, is the user, who may always adopt. A
+// request on the hub socket always comes from a pane: its handle.
 func (s *server) adoptCaller(env []string) (string, error) {
-	if envValue(env, "HERDR_PANE_ID") == "" && envValue(env, "AGENTBUS_AS_HANDLE") == "" {
+	_, forwarded := adapter.ForwardedCaller(s.ctx)
+	if !forwarded && envValue(env, "HERDR_PANE_ID") == "" && envValue(env, "AGENTBUS_AS_HANDLE") == "" {
 		return lease.UserHolder, nil
 	}
 	caller, _, err := s.reg.WhoAmI(s.ctx, env)
@@ -775,13 +777,20 @@ func (s *server) resumeLease(args lease.Args) (lease.Reply, error) {
 }
 
 // withHandles resolves pause --with and unshare targets to handles: a
-// registered name, a handle, or a herdr pane id on this machine.
+// registered name, a handle, or a herdr pane id on this machine. A
+// caller on another machine has resolved its own pane ids already, so
+// its leftover targets are not looked up as this machine's panes.
 func (s *server) withHandles(env []string, targets []string) ([]string, error) {
+	_, forwarded := adapter.ForwardedCaller(s.ctx)
+	remote := forwarded || envValue(env, "AGENTBUS_AS_HANDLE") != ""
 	out := make([]string, 0, len(targets))
 	for _, target := range targets {
 		if handle, err := s.reg.Resolve(target); err == nil {
 			out = append(out, handle)
 			continue
+		}
+		if remote {
+			return nil, fmt.Errorf("--with %s is not a registered name, a handle, or an agent pane on your machine", target)
 		}
 		paneEnv := []string{"HERDR_PANE_ID=" + target}
 		for _, kv := range env {

@@ -279,7 +279,8 @@ While the tunnel socket is there and the hub answers a ping on it in
 this protocol, a command from a herdr pane runs here and sends its
 requests over the socket: ~register~, ~describe~, ~whoami~, ~release~,
 ~list~, ~search~, ~send~, ~reply~, ~show~, ~thread~, ~status~, ~log~,
-~hook~, and ~prompt-hook~. No ssh login or remote shell starts. ~log~
+~hook~, and ~prompt-hook~, and the daemon requests of ~lease~ (see
+[[*Lease in hub mode]]). No ssh login or remote shell starts. ~log~
 streams the hub's event log from its daemon, and ~log --follow~ and
 ~send --wait~ hold their connection without a deadline; the hub daemon
 serves other callers meanwhile. Otherwise the command uses ssh as
@@ -359,9 +360,37 @@ The daemon keeps lease state in ~leases.json~ in its state directory,
 so a restart keeps holders, queues, and deadlines. Every claim, grant,
 extend, leave, release, and skip is a ~lease_claim~, ~lease_grant~,
 ~lease_extend~, ~lease_leave~, ~lease_release~, or ~lease_skip~ event
-in the event log, with the checkout key as its name. In hub mode,
-~lease~ refuses a guarded path for now; ~check~ on an unguarded path
-still passes.
+in the event log, with the checkout key as its name.
+
+** Lease in hub mode
+
+On a second machine in hub mode, ~lease~ does not run on the hub. It
+runs here, on the checkout's machine: ~lease_checkouts~ is read from
+this machine's config, so an unguarded path costs no hub call, and the
+git top-level, the clean/mid-operation check, release's and adopt's git
+steps, and adopt's process check all run here. The checkout key is
+~<machine>:<top-level>~, such as ~linux2:/home/u/src/repo~. Only the
+lease request and what the CLI found (the tree state, a failed pull,
+the backup refs, the processes ~--force~ went past) go to the hub. The
+hub's daemon never runs git or looks at processes for a checkout on
+another machine.
+
+The request goes over the tunnel socket when the hub answers there,
+with the caller's handle, as for the other tunnelled commands.
+Otherwise it goes over ssh to ~agentbus lease forward~ on the hub, a
+hidden subcommand that reads the request as JSON on stdin, hands it to
+the hub's daemon with ~AGENTBUS_AS_HANDLE~ (from a herdr pane) as the
+caller, and prints the daemon's reply as JSON. The holder is the
+caller's handle as ~agentbus whoami~ resolves it in hub mode. ~pause
+--with~ and ~unshare~ turn a pane id on this machine into its
+~herdr:<machine>/...~ handle first; names and handles go as they are.
+
+A hub that cannot be reached fails a lease command with ~hub <target>
+unreachable: host unreachable~ or ~authentication locked (unlock your
+SSH/gpg agent)~. ~lease check~ and the lease hook give up within 3
+seconds and allow, with that cause and ~allowing~ on stderr. The
+hook's cache is on this machine; ~release~, ~resume~ and ~unshare~
+drop it here, and a takeover on the hub leaves it to expire.
 
 ** Release
 
@@ -612,8 +641,9 @@ It is fast and fails open:
   denial is never cached.
 - When agentbusd does not answer within 3 seconds, the call is allowed
   with ~agentbus lease hook: ...; allowing~ on stderr. The hook never
-  starts the daemon. In hub mode it also allows, with a warning, until
-  the lease works in hub mode.
+  starts the daemon. In hub mode the 3 seconds cover reaching the hub,
+  over the tunnel or ssh, and the warning names the cause, such as
+  ~host unreachable~ or ~authentication locked~.
 
 Not covered, by design: ~sed -i~ and other in-place edits by programs,
 shell redirects (~>~, ~>>~, ~tee~), and editors you run yourself. The

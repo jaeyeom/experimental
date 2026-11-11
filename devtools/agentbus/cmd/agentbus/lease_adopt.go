@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/checkout"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
@@ -24,7 +23,7 @@ var listProcs = checkout.ListProcs
 // leaves the lease needs-adopt with the caller.
 func leaseAdopt(ctx context.Context, f leaseFlags, largs lease.Args, env []string, stdout, stderr io.Writer) int {
 	const stays = "the lease stays needs-adopt with you"
-	root := strings.TrimPrefix(largs.Checkout, localMachine+":")
+	root := checkoutRoot(largs.Checkout)
 	call := leaseCaller(ctx, "adopt", &largs, env, stderr)
 	begun, ok := call("lease-adopt-begin")
 	if !ok {
