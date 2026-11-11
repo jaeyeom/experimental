@@ -65,7 +65,8 @@ go install ./devtools/linters/cmd/org-lint
 - ~$GOPATH/bin~ or ~$GOBIN~ in your PATH
 
 Install Emacs packages via Ansible (~./ensure.sh org-lint~ in
-~devtools/setup-dev/ansible/~, or ~ansible-playbook setup-org-lint-emacs.yml~).
+~devtools/setup-dev/ansible/~, or
+~ansible-playbook -i inventory.ini setup-org-lint-emacs.yml~).
 
 *** Usage
 
