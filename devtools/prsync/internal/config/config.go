@@ -180,19 +180,33 @@ type Config struct {
 	// many days. Zero disables the filter.
 	TeamCoverActiveDays int
 
-	// GateIgnoreProcs are globs for an agent's long-lived helpers (MCP
-	// and language servers). A descendant of an idle agent that matches
-	// none of them is a background job that holds the gate.
+	// GateIgnoreProcs are patterns for an agent's helpers (MCP and
+	// language servers, status-line commands). A plain pattern matches
+	// as a substring and one with *, ?, or [ as a glob, against the
+	// process name, the argv[0] base, or the whole command line. A
+	// descendant of an idle agent that matches none of them, and is old
+	// enough, is a background job that holds the gate.
 	GateIgnoreProcs []string
-	// GateBuildTools are build-tool client names. One running with its
-	// cwd in the checkout holds the gate. Empty turns the signal off.
+	// GateJobMinAge is how old a descendant must be to count as a
+	// background job.
+	GateJobMinAge time.Duration
+	// GateBuildTools are build-tool client names, matched exactly (or
+	// as globs) against the process name or argv[0] base. One running
+	// with its cwd in the checkout holds the gate. Empty turns the
+	// signal off.
 	GateBuildTools []string
-	// GateBuildToolIgnore are globs for build-tool processes that never
-	// count, such as a long-lived build server.
+	// GateBuildToolIgnore are patterns, matched like GateIgnoreProcs,
+	// for build-tool processes that never count, such as a long-lived
+	// build server.
 	GateBuildToolIgnore []string
-	// GatePendingQuestion is decide or off. decide holds a tab while an
-	// open decide item names its pane as the notify pane.
+	// GatePendingQuestion is decide or off. decide holds a tab while a
+	// decide item for its pane is answered but not done, or was opened
+	// since the round started.
 	GatePendingQuestion string
+	// GateExemptPanes are pane-id globs, and GateExemptTabs tab-label
+	// globs, that the gate never waits on.
+	GateExemptPanes []string
+	GateExemptTabs  []string
 
 	// SourcePath is empty if defaults only; for stderr diagnostics.
 	SourcePath string
@@ -247,16 +261,19 @@ func Defaults() Config {
 		TeamCoverHistoryDays:     90,
 		GateIgnoreProcs:          slices.Clone(defaultGateIgnoreProcs),
 		GateBuildTools:           []string{"bazel", "bazelisk", "make", "go", "cargo", "gradle", "npm", "pnpm"},
-		GateBuildToolIgnore:      []string{"java", "*--workspace_directory=*", "*A-server.jar*", "*--server*"},
+		GateBuildToolIgnore:      []string{"*--workspace_directory=*", "*A-server.jar*", "*--server*"},
 		GatePendingQuestion:      "decide",
+		GateJobMinAge:            10 * time.Second,
 	}
 }
 
-// defaultGateIgnoreProcs are an agent's usual long-lived helpers.
+// defaultGateIgnoreProcs are an agent's usual helpers: long-lived
+// servers, and the status-line command it reruns on each UI refresh.
 var defaultGateIgnoreProcs = []string{
 	"caffeinate", "gopls", "rust-analyzer", "clangd", "pyright*",
 	"*language-server*", "*langserver*",
 	"*mcp-server*", "*mcp_server*", "*modelcontextprotocol*", "*-mcp", "*-mcp *",
+	"statusline", "status-line", "claude-hud",
 }
 
 // Load applies search order, then Validate.
@@ -347,8 +364,16 @@ func validateConcurrency(c Config) error {
 }
 
 func applyGateSignal(cfg *Config, key, val string) error {
-	if key == "gate_pending_question" {
+	switch key {
+	case "gate_pending_question":
 		cfg.GatePendingQuestion = strings.TrimSpace(val)
+		return nil
+	case "gate_job_min_age":
+		d, err := time.ParseDuration(strings.TrimSpace(val))
+		if err != nil || d < 0 {
+			return &KeyError{Key: key, Reason: fmt.Sprintf("invalid duration %q", val)}
+		}
+		cfg.GateJobMinAge = d
 		return nil
 	}
 	patterns, err := splitGlobs(key, val)
@@ -362,6 +387,10 @@ func applyGateSignal(cfg *Config, key, val string) error {
 		cfg.GateBuildTools = patterns
 	case "gate_build_tool_ignore":
 		cfg.GateBuildToolIgnore = patterns
+	case "gate_exempt_panes":
+		cfg.GateExemptPanes = patterns
+	case "gate_exempt_tabs":
+		cfg.GateExemptTabs = patterns
 	}
 	return nil
 }
@@ -498,7 +527,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyCommentKey(cfg, key, val)
 	case "ci_ignore_checks", "ci_only_checks":
 		return applyCheckGlobs(cfg, key, val)
-	case "gate_ignore_procs", "gate_build_tools", "gate_build_tool_ignore", "gate_pending_question":
+	case "gate_ignore_procs", "gate_build_tools", "gate_build_tool_ignore", "gate_pending_question",
+		"gate_job_min_age", "gate_exempt_panes", "gate_exempt_tabs":
 		return applyGateSignal(cfg, key, val)
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",

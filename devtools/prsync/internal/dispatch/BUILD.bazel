@@ -30,6 +30,7 @@ go_test(
     srcs = [
         "dispatch_test.go",
         "eligible_test.go",
+        "gate_idle_test.go",
         "gate_test.go",
         "log_test.go",
         "machines_test.go",

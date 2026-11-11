@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	executor "github.com/jaeyeom/go-cmdexec"
 )
@@ -14,11 +15,11 @@ import (
 func TestParsePS(t *testing.T) {
 	t.Parallel()
 
-	out := "    1     0 /sbin/launchd\n" +
-		"  100    50 /usr/local/bin/claude\n" +
-		" 4242   100 sh -c bazel build //...\n" +
+	out := "    1     0 42-20:59:28 /sbin/launchd\n" +
+		"  100    50 01:02:03 /usr/local/bin/claude\n" +
+		" 4242   100 02:13 sh -c bazel build //...\n" +
 		"\n" +
-		"  777     1\n"
+		"  777     1 bogus\n"
 	got := parsePS(out)
 	if len(got) != 4 {
 		t.Fatalf("parsePS() = %+v, want 4 rows", got)
@@ -27,10 +28,16 @@ func TestParsePS(t *testing.T) {
 	if job.PID != 4242 || job.PPID != 100 || job.Name != "sh" || !slices.Equal(job.Argv, []string{"sh", "-c", "bazel", "build", "//..."}) {
 		t.Fatalf("row = %+v", job)
 	}
+	if job.Age != 2*time.Minute+13*time.Second {
+		t.Fatalf("age = %s, want 2m13s", job.Age)
+	}
+	if got[0].Age != 42*24*time.Hour+20*time.Hour+59*time.Minute+28*time.Second || got[1].Age != time.Hour+2*time.Minute+3*time.Second {
+		t.Fatalf("ages = %s %s", got[0].Age, got[1].Age)
+	}
 	if got[1].Name != "claude" {
 		t.Fatalf("name = %q, want base of argv[0]", got[1].Name)
 	}
-	if got[3].PID != 777 || got[3].Name != "" || len(got[3].Argv) != 0 {
+	if got[3].PID != 777 || got[3].Name != "" || len(got[3].Argv) != 0 || got[3].Age >= 0 {
 		t.Fatalf("row without args = %+v", got[3])
 	}
 }
@@ -51,8 +58,10 @@ func TestProcFSTable(t *testing.T) {
 
 	root := t.TempDir()
 	cwd := t.TempDir()
+	// starttime (field 22) is in 1/100 s since boot; uptime is 1000.5s.
 	writeProc(t, root, "100", "100 (my (odd) name) S 50 100 100 0", "claude\x00--resume\x00", cwd)
-	writeProc(t, root, "4242", "4242 (sh) S 100 4242 100 0", "sh\x00-c\x00bazel build //...\x00", "")
+	writeProc(t, root, "4242", "4242 (sh) S 100 4242 100 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 97050 0", "sh\x00-c\x00bazel build //...\x00", "")
+	writeTestFile(t, filepath.Join(root, "uptime"), "1000.50 900.00\n")
 	mkdirAll(t, filepath.Join(root, "self"))
 	writeTestFile(t, filepath.Join(root, "meminfo"), "x")
 
@@ -70,6 +79,12 @@ func TestProcFSTable(t *testing.T) {
 	}
 	if got[1].PPID != 100 || !slices.Equal(got[1].Argv, []string{"sh", "-c", "bazel build //..."}) {
 		t.Fatalf("row = %+v", got[1])
+	}
+	if got[1].Age != 30*time.Second {
+		t.Fatalf("age = %s, want 30s (uptime 1000.5s less start 970.5s)", got[1].Age)
+	}
+	if got[0].Age >= 0 {
+		t.Fatalf("age = %s, want unknown without a start time", got[0].Age)
 	}
 	gotCwd, err := table.Cwd(context.Background(), 100)
 	if err != nil || gotCwd != cwd {
@@ -94,7 +109,7 @@ func TestPSTableUsesExecutor(t *testing.T) {
 	t.Parallel()
 
 	mock := executor.NewMockExecutor()
-	mock.ExpectCommandWithArgs("ps", "-A", "-o", "pid=,ppid=,args=").WillSucceed("  1 0 init\n", 0).Build()
+	mock.ExpectCommandWithArgs("ps", "-A", "-o", "pid=,ppid=,etime=,args=").WillSucceed("  1 0 00:05 init\n", 0).Build()
 	mock.ExpectCommandWithArgs("lsof", "-a", "-p", "1", "-d", "cwd", "-Fn").WillSucceed("p1\nfcwd\nn/\n", 0).Build()
 	table := psTable{exec: mock}
 	got, err := table.List(context.Background())
@@ -111,14 +126,22 @@ func TestDecideCLI(t *testing.T) {
 	t.Parallel()
 
 	mock := executor.NewMockExecutor()
-	mock.ExpectCommandWithArgs("decide", "list", "--json").
-		WillSucceed(`[{"id":"D-17","question":"ship?","state":"open","notifyPane":"w3:p2","unread":true}]`, 0).Build()
-	got, err := DecideCLI{Exec: mock, Bin: "decide"}.OpenItems(context.Background())
+	mock.ExpectCommandWithArgs("decide", "list", "--json", "--state", "open").
+		WillSucceed(`[{"id":"D-17","question":"ship?","state":"open","notifyPane":"w3:p2","unread":true,"createdAt":"2026-11-08T12:00:00Z"}]`, 0).Build()
+	mock.ExpectCommandWithArgs("decide", "list", "--json", "--state", "answered").
+		WillSucceed(`[{"id":"D-18","state":"answered","notifyPane":"w3:p3","createdAt":"2026-11-08T12:00:00Z","answeredAt":"2026-11-10T09:30:00Z"}]`, 0).Build()
+	got, err := DecideCLI{Exec: mock, Bin: "decide"}.Items(context.Background())
 	if err != nil {
-		t.Fatalf("OpenItems() unexpected error: %v", err)
+		t.Fatalf("Items() unexpected error: %v", err)
 	}
-	if len(got) != 1 || got[0] != (DecideItem{ID: "D-17", State: "open", NotifyPane: "w3:p2"}) {
-		t.Fatalf("OpenItems() = %+v", got)
+	created := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	want := []DecideItem{
+		{ID: "D-17", State: "open", NotifyPane: "w3:p2", CreatedAt: created},
+		{ID: "D-18", State: "answered", NotifyPane: "w3:p3", CreatedAt: created, AnsweredAt: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)},
+	}
+	if len(got) != 2 || !got[0].CreatedAt.Equal(want[0].CreatedAt) || got[0].ID != "D-17" ||
+		got[1].ID != "D-18" || got[1].State != "answered" || !got[1].AnsweredAt.Equal(want[1].AnsweredAt) {
+		t.Fatalf("Items() = %+v, want %+v", got, want)
 	}
 }
 
@@ -126,11 +149,11 @@ func TestDecideCLIMissing(t *testing.T) {
 	t.Parallel()
 
 	mock := executor.NewMockExecutor()
-	mock.ExpectCommandWithArgs("decide", "list", "--json").
+	mock.ExpectCommandWithArgs("decide", "list", "--json", "--state", "open").
 		WillError(&executor.ExecutableNotFoundError{Command: "decide"}).Build()
-	_, err := DecideCLI{Exec: mock, Bin: "decide"}.OpenItems(context.Background())
+	_, err := DecideCLI{Exec: mock, Bin: "decide"}.Items(context.Background())
 	if !errors.Is(err, ErrDecideMissing) {
-		t.Fatalf("OpenItems() error = %v, want ErrDecideMissing", err)
+		t.Fatalf("Items() error = %v, want ErrDecideMissing", err)
 	}
 }
 
@@ -138,9 +161,9 @@ func TestDecideCLIFailure(t *testing.T) {
 	t.Parallel()
 
 	mock := executor.NewMockExecutor()
-	mock.ExpectCommandWithArgs("decide", "list", "--json").WillFail("ledger locked", 1).Build()
-	_, err := DecideCLI{Exec: mock, Bin: "decide"}.OpenItems(context.Background())
+	mock.ExpectCommandWithArgs("decide", "list", "--json", "--state", "open").WillFail("ledger locked", 1).Build()
+	_, err := DecideCLI{Exec: mock, Bin: "decide"}.Items(context.Background())
 	if err == nil || errors.Is(err, ErrDecideMissing) {
-		t.Fatalf("OpenItems() error = %v, want a non-missing failure", err)
+		t.Fatalf("Items() error = %v, want a non-missing failure", err)
 	}
 }

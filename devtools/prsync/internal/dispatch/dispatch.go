@@ -370,6 +370,7 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 		return doc, err
 	}
 	matched := MatchedTabs(req.Doc)
+	ctx = WithRoundStart(ctx, now)
 	clock := Clock(realClock{})
 	sleeper := Sleeper(realSleeper{})
 	timedOut := false

@@ -55,16 +55,34 @@
 # concurrency_ignore_blocked=true
 # concurrency_cwd=any
 
-# An idle or done tab still holds the gate when its agent has a live
-# child process that matches none of gate_ignore_procs (background-job),
-# or when an open decide item names its pane (pending-question; off
-# turns that off). A build-tool client from gate_build_tools whose cwd is
-# in the checkout holds the checkout (build-tool); gate_build_tool_ignore
-# drops long-lived build servers. Comma-separated globs; * matches /.
-# gate_ignore_procs=caffeinate,gopls,rust-analyzer,clangd,pyright*,*language-server*,*langserver*,*mcp-server*,*mcp_server*,*modelcontextprotocol*,*-mcp,*-mcp *
+# An idle or done tab still holds the gate when its agent has a child
+# process at least gate_job_min_age old that matches none of
+# gate_ignore_procs (background-job), or when a decide item for its pane
+# is answered but not done, or was opened since the round started
+# (pending-question; off turns that off). A build-tool client from
+# gate_build_tools whose cwd is in the checkout holds the checkout
+# (build-tool); gate_build_tool_ignore drops long-lived build servers.
+#
+# gate_ignore_procs and gate_build_tool_ignore are comma-separated
+# patterns (whitespace trimmed; a pattern cannot hold a comma), checked
+# against the process name, the argv[0] base, and the full command
+# line. A plain pattern matches as a substring anywhere in one of them;
+# one with *, ?, or [...] is a glob (* matches /). For example:
+#   gate_ignore_procs = claude-hud, statusline
+# Matched children are listed under "ignored" in `prsync gate` output.
+# gate_build_tools are whole names (or globs) of the process name or
+# argv[0] base, not substrings.
+# gate_ignore_procs=caffeinate,gopls,rust-analyzer,clangd,pyright*,*language-server*,*langserver*,*mcp-server*,*mcp_server*,*modelcontextprotocol*,*-mcp,*-mcp *,statusline,status-line,claude-hud
+# gate_job_min_age=10s
 # gate_build_tools=bazel,bazelisk,make,go,cargo,gradle,npm,pnpm
-# gate_build_tool_ignore=java,*--workspace_directory=*,*A-server.jar*,*--server*
+# gate_build_tool_ignore=*--workspace_directory=*,*A-server.jar*,*--server*
 # gate_pending_question=decide
+#
+# Tabs the gate never waits on, for coordinator tabs that never touch
+# the checkout: pane-id globs and tab-label globs, comma-separated.
+# build-tool still holds the checkout for a build they start in it.
+# gate_exempt_panes=w3:p2
+# gate_exempt_tabs=pm*,merger
 
 # Milliseconds. Parsed as n * time.Millisecond (2000 = 2s, not 2µs).
 # gate_poll_ms=2000

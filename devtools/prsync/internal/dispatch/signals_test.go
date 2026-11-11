@@ -64,7 +64,7 @@ type fakeDecide struct {
 	n     int
 }
 
-func (f *fakeDecide) OpenItems(context.Context) ([]DecideItem, error) {
+func (f *fakeDecide) Items(context.Context) ([]DecideItem, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.n++
@@ -88,7 +88,7 @@ func agentPane(pane string) fakePanes {
 }
 
 func proc(pid, ppid int, argv ...string) Process {
-	return Process{PID: pid, PPID: ppid, Name: filepath.Base(argv[0]), Argv: argv}
+	return Process{PID: pid, PPID: ppid, Name: filepath.Base(argv[0]), Argv: argv, Age: time.Hour}
 }
 
 func baseProcs() []Process {
@@ -125,7 +125,7 @@ func TestSignalBackgroundJobHoldsIdleTab(t *testing.T) {
 	if b.Signal != SignalBackgroundJob || b.TabID != "w3:t2" || b.PaneID != "w3:p2" || b.Status != "idle" {
 		t.Fatalf("busy = %+v, want idle w3:t2 background-job", b)
 	}
-	if want := `pid 4242 sh -c "bazel build //..."`; b.Detail != want {
+	if want := `pid 4242 (1h0m0s) sh -c "bazel build //..."`; b.Detail != want {
 		t.Fatalf("detail = %q, want %q", b.Detail, want)
 	}
 }
@@ -216,21 +216,21 @@ func TestSignalPendingQuestion(t *testing.T) {
 	t.Parallel()
 
 	decide := &fakeDecide{lists: [][]DecideItem{
-		{{ID: "D-17", State: "open", NotifyPane: "w3:p2"}, {ID: "D-18", State: "open", NotifyPane: "w9:p9"}},
-		{{ID: "D-18", State: "open", NotifyPane: "w9:p9"}},
+		{{ID: "D-17", State: "answered", NotifyPane: "w3:p2"}, {ID: "D-18", State: "answered", NotifyPane: "w9:p9"}},
+		{{ID: "D-18", State: "answered", NotifyPane: "w9:p9"}},
 	}}
 	p := Probes{Decide: decide}
 	got := gateWith(t, p, signalCfg(""), idleAgent("w3:p2", "w3:t2"))
 	if got.Safe || len(got.Busy) != 1 {
 		t.Fatalf("result = %+v, want the tab busy", got)
 	}
-	if b := got.Busy[0]; b.Signal != SignalPendingQuestion || b.Detail != "open item D-17" || b.PaneID != "w3:p2" {
-		t.Fatalf("busy = %+v, want pending-question open item D-17", b)
+	if b := got.Busy[0]; b.Signal != SignalPendingQuestion || b.Detail != "answered item D-17" || b.PaneID != "w3:p2" {
+		t.Fatalf("busy = %+v, want pending-question answered item D-17", b)
 	}
 
 	got = gateWith(t, p, signalCfg(""), idleAgent("w3:p2", "w3:t2"))
 	if !got.Safe {
-		t.Fatalf("result = %+v, want safe once D-17 is answered", got)
+		t.Fatalf("result = %+v, want safe once D-17 is done", got)
 	}
 }
 
@@ -375,7 +375,7 @@ func TestWaitBackgroundJobExitsThenPasses(t *testing.T) {
 	for _, rec := range logRecords(t, buf) {
 		if rec["msg"] == "gate_hold" {
 			holds++
-			if want := `gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 sh -c "bazel build //..."`; rec["line"] != want {
+			if want := `gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 (1h0m0s) sh -c "bazel build //..."`; rec["line"] != want {
 				t.Fatalf("gate_hold line = %v, want %q", rec["line"], want)
 			}
 		}
@@ -404,7 +404,7 @@ func TestWaitTimeoutReportsLastSignal(t *testing.T) {
 		t.Fatalf("result = %+v, want background-job", got)
 	}
 	detail := gateTimeoutDetail(got.Busy, nil, Candidate{Repo: "acme/widgets", Number: 7})
-	if want := `waiting on w3:t2 — background-job pid 4242 sh -c "sleep 600"; not dispatching acme/widgets#7 until it clears`; detail != want {
+	if want := `waiting on w3:t2 — background-job pid 4242 (1h0m0s) sh -c "sleep 600"; not dispatching acme/widgets#7 until it clears`; detail != want {
 		t.Fatalf("timeout detail = %q, want %q", detail, want)
 	}
 }
@@ -417,8 +417,8 @@ func TestHoldLineGolden(t *testing.T) {
 		want string
 	}{
 		{
-			busy: Busy{TabID: "w3:t2", PaneID: "w3:p2", Status: "idle", Signal: SignalBackgroundJob, Detail: `pid 4242 sh -c "bazel build ..."`},
-			want: `gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 sh -c "bazel build ..."`,
+			busy: Busy{TabID: "w3:t2", PaneID: "w3:p2", Status: "idle", Signal: SignalBackgroundJob, Detail: `pid 4242 (2m13s) sh -c "bazel build ..."`},
+			want: `gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 (2m13s) sh -c "bazel build ..."`,
 		},
 		{
 			busy: Busy{Checkout: "/src/repo", Signal: SignalBuildTool, Detail: "pid 5000 bazel build //... (cwd /src/repo)"},
@@ -466,7 +466,8 @@ func TestMatchProcPattern(t *testing.T) {
 		{"node", true},
 		{"*mcp-server*", true},
 		{"*/opt/x/*", true},
-		{"nod", false},
+		{"nod", true},
+		{"nodx", false},
 		{"python*", false},
 	}
 	for _, tt := range tests {

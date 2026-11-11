@@ -68,6 +68,12 @@ type Result struct {
 	// SignalUnavailable lists signals that could not be evaluated. They
 	// do not change Safe.
 	SignalUnavailable []Unavailable `json:"signal_unavailable,omitempty"` //nolint:tagliatelle // brief outbound contract
+	// Ignored lists the agent children skipped by a gate_ignore_procs
+	// pattern, so a pattern can be checked.
+	Ignored []Ignored `json:"ignored,omitempty"`
+	// Exempt lists the tabs skipped by gate_exempt_panes or
+	// gate_exempt_tabs.
+	Exempt []Exempt `json:"exempt,omitempty"`
 }
 
 // Busy is one tab, or the dispatch checkout, that holds the gate.
@@ -96,7 +102,8 @@ func GateCheck(ctx context.Context, h Herdr, cfg config.Config, runnerPane strin
 	if err := h.RequireMin(ctx, herdrMinVersion); err != nil {
 		return Result{}, fmt.Errorf("herdr version: %w", err)
 	}
-	return snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), &gateRun{})
+	run := &gateRun{roundStart: roundStartFrom(ctx, time.Now())}
+	return snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), run)
 }
 
 // Wait polls until the busy set stays empty for settleDebouncePolls
@@ -132,7 +139,7 @@ func Wait(ctx context.Context, h Herdr, cfg config.Config, runnerPane string, ma
 	held := 0
 	lastStatus := ""
 	lastHolds := ""
-	run := &gateRun{}
+	run := &gateRun{waitLoop: true, roundStart: roundStartFrom(ctx, start)}
 	for {
 		res, err = snapshot(ctx, h, gatePolicyFrom(cfg, runnerPane, matchedTabs), run)
 		if err != nil {
@@ -187,9 +194,12 @@ type gatePolicy struct {
 	cwdMode         string
 	checkout        string
 	ignoreProcs     []string
+	jobMinAge       time.Duration
 	buildTools      []string
 	buildToolIgnore []string
 	pendingQuestion string
+	exemptPanes     []string
+	exemptTabs      []string
 }
 
 func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]struct{}) gatePolicy {
@@ -205,6 +215,9 @@ func gatePolicyFrom(cfg config.Config, runnerPane string, matched map[string]str
 		cwdMode:         mode,
 		checkout:        cfg.Checkout,
 		ignoreProcs:     cfg.GateIgnoreProcs,
+		jobMinAge:       cfg.GateJobMinAge,
+		exemptPanes:     cfg.GateExemptPanes,
+		exemptTabs:      cfg.GateExemptTabs,
 		buildTools:      cfg.GateBuildTools,
 		buildToolIgnore: cfg.GateBuildToolIgnore,
 		pendingQuestion: cfg.GatePendingQuestion,
@@ -216,8 +229,10 @@ func snapshot(ctx context.Context, h Herdr, policy gatePolicy, run *gateRun) (Re
 	if err != nil {
 		return Result{}, fmt.Errorf("agent list: %w", err)
 	}
-	busy, unavailable := busySet(ctx, agents, policy, &snapshotProbes{Probes: probesFrom(ctx), run: run})
-	res := Result{Safe: len(busy) == 0, Busy: busy, SignalUnavailable: unavailable}
+	probes := &snapshotProbes{Probes: probesFrom(ctx), run: run, jobs: make(map[int]struct{})}
+	busy, exempt, unavailable := busySet(ctx, agents, policy, probes)
+	run.prevJobs = probes.jobs
+	res := Result{Safe: len(busy) == 0, Busy: busy, SignalUnavailable: unavailable, Ignored: probes.ignored, Exempt: exempt}
 	if reason := dirtyTreeReason(ctx, policy.checkout); reason != "" {
 		res.Safe = false
 		res.Reason = reason
@@ -277,12 +292,20 @@ func pathExists(path string) bool {
 
 // busySet is every waited-on tab that holds the gate, each with the
 // first signal that holds it, then the checkout when a build tool runs
-// in it.
-func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probes *snapshotProbes) ([]Busy, []Unavailable) {
+// in it. Exempt tabs are skipped by every tab signal and returned
+// separately; build-tool still covers their builds in the checkout.
+func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probes *snapshotProbes) ([]Busy, []Exempt, []Unavailable) {
 	out := make([]Busy, 0)
+	var exempt []Exempt
 	var unavailable []Unavailable
 	for _, agent := range agents {
 		if !waitedOn(agent, policy) {
+			continue
+		}
+		ex, ok, miss := probes.exempt(ctx, agent, policy)
+		unavailable = append(unavailable, miss...)
+		if ok {
+			exempt = append(exempt, ex)
 			continue
 		}
 		b := Busy{PaneID: agent.PaneID, TabID: agent.TabID, Status: agent.AgentStatus}
@@ -307,7 +330,7 @@ func busySet(ctx context.Context, agents []herdr.Agent, policy gatePolicy, probe
 			out = append(out, Busy{Checkout: policy.checkout, Signal: SignalBuildTool, Detail: detail})
 		}
 	}
-	return out, unavailable
+	return out, exempt, unavailable
 }
 
 // logHolds logs one gate_hold line per hold when the holds differ from

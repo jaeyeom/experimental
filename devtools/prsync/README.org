@@ -173,10 +173,13 @@ Environment variables are not expanded.
 | ~concurrency_cwd~ | ~any~ | ~any~ does not look at directories. ~checkout~ counts an agent only when its ~cwd~ or ~foreground_cwd~ is inside the checkout of the repo being dispatched. The runner pane stays excluded. |
 | ~gate_poll_ms~ | ~2000~ | Poll interval for the concurrency gate and post-send settle. |
 | ~gate_timeout_ms~ | ~1800000~ | Live dispatch gives up waiting on the gate after this many ms (~gate_timeout~, exit 4). |
-| ~gate_ignore_procs~ | MCP and language servers, ~caffeinate~ | Comma-separated globs (~*~ also matches ~/~) for an agent's own long-lived helpers. A pattern matches the process name, the base of ~argv[0]~, or the whole command line. A matching process and its children are not a ~background-job~. Empty = every child counts. See [[*Busy signals][Busy signals]]. |
-| ~gate_build_tools~ | ~bazel,bazelisk,make,go,cargo,gradle,npm,pnpm~ | Build-tool client names (globs on the process name or ~argv[0]~ base) for ~build-tool~. Empty turns the signal off. |
-| ~gate_build_tool_ignore~ | ~java,*--workspace_directory=*,*A-server.jar*,*--server*~ | Globs, matched like ~gate_ignore_procs~, for build processes that never count: long-lived build servers that keep the workspace path in ~argv~ while idle. |
-| ~gate_pending_question~ | ~decide~ | ~decide~ holds a tab while an open decide item has its pane as the notify pane; ~off~ turns that off. A ~blocked~ status is still governed by ~concurrency_ignore_blocked~. |
+| ~gate_ignore_procs~ | MCP and language servers, ~caffeinate~, status-line commands (~statusline~, ~status-line~, ~claude-hud~) | Comma-separated patterns for an agent's own helpers; see [[*Process patterns][Process patterns]]. A matching child and its children are not a ~background-job~, and are listed under ~ignored~ in the gate JSON. Empty = every child counts. Example: ~gate_ignore_procs = claude-hud, statusline~. See [[*Busy signals][Busy signals]]. |
+| ~gate_job_min_age~ | ~10s~ | A child younger than this (a Go duration such as ~30s~ or ~2m~) is not a ~background-job~. |
+| ~gate_build_tools~ | ~bazel,bazelisk,make,go,cargo,gradle,npm,pnpm~ | Comma-separated build-tool client names for ~build-tool~. A name matches the whole process name or ~argv[0]~ base (a glob with ~*~, ~?~, or ~[~ also works); it is not a substring, so ~go~ does not match ~gopls~. Empty turns the signal off. |
+| ~gate_build_tool_ignore~ | ~*--workspace_directory=*,*A-server.jar*,*--server*~ | Patterns, matched like ~gate_ignore_procs~, for build processes that never count: long-lived build servers that keep the workspace path in ~argv~ while idle. |
+| ~gate_pending_question~ | ~decide~ | ~decide~ holds a tab while a decide item for its pane is answered but not done, or was opened since the round started; ~off~ turns that off. A ~blocked~ status is still governed by ~concurrency_ignore_blocked~. |
+| ~gate_exempt_panes~ | empty | Comma-separated pane-id globs (~w3:p2~) the gate never waits on. |
+| ~gate_exempt_tabs~ | empty | Comma-separated tab-label globs (~pm*,merger~) the gate never waits on: coordinator tabs that never touch the checkout. |
 | ~dispatch_timeout_ms~ | ~1800000~ | Bound for ~herdr agent prompt --wait~ (and leftover ~herdr agent wait~). Still ~working~/~blocked~ → ~dispatched_timeout~ (exit 4). |
 | ~dispatch_prompt_template~ | built-in | Inline text, or ~@/path/to/file~. Substituted: ~{identifier}~ ~{number}~ ~{title}~ ~{repo}~ ~{url}~ ~{head}~ ~{base}~ ~{state}~ ~{comments}~. ~{state}~ is ~open~, ~closed~, or ~merged~ (empty when unrecognized). Unknown placeholders are left literal. |
 | ~rebase_prompt_template~ | built-in | Same substitution. Used only with ~dispatch --rebase~. |
@@ -748,19 +751,70 @@ for them. The gate also holds a waited-on tab, whatever its status,
 for the first of these that is true:
 
 1. ~background-job~ — the tab's foreground agent (from ~herdr pane
-   process-info~) has a live descendant process that matches none of
-   ~gate_ignore_procs~, such as a background shell or build. The
-   descendants come from =/proc= on Linux and ~ps~ elsewhere.
-   ~detail~ is ~pid 4242 sh -c "bazel build ..."~.
-2. ~pending-question~ — an open item in the decide ledger (~decide list
-   --json~) has the tab's pane as ~notifyPane~. ~detail~ is ~open item
-   D-17~. ~gate_pending_question=off~ turns it off. When ~decide~ is not
+   process-info~) has a child process that matches none of
+   ~gate_ignore_procs~ and is at least ~gate_job_min_age~ old (10s by
+   default), such as a background shell or build. Inside the
+   ~dispatch --go~ wait loop the same pid must also be seen in the
+   previous sample; a one-shot ~prsync gate~ applies the age check
+   alone. So short-lived helpers an agent reruns on each UI refresh,
+   such as a status-line command, never count. The processes and their
+   start times come from =/proc= on Linux and ~ps~ elsewhere. ~detail~
+   is ~pid 4242 (2m13s) sh -c "bazel build ..."~, with the process age.
+2. ~pending-question~ — a decide item (~decide list --json~) with the
+   tab's pane as ~notifyPane~ is either answered but not done (the
+   agent is about to resume), with ~detail~ ~answered item D-17~, or
+   open and created after the round started (the ~dispatch~ run or the
+   ~gate~ check), with ~detail~ ~open item D-17~. An open item from
+   before the round is parked and does not hold the gate.
+   ~gate_pending_question=off~ turns it off. When ~decide~ is not
    installed, the gate warns once and checks the other signals.
+
+A tab whose pane id matches ~gate_exempt_panes~, or whose label
+matches ~gate_exempt_tabs~, is skipped by every tab signal, including
+~working~, the same way as the runner pane. It is listed under
+~exempt~ with the rule that matched:
+
+#+BEGIN_SRC json
+"exempt": [
+  {"pane_id": "w3:p2", "tab_id": "w3:t2", "label": "pm", "rule": "gate_exempt_tabs=pm*"}
+]
+#+END_SRC
+
+Each child skipped by a ~gate_ignore_procs~ pattern is listed under
+~ignored~, and logged at debug level as ~gate_ignored~, so you can
+check that a pattern works:
+
+#+BEGIN_SRC json
+"ignored": [
+  {"pane": "w3:p2", "pid": 4242, "command": "/bin/sh -c \"claude-hud --x\"", "pattern": "claude-hud"}
+]
+#+END_SRC
+
+*** Process patterns
+
+~gate_ignore_procs~ and ~gate_build_tool_ignore~ are comma-separated
+lists; whitespace around each entry is trimmed, so a pattern cannot
+contain a comma. Each pattern is checked against three fields: the
+process name, the base of ~argv[0]~, and the full command line (~argv~
+joined with spaces).
+
+- A plain pattern (no ~*~, ~?~, or ~[~) matches when it appears
+  anywhere in one of the fields: ~claude-hud~ matches
+  ~/bin/sh -c "bash -c 'cols=80; claude-hud'"~.
+- A pattern with ~*~, ~?~, or ~[...]~ is a glob that may match
+  anywhere in a field: ~*~ is any run of characters (including ~/~),
+  ~?~ one character, and ~[...]~ a class (~[!...]~ negated).
+  ~claude-hu?~ and ~*claude-hud*~ both match the command above.
+
+To add a helper, append it to the defaults, for example
+~gate_ignore_procs = gopls, *mcp-server*, claude-hud, my-statusline~,
+then run ~prsync gate~: the process should appear under ~ignored~ with
+your pattern.
 
 ~build-tool~ holds the dispatch checkout rather than a tab: a
 build-tool client from ~gate_build_tools~, anywhere on the machine,
-whose cwd is the checkout or under it. Long-lived build servers (a
-~java~ process, or any process with ~--workspace_directory=~,
+whose cwd is the checkout or under it, even when its tab is exempt.
+Long-lived build servers (any process with ~--workspace_directory=~,
 ~A-server.jar~, or ~--server~ in its ~argv~) never count, through
 ~gate_build_tool_ignore~; while a build runs, its client is alive. This
 process and its ancestors never count, so a ~make~ that runs ~prsync~
@@ -775,7 +829,7 @@ does not block itself. The entry has ~checkout~ instead of a tab:
       "tab_id": "w3:t2",
       "agent_status": "idle",
       "signal": "background-job",
-      "detail": "pid 4242 sh -c \"bazel build //...\""
+      "detail": "pid 4242 (2m13s) sh -c \"bazel build //...\""
     },
     {
       "pane_id": "",
@@ -797,7 +851,7 @@ does not make the gate unsafe.
 ~dispatch --go~ waits on these signals like ~working~, with the same
 debounce and ~gate_timeout_ms~; a timeout's ~detail~ names the last
 signal. Each change in the holds is logged as one ~gate_hold~ line, for
-example ~gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 sh
+example ~gate: busy tab w3:t2 (pane w3:p2): background-job pid 4242 (2m13s) sh
 -c "bazel build ..."~, or ~gate: busy checkout /src/repo: build-tool
 ...~ for the checkout.
 
