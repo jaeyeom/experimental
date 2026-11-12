@@ -285,6 +285,7 @@ type Decider interface {
 	Ask(ctx context.Context, owner, question string) (string, error)
 	Show(ctx context.Context, id string) (DecideItem, error)
 	Done(ctx context.Context, id, outcome string) error
+	Reply(ctx context.Context, id, text string) error
 }
 
 // DecideCLI runs the decide command through Run, which returns its
@@ -318,6 +319,12 @@ func (d DecideCLI) Show(ctx context.Context, id string) (DecideItem, error) {
 func (d DecideCLI) Done(ctx context.Context, id, outcome string) error {
 	var it DecideItem
 	return d.runJSON(ctx, &it, "done", "--json", id, outcome)
+}
+
+// Reply posts text on an item's thread.
+func (d DecideCLI) Reply(ctx context.Context, id, text string) error {
+	var it DecideItem
+	return d.runJSON(ctx, &it, "reply", "--json", id, text)
 }
 
 func (d DecideCLI) runJSON(ctx context.Context, v any, args ...string) error {
@@ -973,6 +980,16 @@ func (o *Outbox) posted(ctx context.Context, r OutboxRecord, link string, from [
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("read back %s: %w", link, err)
 	}
+	problems := readBackProblems(cfg, r, m, p)
+	if err := o.registerPosted(ctx, r, from, p, strings.Join(problems, "; "), m.Text, manual); err != nil {
+		return OutboxRecord{}, err
+	}
+	return o.Store.GetOutbox(r.ID)
+}
+
+// readBackProblems is the handoff read-back. The caller has already
+// loaded the message m at post p.
+func readBackProblems(cfg Config, r OutboxRecord, m Message, p PostRef) []string {
 	var problems []string
 	if p.Channel != r.Channel || p.ThreadTS != r.ThreadTS {
 		problems = append(problems, "it was posted to a different destination")
@@ -989,10 +1006,57 @@ func (o *Outbox) posted(ctx context.Context, r OutboxRecord, link string, from [
 	if !sameText(NormalizePosted(m.Text, cfg.FooterPattern.Regexp), NormalizeStored(r.Text), cfg.Post.Mode == PostModeHandoff) {
 		problems = append(problems, "the posted text differs from the approved text")
 	}
-	if err := o.registerPosted(ctx, r, from, p, strings.Join(problems, "; "), m.Text, manual); err != nil {
+	return problems
+}
+
+// Recheck reads the mismatch record's posted message again and runs the
+// read-back checks with the current config. A pass moves it to posted
+// and replies on its decide item. A failure leaves it mismatch.
+// Nothing is posted.
+func (o *Outbox) Recheck(ctx context.Context, id int64) (OutboxRecord, error) {
+	r, err := o.Store.GetOutbox(id)
+	if err != nil {
 		return OutboxRecord{}, err
 	}
-	return o.Store.GetOutbox(r.ID)
+	if r.State != OutboxMismatch {
+		return OutboxRecord{}, fmt.Errorf("outbox %d is %s, not %s", id, r.State, OutboxMismatch)
+	}
+	if r.PostTS == "" {
+		return OutboxRecord{}, fmt.Errorf("outbox %d: expected a posted message, found none", id)
+	}
+	cfg, err := o.config()
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	m, err := o.Reader.Message(ctx, r.Channel, r.PostTS, r.ThreadTS)
+	if err != nil {
+		return OutboxRecord{}, fmt.Errorf("read back %s: %w", r.Permalink, err)
+	}
+	p := PostRef{Channel: r.Channel, TS: r.PostTS, ThreadTS: r.ThreadTS, Permalink: r.Permalink}
+	problems := readBackProblems(cfg, r, m, p)
+	if len(problems) > 0 {
+		return r, fmt.Errorf("outbox %d mismatch: %s", id, strings.Join(problems, "; "))
+	}
+	empty := ""
+	moved, err := o.Store.moveOutbox(id, []string{OutboxMismatch}, outboxUpdate{state: OutboxPosted, reason: &empty}, o.Now())
+	if err != nil {
+		return OutboxRecord{}, err
+	}
+	if !moved {
+		return OutboxRecord{}, fmt.Errorf("outbox %d left %s while rechecking", id, OutboxMismatch)
+	}
+	if r.WatchID != 0 {
+		if _, err := o.Store.FlagWatch(r.WatchID, ""); err != nil {
+			return OutboxRecord{}, err
+		}
+	}
+	if r.DecideID == "" {
+		return OutboxRecord{}, fmt.Errorf("outbox %d: expected a decide item, found none", id)
+	}
+	if err := o.Decide.Reply(ctx, r.DecideID, fmt.Sprintf("rechecked outbox %d; the posted message matches the approved text", id)); err != nil {
+		return OutboxRecord{}, fmt.Errorf("recheck outbox %d: %w", id, err)
+	}
+	return o.Store.GetOutbox(id)
 }
 
 // Cancel withdraws a record that is not posted yet and closes its

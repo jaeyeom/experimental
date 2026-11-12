@@ -23,6 +23,7 @@ type cmdFakeDecider struct {
 	items     map[string]*slackwatch.DecideItem
 	questions map[string]string
 	outcomes  map[string]string
+	replies   []string
 }
 
 func (d *cmdFakeDecider) Ask(_ context.Context, _, question string) (string, error) {
@@ -38,6 +39,16 @@ func (d *cmdFakeDecider) Show(_ context.Context, id string) (slackwatch.DecideIt
 		return slackwatch.DecideItem{}, errors.New("no such item")
 	}
 	return *it, nil
+}
+
+func (d *cmdFakeDecider) Reply(_ context.Context, id, text string) error {
+	it, ok := d.items[id]
+	if !ok {
+		return errors.New("no such item")
+	}
+	it.Messages = append(it.Messages, slackwatch.DecideMessage{Text: text, By: "slackwatch"})
+	d.replies = append(d.replies, text)
+	return nil
 }
 
 func (d *cmdFakeDecider) Done(_ context.Context, id, outcome string) error {
@@ -332,6 +343,61 @@ func TestPostHandoffMismatchAlerts(t *testing.T) {
 	}
 	if show := e.ok("show", "1"); !strings.Contains(show, "flag: outbox 1 mismatch") {
 		t.Errorf("watch not flagged:\n%s", show)
+	}
+}
+
+func TestOutboxRecheck(t *testing.T) {
+	var help bytes.Buffer
+	usage(&help)
+	if !strings.Contains(help.String(), "slackwatch outbox recheck <id>") {
+		t.Fatalf("usage missing recheck:\n%s", help.String())
+	}
+
+	e := newPostEnv(t, handoffPost)
+	e.submit()
+	if _, errOut, code := e.run("outbox", "recheck", "1"); code == 0 || !strings.Contains(errOut, "not mismatch") {
+		t.Fatalf("pending recheck = %d, stderr %q", code, errOut)
+	}
+
+	e.dec.answerPost("D-1")
+	e.ok("outbox", "poke", "D-1")
+	e.readText = cmdText + " *Sent using* <@U1>"
+	e.ok("outbox", "posted", "1", cmdPostedLink)
+	if r := e.record(); r.State != slackwatch.OutboxMismatch {
+		t.Fatalf("state = %s", r.State)
+	}
+	_, errOut, code := e.run("outbox", "recheck", "1")
+	if code == 0 || !strings.Contains(errOut, "the posted text differs from the approved text") {
+		t.Fatalf("recheck = %d, stderr %q", code, errOut)
+	}
+	if r := e.record(); r.State != slackwatch.OutboxMismatch {
+		t.Fatalf("state = %s", r.State)
+	}
+
+	body, err := os.ReadFile(e.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := strings.Replace(string(body), `"footerPattern":"_sent by an agent_"`, `"footerPattern":"Sent using"`, 1)
+	if next == string(body) {
+		t.Fatal("config had no footerPattern to replace")
+	}
+	if err := os.WriteFile(e.cfg, []byte(next), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	posts := len(e.posts)
+	out := e.ok("outbox", "recheck", "1")
+	if !strings.Contains(out, "outbox 1 posted") {
+		t.Fatalf("recheck printed %q", out)
+	}
+	if r := e.record(); r.State != slackwatch.OutboxPosted {
+		t.Fatalf("state = %s", r.State)
+	}
+	if len(e.posts) != posts {
+		t.Fatalf("posts = %d, want %d", len(e.posts), posts)
+	}
+	if len(e.dec.replies) != 1 || !strings.Contains(e.dec.replies[0], "rechecked") {
+		t.Fatalf("replies = %q", e.dec.replies)
 	}
 }
 

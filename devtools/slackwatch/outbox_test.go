@@ -19,6 +19,7 @@ type fakeDecider struct {
 	questions map[string]string
 	owners    map[string]string
 	outcomes  map[string]string
+	replies   []string
 	askErr    error
 	next      int
 }
@@ -45,6 +46,16 @@ func (d *fakeDecider) Show(_ context.Context, id string) (DecideItem, error) {
 		return DecideItem{}, errors.New("no such item")
 	}
 	return *it, nil
+}
+
+func (d *fakeDecider) Reply(_ context.Context, id, text string) error {
+	it, ok := d.items[id]
+	if !ok {
+		return errors.New("no such item")
+	}
+	it.Messages = append(it.Messages, DecideMessage{Author: d.owners[id], Text: text, By: "slackwatch"})
+	d.replies = append(d.replies, text)
+	return nil
 }
 
 func (d *fakeDecider) Done(_ context.Context, id, outcome string) error {
@@ -598,6 +609,85 @@ func TestHandoffPostedMismatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRecheck(t *testing.T) {
+	mismatch := func(t *testing.T) (*outboxFixture, OutboxRecord) {
+		t.Helper()
+		f := newOutboxFixture(t, PostModeHandoff)
+		r, err := f.ob.Submit(context.Background(), Draft{
+			Channel: "C1", DestName: "#general", Text: "Ship it",
+			Owner: "agent-1", Purpose: "announce deploy",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.dec.answer(r.DecideID, uiPost)
+		f.poll(t)
+		f.reader.msg = Message{User: expectUser, Text: "Ship it *Sent using* <@U1>"}
+		got, err := f.ob.Posted(context.Background(), r.ID, postedLink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != OutboxMismatch {
+			t.Fatalf("record = %+v, want mismatch", got)
+		}
+		return f, got
+	}
+
+	t.Run("fixed footer pattern", func(t *testing.T) {
+		f, r := mismatch(t)
+		posts := len(f.writer.posts)
+		f.ob.Config.FooterPattern = Regexp{regexp.MustCompile(`Sent using\*? <@U1`)}
+		got, err := f.ob.Recheck(context.Background(), r.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != OutboxPosted || got.Reason != "" {
+			t.Fatalf("record = %+v, want posted", got)
+		}
+		if len(f.writer.posts) != posts {
+			t.Fatalf("posts = %d, want %d", len(f.writer.posts), posts)
+		}
+		if len(f.dec.replies) != 1 || !strings.Contains(f.dec.replies[0], "rechecked") {
+			t.Fatalf("replies = %q", f.dec.replies)
+		}
+		w, err := f.store.FindWatch(PostRef{WatchID: got.WatchID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w.Flag != "" {
+			t.Errorf("watch flag = %q", w.Flag)
+		}
+	})
+
+	t.Run("still different", func(t *testing.T) {
+		f, r := mismatch(t)
+		f.reader.msg = Message{User: expectUser, Text: "Ship that"}
+		_, err := f.ob.Recheck(context.Background(), r.ID)
+		if err == nil || !strings.Contains(err.Error(), "the posted text differs from the approved text") {
+			t.Fatalf("recheck = %v", err)
+		}
+		if got := f.get(t, r.ID); got.State != OutboxMismatch {
+			t.Fatalf("record = %+v, want mismatch", got)
+		}
+	})
+
+	t.Run("refuses other states", func(t *testing.T) {
+		f := newOutboxFixture(t, PostModeHandoff)
+		pending := f.submit(t)
+		if _, err := f.ob.Recheck(context.Background(), pending.ID); err == nil || !strings.Contains(err.Error(), "not mismatch") {
+			t.Fatalf("pending recheck = %v", err)
+		}
+		f.reader.msg = Message{User: expectUser, Text: approvedText}
+		posted, err := f.ob.Posted(context.Background(), approveHandoff(t, f).ID, postedLink)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.ob.Recheck(context.Background(), posted.ID); err == nil || !strings.Contains(err.Error(), "not mismatch") {
+			t.Fatalf("posted recheck = %v", err)
+		}
+	})
 }
 
 func TestHandoffPostedRequiresAwaiting(t *testing.T) {

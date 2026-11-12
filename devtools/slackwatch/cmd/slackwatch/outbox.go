@@ -223,17 +223,18 @@ func cmdPost(configPath string, args []string, stdout, stderr io.Writer) int {
 
 func cmdOutbox(configPath string, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return usageErr(stderr, errors.New("outbox needs ls, show, posted, poke, or cancel"))
+		return usageErr(stderr, errors.New("outbox needs ls, show, posted, recheck, poke, or cancel"))
 	}
 	sub, ok := map[string]func(string, []string, io.Writer, io.Writer) int{
-		"ls":     cmdOutboxLs,
-		"show":   cmdOutboxShow,
-		"posted": cmdOutboxPosted,
-		"poke":   cmdOutboxPoke,
-		"cancel": cmdOutboxCancel,
+		"ls":      cmdOutboxLs,
+		"show":    cmdOutboxShow,
+		"posted":  cmdOutboxPosted,
+		"recheck": cmdOutboxRecheck,
+		"poke":    cmdOutboxPoke,
+		"cancel":  cmdOutboxCancel,
 	}[args[0]]
 	if !ok {
-		return usageErr(stderr, fmt.Errorf("unknown outbox command %q; want ls, show, posted, poke, or cancel", args[0]))
+		return usageErr(stderr, fmt.Errorf("unknown outbox command %q; want ls, show, posted, recheck, poke, or cancel", args[0]))
 	}
 	return sub(configPath, args[1:], stdout, stderr)
 }
@@ -382,6 +383,28 @@ func cmdOutboxPosted(configPath string, args []string, stdout, stderr io.Writer)
 			return nil
 		}
 		fmt.Fprintf(stdout, "outbox %d posted; watch %d\n", r.ID, r.WatchID)
+		return nil
+	})
+}
+
+func cmdOutboxRecheck(configPath string, args []string, stdout, stderr io.Writer) int {
+	pos, err := parseInterspersed(newFlagSet("outbox recheck", stderr), args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 1 {
+		return usageErr(stderr, errors.New("outbox recheck needs one outbox id"))
+	}
+	id, err := outboxID(pos[0])
+	if err != nil {
+		return usageErr(stderr, err)
+	}
+	return withOutbox(configPath, stderr, func(o *slackwatch.Outbox) error {
+		r, err := o.Recheck(context.Background(), id)
+		if err != nil {
+			return err //nolint:wrapcheck // Already descriptive.
+		}
+		fmt.Fprintf(stdout, "outbox %d posted\n", r.ID)
 		return nil
 	})
 }
