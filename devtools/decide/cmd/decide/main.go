@@ -77,7 +77,7 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, `Usage:
-  decide ask --owner <label> --kind relay|type-in \
+  decide ask [--owner <label>] --kind relay|type-in \
     --option key:label --rec key [--free-text] [--options-only] [--deadline RFC3339] \
     [--link url] [--notify-pane pane] [--type-text text] [--where place] \
     [--json] <question>
@@ -481,7 +481,7 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "print the new item as JSON")
-	owner := fs.String("owner", "", "owner label")
+	owner := fs.String("owner", "", "owner label (default: this herdr tab's label)")
 	kind := fs.String("kind", "", "relay or type-in")
 	rec := fs.String("rec", "", "recommended option key")
 	freeText := fs.Bool("free-text", false, "allow an answer that is not an option")
@@ -506,12 +506,16 @@ func cmdAsk(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err, 1)
 	}
 	allowFree := relayFreeText(*kind, *freeText, *optionsOnly, cfg.OptionsOnly)
-	item, err := buildAsk(*owner, *kind, *rec, allowFree, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
+	who := askOwner(*owner, askerOf(context.Background()), stderr)
+	item, err := buildAsk(who, *kind, *rec, allowFree, *deadline, *notifyPane, *typeText, *where, []string(options), []string(links), question)
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
 	if err := notifyHubCaller(&item); err != nil {
 		return fail(stderr, err, 1)
+	}
+	if strings.TrimSpace(item.NotifyPane) == "" {
+		item.NotifyPane = strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
 	}
 	return withItem(stdout, stderr, *jsonOut, true, func(led *decide.Ledger) (decide.Item, error) {
 		return led.Create(&item)

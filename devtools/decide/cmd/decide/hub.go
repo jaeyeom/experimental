@@ -96,7 +96,7 @@ func runOnHub(settings hubSettings, args []string, stdout, stderr io.Writer) int
 		if err != nil {
 			return fail(stderr, err, 1)
 		}
-		call.Env = []string{asHandleEnv + "=" + caller}
+		call.Env = append([]string{asHandleEnv + "=" + caller}, clientAskEnv(ctx, os.Getenv("HERDR_PANE_ID"))...)
 	}
 	code, err := hub.Run(ctx, call)
 	if err != nil {

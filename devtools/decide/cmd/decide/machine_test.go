@@ -130,9 +130,10 @@ func TestLocalAskLeavesTheMachineEmpty(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("DECIDE_AS_HANDLE", "")
 	t.Setenv("HERDR_PANE_ID", "w1:p3")
+	herdrtest.Install(t)
 	item := askJSON(t)
-	if item.NotifyPane != "" || item.NotifyMachine != "" {
-		t.Fatalf("notify = %q on %q, want unset", item.NotifyPane, item.NotifyMachine)
+	if item.NotifyPane != "w1:p3" || item.NotifyMachine != "" {
+		t.Fatalf("notify = %q on %q, want the asking pane w1:p3 locally", item.NotifyPane, item.NotifyMachine)
 	}
 	item = askJSON(t, "--notify-pane", "p7")
 	if item.NotifyPane != "p7" || item.NotifyMachine != "" {
