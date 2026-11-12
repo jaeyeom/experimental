@@ -2,10 +2,13 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -52,10 +55,16 @@ func serveForTest() int {
 }
 
 func TestEnsureStartsDetachedDaemon(t *testing.T) {
-	runtime := shortDir(t)
+	orig := supervisorRun
+	supervisorRun = func(context.Context, []string) error {
+		t.Error("supervisor start ran without a unit file")
+		return fmt.Errorf("supervisor")
+	}
+	t.Cleanup(func() { supervisorRun = orig })
+	runtimeDir := shortDir(t)
 	state := t.TempDir()
 	env := []string{
-		"XDG_RUNTIME_DIR=" + runtime,
+		"XDG_RUNTIME_DIR=" + runtimeDir,
 		"XDG_STATE_HOME=" + state,
 		"AGENTBUS_TEST_SERVE=1",
 		"PATH=" + os.Getenv("PATH"),
@@ -86,6 +95,65 @@ func TestEnsureStartsDetachedDaemon(t *testing.T) {
 
 	if err := Ensure(ctx, dirs, "", env); err != nil {
 		t.Fatalf("second ensure with no binary: %v", err)
+	}
+}
+
+func TestEnsureAsksTheSupervisorInsteadOfSpawning(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("supervisor units are launchd or systemd")
+	}
+	home := t.TempDir()
+	var unit string
+	var want []string
+	switch runtime.GOOS {
+	case "darwin":
+		unit = filepath.Join(home, "Library", "LaunchAgents", supervisorLaunchdLabel+".plist")
+		want = []string{"launchctl", "kickstart", fmt.Sprintf("gui/%d/%s", os.Getuid(), supervisorLaunchdLabel)}
+	default:
+		unit = filepath.Join(home, ".config", "systemd", "user", supervisorSystemdUnit)
+		want = []string{"systemctl", "--user", "start", supervisorSystemdUnit}
+	}
+	if err := os.MkdirAll(filepath.Dir(unit), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, []byte("installed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtimeDir := shortDir(t)
+	state := t.TempDir()
+	env := []string{
+		"HOME=" + home,
+		"XDG_RUNTIME_DIR=" + runtimeDir,
+		"XDG_STATE_HOME=" + state,
+		"AGENTBUS_TEST_SERVE=1",
+		"PATH=" + os.Getenv("PATH"),
+	}
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origRun, origSpawn := supervisorRun, spawnDetached
+	t.Cleanup(func() { supervisorRun, spawnDetached = origRun, origSpawn })
+	var argv []string
+	supervisorRun = func(_ context.Context, args []string) error {
+		argv = append([]string{}, args...)
+		return nil
+	}
+	spawnDetached = func(string, []string) error {
+		t.Error("spawned a detached daemon while a supervisor is installed")
+		return fmt.Errorf("spawned")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err = Ensure(ctx, dirs, os.Args[0], env)
+	if err == nil || !strings.Contains(err.Error(), "did not become ready") {
+		t.Fatalf("Ensure = %v, want the supervisor start to be asked and no daemon spawned", err)
+	}
+	if strings.Join(argv, " ") != strings.Join(want, " ") {
+		t.Fatalf("supervisor command = %q, want %q", argv, want)
+	}
+	if _, err := os.Stat(filepath.Join(dirs.StateDir, "daemon.pid")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("detached daemon pid file: %v", err)
 	}
 }
 

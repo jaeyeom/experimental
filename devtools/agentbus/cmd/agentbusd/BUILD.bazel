@@ -38,7 +38,9 @@ go_test(
     embed = [":go_default_library"],
     deps = [
         "//devtools/agentbus/internal/config:go_default_library",
+        "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
+        "//devtools/agentbus/internal/paths:go_default_library",
     ],
 )

@@ -2,7 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +15,9 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
 func TestLeaseTimingTakeoverMode(t *testing.T) {
@@ -116,6 +123,87 @@ func TestRunRejectsArguments(t *testing.T) {
 	if code != 2 || !strings.Contains(stderr.String(), "agentbusd --help") {
 		t.Fatalf("code %d, stderr %q", code, stderr.String())
 	}
+}
+
+func TestRunExitsZeroWhenDaemonAnswers(t *testing.T) {
+	env, dirs := daemonEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() { errc <- daemon.Serve(ctx, dirs, daemon.Config{}) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		connErr := pingDaemon(dirs.SocketPath)
+		if connErr == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatalf("daemon did not listen: %v", connErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-errc:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("daemon did not exit")
+		}
+	})
+	var stderr bytes.Buffer
+	code := run(nil, env, io.Discard, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), "already running") {
+		t.Fatalf("code %d, stderr %q", code, stderr.String())
+	}
+}
+
+func daemonEnv(t *testing.T) ([]string, paths.Dirs) {
+	t.Helper()
+	runtime := t.TempDir()
+	// macOS rejects a unix socket path longer than about 104 bytes.
+	if len(runtime) > 40 {
+		var err error
+		runtime, err = os.MkdirTemp("/tmp", "abd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	}
+	env := []string{
+		"XDG_RUNTIME_DIR=" + runtime,
+		"XDG_STATE_HOME=" + t.TempDir(),
+		"XDG_CONFIG_HOME=" + t.TempDir(),
+		"HOME=" + t.TempDir(),
+	}
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env, dirs
+}
+
+func pingDaemon(socketPath string) error {
+	conn, err := net.DialTimeout("unix", socketPath, 200*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("dial: %w", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(200 * time.Millisecond))
+	if err := json.NewEncoder(conn).Encode(daemon.Request{Op: "ping"}); err != nil {
+		return fmt.Errorf("encode ping: %w", err)
+	}
+	var resp daemon.Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return fmt.Errorf("decode ping: %w", err)
+	}
+	if !resp.OK {
+		return errors.New("ping not ok")
+	}
+	return nil
 }
 
 func TestRunRefusesInHubMode(t *testing.T) {

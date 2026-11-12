@@ -11,14 +11,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
+	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
 // sandboxEnv forces sandbox detection on ("1") or off ("0").
@@ -183,16 +186,23 @@ func cmdDoctor(ctx context.Context, args, env []string, stdout, stderr io.Writer
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if !*sandbox || len(fs.Args()) != 0 {
-		fmt.Fprintln(stderr, "usage: agentbus doctor --sandbox")
+	if len(fs.Args()) != 0 {
+		fmt.Fprintln(stderr, "usage: agentbus doctor [--sandbox]")
 		return 2
 	}
-	cfg, err := hubSettings(env)
+	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
 	}
-	dirs, err := paths.FromEnv(env)
+	if err := reportExtraDaemons(ctx, dirs.StateDir, stdout); err != nil {
+		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
+		return 1
+	}
+	if !*sandbox {
+		return 0
+	}
+	cfg, err := hubSettings(env)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus doctor: %s\n", err)
 		return 1
@@ -263,4 +273,90 @@ func checkSocket(ctx context.Context, path string) string {
 	}
 	conn.Close()
 	return "ok"
+}
+
+// doctorProc is one process doctor may report. Start is zero when unknown.
+type doctorProc struct {
+	PID   int
+	UID   int
+	Start time.Time
+	Name  string
+}
+
+// listDoctorProcs lists processes. Tests replace it.
+var listDoctorProcs = func(ctx context.Context) ([]doctorProc, error) {
+	out, err := procinfo.Run(ctx, "ps", "-ax", "-o", "pid=,uid=,etime=,comm=")
+	if err != nil {
+		return nil, fmt.Errorf("list processes: %w", err)
+	}
+	return parseDoctorPS(out, time.Now()), nil
+}
+
+// daemonLockHolder reports the daemon lock's holder. Tests replace it.
+var daemonLockHolder = daemon.LockHolder
+
+// parseDoctorPS parses `ps -ax -o pid=,uid=,etime=,comm=`.
+func parseDoctorPS(out string, now time.Time) []doctorProc {
+	var procs []doctorProc
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(fields[0])
+		uid, err2 := strconv.Atoi(fields[1])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		proc := doctorProc{PID: pid, UID: uid, Name: fields[3]}
+		if age := procinfo.ParseEtime(fields[2]); age >= 0 {
+			proc.Start = now.Add(-age).UTC().Truncate(time.Second)
+		}
+		procs = append(procs, proc)
+	}
+	return procs
+}
+
+// reportExtraDaemons writes agentbusd processes for this user other than
+// the lock holder, and suggests stopping them. It does not signal them.
+func reportExtraDaemons(ctx context.Context, stateDir string, stdout io.Writer) error {
+	procs, err := listDoctorProcs(ctx)
+	if err != nil {
+		return err
+	}
+	holder, held, err := daemonLockHolder(stateDir)
+	if err != nil {
+		return err
+	}
+	uid := os.Getuid()
+	var extra []doctorProc
+	for _, p := range procs {
+		if filepath.Base(p.Name) != "agentbusd" || p.UID != uid {
+			continue
+		}
+		if held && p.PID == holder {
+			continue
+		}
+		extra = append(extra, p)
+	}
+	if len(extra) == 0 {
+		fmt.Fprintln(stdout, "agentbusd: no extra daemon processes")
+		return nil
+	}
+	if held {
+		fmt.Fprintf(stdout, "agentbusd processes other than the lock holder (pid %d):\n", holder)
+	} else {
+		fmt.Fprintln(stdout, "agentbusd processes (no lock holder):")
+	}
+	pids := make([]string, 0, len(extra))
+	for _, p := range extra {
+		when := "unknown"
+		if !p.Start.IsZero() {
+			when = p.Start.Format(time.RFC3339)
+		}
+		fmt.Fprintf(stdout, "  pid %d started %s\n", p.PID, when)
+		pids = append(pids, strconv.Itoa(p.PID))
+	}
+	fmt.Fprintf(stdout, "Stop them with: kill %s\n", strings.Join(pids, " "))
+	return nil
 }
