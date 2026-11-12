@@ -187,9 +187,11 @@ func writeTeamCoverLines(w io.Writer, pr scan.PR) ([]string, error) {
 func teamCoverLine(pr scan.PR, team scan.TeamReviewSuggestion) (string, error) {
 	switch {
 	case team.Error != "":
-		return fmt.Sprintf("%s#%d %s: %s", pr.Repo, pr.Number, team.Team, team.Error), nil
+		return fmt.Sprintf("%s#%d %s: uncovered: %s", pr.Repo, pr.Number, team.Team, team.Error), nil
 	case team.CoveredBy != nil:
 		return fmt.Sprintf("%s#%d %s: covered by %s", pr.Repo, pr.Number, team.Team, *team.CoveredBy), nil
+	case team.UncoveredReason != "":
+		return fmt.Sprintf("%s#%d %s: uncovered: %s", pr.Repo, pr.Number, team.Team, team.UncoveredReason), nil
 	}
 	var lines []string
 	for _, suggestion := range team.Suggest {

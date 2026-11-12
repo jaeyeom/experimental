@@ -132,6 +132,15 @@ case "${cmd} ${sub}" in
     exit 0
     ;;
   "api search/issues")
+    # Like GitHub: search is GET only, and gh api sends -f fields as a POST
+    # unless --method GET is given.
+    case "$*" in
+      *"--method GET"*) ;;
+      *)
+        printf '%s\n' "gh: Not Found (HTTP 404)" >&2
+        exit 1
+        ;;
+    esac
     count=1
     case "$*" in
       *user-review-requested:carol*)

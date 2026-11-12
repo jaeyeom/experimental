@@ -757,6 +757,90 @@ func TestRunTeamCoverBaseHeadFailureStillFetchesHistory(t *testing.T) {
 	}
 }
 
+// A load signal that fails with something other than a rate limit (the
+// search POST that returned 404) must not stop cover: history and
+// CODEOWNERS still pick reviewers, and the failure is a warning.
+func TestRunTeamCoverLoadFailureKeepsOtherSignals(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{
+			{Login: "bob", Type: "User"},
+			{Login: "carol", Type: "User"},
+			{Login: "dave", Type: "User"},
+		}},
+		"acme/foo-two": {members: []gh.TeamMember{
+			{Login: "bob", Type: "User"},
+			{Login: "erin", Type: "User"},
+		}},
+	})
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPRSlug(1, "foo", "foo-two")}}
+	g.files = map[string][]string{"acme/widgets#1": {"src/a.go", "src/b.go"}}
+	g.codeowners = map[string]string{"acme/widgets@main": "/src/b.go @erin\n"}
+	g.history = map[string]gh.PathHistory{"acme/widgets\x00src/a.go": {Authors: []string{"carol"}}}
+	g.loadErr = errors.New("gh 404: Not Found (HTTP 404)")
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"codeowners", "history", "load"}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 2 {
+		t.Fatalf("suggestions = %+v, want two teams", got)
+	}
+	if len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" || !slices.Equal(got[0].Suggest[0].Reasons, []string{"authored 1 recent change"}) {
+		t.Fatalf("acme/foo = %+v, want carol from history", got[0])
+	}
+	if len(got[1].Suggest) != 1 || got[1].Suggest[0].Login != "erin" || !slices.Equal(got[1].Suggest[0].Reasons, []string{"codeowner: /src/b.go"}) {
+		t.Fatalf("acme/foo-two = %+v, want erin from CODEOWNERS", got[1])
+	}
+	if countSubstr(doc.Warnings, "skipping team_cover load signal: gh 404") != 1 {
+		t.Fatalf("warnings = %#v, want the load signal warning once", doc.Warnings)
+	}
+}
+
+func TestSuggestTeamsUncoveredReason(t *testing.T) {
+	t.Parallel()
+
+	got := suggestTeams(coverFacts{
+		author: "alice",
+		members: map[string][]gh.TeamMember{
+			"acme/empty": {},
+			"acme/gone": {
+				{Login: "alice", Type: "User"},
+				{Login: "dependabot[bot]", Type: "Bot"},
+				{Login: "left", Type: "User"},
+				{Login: "idle", Type: "User"},
+				{Login: "idle2", Type: "User"},
+			},
+			"acme/live": {{Login: "carol", Type: "User"}},
+		},
+		memberErr: map[string]string{"acme/missing": "cannot list members of acme/missing: HTTP 403"},
+		exclude:   []string{"left"},
+		inactive:  map[string]bool{"idle": true, "idle2": true},
+		perTeam:   1,
+		teams:     []string{"acme/empty", "acme/gone", "acme/live", "acme/missing"},
+	})
+	if len(got) != 4 {
+		t.Fatalf("got = %+v", got)
+	}
+	want := []string{
+		"no members",
+		"all 5 members excluded (1 author, 1 bot, 1 excluded login, 2 inactive)",
+		"",
+		"",
+	}
+	for i, item := range got {
+		if item.UncoveredReason != want[i] {
+			t.Errorf("%s reason = %q, want %q", item.Team, item.UncoveredReason, want[i])
+		}
+	}
+	if got[0].CoveredBy != nil || got[1].CoveredBy != nil {
+		t.Fatalf("got = %+v, want both uncovered", got)
+	}
+}
+
 func TestRunTeamCoverHistoryRateLimitDropsSignal(t *testing.T) {
 	t.Parallel()
 

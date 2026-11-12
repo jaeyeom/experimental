@@ -466,10 +466,11 @@ func pullRequestNumbers(commits map[string][]historyCommit) []int {
 
 // DirectReviewCount is the search total for user-review-requested:login
 // scoped to org. It does not use review-requested:, which also counts team
-// requests. A rate limit is ErrRateLimited.
+// requests. A rate limit is ErrRateLimited. Search is GET only, and gh api
+// sends -f fields as a POST unless --method GET is given.
 func (c *Client) DirectReviewCount(ctx context.Context, org, login string) (int, error) {
 	query := fmt.Sprintf("user-review-requested:%s org:%s is:pr is:open", login, org)
-	result, err := c.call(ctx, "api", "search/issues", "-f", "q="+query, "-f", "per_page=1")
+	result, err := c.call(ctx, "api", "search/issues", "--method", "GET", "-f", "q="+query, "-f", "per_page=1")
 	if err != nil {
 		if IsRateLimited(err) {
 			return 0, fmt.Errorf("%w: %s", ErrRateLimited, err.Error())

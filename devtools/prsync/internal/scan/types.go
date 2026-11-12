@@ -83,6 +83,10 @@ type TeamReviewSuggestion struct {
 	CoveredBy *string             `json:"covered_by"` //nolint:tagliatelle // brief outbound contract
 	Suggest   []SuggestedReviewer `json:"suggest"`
 	Error     string              `json:"error,omitempty"`
+	// UncoveredReason says why an uncovered team has no suggestion, such
+	// as "no members" or which filters excluded every member. Omitted
+	// when the team is covered, has a suggestion, or Error is set.
+	UncoveredReason string `json:"uncovered_reason,omitempty"` //nolint:tagliatelle // brief outbound contract
 }
 
 // SuggestedReviewer is one person the caller may request with gh pr edit.
