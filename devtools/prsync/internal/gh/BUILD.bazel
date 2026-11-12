@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "budget.go",
         "client.go",
         "openpr.go",
         "retry.go",
@@ -24,6 +25,7 @@ go_test(
         "apimethod_test.go",
         "client_test.go",
         "cost_test.go",
+        "teamcover_budget_test.go",
         "teamcover_split_test.go",
         "teamcover_test.go",
     ],

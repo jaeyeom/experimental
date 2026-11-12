@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -144,6 +145,31 @@ func TestScanTeamCoverSuggests(t *testing.T) {
 	}
 	if !strings.Contains(hint, "gh pr edit 123 --repo acme/widgets --add-reviewer carol") {
 		t.Fatalf("stderr = %q", hint)
+	}
+	if !regexp.MustCompile(`(?m)^team-cover: \d+ of \d+ paths need history, \d+ cache hits, \d+ calls \(cap 40\)$`).MatchString(hint) {
+		t.Fatalf("stderr = %q, want the team-cover summary line", hint)
+	}
+	if strings.Contains(stdout.String(), "paths need history") {
+		t.Fatalf("stdout = %s, want the summary only on stderr", stdout.String())
+	}
+}
+
+func TestTeamCoverHintsEndWithNotes(t *testing.T) {
+	t.Parallel()
+
+	doc := scan.Document{TeamCoverNotes: []string{
+		"team-cover: 300 of 359 paths need history, 0 cache hits, 40 calls (cap 40)",
+		"team-cover: call cap 40 reached; 120 paths deferred",
+	}}
+	var out bytes.Buffer
+	if err := writeTeamCoverHints(&out, doc); err != nil {
+		t.Fatal(err)
+	}
+	want := "" +
+		"team-cover: 300 of 359 paths need history, 0 cache hits, 40 calls (cap 40)\n" +
+		"team-cover: call cap 40 reached; 120 paths deferred\n"
+	if out.String() != want {
+		t.Fatalf("hints =\n%s\nwant\n%s", out.String(), want)
 	}
 }
 

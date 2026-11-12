@@ -115,6 +115,7 @@ func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h 
 		logger.Warn("round cache ignored", "err", err.Error())
 	}
 	cache.SetHistoryTTL(cfg.TeamCoverHistoryTTL)
+	cache.SetLoadTTL(cfg.TeamCoverLoadTTL)
 	deps := scan.Deps{
 		GH:      gh.NewClient(exec, cfg.GHBin).WithRollupCache(cache),
 		Herdr:   h,
@@ -144,6 +145,8 @@ func validateRepoFlags(repos []string) error {
 	return nil
 }
 
+// writeTeamCoverHints writes each PR's team-cover lines, then the round's
+// team-cover notes.
 func writeTeamCoverHints(w io.Writer, doc scan.Document) error {
 	for _, pr := range doc.PRs {
 		logins, err := writeTeamCoverLines(w, pr)
@@ -155,6 +158,11 @@ func writeTeamCoverHints(w io.Writer, doc scan.Document) error {
 		}
 		if _, err := fmt.Fprintf(w, "gh pr edit %d --repo %s --add-reviewer %s\n", pr.Number, pr.Repo, strings.Join(logins, ",")); err != nil {
 			return fmt.Errorf("write team cover hint: %w", err)
+		}
+	}
+	for _, note := range doc.TeamCoverNotes {
+		if _, err := fmt.Fprintln(w, note); err != nil {
+			return fmt.Errorf("write team cover note: %w", err)
 		}
 	}
 	return nil
