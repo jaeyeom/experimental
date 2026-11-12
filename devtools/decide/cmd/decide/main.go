@@ -460,6 +460,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		AvatarMono:    cfg.AvatarMono,
 		Checkouts:     cfg.Checkouts,
 		Machine:       decide.LocalMachine(cfg),
+		OpenCommand:   cfg.OpenCommand,
 	}); err != nil {
 		return fail(stderr, err, 1)
 	}

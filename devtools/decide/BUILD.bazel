@@ -27,6 +27,7 @@ go_test(
     size = "small",
     srcs = [
         "avatar_test.go",
+        "config_test.go",
         "lease_test.go",
         "ledger_test.go",
         "location_test.go",

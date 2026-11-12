@@ -231,6 +231,30 @@ file that cannot be read or decoded, or an unknown ~builtin~ id, is
 hidden too, and the status line shows the error once. Rendered avatars are cached, so moving the
 selection or reloading does not decode the file again.
 
+* Opening links
+
+An item's links are its ~--link~ URLs plus the URLs in its question and
+messages, in the order the item view draws them. ~l~ in the item view
+opens the only link straight away. With several, ~l~ opens a picker
+that lists every link, numbered, with long URLs shortened in the
+middle to keep the host and the end of the path. ~j~ / ~k~ or the arrow
+keys move and ~Enter~ opens the row. With nine links or fewer a digit
+opens its link at once; with more, type the number and press ~Enter~
+(~1~ ~2~ ~Enter~ opens the 12th). ~Esc~ cancels.
+
+The opener is ~openCommand~ in ~$XDG_CONFIG_HOME/decide/config.json~,
+an argument list. The URL is appended as the last argument and no shell
+runs. The default is ~["xdg-open"]~, or ~["open"]~ on macOS:
+
+#+begin_src json
+{"openCommand": ["firefox", "--new-tab"]}
+#+end_src
+
+The opener runs on the machine running the inbox, in the background
+with a 5 second limit, so the inbox never waits for it. The status line
+then shows ~opened <url>~ or ~open failed: <error>~. There is no
+clipboard fallback; ~L~ copies the link.
+
 * Where the owner lives
 
 The item view has an ~Owner:~ header line: the owner and the herdr
@@ -311,7 +335,8 @@ label counts.
 file and run ~M-x decide-list~. It calls ~decide list --json~ and
 ~decide show --json~. ~o~ answers with an option key. ~0~ opens a
 normal buffer to reply with free text. ~C-c C-c~ sends that buffer and
-~C-c C-k~ closes it without answering.
+~C-c C-k~ closes it without answering. ~l~ opens the item's link with
+~browse-url~; with several it asks for one of the numbered links.
 
 ~c~ composes a note. The recipient comes from ~decide targets --json~.
 ~C-c C-c~ runs ~decide send --to~ with the buffer text as one argument.

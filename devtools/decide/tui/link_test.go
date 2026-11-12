@@ -13,15 +13,6 @@ import (
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
-func TestOpenCommandUsesThePlatformOpener(t *testing.T) {
-	if openCommand("darwin") != "open" {
-		t.Fatalf("darwin opener %q", openCommand("darwin"))
-	}
-	if openCommand("linux") != "xdg-open" {
-		t.Fatalf("linux opener %q", openCommand("linux"))
-	}
-}
-
 func TestCopyFallsBackAcrossClipboardTools(t *testing.T) {
 	var calls []string
 	err := copyWith("hi", func(name string, args []string, text string) error {
@@ -99,11 +90,8 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 		t.Fatalf("footer or help missing mouse guidance\n%s", view)
 	}
 
-	var opened []string
-	m.runOpen = func(url string) error {
-		opened = append(opened, url)
-		return nil
-	}
+	open := &fakeOpener{}
+	m.runOpen = open.run
 	row := screenRow(view, "https://example.com/")
 	if row == 0 {
 		t.Fatalf("link row missing\n%s", view)
@@ -121,14 +109,22 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionMotion,
 	}
-	next, _ := m.Update(shift)
+	next, cmd := m.Update(shift)
 	m = next.(*Model)
-	if len(opened) != 0 || m.scroll != before {
-		t.Fatalf("shift+drag consumed opened %v scroll %d", opened, m.scroll)
+	runCmd(t, m, cmd)
+	if len(open.calls) != 0 || m.scroll != before {
+		t.Fatalf("shift+drag consumed opened %v scroll %d", open.calls, m.scroll)
 	}
 
-	m = updateMouseAt(t, m, col, row, tea.MouseButtonLeft)
-	if len(opened) != 1 || opened[0] != link {
+	next, cmd = m.Update(tea.MouseMsg{
+		X:      col - 1,
+		Y:      row - 1,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	})
+	m = next.(*Model)
+	runCmd(t, m, cmd)
+	if opened := open.urls(); len(opened) != 1 || opened[0] != link {
 		t.Fatalf("click opened %#v", opened)
 	}
 
@@ -139,18 +135,20 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
 	}
-	next, _ = m.Update(ctrl)
+	next, cmd = m.Update(ctrl)
 	m = next.(*Model)
-	if len(opened) != 2 || opened[1] != link {
+	runCmd(t, m, cmd)
+	if opened := open.urls(); len(opened) != 2 || opened[1] != link {
 		t.Fatalf("ctrl+click opened %#v", opened)
 	}
 
 	press(t, m, "l")
-	if len(opened) != 2 || !strings.Contains(m.status, "link number") {
-		t.Fatalf("several links status %q opened %#v", m.status, opened)
+	if len(open.calls) != 2 || !m.linkPick {
+		t.Fatalf("several links status %q opened %#v", m.status, open.calls)
 	}
 	press(t, m, "2")
-	if len(opened) != 3 || opened[2] != "https://example.test/second" {
+	finishOpen(t, m)
+	if opened := open.urls(); len(opened) != 3 || opened[2] != "https://example.test/second" {
 		t.Fatalf("picked link %#v", opened)
 	}
 
@@ -170,7 +168,7 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 		t.Fatalf("copy message status %q ok %v text %q", m.status, ok, got)
 	}
 
-	next, cmd := m.Update(runeKey('M'))
+	next, cmd = m.Update(runeKey('M'))
 	m = next.(*Model)
 	if m.mouseOn || cmd == nil || !reflect.DeepEqual(cmd(), tea.DisableMouse()) {
 		t.Fatalf("mouse on %v cmd %#v", m.mouseOn, cmd)
@@ -178,7 +176,7 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 	if !strings.Contains(m.View(), "mouse off") {
 		t.Fatalf("footer did not show mouse off\n%s", m.View())
 	}
-	n := len(opened)
+	n := len(open.calls)
 	scroll := m.scroll
 	next, _ = m.Update(tea.MouseMsg{
 		X:      col - 1,
@@ -187,7 +185,7 @@ func TestClickAndCopyWhileMouseCaptureIsOn(t *testing.T) {
 		Action: tea.MouseActionMotion,
 	})
 	m = next.(*Model)
-	if len(opened) != n || m.scroll != scroll {
+	if len(open.calls) != n || m.scroll != scroll {
 		t.Fatalf("plain drag while capture is off changed the inbox")
 	}
 
@@ -229,13 +227,11 @@ func TestLOpensTheOnlyLink(t *testing.T) {
 	}
 	m.width = 80
 	m.height = 24
-	var opened string
-	m.runOpen = func(url string) error {
-		opened = url
-		return nil
-	}
+	open := &fakeOpener{}
+	m.runOpen = open.run
 	press(t, m, "ol")
-	if opened != "https://example.test/only" {
+	finishOpen(t, m)
+	if opened := open.urls(); len(opened) != 1 || opened[0] != "https://example.test/only" {
 		t.Fatalf("opened %q status %q", opened, m.status)
 	}
 }

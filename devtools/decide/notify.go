@@ -62,6 +62,10 @@ type Config struct {
 	// Checkouts maps status resource names to checkout paths whose
 	// agentbus lease the status board shows.
 	Checkouts []ConfigCheckout `json:"checkouts,omitempty"`
+	// OpenCommand is the argv the inbox opens a link with; the URL is
+	// appended as the last argument and no shell runs. Empty is
+	// xdg-open, or open on macOS.
+	OpenCommand []string `json:"openCommand,omitempty"`
 }
 
 // Recipients chooses extra compose recipients. Agentbus adds the names
@@ -119,6 +123,9 @@ func LoadConfig() (Config, error) {
 	}
 	if err := checkAvatarRules(cfg.Avatars); err != nil {
 		return Config{}, err
+	}
+	if len(cfg.OpenCommand) > 0 && cfg.OpenCommand[0] == "" {
+		return Config{}, fmt.Errorf("decide config openCommand: the program is empty")
 	}
 	resolveAvatarFiles(cfg.Avatars, filepath.Dir(path))
 	return cfg, nil

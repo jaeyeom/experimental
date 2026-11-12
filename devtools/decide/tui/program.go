@@ -54,7 +54,8 @@ func (m *Model) Init() tea.Cmd {
 
 // Update drives the existing inbox behavior from bubbletea messages.
 // Opening an item also starts the lookup of where its owner lives, and
-// o in the item view the jump to the owner's tab.
+// o in the item view the jump to the owner's tab. An opened link runs
+// its opener the same way.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
 	if locate := m.locateCmd(); locate != nil {
@@ -62,6 +63,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if focus := m.focusCmd(); focus != nil {
 		cmd = tea.Batch(cmd, focus)
+	}
+	if open := m.openCmd(); open != nil {
+		cmd = tea.Batch(cmd, open)
 	}
 	return next, cmd
 }
@@ -98,14 +102,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMouse(msg)
 	case reloadMsg:
 		return m.updateReload()
+	default:
+		m.updateResult(msg)
+		return m, nil
+	}
+}
+
+// updateResult records what a background command found: an owner
+// location, a tab focus, or a link opener's result.
+func (m *Model) updateResult(msg tea.Msg) {
+	switch msg := msg.(type) {
 	case locationMsg:
 		m.setLocation(msg)
-		return m, nil
 	case focusMsg:
 		m.status = string(msg)
-		return m, nil
-	default:
-		return m, nil
+	case openedMsg:
+		m.finishOpen(msg)
 	}
 }
 
@@ -121,12 +133,7 @@ func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if isEditKey(msg) && m.editComposerKey(msg) {
 		return m, nil
 	}
-	if m.snoozing && (msg.Type == tea.KeyUp || msg.Type == tea.KeyDown) {
-		delta := 1
-		if msg.Type == tea.KeyUp {
-			delta = -1
-		}
-		m.moveSnooze(delta)
+	if m.popupArrow(msg) {
 		return m, nil
 	}
 	switch msg.Type {
@@ -148,6 +155,26 @@ func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.updateKey(msg)
+}
+
+// popupArrow moves the snooze popup or the link picker with up and down.
+func (m *Model) popupArrow(msg tea.KeyMsg) bool {
+	if !m.snoozing && !m.linkPick {
+		return false
+	}
+	if msg.Type != tea.KeyUp && msg.Type != tea.KeyDown {
+		return false
+	}
+	delta := 1
+	if msg.Type == tea.KeyUp {
+		delta = -1
+	}
+	if m.snoozing {
+		m.moveSnooze(delta)
+	} else {
+		m.moveLinkPick(delta)
+	}
+	return true
 }
 
 func (m *Model) updateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -212,7 +239,7 @@ func (m *Model) mouseCommand() tea.Cmd {
 func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Shift+drag is the terminal's selection bypass. Leave it alone.
 	// Capture off lets a plain drag select in the terminal.
-	if !m.mouseOn || msg.Shift || m.snoozing {
+	if !m.mouseOn || msg.Shift || m.snoozing || m.linkPick {
 		return m, nil
 	}
 	switch msg.Button {

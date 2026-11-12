@@ -103,7 +103,7 @@ type Model struct {
 	note         string
 	forward      string
 	runSend      func([]string) error
-	runOpen      func(string) error
+	runOpen      OpenRunner
 	copyClip     func(string) error
 	out          io.Writer
 	keyLog       io.Writer
@@ -175,6 +175,13 @@ type Model struct {
 	locateWant bool
 	// focusWant asks Update to focus this owner location's tab.
 	focusWant *decide.OwnerLocation
+	// linkCursor is the link picker's row and linkDigits the number
+	// typed there so far. openWant asks Update to open
+	// a URL with OpenCommand, or the platform opener when it is empty.
+	linkCursor  int
+	linkDigits  string
+	openWant    string
+	OpenCommand []string
 }
 
 // New returns an inbox positioned on the open folder.
@@ -886,7 +893,7 @@ func (m *Model) openRow() error {
 	m.reply = ""
 	m.answerFocus = false
 	m.replyFocus = false
-	m.linkPick = false
+	m.closeLinkPick()
 	m.linkURL = ""
 	m.resetFields()
 	m.scroll = 0
@@ -1081,7 +1088,7 @@ func (m *Model) backToList() {
 	m.reply = ""
 	m.answerFocus = false
 	m.replyFocus = false
-	m.linkPick = false
+	m.closeLinkPick()
 	m.linkURL = ""
 	m.resetFields()
 	m.scroll = 0
@@ -1124,11 +1131,14 @@ func (m *Model) View() string {
 
 func (m *Model) allLines() []screenLine {
 	var lines []screenLine
-	if m.help || m.snoozing {
-		if m.help {
+	if m.help || m.snoozing || m.linkPick {
+		switch {
+		case m.help:
 			lines = m.helpLines()
-		} else {
+		case m.snoozing:
 			lines = m.snoozeLines()
+		default:
+			lines = m.linkPickLines()
 		}
 		if w := m.contentWidth(); w > 0 {
 			lines = fitColumnLines(lines, w)
@@ -1175,6 +1185,12 @@ func (m *Model) statusLine() screenLine {
 	label := m.mouseLabel()
 	if m.snoozing {
 		return screenLine{text: label + snoozeHint}
+	}
+	if m.linkPick {
+		if m.status != "" {
+			return screenLine{text: m.status + "  " + label + linkPickHint}
+		}
+		return screenLine{text: label + linkPickHint}
 	}
 	if m.chord {
 		return screenLine{text: goToMenu(m.contentWidth())}
@@ -2146,7 +2162,8 @@ func (m *Model) helpLines() []screenLine {
 		"esc keeps the draft",
 		"1-9 answer  0 reply  f forward  e/y archive  d outcome  b snooze",
 		"/ filters as you type, esc restores, empty enter clears",
-		"l opens a link   L copies the link   Y copies the message",
+		"l opens a link, or picks one: j/k or a number, enter opens",
+		"L copies the link   Y copies the message",
 		"shift+drag selects text",
 		"M toggles mouse capture",
 		"esc back",
