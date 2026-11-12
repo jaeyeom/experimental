@@ -626,7 +626,7 @@ func (fixtureGH) BranchHead(context.Context, string, string) (string, error) {
 	return "base1", nil
 }
 
-func (fixtureGH) PathHistories(_ context.Context, _, _ string, _ []string, _ time.Time, batch int) (gh.PathHistoryResult, error) {
+func (fixtureGH) PathHistories(_ context.Context, _, _ string, _ []string, _ time.Time, batch, _ int) (gh.PathHistoryResult, error) {
 	return gh.PathHistoryResult{Histories: map[string]gh.PathHistory{}, Batch: batch}, nil
 }
 
@@ -716,8 +716,12 @@ type scriptGH struct {
 	historyCalls  int
 	historyPaths  [][]string
 	historyRefs   []string
-	// historyBatches records the batch each history call started at.
+	// historyBatches records the batch each history call started at, and
+	// historyMax the maximum it could grow to.
 	historyBatches []int
+	historyMax     []int
+	// historyRequests counts the batches history calls fetched.
+	historyRequests int
 	// historyWorked is the Batch a history call returns; 0 returns the
 	// batch asked for.
 	historyWorked int
@@ -804,7 +808,15 @@ func (g *scriptGH) ReviewThreads(_ context.Context, _, _ string, number int) ([]
 	return g.threads[number], nil
 }
 
-func (g *scriptGH) ReviewSnapshot(_ context.Context, repo string, number int) (string, []gh.LatestReview, error) {
+// take spends one call of ctx's budget, as gh does for each invocation.
+func take(ctx context.Context) error {
+	return gh.CallBudgetFrom(ctx).Take() //nolint:wrapcheck // the fake returns gh's error as gh would
+}
+
+func (g *scriptGH) ReviewSnapshot(ctx context.Context, repo string, number int) (string, []gh.LatestReview, error) {
+	if err := take(ctx); err != nil {
+		return "", nil, err
+	}
 	g.coverCalls++
 	if g.snapshots == nil {
 		return "", nil, nil
@@ -813,7 +825,10 @@ func (g *scriptGH) ReviewSnapshot(_ context.Context, repo string, number int) (s
 	return res.author, res.reviews, res.err
 }
 
-func (g *scriptGH) TeamMembers(_ context.Context, org, slug string) ([]gh.TeamMember, error) {
+func (g *scriptGH) TeamMembers(ctx context.Context, org, slug string) ([]gh.TeamMember, error) {
+	if err := take(ctx); err != nil {
+		return nil, err
+	}
 	g.coverCalls++
 	g.memberCalls++
 	if g.members == nil {
@@ -826,7 +841,10 @@ func (g *scriptGH) TeamMembers(_ context.Context, org, slug string) ([]gh.TeamMe
 	return res.members, res.err
 }
 
-func (g *scriptGH) ChangedFiles(_ context.Context, repo string, number int) ([]string, error) {
+func (g *scriptGH) ChangedFiles(ctx context.Context, repo string, number int) ([]string, error) {
+	if err := take(ctx); err != nil {
+		return nil, err
+	}
 	g.coverCalls++
 	g.fileCalls++
 	key := fmt.Sprintf("%s#%d", repo, number)
@@ -839,7 +857,10 @@ func (g *scriptGH) ChangedFiles(_ context.Context, repo string, number int) ([]s
 	return g.files[key], nil
 }
 
-func (g *scriptGH) Codeowners(_ context.Context, repo, ref string) (string, error) {
+func (g *scriptGH) Codeowners(ctx context.Context, repo, ref string) (string, error) {
+	if err := take(ctx); err != nil {
+		return "", err
+	}
 	g.coverCalls++
 	key := repo + "@" + ref
 	if g.codeownersErr != nil && g.codeownersErr[key] != nil {
@@ -852,7 +873,10 @@ func (g *scriptGH) Codeowners(_ context.Context, repo, ref string) (string, erro
 }
 
 // BranchHead returns heads[repo@branch], or "base1" when unset.
-func (g *scriptGH) BranchHead(_ context.Context, repo, branch string) (string, error) {
+func (g *scriptGH) BranchHead(ctx context.Context, repo, branch string) (string, error) {
+	if err := take(ctx); err != nil {
+		return "", err
+	}
 	g.coverCalls++
 	g.headCalls++
 	if g.headErr != nil {
@@ -865,30 +889,48 @@ func (g *scriptGH) BranchHead(_ context.Context, repo, branch string) (string, e
 }
 
 // PathHistories looks up history[repo+"\x00"+path], leaving out historySkip.
-// It records each call's paths, ref and batch.
-func (g *scriptGH) PathHistories(_ context.Context, repo, ref string, paths []string, _ time.Time, batch int) (gh.PathHistoryResult, error) {
-	g.coverCalls++
+// It records each call's paths, ref, batch and maximum. It spends one
+// budget call per batch of paths and defers the paths the budget cannot
+// pay for.
+func (g *scriptGH) PathHistories(ctx context.Context, repo, ref string, paths []string, _ time.Time, batch, maxBatch int) (gh.PathHistoryResult, error) {
 	g.historyCalls++
 	g.historyPaths = append(g.historyPaths, slices.Clone(paths))
 	g.historyRefs = append(g.historyRefs, ref)
 	g.historyBatches = append(g.historyBatches, batch)
-	if g.historyErr != nil {
-		return gh.PathHistoryResult{}, g.historyErr
-	}
+	g.historyMax = append(g.historyMax, maxBatch)
 	out := map[string]gh.PathHistory{}
-	for _, path := range paths {
-		if !g.historySkip[path] {
-			out[path] = g.history[repo+"\x00"+path]
+	var deferred []string
+	for start := 0; start < len(paths); start += max(batch, 1) {
+		chunk := paths[start:min(start+max(batch, 1), len(paths))]
+		if err := take(ctx); err != nil {
+			if errors.Is(err, gh.ErrCallCap) {
+				deferred = paths[start:]
+				break
+			}
+			return gh.PathHistoryResult{}, err
+		}
+		g.coverCalls++
+		g.historyRequests++
+		if g.historyErr != nil {
+			return gh.PathHistoryResult{}, g.historyErr
+		}
+		for _, path := range chunk {
+			if !g.historySkip[path] {
+				out[path] = g.history[repo+"\x00"+path]
+			}
 		}
 	}
 	worked := batch
 	if g.historyWorked > 0 {
 		worked = g.historyWorked
 	}
-	return gh.PathHistoryResult{Histories: out, Batch: worked}, nil
+	return gh.PathHistoryResult{Histories: out, Batch: worked, Deferred: deferred}, nil
 }
 
-func (g *scriptGH) DirectReviewCount(_ context.Context, org, login string) (int, error) {
+func (g *scriptGH) DirectReviewCount(ctx context.Context, org, login string) (int, error) {
+	if err := take(ctx); err != nil {
+		return 0, err
+	}
 	g.coverCalls++
 	g.loadCalls++
 	if g.loadErr != nil {
@@ -900,7 +942,10 @@ func (g *scriptGH) DirectReviewCount(_ context.Context, org, login string) (int,
 	return g.load[org+"/"+strings.ToLower(login)], nil
 }
 
-func (g *scriptGH) OrgActive(_ context.Context, org, login string, _ time.Time) (bool, error) {
+func (g *scriptGH) OrgActive(ctx context.Context, org, login string, _ time.Time) (bool, error) {
+	if err := take(ctx); err != nil {
+		return false, err
+	}
 	g.coverCalls++
 	if g.activeErr != nil {
 		return false, g.activeErr

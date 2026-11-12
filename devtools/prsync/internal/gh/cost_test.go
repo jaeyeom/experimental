@@ -233,7 +233,7 @@ func TestPathHistoriesWarnWhenTruncated(t *testing.T) {
 		{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"pageInfo":{"hasNextPage":true},"nodes":[{"number":7}]}}]}}}}}`, 0).Build()
 	mock.ExpectCustom(isReviewsRequest).WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"pageInfo":{"hasNextPage":true},"nodes":[{"author":{"login":"bob"}}]}}}}}`, 0).Build()
 	client, probe := newProbedClient(t, mock)
-	result, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", []string{"src/a.go"}, since, 20)
+	result, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", []string{"src/a.go"}, since, 20, 20)
 	if err != nil {
 		t.Fatal(err)
 	}

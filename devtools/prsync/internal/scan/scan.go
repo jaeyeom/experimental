@@ -39,13 +39,16 @@ type Deps struct {
 // HistoryCache stores the path history of path on ref (the base branch),
 // keyed also by a version: the history window's start day, or the head
 // commit of ref when team_cover_history_ttl is 0. It owns the expiry. It
-// also stores the path-history request size that last worked.
+// also stores the path-history request size that last worked, and each
+// login's review-load count for team_cover_load_ttl.
 type HistoryCache interface {
 	PathHistory(repo, ref, path, version string) (gh.PathHistory, bool)
 	PutPathHistory(repo, ref, path, version string, history gh.PathHistory)
 	// HistoryBatch is 0 when no size is stored.
 	HistoryBatch() int
 	PutHistoryBatch(n int)
+	ReviewLoad(org, login string) (int, bool)
+	PutReviewLoad(org, login string, n int)
 }
 
 // RoundCounter counts rounds of a job across runs.
@@ -69,7 +72,7 @@ type GH interface {
 	ChangedFiles(ctx context.Context, repo string, number int) ([]string, error)
 	Codeowners(ctx context.Context, repo, ref string) (string, error)
 	BranchHead(ctx context.Context, repo, branch string) (string, error)
-	PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time, batch int) (gh.PathHistoryResult, error)
+	PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time, batch, maxBatch int) (gh.PathHistoryResult, error)
 	DirectReviewCount(ctx context.Context, org, login string) (int, error)
 	OrgActive(ctx context.Context, org, login string, since time.Time) (bool, error)
 }

@@ -64,9 +64,13 @@ func (c *Client) executeChecked(ctx context.Context, timeout time.Duration, chec
 
 func (c *Client) executeRetry(ctx context.Context, timeout time.Duration, check outputCheck, policy ghRetryPolicy, args ...string) (*executor.ExecutionResult, error) {
 	var lastErr error
+	budget := CallBudgetFrom(ctx)
 	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, runErr(c.bin, err)
+		}
+		if err := budget.Take(); err != nil {
+			return nil, err
 		}
 		result, execErr := c.exec.Execute(ctx, executor.ToolConfig{
 			Command: c.bin,
@@ -74,6 +78,12 @@ func (c *Client) executeRetry(ctx context.Context, timeout time.Duration, check 
 			Timeout: timeout,
 		})
 		kind, done, failErr := classifyForRetry(c.bin, result, execErr, check)
+		if budget != nil && result != nil && result.ExitCode != 0 && isRateLimitText(result.Stderr+"\n"+result.Output) {
+			budget.markLimited()
+			if kind == transientSecondary {
+				return nil, fmt.Errorf("%w: %w", ErrRateLimited, failErr)
+			}
+		}
 		if done {
 			return result, failErr
 		}

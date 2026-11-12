@@ -496,7 +496,7 @@ func TestRunTeamCoverPermissionAndRateLimit(t *testing.T) {
 		}
 	})
 
-	t.Run("rate limit skips load", func(t *testing.T) {
+	t.Run("rate limit stops the round", func(t *testing.T) {
 		t.Parallel()
 		g := teamCoverGH(map[string]memberCall{
 			"acme/foo": {members: []gh.TeamMember{{Login: "carol", Type: "User"}, {Login: "bob", Type: "User"}}},
@@ -508,15 +508,14 @@ func TestRunTeamCoverPermissionAndRateLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := doc.PRs[0].TeamReviewSuggestions
-		if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "bob" {
-			t.Fatalf("suggestion = %+v, want bob by login after load is skipped", got)
+		if got := doc.PRs[0].TeamReviewSuggestions; got != nil {
+			t.Fatalf("suggestion = %+v, want none: the team waits for the next round", got)
 		}
-		if len(got[0].Suggest[0].Reasons) != 0 {
-			t.Fatalf("reasons = %#v, want none when load is skipped", got[0].Suggest[0].Reasons)
+		if g.loadCalls != 1 {
+			t.Fatalf("load searches = %d, want none after the rate limit", g.loadCalls)
 		}
-		if len(doc.Warnings) == 0 {
-			t.Fatal("expected a rate-limit warning")
+		if countSubstr(doc.Warnings, "team-cover: stopped (rate limited)") != 1 {
+			t.Fatalf("warnings = %q, want the stopped warning", doc.Warnings)
 		}
 	})
 }
@@ -571,6 +570,19 @@ func countSubstr(warnings []string, needle string) int {
 type mapHistoryCache struct {
 	entries map[string]gh.PathHistory
 	batch   int
+	loads   map[string]int
+}
+
+func (m *mapHistoryCache) ReviewLoad(org, login string) (int, bool) {
+	n, ok := m.loads[org+"/"+strings.ToLower(login)]
+	return n, ok
+}
+
+func (m *mapHistoryCache) PutReviewLoad(org, login string, n int) {
+	if m.loads == nil {
+		m.loads = map[string]int{}
+	}
+	m.loads[org+"/"+strings.ToLower(login)] = n
 }
 
 func (m *mapHistoryCache) HistoryBatch() int { return m.batch }
@@ -784,6 +796,9 @@ func TestRunTeamCoverHistoryBatchStartsAtCachedSize(t *testing.T) {
 	if !slices.Equal(first.historyBatches, []int{20}) {
 		t.Fatalf("first round batches = %v, want the configured 20", first.historyBatches)
 	}
+	if !slices.Equal(first.historyMax, []int{20}) {
+		t.Fatalf("first round maximum = %v, want the configured 20", first.historyMax)
+	}
 	if cache.batch != 5 {
 		t.Fatalf("cached batch = %d, want 5, the size that worked", cache.batch)
 	}
@@ -923,7 +938,7 @@ func TestSuggestTeamsUncoveredReason(t *testing.T) {
 	}
 }
 
-func TestRunTeamCoverHistoryRateLimitDropsSignal(t *testing.T) {
+func TestRunTeamCoverHistoryRateLimitStopsRound(t *testing.T) {
 	t.Parallel()
 
 	g := teamCoverGH(map[string]memberCall{
@@ -937,11 +952,10 @@ func TestRunTeamCoverHistoryRateLimitDropsSignal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := doc.PRs[0].TeamReviewSuggestions
-	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "bob" || len(got[0].Suggest[0].Reasons) != 0 {
-		t.Fatalf("suggestions = %+v, want bob by login with no history reason", got)
+	if got := doc.PRs[0].TeamReviewSuggestions; got != nil {
+		t.Fatalf("suggestions = %+v, want none: the team waits for the next round", got)
 	}
-	if countSubstr(doc.Warnings, "skipping team_cover history signal") != 1 {
+	if countSubstr(doc.Warnings, "team-cover: stopped (rate limited)") != 1 {
 		t.Fatalf("warnings = %#v", doc.Warnings)
 	}
 }

@@ -29,7 +29,11 @@ func IsRateLimited(err error) bool {
 	if errors.Is(err, ErrRateLimited) {
 		return true
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "rate limit")
+	return isRateLimitText(err.Error())
+}
+
+func isRateLimitText(text string) bool {
+	return strings.Contains(strings.ToLower(text), "rate limit")
 }
 
 // ProcError is a non-zero process exit from gh.

@@ -247,5 +247,7 @@
 # team_cover_history_days=90
 # team_cover_active_days=0     # 0 = no activity filter
 # team_cover_every=1           # run the job every Nth round
-# team_cover_batch_paths=5     # paths per history request; halved on timeout
+# team_cover_batch_paths=5     # most paths per history request; halved on timeout
 # team_cover_history_ttl=6h    # reuse path history this long; 0 = per base head
+# team_cover_max_calls=40      # team-cover GitHub calls per round; the rest wait
+# team_cover_load_ttl=1h       # reuse each login's review load this long

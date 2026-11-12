@@ -172,12 +172,15 @@ func (c *Client) BranchHead(ctx context.Context, repo, branch string) (string, e
 // PathHistoryResult is what PathHistories fetched.
 type PathHistoryResult struct {
 	// Histories has an entry for every path except one skipped because
-	// it failed on its own.
+	// it failed on its own, or deferred.
 	Histories map[string]PathHistory
-	// Batch is the request size to start the next call at: the batch
-	// asked for, or smaller when a request had to be split. Zero when no
-	// request succeeded.
+	// Batch is the request size to start the next call at: at least 2
+	// unless two paths failed together that each worked alone. Zero when
+	// no request succeeded.
 	Batch int
+	// Deferred are the paths left for a later call because the call
+	// budget ran out.
+	Deferred []string
 }
 
 // PathHistories returns, for each path, the authors and reviewers of up to
@@ -185,39 +188,105 @@ type PathHistoryResult struct {
 // Paths go batch to a request. A request that times out or exceeds
 // GitHub's resource limits is split in half and each half retried, down
 // to single paths; a single path that still fails is skipped with a
-// warning. Later requests use the size that worked. Reviewers come from
-// the commits' pull requests, each fetched once however many paths share
-// it. A truncated connection logs a warning.
-func (c *Client) PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time, batch int) (PathHistoryResult, error) {
+// warning. Later requests use the size that worked, and after two
+// requests in a row work whole the size doubles, up to maxBatch.
+// Reviewers come from the commits' pull requests, each fetched once
+// however many paths share it. A truncated connection logs a warning.
+// Under a CallBudget, paths whose history or reviewers the budget cannot
+// pay for are Deferred; a call is kept for the reviewers before each
+// history request.
+func (c *Client) PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time, batch, maxBatch int) (PathHistoryResult, error) {
 	owner, name, err := splitOwnerRepo(repo)
 	if err != nil {
 		return PathHistoryResult{}, err
 	}
-	h := historyFetch{c: c, owner: owner, name: name, ref: ref, since: since, commits: map[string][]historyCommit{}}
-	size := max(batch, 1)
-	worked := false
-	for start := 0; start < len(paths); {
-		chunk := paths[start:min(start+size, len(paths))]
-		start += len(chunk)
-		best, err := h.fetch(ctx, chunk)
-		if err != nil {
-			return PathHistoryResult{}, err
-		}
-		if best > 0 {
-			worked = true
-			if best < len(chunk) {
-				size = best
-			}
-		}
-	}
-	reviewers, err := c.prReviewers(ctx, owner, name, pullRequestNumbers(h.commits))
+	h := historyFetch{c: c, owner: owner, name: name, ref: ref, since: since, commits: map[string][]historyCommit{}, maxBatch: max(maxBatch, 1)}
+	deferred, err := h.fetchAll(ctx, paths, batch)
 	if err != nil {
 		return PathHistoryResult{}, err
 	}
+	numbers := pullRequestNumbers(h.commits)
+	reviewers, done, err := c.prReviewers(ctx, owner, name, numbers)
+	if err != nil && !errors.Is(err, ErrCallCap) {
+		return PathHistoryResult{}, err
+	}
+	out, unreviewed := h.histories(paths, reviewers, numbers[done:])
+	return PathHistoryResult{Histories: out, Batch: h.nextBatch(), Deferred: slices.Concat(deferred, unreviewed)}, nil
+}
+
+// fetchAll fetches the commits of paths, starting at batch paths to a
+// request, and returns the paths the call budget left unfetched.
+func (h *historyFetch) fetchAll(ctx context.Context, paths []string, batch int) ([]string, error) {
+	budget := CallBudgetFrom(ctx)
+	h.size = min(max(batch, 1), h.maxBatch)
+	for start := 0; start < len(paths); {
+		if left := budget.Left(); left >= 0 && left <= reviewCalls(h.commits) {
+			return slices.Clone(paths[start:]), nil
+		}
+		chunk := paths[start:min(start+h.size, len(paths))]
+		start += len(chunk)
+		best, err := h.fetch(ctx, chunk)
+		if errors.Is(err, ErrCallCap) {
+			return append(h.unfetched(chunk), paths[start:]...), nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		h.adapt(best, len(chunk))
+	}
+	return nil, nil
+}
+
+// adapt sets the next request size from one that asked for asked paths
+// and best paths worked in one request: the size that worked after a
+// split, or double after two whole successes in a row, up to maxBatch.
+func (h *historyFetch) adapt(best, asked int) {
+	switch {
+	case best == asked:
+		h.worked = true
+		h.streak++
+		if h.streak >= 2 && h.size < h.maxBatch {
+			h.size = min(h.size*2, h.maxBatch)
+			h.streak = 0
+		}
+	case best > 0:
+		h.worked = true
+		h.size = best
+		h.streak = 0
+	default:
+		h.streak = 0
+	}
+}
+
+// nextBatch is the size the next call starts at, or zero when no request
+// worked.
+func (h *historyFetch) nextBatch() int {
+	if !h.worked {
+		return 0
+	}
+	size := h.size
+	if size < 2 && !h.singlesOnly {
+		size = 2
+	}
+	return min(size, h.maxBatch)
+}
+
+// histories joins each fetched path's commits with their reviewers. A path
+// with a commit in an unreviewed pull request is returned as deferred.
+func (h *historyFetch) histories(paths []string, reviewers map[int][]string, unreviewed []int) (map[string]PathHistory, []string) {
+	missing := map[int]bool{}
+	for _, number := range unreviewed {
+		missing[number] = true
+	}
 	out := make(map[string]PathHistory, len(paths))
+	var deferred []string
 	for _, path := range paths {
 		list, ok := h.commits[path]
 		if !ok {
+			continue
+		}
+		if needsAny(list, missing) {
+			deferred = append(deferred, path)
 			continue
 		}
 		var history PathHistory
@@ -231,11 +300,27 @@ func (c *Client) PathHistories(ctx context.Context, repo, ref string, paths []st
 		}
 		out[path] = history
 	}
-	result := PathHistoryResult{Histories: out}
-	if worked {
-		result.Batch = size
+	return out, deferred
+}
+
+// reviewCalls is how many requests the reviewers of commits take.
+func reviewCalls(commits map[string][]historyCommit) int {
+	n := len(pullRequestNumbers(commits))
+	return (n + prReviewsBatch - 1) / prReviewsBatch
+}
+
+func needsAny(list []historyCommit, missing map[int]bool) bool {
+	if len(missing) == 0 {
+		return false
 	}
-	return result, nil
+	for _, commit := range list {
+		for _, number := range commit.prs {
+			if missing[number] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // historyFetch collects the commits of each path across history requests.
@@ -244,6 +329,25 @@ type historyFetch struct {
 	owner, name, ref string
 	since            time.Time
 	commits          map[string][]historyCommit
+	// size is the next request's path count, at most maxBatch; streak
+	// counts whole successes in a row at it.
+	size, maxBatch, streak int
+	// worked is set once a request succeeds.
+	worked bool
+	// singlesOnly is set when two paths failed together but each worked
+	// alone.
+	singlesOnly bool
+}
+
+// unfetched is the paths with no commits fetched.
+func (h *historyFetch) unfetched(paths []string) []string {
+	var out []string
+	for _, path := range paths {
+		if _, ok := h.commits[path]; !ok {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 // fetch asks for paths in one request and halves it on a splittable
@@ -279,6 +383,9 @@ func (h *historyFetch) fetch(ctx context.Context, paths []string) (int, error) {
 	second, err := h.fetch(ctx, paths[half:])
 	if err != nil {
 		return 0, err
+	}
+	if len(paths) == 2 && first == 1 && second == 1 {
+		h.singlesOnly = true
 	}
 	return max(first, second), nil
 }
@@ -390,8 +497,9 @@ func (c *Client) historyBatch(ctx context.Context, owner, name, ref string, path
 }
 
 // prReviewers returns the review authors of each pull request, in
-// prReviewsBatch-sized requests.
-func (c *Client) prReviewers(ctx context.Context, owner, name string, numbers []int) (map[int][]string, error) {
+// prReviewsBatch-sized requests, and how many of numbers it looked up: on
+// an error, those before it.
+func (c *Client) prReviewers(ctx context.Context, owner, name string, numbers []int) (map[int][]string, int, error) {
 	out := map[int][]string{}
 	for start := 0; start < len(numbers); start += prReviewsBatch {
 		batch := numbers[start:min(start+prReviewsBatch, len(numbers))]
@@ -401,7 +509,7 @@ func (c *Client) prReviewers(ctx context.Context, owner, name string, numbers []
 			"-F", "name="+name,
 		)
 		if err != nil {
-			return nil, err
+			return out, start, err
 		}
 		var payload struct {
 			Data struct {
@@ -410,10 +518,10 @@ func (c *Client) prReviewers(ctx context.Context, owner, name string, numbers []
 			Errors []gqlError `json:"errors"`
 		}
 		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-			return nil, fmt.Errorf("decode pull request reviews: %w", err)
+			return out, start, fmt.Errorf("decode pull request reviews: %w", err)
 		}
 		if len(payload.Errors) > 0 {
-			return nil, fmt.Errorf("pull request reviews graphql: %s", payload.Errors[0].Message)
+			return out, start, fmt.Errorf("pull request reviews graphql: %s", payload.Errors[0].Message)
 		}
 		for _, number := range batch {
 			node := payload.Data.Repository[fmt.Sprintf("pr%d", number)]
@@ -430,7 +538,7 @@ func (c *Client) prReviewers(ctx context.Context, owner, name string, numbers []
 			}
 		}
 	}
-	return out, nil
+	return out, len(numbers), nil
 }
 
 // graphQL runs one gh api graphql request. A rate limit is ErrRateLimited.

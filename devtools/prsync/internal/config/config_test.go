@@ -596,6 +596,8 @@ func TestLoadTeamCover(t *testing.T) {
 		"team_cover_every=3",
 		"team_cover_batch_paths=8",
 		"team_cover_history_ttl=90m",
+		"team_cover_max_calls=12",
+		"team_cover_load_ttl=30m",
 		"",
 	}, "\n"))
 	got, err := Load(path)
@@ -625,6 +627,12 @@ func TestLoadTeamCover(t *testing.T) {
 	}
 	if got.TeamCoverHistoryTTL != 90*time.Minute {
 		t.Fatalf("history ttl=%v, want 90m", got.TeamCoverHistoryTTL)
+	}
+	if got.TeamCoverMaxCalls != 12 {
+		t.Fatalf("max calls=%d, want 12", got.TeamCoverMaxCalls)
+	}
+	if got.TeamCoverLoadTTL != 30*time.Minute {
+		t.Fatalf("load ttl=%v, want 30m", got.TeamCoverLoadTTL)
 	}
 }
 
@@ -754,6 +762,9 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "zero team cover batch paths", body: "team_cover_batch_paths=0\n", key: "team_cover_batch_paths"},
 		{name: "bad team cover history ttl", body: "team_cover_history_ttl=6\n", key: "team_cover_history_ttl"},
 		{name: "negative team cover history ttl", body: "team_cover_history_ttl=-1h\n", key: "team_cover_history_ttl"},
+		{name: "zero team cover max calls", body: "team_cover_max_calls=0\n", key: "team_cover_max_calls"},
+		{name: "bad team cover load ttl", body: "team_cover_load_ttl=1\n", key: "team_cover_load_ttl"},
+		{name: "negative team cover load ttl", body: "team_cover_load_ttl=-1m\n", key: "team_cover_load_ttl"},
 		{name: "bad dedupe ttl", body: "dedupe_ttl=tomorrow\n", key: "dedupe_ttl"},
 		{name: "negative dedupe ttl", body: "dedupe_ttl=-1s\n", key: "dedupe_ttl"},
 		{name: "negative dedupe scans", body: "dedupe_scans=-1\n", key: "dedupe_scans"},
@@ -910,6 +921,12 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.TeamCoverHistoryTTL != 6*time.Hour {
 		t.Fatalf("TeamCoverHistoryTTL = %v, want 6h", got.TeamCoverHistoryTTL)
+	}
+	if got.TeamCoverMaxCalls != 40 {
+		t.Fatalf("TeamCoverMaxCalls = %d, want 40", got.TeamCoverMaxCalls)
+	}
+	if got.TeamCoverLoadTTL != time.Hour {
+		t.Fatalf("TeamCoverLoadTTL = %v, want 1h", got.TeamCoverLoadTTL)
 	}
 	if got.StateFile != "~/.config/prsync/state.json" {
 		t.Fatalf("StateFile = %q", got.StateFile)

@@ -75,7 +75,7 @@ func TestPathHistoriesSplitsTimedOutBatches(t *testing.T) {
 	fake := &aliasLimitGH{limit: 6}
 	client, probe := probedAliasClient(t, fake)
 	paths := historyPaths(25)
-	got, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", paths, time.Now(), 20)
+	got, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", paths, time.Now(), 20, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestPathHistoriesSkipsPathThatAlwaysFails(t *testing.T) {
 	fake := &aliasLimitGH{limit: 100, bad: "src/f02.go"}
 	client, probe := probedAliasClient(t, fake)
 	paths := historyPaths(8)
-	got, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", paths, time.Now(), 5)
+	got, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", paths, time.Now(), 5, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestPathHistoriesWithoutTimeoutKeepsBatch(t *testing.T) {
 
 	fake := &aliasLimitGH{limit: 100}
 	client, probe := probedAliasClient(t, fake)
-	got, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", historyPaths(3), time.Now(), 5)
+	got, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", historyPaths(3), time.Now(), 5, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestPathHistoriesDoesNotSplitOtherErrors(t *testing.T) {
 
 	mock := newGHMock()
 	mock.ExpectCustom(isHistoryRequest).WillFail("HTTP 401: Bad credentials", 1).Build()
-	_, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", historyPaths(4), time.Now(), 4)
+	_, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", historyPaths(4), time.Now(), 4, 4)
 	if err == nil || !strings.Contains(err.Error(), "Bad credentials") {
 		t.Fatalf("err = %v, want the credentials error", err)
 	}

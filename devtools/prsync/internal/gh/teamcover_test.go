@@ -158,7 +158,7 @@ func TestPathHistoriesBatchesPaths(t *testing.T) {
 		WillSucceed(`{"data":{"repository":{"object":{"p0":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[{"number":7}]}}]}}}}}`, 0).Build()
 	mock.ExpectCustom(isReviewsRequest).
 		WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"nodes":[{"author":{"login":"bob"}}]}}}}}`, 0).Build()
-	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", paths, since, 20)
+	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", paths, since, 20, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestPathHistoriesFetchesSharedPullRequestOnce(t *testing.T) {
 				{"author":{"user":{"login":"carol"}},"associatedPullRequests":{"nodes":[{"number":8}]}}]}}}}}`, 0).Build()
 	mock.ExpectCustom(isReviewsRequest).Once().
 		WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"nodes":[{"author":{"login":"bob"}}]}},"pr8":{"reviews":{"nodes":[{"author":{"login":"dave"}}]}}}}}`, 0).Build()
-	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go", "src/b.go"}, since, 20)
+	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go", "src/b.go"}, since, 20, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestPathHistoriesNoPullRequestsSkipsReviews(t *testing.T) {
 	mock := newGHMock()
 	mock.ExpectCustom(isHistoryRequest).Once().
 		WillSucceed(`{"data":{"repository":{"object":{"p0":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[]}}]}}}}}`, 0).Build()
-	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go"}, time.Now(), 20)
+	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go"}, time.Now(), 20, 20)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,9 @@ type Document struct {
 	InaccessibleRepos []string `json:"inaccessible_repos"` //nolint:tagliatelle // brief outbound contract
 	Warnings          []string `json:"warnings"`
 	Summary           Summary  `json:"summary"`
+	// TeamCoverNotes are team-cover lines for the round output (stderr),
+	// such as the call summary. They are not part of the JSON.
+	TeamCoverNotes []string `json:"-"`
 }
 
 // Summary is a derived rollup of PRs. It is not a second per-PR source of truth.
