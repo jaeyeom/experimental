@@ -33,11 +33,13 @@ type PR struct {
 	Title  string `json:"title"`
 	URL    string `json:"url"`
 	// State is open, closed, or merged. Empty when the document predates the field.
-	State            string    `json:"state"`
-	Identifier       *string   `json:"identifier"`
-	Base             string    `json:"base"`
-	Head             string    `json:"head"`
-	HeadSHA          string    `json:"head_sha"`           //nolint:tagliatelle // brief outbound contract
+	State      string  `json:"state"`
+	Identifier *string `json:"identifier"`
+	Base       string  `json:"base"`
+	Head       string  `json:"head"`
+	HeadSHA    string  `json:"head_sha"` //nolint:tagliatelle // brief outbound contract
+	// UpdatedAt keys the team-cover review snapshot cache. Not in scan JSON.
+	UpdatedAt        string    `json:"-"`
 	MergeStateStatus string    `json:"merge_state_status"` //nolint:tagliatelle // brief outbound contract
 	Mergeable        string    `json:"mergeable"`
 	IsDraft          bool      `json:"is_draft"`        //nolint:tagliatelle // brief outbound contract

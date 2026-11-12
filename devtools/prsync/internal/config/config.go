@@ -223,6 +223,12 @@ type Config struct {
 	// TeamCoverLoadTTL is how long a login's review-load count is reused
 	// across rounds. Zero fetches it every round.
 	TeamCoverLoadTTL time.Duration
+	// TeamCoverMembersTTL is how long a team's member list is reused across
+	// rounds. Zero fetches it every round.
+	TeamCoverMembersTTL time.Duration
+	// TeamCoverCodeownersTTL is how long a repository's CODEOWNERS is
+	// reused across rounds. Zero fetches it every round.
+	TeamCoverCodeownersTTL time.Duration
 
 	// GateIgnoreProcs are patterns for an agent's helpers (MCP and
 	// language servers, status-line commands). A plain pattern matches
@@ -312,6 +318,8 @@ func Defaults() Config {
 		TeamCoverHistoryTTL:      6 * time.Hour,
 		TeamCoverMaxCalls:        40,
 		TeamCoverLoadTTL:         time.Hour,
+		TeamCoverMembersTTL:      24 * time.Hour,
+		TeamCoverCodeownersTTL:   6 * time.Hour,
 		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
 		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
@@ -604,7 +612,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
 		"team_cover_history_days", "team_cover_active_days", "team_cover_every",
-		"team_cover_batch_paths", "team_cover_history_ttl", "team_cover_max_calls", "team_cover_load_ttl":
+		"team_cover_batch_paths", "team_cover_history_ttl", "team_cover_max_calls", "team_cover_load_ttl",
+		"team_cover_members_ttl", "team_cover_codeowners_ttl":
 		return applyTeamCover(cfg, key, val)
 	default:
 		return nil
@@ -612,6 +621,9 @@ func applyOtherKey(cfg *Config, key, val string) error {
 }
 
 func applyTeamCover(cfg *Config, key, val string) error {
+	if dst := teamCoverTTL(cfg, key); dst != nil {
+		return applyNonNegativeDuration(dst, key, val)
+	}
 	switch key {
 	case "team_cover":
 		return applyTeamCoverEnabled(cfg, val)
@@ -631,12 +643,25 @@ func applyTeamCover(cfg *Config, key, val string) error {
 		return applyPositiveInt(&cfg.TeamCoverEvery, key, val)
 	case "team_cover_batch_paths":
 		return applyPositiveInt(&cfg.TeamCoverBatchPaths, key, val)
-	case "team_cover_history_ttl":
-		return applyNonNegativeDuration(&cfg.TeamCoverHistoryTTL, key, val)
 	case "team_cover_max_calls":
 		return applyPositiveInt(&cfg.TeamCoverMaxCalls, key, val)
+	default:
+		return nil
+	}
+}
+
+// teamCoverTTL is the duration key sets, or nil when key is not a
+// team-cover TTL.
+func teamCoverTTL(cfg *Config, key string) *time.Duration {
+	switch key {
+	case "team_cover_history_ttl":
+		return &cfg.TeamCoverHistoryTTL
 	case "team_cover_load_ttl":
-		return applyNonNegativeDuration(&cfg.TeamCoverLoadTTL, key, val)
+		return &cfg.TeamCoverLoadTTL
+	case "team_cover_members_ttl":
+		return &cfg.TeamCoverMembersTTL
+	case "team_cover_codeowners_ttl":
+		return &cfg.TeamCoverCodeownersTTL
 	default:
 		return nil
 	}

@@ -106,25 +106,34 @@ func (c *Client) ChangedFiles(ctx context.Context, repo string, number int) ([]s
 	return nonEmptyLines(result.Output), nil
 }
 
-// Codeowners returns the base-branch CODEOWNERS file.
-// GitHub uses the first of .github/CODEOWNERS, CODEOWNERS, and docs/CODEOWNERS.
-// An empty string means the repository has none. A non-404 failure is returned.
-func (c *Client) Codeowners(ctx context.Context, repo, ref string) (string, error) {
+// codeownersPaths are where GitHub looks for CODEOWNERS, in its order.
+var codeownersPaths = []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"}
+
+// Codeowners returns the base-branch CODEOWNERS file and the path it was
+// found at. GitHub uses the first of .github/CODEOWNERS, CODEOWNERS, and
+// docs/CODEOWNERS. first, when it is one of those, is tried before the
+// others: the caller passes where the file was last found, so a location
+// known to be missing is not requested. An empty body and path mean the
+// repository has none. A non-404 failure is returned.
+func (c *Client) Codeowners(ctx context.Context, repo, ref, first string) (string, string, error) {
 	owner, name, err := splitOwnerRepo(repo)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	paths := []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"}
+	paths := codeownersPaths
+	if slices.Contains(codeownersPaths, first) {
+		paths = append([]string{first}, slices.DeleteFunc(slices.Clone(codeownersPaths), func(p string) bool { return p == first })...)
+	}
 	for _, path := range paths {
 		body, ok, err := c.contents(ctx, owner, name, path, ref)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if ok {
-			return body, nil
+			return body, path, nil
 		}
 	}
-	return "", nil
+	return "", "", nil
 }
 
 func (c *Client) contents(ctx context.Context, owner, name, path, ref string) (string, bool, error) {

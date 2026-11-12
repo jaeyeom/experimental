@@ -49,6 +49,7 @@ go_test(
         "scan_test.go",
         "scope_test.go",
         "summary_test.go",
+        "teamcover_cache_test.go",
         "teamcover_cap_test.go",
         "teamcover_test.go",
         "unblock_test.go",

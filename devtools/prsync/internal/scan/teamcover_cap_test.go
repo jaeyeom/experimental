@@ -52,7 +52,7 @@ func TestRunTeamCoverCallCapDefersPathsToNextRound(t *testing.T) {
 		t.Fatalf("calls = %d, want exactly the cap of 40", first.coverCalls)
 	}
 	// Snapshot, members and files take 3 calls; 37 batches of 5 follow.
-	if !slices.Contains(doc.TeamCoverNotes, "team-cover: call cap 40 reached; 115 paths deferred") {
+	if !slices.Contains(doc.TeamCoverNotes, "team-cover: call cap 40 reached during history; 115 paths deferred") {
 		t.Fatalf("notes = %q, want the cap line", doc.TeamCoverNotes)
 	}
 	if got := doc.PRs[0].TeamReviewSuggestions; got != nil {
@@ -70,7 +70,7 @@ func TestRunTeamCoverCallCapDefersPathsToNextRound(t *testing.T) {
 	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
 		t.Fatalf("suggestions = %+v, want carol once the history is complete", got)
 	}
-	want := "team-cover: 300 of 300 paths need history, 185 cache hits, 26 calls (cap 40)"
+	want := "team-cover: paths 300/300 need history (185 hits); team members 0 hits/1 calls; files 0/1; reviews 0/1; calls 26 (cap 40)"
 	if !slices.Contains(doc.TeamCoverNotes, want) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
 	}
@@ -154,12 +154,12 @@ func TestRunTeamCoverSummaryNote(t *testing.T) {
 	t.Parallel()
 
 	g, doc, _ := historyRound(t, &mapHistoryCache{entries: map[string]gh.PathHistory{}}, "h", "base1")
-	want := fmt.Sprintf("team-cover: 2 of 2 paths need history, 0 cache hits, %d calls (cap 40)", g.coverCalls)
+	want := fmt.Sprintf("team-cover: paths 2/2 need history (0 hits); team members 0 hits/1 calls; files 0/2; reviews 0/2; calls %d (cap 40)", g.coverCalls)
 	if !slices.Equal(doc.TeamCoverNotes, []string{want}) {
 		t.Fatalf("notes = %q, want %q", doc.TeamCoverNotes, want)
 	}
 	for _, warning := range doc.Warnings {
-		if strings.Contains(warning, "paths need history") {
+		if strings.Contains(warning, "need history") {
 			t.Fatalf("warnings = %q, want the summary only in the round output", doc.Warnings)
 		}
 	}

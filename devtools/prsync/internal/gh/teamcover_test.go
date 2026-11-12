@@ -79,12 +79,49 @@ func TestCodeownersSkipsMissing(t *testing.T) {
 		WillFail("HTTP 404: Not Found", 1).Build()
 	mock.ExpectCommandWithArgs(testGHBin, "api", "repos/acme/widgets/contents/CODEOWNERS?ref=main").
 		WillSucceed(`{"encoding":"base64","content":"`+body+`"}`, 0).Build()
-	got, err := NewClient(mock, testGHBin).Codeowners(context.Background(), "acme/widgets", "main")
+	got, at, err := NewClient(mock, testGHBin).Codeowners(context.Background(), "acme/widgets", "main", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "* @acme/everyone\n" {
-		t.Fatalf("codeowners = %q", got)
+	if got != "* @acme/everyone\n" || at != "CODEOWNERS" {
+		t.Fatalf("codeowners = %q at %q", got, at)
+	}
+}
+
+func TestCodeownersTriesKnownLocationFirst(t *testing.T) {
+	t.Parallel()
+
+	body := base64.StdEncoding.EncodeToString([]byte("* @acme/everyone\n"))
+	mock := newGHMock()
+	mock.ExpectCommandWithArgs(testGHBin, "api", "repos/acme/widgets/contents/CODEOWNERS?ref=main").
+		WillSucceed(`{"encoding":"base64","content":"`+body+`"}`, 0).Once().Build()
+	got, at, err := NewClient(mock, testGHBin).Codeowners(context.Background(), "acme/widgets", "main", "CODEOWNERS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "* @acme/everyone\n" || at != "CODEOWNERS" {
+		t.Fatalf("codeowners = %q at %q", got, at)
+	}
+	if err := mock.AssertExpectationsMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCodeownersFallsBackWhenKnownLocationIsGone(t *testing.T) {
+	t.Parallel()
+
+	body := base64.StdEncoding.EncodeToString([]byte("* @acme/everyone\n"))
+	mock := newGHMock()
+	mock.ExpectCommandWithArgs(testGHBin, "api", "repos/acme/widgets/contents/CODEOWNERS?ref=main").
+		WillFail("HTTP 404: Not Found", 1).Once().Build()
+	mock.ExpectCommandWithArgs(testGHBin, "api", "repos/acme/widgets/contents/.github/CODEOWNERS?ref=main").
+		WillSucceed(`{"encoding":"base64","content":"`+body+`"}`, 0).Once().Build()
+	got, at, err := NewClient(mock, testGHBin).Codeowners(context.Background(), "acme/widgets", "main", "CODEOWNERS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "* @acme/everyone\n" || at != ".github/CODEOWNERS" {
+		t.Fatalf("codeowners = %q at %q", got, at)
 	}
 }
 

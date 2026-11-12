@@ -618,8 +618,8 @@ func (fixtureGH) ChangedFiles(context.Context, string, int) ([]string, error) {
 	return nil, nil
 }
 
-func (fixtureGH) Codeowners(context.Context, string, string) (string, error) {
-	return "", nil
+func (fixtureGH) Codeowners(context.Context, string, string, string) (string, string, error) {
+	return "", "", nil
 }
 
 func (fixtureGH) BranchHead(context.Context, string, string) (string, error) {
@@ -711,11 +711,20 @@ type scriptGH struct {
 	fileErr       map[string]error
 	codeowners    map[string]string
 	codeownersErr map[string]error
-	history       map[string]gh.PathHistory
-	historyErr    error
-	historyCalls  int
-	historyPaths  [][]string
-	historyRefs   []string
+	// codeownersAt is where Codeowners finds repo@ref's file;
+	// .github/CODEOWNERS when unset. codeownersFirst records the location
+	// each call tried first.
+	codeownersAt    map[string]string
+	codeownersFirst []string
+	// snapshotKeys and fileKeys record the repo#number of each review
+	// snapshot and changed-files call.
+	snapshotKeys []string
+	fileKeys     []string
+	history      map[string]gh.PathHistory
+	historyErr   error
+	historyCalls int
+	historyPaths [][]string
+	historyRefs  []string
 	// historyBatches records the batch each history call started at, and
 	// historyMax the maximum it could grow to.
 	historyBatches []int
@@ -818,6 +827,7 @@ func (g *scriptGH) ReviewSnapshot(ctx context.Context, repo string, number int) 
 		return "", nil, err
 	}
 	g.coverCalls++
+	g.snapshotKeys = append(g.snapshotKeys, fmt.Sprintf("%s#%d", repo, number))
 	if g.snapshots == nil {
 		return "", nil, nil
 	}
@@ -848,6 +858,7 @@ func (g *scriptGH) ChangedFiles(ctx context.Context, repo string, number int) ([
 	g.coverCalls++
 	g.fileCalls++
 	key := fmt.Sprintf("%s#%d", repo, number)
+	g.fileKeys = append(g.fileKeys, key)
 	if g.fileErr != nil && g.fileErr[key] != nil {
 		return nil, g.fileErr[key]
 	}
@@ -857,19 +868,24 @@ func (g *scriptGH) ChangedFiles(ctx context.Context, repo string, number int) ([
 	return g.files[key], nil
 }
 
-func (g *scriptGH) Codeowners(ctx context.Context, repo, ref string) (string, error) {
+func (g *scriptGH) Codeowners(ctx context.Context, repo, ref, first string) (string, string, error) {
 	if err := take(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 	g.coverCalls++
+	g.codeownersFirst = append(g.codeownersFirst, first)
 	key := repo + "@" + ref
 	if g.codeownersErr != nil && g.codeownersErr[key] != nil {
-		return "", g.codeownersErr[key]
+		return "", "", g.codeownersErr[key]
 	}
-	if g.codeowners == nil {
-		return "", nil
+	body := g.codeowners[key]
+	if body == "" {
+		return "", "", nil
 	}
-	return g.codeowners[key], nil
+	if at, ok := g.codeownersAt[key]; ok {
+		return body, at, nil
+	}
+	return body, ".github/CODEOWNERS", nil
 }
 
 // BranchHead returns heads[repo@branch], or "base1" when unset.

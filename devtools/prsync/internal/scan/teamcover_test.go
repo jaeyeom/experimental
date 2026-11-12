@@ -585,6 +585,26 @@ func (m *mapHistoryCache) PutReviewLoad(org, login string, n int) {
 	m.loads[org+"/"+strings.ToLower(login)] = n
 }
 
+// mapHistoryCache stores no team members, files, CODEOWNERS or review
+// snapshots, so each round fetches them.
+func (m *mapHistoryCache) TeamMembers(string, string) ([]gh.TeamMember, bool) { return nil, false }
+
+func (m *mapHistoryCache) PutTeamMembers(string, string, []gh.TeamMember) {}
+
+func (m *mapHistoryCache) ChangedFiles(string, int, string) ([]string, bool) { return nil, false }
+
+func (m *mapHistoryCache) PutChangedFiles(string, int, string, []string) {}
+
+func (m *mapHistoryCache) Codeowners(string, string) (string, string, bool) { return "", "", false }
+
+func (m *mapHistoryCache) PutCodeowners(string, string, string, string) {}
+
+func (m *mapHistoryCache) ReviewSnapshot(string, int, string, string) (string, []gh.LatestReview, bool) {
+	return "", nil, false
+}
+
+func (m *mapHistoryCache) PutReviewSnapshot(string, int, string, string, string, []gh.LatestReview) {}
+
 func (m *mapHistoryCache) HistoryBatch() int { return m.batch }
 
 func (m *mapHistoryCache) PutHistoryBatch(n int) { m.batch = n }

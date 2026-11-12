@@ -39,8 +39,11 @@ type Deps struct {
 // HistoryCache stores the path history of path on ref (the base branch),
 // keyed also by a version: the history window's start day, or the head
 // commit of ref when team_cover_history_ttl is 0. It owns the expiry. It
-// also stores the path-history request size that last worked, and each
-// login's review-load count for team_cover_load_ttl.
+// also stores the path-history request size that last worked, each
+// login's review-load count for team_cover_load_ttl, team members for
+// team_cover_members_ttl, CODEOWNERS for team_cover_codeowners_ttl, and
+// each pull request's changed files (per head) and review snapshot (per
+// head and updatedAt).
 type HistoryCache interface {
 	PathHistory(repo, ref, path, version string) (gh.PathHistory, bool)
 	PutPathHistory(repo, ref, path, version string, history gh.PathHistory)
@@ -49,6 +52,16 @@ type HistoryCache interface {
 	PutHistoryBatch(n int)
 	ReviewLoad(org, login string) (int, bool)
 	PutReviewLoad(org, login string, n int)
+	TeamMembers(org, slug string) ([]gh.TeamMember, bool)
+	PutTeamMembers(org, slug string, members []gh.TeamMember)
+	ChangedFiles(repo string, number int, head string) ([]string, bool)
+	PutChangedFiles(repo string, number int, head string, files []string)
+	// Codeowners returns the body while it is fresh (ok) and, longer, the
+	// path it was found at.
+	Codeowners(repo, ref string) (body, path string, ok bool)
+	PutCodeowners(repo, ref, path, body string)
+	ReviewSnapshot(repo string, number int, head, updatedAt string) (string, []gh.LatestReview, bool)
+	PutReviewSnapshot(repo string, number int, head, updatedAt, author string, reviews []gh.LatestReview)
 }
 
 // RoundCounter counts rounds of a job across runs.
@@ -70,7 +83,9 @@ type GH interface {
 	ReviewSnapshot(ctx context.Context, repo string, number int) (author string, reviews []gh.LatestReview, err error)
 	TeamMembers(ctx context.Context, org, slug string) ([]gh.TeamMember, error)
 	ChangedFiles(ctx context.Context, repo string, number int) ([]string, error)
-	Codeowners(ctx context.Context, repo, ref string) (string, error)
+	// Codeowners tries first before GitHub's other locations and returns
+	// the body and the path it was found at.
+	Codeowners(ctx context.Context, repo, ref, first string) (body, path string, err error)
 	BranchHead(ctx context.Context, repo, branch string) (string, error)
 	PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time, batch, maxBatch int) (gh.PathHistoryResult, error)
 	DirectReviewCount(ctx context.Context, org, login string) (int, error)
@@ -319,6 +334,7 @@ func classifyPR(ctx context.Context, client GH, cfg config.Config, owner, name, 
 		Base:             item.BaseRefName,
 		Head:             item.HeadRefName,
 		HeadSHA:          item.HeadRefOid,
+		UpdatedAt:        item.UpdatedAt,
 		MergeStateStatus: item.MergeStateStatus,
 		Mergeable:        item.Mergeable,
 		IsDraft:          item.IsDraft,

@@ -335,3 +335,166 @@ func TestReviewLoadExpiresAfterLoadTTL(t *testing.T) {
 		t.Fatalf("loads = %v, want the expired entry pruned", next.data.Loads)
 	}
 }
+
+func TestTeamMembersExpireAfterMembersTTL(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.SetMembersTTL(24 * time.Hour)
+	want := []gh.TeamMember{{Login: "bob", Type: "User"}}
+	c.PutTeamMembers("acme", "foo", want)
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	clk.t = clk.t.Add(23 * time.Hour)
+	next, _ := Load(path, clk.now)
+	next.SetMembersTTL(24 * time.Hour)
+	if got, ok := next.TeamMembers("acme", "foo"); !ok || !slices.Equal(got, want) {
+		t.Fatalf("TeamMembers = %v, %v; want %v within the TTL", got, ok, want)
+	}
+	if _, ok := next.TeamMembers("acme", "bar"); ok {
+		t.Fatal("hit for another team")
+	}
+	clk.t = clk.t.Add(2 * time.Hour)
+	if _, ok := next.TeamMembers("acme", "foo"); ok {
+		t.Fatal("hit past the members TTL")
+	}
+	if err := next.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if len(next.data.Members) != 0 {
+		t.Fatalf("members = %v, want the expired entry pruned", next.data.Members)
+	}
+}
+
+func TestChangedFilesNeedSameHead(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.PutChangedFiles("acme/widgets", 7, "head1", []string{"a.go"})
+	c.PutChangedFiles("acme/widgets", 8, "", []string{"b.go"})
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	clk.t = clk.t.Add(KeepTTL - time.Minute)
+	next, _ := Load(path, clk.now)
+	if got, ok := next.ChangedFiles("acme/widgets", 7, "head1"); !ok || !slices.Equal(got, []string{"a.go"}) {
+		t.Fatalf("ChangedFiles = %v, %v; want a.go for the same head", got, ok)
+	}
+	if _, ok := next.ChangedFiles("acme/widgets", 7, "head2"); ok {
+		t.Fatal("hit for a new head")
+	}
+	if _, ok := next.ChangedFiles("acme/widgets", 8, ""); ok {
+		t.Fatal("hit without a head")
+	}
+	clk.t = clk.t.Add(2 * time.Minute)
+	if _, ok := next.ChangedFiles("acme/widgets", 7, "head1"); ok {
+		t.Fatal("hit past KeepTTL")
+	}
+}
+
+func TestReviewSnapshotNeedsSameHeadAndUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), newClock().now)
+	reviews := []gh.LatestReview{{Author: gh.ReviewAuthor{Login: "bob"}, State: "APPROVED"}}
+	c.PutReviewSnapshot("acme/widgets", 7, "head1", "t1", "alice", reviews)
+	author, got, ok := c.ReviewSnapshot("acme/widgets", 7, "head1", "t1")
+	if !ok || author != "alice" || !slices.Equal(got, reviews) {
+		t.Fatalf("ReviewSnapshot = %q, %v, %v; want the stored snapshot", author, got, ok)
+	}
+	if _, _, ok := c.ReviewSnapshot("acme/widgets", 7, "head2", "t1"); ok {
+		t.Fatal("hit for a new head")
+	}
+	if _, _, ok := c.ReviewSnapshot("acme/widgets", 7, "head1", "t2"); ok {
+		t.Fatal("hit for a new updatedAt")
+	}
+	c.PutReviewSnapshot("acme/widgets", 8, "", "t1", "alice", reviews)
+	if _, _, ok := c.ReviewSnapshot("acme/widgets", 8, "", "t1"); ok {
+		t.Fatal("hit without a head")
+	}
+}
+
+func TestCodeownersKeepsLocationPastTTL(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.SetCodeownersTTL(6 * time.Hour)
+	c.PutCodeowners("acme/widgets", "main", "CODEOWNERS", "* @acme/foo\n")
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	clk.t = clk.t.Add(5 * time.Hour)
+	next, _ := Load(path, clk.now)
+	next.SetCodeownersTTL(6 * time.Hour)
+	if body, at, ok := next.Codeowners("acme/widgets", "main"); !ok || body != "* @acme/foo\n" || at != "CODEOWNERS" {
+		t.Fatalf("Codeowners = %q, %q, %v; want the fresh body", body, at, ok)
+	}
+	clk.t = clk.t.Add(2 * time.Hour)
+	if err := next.Save(); err != nil {
+		t.Fatal(err)
+	}
+	last, _ := Load(path, clk.now)
+	last.SetCodeownersTTL(6 * time.Hour)
+	body, at, ok := last.Codeowners("acme/widgets", "main")
+	if ok || body != "" || at != "CODEOWNERS" {
+		t.Fatalf("Codeowners = %q, %q, %v; want only the location past the TTL", body, at, ok)
+	}
+	clk.t = clk.t.Add(KeepTTL)
+	if _, at, _ := last.Codeowners("acme/widgets", "main"); at != "" {
+		t.Fatalf("location = %q past KeepTTL, want none", at)
+	}
+}
+
+func TestSaveKeepsTeamCoverKeysAndPrunesUnknown(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	at := clk.t.Format(time.RFC3339)
+	raw := `{"history":{},"rollups":{},` +
+		`"members":{"acme/foo":{"at":"` + at + `"},"foo":{"at":"` + at + `"}},` +
+		`"files":{"acme/widgets#1":{"at":"` + at + `","head":"h"},"acme/widgets":{"at":"` + at + `"}},` +
+		`"codeowners":{"acme/widgets@main":{"at":"` + at + `"},"acme/widgets":{"at":"` + at + `"}},` +
+		`"reviews":{"acme/widgets#1":{"at":"` + at + `","head":"h"},"x#y":{"at":"` + at + `"}}}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := Load(path, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"members":    {"acme/foo"},
+		"files":      {"acme/widgets#1"},
+		"codeowners": {"acme/widgets@main"},
+		"reviews":    {"acme/widgets#1"},
+	}
+	got := map[string][]string{
+		"members":    slices.Sorted(maps.Keys(next.data.Members)),
+		"files":      slices.Sorted(maps.Keys(next.data.Files)),
+		"codeowners": slices.Sorted(maps.Keys(next.data.Codeowners)),
+		"reviews":    slices.Sorted(maps.Keys(next.data.Reviews)),
+	}
+	for name := range want {
+		if !slices.Equal(got[name], want[name]) {
+			t.Fatalf("%s keys = %q, want %q", name, got[name], want[name])
+		}
+	}
+}
