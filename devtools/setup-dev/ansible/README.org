@@ -292,6 +292,7 @@ These files are playbooks not generated from =generate_packages.go=:
 - setup-safe-aliases.yml
 - setup-sf-mono-font.yml
 - setup-shell-profile.yml
+- setup-slackwatch.yml
 - setup-spacemacs.yml
 - setup-sql-tools.yml
 - setup-ssh-key.yml

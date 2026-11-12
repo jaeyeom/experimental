@@ -945,6 +945,7 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 		Imports: nil,
 	},
 	GoTool("shfmt", "mvdan.cc/sh/v3/cmd/shfmt@latest"),
+	GoTool("slackwatch", "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@latest"),
 	{
 		command: "sqlfluff",
 		platforms: map[PlatformName]InstallMethod{

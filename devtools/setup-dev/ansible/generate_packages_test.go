@@ -587,8 +587,77 @@ func TestFactorySkillInstall(t *testing.T) {
 	if !strings.Contains(vibe, wantVibe) {
 		t.Errorf("setup-vibe-coding.yml missing unconditional setup-factory import after setup-herdr")
 	}
-	if !strings.Contains(vibe, "herdr, factory, aside") {
+	if !strings.Contains(vibe, "herdr, factory, slackwatch, aside") {
 		t.Error("setup-vibe-coding.yml completion message missing factory")
+	}
+}
+
+func TestSlackwatchSkillInstall(t *testing.T) {
+	dir := ansiblePlaybookDir(t)
+	read := func(name string) string {
+		t.Helper()
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(content)
+	}
+
+	got := read("setup-slackwatch.yml")
+	if !strings.Contains(got, "\n- import_playbook: slackwatch.yml\n\n") {
+		t.Error("setup-slackwatch.yml must import slackwatch.yml on every platform")
+	}
+	for _, want := range []string{
+		"setup_slackwatch_playbook_imported",
+		"slackwatch_skill_paths:",
+		"{{ ansible_facts['env']['HOME'] }}/.claude/skills/slackwatch/SKILL.md",
+		"command: go env GOPATH",
+		"ansible.builtin.shell: command -v slackwatch",
+		"cmd: slackwatch skill",
+		"strip_empty_ends: false",
+		"Skipping slackwatch skill install because slackwatch is not on PATH.",
+		"exited {{ slackwatch_skill_output.rc | default('unknown') }}",
+		"printed nothing",
+		"path: \"{{ item | dirname }}\"",
+		"apply-text",
+		"slackwatch-skill",
+		"Skipping slackwatch skill apply-text because ensure.sh will",
+		"not (setup_dev_defer_skill_apply | default(false) | bool)",
+		"register: slackwatch_skill_apply",
+		"changed_when: (slackwatch_skill_apply.stdout | trim) == \"updated\"",
+		"loop: \"{{ slackwatch_skill_paths }}\"",
+		"- slackwatch",
+		"- skill",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("setup-slackwatch.yml missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"slackwatch serve",
+		"launchctl",
+		"systemctl",
+		"token",
+		"banner",
+		"content: \"{{ slackwatch_skill_output.stdout }}\"",
+		"ansible.builtin.copy",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("setup-slackwatch.yml must not mention %q", unwanted)
+		}
+	}
+
+	slackwatch := read("slackwatch.yml")
+	if !strings.Contains(slackwatch, "command: go install github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch@latest") {
+		t.Error("slackwatch.yml missing go install of devtools/slackwatch/cmd/slackwatch")
+	}
+
+	vibe := read("setup-vibe-coding.yml")
+	if !strings.Contains(vibe, "- import_playbook: setup-factory.yml\n- import_playbook: setup-slackwatch.yml\n") {
+		t.Error("setup-vibe-coding.yml missing setup-slackwatch import after setup-factory")
+	}
+	if !strings.Contains(vibe, "factory, slackwatch, aside") {
+		t.Error("setup-vibe-coding.yml completion message missing slackwatch")
 	}
 }
 

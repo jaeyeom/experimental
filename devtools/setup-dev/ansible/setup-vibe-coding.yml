@@ -17,6 +17,7 @@
 - import_playbook: setup-herdr.yml
   when: ansible_facts['env']['TERMUX_VERSION'] is not defined
 - import_playbook: setup-factory.yml
+- import_playbook: setup-slackwatch.yml
 - import_playbook: aside.yml
 
 - name: Setup vibe coding environment
@@ -34,4 +35,4 @@
 
     - name: Vibe coding environment setup completed
       debug:
-        msg: "All vibe coding tools have been installed: gh-nudge tools, gh-repox, prsync, claudelytics, grok, herdr, factory, aside"
+        msg: "All vibe coding tools have been installed: gh-nudge tools, gh-repox, prsync, claudelytics, grok, herdr, factory, slackwatch, aside"
