@@ -125,6 +125,10 @@ type Client struct {
 	nextID  int64
 	retryAt time.Time
 	backoff time.Duration
+	// display is the hub's display settings from the latest connect,
+	// and displayGen counts the connects that fetched them.
+	display    decide.DisplaySettings
+	displayGen uint64
 }
 
 var _ tui.Backend = (*Client)(nil)
@@ -149,12 +153,29 @@ func (c *Client) Connect() error {
 	if c.sess != nil {
 		return nil
 	}
-	sess, err := c.open()
+	sess, display, err := c.open()
 	if err != nil {
 		return err
 	}
-	c.sess = sess
+	c.connected(sess, display)
 	return nil
+}
+
+// connected keeps sess and the display settings it fetched. The caller
+// holds c.mu.
+func (c *Client) connected(sess *session, display decide.DisplaySettings) {
+	c.sess = sess
+	c.display = display
+	c.displayGen++
+}
+
+// Display is the hub's display settings from the latest connect, and a
+// generation that grows with each connect, so a caller sees a
+// reconnect's fresh settings. Zero means none were fetched yet.
+func (c *Client) Display() (decide.DisplaySettings, uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.display, c.displayGen
 }
 
 // Close ends the session.
@@ -181,23 +202,38 @@ func (c *Client) timeout() time.Duration {
 	return DefaultTimeout
 }
 
-// open dials and says hello. The caller holds c.mu or owns c.dialing.
-func (c *Client) open() (*session, error) {
+// open dials, says hello, and fetches the hub's display settings. The
+// caller holds c.mu or owns c.dialing. Both requests use id 0, one
+// after the other, before any other request is on the session.
+func (c *Client) open() (*session, decide.DisplaySettings, error) {
+	var none decide.DisplaySettings
 	conn, err := c.Dial()
 	if err != nil {
-		return nil, c.unreachable(err)
+		return nil, none, c.unreachable(err)
 	}
 	sess := newSession(conn)
 	resp, err := sess.do(context.Background(), Request{ID: 0, Op: OpHello}, c.timeout())
 	if err != nil {
 		sess.close(err)
-		return nil, c.unreachable(err)
+		return nil, none, c.unreachable(err)
 	}
 	if resp.Error != "" || resp.Version != Version {
 		sess.close(errors.New("protocol"))
-		return nil, fmt.Errorf("hub %s: decide serve speaks protocol %d, want %d; update decide on the hub", c.Label, resp.Version, Version)
+		return nil, none, fmt.Errorf("hub %s: decide serve speaks protocol %d, want %d; update decide on the hub", c.Label, resp.Version, Version)
 	}
-	return sess, nil
+	resp, err = sess.do(context.Background(), Request{ID: 0, Op: OpConfig}, c.timeout())
+	if err != nil {
+		sess.close(err)
+		return nil, none, c.unreachable(err)
+	}
+	if resp.Error != "" {
+		sess.close(errors.New("config"))
+		return nil, none, fmt.Errorf("hub %s: display settings: %s", c.Label, resp.Error)
+	}
+	if resp.Display == nil {
+		return sess, none, nil
+	}
+	return sess, *resp.Display, nil
 }
 
 // unreachable is a failed dial. hubcall's own error already names the hub.
@@ -228,7 +264,7 @@ func (c *Client) session(op string) (*session, error) {
 	}
 	c.dialing = true
 	c.mu.Unlock()
-	sess, err := c.open()
+	sess, display, err := c.open()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.dialing = false
@@ -236,7 +272,7 @@ func (c *Client) session(op string) (*session, error) {
 		c.failed()
 		return nil, err
 	}
-	c.sess = sess
+	c.connected(sess, display)
 	c.backoff = 0
 	return sess, nil
 }

@@ -28,6 +28,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
+	if len(args) > 0 && args[0] == "config" {
+		return cmdConfig(args[1:], remote, stdout, stderr)
+	}
 	if code, done := maybeRunOnHub(args, remote, stdout, stderr); done {
 		return code
 	}
@@ -107,6 +110,7 @@ func usage(w io.Writer) {
   decide skill
   decide avatars list [--name <name>] [--ids]
   decide avatars set <name> <id|default|none>
+  decide [--remote <user@host>] config show [--effective]
 `)
 }
 

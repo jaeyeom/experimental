@@ -49,6 +49,9 @@ type Options struct {
 	// Backend replaces the local ledger in Dir, such as the hub's in
 	// hub mode. It is reloaded off the update loop.
 	Backend Backend
+	// Display, when set, replaces the display settings above at start
+	// and whenever it reports a change after a ledger read.
+	Display DisplaySource
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -128,6 +131,8 @@ func prepare(opts Options) (*Model, error) {
 		m.asyncReload = true
 	}
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
+	m.display = opts.Display
+	m.pollDisplay()
 	if opts.Now != nil {
 		m.Now = opts.Now
 	}

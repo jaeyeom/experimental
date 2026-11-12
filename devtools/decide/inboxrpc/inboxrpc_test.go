@@ -2,6 +2,7 @@ package inboxrpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -383,5 +384,54 @@ func TestOldServerFailsTheHandshake(t *testing.T) {
 	}}
 	if err := c.Connect(); err == nil || !strings.Contains(err.Error(), "update decide on the hub") {
 		t.Fatalf("connect = %v", err)
+	}
+}
+
+func TestConfigRequestReturnsTheHubDisplaySettings(t *testing.T) {
+	h := newHub(t)
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		return decide.DisplaySettings{
+			Keys:  map[string]json.RawMessage{"avatarDefault": json.RawMessage(`true`)},
+			Files: map[string]decide.AvatarFile{"hub:0.txt": {Data: []byte("AB")}},
+		}, nil
+	}
+	c := connect(t, h)
+	got, gen := c.Display()
+	if gen != 1 || string(got.Keys["avatarDefault"]) != "true" || string(got.Files["hub:0.txt"].Data) != "AB" {
+		t.Fatalf("display = %+v, generation %d", got, gen)
+	}
+	resp, err := c.call(Request{Op: OpConfig})
+	if err != nil || resp.Display == nil || string(resp.Display.Files["hub:0.txt"].Data) != "AB" {
+		t.Fatalf("config = %+v, %v", resp, err)
+	}
+}
+
+func TestReconnectFetchesTheDisplaySettingsAgain(t *testing.T) {
+	h := newHub(t)
+	var mu sync.Mutex
+	value := "false"
+	h.server.Display = func() (decide.DisplaySettings, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return decide.DisplaySettings{Keys: map[string]json.RawMessage{"avatarDefault": json.RawMessage(value)}}, nil
+	}
+	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	c := &Client{Dial: h.dial, Label: "me@hub", Now: func() time.Time { return now }, Timeout: 2 * time.Second}
+	if err := c.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	h.conns[0].Close()
+	_, _ = c.List()
+	mu.Lock()
+	value = "true"
+	mu.Unlock()
+	now = now.Add(firstBackoff)
+	if _, err := c.List(); err != nil {
+		t.Fatal(err)
+	}
+	got, gen := c.Display()
+	if gen != 2 || string(got.Keys["avatarDefault"]) != "true" {
+		t.Fatalf("display after reconnect = %+v, generation %d", got, gen)
 	}
 }

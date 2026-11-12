@@ -201,6 +201,8 @@ type Model struct {
 	backend     Backend
 	asyncReload bool
 	hubDown     bool
+	// display supplies display settings that change on a reconnect.
+	display DisplaySource
 }
 
 // New returns an inbox positioned on the open folder.

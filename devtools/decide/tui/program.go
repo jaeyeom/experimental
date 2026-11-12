@@ -317,6 +317,7 @@ func (m *Model) finishList(msg listMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		return m, m.scheduleReload()
 	}
+	m.pollDisplay()
 	return m.reloaded()
 }
 

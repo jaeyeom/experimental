@@ -6,6 +6,7 @@ go_library(
     srcs = [
         "avatar.go",
         "avatarconfig.go",
+        "display.go",
         "lease.go",
         "ledger.go",
         "location.go",
@@ -30,6 +31,7 @@ go_test(
         "avatar_test.go",
         "avatarconfig_test.go",
         "config_test.go",
+        "display_test.go",
         "lease_test.go",
         "ledger_test.go",
         "location_test.go",
