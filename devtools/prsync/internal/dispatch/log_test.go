@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
@@ -109,6 +110,7 @@ func TestRunLiveLogsBlockedGateTimeout(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.GateTimeout = 50 * time.Millisecond // this test waits for the gate to time out
 	cfg.ConcurrencyIgnoreBlocked = false
 	h := &scriptHerdr{lists: [][]herdr.Agent{{blockedAgent("w2:pX", "w2:tX")}}}
 	buf, ctx := withLog(t)
@@ -181,6 +183,7 @@ func TestRunLiveLogsStallTimeoutDecision(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.DispatchTimeout = 50 * time.Millisecond // this test waits for the settle to time out
 	h := &scriptHerdr{
 		lists:   [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
 		prompts: []herdr.PromptOutcome{{Status: herdr.PromptStalled}},

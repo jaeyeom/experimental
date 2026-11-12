@@ -992,6 +992,7 @@ func TestRunLiveStallNeverStartsTimesOut(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.DispatchTimeout = 50 * time.Millisecond // this test waits for the settle to time out
 	h := &scriptHerdr{
 		lists:   [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
 		prompts: []herdr.PromptOutcome{{Status: herdr.PromptStalled}},
@@ -1027,6 +1028,7 @@ func TestRunLiveWaitTimeoutStillWorkingTimesOut(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.DispatchTimeout = 50 * time.Millisecond // this test waits for the settle to time out
 	h := &scriptHerdr{
 		lists:     [][]herdr.Agent{{idleAgent("w2:pC", "w2:tC")}},
 		postLists: [][]herdr.Agent{{workingAgent("w2:pC", "w2:tC")}, {workingAgent("w2:pC", "w2:tC")}},
@@ -1308,6 +1310,7 @@ func TestRunLiveGateTimeoutQueuesRest(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.GateTimeout = 50 * time.Millisecond // this test waits for the gate to time out
 	pr2 := fixtureEligiblePR()
 	pr2.Number = 124
 	h := &scriptHerdr{lists: [][]herdr.Agent{{workingAgent("w2:pX", "w2:tX")}}}
@@ -1402,6 +1405,7 @@ func TestRunLiveBlockedOtherTabGateTimeout(t *testing.T) {
 	t.Parallel()
 
 	cfg, store := liveCfg(t)
+	cfg.GateTimeout = 50 * time.Millisecond // this test waits for the gate to time out
 	cfg.ConcurrencyIgnoreBlocked = false
 	blocked := fixtureEligiblePR()
 	blocked.Number = 99
@@ -1512,8 +1516,11 @@ func liveCfg(t *testing.T) (config.Config, FileStore) {
 	cfg := config.Defaults()
 	cfg.DryRun = false
 	cfg.GatePoll = time.Millisecond
-	cfg.GateTimeout = 50 * time.Millisecond
-	cfg.DispatchTimeout = 50 * time.Millisecond
+	// Generous: a passing gate or a settled prompt returns at once, and
+	// Bazel runs these tests under load, where the fake herdr
+	// subprocess can take longer than 50ms to answer.
+	cfg.GateTimeout = 5 * time.Second
+	cfg.DispatchTimeout = 5 * time.Second
 	store := FileStore{Path: filepath.Join(t.TempDir(), "state.json")}
 	cfg.StateFile = store.Path
 	return cfg, store

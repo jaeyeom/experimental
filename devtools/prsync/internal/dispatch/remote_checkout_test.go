@@ -240,6 +240,7 @@ func TestRunWithTabMachineGatesOnItsCheckout(t *testing.T) {
 	f.Write("mac.agents", `{"result":{"agents":[{"pane_id":"w3:p2","tab_id":"w3:t2","agent":"codex","agent_status":"idle"}]}}`)
 	local := herdr.NewClient(executor.NewBasicExecutor(), "herdr")
 	cfg, store := liveCfg(t)
+	cfg.GateTimeout = 50 * time.Millisecond // this test waits for the gate to time out
 	cfg.Machines = []string{"mac"}
 	cfg.MachineTimeout = 2 * time.Second
 	cfg.TabMachine = "mac"
