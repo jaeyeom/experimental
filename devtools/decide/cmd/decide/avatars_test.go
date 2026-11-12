@@ -19,7 +19,7 @@ func TestAvatarsListShowsEveryID(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, stderr)
 	}
-	for _, id := range avatar.BuiltinIDs() {
+	for _, id := range append(avatar.BuiltinIDs(), "queen", "beer-mug") {
 		if !strings.Contains(stdout, " "+id) {
 			t.Errorf("output has no id %q", id)
 		}
