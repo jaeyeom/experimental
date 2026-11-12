@@ -844,7 +844,11 @@ func annotateGate(ctx context.Context, h Herdr, cfg config.Config, req Request, 
 		if item.Action != ActionWouldDispatch {
 			continue
 		}
-		if reason := dirtyTreeReason(ctx, gateConfig(cfg, item.Repo).Checkout); reason != "" {
+		reason := res.Reason
+		if cfg.GateMachine() == "" {
+			reason = dirtyTreeReason(ctx, gateConfig(cfg, item.Repo).Checkout)
+		}
+		if reason != "" {
 			item.Detail = reason
 		} else if busy != "" {
 			item.Detail = busy

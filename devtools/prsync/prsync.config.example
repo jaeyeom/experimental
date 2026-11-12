@@ -37,6 +37,11 @@
 #   watcher A: prsync dispatch --tab-machine local  --untabbed include
 #   watcher B: prsync dispatch --tab-machine linux2 --untabbed exclude --skip team-cover
 # tab_machine=local
+# Each machine's checkout of the dispatch repo, as machine=path (comma-
+# or space-separated). The gate for a tab_machine other than local checks
+# that checkout and its agentbus lease (<machine>:<path>); without an
+# entry it fails.
+# machine_checkouts=linux2=/home/me/src/repo
 # Whether PRs with no tab belong to this run: include | exclude. Empty =
 # only the local run includes them.
 # untabbed=include

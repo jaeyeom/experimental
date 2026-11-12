@@ -122,7 +122,7 @@ func TestDispatchTabMachineSkipsOtherMachines(t *testing.T) {
 func TestDispatchTabMachinePromptsItsMachine(t *testing.T) {
 	ghBin, _ := fixtureBins(t)
 	f := scopeFake(t, "m2")
-	cfgPath := writeLiveConfig(t, ghBin, "herdr", filepath.Join(t.TempDir(), "state.json"), "machines=m2", "machine_timeout_ms=2000")
+	cfgPath := writeLiveConfig(t, ghBin, "herdr", filepath.Join(t.TempDir(), "state.json"), "machines=m2", "machine_timeout_ms=2000", "machine_checkouts=m2=/src/repo")
 
 	var stdout, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"dispatch", "--config", cfgPath, "--go", "--tab-machine", "m2", "--untabbed", "exclude", "--skip", "team-cover"}, &stdout, &stderr, executor.NewBasicExecutor())

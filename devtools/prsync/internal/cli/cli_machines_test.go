@@ -85,3 +85,50 @@ func TestGateWatchesOtherMachines(t *testing.T) {
 		t.Fatalf("exit = %d, gate = %+v; want m2 unreachable to hold", code, got)
 	}
 }
+
+// TestGateTabMachineGatesOnThatMachine runs `prsync gate --tab-machine
+// mac`: it reads mac's agents against mac's checkout, never the local
+// session, and needs machine_checkouts for mac.
+func TestGateTabMachineGatesOnThatMachine(t *testing.T) {
+	ghBin, _ := fixtureBins(t)
+	f := herdrtest.Install(t)
+	f.Write("local.agents", `{"result":{"agents":[{"pane_id":"w1:p1","tab_id":"w1:t1","agent":"codex","agent_status":"working"}]}}`)
+	f.Write("mac.agents", `{"result":{"agents":[{"pane_id":"w3:p2","tab_id":"w3:t2","agent":"codex","agent_status":"working","cwd":"/Users/me/src/repo/pkg"}]}}`)
+	base := "gh_bin=" + ghBin + "\nherdr_bin=herdr\nauthor=alice\nrepos=acme/widgets\nmachines=mac\nmachine_timeout_ms=2000\nconcurrency_cwd=checkout\n"
+	run := func(cfgPath string, args ...string) (int, string, string) {
+		var stdout, stderr bytes.Buffer
+		code := Execute(context.Background(), append([]string{"gate", "--config", cfgPath}, args...), &stdout, &stderr, executor.NewBasicExecutor())
+		return code, stdout.String(), stderr.String()
+	}
+
+	code, _, stderr := run(writeScanConfig(t, base), "--tab-machine", "mac")
+	if code != ExitUsage || !strings.Contains(stderr, "machine_checkouts") || !strings.Contains(stderr, "mac") {
+		t.Fatalf("exit = %d, stderr = %q; want a machine_checkouts error for mac", code, stderr)
+	}
+
+	cfgPath := writeScanConfig(t, base+"machine_checkouts=mac=/Users/me/src/repo\n")
+	code, stdout, stderr := run(cfgPath, "--tab-machine", "mac")
+	got := decodeGate(t, []byte(stdout))
+	if code != ExitUnsafe || len(got.Busy) != 1 || got.Busy[0].Machine != "mac" || got.Busy[0].Signal != dispatch.SignalWorking {
+		t.Fatalf("exit = %d, gate = %+v, stderr=%q; want only mac's working tab", code, got, stderr)
+	}
+	if got.Machine != "mac" || got.LeaseKey != "mac:/Users/me/src/repo" {
+		t.Fatalf("gate = %s, want machine and lease_key", stdout)
+	}
+	if !strings.Contains(stdout, `"lease_key": "mac:/Users/me/src/repo"`) || !strings.Contains(stdout, "checkout not inspected on mac") {
+		t.Fatalf("gate JSON = %s, want lease_key and the note", stdout)
+	}
+	if argv := strings.Join(f.Argv(), "\n"); strings.Contains(argv, "\nagent list") || strings.HasPrefix(argv, "agent list") {
+		t.Fatalf("argv = %s, want no local agent list", argv)
+	}
+
+	f.Write("mac.down", "")
+	code, stdout, _ = run(cfgPath, "--tab-machine", "mac")
+	if got := decodeGate(t, []byte(stdout)); code != ExitUnsafe || got.Reason != "machine mac unreachable" {
+		t.Fatalf("exit = %d, gate = %s; want unsafe machine mac unreachable", code, stdout)
+	}
+
+	if code, _, stderr := run(cfgPath, "--tab-machine", "m9"); code != ExitUsage || !strings.Contains(stderr, "--tab-machine") {
+		t.Fatalf("exit = %d, stderr = %q; want a --tab-machine usage error", code, stderr)
+	}
+}
