@@ -1,0 +1,209 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
+)
+
+const herdrSock = "/run/herdr/herdr.sock"
+
+// sandboxHub is startHub with a herdr pane, this machine's label, and a
+// fake herdr whose local server knows that pane.
+func sandboxHub(t *testing.T) (*hubSetup, *herdrtest.Fake) {
+	t.Helper()
+	h := startHub(t, `hub = "me@hub"`, `machine = "linux2"`)
+	fake := herdrtest.Install(t)
+	fake.Write("local.agents", agentsJSON("w1:p1=idle"))
+	h.env = append(h.env, "HERDR_PANE_ID=w1:p1", "HERDR_SOCKET_PATH="+herdrSock)
+	return h, fake
+}
+
+func TestBlockedHerdrSocketNamesTheSocketAndTheHint(t *testing.T) {
+	h, fake := sandboxHub(t)
+	fake.Write("local.eperm", "")
+	code, _, stderr := h.run(t, "", "send", "ops/x", "hi")
+	if code != 1 {
+		t.Fatalf("send = %d, stderr %q", code, stderr)
+	}
+	want := "identify this pane: connect " + herdrSock + ": operation not permitted (sandbox? allow this unix socket)"
+	if !strings.Contains(stderr, want) {
+		t.Fatalf("stderr = %q, want %q", stderr, want)
+	}
+	if h.ssh.Read("argv") != "" {
+		t.Fatal("a failed identify still ran ssh")
+	}
+}
+
+func TestRegisterCachesThePaneHandleForSandboxedCalls(t *testing.T) {
+	h, fake := sandboxHub(t)
+	if code, _, stderr := h.run(t, "", "register", "eng/x", "--when", "testing"); code != 0 {
+		t.Fatalf("register = %d, stderr %q", code, stderr)
+	}
+	info, err := os.Stat(filepath.Join(h.runtime, "agentbus", "panes", "w1:p1"))
+	if err != nil {
+		t.Fatalf("no cached handle: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Fatalf("cache mode = %o, want 600", mode)
+	}
+
+	fake.Write("local.eperm", "")
+	fake.Argv()
+	if code, _, stderr := h.run(t, "", "send", "ops/x", "hi"); code != 0 {
+		t.Fatalf("sandboxed send = %d, stderr %q", code, stderr)
+	}
+	if got := h.ssh.Read("agentbus.handle"); got != "herdr:linux2/default/w1:p1" {
+		t.Fatalf("caller = %q", got)
+	}
+	if argv := fake.Argv(); len(argv) != 0 {
+		t.Fatalf("a cached handle still asked herdr: %q", argv)
+	}
+}
+
+func TestRegisterRefreshesAStaleCache(t *testing.T) {
+	h, fake := sandboxHub(t)
+	dir := filepath.Join(h.runtime, "agentbus", "panes")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "w1:p1"), []byte("herdr:local/old/w1:p1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := h.run(t, "", "register", "eng/x", "--when", "testing"); code != 0 {
+		t.Fatalf("register = %d, stderr %q", code, stderr)
+	}
+	if got := h.ssh.Read("agentbus.handle"); got != "herdr:linux2/default/w1:p1" {
+		t.Fatalf("register caller = %q", got)
+	}
+	// Sandboxed, register keeps the cached handle.
+	fake.Write("local.eperm", "")
+	if code, _, stderr := h.run(t, "", "register", "eng/x", "--when", "testing"); code != 0 {
+		t.Fatalf("sandboxed register = %d, stderr %q", code, stderr)
+	}
+}
+
+func TestSandboxedTunnelFailureDoesNotFallBackToSSH(t *testing.T) {
+	s := newTunnelSetup(t)
+	if err := os.MkdirAll(filepath.Dir(s.tunnel), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", s.tunnel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	ln.Close()
+	env := append(slices.Clone(s.env), "SANDBOX_RUNTIME=1")
+	code, _, stderr := s.run(t, env, "", "send", "ops/x", "hi")
+	if code != 1 {
+		t.Fatalf("send = %d, stderr %q", code, stderr)
+	}
+	if s.usedSSH() {
+		t.Fatalf("a sandboxed call fell back to ssh: %q", s.ssh.Lines("argv"))
+	}
+	for _, want := range []string{"reach the hub over the tunnel", s.tunnel, "not falling back to ssh"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want %q", stderr, want)
+		}
+	}
+	// A hook still exits 0.
+	if code, _, _ := s.run(t, env, `{}`, "hook"); code != 0 || s.usedSSH() {
+		t.Fatalf("hook = %d, ssh %v", code, s.usedSSH())
+	}
+}
+
+func TestSandboxedSSHFailureSaysWhatToAllow(t *testing.T) {
+	h, _ := sandboxHub(t)
+	h.ssh.Write("down", "")
+	h.ssh.Unreachable()
+	env := append(slices.Clone(h.env), "SANDBOX_RUNTIME=1")
+	code, _, stderr := h.runEnv(t, env, "", "list")
+	if code != 1 {
+		t.Fatalf("list = %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{"hub me@hub unreachable", "sandbox?", "~/.ssh", "tunnel"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want %q", stderr, want)
+		}
+	}
+}
+
+func TestExplainBlocked(t *testing.T) {
+	eperm := fmt.Errorf("connect to /s: %w", &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", unix.EPERM)})
+	if got := explainBlocked(eperm, "/s").Error(); got != "connect /s: operation not permitted (sandbox? allow this unix socket)" {
+		t.Fatalf("explainBlocked(EPERM) = %q", got)
+	}
+	text := errors.New("exit 1: Error: Operation not permitted (os error 1)")
+	if got := explainBlocked(text, "/h"); !strings.Contains(got.Error(), "connect /h: operation not permitted") {
+		t.Fatalf("explainBlocked(text) = %q", got)
+	}
+	other := errors.New("exit 1: no such pane")
+	if got := explainBlocked(other, "/h"); got != other { //nolint:errorlint // the same error comes back
+		t.Fatalf("explainBlocked(other) = %v", got)
+	}
+}
+
+func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
+	h, _ := sandboxHub(t)
+	runtime := shortRuntime(t)
+	env := slices.DeleteFunc(slices.Clone(h.env), func(kv string) bool {
+		return strings.HasPrefix(kv, "XDG_RUNTIME_DIR=")
+	})
+	env = append(env, "XDG_RUNTIME_DIR="+runtime)
+	daemonSock := filepath.Join(runtime, "agentbus", "daemon.sock")
+	tunnelSock := filepath.Join(runtime, "agentbus", "tunnel.sock")
+	if err := os.MkdirAll(filepath.Dir(daemonSock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", daemonSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	orig := doctorProbe
+	doctorProbe = func(string) remotecall.Probe { return func(context.Context) bool { return false } }
+	t.Cleanup(func() { doctorProbe = orig })
+
+	code, stdout, stderr := h.runEnv(t, env, "", "doctor", "--sandbox")
+	if code != 0 {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	if h.ssh.Read("argv") != "" {
+		t.Fatal("doctor ran ssh")
+	}
+	for _, want := range []string{
+		`"allowUnixSockets"`,
+		fmt.Sprintf("%q", herdrSock),
+		fmt.Sprintf("%q", tunnelSock),
+		fmt.Sprintf("%q", daemonSock),
+		`"allowedDomains"`,
+		`"hub"`,
+		"herdr socket " + herdrSock + ": ",
+		"daemon socket " + daemonSock + ": ok",
+		"tunnel socket " + tunnelSock + ": missing",
+		"ssh me@hub: blocked",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("doctor output lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestDoctorNeedsSandboxFlag(t *testing.T) {
+	h, _ := sandboxHub(t)
+	if code, _, stderr := h.run(t, "", "doctor"); code != 2 || !strings.Contains(stderr, "--sandbox") {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+}

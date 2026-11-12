@@ -64,6 +64,17 @@ func (d Dirs) LeaseCacheDir() string {
 	return filepath.Join(filepath.Dir(d.SocketPath), "lease-cache")
 }
 
+// PaneCacheDir is where `agentbus register` caches each herdr pane's
+// handle, so a sandboxed call that cannot reach the herdr socket still
+// knows its caller: panes beside the daemon socket, in the runtime
+// directory. It is empty when SocketPath is.
+func (d Dirs) PaneCacheDir() string {
+	if d.SocketPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(d.SocketPath), "panes")
+}
+
 func envValues(env []string) map[string]string {
 	values := make(map[string]string, len(env))
 	for _, entry := range env {

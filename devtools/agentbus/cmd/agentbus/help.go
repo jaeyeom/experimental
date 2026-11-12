@@ -190,6 +190,15 @@ func commands() []command {
 			run:     noStdin(cmdInstall),
 		},
 		{
+			name: "doctor",
+			summary: "Print the Claude Code sandbox allowlist this machine needs (the herdr, tunnel, and daemon " +
+				"sockets, and the hub host for the ssh fallback), then test each connection.",
+			usage:   "agentbus doctor --sandbox",
+			flags:   "--sandbox  print the sandbox settings entries and report each connection ok or blocked (required)",
+			example: "agentbus doctor --sandbox",
+			run:     noStdin(cmdDoctor),
+		},
+		{
 			name:    "install-hooks",
 			summary: "Install the observe-only SendMessage hook and the merged-draft prompt guard.",
 			usage:   "agentbus install-hooks",

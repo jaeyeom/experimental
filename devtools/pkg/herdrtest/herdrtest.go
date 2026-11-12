@@ -25,6 +25,7 @@ fi
 if [ -e "$d/$m.down" ]; then echo "ssh: connect to host $m port 22: Connection refused" >&2; exit 255; fi
 if [ -e "$d/$m.locked" ]; then echo "user@$m: Permission denied (publickey)." >&2; exit 255; fi
 if [ -e "$d/$m.hang" ]; then sleep 30; exit 0; fi
+if [ -e "$d/$m.eperm" ]; then echo "Error: connect to herdr socket: Operation not permitted (os error 1)" >&2; exit 1; fi
 case "$1 $2" in
 "agent list") cat "$d/$m.agents" ;;
 "tab list")
@@ -81,6 +82,8 @@ esac
 //   - m.status-down makes only `machine status m` fail.
 //   - m.hang makes every call to m hang.
 //   - m.locked makes m fail with a publickey error.
+//   - m.eperm makes every call to m fail as herdr does when a sandbox
+//     denies its socket: "Operation not permitted".
 //   - m.prompt-error makes `agent prompt` and `agent wait` fail with a
 //     herdr error.
 //

@@ -58,7 +58,10 @@ func cmdHibernate(ctx context.Context, args, env []string, stdout, stderr io.Wri
 			fmt.Fprintf(stderr, "agentbus hibernate: %s\n", err)
 			return 1
 		}
-		ctx = hibernateHubRoute(ctx, cfg, env, stderr)
+		if ctx, err = hibernateHubRoute(ctx, cfg, env, stderr); err != nil {
+			fmt.Fprintf(stderr, "agentbus hibernate: %s\n", err)
+			return 1
+		}
 	}
 	results, err := newHibernator(cfg, env, machine).Run(ctx, req)
 	if err != nil {
@@ -144,10 +147,15 @@ func hibernateCode(req hibernate.Request, results []hibernate.Result) int {
 
 // hibernateHubRoute returns ctx routed to the hub: the tunnel when it
 // answers, else ssh, carrying this pane's handle when the caller is an
-// agent pane, and none for the user in a plain shell.
-func hibernateHubRoute(ctx context.Context, cfg config.Config, env []string, stderr io.Writer) context.Context {
-	if routed, ok := openTunnel(ctx, cfg, "hibernate", env, stderr); ok {
-		return routed
+// agent pane, and none for the user in a plain shell. Inside a sandbox,
+// a tunnel that is there but fails is an error instead.
+func hibernateHubRoute(ctx context.Context, cfg config.Config, env []string, stderr io.Writer) (context.Context, error) {
+	routed, ok, err := openTunnel(ctx, cfg, "hibernate", env, stderr)
+	if err != nil {
+		return ctx, err
+	}
+	if ok {
+		return routed, nil
 	}
 	r := sshRoute{hub: hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: cfg.RemoteTimeout}}
 	if envGet(env, "HERDR_PANE_ID") != "" {
@@ -155,7 +163,7 @@ func hibernateHubRoute(ctx context.Context, cfg config.Config, env []string, std
 			r.handle = caller
 		}
 	}
-	return context.WithValue(ctx, sshRouteKey{}, r)
+	return context.WithValue(ctx, sshRouteKey{}, r), nil
 }
 
 // busClient sends hibernate's daemon requests through dialBus: to the

@@ -64,3 +64,14 @@ func TestLeaseCacheDirIsBesideTheSocket(t *testing.T) {
 		t.Fatalf("LeaseCacheDir without a socket = %q, want empty", got)
 	}
 }
+
+func TestPaneCacheDirIsBesideTheSocket(t *testing.T) {
+	t.Parallel()
+	d := Dirs{SocketPath: "/run/user/1/agentbus/daemon.sock"}
+	if got, want := d.PaneCacheDir(), "/run/user/1/agentbus/panes"; got != want {
+		t.Fatalf("PaneCacheDir = %q, want %q", got, want)
+	}
+	if got := (Dirs{}).PaneCacheDir(); got != "" {
+		t.Fatalf("PaneCacheDir without a socket = %q, want empty", got)
+	}
+}

@@ -41,6 +41,8 @@ var localCommands = map[string]bool{
 	// hibernate reads this machine's panes and processes, and opens
 	// the route to the hub itself for its daemon requests.
 	"hibernate": true,
+	// doctor checks this machine's sockets and the route to the hub.
+	"doctor": true,
 }
 
 // stdinCommands read stdin, so hub mode forwards it.
@@ -113,7 +115,7 @@ func runOnHub(ctx context.Context, cfg config.Config, args, env []string, stdin 
 	if err == nil {
 		return code
 	}
-	fmt.Fprintf(stderr, "agentbus: %s\n", err)
+	fmt.Fprintf(stderr, "agentbus: %s\n", sshHint(env, cfg, err))
 	return code
 }
 
@@ -185,15 +187,42 @@ func callerHandle(ctx context.Context, cfg config.Config, env []string) (string,
 		path, _ := config.Path(env)
 		return "", fmt.Errorf("hub mode needs machine = \"<label>\" in %s, this machine's herdr label on the hub", path)
 	}
-	ctx, cancel := context.WithTimeout(ctx, identifyTimeout)
-	defer cancel()
-	local, err := herdr.LocalHandle(ctx, env)
-	if err != nil {
-		return "", fmt.Errorf("identify this pane: %w", err)
+	local, ok := cachedPaneHandle(env)
+	if !ok {
+		var err error
+		if local, err = lookupPaneHandle(ctx, env); err != nil {
+			return "", fmt.Errorf("identify this pane: %w", err)
+		}
 	}
 	caller, err := herdr.OnMachine(local, cfg.Machine)
 	if err != nil {
 		return "", fmt.Errorf("identify this pane: %w", err)
 	}
 	return caller, nil
+}
+
+// lookupPaneHandle asks the local herdr server for this pane's handle,
+// herdr:local/<session>/<pane>. A sandbox that denies the herdr socket
+// gets an error naming it.
+func lookupPaneHandle(ctx context.Context, env []string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, identifyTimeout)
+	defer cancel()
+	local, err := herdr.LocalHandle(ctx, env)
+	if err != nil {
+		return "", explainBlocked(err, herdrSocket(env))
+	}
+	return local, nil
+}
+
+// refreshPaneHandle asks herdr for this pane's handle again and caches
+// it, so later calls from a sandbox that denies the herdr socket still
+// know their caller. When herdr cannot answer, the cache stays.
+func refreshPaneHandle(ctx context.Context, env []string, stderr io.Writer) {
+	local, err := lookupPaneHandle(ctx, env)
+	if err != nil {
+		return
+	}
+	if err := cachePaneHandle(env, local); err != nil {
+		fmt.Fprintf(stderr, "agentbus: %s\n", err)
+	}
 }
