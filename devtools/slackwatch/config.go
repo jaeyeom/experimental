@@ -45,6 +45,9 @@ type Config struct {
 	ExcerptLimit     int               `json:"excerptLimit"`
 	DBPath           string            `json:"dbPath"`
 	TokenFile        string            `json:"tokenFile"`
+	// Outbox is where agents send Slack drafts for approval and posting,
+	// such as an agentbus name. slackwatch skill names it.
+	Outbox string `json:"outbox"`
 }
 
 // Target resolves name through the targets map. An unknown name is used

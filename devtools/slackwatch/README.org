@@ -214,6 +214,24 @@ journalctl --user -u slackwatch.service -f
 
 Edit the binary and config paths in ~ExecStart~ to match your install.
 
+* Agent skill
+
+~slackwatch skill~ prints a ~SKILL.md~ that teaches an agent the posting
+and watching workflow: how to send a Slack post, what to do when a
+~[slackwatch <event>]~ notification arrives, and how to follow a thread
+it did not post. It needs no token and no running server, and reads only
+the optional config.
+
+When ~outbox~ is set, the skill tells agents not to post themselves and
+to send each draft to the outbox with ~agentbus send <outbox>~. When it
+is unset, the skill says to post only after the user approves the exact
+text and destination, then run
+~slackwatch add <permalink> --owner <you> --source outbox~.
+
+#+begin_src sh
+slackwatch skill > ~/.claude/skills/slackwatch/SKILL.md
+#+end_src
+
 * Config
 
 The config is ~${XDG_CONFIG_HOME:-~/.config}/slackwatch/config.json~.
@@ -236,6 +254,7 @@ file means all defaults. An unknown key is an error.
 | ~excerptLimit~ | ~300~ | Maximum characters of reply text in a notification. |
 | ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
 | ~tokenFile~ | none | File that holds the Slack tokens. |
+| ~outbox~ | none | Where agents send Slack drafts, such as an agentbus name. ~slackwatch skill~ names it. |
 
 Durations use Go syntax, such as ~"90m"~ or ~"6h"~.
 

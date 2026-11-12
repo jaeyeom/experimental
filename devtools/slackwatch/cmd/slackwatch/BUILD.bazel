@@ -5,11 +5,13 @@ go_library(
     srcs = [
         "main.go",
         "serve.go",
+        "skill.go",
         "slackapi.go",
         "status.go",
         "sub.go",
         "watch.go",
     ],
+    embedsrcs = ["skill.md.tmpl"],
     importpath = "github.com/jaeyeom/experimental/devtools/slackwatch/cmd/slackwatch",
     visibility = ["//visibility:private"],
     deps = [
@@ -33,6 +35,7 @@ go_test(
     srcs = [
         "main_test.go",
         "serve_test.go",
+        "skill_test.go",
         "slackapi_test.go",
         "status_test.go",
         "sub_test.go",
