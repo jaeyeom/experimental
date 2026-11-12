@@ -185,7 +185,7 @@ func memHubBus(ctx context.Context, cfg config.Config, env []string) (*memreport
 // memSSHBus runs the hub's `list --json` and `lease status --all
 // --json` over ssh, side by side.
 func memSSHBus(ctx context.Context, cfg config.Config, total time.Duration) (*memreport.Bus, error) {
-	hub := hubcall.Hub{Target: cfg.Hub, Tool: "agentbus", ConnectTimeout: min(hookConnectTimeout, total), Deadline: total}
+	hub := hookHub(hubcall.Hub{Target: cfg.Hub, Tool: "agentbus"}, total)
 	run := func(args ...string) ([]byte, error) {
 		var stdout, stderr bytes.Buffer
 		code, err := hub.Run(ctx, hubcall.Call{Args: args, Stdout: &stdout, Stderr: &stderr})

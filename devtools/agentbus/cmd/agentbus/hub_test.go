@@ -13,6 +13,7 @@ import (
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
+	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall/sshtest"
 )
 
@@ -234,11 +235,29 @@ func TestHubHookTimeoutBoundsTheWholeCall(t *testing.T) {
 				if code != 0 || stdout != "" || stderr != "" {
 					t.Fatalf("%s = %d, stdout %q, stderr %q", name, code, stdout, stderr)
 				}
-				if argv := h.ssh.Lines("argv"); !slices.Contains(argv, "ConnectTimeout=1") {
+				// Under load the deadline can kill ssh before it records
+				// argv; TestHookHubCapsConnectTimeout covers the options.
+				if argv := h.ssh.Lines("argv"); argv != nil && !slices.Contains(argv, "ConnectTimeout=1") {
 					t.Fatalf("%s ssh argv = %q, want ConnectTimeout=1", name, argv)
 				}
 			}
 		})
+	}
+}
+
+func TestHookHubCapsConnectTimeout(t *testing.T) {
+	for _, tt := range []struct {
+		total, connect time.Duration
+	}{
+		{500 * time.Millisecond, 500 * time.Millisecond},
+		{hookConnectTimeout, hookConnectTimeout},
+		{defaultHookTimeout, hookConnectTimeout},
+		{9 * time.Second, hookConnectTimeout},
+	} {
+		hub := hookHub(hubcall.Hub{Target: "me@hub", Tool: "agentbus", ConnectTimeout: 9 * time.Second}, tt.total)
+		if hub.ConnectTimeout != tt.connect || hub.Deadline != tt.total || hub.Target != "me@hub" || hub.Tool != "agentbus" {
+			t.Fatalf("hookHub(%s) = %+v, want ConnectTimeout %s, Deadline %s", tt.total, hub, tt.connect, tt.total)
+		}
 	}
 }
 
