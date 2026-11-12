@@ -74,6 +74,10 @@ func TestSkillPostMode(t *testing.T) {
 		if handoff != (mode == "handoff") {
 			t.Errorf("%s skill has handoff steps = %v\n%s", mode, handoff, out)
 		}
+		bold := strings.Contains(out, "convert `*bold*` to `**bold**`")
+		if bold != (mode == "handoff") {
+			t.Errorf("%s skill tells the connector to convert bold = %v\n%s", mode, bold, out)
+		}
 	}
 }
 
