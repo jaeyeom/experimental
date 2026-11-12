@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/jaeyeom/experimental/devtools/decide/tui"
 	"github.com/jaeyeom/experimental/devtools/decide/tui/avatar"
 	"github.com/muesli/termenv"
 )
@@ -111,5 +114,97 @@ func TestAvatarsListRunsLocallyInHubMode(t *testing.T) {
 	}
 	if fake.Read("argv") != "" {
 		t.Fatal("avatars list ran ssh")
+	}
+}
+
+// avatarConfig writes config to a temp config dir and returns its path.
+func avatarConfig(t *testing.T, config string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("DECIDE_HUB", "")
+	path := filepath.Join(home, "decide", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestAvatarsSetMatchesPicker(t *testing.T) {
+	const config = `{"zeta": true, "avatars": [{"match": "ops/*", "builtin": "cat"}, {"match": "ops/x", "file": "x.png"}]}`
+	for _, choice := range []string{"owl", "default", "none"} {
+		path := avatarConfig(t, config)
+		if _, err := tui.SaveAvatar("ops/x", choice); err != nil {
+			t.Fatal(err)
+		}
+		want, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		path = avatarConfig(t, config)
+		stdout, stderr, code := runCLI("avatars", "set", "ops/x", choice)
+		if code != 0 {
+			t.Fatalf("%s: code = %d, stderr = %s", choice, code, stderr)
+		}
+		if stdout != "avatar for ops/x: "+choice+" (saved to config)\n" {
+			t.Fatalf("%s: stdout = %q", choice, stdout)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("%s: CLI wrote\n%s\npicker wrote\n%s", choice, got, want)
+		}
+	}
+}
+
+func TestAvatarsSetErrors(t *testing.T) {
+	const broken = `{"avatars": [`
+	path := avatarConfig(t, broken)
+	if _, stderr, code := runCLI("avatars", "set", "ops/x", "owl"); code != 1 || !strings.Contains(stderr, "parse decide config") {
+		t.Fatalf("broken config: code %d stderr %q", code, stderr)
+	}
+	if data, _ := os.ReadFile(path); string(data) != broken {
+		t.Fatalf("broken config changed to %q", data)
+	}
+	avatarConfig(t, `{}`)
+	if _, stderr, code := runCLI("avatars", "set", "ops/x", "nope"); code != 1 || !strings.Contains(stderr, `unknown built-in avatar "nope"`) {
+		t.Fatalf("unknown id: code %d stderr %q", code, stderr)
+	}
+	for _, args := range [][]string{{"avatars", "set"}, {"avatars", "set", "ops/x"}, {"avatars", "set", "a", "owl", "x"}} {
+		if _, _, code := runCLI(args...); code != 2 {
+			t.Errorf("%q: code = %d, want 2", args, code)
+		}
+	}
+}
+
+func TestAvatarsSetRunsLocallyInHubMode(t *testing.T) {
+	fake, _ := setupHub(t, `{"hub": "me@hub"}`)
+	if _, stderr, code := runCLI("avatars", "set", "ops/x", "owl"); code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr)
+	}
+	if fake.Read("argv") != "" {
+		t.Fatal("avatars set ran ssh")
+	}
+	data, err := os.ReadFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "decide", "config.json"))
+	if err != nil || !strings.Contains(string(data), `"hub": "me@hub"`) || !strings.Contains(string(data), `"builtin": "owl"`) {
+		t.Fatalf("local config = %s, %v", data, err)
+	}
+}
+
+func TestAvatarsListIDs(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DECIDE_HUB", "")
+	stdout, stderr, code := runCLI("avatars", "list", "--ids")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr)
+	}
+	if want := strings.Join(avatar.BuiltinIDs(), "\n") + "\n"; stdout != want {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }

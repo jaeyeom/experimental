@@ -160,8 +160,12 @@ func (m *Model) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.updateKey(msg)
 }
 
-// popupArrow moves the snooze popup or the link picker with up and down.
+// popupArrow moves the snooze popup or the link picker with up and
+// down, and the avatar picker with the four arrows.
 func (m *Model) popupArrow(msg tea.KeyMsg) bool {
+	if m.avatarPick {
+		return m.avatarArrow(msg)
+	}
 	if !m.snoozing && !m.linkPick {
 		return false
 	}
@@ -242,7 +246,7 @@ func (m *Model) mouseCommand() tea.Cmd {
 func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Shift+drag is the terminal's selection bypass. Leave it alone.
 	// Capture off lets a plain drag select in the terminal.
-	if !m.mouseOn || msg.Shift || m.snoozing || m.linkPick {
+	if !m.mouseOn || msg.Shift || m.snoozing || m.linkPick || m.avatarPick {
 		return m, nil
 	}
 	switch msg.Button {
@@ -357,7 +361,7 @@ func (m *Model) handleScrollKey(k tea.KeyMsg) bool {
 }
 
 func (m *Model) listNavKey(k tea.KeyMsg) bool {
-	if m.help || m.composing || m.linkPick || (m.mode != modeList && m.mode != modeStatus) {
+	if m.help || m.composing || m.linkPick || m.avatarPick || (m.mode != modeList && m.mode != modeStatus) {
 		return false
 	}
 	switch k.Type {
@@ -382,7 +386,7 @@ func (m *Model) listNav(k tea.KeyMsg) {
 }
 
 func (m *Model) itemScroll() bool {
-	return m.mode == modeDetail && !m.help && !m.composing && !m.answerFocus && !m.replyFocus && !m.linkPick
+	return m.mode == modeDetail && !m.help && !m.composing && !m.answerFocus && !m.replyFocus && !m.linkPick && !m.avatarPick
 }
 
 func (m *Model) scrollNav(k tea.KeyMsg) {

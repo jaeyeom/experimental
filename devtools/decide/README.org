@@ -178,6 +178,7 @@ list, for the selected recipient. Map names to files in
   image is drawn as colored characters; any other file is text, and its
   ANSI colors are kept. A rule may name a built-in figure with
   ~builtin~ instead of a ~file~; a rule with both is a config error.
+  A rule with ~"hide": true~ shows no avatar for the names it matches.
 - ~avatarDefault~ (off by default) gives each name no rule matches a
   built-in figure. The same name always gets the same figure, on every
   run and machine, with no other config. Built-ins come in generations,
@@ -230,6 +231,48 @@ no rule matches and ~avatarDefault~ is off, when the terminal is under
 file that cannot be read or decoded, or an unknown ~builtin~ id, is
 hidden too, and the status line shows the error once. Rendered avatars are cached, so moving the
 selection or reloading does not decode the file again.
+
+** Changing an avatar from the inbox
+
+~A~ in the item view opens a picker for the owner's avatar: every
+built-in figure with its id under it, ~*~ on the figure shown now and
+~>~ on the cursor. ~h~ ~j~ ~k~ ~l~ or the arrows move, ~Enter~ saves,
+and ~Esc~ cancels; the grid scrolls when it does not fit. Two extra
+entries come first: ~default~ removes the owner's exact rule, so glob
+rules or ~avatarDefault~ apply again, and ~none~ hides the owner's
+avatar. The new avatar shows at once, and the status line says
+~avatar for <owner>: <id> (saved to config)~. The same change from a
+script, or ~A~ in ~decide.el~:
+
+#+begin_src sh
+decide avatars set ops/x owl
+decide avatars set ops/x default
+decide avatars set ops/x none
+decide avatars list --ids
+#+end_src
+
+This is the only time decide writes its config, and it writes only the
+~avatars~ section. Choosing a figure writes ~{"match": "<owner>",
+"builtin": "<id>"}~, or ~"hide": true~ for ~none~. An existing rule
+whose ~match~ is exactly the owner keeps its place and other keys and
+has its ~file~ or ~builtin~ replaced; otherwise the new rule goes first
+in ~avatars~. Glob rules are never changed. Every other key, known or
+not, keeps its value and order; the file is rewritten with a 2-space
+indent. The write goes to a temp file in the same directory, is
+synced, then renamed over the config; when ~config.json~ is a symlink,
+its target is replaced and the link stays. A config that does not parse
+or cannot be written is left as it is, and the error goes to the status
+line (or stderr).
+
+The config is this machine's, the one the inbox reads its avatars from.
+In hub mode the inbox runs here, so the change is local and the hub's
+config is not touched; ~decide avatars~ also runs locally.
+
+To undo a change, pick ~default~ (or ~decide avatars set <name>
+default~), edit the ~avatars~ rule by hand, or restore the copy of the
+original: before its first write, each inbox session (or each
+~decide avatars set~) copies ~config.json~ to ~config.json.bak~ next to
+it.
 
 * Opening links
 

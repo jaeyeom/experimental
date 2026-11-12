@@ -3,6 +3,7 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
+        "avatarpick.go",
         "avatars.go",
         "backend.go",
         "compose.go",
@@ -55,6 +56,7 @@ go_test(
     name = "go_default_test",
     size = "small",
     srcs = [
+        "avatarpick_test.go",
         "avatarview_test.go",
         "backend_test.go",
         "chord_test.go",

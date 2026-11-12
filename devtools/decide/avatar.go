@@ -15,11 +15,13 @@ const AvatarMonoHide = "hide"
 // Match is an exact name or a path.Match glob. LoadConfig makes File
 // absolute: a leading "~" is the home directory and a relative path is
 // relative to the config file. Builtin is a built-in figure id; a rule
-// may not set both File and Builtin.
+// may not set both File and Builtin. Hide shows no avatar for the names
+// the rule matches.
 type AvatarRule struct {
 	Match   string `json:"match"`
 	File    string `json:"file,omitempty"`
 	Builtin string `json:"builtin,omitempty"`
+	Hide    bool   `json:"hide,omitempty"`
 }
 
 // MatchAvatar returns the rule for name. An exact match wins over a glob.
