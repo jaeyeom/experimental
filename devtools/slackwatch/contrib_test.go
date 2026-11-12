@@ -61,6 +61,14 @@ func TestExampleUnitParses(t *testing.T) {
 	}
 }
 
+func TestExampleUnitSetsPath(t *testing.T) {
+	env := parseUnit(t, exampleUnit)["Service"]["Environment"]
+	want := "PATH=%h/go/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+	if len(env) != 1 || env[0] != want {
+		t.Errorf("Environment = %q, want %q so serve finds decide", env, want)
+	}
+}
+
 func TestExampleUnitHasNoToken(t *testing.T) {
 	for _, line := range strings.Split(exampleUnit, "\n") {
 		line = strings.TrimSpace(line)

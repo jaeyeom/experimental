@@ -186,14 +186,20 @@ connection change, event, catch-up, and sweep, and at least once a
 minute. The row holds the pid, the start time, the connection state
 (~connected~, ~reconnecting~, or ~down~), the last event time, the time
 and result of the last catch-up (after a connect) and the last periodic
-sweep, and the count of undelivered notifications. ~serve~ marks itself
-~down~ when it exits.
+sweep, and the count of undelivered notifications. When ~post.mode~ is
+set it also holds the result of the last outbox poll. ~serve~ marks
+itself ~down~ when it exits.
+
+A failing outbox poll, such as one where ~decide~ is not found, shows
+as ~outbox poll: failing since <time>: <error>~. ~status --json~ has it
+as ~outboxPoll~ with ~ok~, ~lastOk~, ~lastError~, and ~failingSince~.
+The next successful poll clears it.
 
 ~status~ reports ~stale~ when the heartbeat is older than twice its
 interval, which means ~serve~ died or hung without marking itself
-down. It exits 1 when the server is ~down~ or ~stale~ or any
-notification is undelivered, and 0 otherwise (~reconnecting~ included),
-so a script can check it:
+down. It exits 1 when the server is ~down~ or ~stale~, any
+notification is undelivered, or the latest outbox poll failed, and 0
+otherwise (~reconnecting~ included), so a script can check it:
 
 #+begin_src sh
 slackwatch status >/dev/null || notify-send slackwatch "$(slackwatch status)"
@@ -222,6 +228,27 @@ journalctl --user -u slackwatch.service -f
 #+end_src
 
 Edit the binary and config paths in ~ExecStart~ to match your install.
+
+A user service does not read your shell profile, so its ~PATH~ is
+short. When ~post.mode~ is set, ~serve~ runs ~decide~, which must be on
+that ~PATH~. The example unit sets
+~Environment=PATH=%h/go/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin~.
+If you keep your own unit, add a drop-in instead:
+
+#+begin_src sh
+mkdir -p ~/.config/systemd/user/slackwatch.service.d
+cat > ~/.config/systemd/user/slackwatch.service.d/path.conf <<'EOF'
+[Service]
+Environment=PATH=%h/go/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EOF
+systemctl --user daemon-reload
+systemctl --user restart slackwatch.service
+#+end_src
+
+Or set ~decideCommand~ in the config to decide's absolute path, such as
+~"/home/me/go/bin/decide"~. When ~decide~ cannot be found, ~serve~ keeps
+watching, and ~slackwatch status~ shows the failing outbox poll and
+exits 1.
 
 * Agent skill
 
@@ -373,6 +400,7 @@ file means all defaults. An unknown key is an error.
 | ~dbPath~ | ~${XDG_STATE_HOME:-~/.local/state}/slackwatch/slackwatch.db~ | SQLite database. |
 | ~tokenFile~ | none | File that holds the Slack tokens. |
 | ~outbox~ | none | Where agents send Slack drafts, such as an agentbus name. ~slackwatch skill~ names it when ~post.mode~ is unset. |
+| ~decideCommand~ | ~"decide"~ from ~PATH~ | Command for every ~decide~ call: an absolute path, or an argv list such as ~["ssh", "box", "decide"]~. |
 | ~post.mode~ | none | ~handoff~ or ~direct~. Unset means posting is off. |
 | ~post.agent~ | none | Handoff target for approved posts, resolved through ~targets~. |
 | ~post.expectUser~ | none | Slack user id every post must come from. |

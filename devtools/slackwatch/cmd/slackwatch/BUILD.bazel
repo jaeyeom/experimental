@@ -36,6 +36,7 @@ go_test(
     srcs = [
         "main_test.go",
         "outbox_test.go",
+        "outboxpoll_test.go",
         "serve_test.go",
         "skill_test.go",
         "slackapi_test.go",

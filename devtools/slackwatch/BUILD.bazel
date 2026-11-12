@@ -28,6 +28,7 @@ go_test(
         "catchup_test.go",
         "config_test.go",
         "contrib_test.go",
+        "decidecmd_test.go",
         "events_test.go",
         "inbound_test.go",
         "notify_test.go",

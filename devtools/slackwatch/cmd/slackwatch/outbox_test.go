@@ -85,7 +85,7 @@ func newPostEnv(t *testing.T, post func(dir string) map[string]any) *postEnv {
 		dec: &cmdFakeDecider{items: map[string]*slackwatch.DecideItem{}, questions: map[string]string{}, outcomes: map[string]string{}},
 	}
 	old := newDecider
-	newDecider = func() slackwatch.Decider { return e.dec }
+	newDecider = func(slackwatch.Config) slackwatch.Decider { return e.dec }
 	t.Cleanup(func() { newDecider = old })
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

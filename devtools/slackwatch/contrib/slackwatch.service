@@ -8,6 +8,10 @@
 #
 # No secrets live here. The config names the tokenFile, which must be
 # chmod 600. Adjust the binary and config paths to your install.
+#
+# systemd does not read your shell profile, so PATH below must contain
+# decide when post.mode is set. Otherwise set decideCommand in the config
+# to decide's absolute path.
 
 [Unit]
 Description=slackwatch: push Slack replies to the owners of watched posts
@@ -15,6 +19,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
+Environment=PATH=%h/go/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.local/bin/slackwatch --config %h/.config/slackwatch/config.json serve
 Restart=on-failure
 RestartSec=30
