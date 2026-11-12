@@ -265,9 +265,9 @@ text and destination, then run
 ~slackwatch add <permalink> --owner <you> --source outbox~.
 
 When ~post.mode~ is set, the skill tells agents to submit drafts with
-~slackwatch post~ instead, whether or not ~outbox~ is set. In handoff
-mode it also tells the posting agent what to do with
-~approved post ready: <id>~.
+~slackwatch post~ instead, whether or not ~outbox~ is set, and not to
+reply in the decide thread of an outbox draft. In handoff mode it also
+tells the posting agent what to do with ~approved post ready: <id>~.
 
 #+begin_src sh
 slackwatch skill > ~/.claude/skills/slackwatch/SKILL.md
@@ -298,22 +298,35 @@ into that thread.
    --option post:"Post as written" --option drop:"Don't post" --rec post
    --free-text~. The question shows the destination (and the thread
    permalink), the text in a quoted block, the owner, the purpose, and
-   the first 8 hex digits of the hash.
+   the first 8 hex digits of the hash. ~decide~ runs without
+   ~HERDR_PANE_ID~ and ~DECIDE_AS_HANDLE~, so the item has no agent
+   ~notifyPane~ even when an agent runs ~slackwatch post~ from its pane.
 3. *Answer.* ~serve~ polls ~decide show --json~ for every pending record
-   every 30 seconds. A ~decide~ notify template on the decide owner can
-   run ~slackwatch outbox poke <decide-id>~ for an immediate pickup;
-   polling stays the source of truth.
-4. *Accept.* slackwatch posts only when the item is ~answered~, the
-   answer has ~answeredBy~ ~human~ and ~via~ ~ui~ (an answer without
-   ~via~ does not count), the answer key is exactly ~post~, the stored
-   text still matches its hash, and the record is still ~pending~.
-   - A free-text answer is the edit path: the record becomes
+   every 30 seconds. ~decide~'s ~notifyTemplate~ can run
+   ~slackwatch outbox poke <decide-id>~ for an immediate pickup when the
+   owner is ~post.decideOwner~, so a reply lands with slackwatch and not
+   in an agent's pane (see below); polling stays the source of truth.
+4. *Accept.* slackwatch reads the user's pick from the item's thread
+   messages, not from its state or ~answer~: a later message reopens the
+   item, and a later free-text message replaces ~answer~. A human
+   message is one with author ~human~ and no ~by~; a message sent with
+   ~by~ is an agent's, whatever its ~via~, and does not count. slackwatch
+   acts on the latest human message. It posts only when that message
+   picks ~post~ (~optionKey~ exactly ~post~) with ~via~ ~ui~ (a message
+   without ~via~ does not count), the stored text still matches its
+   hash, and the record is still ~pending~. Agent replies after the pick
+   do not cancel it.
+   - A free-text message is the edit path: the record becomes
      ~needs-redraft~ and the owner gets the text as an ~outbox-redraft~
      notification. The owner submits a new ~post~.
    - ~drop~ makes the record ~dropped~ and tells the owner.
-   - Any other ~post~ answer, such as one given with the decide CLI,
+   - A human message after a ~post~ pick, such as ~drop~ or free text,
+     takes precedence and goes through those paths.
+   - Any other ~post~ pick, such as one given with the decide CLI,
      makes the record ~rejected~ and alerts the owner and
      ~fallbackTarget~.
+   - A decide item closed or withdrawn before an accepted pick makes
+     the record ~cancelled~.
    - Every outcome closes the decide item with ~decide done~.
 5. *Post.*
    - *handoff:* the record becomes ~awaiting-handoff~ and ~post.agent~
@@ -344,14 +357,36 @@ link; naming a different message makes the record a ~mismatch~.
 When an approved draft is posted by hand, for example because ~serve~
 could not reach decide, ~outbox posted --manual <id> <permalink>~
 records it. It accepts a ~pending~ or ~awaiting-handoff~ record. For a
-~pending~ record it first reads the decide item and requires the same
-approval as step 4, a human ~post~ answer from the decide UI; without
-one it refuses with ~no ui approval found for <id>~ and changes
-nothing. A manual post never bypasses approval. The read-back, author,
-and text checks are the handoff ones: a match makes the record
-~posted~, watches it for the owner with ~--source outbox~, and closes
-the decide item with the permalink; a difference makes it ~mismatch~
-and alerts. The record notes ~manual: true~.
+~pending~ record it first reads the decide item and applies the same
+acceptance rule as step 4; when the rule refuses it, it fails with
+~no ui approval found for <id>: <reason>~ and changes nothing. A
+manual post never bypasses approval. The read-back, author, and text
+checks are the handoff ones: a match makes the record ~posted~, watches
+it for the owner with ~--source outbox~, and closes the decide item
+with the permalink; a difference makes it ~mismatch~ and alerts. The
+record notes ~manual: true~.
+
+The decide items slackwatch files belong to slackwatch, and agents do
+not reply in their threads (the skill says so). To send an answer on
+those items to slackwatch at once, give ~decide~'s ~notifyTemplate~
+(in ~$XDG_CONFIG_HOME/decide/config.json~ on the machine that holds the
+ledger) a branch for ~post.decideOwner~ that runs ~outbox poke~. It
+must run where slackwatch's state lives. Every other owner keeps the
+usual pane prompt:
+
+#+begin_src sh
+if [ "$DECIDE_OWNER" = slackwatch ]; then
+  slackwatch outbox poke "$DECIDE_ID"
+else
+  herdr ${DECIDE_MACHINE:+--machine "$DECIDE_MACHINE"} agent prompt "$DECIDE_PANE" "$DECIDE_THREAD_HEADER $DECIDE_ANSWER"
+fi
+#+end_src
+
+As one JSON string:
+
+#+begin_src json
+{"notifyTemplate": "if [ \"$DECIDE_OWNER\" = slackwatch ]; then slackwatch outbox poke \"$DECIDE_ID\"; else herdr ${DECIDE_MACHINE:+--machine \"$DECIDE_MACHINE\"} agent prompt \"$DECIDE_PANE\" \"$DECIDE_THREAD_HEADER $DECIDE_ANSWER\"; fi"}
+#+end_src
 
 Direct mode checks its identity before it posts:
 
@@ -380,7 +415,7 @@ Direct mode checks its identity before it posts:
 | ~posted~ | Posted and watched. |
 | ~needs-redraft~ | Answered with free text; the owner has the notes. |
 | ~dropped~ | Answered ~drop~. |
-| ~rejected~ | Not posted: the answer was not a human ~post~ from the decide UI, or the text changed. |
+| ~rejected~ | Not posted: the user's latest pick was not a ~post~ from the decide UI, or the text changed. |
 | ~mismatch~ | The handoff post differs from the approved text, author, or destination. |
 | ~cancelled~ | Withdrawn with ~outbox cancel~, or its decide item was closed without an answer. |
 | ~failed~ | ~decide ask~ or ~chat.postMessage~ failed. |

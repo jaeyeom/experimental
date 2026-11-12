@@ -134,7 +134,9 @@ type PostConfig struct {
 	DecideOwner    string `json:"decideOwner"`
 }
 
-func (p PostConfig) decideOwner() string {
+// DecideOwnerOrDefault is the owner of the decide items slackwatch
+// files: DecideOwner, else DefaultDecideOwner.
+func (p PostConfig) DecideOwnerOrDefault() string {
 	if p.DecideOwner == "" {
 		return DefaultDecideOwner
 	}
