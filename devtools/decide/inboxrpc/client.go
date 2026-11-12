@@ -217,9 +217,9 @@ func (c *Client) open() (*session, decide.DisplaySettings, error) {
 		sess.close(err)
 		return nil, none, c.unreachable(err)
 	}
-	if resp.Error != "" || resp.Version != Version {
+	if err := protocolMismatch(c.Label, resp); err != nil {
 		sess.close(errors.New("protocol"))
-		return nil, none, fmt.Errorf("hub %s: decide serve speaks protocol %d, want %d; update decide on the hub", c.Label, resp.Version, Version)
+		return nil, none, err
 	}
 	resp, err = sess.do(context.Background(), Request{ID: 0, Op: OpConfig}, c.timeout())
 	if err != nil {
@@ -234,6 +234,23 @@ func (c *Client) open() (*session, decide.DisplaySettings, error) {
 		return sess, none, nil
 	}
 	return sess, *resp.Display, nil
+}
+
+// protocolMismatch reports a hello the two sides cannot share. A hub
+// error, including one too old to answer hello with a version, keeps
+// that text and names the hub. A version gap names the side that is
+// behind.
+func protocolMismatch(label string, resp Response) error {
+	if resp.Error != "" {
+		return fmt.Errorf("hub %s: %s; update decide on the hub", label, resp.Error)
+	}
+	if resp.Version == Version {
+		return nil
+	}
+	if resp.Version > Version {
+		return fmt.Errorf("hub %s: decide serve speaks protocol %d, this decide speaks %d; update decide on this machine", label, resp.Version, Version)
+	}
+	return fmt.Errorf("hub %s: decide serve speaks protocol %d, this decide speaks %d; update decide on the hub", label, resp.Version, Version)
 }
 
 // unreachable is a failed dial. hubcall's own error already names the hub.
