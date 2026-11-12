@@ -81,7 +81,8 @@ func TestLoadConfigOverrides(t *testing.T) {
 		"unownedGrace": "3s",
 		"excerptLimit": 50,
 		"dbPath": "/tmp/x.db",
-		"tokenFile": "/tmp/tokens"
+		"tokenFile": "/tmp/tokens",
+		"outbox": "ops/outbox"
 	}`, 0o600)
 	cfg, err := LoadConfig(path)
 	if err != nil {
@@ -104,7 +105,8 @@ func TestLoadConfigOverrides(t *testing.T) {
 	}
 	if !cfg.NotifySelf || cfg.ExcerptLimit != 50 || cfg.DBPath != "/tmp/x.db" ||
 		cfg.TokenFile != "/tmp/tokens" || cfg.Targets["ops"] != "pane:1" ||
-		cfg.FallbackTarget != "ops" || cfg.LivenessTemplate != "alive" {
+		cfg.FallbackTarget != "ops" || cfg.LivenessTemplate != "alive" ||
+		cfg.Outbox != "ops/outbox" {
 		t.Errorf("cfg = %+v", cfg)
 	}
 	if cfg.FooterPattern.Regexp == nil || !cfg.FooterPattern.MatchString("-- ops") {

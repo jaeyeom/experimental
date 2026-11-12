@@ -62,6 +62,7 @@ var commands = map[string]func(configPath string, args []string, stdout, stderr 
 	"subs":    cmdSubs,
 	"status":  cmdStatus,
 	"inbound": cmdInbound,
+	"skill":   cmdSkill,
 }
 
 func usage(w io.Writer) {
@@ -88,6 +89,7 @@ Commands:
                       server heartbeat; exits 1 when down, stale, or undelivered
   slackwatch inbound [--since DUR|DATE] [--json]
                       recorded DMs and mentions
+  slackwatch skill    print the agent skill (SKILL.md)
   slackwatch help     show this help
 
 <post> is a Slack permalink, a channel and ts, or a watch id.
