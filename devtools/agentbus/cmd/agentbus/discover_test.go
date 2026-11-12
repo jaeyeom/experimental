@@ -95,17 +95,37 @@ func TestListJSON(t *testing.T) {
 	mustCmd(t, []string{"register", "ops/notes", "--when", "writes release notes"}, append(append([]string{}, base...), "HERDR_PANE_ID=p2"))
 	ad.Reach[gone] = adapter.StateGone
 
-	out, _ := mustCmd(t, []string{"list", "--json"}, base)
+	// --fresh probes now, so it sees ops/notes go away at once.
+	out, _ := mustCmd(t, []string{"list", "--json", "--fresh"}, base)
 	var got []map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("list --json --fresh = %q: %v", out, err)
+	}
+	want := []map[string]any{
+		{"name": "ops/inbox", "when": "reviews pull requests", "liveness": "alive", "liveness_age": 0.0, "transport": "herdr", "handle": live},
+		{"name": "ops/notes", "when": "writes release notes", "liveness": "dead", "liveness_age": 0.0, "transport": "herdr", "handle": gone},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("list --json --fresh = %v, want %v", got, want)
+	}
+
+	// Flags come in any order.
+	out, _ = mustCmd(t, []string{"list", "--fresh", "--json"}, base)
+	if err := json.Unmarshal([]byte(out), &got); err != nil || len(got) != 2 {
+		t.Fatalf("list --fresh --json = %q: %v", out, err)
+	}
+	// Without --fresh, list answers from the cache the fresh probe filled.
+	out, _ = mustCmd(t, []string{"list", "--json"}, base)
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("list --json = %q: %v", out, err)
 	}
-	want := []map[string]any{
-		{"name": "ops/inbox", "when": "reviews pull requests", "liveness": "alive", "transport": "herdr", "handle": live},
-		{"name": "ops/notes", "when": "writes release notes", "liveness": "dead", "transport": "herdr", "handle": gone},
+	if len(got) != 2 || got[1]["liveness"] != "dead" {
+		t.Fatalf("cached list --json = %v", got)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("list --json = %v, want %v", got, want)
+	for _, entry := range got {
+		if age, ok := entry["liveness_age"].(float64); !ok || age < 0 {
+			t.Fatalf("liveness_age = %v in %v", entry["liveness_age"], entry)
+		}
 	}
 }
 

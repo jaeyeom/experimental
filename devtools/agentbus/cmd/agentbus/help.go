@@ -61,10 +61,15 @@ func commands() []command {
 		{
 			name:    "list",
 			summary: "Registered names, --when, liveness, and transport.",
-			usage:   "agentbus list [--json]",
-			flags: "--json  print a JSON array, one object per name, with the fields\n" +
-				"        name, when, liveness (alive, dead, hibernated, or unknown), transport,\n" +
-				"        and handle; [] when none are registered (default: false, text)",
+			usage:   "agentbus list [--json] [--fresh]",
+			flags: "--json   print a JSON array, one object per name, with the fields\n" +
+				"         name, when, liveness (alive, dead, hibernated, or unknown),\n" +
+				"         liveness_age (seconds since liveness was observed, or null),\n" +
+				"         transport, and handle; [] when none are registered\n" +
+				"         (default: false, text)\n" +
+				"--fresh  probe every name's liveness now instead of answering from\n" +
+				"         the daemon's cache, which a list refreshes in the background\n" +
+				"         once it is older than list_liveness_max_age (default: false)",
 			example: "agentbus list --json",
 			run:     noStdin(cmdList),
 		},

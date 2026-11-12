@@ -24,7 +24,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~whoami~ | Print those names, or the raw handle when none are registered. |
 | ~release <name>~ | Drop a name. |
 | ~release <name> --to <claimer>~ | Hand the name to that claimer. Send context first. |
-| ~list [--json]~ | Registered names, ~--when~, liveness, and transport. |
+| ~list [--json] [--fresh]~ | Registered names, ~--when~, liveness, and transport. |
 | ~search [query]~ | Every reachable agent, registered or not. |
 | ~send <name or handle> [<body>]~ | Send. Also ~--file~, stdin, ~--ttl~, and ~--wait~. |
 | ~reply <id> <body>~ | Reply. ~to~ is the original sender and ~re~ is ~id~. |
@@ -76,6 +76,7 @@ or ~[]~ when none are. Each object has these fields, which are stable:
 | ~name~ | The registered name. |
 | ~when~ | Its ~--when~ text. |
 | ~liveness~ | ~alive~, ~dead~, ~hibernated~, or ~unknown~. |
+| ~liveness_age~ | Seconds since ~liveness~ was observed, or ~null~ when it never was. |
 | ~transport~ | The adapter that reaches it, such as ~herdr~. |
 | ~handle~ | The holder's raw handle. |
 
@@ -83,6 +84,16 @@ or ~[]~ when none are. Each object has these fields, which are stable:
 ~gone~ is ~dead~, ~hibernated~ stays ~hibernated~ (see
 [[*Hibernate idle agents]]), and ~unreachable~ is ~unknown~. When the daemon cannot
 be reached, ~list --json~ prints nothing on stdout and exits non-zero.
+
+~list~ answers from the daemon's cached liveness and makes no adapter
+calls, so it returns at once. The cache is kept from the periodic
+inventory snapshots, delivery results, and probes. When the last full
+probe is older than ~list_liveness_max_age~ (default ~15s~), a ~list~
+starts one background probe of every name, and only one runs at a time;
+that ~list~ still answers from the cache. A machine that cannot be
+reached marks only its own names ~unreachable~. ~list --fresh~ (also
+with ~--json~) probes every name now, as ~list~ did before, and refreshes
+the cache. ~search~ and ~register~ claims keep their own liveness checks.
 
 ~log~ filters are ~--since~, ~--name~, ~--msg~, ~--event~, ~--follow~,
 and ~--json~. ~--since~ takes a duration ago (~30m~, ~6h~, ~2d~,
@@ -158,6 +169,7 @@ List the machines whose agents ~search~ shows in
 #+begin_src toml
 machines = ["linux2"]   # saved herdr machines to include in search
 remote_timeout = "5s"   # bound on each call to another machine (default 5s)
+list_liveness_max_age = "15s"  # list refreshes cached liveness older than this (default 15s)
 #+end_src
 
 Every call to another machine has an overall deadline that kills herdr

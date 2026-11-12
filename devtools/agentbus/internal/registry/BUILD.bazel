@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "discover.go",
         "hibernate.go",
+        "livecache.go",
         "registry.go",
     ],
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/registry",
@@ -21,6 +22,7 @@ go_test(
     srcs = [
         "discover_test.go",
         "hibernate_test.go",
+        "livecache_test.go",
         "registry_test.go",
     ],
     embed = [":go_default_library"],

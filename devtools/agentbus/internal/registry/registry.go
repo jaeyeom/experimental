@@ -53,6 +53,16 @@ type Registry struct {
 	// LastTurn, when not nil, bounds the idle time of an agent seen
 	// for the first time.
 	LastTurn hibernate.LastTurnFunc
+	// ListMaxAge is how old the list liveness cache may get before a
+	// cached list starts a background refresh. Zero uses
+	// DefaultListMaxAge.
+	ListMaxAge time.Duration
+	// live is each handle's last observed list liveness.
+	live map[string]observation
+	// liveAt is when the last full liveness probe finished.
+	liveAt time.Time
+	// liveBusy is true while a background liveness refresh runs.
+	liveBusy bool
 	mu       sync.Mutex
 }
 
@@ -106,6 +116,8 @@ func (r *Registry) Register(ctx context.Context, env []string, name, when string
 	if err := r.claim(ctx, handle, name, when); err != nil {
 		return "", err
 	}
+	// The caller just spoke to the bus, so it is alive.
+	r.noteLive(handle, "alive", r.now())
 	return handle, nil
 }
 

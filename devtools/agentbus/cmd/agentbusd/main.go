@@ -48,6 +48,9 @@ Config file ($XDG_CONFIG_HOME/agentbus/config.toml, optional):
                           herdr:<machine>/<session>/<pane> handles reach
                           any saved machine
   remote_timeout = "5s"   bound on each call to another machine (default: 5s)
+  list_liveness_max_age = "15s"
+                          how old list's cached liveness may get before a
+                          list refreshes it in the background (default: 15s)
   hub = "me@hub"          this machine uses the daemon on this ssh target,
                           so agentbusd refuses to start (AGENTBUS_HUB
                           overrides it)
@@ -139,13 +142,14 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 	defer stop()
 	ad := &herdr.Adapter{Machines: cfg.Machines, Timeout: cfg.RemoteTimeout}
 	if err := daemon.Serve(ctx, dirs, daemon.Config{
-		RetentionDays: days,
-		Adapters:      []adapter.Adapter{ad},
-		Waker:         &hibernate.Waker{Panes: ad, Clock: hibernate.RealClock{}, Timeout: cfg.WakeTimeout},
-		InlineBytes:   inline,
-		HubCaller:     herdr.RemoteCaller,
-		LeaseTiming:   leaseTiming(cfg, stderr),
-		Notify:        decideNotifier(exec.LookPath, runQuiet, stderr),
+		RetentionDays:      days,
+		Adapters:           []adapter.Adapter{ad},
+		Waker:              &hibernate.Waker{Panes: ad, Clock: hibernate.RealClock{}, Timeout: cfg.WakeTimeout},
+		InlineBytes:        inline,
+		ListLivenessMaxAge: cfg.ListLivenessMaxAge,
+		HubCaller:          herdr.RemoteCaller,
+		LeaseTiming:        leaseTiming(cfg, stderr),
+		Notify:             decideNotifier(exec.LookPath, runQuiet, stderr),
 		// The policy runs only in this daemon, so only on a machine that
 		// is not in hub mode: it measures and stops this machine's agents.
 		HibernatePolicy: hibernatePolicy(cfg, stderr),
