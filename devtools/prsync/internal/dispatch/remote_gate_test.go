@@ -92,6 +92,7 @@ func TestGateRemoteWorkingAgentHoldsDispatchToItsMachine(t *testing.T) {
 		`{"pane_id":"w3:p9","tab_id":"w3:t9","agent":"claude","agent_status":"working"}]}}`)
 	local := herdr.NewClient(executor.NewBasicExecutor(), "herdr")
 	cfg, store := liveCfg(t)
+	cfg.GateTimeout = 50 * time.Millisecond // this test waits for the gate to time out
 	cfg.Machines = []string{"m2"}
 	cfg.MachineTimeout = 2 * time.Second
 	ctx := WithProbes(context.Background(), Probes{Remote: fakeHerdrRemotes})
