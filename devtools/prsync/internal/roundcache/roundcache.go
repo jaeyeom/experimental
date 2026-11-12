@@ -1,7 +1,8 @@
 // Package roundcache keeps GitHub results between prsync rounds in one JSON
 // file, so a round can skip calls whose answer cannot have changed.
-// Entries expire after TTL (HistoryTTL for path history). The file is only
-// a cache: a missing or corrupt file starts empty.
+// Entries expire after TTL (the history TTL for path history) and are
+// dropped on Save. The file is only a cache: a missing or corrupt file
+// starts empty.
 package roundcache
 
 import (
@@ -22,18 +23,20 @@ import (
 // TTL is how long a status-check entry is reused.
 const TTL = time.Hour
 
-// HistoryTTL is how long a path-history entry is reused. The entry is keyed
-// by the base branch head, so a moved head is already a miss; this only
+// HistoryTTL is how long a path-history entry is reused unless
+// SetHistoryTTL sets another TTL. It suits entries keyed by the base
+// branch head, where a moved head is already a miss and the TTL only
 // bounds how far the history window can drift.
 const HistoryTTL = 24 * time.Hour
 
 // Cache is safe for concurrent use.
 type Cache struct {
-	mu    sync.Mutex
-	path  string
-	now   func() time.Time
-	data  payload
-	dirty bool
+	mu         sync.Mutex
+	path       string
+	now        func() time.Time
+	historyTTL time.Duration
+	data       payload
+	dirty      bool
 }
 
 type payload struct {
@@ -59,7 +62,7 @@ type rollupEntry struct {
 // Load reads path. A missing file is an empty cache. A corrupt file is an
 // empty cache and an error for the caller to log.
 func Load(path string, now func() time.Time) (*Cache, error) {
-	c := &Cache{path: path, now: now, data: emptyPayload()}
+	c := &Cache{path: path, now: now, historyTTL: HistoryTTL, data: emptyPayload()}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return c, nil
@@ -88,8 +91,19 @@ func emptyPayload() payload {
 	return payload{History: map[string]historyEntry{}, Rollups: map[string]rollupEntry{}, Rounds: map[string]int{}}
 }
 
-func historyKey(repo, ref, path, head string) string {
-	return repo + "@" + ref + "\x00" + path + "\x00" + head
+// SetHistoryTTL sets how long a path-history entry is reused; Save drops
+// older entries. A ttl <= 0 restores HistoryTTL.
+func (c *Cache) SetHistoryTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ttl <= 0 {
+		ttl = HistoryTTL
+	}
+	c.historyTTL = ttl
+}
+
+func historyKey(repo, ref, path, version string) string {
+	return repo + "@" + ref + "\x00" + path + "\x00" + version
 }
 
 func rollupKey(repo string, number int) string {
@@ -100,23 +114,24 @@ func (c *Cache) fresh(at time.Time, ttl time.Duration) bool {
 	return c.now().Sub(at) < ttl
 }
 
-// PathHistory returns the stored history of path on ref, whose head commit
-// is head, while it is fresh.
-func (c *Cache) PathHistory(repo, ref, path, head string) (gh.PathHistory, bool) {
+// PathHistory returns the stored history of path on ref for version (the
+// caller's key, such as the base head or the window's start day) while it
+// is fresh.
+func (c *Cache) PathHistory(repo, ref, path, version string) (gh.PathHistory, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry, ok := c.data.History[historyKey(repo, ref, path, head)]
-	if !ok || !c.fresh(entry.At, HistoryTTL) {
+	entry, ok := c.data.History[historyKey(repo, ref, path, version)]
+	if !ok || !c.fresh(entry.At, c.historyTTL) {
 		return gh.PathHistory{}, false
 	}
 	return entry.History, true
 }
 
 // PutPathHistory stores history for PathHistory.
-func (c *Cache) PutPathHistory(repo, ref, path, head string, history gh.PathHistory) {
+func (c *Cache) PutPathHistory(repo, ref, path, version string, history gh.PathHistory) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.data.History[historyKey(repo, ref, path, head)] = historyEntry{At: c.now(), History: history}
+	c.data.History[historyKey(repo, ref, path, version)] = historyEntry{At: c.now(), History: history}
 	c.dirty = true
 }
 
@@ -179,7 +194,7 @@ func (c *Cache) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for key, entry := range c.data.History {
-		if !c.fresh(entry.At, HistoryTTL) {
+		if !c.fresh(entry.At, c.historyTTL) {
 			delete(c.data.History, key)
 			c.dirty = true
 		}

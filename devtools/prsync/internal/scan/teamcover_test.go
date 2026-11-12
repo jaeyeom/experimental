@@ -5,12 +5,15 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/roundcache"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 )
 
@@ -591,8 +594,14 @@ func (c *countRounds) NextRound(job string) int {
 }
 
 // historyRound runs one scan of two PRs on main that need cover for
-// acme/foo. Both touch src/a.go; PR 2 also touches src/b.go.
+// acme/foo. Both touch src/a.go; PR 2 also touches src/b.go. It runs with
+// team_cover_history_ttl=0, so history is keyed by the base head.
 func historyRound(t *testing.T, cache HistoryCache, prHead, baseHead string) (*scriptGH, Document, string) {
+	t.Helper()
+	return historyRoundAt(t, cache, prHead, baseHead, fixtureNow, 0)
+}
+
+func historyRoundAt(t *testing.T, cache HistoryCache, prHead, baseHead string, now time.Time, ttl time.Duration) (*scriptGH, Document, string) {
 	t.Helper()
 	g := teamCoverGH(map[string]memberCall{
 		"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
@@ -608,11 +617,12 @@ func historyRound(t *testing.T, cache HistoryCache, prHead, baseHead string) (*s
 	g.heads = map[string]string{"acme/widgets@main": baseHead}
 	cfg := teamCoverCfg()
 	cfg.TeamCoverSignals = []string{"history"}
+	cfg.TeamCoverHistoryTTL = ttl
 	deps := depsWith(g, fixtureHerdr{})
 	deps.History = cache
 	var logs bytes.Buffer
 	ctx := runlog.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
-	doc, err := Run(ctx, deps, cfg, []string{"acme/widgets"}, fixtureNow)
+	doc, err := Run(ctx, deps, cfg, []string{"acme/widgets"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,6 +684,76 @@ func TestRunTeamCoverReusesHistoryWhileBaseHeadIsUnchanged(t *testing.T) {
 	}
 }
 
+func TestRunTeamCoverHistoryCachedByTimeAcrossBaseHeads(t *testing.T) {
+	t.Parallel()
+
+	clock := fixtureNow
+	cache, err := roundcache.Load(filepath.Join(t.TempDir(), "cache.json"), func() time.Time { return clock })
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache.SetHistoryTTL(6 * time.Hour)
+
+	first, _, _ := historyRoundAt(t, cache, "h1", "base1", clock, 6*time.Hour)
+	if first.historyCalls != 1 || first.historyRefs[0] != "main" {
+		t.Fatalf("first round history calls = %d refs = %#v, want one call on the branch", first.historyCalls, first.historyRefs)
+	}
+	if first.headCalls != 0 {
+		t.Fatalf("headCalls = %d, want no base head lookup with a TTL", first.headCalls)
+	}
+
+	clock = fixtureNow.Add(time.Hour)
+	second, doc, logs := historyRoundAt(t, cache, "h2", "base2", clock, 6*time.Hour)
+	if second.historyCalls != 0 || second.headCalls != 0 {
+		t.Fatalf("moved base head within the TTL: history=%d heads=%d, want none", second.historyCalls, second.headCalls)
+	}
+	if !strings.Contains(logs, `"msg":"team-cover cache","hits":2,"misses":0`) {
+		t.Fatalf("logs = %s, want team-cover cache hits 2 misses 0", logs)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
+		t.Fatalf("suggestions = %+v, want carol from the cached history", got)
+	}
+
+	clock = fixtureNow.Add(7 * time.Hour)
+	third, _, _ := historyRoundAt(t, cache, "h3", "base3", clock, 6*time.Hour)
+	if third.historyCalls != 1 || !slices.Equal(third.historyPaths[0], []string{"src/a.go", "src/b.go"}) {
+		t.Fatalf("past the TTL: history calls = %d paths = %#v, want both paths again", third.historyCalls, third.historyPaths)
+	}
+}
+
+func TestRunTeamCoverFetchesHistoryOnlyForPRsWithCandidates(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
+		"acme/bar": {members: []gh.TeamMember{{Login: "dave", Type: "User"}}},
+	})
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{teamPR(1), teamPRSlug(2, "bar")}}
+	g.files = map[string][]string{
+		"acme/widgets#1": {"src/a.go"},
+		"acme/widgets#2": {"src/b.go"},
+	}
+	g.history = map[string]gh.PathHistory{"acme/widgets\x00src/a.go": {Authors: []string{"carol"}}}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"codeowners", "history"}
+	// acme/bar is uncovered on PR 2, but its only member is excluded.
+	cfg.TeamCoverExcludeLogins = []string{"dave"}
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	var logs bytes.Buffer
+	ctx := runlog.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	if _, err := Run(ctx, deps, cfg, []string{"acme/widgets"}, fixtureNow); err != nil {
+		t.Fatal(err)
+	}
+	if g.historyCalls != 1 || !slices.Equal(g.historyPaths[0], []string{"src/a.go"}) {
+		t.Fatalf("history calls = %d paths = %#v, want only PR 1's path", g.historyCalls, g.historyPaths)
+	}
+	if !strings.Contains(logs.String(), `"msg":"team-cover: 1 of 2 paths need history"`) {
+		t.Fatalf("logs = %s, want the paths-needing-history count", logs.String())
+	}
+}
+
 // batchRound runs one history round with team_cover_batch_paths=20.
 func batchRound(t *testing.T, cache *mapHistoryCache, worked int, skip map[string]bool) *scriptGH {
 	t.Helper()
@@ -687,6 +767,7 @@ func batchRound(t *testing.T, cache *mapHistoryCache, worked int, skip map[strin
 	cfg := teamCoverCfg()
 	cfg.TeamCoverSignals = []string{"history"}
 	cfg.TeamCoverBatchPaths = 20
+	cfg.TeamCoverHistoryTTL = 0
 	deps := depsWith(g, fixtureHerdr{})
 	deps.History = cache
 	if _, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow); err != nil {
@@ -739,6 +820,7 @@ func TestRunTeamCoverBaseHeadFailureStillFetchesHistory(t *testing.T) {
 	cache := &mapHistoryCache{entries: map[string]gh.PathHistory{}}
 	cfg := teamCoverCfg()
 	cfg.TeamCoverSignals = []string{"history"}
+	cfg.TeamCoverHistoryTTL = 0
 	deps := depsWith(g, fixtureHerdr{})
 	deps.History = cache
 	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)

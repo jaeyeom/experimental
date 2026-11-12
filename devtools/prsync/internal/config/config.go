@@ -214,6 +214,9 @@ type Config struct {
 	// TeamCoverBatchPaths is how many paths the first path-history request
 	// asks for when the round cache has no size that worked.
 	TeamCoverBatchPaths int
+	// TeamCoverHistoryTTL is how long a path's history is reused, keyed by
+	// the history window's start day. Zero keys it by the base branch head.
+	TeamCoverHistoryTTL time.Duration
 
 	// GateIgnoreProcs are patterns for an agent's helpers (MCP and
 	// language servers, status-line commands). A plain pattern matches
@@ -300,6 +303,7 @@ func Defaults() Config {
 		TeamCoverHistoryDays:     90,
 		TeamCoverEvery:           1,
 		TeamCoverBatchPaths:      5,
+		TeamCoverHistoryTTL:      6 * time.Hour,
 		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
 		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
@@ -592,7 +596,7 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
 		"team_cover_history_days", "team_cover_active_days", "team_cover_every",
-		"team_cover_batch_paths":
+		"team_cover_batch_paths", "team_cover_history_ttl":
 		return applyTeamCover(cfg, key, val)
 	default:
 		return nil
@@ -619,6 +623,13 @@ func applyTeamCover(cfg *Config, key, val string) error {
 		return applyPositiveInt(&cfg.TeamCoverEvery, key, val)
 	case "team_cover_batch_paths":
 		return applyPositiveInt(&cfg.TeamCoverBatchPaths, key, val)
+	case "team_cover_history_ttl":
+		d, err := time.ParseDuration(strings.TrimSpace(val))
+		if err != nil || d < 0 {
+			return &KeyError{Key: key, Reason: fmt.Sprintf("invalid duration %q", val)}
+		}
+		cfg.TeamCoverHistoryTTL = d
+		return nil
 	default:
 		return nil
 	}

@@ -188,3 +188,58 @@ func TestSaveWithoutChangesDoesNotWrite(t *testing.T) {
 		t.Fatalf("stat = %v, want no file", err)
 	}
 }
+
+func TestSetHistoryTTLBoundsReuse(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	c.SetHistoryTTL(6 * time.Hour)
+	c.PutPathHistory("acme/widgets", "main", "src/a.go", "since:2026-08-03", gh.PathHistory{Authors: []string{"alice"}})
+
+	clk.t = clk.t.Add(6*time.Hour - time.Second)
+	if _, ok := c.PathHistory("acme/widgets", "main", "src/a.go", "since:2026-08-03"); !ok {
+		t.Fatal("miss inside the TTL")
+	}
+	clk.t = clk.t.Add(2 * time.Second)
+	if _, ok := c.PathHistory("acme/widgets", "main", "src/a.go", "since:2026-08-03"); ok {
+		t.Fatal("hit past the TTL")
+	}
+}
+
+func TestSetHistoryTTLZeroKeepsBackstop(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	c.SetHistoryTTL(0)
+	c.PutPathHistory("acme/widgets", "main", "src/a.go", "head1", gh.PathHistory{Authors: []string{"alice"}})
+	clk.t = clk.t.Add(HistoryTTL - time.Second)
+	if _, ok := c.PathHistory("acme/widgets", "main", "src/a.go", "head1"); !ok {
+		t.Fatal("TTL 0: per-head entry expired before HistoryTTL")
+	}
+}
+
+func TestSavePrunesHistoryOlderThanTTL(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.SetHistoryTTL(6 * time.Hour)
+	c.PutPathHistory("acme/widgets", "main", "src/old.go", "since:2026-08-03", gh.PathHistory{})
+	clk.t = clk.t.Add(7 * time.Hour)
+	c.PutPathHistory("acme/widgets", "main", "src/new.go", "since:2026-08-03", gh.PathHistory{})
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	next, _ := Load(path, clk.now)
+	next.SetHistoryTTL(48 * time.Hour)
+	if _, ok := next.PathHistory("acme/widgets", "main", "src/old.go", "since:2026-08-03"); ok {
+		t.Fatal("expired entry survived Save")
+	}
+	if _, ok := next.PathHistory("acme/widgets", "main", "src/new.go", "since:2026-08-03"); !ok {
+		t.Fatal("fresh entry dropped by Save")
+	}
+}

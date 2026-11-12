@@ -213,10 +213,11 @@ Environment variables are not expanded.
 | ~team_cover_skip_teams~ | empty | Comma-separated ~org/slug~ teams to omit from the report. |
 | ~team_cover_exclude_logins~ | empty | Comma-separated logins, or ~@/path~ (one login per line; blank lines and ~#~ comments ignored). Those logins are never suggested. |
 | ~team_cover_signals~ | ~codeowners,history,load~ | Ranking signals, in that priority order. Empty disables every signal and leaves login order. Duplicate names are dropped. An unknown name is a config error. |
-| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 30 commits and 2 pull requests per commit, ~team_cover_batch_paths~ paths to a request; each distinct pull request's reviews (at most 10) are then fetched once, 50 pull requests to a request. A cut-off list is logged as a warning. Only paths of PRs with an uncovered team are queried. A path's result is reused while the base branch head is unchanged (see Round cache). Must be >= 0. |
+| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 30 commits and 2 pull requests per commit, ~team_cover_batch_paths~ paths to a request; each distinct pull request's reviews (at most 10) are then fetched once, 50 pull requests to a request. A cut-off list is logged as a warning. Only paths of PRs with an uncovered team that still has a member to rank are queried; the run log records ~team-cover: N of M paths need history~, M being the paths of PRs whose files were listed. A path's result is reused for ~team_cover_history_ttl~ (see Round cache). Must be >= 0. |
 | ~team_cover_active_days~ | ~0~ | Drop members with no org event in this many days. ~0~ disables the filter. The events API covers about 90 days. Must be >= 0. |
 | ~team_cover_every~ | ~1~ | Run the team-cover job on every Nth round: the 1st, N+1th, and so on. The count is kept in the round cache and counts rounds with ~team_cover~ on and the job not skipped. A skipped round omits ~team_review_suggestions~. Must be >= 1. |
 | ~team_cover_batch_paths~ | ~5~ | Paths per path-history request. A request that times out (GitHub stops a GraphQL query after about 10 seconds) or reports ~RESOURCE_LIMITS_EXCEEDED~ or HTTP 502/504 is split in half and each half retried, down to single paths; a single path that still fails is skipped with a warning in the run log, e.g. ~team-cover: batch of 20 timed out; retrying as 2×10~, with the first line of stdout and stderr. The size that worked is kept in the round cache and the next round starts there instead. Must be >= 1. |
+| ~team_cover_history_ttl~ | ~6h~ | Go duration. How long a path's history is reused, keyed by repository, base branch, path, and the history window's start day, whatever the base branch head. A window of weeks barely changes in a few hours, so a slightly stale list is accepted. Older entries are dropped when the round cache is written. ~0~ keys it by the base branch head instead (reused while the head is unchanged, for at most a day). Must be >= 0. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
@@ -346,7 +347,9 @@ per-PR status-check views at a time during a scan.
 GitHub also caps GraphQL CPU time per user, so prsync keeps its large
 queries small and skips calls whose answer cannot have changed since the
 last round. Results are kept in ~round-cache.json~, next to
-~state_file~: status checks for an hour, path history for at most a day.
+~state_file~: status checks for an hour, path history for
+~team_cover_history_ttl~ (at most a day when that is ~0~). Expired
+entries are dropped when the file is written.
 The file is only a cache: deleting it is safe, and a corrupt one is
 ignored with a warning in the run log.
 
@@ -356,13 +359,15 @@ ignored with a warning in the run log.
   per-PR status-check view. A pending or empty rollup is never stored,
   because a check can finish without changing ~updatedAt~.
 - *Team-cover history.* Each path's history is stored per repository,
-  base branch, and base branch head commit. Each round looks up the head
-  of each base branch once (~GET repos/{owner}/{repo}/git/ref/heads/{base}~);
-  while it has not moved, the stored history is reused and no history
-  query runs. Paths that miss are fetched in batched queries per
+  base branch, path, and the history window's start day, and reused for
+  ~team_cover_history_ttl~ even when the base branch head moves. Paths
+  that miss are fetched on the base branch in batched queries per
   repository and base. The run log records ~team-cover cache~ with
-  ~hits~ and ~misses~. If the head lookup fails, history is fetched on the
-  branch and not stored.
+  ~hits~ and ~misses~. With ~team_cover_history_ttl=0~ the start day is
+  replaced by the base branch head commit: each round looks up the head
+  of each base branch once (~GET repos/{owner}/{repo}/git/ref/heads/{base}~)
+  and reuses the stored history only while it has not moved; if the head
+  lookup fails, history is fetched on the branch and not stored.
   The history request size that last worked is kept too (it does not
   expire); see ~team_cover_batch_paths~.
 
