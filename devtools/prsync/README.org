@@ -202,7 +202,7 @@ Environment variables are not expanded.
 | ~team_cover_skip_teams~ | empty | Comma-separated ~org/slug~ teams to omit from the report. |
 | ~team_cover_exclude_logins~ | empty | Comma-separated logins, or ~@/path~ (one login per line; blank lines and ~#~ comments ignored). Those logins are never suggested. |
 | ~team_cover_signals~ | ~codeowners,history,load~ | Ranking signals, in that priority order. Empty disables every signal and leaves login order. Duplicate names are dropped. An unknown name is a config error. |
-| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 100 commits. Must be >= 0. |
+| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 30 commits, 2 pull requests per commit, and 10 reviews per pull request; a cut-off list is logged as a warning. A path's result is reused for an hour while the PR head is unchanged (see Round cache). Must be >= 0. |
 | ~team_cover_active_days~ | ~0~ | Drop members with no org event in this many days. ~0~ disables the filter. The events API covers about 90 days. Must be >= 0. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
@@ -317,6 +317,28 @@ prsync makes no GitHub writes in parallel. ~team_cover~ only reports
 suggested reviewers (and the ~gh pr edit --add-reviewer~ line to run);
 it never adds them. The only parallel calls are reads: up to 4
 per-PR status-check views at a time during a scan.
+
+** Round cache
+
+GitHub also caps GraphQL CPU time per user, so prsync keeps its large
+queries small and skips calls whose answer cannot have changed since the
+last round. Results are kept for an hour in ~round-cache.json~, next to
+~state_file~. The file is only a cache: deleting it is safe, and a corrupt
+one is ignored with a warning in the run log.
+
+- *Status checks.* The open-PR search returns each PR's ~headRefOid~ and
+  ~updatedAt~. When both match the last round and every check had
+  finished, the scan reuses the stored checks instead of running the
+  per-PR status-check view. A pending or empty rollup is never stored,
+  because a check can finish without changing ~updatedAt~.
+- *Team-cover history.* Each path's history is stored per PR head
+  commit, so a later round for the same path and head makes no call.
+
+~dispatch --pr~ has no search to compare against and always views each
+PR. Page sizes: the open-PR search loads 50 PRs per
+page; review requests and latest reviews load 20 per PR. A connection
+cut off at those sizes is logged as a warning (~github connection
+truncated~) in the run log.
 
 ** One watcher per machine
 

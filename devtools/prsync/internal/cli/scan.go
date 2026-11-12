@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/dispatch"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/roundcache"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/scan"
 	executor "github.com/jaeyeom/go-cmdexec"
 	"github.com/spf13/cobra"
@@ -46,9 +49,10 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				return err
 			}
 			logStartup(cmd.Context(), "scan", cfg)
-			deps := scanDeps(exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
+			deps, saveCache := scanDeps(cmd.Context(), exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
 			now := time.Now()
 			doc, err := scan.Run(cmd.Context(), deps, cfg, repos, now)
+			saveCache()
 			if scan.Started(doc) {
 				if aerr := annotateUnresolved(&doc, cfg, now); aerr != nil && err == nil {
 					err = aerr
@@ -73,13 +77,30 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	return cmd
 }
 
-func scanDeps(exec executor.Executor, cfg config.Config, h scan.Herdr) scan.Deps {
+// roundCacheFile sits next to state_file. It keeps GitHub results that a
+// later round can reuse; see roundcache.
+const roundCacheFile = "round-cache.json"
+
+// scanDeps returns the scan adapters and a func that saves the round cache.
+// Call the func once the scan is done.
+func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h scan.Herdr) (scan.Deps, func()) {
 	src := &rcasetting.Source{}
-	return scan.Deps{
-		GH:     gh.NewClient(exec, cfg.GHBin),
-		Herdr:  h,
-		Remote: func(machine string) scan.Herdr { return machineHerdr(exec, cfg, machine) },
-		Marker: src.For,
+	logger := runlog.FromContext(ctx)
+	cache, err := roundcache.Load(filepath.Join(filepath.Dir(cfg.StateFile), roundCacheFile), time.Now)
+	if err != nil {
+		logger.Warn("round cache ignored", "err", err.Error())
+	}
+	deps := scan.Deps{
+		GH:      gh.NewClient(exec, cfg.GHBin).WithRollupCache(cache),
+		Herdr:   h,
+		Remote:  func(machine string) scan.Herdr { return machineHerdr(exec, cfg, machine) },
+		Marker:  src.For,
+		History: cache,
+	}
+	return deps, func() {
+		if err := cache.Save(); err != nil {
+			logger.Warn("round cache not saved", "err", err.Error())
+		}
 	}
 }
 

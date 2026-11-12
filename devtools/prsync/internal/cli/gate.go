@@ -160,8 +160,9 @@ func managedTabs(ctx context.Context, cfg config.Config, exec executor.Executor,
 	if cfg.ConcurrencyWaitOn != "managed" {
 		return nil, nil
 	}
-	deps := scanDeps(exec, cfg, h)
+	deps, saveCache := scanDeps(ctx, exec, cfg, h)
 	doc, err := scan.Run(ctx, deps, cfg, nil, time.Now())
+	saveCache()
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}

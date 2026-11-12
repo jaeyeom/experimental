@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -17,30 +18,34 @@ import (
 // It is not a rate-limit quota error and is not a transient HTTP failure.
 var errQueryResourceLimit = errors.New("resource limits for this query exceeded")
 
-// openPRSearchPage is the first search page size. It is below the old
-// --limit 1000 cap and at GitHub's maximum of 100 nodes for one search
-// connection. A resource-limit error or an HTTP 502/503/504 retries the same
-// cursor with a smaller page, and the walk keeps that size for later pages.
-const openPRSearchPage = 100
+// openPRSearchPage is the first search page size. It is half of GitHub's
+// maximum of 100 nodes for one search connection, to keep each page's
+// GraphQL CPU time down under the secondary limit; the cursor walk loads the
+// rest. Raise it only if measured page times stay low. A resource-limit
+// error or an HTTP 502/503/504 retries the same cursor with a smaller page,
+// and the walk keeps that size for later pages.
+const openPRSearchPage = 50
 
 // openPRScalarFields are the pull-request scalars both queries load.
 // statusCheckRollup stays off the search: one page that includes it exceeds
 // GitHub's resource limit once many open PRs carry a large rollup.
-const openPRScalarFields = "number title url state baseRefName headRefName headRefOid mergeable mergeStateStatus isDraft reviewDecision"
+// updatedAt with headRefOid tells a later round that a pull request is unchanged.
+const openPRScalarFields = "number title url state baseRefName headRefName headRefOid updatedAt mergeable mergeStateStatus isDraft reviewDecision"
 
 // reviewerSelection is the requestedReviewer fragment for the open-PR search
 // and the single-PR view. User and Bot select login. Team selects name and
-// slug; Team has no login field. reviewRequests(first:100) is the connection
-// maximum, same as GitHub CLI, not a smaller complexity cap. The fragment does
-// not select organization, which is what pushes the search over the limit.
-const reviewerSelection = `reviewRequests(first:100){nodes{requestedReviewer{__typename ... on User{login} ... on Bot{login} ... on Team{name slug}}}}`
+// slug; Team has no login field. reviewRequests(first:20) covers real pull
+// requests at a fraction of the cost of the connection maximum; a truncated
+// list logs a warning. The fragment does not select organization, which is
+// what pushes the search over the limit.
+const reviewerSelection = `reviewRequests(first:20){pageInfo{hasNextPage}nodes{requestedReviewer{__typename ... on User{login} ... on Bot{login} ... on Team{name slug}}}}`
 
 const openPRSearchQuery = `query($q:String!,$first:Int!,$after:String){search(query:$q,type:ISSUE,first:$first,after:$after){issueCount pageInfo{hasNextPage endCursor} nodes{... on PullRequest{` +
 	openPRScalarFields + ` ` + reviewerSelection + `}}}}`
 
 const openPRViewQuery = `query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$num){` +
 	openPRScalarFields + ` ` + reviewerSelection +
-	` latestReviews(first:100){nodes{author{login} state submittedAt}} statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}`
+	` latestReviews(first:20){pageInfo{hasNextPage}nodes{author{login} state submittedAt}} statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}`
 
 func openPRSearchArgs(repo, author string, page int, after string) []string {
 	args := []string{
@@ -116,6 +121,7 @@ func (c *Client) listOpenPRsShrinking(ctx context.Context, repo, author string) 
 			return nil, err
 		}
 		for _, item := range page.items {
+			warnTruncatedPR(ctx, repo, item)
 			if !seen[item.Number] {
 				seen[item.Number] = true
 				items = append(items, item)
@@ -184,7 +190,12 @@ func (c *Client) viewOpenPR(ctx context.Context, repo string, number int) (PRLis
 	if result.ExitCode != 0 {
 		return PRListItem{}, graphqlExecError(result)
 	}
-	return decodeOpenPRView(result.Output)
+	item, err := decodeOpenPRView(result.Output)
+	if err != nil {
+		return PRListItem{}, err
+	}
+	warnTruncatedPR(ctx, repo, item)
+	return item, nil
 }
 
 func isQueryResourceLimit(err error) bool {
@@ -265,6 +276,7 @@ type gqlPR struct {
 	BaseRefName       string               `json:"baseRefName"`
 	HeadRefName       string               `json:"headRefName"`
 	HeadRefOid        string               `json:"headRefOid"`
+	UpdatedAt         nullableString       `json:"updatedAt"`
 	Mergeable         string               `json:"mergeable"`
 	MergeStateStatus  string               `json:"mergeStateStatus"`
 	IsDraft           bool                 `json:"isDraft"`
@@ -282,8 +294,15 @@ type gqlStatusCheckRollup struct {
 	} `json:"contexts"`
 }
 
+// gqlHasNextPage is pageInfo{hasNextPage} on a connection loaded with a
+// small page, so a truncated list is logged rather than silent.
+type gqlHasNextPage struct {
+	HasNextPage bool `json:"hasNextPage"`
+}
+
 type gqlReviewRequests struct {
-	Nodes []struct {
+	PageInfo gqlHasNextPage `json:"pageInfo"`
+	Nodes    []struct {
 		RequestedReviewer *gqlRequestedReviewer `json:"requestedReviewer"`
 	} `json:"nodes"`
 }
@@ -296,7 +315,8 @@ type gqlRequestedReviewer struct {
 }
 
 type gqlLatestReviews struct {
-	Nodes []gqlLatestReview `json:"nodes"`
+	PageInfo gqlHasNextPage    `json:"pageInfo"`
+	Nodes    []gqlLatestReview `json:"nodes"`
 }
 
 type gqlLatestReview struct {
@@ -339,6 +359,7 @@ func (p *gqlPR) toPRListItem() PRListItem {
 		BaseRefName:       p.BaseRefName,
 		HeadRefName:       p.HeadRefName,
 		HeadRefOid:        p.HeadRefOid,
+		UpdatedAt:         string(p.UpdatedAt),
 		Mergeable:         p.Mergeable,
 		MergeStateStatus:  p.MergeStateStatus,
 		IsDraft:           p.IsDraft,
@@ -346,10 +367,35 @@ func (p *gqlPR) toPRListItem() PRListItem {
 		ReviewRequests:    reviewReqsFrom(p.ReviewRequests),
 		StatusCheckRollup: statusChecksFrom(p.StatusCheckRollup.Contexts.Nodes),
 	}
+	var truncated truncation
+	truncated.note("reviewRequests", p.ReviewRequests.PageInfo.HasNextPage)
 	if p.LatestReviews != nil {
 		item.LatestReviews = latestReviewsFrom(p.LatestReviews.Nodes)
+		truncated.note("latestReviews", p.LatestReviews.PageInfo.HasNextPage)
 	}
+	item.Truncated = truncated
 	return item
+}
+
+// truncation lists connection names that had a next page, once each.
+type truncation []string
+
+func (t *truncation) note(connection string, hasNextPage bool) {
+	if hasNextPage && !slices.Contains(*t, connection) {
+		*t = append(*t, connection)
+	}
+}
+
+// warnTruncated logs a connection cut short by its page size.
+func warnTruncated(ctx context.Context, connection string, attrs ...any) {
+	runlog.FromContext(ctx).Warn("github connection truncated",
+		append([]any{"connection", connection}, attrs...)...)
+}
+
+func warnTruncatedPR(ctx context.Context, repo string, item PRListItem) {
+	for _, conn := range item.Truncated {
+		warnTruncated(ctx, conn, "repo", repo, "pr", item.Number)
+	}
 }
 
 func reviewReqsFrom(conn gqlReviewRequests) []ReviewReq {

@@ -709,6 +709,7 @@ type scriptGH struct {
 	codeownersErr map[string]error
 	history       map[string]gh.PathHistory
 	historyErr    error
+	historyCalls  int
 	load          map[string]int
 	loadErr       error
 	loadCalls     int
@@ -827,6 +828,7 @@ func (g *scriptGH) Codeowners(_ context.Context, repo, ref string) (string, erro
 }
 
 func (g *scriptGH) PathHistory(_ context.Context, repo, ref, path string, _ time.Time) (gh.PathHistory, error) {
+	g.historyCalls++
 	if g.historyErr != nil {
 		return gh.PathHistory{}, g.historyErr
 	}
