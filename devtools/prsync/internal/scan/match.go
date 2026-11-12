@@ -16,6 +16,11 @@ func TabKey(machine, tabID string) string {
 	return tabID + "@" + machine
 }
 
+// TabLabel is the herdr tab label tab_label_template gives identifier id.
+func TabLabel(template, id string) string {
+	return strings.ReplaceAll(template, "{id}", id)
+}
+
 // Match finds a unique herdr tab for the identifier. Never guesses on 0 or N.
 // Tabs and agents may come from several machines; a tab's agent must be on
 // the same machine.
@@ -29,7 +34,7 @@ func match(id *string, repo string, number int, template string, tabs []herdr.Ta
 	if id == nil {
 		return nil, nil, fmt.Sprintf("%s#%d: no identifier matched title_id_pattern", repo, number)
 	}
-	label := strings.ReplaceAll(template, "{id}", *id)
+	label := TabLabel(template, *id)
 	var hits []herdr.Tab
 	for _, tab := range tabs {
 		if tab.Label == label {

@@ -105,6 +105,7 @@ prsync version
 | ~--tab-machine M~ | scan, dispatch, tabs, gate | Scope the run to PRs whose tab is on ~M~: ~local~ or one of ~machines~. ~gate~ (and dispatch's gate) then checks ~M~'s checkout and agents. Overrides ~tab_machine~. See [[*One watcher per machine][One watcher per machine]] |
 | ~--untabbed include~ / ~exclude~ | scan, dispatch | Whether PRs with no tab belong to this run. Overrides ~untabbed~ |
 | ~--skip JOB~ | scan, dispatch | Repeatable. Skip a machine-wide job this run (~team-cover~). Overrides ~skip_jobs~ |
+| ~--open-tabs~ | dispatch | Open a herdr tab and start an agent for an in-scope PR with no tab. Overrides ~open_missing_tabs~. See [[*Opening tabs for untabbed PRs][Opening tabs for untabbed PRs]] |
 
 Usage errors (exit 2): ~--pr~ with ~--all~; ~--ci-fix~ with ~--rebase~;
 ~--hint~ without ~--ci-fix~; ~--go~ on ~tabs~ without ~--close-merged~;
@@ -169,6 +170,12 @@ Environment variables are not expanded.
 | ~untabbed~ | empty | ~include~ or ~exclude~: whether PRs with no tab belong to a ~tab_machine~ run. Empty = only the ~local~ run includes them. ~--untabbed~ overrides it. |
 | ~scan_in_scope_only~ | ~false~ | When ~true~, ~scan~ leaves PRs marked ~out_of_scope~ out of its output, as ~--in-scope~ does. ~--in-scope=false~ overrides it. |
 | ~skip_jobs~ | empty | Comma-separated machine-wide jobs this run skips. The only job is ~team-cover~. An unknown job is a config error. ~--skip~ overrides it. |
+| ~open_missing_tabs~ | ~false~ | When ~true~, ~dispatch~ opens a herdr tab and starts ~open_tabs_agent~ for an in-scope PR with no tab, then dispatches to it. ~--open-tabs~ overrides it. See [[*Opening tabs for untabbed PRs][Opening tabs for untabbed PRs]]. |
+| ~open_tabs_workspace~ | empty | Comma-separated: a plain value for the local server and ~machine=value~ for others. A herdr workspace label or id. Empty = herdr's choice. |
+| ~open_tabs_cwd~ | empty | Same form as ~open_tabs_workspace~; absolute paths on each machine. Falls back to ~machine_checkouts~, then (locally) the checkout of the PR's repo. |
+| ~open_tabs_agent~ | ~claude~ | The herdr agent kind to start, then its arguments, space-separated. |
+| ~open_tabs_max_per_round~ | ~2~ | Most tabs one dispatch run opens. ~0~ opens none. |
+| ~open_tabs_ready_timeout~ | ~90s~ | Go duration for starting the agent and waiting until herdr reports it ~idle~. |
 | ~gh_bin~ | ~$GH_BIN~, else ~gh~ | gh executable. Set it (or ~GH_BIN~) to a rate limiter such as ~gh-throttle~; see [[*Running gh through a rate limiter][Running gh through a rate limiter]]. |
 | ~jira_bin~ | ~jira~ | jira executable. Used only for ~jira issue view~ after a live close. |
 | ~concurrency_wait_on~ | ~any~ | ~any~ = every ~working~ or ~blocked~ agent; ~managed~ = those on tabs matched in this scan (~managed~ runs a scan). |
@@ -426,6 +433,56 @@ unscoped dispatch, ~comment~, and a scoped run's write all take
 ~<state_file>.lock~, so do not mix an unscoped watcher with scoped ones
 on one state file: a scoped write waits about 5 s for the lock and then
 fails.
+
+*** Opening tabs for untabbed PRs
+
+By default ~dispatch~ skips a PR with no tab (~skipped_no_tab~), and you
+open, label, and start its tab by hand. With ~--open-tabs~ (or
+~open_missing_tabs = true~), a watcher opens the tab itself, on its own
+machine: the local server, or ~--tab-machine M~ through ~herdr --machine
+M~. It does so only for a PR in its scope (see ~untabbed~ above) that it
+would otherwise dispatch now: not a draft, deduped, or
+~skipped_tab_unknown~ PR.
+
+#+BEGIN_EXAMPLE
+machines=linux2
+machine_checkouts=linux2=/home/me/src/repo
+open_missing_tabs=true
+open_tabs_workspace=prs, linux2=reviews
+open_tabs_cwd=/Users/me/src/repo
+open_tabs_agent=claude --model opus
+#+END_EXAMPLE
+
+For each such PR, live:
+
+1. List the machine's tabs. A tab already labeled for the PR is never
+   replaced: the PR stays ~skipped_no_tab~, and ~detail~ names that tab.
+2. ~herdr tab create --workspace <id> --cwd <dir> --label <label>
+   --no-focus~. The label is ~tab_label_template~ with the PR's
+   identifier, so later rounds match the tab like any other. A PR whose
+   title has no identifier gets no tab.
+3. ~herdr agent start pr-<label> --kind <kind> --pane <root pane>~ (the
+   first word of ~open_tabs_agent~ is the herdr agent kind, the rest are
+   its arguments), then ~herdr agent wait <pane> --until idle~. Both
+   share ~open_tabs_ready_timeout~.
+4. Dispatch as usual: the gate (which does not count the new pane as
+   busy), ~wake_before_prompt~, the prompt, and dedupe state. The result
+   is ~opened_tab_and_dispatched~ with the new ~tab_id~, in the JSON and
+   the run log. A timeout or a blocked agent keeps its usual action and
+   carries ~tab_id~.
+
+If step 2 or 3 fails, the tab prsync created is closed, and the result
+is ~open_tab_failed~ with the reason in ~detail~. The run goes on to the
+next PR. At most ~open_tabs_max_per_round~ tabs are created in one run;
+later PRs are ~skipped_open_tab_cap~. A dry run reports
+~would_open_tab~, with the label, workspace, and directory in ~detail~,
+and makes no herdr change.
+
+The workspace is a label or id, found with ~herdr workspace list~;
+without one herdr picks it. The directory is ~open_tabs_cwd~ for the
+machine, else its ~machine_checkouts~ entry, else (locally) the checkout
+of the PR's repo containing the current directory. With none, the
+result is ~open_tab_failed~.
 
 *** Gating on another machine
 
