@@ -21,8 +21,8 @@ import (
 	"unicode/utf8"
 )
 
-// Outbox states. A record starts pending until its decide item is
-// answered. An accepted post becomes approved (direct mode) or
+// Outbox states. A record starts pending until the user picks in its
+// decide thread. An accepted post becomes approved (direct mode) or
 // awaiting-handoff (handoff mode); direct mode moves it to posting just
 // before chat.postMessage, so it is never posted twice.
 const (
@@ -45,11 +45,10 @@ var OutboxStates = []string{
 	OutboxNeedsRedraft, OutboxDropped, OutboxRejected, OutboxMismatch, OutboxCancelled, OutboxFailed,
 }
 
-// Decide option keys and the answer fields the acceptance rule needs.
+// Decide option keys and the message fields the acceptance rule needs.
 const (
 	decideKeyPost   = "post"
 	decideKeyDrop   = "drop"
-	decideAnswered  = "answered"
 	decideDone      = "done"
 	decideWithdrawn = "withdrawn"
 	decideHuman     = "human"
@@ -163,11 +162,32 @@ type DecideAnswer struct {
 	Via        string `json:"via"`
 }
 
-// DecideItem is the part of a decide item slackwatch reads.
+// DecideMessage is one message of a decide thread as decide show --json
+// prints it. OptionKey is set on an option pick. Via is "ui" or "cli" on
+// a human message and empty on one stored before via existed. By is set
+// when the message was sent from the command line by an agent.
+type DecideMessage struct {
+	Author    string `json:"author"`
+	Text      string `json:"text"`
+	OptionKey string `json:"optionKey,omitempty"`
+	Via       string `json:"via,omitempty"`
+	By        string `json:"by,omitempty"`
+}
+
+// human reports whether the user wrote m. A message sent with by is not
+// the user's, whatever its via.
+func (m DecideMessage) human() bool {
+	return m.Author == decideHuman && m.By == ""
+}
+
+// DecideItem is the part of a decide item slackwatch reads. The
+// acceptance rule reads Messages, not Answer, which a later free-text
+// message replaces.
 type DecideItem struct {
-	ID     string        `json:"id"`
-	State  string        `json:"state"`
-	Answer *DecideAnswer `json:"answer"`
+	ID       string          `json:"id"`
+	State    string          `json:"state"`
+	Answer   *DecideAnswer   `json:"answer"`
+	Messages []DecideMessage `json:"messages"`
 }
 
 // Decider files, reads, and closes decide items. DecideCLI is the real
@@ -227,7 +247,9 @@ const decideTimeout = time.Minute
 
 // ExecDecide returns a Run that runs argv, such as Config.DecideArgv,
 // followed by args, and returns its stdout. Its stderr is part of the
-// error.
+// error. decide runs without the caller's herdr pane, so the items
+// slackwatch files get no agent notifyPane and a reply in their thread
+// goes to slackwatch through decide's notifyTemplate.
 func ExecDecide(argv []string) func(ctx context.Context, args ...string) ([]byte, error) {
 	return func(ctx context.Context, args ...string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(ctx, decideTimeout)
@@ -235,6 +257,9 @@ func ExecDecide(argv []string) func(ctx context.Context, args ...string) ([]byte
 		// argv is decideCommand from the operator's own config.
 		// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 		cmd := exec.CommandContext(ctx, argv[0], append(slices.Clip(argv[1:]), args...)...) //nolint:gosec // G204: operator config.
+		cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool {
+			return strings.HasPrefix(kv, "HERDR_PANE_ID=") || strings.HasPrefix(kv, "DECIDE_AS_HANDLE=")
+		})
 		var stdout bytes.Buffer
 		stderr := &limitedBuffer{limit: outputLimit}
 		cmd.Stdout = &stdout
@@ -348,7 +373,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	if err != nil {
 		return OutboxRecord{}, fmt.Errorf("add outbox record: %w", err)
 	}
-	decideID, err := o.Decide.Ask(ctx, o.Config.Post.decideOwner(), question(id, d, hash))
+	decideID, err := o.Decide.Ask(ctx, o.Config.Post.DecideOwnerOrDefault(), question(id, d, hash))
 	if err != nil {
 		if _, merr := o.Store.moveOutbox(id, []string{OutboxPending}, outboxUpdate{state: OutboxFailed, reason: ptr(err.Error())}, now); merr != nil {
 			return OutboxRecord{}, errors.Join(err, merr)
@@ -457,56 +482,70 @@ func (o *Outbox) Poke(ctx context.Context, decideID string) error {
 	return nil
 }
 
-// process applies the acceptance rule to a pending record's answer.
+// acceptance is the acceptance rule for record r and its decide item.
+// m is the latest human message in the thread; ok is false when there
+// is none. Messages from agents after m do not matter. slackwatch posts
+// only when refusal is empty: m picks post from the decide UI, the
+// stored text still matches its hash, and r is pending. A later drop or
+// free-text message from the user replaces an earlier post pick.
+func acceptance(r OutboxRecord, it DecideItem) (m DecideMessage, ok bool, refusal string) {
+	for i := len(it.Messages) - 1; i >= 0 && !ok; i-- {
+		m, ok = it.Messages[i], it.Messages[i].human()
+	}
+	switch {
+	case !ok:
+		return DecideMessage{}, false, "the user has not answered"
+	case m.OptionKey == "":
+		refusal = "the user's latest message is free text, not a post pick"
+	case m.OptionKey != decideKeyPost:
+		refusal = fmt.Sprintf("answer %q is not an option slackwatch posts on", m.OptionKey)
+	case m.Via != decideViaUI:
+		refusal = fmt.Sprintf("the post pick came via %q, not from the decide UI", m.Via)
+	case TextHash(r.Text) != r.TextHash:
+		refusal = "the stored text no longer matches its hash"
+	case r.State != OutboxPending:
+		refusal = fmt.Sprintf("outbox %d is %s, not %s", r.ID, r.State, OutboxPending)
+	}
+	return m, true, refusal
+}
+
+// process applies the acceptance rule to a pending record.
 func (o *Outbox) process(ctx context.Context, cfg Config, r OutboxRecord) error {
 	item, err := o.Decide.Show(ctx, r.DecideID)
 	if err != nil {
 		return fmt.Errorf("outbox %d: %w", r.ID, err)
 	}
-	switch item.State {
-	case decideAnswered:
-	case decideDone, decideWithdrawn:
+	if item.State == decideDone || item.State == decideWithdrawn {
 		return o.finish(ctx, r, end{
 			state: OutboxCancelled, reason: "decide item " + item.State + " without an accepted answer",
 			event: EventOutboxCancelled, closed: true,
 			message: fmt.Sprintf("Slack draft outbox %d was not posted: its decide item was %s without an accepted answer.", r.ID, item.State),
 		})
-	default:
-		return nil
 	}
-	if item.Answer == nil {
-		return nil
-	}
-	return o.answer(ctx, cfg, r, *item.Answer)
-}
-
-// answer applies the acceptance rule to answer a of pending record r.
-func (o *Outbox) answer(ctx context.Context, cfg Config, r OutboxRecord, a DecideAnswer) error {
+	m, ok, refusal := acceptance(r, item)
 	switch {
-	case a.Key == decideKeyDrop:
+	case !ok:
+		return nil
+	case m.OptionKey == decideKeyDrop:
 		return o.finish(ctx, r, end{
 			state: OutboxDropped, outcome: "not posted: dropped", event: EventOutboxDropped,
 			message: fmt.Sprintf("The user chose not to post Slack draft outbox %d (purpose: %q).", r.ID, r.Purpose),
 		})
-	case a.Key == "":
+	case m.OptionKey == "":
 		return o.finish(ctx, r, end{
-			state: OutboxNeedsRedraft, answer: a.Value, text: a.Value,
+			state: OutboxNeedsRedraft, answer: m.Text, text: m.Text,
 			outcome: "not posted: notes sent to " + r.Owner + " for a redraft", event: EventOutboxRedraft,
 			message: fmt.Sprintf("The user asked for changes to Slack draft outbox %d (purpose: %q) instead of approving it. "+
-				"Their notes: %q. Redraft and submit it again with `slackwatch post`.", r.ID, r.Purpose, a.Value),
+				"Their notes: %q. Redraft and submit it again with `slackwatch post`.", r.ID, r.Purpose, m.Text),
 		})
-	case a.Key != decideKeyPost:
-		return o.reject(ctx, r, OutboxPending, fmt.Sprintf("answer %q is not an option slackwatch posts on", a.Key))
-	case a.AnsweredBy != decideHuman || a.Via != decideViaUI:
-		return o.reject(ctx, r, OutboxPending, fmt.Sprintf("the answer came from answeredBy %q via %q, not from a human in the decide UI", a.AnsweredBy, a.Via))
-	case TextHash(r.Text) != r.TextHash:
-		return o.reject(ctx, r, OutboxPending, "the stored text no longer matches its hash")
+	case refusal != "":
+		return o.reject(ctx, r, OutboxPending, refusal)
 	}
 	next := OutboxAwaitingHandoff
 	if cfg.Post.Mode == PostModeDirect {
 		next = OutboxApproved
 	}
-	moved, err := o.Store.moveOutbox(r.ID, []string{OutboxPending}, outboxUpdate{state: next, answer: &a.Value}, o.Now())
+	moved, err := o.Store.moveOutbox(r.ID, []string{OutboxPending}, outboxUpdate{state: next, answer: &m.OptionKey}, o.Now())
 	if err != nil || !moved {
 		return err
 	}
@@ -788,10 +827,9 @@ func (o *Outbox) Posted(ctx context.Context, id int64, link string) (OutboxRecor
 
 // PostedManual records that id was posted by hand at link, for example
 // while serve could not reach decide. It accepts a pending or
-// awaiting-handoff record. A pending record needs a human post answer
-// from the decide UI on its decide item first; a manual post never
-// skips approval. The checks after that are Posted's, and the record
-// notes manual.
+// awaiting-handoff record. A pending record must pass the acceptance
+// rule first; a manual post never skips approval. The checks after that
+// are Posted's, and the record notes manual.
 func (o *Outbox) PostedManual(ctx context.Context, id int64, link string) (OutboxRecord, error) {
 	r, err := o.Store.GetOutbox(id)
 	if err != nil {
@@ -804,31 +842,28 @@ func (o *Outbox) PostedManual(ctx context.Context, id int64, link string) (Outbo
 	default:
 		return OutboxRecord{}, fmt.Errorf("outbox %d is %s, not %s or %s", id, r.State, OutboxPending, OutboxAwaitingHandoff)
 	}
-	approved, err := o.uiApproved(ctx, r)
-	if err != nil {
+	if err := o.uiApproved(ctx, r); err != nil {
 		return OutboxRecord{}, err
-	}
-	if !approved {
-		return OutboxRecord{}, fmt.Errorf("no ui approval found for %d", id)
 	}
 	// A poll may accept the answer meanwhile. Moving from approved too
 	// keeps direct mode from posting it a second time.
 	return o.posted(ctx, r, link, []string{OutboxPending, OutboxApproved, OutboxAwaitingHandoff}, true)
 }
 
-// uiApproved reports whether r's decide item holds an answer the
-// acceptance rule posts on: a human post from the decide UI.
-func (o *Outbox) uiApproved(ctx context.Context, r OutboxRecord) (bool, error) {
+// uiApproved returns an error unless r's decide item passes the
+// acceptance rule.
+func (o *Outbox) uiApproved(ctx context.Context, r OutboxRecord) error {
 	if r.DecideID == "" {
-		return false, nil
+		return fmt.Errorf("no ui approval found for %d: it has no decide item", r.ID)
 	}
 	item, err := o.Decide.Show(ctx, r.DecideID)
 	if err != nil {
-		return false, fmt.Errorf("outbox %d: %w", r.ID, err)
+		return fmt.Errorf("outbox %d: %w", r.ID, err)
 	}
-	a := item.Answer
-	return item.State == decideAnswered && a != nil &&
-		a.Key == decideKeyPost && a.AnsweredBy == decideHuman && a.Via == decideViaUI, nil
+	if _, _, refusal := acceptance(r, item); refusal != "" {
+		return fmt.Errorf("no ui approval found for %d: %s", r.ID, refusal)
+	}
+	return nil
 }
 
 // posted reads the post at link back, compares it with r, and registers

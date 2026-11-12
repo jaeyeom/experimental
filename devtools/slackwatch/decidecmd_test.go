@@ -83,6 +83,36 @@ func TestDecideCommandIsUsed(t *testing.T) {
 	}
 }
 
+// TestDecideCommandHidesCallerPane: an agent that runs slackwatch post
+// from its herdr pane does not become the item's notifyPane, so decide
+// stores none for the items slackwatch owns.
+func TestDecideCommandHidesCallerPane(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "env")
+	script := filepath.Join(dir, "fake-decide")
+	body := `#!/bin/sh
+echo "pane=${HERDR_PANE_ID-unset} handle=${DECIDE_AS_HANDLE-unset} keep=${SLACKWATCH_KEEP-unset}" > '` + log + `'
+echo '{"id":"D-1","state":"open"}'
+`
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil { //nolint:gosec // G306: the fake decide must be executable.
+		t.Fatal(err)
+	}
+	t.Setenv("HERDR_PANE_ID", "w1:p2")
+	t.Setenv("DECIDE_AS_HANDLE", "herdr:laptop/s/w1:p2")
+	t.Setenv("SLACKWATCH_KEEP", "yes")
+	d := DecideCLI{Run: ExecDecide([]string{script})}
+	if _, err := d.Ask(context.Background(), "slackwatch", "Post?"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(data)), "pane=unset handle=unset keep=yes"; got != want {
+		t.Errorf("decide env = %q, want %q", got, want)
+	}
+}
+
 func TestDecideCommandDefault(t *testing.T) {
 	if got := (Config{}).DecideArgv(); fmt.Sprint(got) != "[decide]" {
 		t.Errorf("DecideArgv = %q, want [decide]", got)

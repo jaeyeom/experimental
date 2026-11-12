@@ -17,8 +17,9 @@ var skillTemplateText string
 
 // skillData is what the skill template renders from config.
 type skillData struct {
-	Outbox   string
-	PostMode string
+	Outbox      string
+	PostMode    string
+	DecideOwner string
 }
 
 // cmdSkill prints the agent skill. It reads only the optional config file.
@@ -35,7 +36,7 @@ func cmdSkill(configPath string, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, fmt.Errorf("parse skill template: %w", err))
 	}
-	if err := tmpl.Execute(stdout, skillData{Outbox: cfg.Outbox, PostMode: cfg.Post.Mode}); err != nil {
+	if err := tmpl.Execute(stdout, skillData{Outbox: cfg.Outbox, PostMode: cfg.Post.Mode, DecideOwner: cfg.Post.DecideOwnerOrDefault()}); err != nil {
 		return fail(stderr, fmt.Errorf("render skill: %w", err))
 	}
 	return 0

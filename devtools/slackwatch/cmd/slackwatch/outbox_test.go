@@ -49,6 +49,7 @@ func (d *cmdFakeDecider) Done(_ context.Context, id, outcome string) error {
 func (d *cmdFakeDecider) answerPost(id string) {
 	d.items[id].State = "answered"
 	d.items[id].Answer = &slackwatch.DecideAnswer{Value: "post", Key: "post", AnsweredBy: "human", Via: "ui"}
+	d.items[id].Messages = append(d.items[id].Messages, slackwatch.DecideMessage{Author: "human", Text: "post: Post as written", OptionKey: "post", Via: "ui"})
 }
 
 const (

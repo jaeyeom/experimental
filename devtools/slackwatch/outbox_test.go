@@ -33,7 +33,7 @@ func (d *fakeDecider) Ask(_ context.Context, owner, question string) (string, er
 	}
 	d.next++
 	id := fmt.Sprintf("D-%d", d.next)
-	d.items[id] = &DecideItem{ID: id, State: "open"}
+	d.items[id] = &DecideItem{ID: id, State: "open", Messages: []DecideMessage{{Author: owner, Text: question}}}
 	d.questions[id] = question
 	d.owners[id] = owner
 	return id, nil
@@ -60,9 +60,26 @@ func (d *fakeDecider) Done(_ context.Context, id, outcome string) error {
 	return nil
 }
 
+// answer records a as decide answer and compose do: the item becomes
+// answered and the thread gets a's message. An answer by anyone but
+// human is a message sent with by.
 func (d *fakeDecider) answer(id string, a DecideAnswer) {
-	d.items[id].State = "answered"
-	d.items[id].Answer = &a
+	it := d.items[id]
+	it.State = "answered"
+	it.Answer = &a
+	m := DecideMessage{Author: "human", Text: a.Value, OptionKey: a.Key, Via: a.Via}
+	if a.AnsweredBy != "human" {
+		m.By = a.AnsweredBy
+	}
+	it.Messages = append(it.Messages, m)
+}
+
+// reply appends an agent reply sent by by, as decide reply does: the
+// item reopens and keeps its answer.
+func (d *fakeDecider) reply(id, by, text string) {
+	it := d.items[id]
+	it.State = "open"
+	it.Messages = append(it.Messages, DecideMessage{Author: d.owners[id], Text: text, By: by})
 }
 
 // fakeWriter is a Slack write API.
@@ -315,12 +332,6 @@ func TestAcceptanceRefusals(t *testing.T) {
 			[]string{EventOutboxRejected + ">agent-1", EventOutboxRejected + ">"},
 		},
 		{
-			"agent answer",
-			DecideAnswer{Value: "post", Key: "post", AnsweredBy: "agent-1", Via: "ui"},
-			false, OutboxRejected,
-			[]string{EventOutboxRejected + ">agent-1", EventOutboxRejected + ">"},
-		},
-		{
 			"free text",
 			DecideAnswer{Value: "say tomorrow instead", AnsweredBy: "human", Via: "ui"},
 			false, OutboxNeedsRedraft,
@@ -370,6 +381,92 @@ func TestAcceptanceRefusals(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestAcceptanceIgnoresMessagesSentWithBy: a message sent with by is not
+// the user's, whatever its via, so it neither approves nor refuses.
+func TestAcceptanceIgnoresMessagesSentWithBy(t *testing.T) {
+	for _, a := range []DecideAnswer{
+		{Value: "post", Key: "post", AnsweredBy: "agent-1", Via: "ui"},
+		{Value: "drop", Key: "drop", AnsweredBy: "agent-1", Via: "cli"},
+		{Value: "shorter", AnsweredBy: "agent-1", Via: "ui"},
+	} {
+		t.Run(a.Value, func(t *testing.T) {
+			f := newOutboxFixture(t, PostModeDirect)
+			r := f.submit(t)
+			f.dec.answer(r.DecideID, a)
+			f.poll(t)
+			if got := f.get(t, r.ID); got.State != OutboxPending {
+				t.Errorf("state = %s, want pending", got.State)
+			}
+			if len(f.writer.posts) != 0 || len(f.rec.notes) != 0 || f.dec.items[r.DecideID].State == "done" {
+				t.Errorf("posts %v, events %v, decide %+v", f.writer.posts, f.events(), f.dec.items[r.DecideID])
+			}
+		})
+	}
+}
+
+// TestAcceptanceSurvivesLaterReplies: a ui post pick still posts after
+// agent replies and messages sent with by reopen the item.
+func TestAcceptanceSurvivesLaterReplies(t *testing.T) {
+	for _, mode := range []string{PostModeHandoff, PostModeDirect} {
+		t.Run(mode, func(t *testing.T) {
+			f := newOutboxFixture(t, mode)
+			r := f.submit(t)
+			f.dec.answer(r.DecideID, uiPost)
+			f.dec.reply(r.DecideID, "agent-1", "thanks, waiting for slackwatch")
+			f.dec.answer(r.DecideID, DecideAnswer{Value: "also cc ops", AnsweredBy: "agent-2", Via: "cli"})
+			f.dec.reply(r.DecideID, "", "noted")
+			f.poll(t)
+			want, posts := OutboxAwaitingHandoff, 0
+			if mode == PostModeDirect {
+				want, posts = OutboxPosted, 1
+			}
+			if got := f.get(t, r.ID); got.State != want || got.Answer != "post" {
+				t.Fatalf("record = %+v, want %s", got, want)
+			}
+			if len(f.writer.posts) != posts {
+				t.Errorf("posts = %+v, want %d", f.writer.posts, posts)
+			}
+		})
+	}
+}
+
+// TestAcceptanceLaterHumanMessageWins: a human message after the post
+// pick takes precedence and goes through the redraft or drop path.
+func TestAcceptanceLaterHumanMessageWins(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		later  DecideAnswer
+		state  string
+		events []string
+	}{
+		{"free text", DecideAnswer{Value: "wait, say tomorrow", AnsweredBy: "human", Via: "ui"}, OutboxNeedsRedraft, []string{EventOutboxRedraft + ">agent-1"}},
+		{"free text from cli", DecideAnswer{Value: "wait", AnsweredBy: "human", Via: "cli"}, OutboxNeedsRedraft, []string{EventOutboxRedraft + ">agent-1"}},
+		{"drop", DecideAnswer{Value: "drop", Key: "drop", AnsweredBy: "human", Via: "ui"}, OutboxDropped, []string{EventOutboxDropped + ">agent-1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOutboxFixture(t, PostModeDirect)
+			r := f.submit(t)
+			f.dec.answer(r.DecideID, uiPost)
+			f.dec.reply(r.DecideID, "agent-1", "ok")
+			f.dec.answer(r.DecideID, tc.later)
+			f.poll(t)
+			got := f.get(t, r.ID)
+			if got.State != tc.state {
+				t.Errorf("state = %s, want %s (reason %q)", got.State, tc.state, got.Reason)
+			}
+			if len(f.writer.posts) != 0 {
+				t.Errorf("posted %+v", f.writer.posts)
+			}
+			if ev := f.events(); strings.Join(ev, ",") != strings.Join(tc.events, ",") {
+				t.Fatalf("events = %v, want %v", ev, tc.events)
+			}
+			if tc.state == OutboxNeedsRedraft && (got.Answer != tc.later.Value || f.rec.notes[0].Text != tc.later.Value) {
+				t.Errorf("answer = %q, note = %+v", got.Answer, f.rec.notes[0])
+			}
+		})
 	}
 }
 
@@ -546,6 +643,38 @@ func TestManualPostedPendingWithUIApproval(t *testing.T) {
 	}
 }
 
+func TestManualPostedAfterLaterReply(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.dec.reply(r.DecideID, "agent-1", "posting by hand")
+	f.reader.msg = Message{User: expectUser, Text: approvedText}
+	got, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxPosted || !got.Manual {
+		t.Fatalf("record = %+v", got)
+	}
+}
+
+func TestManualPostedRefusesChangedHash(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	if _, err := f.store.DB().Exec(`UPDATE outbox SET text = 'changed' WHERE id = ?`, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.dec.answer(r.DecideID, uiPost)
+	f.reader.msg = Message{User: expectUser, Text: "changed"}
+	_, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+	if err == nil || !strings.Contains(err.Error(), "no longer matches its hash") {
+		t.Fatalf("err = %v, want a hash refusal", err)
+	}
+	if got := f.get(t, r.ID); got.State != OutboxPending || f.reader.calls != 0 {
+		t.Errorf("record = %+v, reads %d", got, f.reader.calls)
+	}
+}
+
 func TestManualPostedAwaitingHandoff(t *testing.T) {
 	f := newOutboxFixture(t, PostModeHandoff)
 	r := approveHandoff(t, f)
@@ -564,6 +693,7 @@ func TestManualPostedRequiresUIApproval(t *testing.T) {
 		"unanswered": nil,
 		"cli post":   {Value: "post", Key: "post", AnsweredBy: "human", Via: "cli"},
 		"agent post": {Value: "post", Key: "post", AnsweredBy: "agent", Via: "ui"},
+		"no via":     {Value: "post", Key: "post", AnsweredBy: "human"},
 		"drop":       {Value: "drop", Key: "drop", AnsweredBy: "human", Via: "ui"},
 		"free text":  {Value: "shorter please", AnsweredBy: "human", Via: "ui"},
 	} {
@@ -575,7 +705,7 @@ func TestManualPostedRequiresUIApproval(t *testing.T) {
 			}
 			f.reader.msg = Message{User: expectUser, Text: approvedText}
 			_, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
-			if want := fmt.Sprintf("no ui approval found for %d", r.ID); err == nil || err.Error() != want {
+			if want := fmt.Sprintf("no ui approval found for %d: ", r.ID); err == nil || !strings.HasPrefix(err.Error(), want) {
 				t.Fatalf("err = %v, want %q", err, want)
 			}
 			if got := f.get(t, r.ID); got.State != OutboxPending || got.Manual || got.WatchID != 0 {
@@ -859,8 +989,10 @@ func TestOutboxCounts(t *testing.T) {
 func TestDecideCLI(t *testing.T) {
 	var calls [][]string
 	out := map[string]string{
-		"ask":  `{"id":"D-7","state":"open"}`,
-		"show": `{"id":"D-7","state":"answered","answer":{"value":"post","key":"post","answeredBy":"human","via":"ui"}}`,
+		"ask": `{"id":"D-7","state":"open"}`,
+		"show": `{"id":"D-7","state":"open","answer":{"value":"post","key":"post","answeredBy":"human","via":"ui"},` +
+			`"messages":[{"author":"slackwatch","text":"Post?"},{"author":"human","text":"post: Post as written","optionKey":"post","via":"ui"},` +
+			`{"author":"slackwatch","text":"ok","by":"agent-1"}]}`,
 		"done": `{"id":"D-7","state":"done"}`,
 	}
 	d := DecideCLI{Run: func(_ context.Context, args ...string) ([]byte, error) {
@@ -872,7 +1004,12 @@ func TestDecideCLI(t *testing.T) {
 		t.Fatalf("Ask = %q, %v", id, err)
 	}
 	it, err := d.Show(context.Background(), "D-7")
-	if err != nil || it.Answer == nil || it.Answer.Via != "ui" || it.Answer.Key != "post" || it.State != "answered" {
+	wantMsgs := []DecideMessage{
+		{Author: "slackwatch", Text: "Post?"},
+		{Author: "human", Text: "post: Post as written", OptionKey: "post", Via: "ui"},
+		{Author: "slackwatch", Text: "ok", By: "agent-1"},
+	}
+	if err != nil || it.State != "open" || fmt.Sprint(it.Messages) != fmt.Sprint(wantMsgs) {
 		t.Fatalf("Show = %+v, %v", it, err)
 	}
 	if err := d.Done(context.Background(), "D-7", "posted"); err != nil {
