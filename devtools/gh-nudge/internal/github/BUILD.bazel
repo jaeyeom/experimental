@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "approve.go",
         "ghbin.go",
+        "ghjson.go",
         "github.go",
         "label_age.go",
         "mergequeue.go",
@@ -16,6 +17,7 @@ go_library(
     deps = [
         "//devtools/gh-nudge/internal/models:go_default_library",
         "//devtools/pkg/ghcli:go_default_library",
+        "//devtools/pkg/ghlimit:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
 )
@@ -25,6 +27,7 @@ go_test(
     srcs = [
         "approve_test.go",
         "ghbin_test.go",
+        "ghjson_test.go",
         "github_test.go",
         "label_age_test.go",
         "mergequeue_test.go",

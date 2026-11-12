@@ -47,7 +47,7 @@ func TestGetPendingPullRequests(t *testing.T) {
 		if prs != nil {
 			t.Errorf("expected nil PRs on parse error, got %v", prs)
 		}
-		if !strings.Contains(err.Error(), "failed to parse") {
+		if !strings.Contains(err.Error(), "parse gh pr list") {
 			t.Errorf("expected error to mention parsing, got: %v", err)
 		}
 	})
@@ -942,9 +942,8 @@ func TestGetPendingPullRequestsRetriesNonZeroExit(t *testing.T) {
 	}
 }
 
-func TestGetPendingPullRequestsRetriesTruncatedJSON(t *testing.T) {
+func TestGetPendingPullRequestsDoesNotRetryTruncatedJSON(t *testing.T) {
 	exec := &separatedMock{calls: []ghCall{
-		{stdout: `[{"url":`},
 		{stdout: `[{"url":`},
 	}}
 	client := NewClientWithExecutor(exec)
@@ -955,8 +954,8 @@ func TestGetPendingPullRequestsRetriesTruncatedJSON(t *testing.T) {
 	if prs != nil {
 		t.Fatalf("prs = %v, want nil", prs)
 	}
-	if exec.n != 2 {
-		t.Fatalf("gh calls = %d, want 2", exec.n)
+	if exec.n != 1 {
+		t.Fatalf("gh calls = %d, want 1", exec.n)
 	}
 	if !strings.Contains(err.Error(), "unexpected end of JSON input") {
 		t.Fatalf("error = %v, want unexpected end of JSON input", err)
@@ -964,7 +963,7 @@ func TestGetPendingPullRequestsRetriesTruncatedJSON(t *testing.T) {
 }
 
 func TestGetPendingPullRequestsRejectsNull(t *testing.T) {
-	exec := &separatedMock{calls: []ghCall{{stdout: "null"}, {stdout: "null"}}}
+	exec := &separatedMock{calls: []ghCall{{stdout: "null"}}}
 	client := NewClientWithExecutor(exec)
 	prs, err := client.GetPendingPullRequests()
 	if err == nil {
@@ -973,8 +972,8 @@ func TestGetPendingPullRequestsRejectsNull(t *testing.T) {
 	if prs != nil {
 		t.Fatalf("prs = %v, want nil", prs)
 	}
-	if exec.n != 2 {
-		t.Fatalf("gh calls = %d, want 2", exec.n)
+	if exec.n != 1 {
+		t.Fatalf("gh calls = %d, want 1", exec.n)
 	}
 }
 

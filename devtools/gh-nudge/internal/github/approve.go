@@ -72,8 +72,8 @@ func (c *Client) ViewerLogin() (string, error) {
 			} `json:"viewer"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("read viewer: parse graphql: %w", err)
+	if err := body.decode(&resp); err != nil {
+		return "", fmt.Errorf("read viewer: %w", err)
 	}
 	if resp.Data.Viewer.Login == "" {
 		return "", fmt.Errorf("read viewer: empty login")
@@ -122,8 +122,8 @@ func (c *Client) SearchUserReviewRequested() ([]PullRef, error) {
 				} `json:"search"`
 			} `json:"data"`
 		}
-		if err := json.Unmarshal(body, &resp); err != nil {
-			return nil, fmt.Errorf("search review requests: parse graphql: %w", err)
+		if err := body.decode(&resp); err != nil {
+			return nil, fmt.Errorf("search review requests: %w", err)
 		}
 		for _, node := range resp.Data.Search.Nodes {
 			owner, repo, ok := strings.Cut(node.Repository.NameWithOwner, "/")
@@ -273,8 +273,8 @@ func (c *Client) LoadApprovalPullRequest(ref PullRef) (ApprovalPullRequest, erro
 			} `json:"repository"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return ApprovalPullRequest{}, fmt.Errorf("load pull request %s: parse graphql: %w", name, err)
+	if err := body.decode(&resp); err != nil {
+		return ApprovalPullRequest{}, fmt.Errorf("load pull request %s: %w", name, err)
 	}
 	if resp.Data.Repository == nil || resp.Data.Repository.PullRequest == nil {
 		return ApprovalPullRequest{}, fmt.Errorf("load pull request %s: not found", name)
