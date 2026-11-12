@@ -109,6 +109,22 @@ const roundCacheFile = "round-cache.json"
 // Call the func once the scan is done.
 func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h scan.Herdr) (scan.Deps, func()) {
 	src := &rcasetting.Source{}
+	cache, save := loadRoundCache(ctx, cfg)
+	deps := scan.Deps{
+		GH:      gh.NewClient(exec, cfg.GHBin).WithRollupCache(cache),
+		Herdr:   h,
+		Remote:  func(machine string) scan.Herdr { return machineHerdr(exec, cfg, machine) },
+		Marker:  src.For,
+		History: cache,
+		Rounds:  cache,
+		Threads: cache,
+	}
+	return deps, save
+}
+
+// loadRoundCache loads the round cache with cfg's TTLs and returns a func
+// that saves it. Call the func once the round is done.
+func loadRoundCache(ctx context.Context, cfg config.Config) (*roundcache.Cache, func()) {
 	logger := runlog.FromContext(ctx)
 	cache, err := roundcache.Load(filepath.Join(filepath.Dir(cfg.StateFile), roundCacheFile), time.Now)
 	if err != nil {
@@ -119,16 +135,8 @@ func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h 
 	cache.SetMembersTTL(cfg.TeamCoverMembersTTL)
 	cache.SetCodeownersTTL(cfg.TeamCoverCodeownersTTL)
 	cache.SetThreadsTTL(cfg.ReviewThreadsTTL)
-	deps := scan.Deps{
-		GH:      gh.NewClient(exec, cfg.GHBin).WithRollupCache(cache),
-		Herdr:   h,
-		Remote:  func(machine string) scan.Herdr { return machineHerdr(exec, cfg, machine) },
-		Marker:  src.For,
-		History: cache,
-		Rounds:  cache,
-		Threads: cache,
-	}
-	return deps, func() {
+	cache.SetPRViewClosedTTL(cfg.PRViewClosedTTL)
+	return cache, func() {
 		if err := cache.Save(); err != nil {
 			logger.Warn("round cache not saved", "err", err.Error())
 		}

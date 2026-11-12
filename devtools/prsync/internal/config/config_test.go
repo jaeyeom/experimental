@@ -658,6 +658,23 @@ func TestLoadReviewThreadsTTL(t *testing.T) {
 	}
 }
 
+func TestLoadPRViewClosedTTL(t *testing.T) {
+	for body, want := range map[string]time.Duration{
+		"pr_view_closed_ttl=2h\n": 2 * time.Hour,
+		"pr_view_closed_ttl=0\n":  0,
+	} {
+		path := filepath.Join(t.TempDir(), "prsync.config")
+		mustWrite(t, path, body)
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load(%q): %v", body, err)
+		}
+		if got.PRViewClosedTTL != want {
+			t.Fatalf("Load(%q) PRViewClosedTTL = %v, want %v", body, got.PRViewClosedTTL, want)
+		}
+	}
+}
+
 func TestLoadTeamCoverHistoryTTLZero(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "team_cover_history_ttl=0\n")
@@ -791,6 +808,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "negative team cover codeowners ttl", body: "team_cover_codeowners_ttl=-1h\n", key: "team_cover_codeowners_ttl"},
 		{name: "bad review threads ttl", body: "review_threads_ttl=6\n", key: "review_threads_ttl"},
 		{name: "negative review threads ttl", body: "review_threads_ttl=-1h\n", key: "review_threads_ttl"},
+		{name: "bad pr view closed ttl", body: "pr_view_closed_ttl=24\n", key: "pr_view_closed_ttl"},
+		{name: "negative pr view closed ttl", body: "pr_view_closed_ttl=-1h\n", key: "pr_view_closed_ttl"},
 		{name: "bad dedupe ttl", body: "dedupe_ttl=tomorrow\n", key: "dedupe_ttl"},
 		{name: "negative dedupe ttl", body: "dedupe_ttl=-1s\n", key: "dedupe_ttl"},
 		{name: "negative dedupe scans", body: "dedupe_scans=-1\n", key: "dedupe_scans"},
@@ -962,6 +981,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.ReviewThreadsTTL != 6*time.Hour {
 		t.Fatalf("ReviewThreadsTTL = %v, want 6h", got.ReviewThreadsTTL)
+	}
+	if got.PRViewClosedTTL != 24*time.Hour {
+		t.Fatalf("PRViewClosedTTL = %v, want 24h", got.PRViewClosedTTL)
 	}
 	if got.StateFile != "~/.config/prsync/state.json" {
 		t.Fatalf("StateFile = %q", got.StateFile)

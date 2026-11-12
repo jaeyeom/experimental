@@ -591,3 +591,86 @@ func TestSaveKeepsTeamCoverKeysAndPrunesUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestPRViewKeepsMergedAndExpiresClosed(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.SetPRViewClosedTTL(time.Hour)
+	merged := gh.PRSearchItem{Number: 7, State: "merged", ClosedAt: "2026-08-18T22:19:28Z", Repository: gh.SearchRepository{NameWithOwner: "acme/widgets"}}
+	c.PutPRView("acme/widgets", 7, merged)
+	c.PutPRView("acme/widgets", 8, gh.PRSearchItem{Number: 8, State: "closed"})
+	c.PutPRView("acme/widgets", 9, gh.PRSearchItem{Number: 9, State: "open"})
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	next, _ := Load(path, clk.now)
+	next.SetPRViewClosedTTL(time.Hour)
+	if got, ok := next.PRView("acme/widgets", 7); !ok || got != merged {
+		t.Fatalf("PRView(7) = %+v, %v; want the merged item", got, ok)
+	}
+	if _, ok := next.PRView("acme/widgets", 8); !ok {
+		t.Fatal("closed miss inside the TTL")
+	}
+	if _, ok := next.PRView("acme/widgets", 9); ok {
+		t.Fatal("open result was stored")
+	}
+	clk.t = clk.t.Add(time.Hour + time.Second)
+	if _, ok := next.PRView("acme/widgets", 8); ok {
+		t.Fatal("closed hit past the TTL")
+	}
+	clk.t = clk.t.Add(365 * 24 * time.Hour)
+	if _, ok := next.PRView("acme/widgets", 7); !ok {
+		t.Fatal("merged entry expired")
+	}
+	if err := next.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(maps.Keys(next.data.PRViews)); !slices.Equal(got, []string{"acme/widgets#7"}) {
+		t.Fatalf("pr view keys = %q, want only the merged entry", got)
+	}
+}
+
+func TestDefaultPRViewClosedTTL(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	c.SetPRViewClosedTTL(0)
+	c.PutPRView("acme/widgets", 8, gh.PRSearchItem{Number: 8, State: "closed"})
+	clk.t = clk.t.Add(PRViewClosedTTL - time.Second)
+	if _, ok := c.PRView("acme/widgets", 8); !ok {
+		t.Fatal("miss inside PRViewClosedTTL")
+	}
+	clk.t = clk.t.Add(2 * time.Second)
+	if _, ok := c.PRView("acme/widgets", 8); ok {
+		t.Fatal("hit past PRViewClosedTTL")
+	}
+}
+
+func TestPrunePRViewsKeepsOnlyReferenced(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	for _, ref := range []struct {
+		repo   string
+		number int
+	}{{"acme/widgets", 7}, {"acme/widgets", 8}, {"acme/gadgets", 7}} {
+		c.PutPRView(ref.repo, ref.number, gh.PRSearchItem{Number: ref.number, State: "merged"})
+	}
+	c.PrunePRViews(func(repo string, number int) bool {
+		return repo == "acme/widgets" && number == 7
+	})
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	next, _ := Load(path, clk.now)
+	if got := slices.Sorted(maps.Keys(next.data.PRViews)); !slices.Equal(got, []string{"acme/widgets#7"}) {
+		t.Fatalf("pr view keys = %q, want only acme/widgets#7", got)
+	}
+}

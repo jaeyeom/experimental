@@ -3,10 +3,11 @@
 // Entries expire after their TTL (TTL for status checks, the history TTL
 // for path history, the load TTL for review load, the members TTL for team
 // members, the CODEOWNERS TTL for CODEOWNERS bodies, the threads TTL for
-// review threads, and KeepTTL for changed files, review snapshots and
-// CODEOWNERS locations) and are dropped on Save, as are entries whose key
-// is not in the current format. The file is only a cache: a missing or
-// corrupt file starts empty.
+// review threads, the closed TTL for closed pull-request views, and KeepTTL
+// for changed files, review snapshots and CODEOWNERS locations) and are
+// dropped on Save, as are entries whose key is not in the current format.
+// Merged pull-request views do not expire; PrunePRViews drops them. The
+// file is only a cache: a missing or corrupt file starts empty.
 package roundcache
 
 import (
@@ -50,6 +51,10 @@ const CodeownersTTL = 6 * time.Hour
 // unless SetThreadsTTL sets another TTL.
 const ThreadsTTL = 6 * time.Hour
 
+// PRViewClosedTTL is how long a closed (not merged) pull request's view is
+// reused unless SetPRViewClosedTTL sets another TTL.
+const PRViewClosedTTL = 24 * time.Hour
+
 // KeepTTL is how long entries are kept whose key already pins the answer
 // (changed files per head, review snapshots per head and updatedAt), and
 // how long a CODEOWNERS location is kept as the first place to look.
@@ -72,6 +77,7 @@ type Cache struct {
 	membersTTL    time.Duration
 	codeownersTTL time.Duration
 	threadsTTL    time.Duration
+	closedTTL     time.Duration
 	data          payload
 	dirty         bool
 }
@@ -81,13 +87,14 @@ type payload struct {
 	Rollups map[string]rollupEntry  `json:"rollups"`
 	Rounds  map[string]int          `json:"rounds,omitempty"`
 	Loads   map[string]loadEntry    `json:"loads,omitempty"`
-	// Members is keyed by org/slug, Files, Reviews and Threads by
+	// Members is keyed by org/slug, Files, Reviews, Threads and PRViews by
 	// repo#number, and Codeowners by repo@ref.
 	Members    map[string]membersEntry    `json:"members,omitempty"`
 	Files      map[string]filesEntry      `json:"files,omitempty"`
 	Codeowners map[string]codeownersEntry `json:"codeowners,omitempty"`
 	Reviews    map[string]reviewsEntry    `json:"reviews,omitempty"`
 	Threads    map[string]threadsEntry    `json:"threads,omitempty"`
+	PRViews    map[string]prViewEntry     `json:"prViews,omitempty"`
 	// HistoryBatch is the path-history request size that last worked.
 	HistoryBatch int `json:"historyBatch,omitempty"`
 }
@@ -136,6 +143,12 @@ type threadsEntry struct {
 	Threads   []gh.Thread `json:"threads"`
 }
 
+// prViewEntry is a merged or closed pull request's view.
+type prViewEntry struct {
+	At   time.Time       `json:"at"`
+	Item gh.PRSearchItem `json:"item"`
+}
+
 type rollupEntry struct {
 	At        time.Time        `json:"at"`
 	Head      string           `json:"head"`
@@ -149,7 +162,7 @@ func Load(path string, now func() time.Time) (*Cache, error) {
 	c := &Cache{
 		path: path, now: now, historyTTL: HistoryTTL, loadTTL: LoadTTL,
 		membersTTL: MembersTTL, codeownersTTL: CodeownersTTL, threadsTTL: ThreadsTTL,
-		data: emptyPayload(),
+		closedTTL: PRViewClosedTTL, data: emptyPayload(),
 	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -189,6 +202,9 @@ func Load(path string, now func() time.Time) (*Cache, error) {
 	if data.Threads != nil {
 		c.data.Threads = data.Threads
 	}
+	if data.PRViews != nil {
+		c.data.PRViews = data.PRViews
+	}
 	c.data.HistoryBatch = data.HistoryBatch
 	return c, nil
 }
@@ -204,6 +220,7 @@ func emptyPayload() payload {
 		Codeowners: map[string]codeownersEntry{},
 		Reviews:    map[string]reviewsEntry{},
 		Threads:    map[string]threadsEntry{},
+		PRViews:    map[string]prViewEntry{},
 	}
 }
 
@@ -265,6 +282,18 @@ func (c *Cache) SetThreadsTTL(ttl time.Duration) {
 		ttl = ThreadsTTL
 	}
 	c.threadsTTL = ttl
+}
+
+// SetPRViewClosedTTL sets how long a closed (not merged) pull request's
+// view is reused; Save drops older entries. A ttl <= 0 restores
+// PRViewClosedTTL.
+func (c *Cache) SetPRViewClosedTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ttl <= 0 {
+		ttl = PRViewClosedTTL
+	}
+	c.closedTTL = ttl
 }
 
 func historyKey(repo, ref, path, version string) string {
@@ -484,6 +513,51 @@ func (c *Cache) PruneReviewThreads(repo string, open []int) {
 	}
 }
 
+// PRView returns the stored view of a pull request: a merged one until
+// PrunePRViews drops it, a closed one while younger than the closed TTL.
+func (c *Cache) PRView(repo string, number int) (gh.PRSearchItem, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.data.PRViews[rollupKey(repo, number)]
+	if !ok || !c.prViewFresh(entry) {
+		return gh.PRSearchItem{}, false
+	}
+	return entry.Item, true
+}
+
+// PutPRView stores item for PRView. Only a merged or closed state is
+// stored, because an open pull request can change at any time.
+func (c *Cache) PutPRView(repo string, number int, item gh.PRSearchItem) {
+	if item.State != "merged" && item.State != "closed" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data.PRViews[rollupKey(repo, number)] = prViewEntry{At: c.now(), Item: item}
+	c.dirty = true
+}
+
+// PrunePRViews drops the stored views of pull requests keep rejects.
+func (c *Cache) PrunePRViews(keep func(repo string, number int) bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.data.PRViews {
+		repo, n, _ := strings.Cut(key, "#")
+		number, err := strconv.Atoi(n)
+		if err == nil && keep(repo, number) {
+			continue
+		}
+		delete(c.data.PRViews, key)
+		c.dirty = true
+	}
+}
+
+// prViewFresh reports whether a stored view may be reused. The caller
+// holds mu.
+func (c *Cache) prViewFresh(entry prViewEntry) bool {
+	return entry.Item.State == "merged" || c.fresh(entry.At, c.closedTTL)
+}
+
 // Codeowners returns the stored CODEOWNERS body of repo at ref and the path
 // it was found at (empty when none exists). ok is set while the body is
 // fresh; past that, path is still returned for the longer of the
@@ -591,6 +665,7 @@ func (c *Cache) Save() error {
 		}
 	}
 	c.pruneThreads()
+	c.prunePRViews()
 	c.pruneTeamCover()
 	if !c.dirty {
 		return nil
@@ -615,6 +690,17 @@ func (c *Cache) pruneThreads() {
 	for key, entry := range c.data.Threads {
 		if !c.fresh(entry.At, c.threadsTTL) || !knownRollupKey(key) {
 			delete(c.data.Threads, key)
+			c.dirty = true
+		}
+	}
+}
+
+// prunePRViews drops expired closed pull-request views and those whose key
+// is not in the current format. The caller holds mu.
+func (c *Cache) prunePRViews() {
+	for key, entry := range c.data.PRViews {
+		if !c.prViewFresh(entry) || !knownRollupKey(key) {
+			delete(c.data.PRViews, key)
 			c.dirty = true
 		}
 	}

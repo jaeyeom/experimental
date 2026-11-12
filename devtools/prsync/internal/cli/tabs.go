@@ -74,8 +74,14 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 	}
 	client := newTabsHerdr(exec, cfg)
 	jiraClient := jira.NewClient(exec, cfg.JiraBin)
+	// Loaded after stdin is read, so a piped scan has saved its own
+	// round-cache entries first.
+	cache, saveCache := loadRoundCache(ctx, cfg)
+	defer saveCache()
+	views := scan.NewPRViewLookup(gh.NewClient(exec, cfg.GHBin), cache, cfg.PRViewClosedTTL)
+	defer views.Report(ctx)
 	deps := scan.OrphanDeps{
-		GH:     gh.NewClient(exec, cfg.GHBin),
+		GH:     views,
 		Herdr:  client,
 		RepoOf: scan.GitHubRepoFromCWD,
 	}
@@ -88,6 +94,7 @@ func runTabsOrphans(ctx context.Context, stdout io.Writer, exec executor.Executo
 		}
 		return gateError(err, cfg)
 	}
+	views.Prune()
 	if !closeMerged {
 		return writeOrphanJSON(stdout, doc)
 	}
