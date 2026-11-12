@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigOpenCommand(t *testing.T) {
@@ -40,6 +41,35 @@ func TestLoadConfigHyperlinks(t *testing.T) {
 		}
 		if got := cfg.HyperlinksOn(); got != tc.want {
 			t.Fatalf("%s: HyperlinksOn() = %v, want %v", tc.data, got, tc.want)
+		}
+	}
+}
+
+func TestLoadConfigRecipientsTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		data string
+		want time.Duration
+	}{
+		{`{}`, 3 * time.Second},
+		{`{"recipientsTimeout": "5s"}`, 5 * time.Second},
+		{`{"recipientsTimeout": "250ms"}`, 250 * time.Millisecond},
+	} {
+		writeConfig(t, tc.data)
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.BusListTimeout(); got != tc.want {
+			t.Fatalf("%s: BusListTimeout() = %s, want %s", tc.data, got, tc.want)
+		}
+	}
+}
+
+func TestLoadConfigRecipientsTimeoutMustBePositive(t *testing.T) {
+	for _, data := range []string{`{"recipientsTimeout": "soon"}`, `{"recipientsTimeout": "0s"}`} {
+		writeConfig(t, data)
+		if _, err := LoadConfig(); err == nil || !strings.Contains(err.Error(), "recipientsTimeout") {
+			t.Fatalf("%s: err = %v, want a recipientsTimeout error", data, err)
 		}
 	}
 }

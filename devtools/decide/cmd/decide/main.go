@@ -477,19 +477,20 @@ func inboxFlags(args []string, stderr io.Writer) (snoozed bool, code int, ok boo
 // inboxOptions are the inbox settings from this machine's config.
 func inboxOptions(cfg decide.Config, stdout io.Writer, snoozed bool) tui.Options {
 	return tui.Options{
-		In:            os.Stdin,
-		Out:           stdout,
-		Targets:       inboxTargets(cfg),
-		SendTemplate:  cfg.SendTemplate,
-		Agentbus:      cfg.Recipients.Agentbus,
-		Snoozed:       snoozed,
-		Avatars:       cfg.Avatars,
-		AvatarDefault: cfg.AvatarDefault,
-		AvatarMono:    cfg.AvatarMono,
-		Checkouts:     cfg.Checkouts,
-		Machine:       decide.LocalMachine(cfg),
-		OpenCommand:   cfg.OpenCommand,
-		NoHyperlinks:  !cfg.HyperlinksOn(),
+		In:                os.Stdin,
+		Out:               stdout,
+		Targets:           inboxTargets(cfg),
+		SendTemplate:      cfg.SendTemplate,
+		Agentbus:          cfg.Recipients.Agentbus,
+		RecipientsTimeout: cfg.BusListTimeout(),
+		Snoozed:           snoozed,
+		Avatars:           cfg.Avatars,
+		AvatarDefault:     cfg.AvatarDefault,
+		AvatarMono:        cfg.AvatarMono,
+		Checkouts:         cfg.Checkouts,
+		Machine:           decide.LocalMachine(cfg),
+		OpenCommand:       cfg.OpenCommand,
+		NoHyperlinks:      !cfg.HyperlinksOn(),
 	}
 }
 

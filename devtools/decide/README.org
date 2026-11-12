@@ -73,9 +73,14 @@ With ~"recipients": {"agentbus": true}~ in the config (off by default)
 the list adds the names from ~agentbus list --json~ after the configured
 targets, with their ~when~ text and liveness. Dead names come last. A
 configured target whose pane a bus name holds is shown once, as the bus
-name. The listing is cached for 30 seconds. If ~agentbus~ is missing,
-the daemon is down, or the call takes over 500ms, the list holds only the
-configured targets and no error shows. A note to a bus name runs
+name. The names load in the background when the inbox starts and again
+every 30 seconds, so opening compose never waits for ~agentbus~: the list
+shows the configured targets and the names loaded so far, and names that
+arrive later join it without moving the selection. The top-level
+~"recipientsTimeout": "5s"~ bounds each load (default 3s). When a load times out the status line
+shows ~agentbus: slow (>3s)~, and when ~agentbus~ is missing or fails it
+shows ~agentbus: unavailable (<error>)~, once until a load succeeds. The
+last good names stay in the list. A note to a bus name runs
 ~agentbus send <name> <note>~. The thread pane is ~agentbus:<name>~ and
 ~busMessage~ is the bus message id. Replies in that thread from the
 inbox also go through ~agentbus send~. When the send fails the draft

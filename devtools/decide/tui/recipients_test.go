@@ -119,6 +119,7 @@ func TestAgentbusOffNeverRunsAgentbus(t *testing.T) {
 func TestAgentbusCandidatesMergeDedupeAndPutDeadLast(t *testing.T) {
 	bus := &fakeBus{list: busList}
 	m := busModel(t, bus)
+	loadBus(t, m)
 	press(t, m, "c")
 	if len(bus.calls) != 1 || strings.Join(bus.calls[0], " ") != "list --json" {
 		t.Fatalf("calls = %q", bus.calls)
@@ -175,6 +176,7 @@ func TestPickerTypeToFilter(t *testing.T) {
 	bus := &fakeBus{list: busList}
 	m := busModel(t, bus)
 	m.width, m.height = 100, 40
+	loadBus(t, m)
 	press(t, m, "cpri")
 	if got := strings.Join(visibleNames(m), ","); got != "coord/primary,tools/deploy" {
 		t.Fatalf("pri matches = %s", got)
@@ -216,60 +218,165 @@ func TestPickerKeysMoveAndEnterPicks(t *testing.T) {
 	}
 }
 
-func TestAgentbusFailureFallsBackSilently(t *testing.T) {
-	bus := &fakeBus{list: busList, listErr: errors.New("agentbus: daemon unreachable")}
-	m := busModel(t, bus)
-	press(t, m, "c")
-	if got := strings.Join(candidateNames(m), ","); got != "main,inbox" || m.status != "" {
-		t.Fatalf("candidates %s status %q", got, m.status)
+// loadBus runs one background bus load to the end and hands its result
+// to the model, as the program would.
+func loadBus(t *testing.T, m *Model) {
+	t.Helper()
+	cmd := m.busLoad()
+	if cmd == nil {
+		t.Fatal("no bus load started")
 	}
+	m.Update(cmd())
 }
 
-func TestAgentbusTimeoutFallsBackSilently(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	m, err := prepare(Options{
-		Dir:      t.TempDir(),
-		In:       strings.NewReader(""),
-		Out:      io.Discard,
-		Targets:  configuredTargets(),
-		Agentbus: true,
-		BusRunner: func(ctx context.Context, _ []string) ([]byte, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestComposeDoesNotWaitForAgentbus(t *testing.T) {
+	release := make(chan struct{})
+	bus := &fakeBus{list: busList}
+	m := busModel(t, bus)
+	m.busRun = func(ctx context.Context, args []string) ([]byte, error) {
+		<-release
+		return bus.run(ctx, args)
 	}
+	cmd := m.busLoad()
+	if cmd == nil {
+		t.Fatal("no bus load started")
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+
 	start := time.Now()
 	press(t, m, "c")
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("picker waited %s", elapsed)
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("compose waited %s", elapsed)
 	}
-	if got := strings.Join(candidateNames(m), ","); got != "main,inbox" || m.status != "" {
-		t.Fatalf("candidates %s status %q", got, m.status)
+	if got := strings.Join(candidateNames(m), ","); got != "main,inbox" {
+		t.Fatalf("candidates before the load = %s", got)
+	}
+	if tg, _ := m.selectedTarget(); tg.Name != "inbox" {
+		t.Fatalf("selected %q", tg.Name)
+	}
+	if m.busLoad() != nil {
+		t.Fatal("a second load started while one runs")
+	}
+
+	close(release)
+	m.Update(<-done)
+	if got := len(m.candidates()); got != 13 {
+		t.Fatalf("candidates after the load = %q", candidateNames(m))
+	}
+	if tg, _ := m.selectedTarget(); tg.Name != "inbox" || !m.composing || m.status != "" {
+		t.Fatalf("selected %q composing %v status %q", tg.Name, m.composing, m.status)
 	}
 }
 
-func TestAgentbusListIsCachedForThirtySeconds(t *testing.T) {
+func TestInitStartsTheBusLoad(t *testing.T) {
+	m := busModel(t, &fakeBus{list: busList})
+	m.Init()
+	if !m.busLoading {
+		t.Fatal("Init did not start a bus load")
+	}
+}
+
+func TestAgentbusOffStartsNoLoad(t *testing.T) {
+	m := busModel(t, &fakeBus{list: busList})
+	m.busOn = false
+	if m.busLoad() != nil {
+		t.Fatal("a bus load started with the config off")
+	}
+}
+
+func TestReloadStartsABusLoadEachInterval(t *testing.T) {
 	bus := &fakeBus{list: busList}
 	m := busModel(t, bus)
 	now := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
 	m.Now = func() time.Time { return now }
-	press(t, m, "c\x1b\x1bc\x1b")
-	if len(bus.calls) != 1 {
-		t.Fatalf("calls within 30s = %d", len(bus.calls))
+	loadBus(t, m)
+	m.Update(reloadMsg{})
+	if m.busLoading {
+		t.Fatal("a reload within the interval started a bus load")
 	}
-	now = now.Add(31 * time.Second)
+	now = now.Add(busReloadInterval + time.Second)
+	m.Update(reloadMsg{})
+	if !m.busLoading {
+		t.Fatal("a reload after the interval did not start a bus load")
+	}
+}
+
+func TestAgentbusTimeoutKeepsNamesAndSaysSlow(t *testing.T) {
+	bus := &fakeBus{list: busList}
+	m := busModel(t, bus)
+	loadBus(t, m)
+	if m.busTimeout != decide.DefaultBusListTimeout {
+		t.Fatalf("default timeout = %s", m.busTimeout)
+	}
+	m.busTimeout = 20 * time.Millisecond
+	m.busRun = func(ctx context.Context, _ []string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, errors.New("signal: killed")
+	}
+	loadBus(t, m)
+	if got := len(m.candidates()); got != 13 {
+		t.Fatalf("names after a timeout = %q", candidateNames(m))
+	}
+	if m.status != "agentbus: slow (>20ms)" {
+		t.Fatalf("status = %q", m.status)
+	}
+
+	// The note shows once.
+	m.status = ""
+	loadBus(t, m)
+	if m.status != "" {
+		t.Fatalf("second timeout status = %q", m.status)
+	}
+
+	// A good load clears the note, so the next failure shows again.
+	m.busRun = bus.run
+	loadBus(t, m)
+	m.busRun = func(ctx context.Context, _ []string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	loadBus(t, m)
+	if m.status != "agentbus: slow (>20ms)" {
+		t.Fatalf("status after recovery = %q", m.status)
+	}
+}
+
+func TestAgentbusErrorSaysUnavailable(t *testing.T) {
+	bus := &fakeBus{list: busList, listErr: errors.New("daemon unreachable")}
+	m := busModel(t, bus)
 	press(t, m, "c")
-	if len(bus.calls) != 2 {
-		t.Fatalf("calls after 30s = %d", len(bus.calls))
+	loadBus(t, m)
+	if got := strings.Join(candidateNames(m), ","); got != "main,inbox" {
+		t.Fatalf("candidates %s", got)
+	}
+	if m.status != "agentbus: unavailable (daemon unreachable)" {
+		t.Fatalf("status = %q", m.status)
+	}
+}
+
+func TestRunOptionsSetTheBusTimeout(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m, err := prepare(Options{
+		Dir:               t.TempDir(),
+		In:                strings.NewReader(""),
+		Out:               io.Discard,
+		Agentbus:          true,
+		RecipientsTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.busTimeout != 5*time.Second {
+		t.Fatalf("busTimeout = %s", m.busTimeout)
 	}
 }
 
 func TestSendToBusNameRunsAgentbusSend(t *testing.T) {
 	bus := &fakeBus{list: busList, sendOut: "m-7f3a queued\n"}
 	m := busModel(t, bus)
+	loadBus(t, m)
 	press(t, m, "cprimary\rhello bus\t\r")
 	if len(bus.calls) != 2 {
 		t.Fatalf("calls = %q", bus.calls)
@@ -317,6 +424,7 @@ func TestSendToBusNameRunsAgentbusSend(t *testing.T) {
 func TestSendToBusNameFailureKeepsTheDraft(t *testing.T) {
 	bus := &fakeBus{list: busList, sendErr: errors.New("agentbus: no such name")}
 	m := busModel(t, bus)
+	loadBus(t, m)
 	press(t, m, "cprimary\rhello bus\t\r")
 	if m.note != "hello bus" || !m.composing || m.status != "agentbus: no such name" {
 		t.Fatalf("note %q composing %v status %q", m.note, m.composing, m.status)
