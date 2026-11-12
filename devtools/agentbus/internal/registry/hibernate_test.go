@@ -227,3 +227,56 @@ func TestAWokenAgentStartsItsIdleTimeOver(t *testing.T) {
 		t.Fatalf("after the wake = %+v, want the idle time started over", got)
 	}
 }
+
+// A restarted daemon keeps an agent's idle time while herdr reports the
+// same status and state_change_seq, and starts it over otherwise.
+func TestSeenSurvivesARestart(t *testing.T) {
+	dir := t.TempDir()
+	ad := &fake.Adapter{AdapterName: "herdr"}
+	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	open := func() *Registry {
+		t.Helper()
+		reg, err := Open(dir, []adapter.Adapter{ad}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reg.Now = func() time.Time { return now }
+		return reg
+	}
+	alice, bob := "herdr:local/s1/w1:p1", "herdr:local/s2/w1:p2"
+	reg := open()
+	ad.InventoryAgents = []adapter.Agent{{Handle: alice, Status: "idle", StateSeq: 1}, {Handle: bob, Status: "working", StateSeq: 1}}
+	reg.pollOnce(context.Background())
+	now = now.Add(time.Hour)
+	ad.InventoryAgents = []adapter.Agent{{Handle: alice, Status: "idle", StateSeq: 1}, {Handle: bob, Status: "idle", StateSeq: 2}}
+	reg.pollOnce(context.Background())
+	// Shutdown saves, though the last save was less than a minute ago.
+	now = now.Add(10 * time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reg.Poll(ctx, time.Hour)
+
+	now = now.Add(time.Hour)
+	reg = open()
+	ad.InventoryAgents = []adapter.Agent{{Handle: alice, Status: "idle", StateSeq: 1}, {Handle: bob, Status: "idle", StateSeq: 3}}
+	reg.pollOnce(context.Background())
+	got := reg.Seen()
+	if want := (hibernate.Seen{Status: "idle", For: 2*time.Hour + 10*time.Second, LowerBound: true}); got[alice] != want {
+		t.Fatalf("alice = %+v, want %+v: the same seq keeps since", got[alice], want)
+	}
+	if got[bob].For != 0 {
+		t.Fatalf("bob = %+v, want a changed seq to start over", got[bob])
+	}
+}
+
+func TestSeenBoundsAnUntrackedIdleAgentByItsLastTurn(t *testing.T) {
+	reg, ad, alice, _ := hibernateWorld(t)
+	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	reg.Now = func() time.Time { return now }
+	reg.LastTurn = func(a adapter.Agent) (time.Time, bool) { return now.Add(-3 * time.Hour), a.Handle == alice }
+	ad.InventoryAgents = []adapter.Agent{{Handle: alice, PaneID: "w1:p1", Kind: "claude", Status: "idle", StateSeq: 1}}
+	reg.pollOnce(context.Background())
+	if got := reg.Seen()[alice]; got != (hibernate.Seen{Status: "idle", For: 3 * time.Hour}) {
+		t.Fatalf("alice = %+v, want idle 3h from her last turn", got)
+	}
+}

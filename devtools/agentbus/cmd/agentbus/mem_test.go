@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/herdrtest"
@@ -74,23 +76,28 @@ var memTable = fakeTable{
 }
 
 // fakeMemBus fakes the daemon: ops/x is on w1:p1, and w1:p2 holds a lease
-// that w1:p1 is queued for.
-func fakeMemBus(_ context.Context, _ string, req daemon.Request) (daemon.Response, error) {
-	switch req.Op {
-	case "list":
-		return daemon.Response{OK: true, Rows: []daemon.AgentRow{{Name: "ops/x", Handle: "herdr:local/sess-1/w1:p1"}}}, nil
-	case "lease-status":
-		if req.Lease == nil || !req.Lease.All {
-			return daemon.Response{Error: "want --all"}, nil
+// that w1:p1 is queued for. Its idle tracker has no times.
+func fakeMemBus(ctx context.Context, socket string, req daemon.Request) (daemon.Response, error) {
+	return fakeMemBusSeen(nil)(ctx, socket, req)
+}
+
+// fakeMemBusSeen is fakeMemBus with the idle tracker's times seen.
+func fakeMemBusSeen(seen map[string]hibernate.Seen) func(context.Context, string, daemon.Request) (daemon.Response, error) {
+	return func(_ context.Context, _ string, req daemon.Request) (daemon.Response, error) {
+		if req.Op != "hibernate-state" {
+			return daemon.Response{Error: "unexpected op " + req.Op}, nil
 		}
-		return daemon.Response{OK: true, Lease: &lease.Reply{Leases: []lease.Status{{
-			Checkout: "local:/src/repo",
-			State:    lease.StateHeld,
-			Holder:   &lease.HolderView{Handle: "herdr:local/sess-2/w1:p2"},
-			Queue:    []lease.WaiterView{{Handle: "herdr:local/sess-1/w1:p1"}},
-		}}}}, nil
+		return daemon.Response{OK: true, Hibernate: &hibernate.Reply{
+			Names: map[string][]string{"herdr:local/sess-1/w1:p1": {"ops/x"}},
+			Seen:  seen,
+			Leases: []lease.Status{{
+				Checkout: "local:/src/repo",
+				State:    lease.StateHeld,
+				Holder:   &lease.HolderView{Handle: "herdr:local/sess-2/w1:p2"},
+				Queue:    []lease.WaiterView{{Handle: "herdr:local/sess-1/w1:p1"}},
+			}},
+		}}, nil
 	}
-	return daemon.Response{Error: "unexpected op " + req.Op}, nil
 }
 
 func setupMem(t *testing.T, dial func(context.Context, string, daemon.Request) (daemon.Response, error)) (*herdrtest.Fake, []string) {
@@ -116,15 +123,17 @@ func setupMem(t *testing.T, dial func(context.Context, string, daemon.Request) (
 
 type memJSON struct {
 	Agents []struct {
-		Pane      string           `json:"pane"`
-		Tab       string           `json:"tab"`
-		Handle    string           `json:"handle"`
-		Names     *[]string        `json:"names"`
-		State     string           `json:"state"`
-		IdleSince string           `json:"idle_since"` //nolint:tagliatelle // mem JSON shape
-		RSSBytes  int64            `json:"rss_bytes"`  //nolint:tagliatelle // mem JSON shape
-		Jobs      []map[string]any `json:"jobs"`
-		Leases    *[]struct {
+		Pane       string           `json:"pane"`
+		Tab        string           `json:"tab"`
+		Handle     string           `json:"handle"`
+		Names      *[]string        `json:"names"`
+		State      string           `json:"state"`
+		IdleSince  string           `json:"idle_since"`             //nolint:tagliatelle // mem JSON shape
+		IdleSecs   *int64           `json:"idle_seconds"`           //nolint:tagliatelle // mem JSON shape
+		LowerBound bool             `json:"idle_since_lower_bound"` //nolint:tagliatelle // mem JSON shape
+		RSSBytes   int64            `json:"rss_bytes"`              //nolint:tagliatelle // mem JSON shape
+		Jobs       []map[string]any `json:"jobs"`
+		Leases     *[]struct {
 			Checkout string `json:"checkout"`
 			Role     string `json:"role"`
 		} `json:"leases"`
@@ -278,6 +287,60 @@ func TestMemDaemonDown(t *testing.T) {
 	if len(got.Agents) != 2 || got.Agents[0].Names != nil || got.Agents[0].Leases != nil || len(got.Notes) != 1 {
 		t.Fatalf("json = %s, want rows without names or leases and one note", stdout)
 	}
+	if got.Agents[0].IdleSince != "unknown" || got.Agents[0].IdleSecs != nil {
+		t.Fatalf("idle = %+v, want unknown without the daemon", got.Agents[0])
+	}
+}
+
+// memRow is the text row of pane.
+func memRow(t *testing.T, stdout, pane string) string {
+	t.Helper()
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(line, pane+" ") {
+			return line
+		}
+	}
+	t.Fatalf("no row for %s in %q", pane, stdout)
+	return ""
+}
+
+func TestMemIdleSinceFromTheDaemon(t *testing.T) {
+	_, env := setupMem(t, fakeMemBusSeen(map[string]hibernate.Seen{
+		"herdr:local/sess-1/w1:p1": {Status: "idle", For: 3 * time.Hour},
+		"herdr:local/sess-2/w1:p2": {Status: "working", For: time.Hour},
+	}))
+	stdout := mustOut(t, []string{"mem"}, env)
+	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " 3h0m ") {
+		t.Fatalf("w1:p1 = %q, want idle 3h0m", row)
+	}
+	if row := memRow(t, stdout, "w1:p2"); !strings.Contains(row, " unknown ") {
+		t.Fatalf("w1:p2 = %q, want a working row unknown", row)
+	}
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	first := got.Agents[0]
+	since, err := time.Parse(time.RFC3339, first.IdleSince)
+	if err != nil || first.IdleSecs == nil || *first.IdleSecs != 10800 || first.LowerBound {
+		t.Fatalf("w1:p1 = %+v, want idle_seconds 10800 and an RFC 3339 idle_since", first)
+	}
+	if ago := time.Since(since); ago < 3*time.Hour-time.Minute || ago > 3*time.Hour+time.Minute {
+		t.Fatalf("idle_since = %s, want about 3h ago", since)
+	}
+	if second := got.Agents[1]; second.IdleSince != "unknown" || second.IdleSecs != nil {
+		t.Fatalf("w1:p2 = %+v, want unknown", second)
+	}
+}
+
+func TestMemIdleSinceBoundedByTheDaemonStart(t *testing.T) {
+	_, env := setupMem(t, fakeMemBusSeen(map[string]hibernate.Seen{
+		"herdr:local/sess-1/w1:p1": {Status: "idle", For: 40 * time.Minute, LowerBound: true},
+	}))
+	if row := memRow(t, mustOut(t, []string{"mem"}, env), "w1:p1"); !strings.Contains(row, " >=40m ") {
+		t.Fatalf("w1:p1 = %q, want >=40m", row)
+	}
+	first := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env)).Agents[0]
+	if !first.LowerBound || first.IdleSecs == nil || *first.IdleSecs != 2400 {
+		t.Fatalf("w1:p1 = %+v, want idle_since_lower_bound and idle_seconds 2400", first)
+	}
 }
 
 func TestMemHerdrDown(t *testing.T) {
@@ -428,6 +491,51 @@ func TestMemHubDeadline(t *testing.T) {
 	}
 }
 
+// savePolicySeen saves an idle tracker to the policy runner's file: the
+// runner saw w1:p1 idle 3h ago, and w1:p2 idle with an older seq.
+func savePolicySeen(t *testing.T, env []string) {
+	t.Helper()
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dirs.StateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	var tr hibernate.IdleTracker
+	tr.Observe(now.Add(-4*time.Hour), []adapter.Agent{{Handle: "herdr:local/sess-1/w1:p1", Status: "working"}})
+	tr.Observe(now.Add(-3*time.Hour), []adapter.Agent{
+		{Handle: "herdr:local/sess-1/w1:p1", Status: "idle"},
+		{Handle: "herdr:local/sess-2/w1:p2", Status: "idle", StateSeq: 9},
+	})
+	if err := tr.Save(filepath.Join(dirs.StateDir, policySeenFile), now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMemHubIdleSinceFromThePolicyRunner(t *testing.T) {
+	ssh, env := setupMemHub(t)
+	ssh.Reachable()
+	stdout := mustOut(t, []string{"mem"}, env)
+	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " unknown ") {
+		t.Fatalf("w1:p1 = %q, want unknown with no policy runner", row)
+	}
+	savePolicySeen(t, env)
+	stdout = mustOut(t, []string{"mem"}, env)
+	if row := memRow(t, stdout, "w1:p1"); !strings.Contains(row, " 3h0m ") {
+		t.Fatalf("w1:p1 = %q, want the runner's 3h0m", row)
+	}
+	got := decodeMem(t, mustOut(t, []string{"mem", "--json"}, env))
+	if first := got.Agents[0]; first.IdleSecs == nil || *first.IdleSecs != 10800 || first.LowerBound {
+		t.Fatalf("w1:p1 = %+v, want idle_seconds 10800", first)
+	}
+	// w1:p2 is working now, not what the runner saw.
+	if second := got.Agents[1]; second.IdleSince != "unknown" {
+		t.Fatalf("w1:p2 = %+v, want unknown", second)
+	}
+}
+
 func TestMemHubOverTheTunnel(t *testing.T) {
 	_, env := setupMem(t, nil)
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"), []byte("hub = \"me@hub\"\nmachine = \"mac\"\n"))
@@ -443,17 +551,21 @@ func TestMemHubOverTheTunnel(t *testing.T) {
 		switch req.Op {
 		case "ping":
 			return daemon.Response{OK: true, Protocol: daemon.ProtocolVersion}, nil
-		case "list":
-			return daemon.Response{OK: true, Rows: []daemon.AgentRow{
-				{Name: "ops/x", Handle: "herdr:mac/sess-1/w1:p1"},
-				{Name: "ops/y", Handle: "herdr:other/sess-2/w1:p2"},
+		case "hibernate-state":
+			return daemon.Response{OK: true, Hibernate: &hibernate.Reply{
+				Names: map[string][]string{
+					"herdr:mac/sess-1/w1:p1":   {"ops/x"},
+					"herdr:other/sess-2/w1:p2": {"ops/y"},
+				},
+				// The hub's tracker is not this machine's: mem leaves
+				// it out.
+				Seen: map[string]hibernate.Seen{"herdr:mac/sess-1/w1:p1": {Status: "idle", For: time.Hour}},
+				Leases: []lease.Status{{
+					Checkout: "mac:/src/repo",
+					State:    lease.StateHeld,
+					Holder:   &lease.HolderView{Handle: "herdr:mac/sess-2/w1:p2"},
+				}},
 			}}, nil
-		case "lease-status":
-			return daemon.Response{OK: true, Lease: &lease.Reply{Leases: []lease.Status{{
-				Checkout: "mac:/src/repo",
-				State:    lease.StateHeld,
-				Holder:   &lease.HolderView{Handle: "herdr:mac/sess-2/w1:p2"},
-			}}}}, nil
 		}
 		return daemon.Response{Error: "unexpected op " + req.Op}, nil
 	}
@@ -468,6 +580,9 @@ func TestMemHubOverTheTunnel(t *testing.T) {
 	}
 	if second.Leases == nil || len(*second.Leases) != 1 || (*second.Leases)[0].Checkout != "mac:/src/repo" {
 		t.Fatalf("leases = %+v", second.Leases)
+	}
+	if first.IdleSince != "unknown" {
+		t.Fatalf("w1:p1 = %+v, want unknown: the hub does not track this machine", first)
 	}
 	for _, socket := range sockets {
 		if socket != dirs.TunnelSocketPath {

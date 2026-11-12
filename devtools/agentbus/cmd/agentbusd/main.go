@@ -17,6 +17,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lastturn"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
@@ -149,6 +150,7 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		// is not in hub mode: it measures and stops this machine's agents.
 		HibernatePolicy: hibernatePolicy(cfg, stderr),
 		PolicyInterval:  cfg.Policy().Interval,
+		LastTurn:        lastturn.Claude(lastturn.ClaudeProjectsDir(env)),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
 		return 1

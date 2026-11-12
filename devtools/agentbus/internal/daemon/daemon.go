@@ -66,6 +66,9 @@ type Config struct {
 	HibernatePolicy func(hibernate.Bus) *hibernate.Policy
 	PolicyInterval  time.Duration
 	PolicyTicks     <-chan time.Time
+	// LastTurn, when not nil, bounds the idle time of an agent the
+	// daemon has not seen change state, such as after a restart.
+	LastTurn hibernate.LastTurnFunc
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -252,6 +255,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 		return nil, err
 	}
 	reg.Now = cfg.Now
+	reg.LastTurn = cfg.LastTurn
 	if cfg.Waker != nil {
 		box.SetWaker(cfg.Waker)
 	}

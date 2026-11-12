@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -172,12 +173,27 @@ func (r *Registry) now() time.Time {
 	return time.Now()
 }
 
-// track updates seen from every inventory snapshot. The caller holds
-// r.mu.
+// track updates seen from every inventory snapshot, and saves it at
+// most once a minute. The caller holds r.mu.
 func (r *Registry) track() {
 	var all []adapter.Agent
 	for _, agents := range r.snaps {
 		all = append(all, agents...)
 	}
-	r.seen.Observe(r.now(), all)
+	now := r.now()
+	r.seen.LastTurn = r.LastTurn
+	r.seen.Observe(now, all)
+	// Saving is best effort: a failed save only loses idle times on a
+	// restart, and the next poll tries again.
+	_ = r.seen.SaveEvery(filepath.Join(r.dir, seenFile), now)
+}
+
+// saveSeen saves the idle tracker, as on shutdown.
+func (r *Registry) saveSeen() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.haveInventory {
+		return
+	}
+	_ = r.seen.Save(filepath.Join(r.dir, seenFile), r.now())
 }

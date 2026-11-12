@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = ["lastturn.go"],
+    importpath = "github.com/jaeyeom/experimental/devtools/agentbus/internal/lastturn",
+    visibility = ["//devtools/agentbus:__subpackages__"],
+    deps = [
+        "//devtools/agentbus/internal/adapter:go_default_library",
+        "//devtools/pkg/hubcall:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = ["lastturn_test.go"],
+    embed = [":go_default_library"],
+    deps = ["//devtools/agentbus/internal/adapter:go_default_library"],
+)

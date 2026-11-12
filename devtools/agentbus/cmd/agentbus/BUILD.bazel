@@ -28,6 +28,7 @@ go_library(
     importpath = "github.com/jaeyeom/experimental/devtools/agentbus/cmd/agentbus",
     visibility = ["//visibility:private"],
     deps = [
+        "//devtools/agentbus/internal/adapter:go_default_library",
         "//devtools/agentbus/internal/adapter/herdr:go_default_library",
         "//devtools/agentbus/internal/checkout:go_default_library",
         "//devtools/agentbus/internal/client:go_default_library",
@@ -35,6 +36,7 @@ go_library(
         "//devtools/agentbus/internal/daemon:go_default_library",
         "//devtools/agentbus/internal/eventlog:go_default_library",
         "//devtools/agentbus/internal/hibernate:go_default_library",
+        "//devtools/agentbus/internal/lastturn:go_default_library",
         "//devtools/agentbus/internal/lease:go_default_library",
         "//devtools/agentbus/internal/leasecache:go_default_library",
         "//devtools/agentbus/internal/mailbox:go_default_library",
