@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -201,9 +202,54 @@ func TestDoctorSandboxListsTheSocketsAndChecksThem(t *testing.T) {
 	}
 }
 
-func TestDoctorNeedsSandboxFlag(t *testing.T) {
+func TestDoctorListsAnExtraDaemon(t *testing.T) {
 	h, _ := sandboxHub(t)
-	if code, _, stderr := h.run(t, "", "doctor"); code != 2 || !strings.Contains(stderr, "--sandbox") {
+	start := time.Date(2026, 11, 12, 21, 4, 5, 0, time.UTC)
+	holder := 10
+	origList, origLock := listDoctorProcs, daemonLockHolder
+	t.Cleanup(func() { listDoctorProcs, daemonLockHolder = origList, origLock })
+	listDoctorProcs = func(context.Context) ([]doctorProc, error) {
+		return []doctorProc{
+			{PID: holder, UID: os.Getuid(), Start: start, Name: "agentbusd"},
+			{PID: 4242, UID: os.Getuid(), Start: start.Add(time.Minute), Name: "agentbusd"},
+			{PID: 7, UID: os.Getuid(), Start: start, Name: "launchd"},
+			{PID: 8, UID: os.Getuid() + 1, Start: start, Name: "agentbusd"},
+		}, nil
+	}
+	daemonLockHolder = func(string) (int, bool, error) { return holder, true, nil }
+
+	code, stdout, stderr := h.run(t, "", "doctor")
+	if code != 0 {
 		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{
+		"other than the lock holder (pid 10)",
+		"pid 4242 started " + start.Add(time.Minute).Format(time.RFC3339),
+		"Stop them with: kill 4242",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("doctor output lacks %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "pid 10 started") || strings.Contains(stdout, "pid 7") || strings.Contains(stdout, "pid 8") {
+		t.Fatalf("listed the holder, another program, or another user:\n%s", stdout)
+	}
+}
+
+func TestDoctorRejectsArguments(t *testing.T) {
+	h, _ := sandboxHub(t)
+	if code, _, stderr := h.run(t, "", "doctor", "extra"); code != 2 || !strings.Contains(stderr, "--sandbox") {
+		t.Fatalf("doctor = %d, stderr %q", code, stderr)
+	}
+}
+
+func TestParseDoctorPS(t *testing.T) {
+	now := time.Date(2026, 11, 12, 0, 2, 0, 0, time.UTC)
+	got := parseDoctorPS("  5 501 01:00 agentbusd\n  x\n", now)
+	if len(got) != 1 || got[0].PID != 5 || got[0].UID != 501 || got[0].Name != "agentbusd" {
+		t.Fatalf("procs = %+v", got)
+	}
+	if !got[0].Start.Equal(now.Add(-time.Minute)) {
+		t.Fatalf("start = %s", got[0].Start)
 	}
 }

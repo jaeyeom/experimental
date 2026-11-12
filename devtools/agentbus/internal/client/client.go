@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -18,6 +20,26 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
+
+const (
+	supervisorLaunchdLabel = "com.agentbus.agentbusd"
+	supervisorSystemdUnit  = "agentbus.service"
+)
+
+// supervisorRun starts an installed supervisor unit. Tests replace it.
+var supervisorRun = func(ctx context.Context, argv []string) error {
+	// argv is launchctl or systemctl with fixed arguments, not a shell line.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G702: fixed supervisor command, no shell
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w (%s)", strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// spawnDetached starts agentbusd in its own session. Tests replace it.
+var spawnDetached = startDetached
 
 // Ensure reaches a daemon at dirs. If none is listening, it starts daemonBin
 // in its own session and waits until a ping succeeds. A failure names what
@@ -29,7 +51,11 @@ func Ensure(ctx context.Context, dirs paths.Dirs, daemonBin string, env []string
 	if daemonBin == "" {
 		return errors.New("agentbusd is not running and no daemon binary was given to start it")
 	}
-	if err := startDetached(daemonBin, env); err != nil {
+	if argv := supervisorCommand(env); argv != nil {
+		if err := supervisorRun(ctx, argv); err != nil {
+			return fmt.Errorf("start agentbusd: %w", err)
+		}
+	} else if err := spawnDetached(daemonBin, env); err != nil {
 		return fmt.Errorf("start agentbusd: %w", err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
@@ -125,6 +151,50 @@ func Stream(ctx context.Context, socketPath string, req daemon.Request, fn func(
 			return err
 		}
 	}
+}
+
+// supervisorCommand is how to start an installed launchd agent or
+// systemd user unit. It is nil when no unit file is installed, which
+// is also the case for an unsupported OS. The caller then spawns a
+// detached daemon itself.
+func supervisorCommand(env []string) []string {
+	switch runtime.GOOS {
+	case "darwin":
+		home := envValue(env, "HOME")
+		if home == "" {
+			return nil
+		}
+		path := filepath.Join(home, "Library", "LaunchAgents", supervisorLaunchdLabel+".plist")
+		if _, err := os.Stat(path); err != nil {
+			return nil
+		}
+		return []string{"launchctl", "kickstart", fmt.Sprintf("gui/%d/%s", os.Getuid(), supervisorLaunchdLabel)}
+	case "linux":
+		dir := envValue(env, "XDG_CONFIG_HOME")
+		if dir == "" {
+			home := envValue(env, "HOME")
+			if home == "" {
+				return nil
+			}
+			dir = filepath.Join(home, ".config")
+		}
+		path := filepath.Join(dir, "systemd", "user", supervisorSystemdUnit)
+		if _, err := os.Stat(path); err != nil {
+			return nil
+		}
+		return []string{"systemctl", "--user", "start", supervisorSystemdUnit}
+	default:
+		return nil
+	}
+}
+
+func envValue(env []string, key string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 func startDetached(bin string, env []string) error {

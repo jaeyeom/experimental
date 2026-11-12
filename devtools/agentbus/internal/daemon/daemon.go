@@ -66,6 +66,10 @@ type Config struct {
 	HibernatePolicy func(hibernate.Bus) *hibernate.Policy
 	PolicyInterval  time.Duration
 	PolicyTicks     <-chan time.Time
+	// SocketTicks, when not nil, drives the check that this process
+	// still owns the socket it bound. Nil uses a one-minute ticker. A
+	// socket whose inode changed makes Serve log a stop and return.
+	SocketTicks <-chan time.Time
 	// LastTurn, when not nil, bounds the idle time of an agent the
 	// daemon has not seen change state, such as after a restart.
 	LastTurn hibernate.LastTurnFunc
@@ -164,9 +168,13 @@ type Response struct {
 // dirs.StateDir so registry, queue, and log state have a place that
 // survives a later start. The daemon is the only writer of the event log.
 func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
-	if err := os.MkdirAll(dirs.StateDir, 0o755); err != nil {
-		return fmt.Errorf("create state dir: %w", err)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	unlock, err := lockDaemon(dirs)
+	if err != nil {
+		return err
 	}
+	defer unlock()
 	lg := eventlog.Open(dirs.StateDir)
 	lg.RetentionDays = cfg.RetentionDays
 	srv, err := newServer(ctx, dirs.StateDir, cfg, lg)
@@ -175,6 +183,7 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	srv.leaseCache = leasecache.Cache{Dir: dirs.LeaseCacheDir()}
 	started := false
+	stopDetail := "shutdown"
 	defer func() {
 		if !started {
 			return
@@ -182,32 +191,23 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 		stopErr := lg.Append(eventlog.Event{
 			Event:  eventlog.EventStop,
 			Actor:  "daemon",
-			Detail: "shutdown",
+			Detail: stopDetail,
 		})
 		if stopErr != nil && err == nil {
 			err = fmt.Errorf("log stop: %w", stopErr)
 		}
 	}()
+	pid := os.Getpid()
 	pidPath := filepath.Join(dirs.StateDir, "daemon.pid")
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
 		return fmt.Errorf("record daemon pid: %w", err)
 	}
-	defer os.Remove(pidPath)
-	ln, err := listen(dirs.SocketPath)
+	defer removePIDFile(pidPath, pid)
+	socks, err := bindSockets(dirs, cfg, srv)
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
-	defer os.Remove(dirs.SocketPath)
-	var hubLn net.Listener
-	if cfg.HubCaller != nil && dirs.HubSocketPath != "" {
-		if hubLn, err = listen(dirs.HubSocketPath); err != nil {
-			return err
-		}
-		defer hubLn.Close()
-		defer os.Remove(dirs.HubSocketPath)
-		srv.hubCaller = cfg.HubCaller
-	}
+	defer closeSockets(socks)
 	if err := lg.Append(eventlog.Event{
 		Event:  eventlog.EventStart,
 		Actor:  "daemon",
@@ -217,12 +217,10 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	}
 	started = true
 
-	ticks := cfg.LeaseTicks
-	if ticks == nil {
-		ticker := time.NewTicker(srv.timing.Interval)
-		defer ticker.Stop()
-		ticks = ticker.C
-	}
+	ticks, stopTicks := tickerOr(cfg.LeaseTicks, srv.timing.Interval)
+	defer stopTicks()
+	sockTicks, stopSockTicks := tickerOr(cfg.SocketTicks, time.Minute)
+	defer stopSockTicks()
 	// The polls and lease checks end, and are waited for, before Serve
 	// logs stop, so an inventory poll cut short by shutdown does not
 	// write the state dir after Serve returns.
@@ -230,34 +228,86 @@ func Serve(ctx context.Context, dirs paths.Dirs, cfg Config) (err error) {
 	defer watching.Wait()
 	watchCtx, stopWatching := context.WithCancel(ctx)
 	defer stopWatching()
-	watching.Add(3)
-	go func() {
-		defer watching.Done()
-		srv.reg.Poll(watchCtx, cfg.PollInterval)
-	}()
-	go func() {
-		defer watching.Done()
-		srv.box.Poll(watchCtx, cfg.PollInterval)
-	}()
-	go func() {
-		defer watching.Done()
-		srv.watchLeases(watchCtx, ticks)
-	}()
-	if cfg.HibernatePolicy != nil {
-		pol := srv.newPolicy(cfg.HibernatePolicy)
-		policyTicks := cfg.PolicyTicks
-		if policyTicks == nil {
-			ticker := time.NewTicker(cmp.Or(cfg.PolicyInterval, time.Minute))
-			defer ticker.Stop()
-			policyTicks = ticker.C
-		}
-		watching.Add(1)
-		go func() {
-			defer watching.Done()
-			pol.Watch(watchCtx, policyTicks)
-		}()
+	startWatchers(watchCtx, &watching, srv, cfg, ticks, sockTicks, socks, func() {
+		stopDetail = "socket rebound"
+		cancel()
+	})
+	return srv.serve(ctx, socks[0].ln, hubListener(socks))
+}
+
+// tickerOr returns ticks, or a new ticker's channel when ticks is nil.
+// The stop function releases a ticker this function created.
+func tickerOr(ticks <-chan time.Time, every time.Duration) (<-chan time.Time, func()) {
+	if ticks != nil {
+		return ticks, func() {}
 	}
-	return srv.serve(ctx, ln, hubLn)
+	ticker := time.NewTicker(every)
+	return ticker.C, ticker.Stop
+}
+
+// bindSockets listens on the daemon socket and, when a hub caller is
+// configured, the hub socket. The caller closes every returned socket.
+func bindSockets(dirs paths.Dirs, cfg Config, srv *server) ([]socketFile, error) {
+	sock, err := listen(dirs.SocketPath)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.HubCaller == nil || dirs.HubSocketPath == "" {
+		return []socketFile{sock}, nil
+	}
+	hub, err := listen(dirs.HubSocketPath)
+	if err != nil {
+		sock.close()
+		return nil, err
+	}
+	srv.hubCaller = cfg.HubCaller
+	return []socketFile{sock, hub}, nil
+}
+
+func closeSockets(socks []socketFile) {
+	for i := len(socks) - 1; i >= 0; i-- {
+		socks[i].close()
+	}
+}
+
+func hubListener(socks []socketFile) net.Listener {
+	if len(socks) < 2 {
+		return nil
+	}
+	return socks[1].ln
+}
+
+// startWatchers runs the polls, the lease check, the socket-inode check,
+// and, when configured, the hibernation policy, until ctx ends.
+func startWatchers(ctx context.Context, watching *sync.WaitGroup, srv *server, cfg Config, ticks, sockTicks <-chan time.Time, socks []socketFile, lost func()) {
+	watching.Add(4)
+	go func() {
+		defer watching.Done()
+		srv.reg.Poll(ctx, cfg.PollInterval)
+	}()
+	go func() {
+		defer watching.Done()
+		srv.box.Poll(ctx, cfg.PollInterval)
+	}()
+	go func() {
+		defer watching.Done()
+		srv.watchLeases(ctx, ticks)
+	}()
+	go func() {
+		defer watching.Done()
+		watchSockets(ctx, socks, sockTicks, lost)
+	}()
+	if cfg.HibernatePolicy == nil {
+		return
+	}
+	pol := srv.newPolicy(cfg.HibernatePolicy)
+	policyTicks, stop := tickerOr(cfg.PolicyTicks, cmp.Or(cfg.PolicyInterval, time.Minute))
+	watching.Add(1)
+	go func() {
+		defer stop()
+		defer watching.Done()
+		pol.Watch(ctx, policyTicks)
+	}()
 }
 
 // newServer opens the registry, mailbox, and lease table in stateDir.
@@ -322,21 +372,6 @@ func (s *server) serve(ctx context.Context, ln, hubLn net.Listener) error {
 			}()
 		}
 	}
-}
-
-// listen replaces a stale socket at path and listens on it.
-func listen(path string) (net.Listener, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("create socket dir: %w", err)
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("remove stale socket: %w", err)
-	}
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, fmt.Errorf("listen on %s: %w", path, err)
-	}
-	return ln, nil
 }
 
 type accepted struct {

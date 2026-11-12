@@ -157,6 +157,9 @@ func run(args, env []string, stdout, stderr io.Writer) int {
 		LastTurn:        lastturn.Claude(lastturn.ClaudeProjectsDir(env)),
 	}); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "agentbusd: %s\n", err)
+		if errors.Is(err, daemon.ErrAlreadyRunning) {
+			return 0
+		}
 		return 1
 	}
 	return 0
