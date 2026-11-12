@@ -19,6 +19,9 @@ type Config struct {
 	// A missing key uses the global settings. gh-nudge ignores this mapping.
 	// An explicit empty list on an entry does not inherit the global list.
 	RepoSettings map[string]RepoSettings `pkl:"repo_settings"`
+
+	// gh-approve rules and settings.
+	Approve ApproveConfig `pkl:"approve"`
 }
 
 // LoadFromPath loads the pkl module at the given path and evaluates it into a Config

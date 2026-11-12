@@ -46,6 +46,7 @@ INSTALL_CMDS := \
 	./devtools/claude-usage/cmd/claude-usage \
 	./devtools/devcheck/cmd/devcheck \
 	./devtools/docsync/cmd/docsync \
+	./devtools/gh-nudge/cmd/gh-approve \
 	./devtools/gh-nudge/cmd/gh-codeowners \
 	./devtools/gh-nudge/cmd/gh-merge \
 	./devtools/gh-nudge/cmd/gh-nudge \

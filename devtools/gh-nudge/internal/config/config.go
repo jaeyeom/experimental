@@ -28,6 +28,8 @@ type Config struct {
 	// RepoSettings overrides Settings for one <owner>/<repo> key.
 	// A nil field inherits the global field. A non-nil empty list replaces it.
 	RepoSettings map[string]RepoSettings `yaml:"repo_settings"`
+	// Approve holds gh-approve settings. Only Pkl config supports it.
+	Approve ApproveConfig `yaml:"-"`
 	// Path is the file gh-merge selected. It is not read from the file.
 	Path string `yaml:"-"`
 	// SettingsFrom is the repo_settings key that applied, or SettingsFromGlobal.
@@ -307,6 +309,7 @@ func convertPklConfig(pklCfg *pklconfig.Config) *Config {
 			CircleCILog:                pklCfg.Settings.CircleciLog,
 		},
 		RepoSettings: convertRepoSettings(pklCfg.RepoSettings),
+		Approve:      convertApprove(pklCfg.Approve),
 	}
 	normalizeSettings(&cfg.Settings)
 
@@ -387,6 +390,13 @@ func loadYamlConfig(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+	var keys map[string]any
+	if err := yaml.Unmarshal(data, &keys); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	if _, ok := keys["approve"]; ok {
+		return nil, fmt.Errorf("approve is supported only in Pkl config, not in %s", path)
+	}
 
 	// Set default values if not specified
 	if cfg.Settings.ReminderThresholdHours == 0 {
@@ -406,6 +416,9 @@ func loadYamlConfig(path string) (*Config, error) {
 
 func validateConfig(cfg *Config) error {
 	if err := validateSettings(cfg.Settings); err != nil {
+		return err
+	}
+	if err := validateApprove(cfg.Approve); err != nil {
 		return err
 	}
 	return validateRepoSettings(cfg.RepoSettings)

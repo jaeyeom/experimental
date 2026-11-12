@@ -12,6 +12,7 @@ This subdirectory contains a few utilities integrated with Github.
 - [[file:codeowners.org][gh-codeowners]]
 - [[file:pr-review.org][gh-pr-review]]
 - [[file:storage.org][gh-storage]]
+- [[*gh-approve][gh-approve]]
 
 ** Prerequisites
 
@@ -58,6 +59,8 @@ the token in your configuration file.
 #+begin_example
 devtools/gh-nudge/
 ├── cmd/
+│   ├── gh-approve/
+│   │   └── main.go
 │   ├── gh-nudge/
 │   │   └── main.go
 │   ├── gh-slack/
@@ -71,6 +74,9 @@ devtools/gh-nudge/
 │   └── gh-storage/
 │       └── main.go
 ├── internal/
+│   ├── approve/
+│   │   ├── conditions.go
+│   │   └── runner.go
 │   ├── config/
 │   │   └── config.go
 │   ├── github/
@@ -294,6 +300,133 @@ Create a configuration file at ~$HOME/.config/gh-nudge/config.yaml~:
 
 *Note*: YAML support may be deprecated in a future release. Consider migrating
 to Pkl for new installations.
+
+** gh-approve
+
+~gh-approve~ approves pull requests that match rules you write in config. It
+approves as the logged-in ~gh~ user, through the ~gh~ CLI. It leaves every
+other pull request for a human. It runs no LLM review.
+
+It looks only at open pull requests that request you *as an individual*. It
+finds them with the search ~user-review-requested:@me~. It ignores a pull
+request that requests only a team you belong to.
+
+#+begin_src shell
+  # Dry run (the default): print what would be approved. Nothing is approved.
+  gh-approve
+
+  # Approve for real
+  gh-approve --apply
+
+  # Evaluate one pull request and print every condition with the value it saw
+  gh-approve --pr acme/widgets#12 --explain
+  gh-approve --pr https://github.com/acme/widgets/pull/12
+#+end_src
+
+The output is a table with the pull request, the action, the matched rule, and
+the title. When no rule matches, the rule column shows ~manual~. Then, for each
+rule, it shows the first condition that failed.
+
+*** Rules
+
+Add rules to the ~approve~ section of ~config.pkl~. The conditions in one rule
+are ANDed. Rules are ORed, and the first rule that matches is used. Every
+condition is optional. An empty list or an unset limit adds no condition.
+
+| Condition                | Meaning                                                                           |
+|--------------------------+-----------------------------------------------------------------------------------|
+| ~repos~                  | Repositories as ~owner/name~ or globs, such as ~acme/*~                           |
+| ~paths_all_match~        | Globs. Every changed file must match one of them                                  |
+| ~paths_none_match~       | Globs. No changed file may match any of them, such as CI config, infra, lockfiles |
+| ~max_changed_lines~      | Maximum added plus deleted lines                                                  |
+| ~max_added_lines~        | Maximum added lines                                                               |
+| ~max_files~              | Maximum changed files                                                             |
+| ~pure_deletion~          | The pull request adds no lines                                                    |
+| ~authors_allow~          | The author must be one of these logins                                            |
+| ~authors_deny~           | The author must not be one of these logins                                        |
+| ~labels_required~        | Every one of these labels must be present                                         |
+| ~labels_forbidden~       | None of these labels may be present                                               |
+| ~required_approvals_by~  | Each login's latest review on the current head SHA must be ~APPROVED~             |
+| ~checks~                 | ~"green"~ or ~"allow_pending"~. See below                                         |
+| ~not_draft~              | Default ~true~. A draft does not match                                            |
+| ~max_unresolved_threads~ | Default ~0~                                                                       |
+
+Globs use ~**~ for any number of directories. Logins match without regard to
+case. Labels match exactly, including case. For ~required_approvals_by~, a
+~COMMENTED~ review does not replace an earlier approval on the same head.
+
+~checks = "green"~ requires that no check failed and every required check
+passed. When the head has no required check, every check counts as required.
+~checks = "allow_pending"~ requires only that no check failed. A failed check
+always fails.
+
+Global settings:
+
+- ~body~ is the approval body. Default ~LGTM~. The matching rule name is
+  appended as ~<!-- gh-approve: <rule> -->~.
+- ~skip_already_approved~ skips a pull request you already approved at the
+  current head. Default ~true~.
+- gh-approve never approves a pull request you authored. This is always on and
+  cannot be configured.
+
+Starter rule shapes. These are examples. Nothing is hard-coded.
+
+#+begin_src pkl
+  approve {
+    rules {
+      // Only files under one internal dashboard directory.
+      new {
+        name = "internal-dashboard"
+        paths_all_match { "tools/internal-dashboard/**" }
+        checks = "green"
+      }
+      // Pure deletions.
+      new {
+        name = "pure-deletion"
+        pure_deletion = true
+        checks = "green"
+      }
+      // At most 50 changed lines outside CI and infra paths.
+      new {
+        name = "small-outside-infra"
+        max_changed_lines = 50
+        paths_none_match { ".github/**"; "infra/**"; "**/*.lock"; "**/go.sum" }
+        checks = "green"
+      }
+      // Small pull requests, up to 200 lines, that carry an "internal-only" label.
+      new {
+        name = "internal-only"
+        max_changed_lines = 200
+        labels_required { "internal-only" }
+        checks = "allow_pending"
+      }
+    }
+  }
+#+end_src
+
+The ~approve~ section is supported only in Pkl config. A YAML config that has
+an ~approve~ key fails to load.
+
+*** Safety
+
+- *Dry run by default.* Only ~--apply~ approves.
+- *Head pinning.* gh-approve evaluates one head SHA. With ~--apply~, it reads
+  the head again just before it approves. If the head moved, it skips the pull
+  request and says so. The approval is posted with ~gh api~ to the pull
+  request reviews endpoint, with ~event=APPROVE~ and ~commit_id~ set to the
+  evaluated head SHA.
+- *Fail loud.*
+  - A ~gh~ error stops that pull request with a clear error. The other pull
+    requests still run, and gh-approve exits non-zero.
+  - An unknown config key is a load error.
+  - Data that cannot be read, such as missing review thread or check data or a
+    truncated file list, never counts as a met condition. The condition fails
+    with ~unreadable:~ and the reason.
+- *Audit log.* Each decision is appended as one JSON line to
+  =~/.config/gh-nudge/approve-log.jsonl=. A line has ~time~, ~pr~, ~url~,
+  ~title~, ~headSha~, ~rule~ (~null~ when none matched), ~rules~ (each rule's
+  per-condition ~pass~ and ~saw~), ~action~, and ~reason~. The action is
+  ~approved~, ~would_approve~, ~skipped~, ~manual~, or ~error~.
 
 ** Development
 

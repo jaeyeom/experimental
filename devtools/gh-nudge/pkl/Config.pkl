@@ -129,6 +129,57 @@ class RepoSettings {
   circleci_log: String?
 }
 
+/// One gh-approve rule. Every condition in a rule must hold (AND).
+/// A pull request matches when any rule matches (OR).
+/// A list left empty and an Int left unset add no condition.
+class ApproveRule {
+  /// Rule name. It is shown in output, written to the audit log, and
+  /// appended to the approval body as <!-- gh-approve: <name> -->.
+  name: String(!isEmpty)
+  /// Repositories as owner/name or globs such as "acme/*".
+  repos: Listing<String> = new {}
+  /// Globs. Every changed file must match one of them.
+  paths_all_match: Listing<String> = new {}
+  /// Globs. No changed file may match any of them.
+  paths_none_match: Listing<String> = new {}
+  /// Maximum added plus deleted lines.
+  max_changed_lines: Int(this >= 0)?
+  /// Maximum added lines.
+  max_added_lines: Int(this >= 0)?
+  /// Maximum changed files.
+  max_files: Int(this >= 0)?
+  /// When true, the pull request must add no lines.
+  pure_deletion: Boolean = false
+  /// PR author logins. The author must be one of them.
+  authors_allow: Listing<String> = new {}
+  /// PR author logins. The author must not be one of them.
+  authors_deny: Listing<String> = new {}
+  /// Labels that must all be present. Names match exactly, including case.
+  labels_required: Listing<String> = new {}
+  /// Labels that must all be absent. Names match exactly, including case.
+  labels_forbidden: Listing<String> = new {}
+  /// Logins whose latest review on the current head SHA must be APPROVED.
+  required_approvals_by: Listing<String> = new {}
+  /// "green": no check failed and every required check passed.
+  /// "allow_pending": no check failed. Pending checks are allowed.
+  /// Unset adds no check condition.
+  checks: String(this == "green" || this == "allow_pending")?
+  /// When true, a draft pull request does not match.
+  not_draft: Boolean = true
+  /// Maximum unresolved review threads.
+  max_unresolved_threads: Int(this >= 0) = 0
+}
+
+/// gh-approve settings. gh-nudge and gh-merge ignore this section.
+class ApproveConfig {
+  /// Approval body. The matching rule name is appended as an HTML comment.
+  body: String(!isEmpty) = "LGTM"
+  /// Skip a pull request the user already approved at the current head.
+  skip_already_approved: Boolean = true
+  /// Rules. A pull request that matches none of them is left for a human.
+  rules: Listing<ApproveRule> = new {}
+}
+
 /// Root configuration
 github: GitHubConfig
 slack: SlackConfig = new {}
@@ -137,3 +188,5 @@ settings: SettingsConfig = new {}
 /// A missing key uses the global settings. gh-nudge ignores this mapping.
 /// An explicit empty list on an entry does not inherit the global list.
 repo_settings: Mapping<String, RepoSettings> = new {}
+/// gh-approve rules and settings.
+approve: ApproveConfig = new {}
