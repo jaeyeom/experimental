@@ -60,13 +60,13 @@ type PR struct {
 // GetPRDiff fetches the diff for a pull request.
 func (prc *PRReviewClient) GetPRDiff(repository models.Repository, prNumber int) (*models.PRDiffHunks, error) {
 	// Get PR files via GitHub API
-	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/files", repository, prNumber))
+	output, err := prc.client.runGHJSON("api", fmt.Sprintf("/repos/%s/pulls/%d/files", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR files: %w", err)
 	}
 
 	var files []File
-	if err := json.Unmarshal([]byte(output), &files); err != nil {
+	if err := output.decode(&files); err != nil {
 		return nil, fmt.Errorf("failed to parse PR files response: %w", err)
 	}
 
@@ -95,13 +95,13 @@ func (prc *PRReviewClient) GetPRDiff(repository models.Repository, prNumber int)
 
 // GetPRInfo fetches basic information about a pull request.
 func (prc *PRReviewClient) GetPRInfo(repository models.Repository, prNumber int) (*PR, error) {
-	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber))
+	output, err := prc.client.runGHJSON("api", fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR info: %w", err)
 	}
 
 	var pr PR
-	if err := json.Unmarshal([]byte(output), &pr); err != nil {
+	if err := output.decode(&pr); err != nil {
 		return nil, fmt.Errorf("failed to parse PR info response: %w", err)
 	}
 
@@ -292,13 +292,13 @@ func (prc *PRReviewClient) CreatePendingReview(repository models.Repository, prN
 
 // GetExistingReviews fetches existing reviews for a PR.
 func (prc *PRReviewClient) GetExistingReviews(repository models.Repository, prNumber int) ([]map[string]interface{}, error) {
-	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber))
+	output, err := prc.client.runGHJSON("api", fmt.Sprintf("/repos/%s/pulls/%d/reviews", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch existing reviews: %w", err)
 	}
 
 	var reviews []map[string]interface{}
-	if err := json.Unmarshal([]byte(output), &reviews); err != nil {
+	if err := output.decode(&reviews); err != nil {
 		return nil, fmt.Errorf("failed to parse reviews response: %w", err)
 	}
 
@@ -398,13 +398,13 @@ func (c GitHubComment) GetOriginalLineRange() *models.LineRange {
 
 // GetPRComments fetches all line comments for a PR from GitHub.
 func (prc *PRReviewClient) GetPRComments(repository models.Repository, prNumber int) ([]models.Comment, error) {
-	output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/comments", repository, prNumber))
+	output, err := prc.client.runGHJSON("api", fmt.Sprintf("/repos/%s/pulls/%d/comments", repository, prNumber))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR comments: %w", err)
 	}
 
 	var githubComments []GitHubComment
-	if err := json.Unmarshal([]byte(output), &githubComments); err != nil {
+	if err := output.decode(&githubComments); err != nil {
 		return nil, fmt.Errorf("failed to parse comments response: %w", err)
 	}
 
@@ -439,14 +439,14 @@ func (prc *PRReviewClient) GetPRReviewComments(repository models.Repository, prN
 			continue
 		}
 
-		output, err := prc.client.executor.Execute("gh", "api", fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments", repository, prNumber, int64(reviewID)))
+		output, err := prc.client.runGHJSON("api", fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments", repository, prNumber, int64(reviewID)))
 		if err != nil {
 			fmt.Printf("Warning: Failed to fetch comments for review %d: %v\n", int64(reviewID), err)
 			continue
 		}
 
 		var githubComments []GitHubComment
-		if err := json.Unmarshal([]byte(output), &githubComments); err != nil {
+		if err := output.decode(&githubComments); err != nil {
 			fmt.Printf("Warning: Failed to parse comments for review %d: %v\n", int64(reviewID), err)
 			continue
 		}

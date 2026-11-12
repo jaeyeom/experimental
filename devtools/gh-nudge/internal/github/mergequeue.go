@@ -232,7 +232,7 @@ func (c *Client) LoadPullRequest(raw string) (QueuePullRequest, error) {
 
 // DequeuePullRequest calls the dequeuePullRequest GraphQL mutation.
 func (c *Client) DequeuePullRequest(nodeID string) error {
-	body, callErr := c.graphqlQuery(dequeuePullRequestMutation, []string{"-f", "id=" + nodeID})
+	body, callErr := c.graphqlMutation(dequeuePullRequestMutation, []string{"-f", "id=" + nodeID})
 	if err := graphqlCallError("dequeue pull request", body, callErr); err != nil {
 		return err
 	}
@@ -241,7 +241,7 @@ func (c *Client) DequeuePullRequest(nodeID string) error {
 
 // EnqueuePullRequest calls the enqueuePullRequest GraphQL mutation.
 func (c *Client) EnqueuePullRequest(nodeID string) error {
-	body, callErr := c.graphqlQuery(enqueuePullRequestMutation, []string{"-f", "id=" + nodeID})
+	body, callErr := c.graphqlMutation(enqueuePullRequestMutation, []string{"-f", "id=" + nodeID})
 	if err := graphqlCallError("enqueue pull request", body, callErr); err != nil {
 		return err
 	}
@@ -294,12 +294,12 @@ func (c *Client) listPullsByRef(owner, repo, key, value string) ([]BranchPull, e
 	query.Set("per_page", "100")
 	query.Set(key, value)
 	path := fmt.Sprintf("repos/%s/%s/pulls?%s", owner, repo, query.Encode())
-	out, err := c.executor.Execute("gh", "api", path)
+	out, err := c.runGHJSON("api", path)
 	if err != nil {
 		return nil, fmt.Errorf("list pulls for %s/%s: %w", owner, repo, err)
 	}
 	var raw []branchPullJSON
-	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+	if err := out.decode(&raw); err != nil {
 		return nil, fmt.Errorf("parse pulls for %s/%s: %w", owner, repo, err)
 	}
 	return convertBranchPulls(raw), nil
@@ -320,12 +320,12 @@ func convertBranchPulls(raw []branchPullJSON) []BranchPull {
 
 func (c *Client) listStacks(owner, repo string, number int) ([]stackResponse, error) {
 	path := fmt.Sprintf("repos/%s/%s/stacks?pull_request=%d&per_page=100", owner, repo, number)
-	out, err := c.executor.Execute("gh", "api", path)
+	out, err := c.runGHJSON("api", path)
 	if err != nil {
 		return nil, fmt.Errorf("list stacks for %s/%s#%d: %w", owner, repo, number, err)
 	}
 	var stacks []stackResponse
-	if err := json.Unmarshal([]byte(out), &stacks); err != nil {
+	if err := out.decode(&stacks); err != nil {
 		return nil, fmt.Errorf("parse stacks for %s/%s#%d: %w", owner, repo, number, err)
 	}
 	return stacks, nil
@@ -372,12 +372,12 @@ func (c *Client) FailureEvidence(owner, repo, sha string) (FailureEvidence, erro
 // LandedFirst returns the other pull request on sha that merged earliest.
 func (c *Client) LandedFirst(owner, repo, sha string, self int) (StackPR, bool, error) {
 	path := fmt.Sprintf("repos/%s/%s/commits/%s/pulls?per_page=100", owner, repo, sha)
-	out, err := c.executor.Execute("gh", "api", path)
+	out, err := c.runGHJSON("api", path)
 	if err != nil {
 		return StackPR{}, false, fmt.Errorf("list pulls for %s: %w", sha, err)
 	}
 	var pulls []commitPullJSON
-	if err := json.Unmarshal([]byte(out), &pulls); err != nil {
+	if err := out.decode(&pulls); err != nil {
 		return StackPR{}, false, fmt.Errorf("parse pulls for %s: %w", sha, err)
 	}
 	return earliestMerged(pulls, self)
@@ -410,19 +410,33 @@ func (c *Client) MergeAsync(owner, repo string, number int, sha string) error {
 	return nil
 }
 
-func (c *Client) graphqlQuery(query string, fields []string) ([]byte, error) {
-	args := make([]string, 0, 3+len(fields))
-	args = append(args, "api", "graphql", "-f", "query="+query)
-	args = append(args, fields...)
-	out, err := c.executor.Execute("gh", args...)
+// graphqlQuery runs a read-only GraphQL query. An exit 0 with empty stdout
+// is retried once.
+func (c *Client) graphqlQuery(query string, fields []string) (ghJSONOutput, error) {
+	out, err := c.runGHJSON(graphqlArgs(query, fields)...)
 	if err != nil {
-		return []byte(out), fmt.Errorf("gh api graphql: %w", err)
+		return out, fmt.Errorf("gh api graphql: %w", err)
 	}
-	return []byte(out), nil
+	return out, nil
 }
 
-func graphqlCallError(action string, body []byte, callErr error) error {
-	msg := graphqlMessages(body)
+// graphqlMutation runs a GraphQL mutation once. It is never retried.
+func (c *Client) graphqlMutation(mutation string, fields []string) (ghJSONOutput, error) {
+	out, err := c.runGHOnce(graphqlArgs(mutation, fields))
+	if err != nil {
+		return out, fmt.Errorf("gh api graphql: %w", err)
+	}
+	return out, nil
+}
+
+func graphqlArgs(query string, fields []string) []string {
+	args := make([]string, 0, 4+len(fields))
+	args = append(args, "api", "graphql", "-f", "query="+query)
+	return append(args, fields...)
+}
+
+func graphqlCallError(action string, out ghJSONOutput, callErr error) error {
+	msg := graphqlMessages(out.stdout)
 	if callErr != nil {
 		if msg == "" {
 			return fmt.Errorf("%s: %w", action, callErr)
@@ -435,11 +449,11 @@ func graphqlCallError(action string, body []byte, callErr error) error {
 	return nil
 }
 
-func graphqlMessages(body []byte) string {
-	if len(body) == 0 {
+func graphqlMessages(body string) string {
+	if body == "" {
 		return ""
 	}
-	_, messages, err := ghcli.ParseEnvelope(string(body))
+	_, messages, err := ghcli.ParseEnvelope(body)
 	if err != nil || len(messages) == 0 {
 		return ""
 	}
@@ -532,10 +546,10 @@ type queueEventJSON struct {
 	} `json:"beforeCommit"`
 }
 
-func parseQueuePullRequest(body []byte, ref PullRef) (QueuePullRequest, error) {
+func parseQueuePullRequest(body ghJSONOutput, ref PullRef) (QueuePullRequest, error) {
 	var resp queueQueryResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return QueuePullRequest{}, fmt.Errorf("parse graphql: %w", err)
+	if err := body.decode(&resp); err != nil {
+		return QueuePullRequest{}, err
 	}
 	repo := resp.Data.Repository
 	if repo == nil || repo.PullRequest == nil {
@@ -765,12 +779,12 @@ type failureChoice struct {
 
 func (c *Client) listCheckRuns(owner, repo, sha string) ([]checkRunJSON, error) {
 	path := fmt.Sprintf("repos/%s/%s/commits/%s/check-runs?per_page=100", owner, repo, sha)
-	out, err := c.executor.Execute("gh", "api", path)
+	out, err := c.runGHJSON("api", path)
 	if err != nil {
 		return nil, fmt.Errorf("list check runs for %s: %w", sha, err)
 	}
 	var resp checkRunsResponse
-	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+	if err := out.decode(&resp); err != nil {
 		return nil, fmt.Errorf("parse check runs for %s: %w", sha, err)
 	}
 	return resp.CheckRuns, nil
@@ -778,12 +792,12 @@ func (c *Client) listCheckRuns(owner, repo, sha string) ([]checkRunJSON, error) 
 
 func (c *Client) listCommitStatuses(owner, repo, sha string) ([]statusJSON, error) {
 	path := fmt.Sprintf("repos/%s/%s/commits/%s/status?per_page=100", owner, repo, sha)
-	out, err := c.executor.Execute("gh", "api", path)
+	out, err := c.runGHJSON("api", path)
 	if err != nil {
 		return nil, fmt.Errorf("list commit statuses for %s: %w", sha, err)
 	}
 	var resp combinedStatusResponse
-	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+	if err := out.decode(&resp); err != nil {
 		return nil, fmt.Errorf("parse commit statuses for %s: %w", sha, err)
 	}
 	return resp.Statuses, nil
@@ -900,12 +914,12 @@ type actionsJobJSON struct {
 
 func (c *Client) failingStepLog(owner, repo string, jobID int64) (string, string, error) {
 	jobPath := fmt.Sprintf("repos/%s/%s/actions/jobs/%d", owner, repo, jobID)
-	jobOut, err := c.executor.Execute("gh", "api", jobPath)
+	jobOut, err := c.runGHJSON("api", jobPath)
 	if err != nil {
 		return "", "", fmt.Errorf("get job %d: %w", jobID, err)
 	}
 	var job actionsJobJSON
-	if err := json.Unmarshal([]byte(jobOut), &job); err != nil {
+	if err := jobOut.decode(&job); err != nil {
 		return "", "", fmt.Errorf("parse job %d: %w", jobID, err)
 	}
 	logPath := jobPath + "/logs"

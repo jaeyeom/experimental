@@ -3,11 +3,11 @@ package github
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
 	executor "github.com/jaeyeom/go-cmdexec"
@@ -63,6 +63,9 @@ func (e *executorAdapter) ExecuteSeparated(cmd string, args ...string) (string, 
 // Client provides methods to interact with GitHub.
 type Client struct {
 	executor CommandExecutor
+	// sleep and warn default to time.Sleep and slog.Warn when nil.
+	sleep func(time.Duration)
+	warn  func(msg string, args ...any)
 }
 
 // NewClient creates a new GitHub client with the shared executor.
@@ -87,51 +90,46 @@ func NewClientWithExecutor(executor CommandExecutor) *Client {
 const pullRequestListLimit = 100
 
 // GetAuthoredPullRequests fetches open pull requests authored by the current user, including drafts.
-// A non-zero gh exit, or stdout that is not a JSON array, is retried once.
+// A non-zero gh exit is retried once, and so is an exit 0 with empty stdout.
 // The pull request list is parsed from stdout only.
 func (c *Client) GetAuthoredPullRequests() ([]models.PullRequest, error) {
 	return c.fetchPullRequests(false)
 }
 
 // GetPendingPullRequests fetches open pull requests authored by the current user, excluding drafts.
-// A non-zero gh exit, or stdout that is not a JSON array, is retried once.
+// A non-zero gh exit is retried once, and so is an exit 0 with empty stdout.
 // The pull request list is parsed from stdout only.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
 	return c.fetchPullRequests(true)
 }
 
 func (c *Client) fetchPullRequests(skipDrafts bool) ([]models.PullRequest, error) {
-	prs, _, err := c.pullRequestsOnce()
-	if err == nil {
-		return filterDrafts(prs, skipDrafts), nil
-	}
-	prs, stderr, err := c.pullRequestsOnce()
-	if err == nil {
-		return filterDrafts(prs, skipDrafts), nil
-	}
-	if stderr != "" {
-		if _, printErr := fmt.Fprintln(os.Stderr, stderr); printErr != nil {
-			err = errors.Join(err, printErr)
-		}
-		err = fmt.Errorf("%w\n%s", err, stderr)
-	}
-	return nil, err
-}
-
-func (c *Client) pullRequestsOnce() ([]models.PullRequest, string, error) {
 	// `pr list --author @me` replaces `pr status`, which is capped at 10 PRs.
-	stdout, stderr, err := c.executeSeparated("gh", "pr", "list",
+	args := []string{
+		"pr", "list",
 		"--author", "@me",
 		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
-		"--json", "url,title,reviewRequests,latestReviews,files,mergeable,headRefName,statusCheckRollup,isDraft,labels")
-	if err != nil {
-		return nil, stderr, fmt.Errorf("failed to execute gh command: %w", err)
+		"--json", "url,title,reviewRequests,latestReviews,files,mergeable,headRefName,statusCheckRollup,isDraft,labels",
 	}
-	prs, err := parsePullRequestList(stdout)
+	out, err := c.runGHJSON(args...)
 	if err != nil {
-		return nil, stderr, err
+		out, err = c.runGHJSON(args...)
 	}
-	return prs, stderr, nil
+	if err != nil {
+		err = fmt.Errorf("failed to execute gh command: %w", err)
+		if out.stderr != "" {
+			if _, printErr := fmt.Fprintln(os.Stderr, out.stderr); printErr != nil {
+				err = errors.Join(err, printErr)
+			}
+			err = fmt.Errorf("%w\n%s", err, out.stderr)
+		}
+		return nil, err
+	}
+	prs, err := parsePullRequestList(out)
+	if err != nil {
+		return nil, err
+	}
+	return filterDrafts(prs, skipDrafts), nil
 }
 
 func filterDrafts(prs []models.PullRequest, skip bool) []models.PullRequest {
@@ -144,14 +142,14 @@ func filterDrafts(prs []models.PullRequest, skip bool) []models.PullRequest {
 // MergeableState reads one pull request's mergeable field from gh.
 // Stdout is parsed alone. Stderr is not part of the value.
 func (c *Client) MergeableState(prURL string) (string, error) {
-	stdout, _, err := c.executeSeparated("gh", "pr", "view", prURL, "--json", "mergeable")
+	out, err := c.runGHJSON("pr", "view", prURL, "--json", "mergeable")
 	if err != nil {
 		return "", fmt.Errorf("failed to read mergeable state: %w", err)
 	}
 	var body struct {
 		Mergeable string `json:"mergeable"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &body); err != nil {
+	if err := out.decode(&body); err != nil {
 		return "", fmt.Errorf("failed to parse mergeable state: %w", err)
 	}
 	return body.Mergeable, nil
@@ -175,14 +173,13 @@ func (c *Client) executeSeparated(cmd string, args ...string) (string, string, e
 	return out, "", nil
 }
 
-func parsePullRequestList(stdout string) ([]models.PullRequest, error) {
-	trimmed := strings.TrimSpace(stdout)
-	if !strings.HasPrefix(trimmed, "[") {
-		return nil, fmt.Errorf("failed to parse gh command output: stdout is not a JSON array")
-	}
+func parsePullRequestList(out ghJSONOutput) ([]models.PullRequest, error) {
 	var prs []models.PullRequest
-	if err := json.Unmarshal([]byte(trimmed), &prs); err != nil {
-		return nil, fmt.Errorf("failed to parse gh command output: %w", err)
+	if err := out.decode(&prs); err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(strings.TrimSpace(out.stdout), "[") {
+		return nil, out.parseError(errors.New("stdout is not a JSON array"))
 	}
 	return prs, nil
 }

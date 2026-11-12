@@ -452,7 +452,7 @@ func TestListGHFailurePrintsStderr(t *testing.T) {
 }
 
 func TestListGHTruncatedJSON(t *testing.T) {
-	exec := &ghAttempts{calls: []ghAttempt{{stdout: `[{"url":`}, {stdout: `[{"url":`}}}
+	exec := &ghAttempts{calls: []ghAttempt{{stdout: `[{"url":`}}}
 	client := github.NewClientWithExecutor(exec)
 	var cmdErr error
 	stdout, _ := captureOutputs(t, func() {
@@ -467,8 +467,8 @@ func TestListGHTruncatedJSON(t *testing.T) {
 	if !strings.Contains(cmdErr.Error(), "unexpected end of JSON input") {
 		t.Fatalf("error = %v, want unexpected end of JSON input", cmdErr)
 	}
-	if exec.n != 2 {
-		t.Fatalf("gh calls = %d, want 2", exec.n)
+	if exec.n != 1 {
+		t.Fatalf("gh calls = %d, want 1 (truncated JSON is not retried)", exec.n)
 	}
 }
 

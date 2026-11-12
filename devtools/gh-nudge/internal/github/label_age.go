@@ -1,7 +1,6 @@
 package github
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -68,13 +67,13 @@ func (c *Client) listIssueEvents(prURL string) ([]issueEvent, error) {
 	}
 
 	path := fmt.Sprintf("repos/%s/%s/issues/%d/events?per_page=100", owner, repo, number)
-	output, err := c.executor.Execute("gh", "api", "--paginate", path)
+	output, err := c.runGHJSON("api", "--paginate", path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list issue events for %s: %w", prURL, err)
 	}
 
 	var events []issueEvent
-	if err := json.Unmarshal([]byte(output), &events); err != nil {
+	if err := output.decode(&events); err != nil {
 		return nil, fmt.Errorf("failed to parse issue events for %s: %w", prURL, err)
 	}
 	return events, nil
