@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jaeyeom/experimental/devtools/decide"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall/sshtest"
 )
 
@@ -94,5 +95,40 @@ func TestHubInboxRefuses(t *testing.T) {
 	}
 	if fake.Read("argv") != "" {
 		t.Fatal("inbox ran ssh")
+	}
+}
+
+// TestHubAnswerKeepsVia forwards a client's answer to the fake hub, then
+// replays the forwarded arguments on a real ledger as the hub would.
+func TestHubAnswerKeepsVia(t *testing.T) {
+	fake, _ := setupHub(t, "")
+	for _, tc := range []struct {
+		flags []string
+		want  string
+	}{
+		{[]string{"--via", "ui"}, decide.ViaUI},
+		{nil, decide.ViaCLI},
+	} {
+		t.Setenv("DECIDE_HUB", "")
+		id := askRelay(t, nil, "on the hub")
+		args := append(append([]string{"answer"}, tc.flags...), id, "a")
+
+		t.Setenv("DECIDE_HUB", "me@hub")
+		var stderr bytes.Buffer
+		if code := run(args, &bytes.Buffer{}, &stderr); code != 0 {
+			t.Fatalf("client %q = %d, stderr %q", args, code, stderr.String())
+		}
+		forwarded := fake.Lines("decide.args")
+		if !slices.Equal(forwarded, args) {
+			t.Fatalf("hub args = %q, want %q", forwarded, args)
+		}
+
+		t.Setenv("DECIDE_HUB", "")
+		if _, stderr, code := runCLI(forwarded...); code != 0 {
+			t.Fatalf("hub %q = %d\n%s", forwarded, code, stderr)
+		}
+		if got := showJSON(t, id); got.Answer == nil || got.Answer.Via != tc.want {
+			t.Fatalf("hub answer for %q = %+v, want via %s", args, got.Answer, tc.want)
+		}
 	}
 }

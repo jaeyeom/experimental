@@ -236,6 +236,26 @@ normal buffer to reply with free text. ~C-c C-c~ sends that buffer and
 The status buffer refreshes every two seconds while it is visible, and
 the timer stops when the buffer is killed.
 
+* Where an answer came from
+
+Each stored answer has ~via~, shown as ~answer.via~ in
+~decide show --json~ and ~decide list --json~, and as a ~via:~ line in
+~decide show~.
+
+- ~ui~: the user answered in the inbox TUI, or Emacs answered with
+  ~decide answer --via ui~.
+- ~cli~: ~decide answer~ without ~--via~, or ~decide send --id~ on an open
+  question. ~--via cli~ is the same. Any other ~--via~ value is an error.
+
+Only the human front ends pass ~--via ui~. Agents never pass it. A tool
+that must act only on an answer the user gave interactively checks that
+~via~ is ~ui~. An answer stored before ~via~ existed has no ~via~ in its
+JSON and does not count as ~ui~. Hub mode forwards ~--via~ unchanged, so
+an answer from a hub client keeps its ~via~.
+
+This guards against accidents, not a misbehaving agent: every agent
+runs as the same user and could still edit the ledger or drive the TUI.
+
 * Notify
 
 After a relay answer is saved, ~notifyTemplate~ runs as a shell command.

@@ -190,10 +190,10 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := led.Answer(relay.ID, "nope"); err == nil {
+	if _, err := led.Answer(relay.ID, "nope", ViaCLI); err == nil {
 		t.Fatal("free text was accepted")
 	}
-	got, err := led.Answer(relay.ID, "b")
+	got, err := led.Answer(relay.ID, "b", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	free, err := led.Answer(openFree.ID, "custom")
+	free, err := led.Answer(openFree.ID, "custom", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := "  say \"hi\" $(uname)  "
-	gotFree, err := led.Answer(kept.ID, raw)
+	gotFree, err := led.Answer(kept.ID, raw, ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotSpace, err := led.Answer(spaced.ID, " a ")
+	gotSpace, err := led.Answer(spaced.ID, " a ", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := led.Answer(typed.ID, "ship"); err == nil {
+	if _, err := led.Answer(typed.ID, "ship", ViaCLI); err == nil {
 		t.Fatal("type-in answer succeeded")
 	}
 	done, err := led.Done(typed.ID, "typed it")
@@ -283,7 +283,7 @@ func TestAnswerDoneAndWithdraw(t *testing.T) {
 	if _, err := led.Withdraw(other.ID, "again"); err == nil {
 		t.Fatal("second withdraw succeeded")
 	}
-	if _, err := led.Answer(other.ID, "a"); err == nil {
+	if _, err := led.Answer(other.ID, "a", ViaCLI); err == nil {
 		t.Fatal("answer of withdrawn succeeded")
 	}
 }
@@ -640,7 +640,7 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	if len(item.Messages) != 1 || item.Messages[0].Author != "ada" || item.Messages[0].Text != "draft?" || len(item.Messages[0].Options) != 2 {
 		t.Fatalf("ask thread = %+v", item.Messages)
 	}
-	answered, err := led.Answer(item.ID, "draft")
+	answered, err := led.Answer(item.ID, "draft", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -677,10 +677,10 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	if replied.Messages[0].Options[0].Key != "draft" {
 		t.Fatalf("original options = %+v", replied.Messages[0].Options)
 	}
-	if _, err := led.Answer(item.ID, "nope"); err == nil {
+	if _, err := led.Answer(item.ID, "nope", ViaCLI); err == nil {
 		t.Fatal("free text was accepted")
 	}
-	sent, err := led.Answer(item.ID, "send")
+	sent, err := led.Answer(item.ID, "send", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +709,7 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	if done.State != StateDone || done.Outcome != "sent" {
 		t.Fatalf("done = %+v", done)
 	}
-	edited, err := led.Compose(item.ID, "please change the subject")
+	edited, err := led.Compose(item.ID, "please change the subject", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,7 +737,7 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := led.Answer(openItem.ID, "a"); err != nil {
+	if _, err := led.Answer(openItem.ID, "a", ViaCLI); err != nil {
 		t.Fatal(err)
 	}
 	raw := "  say \"hi\"  "
@@ -748,7 +748,7 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	if !freed.FreeText || freed.State != StateOpen {
 		t.Fatalf("free reply = %+v", freed)
 	}
-	typed, err := led.Answer(openItem.ID, raw)
+	typed, err := led.Answer(openItem.ID, raw, ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -766,10 +766,10 @@ func TestAnswerReplyAndComposeKeepTheThread(t *testing.T) {
 	if _, err := led.Reply(withdrawn.ID, "later", nil, false); err == nil {
 		t.Fatal("reply on a withdrawn thread was accepted")
 	}
-	if _, err := led.Compose(withdrawn.ID, "later"); err == nil {
+	if _, err := led.Compose(withdrawn.ID, "later", ViaCLI); err == nil {
 		t.Fatal("compose on a withdrawn thread was accepted")
 	}
-	if _, err := led.Compose(item.ID, "   "); err == nil {
+	if _, err := led.Compose(item.ID, "   ", ViaCLI); err == nil {
 		t.Fatal("empty compose was accepted")
 	}
 }
@@ -786,7 +786,7 @@ func TestComposeAnswersAnOpenQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := "say \"hi\"\nnext"
-	got, err := led.Compose(item.ID, text)
+	got, err := led.Compose(item.ID, text, ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -799,7 +799,7 @@ func TestComposeAnswersAnOpenQuestion(t *testing.T) {
 	if len(got.Options) != 1 || got.Options[0].Key != "a" {
 		t.Fatalf("options = %+v", got.Options)
 	}
-	later, err := led.Compose(item.ID, "later")
+	later, err := led.Compose(item.ID, "later", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -819,21 +819,21 @@ func TestComposeAnswersAnOpenQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	noted, err := led.Compose(note.ID, "ping")
+	noted, err := led.Compose(note.ID, "ping", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if noted.State != StateOpen || noted.Answer != nil || noted.Messages[len(noted.Messages)-1].Text != "ping" {
 		t.Fatalf("notification = state %s answer %+v messages %+v", noted.State, noted.Answer, noted.Messages)
 	}
-	if _, err := led.Compose(item.ID, "   "); err == nil {
+	if _, err := led.Compose(item.ID, "   ", ViaCLI); err == nil {
 		t.Fatal("empty compose was accepted")
 	}
 	withdrawn, err := led.Withdraw(note.ID, "stop")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := led.Compose(withdrawn.ID, "nope"); err == nil {
+	if _, err := led.Compose(withdrawn.ID, "nope", ViaCLI); err == nil {
 		t.Fatal("compose on a withdrawn thread was accepted")
 	}
 }
@@ -869,7 +869,7 @@ func TestLegacyAnswerKeepsThePreviousAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	led.now = func() time.Time { return answeredAt.Add(time.Hour) }
-	got, err := led.Answer("D-001", "send")
+	got, err := led.Answer("D-001", "send", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1105,7 +1105,7 @@ func TestAnswerStoresTheOptionKeyAndLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := led.Answer(item.ID, "a")
+	got, err := led.Answer(item.ID, "a", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1143,7 +1143,7 @@ func TestFreeTextAnswerHasNoKeyOrLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := led.Answer(item.ID, "something else")
+	got, err := led.Answer(item.ID, "something else", ViaCLI)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1199,5 +1199,75 @@ func TestLegacyOptionAnswerRendersTheLabel(t *testing.T) {
 		if text := AnswerText(&got); text != tc.want {
 			t.Fatalf("AnswerText(%q) = %q, want %q", tc.value, text, tc.want)
 		}
+	}
+}
+
+func TestAnswerRecordsVia(t *testing.T) {
+	led, _ := openTemp(t)
+	ask := func() string {
+		t.Helper()
+		it, err := led.Create(&Item{
+			Question: "pick",
+			Kind:     KindRelay,
+			Owner:    "ada",
+			FreeText: true,
+			Options:  []Option{{Key: "a", Label: "A", Recommended: true}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return it.ID
+	}
+	for _, via := range []string{ViaUI, ViaCLI} {
+		got, err := led.Answer(ask(), "a", via)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Answer == nil || got.Answer.Via != via {
+			t.Fatalf("answer via %s = %+v", via, got.Answer)
+		}
+		composed, err := led.Compose(ask(), "typed", via)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if composed.Answer == nil || composed.Answer.Via != via {
+			t.Fatalf("compose via %s = %+v", via, composed.Answer)
+		}
+	}
+	for _, via := range []string{"", "bogus", "UI"} {
+		id := ask()
+		if _, err := led.Answer(id, "a", via); err == nil {
+			t.Fatalf("answer via %q was accepted", via)
+		}
+		if _, err := led.Compose(id, "typed", via); err == nil {
+			t.Fatalf("compose via %q was accepted", via)
+		}
+	}
+}
+
+func TestOldAnswerWithoutViaIsNotUI(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"next": 2, "items": [{"id": "D-001", "question": "q", "owner": "ada", "kind": "relay",
+  "state": "answered", "answer": {"value": "a", "answeredBy": "human"}}]}`
+	if err := os.WriteFile(filepath.Join(dir, ledgerName), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	led, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := led.Get("D-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Answer == nil || got.Answer.Via == ViaUI {
+		t.Fatalf("old answer = %+v", got.Answer)
+	}
+	out, err := json.Marshal(got.Answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `"via"`) {
+		t.Fatalf("old answer JSON = %s", out)
 	}
 }

@@ -656,6 +656,53 @@ func TestNotifyLabelComesFromTheStoredAnswer(t *testing.T) {
 	}
 }
 
+func TestAnswerVia(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	plain := askRelay(t, nil, "plain")
+	if _, stderr, code := runCLI("answer", plain, "a"); code != 0 {
+		t.Fatalf("answer code = %d\n%s", code, stderr)
+	}
+	if got := showJSON(t, plain); got.Answer == nil || got.Answer.Via != decide.ViaCLI {
+		t.Fatalf("plain answer = %+v", got.Answer)
+	}
+
+	ui := askRelay(t, nil, "from the ui")
+	if _, stderr, code := runCLI("answer", "--json", "--via", "ui", ui, "a"); code != 0 {
+		t.Fatalf("answer --via ui code = %d\n%s", code, stderr)
+	}
+	if got := showJSON(t, ui); got.Answer == nil || got.Answer.Via != decide.ViaUI {
+		t.Fatalf("ui answer = %+v", got.Answer)
+	}
+
+	bogus := askRelay(t, nil, "bogus")
+	if _, stderr, code := runCLI("answer", "--via", "bogus", bogus, "a"); code != 2 || !strings.Contains(stderr, "bogus") {
+		t.Fatalf("answer --via bogus code = %d\n%s", code, stderr)
+	}
+	if got := showJSON(t, bogus); got.Answer != nil {
+		t.Fatalf("bogus answer was stored: %+v", got.Answer)
+	}
+
+	stdout, stderr, code := runCLI("list", "--json", "--state", "answered")
+	if code != 0 {
+		t.Fatalf("list --json code = %d\n%s", code, stderr)
+	}
+	var items []decide.Item
+	if err := json.Unmarshal([]byte(stdout), &items); err != nil {
+		t.Fatalf("list json: %v\n%s", err, stdout)
+	}
+	vias := map[string]string{}
+	for _, it := range items {
+		if it.Answer != nil {
+			vias[it.ID] = it.Answer.Via
+		}
+	}
+	if vias[plain] != decide.ViaCLI || vias[ui] != decide.ViaUI {
+		t.Fatalf("list --json vias = %v", vias)
+	}
+}
+
 func askRelay(t *testing.T, extra []string, question string) string {
 	t.Helper()
 	args := relayArgs(question)
@@ -1000,7 +1047,7 @@ func TestDraftReplyReturnsToInbox(t *testing.T) {
 		t.Fatalf("send --id code = %d\n%s", code, stderr)
 	}
 	edited := showJSON(t, id2)
-	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != edits || edited.Answer.AnsweredBy != "human" || !optionKeys(edited.Options, "send", "edit", "don't send") {
+	if edited.State != decide.StateAnswered || edited.Answer == nil || edited.Answer.Value != edits || edited.Answer.AnsweredBy != "human" || edited.Answer.Via != decide.ViaCLI || !optionKeys(edited.Options, "send", "edit", "don't send") {
 		t.Fatalf("edit answer = state %s answer %+v options %+v", edited.State, edited.Answer, edited.Options)
 	}
 	editMsg := edited.Messages[len(edited.Messages)-1]
@@ -1349,6 +1396,7 @@ func TestSkill(t *testing.T) {
 		"Every item has options, includes `--rec`, and usually allows `--free-text`.",
 		"`--notify-pane` routes the answer to the owning agent's pane.",
 		"verify it with `decide show --json`: `state` is `answered` and `answeredBy` is `human`.",
+		"Agents never pass `--via ui` to `decide answer`.",
 		"Close an item with `decide done` and an outcome.",
 		"A follow-up is a reply in the existing thread, not a new item.",
 		"A human reply notifies the owner.",

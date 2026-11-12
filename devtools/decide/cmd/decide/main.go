@@ -85,7 +85,7 @@ func usage(w io.Writer) {
   decide show [--json] <id>
   decide withdraw [--json] <id> <reason>
   decide done [--json] <id> <outcome>
-  decide answer [--json] <id> <option|text>
+  decide answer [--json] [--via cli|ui] <id> <option|text>
   decide snooze [--json] <id> <2h30m|HH:MM|YYYY-MM-DD HH:MM|mon 9:00>
   decide unsnooze [--json] <id>
   decide inbox [--snoozed]
@@ -177,7 +177,7 @@ func cmdCompose(id, text string, jsonOut bool, stdout, stderr io.Writer) int {
 	}
 	var item decide.Item
 	code := withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
-		got, err := led.Compose(id, text)
+		got, err := led.Compose(id, text, decide.ViaCLI)
 		if err != nil {
 			return decide.Item{}, fmt.Errorf("compose decide item: %w", err)
 		}
@@ -618,17 +618,23 @@ func cmdDone(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdAnswer(args []string, stdout, stderr io.Writer) int {
-	fs, jsonOut, code := itemCmd("answer", args, stderr)
-	if fs == nil {
+	fs := flag.NewFlagSet("answer", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	jsonOut := fs.Bool("json", false, "print JSON")
+	via := fs.String("via", decide.ViaCLI, "where the answer came from: cli, or ui for the inbox front ends only")
+	if code, stop := stopped(parseFlags(fs, args)); stop {
 		return code
+	}
+	if err := decide.CheckVia(*via); err != nil {
+		return fail(stderr, err, 2)
 	}
 	id, text, err := twoArgs(fs.Args(), "id", "option or text")
 	if err != nil {
 		return fail(stderr, err, 2)
 	}
 	var answered decide.Item
-	code = withItem(stdout, stderr, jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
-		item, err := led.Answer(id, text)
+	code := withItem(stdout, stderr, *jsonOut, false, func(led *decide.Ledger) (decide.Item, error) {
+		item, err := led.Answer(id, text, *via)
 		if err != nil {
 			return decide.Item{}, fmt.Errorf("answer decide item: %w", err)
 		}
@@ -929,6 +935,7 @@ func writeShow(w io.Writer, it *decide.Item) {
 	if it.Answer != nil {
 		fmt.Fprintf(w, "answer: %s\n", decide.AnswerText(it))
 		fmt.Fprintf(w, "answeredBy: %s\n", it.Answer.AnsweredBy)
+		writeField(w, "via", it.Answer.Via)
 	}
 	writeField(w, "notifyPane", it.NotifyPane)
 	writeField(w, "notifyMachine", it.NotifyMachine)
