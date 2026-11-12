@@ -198,6 +198,11 @@ ALTER TABLE status ADD COLUMN outbox_poll_last_ok INTEGER;
 ALTER TABLE status ADD COLUMN outbox_poll_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE status ADD COLUMN outbox_poll_failing_since INTEGER;
 `,
+	// manual is set on an outbox record posted by hand with outbox
+	// posted --manual.
+	`
+ALTER TABLE outbox ADD COLUMN manual INTEGER NOT NULL DEFAULT 0;
+`,
 }
 
 // Store is the slackwatch SQLite database. The server and the CLI each

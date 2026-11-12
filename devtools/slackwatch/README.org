@@ -284,7 +284,7 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 | ~post --to DEST --text-file F --owner T --purpose S [--ref R ...] [--json]~ | Store the draft and file its decide item. Prints the outbox id. |
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
-| ~outbox posted <id> <permalink>~ | Report a handoff post. |
+| ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |
 | ~outbox poke <decide-id>~ | Handle the answer to a decide item now. |
 | ~outbox cancel <id> [--reason S]~ | Withdraw a draft that is not posted. |
 | ~pin~ | Check the write token with ~auth.test~ and pin it in the config. |
@@ -340,6 +340,18 @@ While a record is ~awaiting-handoff~, an own post in its destination
 whose text matches is linked to it: it is watched for the owner instead
 of becoming an unowned footer watch. ~outbox posted~ then confirms the
 link; naming a different message makes the record a ~mismatch~.
+
+When an approved draft is posted by hand, for example because ~serve~
+could not reach decide, ~outbox posted --manual <id> <permalink>~
+records it. It accepts a ~pending~ or ~awaiting-handoff~ record. For a
+~pending~ record it first reads the decide item and requires the same
+approval as step 4, a human ~post~ answer from the decide UI; without
+one it refuses with ~no ui approval found for <id>~ and changes
+nothing. A manual post never bypasses approval. The read-back, author,
+and text checks are the handoff ones: a match makes the record
+~posted~, watches it for the owner with ~--source outbox~, and closes
+the decide item with the permalink; a difference makes it ~mismatch~
+and alerts. The record notes ~manual: true~.
 
 Direct mode checks its identity before it posts:
 

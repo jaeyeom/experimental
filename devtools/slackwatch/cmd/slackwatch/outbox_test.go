@@ -278,6 +278,38 @@ func TestPostHandoffFlow(t *testing.T) {
 	}
 }
 
+func TestOutboxPostedManual(t *testing.T) {
+	e := newPostEnv(t, handoffPost)
+	e.submit()
+	if _, errOut, code := e.run("outbox", "posted", "1", cmdPostedLink); code == 0 || !strings.Contains(errOut, "pending, not awaiting-handoff") {
+		t.Errorf("posted without --manual = %d, stderr %q", code, errOut)
+	}
+	if _, errOut, code := e.run("outbox", "posted", "--manual", "1", cmdPostedLink); code == 0 || !strings.Contains(errOut, "no ui approval found for 1") {
+		t.Errorf("unapproved --manual = %d, stderr %q", code, errOut)
+	}
+	if r := e.record(); r.State != slackwatch.OutboxPending {
+		t.Fatalf("state = %s", r.State)
+	}
+
+	e.dec.answerPost("D-1")
+	if out := e.ok("outbox", "posted", "--manual", "1", cmdPostedLink); !strings.Contains(out, "outbox 1 posted") {
+		t.Errorf("posted printed %q", out)
+	}
+	r := e.record()
+	if r.State != slackwatch.OutboxPosted || r.WatchID == 0 || !r.Manual {
+		t.Fatalf("record = %+v", r)
+	}
+	if e.dec.outcomes["D-1"] != cmdPostedLink {
+		t.Errorf("decide outcome = %q", e.dec.outcomes["D-1"])
+	}
+	if show := e.ok("outbox", "show", "1"); !strings.Contains(show, "\nmanual: true\n") {
+		t.Errorf("show does not note manual:\n%s", show)
+	}
+	if ls := e.ok("ls", "--owner", "agent-1"); !strings.Contains(ls, "announce release") {
+		t.Errorf("ls = %q", ls)
+	}
+}
+
 func TestPostHandoffMismatchAlerts(t *testing.T) {
 	e := newPostEnv(t, handoffPost)
 	e.submit()

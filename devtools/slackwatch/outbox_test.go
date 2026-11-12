@@ -514,6 +514,121 @@ func TestHandoffPostedRequiresAwaiting(t *testing.T) {
 	}
 }
 
+func TestManualPostedPendingWithUIApproval(t *testing.T) {
+	for _, mode := range []string{PostModeHandoff, PostModeDirect} {
+		t.Run(mode, func(t *testing.T) {
+			f := newOutboxFixture(t, mode)
+			r := f.submit(t)
+			f.dec.answer(r.DecideID, uiPost)
+			f.reader.msg = Message{User: expectUser, Text: approvedText}
+			got, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.State != OutboxPosted || !got.Manual || got.Permalink != postedLink {
+				t.Fatalf("record = %+v", got)
+			}
+			w, err := f.store.FindWatch(PostRef{WatchID: got.WatchID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if w.Owner != "agent-1" || w.Source != SourceOutbox || w.Flag != "" {
+				t.Errorf("watch = %+v", w)
+			}
+			if f.dec.items[r.DecideID].State != "done" || f.dec.outcomes[r.DecideID] != postedLink {
+				t.Errorf("decide = %+v outcome %q", f.dec.items[r.DecideID], f.dec.outcomes[r.DecideID])
+			}
+			f.poll(t)
+			if len(f.writer.posts) != 0 || len(f.rec.notes) != 0 {
+				t.Errorf("posts %v, events %v", f.writer.posts, f.events())
+			}
+		})
+	}
+}
+
+func TestManualPostedAwaitingHandoff(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := approveHandoff(t, f)
+	f.reader.msg = Message{User: expectUser, Text: approvedText}
+	got, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxPosted || !got.Manual {
+		t.Fatalf("record = %+v", got)
+	}
+}
+
+func TestManualPostedRequiresUIApproval(t *testing.T) {
+	for name, a := range map[string]*DecideAnswer{
+		"unanswered": nil,
+		"cli post":   {Value: "post", Key: "post", AnsweredBy: "human", Via: "cli"},
+		"agent post": {Value: "post", Key: "post", AnsweredBy: "agent", Via: "ui"},
+		"drop":       {Value: "drop", Key: "drop", AnsweredBy: "human", Via: "ui"},
+		"free text":  {Value: "shorter please", AnsweredBy: "human", Via: "ui"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newOutboxFixture(t, PostModeHandoff)
+			r := f.submit(t)
+			if a != nil {
+				f.dec.answer(r.DecideID, *a)
+			}
+			f.reader.msg = Message{User: expectUser, Text: approvedText}
+			_, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+			if want := fmt.Sprintf("no ui approval found for %d", r.ID); err == nil || err.Error() != want {
+				t.Fatalf("err = %v, want %q", err, want)
+			}
+			if got := f.get(t, r.ID); got.State != OutboxPending || got.Manual || got.WatchID != 0 {
+				t.Errorf("record = %+v", got)
+			}
+			if f.reader.calls != 0 {
+				t.Error("read back an unapproved record")
+			}
+		})
+	}
+}
+
+func TestManualPostedRefusesOtherStates(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	if _, err := f.ob.Cancel(context.Background(), r.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ob.PostedManual(context.Background(), r.ID, postedLink); err == nil {
+		t.Error("manual posted accepted a cancelled record")
+	}
+}
+
+func TestManualPostedMismatchAlerts(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := f.submit(t)
+	f.dec.answer(r.DecideID, uiPost)
+	f.reader.msg = Message{User: expectUser, Text: "*Deploy* is done & <@U5> can check."}
+	got, err := f.ob.PostedManual(context.Background(), r.ID, postedLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxMismatch || !got.Manual || got.WatchID == 0 {
+		t.Fatalf("record = %+v", got)
+	}
+	if ev := f.events(); strings.Join(ev, ",") != EventOutboxMismatch+">agent-1,"+EventOutboxMismatch+">" {
+		t.Fatalf("events = %v", ev)
+	}
+}
+
+func TestHandoffPostedIsNotManual(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	r := approveHandoff(t, f)
+	f.reader.msg = Message{User: expectUser, Text: approvedText}
+	got, err := f.ob.Posted(context.Background(), r.ID, postedLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Manual {
+		t.Errorf("handoff post recorded as manual: %+v", got)
+	}
+}
+
 func TestNormalizePosted(t *testing.T) {
 	re := regexp.MustCompile(`_sent by an agent_`)
 	for _, tc := range []struct{ posted, stored string }{

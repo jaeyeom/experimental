@@ -343,6 +343,9 @@ func cmdOutboxShow(configPath string, args []string, stdout, stderr io.Writer) i
 	if r.WatchID != 0 {
 		fmt.Fprintf(stdout, "watch: %d\n", r.WatchID)
 	}
+	if r.Manual {
+		fmt.Fprintln(stdout, "manual: true")
+	}
 	fmt.Fprintln(stdout, "text (post it verbatim):")
 	fmt.Fprint(stdout, r.Text)
 	if !strings.HasSuffix(r.Text, "\n") {
@@ -352,7 +355,9 @@ func cmdOutboxShow(configPath string, args []string, stdout, stderr io.Writer) i
 }
 
 func cmdOutboxPosted(configPath string, args []string, stdout, stderr io.Writer) int {
-	pos, err := parseInterspersed(newFlagSet("outbox posted", stderr), args)
+	fs := newFlagSet("outbox posted", stderr)
+	manual := fs.Bool("manual", false, "record a post made by hand; a pending record needs a decide UI approval")
+	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return 2
 	}
@@ -364,7 +369,11 @@ func cmdOutboxPosted(configPath string, args []string, stdout, stderr io.Writer)
 		return usageErr(stderr, err)
 	}
 	return withOutbox(configPath, stderr, func(o *slackwatch.Outbox) error {
-		r, err := o.Posted(context.Background(), id, pos[1])
+		posted := o.Posted
+		if *manual {
+			posted = o.PostedManual
+		}
+		r, err := posted(context.Background(), id, pos[1])
 		if err != nil {
 			return err //nolint:wrapcheck // Already descriptive.
 		}
