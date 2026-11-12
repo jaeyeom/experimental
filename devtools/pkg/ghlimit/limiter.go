@@ -21,6 +21,10 @@ type Result struct {
 	// first of them.
 	StdoutLen  int64
 	StdoutHead []byte
+	// Stdout is all of stdout when StdoutKept, as asked for by
+	// ExecRunner.KeepStdout.
+	Stdout     []byte
+	StdoutKept bool
 }
 
 // Runner runs gh once. It returns an error only when gh could not be

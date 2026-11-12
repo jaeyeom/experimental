@@ -11,8 +11,9 @@
 //	gh-throttle --stats            # summarise the last hour's waits
 //
 // Knobs: GH_THROTTLE_MAX_CONCURRENT, GH_THROTTLE_MUTATION_GAP,
-// GH_THROTTLE_BACKOFF, GH_THROTTLE_MAX_BACKOFF, and GH_THROTTLE_OFF=1 to
-// bypass the limiter.
+// GH_THROTTLE_BACKOFF, GH_THROTTLE_MAX_BACKOFF, GH_THROTTLE_OFF=1 to
+// bypass the limiter, GH_THROTTLE_CACHE_TTL to turn on the read cache,
+// and GH_THROTTLE_NO_CACHE=1 to skip it for one call.
 package main
 
 import (
@@ -90,7 +91,18 @@ func run(args []string, getenv func(string) string, self string, stdin io.Reader
 	runner.Env = append(os.Environ(), envHeld+"=1")
 	runner.StdoutDirect = isTerminal(stdout)
 	runner.StderrLive = isTerminal(stderr)
-	res, err := limiter.Run(context.Background(), args, runner.Run)
+	cache := &ghlimit.Cache{
+		Dir:        ghlimit.CacheDir(getenv),
+		TTL:        cfg.CacheTTL,
+		Bypass:     getenv(ghlimit.EnvNoCache) == "1",
+		Getenv:     getenv,
+		GitRemotes: gitRemotes,
+	}
+	if cache.TTL > 0 && !cache.Bypass {
+		cache.Identity = ghlimit.CacheIdentity(getenv)
+		runner.KeepStdout = true
+	}
+	res, err := cache.Run(context.Background(), limiter, args, runner.Run, stdout)
 	if err != nil {
 		return fail(err)
 	}
@@ -154,6 +166,18 @@ func passThrough(gh string, args []string, stdin io.Reader, stdout, stderr io.Wr
 	default:
 		return 0, fmt.Errorf("run %s: %w", gh, err)
 	}
+}
+
+// gitRemotes lists the working directory's git remotes for the read
+// cache, so it can tell the repository without a gh API call.
+func gitRemotes() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "config", "--get-regexp", `^remote\..*\.(url|gh-resolved)$`).Output()
+	if err != nil {
+		return "", fmt.Errorf("list git remotes: %w", err)
+	}
+	return string(out), nil
 }
 
 // isTerminal reports whether w is a terminal or other character device,

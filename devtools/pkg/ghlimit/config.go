@@ -21,6 +21,9 @@ const (
 	EnvMutationGap   = "GH_THROTTLE_MUTATION_GAP"
 	EnvBackoff       = "GH_THROTTLE_BACKOFF"
 	EnvMaxBackoff    = "GH_THROTTLE_MAX_BACKOFF"
+	EnvCacheTTL      = "GH_THROTTLE_CACHE_TTL"
+	// EnvNoCache set to 1 makes one call skip the read cache.
+	EnvNoCache = "GH_THROTTLE_NO_CACHE"
 )
 
 // Config holds the limiter knobs.
@@ -39,6 +42,9 @@ type Config struct {
 	// MaxWait is the longest wait for a lock. After it, the call runs
 	// anyway, so a stuck holder cannot block everyone.
 	MaxWait time.Duration
+	// CacheTTL is how long a cached read is served. Zero, the default,
+	// turns the read cache off.
+	CacheTTL time.Duration
 }
 
 // DefaultConfig is one call at a time, mutations 1s apart, a 60s
@@ -72,6 +78,7 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		{EnvMutationGap, &cfg.MutationGap},
 		{EnvBackoff, &cfg.Backoff},
 		{EnvMaxBackoff, &cfg.MaxBackoff},
+		{EnvCacheTTL, &cfg.CacheTTL},
 	} {
 		v := getenv(d.name)
 		if v == "" {
@@ -111,6 +118,11 @@ func StateDir(getenv func(string) string) string {
 		base = os.TempDir()
 	}
 	return filepath.Join(base, "gh-throttle")
+}
+
+// CacheDir is the read cache directory, cache under StateDir.
+func CacheDir(getenv func(string) string) string {
+	return filepath.Join(StateDir(getenv), "cache")
 }
 
 // LogPath is $XDG_STATE_HOME/gh-throttle/log.jsonl, with

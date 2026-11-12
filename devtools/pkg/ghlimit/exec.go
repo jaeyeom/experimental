@@ -13,6 +13,10 @@ import (
 // rate limit.
 const stdoutHeadSize = 64 << 10
 
+// maxKeptStdout is the most stdout KeepStdout keeps. Past it the output
+// is not kept, so it is not cached.
+const maxKeptStdout = 16 << 20
+
 // ExecRunner runs the real gh as a child process.
 type ExecRunner struct {
 	Path string
@@ -24,6 +28,10 @@ type ExecRunner struct {
 	StdoutDirect bool
 	// StderrLive writes stderr out as gh runs, as well as capturing it.
 	StderrLive bool
+	// KeepStdout keeps all of stdout in Result.Stdout, as well as
+	// writing it out, so a cache can store it. It has no effect with
+	// StdoutDirect.
+	KeepStdout bool
 
 	stdin          io.Reader
 	stdinData      []byte
@@ -56,7 +64,7 @@ func (r *ExecRunner) Run(ctx context.Context) (Result, error) {
 	if r.replayStdin {
 		cmd.Stdin = bytes.NewReader(r.stdinData)
 	}
-	out := &headWriter{w: r.stdout}
+	out := &headWriter{w: r.stdout, keep: r.KeepStdout}
 	cmd.Stdout = out
 	if r.StdoutDirect {
 		cmd.Stdout = r.stdout
@@ -68,6 +76,9 @@ func (r *ExecRunner) Run(ctx context.Context) (Result, error) {
 	}
 	err := cmd.Run()
 	res := Result{Stderr: stderr.Bytes(), StderrShown: r.StderrLive, StdoutLen: out.n, StdoutHead: out.head}
+	if out.keep && !r.StdoutDirect {
+		res.Stdout, res.StdoutKept = out.all, true
+	}
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
@@ -83,16 +94,26 @@ func (r *ExecRunner) Run(ctx context.Context) (Result, error) {
 }
 
 // headWriter passes writes through, counting them and keeping the
-// first stdoutHeadSize bytes.
+// first stdoutHeadSize bytes, and with keep all of them up to
+// maxKeptStdout.
 type headWriter struct {
 	w    io.Writer
 	n    int64
 	head []byte
+	keep bool
+	all  []byte
 }
 
 func (h *headWriter) Write(p []byte) (int, error) {
 	if room := stdoutHeadSize - len(h.head); room > 0 {
 		h.head = append(h.head, p[:min(room, len(p))]...)
+	}
+	if h.keep {
+		if len(h.all)+len(p) > maxKeptStdout {
+			h.keep, h.all = false, nil
+		} else {
+			h.all = append(h.all, p...)
+		}
 	}
 	n, err := h.w.Write(p)
 	h.n += int64(n)
