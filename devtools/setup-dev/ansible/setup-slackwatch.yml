@@ -1,0 +1,155 @@
+---
+# Installs slackwatch and writes its agent skill through verified-run
+# apply-text. Installing the service, Slack credentials and starting the
+# server stay manual.
+- import_playbook: slackwatch.yml
+
+- name: Ensure the slackwatch agent skill is installed
+  hosts: all
+  vars:
+    # Each entry receives the same `slackwatch skill` text. Add paths for
+    # other agents here; the tasks below loop over this list.
+    slackwatch_skill_paths:
+      - "{{ ansible_facts['env']['HOME'] }}/.claude/skills/slackwatch/SKILL.md"
+  tasks:
+    - name: Include guard for setup-slackwatch playbook
+      block:
+        - name: Stop early if the setup-slackwatch playbook is already included
+          meta: end_play
+          when: setup_slackwatch_playbook_imported is defined
+        - name: Ensure the setup-slackwatch playbook is not included
+          set_fact:
+            setup_slackwatch_playbook_imported: true
+          when: setup_slackwatch_playbook_imported is not defined
+
+    # The lookups below only read, so they also run under --check; that lets
+    # a check run report whether the skill file would change. A missing go
+    # leaves PATH as is.
+    - name: Determine GOPATH for slackwatch commands
+      ansible.builtin.command: go env GOPATH
+      register: go_env_gopath
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      environment:
+        GOTOOLCHAIN: local
+      tags: [slackwatch_skill]
+
+    - name: Set PATH for slackwatch commands
+      set_fact:
+        slackwatch_skill_env_path: >-
+          {{ (go_env_gopath.stdout ~ '/bin:')
+             if (go_env_gopath.rc | default(1)) == 0 and (go_env_gopath.stdout | default('') | length) > 0
+             else '' }}{{ ansible_facts['env']['PATH'] }}
+      tags: [slackwatch_skill]
+
+    - name: Check whether slackwatch is installed
+      ansible.builtin.shell: command -v slackwatch
+      register: slackwatch_skill_command_check
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      environment:
+        PATH: "{{ slackwatch_skill_env_path }}"
+      tags: [slackwatch_skill]
+
+    - name: Warn when slackwatch is not installed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping slackwatch skill install because slackwatch is not on PATH.
+          Nothing was written.
+      when: slackwatch_skill_command_check.rc != 0
+      tags: [slackwatch_skill]
+
+    # strip_empty_ends would drop the trailing newline and make the installed
+    # file differ from `slackwatch skill`. The file gets no header: skill
+    # frontmatter must stay first, and the file must match the output byte
+    # for byte.
+    - name: Read the slackwatch agent skill
+      ansible.builtin.command:
+        cmd: slackwatch skill
+        strip_empty_ends: false
+      register: slackwatch_skill_output
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: slackwatch_skill_command_check.rc == 0
+      environment:
+        PATH: "{{ slackwatch_skill_env_path }}"
+      tags: [slackwatch_skill]
+
+    - name: Warn when slackwatch skill fails
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping slackwatch skill install because `slackwatch skill`
+          exited {{ slackwatch_skill_output.rc | default('unknown') }}.
+          Nothing was written.
+      when:
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_skill_output.rc | default(1) != 0
+      tags: [slackwatch_skill]
+
+    - name: Warn when slackwatch skill prints nothing
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping slackwatch skill install because `slackwatch skill`
+          printed nothing. Nothing was written.
+      when:
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_skill_output.rc | default(1) == 0
+        - (slackwatch_skill_output.stdout | default('') | trim | length) == 0
+      tags: [slackwatch_skill]
+
+    - name: Ensure slackwatch skill parent directories exist
+      ansible.builtin.file:
+        path: "{{ item | dirname }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ slackwatch_skill_paths }}"
+      when:
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_skill_output.rc | default(1) == 0
+        - (slackwatch_skill_output.stdout | default('') | trim | length) > 0
+      tags: [slackwatch_skill]
+
+    # ensure.sh passes setup_dev_defer_skill_apply so it can review in a
+    # shell that has a terminal and write the file afterward. This task
+    # warns and does not run apply-text in that case. A direct
+    # ansible-playbook run leaves the var unset, so a new or changed skill
+    # fails the install task below and prints the review-text command.
+    - name: Warn when ensure.sh will write the slackwatch agent skill
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Skipping slackwatch skill apply-text because ensure.sh will
+          review and write it after the playbooks.
+      when:
+        - setup_dev_defer_skill_apply | default(false) | bool
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_skill_output.rc | default(1) == 0
+        - (slackwatch_skill_output.stdout | default('') | trim | length) > 0
+      tags: [slackwatch_skill]
+
+    # apply-text writes the raw `slackwatch skill` bytes when they match the
+    # stored approval. Stdout is `updated` or `unchanged`. Under --check the
+    # command module does not run it, so nothing is approved or written.
+    - name: Install the slackwatch agent skill
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/verified-run"
+          - apply-text
+          - slackwatch-skill
+          - "{{ item }}"
+          - "--"
+          - slackwatch
+          - skill
+      loop: "{{ slackwatch_skill_paths }}"
+      register: slackwatch_skill_apply
+      changed_when: (slackwatch_skill_apply.stdout | trim) == "updated"
+      when:
+        - not (setup_dev_defer_skill_apply | default(false) | bool)
+        - slackwatch_skill_command_check.rc == 0
+        - slackwatch_skill_output.rc | default(1) == 0
+        - (slackwatch_skill_output.stdout | default('') | trim | length) > 0
+      environment:
+        PATH: "{{ slackwatch_skill_env_path }}"
+      tags: [slackwatch_skill]

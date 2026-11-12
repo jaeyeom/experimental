@@ -58,26 +58,30 @@ store the approved bytes under
 destination only when the hash matches. A mismatch on a terminal shows the
 diff and asks on `/dev/tty`. Without a terminal it exits non-zero and
 prints the `review-text` command. `setup-herdr.yml` installs
-`herdr --skill` with `apply-text herdr-skill`.
+`herdr --skill` with `apply-text herdr-skill`; `setup-factory.yml` and
+`setup-slackwatch.yml` do the same for `factory skill` and
+`slackwatch skill`.
 
 The Ansible local command module has no controlling terminal, so that
 prompt cannot run inside the playbook task. `ensure.sh` does not run
-`herdr.yml` or `factory.yml` before the main loop, so the become password
-is asked once. When the selected playbooks import `setup-herdr.yml` or
-`setup-factory.yml` and the flags are not `--check` or `-C`, the loop
-passes `-e setup_dev_defer_skill_apply=true`. Those skill tasks warn and
-skip `apply-text`. After the loop, still in this shell, `ensure.sh` reads
-`herdr --skill` or `factory skill`. Missing command, a failing command, or
-empty output warns and continues without writing. If the text is not the
-stored approval, `review-text` runs here. A no exits non-zero and leaves
-the skill file unwritten. A yes writes it with `verified-run apply-text`,
-which does not use become. Already-approved text skips the prompt and is
-still written. A playbook failure still fails `ensure.sh` after that
-follow-up; the follow-up does not clear it. `./ensure.sh --check` (and
-`-C`) does not prompt, store an approval, or write the skill file. This is
-separate from `pre_approve_urls`, which stays URL-only and runs before the
-binary is upgraded. A direct `ansible-playbook setup-herdr.yml` or
-`setup-factory.yml` leaves the extra var unset, so an unapproved skill
+`herdr.yml`, `factory.yml`, or `slackwatch.yml` before the main loop, so
+the become password is asked once. When the selected playbooks import
+`setup-herdr.yml`, `setup-factory.yml`, or `setup-slackwatch.yml` and the
+flags are not `--check` or `-C`, the loop passes `-e
+setup_dev_defer_skill_apply=true`. Those skill tasks warn and skip
+`apply-text`. After the loop, still in this shell, `ensure.sh` reads
+`herdr --skill`, `factory skill`, or `slackwatch skill`. Missing command,
+a failing command, or empty output warns and continues without writing. If
+the text is not the stored approval, `review-text` runs here. A no exits
+non-zero and leaves the skill file unwritten. A yes writes it with
+`verified-run apply-text`, which does not use become. Already-approved
+text skips the prompt and is still written. A playbook failure still fails
+`ensure.sh` after that follow-up; the follow-up does not clear it.
+`./ensure.sh --check` (and `-C`) does not prompt, store an approval, or
+write the skill file. This is separate from `pre_approve_urls`, which
+stays URL-only and runs before the binary is upgraded. A direct
+`ansible-playbook setup-herdr.yml`, `setup-factory.yml`, or
+`setup-slackwatch.yml` leaves the extra var unset, so an unapproved skill
 fails the task and prints the `review-text` command. The installer URL
 stays on `verified-run exec`.
 
