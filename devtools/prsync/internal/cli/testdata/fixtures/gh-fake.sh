@@ -70,12 +70,17 @@ case "${cmd} ${sub}" in
     exit 0
     ;;
   "api graphql")
-    # Path history, review threads, the open-PR search, and the single-PR
-    # view share `gh api graphql`. The history query names
-    # associatedPullRequests. Review threads do not name requestedReviewer.
+    # Path history, its reviews, review threads, the open-PR search, and
+    # the single-PR view share `gh api graphql`. The history query names
+    # associatedPullRequests; its reviews query aliases each pull request
+    # (`pr7:pullRequest(number:7)`). Review threads do not name
+    # requestedReviewer.
     case "$*" in
       *committedDate*)
         cat "${DIR}/gh-rca-comments.json"
+        ;;
+      *':pullRequest(number:'*)
+        cat "${DIR}/gh-pr-reviews.json"
         ;;
       *associatedPullRequests*)
         cat "${DIR}/gh-path-history.json"
@@ -137,6 +142,10 @@ case "${cmd} ${sub}" in
         ;;
     esac
     printf '%s\n' "{\"total_count\":${count}}"
+    exit 0
+    ;;
+  "api repos/acme/widgets/git/ref/heads/"*)
+    printf '%s\n' "base1"
     exit 0
     ;;
   "api repos/acme/widgets/contents/"*)

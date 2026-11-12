@@ -203,8 +203,9 @@ Environment variables are not expanded.
 | ~team_cover_skip_teams~ | empty | Comma-separated ~org/slug~ teams to omit from the report. |
 | ~team_cover_exclude_logins~ | empty | Comma-separated logins, or ~@/path~ (one login per line; blank lines and ~#~ comments ignored). Those logins are never suggested. |
 | ~team_cover_signals~ | ~codeowners,history,load~ | Ranking signals, in that priority order. Empty disables every signal and leaves login order. Duplicate names are dropped. An unknown name is a config error. |
-| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 30 commits, 2 pull requests per commit, and 10 reviews per pull request; a cut-off list is logged as a warning. A path's result is reused for an hour while the PR head is unchanged (see Round cache). Must be >= 0. |
+| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 30 commits and 2 pull requests per commit, 20 paths to a request; each distinct pull request's reviews (at most 10) are then fetched once, 50 pull requests to a request. A cut-off list is logged as a warning. Only paths of PRs with an uncovered team are queried. A path's result is reused while the base branch head is unchanged (see Round cache). Must be >= 0. |
 | ~team_cover_active_days~ | ~0~ | Drop members with no org event in this many days. ~0~ disables the filter. The events API covers about 90 days. Must be >= 0. |
+| ~team_cover_every~ | ~1~ | Run the team-cover job on every Nth round: the 1st, N+1th, and so on. The count is kept in the round cache and counts rounds with ~team_cover~ on and the job not skipped. A skipped round omits ~team_review_suggestions~. Must be >= 1. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
@@ -333,17 +334,24 @@ per-PR status-check views at a time during a scan.
 
 GitHub also caps GraphQL CPU time per user, so prsync keeps its large
 queries small and skips calls whose answer cannot have changed since the
-last round. Results are kept for an hour in ~round-cache.json~, next to
-~state_file~. The file is only a cache: deleting it is safe, and a corrupt
-one is ignored with a warning in the run log.
+last round. Results are kept in ~round-cache.json~, next to
+~state_file~: status checks for an hour, path history for at most a day.
+The file is only a cache: deleting it is safe, and a corrupt one is
+ignored with a warning in the run log.
 
 - *Status checks.* The open-PR search returns each PR's ~headRefOid~ and
   ~updatedAt~. When both match the last round and every check had
   finished, the scan reuses the stored checks instead of running the
   per-PR status-check view. A pending or empty rollup is never stored,
   because a check can finish without changing ~updatedAt~.
-- *Team-cover history.* Each path's history is stored per PR head
-  commit, so a later round for the same path and head makes no call.
+- *Team-cover history.* Each path's history is stored per repository,
+  base branch, and base branch head commit. Each round looks up the head
+  of each base branch once (~GET repos/{owner}/{repo}/git/ref/heads/{base}~);
+  while it has not moved, the stored history is reused and no history
+  query runs. Paths that miss are fetched in one batched query per
+  repository and base. The run log records ~team-cover cache~ with
+  ~hits~ and ~misses~. If the head lookup fails, history is fetched on the
+  branch and not stored.
 
 ~dispatch --pr~ has no search to compare against and always views each
 PR. Page sizes: the open-PR search loads 50 PRs per
@@ -489,7 +497,7 @@ prsync scan --config ./prsync.config
 | ~tab_unknown~ | Present only as ~machine unreachable~, when ~tab~ is ~null~ because a configured machine could not be searched. See [[*Other herdr machines][Other herdr machines]] |
 | ~out_of_scope~ | Present only with ~--tab-machine~, when the PR belongs to another machine's run: ~tab on <m>~, ~no tab~, or ~tab may be on <m> (unreachable)~. See [[*One watcher per machine][One watcher per machine]] |
 | ~summary~ | Rollup of ~prs~. Cross-check a "nothing is local" conclusion against ~summary.tab_here~. ~uncovered_teams~ is present only when ~team_cover~ produced suggestion entries. It counts entries whose ~covered_by~ is null, including teams that failed to list members. ~0~ is included. |
-| ~team_review_suggestions~ | Omitted when ~team_cover~ is off, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), and ~error~ when members could not be listed. |
+| ~team_review_suggestions~ | Omitted when ~team_cover~ is off, on a round ~team_cover_every~ skips, or when every requested team was skipped. Each entry is ~team~ (~org/slug~), ~covered_by~ (one login, or null), ~suggest~ (logins and reasons; ~[]~ when covered or failed), and ~error~ when members could not be listed. |
 
 ~team_cover~ is off by default, so the JSON above has no suggestion
 field. With it on, stdout stays JSON. Human-readable lines and one
@@ -527,7 +535,9 @@ limit skips that signal for the rest of the run, warns, and still
 suggests from the remaining signals. An events-API error skips the
 activity filter instead of dropping candidates. With the feature off,
 scan does not call team members, CODEOWNERS, path history, or the
-review-request search.
+review-request search. With it on, a round where no PR has a requested
+team makes none of those calls either, and changed files, CODEOWNERS,
+and path history are fetched only for PRs with a team no member covers.
 
 ** tabs --orphans
 

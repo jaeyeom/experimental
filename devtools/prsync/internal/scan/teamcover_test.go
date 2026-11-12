@@ -1,13 +1,17 @@
 package scan
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 )
 
 func TestSuggestTeamsExclusion(t *testing.T) {
@@ -574,46 +578,230 @@ func (m *mapHistoryCache) PutPathHistory(repo, ref, path, head string, h gh.Path
 	m.entries[repo+"@"+ref+"\x00"+path+"\x00"+head] = h
 }
 
-func TestRunTeamCoverReusesPathHistoryAcrossRounds(t *testing.T) {
+type countRounds struct{ n map[string]int }
+
+func (c *countRounds) NextRound(job string) int {
+	c.n[job]++
+	return c.n[job]
+}
+
+// historyRound runs one scan of two PRs on main that need cover for
+// acme/foo. Both touch src/a.go; PR 2 also touches src/b.go.
+func historyRound(t *testing.T, cache HistoryCache, prHead, baseHead string) (*scriptGH, Document, string) {
+	t.Helper()
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
+	})
+	one, two := teamPR(1), teamPR(2)
+	one.HeadRefOid, two.HeadRefOid = prHead+"-1", prHead+"-2"
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{one, two}}
+	g.files = map[string][]string{
+		"acme/widgets#1": {"src/a.go"},
+		"acme/widgets#2": {"src/a.go", "src/b.go"},
+	}
+	g.history = map[string]gh.PathHistory{"acme/widgets\x00src/a.go": {Authors: []string{"carol"}}}
+	g.heads = map[string]string{"acme/widgets@main": baseHead}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"history"}
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = cache
+	var logs bytes.Buffer
+	ctx := runlog.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	doc, err := Run(ctx, deps, cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g, doc, logs.String()
+}
+
+func TestRunTeamCoverBatchesPathsAcrossPRs(t *testing.T) {
+	t.Parallel()
+
+	g, doc, _ := historyRound(t, &mapHistoryCache{entries: map[string]gh.PathHistory{}}, "h", "base1")
+	if g.historyCalls != 1 {
+		t.Fatalf("historyCalls = %d, want one batched call for both PRs", g.historyCalls)
+	}
+	if !slices.Equal(g.historyPaths[0], []string{"src/a.go", "src/b.go"}) {
+		t.Fatalf("paths = %#v, want each path once", g.historyPaths)
+	}
+	if g.historyRefs[0] != "base1" {
+		t.Fatalf("ref = %q, want the base head the cache is keyed by", g.historyRefs[0])
+	}
+	for _, pr := range doc.PRs {
+		got := pr.TeamReviewSuggestions
+		if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
+			t.Fatalf("pr %d suggestions = %+v, want carol from history", pr.Number, got)
+		}
+	}
+}
+
+func TestRunTeamCoverReusesHistoryWhileBaseHeadIsUnchanged(t *testing.T) {
 	t.Parallel()
 
 	cache := &mapHistoryCache{entries: map[string]gh.PathHistory{}}
-	round := func(head string) (*scriptGH, Document) {
-		t.Helper()
+	first, _, firstLogs := historyRound(t, cache, "h1", "base1")
+	if first.historyCalls != 1 {
+		t.Fatalf("first round historyCalls = %d, want 1", first.historyCalls)
+	}
+	if !strings.Contains(firstLogs, `"msg":"team-cover cache","hits":0,"misses":2`) {
+		t.Fatalf("logs = %s, want team-cover cache hits 0 misses 2", firstLogs)
+	}
+
+	// The PR heads moved but the base head did not.
+	second, doc, logs := historyRound(t, cache, "h2", "base1")
+	if second.historyCalls != 0 {
+		t.Fatalf("unchanged base head: historyCalls = %d, want 0", second.historyCalls)
+	}
+	if second.headCalls != 1 {
+		t.Fatalf("headCalls = %d, want one per repo and base", second.headCalls)
+	}
+	if !strings.Contains(logs, `"msg":"team-cover cache","hits":2,"misses":0`) {
+		t.Fatalf("logs = %s, want team-cover cache hits 2 misses 0", logs)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "carol" {
+		t.Fatalf("suggestions = %+v, want carol from the cached history", got)
+	}
+
+	third, _, _ := historyRound(t, cache, "h2", "base2")
+	if third.historyCalls != 1 {
+		t.Fatalf("moved base head: historyCalls = %d, want 1", third.historyCalls)
+	}
+}
+
+func TestRunTeamCoverBaseHeadFailureStillFetchesHistory(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
+	})
+	g.files = map[string][]string{"acme/widgets#1": {"src/a.go"}}
+	g.history = map[string]gh.PathHistory{"acme/widgets\x00src/a.go": {Authors: []string{"carol"}}}
+	g.headErr = errors.New("HTTP 500")
+	cache := &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"history"}
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = cache
+	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.historyCalls != 1 || g.historyRefs[0] != "main" {
+		t.Fatalf("history calls = %d refs = %#v, want one call on the branch", g.historyCalls, g.historyRefs)
+	}
+	if len(cache.entries) != 0 {
+		t.Fatalf("cache = %#v, want nothing stored without a base head", cache.entries)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || got[0].Suggest[0].Login != "carol" {
+		t.Fatalf("suggestions = %+v", got)
+	}
+}
+
+func TestRunTeamCoverHistoryRateLimitDropsSignal(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "carol", Type: "User"}, {Login: "bob", Type: "User"}}},
+	})
+	g.files = map[string][]string{"acme/widgets#1": {"src/a.go"}}
+	g.historyErr = gh.ErrRateLimited
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"history"}
+	doc, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || len(got[0].Suggest) != 1 || got[0].Suggest[0].Login != "bob" || len(got[0].Suggest[0].Reasons) != 0 {
+		t.Fatalf("suggestions = %+v, want bob by login with no history reason", got)
+	}
+	if countSubstr(doc.Warnings, "skipping team_cover history signal") != 1 {
+		t.Fatalf("warnings = %#v", doc.Warnings)
+	}
+}
+
+func TestRunTeamCoverCoveredPRQueriesNoPaths(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "someone", Type: "User"}, {Login: "carol", Type: "User"}}},
+	})
+	g.files = map[string][]string{"acme/widgets#1": {"src/a.go"}}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"codeowners", "history", "load"}
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.fileCalls != 0 || g.headCalls != 0 || g.historyCalls != 0 {
+		t.Fatalf("files=%d heads=%d history=%d, want none for a covered PR", g.fileCalls, g.headCalls, g.historyCalls)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || got[0].CoveredBy == nil || *got[0].CoveredBy != "someone" {
+		t.Fatalf("suggestions = %+v, want covered by someone", got)
+	}
+}
+
+func TestRunTeamCoverNoPRNeedsCoverMakesNoCalls(t *testing.T) {
+	t.Parallel()
+
+	g := teamCoverGH(nil)
+	pr := teamPR(1)
+	pr.ReviewRequests = []gh.ReviewReq{{Type: "User", Login: "someone"}}
+	g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{pr}}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"codeowners", "history", "load"}
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	rounds := &countRounds{n: map[string]int{}}
+	deps.Rounds = rounds
+	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.coverCalls != 0 {
+		t.Fatalf("coverCalls = %d, want no team-cover GitHub calls", g.coverCalls)
+	}
+	if doc.PRs[0].TeamReviewSuggestions != nil {
+		t.Fatalf("suggestions = %+v, want none", doc.PRs[0].TeamReviewSuggestions)
+	}
+}
+
+func TestRunTeamCoverEveryNthRound(t *testing.T) {
+	t.Parallel()
+
+	rounds := &countRounds{n: map[string]int{}}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverEvery = 2
+	var ran []bool
+	for range 3 {
 		g := teamCoverGH(map[string]memberCall{
-			"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
+			"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}}},
 		})
-		pr := teamPR(1)
-		pr.HeadRefOid = head
-		g.list["acme/widgets"] = listResult{prs: []gh.PRListItem{pr}}
-		g.files = map[string][]string{"acme/widgets#1": {"src/a.go"}}
-		g.history = map[string]gh.PathHistory{"acme/widgets@main\x00src/a.go": {Authors: []string{"carol"}}}
-		cfg := teamCoverCfg()
-		cfg.TeamCoverSignals = []string{"history"}
-		cfg.TeamCoverActiveDays = 0
 		deps := depsWith(g, fixtureHerdr{})
-		deps.History = cache
+		deps.Rounds = rounds
 		doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return g, doc
+		if (g.coverCalls == 0) != (doc.PRs[0].TeamReviewSuggestions == nil) {
+			t.Fatalf("calls=%d suggestions=%+v disagree", g.coverCalls, doc.PRs[0].TeamReviewSuggestions)
+		}
+		ran = append(ran, g.coverCalls > 0)
+	}
+	if !slices.Equal(ran, []bool{true, false, true}) {
+		t.Fatalf("ran = %v, want every 2nd round starting with the first", ran)
 	}
 
-	first, _ := round("h1")
-	if first.historyCalls != 1 {
-		t.Fatalf("first round historyCalls = %d, want 1", first.historyCalls)
+	g := teamCoverGH(map[string]memberCall{"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}}}})
+	if _, err := Run(context.Background(), depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets"}, fixtureNow); err != nil {
+		t.Fatal(err)
 	}
-	second, doc := round("h1")
-	if second.historyCalls != 0 {
-		t.Fatalf("same path and head: historyCalls = %d, want 0", second.historyCalls)
-	}
-	got := doc.PRs[0].TeamReviewSuggestions
-	if len(got) != 1 || len(got[0].Suggest) == 0 || got[0].Suggest[0].Login != "carol" {
-		t.Fatalf("suggestions = %+v, want carol ranked first from the cached history", got)
-	}
-	third, _ := round("h2")
-	if third.historyCalls != 1 {
-		t.Fatalf("new head: historyCalls = %d, want 1", third.historyCalls)
+	if g.coverCalls == 0 {
+		t.Fatal("without a round counter the job must run every round")
 	}
 }

@@ -622,8 +622,12 @@ func (fixtureGH) Codeowners(context.Context, string, string) (string, error) {
 	return "", nil
 }
 
-func (fixtureGH) PathHistory(context.Context, string, string, string, time.Time) (gh.PathHistory, error) {
-	return gh.PathHistory{}, nil
+func (fixtureGH) BranchHead(context.Context, string, string) (string, error) {
+	return "base1", nil
+}
+
+func (fixtureGH) PathHistories(context.Context, string, string, []string, time.Time) (map[string]gh.PathHistory, error) {
+	return map[string]gh.PathHistory{}, nil
 }
 
 func (fixtureGH) DirectReviewCount(context.Context, string, string) (int, error) {
@@ -710,6 +714,13 @@ type scriptGH struct {
 	history       map[string]gh.PathHistory
 	historyErr    error
 	historyCalls  int
+	historyPaths  [][]string
+	historyRefs   []string
+	heads         map[string]string
+	headErr       error
+	headCalls     int
+	coverCalls    int
+	fileCalls     int
 	load          map[string]int
 	loadErr       error
 	loadCalls     int
@@ -786,6 +797,7 @@ func (g *scriptGH) ReviewThreads(_ context.Context, _, _ string, number int) ([]
 }
 
 func (g *scriptGH) ReviewSnapshot(_ context.Context, repo string, number int) (string, []gh.LatestReview, error) {
+	g.coverCalls++
 	if g.snapshots == nil {
 		return "", nil, nil
 	}
@@ -794,6 +806,7 @@ func (g *scriptGH) ReviewSnapshot(_ context.Context, repo string, number int) (s
 }
 
 func (g *scriptGH) TeamMembers(_ context.Context, org, slug string) ([]gh.TeamMember, error) {
+	g.coverCalls++
 	g.memberCalls++
 	if g.members == nil {
 		return nil, fmt.Errorf("team members not configured for %s/%s", org, slug)
@@ -806,6 +819,8 @@ func (g *scriptGH) TeamMembers(_ context.Context, org, slug string) ([]gh.TeamMe
 }
 
 func (g *scriptGH) ChangedFiles(_ context.Context, repo string, number int) ([]string, error) {
+	g.coverCalls++
+	g.fileCalls++
 	key := fmt.Sprintf("%s#%d", repo, number)
 	if g.fileErr != nil && g.fileErr[key] != nil {
 		return nil, g.fileErr[key]
@@ -817,6 +832,7 @@ func (g *scriptGH) ChangedFiles(_ context.Context, repo string, number int) ([]s
 }
 
 func (g *scriptGH) Codeowners(_ context.Context, repo, ref string) (string, error) {
+	g.coverCalls++
 	key := repo + "@" + ref
 	if g.codeownersErr != nil && g.codeownersErr[key] != nil {
 		return "", g.codeownersErr[key]
@@ -827,18 +843,38 @@ func (g *scriptGH) Codeowners(_ context.Context, repo, ref string) (string, erro
 	return g.codeowners[key], nil
 }
 
-func (g *scriptGH) PathHistory(_ context.Context, repo, ref, path string, _ time.Time) (gh.PathHistory, error) {
+// BranchHead returns heads[repo@branch], or "base1" when unset.
+func (g *scriptGH) BranchHead(_ context.Context, repo, branch string) (string, error) {
+	g.coverCalls++
+	g.headCalls++
+	if g.headErr != nil {
+		return "", g.headErr
+	}
+	if head, ok := g.heads[repo+"@"+branch]; ok {
+		return head, nil
+	}
+	return "base1", nil
+}
+
+// PathHistories looks up history[repo+"\x00"+path]. It records each call's
+// paths and ref.
+func (g *scriptGH) PathHistories(_ context.Context, repo, ref string, paths []string, _ time.Time) (map[string]gh.PathHistory, error) {
+	g.coverCalls++
 	g.historyCalls++
+	g.historyPaths = append(g.historyPaths, slices.Clone(paths))
+	g.historyRefs = append(g.historyRefs, ref)
 	if g.historyErr != nil {
-		return gh.PathHistory{}, g.historyErr
+		return nil, g.historyErr
 	}
-	if g.history == nil {
-		return gh.PathHistory{}, nil
+	out := map[string]gh.PathHistory{}
+	for _, path := range paths {
+		out[path] = g.history[repo+"\x00"+path]
 	}
-	return g.history[repo+"@"+ref+"\x00"+path], nil
+	return out, nil
 }
 
 func (g *scriptGH) DirectReviewCount(_ context.Context, org, login string) (int, error) {
+	g.coverCalls++
 	g.loadCalls++
 	if g.loadErr != nil {
 		return 0, g.loadErr
@@ -850,6 +886,7 @@ func (g *scriptGH) DirectReviewCount(_ context.Context, org, login string) (int,
 }
 
 func (g *scriptGH) OrgActive(_ context.Context, org, login string, _ time.Time) (bool, error) {
+	g.coverCalls++
 	if g.activeErr != nil {
 		return false, g.activeErr
 	}

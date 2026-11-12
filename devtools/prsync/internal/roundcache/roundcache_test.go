@@ -51,26 +51,34 @@ func TestPathHistorySurvivesSaveAndLoad(t *testing.T) {
 	}
 }
 
-func TestEntriesExpireAfterAnHour(t *testing.T) {
+func TestEntriesExpire(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "cache.json")
 	clk := newClock()
 	c, _ := Load(path, clk.now)
-	c.PutPathHistory("acme/widgets", "main", "src/a.go", "head1", gh.PathHistory{Authors: []string{"alice"}})
+	c.PutPathHistory("acme/widgets", "main", "src/a.go", "base1", gh.PathHistory{Authors: []string{"alice"}})
 	c.PutRollup("acme/widgets", 7, "head1", "2026-11-01T11:00:00Z", []gh.StatusCheck{{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"}})
 	if err := c.Save(); err != nil {
 		t.Fatal(err)
 	}
+
+	// The history key holds the base head, so its TTL is only a backstop.
 	clk.t = clk.t.Add(TTL + time.Second)
 	next, _ := Load(path, clk.now)
-	if _, ok := next.PathHistory("acme/widgets", "main", "src/a.go", "head1"); ok {
-		t.Fatal("expired path history hit")
+	if _, ok := next.PathHistory("acme/widgets", "main", "src/a.go", "base1"); !ok {
+		t.Fatal("path history for an unchanged base head expired with the rollup TTL")
 	}
 	if _, ok := next.Rollup("acme/widgets", 7, "head1", "2026-11-01T11:00:00Z"); ok {
 		t.Fatal("expired rollup hit")
 	}
-	if err := next.Save(); err != nil {
+
+	clk.t = clk.t.Add(HistoryTTL)
+	last, _ := Load(path, clk.now)
+	if _, ok := last.PathHistory("acme/widgets", "main", "src/a.go", "base1"); ok {
+		t.Fatal("path history hit past HistoryTTL")
+	}
+	if err := last.Save(); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -79,6 +87,28 @@ func TestEntriesExpireAfterAnHour(t *testing.T) {
 	}
 	if string(data) != "{\"history\":{},\"rollups\":{}}\n" {
 		t.Fatalf("saved = %s, want expired entries dropped", data)
+	}
+}
+
+func TestNextRoundCountsPerJobAcrossLoads(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	if got := c.NextRound("team-cover"); got != 1 {
+		t.Fatalf("first round = %d, want 1", got)
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	clk.t = clk.t.Add(2 * HistoryTTL)
+	next, _ := Load(path, clk.now)
+	if got := next.NextRound("team-cover"); got != 2 {
+		t.Fatalf("second round = %d, want 2 (counters do not expire)", got)
+	}
+	if got := next.NextRound("other"); got != 1 {
+		t.Fatalf("other job = %d, want its own counter", got)
 	}
 }
 

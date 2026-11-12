@@ -96,6 +96,7 @@ func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h 
 		Remote:  func(machine string) scan.Herdr { return machineHerdr(exec, cfg, machine) },
 		Marker:  src.For,
 		History: cache,
+		Rounds:  cache,
 	}
 	return deps, func() {
 		if err := cache.Save(); err != nil {

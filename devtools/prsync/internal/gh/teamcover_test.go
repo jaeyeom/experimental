@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	executor "github.com/jaeyeom/go-cmdexec"
 )
 
 func TestReviewSnapshot(t *testing.T) {
@@ -110,26 +114,132 @@ func TestDirectReviewCount(t *testing.T) {
 	}
 }
 
-func TestPathHistory(t *testing.T) {
+func TestPathHistoriesBatchesPaths(t *testing.T) {
+	t.Parallel()
+
+	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	paths := make([]string, 25)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("src/f%02d.go", i)
+	}
+	mock := newGHMock()
+	mock.ExpectCustom(isHistoryRequest).
+		WillSucceed(`{"data":{"repository":{"object":{"p0":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[{"number":7}]}}]}}}}}`, 0).Build()
+	mock.ExpectCustom(isReviewsRequest).
+		WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"nodes":[{"author":{"login":"bob"}}]}}}}}`, 0).Build()
+	got, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", paths, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var history []string
+	for _, call := range mock.Executions() {
+		if isHistoryRequest(context.Background(), call) {
+			history = append(history, strings.Join(call.Args, " "))
+		}
+	}
+	if len(history) != 2 {
+		t.Fatalf("history requests = %d, want 2 for 25 paths in batches of %d", len(history), PathHistoryBatch)
+	}
+	if !strings.Contains(history[0], `p19:history(first:30,path:"src/f19.go",since:$since)`) || strings.Contains(history[0], "p20:") {
+		t.Fatalf("first request = %s, want paths 0-19", history[0])
+	}
+	if !strings.Contains(history[1], `p4:history(first:30,path:"src/f24.go",since:$since)`) || strings.Contains(history[1], "p5:") {
+		t.Fatalf("second request = %s, want paths 20-24", history[1])
+	}
+	for _, want := range []string{"expression=main", "owner=acme", "name=widgets", "since=" + since.Format(time.RFC3339)} {
+		if !strings.Contains(history[0], want) {
+			t.Fatalf("request lacks %q: %s", want, history[0])
+		}
+	}
+	for _, path := range []string{"src/f00.go", "src/f20.go"} {
+		h := got[path]
+		if len(h.Authors) != 1 || h.Authors[0] != "alice" || len(h.Reviewers) != 1 || h.Reviewers[0] != "bob" {
+			t.Fatalf("%s history = %+v", path, h)
+		}
+	}
+	if h, ok := got["src/f01.go"]; !ok || len(h.Authors) != 0 {
+		t.Fatalf("f01 history = %+v, %v, want an empty entry", h, ok)
+	}
+}
+
+func TestPathHistoriesFetchesSharedPullRequestOnce(t *testing.T) {
 	t.Parallel()
 
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	mock := newGHMock()
-	mock.ExpectCommandWithArgs(testGHBin, "api", "graphql",
-		"-f", "query="+pathHistoryQuery,
-		"-F", "owner=acme",
-		"-F", "name=widgets",
-		"-F", "expression=main",
-		"-F", "path=src/a.go",
-		"-F", "since="+since.Format(time.RFC3339),
-	).WillSucceed(`{"data":{"repository":{"object":{"history":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[{"reviews":{"nodes":[{"author":{"login":"bob"}}]}}]}}]}}}}}`, 0).Build()
-	got, err := NewClient(mock, testGHBin).PathHistory(context.Background(), "acme/widgets", "main", "src/a.go", since)
+	mock.ExpectCustom(isHistoryRequest).Once().
+		WillSucceed(`{"data":{"repository":{"object":{
+			"p0":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[{"number":7}]}}]},
+			"p1":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[{"number":7}]}},
+				{"author":{"user":{"login":"carol"}},"associatedPullRequests":{"nodes":[{"number":8}]}}]}}}}}`, 0).Build()
+	mock.ExpectCustom(isReviewsRequest).Once().
+		WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"nodes":[{"author":{"login":"bob"}}]}},"pr8":{"reviews":{"nodes":[{"author":{"login":"dave"}}]}}}}}`, 0).Build()
+	got, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go", "src/b.go"}, since)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Authors) != 1 || got.Authors[0] != "alice" || len(got.Reviewers) != 1 || got.Reviewers[0] != "bob" {
+	var reviews []string
+	for _, call := range mock.Executions() {
+		if isReviewsRequest(context.Background(), call) {
+			reviews = append(reviews, strings.Join(call.Args, " "))
+		}
+	}
+	if len(reviews) != 1 || strings.Count(reviews[0], "pr7:pullRequest(number:7)") != 1 || strings.Count(reviews[0], "pr8:pullRequest(number:8)") != 1 {
+		t.Fatalf("review requests = %#v, want PR 7 and 8 once each in one request", reviews)
+	}
+	if a := got["src/a.go"]; !slices.Equal(a.Authors, []string{"alice"}) || !slices.Equal(a.Reviewers, []string{"bob"}) {
+		t.Fatalf("a = %+v", a)
+	}
+	if b := got["src/b.go"]; !slices.Equal(b.Authors, []string{"alice", "carol"}) || !slices.Equal(b.Reviewers, []string{"bob", "dave"}) {
+		t.Fatalf("b = %+v", b)
+	}
+}
+
+func TestPathHistoriesNoPullRequestsSkipsReviews(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	mock.ExpectCustom(isHistoryRequest).Once().
+		WillSucceed(`{"data":{"repository":{"object":{"p0":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[]}}]}}}}}`, 0).Build()
+	got, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls := len(mock.Executions()); calls != 1 {
+		t.Fatalf("calls = %d, want only the history request", calls)
+	}
+	if !slices.Equal(got["src/a.go"].Authors, []string{"alice"}) {
 		t.Fatalf("history = %+v", got)
 	}
+}
+
+func TestPathHistoriesQuotesPaths(t *testing.T) {
+	t.Parallel()
+
+	query := pathHistoryQuery([]string{`src/a"b\\c.go`})
+	if !strings.Contains(query, `path:"src/a\"b\\\\c.go"`) {
+		t.Fatalf("query = %s, want the path escaped as a GraphQL string", query)
+	}
+}
+
+func TestBranchHead(t *testing.T) {
+	t.Parallel()
+
+	mock := newGHMock()
+	mock.ExpectCommandWithArgs(testGHBin, "api", "repos/acme/widgets/git/ref/heads/release/v1", "--jq", ".object.sha").
+		WillSucceed("abc123\n", 0).Build()
+	got, err := NewClient(mock, testGHBin).BranchHead(context.Background(), "acme/widgets", "release/v1")
+	if err != nil || got != "abc123" {
+		t.Fatalf("head=%q err=%v", got, err)
+	}
+}
+
+func isHistoryRequest(_ context.Context, cfg executor.ToolConfig) bool {
+	return isGraphQL(cfg.Args) && strings.Contains(strings.Join(cfg.Args, " "), "history(first:30")
+}
+
+func isReviewsRequest(_ context.Context, cfg executor.ToolConfig) bool {
+	return isGraphQL(cfg.Args) && strings.Contains(strings.Join(cfg.Args, " "), ":pullRequest(number:")
 }
 
 func TestOrgActive(t *testing.T) {
