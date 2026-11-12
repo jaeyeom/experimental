@@ -98,8 +98,9 @@ buffer in that window."
   (list "send" "--to" name "--json" text))
 
 (defun decide--reply-args (id text)
-  "Argument list that appends TEXT to thread ID and notifies its owner."
-  (list "send" "--id" id "--json" text))
+  "Argument list that appends TEXT to thread ID and notifies its owner.
+An answer it gives to an open question is recorded as from the UI."
+  (list "send" "--id" id "--via" "ui" "--json" text))
 
 (defun decide--done-args (id outcome)
   "Argument list that marks ID done with OUTCOME."

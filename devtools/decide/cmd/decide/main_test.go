@@ -703,6 +703,52 @@ func TestAnswerVia(t *testing.T) {
 	}
 }
 
+func TestSendIDVia(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	writeSendConfig(t, cfgHome)
+	pane := []string{"--notify-pane", "p1"}
+
+	plain := askRelay(t, pane, "plain")
+	if _, stderr, code := runCLI("send", "--id", plain, "edits"); code != 0 {
+		t.Fatalf("send --id code = %d\n%s", code, stderr)
+	}
+	if got := showJSON(t, plain); got.Answer == nil || got.Answer.Via != decide.ViaCLI {
+		t.Fatalf("plain send --id answer = %+v", got.Answer)
+	}
+
+	ui := askRelay(t, pane, "from the ui")
+	if _, stderr, code := runCLI("send", "--id", ui, "--via", "ui", "--json", "edits"); code != 0 {
+		t.Fatalf("send --id --via ui code = %d\n%s", code, stderr)
+	}
+	if got := showJSON(t, ui); got.Answer == nil || got.Answer.Via != decide.ViaUI {
+		t.Fatalf("ui send --id answer = %+v", got.Answer)
+	}
+
+	bogus := askRelay(t, pane, "bogus")
+	if _, stderr, code := runCLI("send", "--id", bogus, "--via", "bogus", "edits"); code != 2 || !strings.Contains(stderr, "bogus") {
+		t.Fatalf("send --id --via bogus code = %d\n%s", code, stderr)
+	}
+	got := showJSON(t, bogus)
+	if got.Answer != nil || hasMessage(got.Messages, "human", "edits") {
+		t.Fatalf("bogus send --id was stored: answer %+v messages %+v", got.Answer, got.Messages)
+	}
+}
+
+// writeSendConfig writes a config whose send template succeeds without
+// reaching any pane.
+func writeSendConfig(t *testing.T, cfgHome string) {
+	t.Helper()
+	dir := filepath.Join(cfgHome, "decide")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"sendTemplate":"true {pane}"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func askRelay(t *testing.T, extra []string, question string) string {
 	t.Helper()
 	args := relayArgs(question)
@@ -1396,7 +1442,7 @@ func TestSkill(t *testing.T) {
 		"Every item has options, includes `--rec`, and usually allows `--free-text`.",
 		"`--notify-pane` routes the answer to the owning agent's pane.",
 		"verify it with `decide show --json`: `state` is `answered` and `answeredBy` is `human`.",
-		"Agents never pass `--via ui` to `decide answer`.",
+		"Agents never pass `--via ui` to `decide answer` or `decide send`.",
 		"Close an item with `decide done` and an outcome.",
 		"A follow-up is a reply in the existing thread, not a new item.",
 		"A human reply notifies the owner.",

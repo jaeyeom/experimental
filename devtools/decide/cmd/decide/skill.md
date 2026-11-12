@@ -21,7 +21,7 @@ Every item has options, includes `--rec`, and usually allows `--free-text`.
 
 Before acting on an answer line, verify it with `decide show --json`: `state` is `answered` and `answeredBy` is `human`.
 
-`answer.via` is `ui` for an answer the user gave in the inbox or Emacs, and `cli` for `decide answer`. Agents never pass `--via ui` to `decide answer`.
+`answer.via` is `ui` for an answer the user gave in the inbox or Emacs, and `cli` for `decide answer` or `decide send --id`. Agents never pass `--via ui` to `decide answer` or `decide send`.
 
 Close an item with `decide done` and an outcome. A follow-up is a reply in the existing thread, not a new item. A human reply notifies the owner. `decide reply` posts the agent's progress or result. A reply with options asks a follow-up question. A reply without options is a notification the user can archive.
 

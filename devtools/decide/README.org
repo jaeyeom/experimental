@@ -243,9 +243,9 @@ Each stored answer has ~via~, shown as ~answer.via~ in
 ~decide show~.
 
 - ~ui~: the user answered in the inbox TUI, or Emacs answered with
-  ~decide answer --via ui~.
-- ~cli~: ~decide answer~ without ~--via~, or ~decide send --id~ on an open
-  question. ~--via cli~ is the same. Any other ~--via~ value is an error.
+  ~decide answer --via ui~ or, from its composer, ~decide send --id --via ui~.
+- ~cli~: ~decide answer~ or ~decide send --id~ on an open question without
+  ~--via~. ~--via cli~ is the same. Any other ~--via~ value is an error.
 
 Only the human front ends pass ~--via ui~. Agents never pass it. A tool
 that must act only on an answer the user gave interactively checks that
