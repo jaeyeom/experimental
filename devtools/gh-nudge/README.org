@@ -305,7 +305,8 @@ to Pkl for new installations.
 
 ~gh-approve~ approves pull requests that match rules you write in config. It
 approves as the logged-in ~gh~ user, through the ~gh~ CLI. It leaves every
-other pull request for a human. It runs no LLM review.
+other pull request for a human. It runs no LLM review itself, but a rule can
+run a command of yours as a last check. See [[*Agent command][Agent command]].
 
 It looks only at open pull requests that request you *as an individual*. It
 finds them with the search ~user-review-requested:@me~. It ignores a pull
@@ -350,6 +351,8 @@ condition is optional. An empty list or an unset limit adds no condition.
 | ~checks~                 | ~"green"~ or ~"allow_pending"~. See below                                         |
 | ~not_draft~              | Default ~true~. A draft does not match                                            |
 | ~max_unresolved_threads~ | Default ~0~                                                                       |
+| ~agent_command~          | A command, as argv, that must print ~approve~. Runs last. See below               |
+| ~agent_timeout~          | Default ~120.s~. How long ~agent_command~ may run                                 |
 
 Globs use ~**~ for any number of directories. Logins match without regard to
 case. Labels match exactly, including case. For ~required_approvals_by~, a
@@ -407,6 +410,46 @@ Starter rule shapes. These are examples. Nothing is hard-coded.
 The ~approve~ section is supported only in Pkl config. A YAML config that has
 an ~approve~ key fails to load.
 
+*** Agent command
+
+A rule may set ~agent_command~, such as a script that asks an LLM to review
+the diff. It is a list of arguments, run directly, not through a shell. It
+runs only when every other condition of the rule passed and no earlier rule
+matched, and never for a pull request that is skipped anyway, such as your own.
+It runs in dry run too.
+
+#+begin_src pkl
+  new {
+    name = "docs-reviewed-by-agent"
+    paths_all_match { "docs/**" }
+    checks = "green"
+    agent_command { "/home/me/bin/review-agent"; "--strict" }
+    agent_timeout = 60.s
+  }
+#+end_src
+
+Its stdin is one JSON object:
+
+#+begin_src json
+  {
+    "rule": "docs-reviewed-by-agent",
+    "pr": {"repo": "acme/widgets", "number": 12, "url": "...", "title": "...",
+           "author": "alice", "headSha": "...", "draft": false, "additions": 3,
+           "deletions": 1, "changedFiles": 1, "labels": ["docs"]},
+    "files": [{"path": "docs/a.md", "additions": 3, "deletions": 1}],
+    "diff": "diff --git a/docs/a.md b/docs/a.md\n..."
+  }
+#+end_src
+
+~filesError~ is added when the file list could not be read completely. The
+command must print one JSON object, ~{"decision": "approve" | "defer",
+"reason": "..."}~. ~approve~ lets the rule match. ~defer~ leaves the pull
+request for a human, and the reason is shown in the table. A non-zero exit, a
+timeout, output that is not one JSON object, or an unknown decision all count
+as ~defer~, with the error as the reason. A diff that cannot be read defers
+without running the command. On timeout, the command's whole process group is
+killed.
+
 *** Safety
 
 - *Dry run by default.* Only ~--apply~ approves.
@@ -425,7 +468,9 @@ an ~approve~ key fails to load.
 - *Audit log.* Each decision is appended as one JSON line to
   =~/.config/gh-nudge/approve-log.jsonl=. A line has ~time~, ~pr~, ~url~,
   ~title~, ~headSha~, ~rule~ (~null~ when none matched), ~rules~ (each rule's
-  per-condition ~pass~ and ~saw~), ~action~, and ~reason~. The action is
+  per-condition ~pass~ and ~saw~, and ~agent~ with ~decision~, ~reason~ and
+  ~durationMs~ when the rule's agent command ran), ~action~, and ~reason~.
+  ~--explain~ shows the same agent decision, reason and duration. The action is
   ~approved~, ~would_approve~, ~skipped~, ~manual~, or ~error~.
 
 ** Development

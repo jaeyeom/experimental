@@ -27,6 +27,7 @@ type Client interface {
 	SearchUserReviewRequested() ([]github.PullRef, error)
 	LoadApprovalPullRequest(ref github.PullRef) (github.ApprovalPullRequest, error)
 	PullRequestHeadSHA(ref github.PullRef) (string, error)
+	PullRequestDiff(ref github.PullRef) (string, error)
 	ApprovePullRequest(ref github.PullRef, commitSHA, body string) error
 }
 
@@ -63,6 +64,8 @@ type Runner struct {
 	// Log receives one JSON line per evaluated pull request.
 	Log io.Writer
 	Now func() time.Time
+	// RunCommand runs agent commands. Nil means ExecCommand.
+	RunCommand CommandRunner
 }
 
 // errNotRequested marks a pull request that does not request the viewer as
@@ -134,18 +137,19 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		entry.Action, entry.Reason = ActionSkipped, errNotRequested.Error()
 		return entry, !single
 	}
-	results, matched := Evaluate(r.Config.Rules, pr)
+	skipReason := r.skipReason(pr, viewer)
+	var agent AgentFunc
+	if skipReason == "" {
+		agent = r.agent(pr)
+	}
+	results, matched := Evaluate(r.Config.Rules, pr, agent)
 	entry.Rules = results
 	if matched != "" {
 		entry.Rule = &matched
 	}
 	switch {
-	case pr.State != "OPEN":
-		entry.Action, entry.Reason = ActionSkipped, "pull request is "+strings.ToLower(pr.State)
-	case strings.EqualFold(pr.Author, viewer):
-		entry.Action, entry.Reason = ActionSkipped, "the author is you; gh-approve never approves your own pull request"
-	case r.Config.SkipAlreadyApproved && latestStateOnHead(pr, viewer) == "APPROVED":
-		entry.Action, entry.Reason = ActionSkipped, "already approved by you at head "+pr.HeadSHA
+	case skipReason != "":
+		entry.Action, entry.Reason = ActionSkipped, skipReason
 	case matched == "":
 		entry.Action = ActionManual
 	case !opts.Apply:
@@ -154,6 +158,43 @@ func (r *Runner) decide(ref github.PullRef, viewer string, opts Options, single 
 		entry.Action, entry.Reason = r.approve(ref, pr.HeadSHA, matched)
 	}
 	return entry, false
+}
+
+// skipReason returns why pr is never approved whatever the rules say, or "".
+func (r *Runner) skipReason(pr github.ApprovalPullRequest, viewer string) string {
+	switch {
+	case pr.State != "OPEN":
+		return "pull request is " + strings.ToLower(pr.State)
+	case strings.EqualFold(pr.Author, viewer):
+		return "the author is you; gh-approve never approves your own pull request"
+	case r.Config.SkipAlreadyApproved && latestStateOnHead(pr, viewer) == "APPROVED":
+		return "already approved by you at head " + pr.HeadSHA
+	}
+	return ""
+}
+
+// agent returns the AgentFunc for pr. The diff is read once, when the first
+// agent command is about to run. A diff that cannot be read defers.
+func (r *Runner) agent(pr github.ApprovalPullRequest) AgentFunc {
+	run := r.RunCommand
+	if run == nil {
+		run = ExecCommand
+	}
+	var (
+		diff    string
+		diffErr error
+		read    bool
+	)
+	return func(rule config.ApproveRule) AgentResult {
+		if !read {
+			diff, diffErr = r.Client.PullRequestDiff(pr.Ref)
+			read = true
+		}
+		if diffErr != nil {
+			return AgentResult{Decision: AgentDefer, Reason: diffErr.Error()}
+		}
+		return runAgent(run, rule, newAgentInput(pr, diff))
+	}
 }
 
 func (r *Runner) approve(ref github.PullRef, evaluatedSHA, rule string) (string, string) {

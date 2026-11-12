@@ -276,15 +276,15 @@ func TestEvaluateANDsWithinRuleAndORsAcrossRules(t *testing.T) {
 	deletion := config.ApproveRule{Name: "deletion", PureDeletion: true, LabelsRequired: []string{"missing"}}
 	dashboard := config.ApproveRule{Name: "dashboard", PathsAllMatch: []string{"dash/**"}}
 
-	results, matched := Evaluate([]config.ApproveRule{small, deletion}, pr)
+	results, matched := Evaluate([]config.ApproveRule{small, deletion}, pr, nil)
 	if matched != "" || len(results) != 2 || results[0].Matched || results[1].Matched {
 		t.Fatalf("AND: matched = %q results = %+v", matched, results)
 	}
-	_, matched = Evaluate([]config.ApproveRule{small, deletion, dashboard}, pr)
+	_, matched = Evaluate([]config.ApproveRule{small, deletion, dashboard}, pr, nil)
 	if matched != "dashboard" {
 		t.Fatalf("OR: matched = %q, want dashboard", matched)
 	}
-	_, matched = Evaluate([]config.ApproveRule{dashboard, {Name: "also"}}, pr)
+	_, matched = Evaluate([]config.ApproveRule{dashboard, {Name: "also"}}, pr, nil)
 	if matched != "dashboard" {
 		t.Fatalf("first matching rule = %q, want dashboard", matched)
 	}

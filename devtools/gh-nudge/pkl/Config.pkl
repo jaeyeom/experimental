@@ -168,6 +168,15 @@ class ApproveRule {
   not_draft: Boolean = true
   /// Maximum unresolved review threads.
   max_unresolved_threads: Int(this >= 0) = 0
+  /// Optional command, as argv, run only after every other condition of the
+  /// rule passed. It is run directly, not through a shell. Its stdin is a JSON
+  /// object with the PR metadata, the changed files, and the diff. It must
+  /// print {"decision": "approve" | "defer", "reason": "..."}. A non-zero
+  /// exit, a timeout, invalid JSON, or an unknown decision counts as defer.
+  /// Empty adds no condition.
+  agent_command: Listing<String(!isEmpty)> = new {}
+  /// How long agent_command may run. Its process group is killed after that.
+  agent_timeout: Duration(value > 0) = 120.s
 }
 
 /// gh-approve settings. gh-nudge and gh-merge ignore this section.

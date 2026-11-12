@@ -2,8 +2,10 @@ package approve
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/config"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/github"
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
+	"github.com/jaeyeom/experimental/devtools/pkg/remotecall"
 )
 
 type approval struct {
@@ -29,6 +32,8 @@ type fakeClient struct {
 	headReads  int
 	approveErr error
 	approvals  []approval
+	diffErr    error
+	diffReads  int
 }
 
 func (f *fakeClient) ViewerLogin() (string, error) { return f.viewer, nil }
@@ -55,6 +60,14 @@ func (f *fakeClient) PullRequestHeadSHA(ref github.PullRef) (string, error) {
 		return sha, nil
 	}
 	return f.prs[ref.Number].HeadSHA, nil
+}
+
+func (f *fakeClient) PullRequestDiff(ref github.PullRef) (string, error) {
+	f.diffReads++
+	if f.diffErr != nil {
+		return "", f.diffErr
+	}
+	return fmt.Sprintf("diff for #%d\n", ref.Number), nil
 }
 
 func (f *fakeClient) ApprovePullRequest(ref github.PullRef, sha, body string) error {
@@ -91,13 +104,19 @@ type runResult struct {
 
 func run(t *testing.T, fake *fakeClient, rules []config.ApproveRule, opts Options) runResult {
 	t.Helper()
+	return runWith(t, fake, rules, opts, nil)
+}
+
+func runWith(t *testing.T, fake *fakeClient, rules []config.ApproveRule, opts Options, command CommandRunner) runResult {
+	t.Helper()
 	var out, logBuf bytes.Buffer
 	runner := &Runner{
-		Client: fake,
-		Config: config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: rules},
-		Out:    &out,
-		Log:    &logBuf,
-		Now:    fixedNow,
+		Client:     fake,
+		Config:     config.ApproveConfig{Body: "LGTM", SkipAlreadyApproved: true, Rules: rules},
+		Out:        &out,
+		Log:        &logBuf,
+		Now:        fixedNow,
+		RunCommand: command,
 	}
 	err := runner.Run(opts)
 	var entries []LogEntry
@@ -372,5 +391,189 @@ func TestRunSkipsClosedPR(t *testing.T) {
 	}
 	if len(res.fake.approvals) != 0 || res.log[0].Action != ActionSkipped {
 		t.Fatalf("log = %+v", res.log)
+	}
+}
+
+// fakeAgent is a fake agent command. It records each call and prints stdout.
+type fakeAgent struct {
+	stdout string
+	calls  [][]string
+	stdins [][]byte
+}
+
+func (f *fakeAgent) run(_ context.Context, stdin []byte, argv []string) (remotecall.Result, error) {
+	f.calls = append(f.calls, argv)
+	f.stdins = append(f.stdins, stdin)
+	return remotecall.Result{Stdout: f.stdout}, nil
+}
+
+func agentRule(name string) config.ApproveRule {
+	rule := dashboardRule
+	rule.Name = name
+	rule.AgentCommand = []string{"review-agent", "--strict"}
+	return rule
+}
+
+func TestRunAgentApproveMatchesEvenInDryRun(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "approve", "reason": "only dashboards"}`}
+	fake := newFake(prNumber(1))
+	res := runWith(t, fake, []config.ApproveRule{agentRule("agent")}, Options{}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if len(agent.calls) != 1 || strings.Join(agent.calls[0], " ") != "review-agent --strict" {
+		t.Fatalf("agent calls = %q", agent.calls)
+	}
+	entry := res.log[0]
+	if entry.Action != ActionWouldApprove || entry.Rule == nil || *entry.Rule != "agent" {
+		t.Fatalf("entry = %+v", entry)
+	}
+	got := entry.Rules[0].Agent
+	if got == nil || got.Decision != AgentApprove || got.Reason != "only dashboards" {
+		t.Fatalf("agent result = %+v", got)
+	}
+	if len(fake.approvals) != 0 {
+		t.Fatalf("dry run approved %+v", fake.approvals)
+	}
+
+	res = runWith(t, newFake(prNumber(1)), []config.ApproveRule{agentRule("agent")}, Options{Apply: true}, agent.run)
+	if res.err != nil || len(res.fake.approvals) != 1 || res.log[0].Action != ActionApproved {
+		t.Fatalf("apply: err = %v log = %+v", res.err, res.log)
+	}
+}
+
+func TestRunAgentDeferLeavesPRForHuman(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "defer", "reason": "touches billing"}`}
+	res := runWith(t, newFake(prNumber(1)), []config.ApproveRule{agentRule("agent")}, Options{Apply: true}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	entry := res.log[0]
+	if entry.Action != ActionManual || entry.Rule != nil || len(res.fake.approvals) != 0 {
+		t.Fatalf("entry = %+v approvals = %+v", entry, res.fake.approvals)
+	}
+	if got := entry.Rules[0].Agent; got == nil || got.Decision != AgentDefer || got.Reason != "touches billing" {
+		t.Fatalf("agent result = %+v", got)
+	}
+	if !strings.Contains(res.out, "agent: agent_command failed") || !strings.Contains(res.out, "touches billing") {
+		t.Fatalf("out = %s", res.out)
+	}
+}
+
+func TestRunAgentNotRunWhenAnotherConditionFails(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "approve"}`}
+	pr := prNumber(1)
+	pr.Draft = true
+	fake := newFake(pr)
+	res := runWith(t, fake, []config.ApproveRule{agentRule("agent")}, Options{Explain: true}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if len(agent.calls) != 0 || fake.diffReads != 0 {
+		t.Fatalf("agent calls = %d diff reads = %d, want none", len(agent.calls), fake.diffReads)
+	}
+	if res.log[0].Action != ActionManual || res.log[0].Rules[0].Agent != nil {
+		t.Fatalf("entry = %+v", res.log[0])
+	}
+	if first, _ := res.log[0].Rules[0].FirstFailure(); first.Condition != "not_draft" {
+		t.Fatalf("first failure = %+v", first)
+	}
+	if !strings.Contains(res.out, "agent_command: not run") {
+		t.Fatalf("out = %s", res.out)
+	}
+}
+
+func TestRunAgentNotRunForSkippedPR(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "approve"}`}
+	pr := prNumber(1)
+	pr.Author = "me"
+	res := runWith(t, newFake(pr), []config.ApproveRule{agentRule("agent")}, Options{}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if len(agent.calls) != 0 || res.log[0].Action != ActionSkipped {
+		t.Fatalf("agent calls = %d log = %+v", len(agent.calls), res.log)
+	}
+}
+
+func TestRunAgentNotRunAfterEarlierRuleMatched(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "approve"}`}
+	rules := []config.ApproveRule{dashboardRule, agentRule("agent")}
+	res := runWith(t, newFake(prNumber(1)), rules, Options{}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if len(agent.calls) != 0 || res.log[0].Rule == nil || *res.log[0].Rule != "dashboard" {
+		t.Fatalf("agent calls = %d log = %+v", len(agent.calls), res.log)
+	}
+}
+
+func TestRunAgentDiffErrorDefers(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "approve"}`}
+	fake := newFake(prNumber(1))
+	fake.diffErr = errors.New("HTTP 406: diff too large")
+	res := runWith(t, fake, []config.ApproveRule{agentRule("agent")}, Options{}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if len(agent.calls) != 0 || res.log[0].Action != ActionManual {
+		t.Fatalf("agent calls = %d log = %+v", len(agent.calls), res.log)
+	}
+	if got := res.log[0].Rules[0].Agent; got == nil || got.Decision != AgentDefer || !strings.Contains(got.Reason, "HTTP 406") {
+		t.Fatalf("agent result = %+v", got)
+	}
+}
+
+func TestRunAgentDiffReadOncePerPR(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "defer", "reason": "no"}`}
+	fake := newFake(prNumber(1))
+	rules := []config.ApproveRule{agentRule("first"), agentRule("second")}
+	res := runWith(t, fake, rules, Options{}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	if len(agent.calls) != 2 || fake.diffReads != 1 {
+		t.Fatalf("agent calls = %d diff reads = %d", len(agent.calls), fake.diffReads)
+	}
+}
+
+func TestRunAgentStdinCarriesDiffAndFiles(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "approve"}`}
+	res := runWith(t, newFake(prNumber(1)), []config.ApproveRule{agentRule("agent")}, Options{}, agent.run)
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	var input AgentInput
+	if err := json.Unmarshal(agent.stdins[0], &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Diff != "diff for #1\n" || len(input.Files) != 1 || input.Files[0].Path != "dash/a.go" ||
+		input.Rule != "agent" || input.PR.Number != 1 || input.PR.Repo != "acme/widgets" || input.PR.Author != "alice" ||
+		input.PR.URL != "https://github.com/acme/widgets/pull/1" || input.PR.Title != "Tidy dashboard" {
+		t.Fatalf("stdin = %s", agent.stdins[0])
+	}
+}
+
+func TestRunAgentExplainAndLogShowDecisionReasonDuration(t *testing.T) {
+	agent := &fakeAgent{stdout: `{"decision": "approve", "reason": "only dashboards"}`}
+	var out, logBuf bytes.Buffer
+	runner := &Runner{
+		Client:     newFake(prNumber(1)),
+		Config:     config.ApproveConfig{Body: "LGTM", Rules: []config.ApproveRule{agentRule("agent")}},
+		Out:        &out,
+		Log:        &logBuf,
+		Now:        fixedNow,
+		RunCommand: agent.run,
+	}
+	if err := runner.Run(Options{Explain: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"agent"`, `"decision":"approve"`, `"reason":"only dashboards"`, `"durationMs"`} {
+		if !strings.Contains(logBuf.String(), key) {
+			t.Fatalf("log missing %s: %s", key, logBuf.String())
+		}
+	}
+	if !strings.Contains(out.String(), "pass agent_command: approve: only dashboards (") {
+		t.Fatalf("explain = %s", out.String())
 	}
 }

@@ -1,6 +1,8 @@
 // Code generated from Pkl module `gh_nudge.Config`. DO NOT EDIT.
 package pkl
 
+import "github.com/apple/pkl-go/pkl"
+
 // One gh-approve rule. Every condition in a rule must hold (AND).
 // A pull request matches when any rule matches (OR).
 // A list left empty and an Int left unset add no condition.
@@ -55,4 +57,15 @@ type ApproveRule struct {
 
 	// Maximum unresolved review threads.
 	MaxUnresolvedThreads int `pkl:"max_unresolved_threads"`
+
+	// Optional command, as argv, run only after every other condition of the
+	// rule passed. It is run directly, not through a shell. Its stdin is a JSON
+	// object with the PR metadata, the changed files, and the diff. It must
+	// print {"decision": "approve" | "defer", "reason": "..."}. A non-zero
+	// exit, a timeout, invalid JSON, or an unknown decision counts as defer.
+	// Empty adds no condition.
+	AgentCommand []string `pkl:"agent_command"`
+
+	// How long agent_command may run. Its process group is killed after that.
+	AgentTimeout pkl.Duration `pkl:"agent_timeout"`
 }

@@ -214,6 +214,24 @@ func TestPullRequestHeadSHA(t *testing.T) {
 	}
 }
 
+func TestPullRequestDiff(t *testing.T) {
+	const diff = "diff --git a/dash/a.go b/dash/a.go\n-old\n+new\n"
+	exec := &routeExec{route: map[string]string{"repos/acme/widgets/pulls/12": diff}}
+	got, err := NewClientWithExecutor(exec).PullRequestDiff(PullRef{Owner: "acme", Repo: "widgets", Number: 12})
+	if err != nil || got != diff {
+		t.Fatalf("PullRequestDiff() = %q, %v", got, err)
+	}
+	if len(exec.calls) != 1 || !strings.Contains(exec.calls[0], "Accept: application/vnd.github.diff") {
+		t.Fatalf("calls = %v", exec.calls)
+	}
+
+	exec = &routeExec{fail: map[string]error{"pulls/12": errors.New("HTTP 406")}}
+	if _, err := NewClientWithExecutor(exec).PullRequestDiff(PullRef{Owner: "acme", Repo: "widgets", Number: 12}); err == nil ||
+		!strings.Contains(err.Error(), "HTTP 406") || !strings.Contains(err.Error(), "acme/widgets#12") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestApprovePullRequestPinsCommit(t *testing.T) {
 	exec := &routeExec{route: map[string]string{"repos/acme/widgets/pulls/12/reviews": `{"id": 1}`}}
 	err := NewClientWithExecutor(exec).ApprovePullRequest(PullRef{Owner: "acme", Repo: "widgets", Number: 12}, "head1", "LGTM")

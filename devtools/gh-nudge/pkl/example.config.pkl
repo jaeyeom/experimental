@@ -138,5 +138,18 @@ approve {
       labels_required { "internal-only" }
       checks = "allow_pending"
     }
+    // Any rule may end with a command of yours, as argv (no shell). It runs
+    // only after the rule's other conditions pass, reads the PR metadata,
+    // files and diff as JSON on stdin, and prints
+    // {"decision": "approve" | "defer", "reason": "..."}.
+    // Failures and timeouts defer.
+    //
+    // new {
+    //   name = "docs-reviewed-by-agent"
+    //   paths_all_match { "docs/**" }
+    //   checks = "green"
+    //   agent_command { "/path/to/review-agent"; "--strict" }
+    //   agent_timeout = 60.s
+    // }
   }
 }
