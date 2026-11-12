@@ -40,6 +40,8 @@ type payload struct {
 	History map[string]historyEntry `json:"history"`
 	Rollups map[string]rollupEntry  `json:"rollups"`
 	Rounds  map[string]int          `json:"rounds,omitempty"`
+	// HistoryBatch is the path-history request size that last worked.
+	HistoryBatch int `json:"historyBatch,omitempty"`
 }
 
 type historyEntry struct {
@@ -78,6 +80,7 @@ func Load(path string, now func() time.Time) (*Cache, error) {
 	if data.Rounds != nil {
 		c.data.Rounds = data.Rounds
 	}
+	c.data.HistoryBatch = data.HistoryBatch
 	return c, nil
 }
 
@@ -149,6 +152,25 @@ func (c *Cache) NextRound(job string) int {
 	c.data.Rounds[job]++
 	c.dirty = true
 	return c.data.Rounds[job]
+}
+
+// HistoryBatch is the path-history request size that last worked, or 0
+// when none is stored. It does not expire.
+func (c *Cache) HistoryBatch() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.data.HistoryBatch
+}
+
+// PutHistoryBatch stores n for HistoryBatch.
+func (c *Cache) PutHistoryBatch(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.data.HistoryBatch == n {
+		return
+	}
+	c.data.HistoryBatch = n
+	c.dirty = true
 }
 
 // Save drops expired entries and writes the file atomically. A cache with

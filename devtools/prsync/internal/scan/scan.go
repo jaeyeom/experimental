@@ -37,10 +37,14 @@ type Deps struct {
 }
 
 // HistoryCache stores the path history of path on ref, keyed also by the
-// head commit of ref (the base branch).
+// head commit of ref (the base branch), and the path-history request size
+// that last worked.
 type HistoryCache interface {
 	PathHistory(repo, ref, path, head string) (gh.PathHistory, bool)
 	PutPathHistory(repo, ref, path, head string, history gh.PathHistory)
+	// HistoryBatch is 0 when no size is stored.
+	HistoryBatch() int
+	PutHistoryBatch(n int)
 }
 
 // RoundCounter counts rounds of a job across runs.
@@ -64,7 +68,7 @@ type GH interface {
 	ChangedFiles(ctx context.Context, repo string, number int) ([]string, error)
 	Codeowners(ctx context.Context, repo, ref string) (string, error)
 	BranchHead(ctx context.Context, repo, branch string) (string, error)
-	PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time) (map[string]gh.PathHistory, error)
+	PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time, batch int) (gh.PathHistoryResult, error)
 	DirectReviewCount(ctx context.Context, org, login string) (int, error)
 	OrgActive(ctx context.Context, org, login string, since time.Time) (bool, error)
 }

@@ -112,6 +112,26 @@ func TestNextRoundCountsPerJobAcrossLoads(t *testing.T) {
 	}
 }
 
+func TestHistoryBatchSurvivesSaveAndLoad(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	if got := c.HistoryBatch(); got != 0 {
+		t.Fatalf("empty cache HistoryBatch = %d, want 0", got)
+	}
+	c.PutHistoryBatch(5)
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	clk.t = clk.t.Add(2 * HistoryTTL)
+	next, _ := Load(path, clk.now)
+	if got := next.HistoryBatch(); got != 5 {
+		t.Fatalf("HistoryBatch = %d, want 5 (it does not expire)", got)
+	}
+}
+
 func TestRollupNeedsSameHeadAndUpdatedAt(t *testing.T) {
 	t.Parallel()
 

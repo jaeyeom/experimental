@@ -211,6 +211,9 @@ type Config struct {
 	// TeamCoverEvery runs the team-cover job on every Nth round. 1 runs
 	// it every round.
 	TeamCoverEvery int
+	// TeamCoverBatchPaths is how many paths the first path-history request
+	// asks for when the round cache has no size that worked.
+	TeamCoverBatchPaths int
 
 	// GateIgnoreProcs are patterns for an agent's helpers (MCP and
 	// language servers, status-line commands). A plain pattern matches
@@ -296,6 +299,7 @@ func Defaults() Config {
 		TeamCoverSignals:         []string{"codeowners", "history", "load"},
 		TeamCoverHistoryDays:     90,
 		TeamCoverEvery:           1,
+		TeamCoverBatchPaths:      5,
 		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
 		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
@@ -587,7 +591,8 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyGateSignal(cfg, key, val)
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
-		"team_cover_history_days", "team_cover_active_days", "team_cover_every":
+		"team_cover_history_days", "team_cover_active_days", "team_cover_every",
+		"team_cover_batch_paths":
 		return applyTeamCover(cfg, key, val)
 	default:
 		return nil
@@ -611,7 +616,9 @@ func applyTeamCover(cfg *Config, key, val string) error {
 	case "team_cover_active_days":
 		return applyTeamCoverDays(&cfg.TeamCoverActiveDays, key, val)
 	case "team_cover_every":
-		return applyTeamCoverEvery(cfg, val)
+		return applyPositiveInt(&cfg.TeamCoverEvery, key, val)
+	case "team_cover_batch_paths":
+		return applyPositiveInt(&cfg.TeamCoverBatchPaths, key, val)
 	default:
 		return nil
 	}
@@ -638,15 +645,15 @@ func applyTeamCoverPerTeam(cfg *Config, val string) error {
 	return nil
 }
 
-func applyTeamCoverEvery(cfg *Config, val string) error {
-	n, err := parseNonNegativeInt("team_cover_every", val)
+func applyPositiveInt(dst *int, key, val string) error {
+	n, err := parseNonNegativeInt(key, val)
 	if err != nil {
 		return err
 	}
 	if n < 1 {
-		return &KeyError{Key: "team_cover_every", Reason: "must be >= 1"}
+		return &KeyError{Key: key, Reason: "must be >= 1"}
 	}
-	cfg.TeamCoverEvery = n
+	*dst = n
 	return nil
 }
 

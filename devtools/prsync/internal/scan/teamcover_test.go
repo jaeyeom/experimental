@@ -567,7 +567,12 @@ func countSubstr(warnings []string, needle string) int {
 
 type mapHistoryCache struct {
 	entries map[string]gh.PathHistory
+	batch   int
 }
+
+func (m *mapHistoryCache) HistoryBatch() int { return m.batch }
+
+func (m *mapHistoryCache) PutHistoryBatch(n int) { m.batch = n }
 
 func (m *mapHistoryCache) PathHistory(repo, ref, path, head string) (gh.PathHistory, bool) {
 	h, ok := m.entries[repo+"@"+ref+"\x00"+path+"\x00"+head]
@@ -666,6 +671,59 @@ func TestRunTeamCoverReusesHistoryWhileBaseHeadIsUnchanged(t *testing.T) {
 	third, _, _ := historyRound(t, cache, "h2", "base2")
 	if third.historyCalls != 1 {
 		t.Fatalf("moved base head: historyCalls = %d, want 1", third.historyCalls)
+	}
+}
+
+// batchRound runs one history round with team_cover_batch_paths=20.
+func batchRound(t *testing.T, cache *mapHistoryCache, worked int, skip map[string]bool) *scriptGH {
+	t.Helper()
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "bob", Type: "User"}, {Login: "carol", Type: "User"}}},
+	})
+	g.files = map[string][]string{"acme/widgets#1": {"src/a.go", "src/b.go"}}
+	g.history = map[string]gh.PathHistory{"acme/widgets\x00src/a.go": {Authors: []string{"carol"}}}
+	g.historyWorked = worked
+	g.historySkip = skip
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"history"}
+	cfg.TeamCoverBatchPaths = 20
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = cache
+	if _, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, fixtureNow); err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+func TestRunTeamCoverHistoryBatchStartsAtCachedSize(t *testing.T) {
+	t.Parallel()
+
+	cache := &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	first := batchRound(t, cache, 5, nil)
+	if !slices.Equal(first.historyBatches, []int{20}) {
+		t.Fatalf("first round batches = %v, want the configured 20", first.historyBatches)
+	}
+	if cache.batch != 5 {
+		t.Fatalf("cached batch = %d, want 5, the size that worked", cache.batch)
+	}
+
+	cache.entries = map[string]gh.PathHistory{}
+	second := batchRound(t, cache, 0, nil)
+	if !slices.Equal(second.historyBatches, []int{5}) {
+		t.Fatalf("next round batches = %v, want the cached 5", second.historyBatches)
+	}
+}
+
+func TestRunTeamCoverSkippedPathIsNotStored(t *testing.T) {
+	t.Parallel()
+
+	cache := &mapHistoryCache{entries: map[string]gh.PathHistory{}}
+	batchRound(t, cache, 0, map[string]bool{"src/b.go": true})
+	if _, ok := cache.PathHistory("acme/widgets", "main", "src/b.go", "base1"); ok {
+		t.Fatalf("cache = %#v, want the skipped path left out", cache.entries)
+	}
+	if _, ok := cache.PathHistory("acme/widgets", "main", "src/a.go", "base1"); !ok {
+		t.Fatalf("cache = %#v, want src/a.go stored", cache.entries)
 	}
 }
 

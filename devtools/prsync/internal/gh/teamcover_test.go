@@ -127,10 +127,11 @@ func TestPathHistoriesBatchesPaths(t *testing.T) {
 		WillSucceed(`{"data":{"repository":{"object":{"p0":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[{"number":7}]}}]}}}}}`, 0).Build()
 	mock.ExpectCustom(isReviewsRequest).
 		WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"nodes":[{"author":{"login":"bob"}}]}}}}}`, 0).Build()
-	got, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", paths, since)
+	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", paths, since, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := result.Histories
 	var history []string
 	for _, call := range mock.Executions() {
 		if isHistoryRequest(context.Background(), call) {
@@ -138,7 +139,7 @@ func TestPathHistoriesBatchesPaths(t *testing.T) {
 		}
 	}
 	if len(history) != 2 {
-		t.Fatalf("history requests = %d, want 2 for 25 paths in batches of %d", len(history), PathHistoryBatch)
+		t.Fatalf("history requests = %d, want 2 for 25 paths in batches of 20", len(history))
 	}
 	if !strings.Contains(history[0], `p19:history(first:30,path:"src/f19.go",since:$since)`) || strings.Contains(history[0], "p20:") {
 		t.Fatalf("first request = %s, want paths 0-19", history[0])
@@ -174,10 +175,11 @@ func TestPathHistoriesFetchesSharedPullRequestOnce(t *testing.T) {
 				{"author":{"user":{"login":"carol"}},"associatedPullRequests":{"nodes":[{"number":8}]}}]}}}}}`, 0).Build()
 	mock.ExpectCustom(isReviewsRequest).Once().
 		WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"nodes":[{"author":{"login":"bob"}}]}},"pr8":{"reviews":{"nodes":[{"author":{"login":"dave"}}]}}}}}`, 0).Build()
-	got, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go", "src/b.go"}, since)
+	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go", "src/b.go"}, since, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := result.Histories
 	var reviews []string
 	for _, call := range mock.Executions() {
 		if isReviewsRequest(context.Background(), call) {
@@ -201,10 +203,11 @@ func TestPathHistoriesNoPullRequestsSkipsReviews(t *testing.T) {
 	mock := newGHMock()
 	mock.ExpectCustom(isHistoryRequest).Once().
 		WillSucceed(`{"data":{"repository":{"object":{"p0":{"nodes":[{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"nodes":[]}}]}}}}}`, 0).Build()
-	got, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go"}, time.Now())
+	result, err := NewClient(mock, testGHBin).PathHistories(context.Background(), "acme/widgets", "main", []string{"src/a.go"}, time.Now(), 20)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := result.Histories
 	if calls := len(mock.Executions()); calls != 1 {
 		t.Fatalf("calls = %d, want only the history request", calls)
 	}

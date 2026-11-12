@@ -213,9 +213,10 @@ Environment variables are not expanded.
 | ~team_cover_skip_teams~ | empty | Comma-separated ~org/slug~ teams to omit from the report. |
 | ~team_cover_exclude_logins~ | empty | Comma-separated logins, or ~@/path~ (one login per line; blank lines and ~#~ comments ignored). Those logins are never suggested. |
 | ~team_cover_signals~ | ~codeowners,history,load~ | Ranking signals, in that priority order. Empty disables every signal and leaves login order. Duplicate names are dropped. An unknown name is a config error. |
-| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 30 commits and 2 pull requests per commit, 20 paths to a request; each distinct pull request's reviews (at most 10) are then fetched once, 50 pull requests to a request. A cut-off list is logged as a warning. Only paths of PRs with an uncovered team are queried. A path's result is reused while the base branch head is unchanged (see Round cache). Must be >= 0. |
+| ~team_cover_history_days~ | ~90~ | Authored commits and reviews on touched paths in this window. Each path asks for at most 30 commits and 2 pull requests per commit, ~team_cover_batch_paths~ paths to a request; each distinct pull request's reviews (at most 10) are then fetched once, 50 pull requests to a request. A cut-off list is logged as a warning. Only paths of PRs with an uncovered team are queried. A path's result is reused while the base branch head is unchanged (see Round cache). Must be >= 0. |
 | ~team_cover_active_days~ | ~0~ | Drop members with no org event in this many days. ~0~ disables the filter. The events API covers about 90 days. Must be >= 0. |
 | ~team_cover_every~ | ~1~ | Run the team-cover job on every Nth round: the 1st, N+1th, and so on. The count is kept in the round cache and counts rounds with ~team_cover~ on and the job not skipped. A skipped round omits ~team_review_suggestions~. Must be >= 1. |
+| ~team_cover_batch_paths~ | ~5~ | Paths per path-history request. A request that times out (GitHub stops a GraphQL query after about 10 seconds) or reports ~RESOURCE_LIMITS_EXCEEDED~ or HTTP 502/504 is split in half and each half retried, down to single paths; a single path that still fails is skipped with a warning in the run log, e.g. ~team-cover: batch of 20 timed out; retrying as 2×10~, with the first line of stdout and stderr. The size that worked is kept in the round cache and the next round starts there instead. Must be >= 1. |
 
 Default prompt text (checkout ~{head}~, mechanical vs judgment-call
 triage, reply on every thread and resolve unless that reply asks the
@@ -358,10 +359,12 @@ ignored with a warning in the run log.
   base branch, and base branch head commit. Each round looks up the head
   of each base branch once (~GET repos/{owner}/{repo}/git/ref/heads/{base}~);
   while it has not moved, the stored history is reused and no history
-  query runs. Paths that miss are fetched in one batched query per
+  query runs. Paths that miss are fetched in batched queries per
   repository and base. The run log records ~team-cover cache~ with
   ~hits~ and ~misses~. If the head lookup fails, history is fetched on the
   branch and not stored.
+  The history request size that last worked is kept too (it does not
+  expire); see ~team_cover_batch_paths~.
 
 ~dispatch --pr~ has no search to compare against and always views each
 PR. Page sizes: the open-PR search loads 50 PRs per
