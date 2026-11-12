@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/jaeyeom/experimental/devtools/decide"
@@ -40,83 +39,6 @@ func itemLinks(it *decide.Item) []string {
 		add(link)
 	}
 	return out
-}
-
-// openSelectedLink opens the only link. Several links ask for a number.
-func (m *Model) openSelectedLink() error {
-	links := itemLinks(m.detail)
-	switch len(links) {
-	case 0:
-		m.status = "no link"
-		return nil
-	case 1:
-		return m.openURL(links[0])
-	default:
-		m.linkPick = true
-		m.status = fmt.Sprintf("link number (1-%d)", len(links))
-		return nil
-	}
-}
-
-func (m *Model) linkPickKey(r rune) (bool, error) {
-	m.linkPick = false
-	if r == '\x1b' {
-		m.status = ""
-		return false, nil
-	}
-	if r >= '1' && r <= '9' {
-		return false, m.openLinkIndex(int(r - '1'))
-	}
-	m.status = "no such link"
-	return false, nil
-}
-
-func (m *Model) openLinkIndex(i int) error {
-	links := itemLinks(m.detail)
-	if i < 0 || i >= len(links) {
-		m.status = "no such link"
-		return nil
-	}
-	return m.openURL(links[i])
-}
-
-// openURL opens a link with the platform opener and keeps the URL as current.
-func (m *Model) openURL(url string) error {
-	if url == "" {
-		m.status = "no link"
-		return nil
-	}
-	m.linkURL = url
-	m.status = url
-	open := m.runOpen
-	if open == nil {
-		open = openLink
-	}
-	if err := open(url); err != nil {
-		m.status = err.Error()
-	}
-	return nil
-}
-
-func openCommand(goos string) string {
-	if goos == "darwin" {
-		return "open"
-	}
-	return "xdg-open"
-}
-
-func openLink(url string) error {
-	var cmd *exec.Cmd
-	switch openCommand(runtime.GOOS) {
-	case "open":
-		cmd = exec.Command("open", url) //nolint:gosec // G204: the URL is one argument, not a shell string
-	default:
-		cmd = exec.Command("xdg-open", url) //nolint:gosec // G204: the URL is one argument, not a shell string
-	}
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("open link: %w", err)
-	}
-	return nil
 }
 
 // copyCurrentMessage copies the latest message, or the question when the

@@ -4047,16 +4047,14 @@ func TestOpenItemWrapsQuestionOptionsAndLinks(t *testing.T) {
 	}
 	row := screenRow(scrolled, "tailtoken")
 	line := strings.Split(scrolled, "\n")[row-1]
-	var opened string
-	m.runOpen = func(url string) error {
-		opened = url
-		return nil
-	}
+	open := &fakeOpener{}
+	m.runOpen = open.run
 	if err := m.Click(visibleCol(line, "tailtoken"), row); err != nil {
 		t.Fatal(err)
 	}
-	if m.status != link || opened != link {
-		t.Fatalf("link status %q opened %q", m.status, opened)
+	finishOpen(t, m)
+	if m.status != "opened "+shortURL(link, statusURLWidth) || len(open.calls) != 1 || open.urls()[0] != link {
+		t.Fatalf("link status %q opened %q", m.status, open.calls)
 	}
 }
 

@@ -38,6 +38,9 @@ type Options struct {
 	// Machine is this machine's herdr label, so an owner pane on it is
 	// looked up without --machine.
 	Machine string
+	// OpenCommand is the link opener argv; the URL is appended. Empty
+	// is xdg-open, or open on macOS.
+	OpenCommand []string
 }
 
 // Run draws the inbox until q or EOF. It reloads the ledger on Interval,
@@ -106,6 +109,7 @@ func prepare(opts Options) (*Model, error) {
 	m.AvatarMono = opts.AvatarMono
 	m.Checkouts = opts.Checkouts
 	m.Machine = opts.Machine
+	m.OpenCommand = opts.OpenCommand
 	m.avatarProfile = termenv.NewOutput(opts.Out).EnvColorProfile()
 	if opts.Now != nil {
 		m.Now = opts.Now

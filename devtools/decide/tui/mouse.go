@@ -218,7 +218,8 @@ func (m *Model) hit(h hit) error {
 	case hitSend:
 		return m.sendNote()
 	case hitLink:
-		return m.openURL(h.url)
+		m.openURL(h.url)
+		return nil
 	default:
 		return nil
 	}

@@ -479,7 +479,9 @@ The reply line and the numbered options follow."
   (let ((keys (decide--option-keys item)))
     (concat (mapconcat #'identity keys "  ")
             (if keys "   " "")
-            "0 reply   y archive   O owner   q quit")))
+            "0 reply   y archive   O owner   "
+            (if (decide--item-links item) "l link   " "")
+            "q quit")))
 
 (defun decide--herdr (machine args)
   "Run herdr ARGS on MACHINE, empty for this machine.
@@ -531,6 +533,48 @@ up again.  The item is not marked read or answered."
       (user-error "No item"))
     (message "%s" (decide--focus-owner
                    (alist-get "ownerLocation" item nil nil #'equal)))))
+
+;; The same pattern as the inbox, so both offer the same numbered links.
+(defconst decide--url-regexp "https?://[^[:space:]]+"
+  "A URL in item text.")
+
+(defun decide--item-links (item)
+  "URLs ITEM shows, in view order, without repeats.
+URLs in the thread come first (the question when there is no thread),
+then the item's links."
+  (let ((messages (alist-get "messages" item nil nil #'equal))
+        (links nil))
+    (dolist (text (if messages
+                      (mapcar (lambda (msg) (decide--field msg "text")) messages)
+                    (list (decide--field item "question"))))
+      (let ((start 0))
+        (while (string-match decide--url-regexp text start)
+          (push (match-string 0 text) links)
+          (setq start (match-end 0)))))
+    (dolist (link (alist-get "links" item nil nil #'equal))
+      (push link links))
+    (delete-dups (nreverse links))))
+
+(defun decide--link-rows (links)
+  "Numbered `completing-read' rows for LINKS, numbers right-aligned."
+  (let ((width (length (number-to-string (length links))))
+        (n 0))
+    (mapcar (lambda (link)
+              (setq n (1+ n))
+              (format (format "%%%dd  %%s" width) n link))
+            links)))
+
+(defun decide-open-link ()
+  "Open a link of the open item with `browse-url'.
+One link opens at once.  Several are offered numbered, in the order
+the item shows them."
+  (interactive)
+  (let ((links (decide--item-links (car decide--items))))
+    (cond
+     ((null links) (user-error "No link"))
+     ((null (cdr links)) (browse-url (car links)))
+     (t (let ((row (completing-read "Open link: " (decide--link-rows links) nil t)))
+          (browse-url (nth (1- (string-to-number row)) links)))))))
 
 (defun decide-answer-option ()
   "Answer the open item with one of its option keys."
@@ -715,6 +759,7 @@ Long lines wrap, so a draft in the thread can be scrolled."
 (define-key decide-item-mode-map (kbd "0") #'decide-reply)
 (define-key decide-item-mode-map (kbd "y") #'decide-archive)
 (define-key decide-item-mode-map (kbd "O") #'decide-focus-owner)
+(define-key decide-item-mode-map (kbd "l") #'decide-open-link)
 (define-key decide-item-mode-map (kbd "n") #'decide-message-next)
 (define-key decide-item-mode-map (kbd "p") #'decide-message-previous)
 (define-key decide-item-mode-map (kbd "q") #'quit-window)
@@ -1010,6 +1055,7 @@ or archives."
    decide-item-mode-map
    (list (kbd "o") #'decide-answer-option
          (kbd "O") #'decide-focus-owner
+         (kbd "l") #'decide-open-link
          (kbd "0") #'decide-reply
          (kbd "y") #'decide-archive
          (kbd "n") #'decide-message-next

@@ -643,6 +643,59 @@ CALLS are (MACHINE ARGS) in order.  REFUSE makes every call fail."
   (should (eq (lookup-key decide-item-mode-map (kbd "O")) #'decide-focus-owner))
   (should (string-match-p "O owner" (decide--item-keys-line nil))))
 
+(defconst decide-test--link-item
+  '(("id" . "D-9")
+    ("question" . "see https://q.test/one")
+    ("messages" . ((("author" . "ada")
+                    ("text" . "first https://m.test/a and https://m.test/b"))
+                   (("author" . "human")
+                    ("text" . "again https://m.test/a"))))
+    ("links" . ("https://l.test/x" "https://m.test/b"))))
+
+(ert-deftest decide-item-links-follow-the-view-order ()
+  (should (equal (decide--item-links decide-test--link-item)
+                 '("https://m.test/a" "https://m.test/b" "https://l.test/x")))
+  (should (equal (decide--item-links '(("question" . "see https://q.test/one")))
+                 '("https://q.test/one")))
+  (should (null (decide--item-links '(("question" . "no link"))))))
+
+(defun decide-test--open-link (item pick)
+  "Run `decide-open-link' on ITEM.  PICK chooses among the offered rows.
+Return (OPENED OFFERED): the URLs given to `browse-url' and the rows
+`completing-read' offered, or nil when it was not asked."
+  (let (opened offered)
+    (with-temp-buffer
+      (setq-local decide--items (list item))
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url &rest _) (setq opened (append opened (list url)))))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt rows &rest _)
+                   (setq offered rows)
+                   (funcall pick rows))))
+        (decide-open-link)))
+    (list opened offered)))
+
+(ert-deftest decide-open-link-picks-a-numbered-link ()
+  (let* ((links (mapcar (lambda (i) (format "https://l.test/%02d" i))
+                        (number-sequence 1 12)))
+         (got (decide-test--open-link (list (cons "links" links))
+                                      (lambda (rows) (nth 11 rows)))))
+    (should (equal (car got) '("https://l.test/12")))
+    (should (equal (length (cadr got)) 12))
+    (should (equal (car (cadr got)) " 1  https://l.test/01"))
+    (should (equal (nth 11 (cadr got)) "12  https://l.test/12"))))
+
+(ert-deftest decide-open-link-opens-the-only-link-directly ()
+  (should (equal (decide-test--open-link '(("links" . ("https://l.test/only")))
+                                         (lambda (_rows) (error "Asked")))
+                 '(("https://l.test/only") nil))))
+
+(ert-deftest decide-open-link-key ()
+  (should (eq (lookup-key decide-item-mode-map (kbd "l")) #'decide-open-link))
+  (should (string-match-p "l link" (decide--item-keys-line
+                                    '(("links" . ("https://l.test/x"))))))
+  (should-not (string-match-p "l link" (decide--item-keys-line nil))))
+
 (ert-deftest decide-item-header-shows-owner-location ()
   (let ((text (decide--item-text
                '(("id" . "D-1")
