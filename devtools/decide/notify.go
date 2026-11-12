@@ -43,6 +43,9 @@ type Config struct {
 	Targets        []ConfigTarget `json:"targets,omitempty"`
 	Colors         Colors         `json:"colors,omitempty"`
 	Recipients     Recipients     `json:"recipients,omitempty"`
+	// RecipientsTimeout bounds the inbox's background `agentbus list
+	// --json`, such as "3s". Empty is DefaultBusListTimeout.
+	RecipientsTimeout string `json:"recipientsTimeout,omitempty"`
 	// Hub is an ssh target. When set, commands run on that machine's
 	// ledger instead of this one. DECIDE_HUB overrides it.
 	Hub string `json:"hub,omitempty"`
@@ -78,6 +81,33 @@ type Config struct {
 // HyperlinksOn reports whether the inbox writes OSC 8 hyperlinks.
 func (c Config) HyperlinksOn() bool {
 	return c.Hyperlinks == nil || *c.Hyperlinks
+}
+
+// DefaultBusListTimeout bounds `agentbus list --json` when the config
+// has no recipientsTimeout.
+const DefaultBusListTimeout = 3 * time.Second
+
+// BusListTimeout is the recipientsTimeout setting, or
+// DefaultBusListTimeout when it is unset or invalid. LoadConfig rejects
+// an invalid one.
+func (c Config) BusListTimeout() time.Duration {
+	if d, err := parseRecipientsTimeout(c.RecipientsTimeout); err == nil && d > 0 {
+		return d
+	}
+	return DefaultBusListTimeout
+}
+
+// parseRecipientsTimeout parses a recipientsTimeout. Empty is zero.
+func parseRecipientsTimeout(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("decide config recipientsTimeout must be a positive duration, such as \"3s\"")
+	}
+	return d, nil
 }
 
 // Recipients chooses extra compose recipients. Agentbus adds the names
@@ -147,6 +177,9 @@ func parseConfig(data []byte, dir string) (Config, error) {
 	}
 	if len(cfg.OpenCommand) > 0 && cfg.OpenCommand[0] == "" {
 		return Config{}, fmt.Errorf("decide config openCommand: the program is empty")
+	}
+	if _, err := parseRecipientsTimeout(cfg.RecipientsTimeout); err != nil {
+		return Config{}, err
 	}
 	resolveAvatarFiles(cfg.Avatars, dir)
 	return cfg, nil

@@ -27,6 +27,9 @@ type Options struct {
 	SendTemplate string
 	Agentbus     bool
 	BusRunner    BusRunner
+	// RecipientsTimeout bounds the background `agentbus list --json`.
+	// Zero is decide.DefaultBusListTimeout.
+	RecipientsTimeout time.Duration
 	// Snoozed opens on the Snoozed folder.
 	Snoozed bool
 	// Avatars, AvatarDefault, and AvatarMono are the decide config
@@ -108,6 +111,10 @@ func prepare(opts Options) (*Model, error) {
 	m.SendTemplate = opts.SendTemplate
 	m.busOn = opts.Agentbus
 	m.busRun = opts.BusRunner
+	m.busTimeout = opts.RecipientsTimeout
+	if m.busTimeout <= 0 {
+		m.busTimeout = decide.DefaultBusListTimeout
+	}
 	m.out = opts.Out
 	m.Avatars = opts.Avatars
 	m.AvatarDefault = opts.AvatarDefault

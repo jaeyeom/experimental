@@ -3,20 +3,21 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 const (
-	// busListTimeout bounds `agentbus list --json` when the picker opens.
-	busListTimeout = 500 * time.Millisecond
-	// busCacheTTL is how long one bus listing serves the picker.
-	busCacheTTL = 30 * time.Second
+	// busReloadInterval is how often a ledger reload also reloads the
+	// bus names in the background.
+	busReloadInterval = 30 * time.Second
 	// busSendTimeout bounds `agentbus send`, which only queues the note.
 	busSendTimeout = 10 * time.Second
 	// busPanePrefix marks a thread's notify pane as a bus name.
@@ -48,39 +49,90 @@ func (m *Model) busRunner() BusRunner {
 	return decide.ExecAgentbus
 }
 
-// refreshBus reloads the bus names when the cache is older than
-// busCacheTTL. Any failure leaves only the configured targets.
-func (m *Model) refreshBus() {
-	if !m.busOn {
+// busListMsg is the result of one background `agentbus list --json`.
+type busListMsg struct {
+	names []Target
+	err   error
+	// slow reports that the load ran past its timeout.
+	slow bool
+}
+
+// busLoad starts a background load of the bus names unless agentbus is
+// off or a load is still running. Compose never waits for it.
+func (m *Model) busLoad() tea.Cmd {
+	if !m.busOn || m.busLoading {
+		return nil
+	}
+	m.busLoading = true
+	m.busAt = m.Now()
+	run, timeout := m.busRunner(), m.busTimeout
+	if timeout <= 0 {
+		timeout = decide.DefaultBusListTimeout
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		names, err := listBus(ctx, run)
+		return busListMsg{names: names, err: err, slow: err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)}
+	}
+}
+
+// busReload starts a background load when the last one is older than
+// busReloadInterval.
+func (m *Model) busReload() tea.Cmd {
+	if !m.busAt.IsZero() && m.Now().Sub(m.busAt) < busReloadInterval {
+		return nil
+	}
+	return m.busLoad()
+}
+
+// finishBusLoad merges the loaded names into the picker and keeps the
+// selected name. A failure keeps the last good names and says so on the
+// status line once.
+func (m *Model) finishBusLoad(msg busListMsg) {
+	m.busLoading = false
+	if msg.err != nil {
+		slog.Debug("decide: agentbus list", "err", msg.err)
+		note := fmt.Sprintf("agentbus: unavailable (%v)", msg.err)
+		if msg.slow {
+			note = fmt.Sprintf("agentbus: slow (>%s)", m.busTimeout)
+		}
+		if note != m.busNote {
+			m.busNote = note
+			m.status = note
+		}
 		return
 	}
-	now := m.Now()
-	if !m.busAt.IsZero() && now.Sub(m.busAt) < busCacheTTL {
-		return
+	m.busNote = ""
+	var name string
+	if cands := m.candidates(); m.target >= 0 && m.target < len(cands) {
+		name = cands[m.target].Name
 	}
-	m.busAt = now
-	m.busNames = nil
-	ctx, cancel := context.WithTimeout(context.Background(), busListTimeout)
-	defer cancel()
-	out, err := m.busRunner()(ctx, []string{"list", "--json"})
+	m.busNames = msg.names
+	m.selectName(name)
+}
+
+// listBus runs `agentbus list --json` and returns the bus names, live
+// ones first.
+func listBus(ctx context.Context, run BusRunner) ([]Target, error) {
+	out, err := run(ctx, []string{"list", "--json"})
 	if err != nil {
-		slog.Debug("decide: agentbus list", "err", err)
-		return
+		return nil, err
 	}
 	var agents []busAgent
 	if err := json.Unmarshal(out, &agents); err != nil {
-		slog.Debug("decide: agentbus list", "err", err)
-		return
+		return nil, fmt.Errorf("parse agentbus list: %w", err)
 	}
+	var names []Target
 	for _, a := range agents {
 		if strings.TrimSpace(a.Name) == "" {
 			continue
 		}
-		m.busNames = append(m.busNames, Target{
+		names = append(names, Target{
 			Name: a.Name, Pane: a.Handle, Bus: true, When: a.When, Dead: a.Liveness == "dead",
 		})
 	}
-	slices.SortStableFunc(m.busNames, func(a, b Target) int {
+	slices.SortStableFunc(names, func(a, b Target) int {
 		if a.Dead != b.Dead {
 			if a.Dead {
 				return 1
@@ -89,6 +141,7 @@ func (m *Model) refreshBus() {
 		}
 		return strings.Compare(a.Name, b.Name)
 	})
+	return names, nil
 }
 
 // candidates are the configured targets, then live bus names, then dead

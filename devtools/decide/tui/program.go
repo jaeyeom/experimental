@@ -48,9 +48,10 @@ func keyRune(k tea.KeyMsg) (rune, bool) {
 	}
 }
 
-// Init starts the ledger reload tick.
+// Init starts the ledger reload tick and the first background load of
+// the bus names.
 func (m *Model) Init() tea.Cmd {
-	return m.scheduleReload()
+	return tea.Batch(m.scheduleReload(), m.busLoad())
 }
 
 // Update drives the existing inbox behavior from bubbletea messages.
@@ -102,7 +103,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 	case reloadMsg:
-		return m.updateReload()
+		next, cmd := m.updateReload()
+		if bus := m.busReload(); bus != nil {
+			cmd = tea.Batch(cmd, bus)
+		}
+		return next, cmd
 	case listMsg:
 		return m.finishList(msg)
 	default:
@@ -112,7 +117,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateResult records what a background command found: an owner
-// location, a tab focus, or a link opener's result.
+// location, a tab focus, a link opener's result, or the bus names.
 func (m *Model) updateResult(msg tea.Msg) {
 	switch msg := msg.(type) {
 	case locationMsg:
@@ -121,6 +126,8 @@ func (m *Model) updateResult(msg tea.Msg) {
 		m.status = string(msg)
 	case openedMsg:
 		m.finishOpen(msg)
+	case busListMsg:
+		m.finishBusLoad(msg)
 	}
 }
 

@@ -147,12 +147,17 @@ type Model struct {
 	// newMessages counts messages a live refresh added below the view.
 	newMessages int
 	detailGone  bool
-	// busOn adds agentbus names to the recipients. busNames is the
-	// cached listing taken at busAt. busRun replaces decide.ExecAgentbus.
+	// busOn adds agentbus names to the recipients. busNames is the last
+	// good listing; the load started at busAt runs in the background
+	// while busLoading, bounded by busTimeout. busNote is the failure
+	// note last shown. busRun replaces decide.ExecAgentbus.
 	busOn      bool
 	busRun     BusRunner
 	busNames   []Target
 	busAt      time.Time
+	busLoading bool
+	busTimeout time.Duration
+	busNote    string
 	pickFilter string
 	// snoozing shows the snooze popup for snoozeItem. snoozeCustom is
 	// the custom row's text and snoozeErr its parse error.
@@ -744,17 +749,9 @@ func (m *Model) pullNote() {
 	syncField(&m.noteField, m.note)
 }
 
-// focusCompose opens the recipient picker with no filter. The bus
-// listing is refreshed when it is stale, and the selection keeps its name.
+// focusCompose opens the recipient picker with no filter. It shows the
+// bus names loaded so far and never waits for agentbus.
 func (m *Model) focusCompose() {
-	var name string
-	if cands := m.candidates(); m.target >= 0 && m.target < len(cands) {
-		name = cands[m.target].Name
-	}
-	m.refreshBus()
-	if !m.selectName(name) {
-		m.target = 0
-	}
 	m.pickFilter = ""
 	m.composing = true
 	m.composeFocus = focusRecipient
