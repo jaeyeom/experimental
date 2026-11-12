@@ -150,6 +150,157 @@ func TestRunTeamCoverLoadCachedAcrossRounds(t *testing.T) {
 	}
 }
 
+// pathHistoryLife is the age at which path stops being a hit.
+func pathHistoryLife(c *roundcache.Cache, clock *time.Time, start time.Time, repo, ref, path, version string, ttl time.Duration) time.Duration {
+	lo, hi := time.Duration(0), ttl
+	for hi-lo > time.Millisecond {
+		mid := lo + (hi-lo)/2
+		*clock = start.Add(mid)
+		if _, ok := c.PathHistory(repo, ref, path, version); ok {
+			lo = mid
+			continue
+		}
+		hi = mid
+	}
+	*clock = start
+	return hi
+}
+
+// historyRefreshFixture stores paths at one instant and returns them nearest
+// expiry first. The PR in the round is already covered, so team-cover's own
+// history fetch is empty and only an early refresh calls PathHistories.
+func historyRefreshFixture(t *testing.T) (clock time.Time, cache *roundcache.Cache, order []string, version string) {
+	t.Helper()
+	clock = fixtureNow
+	cache = newRoundCache(t, &clock)
+	const ttl = 6 * time.Hour
+	cache.SetHistoryTTL(ttl)
+	version = "since:" + clock.AddDate(0, 0, -90).UTC().Format(time.DateOnly)
+	paths := make([]string, 8)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("src/p%02d.go", i)
+		cache.PutPathHistory("acme/widgets", "main", paths[i], version, gh.PathHistory{Authors: []string{"old"}})
+	}
+	start := clock
+	lives := make(map[string]time.Duration, len(paths))
+	for _, path := range paths {
+		lives[path] = pathHistoryLife(cache, &clock, start, "acme/widgets", "main", path, version, ttl)
+	}
+	order = slices.Clone(paths)
+	slices.SortFunc(order, func(a, b string) int {
+		if lives[a] != lives[b] {
+			if lives[a] < lives[b] {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
+	return clock, cache, order, version
+}
+
+func runCoveredHistoryRound(t *testing.T, cache *roundcache.Cache, now time.Time, paths []string, maxCalls, batch int) (*scriptGH, Document) {
+	t.Helper()
+	g := teamCoverGH(map[string]memberCall{
+		"acme/foo": {members: []gh.TeamMember{{Login: "someone", Type: "User"}, {Login: "carol", Type: "User"}}},
+	})
+	g.history = map[string]gh.PathHistory{}
+	for _, path := range paths {
+		g.history["acme/widgets\x00"+path] = gh.PathHistory{Authors: []string{"new"}}
+	}
+	cfg := teamCoverCfg()
+	cfg.TeamCoverSignals = []string{"history"}
+	cfg.TeamCoverMaxCalls = maxCalls
+	cfg.TeamCoverBatchPaths = batch
+	cfg.TeamCoverHistoryTTL = 6 * time.Hour
+	deps := depsWith(g, fixtureHerdr{})
+	deps.History = cache
+	doc, err := Run(context.Background(), deps, cfg, []string{"acme/widgets"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := doc.PRs[0].TeamReviewSuggestions
+	if len(got) != 1 || got[0].CoveredBy == nil || *got[0].CoveredBy != "someone" {
+		t.Fatalf("suggestions = %+v, want the team covered by someone", got)
+	}
+	return g, doc
+}
+
+func TestRunTeamCoverSpareBudgetRefreshesNearestHistory(t *testing.T) {
+	t.Parallel()
+
+	// Snapshot and members take 2 calls. Two calls remain, one path per
+	// batch, so the two entries nearest expiry are refreshed and the cap holds.
+	const maxCalls = 4
+	const spare = 2
+	clock, cache, order, version := historyRefreshFixture(t)
+	g, _ := runCoveredHistoryRound(t, cache, clock, order, maxCalls, 1)
+	if g.coverCalls != maxCalls {
+		t.Fatalf("calls = %d, want exactly the cap of %d", g.coverCalls, maxCalls)
+	}
+	if g.historyCalls != 1 || !slices.Equal(g.historyPaths[0], order) {
+		t.Fatalf("history calls = %d paths = %#v, want one batched refresh, nearest first %v", g.historyCalls, g.historyPaths, order)
+	}
+	for i, path := range order {
+		got, ok := cache.PathHistory("acme/widgets", "main", path, version)
+		if !ok {
+			t.Fatalf("%s missing after the round", path)
+		}
+		want := "old"
+		if i < spare {
+			want = "new"
+		}
+		if len(got.Authors) != 1 || got.Authors[0] != want {
+			t.Fatalf("%s authors = %v, want %s", path, got.Authors, want)
+		}
+	}
+}
+
+func TestRunTeamCoverNoSpareBudgetSkipsHistoryRefresh(t *testing.T) {
+	t.Parallel()
+
+	// The covered PR uses the whole cap on its snapshot and member lookup.
+	const maxCalls = 2
+	clock, cache, order, version := historyRefreshFixture(t)
+	g, _ := runCoveredHistoryRound(t, cache, clock, order, maxCalls, 1)
+	if g.coverCalls != maxCalls {
+		t.Fatalf("calls = %d, want the cap of %d with nothing past it", g.coverCalls, maxCalls)
+	}
+	if g.historyCalls != 0 {
+		t.Fatalf("history calls = %d paths = %#v, want no early refresh", g.historyCalls, g.historyPaths)
+	}
+	for _, path := range order {
+		got, ok := cache.PathHistory("acme/widgets", "main", path, version)
+		if !ok || len(got.Authors) != 1 || got.Authors[0] != "old" {
+			t.Fatalf("%s = %+v, %v; want the stored history left as it was", path, got, ok)
+		}
+	}
+}
+
+func TestRefreshGroupsDoNotSkipANearerRepo(t *testing.T) {
+	t.Parallel()
+
+	got := refreshGroups([]refreshPath{
+		{repo: "acme/a", ref: "main", path: "near.go"},
+		{repo: "acme/b", ref: "main", path: "mid.go"},
+		{repo: "acme/a", ref: "main", path: "far.go"},
+		{repo: "acme/a", ref: "main", path: "also-far.go"},
+	})
+	want := []historyGroup{
+		{repo: "acme/a", base: "main", paths: []string{"near.go"}},
+		{repo: "acme/b", base: "main", paths: []string{"mid.go"}},
+		{repo: "acme/a", base: "main", paths: []string{"far.go", "also-far.go"}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("groups = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i].repo != want[i].repo || got[i].base != want[i].base || !slices.Equal(got[i].paths, want[i].paths) {
+			t.Fatalf("group %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 func TestRunTeamCoverSummaryNote(t *testing.T) {
 	t.Parallel()
 

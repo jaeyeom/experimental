@@ -60,6 +60,11 @@ type ThreadCache interface {
 type HistoryCache interface {
 	PathHistory(repo, ref, path, version string) (gh.PathHistory, bool)
 	PutPathHistory(repo, ref, path, version string, history gh.PathHistory)
+	// NearestPathHistory yields fresh entries closest to expiry, oldest
+	// first, and stops when yield returns false. At most n are yielded;
+	// n <= 0 yields every fresh one. A cache that does not track expiry
+	// yields nothing. yield must not call the cache.
+	NearestPathHistory(n int, yield func(repo, ref, path, version string) bool)
 	// HistoryBatch is 0 when no size is stored.
 	HistoryBatch() int
 	PutHistoryBatch(n int)
