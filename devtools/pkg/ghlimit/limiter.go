@@ -18,9 +18,11 @@ type Result struct {
 	Stderr      []byte
 	StderrShown bool
 	// StdoutLen is how many bytes gh wrote to stdout, and StdoutHead the
-	// first of them.
-	StdoutLen  int64
-	StdoutHead []byte
+	// first of them. StdoutUncounted reports that stdout went to gh as
+	// is, so StdoutLen is unknown.
+	StdoutLen       int64
+	StdoutHead      []byte
+	StdoutUncounted bool
 	// Stdout is all of stdout when StdoutKept, as asked for by
 	// ExecRunner.KeepStdout.
 	Stdout     []byte
@@ -152,6 +154,13 @@ func (l *Limiter) logCall(args []string, info CallInfo, start time.Time, took ti
 	e.DurationMS = took.Milliseconds()
 	e.ExitCode = res.ExitCode
 	e.RateLimited = res.ExitCode != 0 && RateLimited(args, string(res.Stderr), string(res.StdoutHead))
+	e.StderrHead = stderrHead(res.Stderr)
+	if !res.StdoutUncounted {
+		e.StdoutBytes = &res.StdoutLen
+		if res.ExitCode == 0 && res.StdoutLen == 0 && AsksJSON(args) {
+			e.Anomaly = AnomalyEmptyJSON
+		}
+	}
 	if res.StdoutKept {
 		if cost, remaining, ok := ParseRateLimit(res.Stdout); ok {
 			e.RateLimitCost, e.RateLimitRemaining = &cost, &remaining

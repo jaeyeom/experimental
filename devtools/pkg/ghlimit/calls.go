@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Call kinds, as GitHub's secondary rate limits tell them apart.
@@ -241,12 +242,60 @@ type CallEntry struct {
 	QueryHash   string   `json:"queryHash,omitempty"`
 	QueryFields []string `json:"queryFields,omitempty"`
 	ExitCode    int      `json:"exitCode"`
-	RateLimited bool     `json:"rateLimited,omitempty"`
-	CacheHit    bool     `json:"cacheHit,omitempty"`
+	// StdoutBytes is how many bytes gh wrote to stdout, unset when gh
+	// wrote to a terminal. StderrHead is the first line of stderr.
+	StdoutBytes *int64 `json:"stdoutBytes,omitempty"`
+	StderrHead  string `json:"stderrHead,omitempty"`
+	// Anomaly flags a suspect result, such as AnomalyEmptyJSON.
+	Anomaly     string `json:"anomaly,omitempty"`
+	RateLimited bool   `json:"rateLimited,omitempty"`
+	CacheHit    bool   `json:"cacheHit,omitempty"`
 	// RateLimitCost and RateLimitRemaining are the response's
 	// rateLimit { cost remaining } when the query asked for it.
 	RateLimitCost      *int `json:"rateLimitCost,omitempty"`
 	RateLimitRemaining *int `json:"rateLimitRemaining,omitempty"`
+}
+
+// AnomalyEmptyJSON flags a call that asked for JSON and exited 0 with
+// empty stdout.
+const AnomalyEmptyJSON = "empty_json"
+
+// AsksJSON reports whether gh args ask for JSON output: gh api, or a
+// --json or --jq flag.
+func AsksJSON(args []string) bool {
+	if len(args) > 0 && args[0] == "api" {
+		return true
+	}
+	for _, a := range args {
+		name, _, _ := strings.Cut(a, "=")
+		if name == "--json" || name == "--jq" {
+			return true
+		}
+	}
+	return false
+}
+
+// maxStderrHead is the most bytes stderrHead returns.
+const maxStderrHead = 200
+
+// stderrHead is the first line of stderr with control characters
+// escaped as \xNN, cut to at most maxStderrHead bytes without splitting
+// a character or an escape.
+func stderrHead(stderr []byte) string {
+	line, _, _ := strings.Cut(string(stderr), "\n")
+	line = strings.TrimSuffix(line, "\r")
+	var b strings.Builder
+	for _, r := range line {
+		piece := string(r)
+		if unicode.IsControl(r) {
+			piece = fmt.Sprintf(`\x%02x`, r)
+		}
+		if b.Len()+len(piece) > maxStderrHead {
+			break
+		}
+		b.WriteString(piece)
+	}
+	return b.String()
 }
 
 // GraphQLTime is how long the call spent on GraphQL, for the stats.

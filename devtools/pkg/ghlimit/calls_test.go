@@ -200,3 +200,77 @@ func TestAppendCallLogRotates(t *testing.T) {
 		t.Fatalf("after a second rotation: current %d, rotated %d", cur, old)
 	}
 }
+
+func TestAsksJSON(t *testing.T) {
+	for _, tt := range []struct {
+		args string
+		want bool
+	}{
+		{"pr list --json number", true},
+		{"pr list --json=number", true},
+		{"pr view 1 --jq .title", true},
+		{"pr view 1 --jq=.title", true},
+		{"api repos/o/r", true},
+		{"api graphql -f query=x", true},
+		{"pr view 1", false},
+		{"issue comment 1 --body json", false},
+	} {
+		if got := AsksJSON(strings.Fields(tt.args)); got != tt.want {
+			t.Errorf("AsksJSON(%q) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestStderrHead(t *testing.T) {
+	for _, tt := range []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"HTTP 404: Not Found\nmore\n", "HTTP 404: Not Found"},
+		{"\x1b[31merror\x1b[0m\r\n", `\x1b[31merror\x1b[0m`},
+		{"a\tb\x7f\n", `a\x09b\x7f`},
+		{strings.Repeat("é", 150), strings.Repeat("é", 100)},
+		{strings.Repeat("a", 199) + "\x01", strings.Repeat("a", 199)},
+	} {
+		got := stderrHead([]byte(tt.in))
+		if got != tt.want || len(got) > maxStderrHead {
+			t.Errorf("stderrHead(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestLimiterLogsOutputSize(t *testing.T) {
+	clock := newFakeClock()
+	l, _ := newLimiter(t, clock)
+	var calls []CallEntry
+	l.LogCall = func(e CallEntry) error {
+		calls = append(calls, e)
+		return nil
+	}
+	for _, res := range []Result{
+		{},
+		{StdoutLen: 3},
+		{StdoutUncounted: true},
+		{ExitCode: 1, Stderr: []byte("not found\n")},
+	} {
+		run := func(context.Context) (Result, error) { return res, nil }
+		if _, err := l.Run(context.Background(), strings.Fields("pr list --json number"), run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(calls) != 4 {
+		t.Fatalf("logged %d calls, want 4", len(calls))
+	}
+	if e := calls[0]; e.StdoutBytes == nil || *e.StdoutBytes != 0 || e.Anomaly != AnomalyEmptyJSON {
+		t.Errorf("empty JSON call = %+v", e)
+	}
+	if e := calls[1]; e.StdoutBytes == nil || *e.StdoutBytes != 3 || e.Anomaly != "" {
+		t.Errorf("normal call = %+v", e)
+	}
+	if e := calls[2]; e.StdoutBytes != nil || e.Anomaly != "" {
+		t.Errorf("uncounted stdout call = %+v; want no size and no anomaly", e)
+	}
+	if e := calls[3]; e.StderrHead != "not found" || e.Anomaly != "" {
+		t.Errorf("failing call = %+v", e)
+	}
+}

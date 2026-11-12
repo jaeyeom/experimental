@@ -615,6 +615,9 @@ files are kept. Fields:
 | ~queryHash~, ~queryFields~            | For ~gh api graphql~, a 12-digit hash of the query and its top-level field names |
 | ~exitCode~, ~rateLimited~, ~cacheHit~ | gh's exit code, whether it hit a rate limit, whether the cache served it         |
 | ~rateLimitCost~, ~rateLimitRemaining~ | The response's ~rateLimit { cost remaining }~, when the query asked for it       |
+| ~stdoutBytes~                         | Bytes gh wrote to stdout; absent for a cache hit or a terminal stdout            |
+| ~stderrHead~                          | First stderr line, at most 200 bytes, control characters escaped as ~\xNN~       |
+| ~anomaly~                             | ~empty_json~ when a call that asks for JSON exited 0 with empty stdout           |
 
 The query hash ignores whitespace and variables, so the same query with
 different ~-F~ values shares one hash. To see the query behind a hash, find
@@ -637,6 +640,9 @@ window (default one hour):
 - *top queries by total time* and *by count:* which ~gh api graphql~ queries
   are heavy (few calls, much time: make them smaller or less nested) or
   frequent (many calls: cache or batch them).
+- *anomalies by caller:* how many calls each tool made that were flagged,
+  such as ~empty_json~: gh exited 0 but printed nothing for ~--json~, ~--jq~
+  or ~gh api~.
 
 ~--json~ prints the same data as one JSON object.
 

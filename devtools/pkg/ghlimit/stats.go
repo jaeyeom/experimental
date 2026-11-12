@@ -21,7 +21,7 @@ const statsTop = 10
 // StatRow is one caller, query hash or wait reason in Stats.
 type StatRow struct {
 	Key string `json:"key"`
-	// Fields are a query's top-level field names.
+	// Fields are a query's top-level field names, or an anomaly.
 	Fields    string `json:"fields,omitempty"`
 	Count     int    `json:"count"`
 	Points    int    `json:"points"`
@@ -38,6 +38,7 @@ type Stats struct {
 	GraphQLMS   int64 `json:"graphqlMs"`
 	RateLimited int   `json:"rateLimited"`
 	CacheHits   int   `json:"cacheHits"`
+	Anomalies   int   `json:"anomalies"`
 
 	Waits  int   `json:"waits"`
 	WaitMS int64 `json:"waitMs"`
@@ -50,6 +51,9 @@ type Stats struct {
 	QueriesByCount []StatRow `json:"queriesByCount"`
 	WaitsByReason  []StatRow `json:"waitsByReason"`
 	WaitsByCaller  []StatRow `json:"waitsByCaller"`
+	// AnomaliesByCaller counts the calls flagged with each anomaly, as
+	// Fields, by caller.
+	AnomaliesByCaller []StatRow `json:"anomaliesByCaller"`
 }
 
 // ReadStats summarises the entries of the wait log at waitLog and the
@@ -63,11 +67,13 @@ func ReadStats(waitLog, callLog string, now time.Time, window time.Duration) (St
 		return s, err
 	}
 	callers, graphqlCallers, queries := map[string]*StatRow{}, map[string]*StatRow{}, map[string]*StatRow{}
+	anomalies := map[string]*StatRow{}
 	for _, path := range []string{callLog + ".1", callLog} {
 		err := scanJSONL(path, func(raw []byte) {
 			var e CallEntry
 			if json.Unmarshal(raw, &e) == nil && inWindow(e.Time) {
 				s.addCall(e, callers, graphqlCallers, queries)
+				s.addAnomaly(e, anomalies)
 			}
 		})
 		if err != nil {
@@ -80,6 +86,7 @@ func ReadStats(waitLog, callLog string, now time.Time, window time.Duration) (St
 	s.QueriesByCount = ranked(queries, func(r *StatRow) int64 { return int64(r.Count) })
 	s.WaitsByReason = ranked(byReason, func(r *StatRow) int64 { return r.WaitMS })
 	s.WaitsByCaller = ranked(byWaitCaller, func(r *StatRow) int64 { return r.WaitMS })
+	s.AnomaliesByCaller = ranked(anomalies, func(r *StatRow) int64 { return int64(r.Count) })
 	return s, nil
 }
 
@@ -132,6 +139,17 @@ func (s *Stats) addCall(e CallEntry, callers, graphqlCallers, queries map[string
 		q.Points += e.Points
 		q.GraphQLMS += gql
 	}
+}
+
+// addAnomaly counts a flagged call log entry by caller and anomaly.
+func (s *Stats) addAnomaly(e CallEntry, anomalies map[string]*StatRow) {
+	if e.Anomaly == "" {
+		return
+	}
+	s.Anomalies++
+	r := row(anomalies, e.Caller+"\x00"+e.Anomaly)
+	r.Key, r.Fields = e.Caller, e.Anomaly
+	r.Count++
 }
 
 func row(m map[string]*StatRow, key string) *StatRow {
@@ -188,6 +206,9 @@ func (s Stats) WriteText(w io.Writer) error {
 	if s.CacheHits > 0 {
 		fmt.Fprintf(tw, "%d cache hits (gh runs saved)\n", s.CacheHits)
 	}
+	if s.Anomalies > 0 {
+		fmt.Fprintf(tw, "%d anomalies\n", s.Anomalies)
+	}
 	section := func(title, header string, rows []StatRow, line func(StatRow) string) {
 		if len(rows) == 0 {
 			return
@@ -211,6 +232,9 @@ func (s Stats) WriteText(w io.Writer) error {
 	}
 	section("top queries by total time", "hash\tcalls\ttime\tfields", s.QueriesByTime, queryLine)
 	section("top queries by count", "hash\tcalls\ttime\tfields", s.QueriesByCount, queryLine)
+	section("anomalies by caller", "caller\tanomaly\tcalls", s.AnomaliesByCaller, func(r StatRow) string {
+		return fmt.Sprintf("%s\t%s\t%d", r.Key, r.Fields, r.Count)
+	})
 	if err := tw.Flush(); err != nil {
 		return fmt.Errorf("write stats: %w", err)
 	}

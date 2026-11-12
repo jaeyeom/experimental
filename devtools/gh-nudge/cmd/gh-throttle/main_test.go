@@ -287,3 +287,38 @@ func TestCallsAreLoggedAndStatsReadThem(t *testing.T) {
 		t.Fatal("--stats accepted a bad --since")
 	}
 }
+
+func TestCallLogRecordsOutputSizeAndEmptyJSON(t *testing.T) {
+	type entry struct {
+		ExitCode    int    `json:"exitCode"`
+		StdoutBytes *int64 `json:"stdoutBytes"`
+		StderrHead  string `json:"stderrHead"`
+		Anomaly     string `json:"anomaly"`
+	}
+	for _, tt := range []struct {
+		name   string
+		ghBody string
+		want   entry
+	}{
+		{"empty JSON", "exit 0\n", entry{StdoutBytes: new(int64(0)), Anomaly: "empty_json"}},
+		{"normal", "printf '[{\"x\":1}]\\n'\n", entry{StdoutBytes: new(int64(10))}},
+		{"failing", "printf 'HTTP 502: bad\\tgateway\\nretry later\\n' >&2\nexit 1\n", entry{ExitCode: 1, StdoutBytes: new(int64(0)), StderrHead: `HTTP 502: bad\x09gateway`}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, tt.ghBody)
+			h.run([]string{"pr", "list", "--json", "x"}, "")
+			raw, err := os.ReadFile(filepath.Join(h.env["XDG_STATE_HOME"], "gh-throttle", "calls.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got entry
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatalf("calls log %q: %v", raw, err)
+			}
+			if got.ExitCode != tt.want.ExitCode || got.StdoutBytes == nil || *got.StdoutBytes != *tt.want.StdoutBytes ||
+				got.StderrHead != tt.want.StderrHead || got.Anomaly != tt.want.Anomaly {
+				t.Fatalf("call entry = %s; want %+v (stdoutBytes %d)", raw, tt.want, *tt.want.StdoutBytes)
+			}
+		})
+	}
+}
