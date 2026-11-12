@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -143,14 +144,32 @@ func NormalizeStored(text string) string {
 	return strings.TrimRight(trailingSpace.ReplaceAllString(text, "\n"), " \t\r\n")
 }
 
-// NormalizePosted is NormalizeStored of a message as Slack returns it:
-// the footer matched by footer is removed and Slack's &amp;, &lt;, and
-// &gt; escaping is undone first.
+// NormalizePosted is NormalizeStored of a message as Slack returns it.
+// footer finds where a footer starts. Everything from that match through
+// the end of the message is dropped, plus one Slack marker (*, _, or ~)
+// immediately before the match and the whitespace before that marker.
+// Slack's &amp;, &lt;, and &gt; escaping is then undone.
 func NormalizePosted(text string, footer *regexp.Regexp) string {
 	if footer != nil {
-		text = footer.ReplaceAllString(text, "")
+		if loc := footer.FindStringIndex(text); loc != nil {
+			text = stripFooter(text, loc[0])
+		}
 	}
 	return NormalizeStored(slackUnescape(text))
+}
+
+// stripFooter keeps the text before a footer match. One marker stuck to
+// the match, and the whitespace before it, belong to the footer.
+func stripFooter(text string, match int) string {
+	head := text[:match]
+	if len(head) > 0 && isFooterMarker(head[len(head)-1]) {
+		head = head[:len(head)-1]
+	}
+	return strings.TrimRightFunc(head, unicode.IsSpace)
+}
+
+func isFooterMarker(b byte) bool {
+	return b == '*' || b == '_' || b == '~'
 }
 
 // DecideAnswer is the answer of a decide item as decide show --json

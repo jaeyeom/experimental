@@ -766,10 +766,31 @@ func TestNormalizePosted(t *testing.T) {
 		{"a &amp;lt;", "a &lt;"},
 		{"line  \nnext\t\n\n", "line\nnext"},
 		{"text\n\n_sent by an agent_", "text"},
+		{"Ship it", "Ship it"},
 	} {
 		if got, want := NormalizePosted(tc.posted, re), NormalizeStored(tc.stored); got != want {
 			t.Errorf("NormalizePosted(%q) = %q, want %q", tc.posted, got, want)
 		}
+	}
+	inline := regexp.MustCompile(`Sent using\*? <@U1`)
+	if got := NormalizePosted("Ship it *Sent using* <@U1>", inline); got != "Ship it" {
+		t.Errorf("inline footer = %q, want the text alone", got)
+	}
+}
+
+func TestInlineFooterComparePasses(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	f.ob.Config.FooterPattern = Regexp{regexp.MustCompile(`Sent using\*? <@U1`)}
+	f.ob.Config.Post.Footer = " *Sent using* <@U1>"
+	r := approveHandoff(t, f)
+	f.rec.notes = nil
+	f.reader.msg = Message{User: expectUser, Text: approvedText + " *Sent using* <@U1>"}
+	got, err := f.ob.Posted(context.Background(), r.ID, postedLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxPosted {
+		t.Fatalf("record = %+v, want posted", got)
 	}
 }
 
@@ -954,7 +975,9 @@ func TestCheckPost(t *testing.T) {
 		{"direct no footer", Config{FooterPattern: footer, Post: PostConfig{Mode: "direct", ExpectUser: "U1", WriteTokenFile: "f"}}, "post.footer"},
 		{"direct footer mismatch", Config{FooterPattern: footer, Post: PostConfig{Mode: "direct", ExpectUser: "U1", WriteTokenFile: "f", Footer: "by me"}}, "footerPattern"},
 		{"direct no pattern", Config{Post: PostConfig{Mode: "direct", ExpectUser: "U1", WriteTokenFile: "f", Footer: "by agent"}}, "footerPattern"},
-		{"direct ok", Config{FooterPattern: footer, Post: PostConfig{Mode: "direct", ExpectUser: "U1", WriteTokenFile: "f", Footer: "by agent"}}, ""},
+		{"direct footer partly removed", Config{FooterPattern: footer, Post: PostConfig{Mode: "direct", ExpectUser: "U1", WriteTokenFile: "f", Footer: "by agent"}}, "fully remove"},
+		{"handoff footer partly removed", Config{FooterPattern: footer, Post: PostConfig{Mode: "handoff", Agent: "a", ExpectUser: "U1", Footer: "by agent"}}, "fully remove"},
+		{"direct ok", Config{FooterPattern: footer, Post: PostConfig{Mode: "direct", ExpectUser: "U1", WriteTokenFile: "f", Footer: "agent"}}, ""},
 	} {
 		err := tc.cfg.CheckPost()
 		if tc.want == "" {
