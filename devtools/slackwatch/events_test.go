@@ -107,7 +107,7 @@ func TestHandleMessage(t *testing.T) {
 				if n.Event != EventReply || n.Owner != "agent-1" || n.WatchID != f.thread.ID || n.ReplyTS != "1700000009.000300" ||
 					n.Author != "U9" || n.Text != "looks good" || n.Purpose != "ask" ||
 					n.PostLink != "https://x.slack.com/archives/C1/p1700000000000100" ||
-					n.ReplyLink != "https://x.slack.com/archives/C1/p1700000009000300?thread_ts=1700000000.000100" {
+					n.ReplyLink != "https://x.slack.com/archives/C1/p1700000009000300?thread_ts=1700000000.000100&cid=C1" {
 					t.Errorf("note = %+v", n)
 				}
 				if got := f.count(t, `SELECT COUNT(*) FROM replies WHERE watch_id = ? AND is_self = 0`, f.thread.ID); got != 1 {

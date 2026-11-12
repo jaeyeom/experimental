@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -153,5 +155,29 @@ func TestSlackReaderRateLimit(t *testing.T) {
 	var rl *slackwatch.RateLimitError
 	if !errors.As(err, &rl) || rl.RetryAfter != 7*time.Second {
 		t.Errorf("err = %v, want a rate limit of 7s", err)
+	}
+}
+
+func TestNewProcessorStoresTeamURL(t *testing.T) {
+	r := fakeSlackAPI(t, func(method string, _ *http.Request) (int, string) {
+		if method != "auth.test" {
+			t.Errorf("unexpected call %s", method)
+		}
+		return 200, `{"ok":true,"url":"https://acme.slack.com/","user_id":"USELF"}`
+	})
+	store, err := slackwatch.OpenStore(filepath.Join(t.TempDir(), "slackwatch.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	proc, err := newProcessor(context.Background(), r.api, slackwatch.Config{}, store, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proc.Self != "USELF" || proc.TeamURL != "https://acme.slack.com/" {
+		t.Errorf("processor self %q team %q", proc.Self, proc.TeamURL)
+	}
+	if got, err := store.TeamURL(); err != nil || got != "https://acme.slack.com/" {
+		t.Errorf("stored team URL = %q, %v", got, err)
 	}
 }

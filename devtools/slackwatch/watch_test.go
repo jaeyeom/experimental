@@ -325,3 +325,131 @@ func TestShowWatchRepliesAndReactions(t *testing.T) {
 		t.Errorf("reactions = %+v, want %+v", d.Reactions, want)
 	}
 }
+
+func TestShowWatchPermalinks(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.SetTeamURL("https://acme.slack.com/"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.TeamURL(); err != nil || got != "https://acme.slack.com/" {
+		t.Fatalf("TeamURL = %q, %v", got, err)
+	}
+	w, _, err := s.AddWatch(PostRef{Channel: "C1", TS: "1700000000.000100"}, WatchUpdate{}, testNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddReply(Reply{Channel: "C1", TS: "1700000005.000200", ThreadTS: w.ThreadTS, WatchID: w.ID, Author: "U2", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.ShowWatch(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://acme.slack.com/archives/C1/p1700000000000100"; d.Permalink != want {
+		t.Errorf("watch permalink = %q, want %q", d.Permalink, want)
+	}
+	if want := "https://acme.slack.com/archives/C1/p1700000005000200?thread_ts=1700000000.000100&cid=C1"; len(d.Replies) != 1 || d.Replies[0].Permalink != want {
+		t.Errorf("replies = %+v, want permalink %q", d.Replies, want)
+	}
+	rows, err := s.ListWatches(WatchFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Permalink != d.Permalink {
+		t.Errorf("ls = %+v, want permalink %q", rows, d.Permalink)
+	}
+}
+
+func TestShowWatchPermalinkOfThreadReply(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.SetTeamURL("https://acme.slack.com"); err != nil {
+		t.Fatal(err)
+	}
+	w, _, err := s.AddWatch(PostRef{Channel: "C1", TS: "1700000005.000200", ThreadTS: "1700000000.000100"}, WatchUpdate{}, testNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.ShowWatch(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://acme.slack.com/archives/C1/p1700000005000200?thread_ts=1700000000.000100&cid=C1"; d.Permalink != want {
+		t.Errorf("watch permalink = %q, want %q", d.Permalink, want)
+	}
+}
+
+func TestShowWatchPermalinksUnknownTeam(t *testing.T) {
+	s := openTestStore(t)
+	w, _, err := s.AddWatch(PostRef{Channel: "C1", TS: "1700000000.000100"}, WatchUpdate{}, testNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddReply(Reply{Channel: "C1", TS: "1700000005.000200", ThreadTS: w.ThreadTS, WatchID: w.ID}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.ShowWatch(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Permalink != "" || d.Replies[0].Permalink != "" {
+		t.Errorf("show without a team URL = %+v, want no links", d)
+	}
+	rows, err := s.ListWatches(WatchFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Permalink != "" {
+		t.Errorf("ls without a team URL = %+v, want no link", rows[0])
+	}
+}
+
+func TestShowWatchPrefersStoredPermalink(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.SetTeamURL("https://acme.slack.com/"); err != nil {
+		t.Fatal(err)
+	}
+	link := "https://acme-corp.enterprise.slack.com/archives/C1/p1700000000000100"
+	p := PostRef{Channel: "C1", TS: "1700000000.000100", Permalink: link}
+	w, _, err := s.AddWatch(p, WatchUpdate{}, testNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A later add from another link keeps the stored one.
+	other := PostRef{Channel: "C1", TS: "1700000005.000200", ThreadTS: p.TS, Permalink: "https://x.slack.com/other"}
+	if _, _, err := s.AddWatch(other, WatchUpdate{}, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.ShowWatch(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Permalink != link {
+		t.Errorf("show permalink = %q, want stored %q", d.Permalink, link)
+	}
+	rows, err := s.ListWatches(WatchFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Permalink != link {
+		t.Errorf("ls permalink = %q, want stored %q", rows[0].Permalink, link)
+	}
+}
+
+func TestAddWatchFillsMissingPermalink(t *testing.T) {
+	s := openTestStore(t)
+	w, _, err := s.AddWatch(PostRef{Channel: "C1", TS: "1700000000.000100"}, WatchUpdate{}, testNow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := "https://acme.slack.com/archives/C1/p1700000000000100"
+	if _, _, err := s.AddWatch(PostRef{Channel: "C1", TS: "1700000000.000100", Permalink: link}, WatchUpdate{}, testNow()); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.ShowWatch(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Permalink != link {
+		t.Errorf("show permalink = %q, want %q", d.Permalink, link)
+	}
+}

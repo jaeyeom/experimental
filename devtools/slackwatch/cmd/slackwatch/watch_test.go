@@ -178,6 +178,93 @@ func TestAckClearsUnacked(t *testing.T) {
 	}
 }
 
+// openCfgStore opens the store that cfg names. The caller closes it.
+func openCfgStore(t *testing.T, cfg string) *slackwatch.Store {
+	t.Helper()
+	c, err := slackwatch.LoadConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := slackwatch.OpenStore(c.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestShowPrintsPermalinks(t *testing.T) {
+	cfg := noTokenConfig(t)
+	sw(t, cfg, "add", "C0123", "1700000000.000100", "--owner", "a")
+	sw(t, cfg, "add", "C0999", "1700000000.000100")
+	store := openCfgStore(t, cfg)
+	if err := store.SetTeamURL("https://acme.slack.com/"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddReply(slackwatch.Reply{Channel: "C0123", TS: "1700000005.000200", ThreadTS: "1700000000.000100", WatchID: 1, Author: "U2", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	out := sw(t, cfg, "show", "1")
+	if !strings.Contains(out, "link: "+topLink+"\n") {
+		t.Errorf("show lacks the post link %q:\n%s", topLink, out)
+	}
+	if !strings.Contains(out, replyLink) || !strings.Contains(out, "U2") {
+		t.Errorf("show lacks the reply link %q:\n%s", replyLink, out)
+	}
+
+	var d slackwatch.WatchDetail
+	if err := json.Unmarshal([]byte(sw(t, cfg, "show", "1", "--json")), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Permalink != topLink || len(d.Replies) != 1 || d.Replies[0].Permalink != replyLink {
+		t.Errorf("show --json = %+v", d)
+	}
+
+	var raw []map[string]any
+	if err := json.Unmarshal([]byte(sw(t, cfg, "ls", "--json")), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 2 {
+		t.Fatalf("ls --json = %v, want two watches", raw)
+	}
+	for _, row := range raw {
+		if link, _ := row["permalink"].(string); !strings.HasPrefix(link, "https://acme.slack.com/archives/") {
+			t.Errorf("ls --json row lacks permalink: %v", row)
+		}
+	}
+	if out := sw(t, cfg, "ls"); strings.Contains(out, "https://") {
+		t.Errorf("plain ls shows links:\n%s", out)
+	}
+}
+
+func TestShowWithoutTeamURLHasNoLinks(t *testing.T) {
+	cfg := noTokenConfig(t)
+	sw(t, cfg, "add", "C0123", "1700000000.000100")
+	if out := sw(t, cfg, "show", "1"); strings.Contains(out, "https://") || strings.Contains(out, "link:") {
+		t.Errorf("show without a team URL prints a link:\n%s", out)
+	}
+	if out := sw(t, cfg, "show", "1", "--json"); strings.Contains(out, "permalink") {
+		t.Errorf("show --json without a team URL has a permalink:\n%s", out)
+	}
+}
+
+func TestShowPrefersAddedPermalink(t *testing.T) {
+	cfg := noTokenConfig(t)
+	sw(t, cfg, "add", replyLink)
+	store := openCfgStore(t, cfg)
+	if err := store.SetTeamURL("https://other.slack.com/"); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	if out := sw(t, cfg, "show", "1"); !strings.Contains(out, "link: "+replyLink+"\n") {
+		t.Errorf("show lacks the added permalink %q:\n%s", replyLink, out)
+	}
+	if rows := lsJSON(t, cfg); len(rows) != 1 || rows[0].Permalink != replyLink {
+		t.Errorf("ls --json = %+v, want permalink %q", rows, replyLink)
+	}
+}
+
 func TestAddWithoutTokenSkipsCatchUp(t *testing.T) {
 	f := useFakeCatchUp(t)
 	cfg := noTokenConfig(t)

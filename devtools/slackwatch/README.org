@@ -38,7 +38,9 @@ Create a Slack app for your workspace and install it for yourself.
 
 * Events
 
-~serve~ learns the token owner's user id from ~auth.test~ at startup.
+~serve~ learns the token owner's user id and the workspace URL from
+~auth.test~ at startup. ~add~ does the same when it catches up. The
+workspace URL is stored for permalinks.
 Each new message is handled by the first rule that matches.
 
 1. A reply in a watched thread that is not closed, newer than the watch's
@@ -137,6 +139,14 @@ RFC 3339, or a duration such as ~72h~.
   available. Without a token it skips catch-up quietly.
 - ~ls~ counts unacknowledged replies by others and flags a watch that has an
   undelivered notification.
+- ~show~ prints a ~link:~ line with the watched post's permalink and a
+  permalink on each reply line. ~show --json~ has ~permalink~ on the watch
+  and on each reply, and ~ls --json~ has it on each watch. Plain ~ls~ shows
+  no links. A watch added from a permalink keeps that link. Otherwise the
+  link is built from the stored workspace URL, such as
+  ~https://acme.slack.com/archives/C0123/p1700000005000200?thread_ts=1700000000.000100&cid=C0123~
+  for a thread reply. Until ~serve~ or a catch-up has run ~auth.test~, the
+  workspace URL is unknown and links are left out.
 
 * Channel subscriptions
 

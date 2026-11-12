@@ -136,6 +136,11 @@ func newProcessor(ctx context.Context, api *slack.Client, cfg slackwatch.Config,
 	if err != nil {
 		return nil, fmt.Errorf("slack auth.test: %w", err)
 	}
+	if auth.URL != "" {
+		if err := store.SetTeamURL(auth.URL); err != nil {
+			return nil, err //nolint:wrapcheck // Already descriptive.
+		}
+	}
 	return &slackwatch.Processor{
 		Store:    store,
 		Notifier: &slackwatch.Notifier{Store: store, Config: cfg, Logger: logger},

@@ -96,7 +96,7 @@ func TestSubscribedChannelNotifiesTopLevelAndReplies(t *testing.T) {
 		t.Errorf("top-level note = %+v", n)
 	}
 	if n := f.rec.notes[1]; n.PostLink != "https://x.slack.com/archives/C2/p1600000000000100" ||
-		n.ReplyLink != "https://x.slack.com/archives/C2/p1700000041000100?thread_ts=1600000000.000100" {
+		n.ReplyLink != "https://x.slack.com/archives/C2/p1700000041000100?thread_ts=1600000000.000100&cid=C2" {
 		t.Errorf("reply note = %+v", n)
 	}
 	if got := f.count(t, `SELECT COUNT(*) FROM replies WHERE channel = 'C2' AND watch_id IS NULL`); got != 2 {
