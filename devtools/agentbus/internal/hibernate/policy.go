@@ -46,6 +46,9 @@ type Policy struct {
 	// MinIdle is how long the daemon must have seen an agent idle or
 	// done.
 	MinIdle time.Duration
+	// Machine is this machine's label on the hub, or empty when Bus is
+	// the local daemon. Only handles on it are candidates.
+	Machine string
 	Memory  procinfo.Memory
 	Bus     StateReader
 	// Hibernator runs every #644 check on one agent and stops it.
@@ -180,9 +183,10 @@ func (p *Policy) log(ev eventlog.Event) error {
 // over, so it waits MinIdle again.
 func (p *Policy) candidates(state Reply) []policyCandidate {
 	var out []policyCandidate
+	here := cmp.Or(p.Machine, hubcall.LocalMachine)
 	for handle, seen := range state.Seen {
 		machine, _, _, err := hubcall.ParseHandle(handle)
-		if err != nil || machine != hubcall.LocalMachine || !resting(seen.Status) || seen.For < p.MinIdle {
+		if err != nil || machine != here || !resting(seen.Status) || seen.For < p.MinIdle {
 			continue
 		}
 		if _, ok := recordOf(state.Records, handle); ok {

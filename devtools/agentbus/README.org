@@ -34,9 +34,9 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~log~ | Read the daemon event log. |
 | ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
 | ~mem [--json]~ | Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases. See [[*Memory per agent]]. |
-| ~hibernate <name or handle>...~, ~hibernate --idle-over <d>~ | Stop idle agents on this machine but keep their panes and names. See [[*Hibernate idle agents]]. |
+| ~hibernate <name or handle>...~, ~hibernate --idle-over <d>~ | Stop idle agents on this machine but keep their panes and names. See [[*Hibernate idle agents]]. ~hibernate --policy~ runs the memory-pressure policy on a hub-mode client; see [[*On a hub-mode client]]. |
 | ~wake <name or handle>~ | Relaunch a hibernated agent now. A message to it wakes it too. See [[*Wake a hibernated agent]]. |
-| ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub. |
+| ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub, and the ~hibernate --policy~ unit when ~hibernate_policy~ is on or ~dry-run~. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
 ~agentbus --help~ (or ~-h~, or ~help~) lists these commands.
@@ -284,7 +284,9 @@ ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
 and starts it again whenever it exits. ~StreamLocalBindUnlink=yes~
 removes a stale socket left by a dropped tunnel before it binds again.
 The ssh path is resolved when you run ~install~, and the unit runs
-without a terminal, so the key must work without a prompt.
+without a terminal, so the key must work without a prompt. With
+~hibernate_policy~ on or ~dry-run~, ~install~ also writes and loads the
+unit of ~agentbus hibernate --policy~ (see [[*On a hub-mode client]]).
 
 While the tunnel socket is there and the hub answers a ping on it in
 this protocol, a command from a herdr pane runs here and sends its
@@ -907,9 +909,48 @@ The policy runs in agentbusd and acts only on the machine it runs on:
 it reads that machine's memory and that machine's herdr panes
 (~herdr:local/...~), with the same hibernator as ~agentbus hibernate~,
 calling the daemon's hibernate ops in process. In hub mode agentbusd
-runs only on the hub, so the policy covers the hub machine's own agents
-and never another machine's; on a machine with ~hub~ set it does not
-run, and ~agentbus mem~ there shows it off with a note.
+runs only on the hub, so there it covers the hub machine's own agents
+and never another machine's.
+
+** On a hub-mode client
+
+A machine with ~hub~ set runs no agentbusd, so it runs the same policy
+in ~agentbus hibernate --policy~, a long-running process, from its own
+config. It reads this machine's available memory and herdr panes, and
+sends the hibernate requests to the hub as ~agentbus hibernate~ does in
+hub mode: over the tunnel from a herdr pane, otherwise over ssh (as a
+service it has no pane, so ssh, and only while memory is low). The
+records and names stay on the hub, and only this machine's handles
+(~herdr:<machine>/...~) are candidates. The checks, the order, the
+target, ~"dry-run"~, and the once-per-episode rules are the daemon's.
+
+The hub keeps idle times only for the machines it polls, so the runner
+keeps its own: each ~hibernate_interval~ it reads ~herdr agent list~
+here and counts an agent idle from the first reading it saw it ~idle~
+or ~done~, the same rules as the daemon's. It needs no ~machines~ entry
+on the hub, but its idle times start over when it restarts. Its events
+and why a tick did nothing (herdr down, hub unreachable) go to its
+stderr, not to the hub's event log, as
+
+#+begin_example
+agentbus hibernate --policy: policy_hibernate ops/x: idle 41m0s, 400.0 MiB rss, 900.0 MiB available before
+agentbus hibernate --policy: agentbus daemon: hub me@hub: ...; nothing more hibernated until the next tick
+#+end_example
+
+When the hub cannot be reached nothing is stopped. ~agent_hibernated~
+still goes to the hub's log with each stop.
+
+~agentbus install~ in hub mode writes and loads a second unit for it
+when ~hibernate_policy~ is ~on~ or ~dry-run~, and none otherwise: the
+launchd job ~com.agentbus.hibernate-policy~, whose stderr goes to
+~$XDG_STATE_HOME/agentbus/hibernate-policy.log~, or the systemd user
+unit ~agentbus-hibernate-policy.service~, whose stderr goes to the
+journal. Both get the ~PATH~ of the ~install~ run, to find ~herdr~ and
+~ssh~, and restart it only when it fails. It reads the config at start:
+after changing a ~hibernate_*~ key, run ~agentbus install~ again or
+restart the unit. With ~hibernate_policy~ off it prints
+~hibernate_policy=off~ and exits 0, and stays stopped. ~agentbus mem~
+on the client shows the configured mode and thresholds.
 
 * Sandbox
 

@@ -90,7 +90,7 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 	if err != nil {
 		return memreport.Input{}, err
 	}
-	in.Policy = memPolicy(cfg, &in.Notes)
+	in.Policy = memPolicy(cfg)
 	in.Machine = cfg.Machine
 	if in.Machine == "" {
 		in.Machine, _ = os.Hostname()
@@ -113,17 +113,12 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 	return in, nil
 }
 
-// memPolicy is the hibernation policy agentbusd runs on this machine.
-// In hub mode no daemon runs here, so it is off, with a note when the
-// config asks for it.
-func memPolicy(cfg config.Config, notes *[]string) *memreport.Policy {
+// memPolicy is the hibernation policy this machine's config sets. It
+// runs in agentbusd, or in hub mode in `agentbus hibernate --policy`.
+func memPolicy(cfg config.Config) *memreport.Policy {
 	p := cfg.Policy()
 	if p.Mode == "off" {
 		return &memreport.Policy{Mode: p.Mode}
-	}
-	if cfg.Hub != "" {
-		*notes = append(*notes, "hibernate_policy does not run in hub mode: it runs in agentbusd, which runs on the hub, not here")
-		return &memreport.Policy{Mode: "off"}
 	}
 	return &memreport.Policy{
 		Mode: p.Mode, BelowBytes: p.Below, TargetBytes: p.Target,

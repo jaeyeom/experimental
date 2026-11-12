@@ -401,15 +401,15 @@ func TestMemHubUnreachable(t *testing.T) {
 	}
 }
 
-func TestMemHubPolicyIsOffHere(t *testing.T) {
+func TestMemHubShowsThisMachinesPolicy(t *testing.T) {
 	ssh, env := setupMemHub(t)
 	ssh.Write("down", "")
 	ssh.Unreachable()
 	writeFile(t, filepath.Join(envGet(env, "HOME"), ".config", "agentbus", "config.toml"),
 		[]byte("hub = \"me@hub\"\nmachine = \"mac\"\nhibernate_policy = \"on\"\nhibernate_below = \"1GiB\"\n"))
 	stdout := mustOut(t, []string{"mem"}, env)
-	if !strings.Contains(stdout, "hibernate policy off") || !strings.Contains(stdout, "note: hibernate_policy does not run") {
-		t.Fatalf("output = %q, want the policy off with a note: no daemon runs here in hub mode", stdout)
+	if !strings.Contains(stdout, "hibernate policy on (below 1.0 GiB, target 1.0 GiB, min idle 30m0s)") || strings.Contains(stdout, "does not run") {
+		t.Fatalf("output = %q, want the configured policy: agentbus hibernate --policy runs it here", stdout)
 	}
 }
 

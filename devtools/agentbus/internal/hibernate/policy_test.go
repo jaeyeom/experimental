@@ -266,3 +266,19 @@ func TestPolicyWatchTicks(t *testing.T) {
 		t.Fatal("Watch never ran the policy")
 	}
 }
+
+func TestPolicyOnAHubClientPicksOnlyThisMachinesHandles(t *testing.T) {
+	p, h, bus, _ := policyWorld(PolicyOn, gib)
+	p.Machine = "linux2"
+	bus.state.Seen = map[string]Seen{
+		alice:                  {Status: "idle", For: 5 * time.Hour},
+		remo:                   {Status: "idle", For: time.Hour},
+		"herdr:other/s9/w1:p9": {Status: "idle", For: 6 * time.Hour},
+	}
+	if err := p.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.targets(); !slices.Equal(got, []string{remo}) {
+		t.Fatalf("asked %v, want only linux2's agent", got)
+	}
+}
