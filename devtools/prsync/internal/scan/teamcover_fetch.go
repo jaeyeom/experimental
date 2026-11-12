@@ -26,6 +26,9 @@ type coverCache struct {
 	rules        map[string][]codeRule
 	history      map[string]gh.PathHistory
 	stored       HistoryCache
+	// historyTTL > 0 keys stored history by the window's start day instead
+	// of the base head; the stored cache applies the TTL.
+	historyTTL time.Duration
 	// batch is the path count the next history request starts at.
 	batch       int
 	load        map[string]int
@@ -44,6 +47,7 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 		files:        map[string][]string{},
 		rules:        map[string][]codeRule{},
 		history:      map[string]gh.PathHistory{},
+		historyTTL:   cfg.TeamCoverHistoryTTL,
 		batch:        cfg.TeamCoverBatchPaths,
 		load:         map[string]int{},
 		active:       map[string]bool{},
@@ -197,7 +201,7 @@ func (c *coverCache) prepare(ctx context.Context, client GH, cfg config.Config, 
 	}
 	cover.ranking = true
 	wantOwners := signalEnabled(facts.signals, "codeowners")
-	cover.history = signalEnabled(facts.signals, "history")
+	cover.history = signalEnabled(facts.signals, "history") && hasCandidates(facts)
 	if wantOwners || cover.history {
 		files, err := c.changedFiles(ctx, client, doc, pr)
 		if err != nil {
@@ -298,10 +302,19 @@ type historyGroup struct {
 
 // loadHistory fetches history for every path of every PR that ranks by
 // history, once per path, in one batched call per repository and base.
-// With a stored cache, a path is reused while the base head is unchanged.
-// It logs the cache hits and misses.
+// With a stored cache, a path is reused while its entry is fresh: keyed by
+// the window's start day under team_cover_history_ttl, else by the base
+// head. It logs how many listed paths need history, and the cache hits and
+// misses.
 func (c *coverCache) loadHistory(ctx context.Context, client GH, doc *Document, covers []prCover) error {
 	groups := historyGroups(covers)
+	if listed := listedPaths(covers); listed > 0 {
+		needed := 0
+		for _, group := range groups {
+			needed += len(group.paths)
+		}
+		runlog.FromContext(ctx).Info(fmt.Sprintf("team-cover: %d of %d paths need history", needed, listed))
+	}
 	if len(groups) == 0 {
 		return nil
 	}
@@ -319,6 +332,17 @@ func (c *coverCache) loadHistory(ctx context.Context, client GH, doc *Document, 
 	}
 	runlog.FromContext(ctx).Info("team-cover cache", "hits", hits, "misses", misses)
 	return nil
+}
+
+// listedPaths counts the distinct paths of the PRs whose files were listed.
+func listedPaths(covers []prCover) int {
+	seen := map[string]struct{}{}
+	for _, cover := range covers {
+		for _, file := range cover.facts.files {
+			seen[historyKey(cover.pr.Repo, cover.pr.Base, file)] = struct{}{}
+		}
+	}
+	return len(seen)
 }
 
 func historyGroups(covers []prCover) []historyGroup {
@@ -352,15 +376,15 @@ func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, gr
 	if len(group.paths) == 0 {
 		return 0, 0, nil
 	}
-	head, err := c.baseHead(ctx, client, doc, group)
+	version, ref, err := c.historyVersion(ctx, client, doc, group)
 	if err != nil || c.histSkipped {
 		return 0, 0, err
 	}
 	hits := 0
 	var missing []string
 	for _, path := range group.paths {
-		if head != "" {
-			if hist, ok := c.stored.PathHistory(group.repo, group.base, path, head); ok {
+		if version != "" {
+			if hist, ok := c.stored.PathHistory(group.repo, group.base, path, version); ok {
 				c.history[historyKey(group.repo, group.base, path)] = hist
 				hits++
 				continue
@@ -370,10 +394,6 @@ func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, gr
 	}
 	if len(missing) == 0 {
 		return hits, 0, nil
-	}
-	ref := group.base
-	if head != "" {
-		ref = head
 	}
 	got, err := client.PathHistories(ctx, group.repo, ref, missing, c.historySince, c.batch)
 	if err != nil {
@@ -391,20 +411,35 @@ func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, gr
 			continue
 		}
 		c.history[historyKey(group.repo, group.base, path)] = hist
-		if head != "" {
-			c.stored.PutPathHistory(group.repo, group.base, path, head, hist)
+		if version != "" {
+			c.stored.PutPathHistory(group.repo, group.base, path, version, hist)
 		}
 	}
 	return hits, len(missing), nil
 }
 
-// baseHead is the base branch head the stored cache is keyed by. It is
-// empty without a stored cache or when the lookup fails; history is then
-// fetched on the branch and not stored.
-func (c *coverCache) baseHead(ctx context.Context, client GH, doc *Document, group historyGroup) (string, error) {
+// historyVersion is the key the stored cache holds group's history under,
+// and the ref to fetch it on. With a history TTL the key is the window's
+// start day and the ref the base branch; otherwise both are the base head.
+// The key is empty without a stored cache or when the head lookup fails;
+// history is then fetched on the branch and not stored.
+func (c *coverCache) historyVersion(ctx context.Context, client GH, doc *Document, group historyGroup) (string, string, error) {
 	if c.stored == nil {
-		return "", nil
+		return "", group.base, nil
 	}
+	if c.historyTTL > 0 {
+		return "since:" + c.historySince.UTC().Format(time.DateOnly), group.base, nil
+	}
+	head, err := c.baseHead(ctx, client, doc, group)
+	if err != nil || head == "" {
+		return "", group.base, err
+	}
+	return head, head, nil
+}
+
+// baseHead is the head of group's base branch, or empty when the lookup
+// fails.
+func (c *coverCache) baseHead(ctx context.Context, client GH, doc *Document, group historyGroup) (string, error) {
 	head, err := client.BranchHead(ctx, group.repo, group.base)
 	if err != nil {
 		if stop := contextStop(ctx, err); stop != nil {
@@ -679,6 +714,25 @@ func failedTeams(teams []string, msg string) []TeamReviewSuggestion {
 		out[i] = TeamReviewSuggestion{Team: team, Suggest: []SuggestedReviewer{}, Error: msg}
 	}
 	return out
+}
+
+// hasCandidates reports whether some uncovered team has a member left to
+// rank. Without one, history cannot change the suggestions.
+func hasCandidates(facts coverFacts) bool {
+	for _, team := range facts.teams {
+		if facts.memberErr[team] != "" {
+			continue
+		}
+		if coveredBy(facts.members[team], facts.requested, facts.reviews) != "" {
+			continue
+		}
+		for _, member := range facts.members[team] {
+			if keepCandidate(member, facts) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func needsRanking(facts coverFacts) bool {

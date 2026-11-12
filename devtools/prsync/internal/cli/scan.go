@@ -114,6 +114,7 @@ func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h 
 	if err != nil {
 		logger.Warn("round cache ignored", "err", err.Error())
 	}
+	cache.SetHistoryTTL(cfg.TeamCoverHistoryTTL)
 	deps := scan.Deps{
 		GH:      gh.NewClient(exec, cfg.GHBin).WithRollupCache(cache),
 		Herdr:   h,

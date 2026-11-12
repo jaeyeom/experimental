@@ -36,12 +36,13 @@ type Deps struct {
 	Rounds RoundCounter
 }
 
-// HistoryCache stores the path history of path on ref, keyed also by the
-// head commit of ref (the base branch), and the path-history request size
-// that last worked.
+// HistoryCache stores the path history of path on ref (the base branch),
+// keyed also by a version: the history window's start day, or the head
+// commit of ref when team_cover_history_ttl is 0. It owns the expiry. It
+// also stores the path-history request size that last worked.
 type HistoryCache interface {
-	PathHistory(repo, ref, path, head string) (gh.PathHistory, bool)
-	PutPathHistory(repo, ref, path, head string, history gh.PathHistory)
+	PathHistory(repo, ref, path, version string) (gh.PathHistory, bool)
+	PutPathHistory(repo, ref, path, version string, history gh.PathHistory)
 	// HistoryBatch is 0 when no size is stored.
 	HistoryBatch() int
 	PutHistoryBatch(n int)
