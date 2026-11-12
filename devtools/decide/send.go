@@ -98,6 +98,20 @@ func RunSend(argv []string) error {
 // runSendOn runs program with `--machine machine args...` under
 // MachineTimeout. The probe asks herdr whether the machine answers.
 func runSendOn(machine, program string, args []string) error {
+	_, stderr, code, err := runOnMachine(context.Background(), machine, program, args)
+	if err != nil {
+		return fmt.Errorf("decide send: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("decide send: %s on machine %s: exit %d: %s", program, machine, code, strings.TrimSpace(stderr))
+	}
+	return nil
+}
+
+// runOnMachine runs program with `--machine machine args...` under
+// MachineTimeout. The probe asks herdr whether the machine answers, so a
+// machine that cannot be reached fails with a *remotecall.UnreachableError.
+func runOnMachine(ctx context.Context, machine, program string, args []string) (string, string, int, error) {
 	run := func(ctx context.Context, argv []string) (string, string, int, error) {
 		res, err := remotecall.Run(ctx, program, argv...)
 		return res.Stdout, res.Stderr, res.Code, err //nolint:wrapcheck // OnHerdrMachine reports it
@@ -107,14 +121,7 @@ func runSendOn(machine, program string, args []string) error {
 		return res.Stdout, res.Stderr, res.Code, err //nolint:wrapcheck // the probe only reads success
 	}
 	probe := remotecall.HerdrProbe(herdr, machine)
-	_, stderr, code, err := remotecall.OnHerdrMachine(context.Background(), run, probe, machine, MachineTimeout, args)
-	if err != nil {
-		return fmt.Errorf("decide send: %w", err)
-	}
-	if code != 0 {
-		return fmt.Errorf("decide send: %s on machine %s: exit %d: %s", program, machine, code, strings.TrimSpace(stderr))
-	}
-	return nil
+	return remotecall.OnHerdrMachine(ctx, run, probe, machine, MachineTimeout, args) //nolint:wrapcheck // callers add context
 }
 
 // NotifyOwner runs the compose command so pane on machine sees the

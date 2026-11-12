@@ -31,6 +31,12 @@ case "$1 $2" in
   if [ -e "$d/$m.tabs" ]; then cat "$d/$m.tabs"; exit 0; fi
   echo '{"result":{"tabs":[{"tab_id":"w2:t1","label":"'"$m"'-tab"}]}}' ;;
 "tab close") echo '{"result":{}}' ;;
+"pane list")
+  if [ -e "$d/$m.panes" ]; then cat "$d/$m.panes"; exit 0; fi
+  echo '{"result":{"panes":[]}}' ;;
+"workspace list")
+  if [ -e "$d/$m.workspaces" ]; then cat "$d/$m.workspaces"; exit 0; fi
+  echo '{"result":{"workspaces":[]}}' ;;
 "agent prompt"|"agent wait")
   if [ -e "$d/$m.prompt-error" ]; then echo '{"error":{"code":"pane_not_found"}}' >&2; exit 1; fi
   if [ -e "$d/$m.prompt" ]; then cat "$d/$m.prompt"; exit 0; fi
@@ -54,6 +60,8 @@ esac
 //     output.
 //   - m.tabs is the `tab list` output. Without it, m has one tab w2:t1,
 //     labelled "<m>-tab". `tab close` always succeeds.
+//   - m.panes is the `pane list` output, and m.workspaces the
+//     `workspace list` output. Without them, both lists are empty.
 //   - m.prompt is the `agent prompt` and `agent wait` output. Without it,
 //     both print an empty result.
 //   - m.process-info.<pane> is the `pane process-info --pane <pane>`

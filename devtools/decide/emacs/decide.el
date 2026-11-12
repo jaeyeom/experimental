@@ -388,6 +388,25 @@ first message author.  The two values are returned as a list."
       ""
     (format-time-string "%Y-%m-%dT%H:%M:%SZ" (date-to-time value) t)))
 
+(defun decide--owner-location-text (loc)
+  "Where the owner pane in LOC, the `ownerLocation' of an item, lives.
+LOC comes from `decide show --json'.  Nil or no pane is \"unknown\"."
+  (let ((pane (decide--field loc "pane"))
+        (machine (decide--field loc "machine")))
+    (if (string-empty-p pane)
+        "unknown"
+      (let ((prefix (if (string-empty-p machine) "" (concat machine ": ")))
+            (id (format "(%s)" pane)))
+        (concat prefix
+                (pcase (decide--field loc "state")
+                  ("live" (format "%s / %s %s"
+                                  (decide--field loc "workspace")
+                                  (decide--field loc "tab")
+                                  id))
+                  ("closed" (concat id " — tab closed"))
+                  ("unreachable" (concat id " (unreachable)"))
+                  (_ id)))))))
+
 (defun decide--header-rows (item)
   "Header rows of ITEM as (LABEL . VALUE) pairs.
 To is included only when the thread has a recipient."
@@ -397,7 +416,12 @@ To is included only when the thread has a recipient."
     (unless (string-empty-p to)
       (setq rows (append rows (list (cons "To" to)))))
     (append rows
-            (list (cons "Kind" (decide--field item "kind"))
+            (list (cons "Owner" (format "%s at %s"
+                                        (decide--field item "owner")
+                                        (decide--owner-location-text
+                                         (alist-get "ownerLocation" item
+                                                    nil nil #'equal))))
+                  (cons "Kind" (decide--field item "kind"))
                   (cons "State" (decide--field item "state"))
                   (cons "Created" (decide--header-time
                                    (decide--field item "createdAt")))
