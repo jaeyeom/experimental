@@ -626,8 +626,8 @@ func (fixtureGH) BranchHead(context.Context, string, string) (string, error) {
 	return "base1", nil
 }
 
-func (fixtureGH) PathHistories(context.Context, string, string, []string, time.Time) (map[string]gh.PathHistory, error) {
-	return map[string]gh.PathHistory{}, nil
+func (fixtureGH) PathHistories(_ context.Context, _, _ string, _ []string, _ time.Time, batch int) (gh.PathHistoryResult, error) {
+	return gh.PathHistoryResult{Histories: map[string]gh.PathHistory{}, Batch: batch}, nil
 }
 
 func (fixtureGH) DirectReviewCount(context.Context, string, string) (int, error) {
@@ -716,16 +716,24 @@ type scriptGH struct {
 	historyCalls  int
 	historyPaths  [][]string
 	historyRefs   []string
-	heads         map[string]string
-	headErr       error
-	headCalls     int
-	coverCalls    int
-	fileCalls     int
-	load          map[string]int
-	loadErr       error
-	loadCalls     int
-	active        map[string]bool
-	activeErr     error
+	// historyBatches records the batch each history call started at.
+	historyBatches []int
+	// historyWorked is the Batch a history call returns; 0 returns the
+	// batch asked for.
+	historyWorked int
+	// historySkip are paths a history call leaves out, as if each failed
+	// on its own.
+	historySkip map[string]bool
+	heads       map[string]string
+	headErr     error
+	headCalls   int
+	coverCalls  int
+	fileCalls   int
+	load        map[string]int
+	loadErr     error
+	loadCalls   int
+	active      map[string]bool
+	activeErr   error
 }
 
 type snapResult struct {
@@ -856,21 +864,28 @@ func (g *scriptGH) BranchHead(_ context.Context, repo, branch string) (string, e
 	return "base1", nil
 }
 
-// PathHistories looks up history[repo+"\x00"+path]. It records each call's
-// paths and ref.
-func (g *scriptGH) PathHistories(_ context.Context, repo, ref string, paths []string, _ time.Time) (map[string]gh.PathHistory, error) {
+// PathHistories looks up history[repo+"\x00"+path], leaving out historySkip.
+// It records each call's paths, ref and batch.
+func (g *scriptGH) PathHistories(_ context.Context, repo, ref string, paths []string, _ time.Time, batch int) (gh.PathHistoryResult, error) {
 	g.coverCalls++
 	g.historyCalls++
 	g.historyPaths = append(g.historyPaths, slices.Clone(paths))
 	g.historyRefs = append(g.historyRefs, ref)
+	g.historyBatches = append(g.historyBatches, batch)
 	if g.historyErr != nil {
-		return nil, g.historyErr
+		return gh.PathHistoryResult{}, g.historyErr
 	}
 	out := map[string]gh.PathHistory{}
 	for _, path := range paths {
-		out[path] = g.history[repo+"\x00"+path]
+		if !g.historySkip[path] {
+			out[path] = g.history[repo+"\x00"+path]
+		}
 	}
-	return out, nil
+	worked := batch
+	if g.historyWorked > 0 {
+		worked = g.historyWorked
+	}
+	return gh.PathHistoryResult{Histories: out, Batch: worked}, nil
 }
 
 func (g *scriptGH) DirectReviewCount(_ context.Context, org, login string) (int, error) {

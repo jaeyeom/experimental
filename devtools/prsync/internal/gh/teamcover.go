@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
-)
 
-// PathHistoryBatch is how many paths one history request asks for.
-const PathHistoryBatch = 20
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
+)
 
 // prReviewsBatch is how many pull requests one reviews request asks for.
 const prReviewsBatch = 50
@@ -169,35 +169,59 @@ func (c *Client) BranchHead(ctx context.Context, repo, branch string) (string, e
 	return head, nil
 }
 
+// PathHistoryResult is what PathHistories fetched.
+type PathHistoryResult struct {
+	// Histories has an entry for every path except one skipped because
+	// it failed on its own.
+	Histories map[string]PathHistory
+	// Batch is the request size to start the next call at: the batch
+	// asked for, or smaller when a request had to be split. Zero when no
+	// request succeeded.
+	Batch int
+}
+
 // PathHistories returns, for each path, the authors and reviewers of up to
 // 30 commits on it since the cutoff, on ref (a branch or commit SHA).
-// Paths go PathHistoryBatch to a request. Reviewers come from the commits'
-// pull requests, each fetched once however many paths share it. Every
-// path gets an entry. A truncated connection logs a warning.
-func (c *Client) PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time) (map[string]PathHistory, error) {
+// Paths go batch to a request. A request that times out or exceeds
+// GitHub's resource limits is split in half and each half retried, down
+// to single paths; a single path that still fails is skipped with a
+// warning. Later requests use the size that worked. Reviewers come from
+// the commits' pull requests, each fetched once however many paths share
+// it. A truncated connection logs a warning.
+func (c *Client) PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time, batch int) (PathHistoryResult, error) {
 	owner, name, err := splitOwnerRepo(repo)
 	if err != nil {
-		return nil, err
+		return PathHistoryResult{}, err
 	}
-	commits := map[string][]historyCommit{}
-	for start := 0; start < len(paths); start += PathHistoryBatch {
-		batch := paths[start:min(start+PathHistoryBatch, len(paths))]
-		got, err := c.historyBatch(ctx, owner, name, ref, batch, since)
+	h := historyFetch{c: c, owner: owner, name: name, ref: ref, since: since, commits: map[string][]historyCommit{}}
+	size := max(batch, 1)
+	worked := false
+	for start := 0; start < len(paths); {
+		chunk := paths[start:min(start+size, len(paths))]
+		start += len(chunk)
+		best, err := h.fetch(ctx, chunk)
 		if err != nil {
-			return nil, err
+			return PathHistoryResult{}, err
 		}
-		for path, list := range got {
-			commits[path] = list
+		if best > 0 {
+			worked = true
+			if best < len(chunk) {
+				size = best
+			}
 		}
 	}
-	reviewers, err := c.prReviewers(ctx, owner, name, pullRequestNumbers(commits))
+	reviewers, err := c.prReviewers(ctx, owner, name, pullRequestNumbers(h.commits))
 	if err != nil {
-		return nil, err
+		return PathHistoryResult{}, err
 	}
 	out := make(map[string]PathHistory, len(paths))
 	for _, path := range paths {
+		list, ok := h.commits[path]
+		if !ok {
+			continue
+		}
 		var history PathHistory
-		for _, commit := range commits[path] {
+		for _, commit := range list {
 			if commit.author != "" {
 				history.Authors = append(history.Authors, commit.author)
 			}
@@ -207,7 +231,105 @@ func (c *Client) PathHistories(ctx context.Context, repo, ref string, paths []st
 		}
 		out[path] = history
 	}
-	return out, nil
+	result := PathHistoryResult{Histories: out}
+	if worked {
+		result.Batch = size
+	}
+	return result, nil
+}
+
+// historyFetch collects the commits of each path across history requests.
+type historyFetch struct {
+	c                *Client
+	owner, name, ref string
+	since            time.Time
+	commits          map[string][]historyCommit
+}
+
+// fetch asks for paths in one request and halves it on a splittable
+// error. It returns the most paths a successful request held, or zero
+// when none succeeded.
+func (h *historyFetch) fetch(ctx context.Context, paths []string) (int, error) {
+	got, err := h.c.historyBatch(ctx, h.owner, h.name, h.ref, paths, h.since)
+	if err == nil {
+		for _, path := range paths {
+			h.commits[path] = got[path]
+		}
+		return len(paths), nil
+	}
+	if ctx.Err() != nil || !isSplittable(err) {
+		return 0, err
+	}
+	stdout, stderr := firstErrorLines(err)
+	attrs := []any{"repo", h.owner + "/" + h.name, "ref", h.ref, "stdout", stdout, "stderr", stderr}
+	if len(paths) == 1 {
+		runlog.FromContext(ctx).Warn(fmt.Sprintf("team-cover: skipping path %s: it %s on its own", paths[0], splitReason(err)), attrs...)
+		return 0, nil
+	}
+	half := (len(paths) + 1) / 2
+	parts := fmt.Sprintf("2×%d", half)
+	if len(paths)%2 != 0 {
+		parts = fmt.Sprintf("%d+%d", half, len(paths)-half)
+	}
+	runlog.FromContext(ctx).Warn(fmt.Sprintf("team-cover: batch of %d %s; retrying as %s", len(paths), splitReason(err), parts), attrs...)
+	first, err := h.fetch(ctx, paths[:half])
+	if err != nil {
+		return 0, err
+	}
+	second, err := h.fetch(ctx, paths[half:])
+	if err != nil {
+		return 0, err
+	}
+	return max(first, second), nil
+}
+
+var splitHTTPRE = regexp.MustCompile(`\b50[24]\b`)
+
+// isSplittable reports whether a history request failed for its size:
+// GitHub's GraphQL timeout, its resource limits, or an HTTP 502 or 504.
+func isSplittable(err error) bool {
+	text := strings.ToLower(errorText(err))
+	return isTimeoutText(text) ||
+		strings.Contains(text, "resource_limits_exceeded") ||
+		splitHTTPRE.MatchString(text)
+}
+
+func isTimeoutText(lower string) bool {
+	return strings.Contains(lower, "timeout") || strings.Contains(lower, "timed out")
+}
+
+func splitReason(err error) string {
+	if isTimeoutText(strings.ToLower(errorText(err))) {
+		return "timed out"
+	}
+	return "failed"
+}
+
+// errorText is the error and, for a gh exit, its stdout and stderr.
+func errorText(err error) string {
+	text := err.Error()
+	var proc *ProcError
+	if errors.As(err, &proc) {
+		text += "\n" + proc.Stdout + "\n" + proc.Stderr
+	}
+	return text
+}
+
+// firstErrorLines is the first non-empty line of a gh exit's stdout and
+// stderr. Another error is reported as stderr.
+func firstErrorLines(err error) (string, string) {
+	var proc *ProcError
+	if !errors.As(err, &proc) {
+		return "", firstLine(err.Error())
+	}
+	return firstLine(proc.Stdout), firstLine(proc.Stderr)
+}
+
+func firstLine(text string) string {
+	if lines := nonEmptyLines(text); len(lines) > 0 {
+		return lines[0]
+	}
+	return ""
 }
 
 type historyCommit struct {
@@ -238,7 +360,8 @@ func (c *Client) historyBatch(ctx context.Context, owner, name, ref string, path
 		return nil, fmt.Errorf("decode path history: %w", err)
 	}
 	if len(payload.Errors) > 0 {
-		return nil, fmt.Errorf("path history graphql: %s", payload.Errors[0].Message)
+		first := payload.Errors[0]
+		return nil, fmt.Errorf("path history graphql: %s", strings.TrimSpace(first.Type+" "+first.Message))
 	}
 	out := map[string][]historyCommit{}
 	for i, path := range paths {
@@ -520,5 +643,6 @@ type prReviewsNode struct {
 }
 
 type gqlError struct {
+	Type    string `json:"type"`
 	Message string `json:"message"`
 }

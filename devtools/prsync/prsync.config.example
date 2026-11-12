@@ -247,3 +247,4 @@
 # team_cover_history_days=90
 # team_cover_active_days=0     # 0 = no activity filter
 # team_cover_every=1           # run the job every Nth round
+# team_cover_batch_paths=5     # paths per history request; halved on timeout

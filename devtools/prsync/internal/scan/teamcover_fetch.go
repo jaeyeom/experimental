@@ -26,12 +26,14 @@ type coverCache struct {
 	rules        map[string][]codeRule
 	history      map[string]gh.PathHistory
 	stored       HistoryCache
-	load         map[string]int
-	active       map[string]bool
-	loadSkipped  bool
-	histSkipped  bool
-	activeSkip   bool
-	rulesFailed  map[string]bool
+	// batch is the path count the next history request starts at.
+	batch       int
+	load        map[string]int
+	active      map[string]bool
+	loadSkipped bool
+	histSkipped bool
+	activeSkip  bool
+	rulesFailed map[string]bool
 }
 
 func newCoverCache(cfg config.Config, now time.Time) *coverCache {
@@ -42,6 +44,7 @@ func newCoverCache(cfg config.Config, now time.Time) *coverCache {
 		files:        map[string][]string{},
 		rules:        map[string][]codeRule{},
 		history:      map[string]gh.PathHistory{},
+		batch:        cfg.TeamCoverBatchPaths,
 		load:         map[string]int{},
 		active:       map[string]bool{},
 		rulesFailed:  map[string]bool{},
@@ -75,6 +78,9 @@ func coverTeams(ctx context.Context, deps Deps, cfg config.Config, doc *Document
 	client := deps.GH
 	cache := newCoverCache(cfg, now)
 	cache.stored = deps.History
+	if cache.stored != nil && cache.stored.HistoryBatch() > 0 {
+		cache.batch = cache.stored.HistoryBatch()
+	}
 	covers := make([]prCover, len(doc.PRs))
 	for i := range doc.PRs {
 		if err := ctx.Err(); err != nil {
@@ -369,12 +375,21 @@ func (c *coverCache) loadGroup(ctx context.Context, client GH, doc *Document, gr
 	if head != "" {
 		ref = head
 	}
-	got, err := client.PathHistories(ctx, group.repo, ref, missing, c.historySince)
+	got, err := client.PathHistories(ctx, group.repo, ref, missing, c.historySince, c.batch)
 	if err != nil {
 		return hits, len(missing), c.historyFailed(ctx, doc, group, err)
 	}
+	if got.Batch > 0 {
+		c.batch = got.Batch
+		if c.stored != nil {
+			c.stored.PutHistoryBatch(got.Batch)
+		}
+	}
 	for _, path := range missing {
-		hist := got[path]
+		hist, ok := got.Histories[path]
+		if !ok {
+			continue
+		}
 		c.history[historyKey(group.repo, group.base, path)] = hist
 		if head != "" {
 			c.stored.PutPathHistory(group.repo, group.base, path, head, hist)

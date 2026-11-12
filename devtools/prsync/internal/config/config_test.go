@@ -594,6 +594,7 @@ func TestLoadTeamCover(t *testing.T) {
 		"team_cover_history_days=14",
 		"team_cover_active_days=30",
 		"team_cover_every=3",
+		"team_cover_batch_paths=8",
 		"",
 	}, "\n"))
 	got, err := Load(path)
@@ -617,6 +618,9 @@ func TestLoadTeamCover(t *testing.T) {
 	}
 	if got.TeamCoverEvery != 3 {
 		t.Fatalf("every=%d, want 3", got.TeamCoverEvery)
+	}
+	if got.TeamCoverBatchPaths != 8 {
+		t.Fatalf("batch paths=%d, want 8", got.TeamCoverBatchPaths)
 	}
 }
 
@@ -731,6 +735,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "negative history days", body: "team_cover_history_days=-1\n", key: "team_cover_history_days"},
 		{name: "negative active days", body: "team_cover_active_days=-3\n", key: "team_cover_active_days"},
 		{name: "zero team cover every", body: "team_cover_every=0\n", key: "team_cover_every"},
+		{name: "zero team cover batch paths", body: "team_cover_batch_paths=0\n", key: "team_cover_batch_paths"},
 		{name: "bad dedupe ttl", body: "dedupe_ttl=tomorrow\n", key: "dedupe_ttl"},
 		{name: "negative dedupe ttl", body: "dedupe_ttl=-1s\n", key: "dedupe_ttl"},
 		{name: "negative dedupe scans", body: "dedupe_scans=-1\n", key: "dedupe_scans"},
@@ -881,6 +886,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.TeamCoverEvery != 1 {
 		t.Fatalf("TeamCoverEvery = %d, want 1", got.TeamCoverEvery)
+	}
+	if got.TeamCoverBatchPaths != 5 {
+		t.Fatalf("TeamCoverBatchPaths = %d, want 5", got.TeamCoverBatchPaths)
 	}
 	if got.StateFile != "~/.config/prsync/state.json" {
 		t.Fatalf("StateFile = %q", got.StateFile)
