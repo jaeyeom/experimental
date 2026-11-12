@@ -2,6 +2,7 @@ package avatar
 
 import (
 	"fmt"
+	"hash/fnv"
 	"math"
 	"regexp"
 	"slices"
@@ -226,10 +227,26 @@ func TestPickBuiltin(t *testing.T) {
 	for _, id := range ids {
 		known[id] = true
 	}
-	// Golden: FNV-1a 32 of the name, mod the set size, over sorted ids.
+	// Golden: generation-1 names keep the #647 pick (FNV-1a 32 of the
+	// name, mod 24, over the sorted generation-1 ids); the others moved
+	// to a generation-2 figure.
 	golden := map[string]string{
-		"coord/primary": "snail",
-		"pm-1":          "planet",
+		"coord/primary":   "snail",
+		"pm-1":            "planet",
+		"agent-5":         "mushroom",
+		"agent-0":         "king",
+		"agent-3":         "jester",
+		"coord/secondary": "king",
+	}
+	for _, name := range []string{"coord/primary", "pm-1", "agent-5"} {
+		if g := pickGeneration(name); g != 0 {
+			t.Errorf("pickGeneration(%q) = %d, want 0", name, g)
+		}
+	}
+	for _, name := range []string{"agent-0", "agent-3", "coord/secondary"} {
+		if g := pickGeneration(name); g != 1 {
+			t.Errorf("pickGeneration(%q) = %d, want 1", name, g)
+		}
 	}
 	for name, want := range golden {
 		if got := PickBuiltin(name); got != want {
@@ -250,6 +267,131 @@ func TestPickBuiltin(t *testing.T) {
 	}
 	if len(used) < 15 {
 		t.Errorf("50 names used %d figures, want at least 15", len(used))
+	}
+}
+
+// generation1 is the #647 set, which must never change.
+var generation1 = []string{
+	"bee", "bun", "cactus", "cat", "crab", "fox", "frog", "ghost",
+	"glasses", "headphones", "knight-helmet", "lighthouse", "mushroom",
+	"octopus", "owl", "penguin", "planet", "robot", "rocket", "snail",
+	"teapot", "tree", "whale", "wizard-hat",
+}
+
+func TestGenerations(t *testing.T) {
+	if !slices.Equal(builtinGenerations[0], generation1) {
+		t.Errorf("generation 1 = %q, want %q", builtinGenerations[0], generation1)
+	}
+	want2 := []string{
+		"banker", "beer-mug", "bishop", "book", "cook", "dog", "general",
+		"hammer", "jester", "king", "merchant", "peasant", "physician",
+		"pirate", "queen", "scholar", "spy", "witch",
+	}
+	if len(builtinGenerations) < 2 || !slices.Equal(builtinGenerations[1], want2) {
+		t.Fatalf("generations = %q, want generation 2 %q", builtinGenerations, want2)
+	}
+	var all []string
+	for g, ids := range builtinGenerations {
+		if len(ids) == 0 {
+			t.Errorf("generation %d is empty", g+1)
+		}
+		for _, id := range ids {
+			if _, ok := builtinSource(id); !ok {
+				t.Errorf("generation %d id %q has no figure file", g+1, id)
+			}
+		}
+		all = append(all, ids...)
+	}
+	slices.Sort(all)
+	entries, err := builtinFS.ReadDir("builtin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	for _, e := range entries {
+		files = append(files, strings.TrimSuffix(e.Name(), ".txt"))
+	}
+	if !slices.Equal(all, files) {
+		t.Errorf("generation ids %q differ from figure files %q", all, files)
+	}
+	if !slices.Equal(BuiltinIDs(), all) {
+		t.Errorf("BuiltinIDs = %q, want every generation's ids sorted", BuiltinIDs())
+	}
+}
+
+// legacyPick is the #647 rule: FNV-1a 32 of name mod 24 over the sorted
+// generation-1 ids.
+func legacyPick(name string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	return generation1[h.Sum32()%24]
+}
+
+func TestPickBuiltinKeepsGeneration1(t *testing.T) {
+	newIDs := map[string]bool{}
+	for _, ids := range builtinGenerations[1:] {
+		for _, id := range ids {
+			newIDs[id] = true
+		}
+	}
+	stayed := 0
+	moved := map[string]bool{}
+	for i := range 200 {
+		name := fmt.Sprintf("agent-%d", i)
+		got := PickBuiltin(name)
+		if pickGeneration(name) == 0 {
+			stayed++
+			if want := legacyPick(name); got != want {
+				t.Errorf("PickBuiltin(%q) = %q, want the #647 pick %q", name, got, want)
+			}
+			continue
+		}
+		if !newIDs[got] {
+			t.Errorf("PickBuiltin(%q) = %q moved to an old figure", name, got)
+		}
+		moved[got] = true
+	}
+	if stayed < 100 {
+		t.Errorf("%d of 200 names kept their figure, want at least 100", stayed)
+	}
+	if len(moved) < 12 {
+		t.Errorf("moved names use %d new figures, want at least 12", len(moved))
+	}
+}
+
+// TestDrawGenerationAppendOnly checks that adding a generation only moves
+// names into it: a name that draws an older generation draws the same
+// one without the newer generations.
+func TestDrawGenerationAppendOnly(t *testing.T) {
+	sizes := []int{24, 18, 30, 7}
+	for i := range 2000 {
+		name := fmt.Sprintf("name-%d", i)
+		full := drawGeneration(sizes, name)
+		for k := full + 1; k < len(sizes); k++ {
+			if got := drawGeneration(sizes[:k], name); got != full {
+				t.Fatalf("%q draws %d of %d generations but %d of %d", name, full, len(sizes), got, k)
+			}
+		}
+	}
+}
+
+// TestPickGenerationWeights checks each generation draws about its share
+// of names.
+func TestPickGenerationWeights(t *testing.T) {
+	counts := make([]int, len(builtinGenerations))
+	const n = 20000
+	for i := range n {
+		counts[pickGeneration(fmt.Sprintf("name-%d", i))]++
+	}
+	total := 0
+	for _, ids := range builtinGenerations {
+		total += len(ids)
+	}
+	for g, ids := range builtinGenerations {
+		want := float64(n*len(ids)) / float64(total)
+		if math.Abs(float64(counts[g])-want) > 0.03*n {
+			t.Errorf("generation %d drew %d of %d names, want about %.0f", g+1, counts[g], n, want)
+		}
 	}
 }
 

@@ -179,20 +179,30 @@ list, for the selected recipient. Map names to files in
   ANSI colors are kept. A rule may name a built-in figure with
   ~builtin~ instead of a ~file~; a rule with both is a config error.
 - ~avatarDefault~ (off by default) gives each name no rule matches a
-  built-in figure, picked by the FNV-1a hash of the name mod the number
-  of built-ins (over the sorted ids). The same name always gets the same
-  figure, on every run and machine, with no other config.
+  built-in figure. The same name always gets the same figure, on every
+  run and machine, with no other config. Built-ins come in generations,
+  each a fixed list of ids that never changes once shipped. A second
+  hash of the name draws a generation, weighted by its size; then the
+  FNV-1a hash of the name, mod that generation's size, picks the id.
+  Each added generation of /new/ figures moves only about
+  new/(old+new) of the unpinned names, each to one of the new figures;
+  every other name keeps its figure. A ~builtin~ rule pins a name for
+  good.
 - ~avatarMono~ is ~"hide"~ to hide avatars under ~NO_COLOR~ or on a
   monochrome terminal. Otherwise they show without color.
 
-decide ships 24 original built-in figures, each 10x6 in truecolor
+decide ships 42 original built-in figures, each 10x6 in truecolor
 half-block and box characters with no background fills, so they read on
-light and dark themes: ~bee~, ~bun~, ~cactus~, ~cat~, ~crab~, ~fox~,
-~frog~, ~ghost~, ~glasses~, ~headphones~, ~knight-helmet~,
-~lighthouse~, ~mushroom~, ~octopus~, ~owl~, ~penguin~, ~planet~,
-~robot~, ~rocket~, ~snail~, ~teapot~, ~tree~, ~whale~, and
-~wizard-hat~. Preview them, several per row as the terminal allows,
-and see which one a name gets:
+light and dark themes. Generation 1: ~bee~, ~bun~, ~cactus~, ~cat~,
+~crab~, ~fox~, ~frog~, ~ghost~, ~glasses~, ~headphones~,
+~knight-helmet~, ~lighthouse~, ~mushroom~, ~octopus~, ~owl~,
+~penguin~, ~planet~, ~robot~, ~rocket~, ~snail~, ~teapot~, ~tree~,
+~whale~, and ~wizard-hat~. Generation 2 (which moved about 18/42 of
+unpinned names): ~banker~, ~beer-mug~, ~bishop~, ~book~, ~cook~,
+~dog~, ~general~, ~hammer~, ~jester~, ~king~, ~merchant~, ~peasant~,
+~physician~, ~pirate~, ~queen~, ~scholar~, ~spy~, and ~witch~. The
+people tell apart by hat, hair, or what they hold. Preview them,
+several per row as the terminal allows, and see which one a name gets:
 
 #+begin_src sh
 decide avatars list
