@@ -30,6 +30,7 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		configPath string
 		repos      []string
 		jsonFlag   bool
+		inScope    bool
 		scope      scopeFlags
 	)
 	cmd := &cobra.Command{
@@ -48,6 +49,9 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if err := scope.apply(cmd, &cfg); err != nil {
 				return err
 			}
+			if cmd.Flags().Changed("in-scope") {
+				cfg.ScanInScopeOnly = inScope
+			}
 			logStartup(cmd.Context(), "scan", cfg)
 			deps, saveCache := scanDeps(cmd.Context(), exec, cfg, herdr.NewClient(exec, cfg.HerdrBin))
 			now := time.Now()
@@ -57,10 +61,17 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 				if aerr := annotateUnresolved(&doc, cfg, now); aerr != nil && err == nil {
 					err = aerr
 				}
+				outOfScope := scan.CountOutOfScope(doc)
+				if cfg.ScanInScopeOnly {
+					scan.DropOutOfScope(&doc)
+				}
 				if werr := writeJSON(stdout, doc); werr != nil {
 					return werr
 				}
 				if werr := writeTeamCoverHints(cmd.ErrOrStderr(), doc); werr != nil {
+					return werr
+				}
+				if werr := writeOutOfScopeCount(cmd.ErrOrStderr(), outOfScope, cfg.TabMachine); werr != nil {
 					return werr
 				}
 			}
@@ -73,8 +84,21 @@ func newScanCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringArrayVar(&repos, "repo", nil, "replace repos list (repeatable owner/repo)")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "accepted, no-op (stdout is always JSON)")
+	cmd.Flags().BoolVar(&inScope, "in-scope", false, "leave PRs marked out_of_scope out of the output (overrides scan_in_scope_only)")
 	addScopeFlags(cmd, &scope)
 	return cmd
+}
+
+// writeOutOfScopeCount writes how many PRs another tab_machine run owns,
+// when any were marked.
+func writeOutOfScopeCount(w io.Writer, n int, machine string) error {
+	if n == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(w, "%d out of scope (tab_machine=%s)\n", n, machine); err != nil {
+		return fmt.Errorf("write out-of-scope count: %w", err)
+	}
+	return nil
 }
 
 // roundCacheFile sits next to state_file. It keeps GitHub results that a

@@ -91,3 +91,36 @@ func TestSummaryJSONKeys(t *testing.T) {
 		t.Fatalf("json = %s, want %s", got, want)
 	}
 }
+
+func TestDropOutOfScope(t *testing.T) {
+	t.Parallel()
+
+	tab := &Tab{TabID: "w3:t2"}
+	doc := Document{PRs: []PR{
+		{Number: 1, Identifier: strPtr("PROJ-1"), Tab: tab},
+		{Number: 2, Identifier: strPtr("PROJ-2"), Tab: tab, OutOfScope: "tab on local"},
+		{Number: 3, OutOfScope: "no tab"},
+	}}
+	doc.Summary = summarize(doc.PRs)
+
+	if got := CountOutOfScope(doc); got != 2 {
+		t.Fatalf("CountOutOfScope = %d, want 2", got)
+	}
+	DropOutOfScope(&doc)
+	if len(doc.PRs) != 1 || doc.PRs[0].Number != 1 {
+		t.Fatalf("prs = %+v, want only #1", doc.PRs)
+	}
+	if want := (Summary{Total: 1, TabHere: 1}); doc.Summary != want {
+		t.Fatalf("summary = %+v, want %+v", doc.Summary, want)
+	}
+}
+
+func TestDropOutOfScopeKeepsEmptyList(t *testing.T) {
+	t.Parallel()
+
+	doc := Document{PRs: []PR{{Number: 1, OutOfScope: "no tab"}}}
+	DropOutOfScope(&doc)
+	if doc.PRs == nil || len(doc.PRs) != 0 {
+		t.Fatalf("prs = %#v, want an empty non-nil list", doc.PRs)
+	}
+}
