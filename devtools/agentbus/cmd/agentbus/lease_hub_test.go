@@ -362,6 +362,31 @@ func TestLeaseHubHookEnforcesOverTheTunnel(t *testing.T) {
 	}
 }
 
+// The hub logs a hook denial with the caller's machine, over the
+// tunnel and over ssh.
+func TestLeaseHubHookDenialNamesTheCallersMachine(t *testing.T) {
+	for _, route := range hubRoutes {
+		h := newHubLeaseWorld(t)
+		hubEnv := route.start(h, t)
+		decision, reason, _ := h.bash(t, "w1:p2", "git switch -c x", h.repo)
+		assertDenied(t, route.name+": a free checkout's git switch", decision, reason)
+		h.assertRoute(t, route.ssh)
+		hubDirs, err := paths.FromEnv(hubEnv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		evs := hookDenials(t, hubDirs.StateDir, "linux2:"+h.repo)
+		if len(evs) != 1 || evs[0].Actor != hubBob {
+			t.Fatalf("%s: lease_hook_deny events = %+v, want one by %s", route.name, evs, hubBob)
+		}
+		for _, want := range []string{"machine linux2", "tool Bash", "target git switch", "state free"} {
+			if !strings.Contains(evs[0].Detail, want) {
+				t.Errorf("%s: detail %q lacks %q", route.name, evs[0].Detail, want)
+			}
+		}
+	}
+}
+
 // cannedReply makes the fake hub agentbus answer every call with r.
 func (h *hubLeaseWorld) cannedReply(t *testing.T, r lease.Reply) {
 	t.Helper()

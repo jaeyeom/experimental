@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/eventlog"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
 )
 
 // countChecks counts the lease-check calls that reach the daemon.
@@ -251,6 +253,82 @@ func TestLeaseHookCachesTheHolderUntilRelease(t *testing.T) {
 	assertDenied(t, "edit after release", decision, reason)
 	if n := calls.Load(); n != 4 {
 		t.Fatalf("after release: daemon calls = %d, want 4", n)
+	}
+}
+
+// hookDenials are the lease_hook_deny events the daemon whose state is
+// in stateDir logged for key.
+func hookDenials(t *testing.T, stateDir, key string) []eventlog.Event {
+	t.Helper()
+	lines, err := eventlog.Open(stateDir).Read(eventlog.Filter{Name: key, Event: eventlog.EventLeaseHookDeny})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []eventlog.Event
+	for _, line := range lines {
+		ev, err := eventlog.Parse(line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+func TestLeaseHookSendsTheToolAndTarget(t *testing.T) {
+	w := newLeaseWorld(t)
+	var got []lease.Args
+	fakeHookDial(t, func(_ context.Context, req daemon.Request) (daemon.Response, error) {
+		got = append(got, *req.Lease)
+		return daemon.Response{OK: true, Lease: &lease.Reply{Result: lease.ResultDenied, Lease: &lease.Status{Checkout: req.Lease.Checkout, State: lease.StateFree}}}, nil
+	})
+	decision, reason, _ := w.edit(t, "p2", filepath.Join(w.repo, "sub", "b.txt"))
+	assertDenied(t, "edit", decision, reason)
+	decision, reason, _ = w.bash(t, "p2", "git -C "+w.repo+" switch -c x", t.TempDir())
+	assertDenied(t, "git switch", decision, reason)
+	want := []lease.Args{
+		{Checkout: "local:" + w.repo, Hook: true, Tool: "Edit", Target: filepath.Join("sub", "b.txt")},
+		{Checkout: "local:" + w.repo, Hook: true, Tool: "Bash", Target: "git switch"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("requests = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i].Checkout != want[i].Checkout || got[i].Hook != want[i].Hook || got[i].Tool != want[i].Tool || got[i].Target != want[i].Target {
+			t.Errorf("request %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestLeaseHookDenialIsLoggedOnce(t *testing.T) {
+	w := newLeaseWorld(t)
+	stop := startDaemon(t, w.dirs, w.cfg)
+	defer stop()
+	w.mustLease(t, "p1", "claim", "--for", "40m")
+	key := "local:" + w.repo
+
+	decision, reason, _ := w.edit(t, "p2", filepath.Join(w.repo, "a.txt"))
+	assertDenied(t, "non-holder edit", decision, reason)
+	evs := hookDenials(t, w.dirs.StateDir, key)
+	if len(evs) != 1 {
+		t.Fatalf("lease_hook_deny events = %+v, want one", evs)
+	}
+	if evs[0].Actor != leaseBob {
+		t.Fatalf("event = %+v", evs[0])
+	}
+	for _, want := range []string{"tool Edit", "target a.txt", "holder " + leaseAlice, "state held"} {
+		if !strings.Contains(evs[0].Detail, want) {
+			t.Errorf("detail %q lacks %q", evs[0].Detail, want)
+		}
+	}
+
+	decision, reason, _ = w.edit(t, "p1", filepath.Join(w.repo, "a.txt"))
+	assertAllowed(t, "holder edit", decision, reason)
+	if code, _, _ := w.lease(t, "p2", "check"); code == 0 {
+		t.Fatal("bob's lease check passed")
+	}
+	if evs := hookDenials(t, w.dirs.StateDir, key); len(evs) != 1 {
+		t.Fatalf("after an allow and a plain check: lease_hook_deny events = %+v, want one", evs)
 	}
 }
 

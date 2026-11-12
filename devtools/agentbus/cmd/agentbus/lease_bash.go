@@ -28,9 +28,27 @@ var gitChanging = map[string]bool{
 // resolve (a variable, cd -) leaves the directory as it was.
 func gitChangeDirs(command, cwd, home string) []string {
 	var out []string
-	add := func(dir string) {
-		if !slices.Contains(out, dir) {
-			out = append(out, dir)
+	for _, c := range gitChangeList(command, cwd, home) {
+		if !slices.Contains(out, c.dir) {
+			out = append(out, c.dir)
+		}
+	}
+	return out
+}
+
+// gitChange is a state-changing git command: the directory it runs in
+// and its subcommand, such as switch.
+type gitChange struct {
+	dir, sub string
+}
+
+// gitChangeList is gitChangeDirs with each command's subcommand, in the
+// order read, without repeats.
+func gitChangeList(command, cwd, home string) []gitChange {
+	var out []gitChange
+	add := func(c gitChange) {
+		if !slices.Contains(out, c) {
+			out = append(out, c)
 		}
 	}
 	scanCommands(command, cwd, home, add)
@@ -38,8 +56,8 @@ func gitChangeDirs(command, cwd, home string) []string {
 }
 
 // scanCommands reads each simple command of script in turn, starting in
-// cwd, and reports the directories of state-changing git commands.
-func scanCommands(script, cwd, home string, add func(string)) {
+// cwd, and reports the state-changing git commands.
+func scanCommands(script, cwd, home string, add func(gitChange)) {
 	dir, moved := cwd, false
 	for _, words := range splitCommands(script) {
 		words = stripPrefixes(words)
@@ -61,11 +79,11 @@ func scanCommands(script, cwd, home string, add func(string)) {
 		case "eval":
 			scanCommands(strings.Join(words[1:], " "), dir, home, add)
 		case "git":
-			if target, ok := gitTarget(words[1:], dir); ok {
-				add(target)
+			if target, sub, ok := gitTarget(words[1:], dir); ok {
+				add(gitChange{target, sub})
 				if moved {
-					if again, _ := gitTarget(words[1:], cwd); again != "" {
-						add(again)
+					if again, _, _ := gitTarget(words[1:], cwd); again != "" {
+						add(gitChange{again, sub})
 					}
 				}
 			}
@@ -139,15 +157,15 @@ func cdTarget(args []string, dir, home string) (string, bool) {
 }
 
 // gitTarget is the directory a git command with args runs in from dir,
-// when it changes the checkout.
-func gitTarget(args []string, dir string) (string, bool) {
+// and its subcommand, when it changes the checkout.
+func gitTarget(args []string, dir string) (string, string, bool) {
 	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
 		opt, value, hasValue := strings.Cut(args[0], "=")
 		switch opt {
 		case "-C", "--work-tree", "--git-dir":
 			if !hasValue {
 				if len(args) < 2 {
-					return "", false
+					return "", "", false
 				}
 				value, args = args[1], args[1:]
 			}
@@ -160,9 +178,9 @@ func gitTarget(args []string, dir string) (string, bool) {
 		args = args[1:]
 	}
 	if len(args) == 0 || !gitChanges(args[0], args[1:]) {
-		return "", false
+		return "", "", false
 	}
-	return dir, true
+	return dir, args[0], true
 }
 
 // gitChanges reports whether git sub with args changes the checkout.

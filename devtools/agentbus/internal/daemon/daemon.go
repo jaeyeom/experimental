@@ -556,8 +556,7 @@ func (s *server) leaseOp(req Request, args lease.Args) Response {
 	case "lease-leave":
 		r, err = s.leases.Leave(caller, args)
 	case "lease-check":
-		// A caller herdr cannot name holds nothing.
-		r, err = s.leases.Check(caller, args)
+		r, err = s.leaseCheck(req, caller, args)
 	case "lease-release-begin":
 		r, err = s.leases.BeginRelease(caller, args)
 	case "lease-release-abort":
@@ -569,6 +568,47 @@ func (s *server) leaseOp(req Request, args lease.Args) Response {
 	}
 	r.Caller = caller
 	return leaseResponse(r, err)
+}
+
+// leaseCheck answers whether caller may change the checkout, and logs
+// a denial of the lease hook's check. A caller herdr cannot name holds
+// nothing.
+func (s *server) leaseCheck(req Request, caller string, args lease.Args) (lease.Reply, error) {
+	r, err := s.leases.Check(caller, args)
+	if err == nil && args.Hook && r.Result == lease.ResultDenied {
+		s.logHookDeny(req, caller, args, r)
+	}
+	return r, err //nolint:wrapcheck // the table's errors are the reply
+}
+
+// logHookDeny logs the lease hook's denied tool call: the caller, the
+// holder and state, the tool and its target, and, for a caller on
+// another machine, that machine. A log that cannot be written does not
+// change the answer.
+func (s *server) logHookDeny(req Request, caller string, args lease.Args, r lease.Reply) {
+	var detail []string
+	// caller is the trusted form of the remote handle.
+	if _, remote := s.remoteCaller(req.Env); remote && caller != "" {
+		detail = append(detail, "machine "+handleMachine(caller))
+	}
+	holder, state := "none", lease.StateFree
+	if r.Lease != nil {
+		state = r.Lease.State
+		if r.Lease.Holder != nil {
+			holder = r.Lease.Holder.Handle
+		}
+	}
+	detail = append(detail, "tool "+args.Tool, "target "+args.Target, "holder "+holder, "state "+string(state))
+	actor := caller
+	if actor == "" {
+		actor = "unknown"
+	}
+	_ = s.log.Append(eventlog.Event{
+		Event:  eventlog.EventLeaseHookDeny,
+		Actor:  actor,
+		Name:   args.Checkout,
+		Detail: strings.Join(detail, "; "),
+	})
 }
 
 // sameMachine refuses a lease change by a caller on another machine to
@@ -584,9 +624,8 @@ func (s *server) sameMachine(req Request, checkout string) error {
 	if !remote {
 		return nil
 	}
-	// A handle is <adapter>:<machine>/..., a checkout key <machine>:<path>.
-	_, rest, _ := strings.Cut(caller, ":")
-	machine, _, _ := strings.Cut(rest, "/")
+	// A checkout key is <machine>:<path>.
+	machine := handleMachine(caller)
 	keyMachine, _, _ := strings.Cut(checkout, ":")
 	if machine == "" || keyMachine != machine {
 		return fmt.Errorf("checkout %s is not on machine %s; %s may change leases only on its own machine's checkouts", checkout, machine, caller)

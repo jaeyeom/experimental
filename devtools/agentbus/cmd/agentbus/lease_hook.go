@@ -63,7 +63,7 @@ func leaseHook(ctx context.Context, args, env []string, stdin io.Reader, stdout,
 	if err != nil || len(bytes.TrimSpace(raw)) == 0 {
 		return 0
 	}
-	targets := hookTargets(raw, env)
+	tool, targets := hookTargets(raw, env)
 	if len(targets) == 0 {
 		return 0
 	}
@@ -81,9 +81,9 @@ func leaseHook(ctx context.Context, args, env []string, stdin io.Reader, stdout,
 		warn("%s", err)
 		return 0
 	}
-	keys := make([]string, len(roots))
+	checks := make([]lease.Args, len(roots))
 	for i, root := range roots {
-		keys[i] = machine + ":" + root
+		checks[i] = lease.Args{Checkout: machine + ":" + root.root, Hook: true, Tool: tool, Target: root.target}
 	}
 	// In hub mode the whole decision, reaching the hub included, is
 	// bounded by leaseHookTimeout.
@@ -96,35 +96,66 @@ func leaseHook(ctx context.Context, args, env []string, stdin io.Reader, stdout,
 			return leaseHubRoute(ctx, cfg, env, true, io.Discard)
 		}
 	}
-	if reason, denied := hookDecide(ctx, env, keys, route, warn); denied {
+	if reason, denied := hookDecide(ctx, env, checks, route, warn); denied {
 		printDeny(stdout, reason)
 	}
 	return 0
 }
 
-// guardedRoots returns the top-levels of the guarded checkouts that
-// targets are in, from the local config and git alone. A target it
-// cannot place is warned about and skipped.
-func guardedRoots(targets, guarded, env []string, warn func(string, ...any)) []string {
-	var roots []string
+// hookTarget is a place a tool call would change: a file, or where a
+// git command runs and its subcommand.
+type hookTarget struct {
+	path string
+	// git is the git command, such as "git switch"; empty for a file.
+	git string
+}
+
+// guardedRoot is a guarded checkout's top-level and the short target of
+// the tool call in it: the file path relative to root, or the git
+// command.
+type guardedRoot struct {
+	root, target string
+}
+
+// guardedRoots returns the guarded checkouts that targets are in, from
+// the local config and git alone, each with the first target in it. A
+// target it cannot place is warned about and skipped.
+func guardedRoots(targets []hookTarget, guarded, env []string, warn func(string, ...any)) []guardedRoot {
+	var roots []guardedRoot
 	for _, target := range targets {
-		root, err := checkout.Resolve(target, guarded, env)
+		root, err := checkout.Resolve(target.path, guarded, env)
 		if err != nil {
 			warn("%s", err)
 			continue
 		}
-		if root != "" && !slices.Contains(roots, root) {
-			roots = append(roots, root)
+		if root == "" || slices.ContainsFunc(roots, func(g guardedRoot) bool { return g.root == root }) {
+			continue
 		}
+		short := target.git
+		if short == "" {
+			short = relTarget(root, target.path)
+		}
+		roots = append(roots, guardedRoot{root: root, target: short})
 	}
 	return roots
 }
 
-// hookDecide checks each key, from the cache or the daemon that route
-// leads to, and returns the reason for the first one the caller may not
-// change. route runs once, at the first key the cache does not answer.
-// A key the daemon cannot decide is warned about and allowed.
-func hookDecide(ctx context.Context, env, keys []string, route func(context.Context) (context.Context, error), warn func(string, ...any)) (string, bool) {
+// relTarget is path relative to root, or path itself when it is not
+// under root as written.
+func relTarget(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return rel
+}
+
+// hookDecide checks each checkout, from the cache or the daemon that
+// route leads to, and returns the reason for the first one the caller
+// may not change. route runs once, at the first checkout the cache does
+// not answer. A checkout the daemon cannot decide is warned about and
+// allowed.
+func hookDecide(ctx context.Context, env []string, checks []lease.Args, route func(context.Context) (context.Context, error), warn func(string, ...any)) (string, bool) {
 	dirs, err := paths.FromEnv(env)
 	if err != nil {
 		warn("%s", err)
@@ -133,7 +164,8 @@ func hookDecide(ctx context.Context, env, keys []string, route func(context.Cont
 	cache := leasecache.Cache{Dir: dirs.LeaseCacheDir()}
 	pane := cachePane(env)
 	var routed context.Context
-	for _, key := range keys {
+	for _, args := range checks {
+		key := args.Checkout
 		if cache.Allowed(key, pane) {
 			continue
 		}
@@ -144,7 +176,7 @@ func hookDecide(ctx context.Context, env, keys []string, route func(context.Cont
 			}
 		}
 		started := time.Now()
-		r, err := hookCheck(routed, env, key)
+		r, err := hookCheck(routed, env, args)
 		if err != nil {
 			warn("%s", err)
 			continue
@@ -159,12 +191,13 @@ func hookDecide(ctx context.Context, env, keys []string, route func(context.Cont
 	return "", false
 }
 
-// hookCheck asks the daemon whether the caller may change key, within
-// leaseHookTimeout. It never starts the daemon.
-func hookCheck(ctx context.Context, env []string, key string) (lease.Reply, error) {
+// hookCheck asks the daemon whether the caller may change the checkout,
+// within leaseHookTimeout. args marks the check as the hook's, so the
+// daemon logs a denial. It never starts the daemon.
+func hookCheck(ctx context.Context, env []string, args lease.Args) (lease.Reply, error) {
 	callCtx, cancel := context.WithTimeout(ctx, leaseHookTimeout)
 	defer cancel()
-	resp, err := dialBus(callCtx, env, daemon.Request{Op: "lease-check", Env: env, Lease: &lease.Args{Checkout: key}})
+	resp, err := dialBus(callCtx, env, daemon.Request{Op: "lease-check", Env: env, Lease: &args})
 	if err != nil {
 		return lease.Reply{}, fmt.Errorf("agentbusd did not answer: %w", err)
 	}
@@ -204,11 +237,11 @@ func printDeny(stdout io.Writer, reason string) {
 // hookTargets reads a PreToolUse input and returns the paths the call
 // would change: the file of Edit, Write, MultiEdit and NotebookEdit, and
 // where Bash runs a state-changing git command. Relative paths are taken
-// from the input's cwd.
-func hookTargets(raw []byte, env []string) []string {
+// from the input's cwd. It also returns the tool name.
+func hookTargets(raw []byte, env []string) (string, []hookTarget) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil
+		return "", nil
 	}
 	tool, _ := doc["tool_name"].(string)
 	input, _ := doc["tool_input"].(map[string]any)
@@ -216,28 +249,32 @@ func hookTargets(raw []byte, env []string) []string {
 	if cwd == "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			return nil
+			return tool, nil
 		}
 		cwd = wd
 	}
 	switch tool {
 	case "Edit", "Write", "MultiEdit":
-		return toolPath(cwd, input, "file_path")
+		return tool, toolPath(cwd, input, "file_path")
 	case "NotebookEdit":
-		return toolPath(cwd, input, "notebook_path")
+		return tool, toolPath(cwd, input, "notebook_path")
 	case "Bash":
 		command, _ := input["command"].(string)
-		return gitChangeDirs(command, cwd, envGet(env, "HOME"))
+		var targets []hookTarget
+		for _, c := range gitChangeList(command, cwd, envGet(env, "HOME")) {
+			targets = append(targets, hookTarget{path: c.dir, git: "git " + c.sub})
+		}
+		return tool, targets
 	}
-	return nil
+	return tool, nil
 }
 
-func toolPath(cwd string, input map[string]any, key string) []string {
+func toolPath(cwd string, input map[string]any, key string) []hookTarget {
 	path, _ := input[key].(string)
 	if strings.TrimSpace(path) == "" {
 		return nil
 	}
-	return []string{joinDir(cwd, path)}
+	return []hookTarget{{path: joinDir(cwd, path)}}
 }
 
 // leaseInstallHook prints the lease hook script and settings entry, and

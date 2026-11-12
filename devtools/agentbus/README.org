@@ -389,7 +389,8 @@ The daemon keeps lease state in ~leases.json~ in its state directory,
 so a restart keeps holders, queues, and deadlines. Every claim, grant,
 extend, leave, release, and skip is a ~lease_claim~, ~lease_grant~,
 ~lease_extend~, ~lease_leave~, ~lease_release~, or ~lease_skip~ event
-in the event log, with the checkout key as its name.
+in the event log, with the checkout key as its name. A tool call the
+[[*Enforcement hook][enforcement hook]] denies is a ~lease_hook_deny~ event.
 
 ** Lease in hub mode
 
@@ -659,6 +660,16 @@ hold the lease (and is not on the user's ~--with~ list), the call is
 denied with the reason and the hint ~agentbus lease claim --for
 <duration>~. A ~needs-adopt~ checkout is denied to everyone, the
 adopter too, until ~agentbus lease adopt~ succeeds.
+
+Each denial is a ~lease_hook_deny~ event, so ~agentbus log --event
+lease_hook_deny~ shows what the hook stopped. Its name is the checkout
+key, its actor the caller's pane handle, and its detail the holder, the
+lease state, the tool, and the target: the file path relative to the
+checkout root, or the git command, such as ~git switch~. In hub mode
+the hub logs it and adds the caller's machine. The event is written
+while answering the same check; a log that cannot be written does not
+change the answer. Allows, answers from the cache, and a plain ~lease
+check~ are not logged.
 
 It is fast and fails open:
 
