@@ -13,6 +13,7 @@ This subdirectory contains a few utilities integrated with Github.
 - [[file:pr-review.org][gh-pr-review]]
 - [[file:storage.org][gh-storage]]
 - [[*gh-approve][gh-approve]]
+- [[*gh-throttle][gh-throttle]]
 
 ** Prerequisites
 
@@ -71,7 +72,9 @@ devtools/gh-nudge/
 │   │   └── main.go
 │   ├── gh-pr-review/
 │   │   └── main.go
-│   └── gh-storage/
+│   ├── gh-storage/
+│   │   └── main.go
+│   └── gh-throttle/
 │       └── main.go
 ├── internal/
 │   ├── approve/
@@ -472,6 +475,93 @@ killed.
   ~durationMs~ when the rule's agent command ran), ~action~, and ~reason~.
   ~--explain~ shows the same agent decision, reason and duration. The action is
   ~approved~, ~would_approve~, ~skipped~, ~manual~, or ~error~.
+
+** gh-throttle
+
+~gh-throttle~ is a drop-in wrapper for ~gh~. Several tools running as one
+GitHub user (PR sync rounds, reviewer assignment, merge sweeps, work-queue
+gates) can call ~gh~ at the same time and trip GitHub's secondary (burst)
+limits even when ~gh api rate_limit~ shows points left. GitHub asks clients
+to avoid concurrent requests and to wait about one second between
+mutations. gh-throttle makes every process of the user share one queue for
+that. The limiter itself is the package ~devtools/pkg/ghlimit~.
+
+It takes the same arguments as ~gh~ and runs the real ~gh~: ~$GH_THROTTLE_GH~
+when set, or else the first ~gh~ on ~PATH~ that is not gh-throttle itself
+(compared after resolving symlinks). Stdin, stdout, stderr and the exit code
+pass through.
+
+#+begin_src shell
+  gh-throttle pr view 123     # same as gh pr view 123
+  gh-throttle --stats         # waits in the last hour, by reason and caller
+#+end_src
+
+*** Pointing tools at it
+
+Tools that let you name the gh binary can be given ~gh-throttle~ directly.
+To catch every caller, put a ~gh~ symlink to gh-throttle in a directory that
+comes before the real gh on ~PATH~:
+
+#+begin_src shell
+  mkdir -p ~/.local/gh-throttle/bin
+  ln -s "$(command -v gh-throttle)" ~/.local/gh-throttle/bin/gh
+  export PATH="$HOME/.local/gh-throttle/bin:$PATH"
+#+end_src
+
+gh-throttle skips itself when it searches ~PATH~, so it still finds the real
+gh. When it runs gh it sets ~GH_THROTTLE_HELD=1~; a gh-throttle started
+under that (for example by a gh extension that calls gh) passes straight
+through instead of waiting for the slot its parent holds.
+
+*** What it does
+
+- *One call at a time.* Each call holds an exclusive ~flock~ on ~slots.lock~
+  while gh runs, so at most ~max_concurrent~ calls run at once across all of
+  the user's processes. With more than one slot it uses ~slot-N.lock~. The
+  lock directory is ~$XDG_RUNTIME_DIR/gh-throttle~, or ~gh-throttle~ under
+  ~$TMPDIR~ when ~XDG_RUNTIME_DIR~ is unset, with mode 0700.
+- *Mutation spacing.* A mutation starts at least ~mutation_gap~ after the
+  previous mutation by any process ended. Mutations are ~pr
+  review|edit|merge|close|comment|ready~, ~issue create|edit|comment|close~,
+  every ~label~ command, ~api~ with ~-X~ / ~--method~ POST, PATCH, PUT or
+  DELETE, ~api~ with ~-f~ / ~-F~ fields and no method (gh then POSTs), and
+  ~api graphql~ whose inline ~query=~ starts with ~mutation~. Reads are not
+  delayed by the gap.
+- *Back off instead of failing.* When gh fails with ~rate limit~, ~secondary
+  rate limit~ or ~abuse detection~ on stderr (or, for ~gh api~, HTTP 403 or
+  429), and wrote nothing to stdout, gh-throttle waits and runs the call once
+  more while still holding its slot. The wait is the ~Retry-After~ or
+  ~x-ratelimit-reset~ header when gh output shows one, else ~backoff~, capped
+  at ~max_backoff~. If the retry fails too, its exit code and stderr come back
+  unchanged. A call that already wrote to stdout is never retried, so output
+  is not duplicated. (~gh api~ prints an error body to stdout, so a failed
+  ~gh api~ call is usually not retried.)
+- *Never deadlock.* A process that dies drops its lock. A lock wait longer
+  than ~max_wait~ (10m) is logged and the call runs anyway.
+- *Logging.* A call that waits more than 200ms in total is logged as one JSON
+  line in ~$XDG_STATE_HOME/gh-throttle/log.jsonl~ (default
+  =~/.local/state/gh-throttle/log.jsonl=): ~time~, ~pid~, ~caller~ (the parent
+  process name), ~args~ (command, subcommand and flag names, with every value
+  replaced by ~_~), ~reason~ (~slot~, ~slot_timeout~, ~mutation_gap~,
+  ~backoff~, joined by ~+~) and ~waitMs~.
+
+gh's stderr is held until gh exits so a retried attempt's error is not
+shown. When stderr is a terminal it is shown live as well. When stdout is a
+terminal gh gets it directly, so tables and colors look as usual.
+
+*** Knobs
+
+| Variable                     | Default | Meaning                                         |
+|------------------------------+---------+-------------------------------------------------|
+| ~GH_THROTTLE_MAX_CONCURRENT~ | ~1~     | gh calls that may run at once                   |
+| ~GH_THROTTLE_MUTATION_GAP~   | ~1s~    | Least time between mutations                    |
+| ~GH_THROTTLE_BACKOFF~        | ~60s~   | Wait before the retry when gh names no wait     |
+| ~GH_THROTTLE_MAX_BACKOFF~    | ~5m~    | Cap on any backoff                              |
+| ~GH_THROTTLE_OFF~            | unset   | ~1~ runs gh directly, with no lock and no log   |
+| ~GH_THROTTLE_GH~             | unset   | Path of the real gh                             |
+
+Durations take Go syntax (~1500ms~, ~2m~) or a number of seconds. An invalid
+value is an error, and gh does not run.
 
 ** Development
 

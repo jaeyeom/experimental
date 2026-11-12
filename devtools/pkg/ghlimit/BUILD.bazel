@@ -1,0 +1,41 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "classify.go",
+        "config.go",
+        "exec.go",
+        "limiter.go",
+        "lock_other.go",
+        "lock_unix.go",
+        "log.go",
+    ],
+    importpath = "github.com/jaeyeom/experimental/devtools/pkg/ghlimit",
+    visibility = ["//visibility:public"],
+    deps = select({
+        "@rules_go//go/platform:android": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:darwin": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:ios": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "@rules_go//go/platform:linux": [
+            "@org_golang_x_sys//unix:go_default_library",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "classify_test.go",
+        "limiter_test.go",
+        "log_test.go",
+    ],
+    embed = [":go_default_library"],
+)
