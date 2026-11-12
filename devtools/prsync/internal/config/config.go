@@ -142,11 +142,14 @@ type Config struct {
 	CIFixPromptTemplate  string
 	// PromptSuffix is appended after a blank line to every rendered dispatch
 	// prompt. Empty leaves prompts unchanged. It is not part of dedupe.
-	PromptSuffix    string
-	IncludeDrafts   bool
-	WaitUntil       []string
-	DispatchTimeout time.Duration
-	StateFile       string
+	PromptSuffix string
+	// WakeBeforePrompt is auto or off. auto runs `agentbus wake
+	// --if-hibernated` before each prompt when agentbus is installed.
+	WakeBeforePrompt string
+	IncludeDrafts    bool
+	WaitUntil        []string
+	DispatchTimeout  time.Duration
+	StateFile        string
 	// DedupeTTL is how long the same unaddressed comment ids stay deduped.
 	// Zero expires immediately.
 	DedupeTTL time.Duration
@@ -273,6 +276,7 @@ func Defaults() Config {
 		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
 		GatePendingQuestion:      "decide",
 		GateLease:                "auto",
+		WakeBeforePrompt:         "auto",
 		GateJobMinAge:            procinfo.DefaultJobMinAge,
 	}
 }
@@ -364,6 +368,9 @@ func validateConcurrency(c Config) error {
 	}
 	if c.GateLease != "auto" && c.GateLease != "off" && c.GateLease != "required" {
 		return &KeyError{Key: "gate_lease", Reason: fmt.Sprintf("invalid value %q", c.GateLease)}
+	}
+	if c.WakeBeforePrompt != "auto" && c.WakeBeforePrompt != "off" {
+		return &KeyError{Key: "wake_before_prompt", Reason: fmt.Sprintf("invalid value %q", c.WakeBeforePrompt)}
 	}
 	return nil
 }
@@ -530,6 +537,9 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return nil
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
+		return nil
+	case "wake_before_prompt":
+		cfg.WakeBeforePrompt = strings.TrimSpace(val)
 		return nil
 	case "comment_link_max_chars", "comment_body_max_chars", "comment_strip_patterns":
 		return applyCommentKey(cfg, key, val)

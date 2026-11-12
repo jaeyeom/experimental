@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -15,17 +16,24 @@ import (
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 )
 
-// cmdWaker counts the wakes the daemon asks for.
+// cmdWaker counts the wakes the daemon asks for and fails them with err.
 type cmdWaker struct {
 	mu   sync.Mutex
 	recs []hibernate.Record
+	err  error
 }
 
 func (w *cmdWaker) Wake(_ context.Context, rec hibernate.Record) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.recs = append(w.recs, rec)
-	return nil
+	return w.err
+}
+
+func (w *cmdWaker) fail(err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.err = err
 }
 
 func (w *cmdWaker) count() int {
@@ -89,9 +97,65 @@ func TestWakeCommandRelaunchesWithNoMessage(t *testing.T) {
 	}
 }
 
+func TestWakeIfHibernatedOnAnAwakeTargetIsQuiet(t *testing.T) {
+	env, waker := startWakeBus(t)
+	mustCmd(t, []string{"wake", "ops/x"}, env)
+	for _, args := range [][]string{
+		{"wake", "--if-hibernated", "ops/x"},
+		{"wake", "--if-hibernated", "--wait", "herdr:local/s1/w1:p1"},
+		// A pane agentbus never saw is not hibernated either.
+		{"wake", "--if-hibernated", "herdr:local/s9/w9:p9"},
+		{"wake", "--if-hibernated", "--machine", "local", "w9:p9"},
+	} {
+		code, stdout, stderr := runCmd(args, env)
+		if code != 0 || stdout != "" || stderr != "" {
+			t.Errorf("%q = %d %q %q, want 0 and no output", args, code, stdout, stderr)
+		}
+	}
+	if waker.count() != 1 {
+		t.Fatalf("relaunched %d times, want only the first wake", waker.count())
+	}
+}
+
+func TestWakeIfHibernatedRelaunchesAHibernatedTarget(t *testing.T) {
+	for _, args := range [][]string{
+		{"wake", "--if-hibernated", "--wait", "ops/x"},
+		{"wake", "--if-hibernated", "herdr:local/s1/w1:p1"},
+		{"wake", "--if-hibernated", "--machine", "local", "w1:p1"},
+	} {
+		env, waker := startWakeBus(t)
+		code, stdout, stderr := runCmd(args, env)
+		if code != 0 || !strings.Contains(stdout, "woke") {
+			t.Errorf("%q = %d %q %q", args, code, stdout, stderr)
+		}
+		if waker.count() != 1 {
+			t.Errorf("%q relaunched %d times", args, waker.count())
+		}
+	}
+}
+
+func TestWakeTimeoutExitsOne(t *testing.T) {
+	env, waker := startWakeBus(t)
+	waker.fail(errors.New("relaunched agent not ready within 60s: agent is working"))
+	code, stdout, stderr := runCmd([]string{"wake", "--if-hibernated", "ops/x"}, env)
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "not ready within") {
+		t.Fatalf("wake = %d %q %q, want 1 naming the timeout", code, stdout, stderr)
+	}
+}
+
+func TestWakeUnknownNameExitsTwo(t *testing.T) {
+	env, _ := startWakeBus(t)
+	for _, args := range [][]string{{"wake", "ops/nobody"}, {"wake", "--if-hibernated", "ops/nobody"}} {
+		code, _, stderr := runCmd(args, env)
+		if code != 2 || !strings.Contains(stderr, "not registered") {
+			t.Errorf("%q = %d %q, want 2", args, code, stderr)
+		}
+	}
+}
+
 func TestWakeCommandUsage(t *testing.T) {
 	for _, args := range [][]string{{"wake"}, {"wake", "a", "b"}, {"wake", "--now"}} {
-		if code, _, stderr := runCmd(args, nil); code != 2 || !strings.Contains(stderr, "usage: agentbus wake <name|handle>") {
+		if code, _, stderr := runCmd(args, nil); code != 2 || !strings.Contains(stderr, "usage: agentbus wake [--if-hibernated]") {
 			t.Errorf("%q = %d %q", args, code, stderr)
 		}
 	}

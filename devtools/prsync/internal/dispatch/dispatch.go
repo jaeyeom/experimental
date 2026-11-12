@@ -47,6 +47,9 @@ type Request struct {
 	// prompt, wait, and settle polls for such a tab run there. Nil cannot
 	// send to a remote tab.
 	Remote func(machine string) Herdr
+	// Waker wakes a hibernated agent before its prompt
+	// (wake_before_prompt). Nil never wakes.
+	Waker Waker
 }
 
 // Candidate is one PR considered for dispatch.
@@ -507,6 +510,17 @@ func sendPrompt(ctx context.Context, h Herdr, cfg config.Config, c Candidate, re
 		item.Detail = err.Error()
 		return item
 	}
+	woke, err := wakeBeforePrompt(ctx, req, pr.Tab.Machine, pane)
+	if err != nil {
+		item.Action = ActionFailed
+		item.PaneID = pane
+		item.Detail = err.Error()
+		return item
+	}
+	if woke {
+		item.Woke = true
+		runlog.FromContext(ctx).Info("wake", "pane_id", pane, "machine", pr.Tab.Machine)
+	}
 	deadline := clock.Now().Add(cfg.DispatchTimeout)
 	out := h.Prompt(ctx, pane, rendered, cfg.WaitUntil, cfg.DispatchTimeout)
 	return finishAgentOutcome(ctx, h, cfg, clock, sleeper, item, pane, rendered, out, deadline)
@@ -722,6 +736,9 @@ func logResult(ctx context.Context, item Item) {
 	}
 	if item.Detail != "" {
 		args = append(args, "detail", item.Detail)
+	}
+	if item.Woke {
+		args = append(args, "woke", true)
 	}
 	runlog.FromContext(ctx).Info("result", args...)
 }

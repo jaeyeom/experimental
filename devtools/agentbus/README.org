@@ -35,7 +35,7 @@ Examples below use the name ~ops/inbox~ and the handle
 | ~lease <claim/extend/leave/status/check/release/adopt/pause/unshare/resume/hook/install-hook>~ | Hold the lease on a guarded checkout, or see who holds it; enforce it in Claude Code. See [[*Workdir lease]]. |
 | ~mem [--json]~ | Memory per local agent pane: process-tree RSS, long-lived jobs, names, and leases. See [[*Memory per agent]]. |
 | ~hibernate <name or handle>...~, ~hibernate --idle-over <d>~ | Stop idle agents on this machine but keep their panes and names. See [[*Hibernate idle agents]]. ~hibernate --policy~ runs the memory-pressure policy on a hub-mode client; see [[*On a hub-mode client]]. |
-| ~wake <name or handle>~ | Relaunch a hibernated agent now. A message to it wakes it too. See [[*Wake a hibernated agent]]. |
+| ~wake <name or handle>~ | Relaunch a hibernated agent now. A message to it wakes it too. ~--if-hibernated~ makes it safe before every prompt. See [[*Wake a hibernated agent]]. |
 | ~install~ | Install the supervisor and load it; in hub mode, the tunnel to the hub, and the ~hibernate --policy~ unit when ~hibernate_policy~ is on or ~dry-run~. |
 | ~install-hooks~ | Install the observe-only ~SendMessage~ hook and the merged-draft prompt guard. |
 
@@ -869,7 +869,21 @@ config).
 When the daemon is about to deliver to a handle that has a hibernation
 record, it first relaunches the agent in its pane. ~agentbus wake <name
 or handle>~ does the same with no message to deliver, prints ~woke
-<name> (<handle>)~, and ignores the backoff below.
+<name> (<handle>)~, and ignores the backoff below. It returns once
+the agent is ready (step 3), so ~--wait~ is always in effect.
+
+A tool that types prompts straight into a pane, such as prsync, calls
+~agentbus wake --if-hibernated~ before each prompt: a prompt typed into
+a hibernated pane lands in its shell. The target may be a name, a
+handle (~herdr:<machine>/<session>/<pane>~), or a pane id with
+~--machine <m>~ (~local~ for this machine); a pane with no hibernation
+record is not hibernated.
+
+| Exit | Meaning                                                    |
+|------+------------------------------------------------------------|
+|    0 | awake now, or not hibernated with ~--if-hibernated~ (silent) |
+|    1 | the wake failed or timed out, or the target is not hibernated |
+|    2 | unknown name or handle, or bad usage                       |
 
 1. It reads the pane's processes. When the pane's foreground is not
    its shell, someone reused the pane: nothing is launched, the record

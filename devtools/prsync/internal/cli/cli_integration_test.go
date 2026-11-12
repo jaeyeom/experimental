@@ -527,6 +527,37 @@ func TestDispatchGoBlockedGateTimeoutExit4(t *testing.T) {
 	}
 }
 
+func TestDispatchWakeBeforePrompt(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want string
+	}{
+		{mode: "auto", want: "|w2:pC\n"},
+		{mode: "off", want: ""},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			wakeLog := filepath.Join(t.TempDir(), "wake.log")
+			t.Setenv("PRSYNC_FAKE_WAKE_LOG", wakeLog)
+			ghBin, herdrBin := fixtureBins(t)
+			cfgPath := writeLiveConfig(t, ghBin, herdrBin, filepath.Join(t.TempDir(), "state.json"), "wake_before_prompt="+tc.mode)
+			restore := swapStdin(t, string(mustScanJSON(t, stdinEligibleDoc())))
+			var stdout, stderr bytes.Buffer
+			code := Execute(context.Background(), []string{"dispatch", "--stdin", "--config", cfgPath, "--go"}, &stdout, &stderr, executor.NewBasicExecutor())
+			restore()
+			if code != ExitOK {
+				t.Fatalf("exit = %d, stderr=%q", code, stderr.String())
+			}
+			got, err := os.ReadFile(wakeLog)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("wakes = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func writeLiveConfig(t *testing.T, ghBin, herdrBin, statePath string, extra ...string) string {
 	t.Helper()
 	runtime := filepath.Join(t.TempDir(), "herdr-runtime")

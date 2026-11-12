@@ -521,6 +521,18 @@ func TestLoadGateSignals(t *testing.T) {
 	}
 }
 
+func TestLoadWakeBeforePrompt(t *testing.T) {
+	if got := Defaults().WakeBeforePrompt; got != "auto" {
+		t.Fatalf("default wake_before_prompt = %q, want auto", got)
+	}
+	path := filepath.Join(t.TempDir(), "prsync.config")
+	mustWrite(t, path, "wake_before_prompt= off\n")
+	got, err := Load(path)
+	if err != nil || got.WakeBeforePrompt != "off" {
+		t.Fatalf("Load = %q, %v; want off", got.WakeBeforePrompt, err)
+	}
+}
+
 func TestLoadGateIgnoreProcsSplitsOnCommas(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "prsync.config")
 	mustWrite(t, path, "gate_ignore_procs=a, b ,c\n")
@@ -686,6 +698,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "bad enum", body: "concurrency_wait_on=sometimes\n", key: "concurrency_wait_on"},
 		{name: "bad pending question", body: "gate_pending_question=maybe\n", key: "gate_pending_question"},
 		{name: "bad gate lease", body: "gate_lease=maybe\n", key: "gate_lease"},
+		{name: "bad wake before prompt", body: "wake_before_prompt=always\n", key: "wake_before_prompt"},
 		{name: "bad ignore glob", body: "gate_ignore_procs=[mcp\n", key: "gate_ignore_procs"},
 		{name: "bad job age", body: "gate_job_min_age=soon\n", key: "gate_job_min_age"},
 		{name: "negative job age", body: "gate_job_min_age=-1s\n", key: "gate_job_min_age"},

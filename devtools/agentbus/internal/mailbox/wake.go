@@ -34,6 +34,13 @@ type Waker interface {
 	Wake(ctx context.Context, rec hibernate.Record) error
 }
 
+// Errors of a Wake that starts no relaunch: the target names no agent,
+// or its agent is not hibernated.
+var (
+	ErrUnknownTarget = errors.New("unknown target")
+	ErrNotHibernated = errors.New("not hibernated")
+)
+
 // wakeCall is one wake in flight. err is set before done closes.
 type wakeCall struct {
 	done chan struct{}
@@ -49,18 +56,23 @@ func (m *Mailbox) SetWaker(w Waker) {
 
 // Wake relaunches target's hibernated agent now, with no message, and
 // waits for the outcome. It ignores the backoff of a failed wake and
-// joins a wake already in flight. It returns target's handle.
+// joins a wake already in flight. It returns target's handle. A target
+// that names no agent is ErrUnknownTarget, and one whose agent runs is
+// ErrNotHibernated; neither starts a wake. An agent still stopping is
+// neither: it is about to be hibernated.
 func (m *Mailbox) Wake(ctx context.Context, target string) (string, error) {
 	handle, err := m.reg.Resolve(target)
 	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", target, err)
+		return "", fmt.Errorf("resolve %s: %w: %w", target, ErrUnknownTarget, err)
 	}
 	rec, ok := m.reg.Hibernation(handle)
 	switch {
 	case !ok:
-		return handle, fmt.Errorf("%s is not hibernated", target)
+		return handle, fmt.Errorf("%s is %w", target, ErrNotHibernated)
+	case rec.Status == hibernate.StatusStopFailed:
+		return handle, fmt.Errorf("%s is %w: its record is %s", target, ErrNotHibernated, rec.Status)
 	case !hibernate.Asleep(rec.Status):
-		return handle, fmt.Errorf("%s is not hibernated: its record is %s", target, rec.Status)
+		return handle, fmt.Errorf("%s is still %s; wake it once it is hibernated", target, rec.Status)
 	case m.waker == nil:
 		return handle, errors.New("this daemon has no waker")
 	}

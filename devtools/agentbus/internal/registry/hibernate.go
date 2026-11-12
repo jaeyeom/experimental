@@ -6,6 +6,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
@@ -100,6 +101,21 @@ func (r *Registry) Hibernations() []hibernate.Record {
 		out = append(out, r.hibernated[handle])
 	}
 	return out
+}
+
+// HibernationOfPane is the handle of the hibernation record for pane on
+// machine, for a caller that holds a pane id rather than a handle.
+func (r *Registry) HibernationOfPane(machine, pane string) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, handle := range slices.Sorted(maps.Keys(r.hibernated)) {
+		_, rest, _ := strings.Cut(handle, ":")
+		parts := strings.SplitN(rest, "/", 3)
+		if len(parts) == 3 && parts[0] == machine && parts[2] == pane {
+			return handle, true
+		}
+	}
+	return "", false
 }
 
 // Hibernated reports whether handle's agent was stopped by hibernate.

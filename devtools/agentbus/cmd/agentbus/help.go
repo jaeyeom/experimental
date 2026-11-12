@@ -171,9 +171,15 @@ func commands() []command {
 		{
 			name: "wake",
 			summary: "Relaunch a hibernated agent in its pane now, with no message to deliver. " +
-				"A message to a hibernated agent wakes it too.",
-			usage:   "agentbus wake <name|handle>",
-			example: "agentbus wake ops/x",
+				"A message to a hibernated agent wakes it too. It returns once herdr reports " +
+				"the agent idle or done, within wake_timeout. Exit 0: awake, or not hibernated " +
+				"with --if-hibernated; 1: the wake failed; 2: unknown name or handle.",
+			usage: wakeUsage,
+			flags: "--if-hibernated  exit 0 and print nothing when the target is not hibernated,\n" +
+				"                 so a dispatch tool can call it before every prompt\n" +
+				"--wait           return once the agent is ready (always the case)\n" +
+				"--machine <m>    the target is a herdr pane id on machine m (local for this one)",
+			example: "agentbus wake --if-hibernated --machine local w1:p1",
 			run:     noStdin(cmdWake),
 		},
 		{
