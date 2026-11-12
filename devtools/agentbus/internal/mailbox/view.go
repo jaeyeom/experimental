@@ -19,10 +19,11 @@ func (m *Mailbox) Show(id string) (string, error) {
 func (m *Mailbox) Thread(id string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.msgs[id]; !ok {
-		return "", fmt.Errorf("unknown message %s", id)
+	start, err := m.lookupLocked(id)
+	if err != nil {
+		return "", err
 	}
-	root := id
+	root := start.ID
 	seen := map[string]bool{}
 	for m.msgs[root].Re != "" && !seen[root] {
 		parent, ok := m.msgs[m.msgs[root].Re]
@@ -72,7 +73,11 @@ func (m *Mailbox) Status(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("id: %s\nstate: %s\n%swaited: %s\n", msg.ID, msg.State, m.wakeStatus(msg), m.waited(msg)), nil
+	client := ""
+	if msg.ClientID != "" {
+		client = "client_id: " + msg.ClientID + "\n"
+	}
+	return fmt.Sprintf("id: %s\nstate: %s\n%s%swaited: %s\n", msg.ID, msg.State, client, m.wakeStatus(msg), m.waited(msg)), nil
 }
 
 // Held lists queued messages in send order, with how long each has waited.
@@ -107,7 +112,11 @@ func (m *Mailbox) waited(msg message) string {
 
 func formatMessage(msg message) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "id: %s\nfrom: %s\nto: %s\n", msg.ID, msg.From, msg.To)
+	fmt.Fprintf(&b, "id: %s\n", msg.ID)
+	if msg.ClientID != "" {
+		fmt.Fprintf(&b, "client_id: %s\n", msg.ClientID)
+	}
+	fmt.Fprintf(&b, "from: %s\nto: %s\n", msg.From, msg.To)
 	if msg.Re != "" {
 		fmt.Fprintf(&b, "re: %s\n", msg.Re)
 	}

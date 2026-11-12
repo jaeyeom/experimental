@@ -31,32 +31,40 @@ const (
 )
 
 // Result is the id and delivery state of a send or reply.
+// Duplicate is set when this client id was already accepted.
 type Result struct {
-	ID    string
-	State string
+	ID        string
+	State     string
+	Duplicate bool
 }
 
 // Options controls one send. A zero TTL does not expire.
 // Wait blocks until the message is delivered or expired.
+// ClientID empty keeps the old accept-every-call behavior.
 type Options struct {
-	TTL  time.Duration
-	Wait bool
+	TTL      time.Duration
+	Wait     bool
+	ClientID string
 }
 
 type message struct {
-	ID          string     `json:"id"`
-	From        string     `json:"from"`
-	To          string     `json:"to"`
-	Re          string     `json:"re,omitempty"`
-	SentAt      time.Time  `json:"sentAt"`
-	Body        string     `json:"body"`
-	Replyable   bool       `json:"replyable"`
-	State       string     `json:"state"`
-	Handle      string     `json:"handle"`
-	Deadline    *time.Time `json:"deadline,omitempty"`
-	HeldAt      *time.Time `json:"heldAt,omitempty"`
-	DeliveredAt *time.Time `json:"deliveredAt,omitempty"`
-	ClosedAt    *time.Time `json:"closedAt,omitempty"`
+	ID        string    `json:"id"`
+	From      string    `json:"from"`
+	To        string    `json:"to"`
+	Re        string    `json:"re,omitempty"`
+	SentAt    time.Time `json:"sentAt"`
+	Body      string    `json:"body"`
+	Replyable bool      `json:"replyable"`
+	State     string    `json:"state"`
+	Handle    string    `json:"handle"`
+	// ClientID is the caller's retry key. Empty means the send was not idempotent.
+	ClientID string `json:"clientId,omitempty"`
+	// SenderHandle is the stable caller handle. From is only the display name.
+	SenderHandle string     `json:"senderHandle,omitempty"`
+	Deadline     *time.Time `json:"deadline,omitempty"`
+	HeldAt       *time.Time `json:"heldAt,omitempty"`
+	DeliveredAt  *time.Time `json:"deliveredAt,omitempty"`
+	ClosedAt     *time.Time `json:"closedAt,omitempty"`
 }
 
 type file struct {
@@ -67,14 +75,19 @@ type file struct {
 // The queue is FIFO per resolved handle. A held front blocks later
 // messages to that handle.
 type Mailbox struct {
-	dir      string
-	reg      *registry.Registry
-	log      *eventlog.Log
-	inline   int
-	now      func() time.Time
-	mu       sync.Mutex
-	cv       *sync.Cond
-	msgs     map[string]message
+	dir    string
+	reg    *registry.Registry
+	log    *eventlog.Log
+	inline int
+	now    func() time.Time
+	mu     sync.Mutex
+	cv     *sync.Cond
+	msgs   map[string]message
+	// byClient maps a sender handle and client id to the message id.
+	// The entry is stored on the message, so it lasts as long as that
+	// message is retained. Messages are not pruned, which is past the
+	// 7-day floor for a client id whose message is already gone.
+	byClient map[dedupeKey]string
 	queue    map[string][]string
 	inflight map[string]bool
 	flushing map[string]bool
@@ -107,6 +120,7 @@ func Open(dir string, reg *registry.Registry, adapters []adapter.Adapter, log *e
 		inline:   inline,
 		now:      time.Now,
 		msgs:     msgs,
+		byClient: indexClients(msgs),
 		queue:    rebuild(msgs),
 		inflight: map[string]bool{},
 		flushing: map[string]bool{},
@@ -123,8 +137,8 @@ func (m *Mailbox) Send(ctx context.Context, env []string, peerPID int, target, b
 	if body == "" {
 		return Result{}, errors.New("message body is required")
 	}
-	from, replyable := m.stamp(ctx, env, peerPID)
-	return m.send(ctx, from, replyable, target, body, opt)
+	from, sender, replyable := m.stamp(ctx, env, peerPID)
+	return m.send(ctx, from, sender, replyable, target, body, opt)
 }
 
 // Post queues a message the daemon itself sends, such as a lease grant.
@@ -133,10 +147,13 @@ func (m *Mailbox) Post(ctx context.Context, from, target, body string) (Result, 
 	if body == "" {
 		return Result{}, errors.New("message body is required")
 	}
-	return m.send(ctx, from, false, target, body, Options{})
+	return m.send(ctx, from, "", false, target, body, Options{})
 }
 
-func (m *Mailbox) send(ctx context.Context, from string, replyable bool, target, body string, opt Options) (Result, error) {
+func (m *Mailbox) send(ctx context.Context, from, sender string, replyable bool, target, body string, opt Options) (Result, error) {
+	if err := ValidClientID(opt.ClientID); err != nil {
+		return Result{}, err
+	}
 	handle, err := m.reg.Resolve(target)
 	if err != nil {
 		if logErr := m.logEvent(eventlog.Event{
@@ -154,14 +171,19 @@ func (m *Mailbox) send(ctx context.Context, from string, replyable bool, target,
 	if err != nil {
 		return Result{}, err
 	}
+	msg.ClientID = opt.ClientID
+	msg.SenderHandle = sender
 	return m.enqueue(ctx, msg, opt)
 }
 
 // Reply sends to the original from and sets re to id.
 // A message with no reply address is refused.
-func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body string) (Result, error) {
+func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body string, opt Options) (Result, error) {
 	if body == "" {
 		return Result{}, errors.New("message body is required")
+	}
+	if err := ValidClientID(opt.ClientID); err != nil {
+		return Result{}, err
 	}
 	orig, err := m.get(id)
 	if err != nil {
@@ -170,7 +192,7 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	if !orig.Replyable {
 		return Result{}, errors.New("no reply address")
 	}
-	from, replyable := m.stamp(ctx, env, peerPID)
+	from, sender, replyable := m.stamp(ctx, env, peerPID)
 	handle, err := m.reg.Resolve(orig.From)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve reply target: %w", err)
@@ -179,7 +201,9 @@ func (m *Mailbox) Reply(ctx context.Context, env []string, peerPID int, id, body
 	if err != nil {
 		return Result{}, err
 	}
-	return m.enqueue(ctx, msg, Options{})
+	msg.ClientID = opt.ClientID
+	msg.SenderHandle = sender
+	return m.enqueue(ctx, msg, opt)
 }
 
 func (m *Mailbox) newMessage(from, to, re, body string, replyable bool, handle string) (message, error) {
@@ -206,7 +230,10 @@ func (m *Mailbox) preview(body string) bool {
 // stamp reads the caller from env. A herdr pane uses its registered
 // name when it has one, otherwise its raw handle. Anyone else is
 // anon:<host-pid> and is not replyable.
-func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string, bool) {
+// stamp returns the display name, the stable sender handle, and whether
+// the caller can be replied to. The dedupe key uses the handle, because
+// the display name changes when the pane's names change.
+func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string, string, bool) {
 	for _, ad := range m.adapters {
 		handle, err := ad.Identify(ctx, env)
 		if err != nil || !strings.HasPrefix(handle, "herdr:") {
@@ -214,11 +241,12 @@ func (m *Mailbox) stamp(ctx context.Context, env []string, peerPID int) (string,
 		}
 		names := m.reg.NamesOf(handle)
 		if len(names) == 0 {
-			return handle, true
+			return handle, handle, true
 		}
-		return strings.Join(names, ", "), true
+		return strings.Join(names, ", "), handle, true
 	}
-	return anon(peerPID), false
+	who := anon(peerPID)
+	return who, who, false
 }
 
 func anon(pid int) string {
@@ -240,11 +268,76 @@ func newID() (string, error) {
 func (m *Mailbox) get(id string) (message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	msg, ok := m.msgs[id]
-	if !ok {
+	return m.lookupLocked(id)
+}
+
+// lookupLocked finds id as a message id, or as a client id when it
+// contains a colon. The caller holds m.mu.
+func (m *Mailbox) lookupLocked(id string) (message, error) {
+	if msg, ok := m.msgs[id]; ok {
+		return msg, nil
+	}
+	if !strings.Contains(id, ":") {
 		return message{}, fmt.Errorf("unknown message %s", id)
 	}
-	return msg, nil
+	var found message
+	n := 0
+	for _, msg := range m.msgs {
+		if msg.ClientID != id {
+			continue
+		}
+		n++
+		found = msg
+	}
+	switch n {
+	case 1:
+		return found, nil
+	case 0:
+		return message{}, fmt.Errorf("unknown message %s", id)
+	default:
+		return message{}, fmt.Errorf("client id %s matches more than one message", id)
+	}
+}
+
+type dedupeKey struct {
+	sender   string
+	clientID string
+}
+
+func indexClients(msgs map[string]message) map[dedupeKey]string {
+	out := make(map[dedupeKey]string, len(msgs))
+	for _, msg := range msgs {
+		if msg.ClientID == "" || msg.SenderHandle == "" {
+			continue
+		}
+		out[dedupeKey{sender: msg.SenderHandle, clientID: msg.ClientID}] = msg.ID
+	}
+	return out
+}
+
+// ValidClientID checks a client-generated retry key.
+// Empty is valid and means the call is not idempotent.
+// A set id is at most 64 characters from [A-Za-z0-9._:-] and contains a colon.
+func ValidClientID(id string) error {
+	if id == "" {
+		return nil
+	}
+	if len(id) > 64 || !strings.Contains(id, ":") || !clientIDChars(id) {
+		return fmt.Errorf("client id %q must be at most 64 characters from [A-Za-z0-9._:-] and contain a colon", id)
+	}
+	return nil
+}
+
+func clientIDChars(id string) bool {
+	for _, r := range id {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == ':' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Mailbox) logEvent(e eventlog.Event) error {

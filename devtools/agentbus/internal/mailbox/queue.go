@@ -62,8 +62,12 @@ func (m *Mailbox) enqueue(ctx context.Context, msg message, opt Options) (Result
 		deadline := m.now().UTC().Add(opt.TTL)
 		msg.Deadline = &deadline
 	}
-	if err := m.store(msg); err != nil {
+	dup, err := m.store(msg)
+	if err != nil {
 		return Result{}, err
+	}
+	if dup.Duplicate {
+		return dup, nil
 	}
 	if err := m.flushHandle(ctx, msg.Handle); err != nil {
 		return Result{}, err
@@ -96,10 +100,19 @@ func (m *Mailbox) wait(ctx context.Context, id, handle string) (Result, error) {
 	}
 }
 
-func (m *Mailbox) store(msg message) error {
+func (m *Mailbox) store(msg message) (Result, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if msg.ClientID != "" {
+		dup, err := m.absorbLocked(msg)
+		if err != nil || dup.Duplicate {
+			return dup, err
+		}
+	}
 	m.msgs[msg.ID] = msg
+	if msg.ClientID != "" && msg.SenderHandle != "" {
+		m.byClient[dedupeKey{sender: msg.SenderHandle, clientID: msg.ClientID}] = msg.ID
+	}
 	m.queue[msg.Handle] = append(m.queue[msg.Handle], msg.ID)
 	if err := m.logEvent(eventlog.Event{
 		Event:  eventlog.EventSend,
@@ -108,9 +121,39 @@ func (m *Mailbox) store(msg message) error {
 		Name:   msg.To,
 		Detail: "stored",
 	}); err != nil {
-		return err
+		return Result{}, err
 	}
-	return m.save()
+	if err := m.save(); err != nil {
+		return Result{}, err
+	}
+	return Result{}, nil
+}
+
+// absorbLocked returns the earlier accept when this sender already used
+// msg.ClientID. A different body, recipient, or parent is a conflict
+// and stores nothing. The caller holds m.mu.
+func (m *Mailbox) absorbLocked(msg message) (Result, error) {
+	id, ok := m.byClient[dedupeKey{sender: msg.SenderHandle, clientID: msg.ClientID}]
+	if !ok {
+		return Result{}, nil
+	}
+	prev, exists := m.msgs[id]
+	if !exists {
+		return Result{}, nil
+	}
+	if prev.Body != msg.Body || prev.To != msg.To || prev.Re != msg.Re {
+		return Result{}, fmt.Errorf("client id %s conflicts with message %s", msg.ClientID, prev.ID)
+	}
+	if err := m.logEvent(eventlog.Event{
+		Event:  eventlog.EventDedupe,
+		Actor:  msg.From,
+		MsgID:  prev.ID,
+		Name:   prev.To,
+		Detail: msg.ClientID,
+	}); err != nil {
+		return Result{}, err
+	}
+	return Result{ID: prev.ID, State: prev.State, Duplicate: true}, nil
 }
 
 func (m *Mailbox) resultOf(id string) (Result, error) {

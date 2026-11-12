@@ -166,12 +166,12 @@ func hubHookTimeout(env []string) time.Duration {
 // sendFileOnStdin reads a --file path here and sends its content on
 // stdin, so the hub never needs the path.
 func sendFileOnStdin(call hubcall.Call, stderr io.Writer) (hubcall.Call, int) {
-	_, _, file, _, _, err := parseSend(call.Args[1:])
-	if err != nil || file == "" {
+	parsed, err := parseSend(call.Args[1:])
+	if err != nil || parsed.file == "" {
 		return call, 0
 	}
 	_, rest, _, _ := takeFlag(call.Args[1:], "--file")
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(parsed.file)
 	if err != nil {
 		fmt.Fprintf(stderr, "agentbus send: %s\n", err)
 		return call, 1

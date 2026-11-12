@@ -22,12 +22,14 @@ const DefaultRetentionDays = 30
 
 // Event names are the v1 contract. There is no name-expiry event.
 const (
-	EventRegister       = "register"
-	EventDescribe       = "describe"
-	EventRelease        = "release"
-	EventHandoff        = "handoff"
-	EventClaimRefused   = "claim_refused"
-	EventSend           = "send"
+	EventRegister     = "register"
+	EventDescribe     = "describe"
+	EventRelease      = "release"
+	EventHandoff      = "handoff"
+	EventClaimRefused = "claim_refused"
+	EventSend         = "send"
+	// EventDedupe is a repeated accept absorbed by a client id.
+	EventDedupe         = "dedupe"
 	EventDeliverAttempt = "deliver_attempt"
 	EventDelivered      = "delivered"
 	EventHeld           = "held"
@@ -98,6 +100,9 @@ const (
 	EventPolicyNoCandidate = "policy_no_candidate"
 )
 
+// OriginClient marks a line a client asked the daemon to append.
+const OriginClient = "client"
+
 // timeLayout is RFC 3339 with millisecond precision.
 const timeLayout = "2006-01-02T15:04:05.000Z07:00"
 
@@ -113,6 +118,8 @@ type Event struct {
 	Detail      string
 	Reason      string
 	TargetState string
+	// Origin is set by the daemon. client means the line was appended for a client.
+	Origin string
 }
 
 // Filter selects lines. Zero values match everything.
@@ -124,7 +131,8 @@ type Filter struct {
 }
 
 // Log writes and reads events-YYYY-MM-DD.jsonl files in Dir.
-// The daemon is the only writer. Readers open the same directory.
+// The daemon is the only writer. A client append is still written here
+// and marked origin client. Readers open the same directory.
 type Log struct {
 	Dir           string
 	RetentionDays int
@@ -142,6 +150,7 @@ type record struct {
 	Detail      string `json:"detail,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	TargetState string `json:"target_state,omitempty"` //nolint:tagliatelle // event log contract
+	Origin      string `json:"origin,omitempty"`
 }
 
 // Open returns a log stored in dir. RetentionDays zero means DefaultRetentionDays.
@@ -235,6 +244,7 @@ func Parse(line string) (Event, error) {
 		Detail:      rec.Detail,
 		Reason:      rec.Reason,
 		TargetState: rec.TargetState,
+		Origin:      rec.Origin,
 	}, nil
 }
 
@@ -255,6 +265,7 @@ func Format(line string) (string, error) {
 	writeField(&b, "detail", ev.Detail)
 	writeField(&b, "reason", ev.Reason)
 	writeField(&b, "target_state", ev.TargetState)
+	writeField(&b, "origin", ev.Origin)
 	return b.String(), nil
 }
 
@@ -419,7 +430,7 @@ func validate(e Event) error {
 func knownEvent(name string) bool {
 	switch name {
 	case EventRegister, EventDescribe, EventRelease, EventHandoff, EventClaimRefused,
-		EventSend, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
+		EventSend, EventDedupe, EventDeliverAttempt, EventDelivered, EventHeld, EventRetry,
 		EventRequeued, EventExpired, EventRejected, EventAdapterError, EventBypass, EventStart, EventStop,
 		EventLeaseClaim, EventLeaseGrant, EventLeaseExtend, EventLeaseLeave,
 		EventLeaseRelease, EventLeaseSkip, EventLeaseCheckIn, EventLeaseAutoExtend,
@@ -450,6 +461,7 @@ func encode(e Event, now time.Time) ([]byte, time.Time, error) {
 		Detail:      e.Detail,
 		Reason:      e.Reason,
 		TargetState: e.TargetState,
+		Origin:      e.Origin,
 	})
 	if err != nil {
 		return nil, time.Time{}, fmt.Errorf("encode log line: %w", err)

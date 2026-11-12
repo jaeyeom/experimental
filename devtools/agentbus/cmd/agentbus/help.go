@@ -83,17 +83,21 @@ func commands() []command {
 		{
 			name:    "send",
 			summary: "Send. The body comes from the argument, --file, or stdin.",
-			usage:   "agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait]",
+			usage:   "agentbus send <name|handle> [<body>] [--file <path>] [--ttl <duration>] [--wait] [--client-id <id>] [--json]",
 			flags: "--file <path>       read the body from this file (default: none)\n" +
 				"--ttl <duration>    deadline for this message, such as 30m (default: none, no deadline)\n" +
-				"--wait              block until delivered or the deadline passes (default: false)",
+				"--wait              block until delivered or the deadline passes (default: false)\n" +
+				"--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: none)\n" +
+				"--json              print id, state, and duplicate as JSON (default: false)",
 			example: `agentbus send ops/inbox "are you reviewing the queue?"`,
 			run:     cmdSend,
 		},
 		{
 			name:    "reply",
 			summary: "Reply. to is the original sender and re is id.",
-			usage:   "agentbus reply <id> <body>",
+			usage:   "agentbus reply <id> <body> [--client-id <id>] [--json]",
+			flags: "--client-id <id>    retry key, <machine>:<ulid>, up to 64 [A-Za-z0-9._:-] with a colon (default: none)\n" +
+				"--json              print id, state, and duplicate as JSON (default: false)",
 			example: `agentbus reply m-7f3a "yes, the queue is in progress"`,
 			run:     noStdin(cmdReply),
 		},
@@ -113,7 +117,7 @@ func commands() []command {
 		},
 		{
 			name:    "status",
-			summary: "Print id, state, and how long it has waited.",
+			summary: "Print id, state, client id when set, and how long it has waited. id may be a client id.",
 			usage:   "agentbus status <id>",
 			example: "agentbus status m-7f3a",
 			run:     noStdin(cmdStatus),
