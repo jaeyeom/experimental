@@ -60,6 +60,7 @@ go_test(
         "ctrlenter_test.go",
         "editor_test.go",
         "field_test.go",
+        "hyperlink_test.go",
         "lease_test.go",
         "link_test.go",
         "linkpicker_test.go",

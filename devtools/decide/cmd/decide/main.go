@@ -461,6 +461,7 @@ func cmdInbox(args []string, stdout, stderr io.Writer) int {
 		Checkouts:     cfg.Checkouts,
 		Machine:       decide.LocalMachine(cfg),
 		OpenCommand:   cfg.OpenCommand,
+		NoHyperlinks:  !cfg.HyperlinksOn(),
 	}); err != nil {
 		return fail(stderr, err, 1)
 	}

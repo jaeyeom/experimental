@@ -234,8 +234,9 @@ func (m *Model) linkPickLines() []screenLine {
 		if i == m.linkCursor {
 			marker = "> "
 		}
-		text := fmt.Sprintf("%s%*d  %s", marker, numW, i+1, shortURL(link, urlW))
-		lines = append(lines, screenLine{text: plainText(text)})
+		prefix := fmt.Sprintf("%s%*d  ", marker, numW, i+1)
+		shown := hyperlink(link, shortURL(link, urlW), !m.NoHyperlinks)
+		lines = append(lines, screenLine{text: plainText(prefix + shown)})
 	}
 	return boxLines(lines)
 }

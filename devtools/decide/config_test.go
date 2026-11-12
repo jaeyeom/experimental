@@ -23,3 +23,23 @@ func TestLoadConfigOpenCommandNeedsAProgram(t *testing.T) {
 		t.Fatalf("err = %v, want an openCommand error", err)
 	}
 }
+
+func TestLoadConfigHyperlinks(t *testing.T) {
+	for _, tc := range []struct {
+		data string
+		want bool
+	}{
+		{`{}`, true},
+		{`{"hyperlinks": true}`, true},
+		{`{"hyperlinks": false}`, false},
+	} {
+		writeConfig(t, tc.data)
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.HyperlinksOn(); got != tc.want {
+			t.Fatalf("%s: HyperlinksOn() = %v, want %v", tc.data, got, tc.want)
+		}
+	}
+}

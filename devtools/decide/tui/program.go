@@ -254,6 +254,10 @@ func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Click keeps 1-based columns. Bubbletea mouse messages are 0-based.
+	if msg.Ctrl {
+		m.CtrlClick(msg.X+1, msg.Y+1)
+		return m, nil
+	}
 	if err := m.Click(msg.X+1, msg.Y+1); err != nil {
 		m.runErr = err
 		return m, tea.Quit
