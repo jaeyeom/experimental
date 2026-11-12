@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
@@ -547,6 +549,27 @@ func TestRunTargetsViewError(t *testing.T) {
 	}, fixtureNow)
 	if err == nil || !strings.Contains(err.Error(), "view pr acme/widgets#123") {
 		t.Fatalf("RunTargets() error = %v, want view pr error", err)
+	}
+}
+
+func TestRunLogsStatusChecksOnce(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Author = "alice"
+	g := &scriptGH{
+		list: map[string]listResult{
+			"acme/widgets": {prs: fixturePRs()},
+			"acme/gizmos":  {prs: fixturePRs()},
+		},
+	}
+	var logs bytes.Buffer
+	ctx := runlog.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	if _, err := Run(ctx, depsWith(g, fixtureHerdr{}), cfg, []string{"acme/widgets", "acme/gizmos"}, fixtureNow); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(logs.String(), "status checks 0 hits/0 calls"); got != 1 {
+		t.Fatalf("status-check summaries = %d, want 1; logs = %s", got, logs.String())
 	}
 }
 

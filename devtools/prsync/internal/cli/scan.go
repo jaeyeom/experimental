@@ -110,8 +110,13 @@ const roundCacheFile = "round-cache.json"
 func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h scan.Herdr) (scan.Deps, func()) {
 	src := &rcasetting.Source{}
 	cache, save := loadRoundCache(ctx, cfg)
+	client := gh.NewClient(exec, cfg.GHBin)
+	if cfg.StatusChecksTTL > 0 {
+		cache.SetStatusChecksTTL(cfg.StatusChecksTTL)
+		client = client.WithRollupCache(cache)
+	}
 	deps := scan.Deps{
-		GH:      gh.NewClient(exec, cfg.GHBin).WithRollupCache(cache),
+		GH:      client,
 		Herdr:   h,
 		Remote:  func(machine string) scan.Herdr { return machineHerdr(exec, cfg, machine) },
 		Marker:  src.For,

@@ -1,11 +1,12 @@
 // Package roundcache keeps GitHub results between prsync rounds in one JSON
 // file, so a round can skip calls whose answer cannot have changed.
-// Entries expire after their TTL (TTL for status checks, the history TTL
-// for path history, the load TTL for review load, the members TTL for team
-// members, the CODEOWNERS TTL for CODEOWNERS bodies, the threads TTL for
-// review threads, the closed TTL for closed pull-request views, and KeepTTL
-// for changed files, review snapshots and CODEOWNERS locations) and are
-// dropped on Save, as are entries whose key is not in the current format.
+// Entries expire after their TTL (the status-checks TTL for status checks,
+// the history TTL for path history, the load TTL for review load, the
+// members TTL for team members, the CODEOWNERS TTL for CODEOWNERS bodies,
+// the threads TTL for review threads, the closed TTL for closed
+// pull-request views, and KeepTTL for changed files, review snapshots and
+// CODEOWNERS locations) and are dropped on Save, as are entries whose key
+// is not in the current format.
 // Merged pull-request views do not expire; PrunePRViews drops them. The
 // file is only a cache: a missing or corrupt file starts empty.
 package roundcache
@@ -26,8 +27,9 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 )
 
-// TTL is how long a status-check entry is reused.
-const TTL = time.Hour
+// StatusChecksTTL is how long a settled status-check rollup is reused
+// unless SetStatusChecksTTL sets another TTL.
+const StatusChecksTTL = 6 * time.Hour
 
 // HistoryTTL is how long a path-history entry is reused unless
 // SetHistoryTTL sets another TTL. It suits entries keyed by the base
@@ -72,14 +74,15 @@ type Cache struct {
 	historyTTL time.Duration
 	// byDay is set when path history is keyed by the window's start day,
 	// so head-keyed entries are of an old format, and the reverse.
-	byDay         bool
-	loadTTL       time.Duration
-	membersTTL    time.Duration
-	codeownersTTL time.Duration
-	threadsTTL    time.Duration
-	closedTTL     time.Duration
-	data          payload
-	dirty         bool
+	byDay           bool
+	loadTTL         time.Duration
+	membersTTL      time.Duration
+	codeownersTTL   time.Duration
+	threadsTTL      time.Duration
+	statusChecksTTL time.Duration
+	closedTTL       time.Duration
+	data            payload
+	dirty           bool
 }
 
 type payload struct {
@@ -162,7 +165,7 @@ func Load(path string, now func() time.Time) (*Cache, error) {
 	c := &Cache{
 		path: path, now: now, historyTTL: HistoryTTL, loadTTL: LoadTTL,
 		membersTTL: MembersTTL, codeownersTTL: CodeownersTTL, threadsTTL: ThreadsTTL,
-		closedTTL: PRViewClosedTTL, data: emptyPayload(),
+		statusChecksTTL: StatusChecksTTL, closedTTL: PRViewClosedTTL, data: emptyPayload(),
 	}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -282,6 +285,18 @@ func (c *Cache) SetThreadsTTL(ttl time.Duration) {
 		ttl = ThreadsTTL
 	}
 	c.threadsTTL = ttl
+}
+
+// SetStatusChecksTTL sets how long a settled status-check rollup is reused;
+// Save drops older entries. A ttl <= 0 restores StatusChecksTTL. A caller
+// that must fetch every round skips the cache instead of storing zero.
+func (c *Cache) SetStatusChecksTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ttl <= 0 {
+		ttl = StatusChecksTTL
+	}
+	c.statusChecksTTL = ttl
 }
 
 // SetPRViewClosedTTL sets how long a closed (not merged) pull request's
@@ -597,7 +612,7 @@ func (c *Cache) Rollup(repo string, number int, head, updatedAt string) ([]gh.St
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.data.Rollups[rollupKey(repo, number)]
-	if !ok || entry.Head != head || entry.UpdatedAt != updatedAt || !c.fresh(entry.At, TTL) {
+	if !ok || entry.Head != head || entry.UpdatedAt != updatedAt || !c.fresh(entry.At, c.statusChecksTTL) {
 		return nil, false
 	}
 	return entry.Checks, true
@@ -653,7 +668,7 @@ func (c *Cache) Save() error {
 		}
 	}
 	for key, entry := range c.data.Rollups {
-		if !c.fresh(entry.At, TTL) || !knownRollupKey(key) {
+		if !c.fresh(entry.At, c.statusChecksTTL) || !knownRollupKey(key) {
 			delete(c.data.Rollups, key)
 			c.dirty = true
 		}

@@ -641,6 +641,23 @@ func TestLoadTeamCover(t *testing.T) {
 	}
 }
 
+func TestLoadStatusChecksTTL(t *testing.T) {
+	for body, want := range map[string]time.Duration{
+		"status_checks_ttl=90m\n": 90 * time.Minute,
+		"status_checks_ttl=0\n":   0,
+	} {
+		path := filepath.Join(t.TempDir(), "prsync.config")
+		mustWrite(t, path, body)
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load(%q): %v", body, err)
+		}
+		if got.StatusChecksTTL != want {
+			t.Fatalf("Load(%q) StatusChecksTTL = %v, want %v", body, got.StatusChecksTTL, want)
+		}
+	}
+}
+
 func TestLoadReviewThreadsTTL(t *testing.T) {
 	for body, want := range map[string]time.Duration{
 		"review_threads_ttl=90m\n": 90 * time.Minute,
@@ -808,6 +825,8 @@ func TestLoadValidationErrors(t *testing.T) {
 		{name: "negative team cover codeowners ttl", body: "team_cover_codeowners_ttl=-1h\n", key: "team_cover_codeowners_ttl"},
 		{name: "bad review threads ttl", body: "review_threads_ttl=6\n", key: "review_threads_ttl"},
 		{name: "negative review threads ttl", body: "review_threads_ttl=-1h\n", key: "review_threads_ttl"},
+		{name: "bad status checks ttl", body: "status_checks_ttl=6\n", key: "status_checks_ttl"},
+		{name: "negative status checks ttl", body: "status_checks_ttl=-1h\n", key: "status_checks_ttl"},
 		{name: "bad pr view closed ttl", body: "pr_view_closed_ttl=24\n", key: "pr_view_closed_ttl"},
 		{name: "negative pr view closed ttl", body: "pr_view_closed_ttl=-1h\n", key: "pr_view_closed_ttl"},
 		{name: "bad dedupe ttl", body: "dedupe_ttl=tomorrow\n", key: "dedupe_ttl"},
@@ -981,6 +1000,9 @@ func TestDefaults(t *testing.T) {
 	}
 	if got.ReviewThreadsTTL != 6*time.Hour {
 		t.Fatalf("ReviewThreadsTTL = %v, want 6h", got.ReviewThreadsTTL)
+	}
+	if got.StatusChecksTTL != 6*time.Hour {
+		t.Fatalf("StatusChecksTTL = %v, want 6h", got.StatusChecksTTL)
 	}
 	if got.PRViewClosedTTL != 24*time.Hour {
 		t.Fatalf("PRViewClosedTTL = %v, want 24h", got.PRViewClosedTTL)

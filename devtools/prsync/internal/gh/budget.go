@@ -67,6 +67,53 @@ func (b *CallBudget) Used() int {
 	return b.used
 }
 
+// rollupStats counts status-check cache hits and fetches for one scan round.
+// It is safe for concurrent use.
+type rollupStats struct {
+	mu    sync.Mutex
+	hits  int
+	calls int
+}
+
+type rollupStatsKey struct{}
+
+// WithRollupStats counts status-check cache hits and fetches under ctx.
+// A context that already counts is returned unchanged.
+func WithRollupStats(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(rollupStatsKey{}).(*rollupStats); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, rollupStatsKey{}, &rollupStats{})
+}
+
+// RollupStats is the status-check hits and fetches counted under ctx.
+func RollupStats(ctx context.Context) (hits, calls int) {
+	stats, _ := ctx.Value(rollupStatsKey{}).(*rollupStats)
+	if stats == nil {
+		return 0, 0
+	}
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	return stats.hits, stats.calls
+}
+
+func noteRollup(ctx context.Context, hit bool) {
+	stats, _ := ctx.Value(rollupStatsKey{}).(*rollupStats)
+	if stats == nil {
+		return
+	}
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	if hit {
+		stats.hits++
+		return
+	}
+	stats.calls++
+}
+
+func noteRollupHit(ctx context.Context)  { noteRollup(ctx, true) }
+func noteRollupCall(ctx context.Context) { noteRollup(ctx, false) }
+
 // Left is how many calls remain, or -1 without a cap.
 func (b *CallBudget) Left() int {
 	if b == nil {

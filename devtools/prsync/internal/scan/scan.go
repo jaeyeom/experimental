@@ -14,6 +14,7 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/config"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/herdr"
+	"github.com/jaeyeom/experimental/devtools/prsync/internal/runlog"
 )
 
 const herdrMinVersion = "0.8.0"
@@ -125,6 +126,7 @@ func Started(doc Document) bool {
 // Run surveys open PRs. The returned document is the work so far; a non-nil
 // error is fatal (exit 3) after the caller writes that document when Started.
 func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now time.Time) (Document, error) {
+	ctx = gh.WithRollupStats(ctx)
 	doc := emptyDocument(now)
 	if err := deps.GH.AuthStatus(ctx); err != nil {
 		return finish(doc, fmt.Errorf("gh auth: %w", err))
@@ -145,6 +147,7 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	threads := newThreadLookup(deps, cfg)
 	err = classifyRepos(ctx, deps.GH, threads, cfg, resolved, deps.Marker, &doc)
 	threads.report(ctx)
+	reportStatusChecks(ctx)
 	if err != nil {
 		return finish(doc, err)
 	}
@@ -162,6 +165,7 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 // or list every open PR. A missing PR is omitted. An inaccessible repository
 // is recorded and its PRs are omitted. Other view errors are fatal.
 func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Target, now time.Time) (Document, error) {
+	ctx = gh.WithRollupStats(ctx)
 	doc := emptyDocument(now)
 	if err := deps.GH.AuthStatus(ctx); err != nil {
 		return finish(doc, fmt.Errorf("gh auth: %w", err))
@@ -178,6 +182,7 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 
 	threads := newThreadLookup(deps, cfg)
 	defer threads.report(ctx)
+	defer reportStatusChecks(ctx)
 	for _, target := range unique {
 		if err := ctx.Err(); err != nil {
 			return finish(doc, fmt.Errorf("scan: %w", err))
@@ -210,6 +215,12 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 		return finish(doc, err)
 	}
 	return finish(doc, nil)
+}
+
+// reportStatusChecks logs the round's status-check cache hits and calls.
+func reportStatusChecks(ctx context.Context) {
+	hits, calls := gh.RollupStats(ctx)
+	runlog.FromContext(ctx).Info(fmt.Sprintf("scan: status checks %d hits/%d calls", hits, calls))
 }
 
 func dedupeTargets(targets []Target) []Target {

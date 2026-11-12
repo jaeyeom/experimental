@@ -25,6 +25,7 @@ go_test(
         "apimethod_test.go",
         "client_test.go",
         "cost_test.go",
+        "rollup_ttl_test.go",
         "teamcover_budget_test.go",
         "teamcover_split_test.go",
         "teamcover_test.go",
@@ -35,6 +36,7 @@ go_test(
     ),
     embed = [":go_default_library"],
     deps = [
+        "//devtools/prsync/internal/roundcache:go_default_library",
         "//devtools/prsync/internal/runlog:go_default_library",
         "@com_github_jaeyeom_go_cmdexec//:go_default_library",
     ],
