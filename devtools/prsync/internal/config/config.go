@@ -127,10 +127,25 @@ type Config struct {
 	// ScanInScopeOnly leaves PRs marked out_of_scope out of scan output.
 	ScanInScopeOnly bool
 	// SkipJobs are machine-wide steps (Jobs) this run does not perform.
-	SkipJobs          []string
-	GHBin             string
-	JiraBin           string
-	ConcurrencyWaitOn string
+	SkipJobs []string
+	// OpenMissingTabs lets dispatch open a herdr tab, and start
+	// OpenTabsAgent in it, for an in-scope PR with no tab.
+	OpenMissingTabs bool
+	// OpenTabsWorkspace and OpenTabsCwd map a machine (LocalMachine for
+	// the local server) to the workspace and directory of a new tab.
+	OpenTabsWorkspace map[string]string
+	OpenTabsCwd       map[string]string
+	// OpenTabsAgent is the agent argv: a herdr agent kind, then its
+	// arguments.
+	OpenTabsAgent []string
+	// OpenTabsMaxPerRound caps the tabs one dispatch run opens.
+	OpenTabsMaxPerRound int
+	// OpenTabsReadyTimeout bounds starting the agent and waiting for it
+	// to be idle.
+	OpenTabsReadyTimeout time.Duration
+	GHBin                string
+	JiraBin              string
+	ConcurrencyWaitOn    string
 	// ConcurrencyIgnoreBlocked is true when a blocked agent does not hold
 	// the gate by its status. The default, false, holds the gate for a
 	// blocked agent.
@@ -288,6 +303,9 @@ func Defaults() Config {
 		GateLease:                "auto",
 		WakeBeforePrompt:         "auto",
 		GateJobMinAge:            procinfo.DefaultJobMinAge,
+		OpenTabsAgent:            []string{"claude"},
+		OpenTabsMaxPerRound:      defaultOpenTabsMaxPerRound,
+		OpenTabsReadyTimeout:     defaultOpenTabsReadyTimeout,
 	}
 }
 
@@ -554,6 +572,9 @@ func applyOtherKey(cfg *Config, key, val string) error {
 	case "dispatch_prompt_suffix":
 		cfg.PromptSuffix = val
 		return nil
+	case "open_missing_tabs", "open_tabs_workspace", "open_tabs_cwd", "open_tabs_agent",
+		"open_tabs_max_per_round", "open_tabs_ready_timeout":
+		return applyOpenTabsKey(cfg, key, val)
 	case "wake_before_prompt":
 		cfg.WakeBeforePrompt = strings.TrimSpace(val)
 		return nil

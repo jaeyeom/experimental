@@ -50,6 +50,10 @@ type Request struct {
 	// Waker wakes a hibernated agent before its prompt
 	// (wake_before_prompt). Nil never wakes.
 	Waker Waker
+	// Opener returns the herdr client that opens a tab for an untabbed
+	// PR (open_missing_tabs) on machine, empty for the local server. Nil
+	// cannot open a tab.
+	Opener func(machine string) TabOpener
 }
 
 // Candidate is one PR considered for dispatch.
@@ -340,8 +344,9 @@ func runDry(ctx context.Context, h Herdr, store StateStore, cfg config.Config, r
 	if err != nil {
 		return doc, err
 	}
+	budget := newTabBudget(cfg)
 	for _, c := range cands {
-		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req, now))
+		doc.Results = append(doc.Results, evaluateDry(c, cfg, st, req, now, budget))
 	}
 	if err := annotateGate(ctx, h, cfg, req, &doc); err != nil {
 		return doc, err
@@ -377,9 +382,10 @@ func dispatchLive(ctx context.Context, h Herdr, store StateStore, cfg config.Con
 	clock := Clock(realClock{})
 	sleeper := Sleeper(realSleeper{})
 	timedOut := false
+	budget := newTabBudget(cfg)
 	for i, c := range cands {
 		var step liveStep
-		doc, step = dispatchCandidate(ctx, h, store, cfg, req, now, st, matched, clock, sleeper, cands, i, c, doc)
+		doc, step = dispatchCandidate(ctx, h, store, cfg, req, now, st, matched, clock, sleeper, budget, cands, i, c, doc)
 		timedOut = timedOut || step.timedOut
 		if step.done {
 			return doc, step.err
@@ -398,12 +404,13 @@ type liveStep struct {
 	timedOut bool
 }
 
-func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time, st State, matched map[string]struct{}, clock Clock, sleeper Sleeper, cands []Candidate, i int, c Candidate, doc Document) (Document, liveStep) {
+func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg config.Config, req Request, now time.Time, st State, matched map[string]struct{}, clock Clock, sleeper Sleeper, budget *tabBudget, cands []Candidate, i int, c Candidate, doc Document) (Document, liveStep) {
 	if err := ctx.Err(); err != nil {
 		doc.Results = append(doc.Results, failItem(c, err))
 		return doc, liveStep{done: true, err: fmt.Errorf("dispatch: %w", err)}
 	}
 	item := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force, now)
+	c, item, openedTab := openIfUntabbed(ctx, cfg, st, req, now, c, item, budget)
 	if item.Action != "" {
 		logResult(ctx, item)
 		doc.Results = append(doc.Results, item)
@@ -415,7 +422,7 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 		}
 		return doc, liveStep{}
 	}
-	res, err := Wait(ctx, h, gateConfig(cfg, c.Repo), req.RunnerPane, matched, clock, sleeper)
+	res, err := Wait(ctx, h, exemptNewPane(gateConfig(cfg, c.Repo), c.PR.Tab, openedTab), req.RunnerPane, matched, clock, sleeper)
 	if errors.Is(err, ErrTimeout) {
 		item = gateTimeoutItem(c, res.Busy, req.Doc)
 		logResult(ctx, item)
@@ -441,10 +448,10 @@ func dispatchCandidate(ctx context.Context, h Herdr, store StateStore, cfg confi
 		sendArgs = append(sendArgs, "machine", c.PR.Tab.Machine)
 	}
 	runlog.FromContext(ctx).Info("dispatch_send", sendArgs...)
-	item = sendPrompt(ctx, h, cfg, c, req, clock, sleeper)
+	item = markOpenedTab(sendPrompt(ctx, h, cfg, c, req, clock, sleeper), openedTab)
 	logResult(ctx, item)
 	doc.Results = append(doc.Results, item)
-	if item.Action == ActionDispatched || item.Action == ActionDispatchedTimeout {
+	if recordsDispatch(item.Action) {
 		recordDispatch(st, c, req, now)
 		if err := saveEntry(store, st, prKey(c.Repo, c.Number)); err != nil {
 			return doc, liveStep{done: true, err: err}
@@ -483,6 +490,15 @@ func gateConfig(cfg config.Config, repo string) config.Config {
 		cfg.Checkout = checkoutOfRepo(repo)
 	}
 	return cfg
+}
+
+// recordsDispatch reports whether a live result writes dedupe state.
+func recordsDispatch(action string) bool {
+	switch action {
+	case ActionDispatched, ActionDispatchedTimeout, ActionOpenedTabAndDispatched:
+		return true
+	}
+	return false
 }
 
 func recordDispatch(st State, c Candidate, req Request, now time.Time) {
@@ -734,6 +750,9 @@ func logResult(ctx context.Context, item Item) {
 	if item.Machine != "" {
 		args = append(args, "machine", item.Machine)
 	}
+	if item.TabID != "" {
+		args = append(args, "tab_id", item.TabID)
+	}
 	if item.Detail != "" {
 		args = append(args, "detail", item.Detail)
 	}
@@ -787,8 +806,11 @@ func saveState(store StateStore, st State) error {
 	return nil
 }
 
-func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time.Time) Item {
+func evaluateDry(c Candidate, cfg config.Config, st State, req Request, now time.Time, budget *tabBudget) Item {
 	r := Evaluate(c, cfg, st, req.Rebase, req.CIFix, req.Force, now)
+	if r.Action == ActionSkippedNoTab {
+		return wouldOpenTab(c, cfg, st, req, now, r, budget)
+	}
 	if r.Action != "" {
 		return r
 	}

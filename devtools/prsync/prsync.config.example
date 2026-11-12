@@ -51,6 +51,17 @@
 # Machine-wide jobs this run skips (comma-separated): team-cover. Run
 # gh-nudge next to the watcher that does not skip.
 # skip_jobs=team-cover
+# Open a herdr tab, start an agent, and dispatch for an in-scope PR with
+# no tab (dispatch --open-tabs). Off by default. Workspace and cwd take a
+# plain value for the local server and machine=value for others; cwd
+# falls back to machine_checkouts. The agent is a herdr agent kind, then
+# its arguments.
+# open_missing_tabs=true
+# open_tabs_workspace=prs, linux2=reviews
+# open_tabs_cwd=/Users/me/src/repo
+# open_tabs_agent=claude
+# open_tabs_max_per_round=2
+# open_tabs_ready_timeout=90s
 
 # Gate busy-set: any (every working or blocked agent) | managed (only
 # those on tabs matched to PRs in the current scan; managed runs a scan).

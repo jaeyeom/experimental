@@ -43,6 +43,7 @@ go_test(
         "cli_integration_test.go",
         "cli_log_test.go",
         "cli_machines_test.go",
+        "cli_opentabs_test.go",
         "cli_probes_test.go",
         "cli_scan_test.go",
         "cli_scope_test.go",

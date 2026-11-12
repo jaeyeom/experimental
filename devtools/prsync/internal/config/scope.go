@@ -68,7 +68,7 @@ func validateScope(c Config) error {
 			return &KeyError{Key: "skip_jobs", Reason: fmt.Sprintf("unknown job %q; want one of %s", job, strings.Join(Jobs, ", "))}
 		}
 	}
-	return nil
+	return validateOpenTabs(c)
 }
 
 // ParseJobs splits a comma- or space-separated skip_jobs list, dropping

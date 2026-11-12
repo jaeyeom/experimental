@@ -32,6 +32,12 @@ case "$1 $2" in
   if [ -e "$d/$m.tabs" ]; then cat "$d/$m.tabs"; exit 0; fi
   echo '{"result":{"tabs":[{"tab_id":"w2:t1","label":"'"$m"'-tab"}]}}' ;;
 "tab close") echo '{"result":{}}' ;;
+"tab create")
+  if [ -e "$d/$m.tab-create" ]; then cat "$d/$m.tab-create"; exit 0; fi
+  echo '{"result":{"tab":{"tab_id":"w9:t1","workspace_id":"w9"},"root_pane":{"pane_id":"w9:p1","tab_id":"w9:t1","workspace_id":"w9"}}}' ;;
+"agent start")
+  if [ -e "$d/$m.agent-start-error" ]; then cat "$d/$m.agent-start-error" >&2; exit 1; fi
+  echo '{"result":{}}' ;;
 "pane list")
   if [ -e "$d/$m.panes" ]; then cat "$d/$m.panes"; exit 0; fi
   echo '{"result":{"panes":[]}}' ;;
@@ -64,6 +70,10 @@ esac
 //     output.
 //   - m.tabs is the `tab list` output. Without it, m has one tab w2:t1,
 //     labelled "<m>-tab". `tab close` always succeeds.
+//   - m.tab-create is the `tab create` output. Without it, the new tab
+//     is w9:t1 in workspace w9, with root pane w9:p1.
+//   - `agent start` succeeds unless m.agent-start-error exists, which
+//     makes it fail with that file as its stderr.
 //   - m.panes is the `pane list` output, and m.workspaces the
 //     `workspace list` output. Without them, both lists are empty.
 //   - `workspace focus` and `tab focus` succeed unless m.focus-refused

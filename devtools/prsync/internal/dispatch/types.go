@@ -28,6 +28,18 @@ const (
 	// ActionGateUnsafe means the dispatch checkout is dirty. It does not send.
 	ActionGateUnsafe = "gate_unsafe"
 	ActionFailed     = "failed"
+	// ActionWouldOpenTab is the dry run of opening a tab for an untabbed
+	// PR (open_missing_tabs) and dispatching to it.
+	ActionWouldOpenTab = "would_open_tab"
+	// ActionOpenedTabAndDispatched means prsync opened the PR's tab,
+	// started its agent, and dispatched to it.
+	ActionOpenedTabAndDispatched = "opened_tab_and_dispatched"
+	// ActionOpenTabFailed means opening the tab or starting its agent
+	// failed. A tab prsync created is closed again. Detail says why.
+	ActionOpenTabFailed = "open_tab_failed"
+	// ActionSkippedOpenTabCap means open_tabs_max_per_round tabs were
+	// already opened this run.
+	ActionSkippedOpenTabCap = "skipped_open_tab_cap"
 )
 
 // Document is the outbound dispatch JSON document.
@@ -45,7 +57,9 @@ type Item struct {
 	PaneID string `json:"pane_id,omitempty"` //nolint:tagliatelle // brief outbound contract
 	// Machine is the saved herdr machine of the pane. Omitted for the
 	// local server.
-	Machine        string `json:"machine,omitempty"`
+	Machine string `json:"machine,omitempty"`
+	// TabID is the tab prsync opened for the PR (open_missing_tabs).
+	TabID          string `json:"tab_id,omitempty"`          //nolint:tagliatelle // brief outbound contract
 	RenderedPrompt string `json:"rendered_prompt,omitempty"` //nolint:tagliatelle // brief outbound contract
 	Detail         string `json:"detail,omitempty"`
 	// Woke is set when the pane's agent was hibernated and agentbus

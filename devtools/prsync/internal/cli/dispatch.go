@@ -31,6 +31,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 		force      bool
 		readStdin  bool
 		suffix     string
+		openTabs   bool
 		scope      scopeFlags
 	)
 	cmd := &cobra.Command{
@@ -43,7 +44,12 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 			if cmd.Flags().Changed("prompt-suffix") {
 				promptSuffix = &suffix
 			}
-			applyScope := func(cfg *config.Config) error { return scope.apply(cmd, cfg) }
+			applyScope := func(cfg *config.Config) error {
+				if cmd.Flags().Changed("open-tabs") {
+					cfg.OpenMissingTabs = openTabs
+				}
+				return scope.apply(cmd, cfg)
+			}
 			return runDispatch(ctx, stdout, exec, configPath, prs, all, goLive, rebase, ciFix, hint, force, readStdin, promptSuffix, applyScope)
 		},
 	}
@@ -58,6 +64,7 @@ func newDispatchCmd(stdout io.Writer, exec executor.Executor) *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "re-dispatch even if dedupe state would skip")
 	cmd.Flags().StringVar(&suffix, "prompt-suffix", "", "text appended after a blank line to every prompt (overrides dispatch_prompt_suffix)")
 	cmd.Flags().BoolVar(&readStdin, "stdin", false, "read a scan document from stdin (otherwise self-scan, or fetch --pr targets)")
+	cmd.Flags().BoolVar(&openTabs, "open-tabs", false, "open a herdr tab and start an agent for an in-scope PR with no tab (overrides open_missing_tabs)")
 	return cmd
 }
 
@@ -118,6 +125,12 @@ func runDispatch(ctx context.Context, stdout io.Writer, exec executor.Executor, 
 		Hint:       hint,
 		Force:      force,
 		Remote:     func(machine string) dispatch.Herdr { return machineHerdr(exec, cfg, machine) },
+		Opener: func(machine string) dispatch.TabOpener {
+			if machine == "" {
+				return h
+			}
+			return machineHerdr(exec, cfg, machine)
+		},
 	}
 	if cfg.WakeBeforePrompt == "auto" {
 		req.Waker = promptWaker(exec)
