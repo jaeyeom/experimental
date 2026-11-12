@@ -23,4 +23,5 @@ go_test(
     name = "go_default_test",
     srcs = ["main_test.go"],
     embed = [":go_default_library"],
+    deps = ["//devtools/gh-nudge/internal/config:go_default_library"],
 )

@@ -16,6 +16,12 @@ const DefaultApproveBody = "LGTM"
 // omits agent_timeout.
 const DefaultAgentTimeout = 120 * time.Second
 
+// Defaults of the agent_command decision cache when config omits them.
+const (
+	DefaultAgentCacheTTL   = 7 * 24 * time.Hour
+	DefaultAgentCacheMaxMB = 50
+)
+
 // Values of ApproveRule.Checks.
 const (
 	// ChecksGreen requires no failed check and every required check passed.
@@ -30,6 +36,10 @@ type ApproveConfig struct {
 	Body string `yaml:"-"`
 	// SkipAlreadyApproved skips a pull request the user approved at the current head.
 	SkipAlreadyApproved bool `yaml:"-"`
+	// AgentCacheTTL is how long a cached agent_command decision is reused.
+	AgentCacheTTL time.Duration `yaml:"-"`
+	// AgentCacheMaxMB bounds the agent_command decision cache in MiB.
+	AgentCacheMaxMB int `yaml:"-"`
 	// Rules are ORed. A pull request that matches none is left for a human.
 	Rules []ApproveRule `yaml:"-"`
 }
@@ -58,15 +68,25 @@ type ApproveRule struct {
 	AgentCommand []string
 	// AgentTimeout bounds AgentCommand. Zero means DefaultAgentTimeout.
 	AgentTimeout time.Duration
+	// AgentCacheDisabled runs AgentCommand on every pass, without the cache.
+	AgentCacheDisabled bool
 }
 
 func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 	out := ApproveConfig{
 		Body:                src.Body,
 		SkipAlreadyApproved: src.SkipAlreadyApproved,
+		AgentCacheTTL:       src.AgentCacheTtl.GoDuration(),
+		AgentCacheMaxMB:     src.AgentCacheMaxMb,
 	}
 	if out.Body == "" {
 		out.Body = DefaultApproveBody
+	}
+	if out.AgentCacheTTL <= 0 {
+		out.AgentCacheTTL = DefaultAgentCacheTTL
+	}
+	if out.AgentCacheMaxMB <= 0 {
+		out.AgentCacheMaxMB = DefaultAgentCacheMaxMB
 	}
 	for _, rule := range src.Rules {
 		converted := ApproveRule{
@@ -87,6 +107,7 @@ func convertApprove(src pklconfig.ApproveConfig) ApproveConfig {
 			MaxUnresolvedThreads: rule.MaxUnresolvedThreads,
 			AgentCommand:         cloneStrings(rule.AgentCommand),
 			AgentTimeout:         rule.AgentTimeout.GoDuration(),
+			AgentCacheDisabled:   !rule.AgentCache,
 		}
 		if rule.Checks != nil {
 			converted.Checks = *rule.Checks

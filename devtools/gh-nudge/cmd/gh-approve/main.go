@@ -18,6 +18,9 @@
 //	gh-approve --pr acme/widgets#12 --explain
 //
 // Every decision is appended to ~/.config/gh-nudge/approve-log.jsonl.
+//
+// Agent command decisions are cached under $XDG_CACHE_HOME/gh-approve/agent
+// (default ~/.cache/gh-approve/agent). --no-agent-cache bypasses the cache.
 package main
 
 import (
@@ -48,17 +51,37 @@ func openAuditLog(home string) (*os.File, string, error) {
 	return file, path, nil
 }
 
+// newAgentCache returns the agent decision cache, or nil when disabled.
+// It lives under xdgCacheHome, or home/.cache when xdgCacheHome is empty.
+func newAgentCache(cfg config.ApproveConfig, disabled bool, home, xdgCacheHome string) *approve.AgentCache {
+	if disabled {
+		return nil
+	}
+	base := xdgCacheHome
+	if base == "" {
+		base = filepath.Join(home, ".cache")
+	}
+	return &approve.AgentCache{
+		Dir:      filepath.Join(base, "gh-approve", "agent"),
+		TTL:      cfg.AgentCacheTTL,
+		MaxBytes: int64(cfg.AgentCacheMaxMB) << 20,
+		Now:      time.Now,
+	}
+}
+
 func main() {
 	var (
-		configPath string
-		opts       approve.Options
+		configPath   string
+		opts         approve.Options
+		noAgentCache bool
 	)
 	flag.StringVar(&configPath, "config", "", "Path to config file (default ~/.config/gh-nudge/config.pkl)")
 	flag.BoolVar(&opts.Apply, "apply", false, "Approve for real. Without it, gh-approve is a dry run")
 	flag.StringVar(&opts.PR, "pr", "", "Evaluate one pull request: owner/repo#N or a URL")
 	flag.BoolVar(&opts.Explain, "explain", false, "Print every condition of every rule with the value it saw")
+	flag.BoolVar(&noAgentCache, "no-agent-cache", false, "Run agent commands without reading or writing the decision cache")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--config <path>]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [--apply] [--pr <owner/repo#N | URL>] [--explain] [--no-agent-cache] [--config <path>]\n\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -66,13 +89,13 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(configPath, opts); err != nil {
+	if err := run(configPath, opts, noAgentCache); err != nil {
 		fmt.Fprintf(os.Stderr, "gh-approve: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath string, opts approve.Options) (err error) {
+func run(configPath string, opts approve.Options, noAgentCache bool) (err error) {
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -91,11 +114,12 @@ func run(configPath string, opts approve.Options) (err error) {
 		}
 	}()
 	runner := &approve.Runner{
-		Client: github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor())),
-		Config: cfg.Approve,
-		Out:    os.Stdout,
-		Log:    logFile,
-		Now:    time.Now,
+		Client:     github.NewClient(context.Background(), github.GHExecutor(executor.NewBasicExecutor())),
+		Config:     cfg.Approve,
+		Out:        os.Stdout,
+		Log:        logFile,
+		Now:        time.Now,
+		AgentCache: newAgentCache(cfg.Approve, noAgentCache, home, os.Getenv("XDG_CACHE_HOME")),
 	}
 	if err := runner.Run(opts); err != nil {
 		return fmt.Errorf("run: %w", err)

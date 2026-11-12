@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "agent.go",
+        "agentcache.go",
         "conditions.go",
         "runner.go",
     ],
@@ -23,6 +24,7 @@ go_test(
     srcs = [
         "agent_test.go",
         "agent_unix_test.go",
+        "agentcache_test.go",
         "conditions_test.go",
         "runner_test.go",
     ],
