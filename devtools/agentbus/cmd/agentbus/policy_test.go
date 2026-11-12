@@ -171,6 +171,53 @@ func TestPolicyRunnerHibernatesThroughTheHubInIdleOrder(t *testing.T) {
 	}
 }
 
+// The runner saves its idle times to the state directory, so a
+// restarted runner, and mem, keep them.
+func TestPolicyRunnerKeepsIdleTimesAcrossARestart(t *testing.T) {
+	fake, bus, mem, step, env := setupPolicy(t)
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dirs.TunnelSocketPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dirs.TunnelSocketPath, nil)
+	env = append(env, "HERDR_PANE_ID=w1:p4")
+
+	t0 := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	stop := startPolicy(t, env)
+	fake.Write("local.agents", policyAgents())
+	step(t0)
+	fake.Write("local.agents", policyAgents("w1:p5"))
+	step(t0.Add(time.Minute))
+	step(t0.Add(time.Minute + 10*time.Second))
+	if code, stderr := stop(); code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dirs.StateDir, policySeenFile)); err != nil {
+		t.Fatalf("no saved idle times: %v", err)
+	}
+
+	stop = startPolicy(t, env)
+	mem.base.Store(900 * mib)
+	step(t0.Add(40 * time.Minute))
+	code, stderr := stop()
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	var begun []string
+	for _, req := range bus.reqs {
+		if req.Op == "hibernate-begin" {
+			begun = append(begun, req.Hibernate.Record.Handle)
+		}
+	}
+	// p5, idle 39m across the restart, is past the 30m minimum.
+	if want := []string{"herdr:mac/sess-5/w1:p5"}; !slices.Equal(begun, want) {
+		t.Fatalf("hibernated %q, want %q; stderr %q", begun, want, stderr)
+	}
+}
+
 func TestPolicyRunnerWithTheHubUnreachableStopsNothing(t *testing.T) {
 	fake, _, mem, step, env := setupPolicy(t)
 	dialDaemon = func(_ context.Context, socket string, req daemon.Request) (daemon.Response, error) {

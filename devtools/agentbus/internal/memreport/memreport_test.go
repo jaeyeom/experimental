@@ -56,6 +56,78 @@ func TestFooterNamesTheHibernationPolicy(t *testing.T) {
 	}
 }
 
+func TestBuildFillsIdleSinceForIdleAndDoneRows(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	agent := func(pane, status string) adapter.Agent {
+		return adapter.Agent{Handle: "herdr:local/s/" + pane, PaneID: pane, Kind: "claude", Status: status}
+	}
+	r := Build(Input{
+		Agents: []adapter.Agent{agent("w1:p1", "idle"), agent("w1:p2", "done"), agent("w1:p3", "working"), agent("w1:p4", "idle"), agent("w1:p5", "idle")},
+		Idle: map[string]Idle{
+			"herdr:local/s/w1:p1": {Status: "idle", For: 3*time.Hour + 12*time.Minute + 30*time.Second},
+			"herdr:local/s/w1:p2": {Status: "done", For: 40 * time.Minute, LowerBound: true},
+			"herdr:local/s/w1:p3": {Status: "working", For: time.Hour},
+			// The tracker saw w1:p5 working: not the row's state.
+			"herdr:local/s/w1:p5": {Status: "working", For: time.Hour},
+		},
+		Now: now,
+	})
+	rows := map[string]Row{}
+	for _, row := range r.Agents {
+		rows[row.Pane] = row
+	}
+	p1 := rows["w1:p1"]
+	if p1.IdleSince != "2026-11-11T08:47:30Z" || p1.IdleSeconds == nil || *p1.IdleSeconds != 11550 || p1.IdleSinceLowerBound {
+		t.Fatalf("w1:p1 = %+v", p1)
+	}
+	p2 := rows["w1:p2"]
+	if p2.IdleSince != "2026-11-11T11:20:00Z" || p2.IdleSeconds == nil || *p2.IdleSeconds != 2400 || !p2.IdleSinceLowerBound {
+		t.Fatalf("w1:p2 = %+v", p2)
+	}
+	for _, pane := range []string{"w1:p3", "w1:p4", "w1:p5"} {
+		if row := rows[pane]; row.IdleSince != "unknown" || row.IdleSeconds != nil || row.IdleSinceLowerBound {
+			t.Fatalf("%s = %+v, want unknown", pane, row)
+		}
+	}
+	var buf bytes.Buffer
+	if err := r.WriteText(&buf); err != nil {
+		t.Fatal(err)
+	}
+	for pane, want := range map[string]string{"w1:p1": " 3h12m ", "w1:p2": " >=40m ", "w1:p3": " unknown ", "w1:p4": " unknown "} {
+		var line string
+		for _, l := range strings.Split(buf.String(), "\n") {
+			if strings.HasPrefix(l, pane+" ") {
+				line = l
+			}
+		}
+		if !strings.Contains(line, want) {
+			t.Errorf("%s line %q lacks %q", pane, line, want)
+		}
+	}
+}
+
+func TestIdleText(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		d     time.Duration
+		lower bool
+		want  string
+	}{
+		{0, false, "0m"},
+		{59 * time.Second, false, "0m"},
+		{40 * time.Minute, true, ">=40m"},
+		{3 * time.Hour, false, "3h0m"},
+		{50*time.Hour + 5*time.Minute, false, "50h5m"},
+	} {
+		if got := idleText(tt.d, tt.lower); got != tt.want {
+			t.Errorf("idleText(%s, %v) = %q, want %q", tt.d, tt.lower, got, tt.want)
+		}
+	}
+}
+
 func TestBuildKeepsAPaneWhoseProcessInfoFailed(t *testing.T) {
 	t.Parallel()
 

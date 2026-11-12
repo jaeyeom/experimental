@@ -33,10 +33,11 @@ type seen struct {
 	agent     adapter.Agent
 }
 
-// Poll refreshes adapter inventories until ctx is cancelled.
-// A non-positive interval uses defaultPoll. A lookup that misses
-// refreshes again without waiting for the next tick.
+// Poll refreshes adapter inventories until ctx is cancelled, then saves
+// the idle times. A non-positive interval uses defaultPoll. A lookup
+// that misses refreshes again without waiting for the next tick.
 func (r *Registry) Poll(ctx context.Context, interval time.Duration) {
+	defer r.saveSeen()
 	if interval <= 0 {
 		interval = defaultPoll
 	}

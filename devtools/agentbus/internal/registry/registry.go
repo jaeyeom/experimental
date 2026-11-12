@@ -21,6 +21,9 @@ import (
 
 const registryFile = "registry.json"
 
+// seenFile holds the idle tracker, so a restart keeps idle times.
+const seenFile = "seen.json"
+
 // Binding is one name held by a caller.
 type Binding struct {
 	Name   string
@@ -47,7 +50,10 @@ type Registry struct {
 	seen hibernate.IdleTracker
 	// Now is the clock seen times are read from. Nil uses time.Now.
 	Now func() time.Time
-	mu  sync.Mutex
+	// LastTurn, when not nil, bounds the idle time of an agent seen
+	// for the first time.
+	LastTurn hibernate.LastTurnFunc
+	mu       sync.Mutex
 }
 
 // record is one name binding. There is no deadline field.
@@ -68,14 +74,18 @@ func Open(dir string, adapters []adapter.Adapter, log *eventlog.Log) (*Registry,
 	if err != nil {
 		return nil, err
 	}
-	return &Registry{
+	r := &Registry{
 		dir:        dir,
 		names:      doc.Names,
 		hibernated: doc.Hibernated,
 		adapters:   adapters,
 		log:        log,
 		broken:     map[string]bool{},
-	}, nil
+	}
+	// Idle times are best effort: a file that cannot be read starts
+	// them over, as a daemon without one does.
+	_ = r.seen.Load(filepath.Join(dir, seenFile))
+	return r, nil
 }
 
 // Register claims name for the caller stamped from env.

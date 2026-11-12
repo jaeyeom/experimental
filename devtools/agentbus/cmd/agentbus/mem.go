@@ -7,19 +7,22 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/adapter/herdr"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/config"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/daemon"
-	"github.com/jaeyeom/experimental/devtools/agentbus/internal/lease"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/hibernate"
 	"github.com/jaeyeom/experimental/devtools/agentbus/internal/memreport"
+	"github.com/jaeyeom/experimental/devtools/agentbus/internal/paths"
 	"github.com/jaeyeom/experimental/devtools/pkg/hubcall"
 	"github.com/jaeyeom/experimental/devtools/pkg/procinfo"
 )
 
-// memBusTimeout bounds the two daemon requests of mem.
+// memBusTimeout bounds the daemon request of mem.
 const memBusTimeout = 2 * time.Second
 
 // Tests replace the process table and the memory reading.
@@ -29,8 +32,9 @@ var (
 )
 
 // cmdMem reports each local agent pane's memory. It needs herdr; the
-// daemon, or the hub in hub mode, only adds names and leases, and is
-// never started for it.
+// daemon, or the hub in hub mode, only adds names, leases, and idle
+// times, and is never started for it. In hub mode the idle times are
+// the policy runner's.
 func cmdMem(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
 	asJSON := len(args) == 1 && args[0] == "--json"
 	if len(args) != 0 && !asJSON {
@@ -59,14 +63,14 @@ func cmdMem(ctx context.Context, args, env []string, stdout, stderr io.Writer) i
 
 // memInput reads herdr once for the panes and once per agent pane for
 // its processes, the process table once, the available memory, and the
-// daemon's names and leases.
+// daemon's names, leases, and idle times.
 func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 	ad := &herdr.Adapter{}
 	agents, err := ad.Inventory(ctx)
 	if err != nil {
 		return memreport.Input{}, fmt.Errorf("herdr: %w", err)
 	}
-	in := memreport.Input{Agents: agents, Foreground: map[string][]int{}, InfoErrors: map[string]error{}}
+	in := memreport.Input{Agents: agents, Foreground: map[string][]int{}, InfoErrors: map[string]error{}, Now: time.Now()}
 	for _, a := range agents {
 		if a.Kind == "" {
 			continue
@@ -96,6 +100,9 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 		in.Machine, _ = os.Hostname()
 	}
 	if cfg.Hub != "" {
+		if in.Idle, err = memPolicySeen(env, in.Now, agents); err != nil {
+			in.Notes = append(in.Notes, "idle times unknown: "+err.Error())
+		}
 		bus, err := memHubBus(ctx, cfg, env)
 		if err != nil {
 			in.Notes = append(in.Notes, fmt.Sprintf("hub %s not reachable (%s); names and leases left out", cfg.Hub, err))
@@ -104,13 +111,37 @@ func memInput(ctx context.Context, env []string) (memreport.Input, error) {
 		in.Bus = bus
 		return in, nil
 	}
-	bus, err := memBus(ctx, env)
+	bus, seen, err := memBus(ctx, env)
 	if err != nil {
-		in.Notes = append(in.Notes, fmt.Sprintf("agentbus daemon not reachable (%s); names and leases left out", err))
+		in.Notes = append(in.Notes, fmt.Sprintf("agentbus daemon not reachable (%s); names, leases, and idle times left out", err))
 		return in, nil
 	}
 	in.Bus = bus
+	in.Idle = memIdle(seen)
 	return in, nil
+}
+
+// memPolicySeen are the idle times the policy runner of a hub-mode
+// client saved, for the agents herdr still reports in the state it saw.
+// Without a runner there are none.
+func memPolicySeen(env []string, now time.Time, agents []adapter.Agent) (map[string]memreport.Idle, error) {
+	dirs, err := paths.FromEnv(env)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	seen, err := hibernate.LoadSeen(filepath.Join(dirs.StateDir, policySeenFile), now, agents)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
+	}
+	return memIdle(seen), nil
+}
+
+func memIdle(seen map[string]hibernate.Seen) map[string]memreport.Idle {
+	out := make(map[string]memreport.Idle, len(seen))
+	for handle, s := range seen {
+		out[handle] = memreport.Idle{Status: s.Status, For: s.For, LowerBound: s.LowerBound}
+	}
+	return out
 }
 
 // memPolicy is the hibernation policy this machine's config sets. It
@@ -129,7 +160,8 @@ func memPolicy(cfg config.Config) *memreport.Policy {
 // memHubBus asks the hub for its names and lease table, over the tunnel
 // when it answers, else over ssh, within the hook deadline so a slow
 // hub never stalls mem. It keeps only this machine's handles, in the
-// herdr:local/... form of the local panes.
+// herdr:local/... form of the local panes. It drops the hub's idle
+// times, which are not this machine's.
 func memHubBus(ctx context.Context, cfg config.Config, env []string) (*memreport.Bus, error) {
 	machine, err := leaseMachine(cfg, env)
 	if err != nil {
@@ -140,7 +172,7 @@ func memHubBus(ctx context.Context, cfg config.Config, env []string) (*memreport
 	defer cancel()
 	var bus *memreport.Bus
 	if routed, ok := openTunnel(ctx, cfg, "mem", env, io.Discard); ok {
-		bus, err = memBus(routed, env)
+		bus, _, err = memBus(routed, env)
 	} else {
 		bus, err = memSSHBus(ctx, cfg, total)
 	}
@@ -240,36 +272,25 @@ func machineBus(bus *memreport.Bus, machine string) *memreport.Bus {
 }
 
 // memBus asks the daemon dialBus reaches, the local one or the hub over
-// the tunnel, for the registered names and the lease table.
-func memBus(ctx context.Context, env []string) (*memreport.Bus, error) {
+// the tunnel, for its hibernate state: the registered names, the lease
+// table, and the idle times hibernate --idle-over reads.
+func memBus(ctx context.Context, env []string) (*memreport.Bus, map[string]hibernate.Seen, error) {
 	ctx, cancel := context.WithTimeout(ctx, memBusTimeout)
 	defer cancel()
-	ask := func(req daemon.Request) (daemon.Response, error) {
-		resp, err := dialBus(ctx, env, req)
-		if err != nil {
-			return resp, err
-		}
-		if !resp.OK {
-			return resp, fmt.Errorf("%s: %s", req.Op, resp.Error)
-		}
-		return resp, nil
-	}
-	list, err := ask(daemon.Request{Op: "list"})
+	resp, err := dialBus(ctx, env, daemon.Request{Op: "hibernate-state"})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if !resp.OK {
+		return nil, nil, fmt.Errorf("hibernate-state: %s", resp.Error)
 	}
 	bus := &memreport.Bus{Names: map[string][]string{}}
-	for _, row := range list.Rows {
-		if row.Name != "" {
-			bus.Names[row.Handle] = append(bus.Names[row.Handle], row.Name)
-		}
+	if resp.Hibernate == nil {
+		return bus, nil, nil
 	}
-	status, err := ask(daemon.Request{Op: "lease-status", Lease: &lease.Args{All: true}})
-	if err != nil {
-		return nil, err
+	for handle, names := range resp.Hibernate.Names {
+		bus.Names[handle] = append([]string{}, names...)
 	}
-	if status.Lease != nil {
-		bus.Leases = status.Lease.Leases
-	}
-	return bus, nil
+	bus.Leases = resp.Hibernate.Leases
+	return bus, resp.Hibernate.Seen, nil
 }

@@ -715,7 +715,7 @@ pane is not listed.
 
 #+BEGIN_EXAMPLE
 PANE   TAB      NAMES  STATE    SINCE    RSS        JOBS  LEASE
-w1:p1  inbox    ops/x  idle     unknown  471.0 MiB  1     queued local:/src/repo
+w1:p1  inbox    ops/x  idle     3h12m    471.0 MiB  1     queued local:/src/repo
 w1:p2  build    -      working  unknown  400.0 MiB  0     holds local:/src/repo
 total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available; hibernate policy off
 #+END_EXAMPLE
@@ -725,7 +725,7 @@ total 871.0 MiB in 2 agents (idle 1, working 1); 8.0 GiB available; hibernate po
 | ~PANE~, ~TAB~ | The herdr pane and its tab label. |
 | ~NAMES~ | The bus names registered on the pane's handle. |
 | ~STATE~ | herdr's agent state: ~idle~, ~done~, ~working~, ~blocked~, or ~unknown~. |
-| ~SINCE~ | When the state last changed. Neither herdr's agent list nor the event log records it yet, so it is ~unknown~. |
+| ~SINCE~ | For an ~idle~ or ~done~ row, how long the agent has been idle by the daemon's idle tracker, the time ~hibernate --idle-over~ and the policy use, such as ~3h12m~. ~>=40m~ means it was already idle when the tracker started 40 minutes ago, so at least that long. ~unknown~ for other states, when the daemon cannot be asked, or when the tracker has no time for the agent. |
 | ~RSS~ | The summed RSS of the pane's foreground processes (from ~herdr pane process-info~) and all their descendants. |
 | ~JOBS~ | Long-lived background jobs: children of a foreground process that have run at least 10s (an unknown age counts as old) and are not a known helper such as an MCP or language server, a status-line command, or the Claude Code sandbox's socat bridges. This is prsync's ~background-job~ rule, shared in ~devtools/pkg/procinfo~. |
 | ~LEASE~ | The checkouts the handle holds or is queued for. |
@@ -742,7 +742,9 @@ min idle 30m0s)~.
 name), ~states~ (count by state), ~notes~, and ~hibernate_policy~ (~mode~,
 and unless it is ~off~, ~below_bytes~, ~target_bytes~, and
 ~min_idle_seconds~). Each agent has ~pane~,
-~tab~, ~handle~, ~names~, ~state~, ~idle_since~, ~rss_bytes~, ~jobs~
+~tab~, ~handle~, ~names~, ~state~, ~idle_since~ (an RFC 3339 time or
+~unknown~), with a time also ~idle_seconds~ and
+~idle_since_lower_bound: true~ for an at-least time, ~rss_bytes~, ~jobs~
 (each with ~pid~, ~age_seconds~, -1 when unknown, and ~command~),
 ~leases~ (each with ~checkout~ and ~role~, ~holder~ or ~queued~),
 ~session~ (herdr's ~agent_session.value~), and ~error~ when its
@@ -753,7 +755,8 @@ One run makes one ~herdr agent list~ and one ~herdr tab list~ call, one
 ~process-info~ call per agent pane, and one process-table read (~/proc~
 on Linux, one ~ps~ elsewhere). It does not start the daemon: when the
 daemon is down, the names and lease columns (and the JSON fields) are
-left out and a note says why. When herdr cannot be reached, ~mem~
+left out, ~SINCE~ is ~unknown~, and a note says why. The names, leases,
+and idle times come from one ~hibernate-state~ request to the daemon. When herdr cannot be reached, ~mem~
 exits non-zero.
 
 In hub mode the processes and memory are still read here, but the names
@@ -765,7 +768,11 @@ leases of other machines and of the hub's own panes are not shown. The
 whole hub lookup gets the hooks' deadline, ~AGENTBUS_HOOK_TIMEOUT~
 (default 3s), so ~mem~ stays quick. When the hub cannot be reached in
 time, or ~machine~ is not set, the columns are left out and a note
-names the hub.
+names the hub. The hub's idle times are not this machine's, so ~SINCE~
+comes from the idle times ~agentbus hibernate --policy~ saves here (see
+[[*On a hub-mode client]]), for the agents herdr still reports with the
+state and ~state_change_seq~ the runner saw; without a runner it is
+~unknown~.
 
 * Hibernate idle agents
 
@@ -822,10 +829,18 @@ out). The exit status is 1 when a stop failed or a named agent was
 refused; refusals under ~--idle-over~ exit 0.
 
 The daemon learns how long an agent has been in its state from its
-inventory polls and herdr's ~state_change_seq~, and keeps it in memory:
-after a daemon restart an agent counts as idle only from then. An agent
-the daemon has not seen is never picked by ~--idle-over~; name it
-instead.
+inventory polls and herdr's ~state_change_seq~ (herdr reports no
+timestamps). It saves each agent's state, ~state_change_seq~, and since
+to ~seen.json~ in its state directory, at most once a minute and on
+shutdown. A restarted daemon keeps an agent's since while herdr still
+reports the same handle, state, and ~state_change_seq~, and starts it
+over otherwise. An agent it finds already in its state counts from the
+daemon start, a lower bound (~>=~ in ~agentbus mem~), unless the agent
+kind records its last turn: for Claude Code that is the modification
+time of the session transcript named by ~agent_session~,
+~~/.claude/projects/*/<session>.jsonl~ (under ~$CLAUDE_CONFIG_DIR~ when
+set), read only and ignored when it cannot be read. An agent the daemon
+has not seen is never picked by ~--idle-over~; name it instead.
 
 Hibernate stops agents on this machine only. In hub mode it still runs
 here, since it reads this machine's panes and processes, and sends only
@@ -924,9 +939,9 @@ one at or above it.
 
 A woken agent is not hibernated again right away: the daemon's idle
 time for it starts over when it comes back to its pane, so it must be
-idle ~hibernate_min_idle~ again. As for ~--idle-over~, the idle time is
-kept in memory, so after a daemon restart every agent counts as idle
-only from then.
+idle ~hibernate_min_idle~ again. As for ~--idle-over~, the idle times
+survive a daemon restart while an agent's state and ~state_change_seq~
+stay.
 
 The policy runs in agentbusd and acts only on the machine it runs on:
 it reads that machine's memory and that machine's herdr panes
@@ -950,8 +965,10 @@ target, ~"dry-run"~, and the once-per-episode rules are the daemon's.
 The hub keeps idle times only for the machines it polls, so the runner
 keeps its own: each ~hibernate_interval~ it reads ~herdr agent list~
 here and counts an agent idle from the first reading it saw it ~idle~
-or ~done~, the same rules as the daemon's. It needs no ~machines~ entry
-on the hub, but its idle times start over when it restarts. Its events
+or ~done~, the same rules as the daemon's. It saves them, as the daemon
+does, to ~policy-seen.json~ in this machine's state directory, so a
+restart keeps them and ~agentbus mem~ shows them. It needs no
+~machines~ entry on the hub. Its events
 and why a tick did nothing (herdr down, hub unreachable) go to its
 stderr, not to the hub's event log, as
 

@@ -23,9 +23,18 @@ const (
 	RoleQueued = "queued"
 )
 
-// unknown is the idle-since of every row: neither herdr's agent list
-// nor the event log records when an agent's state last changed.
+// unknown is the idle-since of a row the idle tracker has no time for,
+// and the state of a pane in no known state.
 const unknown = "unknown"
+
+// Idle is how long an idle tracker has seen an agent in its state.
+// LowerBound is set when the tracker found it already in that state, so
+// it has been there at least For.
+type Idle struct {
+	Status     string
+	For        time.Duration
+	LowerBound bool
+}
 
 // Bus is what the daemon knows about the agents.
 type Bus struct {
@@ -55,6 +64,10 @@ type Input struct {
 	// Policy is the hibernation policy for the footer, or nil to leave
 	// it out.
 	Policy *Policy
+	// Idle is the idle tracker's times by handle, nil when there is no
+	// tracker to ask, and Now the time they are relative to.
+	Idle map[string]Idle
+	Now  time.Time
 }
 
 // Policy is the memory-pressure hibernation policy of this machine.
@@ -81,18 +94,22 @@ type Lease struct {
 }
 
 // Row is one agent pane. Names and Leases are nil when the daemon could
-// not be asked, and empty when it has none for the pane.
+// not be asked, and empty when it has none for the pane. IdleSince is
+// an RFC 3339 time for an idle or done row the idle tracker has a time
+// for, with IdleSeconds and IdleSinceLowerBound, and unknown otherwise.
 type Row struct {
-	Pane      string   `json:"pane"`
-	Tab       string   `json:"tab"`
-	Handle    string   `json:"handle"`
-	Names     []string `json:"names,omitzero"`
-	State     string   `json:"state"`
-	IdleSince string   `json:"idle_since"` //nolint:tagliatelle // mem JSON shape
-	RSSBytes  int64    `json:"rss_bytes"`  //nolint:tagliatelle // mem JSON shape
-	Jobs      []Job    `json:"jobs"`
-	Leases    []Lease  `json:"leases,omitzero"`
-	Session   string   `json:"session"`
+	Pane                string   `json:"pane"`
+	Tab                 string   `json:"tab"`
+	Handle              string   `json:"handle"`
+	Names               []string `json:"names,omitzero"`
+	State               string   `json:"state"`
+	IdleSince           string   `json:"idle_since"`                       //nolint:tagliatelle // mem JSON shape
+	IdleSeconds         *int64   `json:"idle_seconds,omitempty"`           //nolint:tagliatelle // mem JSON shape
+	IdleSinceLowerBound bool     `json:"idle_since_lower_bound,omitempty"` //nolint:tagliatelle // mem JSON shape
+	RSSBytes            int64    `json:"rss_bytes"`                        //nolint:tagliatelle // mem JSON shape
+	Jobs                []Job    `json:"jobs"`
+	Leases              []Lease  `json:"leases,omitzero"`
+	Session             string   `json:"session"`
 	// Error is why the pane's processes could not be read.
 	Error string `json:"error,omitempty"`
 }
@@ -129,6 +146,12 @@ func Build(in Input) Report {
 			Pane: a.PaneID, Tab: a.TabLabel, Handle: a.Handle, Session: a.SessionID,
 			State: state(a.Status), IdleSince: unknown, Jobs: []Job{},
 		}
+		if idle, ok := in.Idle[a.Handle]; ok && idleState(row.State) && idleState(idle.Status) {
+			secs := int64(idle.For / time.Second)
+			row.IdleSince = in.Now.Add(-idle.For).UTC().Format(time.RFC3339)
+			row.IdleSeconds = &secs
+			row.IdleSinceLowerBound = idle.LowerBound
+		}
 		if err := in.InfoErrors[a.PaneID]; err != nil {
 			row.Error = err.Error()
 		}
@@ -153,6 +176,34 @@ func Build(in Input) Report {
 		return cmp.Or(cmp.Compare(b.RSSBytes, a.RSSBytes), cmp.Compare(a.Pane, b.Pane))
 	})
 	return r
+}
+
+// idleState reports whether an agent in state shows an idle-since. The
+// tracker keeps the time across done to idle.
+func idleState(state string) bool {
+	return state == "idle" || state == "done"
+}
+
+// idleText is an idle time in hours and minutes, marked >= when it is
+// a lower bound.
+func idleText(d time.Duration, lowerBound bool) string {
+	m := int64(d / time.Minute)
+	text := fmt.Sprintf("%dm", m)
+	if m >= 60 {
+		text = fmt.Sprintf("%dh%dm", m/60, m%60)
+	}
+	if lowerBound {
+		return ">=" + text
+	}
+	return text
+}
+
+// since is the SINCE column of row.
+func (row Row) since() string {
+	if row.IdleSeconds == nil {
+		return unknown
+	}
+	return idleText(time.Duration(*row.IdleSeconds)*time.Second, row.IdleSinceLowerBound)
 }
 
 func state(status string) string {
@@ -199,7 +250,7 @@ func (r Report) WriteText(w io.Writer) error {
 		if r.bus {
 			cols = append(cols, dash(strings.Join(row.Names, ",")))
 		}
-		cols = append(cols, row.State, row.IdleSince, HumanBytes(row.RSSBytes), fmt.Sprint(len(row.Jobs)))
+		cols = append(cols, row.State, row.since(), HumanBytes(row.RSSBytes), fmt.Sprint(len(row.Jobs)))
 		if r.bus {
 			leases := make([]string, len(row.Leases))
 			for i, l := range row.Leases {

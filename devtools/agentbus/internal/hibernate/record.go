@@ -60,10 +60,12 @@ type Record struct {
 }
 
 // Seen is the state the daemon last saw an agent in, and for how long
-// it has seen it there.
+// it has seen it there. LowerBound is set when the agent was already
+// in the state when the daemon started, so For is at least that long.
 type Seen struct {
-	Status string        `json:"status"`
-	For    time.Duration `json:"for"`
+	Status     string        `json:"status"`
+	For        time.Duration `json:"for"`
+	LowerBound bool          `json:"lower_bound,omitempty"` //nolint:tagliatelle // wire shape
 }
 
 // Args carries a hibernate-* request.
