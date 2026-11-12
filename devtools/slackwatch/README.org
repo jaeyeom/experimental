@@ -285,6 +285,7 @@ off until ~post.mode~ is set; without it, ~post~ refuses.
 | ~outbox ls [--state S] [--json]~ | List outbox records. |
 | ~outbox show <id> [--json]~ | Show a record, ending with its exact text. |
 | ~outbox posted [--manual] <id> <permalink>~ | Report a handoff post, or with ~--manual~ a post made by hand. |
+| ~outbox recheck <id>~ | Read a mismatch post back again with the current config. A pass moves it to ~posted~ and replies on the decide item. A failure prints the remaining problems and exits non-zero. |
 | ~outbox poke <decide-id>~ | Handle the answer to a decide item now. |
 | ~outbox cancel <id> [--reason S]~ | Withdraw a draft that is not posted. |
 | ~pin~ | Check the write token with ~auth.test~ and pin it in the config. |
