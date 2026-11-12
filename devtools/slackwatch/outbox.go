@@ -172,6 +172,76 @@ func isFooterMarker(b byte) bool {
 	return b == '*' || b == '_' || b == '~'
 }
 
+// slackLink is a Slack mrkdwn link <url|label>.
+var slackLink = regexp.MustCompile(`<([^<>|]+)\|([^<>]+)>`)
+
+// blankLines is one or more blank lines between content lines.
+var blankLines = regexp.MustCompile(`\n(?:[ \t]*\n)+`)
+
+// handoffRules normalize a handoff read-back before the compare. Link
+// labels change only the posted text. Blank lines change both sides.
+// There is no bold or italic mapping.
+var handoffRules = []struct {
+	name  string
+	apply func(posted, stored string) (string, string)
+}{
+	{
+		name: "link label",
+		apply: func(posted, stored string) (string, string) {
+			return restoreConnectorLinks(posted), stored
+		},
+	},
+	{
+		name: "blank lines",
+		apply: func(posted, stored string) (string, string) {
+			return collapseBlankLines(posted), collapseBlankLines(stored)
+		},
+	},
+}
+
+// sameText reports whether the posted message matches the approved text.
+// Handoff mode applies handoffRules first.
+func sameText(posted, stored string, handoff bool) bool {
+	if handoff {
+		for _, rule := range handoffRules {
+			posted, stored = rule.apply(posted, stored)
+		}
+	}
+	return posted == stored
+}
+
+// restoreConnectorLinks maps <url|label> back to url when the label is
+// the URL, the URL without its scheme, or a truncated prefix of either
+// that ends in …. Any other label stays.
+func restoreConnectorLinks(s string) string {
+	return slackLink.ReplaceAllStringFunc(s, func(m string) string {
+		parts := slackLink.FindStringSubmatch(m)
+		if connectorLabel(parts[1], parts[2]) {
+			return parts[1]
+		}
+		return m
+	})
+}
+
+func connectorLabel(url, label string) bool {
+	bare := url
+	if i := strings.Index(url, "://"); i >= 0 {
+		bare = url[i+len("://"):]
+	}
+	if label == url || label == bare {
+		return true
+	}
+	stem, ok := strings.CutSuffix(label, "…")
+	if !ok || stem == "" {
+		return false
+	}
+	return strings.HasPrefix(url, stem) || strings.HasPrefix(bare, stem)
+}
+
+func collapseBlankLines(s string) string {
+	return blankLines.ReplaceAllString(s, "\n")
+}
+
 // DecideAnswer is the answer of a decide item as decide show --json
 // prints it.
 type DecideAnswer struct {
@@ -916,7 +986,7 @@ func (o *Outbox) posted(ctx context.Context, r OutboxRecord, link string, from [
 	if TextHash(r.Text) != r.TextHash {
 		problems = append(problems, "the stored text no longer matches its hash")
 	}
-	if NormalizePosted(m.Text, cfg.FooterPattern.Regexp) != NormalizeStored(r.Text) {
+	if !sameText(NormalizePosted(m.Text, cfg.FooterPattern.Regexp), NormalizeStored(r.Text), cfg.Post.Mode == PostModeHandoff) {
 		problems = append(problems, "the posted text differs from the approved text")
 	}
 	if err := o.registerPosted(ctx, r, from, p, strings.Join(problems, "; "), m.Text, manual); err != nil {
@@ -1123,7 +1193,7 @@ WHERE id = ? AND state = ? AND post_ts = ''`, m.TS, w.ID, now.Unix(), r.ID, Outb
 func matchOutbox(m Message, rs []OutboxRecord, footer *regexp.Regexp) (OutboxRecord, bool) {
 	posted := NormalizePosted(m.Text, footer)
 	for _, r := range rs {
-		if NormalizeStored(r.Text) == posted {
+		if sameText(posted, NormalizeStored(r.Text), true) {
 			return r, true
 		}
 	}

@@ -348,8 +348,11 @@ strikeout) immediately before the match and the whitespace before that
 marker. An inline footer " *Sent using* <@U1>" is dropped by
 ~Sent using\*? <@U1~. Slack's ~&amp;~, ~&lt;~, and ~&gt;~ escaping is
 undone, and trailing whitespace on each line and at the end is trimmed.
-Any other difference is a mismatch, markdown and link rewriting
-included. On a mismatch the watch is still registered
+In handoff mode a connector link ~<url|label>~ is read back as ~url~
+when the label is the URL, the URL without its scheme, or a truncated
+prefix of either ending in …, and runs of blank lines on either side
+count as one line break. Any other difference is a mismatch, including
+a bold or italic change and an unrelated link label. On a mismatch the watch is still registered
 for the owner and flagged, the record becomes ~mismatch~, and the owner
 and ~fallbackTarget~ get both texts. slackwatch never edits or deletes
 the post.

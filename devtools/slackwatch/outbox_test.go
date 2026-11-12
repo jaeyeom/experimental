@@ -794,6 +794,100 @@ func TestInlineFooterComparePasses(t *testing.T) {
 	}
 }
 
+func TestHandoffReadBack(t *testing.T) {
+	cases := []struct {
+		name   string
+		stored string
+		posted string
+		match  bool
+	}{
+		{
+			name:   "connector link and dropped blank line",
+			stored: "*Heading*\n\nSee https://example.com/a/very/long/path",
+			posted: "*Heading*\nSee <https://example.com/a/very/long/path|example.com/a/very/lo…>",
+			match:  true,
+		},
+		{
+			name:   "label is the url",
+			stored: "See https://example.com/a",
+			posted: "See <https://example.com/a|https://example.com/a>",
+			match:  true,
+		},
+		{
+			name:   "label is the url without its scheme",
+			stored: "See https://example.com/a",
+			posted: "See <https://example.com/a|example.com/a>",
+			match:  true,
+		},
+		{
+			name:   "truncated url prefix",
+			stored: "See https://example.com/a/very/long/path",
+			posted: "See <https://example.com/a/very/long/path|https://example.com/a/very/lo…>",
+			match:  true,
+		},
+		{
+			name:   "unrelated label",
+			stored: "See https://example.com/a",
+			posted: "See <https://example.com/a|notes>",
+			match:  false,
+		},
+		{
+			name:   "bold versus italic",
+			stored: "*Heading*",
+			posted: "_Heading_",
+			match:  false,
+		},
+		{
+			name:   "changed word",
+			stored: "Ship it",
+			posted: "Ship that",
+			match:  false,
+		},
+	}
+	if len(handoffRules) != 2 || handoffRules[0].name != "link label" || handoffRules[1].name != "blank lines" {
+		t.Fatalf("handoff rules = %+v", handoffRules)
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			match := sameText(NormalizePosted(tc.posted, nil), NormalizeStored(tc.stored), true)
+			if match != tc.match {
+				t.Fatalf("handoff match = %v, want %v", match, tc.match)
+			}
+		})
+	}
+	dropped := sameText(
+		NormalizePosted("*Heading*\nSee https://example.com/a", nil),
+		NormalizeStored("*Heading*\n\nSee https://example.com/a"),
+		false,
+	)
+	if dropped {
+		t.Fatal("direct mode treated a dropped blank line as a match")
+	}
+}
+
+func TestHandoffConnectorLinkComparePasses(t *testing.T) {
+	f := newOutboxFixture(t, PostModeHandoff)
+	text := "*Heading*\n\nSee https://example.com/a/very/long/path"
+	r, err := f.ob.Submit(context.Background(), Draft{
+		Channel: "C1", DestName: "#general", Text: text,
+		Owner: "agent-1", Purpose: "announce deploy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.dec.answer(r.DecideID, uiPost)
+	f.poll(t)
+	f.rec.notes = nil
+	f.reader.msg = Message{User: expectUser, Text: "*Heading*\nSee <https://example.com/a/very/long/path|example.com/a/very/lo…>"}
+	got, err := f.ob.Posted(context.Background(), r.ID, postedLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != OutboxPosted {
+		t.Fatalf("record = %+v, want posted", got)
+	}
+}
+
 func TestFooterRuleLinksAwaitingHandoff(t *testing.T) {
 	f := newOutboxFixture(t, PostModeHandoff)
 	r := approveHandoff(t, f)

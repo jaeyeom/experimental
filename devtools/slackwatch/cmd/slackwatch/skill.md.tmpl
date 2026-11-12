@@ -21,7 +21,7 @@ When you get `approved post ready: <id>`, you are the posting agent:
 
 1. Run `slackwatch outbox show <id>` for the destination and the exact text.
 2. Check that your Slack connector posts as the user's own account. If it does not, stop and tell the user.
-3. Post the text verbatim to that destination. Change nothing.
+3. Send it so that Slack stores exactly this text: for a standard-markdown connector, convert `*bold*` to `**bold**` and change nothing else.
 4. Run `slackwatch outbox posted <id> <permalink>`. slackwatch reads the post back and checks it.
 {{end}}{{else if .Outbox}}
 Do not post to Slack yourself. Send one message to the outbox `{{.Outbox}}`:
