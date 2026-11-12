@@ -5,6 +5,7 @@
 //
 //	machines = ["linux2"]   # saved herdr machines to include
 //	remote_timeout = "5s"   # bound on each call to another machine
+//	list_liveness_max_age = "15s"  # list refreshes cached liveness older than this
 //	hub = "me@hub"          # run every command on this ssh target
 //	machine = "linux2"      # this machine's herdr label on the hub
 //	hub_socket = "/run/user/1000/agentbus/hub.sock"  # hub.sock on the hub
@@ -44,6 +45,9 @@ type Config struct {
 	// RemoteTimeout bounds each call to another machine. Zero is the
 	// adapter's default.
 	RemoteTimeout time.Duration
+	// ListLivenessMaxAge is how old list's cached liveness may get
+	// before a list starts a background refresh. Zero is the default.
+	ListLivenessMaxAge time.Duration
 	// Hub is an ssh target. When set, commands run there instead of
 	// against a local daemon. AGENTBUS_HUB overrides it.
 	Hub string
@@ -214,7 +218,7 @@ func parseLine(cfg *Config, line string) error {
 	switch key {
 	case "machines":
 		return parseMachines(cfg, value)
-	case "remote_timeout", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
+	case "remote_timeout", "list_liveness_max_age", "lease_check_interval", "lease_checkin_repeat", "lease_idle_grace", "wake_timeout",
 		"hibernate_min_idle", "hibernate_interval":
 		return parseDurationKey(cfg, key, value)
 	case "hibernate_policy":
@@ -267,6 +271,8 @@ func parseDurationKey(cfg *Config, key, value string) error {
 	switch key {
 	case "remote_timeout":
 		return parseDuration(&cfg.RemoteTimeout, key, value, "5s")
+	case "list_liveness_max_age":
+		return parseDuration(&cfg.ListLivenessMaxAge, key, value, "15s")
 	case "lease_check_interval":
 		return parseDuration(&cfg.LeaseCheckInterval, key, value, "2m")
 	case "lease_checkin_repeat":

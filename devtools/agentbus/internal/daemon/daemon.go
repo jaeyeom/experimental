@@ -69,6 +69,10 @@ type Config struct {
 	// LastTurn, when not nil, bounds the idle time of an agent the
 	// daemon has not seen change state, such as after a restart.
 	LastTurn hibernate.LastTurnFunc
+	// ListLivenessMaxAge is how old list's cached liveness may get
+	// before a list starts a background refresh. Zero uses
+	// registry.DefaultListMaxAge.
+	ListLivenessMaxAge time.Duration
 }
 
 // ProtocolVersion is the request format a hub-socket client must speak.
@@ -104,6 +108,9 @@ type Request struct {
 	Lease *lease.Args `json:"lease,omitempty"`
 	// Hibernate carries the arguments of the hibernate-* ops.
 	Hibernate *hibernate.Args `json:"hibernate,omitempty"`
+	// Fresh makes list probe liveness now instead of answering from
+	// the cache. A daemon that predates it always probes.
+	Fresh bool `json:"fresh,omitempty"`
 }
 
 // bypassPreview is how many bytes of a SendMessage body a bypass event keeps.
@@ -119,6 +126,9 @@ type AgentRow struct {
 	Handle    string `json:"handle,omitempty"`
 	Label     string `json:"label,omitempty"`
 	Title     string `json:"title,omitempty"`
+	// LivenessAge is how many seconds ago list observed Liveness. Nil
+	// means never, or a daemon that predates it.
+	LivenessAge *int64 `json:"liveness_age,omitempty"` //nolint:tagliatelle // list --json prints it as liveness_age
 }
 
 // NameRecord is one registered name returned to the client.
@@ -256,6 +266,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	}
 	reg.Now = cfg.Now
 	reg.LastTurn = cfg.LastTurn
+	reg.ListMaxAge = cfg.ListLivenessMaxAge
 	if cfg.Waker != nil {
 		box.SetWaker(cfg.Waker)
 	}
@@ -271,6 +282,7 @@ func newServer(ctx context.Context, stateDir string, cfg Config, lg *eventlog.Lo
 	return &server{
 		ctx: ctx, reg: reg, box: box, log: lg, leases: leases,
 		adapters: cfg.Adapters, timing: cfg.LeaseTiming.WithDefaults(), notify: cfg.Notify,
+		clock: cfg.Now,
 	}, nil
 }
 
@@ -376,6 +388,15 @@ type server struct {
 	// leaseCache is the lease hook's cache of "you hold it" answers on
 	// this machine. A change that can take that answer away drops it.
 	leaseCache leasecache.Cache
+	// clock is the Config's Now. Nil uses time.Now.
+	clock func() time.Time
+}
+
+func (s *server) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
 }
 
 func (s *server) handle(conn net.Conn, hub bool) {
@@ -482,7 +503,7 @@ func (s *server) dispatch(req Request, pid int) Response {
 	case "release":
 		return s.release(req)
 	case "list":
-		return s.list()
+		return s.list(req)
 	case "search":
 		return s.search(req)
 	default:
@@ -1039,16 +1060,32 @@ func (s *server) whoami(req Request) Response {
 	return Response{OK: true, Handle: handle, Names: out}
 }
 
-func (s *server) list() Response {
-	rows, err := s.reg.List(s.ctx)
-	if err != nil {
-		return Response{Error: err.Error()}
+// list answers from the liveness cache, or with req.Fresh probes every
+// name now.
+func (s *server) list(req Request) Response {
+	var rows []registry.Row
+	if req.Fresh {
+		var err error
+		if rows, err = s.reg.List(s.ctx); err != nil {
+			return Response{Error: err.Error()}
+		}
+	} else {
+		rows = s.reg.ListCached(s.ctx)
 	}
 	text := ""
 	if lines := s.box.Held(); len(lines) > 0 {
 		text = strings.Join(lines, "\n") + "\n"
 	}
-	return Response{OK: true, Rows: agentRows(rows), Text: text}
+	out := agentRows(rows)
+	now := s.now()
+	for i, row := range rows {
+		if row.Observed.IsZero() {
+			continue
+		}
+		age := max(int64(now.Sub(row.Observed)/time.Second), 0)
+		out[i].LivenessAge = &age
+	}
+	return Response{OK: true, Rows: out, Text: text}
 }
 
 func (s *server) search(req Request) Response {

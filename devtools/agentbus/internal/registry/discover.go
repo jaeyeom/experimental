@@ -26,6 +26,8 @@ type Row struct {
 	Handle    string
 	Label     string
 	Title     string
+	// Observed is when Liveness was last observed. Zero means never.
+	Observed time.Time
 }
 
 type seen struct {
@@ -100,6 +102,8 @@ func (r *Registry) Warnings() []string {
 }
 
 // List returns registered names with --when, liveness, and transport.
+// It probes every name's liveness now and stores the answers in the
+// cache ListCached reads.
 func (r *Registry) List(ctx context.Context) ([]Row, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -107,14 +111,28 @@ func (r *Registry) List(ctx context.Context) ([]Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows := r.registeredRows(ctx)
-	if refreshed || !r.missingHandle(rows) {
-		return rows, nil
+	rows := r.probedRows(ctx)
+	if !refreshed && r.missingHandle(rows) {
+		if err := r.refresh(ctx); err != nil {
+			return nil, err
+		}
+		rows = r.probedRows(ctx)
 	}
-	if err := r.refresh(ctx); err != nil {
-		return nil, err
+	now := r.now()
+	for i := range rows {
+		rows[i].Observed = now
+		if rows[i].Liveness != livenessHibernated {
+			r.noteLive(rows[i].Handle, rows[i].Liveness, now)
+		}
 	}
-	return r.registeredRows(ctx), nil
+	r.liveAt = now
+	return rows, nil
+}
+
+func (r *Registry) probedRows(ctx context.Context) []Row {
+	return r.registeredRows(func(handle string) (string, time.Time) {
+		return r.displayLiveness(ctx, handle), time.Time{}
+	})
 }
 
 // Search returns every reachable agent, registered or not.
@@ -188,6 +206,10 @@ func (r *Registry) storeInventory(name string, agents []adapter.Agent, invErr er
 	}
 	r.invBroken[name] = false
 	r.snaps[name] = append([]adapter.Agent(nil), agents...)
+	now := r.now()
+	for _, agent := range agents {
+		r.noteLive(agent.Handle, livenessWord(agent.Status), now)
+	}
 	r.track()
 	return nil
 }
@@ -206,7 +228,9 @@ func (r *Registry) noteInventoryError(name string, invErr error) error {
 	})
 }
 
-func (r *Registry) registeredRows(ctx context.Context) []Row {
+// registeredRows are the rows of the registered names, with liveness
+// from live. The caller holds r.mu.
+func (r *Registry) registeredRows(live func(handle string) (string, time.Time)) []Row {
 	names := make([]string, 0, len(r.names))
 	for name := range r.names {
 		names = append(names, name)
@@ -215,12 +239,14 @@ func (r *Registry) registeredRows(ctx context.Context) []Row {
 	rows := make([]Row, 0, len(names))
 	for _, name := range names {
 		rec := r.names[name]
+		word, observed := live(rec.Handle)
 		row := Row{
 			Name:      name,
 			When:      rec.When,
-			Liveness:  r.displayLiveness(ctx, rec.Handle),
+			Liveness:  word,
 			Transport: r.transport(rec.Handle),
 			Handle:    rec.Handle,
+			Observed:  observed,
 		}
 		if agent, ok := r.agentByHandle(rec.Handle); ok {
 			row.Label = agent.TabLabel
@@ -353,12 +379,21 @@ func (r *Registry) displayLiveness(ctx context.Context, handle string) string {
 		return livenessHibernated
 	}
 	ads, err := r.usable(ctx)
-	if err != nil || len(ads) == 0 {
+	if err != nil {
+		return "unreachable"
+	}
+	return probeLiveness(ctx, ads, handle, r.snaps)
+}
+
+// probeLiveness asks every adapter in ads about handle and merges the
+// answers. It does not need r.mu.
+func probeLiveness(ctx context.Context, ads []adapter.Adapter, handle string, snaps map[string][]adapter.Agent) string {
+	if len(ads) == 0 {
 		return "unreachable"
 	}
 	blocked, alive, gone, unreach := false, false, false, false
 	for _, ad := range ads {
-		switch oneLiveness(ctx, ad, handle, r.snaps[ad.Name()]) {
+		switch oneLiveness(ctx, ad, handle, snaps[ad.Name()]) {
 		case "blocked":
 			blocked = true
 		case "alive":

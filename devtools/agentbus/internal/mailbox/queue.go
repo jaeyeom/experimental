@@ -227,6 +227,7 @@ func (m *Mailbox) step(ctx context.Context, handle string) (bool, error) {
 	m.mu.Unlock()
 
 	outcome := m.attempt(ctx, msg)
+	m.noteLiveness(handle, outcome)
 
 	m.mu.Lock()
 	delete(m.inflight, id)
@@ -319,6 +320,17 @@ func (m *Mailbox) finishExpire(ctx context.Context, handle string, msg message) 
 	}
 	m.notifyExpired(ctx, closed)
 	return true, nil
+}
+
+// noteLiveness feeds a delivery result to the list liveness cache: an
+// accepted paste means alive, and an unreachable machine unreachable.
+func (m *Mailbox) noteLiveness(handle string, o outcome) {
+	switch {
+	case o.accepted:
+		m.reg.ObserveLiveness(handle, "alive")
+	case o.target == "unreachable":
+		m.reg.ObserveLiveness(handle, "unreachable")
+	}
 }
 
 func (m *Mailbox) attempt(ctx context.Context, msg message) outcome {

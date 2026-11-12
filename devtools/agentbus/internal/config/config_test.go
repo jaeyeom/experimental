@@ -145,6 +145,16 @@ func TestParseWakeTimeout(t *testing.T) {
 	}
 }
 
+func TestParseListLivenessMaxAge(t *testing.T) {
+	got, err := Parse("list_liveness_max_age = \"30s\"\n")
+	if err != nil || got.ListLivenessMaxAge != 30*time.Second {
+		t.Fatalf("Parse = %+v, %v", got, err)
+	}
+	if _, err := Parse("list_liveness_max_age = \"soon\"\n"); err == nil || !strings.Contains(err.Error(), "list_liveness_max_age must be a positive duration, such as \"15s\"") {
+		t.Fatalf("bad value: %v", err)
+	}
+}
+
 const gib = 1 << 30
 
 func TestParseHibernatePolicy(t *testing.T) {

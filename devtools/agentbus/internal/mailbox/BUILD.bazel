@@ -24,6 +24,7 @@ go_test(
     name = "go_default_test",
     srcs = [
         "hibernate_test.go",
+        "liveness_test.go",
         "render_test.go",
         "wake_test.go",
     ],

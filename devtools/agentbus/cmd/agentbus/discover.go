@@ -13,11 +13,14 @@ import (
 // listEntry is one object of `agentbus list --json`. The field names are
 // stable.
 type listEntry struct {
-	Name      string `json:"name"`
-	When      string `json:"when"`
-	Liveness  string `json:"liveness"`
-	Transport string `json:"transport"`
-	Handle    string `json:"handle"`
+	Name     string `json:"name"`
+	When     string `json:"when"`
+	Liveness string `json:"liveness"`
+	// LivenessAge is the seconds since liveness was observed; null when
+	// it never was.
+	LivenessAge *int64 `json:"liveness_age"` //nolint:tagliatelle // the stable list --json field name
+	Transport   string `json:"transport"`
+	Handle      string `json:"handle"`
 }
 
 // jsonLiveness folds the text liveness words into alive, dead,
@@ -37,12 +40,19 @@ func jsonLiveness(word string) string {
 }
 
 func cmdList(ctx context.Context, args, env []string, stdout, stderr io.Writer) int {
-	asJSON := len(args) == 1 && args[0] == "--json"
-	if len(args) != 0 && !asJSON {
-		fmt.Fprintf(stderr, "agentbus list: unexpected arguments\n")
-		return 2
+	var asJSON, fresh bool
+	for _, arg := range args {
+		switch {
+		case arg == "--json" && !asJSON:
+			asJSON = true
+		case arg == "--fresh" && !fresh:
+			fresh = true
+		default:
+			fmt.Fprintf(stderr, "agentbus list: unexpected arguments\n")
+			return 2
+		}
 	}
-	resp, code := callDaemon(ctx, env, daemon.Request{Op: "list"}, stderr)
+	resp, code := callDaemon(ctx, env, daemon.Request{Op: "list", Fresh: fresh}, stderr)
 	if code != 0 {
 		return code
 	}
@@ -55,7 +65,7 @@ func cmdList(ctx context.Context, args, env []string, stdout, stderr io.Writer) 
 		for _, row := range resp.Rows {
 			entries = append(entries, listEntry{
 				Name: row.Name, When: row.When, Liveness: jsonLiveness(row.Liveness),
-				Transport: row.Transport, Handle: row.Handle,
+				LivenessAge: row.LivenessAge, Transport: row.Transport, Handle: row.Handle,
 			})
 		}
 		if err := json.NewEncoder(stdout).Encode(entries); err != nil {
