@@ -118,6 +118,7 @@ func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h 
 	cache.SetLoadTTL(cfg.TeamCoverLoadTTL)
 	cache.SetMembersTTL(cfg.TeamCoverMembersTTL)
 	cache.SetCodeownersTTL(cfg.TeamCoverCodeownersTTL)
+	cache.SetThreadsTTL(cfg.ReviewThreadsTTL)
 	deps := scan.Deps{
 		GH:      gh.NewClient(exec, cfg.GHBin).WithRollupCache(cache),
 		Herdr:   h,
@@ -125,6 +126,7 @@ func scanDeps(ctx context.Context, exec executor.Executor, cfg config.Config, h 
 		Marker:  src.For,
 		History: cache,
 		Rounds:  cache,
+		Threads: cache,
 	}
 	return deps, func() {
 		if err := cache.Save(); err != nil {

@@ -34,6 +34,18 @@ type Deps struct {
 	// Rounds counts team-cover rounds for team_cover_every. Nil runs the
 	// job every round.
 	Rounds RoundCounter
+	// Threads keeps each pull request's review threads between rounds.
+	// Nil, or review_threads_ttl 0, fetches them every round.
+	Threads ThreadCache
+}
+
+// ThreadCache stores a pull request's review threads with its head commit
+// and updatedAt, and owns the expiry (review_threads_ttl).
+type ThreadCache interface {
+	ReviewThreads(repo string, number int, head, updatedAt string) ([]gh.Thread, bool)
+	PutReviewThreads(repo string, number int, head, updatedAt string, threads []gh.Thread)
+	// PruneReviewThreads drops repo's entries whose number is not in open.
+	PruneReviewThreads(repo string, open []int)
 }
 
 // HistoryCache stores the path history of path on ref (the base branch),
@@ -130,7 +142,10 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	}
 	doc.Repos = resolved
 
-	if err := classifyRepos(ctx, deps.GH, cfg, resolved, deps.Marker, &doc); err != nil {
+	threads := newThreadLookup(deps, cfg)
+	err = classifyRepos(ctx, deps.GH, threads, cfg, resolved, deps.Marker, &doc)
+	threads.report(ctx)
+	if err != nil {
 		return finish(doc, err)
 	}
 	if err := coverTeams(ctx, deps, cfg, &doc, now); err != nil {
@@ -161,6 +176,8 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 	unique := dedupeTargets(targets)
 	doc.Repos = reposOf(unique)
 
+	threads := newThreadLookup(deps, cfg)
+	defer threads.report(ctx)
 	for _, target := range unique {
 		if err := ctx.Err(); err != nil {
 			return finish(doc, fmt.Errorf("scan: %w", err))
@@ -180,7 +197,7 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 			}
 			return finish(doc, fmt.Errorf("view pr %s#%d: %w", target.Repo, target.Number, err))
 		}
-		classified, err := classifyPR(ctx, deps.GH, cfg, owner, name, target.Repo, item, deps.Marker)
+		classified, err := classifyPR(ctx, deps.GH, threads, cfg, owner, name, target.Repo, item, deps.Marker)
 		if err != nil {
 			return finish(doc, err)
 		}
@@ -278,7 +295,7 @@ func resolveRepos(ctx context.Context, client GH, cfg config.Config, override []
 	return found, nil
 }
 
-func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []string, marker func(string, string) (string, error), doc *Document) error {
+func classifyRepos(ctx context.Context, client GH, threads *threadLookup, cfg config.Config, repos []string, marker func(string, string) (string, error), doc *Document) error {
 	for _, repo := range repos {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("scan: %w", err)
@@ -295,6 +312,7 @@ func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []st
 		if err != nil {
 			return err
 		}
+		threads.prune(repo, prs)
 		for _, item := range prs {
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("scan: %w", err)
@@ -302,7 +320,7 @@ func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []st
 			if item.StatusCheckError != "" {
 				warn(doc, fmt.Sprintf("ci rollup unavailable for %s#%d: %s", repo, item.Number, item.StatusCheckError))
 			}
-			classified, err := classifyPR(ctx, client, cfg, owner, name, repo, item, marker)
+			classified, err := classifyPR(ctx, client, threads, cfg, owner, name, repo, item, marker)
 			if err != nil {
 				return err
 			}
@@ -312,8 +330,8 @@ func classifyRepos(ctx context.Context, client GH, cfg config.Config, repos []st
 	return nil
 }
 
-func classifyPR(ctx context.Context, client GH, cfg config.Config, owner, name, repo string, item gh.PRListItem, marker func(string, string) (string, error)) (PR, error) {
-	threads, err := client.ReviewThreads(ctx, owner, name, item.Number)
+func classifyPR(ctx context.Context, client GH, lookup *threadLookup, cfg config.Config, owner, name, repo string, item gh.PRListItem, marker func(string, string) (string, error)) (PR, error) {
+	threads, err := lookup.fetch(ctx, client, owner, name, repo, item)
 	if err != nil {
 		return PR{}, fmt.Errorf("%s#%d: %w", repo, item.Number, err)
 	}

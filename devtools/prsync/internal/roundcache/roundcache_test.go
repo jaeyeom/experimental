@@ -399,6 +399,99 @@ func TestChangedFilesNeedSameHead(t *testing.T) {
 	}
 }
 
+func TestReviewThreadsNeedSameHeadAndUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	want := []gh.Thread{{ID: "PRRT_1", Comments: []gh.ThreadComment{{ID: "PRRC_1", Author: &gh.ThreadAuthor{Login: "bob"}, Body: "fix"}}}}
+	c.PutReviewThreads("acme/widgets", 7, "head1", "t1", want)
+	c.PutReviewThreads("acme/widgets", 8, "", "t1", want)
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	next, _ := Load(path, clk.now)
+	got, ok := next.ReviewThreads("acme/widgets", 7, "head1", "t1")
+	if !ok || len(got) != 1 || got[0].ID != "PRRT_1" || got[0].Comments[0].Author.Login != "bob" {
+		t.Fatalf("ReviewThreads() = %+v, %v", got, ok)
+	}
+	for _, tc := range []struct{ head, updated string }{{"head2", "t1"}, {"head1", "t2"}, {"", ""}} {
+		if _, ok := next.ReviewThreads("acme/widgets", 7, tc.head, tc.updated); ok {
+			t.Fatalf("ReviewThreads(%q, %q) hit, want miss", tc.head, tc.updated)
+		}
+	}
+	if _, ok := next.ReviewThreads("acme/widgets", 8, "", "t1"); ok {
+		t.Fatal("hit for an entry stored without a head")
+	}
+}
+
+func TestReviewThreadsExpireAfterThreadsTTL(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.SetThreadsTTL(time.Hour)
+	c.PutReviewThreads("acme/widgets", 7, "head1", "t1", []gh.Thread{})
+	clk.t = clk.t.Add(59 * time.Minute)
+	if _, ok := c.ReviewThreads("acme/widgets", 7, "head1", "t1"); !ok {
+		t.Fatal("miss inside the TTL")
+	}
+	clk.t = clk.t.Add(2 * time.Minute)
+	if _, ok := c.ReviewThreads("acme/widgets", 7, "head1", "t1"); ok {
+		t.Fatal("hit past the TTL")
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.data.Threads) != 0 {
+		t.Fatalf("threads = %v, want the expired entry pruned", c.data.Threads)
+	}
+}
+
+func TestDefaultThreadsTTL(t *testing.T) {
+	t.Parallel()
+
+	clk := newClock()
+	c, _ := Load(filepath.Join(t.TempDir(), "cache.json"), clk.now)
+	c.SetThreadsTTL(0)
+	c.PutReviewThreads("acme/widgets", 7, "head1", "t1", nil)
+	clk.t = clk.t.Add(ThreadsTTL - time.Second)
+	if _, ok := c.ReviewThreads("acme/widgets", 7, "head1", "t1"); !ok {
+		t.Fatal("miss inside ThreadsTTL")
+	}
+	clk.t = clk.t.Add(2 * time.Second)
+	if _, ok := c.ReviewThreads("acme/widgets", 7, "head1", "t1"); ok {
+		t.Fatal("hit past ThreadsTTL")
+	}
+}
+
+func TestPruneReviewThreadsKeepsOnlyOpenPRs(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "cache.json")
+	clk := newClock()
+	c, _ := Load(path, clk.now)
+	c.PutReviewThreads("acme/widgets", 7, "h", "t", nil)
+	c.PutReviewThreads("acme/widgets", 8, "h", "t", nil)
+	c.PutReviewThreads("acme/gadgets", 8, "h", "t", nil)
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	next, _ := Load(path, clk.now)
+	next.PruneReviewThreads("acme/widgets", []int{7})
+	if err := next.Save(); err != nil {
+		t.Fatal(err)
+	}
+	last, _ := Load(path, clk.now)
+	if got := slices.Sorted(maps.Keys(last.data.Threads)); !slices.Equal(got, []string{"acme/gadgets#8", "acme/widgets#7"}) {
+		t.Fatalf("thread keys = %q, want the closed acme/widgets#8 pruned", got)
+	}
+}
+
 func TestReviewSnapshotNeedsSameHeadAndUpdatedAt(t *testing.T) {
 	t.Parallel()
 
