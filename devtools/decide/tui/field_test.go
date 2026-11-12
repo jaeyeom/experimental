@@ -329,3 +329,55 @@ func TestClickMovesScrolledNoteCursor(t *testing.T) {
 		t.Fatalf("note %q, want Y inside n01", m.note)
 	}
 }
+
+func TestDetailQQuits(t *testing.T) {
+	m, _, _ := composerModel(t, composerReply)
+	press(t, m, "\x1b")
+	if m.mode != modeDetail {
+		t.Fatalf("mode %v, want detail", m.mode)
+	}
+	_, cmd := m.Update(runeKey('q'))
+	if cmd == nil {
+		t.Fatal("q in the item view returned no command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("q in the item view did not quit")
+	}
+}
+
+func TestDetailQTypesInFocusedBox(t *testing.T) {
+	for _, kind := range []composerKind{composerReply, composerAnswer} {
+		t.Run(fmt.Sprint(kind), func(t *testing.T) {
+			m, _, _ := composerModel(t, kind)
+			quit, err := m.Key('q')
+			if err != nil || quit {
+				t.Fatalf("q in a focused box quit=%v err=%v", quit, err)
+			}
+			if _, text := m.composerField(); *text != "q" {
+				t.Fatalf("draft %q, want q", *text)
+			}
+		})
+	}
+}
+
+func TestDetailEscAndUReturnToList(t *testing.T) {
+	for _, key := range []string{"\x1b", "u"} {
+		m, _, _ := composerModel(t, composerReply)
+		press(t, m, "\x1b"+key)
+		if m.mode != modeList {
+			t.Fatalf("%q left mode %v, want list", key, m.mode)
+		}
+	}
+}
+
+func TestDetailHintNamesQuit(t *testing.T) {
+	m, _, _ := composerModel(t, composerReply)
+	press(t, m, "\x1b")
+	if hint := m.statusLine().text; !strings.Contains(hint, "q quit") {
+		t.Fatalf("item hint %q lacks q quit", hint)
+	}
+	m.help = true
+	if !strings.Contains(m.View(), "q quit") {
+		t.Fatalf("item help lacks q quit\n%s", m.View())
+	}
+}
