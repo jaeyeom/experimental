@@ -21,12 +21,12 @@ format: format-whitespace
 	bazel run //:format
 
 format-whitespace:
-	@for f in $$(rg -l '\s$$' -g '*.md' -g '*.org' 2>/dev/null || true); do \
+	@for f in $$(rg -l '\s$$' -g '*.md' -g '*.org' . 2>/dev/null || true); do \
 		$(SED_INPLACE) 's/[[:space:]]*$$//' "$$f"; \
 	done
 
 check-whitespace:
-	@FILES=$$(rg -l '\s$$' -g '*.md' -g '*.org' 2>/dev/null || true); \
+	@FILES=$$(rg -l '\s$$' -g '*.md' -g '*.org' . 2>/dev/null || true); \
 	if [ -n "$$FILES" ]; then echo "Trailing whitespace found in:"; echo "$$FILES"; exit 1; fi
 
 check-format: check-whitespace
