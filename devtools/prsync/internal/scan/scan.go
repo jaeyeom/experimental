@@ -31,13 +31,23 @@ type Deps struct {
 	// History keeps team-cover path history between rounds. Nil keeps it
 	// for this round only.
 	History HistoryCache
+	// Rounds counts team-cover rounds for team_cover_every. Nil runs the
+	// job every round.
+	Rounds RoundCounter
 }
 
 // HistoryCache stores the path history of path on ref, keyed also by the
-// pull request's head commit.
+// head commit of ref (the base branch).
 type HistoryCache interface {
 	PathHistory(repo, ref, path, head string) (gh.PathHistory, bool)
 	PutPathHistory(repo, ref, path, head string, history gh.PathHistory)
+}
+
+// RoundCounter counts rounds of a job across runs.
+type RoundCounter interface {
+	// NextRound counts one more round of job and returns the count,
+	// starting at 1.
+	NextRound(job string) int
 }
 
 // GH is the GitHub surface scan uses.
@@ -53,7 +63,8 @@ type GH interface {
 	TeamMembers(ctx context.Context, org, slug string) ([]gh.TeamMember, error)
 	ChangedFiles(ctx context.Context, repo string, number int) ([]string, error)
 	Codeowners(ctx context.Context, repo, ref string) (string, error)
-	PathHistory(ctx context.Context, repo, ref, path string, since time.Time) (gh.PathHistory, error)
+	BranchHead(ctx context.Context, repo, branch string) (string, error)
+	PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time) (map[string]gh.PathHistory, error)
 	DirectReviewCount(ctx context.Context, org, login string) (int, error)
 	OrgActive(ctx context.Context, org, login string, since time.Time) (bool, error)
 }
@@ -99,7 +110,7 @@ func Run(ctx context.Context, deps Deps, cfg config.Config, repos []string, now 
 	if err := classifyRepos(ctx, deps.GH, cfg, resolved, deps.Marker, &doc); err != nil {
 		return finish(doc, err)
 	}
-	if err := coverTeams(ctx, deps.GH, deps.History, cfg, &doc, now); err != nil {
+	if err := coverTeams(ctx, deps, cfg, &doc, now); err != nil {
 		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {
@@ -152,7 +163,7 @@ func RunTargets(ctx context.Context, deps Deps, cfg config.Config, targets []Tar
 		}
 		doc.PRs = append(doc.PRs, classified)
 	}
-	if err := coverTeams(ctx, deps.GH, deps.History, cfg, &doc, now); err != nil {
+	if err := coverTeams(ctx, deps, cfg, &doc, now); err != nil {
 		return finish(doc, err)
 	}
 	if err := matchTabs(ctx, deps, cfg, &doc); err != nil {

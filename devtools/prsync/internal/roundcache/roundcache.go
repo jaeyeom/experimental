@@ -1,7 +1,7 @@
 // Package roundcache keeps GitHub results between prsync rounds in one JSON
 // file, so a round can skip calls whose answer cannot have changed.
-// Entries expire after TTL. The file is only a cache: a missing or corrupt
-// file starts empty.
+// Entries expire after TTL (HistoryTTL for path history). The file is only
+// a cache: a missing or corrupt file starts empty.
 package roundcache
 
 import (
@@ -19,8 +19,13 @@ import (
 	"github.com/jaeyeom/experimental/devtools/prsync/internal/gh"
 )
 
-// TTL is how long an entry is reused.
+// TTL is how long a status-check entry is reused.
 const TTL = time.Hour
+
+// HistoryTTL is how long a path-history entry is reused. The entry is keyed
+// by the base branch head, so a moved head is already a miss; this only
+// bounds how far the history window can drift.
+const HistoryTTL = 24 * time.Hour
 
 // Cache is safe for concurrent use.
 type Cache struct {
@@ -34,6 +39,7 @@ type Cache struct {
 type payload struct {
 	History map[string]historyEntry `json:"history"`
 	Rollups map[string]rollupEntry  `json:"rollups"`
+	Rounds  map[string]int          `json:"rounds,omitempty"`
 }
 
 type historyEntry struct {
@@ -69,11 +75,14 @@ func Load(path string, now func() time.Time) (*Cache, error) {
 	if data.Rollups != nil {
 		c.data.Rollups = data.Rollups
 	}
+	if data.Rounds != nil {
+		c.data.Rounds = data.Rounds
+	}
 	return c, nil
 }
 
 func emptyPayload() payload {
-	return payload{History: map[string]historyEntry{}, Rollups: map[string]rollupEntry{}}
+	return payload{History: map[string]historyEntry{}, Rollups: map[string]rollupEntry{}, Rounds: map[string]int{}}
 }
 
 func historyKey(repo, ref, path, head string) string {
@@ -84,17 +93,17 @@ func rollupKey(repo string, number int) string {
 	return repo + "#" + strconv.Itoa(number)
 }
 
-func (c *Cache) fresh(at time.Time) bool {
-	return c.now().Sub(at) < TTL
+func (c *Cache) fresh(at time.Time, ttl time.Duration) bool {
+	return c.now().Sub(at) < ttl
 }
 
-// PathHistory returns the stored history of path on ref, for a pull request
-// whose head is head, while it is fresh.
+// PathHistory returns the stored history of path on ref, whose head commit
+// is head, while it is fresh.
 func (c *Cache) PathHistory(repo, ref, path, head string) (gh.PathHistory, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.data.History[historyKey(repo, ref, path, head)]
-	if !ok || !c.fresh(entry.At) {
+	if !ok || !c.fresh(entry.At, HistoryTTL) {
 		return gh.PathHistory{}, false
 	}
 	return entry.History, true
@@ -118,7 +127,7 @@ func (c *Cache) Rollup(repo string, number int, head, updatedAt string) ([]gh.St
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.data.Rollups[rollupKey(repo, number)]
-	if !ok || entry.Head != head || entry.UpdatedAt != updatedAt || !c.fresh(entry.At) {
+	if !ok || entry.Head != head || entry.UpdatedAt != updatedAt || !c.fresh(entry.At, TTL) {
 		return nil, false
 	}
 	return entry.Checks, true
@@ -132,19 +141,29 @@ func (c *Cache) PutRollup(repo string, number int, head, updatedAt string, check
 	c.dirty = true
 }
 
+// NextRound counts one more round of job and returns the count, starting
+// at 1. Counters do not expire.
+func (c *Cache) NextRound(job string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data.Rounds[job]++
+	c.dirty = true
+	return c.data.Rounds[job]
+}
+
 // Save drops expired entries and writes the file atomically. A cache with
 // no new entries since Load is not written.
 func (c *Cache) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for key, entry := range c.data.History {
-		if !c.fresh(entry.At) {
+		if !c.fresh(entry.At, HistoryTTL) {
 			delete(c.data.History, key)
 			c.dirty = true
 		}
 	}
 	for key, entry := range c.data.Rollups {
-		if !c.fresh(entry.At) {
+		if !c.fresh(entry.At, TTL) {
 			delete(c.data.Rollups, key)
 			c.dirty = true
 		}

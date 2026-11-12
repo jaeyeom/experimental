@@ -19,8 +19,13 @@ func TestQueryPageSizes(t *testing.T) {
 	}{
 		{
 			name:  "path history",
-			query: pathHistoryQuery,
-			want:  []string{"history(first:30,", "associatedPullRequests(first:2)", "reviews(first:10)"},
+			query: pathHistoryQuery([]string{"src/a.go"}),
+			want:  []string{"history(first:30,", "associatedPullRequests(first:2)"},
+		},
+		{
+			name:  "pull request reviews",
+			query: prReviewsQuery([]int{7}),
+			want:  []string{"reviews(first:10)"},
 		},
 		{
 			name:  "open pr search",
@@ -57,7 +62,8 @@ func TestSmallConnectionsAskForHasNextPage(t *testing.T) {
 	t.Parallel()
 
 	for name, query := range map[string]string{
-		"path history":   pathHistoryQuery,
+		"path history":   pathHistoryQuery([]string{"src/a.go"}),
+		"pr reviews":     prReviewsQuery([]int{7}),
 		"open pr search": openPRSearchQuery,
 		"open pr view":   openPRViewQuery,
 	} {
@@ -218,27 +224,20 @@ func TestViewPRWarnsOnTruncatedLatestReviews(t *testing.T) {
 	assertTruncationWarned(t, probe.logs.String(), "latestReviews")
 }
 
-func TestPathHistoryWarnsWhenTruncated(t *testing.T) {
+func TestPathHistoriesWarnWhenTruncated(t *testing.T) {
 	t.Parallel()
 
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	mock := newGHMock()
-	mock.ExpectCommandWithArgs(testGHBin, "api", "graphql",
-		"-f", "query="+pathHistoryQuery,
-		"-F", "owner=acme",
-		"-F", "name=widgets",
-		"-F", "expression=main",
-		"-F", "path=src/a.go",
-		"-F", "since="+since.Format(time.RFC3339),
-	).WillSucceed(`{"data":{"repository":{"object":{"history":{"pageInfo":{"hasNextPage":true},"nodes":[
-		{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"pageInfo":{"hasNextPage":true},"nodes":[
-			{"reviews":{"pageInfo":{"hasNextPage":true},"nodes":[{"author":{"login":"bob"}}]}}]}}]}}}}}`, 0).Build()
+	mock.ExpectCustom(isHistoryRequest).WillSucceed(`{"data":{"repository":{"object":{"p0":{"pageInfo":{"hasNextPage":true},"nodes":[
+		{"author":{"user":{"login":"alice"}},"associatedPullRequests":{"pageInfo":{"hasNextPage":true},"nodes":[{"number":7}]}}]}}}}}`, 0).Build()
+	mock.ExpectCustom(isReviewsRequest).WillSucceed(`{"data":{"repository":{"pr7":{"reviews":{"pageInfo":{"hasNextPage":true},"nodes":[{"author":{"login":"bob"}}]}}}}}`, 0).Build()
 	client, probe := newProbedClient(t, mock)
-	got, err := client.PathHistory(probe.ctx(), "acme/widgets", "main", "src/a.go", since)
+	got, err := client.PathHistories(probe.ctx(), "acme/widgets", "main", []string{"src/a.go"}, since)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Authors) != 1 || len(got.Reviewers) != 1 {
+	if h := got["src/a.go"]; len(h.Authors) != 1 || len(h.Reviewers) != 1 {
 		t.Fatalf("history = %+v", got)
 	}
 	logs := probe.logs.String()

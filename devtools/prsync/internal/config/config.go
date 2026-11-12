@@ -187,6 +187,9 @@ type Config struct {
 	// TeamCoverActiveDays drops members with no org activity in this
 	// many days. Zero disables the filter.
 	TeamCoverActiveDays int
+	// TeamCoverEvery runs the team-cover job on every Nth round. 1 runs
+	// it every round.
+	TeamCoverEvery int
 
 	// GateIgnoreProcs are patterns for an agent's helpers (MCP and
 	// language servers, status-line commands). A plain pattern matches
@@ -271,6 +274,7 @@ func Defaults() Config {
 		TeamCoverPerTeam:         1,
 		TeamCoverSignals:         []string{"codeowners", "history", "load"},
 		TeamCoverHistoryDays:     90,
+		TeamCoverEvery:           1,
 		GateIgnoreProcs:          slices.Clone(procinfo.DefaultHelpers),
 		GateBuildTools:           slices.Clone(procinfo.DefaultBuildTools),
 		GateBuildToolIgnore:      slices.Clone(procinfo.DefaultBuildToolIgnore),
@@ -550,7 +554,7 @@ func applyOtherKey(cfg *Config, key, val string) error {
 		return applyGateSignal(cfg, key, val)
 	case "team_cover", "team_cover_per_team", "team_cover_skip_teams",
 		"team_cover_exclude_logins", "team_cover_signals",
-		"team_cover_history_days", "team_cover_active_days":
+		"team_cover_history_days", "team_cover_active_days", "team_cover_every":
 		return applyTeamCover(cfg, key, val)
 	default:
 		return nil
@@ -573,6 +577,8 @@ func applyTeamCover(cfg *Config, key, val string) error {
 		return applyTeamCoverDays(&cfg.TeamCoverHistoryDays, key, val)
 	case "team_cover_active_days":
 		return applyTeamCoverDays(&cfg.TeamCoverActiveDays, key, val)
+	case "team_cover_every":
+		return applyTeamCoverEvery(cfg, val)
 	default:
 		return nil
 	}
@@ -596,6 +602,18 @@ func applyTeamCoverPerTeam(cfg *Config, val string) error {
 		return &KeyError{Key: "team_cover_per_team", Reason: "must be >= 1"}
 	}
 	cfg.TeamCoverPerTeam = n
+	return nil
+}
+
+func applyTeamCoverEvery(cfg *Config, val string) error {
+	n, err := parseNonNegativeInt("team_cover_every", val)
+	if err != nil {
+		return err
+	}
+	if n < 1 {
+		return &KeyError{Key: "team_cover_every", Reason: "must be >= 1"}
+	}
+	cfg.TeamCoverEvery = n
 	return nil
 }
 

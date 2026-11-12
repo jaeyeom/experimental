@@ -1,1 +1,1 @@
-{"data":{"repository":{"object":{"history":{"nodes":[{"author":{"user":{"login":"dave"}},"associatedPullRequests":{"nodes":[{"reviews":{"nodes":[{"author":{"login":"bob"}}]}}]}}]}}}}}
+{"data":{"repository":{"object":{"p0":{"nodes":[{"author":{"user":{"login":"dave"}},"associatedPullRequests":{"nodes":[{"number":7}]}}]}}}}}

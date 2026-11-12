@@ -136,6 +136,9 @@ func TestScanTeamCoverSuggests(t *testing.T) {
 		t.Fatalf("reasons = %#v", got.Suggest[0].Reasons)
 	}
 	hint := stderr.String()
+	if strings.Contains(hint, "unavailable") {
+		t.Fatalf("stderr = %q, want base head and batched history to load", hint)
+	}
 	if !strings.Contains(hint, "acme/widgets#123 acme/platform-reviewers: suggest carol") {
 		t.Fatalf("stderr = %q", hint)
 	}

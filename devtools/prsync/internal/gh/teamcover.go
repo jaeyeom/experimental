@@ -8,15 +8,52 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
 
-// pathHistoryQuery keeps every connection small: GitHub's secondary limit
-// caps GraphQL CPU time per user, and the nested review nodes multiply
-// (30 commits x 2 pull requests x 10 reviews). A truncated connection is
+// PathHistoryBatch is how many paths one history request asks for.
+const PathHistoryBatch = 20
+
+// prReviewsBatch is how many pull requests one reviews request asks for.
+const prReviewsBatch = 50
+
+// pathHistoryQuery asks for the history of every path in one request, one
+// alias per path. Each connection stays small: GitHub's secondary limit caps
+// GraphQL CPU time per user. Reviews are not nested here; prReviewsQuery
+// loads them once per distinct pull request. A truncated connection is
 // logged, not paged: history is a ranking signal, not a complete record.
-const pathHistoryQuery = `query($owner:String!,$name:String!,$expression:String!,$path:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){object(expression:$expression){... on Commit{history(first:30,path:$path,since:$since){pageInfo{hasNextPage}nodes{author{user{login}}associatedPullRequests(first:2){pageInfo{hasNextPage}nodes{reviews(first:10){pageInfo{hasNextPage}nodes{author{login}}}}}}}}}}}`
+func pathHistoryQuery(paths []string) string {
+	var b strings.Builder
+	b.WriteString(`query($owner:String!,$name:String!,$expression:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){object(expression:$expression){... on Commit{`)
+	for i, path := range paths {
+		fmt.Fprintf(&b, `p%d:history(first:30,path:%s,since:$since){pageInfo{hasNextPage}nodes{author{user{login}}associatedPullRequests(first:2){pageInfo{hasNextPage}nodes{number}}}}`, i, graphQLString(path))
+	}
+	b.WriteString(`}}}}`)
+	return b.String()
+}
+
+// prReviewsQuery asks for the reviewers of each pull request, aliased prN.
+func prReviewsQuery(numbers []int) string {
+	var b strings.Builder
+	b.WriteString(`query($owner:String!,$name:String!){repository(owner:$owner,name:$name){`)
+	for _, n := range numbers {
+		fmt.Fprintf(&b, `pr%d:pullRequest(number:%d){reviews(first:10){pageInfo{hasNextPage}nodes{author{login}}}}`, n, n)
+	}
+	b.WriteString(`}}`)
+	return b.String()
+}
+
+// graphQLString quotes s as a GraphQL string literal. JSON string escapes
+// are valid GraphQL escapes.
+func graphQLString(s string) string {
+	quoted, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(quoted)
+}
 
 // ReviewSnapshot loads the pull request author and latestReviews.
 // Used only when team_cover is on, so the open-PR list query stays unchanged.
@@ -107,37 +144,201 @@ func (c *Client) contents(ctx context.Context, owner, name, path, ref string) (s
 	return body, true, nil
 }
 
-// PathHistory returns authors and reviewers of up to 30 commits on path
-// since the cutoff, on ref. Reviewers come from those commits' pull requests.
-// A truncated connection logs a warning.
-func (c *Client) PathHistory(ctx context.Context, repo, ref, path string, since time.Time) (PathHistory, error) {
+// BranchHead returns the commit SHA at the tip of branch.
+func (c *Client) BranchHead(ctx context.Context, repo, branch string) (string, error) {
 	owner, name, err := splitOwnerRepo(repo)
 	if err != nil {
-		return PathHistory{}, err
+		return "", err
 	}
-	result, err := c.requireJSON(ctx, defaultCallTimeout,
-		"api", "graphql",
-		"-f", "query="+pathHistoryQuery,
+	segments := strings.Split(branch, "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	endpoint := fmt.Sprintf("repos/%s/%s/git/ref/heads/%s", url.PathEscape(owner), url.PathEscape(name), strings.Join(segments, "/"))
+	result, err := c.call(ctx, "api", endpoint, "--jq", ".object.sha")
+	if err != nil {
+		if IsRateLimited(err) {
+			return "", fmt.Errorf("%w: %s", ErrRateLimited, err.Error())
+		}
+		return "", err
+	}
+	head := strings.TrimSpace(result.Output)
+	if head == "" {
+		return "", fmt.Errorf("no head for %s %s", repo, branch)
+	}
+	return head, nil
+}
+
+// PathHistories returns, for each path, the authors and reviewers of up to
+// 30 commits on it since the cutoff, on ref (a branch or commit SHA).
+// Paths go PathHistoryBatch to a request. Reviewers come from the commits'
+// pull requests, each fetched once however many paths share it. Every
+// path gets an entry. A truncated connection logs a warning.
+func (c *Client) PathHistories(ctx context.Context, repo, ref string, paths []string, since time.Time) (map[string]PathHistory, error) {
+	owner, name, err := splitOwnerRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	commits := map[string][]historyCommit{}
+	for start := 0; start < len(paths); start += PathHistoryBatch {
+		batch := paths[start:min(start+PathHistoryBatch, len(paths))]
+		got, err := c.historyBatch(ctx, owner, name, ref, batch, since)
+		if err != nil {
+			return nil, err
+		}
+		for path, list := range got {
+			commits[path] = list
+		}
+	}
+	reviewers, err := c.prReviewers(ctx, owner, name, pullRequestNumbers(commits))
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]PathHistory, len(paths))
+	for _, path := range paths {
+		var history PathHistory
+		for _, commit := range commits[path] {
+			if commit.author != "" {
+				history.Authors = append(history.Authors, commit.author)
+			}
+			for _, number := range commit.prs {
+				history.Reviewers = append(history.Reviewers, reviewers[number]...)
+			}
+		}
+		out[path] = history
+	}
+	return out, nil
+}
+
+type historyCommit struct {
+	author string
+	prs    []int
+}
+
+func (c *Client) historyBatch(ctx context.Context, owner, name, ref string, paths []string, since time.Time) (map[string][]historyCommit, error) {
+	raw, err := c.graphQL(ctx,
+		"-f", "query="+pathHistoryQuery(paths),
 		"-F", "owner="+owner,
 		"-F", "name="+name,
 		"-F", "expression="+ref,
-		"-F", "path="+path,
 		"-F", "since="+since.UTC().Format(time.RFC3339),
 	)
 	if err != nil {
-		if IsRateLimited(err) {
-			return PathHistory{}, fmt.Errorf("%w: %s", ErrRateLimited, err.Error())
+		return nil, err
+	}
+	var payload struct {
+		Data struct {
+			Repository struct {
+				Object map[string]*historyConn `json:"object"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []gqlError `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, fmt.Errorf("decode path history: %w", err)
+	}
+	if len(payload.Errors) > 0 {
+		return nil, fmt.Errorf("path history graphql: %s", payload.Errors[0].Message)
+	}
+	out := map[string][]historyCommit{}
+	for i, path := range paths {
+		conn := payload.Data.Repository.Object[fmt.Sprintf("p%d", i)]
+		if conn == nil {
+			continue
 		}
-		return PathHistory{}, err
+		var truncated truncation
+		truncated.note("history", conn.PageInfo.HasNextPage)
+		for _, node := range conn.Nodes {
+			commit := historyCommit{}
+			if node.Author.User != nil {
+				commit.author = node.Author.User.Login
+			}
+			truncated.note("associatedPullRequests", node.AssociatedPullRequests.PageInfo.HasNextPage)
+			for _, pr := range node.AssociatedPullRequests.Nodes {
+				commit.prs = append(commit.prs, pr.Number)
+			}
+			out[path] = append(out[path], commit)
+		}
+		for _, connName := range truncated {
+			warnTruncated(ctx, connName, "repo", owner+"/"+name, "ref", ref, "path", path)
+		}
 	}
-	history, truncated, err := parsePathHistory(result.Output)
+	return out, nil
+}
+
+// prReviewers returns the review authors of each pull request, in
+// prReviewsBatch-sized requests.
+func (c *Client) prReviewers(ctx context.Context, owner, name string, numbers []int) (map[int][]string, error) {
+	out := map[int][]string{}
+	for start := 0; start < len(numbers); start += prReviewsBatch {
+		batch := numbers[start:min(start+prReviewsBatch, len(numbers))]
+		raw, err := c.graphQL(ctx,
+			"-f", "query="+prReviewsQuery(batch),
+			"-F", "owner="+owner,
+			"-F", "name="+name,
+		)
+		if err != nil {
+			return nil, err
+		}
+		var payload struct {
+			Data struct {
+				Repository map[string]*prReviewsNode `json:"repository"`
+			} `json:"data"`
+			Errors []gqlError `json:"errors"`
+		}
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			return nil, fmt.Errorf("decode pull request reviews: %w", err)
+		}
+		if len(payload.Errors) > 0 {
+			return nil, fmt.Errorf("pull request reviews graphql: %s", payload.Errors[0].Message)
+		}
+		for _, number := range batch {
+			node := payload.Data.Repository[fmt.Sprintf("pr%d", number)]
+			if node == nil {
+				continue
+			}
+			if node.Reviews.PageInfo.HasNextPage {
+				warnTruncated(ctx, "reviews", "repo", owner+"/"+name, "pr", number)
+			}
+			for _, review := range node.Reviews.Nodes {
+				if review.Author != nil && review.Author.Login != "" {
+					out[number] = append(out[number], review.Author.Login)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// graphQL runs one gh api graphql request. A rate limit is ErrRateLimited.
+func (c *Client) graphQL(ctx context.Context, args ...string) (string, error) {
+	result, err := c.requireJSON(ctx, defaultCallTimeout, append([]string{"api", "graphql"}, args...)...)
 	if err != nil {
-		return PathHistory{}, err
+		if IsRateLimited(err) {
+			return "", fmt.Errorf("%w: %s", ErrRateLimited, err.Error())
+		}
+		return "", err
 	}
-	for _, conn := range truncated {
-		warnTruncated(ctx, conn, "repo", repo, "ref", ref, "path", path)
+	return result.Output, nil
+}
+
+// pullRequestNumbers is every distinct pull request in commits, ascending.
+func pullRequestNumbers(commits map[string][]historyCommit) []int {
+	seen := map[int]struct{}{}
+	var out []int
+	for _, list := range commits {
+		for _, commit := range list {
+			for _, number := range commit.prs {
+				if _, ok := seen[number]; ok {
+					continue
+				}
+				seen[number] = struct{}{}
+				out = append(out, number)
+			}
+		}
 	}
-	return history, nil
+	slices.Sort(out)
+	return out
 }
 
 // DirectReviewCount is the search total for user-review-requested:login
@@ -290,71 +491,34 @@ func isMissingPath(err error) bool {
 	return strings.Contains(lower, "http 404") || strings.Contains(lower, "not found")
 }
 
-// parsePathHistory also returns the names of connections that had more
-// nodes than the query asked for, once each.
-func parsePathHistory(raw string) (PathHistory, []string, error) {
-	var payload pathHistoryPayload
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return PathHistory{}, nil, fmt.Errorf("decode path history: %w", err)
-	}
-	if len(payload.Errors) > 0 {
-		return PathHistory{}, nil, fmt.Errorf("path history graphql: %s", payload.Errors[0].Message)
-	}
-	var history PathHistory
-	if payload.Data.Repository.Object == nil {
-		return history, nil, nil
-	}
-	var truncated truncation
-	hist := payload.Data.Repository.Object.History
-	truncated.note("history", hist.PageInfo.HasNextPage)
-	for _, node := range hist.Nodes {
-		if node.Author.User != nil && node.Author.User.Login != "" {
-			history.Authors = append(history.Authors, node.Author.User.Login)
-		}
-		truncated.note("associatedPullRequests", node.AssociatedPullRequests.PageInfo.HasNextPage)
-		for _, pr := range node.AssociatedPullRequests.Nodes {
-			truncated.note("reviews", pr.Reviews.PageInfo.HasNextPage)
-			for _, review := range pr.Reviews.Nodes {
-				if review.Author != nil && review.Author.Login != "" {
-					history.Reviewers = append(history.Reviewers, review.Author.Login)
-				}
-			}
-		}
-	}
-	return history, truncated, nil
+type historyConn struct {
+	PageInfo gqlHasNextPage `json:"pageInfo"`
+	Nodes    []struct {
+		Author struct {
+			User *struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		} `json:"author"`
+		AssociatedPullRequests struct {
+			PageInfo gqlHasNextPage `json:"pageInfo"`
+			Nodes    []struct {
+				Number int `json:"number"`
+			} `json:"nodes"`
+		} `json:"associatedPullRequests"`
+	} `json:"nodes"`
 }
 
-type pathHistoryPayload struct {
-	Data struct {
-		Repository struct {
-			Object *struct {
-				History struct {
-					PageInfo gqlHasNextPage `json:"pageInfo"`
-					Nodes    []struct {
-						Author struct {
-							User *struct {
-								Login string `json:"login"`
-							} `json:"user"`
-						} `json:"author"`
-						AssociatedPullRequests struct {
-							PageInfo gqlHasNextPage `json:"pageInfo"`
-							Nodes    []struct {
-								Reviews struct {
-									PageInfo gqlHasNextPage `json:"pageInfo"`
-									Nodes    []struct {
-										Author *struct {
-											Login string `json:"login"`
-										} `json:"author"`
-									} `json:"nodes"`
-								} `json:"reviews"`
-							} `json:"nodes"`
-						} `json:"associatedPullRequests"`
-					} `json:"nodes"`
-				} `json:"history"`
-			} `json:"object"`
-		} `json:"repository"`
-	} `json:"data"`
-	Errors []struct {
-		Message string `json:"message"`
-	} `json:"errors"`
+type prReviewsNode struct {
+	Reviews struct {
+		PageInfo gqlHasNextPage `json:"pageInfo"`
+		Nodes    []struct {
+			Author *struct {
+				Login string `json:"login"`
+			} `json:"author"`
+		} `json:"nodes"`
+	} `json:"reviews"`
+}
+
+type gqlError struct {
+	Message string `json:"message"`
 }
