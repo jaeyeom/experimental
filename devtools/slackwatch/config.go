@@ -145,7 +145,8 @@ func (p PostConfig) DecideOwnerOrDefault() string {
 
 // CheckPost reports whether the config allows posting. It returns
 // ErrPostingOff when post.mode is unset. In direct mode footerPattern
-// must match post.footer, so agent posts stay distinguishable.
+// must match post.footer. When post.footer is set, it must also remove
+// the whole footer, so agent posts stay distinguishable.
 func (c Config) CheckPost() error {
 	p := c.Post
 	switch p.Mode {
@@ -171,7 +172,21 @@ func (c Config) CheckPost() error {
 	if p.ExpectUser == "" {
 		return fmt.Errorf("post.mode is %s but post.expectUser is not set", p.Mode)
 	}
-	return nil
+	return c.checkFooterRemoved()
+}
+
+// checkFooterRemoved reports a post.footer that footerPattern does not
+// take off the end of a message. An empty footer skips the check.
+func (c Config) checkFooterRemoved() error {
+	if c.Post.Footer == "" {
+		return nil
+	}
+	const probe = "text"
+	got := NormalizePosted(probe+c.Post.Footer, c.FooterPattern.Regexp)
+	if got == probe {
+		return nil
+	}
+	return fmt.Errorf("footerPattern does not fully remove post.footer %q: NormalizePosted leaves %q; refusing to post", c.Post.Footer, strings.TrimPrefix(got, probe))
 }
 
 // Target resolves name through the targets map. An unknown name is used

@@ -341,10 +341,15 @@ into that thread.
    with the purpose and refs, and the decide item is closed with the
    permalink.
 
-The handoff comparison strips the ~footerPattern~ match, undoes Slack's
-~&amp;~, ~&lt;~, and ~&gt;~ escaping, and trims trailing whitespace on
-each line and at the end. Any other difference is a mismatch, markdown
-and link rewriting included. On a mismatch the watch is still registered
+The handoff comparison strips the footer. ~footerPattern~ finds where
+the footer starts, and everything from that match through the end of
+the message is dropped, plus one Slack marker (asterisk, underscore, or
+strikeout) immediately before the match and the whitespace before that
+marker. An inline footer " *Sent using* <@U1>" is dropped by
+~Sent using\*? <@U1~. Slack's ~&amp;~, ~&lt;~, and ~&gt;~ escaping is
+undone, and trailing whitespace on each line and at the end is trimmed.
+Any other difference is a mismatch, markdown and link rewriting
+included. On a mismatch the watch is still registered
 for the owner and flagged, the record becomes ~mismatch~, and the owner
 and ~fallbackTarget~ get both texts. slackwatch never edits or deletes
 the post.
@@ -402,8 +407,9 @@ Direct mode checks its identity before it posts:
 - A failed check disables posting until ~slackwatch pin~ runs again and
   alerts ~fallbackTarget~. Approved records wait in ~approved~ and post
   on the next poll (or ~outbox poke~) after the pin.
-- ~footerPattern~ must match ~post.footer~, so readers can tell an agent
-  post from a typed one and the footer rule keeps working. Otherwise
+- When ~post.footer~ is set, ~footerPattern~ must find the start of that
+  footer and remove it, so readers can tell an agent post from a typed
+  one. Normalizing ~text~ plus the footer must yield ~text~. Otherwise
   ~post~ refuses and ~serve~ does not start posting.
 
 | State | Meaning |
@@ -437,7 +443,7 @@ file means all defaults. An unknown key is an error.
 | ~notifyTimeout~ | ~"30s"~ | Time limit for each notify or liveness command. |
 | ~targets~ | none | Map of name to address. |
 | ~fallbackTarget~ | none | Target used when delivery fails. |
-| ~footerPattern~ | none | Optional regexp that marks a post as watched. |
+| ~footerPattern~ | none | Optional regexp that finds where a footer starts. The match through the end of the message is dropped, plus one marker (asterisk, underscore, or strikeout) and the whitespace before it. An inline footer " *Sent using* <@U1>" matches ~Sent using\*? <@U1~. |
 | ~notifySelf~ | ~false~ | Also notify for the token owner's own replies. |
 | ~sweepInterval~ | ~"6h"~ | Time between slow sweeps. |
 | ~quietExpiry~ | ~"336h"~ | A watch with no reply from others for this long closes. |
@@ -453,7 +459,7 @@ file means all defaults. An unknown key is an error.
 | ~post.expectUser~ | none | Slack user id every post must come from. |
 | ~post.decideOwner~ | ~"slackwatch"~ | Owner of the decide approval items. |
 | ~post.writeTokenFile~ | none | Direct mode: file holding only the write token. |
-| ~post.footer~ | none | Direct mode: text appended to every post. ~footerPattern~ must match it. |
+| ~post.footer~ | none | Direct mode: text appended to every post. When set, startup checks that normalizing "text" plus the footer yields "text". |
 | ~post.pinSalt~ | none | Direct mode: salt of the token pin. ~slackwatch pin~ sets it. |
 | ~post.tokenPin~ | none | Direct mode: pin of the write token. ~slackwatch pin~ sets it. |
 
