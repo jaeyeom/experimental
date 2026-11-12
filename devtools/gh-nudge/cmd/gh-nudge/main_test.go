@@ -14,11 +14,13 @@ import (
 )
 
 type recordingPoster struct {
-	calls int
+	calls    int
+	channels []string
 }
 
 func (r *recordingPoster) PostMessage(channel string, _ ...slackapi.MsgOption) (string, string, error) {
 	r.calls++
+	r.channels = append(r.channels, channel)
 	return channel, "123.456", nil
 }
 
@@ -109,7 +111,7 @@ func TestProcessReviewerSkipUsers(t *testing.T) {
 			}
 			reviewer := models.ReviewRequest{Type: "User", Login: tc.reviewer}
 
-			err := processReviewer(pr, reviewer, client, tracker, cfg)
+			err := processReviewer(pr, reviewer, nil, client, tracker, cfg)
 
 			switch {
 			case tc.wantErrSubstr == "" && err != nil:
@@ -273,7 +275,7 @@ func TestProcessReviewerRequestCycle(t *testing.T) {
 			}
 			request := models.ReviewRequest{Type: "User", Login: reviewer}
 
-			err := processReviewer(pr, request, client, tracker, cfg)
+			err := processReviewer(pr, request, nil, client, tracker, cfg)
 			if err != nil {
 				t.Fatalf("processReviewer() unexpected error: %v", err)
 			}
@@ -338,14 +340,14 @@ func TestProcessReviewerNewCyclePingThenRespectsThreshold(t *testing.T) {
 	}
 	request := models.ReviewRequest{Type: "User", Login: reviewer}
 
-	if err := processReviewer(pr, request, client, tracker, cfg); err != nil {
+	if err := processReviewer(pr, request, nil, client, tracker, cfg); err != nil {
 		t.Fatalf("first processReviewer() error = %v", err)
 	}
 	if poster.calls != 1 {
 		t.Fatalf("first run posted = %d, want 1", poster.calls)
 	}
 
-	if err := processReviewer(pr, request, client, tracker, cfg); err != nil {
+	if err := processReviewer(pr, request, nil, client, tracker, cfg); err != nil {
 		t.Fatalf("second processReviewer() error = %v", err)
 	}
 	if poster.calls != 1 {
@@ -362,6 +364,10 @@ type fakeLabelAges struct {
 	requested    map[string]time.Time
 	requestErr   error
 	requestCalls int
+
+	files       []models.File
+	filesErr    error
+	fileFetches []string
 }
 
 func (f *fakeLabelAges) LatestLabelAddedAt(_ string, labels []string) (map[string]time.Time, error) {
@@ -379,6 +385,105 @@ func (f *fakeLabelAges) EarliestReviewRequestedAt(string) (map[string]time.Time,
 		return nil, f.requestErr
 	}
 	return f.requested, nil
+}
+
+func (f *fakeLabelAges) PullRequestFiles(prURL string) ([]models.File, error) {
+	f.fileFetches = append(f.fileFetches, prURL)
+	if f.filesErr != nil {
+		return nil, f.filesErr
+	}
+	return f.files, nil
+}
+
+func TestProcessPullRequestFetchesFilesOnlyWhenNudgingToChannel(t *testing.T) {
+	const prURL = "https://github.com/org/repo/pull/7"
+	routing := []config.ChannelRoutingConfig{{Pattern: "^docs/", Channel: "#docs"}}
+	tests := []struct {
+		name          string
+		dmByDefault   bool
+		routing       []config.ChannelRoutingConfig
+		requireLabels []string
+		notified      bool
+		filesErr      error
+		wantFetches   int
+		wantChannels  []string
+	}{
+		{
+			name:         "channel nudge with routing fetches files and routes by them",
+			routing:      routing,
+			wantFetches:  1,
+			wantChannels: []string{"#docs"},
+		},
+		{
+			name:          "label filter skip fetches no files",
+			routing:       routing,
+			requireLabels: []string{"ready"},
+		},
+		{
+			name:         "direct message fetches no files",
+			dmByDefault:  true,
+			routing:      routing,
+			wantChannels: []string{"C12345"},
+		},
+		{
+			name:         "no routing fetches no files and uses the default channel",
+			wantChannels: []string{"#reviews"},
+		},
+		{
+			name:     "reviewer within threshold fetches no files",
+			routing:  routing,
+			notified: true,
+		},
+		{
+			name:        "files lookup failure skips the nudge",
+			routing:     routing,
+			filesErr:    errors.New("gh: boom"),
+			wantFetches: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			poster := &recordingPoster{}
+			client := slack.NewClient(slack.ClientConfig{
+				Token:              "test-token",
+				UserIDMapping:      slack.UserIDMapping{"alice": "U12345"},
+				DMChannelIDMapping: slack.DMChannelIDMapping{"alice": "C12345"},
+				MessagePoster:      poster,
+			})
+			client.SetDefaultChannel("#reviews")
+			client.SetChannelRouting(convertChannelRouting(tc.routing))
+			tracker := notification.NewTracker()
+			if tc.notified {
+				if err := tracker.RecordNotification(prURL, "alice"); err != nil {
+					t.Fatalf("RecordNotification() error = %v", err)
+				}
+			}
+			lookup := &fakeLabelAges{files: []models.File{{Path: "docs/guide.md"}}, filesErr: tc.filesErr}
+			cfg := &config.Config{
+				Settings: config.SettingsConfig{
+					ReminderThresholdHours: 24,
+					MessageTemplate:        "review {title}",
+					DMByDefault:            tc.dmByDefault,
+					RequireLabels:          tc.requireLabels,
+				},
+				Slack: config.SlackConfig{ChannelRouting: tc.routing},
+			}
+			pr := models.PullRequest{
+				Title:          "Docs PR",
+				URL:            prURL,
+				ReviewRequests: []models.ReviewRequest{{Type: "User", Login: "alice"}},
+			}
+
+			processPullRequest(pr, lookup, client, tracker, cfg)
+
+			if len(lookup.fileFetches) != tc.wantFetches {
+				t.Errorf("file fetches = %v, want %d", lookup.fileFetches, tc.wantFetches)
+			}
+			if strings.Join(poster.channels, ",") != strings.Join(tc.wantChannels, ",") {
+				t.Errorf("posted to %v, want %v", poster.channels, tc.wantChannels)
+			}
+		})
+	}
 }
 
 func TestProcessPullRequestRequireLabelAges(t *testing.T) {

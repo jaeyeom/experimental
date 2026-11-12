@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jaeyeom/experimental/devtools/gh-nudge/internal/models"
@@ -66,6 +67,11 @@ type Client struct {
 	// sleep and warn default to time.Sleep and slog.Warn when nil.
 	sleep func(time.Duration)
 	warn  func(msg string, args ...any)
+
+	// mu guards the per-run detail caches, keyed by pull request URL.
+	mu     sync.Mutex
+	checks map[string][]models.StatusCheck
+	files  map[string][]models.File
 }
 
 // NewClient creates a new GitHub client with the shared executor.
@@ -92,24 +98,36 @@ const pullRequestListLimit = 100
 // GetAuthoredPullRequests fetches open pull requests authored by the current user, including drafts.
 // A non-zero gh exit is retried once, and so is an exit 0 with empty stdout.
 // The pull request list is parsed from stdout only.
+// It requests gh-merge's list fields only. Status checks come from StatusChecks.
 func (c *Client) GetAuthoredPullRequests() ([]models.PullRequest, error) {
-	return c.fetchPullRequests(false)
+	return c.fetchPullRequests(mergeListFields, false)
 }
 
 // GetPendingPullRequests fetches open pull requests authored by the current user, excluding drafts.
 // A non-zero gh exit is retried once, and so is an exit 0 with empty stdout.
 // The pull request list is parsed from stdout only.
+// It requests gh-nudge's list fields only. Changed files come from PullRequestFiles.
 func (c *Client) GetPendingPullRequests() ([]models.PullRequest, error) {
-	return c.fetchPullRequests(true)
+	return c.fetchPullRequests(nudgeListFields, true)
 }
 
-func (c *Client) fetchPullRequests(skipDrafts bool) ([]models.PullRequest, error) {
+// The list fields are cheap scalars. files and statusCheckRollup cost
+// GraphQL time for every open pull request, so they are fetched per pull
+// request, and only for the ones a command acts on.
+const (
+	// mergeListFields are what gh-merge's list and merge filters and output read.
+	mergeListFields = "url,title,isDraft,labels,mergeable,headRefName,reviewRequests"
+	// nudgeListFields are what gh-nudge's filters and reviewer logic read.
+	nudgeListFields = "url,title,isDraft,labels,reviewRequests,latestReviews"
+)
+
+func (c *Client) fetchPullRequests(fields string, skipDrafts bool) ([]models.PullRequest, error) {
 	// `pr list --author @me` replaces `pr status`, which is capped at 10 PRs.
 	args := []string{
 		"pr", "list",
 		"--author", "@me",
 		"--limit", fmt.Sprintf("%d", pullRequestListLimit),
-		"--json", "url,title,reviewRequests,latestReviews,files,mergeable,headRefName,statusCheckRollup,isDraft,labels",
+		"--json", fields,
 	}
 	out, err := c.runGHJSON(args...)
 	if err != nil {
@@ -155,6 +173,59 @@ func (c *Client) MergeableState(prURL string) (string, error) {
 	return body.Mergeable, nil
 }
 
+// StatusChecks reads one pull request's statusCheckRollup from gh.
+// A successful result is cached on the client, so each pull request is
+// fetched at most once per run. Errors are not cached.
+func (c *Client) StatusChecks(prURL string) ([]models.StatusCheck, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if checks, ok := c.checks[prURL]; ok {
+		return checks, nil
+	}
+	var body struct {
+		StatusCheckRollup []models.StatusCheck `json:"statusCheckRollup"`
+	}
+	if err := c.viewPullRequest(prURL, "statusCheckRollup", &body); err != nil {
+		return nil, fmt.Errorf("failed to read status checks: %w", err)
+	}
+	if c.checks == nil {
+		c.checks = make(map[string][]models.StatusCheck)
+	}
+	c.checks[prURL] = body.StatusCheckRollup
+	return body.StatusCheckRollup, nil
+}
+
+// PullRequestFiles reads one pull request's changed files from gh.
+// A successful result is cached on the client, so each pull request is
+// fetched at most once per run. Errors are not cached.
+func (c *Client) PullRequestFiles(prURL string) ([]models.File, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if files, ok := c.files[prURL]; ok {
+		return files, nil
+	}
+	var body struct {
+		Files []models.File `json:"files"`
+	}
+	if err := c.viewPullRequest(prURL, "files", &body); err != nil {
+		return nil, fmt.Errorf("failed to read changed files: %w", err)
+	}
+	if c.files == nil {
+		c.files = make(map[string][]models.File)
+	}
+	c.files[prURL] = body.Files
+	return body.Files, nil
+}
+
+// viewPullRequest runs `gh pr view <url> --json <field>` and decodes stdout into v.
+func (c *Client) viewPullRequest(prURL, field string, v any) error {
+	out, err := c.runGHJSON("pr", "view", prURL, "--json", field)
+	if err != nil {
+		return err
+	}
+	return out.decode(v)
+}
+
 func (c *Client) executeSeparated(cmd string, args ...string) (string, string, error) {
 	type separated interface {
 		ExecuteSeparated(cmd string, args ...string) (string, string, error)
@@ -196,8 +267,9 @@ func withoutDrafts(prs []models.PullRequest) []models.PullRequest {
 }
 
 // GetMergeablePullRequests fetches pull requests with no review requests.
+// It requests gh-merge's list fields only. Status checks come from StatusChecks.
 func (c *Client) GetMergeablePullRequests() ([]models.PullRequest, error) {
-	prs, err := c.GetPendingPullRequests()
+	prs, err := c.fetchPullRequests(mergeListFields, true)
 	if err != nil {
 		return nil, err
 	}

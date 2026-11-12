@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -842,4 +845,195 @@ func (g *ghAttempts) ExecuteSeparated(string, ...string) (string, string, error)
 	call := g.calls[g.n]
 	g.n++
 	return call.stdout, call.stderr, call.err
+}
+
+// sweepExec answers gh pr list with the cheap list payload and
+// gh pr view --json statusCheckRollup from checks. It records every call.
+type sweepExec struct {
+	t      *testing.T
+	calls  [][]string
+	list   []models.PullRequest
+	checks map[string][]models.StatusCheck
+}
+
+func (s *sweepExec) Execute(cmd string, args ...string) (string, error) {
+	stdout, _, err := s.ExecuteSeparated(cmd, args...)
+	return stdout, err
+}
+
+func (s *sweepExec) ExecuteWithStdin(_ string, cmd string, args ...string) (string, error) {
+	return s.Execute(cmd, args...)
+}
+
+func (s *sweepExec) ExecuteSeparated(_ string, args ...string) (string, string, error) {
+	s.calls = append(s.calls, append([]string(nil), args...))
+	var body any
+	switch {
+	case len(args) >= 2 && args[0] == "pr" && args[1] == "list":
+		list := make([]models.PullRequest, len(s.list))
+		for i, pr := range s.list {
+			pr.StatusCheckRollup = nil
+			pr.Files = nil
+			list[i] = pr
+		}
+		body = list
+	case len(args) == 5 && args[0] == "pr" && args[1] == "view" && args[4] == "statusCheckRollup":
+		body = map[string][]models.StatusCheck{"statusCheckRollup": s.checks[args[2]]}
+	default:
+		return "", "", errors.New("unexpected gh call: " + strings.Join(args, " "))
+	}
+	out, err := json.Marshal(body)
+	if err != nil {
+		s.t.Fatalf("marshal fake gh output: %v", err)
+	}
+	return string(out), "", nil
+}
+
+func (s *sweepExec) callsWith(sub, field string) [][]string {
+	var got [][]string
+	for _, args := range s.calls {
+		if len(args) >= 2 && args[1] == sub && slices.Contains(args, field) {
+			got = append(got, args)
+		}
+	}
+	return got
+}
+
+// sweepFixture is 10 open pull requests. Only pull/1 and pull/2 are
+// non-draft, mergeable, and have no review requests.
+func sweepFixture() []models.PullRequest {
+	pass := []models.StatusCheck{{Name: "ci", Status: "COMPLETED", Conclusion: "SUCCESS"}}
+	fail := []models.StatusCheck{{Name: "ci", Status: "COMPLETED", Conclusion: "FAILURE"}}
+	review := []models.ReviewRequest{{Type: "User", Login: "alice"}}
+	prs := make([]models.PullRequest, 10)
+	for i := range prs {
+		n := i + 1
+		prs[i] = mergeFixture(fmt.Sprintf("PR %d", n), fmt.Sprintf("https://github.com/acme/widgets/pull/%d", n))
+		prs[i].StatusCheckRollup = pass
+		prs[i].Files = []models.File{{Path: fmt.Sprintf("f%d.go", n)}}
+	}
+	prs[1].StatusCheckRollup = fail
+	prs[2].IsDraft = true
+	prs[3].IsDraft = true
+	prs[4].ReviewRequests = review
+	prs[5].ReviewRequests = review
+	prs[6].Mergeable = "CONFLICTING"
+	prs[7].Mergeable = "CONFLICTING"
+	prs[8].IsDraft, prs[8].Mergeable = true, "CONFLICTING"
+	prs[9].ReviewRequests, prs[9].Mergeable = review, "CONFLICTING"
+	return prs
+}
+
+func newSweepExec(t *testing.T) *sweepExec {
+	t.Helper()
+	exec := &sweepExec{t: t, list: sweepFixture(), checks: map[string][]models.StatusCheck{}}
+	for _, pr := range exec.list {
+		exec.checks[pr.URL] = pr.StatusCheckRollup
+	}
+	return exec
+}
+
+func assertCheapSweep(t *testing.T, exec *sweepExec) {
+	t.Helper()
+	lists := exec.callsWith("list", "--json")
+	if len(lists) != 1 {
+		t.Fatalf("pr list calls = %d, want 1: %v", len(lists), exec.calls)
+	}
+	fields := strings.Split(lists[0][len(lists[0])-1], ",")
+	if slices.Contains(fields, "files") || slices.Contains(fields, "statusCheckRollup") {
+		t.Fatalf("pr list --json %v requests files or statusCheckRollup", fields)
+	}
+	var checked []string
+	for _, args := range exec.callsWith("view", "statusCheckRollup") {
+		checked = append(checked, args[2])
+	}
+	want := []string{"https://github.com/acme/widgets/pull/1", "https://github.com/acme/widgets/pull/2"}
+	if !slices.Equal(checked, want) {
+		t.Fatalf("status checks fetched for %v, want %v", checked, want)
+	}
+	for _, args := range exec.calls {
+		if slices.Contains(args, "files") {
+			t.Fatalf("files fetched: %v", args)
+		}
+	}
+	if len(exec.calls) != 3 {
+		t.Fatalf("gh calls = %d, want 3: %v", len(exec.calls), exec.calls)
+	}
+}
+
+func TestListSweepFetchesChecksOnlyForCandidates(t *testing.T) {
+	cfg := &config.Config{Settings: config.SettingsConfig{RequiredChecks: []string{"ci"}}}
+	exec := newSweepExec(t)
+	client := github.NewClientWithExecutor(exec)
+	got := captureStdout(t, func() {
+		if err := listFetchedPullRequests(client, cfg, func(time.Duration) {}); err != nil {
+			t.Fatalf("listFetchedPullRequests() error = %v", err)
+		}
+	})
+	assertCheapSweep(t, exec)
+
+	// The old single-call path had checks on every listed pull request.
+	old := &refreshScript{prs: sweepFixture()}
+	want := captureStdout(t, func() {
+		if err := listFetchedPullRequests(old, cfg, old.sleep); err != nil {
+			t.Fatalf("old listFetchedPullRequests() error = %v", err)
+		}
+	})
+	if got != want {
+		t.Fatalf("list output changed:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(got, "CI: PASS") || !strings.Contains(got, "CI: FAIL") {
+		t.Fatalf("list output lacks CI status:\n%s", got)
+	}
+}
+
+func TestMergeSweepFetchesChecksOnlyForCandidates(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	cfg := &config.Config{}
+	exec := newSweepExec(t)
+	client := github.NewClientWithExecutor(exec)
+	got := captureStdout(t, func() {
+		if err := mergePRs(client, cfg); err != nil {
+			t.Fatalf("mergePRs() error = %v", err)
+		}
+	})
+	assertCheapSweep(t, exec)
+
+	// The old single-call path returned the filtered pull requests with checks.
+	var candidates []models.PullRequest
+	for _, pr := range sweepFixture() {
+		if listReady(&pr) {
+			candidates = append(candidates, pr)
+		}
+	}
+	want := captureStdout(t, func() {
+		if err := mergePRs(&fakeMergeClient{prs: candidates}, cfg); err != nil {
+			t.Fatalf("old mergePRs() error = %v", err)
+		}
+	})
+	if got != want {
+		t.Fatalf("merge output changed:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(got, "Skipping: CI checks failed") {
+		t.Fatalf("merge did not see the failing check:\n%s", got)
+	}
+}
+
+func TestMergeStatusCheckErrorFailsCommand(t *testing.T) {
+	withMergeFlags(t, true, false, false)
+	client := github.NewClientWithExecutor(&failingChecks{newSweepExec(t)})
+	err := mergePRs(client, &config.Config{})
+	if err == nil || !strings.Contains(err.Error(), "status checks") {
+		t.Fatalf("mergePRs() error = %v, want status checks error", err)
+	}
+}
+
+// failingChecks fails every status check read.
+type failingChecks struct{ *sweepExec }
+
+func (f *failingChecks) ExecuteSeparated(cmd string, args ...string) (string, string, error) {
+	if slices.Contains(args, "statusCheckRollup") {
+		return "", "gh: boom", errors.New("exit status 1")
+	}
+	return f.sweepExec.ExecuteSeparated(cmd, args...)
 }

@@ -97,10 +97,23 @@ func initializeNotificationTracker(notificationPath string) (*notification.Track
 	return notificationTracker, nil
 }
 
+// pullRequestFiles reads one pull request's changed files.
+type pullRequestFiles interface {
+	PullRequestFiles(prURL string) ([]models.File, error)
+}
+
+// needsFiles reports whether a nudge reads the changed files. Only the
+// channel destination does, and only when channel routing is configured.
+func needsFiles(cfg *config.Config) bool {
+	return !cfg.Settings.DMByDefault && len(cfg.Slack.ChannelRouting) > 0
+}
+
 // processReviewer handles the notification logic for a single reviewer.
+// files is used only when the nudge is sent and needsFiles is true.
 func processReviewer(
 	pr models.PullRequest,
 	reviewer models.ReviewRequest,
+	files pullRequestFiles,
 	slackClient *slack.Client,
 	notificationTracker *notification.Tracker,
 	cfg *config.Config,
@@ -140,6 +153,14 @@ func processReviewer(
 		return nil
 	}
 
+	if needsFiles(cfg) {
+		changed, err := files.PullRequestFiles(pr.URL)
+		if err != nil {
+			return fmt.Errorf("failed to fetch changed files: %w", err)
+		}
+		pr.Files = changed
+	}
+
 	// Use the NudgeReviewer method to send or simulate sending a notification
 	destination, message, err := slackClient.NudgeReviewer(
 		pr,
@@ -173,6 +194,7 @@ func processReviewer(
 type pullRequestLookup interface {
 	LatestLabelAddedAt(prURL string, labels []string) (map[string]time.Time, error)
 	EarliestReviewRequestedAt(prURL string) (map[string]time.Time, error)
+	pullRequestFiles
 }
 
 // processPullRequest handles the notification logic for a single pull request.
@@ -216,7 +238,7 @@ func processPullRequest(
 			continue
 		}
 
-		err := processReviewer(pr, reviewer, slackClient, notificationTracker, cfg)
+		err := processReviewer(pr, reviewer, lookup, slackClient, notificationTracker, cfg)
 		if err != nil {
 			slog.Error("Error processing reviewer", "reviewer", reviewer.Login, "error", err)
 		}
