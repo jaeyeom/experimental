@@ -7,7 +7,7 @@
 package tui
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -184,6 +184,12 @@ type Model struct {
 	OpenCommand []string
 	// NoHyperlinks drops the OSC 8 hyperlinks around URLs.
 	NoHyperlinks bool
+	// backend replaces the local ledger in Dir, such as a hub's.
+	// asyncReload reloads it off the update loop. hubDown marks a
+	// reload that found the hub unreachable.
+	backend     Backend
+	asyncReload bool
+	hubDown     bool
 }
 
 // New returns an inbox positioned on the open folder.
@@ -202,15 +208,32 @@ func New(dir string) *Model {
 // Reload reads the current folder from disk. The cursor stays on the same id
 // when that id is still present.
 func (m *Model) Reload() error {
+	all, err := m.store().List()
+	if err != nil {
+		return m.reloadFailed(err)
+	}
+	return m.applyList(all)
+}
+
+// reloadFailed keeps the view when the hub is unreachable and says so.
+// Any other error ends the inbox.
+func (m *Model) reloadFailed(err error) error {
+	if errors.Is(err, ErrUnreachable) {
+		m.hubDown = true
+		m.status = unreachableStatus
+		return nil
+	}
+	return err
+}
+
+// applyList shows a fresh ledger read: the open item, the folder
+// counts, and the current folder.
+func (m *Model) applyList(all []decide.Item) error {
+	if m.hubDown {
+		m.hubDown = false
+		m.status = "hub reconnected"
+	}
 	keep := m.cursorID()
-	led, err := m.ledger()
-	if err != nil {
-		return err
-	}
-	all, err := led.List()
-	if err != nil {
-		return fmt.Errorf("list decide ledger: %w", err)
-	}
 	m.refreshDetail(all)
 	m.counts = make([]int, len(Folders))
 	for _, it := range all {
@@ -467,21 +490,12 @@ func (m *Model) showStatus() error {
 }
 
 func (m *Model) loadStatus() error {
-	board, err := decide.OpenStatus(m.Dir)
+	board, err := m.store().Status()
 	if err != nil {
-		return fmt.Errorf("open decide status: %w", err)
+		return err //nolint:wrapcheck // each backend names what failed
 	}
-	agents, err := board.Agents()
-	if err != nil {
-		return fmt.Errorf("read decide status: %w", err)
-	}
-	resources, err := board.Resources()
-	if err != nil {
-		return fmt.Errorf("read decide status: %w", err)
-	}
-	resources = decide.ResourceView(context.Background(), resources, m.Checkouts, m.busRunner(), m.Now())
-	m.statusTotal = len(agents) + len(resources)
-	m.agents, m.resources = filterStatus(agents, resources, m.filter)
+	m.statusTotal = len(board.Agents) + len(board.Resources)
+	m.agents, m.resources = filterStatus(board.Agents, board.Resources, m.filter)
 	m.clampAgentCursor()
 	return nil
 }
@@ -880,13 +894,9 @@ func (m *Model) openRow() error {
 		return nil
 	}
 	id := m.items[m.cursor].ID
-	led, err := m.ledger()
+	updated, err := m.store().MarkRead(id)
 	if err != nil {
-		return err
-	}
-	updated, err := led.MarkRead(id)
-	if err != nil {
-		return fmt.Errorf("mark decide item read: %w", err)
+		return m.writeFailed(err)
 	}
 	m.detail = &updated
 	m.locateWant = true
@@ -920,11 +930,7 @@ func (m *Model) archiveSelected() error {
 		m.status = "needs an answer"
 		return nil
 	}
-	led, err := m.ledger()
-	if err != nil {
-		return err
-	}
-	if _, err := led.Done(it.ID, "archived"); err != nil {
+	if _, err := m.store().Done(it.ID, "archived"); err != nil {
 		m.status = err.Error()
 		return nil
 	}
@@ -972,21 +978,17 @@ func (m *Model) writeAnswer(value string) error {
 	if m.detail == nil {
 		return nil
 	}
-	led, err := m.ledger()
-	if err != nil {
-		return err
-	}
 	id := m.detail.ID
-	updated, err := led.Answer(id, value, decide.ViaUI)
-	if err != nil {
+	_, err := m.store().Answer(id, value)
+	var notifyErr *NotifyError
+	switch {
+	case errors.As(err, &notifyErr):
+		m.status = err.Error()
+	case err != nil:
 		m.status = err.Error()
 		return nil
-	}
-	m.status = "answered " + id
-	if updated.Kind == decide.KindRelay {
-		if err := decide.Notify(&updated, io.Discard); err != nil {
-			m.status = err.Error()
-		}
+	default:
+		m.status = "answered " + id
 	}
 	m.backToList()
 	return m.Reload()
@@ -1002,18 +1004,15 @@ func (m *Model) submitReply() error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	led, err := m.ledger()
-	if err != nil {
-		return err
-	}
-	updated, err := led.Compose(m.detail.ID, text, decide.ViaUI)
-	if err != nil {
+	updated, err := m.store().Reply(m.detail.ID, text)
+	var notifyErr *NotifyError
+	switch {
+	case errors.As(err, &notifyErr):
+		m.status = err.Error()
+	case err != nil:
 		m.status = err.Error()
 		return nil
-	}
-	if err := m.notifyThread(&updated, text); err != nil {
-		m.status = err.Error()
-	} else {
+	default:
 		m.status = "replied " + updated.ID
 	}
 	m.detail = &updated
@@ -1024,47 +1023,12 @@ func (m *Model) submitReply() error {
 	return m.Reload()
 }
 
-// notifyThread runs the compose command so the owner pane sees the
-// thread header, the original text, and the reply hint. A pane on
-// another machine is reached through `--machine`.
-func (m *Model) notifyThread(item *decide.Item, text string) error {
-	cfg, err := decide.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("load decide config: %w", err)
-	}
-	pane, machine := decide.NotifyTarget(item, cfg)
-	if strings.TrimSpace(pane) == "" {
-		return fmt.Errorf("decide compose pane is empty")
-	}
-	if name, ok := strings.CutPrefix(pane, busPanePrefix); ok {
-		_, err := m.busSend(name, decide.DeliveryNote(item.ID, "human", text))
-		return err
-	}
-	template := m.SendTemplate
-	if strings.TrimSpace(template) == "" {
-		template = cfg.SendTemplate
-	}
-	argv := decide.MachineArgv(decide.SendArgv(template, pane, decide.DeliveryNote(item.ID, "human", text)), machine)
-	send := m.runSend
-	if send == nil {
-		send = decide.RunSend
-	}
-	if err := send(argv); err != nil {
-		return fmt.Errorf("decide send: %w", err)
-	}
-	return nil
-}
-
 func (m *Model) submitOutcome() error {
 	if m.detail == nil {
 		return nil
 	}
-	led, err := m.ledger()
-	if err != nil {
-		return err
-	}
 	id := m.detail.ID
-	if _, err := led.Done(id, m.draft); err != nil {
+	if _, err := m.store().Done(id, m.draft); err != nil {
 		m.status = err.Error()
 		return nil
 	}
@@ -1073,13 +1037,31 @@ func (m *Model) submitOutcome() error {
 	return m.Reload()
 }
 
-func (m *Model) ledger() (*decide.Ledger, error) {
-	led, err := decide.Open(m.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("open decide ledger: %w", err)
+// store is the backend the inbox reads and writes: the one Run was
+// given, or the local ledger in Dir.
+func (m *Model) store() Backend {
+	if m.backend != nil {
+		return m.backend
 	}
-	led.SetClock(m.Now)
-	return led, nil
+	return &LocalBackend{
+		Dir:          m.Dir,
+		Now:          m.Now,
+		SendTemplate: m.SendTemplate,
+		RunSend:      m.runSend,
+		BusRun:       m.busRun,
+		Checkouts:    m.Checkouts,
+		Machine:      m.Machine,
+	}
+}
+
+// writeFailed shows a write the hub could not take on the status line.
+// Any other error ends the inbox.
+func (m *Model) writeFailed(err error) error {
+	if errors.Is(err, ErrUnreachable) {
+		m.status = err.Error()
+		return nil
+	}
+	return err
 }
 
 func (m *Model) backToList() {

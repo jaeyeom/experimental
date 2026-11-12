@@ -32,16 +32,18 @@ const asHandleEnv = "DECIDE_AS_HANDLE"
 // identifyTimeout bounds the local herdr call that names this pane.
 const identifyTimeout = 5 * time.Second
 
-// hubSettings is the hub and this machine's herdr label on it.
+// hubSettings is the hub, this machine's herdr label on it, and the
+// hub's herdr label on this machine.
 type hubSettings struct {
-	hub     hubcall.Hub
-	machine string
+	hub        hubcall.Hub
+	machine    string
+	hubMachine string
 }
 
-// hubConfig returns the hub from DECIDE_HUB or the config, and the
-// machine from DECIDE_MACHINE or the config. An empty hub Target means
-// hub mode is off.
-func hubConfig() (hubSettings, error) {
+// hubConfig returns the hub from remote, DECIDE_HUB, or the config, in
+// that order, and the machine from DECIDE_MACHINE or the config. An
+// empty hub Target means hub mode is off.
+func hubConfig(remote string) (hubSettings, error) {
 	cfg, err := decide.LoadConfig()
 	if err != nil {
 		return hubSettings{}, fmt.Errorf("decide hub: %w", err)
@@ -49,6 +51,9 @@ func hubConfig() (hubSettings, error) {
 	hub := hubcall.Hub{Target: strings.TrimSpace(cfg.Hub), Tool: "decide"}
 	if env := strings.TrimSpace(os.Getenv("DECIDE_HUB")); env != "" {
 		hub.Target = env
+	}
+	if remote = strings.TrimSpace(remote); remote != "" {
+		hub.Target = remote
 	}
 	if strings.HasPrefix(hub.Target, "-") {
 		return hubSettings{}, fmt.Errorf("decide hub %q must not start with -", hub.Target)
@@ -60,16 +65,37 @@ func hubConfig() (hubSettings, error) {
 		}
 		hub.ConnectTimeout = d
 	}
-	return hubSettings{hub: hub, machine: decide.LocalMachine(cfg)}, nil
+	return hubSettings{hub: hub, machine: decide.LocalMachine(cfg), hubMachine: strings.TrimSpace(cfg.HubMachine)}, nil
+}
+
+// remoteFlag takes a leading `--remote <target>` or `--remote=<target>`
+// off args. It names the hub for this one invocation.
+func remoteFlag(args []string) ([]string, string, error) {
+	if len(args) == 0 {
+		return args, "", nil
+	}
+	if target, ok := strings.CutPrefix(args[0], "--remote="); ok {
+		if strings.TrimSpace(target) == "" {
+			return nil, "", fmt.Errorf("decide --remote needs an ssh target")
+		}
+		return args[1:], target, nil
+	}
+	if args[0] != "--remote" {
+		return args, "", nil
+	}
+	if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+		return nil, "", fmt.Errorf("decide --remote needs an ssh target")
+	}
+	return args[2:], args[1], nil
 }
 
 // maybeRunOnHub runs args on the hub when hub mode is on and reports
 // whether it did.
-func maybeRunOnHub(args []string, stdout, stderr io.Writer) (int, bool) {
+func maybeRunOnHub(args []string, remote string, stdout, stderr io.Writer) (int, bool) {
 	if len(args) == 0 || localCommands[args[0]] {
 		return 0, false
 	}
-	settings, err := hubConfig()
+	settings, err := hubConfig(remote)
 	if err != nil {
 		return fail(stderr, err, 1), true
 	}
@@ -82,11 +108,11 @@ func maybeRunOnHub(args []string, stdout, stderr io.Writer) (int, bool) {
 // runOnHub runs one decide command on the hub's ledger over ssh. It
 // never reads or creates the local ledger. An ask from a herdr pane
 // carries that pane's handle, so the hub notifies it on this machine.
+// The inbox runs here against the hub.
 func runOnHub(settings hubSettings, args []string, stdout, stderr io.Writer) int {
 	hub := settings.hub
 	if args[0] == "inbox" {
-		fmt.Fprintf(stderr, "decide inbox: the ledger is on the hub %s; run decide inbox there\n", hub.Target)
-		return 1
+		return cmdHubInbox(settings, args[1:], stdout, stderr)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGINT, unix.SIGTERM)
 	defer stop()

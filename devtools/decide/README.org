@@ -368,6 +368,13 @@ normal buffer to reply with free text. ~C-c C-c~ sends that buffer and
 The status buffer refreshes every two seconds while it is visible, and
 the timer stops when the buffer is killed.
 
+decide.el runs one ~decide~ command per action, so it works in hub mode
+unchanged: with ~hub~ in the config or ~DECIDE_HUB~ set (for example
+~(setenv "DECIDE_HUB" "me@hub")~), each call runs on the hub over ssh and
+links open in this Emacs. For one hub only in Emacs, set
+~decide-program~ to a wrapper script that runs
+~exec decide --remote me@hub "$@"~.
+
 * Where an answer came from
 
 Each stored answer has ~via~, shown as ~answer.via~ in
@@ -464,12 +471,60 @@ puts ~--machine <machine>~ after the send template's program, with a
 does. The notify template reads the machine from ~DECIDE_MACHINE~; see
 [[*Notify]].
 
-Then every command except ~help~ and ~skill~ runs as
-~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> decide <args>~, with
-each argument quoted. ~hubTimeout~ is the connect timeout (default 5s).
+Then every command except ~help~, ~skill~, ~avatars~, and ~inbox~ runs
+as ~ssh -o BatchMode=yes -o ConnectTimeout=<n> <hub> decide <args>~,
+with each argument quoted. ~hubTimeout~ is the connect timeout (default 5s).
 stdout, stderr, and the exit code come back unchanged, and the local
-ledger is never read or created. ~decide inbox~ refuses; run it on the
-hub.
+ledger is never read or created.
+
+~decide --remote <user@host> <command>~ names the hub for one
+invocation; it wins over ~DECIDE_HUB~ and the config.
+
+** The inbox in hub mode
+
+~decide inbox~ runs the TUI on this machine against the hub's ledger,
+so links open here with the normal opener (~openCommand~, or ~open~ on
+macOS and ~xdg-open~ on Linux). No flag is needed. The inbox keeps one
+ssh session to the hub, with the same target, options, and deadline as
+the CLI, running the hidden ~decide serve --stdio~. That server reads one
+JSON request per line, such as ~{"id":3,"op":"answer","item":"D-1","text":"a"}~,
+and writes one response per line with the same ~id~. It covers every
+call the inbox makes: list, show, mark read, answer (recorded with
+~via: ui~), reply, done, archive, withdraw, snooze and unsnooze, the
+status board, targets and agentbus names, send, and the owner location.
+Ledger writes, notify commands, compose sends, and the status board's
+checkout leases all run on the hub with the hub's config, as with the
+CLI. The local ledger is never read or created. A hub whose ~decide~
+is older than this fails at start and asks to update it.
+
+The inbox lists the hub once a second, off the update loop, so the view
+keeps the last good data while a request is in flight. When the hub
+stops answering:
+
+- The status line says ~hub unreachable; retrying~ and the view stays.
+- The inbox reconnects with a backoff that doubles from one second up
+  to 30 seconds. ~hub reconnected~ shows when it is back.
+- A write while disconnected fails at once with
+  ~hub me@hub unreachable; answer not sent~. Nothing is queued. A write
+  cut off by the drop says ~... not confirmed~; look at the item after
+  the reconnect.
+- A hub that cannot be reached at start fails as the CLI does.
+
+The jump to the owner ([[*Jump to the owner]]) runs herdr here. A pane
+the hub stored without a machine is on the hub, so the jump adds
+~--machine <hubMachine>~, where ~hubMachine~ in this machine's config is
+the hub's label in this machine's herdr:
+
+#+begin_src json
+{"hub": "me@hub", "machine": "laptop", "hubMachine": "hub"}
+#+end_src
+
+A pane on this machine (~notifyMachine~ equal to ~machine~) needs no
+~--machine~, and a pane on a third machine uses that machine's label.
+Without ~hubMachine~ the jump says
+~owner is on the hub me@hub; set "hubMachine" in the decide config ...~.
+When herdr does not know the machine, it says
+~owner is on hub; not focusable from here (is hub saved in herdr?)~.
 
 The hub needs an SSH key the agent holds, because ~BatchMode=yes~ never
 asks for a passphrase; ~decide~ on its ~PATH~ for a non-interactive ssh

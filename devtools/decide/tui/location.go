@@ -19,7 +19,7 @@ func (m *Model) ownerLocation(it *decide.Item) decide.OwnerLocation {
 	if loc, ok := m.locations[it.ID]; ok {
 		return loc
 	}
-	return decide.OwnerPane(it, m.Machine)
+	return m.store().OwnerPane(it)
 }
 
 // locateCmd looks up the open item's owner in herdr off the update
@@ -32,14 +32,14 @@ func (m *Model) locateCmd() tea.Cmd {
 	if m.detail == nil {
 		return nil
 	}
-	pending := decide.OwnerPane(m.detail, m.Machine)
+	pending := m.store().OwnerPane(m.detail)
 	if pending.Pane == "" {
 		return nil
 	}
-	id := m.detail.ID
+	item := *m.detail
+	store := m.store()
 	return func() tea.Msg {
-		locs := decide.LocationResolver{}.Resolve(context.Background(), []decide.OwnerLocation{pending})
-		return locationMsg{id: id, loc: locs[0]}
+		return locationMsg{id: item.ID, loc: store.Locate(context.Background(), &item)}
 	}
 }
 
@@ -61,7 +61,7 @@ func (m *Model) jumpToOwner() {
 	}
 	loc, ok := m.locations[m.detail.ID]
 	if !ok {
-		loc = decide.OwnerPane(m.detail, m.Machine)
+		loc = m.store().OwnerPane(m.detail)
 		if loc.Pane != "" {
 			m.status = "owner location still loading"
 			return
@@ -77,7 +77,8 @@ func (m *Model) focusCmd() tea.Cmd {
 	}
 	loc := *m.focusWant
 	m.focusWant = nil
+	store := m.store()
 	return func() tea.Msg {
-		return focusMsg(decide.LocationResolver{}.Focus(context.Background(), loc))
+		return focusMsg(store.Focus(context.Background(), loc))
 	}
 }

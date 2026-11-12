@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "avatars.go",
+        "backend.go",
         "compose.go",
         "ctrlenter.go",
         "editor.go",
@@ -55,6 +56,7 @@ go_test(
     size = "small",
     srcs = [
         "avatarview_test.go",
+        "backend_test.go",
         "chord_test.go",
         "color_test.go",
         "ctrlenter_test.go",

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jaeyeom/experimental/devtools/decide"
 )
 
 type reloadMsg struct{}
@@ -102,6 +103,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMouse(msg)
 	case reloadMsg:
 		return m.updateReload()
+	case listMsg:
+		return m.finishList(msg)
 	default:
 		m.updateResult(msg)
 		return m, nil
@@ -265,11 +268,49 @@ func (m *Model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// listMsg is a ledger read made off the update loop.
+type listMsg struct {
+	all []decide.Item
+	err error
+}
+
+// updateReload reloads the ledger. A backend that may be slow, such as
+// a hub's, is read off the update loop: the view keeps the last good
+// data until the read returns, and the next tick waits for it.
 func (m *Model) updateReload() (tea.Model, tea.Cmd) {
+	if m.asyncReload {
+		store := m.store()
+		return m, func() tea.Msg {
+			all, err := store.List()
+			return listMsg{all: all, err: err}
+		}
+	}
 	if err := m.Reload(); err != nil {
 		m.runErr = err
 		return m, tea.Quit
 	}
+	return m.reloaded()
+}
+
+func (m *Model) finishList(msg listMsg) (tea.Model, tea.Cmd) {
+	err := msg.err
+	if err == nil {
+		err = m.applyList(msg.all)
+	} else {
+		err = m.reloadFailed(err)
+	}
+	if err != nil {
+		m.runErr = err
+		return m, tea.Quit
+	}
+	if msg.err != nil {
+		return m, m.scheduleReload()
+	}
+	return m.reloaded()
+}
+
+// reloaded refreshes an open status view and schedules the next reload.
+func (m *Model) reloaded() (tea.Model, tea.Cmd) {
 	if m.mode == modeStatus {
 		if err := m.loadStatus(); err != nil {
 			m.status = err.Error()

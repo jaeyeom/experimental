@@ -52,6 +52,10 @@ type Config struct {
 	// mode sends it with the caller's pane so the hub notifies that pane
 	// through `herdr --machine`. DECIDE_MACHINE overrides it.
 	Machine string `json:"machine,omitempty"`
+	// HubMachine is the hub's herdr machine label on this machine. A
+	// hub-mode inbox jumps to an owner pane on the hub through
+	// `herdr --machine <hubMachine>`.
+	HubMachine string `json:"hubMachine,omitempty"`
 	// Avatars maps owner, target, or bus names to avatar files.
 	Avatars []AvatarRule `json:"avatars,omitempty"`
 	// AvatarDefault shows a built-in avatar, picked by name, for unmatched names.
